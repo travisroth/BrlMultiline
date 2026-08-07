@@ -1,7 +1,9 @@
 # BrlMultiline
 
 * Author: Travis Roth
-* NVDA compatibility: 2026.1 and later
+* NVDA compatibility: 2026.3 and later. 2026.3 is not yet released, so for now this means
+  an NVDA alpha snapshot. The add-on uses NVDA's `braille` package, which replaced the old
+  single `braille.py` module after 2026.2 branched.
 * Download: development version
 
 BrlMultiline divides a braille display into several independent segments. Each

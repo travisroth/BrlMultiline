@@ -105,7 +105,7 @@ lines around the caret on a multi row display.
 
 The 2023 implementation copied the entire body of `TextInfoRegion.update()` into the
 add-on in order to splice in a `wx.CallLater(500)` delay waiting for `textInfo.move` to
-settle. That copy will not even import against NVDA 2026.1 — the method now maintains
+settle. That copy will not even import against NVDA 2026.3 — the method now maintains
 `_languageIndexes`, calls `_getDefaultRegionLanguage`, and imports braille input from
 `braille.input` rather than `brailleInput`.
 

@@ -38,11 +38,14 @@ two working areas."""),
 	# Documentation file name
 	addon_docFileName="readme.html",
 	# Minimum NVDA version supported (e.g. "2019.3.0", minor version is optional)
-	# 2026.1 is required: the braille package refactor (braille.buffers, braille.regions)
-	# and multi row display support (DisplayDimensions, numRows/numCols) are relied upon throughout.
-	addon_minimumNVDAVersion="2026.1.0",
+	# 2026.3 is required for the braille package refactor (braille.buffers, braille.regions),
+	# which split source/braille.py into a package in commit 54ccd097f on 2026-06-22.
+	# That is after both the 2026.1 release and the 2026.2 branch point, so the package
+	# first ships in 2026.3 and is currently only available in alpha snapshots.
+	# Multi row display support (DisplayDimensions, numRows/numCols) is older, from 2026.1.
+	addon_minimumNVDAVersion="2026.3.0",
 	# Last NVDA version supported/tested (e.g. "2024.4.0", ideally more recent than minimum version)
-	addon_lastTestedNVDAVersion="2026.1.0",
+	addon_lastTestedNVDAVersion="2026.3.0",
 	# Add-on update channel (default is None, denoting stable releases,
 	# and for development releases, use "dev".)
 	# Do not change unless you know what you are doing!

@@ -9,7 +9,7 @@ Read the files in this order:
 1. [port-plan.md](port-plan.md) — what is being built, in what order, and what is done so far.
    Start here.
 2. [nvda-api-notes.md](nvda-api-notes.md) — how NVDA's braille subsystem works as of
-   NVDA 2026.1, and specifically the things that are easy to get wrong. This is the
+   NVDA 2026.3, and specifically the things that are easy to get wrong. This is the
    reference that keeps the add-on honest against a moving upstream.
 3. [architecture.md](architecture.md) — the design of the add-on itself: segments, the
    container, the compositor, and why they are shaped the way they are.

@@ -1,7 +1,9 @@
-# NVDA braille API notes (NVDA 2026.1)
+# NVDA braille API notes (NVDA 2026.3)
 
-Findings from reading NVDA master (`C:\code\nvda`, `source/braille/`). These are the
-facts the add-on depends on. When NVDA is updated, re-check the items marked FRAGILE.
+Findings from reading NVDA master (`C:\code\nvda`, `source/braille/`), which reports itself
+as 2026.3.0dev. These are the facts the add-on depends on. When NVDA is updated, re-check
+the items marked FRAGILE. None of this applies to 2026.1 or 2026.2, which still have the
+single `source/braille.py` module.
 
 ## The braille package layout
 

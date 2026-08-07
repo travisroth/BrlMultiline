@@ -2,9 +2,14 @@
 
 Living document. Update the status markers as work lands.
 
-Target: NVDA 2026.1 or later. 2026.1 is required both for the braille package refactor and
-because NVDA moved to a 64 bit architecture at that release; nothing in this add-on is
-architecture sensitive, but the API floor is set there regardless.
+Target: NVDA 2026.3 or later. The floor is set by the braille package refactor, which split
+`source/braille.py` into `source/braille/` in commit 54ccd097f on 2026-06-22. That is after
+the 2026.1 release (2026-05-06) and after the 2026.2 beta branch was cut, so neither of
+those releases has the package: the add-on's imports fail outright on both. 2026.3 has no
+beta yet, so development and testing run against NVDA alpha snapshots for now.
+
+Multi row display support (`DisplayDimensions`, `numRows`/`numCols`) is older and shipped in
+2026.1, so it does not affect the floor.
 
 ## Status at a glance
 
@@ -28,7 +33,7 @@ Fill in `buildVars.py`, create the add-on package, get a build producing an inst
 Done:
 
 - `buildVars.py` — name `BrlMultiline`, version 0.1.0, `pythonSources` pointing at
-  `addon/globalPlugins/brlMultiline/*.py`, minimum and last-tested NVDA 2026.1.0,
+  `addon/globalPlugins/brlMultiline/*.py`, minimum and last-tested NVDA 2026.3.0,
   GPL 2, dev update channel. `excludedFiles` keeps `__pycache__` out of the build, since
   the unit tests import add-on modules directly and leave bytecode behind.
 - `addon/globalPlugins/brlMultiline/` package created.
@@ -89,7 +94,7 @@ Built:
 - `BrailleBufferContainer` — compositor based cell assembly, cursor mapping, region
   dispatch by `targetSegment`, position dispatch by row and column, per-segment scrolling.
 - `FakeRegionsList` — complete sequence proxy onto the focus segment's regions.
-- `_doNewObject` replacement, re-derived from NVDA 2026.1 source.
+- `_doNewObject` replacement, re-derived from NVDA 2026.3 source.
 - Install and uninstall symmetric, driven from the global plugin's `terminate`.
 
 All eight defects catalogued in [legacy-inventory.md](legacy-inventory.md) are fixed or
