@@ -1,206 +1,130 @@
-# NVDA Add-on Scons Template
+# BrlMultiline
 
-This package contains a basic template structure for NVDA add-on development, building, distribution and localization.
-For details about NVDA add-on development, please see the [NVDA Add-on Development Guide](https://github.com/nvdaaddons/DevGuide/wiki/NVDA-Add-on-Development-Guide).
-The NVDA add-on development/discussion list [is here](https://nvda-addons.groups.io/g/nvda-addons)
-Information specific to NV Access add-on store [can be found here](https://github.com/nvaccess/addon-datastore).
+* Author: Travis Roth
+* NVDA compatibility: 2026.1 and later
+* Download: development version
 
-Copyright (C) 2012-2025 NVDA Add-on team contributors.
+BrlMultiline divides a braille display into several independent segments. Each
+segment holds its own content and scrolls on its own.
 
-This package is distributed under the terms of the GNU General Public License, version 2 or later. Please see the file COPYING.txt for further details.
+NVDA was designed around single line displays: one thing is shown at a time, following
+the focus. NVDA 2026.1 can flow that one thing across the rows of a multi line display,
+but it is still one thing. This add-on lets different parts of the display show different
+things at once.
 
-[alekssamos](https://github.com/alekssamos/) added automatic package of add-ons through Github Actions.
+It is useful in two situations:
 
-For details about Github Actions, see the [Workflow syntax for GitHub Actions](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions).
+1. On a multi line display such as the Humanware Monarch, where the extra rows can show
+   the lines around the caret, or hold an object you want to keep an eye on.
+2. On a large single line display such as a Focus 80, where 80 cells is enough to be
+   worth splitting into two 40 cell working areas.
 
-Copyright (C) 2022 alekssamos
+This is development software. It patches parts of NVDA's braille handling, and has not
+yet been through a full round of hardware testing.
 
-## Features
+## Getting started
 
-This template provides the following features you can use during NVDA add-on development and packaging:
+Everything is configured per display, under NVDA menu, Preferences, Settings, Braille
+Multiline. Connect the display you want to configure first: the panel shows which display
+its settings apply to, and a different display keeps its own.
 
-* Automatic add-on package creation, with naming and version loaded from a centralized build variables file (buildVars.py) or command-line interface.
-	* See packaging section for details on using command-line switches when packaging add-ons with custom version information.
-	* This process will happen automatically when receiving a pull request, and there is also the possibility of manual launch.
-	* To let the workflow run automatically when pushing to main or master (development) branch, remove the comment for branches line in GitHub Actions (`.github/workflows/build_addon.yml`).
-	* If you have created a tag (E.G.: `git tag v1.0 && git push --tag`), then a release will be automatically created and the add-on file will be uploaded as an asset.
-	* Otherwise, with normal commits or with manual startup, you can download the artifacts from the Actions page of your repository.
-* Manifest file creation using a template (manifest.ini.tpl). Build variables are replaced on this template. See below for add-on manifest specification.
-* Compilation of gettext mo files before distribution, when needed.
-	* To generate a gettext pot file, please run `scons pot`. An `addon-name.pot` file will be created with all gettext messages for your add-on. You need to check the `buildVars.i18nSources` variable to comply with your requirements.
-* Automatic generation of manifest localization files directly from gettext po files. Please make sure buildVars.py is included in i18nFiles.
-* Automatic generation of HTML documents from markdown (.md) files, to manage documentation in different languages.
+By default the display is left as one segment, so installing the add-on changes nothing
+until you configure it.
 
-In addition, this template includes configuration files for the following tools for use in add-on development and testing (see "additional tools" section for details):
+### Settings
 
-* Ruff (pyproject.toml/tool.ruff sections): a Python linter written in Rust. Sections starting with tool.ruff house configuration options for Ruff.
-* Configuration for VS Code. It requires NVDA's repo at the same level as the add-on folder containing your actual source files, with prepared source code (`scons source`). preparing the source code is a step in the instructions for building NVDA itself, see [The NVDA Repository](https://github.com/nvaccess/nvda) for details.
-	* Place the .vscode in this repo within the addon folder, where your add-on source files (will) reside. The settings file within this folder assumes the NVDA repository is within the parent folder of this folder. If your addon folder is within the addonTemplate folder, then your NVDA repository folder needs to also be within the addonTemplate folder, or the source will not be found.
-	* Open the addon folder in VS Code.
-	This should initialize VS Code with the correct settings and provide you with code completion and other VS Code features.
-	* Press `control+shift+m` after saving a file to search for problems.
-	* Use arrow and tab keys for the autocompletion feature.
-	* Press `control+shift+p` to open the commands palette and search for recommended extensions to install or check if they are installed.
-* Pyright (pyproject.toml/tool.pyright sections): a Python static type checker. Sections starting with tool.pyright house configuration options for Pyright.
+**Number of segments.** How many pieces to divide the display into. The division is even,
+with any remainder going to the earlier segments. On a display with more than one row,
+segments are groups of whole rows: a Monarch with 8 rows divided into 4 gives four
+segments of 2 rows each. On a single row display, segments are slices of that row: a
+Focus 80 divided into 2 gives two 40 cell halves.
 
-## Automatic checks on GitHub
+**Segment sizes.** Leave this blank to divide evenly. To make segments of different sizes,
+type them separated by commas. The units are rows on a multi row display and cells on a
+single row display, and the sizes must add up to the whole display. For example, `1, 5, 2`
+on a Monarch gives a one row segment, then a five row segment, then a two row segment.
 
-### prek
+**Segment that follows the focus.** Which segment behaves the way NVDA normally does,
+showing whatever has focus. Segments are numbered from 0. Enter -1 for the last segment,
+which is the default.
 
-This template uses [prek](https://github.com/j178/prek) (a fast, drop-in alternative to pre-commit) to run linting, formatting, and type-checking hooks, configured in `prek.toml`.
-`prek` is included as a development dependency, so you can run it through `uv`:
+**Reverse the panning keys on this display.** Swaps the effect of the panning keys, so the
+key that normally scrolls back scrolls forward instead. This is stored per display, which
+is the point of it: on a Focus 80 the left hand key is the comfortable one for moving
+forward, while on a Monarch you may want the normal arrangement. NVDA itself has no such
+setting.
 
-* Run `uv run prek install` once to enable the git hook, so the checks run automatically on every commit.
-* Run `uv run prek run --all-files` to check all files in the repository.
+**Show the document lines around the caret in the other segments.** When you are in a
+document, fills the segments around the focus segment with the lines above and below the
+line the caret is on. The segment immediately above the focus segment shows the previous
+line, the one above that shows the line before it, and so on. Segments holding a pinned
+object are left alone. Segments run past the start or end of the document show as blank.
 
-The provided GitHub Actions workflow (`.github/workflows/build_addon.yml`) also runs these checks on every pull request, helping you maintain a consistent code style in your add-ons.
+## Commands
 
-## Requirements
+None of the add-on's commands have a default key. Assign the ones you want under NVDA
+menu, Preferences, Input Gestures, in the BrlMultiline category. They are most
+useful assigned to keys on the display itself.
 
-You need the following software to use this code for your NVDA add-on development and packaging:
+**Opens the BrlMultiline settings.** Goes straight to the settings category.
 
-* a Python distribution (3.13 64-bit or later is recommended). Check the [Python Website](https://www.python.org) for Windows Installers.
-* Scons - [Website](https://www.scons.org/) - version 4.10.1 or later. You can install it via PIP.
-* GNU Gettext tools (recommended).
-Needed if you want to have localization support for your add-on.
-Any Linux distro or cygwin have those installed.
-You can find Windows builds [here](https://mlocati.github.io/articles/gettext-iconv-windows.html).
-* Markdown 3.8.2 or later, if you want to convert documentation files to HTML documents. You can install it via PIP.
-* Optional: additional tools such as linters and type checkers defined in pyproject.toml file.
+**Reports the BrlMultiline segment layout.** Says how many segments there are and
+which one is following the focus. Useful for confirming a layout took effect.
 
-Note: you may not need these tools in a local build environment; you can use [GitHub Actions](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions) to build and package your add-ons.
+**Scrolls segment N forward / back.** Pans one segment, whether or not it is the segment
+following the focus. There is a pair of these for each segment.
 
-## Usage
+A segment that is not following the focus is panned within the content it already has. It
+will not move to the next or previous line of a document, because doing so would move the
+caret in something you are only reading, and drag the focus with it.
 
-### To create a new NVDA add-on using this template:
+**Shows the navigator object in segment N.** Pins the current navigator object to that
+segment, so it stays there while you move around elsewhere. There is one of these for each
+segment. You cannot pin an object to the segment that follows the focus.
 
-1. Create an empty folder to hold the files for your add-on.
-2. Copy the folder:
+**Stops showing an object in segment N.** Unpins and clears that segment.
+
+## Notes and limitations
+
+The number of segments is capped at 8, which is the row count of a Monarch.
+
+Cursor routing keys work per segment: pressing a routing key over a segment routes within
+that segment's own content.
+
+Only the segment that follows the focus shows a cursor, because NVDA tracks a single
+cursor position.
+
+A single row display cannot be made to simulate a multi row one. Telling NVDA that a Focus
+80 has two rows of 40 causes NVDA to write only the first row to the display and blank the
+rest, because it reshapes its output to the physical row count of the hardware. Splitting a
+single row into column segments, as this add-on does, is a different and working
+arrangement.
+
+## Building from source
+
+This add-on uses the NVDA add-on template, which is a `uv` project.
+
+```bash
+python -m uv sync
 ```
-site_scons
+
+Then build, lint, and test with:
+
+```bash
+python -m uv run scons
 ```
-and the following files, into your new empty folder:
+
+```bash
+python -m uv run ruff check .
 ```
-buildVars.py
-manifest.ini.tpl
-manifest-translated.ini.tpl
-sconstruct
-.gitignore
-.gitattributes
+
+```bash
+python -m uv run python -m unittest discover -s tests
 ```
-3. If you intend to use the provided GitHub workflow, also copy the folder:
-```
-.github
-```
-and file:
-```
-prek.toml
-changelog.md
-pyproject.toml
-uv.lock
-```
-4. Create an `addon` folder inside your new folder. You will put your code in the usual folders for NVDA extensions, under the `addon` folder. For instance: `globalPlugins`, `synthDrivers`, etc.
-5. In the `buildVars.py` file, change variable `addon_info` with your add-on's information (name, summary, description, version, author, url, source url, license, and license URL). Also, be sure to carefully set the paths contained in the other variables in that file. If you need to use custom Markdown extensions, original add-on interface language is not English, or include custom braille translations tables, be sure to fil out markdown list, base language variable, and braille tables dictionary, respectively.
-6. Gettext translations must be placed into `addon\locale\<lang>/LC_MESSAGES\nvda.po`.
-7. If you create releases with the GitHub workflow, pushing a tag, update the `changelog.md` file with the release description you want to be displayed in on your GitHub release page.
-8. In the `[project]` section of `pyproject.toml`, update your project information.
 
-Alternatively, you can integrate this template in your add-on using Git.
-For more details, read [integrating the add-on template using Git](docs/managementFromGit/updatingExistingAddons.md).
+Design documentation, including notes on the parts of NVDA this add-on depends on, is in
+`docs/design/`.
 
-#### Add-on manifest specification
+## License
 
-An add-on manifest generated manually or via `buildVars.py` must include the following information:
-
-* Name (string): a unique internal identifier for the add-on. It must use camel case (e.g. someModule). This is also used as part of add-on store to identify the add-on uniquely.
-* Summary (string): name as shown on NVDA's Add-on store.
-* Description (string): a short detailed description about the add-on.
-* Version (string), ideally number.number with an optional third number, denoting major.minor.patch.
-* Changelog (string): changes between previous and current add-on releases, visible in the Add-on Store.
-* Author (string and an email address): one or more add-on author contact information in the form "name <email@address>".
-* URL (string): a web address where the add-on information can be found such as add-on repository.
-* docFileName (string): name of the documentation file.
-* minimumNVDAVersion (year.major or year.major.minor): the earliest version of NVDA the add-on is compatible with (e.g. 2019.3). Add-ons are expected to use features introduced in this version of NVDA or declare compatibility with it.
-* lastTestedNVDAVersion (year.major or year.major.minor): the latest or last tested version of NVDA the add-on is said to be compatible with (e.g. 2020.3). Add-on authors are expected to declare this value after testing add-ons with the version of NVDA specified.
-* addon_updateChannel (string or None): the update channel for the add-on release.
-
-In addition, the following information must be filled out (not used in the manifest but used elsewhere such as add-on store) in buildVars:
-
-* sourceURL (string): repository URL for the add-on source code.
-* license (string): the license of the add-on and its source code.
-* licenseURL: the URL for the license file.
-
-##### Custom add-on information
-
-In addition to the core manifest data, custom add-on information can be specified.
-
-###### Braille translation tables
-
-Information on custom braille tables must be specified in buildVars under `brailleTables` dictionary as follows:
-
-* Table name (string key for a nested dictionary): each `brailleTables` entry is a filename for the included custom braille table placed in `brailleTables` folder inside `addon` folder. This nested dictionary should specify:
-	* displayName (string): the name of the table shown to users and is translatable.
-	* contracted (True/False): is this a contracted braille table (True) or uncontracted (False).
-	* output (True/False): the table can be listed in output table list in NVDA's braille settings.
-	* input (True/False): braille can be entered using this table and listed in input table list in NVDA's braille settings.
-
-Note: you must fill out this dictionary if at least one custom braille table is included in the add-on. If not, leave the dictionary empty.
-
-###### Speech symbol dictionaries
-
-Information on custom symbol dictionaries must be specified in buildVars under `symbolDictionaries` dictionary as follows:
-
-* Dictionary name (string key for a nested dictionary): each `symbolDictionaries` entry is a name for the included custom symbol dictionary placed in `locale\<language>` folder inside `addon` folder. The file is named `symbols-<dictionary_name>.dic`. This nested dictionary should specify:
-	* displayName (string): the name of the dictionary shown to users and is translatable.
-	* mandatory (True/False): Always enabled (True) or optional and visible in the GUI (False)
-
-Note: you must fill out this dictionary if at least one custom symbol dictionary is included in the add-on. If not, leave the dictionary empty.
-
-###### Speech pronunciation dictionaries
-
-Information on custom speech (pronunciation) dictionaries must be specified in buildVars under `speechDictionaries` dictionary as follows:
-
-* Dictionary name (string key for a nested dictionary): each `symbolDictionaries` entry is a name for the included custom speech dictionary placed in `speechDicts` folder inside `addon` folder.
-The file is named `<dictionary_name>.dic`.
-This nested dictionary should specify:
-	* displayName (string): the name of the dictionary shown to users and is translatable.
-	* mandatory (True/False): Always enabled (True) or optional and visible in the GUI (False)
-
-Note: you must fill out this dictionary if at least one custom speech dictionary is included in the add-on.
-If not, leave the dictionary empty.
-
-### To manage documentation files for your addon:
-
-1. Copy the `readme.md` file for your add-on to the first created folder, where you copied `buildVars.py`. You can also copy `style.css` to improve the presentation of HTML documents.
-2. Documentation files (named `readme.md`) must be placed into `addon\doc\<lang>/`.
-
-### To package the add-on for distribution:
-
-1. Open a command line, change to the folder that has the `sconstruct` file (usually the root of your add-on development folder) and run the `scons` command. The created add-on, if there were no errors, is placed in the current directory.
-2. You can further customize variables in the `buildVars.py` file.
-3. You can also customize version and update channel information from command line by passing the following switches when running scons:
-	* version: add-on version string of the form major.minor or major.minor.patch (all integers)
-	* channel: update channel (do not use this switch unless you know what you are doing).
-	* dev: suitable for development builds, names the add-on according to current date (yyyymmdd) and sets update channel to "dev".
-
-
-### Translation workflow
-
-This template allows you to automate the synchronization of documentation and interface messages with Crowdin.
-
-For more details, please see the [translation guide for add-on authors](./docs/l10n/addonAuthors.md).
-
-A [translation guide for translators](./docs/l10n/addonTranslators.md) is also available.
-
-### Additional tools
-
-The template includes configuration files for use with additional tools such as linters. These include:
-
-* Ruff: a Python linter written in Rust (0.4.10 or later, can be installed with PIP).
-* Pyright: a Python static type checker (1.1.402 or later, can be installed with PIP).
-
-Read the documentation for the tools you wish to use when building and developing add-ons.
-
-Note that this template only provides a basic add-on structure and build infrastructure. You may need to adapt it for your specific needs such as using additional tools.
-
-If you have any issues please use the NVDA addon list mentioned above.
+GNU General Public License version 2.

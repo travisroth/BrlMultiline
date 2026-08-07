@@ -1,0 +1,188 @@
+# BrlMultiline: patches to NVDA's braille handler.
+# Part of the BrlMultiline add-on for NVDA.
+# Copyright (C) 2026 Travis Roth <travis@travisroth.com>
+# This file is covered by the GNU General Public License version 2.
+
+"""The two places NVDA's braille handler has to be adjusted.
+
+1. `_doNewObject` clears the whole buffer and appends every region to it. With several
+	segments the regions have to be sorted first, and only the segments actually
+	receiving regions may be cleared.
+2. `scrollForward` and `scrollBack` are swapped when reversed panning is configured for
+	the current display.
+
+Both are installed and removed symmetrically, so that disabling the add-on restores
+NVDA's own behaviour without a restart.
+"""
+
+import config
+import keyboardHandler
+from braille.brailleHandler import BrailleHandler
+from braille.constants import CONTEXTPRES_CHANGEDCONTEXT
+from config.configFlags import TetherTo
+from logHandler import log
+
+from . import bmConfig, documentLines
+from .container import BrailleBufferContainer
+
+_originalDoNewObject = None
+_originalScrollForward = None
+_originalScrollBack = None
+_originalHandlePendingUpdate = None
+
+
+def _applyFocusToHardLeft(handler: BrailleHandler, regions: list) -> None:
+	"""Apply NVDA's focusToHardLeft rule to one group of regions.
+
+	Taken from `BrailleHandler._doNewObject`. Applying it per segment rather than across
+	the whole display is the point: the rule is about a region's position within the
+	group it is displayed with.
+	"""
+	if not (
+		handler.getTether() == TetherTo.FOCUS.value
+		and config.conf["braille"]["focusContextPresentation"] == CONTEXTPRES_CHANGEDCONTEXT
+	):
+		return
+	focusToHardLeftSet = False
+	for region in regions:
+		if region.focusToHardLeft:
+			focusToHardLeftSet = True
+		elif not focusToHardLeftSet and getattr(region, "_focusAncestorIndex", None) is None:
+			# Displaying a new object with the same ancestry as the previous one, so
+			# anchor this region at the left of its segment.
+			region.focusToHardLeft = True
+			focusToHardLeftSet = True
+
+
+def _doNewObjectMultiSegment(self: BrailleHandler, regions) -> None:
+	"""Replacement for `BrailleHandler._doNewObject` that knows about segments."""
+	container = self.mainBuffer
+	if not isinstance(container, BrailleBufferContainer) or container.numSegments == 1:
+		# Nothing to sort. Let NVDA do exactly what it normally does.
+		return _originalDoNewObject(self, regions)
+	self.autoScroll(enable=False)
+	grouped: dict[int, list] = {index: [] for index in range(container.numSegments)}
+	for region in regions:
+		index = container.getSegmentNumberForRegion(region)
+		# Record the decision on the region, so that later calls which are handed a
+		# region but no segment (focus, scrollTo) can find their way back here.
+		region.targetSegment = index
+		grouped[index].append(region)
+	for index, group in grouped.items():
+		if not group:
+			# A segment receiving nothing keeps what it already had.
+			continue
+		container.clear(index)
+		_applyFocusToHardLeft(self, group)
+		for region in group:
+			container.segments[index].append(region)
+	container.update()
+	for index, group in grouped.items():
+		if not group:
+			continue
+		# The last region of each group receives focus within its own segment.
+		container.focus(group[-1])
+		self.scrollToCursorOrSelection(group[-1])
+	_populateDocumentLines(container)
+	if self.buffer is self.mainBuffer:
+		self.update()
+	elif self.buffer is self.messageBuffer and keyboardHandler.keyCounter > self._keyCountForLastMessage:
+		self._dismissMessage()
+
+
+def _getMonitoredSegments() -> set:
+	""":return: the segments holding a pinned object, which must not be written over."""
+	from . import getPlugin
+
+	plugin = getPlugin()
+	if plugin is None:
+		return set()
+	return set(plugin.monitoredSegments)
+
+
+def _populateDocumentLines(container: BrailleBufferContainer) -> None:
+	"""Fill the free segments with the document lines around the caret, if configured."""
+	if container.numSegments == 1 or not bmConfig.shouldShowDocumentLines():
+		return
+	try:
+		if documentLines.populate(container, _getMonitoredSegments()):
+			container.update()
+	except Exception:
+		log.debugWarning("Could not show document lines", exc_info=True)
+
+
+def _handlePendingUpdateWithDocumentLines(self: BrailleHandler) -> None:
+	"""Refresh the document line regions after NVDA has handled its own pending updates.
+
+	NVDA only marks the region belonging to the caret as needing an update, so the
+	regions showing neighbouring lines have to be refreshed here. This runs once per core
+	cycle, and only when something was pending, which is exactly when the caret has moved.
+	"""
+	_originalHandlePendingUpdate(self)
+	container = self.mainBuffer
+	if not isinstance(container, BrailleBufferContainer) or container.numSegments == 1:
+		return
+	if not bmConfig.shouldShowDocumentLines():
+		return
+	try:
+		regions = [
+			region
+			for segment in container.segments
+			for region in segment.regions
+			if isinstance(region, documentLines.TextInfoPositionRegion) and region.lineOffset != 0
+		]
+		if not regions:
+			return
+		for region in regions:
+			region.update()
+		container.update()
+		container.updateDisplay()
+	except Exception:
+		log.debugWarning("Could not refresh document lines", exc_info=True)
+
+
+def _scrollForwardMaybeReversed(self: BrailleHandler) -> None:
+	if bmConfig.shouldReverseScrollButtons():
+		return _originalScrollBack(self)
+	return _originalScrollForward(self)
+
+
+def _scrollBackMaybeReversed(self: BrailleHandler) -> None:
+	if bmConfig.shouldReverseScrollButtons():
+		return _originalScrollForward(self)
+	return _originalScrollBack(self)
+
+
+def install() -> None:
+	"""Install the patches. Safe to call when they are already installed."""
+	global _originalDoNewObject, _originalScrollForward, _originalScrollBack
+	global _originalHandlePendingUpdate
+	if _originalDoNewObject is not None:
+		log.debug("BrlMultiline patches already installed")
+		return
+	_originalDoNewObject = BrailleHandler._doNewObject
+	_originalScrollForward = BrailleHandler.scrollForward
+	_originalScrollBack = BrailleHandler.scrollBack
+	_originalHandlePendingUpdate = BrailleHandler._handlePendingUpdate
+	BrailleHandler._doNewObject = _doNewObjectMultiSegment
+	BrailleHandler.scrollForward = _scrollForwardMaybeReversed
+	BrailleHandler.scrollBack = _scrollBackMaybeReversed
+	BrailleHandler._handlePendingUpdate = _handlePendingUpdateWithDocumentLines
+	log.debug("BrlMultiline patches installed")
+
+
+def remove() -> None:
+	"""Restore NVDA's own methods. Safe to call when nothing is installed."""
+	global _originalDoNewObject, _originalScrollForward, _originalScrollBack
+	global _originalHandlePendingUpdate
+	if _originalDoNewObject is None:
+		return
+	BrailleHandler._doNewObject = _originalDoNewObject
+	BrailleHandler.scrollForward = _originalScrollForward
+	BrailleHandler.scrollBack = _originalScrollBack
+	BrailleHandler._handlePendingUpdate = _originalHandlePendingUpdate
+	_originalDoNewObject = None
+	_originalScrollForward = None
+	_originalScrollBack = None
+	_originalHandlePendingUpdate = None
+	log.debug("BrlMultiline patches removed")
