@@ -197,22 +197,36 @@ class BrailleBufferContainer(baseObject.AutoPropertyObject):
 		return self._regionsProxy
 
 	def _set_regions(self, value: list["Region"]) -> None:
-		# NVDA assigns a fresh list when showing speech output in braille. Write the
-		# contents into the focus segment rather than losing the proxy.
+		# NVDA assigns a fresh list when showing speech output in braille, meaning the
+		# assigned regions are now the whole of what the display shows. Write the contents
+		# into the focus segment rather than losing the proxy, and empty every other
+		# segment: in speech output mode NVDA stops handling focus, caret and review
+		# moves, so document lines and pinned objects left elsewhere would stay under the
+		# reader's fingers beside the speech, with nothing to ever refresh or remove them.
+		for segment in self.segments:
+			segment.clear()
 		self.focusSegment.regions = list(value)
 
 	visibleRegions: Any
 	"""Every visible region across all segments."""
 
 	def _get_visibleRegions(self) -> Iterator["Region"]:
-		"""Yield the visible regions of every segment.
+		"""Yield the visible regions of every segment, the focus segment's last.
 
 		The handler scans this to find the region belonging to an object that has
 		updated. Covering all segments means a monitored object in a segment that does
 		not hold focus still receives its updates.
+
+		The handler scans in reverse and stops at the first region whose object matches,
+		expecting the focus to be last. The regions showing the lines around the caret
+		carry the focus region's own object, so the focus segment is yielded last whatever
+		its position on the display; otherwise a layout whose focus segment is not the
+		bottom one would update one of those lines and leave the focus region stale.
 		"""
-		for segment in self.segments:
-			yield from segment.visibleRegions
+		for index, segment in enumerate(self.segments):
+			if index != self._focusSegmentNumber:
+				yield from segment.visibleRegions
+		yield from self.focusSegment.visibleRegions
 
 	# Whole display operations
 

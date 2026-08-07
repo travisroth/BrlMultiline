@@ -56,7 +56,11 @@ class TextInfoPositionRegion(TextInfoRegion):
 			return info
 		info = info.copy()
 		info.collapse(end=True)
-		if not info.move(textInfos.UNIT_LINE, self.lineOffset):
+		# `move` reports how many units it actually moved, and stops at the edge of the
+		# document rather than failing. A partial move is no use here: a segment asked for
+		# the line seven back would otherwise show the first line, as would every segment
+		# above it, repeating one line across the display instead of going blank.
+		if info.move(textInfos.UNIT_LINE, self.lineOffset) != self.lineOffset:
 			# There is no such line: the caret is near the start or end of the document.
 			return None
 		return info
@@ -128,26 +132,51 @@ def isDocumentRegion(region: Region) -> bool:
 	return isinstance(region, TextInfoRegion)
 
 
+def clearDocumentRegions(
+	container: "BrailleBufferContainer",
+	excludedSegments: frozenset[int] | set[int] = frozenset(),
+) -> bool:
+	"""Remove the line regions this module placed in the segments around the focus.
+
+	The focus segment and any segment holding a pinned object are left alone, so this
+	takes back only what the add-on itself put on the display.
+
+	:param container: the multi segment buffer.
+	:param excludedSegments: segments that must be left alone.
+	:return: whether anything was cleared, so the caller knows to recombine the display.
+	"""
+	focusNumber = container.focusSegmentNumber
+	cleared = False
+	for index, segment in enumerate(container.segments):
+		if index == focusNumber or index in excludedSegments:
+			continue
+		if any(isinstance(region, TextInfoPositionRegion) for region in segment.regions):
+			segment.clear()
+			cleared = True
+	return cleared
+
+
 def populate(
 	container: "BrailleBufferContainer",
 	excludedSegments: set[int],
-) -> list[TextInfoPositionRegion]:
+) -> bool:
 	"""Fill the free segments with the lines around the caret.
 
 	:param container: the multi segment buffer.
 	:param excludedSegments: segments that must be left alone, such as those holding a
 		pinned object.
-	:return: the regions created, so that they can be refreshed as the caret moves.
+	:return: whether any segment's contents changed, so the caller knows to recombine the
+		display.
 	"""
 	focusNumber = container.focusSegmentNumber
 	focusSegment = container.segments[focusNumber]
-	if not focusSegment.regions:
-		return []
-	source = focusSegment.regions[-1]
-	if not isDocumentRegion(source):
-		# The focus is not in something with readable lines, so there is nothing to show.
-		return []
-	created: list[TextInfoPositionRegion] = []
+	source = focusSegment.regions[-1] if focusSegment.regions else None
+	if source is None or not isDocumentRegion(source):
+		# The focus is not in something with readable lines. Lines belonging to the
+		# document the focus has just left would otherwise stay under the reader's
+		# fingers, and would go on tracking a caret that is no longer theirs.
+		return clearDocumentRegions(container, excludedSegments)
+	changed = False
 	for index, segment in enumerate(container.segments):
 		if index == focusNumber or index in excludedSegments:
 			continue
@@ -160,5 +189,5 @@ def populate(
 			continue
 		segment.clear()
 		segment.append(region)
-		created.append(region)
-	return created
+		changed = True
+	return changed

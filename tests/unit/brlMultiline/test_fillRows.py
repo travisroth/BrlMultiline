@@ -88,3 +88,17 @@ class TestFilledRowOffsetsWithCutMarks(unittest.TestCase):
 	def test_withoutTheTestNothingIsMarked(self):
 		rows = calculateFilledRowOffsets(100, 0, 3, 8, None)
 		self.assertTrue(all(not row[2] for row in rows))
+
+	def test_aOneCellSegmentIsNeverMarked(self):
+		"""There is no room for both a cell of text and a marker, so the text wins."""
+		rows = calculateFilledRowOffsets(100, 0, 3, 1, self.cutAt(1, 2, 3))
+		self.assertEqual(rows, [(0, 1, False), (1, 2, False), (2, 3, False)])
+
+	def test_everyRowAdvances(self):
+		"""A row that gave up its last cell must still hold one, or panning would stall."""
+		alwaysCut = lambda end: True  # noqa: E731
+		for numCols in range(1, 9):
+			with self.subTest(numCols=numCols):
+				rows = calculateFilledRowOffsets(100, 0, 4, numCols, alwaysCut)
+				for start, end, _mark in rows:
+					self.assertGreater(end, start)

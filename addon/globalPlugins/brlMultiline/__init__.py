@@ -17,7 +17,7 @@ import globalPluginHandler
 import gui
 import ui
 import wx
-from braille.extensions import displaySizeChanged
+from braille.extensions import displayChanged, displaySizeChanged
 from logHandler import log
 from scriptHandler import script
 
@@ -59,12 +59,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		bmConfig.initialize()
 		patches.install()
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(BrailleMultilineSettingsPanel)
-		displaySizeChanged.register(self._handleDisplaySizeChanged)
+		displaySizeChanged.register(self._handleDisplayChanged)
+		displayChanged.register(self._handleDisplayChanged)
 		self.rebuildBuffer()
 
 	def terminate(self):
 		try:
-			displaySizeChanged.unregister(self._handleDisplaySizeChanged)
+			displaySizeChanged.unregister(self._handleDisplayChanged)
+			displayChanged.unregister(self._handleDisplayChanged)
 			self.stopAllMonitoring()
 			self._restoreOriginalBuffer()
 			patches.remove()
@@ -182,24 +184,34 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except Exception:
 			log.debugWarning("Could not refresh the braille display", exc_info=True)
 
-	def _handleDisplaySizeChanged(self, **kwargs) -> None:
+	def _handleDisplayChanged(self, **kwargs) -> None:
 		"""Rebuild when the display or its dimensions change.
 
-		The rebuild is deferred: this runs from within the handler's displayDimensions
+		Both `displaySizeChanged` and `displayChanged` are listened for. The first alone is
+		not enough: NVDA raises it only when the dimensions actually differ, so swapping
+		one display for another of the same geometry would go unnoticed, and settings are
+		stored per driver name as well as per size. The second alone is not enough either,
+		as it is not raised when a display keeps its driver but changes size.
+
+		The rebuild is deferred: this can run from within the handler's displayDimensions
 		property, which has not finished updating its own cache yet, and reading those
 		dimensions again from here would re-enter it.
 		"""
 		if self._rebuildPending:
+			# Both events fire for a single swap. One rebuild answers both.
 			return
 		self._rebuildPending = True
 		wx.CallAfter(self._deferredRebuild)
 
 	def _deferredRebuild(self) -> None:
-		self._rebuildPending = False
 		try:
 			self.rebuildBuffer()
 		except Exception:
 			log.error("BrlMultiline: could not rebuild after a display change", exc_info=True)
+		finally:
+			# Cleared last, so that reading the dimensions during the rebuild cannot
+			# schedule a second one for the change now being handled.
+			self._rebuildPending = False
 
 	# Object monitoring
 

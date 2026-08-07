@@ -19,7 +19,7 @@ import config
 import keyboardHandler
 from braille.brailleHandler import BrailleHandler
 from braille.constants import CONTEXTPRES_CHANGEDCONTEXT
-from config.configFlags import TetherTo
+from config.configFlags import BrailleMode, TetherTo
 from logHandler import log
 
 from . import bmConfig, documentLines
@@ -101,11 +101,20 @@ def _getMonitoredSegments() -> set:
 
 
 def _populateDocumentLines(container: BrailleBufferContainer) -> None:
-	"""Fill the free segments with the document lines around the caret, if configured."""
-	if container.numSegments == 1 or not bmConfig.shouldShowDocumentLines():
+	"""Fill the free segments with the document lines around the caret, if configured.
+
+	Also takes back lines the add-on placed but should no longer be showing, whether
+	because the focus has left the document or because the setting has been turned off.
+	"""
+	if container.numSegments == 1:
 		return
+	monitored = _getMonitoredSegments()
 	try:
-		if documentLines.populate(container, _getMonitoredSegments()):
+		if bmConfig.shouldShowDocumentLines():
+			changed = documentLines.populate(container, monitored)
+		else:
+			changed = documentLines.clearDocumentRegions(container, monitored)
+		if changed:
 			container.update()
 	except Exception:
 		log.debugWarning("Could not show document lines", exc_info=True)
@@ -114,15 +123,25 @@ def _populateDocumentLines(container: BrailleBufferContainer) -> None:
 def _handlePendingUpdateWithDocumentLines(self: BrailleHandler) -> None:
 	"""Refresh the document line regions after NVDA has handled its own pending updates.
 
-	NVDA only marks the region belonging to the caret as needing an update, so the
-	regions showing neighbouring lines have to be refreshed here. This runs once per core
-	cycle, and only when something was pending, which is exactly when the caret has moved.
+	NVDA only marks the region belonging to the caret as needing an update, so the regions
+	showing neighbouring lines have to be refreshed here.
+
+	`_handlePendingUpdate` runs on every core cycle and clears its own pending set before
+	returning, so whether there was anything to do has to be noted before delegating to it.
+	Refreshing regardless would re-read the caret and retranslate every row many times a
+	second while nothing at all was changing.
 	"""
+	hadPendingUpdate = bool(self._regionsPendingUpdate)
 	_originalHandlePendingUpdate(self)
+	if not hadPendingUpdate:
+		return
 	container = self.mainBuffer
 	if not isinstance(container, BrailleBufferContainer) or container.numSegments == 1:
 		return
 	if not bmConfig.shouldShowDocumentLines():
+		return
+	if config.conf["braille"]["mode"] == BrailleMode.SPEECH_OUTPUT.value:
+		# The display is showing speech, not the document the caret is in.
 		return
 	try:
 		regions = [

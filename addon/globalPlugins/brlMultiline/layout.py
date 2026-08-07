@@ -137,7 +137,10 @@ def calculateFilledRowOffsets(
 			rows.append((start, bufferLength, False))
 			break
 		showContinuationMark = False
-		if isMidWordCut is not None and isMidWordCut(end):
+		# Spending a cell on the mark must leave the row with something to show. In a
+		# segment one cell wide it would not, and every row would come out empty and
+		# starting where the last one did, so the window could never be panned on.
+		if isMidWordCut is not None and end - 1 > start and isMidWordCut(end):
 			end -= 1
 			showContinuationMark = True
 		rows.append((start, end, showContinuationMark))
