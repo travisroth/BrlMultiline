@@ -5,9 +5,14 @@
 
 """Global plugin entry point.
 
-Owns the lifetime of the multi segment buffer: builds it from the configuration for the
+Owns the lifetime of the display container: builds it from the configuration for the
 connected display, rebuilds it when the display or the settings change, and puts NVDA
 back exactly as it found it on termination.
+
+Also owns the two kinds of claim that outlive a single view. Panels activated by code are
+kept and re-composed onto the configured view on every rebuild, so a table's grid is not
+lost when the user saves a setting. Pinned objects are held by segment key, so a rebuild
+that keeps their segment keeps the pin.
 """
 
 import addonHandler
@@ -22,8 +27,9 @@ from logHandler import log
 from scriptHandler import script
 
 from . import bmConfig, patches
-from .container import BrailleBufferContainer
+from .container import DisplayContainer
 from .objectMonitor import ObjectMonitor
+from .panels import BraillePanel
 from .settingsPanel import BrailleMultilineSettingsPanel
 from .views import SegmentView, singleSegmentView, viewFromConfig
 
@@ -48,13 +54,23 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		global _plugin
 		_plugin = self
 		self._originalMainBuffer = braille.handler.mainBuffer
-		self._monitors: dict[int, ObjectMonitor] = {}
+		self._monitors: dict[str, ObjectMonitor] = {}
+		"""Pinned objects, keyed by the segment key they live in.
+
+		Keyed rather than numbered so that a rebuild which keeps a segment keeps its pin.
+		"""
 		self._rebuildPending = False
 		self._activeView: SegmentView | None = None
 		"""A view installed by code rather than by the settings, if any.
 
-		While this is set it takes over the display; clearing it returns to the view the
-		user configured.
+		While this is set it takes over the display wholesale; clearing it returns to the
+		view the user configured.
+		"""
+		self._activePanels: list[BraillePanel] = []
+		"""Claims laid over whatever view is in force, in the order they were made.
+
+		Kept across rebuilds and re-composed each time, so that a claim survives a settings
+		change or a display swap. A claim that no longer fits is dropped and reported.
 		"""
 		bmConfig.initialize()
 		patches.install()
@@ -81,10 +97,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	# Buffer lifetime
 
 	@property
-	def container(self) -> BrailleBufferContainer | None:
-		""":return: the active multi segment buffer, or None if one is not installed."""
+	def container(self) -> DisplayContainer | None:
+		""":return: the display container, or None if one is not installed."""
 		buffer = braille.handler.mainBuffer
-		return buffer if isinstance(buffer, BrailleBufferContainer) else None
+		return buffer if isinstance(buffer, DisplayContainer) else None
 
 	@property
 	def currentView(self) -> SegmentView | None:
@@ -92,40 +108,107 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		container = self.container
 		return container.view if container is not None else None
 
-	def activateView(self, view: SegmentView) -> None:
-		"""Put a view on the display, taking over from the user's configured one.
+	def _displayDimensions(self) -> tuple[int, int]:
+		""":return: the rows and columns of the connected display.
 
-		For code that drives the display directly, such as a table reader that wants a
-		grid of segments. Only one such view is active at a time: activating a second
-		replaces the first. Call L{restoreConfiguredView} to hand the display back.
-
-		:param view: the view to show.
-		:raises ValueError: if the view's segments do not fit the display, or overlap.
-		:raises LookupError: if the view's focus segment does not exist.
+		:raises ValueError: if there is no display to arrange.
 		"""
 		handler = braille.handler
 		if not handler or handler.displaySize == 0:
 			raise ValueError("There is no braille display to show a view on")
-		# Build before storing, so a view that does not fit leaves the display as it was.
-		view.validate(handler.displayDimensions.numRows, handler.displayDimensions.numCols)
+		dimensions = handler.displayDimensions
+		return dimensions.numRows, dimensions.numCols
+
+	def activateView(self, view: SegmentView) -> None:
+		"""Put a view on the display, taking over from the user's configured one.
+
+		Replaces the whole arrangement. Prefer L{activatePanel} where only part of the
+		display is wanted: a view replaces everything, including segments other code is
+		relying on, while a panel takes only what it claims.
+
+		Only one activated view is in force at a time: activating a second replaces the
+		first. Call L{restoreConfiguredView} to hand the display back.
+
+		:param view: the view to show.
+		:raises ValueError: if the view's panels do not tile the display.
+		:raises LookupError: if the view's focus segment does not exist.
+		"""
+		numRows, numCols = self._displayDimensions()
+		# Validate before storing, so a view that does not fit leaves the display as it was.
+		view.validate(numRows, numCols)
 		self._activeView = view
 		self.rebuildBuffer()
 
 	def restoreConfiguredView(self) -> None:
-		"""Return the display to the view the user configured."""
-		if self._activeView is None:
+		"""Return the display to the view the user configured, dropping every claim."""
+		if self._activeView is None and not self._activePanels:
 			return
 		self._activeView = None
+		self._activePanels = []
 		self.rebuildBuffer()
 
-	def _buildView(self, numRows: int, numCols: int) -> SegmentView:
-		"""Choose the view to show: an activated one if there is one, else the configured one."""
+	def activatePanel(self, panel: BraillePanel) -> None:
+		"""Lay a panel over the display, leaving everything it does not claim alone.
+
+		This is how code takes part of the display: a table reader claims the rows it wants
+		as a grid, and a pinned object elsewhere keeps both its segment and its content,
+		because the panel holding it was never involved in the claim.
+
+		A panel with the same name as one already active replaces it, so refreshing a
+		claim is a matter of activating it again.
+
+		:param panel: the claim to lay over the current view.
+		:raises ValueError: if the claim falls outside the display, or its segments do not
+			fit within it.
+		:raises LookupError: if the claim would take the focus segment without offering one
+			in its place.
+		"""
+		numRows, numCols = self._displayDimensions()
+		candidate = [*self._panelsExcept(panel.name), panel]
+		# Compose against the view in force to find out whether this claim can be honoured,
+		# before storing anything. A claim that cannot leaves the display as it was.
+		self._composeView(numRows, numCols, candidate).validate(numRows, numCols)
+		self._activePanels = candidate
+		self.rebuildBuffer()
+
+	def deactivatePanel(self, name: str) -> None:
+		"""Take back a panel activated by code, leaving the rest of the display alone.
+
+		:param name: the panel to remove. Removing one that is not active does nothing.
+		"""
+		remaining = self._panelsExcept(name)
+		if len(remaining) == len(self._activePanels):
+			return
+		self._activePanels = remaining
+		self.rebuildBuffer()
+
+	def _panelsExcept(self, name: str) -> list[BraillePanel]:
+		""":return: the active panels other than the one with a given name."""
+		return [panel for panel in self._activePanels if panel.name != name]
+
+	def _composeView(self, numRows: int, numCols: int, panels: list[BraillePanel]) -> SegmentView:
+		"""Lay a list of claims over the base view, in order.
+
+		:param numRows: number of rows on the display.
+		:param numCols: number of columns on the display.
+		:param panels: the claims to lay over it.
+		:return: the composed view.
+		:raises ValueError: if a claim does not fit.
+		:raises LookupError: if a claim takes the focus segment without replacing it.
+		"""
+		view = self._baseView(numRows, numCols)
+		for panel in panels:
+			view = view.withPanel(panel, numRows, numCols)
+		return view
+
+	def _baseView(self, numRows: int, numCols: int) -> SegmentView:
+		""":return: the view claims are laid over: an activated one, else the configured one."""
 		if self._activeView is not None:
 			try:
 				self._activeView.validate(numRows, numCols)
 				return self._activeView
 			except (ValueError, LookupError):
-				# The display changed under the view and its segments no longer fit.
+				# The display changed under the view and its panels no longer fit.
 				log.warning(
 					f"BrlMultiline: view {self._activeView.name!r} does not fit "
 					f"a {numRows} by {numCols} display; returning to the configured view",
@@ -133,11 +216,34 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				self._activeView = None
 		return viewFromConfig(numRows, numCols)
 
+	def _buildView(self, numRows: int, numCols: int) -> SegmentView:
+		"""Build the view to show, dropping any claim that no longer fits.
+
+		Claims are re-composed on every rebuild rather than being baked into a stored view,
+		so that a settings change or a display swap is answered by rebuilding the same
+		claims against the new base rather than by discarding them.
+		"""
+		view = self._baseView(numRows, numCols)
+		kept: list[BraillePanel] = []
+		for panel in self._activePanels:
+			try:
+				view = view.withPanel(panel, numRows, numCols)
+			except (ValueError, LookupError):
+				log.warning(
+					f"BrlMultiline: panel {panel.name!r} does not fit "
+					f"a {numRows} by {numCols} display; dropping it",
+					exc_info=True,
+				)
+				continue
+			kept.append(panel)
+		self._activePanels = kept
+		return view
+
 	def rebuildBuffer(self) -> None:
-		"""Build the buffer for the connected display and install it.
+		"""Build the container for the connected display and install it.
 
 		Called at startup, after the settings are saved, after the display changes, and
-		when a view is activated or restored.
+		when a view or panel is activated or removed.
 		"""
 		handler = braille.handler
 		if not handler or handler.displaySize == 0:
@@ -148,23 +254,47 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		dimensions = handler.displayDimensions
 		view = self._buildView(dimensions.numRows, dimensions.numCols)
 		try:
-			container = BrailleBufferContainer(handler, view)
+			container = DisplayContainer(handler, view)
 		except (ValueError, LookupError):
 			log.error(
 				f"BrlMultiline: could not build view {view.name!r}; using a single segment",
 				exc_info=True,
 			)
 			self._activeView = None
-			container = BrailleBufferContainer(
+			self._activePanels = []
+			container = DisplayContainer(
 				handler,
 				singleSegmentView(dimensions.numRows, dimensions.numCols),
 			)
-		self._monitors.clear()
+		self._carryOverMonitors(container)
 		wasShowingMainBuffer = handler.buffer is handler.mainBuffer
 		handler.mainBuffer = container
 		if wasShowingMainBuffer:
 			handler.buffer = container
 		self._refreshDisplay()
+		# After the display has been redrawn from the focus, so that a pinned object is
+		# written over the fresh layout rather than under it.
+		self.refreshMonitors()
+
+	def _carryOverMonitors(self, container: DisplayContainer) -> None:
+		"""Keep the pins whose segment survived into a new container, and drop the rest.
+
+		A pin names its segment by key, so it survives any rebuild that keeps that segment:
+		a settings change elsewhere on the display, a claim laid over other rows, a display
+		reconnecting at the same size. It is dropped when its segment is gone, and also when
+		a claim has taken over a segment of the same key, since the new owner would redraw
+		over the pin and the two would fight for the cells.
+
+		:param container: the container about to be installed.
+		"""
+		survivors = {
+			key: monitor
+			for key, monitor in self._monitors.items()
+			if container.hasKey(key) and not container.segmentForKey(key).isReserved
+		}
+		for key in self._monitors.keys() - survivors.keys():
+			log.debug(f"BrlMultiline: segment {key!r} is gone or claimed, so its pinned object is released")
+		self._monitors = survivors
 
 	def _restoreOriginalBuffer(self) -> None:
 		"""Put NVDA's own buffer back."""
@@ -216,14 +346,33 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	# Object monitoring
 
 	@property
-	def monitoredSegments(self) -> set[int]:
-		""":return: the segments currently holding a pinned object."""
+	def monitoredKeys(self) -> set[str]:
+		""":return: the keys of the segments currently holding a pinned object."""
 		return set(self._monitors)
+
+	@property
+	def monitoredSegments(self) -> set[int]:
+		""":return: the indices of the segments currently holding a pinned object.
+
+		Resolved afresh from the keys, so this reports where the pins are on the display
+		now rather than where they were when they were made.
+		"""
+		container = self.container
+		if container is None:
+			return set()
+		numbers = set()
+		for key in self._monitors:
+			try:
+				numbers.add(container.numberForKey(key))
+			except LookupError:
+				continue
+		return numbers
 
 	def startMonitoring(self, segmentNumber: int) -> None:
 		"""Pin the navigator object to a segment.
 
-		:param segmentNumber: the segment to pin it to.
+		:param segmentNumber: the segment to pin it to, as the per segment commands count
+			them. The pin itself is held by key, so it survives a later rebuild.
 		"""
 		container = self.container
 		if container is None:
@@ -241,13 +390,23 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when asked to pin an object to the segment that follows focus.
 			ui.message(_("That segment follows the focus, so it cannot hold a pinned object"))
 			return
+		segment = container.segments[resolved]
+		if segment.isReserved:
+			# Something else already owns these cells and will keep redrawing them, so a
+			# pin here would be overwritten without the user being told why.
+			ui.message(
+				# Translators: reported when asked to pin an object to a segment another
+				# feature has claimed. Placeholders are the segment number and the claim's name.
+				_("Segment {number} is in use by {owner}").format(number=resolved, owner=segment.owner),
+			)
+			return
 		obj = api.getNavigatorObject()
 		if obj is None:
 			# Translators: reported when there is no object to pin.
 			ui.message(_("No object to monitor"))
 			return
-		monitor = ObjectMonitor(obj, resolved)
-		self._monitors[resolved] = monitor
+		monitor = ObjectMonitor(obj, segment.key)
+		self._monitors[segment.key] = monitor
 		monitor.refresh()
 		# Translators: reported when an object is pinned to a segment.
 		# Placeholders are the object's name and the segment number.
@@ -265,13 +424,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			resolved = container.resolveSegmentNumber(segmentNumber)
 		except LookupError:
 			return
-		if resolved not in self._monitors:
+		key = container.segments[resolved].key
+		if key not in self._monitors:
 			# Translators: reported when asked to stop monitoring a segment that is not monitored.
 			# The placeholder is replaced with the segment number.
 			ui.message(_("Segment {number} is not monitoring anything").format(number=resolved))
 			return
-		del self._monitors[resolved]
-		container.clear(resolved)
+		del self._monitors[key]
+		container.clear(key)
 		container.update()
 		container.updateDisplay()
 		# Translators: reported when an object is unpinned from a segment.
@@ -281,10 +441,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def stopAllMonitoring(self) -> None:
 		"""Release every monitored segment, without announcing anything."""
 		container = self.container
-		for segmentNumber in list(self._monitors):
-			del self._monitors[segmentNumber]
-			if container is not None:
-				container.clear(segmentNumber)
+		for key in list(self._monitors):
+			del self._monitors[key]
+			if container is not None and container.hasKey(key):
+				container.clear(key)
 
 	def refreshMonitors(self) -> None:
 		"""Redraw every pinned object. Called when a monitored object may have changed."""
@@ -338,10 +498,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("BrlMultiline is not active"))
 			return
 		# Translators: reports the current layout. Placeholders are the name of the view,
-		# the number of segments, and the segment that follows the focus.
+		# the number of panels, the number of segments, and the segment following the focus.
 		ui.message(
-			_("{view} view, {count} segments, focus in segment {focus}").format(
+			_("{view} view, {panels} panels, {count} segments, focus in segment {focus}").format(
 				view=container.view.name,
+				panels=len(container.panels),
 				count=container.numSegments,
 				focus=container.focusSegmentNumber,
 			),

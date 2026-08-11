@@ -15,8 +15,17 @@ Added:
   follows the focus.
 - Reversed panning keys, stored per display. NVDA has no such setting of its own.
 - Per segment panning commands, unbound by default.
-- Pinning the navigator object to a segment, so it stays visible while the focus moves.
+- Pinning the navigator object to a segment, so it stays visible while the focus moves. A
+  pin survives a layout change as long as its segment does.
 - Optionally filling the segments around the focus segment with the document lines above
   and below the caret.
+
+For add-on authors and component work:
+
+- Panels. Code can claim part of the display, subdivide it as it likes, and hand it back,
+  without disturbing the segments it did not claim. `plugin.activatePanel(panel)` and
+  `plugin.deactivatePanel(name)`.
+- Wrapping and cursor routing behaviour are per segment, so a claimed area can behave
+  differently from the display around it. Neither is exposed in the settings dialog.
 
 Not yet verified on hardware. See `docs/design/port-plan.md`.

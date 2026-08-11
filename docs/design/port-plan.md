@@ -19,11 +19,13 @@ Multi row display support (`DisplayDimensions`, `numRows`/`numCols`) is older an
 4. Milestone 4, TextInfoPositionRegion — CODE COMPLETE, UNVERIFIED ON HARDWARE
 5. Milestone 5, ObjectMonitor — CODE COMPLETE, UNVERIFIED ON HARDWARE
 6. Milestone 6, views — CODE COMPLETE, UNVERIFIED ON HARDWARE
+7. Milestone 7, panels and composition — CODE COMPLETE, UNVERIFIED ON HARDWARE
 
 What "code complete" means here: the add-on builds to an installable `.nvda-addon`, ruff
-passes clean, and 66 unit tests over the segment geometry pass. Nothing has been run
-inside NVDA or against a display. Do not treat any of it as working until the list under
-"Verification owed" has been worked through. That list is the next task.
+passes clean, and 237 unit tests over geometry, panels, views, the container and the
+document line regions pass. Nothing has been run inside NVDA or against a display. Do not
+treat any of it as working until the list under "Verification owed" has been worked
+through. That list is the next task.
 
 ## Milestone 1 — Scaffold
 
@@ -174,6 +176,11 @@ Built:
 - `activateView` and `restoreConfiguredView` on the plugin, with a single active view
   rather than a stack, and automatic fallback when a view no longer fits the display.
 
+Superseded in part by milestone 7: `SegmentView` no longer carries the routing and
+wrapping policies described here, and `activateView` is no longer the recommended way for
+code to take part of the display. Read milestone 7 before relying on anything in this
+section.
+
 Unit tests: 67 total, covering grid geometry in reading order, gap and overlap validation,
 routing across a 12 segment grid with a round trip over every covered cell and a check that
 no two display cells claim the same segment position, and the fill-rows arithmetic
@@ -181,6 +188,64 @@ including cut marking and buffer end handling.
 
 Deliberately not built: any actual component. The table reader is later work, and the open
 question below is its first design decision.
+
+## Milestone 7 — Panels and composition
+
+Built after milestone 6, in response to a design question that milestone 6 could not
+answer: what happens when an object is pinned to row 0 and a table then wants the rows
+below it?
+
+Under milestone 6 the answer was "the pin is lost". `activateView` replaced the whole
+arrangement, `rebuildBuffer` cleared every monitor, and segments were identified by index,
+so nothing could survive a layout change. Worse, `routingPolicy`, `fillRows` and `markCuts`
+lived on the view as single display-wide values, so a table wanting selection-style routing
+and a status row wanting ordinary routing could not coexist at all.
+
+The missing concept turned out to be a **claim**: an owner able to say "these cells are
+mine, do not fill them with document lines, do not renumber them out from under me, do not
+let another view take them silently".
+
+Built:
+
+- `SegmentSpec` in `panels.py`. Per-segment rectangle, stable key, owner, wrapping rule and
+  routing policy. Policy moved off the view and onto the segment, which is what allows two
+  behaviours on one display. Making it per segment did not expose it to the user; the
+  settings dialog is unchanged.
+- `BraillePanel` with `SinglePanel`, `RowsPanel`, `GridPanel` and `BlankPanel`. A claim on
+  a rectangle plus a rule for subdividing it, dissolved by `SegmentView.flatten()` before
+  the container is built, so nothing walks a tree at runtime.
+- `SegmentView.withPanel` and `withoutPanel` for composition. Panels the claim touches are
+  evicted whole, freed cells are given to blank panels, untouched panels keep their keys.
+- `validateCoverage` and `remainderRects` in `layout.py`. Panels must tile the display, so
+  every cell has a named owner; segments within a panel need not, so gutters still work.
+- Stable segment keys throughout. `_monitors` is keyed by them, `_carryOverMonitors` keeps
+  pins whose segment survived, `region.targetSegment` accepts a key or a number, and the
+  view names its focus segment by key.
+- `plugin.activatePanel` and `deactivatePanel`, with `_activePanels` re-composed on every
+  rebuild so a claim survives a settings change or a display swap.
+- `documentLines.isFree` as the single place deciding which segments may be written into,
+  reading the panel reservation and the runtime pin set together.
+- `RoutingPolicy` moved to `routing.py`, so `panels.py` can carry a policy without a cycle.
+
+Renames, all mechanical: `BrailleBufferContainer` is now `DisplayContainer`, since it holds
+segments and a view rather than buffers, and the word "buffer" already meant three things.
+`plugin.monitoredSegments` still exists but now resolves keys to current indices;
+`monitoredKeys` is the underlying store.
+
+Also fixed along the way: the configured view now builds **one panel per segment** rather
+than one display-wide panel. With a single panel any claim at all would have evicted the
+whole display, which defeated the point of composition. This was caught by the tests, not
+by inspection.
+
+Unit tests: 237 total. The new files are `test_coverage.py` (tiling and remainder
+geometry), `test_panels.py`, `test_views.py` (composition, including the monitor-plus-table
+scenario end to end), `test_container.py` and `test_documentLines.py`. The last three run
+against stand-in NVDA modules in `tests/unit/brlMultiline/_stubs.py`, which supplies a
+crude but honest `BrailleBuffer` so that layers above `layout.py` can be tested outside a
+running screen reader.
+
+Deliberately not built: any actual component. The table reader is still later work, but
+`GridPanel` plus `activatePanel` is now the interface it would use.
 
 ## Verification owed
 
@@ -206,6 +271,13 @@ trustworthy:
    cleanly and braille behaves normally.
 8. Swap displays while NVDA is running, confirming the buffer rebuilds with the other
    display's settings and does not recurse.
+9. Composition, once the above is trusted. Pin an object to segment 0, then activate a
+   `GridPanel` over the remaining rows from the Python console, and confirm the pin is
+   still readable and still updating. Then `deactivatePanel` and confirm the configured
+   view comes back with the pin intact. This is milestone 7's central claim and nothing
+   short of hardware proves it.
+10. Two routing policies at once: a grid cell and an ordinary segment on the same display,
+    confirming a routing press does the right thing in each.
 
 The first thing to try, being the simplest, is a Focus 80 split into two segments with
 nothing else enabled.
@@ -217,12 +289,16 @@ note in [architecture.md](architecture.md).
 
 ## Open design questions
 
-1. In a table view, which segment follows the focus? A view must designate one — see the
-   reasoning in [architecture.md](architecture.md) — and the natural answer is whichever
-   cell is current. This is the first design decision of the table component work.
+1. ~~In a table view, which segment follows the focus?~~ Answered in milestone 7. A panel
+   carries `focusSegmentKey`, naming the segment it offers if a claim would evict the
+   view's own; `GridPanel` offers its first cell. A claim that would strand the focus
+   without offering a replacement is refused. What remains open is whether a table should
+   *move* that designation as the current cell changes, which needs a real component to
+   decide against.
 2. Should the edge row scroll policy give up rows per segment or per display? Giving up
    two rows of a three row segment to scrolling is a lot. Wants deciding against real
-   content rather than in the abstract.
+   content rather than in the abstract. Now that policy is per segment, a mixed answer is
+   at least expressible: only the panel that needs it pays.
 3. Sub-row column splits stay out of the settings dialog, by decision: whole row groups on
    a multi row display, column slices on a single row display. Grids are reachable from
    code only.

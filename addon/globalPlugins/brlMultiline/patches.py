@@ -23,7 +23,7 @@ from config.configFlags import BrailleMode, TetherTo
 from logHandler import log
 
 from . import bmConfig, documentLines
-from .container import BrailleBufferContainer
+from .container import DisplayContainer
 
 _originalDoNewObject = None
 _originalScrollForward = None
@@ -57,7 +57,7 @@ def _applyFocusToHardLeft(handler: BrailleHandler, regions: list) -> None:
 def _doNewObjectMultiSegment(self: BrailleHandler, regions) -> None:
 	"""Replacement for `BrailleHandler._doNewObject` that knows about segments."""
 	container = self.mainBuffer
-	if not isinstance(container, BrailleBufferContainer) or container.numSegments == 1:
+	if not isinstance(container, DisplayContainer) or container.numSegments == 1:
 		# Nothing to sort. Let NVDA do exactly what it normally does.
 		return _originalDoNewObject(self, regions)
 	self.autoScroll(enable=False)
@@ -65,8 +65,10 @@ def _doNewObjectMultiSegment(self: BrailleHandler, regions) -> None:
 	for region in regions:
 		index = container.getSegmentNumberForRegion(region)
 		# Record the decision on the region, so that later calls which are handed a
-		# region but no segment (focus, scrollTo) can find their way back here.
-		region.targetSegment = index
+		# region but no segment (focus, scrollTo) can find their way back here. The key is
+		# recorded rather than the number, so the region still points at the same segment
+		# if the view is recomposed before those calls arrive.
+		region.targetSegment = container.specs[index].key
 		grouped[index].append(region)
 	for index, group in grouped.items():
 		if not group:
@@ -90,17 +92,22 @@ def _doNewObjectMultiSegment(self: BrailleHandler, regions) -> None:
 		self._dismissMessage()
 
 
-def _getMonitoredSegments() -> set:
-	""":return: the segments holding a pinned object, which must not be written over."""
+def _getMonitoredKeys() -> set[str]:
+	""":return: the keys of segments holding a pinned object, which must not be written over.
+
+	This is the runtime half of the reservation picture. The other half, panels that
+	reserved their segments when the view was composed, is carried on the segments
+	themselves and does not have to be gathered here.
+	"""
 	from . import getPlugin
 
 	plugin = getPlugin()
 	if plugin is None:
 		return set()
-	return set(plugin.monitoredSegments)
+	return set(plugin.monitoredKeys)
 
 
-def _populateDocumentLines(container: BrailleBufferContainer) -> None:
+def _populateDocumentLines(container: DisplayContainer) -> None:
 	"""Fill the free segments with the document lines around the caret, if configured.
 
 	Also takes back lines the add-on placed but should no longer be showing, whether
@@ -108,7 +115,7 @@ def _populateDocumentLines(container: BrailleBufferContainer) -> None:
 	"""
 	if container.numSegments == 1:
 		return
-	monitored = _getMonitoredSegments()
+	monitored = _getMonitoredKeys()
 	try:
 		if bmConfig.shouldShowDocumentLines():
 			changed = documentLines.populate(container, monitored)
@@ -136,7 +143,7 @@ def _handlePendingUpdateWithDocumentLines(self: BrailleHandler) -> None:
 	if not hadPendingUpdate:
 		return
 	container = self.mainBuffer
-	if not isinstance(container, BrailleBufferContainer) or container.numSegments == 1:
+	if not isinstance(container, DisplayContainer) or container.numSegments == 1:
 		return
 	if not bmConfig.shouldShowDocumentLines():
 		return

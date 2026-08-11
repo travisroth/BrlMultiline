@@ -44,6 +44,54 @@ class SegmentRect:
 		""":return: the total number of cells in this segment."""
 		return self.numRows * self.numCols
 
+	@property
+	def endRow(self) -> int:
+		""":return: one past the last display row this rectangle occupies."""
+		return self.row + self.numRows
+
+	@property
+	def endCol(self) -> int:
+		""":return: one past the last display column this rectangle occupies."""
+		return self.col + self.numCols
+
+
+def wholeDisplayRect(numRows: int, numCols: int) -> SegmentRect:
+	""":return: the rectangle covering an entire display of the given size."""
+	return SegmentRect(row=0, col=0, numRows=numRows, numCols=numCols)
+
+
+def rectContains(outer: SegmentRect, inner: SegmentRect) -> bool:
+	""":return: whether `inner` lies entirely within `outer`."""
+	return (
+		inner.row >= outer.row
+		and inner.col >= outer.col
+		and inner.endRow <= outer.endRow
+		and inner.endCol <= outer.endCol
+	)
+
+
+def rectsIntersect(first: SegmentRect, second: SegmentRect) -> bool:
+	""":return: whether two rectangles share at least one cell."""
+	return (
+		first.row < second.endRow
+		and second.row < first.endRow
+		and first.col < second.endCol
+		and second.col < first.endCol
+	)
+
+
+def translateRect(rect: SegmentRect, row: int, col: int) -> SegmentRect:
+	"""Move a rectangle by an offset.
+
+	Used to turn coordinates that are relative to a panel into display coordinates.
+
+	:param rect: the rectangle to move.
+	:param row: rows to add.
+	:param col: columns to add.
+	:return: the moved rectangle.
+	"""
+	return SegmentRect(row=rect.row + row, col=rect.col + col, numRows=rect.numRows, numCols=rect.numCols)
+
 
 def divideEvenly(total: int, parts: int) -> list[int]:
 	"""Divide `total` into `parts` sizes that differ by at most one.
@@ -103,6 +151,39 @@ def calculateSegmentRects(
 			rects.append(SegmentRect(row=0, col=offset, numRows=1, numCols=size))
 		offset += size
 	return rects
+
+
+def calculateSegmentRectsIn(rect: SegmentRect, layout: int | list[int]) -> list[SegmentRect]:
+	"""Divide a rectangle of the display into segments, as L{calculateSegmentRects} does.
+
+	The difference is one of frame: `calculateSegmentRects` divides a whole display, while
+	this divides a panel's claim and returns the result in display coordinates. A panel one
+	row tall is divided into columns, exactly as a single row display is.
+
+	:param rect: the rectangle to divide, in display coordinates.
+	:param layout: a count of segments to divide evenly into, or explicit sizes.
+	:return: one rectangle per segment, in display coordinates.
+	:raises ValueError: if the layout does not fit the rectangle.
+	"""
+	inner = calculateSegmentRects(rect.numRows, rect.numCols, layout)
+	return [translateRect(each, rect.row, rect.col) for each in inner]
+
+
+def calculateGridRectsIn(
+	rect: SegmentRect,
+	rowBands: list[int],
+	colWidths: list[int],
+) -> list[SegmentRect]:
+	"""Divide a rectangle of the display into a grid, as L{calculateGridRects} does.
+
+	:param rect: the rectangle to divide, in display coordinates.
+	:param rowBands: heights of each band, in rows, top to bottom.
+	:param colWidths: widths of each column, in cells, left to right.
+	:return: one rectangle per grid cell, in display coordinates, in reading order.
+	:raises ValueError: if the grid does not fit the rectangle.
+	"""
+	inner = calculateGridRects(rect.numRows, rect.numCols, rowBands, colWidths)
+	return [translateRect(each, rect.row, rect.col) for each in inner]
 
 
 def calculateFilledRowOffsets(
@@ -215,6 +296,79 @@ def validateRects(rects: list[SegmentRect], numRows: int, numCols: int) -> None:
 				if (row, col) in occupied:
 					raise ValueError(f"Segment {index} overlaps an earlier segment at row {row}, cell {col}")
 				occupied.add((row, col))
+
+
+def validateCoverage(rects: list[SegmentRect], numRows: int, numCols: int) -> None:
+	"""Check that a set of rectangles covers a display exactly once over.
+
+	This is the rule panels are held to, and it is stricter than L{validateRects}. Every
+	cell has to belong to exactly one panel, so that the question "who owns this cell" always
+	has an answer. Composition depends on it: a new claim can then only take cells from a
+	panel that can be named and evicted, rather than quietly landing on unowned ground.
+
+	Segments within a panel are not held to this rule, so a panel may still leave blank
+	cells between its segments. Those cells belong to the panel that chose to leave them.
+
+	:param rects: the rectangles to check.
+	:param numRows: number of rows on the display.
+	:param numCols: number of columns on the display.
+	:raises ValueError: if the rectangles overlap, fall outside, or leave cells uncovered.
+	"""
+	validateRects(rects, numRows, numCols)
+	# validateRects has already rejected overlaps and out of bounds rectangles, so the
+	# areas cannot double count and comparing totals is enough to prove full coverage.
+	covered = sum(rect.displaySize for rect in rects)
+	expected = numRows * numCols
+	if covered != expected:
+		raise ValueError(
+			f"Panels cover {covered} of the {expected} cells on a {numRows} by {numCols} display; "
+			f"{expected - covered} would have no owner",
+		)
+
+
+def remainderRects(claimed: list[SegmentRect], numRows: int, numCols: int) -> list[SegmentRect]:
+	"""Work out which rectangles are needed to cover whatever the claims leave over.
+
+	Used when composing a view: evicting a panel to make room for a new claim can free
+	cells that the new claim does not want, and something has to own them for
+	L{validateCoverage} to pass.
+
+	:param claimed: rectangles already spoken for. Overlaps and out of bounds cells are
+		ignored rather than rejected, since the caller is mid composition.
+	:param numRows: number of rows on the display.
+	:param numCols: number of columns on the display.
+	:return: rectangles covering every cell not in `claimed`, largest spans first, in
+		reading order. Empty if the claims already cover the display.
+	"""
+	occupied = [[False] * numCols for _ in range(numRows)]
+	for rect in claimed:
+		for row in range(max(0, rect.row), min(numRows, rect.endRow)):
+			for col in range(max(0, rect.col), min(numCols, rect.endCol)):
+				occupied[row][col] = True
+	rects: list[SegmentRect] = []
+	for row in range(numRows):
+		col = 0
+		while col < numCols:
+			if occupied[row][col]:
+				col += 1
+				continue
+			# Take the widest free run on this row, then push it down as far as the same
+			# run is free, so that a freed block comes back as one rectangle rather than
+			# as one per row.
+			end = col
+			while end < numCols and not occupied[row][end]:
+				end += 1
+			height = 1
+			while row + height < numRows and not any(
+				occupied[row + height][each] for each in range(col, end)
+			):
+				height += 1
+			rects.append(SegmentRect(row=row, col=col, numRows=height, numCols=end - col))
+			for filled in range(row, row + height):
+				for each in range(col, end):
+					occupied[filled][each] = True
+			col = end
+	return rects
 
 
 def findSegmentAtWindowPos(

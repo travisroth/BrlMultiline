@@ -5,17 +5,20 @@ established there.
 
 ## Module map
 
-- `layout.py` — segment geometry and the fill-rows arithmetic. Imports nothing from NVDA,
-  so it can be unit tested.
-- `views.py` — `SegmentView`, routing policies, and the configured and single segment views.
+- `layout.py` — rectangle geometry, coverage rules, and the fill-rows arithmetic. Imports
+  nothing from NVDA, so it can be unit tested.
+- `routing.py` — `RoutingPolicy` and its variants. Separate from `views.py` so that
+  `panels.py` can carry a policy without importing the layer built on top of it.
+- `panels.py` — `SegmentSpec` and `BraillePanel` with its subclasses. Also NVDA-free.
+- `views.py` — `SegmentView`, composition, and the configured and single segment views.
 - `segments.py` — `_SegmentHandlerProxy` and `BrailleBufferSegment`.
-- `container.py` — `BrailleBufferContainer` and `FakeRegionsList`.
+- `container.py` — `DisplayContainer` and `FakeRegionsList`.
 - `patches.py` — the three patches to `BrailleHandler`, installed and removed together.
 - `documentLines.py` — `TextInfoPositionRegion` and the code that fills free segments.
 - `objectMonitor.py` — pinning an object to a segment.
 - `bmConfig.py` — per display configuration. Named to avoid shadowing NVDA's `config`.
 - `settingsPanel.py` — the NVDA settings category.
-- `__init__.py` — the global plugin: lifetime, commands, and object monitor state.
+- `__init__.py` — the global plugin: lifetime, claims, commands, and object monitor state.
 
 ## The problem in one paragraph
 
@@ -23,32 +26,101 @@ established there.
 it. To get several independent areas on the display, something has to stand in the place
 of that single buffer, present the combined result as if it were one buffer, and fan the
 individual operations out to the real buffers behind it. That stand-in is
-`BrailleBufferContainer`, and the real buffers behind it are `BrailleBufferSegment`s.
+`DisplayContainer`, and the real buffers behind it are `BrailleBufferSegment`s.
 
-## Everything on the display is a view
+## Three concepts, distinguished by what each is the unit of
 
-A `SegmentView` is a complete way of using the display. It carries four things:
+The layering exists because three different questions need three different answers. Each
+concept is the unit of exactly one thing:
 
-1. the rectangle each segment occupies,
-2. which segment follows the system focus,
-3. whether segments fill their rows or wrap at word boundaries,
-4. what a cursor routing key press does.
+1. **`SegmentView` is the unit of activation.** One at a time. It is a recipe rather than
+   live state: named, built from configuration or from code, validated against a display
+   size, and handed to the plugin. It owns the panel list and names the segment that
+   follows the focus.
+2. **`BraillePanel` is the unit of reservation and composition.** One owner, one rectangle,
+   and a rule for subdividing it. This is what code hands the plugin when it wants part of
+   the display: a table reader claims rows without knowing or caring what holds the rest.
+3. **`BrailleBufferSegment` is the unit of content.** A real NVDA `BrailleBuffer` with its
+   own regions, its own window, and its own policies. This is what scrolls, what a routing
+   key hits, and what a region is targeted at.
+
+You compose panels; you activate a view. A panel cannot be a view because a panel does not
+know about the rest of the display, and that ignorance is the point.
 
 There is no separate "plain" path. The single segment arrangement that matches NVDA's own
-behaviour is a view; the layout the user configures in the settings dialog is a view; a
-table reader's grid would be a view. One construction path, one place to validate, one
-thing to swap.
+behaviour is a view; the layout configured in the settings dialog is a view; a table
+reader's grid is a panel laid over one. One construction path, one place to validate.
 
-`viewFromConfig` builds the user's configured view, and `singleSegmentView` builds the
-fallback used when anything does not fit. Code driving the display directly builds its own
-and calls `plugin.activateView(view)`; `plugin.restoreConfiguredView()` hands the display
-back. Only one activated view exists at a time — activating a second replaces the first,
-rather than stacking, because out-of-order teardown between two components that each think
-they own the display is a bug waiting to happen.
+## Panels dissolve before the display runs
 
-If the display changes under an activated view, the view is validated against the new
-geometry and dropped if it no longer fits. Rectangles are geometry-specific, so a view
-built for a Monarch is almost never valid on a Focus 80.
+`SegmentView.flatten()` turns the panels into a flat list of `SegmentSpec`s, sorted into
+display order, and that list is what `DisplayContainer` builds from. Panels do not survive
+into the running display.
+
+This is deliberate. Every operation the container performs is leaf-oriented —
+`findSegmentAtWindowPos` locates a leaf, `windowBrailleCells` composites leaves, `update`
+and `saveWindow` iterate leaves. Not one of them wants an intermediate node. Keeping the
+tier at runtime would force every method to decide whether it walks panels or segments, and
+that decision would eventually be made inconsistently.
+
+The panels remain reachable through `container.view.panels`, for composing the next view
+and for reporting the layout, but they carry no live state.
+
+### A `SegmentSpec` is everything that does not change
+
+```
+SegmentSpec(rect, key, owner, fillRows, markCuts, routingPolicy)
+```
+
+A panel stamps its defaults onto the specs it produces via `buildSpec`. The container
+builds one segment per spec, and the segment exposes `key`, `owner`, `isReserved` and
+`routingPolicy` straight off it.
+
+Crucially, **a value living on a segment is not a value exposed to the user.** The settings
+dialog still sets only the layout and the focus segment; a configured view stamps one
+uniform policy across its segments. Code composing a panel gets full per-segment control
+without any of it reaching the dialog.
+
+## Panels must tile the display; their segments need not
+
+`validateCoverage` requires the panels of a view to cover every cell exactly once.
+`validateRects`, which segments are held to, requires only that they fit and do not overlap.
+
+The asymmetry is what makes composition safe. If every cell belongs to exactly one panel,
+then "who owns this cell" always has an answer, and a new claim can only take cells from a
+panel that can be named and evicted — rather than quietly landing on unowned ground.
+
+Gaps remain possible, and remain useful for putting a blank row between segments, but they
+now live *inside* a panel. The blank cells belong to the panel that chose to leave them.
+`BlankPanel` is the degenerate case: it claims cells and produces no segments at all, so no
+buffer is allocated and the cells composite blank. `remainderRects` computes the filler
+automatically, so no caller has to do the arithmetic.
+
+### Composition: `withPanel`
+
+`view.withPanel(panel, numRows, numCols)` returns a new view. Panels the claim touches are
+evicted **whole** — a panel is a rectangle and has to stay one, so there is no partial
+eviction. Cells freed but not wanted are given to blank panels. Panels the claim does not
+touch are carried over untouched, keeping their segment keys.
+
+That last sentence is the entire point. It is what lets an object pinned in row 0 survive a
+table claiming rows 2 to 7: the panel holding it was never involved.
+
+Because the configured view puts **one panel per segment**, claims can be precise. Had it
+been a single display-wide panel, any claim at all would have evicted the whole thing.
+
+### Keys, not numbers, are identity
+
+`SegmentSpec.key` is stable across a rebuild; the index is display order and is reassigned
+whenever the layout changes. Anything that must survive a rebuild holds a key: the view's
+focus segment, a pinned object's segment, a region's `targetSegment`.
+
+Indices have not gone away. `flatten()` still numbers segments in display order, so
+`script_scrollSegment3Forward` and the settings dialog keep counting as before. Keys exist
+alongside them, not instead of them — there is no user-visible name for a segment, and
+inventing one would be worse than counting.
+
+`getSegmentNumberForRegion` accepts either, so a region targeted the old way still works.
 
 ### A view must have a focus segment
 
@@ -57,34 +129,37 @@ Deliberate constraint, worth revisiting when there is a real case against it. NV
 so there always has to be a segment for untargeted content to land in. A view with no focus
 segment would leave those reads with nothing to resolve to.
 
-A table view is expected to designate whichever cell is current, which is probably the
-right behaviour anyway rather than a workaround.
+This becomes a live question during composition. If a claim would evict the focus segment,
+the claim must offer a replacement through `BraillePanel.focusSegmentKey`, or `withPanel`
+raises `LookupError`. `GridPanel` offers its first cell by default, which is probably the
+right behaviour for a table anyway rather than a workaround.
 
 ### How many segments
 
-There is no fixed limit. The real constraint is geometric — segments must fit inside the
-display and not overlap — and `validateRects` enforces exactly that. Gaps are allowed and
-render blank, which is how a view puts gutters between segments.
+There is no fixed limit. The real constraint is geometric, and `validateCoverage` and
+`validateRects` enforce it between them.
 
 `MAX_UI_SEGMENTS` is 8, and it constrains only the settings dialog, the config spec, and
 how many per segment commands are generated. A view built in code may have more segments
 than that; a 4 by 3 grid on a Monarch has twelve. Note that segments past the eighth have
 no generated scroll commands, which is part of why routing policies exist.
 
-### Routing policies
+### Routing policies are per segment
 
 `RoutingPolicy.route(container, segmentNumber, segmentPos)` decides what a routing key
-press does. The default routes within the segment pressed, which is ordinary display
-behaviour, and is what every view gets unless it says otherwise.
+press does. The policy lives on the segment, not on the view, so a table cell can treat a
+press as a selection while the segment beside it routes into text in the ordinary way. In
+practice a policy is chosen once per panel and cascades to that panel's segments.
 
-`EdgeRowScrollRoutingPolicy` is a worked example for views with more segments than there
+`EdgeRowScrollRoutingPolicy` is a worked example for panels with more segments than there
 are keys to drive them: a press in a segment's top row scrolls it back, one in its bottom
 row scrolls it forward, anything between routes normally. It is a starting point, not a
-settled design — whether the edge rows should be per segment or per display, and whether
+settled design — whether the edge rows should be per segment or per panel, and whether
 giving up two rows of three is acceptable, wants deciding against real content.
 
 The hook lives in `container.routeTo`, so no additional patch to NVDA was needed:
-`handler.routeTo` already delegates straight to the buffer.
+`handler.routeTo` already delegates straight to the buffer. A press landing in space a
+panel is keeping blank finds no segment and is ignored, which is not an error.
 
 ## A segment is a rectangle
 
@@ -157,7 +232,7 @@ inheriting the user's own setting rather than trying to force a different one.
 
 ## The container composites, it does not concatenate
 
-`BrailleBufferContainer` presents the `BrailleBuffer` interface to `BrailleHandler`
+`DisplayContainer` presents the `BrailleBuffer` interface to `BrailleHandler`
 without inheriting from it (it derives from `baseObject.AutoPropertyObject`, so NVDA's
 `_get_` / `_set_` auto property protocol works).
 
@@ -168,7 +243,9 @@ would land in the wrong place.
 
 Instead the container allocates a blank `numRows * numCols` array and blits each segment's
 window cells into it at the segment's origin. One routine, correct for column slices,
-whole row groups, and grids alike.
+whole row groups, and grids alike. Cells no segment covers stay blank, which is how a panel
+that claims space in order to keep it empty gets its way, and which also means the container
+already pads a short write — there is no separate padding step to arrange.
 
 Cursor position maps the same way. A segment reports a cursor position in its own window
 coordinates; the container converts that to `(row, col)` within the segment, offsets by the
@@ -189,8 +266,9 @@ about segments fall into three groups:
    position identifies a row and column, which identifies a segment, and the position is
    rebased into that segment's coordinates.
 
-Scroll operations take an optional explicit segment number, which is how the per-segment
-scroll commands reach a segment that does not have focus.
+Scroll operations take an optional explicit segment, by number or by key, which is how the
+per-segment scroll commands reach a segment that does not have focus. `clear` accepts
+either too.
 
 ## Which segment has focus
 
@@ -199,6 +277,10 @@ scroll commands reach a segment that does not have focus.
 display; `-1` means the last segment, matching the 2023 convention. Internally the
 container always stores a resolved, non-negative index, so that `-1` is a sentinel at the
 boundary rather than a value that has to be interpreted everywhere.
+
+The view names its focus segment by key rather than by number, and the container resolves
+it once at construction. `focusSegmentKey` reports it back. That is what lets composition
+reason about whether a claim would strand the focus.
 
 `FakeRegionsList` is the list-like proxy that stands in for `container.regions`, because
 `BrailleHandler` appends to and indexes that attribute directly rather than calling a
@@ -223,11 +305,33 @@ survive a focus change with no further intervention.
 
 The container does not inherit from `BrailleBuffer`, which is right at runtime but makes
 pyright noisy. Narrowing `handler.mainBuffer` (declared as `BrailleBuffer`) with
-`isinstance(..., BrailleBufferContainer)` makes pyright synthesise an intersection of the
+`isinstance(..., DisplayContainer)` makes pyright synthesise an intersection of the
 two classes, and method resolution in that synthetic class can pick `BrailleBuffer`'s
 version of a same-named method. It reports, for instance, that `container.clear(index)`
 passes too many arguments, having resolved `clear` to NVDA's no-argument version. These
 are artifacts, not defects. Do not "fix" them by changing the call sites.
+
+## Claims outlive a view
+
+Two kinds of claim survive a rebuild, and the plugin owns both.
+
+**Panels activated by code** are stored in `_activePanels` and re-composed onto the base
+view on every rebuild, rather than being baked into a stored view. A settings change or a
+display swap is therefore answered by rebuilding the same claims against the new base. A
+claim that no longer fits is dropped and reported, not silently kept.
+
+**Pinned objects** are held in `_monitors`, keyed by segment key. `_carryOverMonitors` keeps
+every pin whose segment survived into the new container and drops the rest. A pin is
+released only when its segment is genuinely gone — not merely because something else on the
+display changed.
+
+`plugin.activatePanel(panel)` is the entry point for code wanting part of the display, and
+`plugin.deactivatePanel(name)` gives it back. `plugin.activateView(view)` still exists for
+replacing the whole arrangement, but a panel should be preferred: a view replaces
+everything, including segments other code is relying on.
+
+Pinning into a segment another panel has reserved is refused with a spoken message, because
+the owner would keep redrawing over it and the user would not be told why.
 
 ## Reverse panning, per display
 
@@ -245,9 +349,22 @@ buffer timer reset, auto scroll timer reset).
 
 ## Document lines
 
-When enabled, the segments that are neither the focus segment nor holding a pinned object
-are filled with `TextInfoPositionRegion`s reading the document at a fixed line offset:
-segment k shows the line `k - focusSegmentNumber` away from the caret.
+When enabled, the **free** segments are filled with `TextInfoPositionRegion`s reading the
+document at a fixed line offset: segment k shows the line `k - focusSegmentNumber` away
+from the caret.
+
+`documentLines.isFree` is the single place that decides. Three things put a segment out of
+bounds, and they arrive by different routes:
+
+1. It follows the system focus, so it already shows the caret's own line.
+2. `spec.owner` reserves it for a panel — a claim made when the view was composed. A
+   table's grid cells are excluded this way, which is what stops nine cells being flooded
+   with document lines the moment a table appears.
+3. Its key is in the runtime-claimed set, because an object is pinned there. Pinning
+   happens long after the view was composed, so it cannot be carried on the spec.
+
+Reserved segments still count towards the offsets, so the lines stay in step with the rows
+they are printed on rather than shuffling around a skipped row.
 
 The offsets never change. Nothing rotates as the caret moves; each region simply re-reads
 its own line. This is the deliberate simplification against the 2023 ScrollingManager,

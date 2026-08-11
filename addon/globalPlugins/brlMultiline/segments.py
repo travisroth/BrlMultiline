@@ -20,11 +20,13 @@ from braille.display import DisplayDimensions
 from braille.regions.base import Region
 
 from .layout import SegmentRect, calculateFilledRowOffsets
+from .panels import SegmentSpec
+from .routing import RoutingPolicy
 
 if TYPE_CHECKING:
 	from braille.brailleHandler import BrailleHandler
 
-	from .container import BrailleBufferContainer
+	from .container import DisplayContainer
 
 
 class _SegmentHandlerProxy:
@@ -36,7 +38,7 @@ class _SegmentHandlerProxy:
 	def __init__(
 		self,
 		handler: "BrailleHandler",
-		container: "BrailleBufferContainer",
+		container: "DisplayContainer",
 		rect: SegmentRect,
 	) -> None:
 		"""
@@ -91,25 +93,22 @@ class BrailleBufferSegment(BrailleBuffer):
 	def __init__(
 		self,
 		handler: "BrailleHandler",
-		container: "BrailleBufferContainer",
-		rect: SegmentRect,
-		fillRows: bool = False,
-		markCuts: bool = False,
+		container: "DisplayContainer",
+		spec: SegmentSpec,
 	) -> None:
 		"""
 		:param handler: the real braille handler.
 		:param container: the container that owns this segment.
-		:param rect: the rectangle this segment occupies.
-		:param fillRows: fill each row completely rather than wrapping at word
-			boundaries. See L{_calculateWindowRowBufferOffsets}.
-		:param markCuts: when filling rows, mark a row that was cut mid word.
+		:param spec: everything about this segment that does not change once it is built:
+			its rectangle, its key, its owner, and the policies it behaves by.
 		"""
-		proxy = _SegmentHandlerProxy(handler, container, rect)
+		proxy = _SegmentHandlerProxy(handler, container, spec.rect)
 		super().__init__(proxy)
 		proxy.segment = self
-		self.rect = rect
-		self.fillRows = fillRows
-		self.markCuts = markCuts
+		self.spec = spec
+		self.rect = spec.rect
+		self.fillRows = spec.fillRows
+		self.markCuts = spec.markCuts
 		self.isFocusBuffer = False
 		"""Whether this segment is the one tracking the system focus."""
 		self.hasSavedWindow = False
@@ -118,6 +117,29 @@ class BrailleBufferSegment(BrailleBuffer):
 		An empty segment cannot save a window position, which is a normal state rather
 		than an error, so the container tracks it instead of relying on exceptions.
 		"""
+
+	@property
+	def key(self) -> str:
+		""":return: this segment's stable identity, unchanged across a rebuild."""
+		return self.spec.key
+
+	@property
+	def owner(self) -> str | None:
+		""":return: the panel that reserved this segment, or None if it is free."""
+		return self.spec.owner
+
+	@property
+	def isReserved(self) -> bool:
+		""":return: whether this segment belongs to a panel that claimed it.
+
+		A free segment is one the add-on may fill with the document lines around the caret.
+		"""
+		return self.spec.isReserved
+
+	@property
+	def routingPolicy(self) -> RoutingPolicy:
+		""":return: what a cursor routing key press within this segment does."""
+		return self.spec.routingPolicy
 
 	def clear(self) -> None:
 		super().clear()
@@ -173,6 +195,6 @@ class BrailleBufferSegment(BrailleBuffer):
 
 	def __repr__(self) -> str:
 		return (
-			f"<BrailleBufferSegment rect={self.rect} "
+			f"<BrailleBufferSegment {self.key!r} rect={self.rect} owner={self.owner!r} "
 			f"isFocusBuffer={self.isFocusBuffer} regions={len(self.regions)}>"
 		)

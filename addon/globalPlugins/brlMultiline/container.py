@@ -1,4 +1,4 @@
-# BrlMultiline: the multi segment braille buffer.
+# BrlMultiline: the whole braille display.
 # Part of the BrlMultiline add-on for NVDA.
 # Copyright (C) 2026 Travis Roth <travis@travisroth.com>
 # This file is covered by the GNU General Public License version 2.
@@ -6,9 +6,15 @@
 """A stand-in for NVDA's single braille buffer that fans out to several segments.
 
 `BrailleHandler` owns exactly one `mainBuffer` and treats the display as one window onto
-it. `BrailleBufferContainer` takes that buffer's place, presents the combined result of
-several segments as though it were one buffer, and dispatches individual operations to
-the segment they belong to.
+it. `DisplayContainer` takes that buffer's place, presents the combined result of several
+segments as though it were one buffer, and dispatches individual operations to the segment
+they belong to.
+
+The container's own members are flat. A view composes panels, but `SegmentView.flatten`
+dissolves them into an ordered list of segment specifications before the container is
+built, so nothing here walks a tree: every operation iterates segments in display order.
+The view is kept so that the next view can be composed from it, and so that the layout can
+be reported, but no operation below consults it except to reach the panels for reporting.
 """
 
 from collections.abc import Iterator, MutableSequence
@@ -25,6 +31,7 @@ if TYPE_CHECKING:
 	from braille.brailleHandler import BrailleHandler
 	from braille.regions.base import Region
 
+	from .panels import SegmentSpec
 	from .views import SegmentView
 
 
@@ -37,7 +44,7 @@ class FakeRegionsList(MutableSequence):
 	focus does not leave this object pointing at the wrong list.
 	"""
 
-	def __init__(self, container: "BrailleBufferContainer") -> None:
+	def __init__(self, container: "DisplayContainer") -> None:
 		self._container = container
 
 	@property
@@ -71,8 +78,8 @@ class FakeRegionsList(MutableSequence):
 		return f"<FakeRegionsList {self._target!r}>"
 
 
-class BrailleBufferContainer(baseObject.AutoPropertyObject):
-	"""Divides the braille display into independently scrolling segments.
+class DisplayContainer(baseObject.AutoPropertyObject):
+	"""The whole braille display, divided into independently scrolling segments.
 
 	Presents the `BrailleBuffer` interface to `BrailleHandler`, without inheriting from
 	it: almost every method would have to be overridden anyway, and inheriting would
@@ -85,7 +92,8 @@ class BrailleBufferContainer(baseObject.AutoPropertyObject):
 		:param view: the arrangement of the display to build. Everything is a view,
 			including the plain single segment arrangement that matches NVDA's own
 			behaviour.
-		:raises ValueError: if the view's segments do not fit the display, or overlap.
+		:raises ValueError: if the view's panels do not tile the display, or its segments
+			overlap or share a key.
 		:raises LookupError: if the view's focus segment does not exist.
 		"""
 		self.handler = handler
@@ -94,15 +102,12 @@ class BrailleBufferContainer(baseObject.AutoPropertyObject):
 		self.numCols = dimensions.numCols
 		view.validate(self.numRows, self.numCols)
 		self.view = view
-		self.rects: list[SegmentRect] = list(view.rects)
-		self.segments = [
-			BrailleBufferSegment(handler, self, rect, fillRows=view.fillRows, markCuts=view.markCuts)
-			for rect in self.rects
-		]
-		self._focusSegmentNumber = len(self.segments) - 1
+		self.specs: list["SegmentSpec"] = view.flatten()
+		self.rects: list[SegmentRect] = [spec.rect for spec in self.specs]
+		self.segments = [BrailleBufferSegment(handler, self, spec) for spec in self.specs]
+		self._byKey = {spec.key: index for index, spec in enumerate(self.specs)}
+		self._focusSegmentNumber = self._byKey[view.focusSegmentKey]
 		self.segments[self._focusSegmentNumber].isFocusBuffer = True
-		if view.focusSegmentNumber != -1:
-			self.focusSegmentNumber = view.focusSegmentNumber
 		self._regionsProxy = FakeRegionsList(self)
 		# Informational copies of the combined buffer state, kept for code that reads
 		# these attributes off a buffer directly. The handler itself uses the window
@@ -111,14 +116,15 @@ class BrailleBufferContainer(baseObject.AutoPropertyObject):
 		self.brailleCells: list[int] = []
 		self.cursorPos: int | None = None
 		log.debug(
-			f"BrailleBufferContainer: {len(self.segments)} segments "
-			f"on {self.numRows} rows by {self.numCols} columns",
+			f"DisplayContainer: view {view.name!r}, {len(self.panels)} panels, "
+			f"{len(self.segments)} segments on {self.numRows} rows by {self.numCols} columns",
 		)
 
 	def __repr__(self) -> str:
 		return (
-			f"<BrailleBufferContainer view={self.view.name!r} {len(self.segments)} segments, "
-			f"focus {self._focusSegmentNumber}, {self.numRows}x{self.numCols}>"
+			f"<DisplayContainer view={self.view.name!r} {len(self.segments)} segments, "
+			f"focus {self._focusSegmentNumber} ({self.focusSegmentKey!r}), "
+			f"{self.numRows}x{self.numCols}>"
 		)
 
 	# Segment bookkeeping
@@ -128,9 +134,24 @@ class BrailleBufferContainer(baseObject.AutoPropertyObject):
 		return len(self.segments)
 
 	@property
+	def panels(self) -> list:
+		""":return: the panels the current view is composed of."""
+		return self.view.panels
+
+	@property
 	def focusSegment(self) -> BrailleBufferSegment:
 		"""The segment that tracks the system focus."""
 		return self.segments[self._focusSegmentNumber]
+
+	@property
+	def focusSegmentKey(self) -> str:
+		""":return: the key of the segment tracking the system focus."""
+		return self.specs[self._focusSegmentNumber].key
+
+	@property
+	def reservedKeys(self) -> set[str]:
+		""":return: the keys of segments claimed by a panel, which must be left alone."""
+		return {spec.key for spec in self.specs if spec.isReserved}
 
 	focusSegmentNumber: int
 	"""Index of the segment tracking the system focus."""
@@ -161,11 +182,40 @@ class BrailleBufferContainer(baseObject.AutoPropertyObject):
 			return number
 		raise LookupError(f"No segment numbered {number}; there are {len(self.segments)}")
 
+	def numberForKey(self, key: str) -> int:
+		"""Turn a segment key into its index in display order.
+
+		:param key: a segment key.
+		:return: the index of that segment.
+		:raises LookupError: if this view has no segment with that key.
+		"""
+		try:
+			return self._byKey[key]
+		except KeyError:
+			raise LookupError(f"No segment keyed {key!r} in view {self.view.name!r}") from None
+
+	def segmentForKey(self, key: str) -> BrailleBufferSegment:
+		"""Find a segment by its stable key.
+
+		:param key: a segment key.
+		:return: that segment.
+		:raises LookupError: if this view has no segment with that key.
+		"""
+		return self.segments[self.numberForKey(key)]
+
+	def hasKey(self, key: str) -> bool:
+		""":return: whether this view has a segment with a given key.
+
+		Used after a rebuild to decide whether something holding a key, such as a pinned
+		object, still has a segment to live in.
+		"""
+		return key in self._byKey
+
 	def getSegmentNumberForRegion(self, region: "Region") -> int:
 		"""Find the index of the segment a region belongs to.
 
 		:param region: a braille region, which may carry a `targetSegment` attribute
-			naming the segment it is destined for.
+			naming the segment it is destined for, either by key or by number.
 		:return: the index of the named segment, or of the focus segment if the region
 			names none or names one that does not exist.
 		"""
@@ -173,11 +223,13 @@ class BrailleBufferContainer(baseObject.AutoPropertyObject):
 		if target is None:
 			return self._focusSegmentNumber
 		try:
+			if isinstance(target, str):
+				return self.numberForKey(target)
 			return self.resolveSegmentNumber(target)
 		except LookupError:
 			# A layout change can leave a region pointing at a segment that no longer
 			# exists. Showing it in the focus segment beats losing it.
-			log.debugWarning(f"Region targets segment {target}, which does not exist")
+			log.debugWarning(f"Region targets segment {target!r}, which does not exist")
 			return self._focusSegmentNumber
 
 	def getSegmentForRegion(self, region: "Region") -> BrailleBufferSegment:
@@ -230,15 +282,18 @@ class BrailleBufferContainer(baseObject.AutoPropertyObject):
 
 	# Whole display operations
 
-	def clear(self, segment: int | None = None) -> None:
+	def clear(self, segment: int | str | None = None) -> None:
 		"""Clear one segment, or the whole display.
 
-		:param segment: index of the segment to clear, or None to clear every segment.
-			NVDA calls this with no argument expecting the display to be emptied.
+		:param segment: index or key of the segment to clear, or None to clear every
+			segment. NVDA calls this with no argument expecting the display to be emptied.
 		"""
 		if segment is None:
 			for buffer in self.segments:
 				buffer.clear()
+			return
+		if isinstance(segment, str):
+			self.segmentForKey(segment).clear()
 			return
 		self.segments[self.resolveSegmentNumber(segment)].clear()
 
@@ -292,7 +347,8 @@ class BrailleBufferContainer(baseObject.AutoPropertyObject):
 
 		NVDA's cell array is row major over the whole display, so a segment narrower
 		than the display cannot simply be concatenated; each segment's rows are copied
-		into place at its own origin.
+		into place at its own origin. Cells no segment covers stay blank, which is how a
+		panel that claims space in order to keep it empty gets its way.
 		"""
 		cells = [0] * (self.numRows * self.numCols)
 		for segment in self.segments:
@@ -351,15 +407,18 @@ class BrailleBufferContainer(baseObject.AutoPropertyObject):
 	def routeTo(self, windowPos: int) -> None:
 		"""Act on a cursor routing key press.
 
+		The policy is the pressed segment's own, so a grid cell can treat a press as a
+		selection while the segment beside it routes into text in the ordinary way.
+
 		:param windowPos: position of the pressed key within the whole display window.
 		"""
 		try:
 			index, segmentPos = findSegmentAtWindowPos(self.rects, windowPos, self.numCols)
 		except LookupError:
-			# The key was pressed in a gap between segments, which is not an error.
+			# The key was pressed in space a panel is keeping blank, which is not an error.
 			log.debug(f"Routing key at {windowPos} is not in any segment")
 			return
-		self.view.routingPolicy.route(self, index, segmentPos)
+		self.segments[index].routingPolicy.route(self, index, segmentPos)
 
 	def getTextInfoForWindowPos(self, windowPos: int) -> "textInfos.TextInfo | None":
 		try:
@@ -370,26 +429,29 @@ class BrailleBufferContainer(baseObject.AutoPropertyObject):
 
 	# Scrolling
 
-	def scrollForward(self, segment: int | None = None) -> None:
+	def scrollForward(self, segment: int | str | None = None) -> None:
 		"""Scroll a segment forward.
 
-		:param segment: index of the segment to scroll, or None for the focus segment.
-			NVDA calls this with no argument.
+		:param segment: index or key of the segment to scroll, or None for the focus
+			segment. NVDA calls this with no argument.
 		"""
 		self._scroll(segment, forward=True)
 
-	def scrollBack(self, segment: int | None = None) -> None:
+	def scrollBack(self, segment: int | str | None = None) -> None:
 		"""Scroll a segment back.
 
-		:param segment: index of the segment to scroll, or None for the focus segment.
+		:param segment: index or key of the segment to scroll, or None for the focus
+			segment.
 		"""
 		self._scroll(segment, forward=False)
 
-	def _scroll(self, segment: int | None, forward: bool) -> None:
+	def _scroll(self, segment: int | str | None, forward: bool) -> None:
 		try:
-			index = self.resolveSegmentNumber(segment)
+			index = (
+				self.numberForKey(segment) if isinstance(segment, str) else self.resolveSegmentNumber(segment)
+			)
 		except LookupError:
-			log.debugWarning(f"Cannot scroll segment {segment}", exc_info=True)
+			log.debugWarning(f"Cannot scroll segment {segment!r}", exc_info=True)
 			return
 		buffer = self.segments[index]
 		if index == self._focusSegmentNumber:

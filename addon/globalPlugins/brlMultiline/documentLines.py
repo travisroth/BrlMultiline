@@ -25,7 +25,8 @@ from logHandler import log
 if TYPE_CHECKING:
 	from NVDAObjects import NVDAObject
 
-	from .container import BrailleBufferContainer
+	from .container import DisplayContainer
+	from .segments import BrailleBufferSegment
 
 
 class TextInfoPositionRegion(TextInfoRegion):
@@ -132,23 +133,49 @@ def isDocumentRegion(region: Region) -> bool:
 	return isinstance(region, TextInfoRegion)
 
 
+def isFree(
+	segment: "BrailleBufferSegment",
+	index: int,
+	focusNumber: int,
+	claimedKeys: frozenset[str] | set[str],
+) -> bool:
+	"""Decide whether this module may write into a segment.
+
+	Three things put a segment out of bounds, and they arrive by different routes:
+
+	1. It follows the system focus, so it already shows the caret's own line.
+	2. Its specification reserves it for a panel, which is a claim made when the view was
+		built. A table's grid cells are reserved this way.
+	3. It has been claimed at runtime, by a pinned object. Those claims are not in the view
+		because pinning happens long after it was composed.
+
+	:param segment: the segment to test.
+	:param index: its index in display order.
+	:param focusNumber: the index of the focus segment.
+	:param claimedKeys: keys claimed at runtime.
+	:return: whether the segment is free to fill.
+	"""
+	return index != focusNumber and not segment.isReserved and segment.key not in claimedKeys
+
+
 def clearDocumentRegions(
-	container: "BrailleBufferContainer",
-	excludedSegments: frozenset[int] | set[int] = frozenset(),
+	container: "DisplayContainer",
+	claimedKeys: frozenset[str] | set[str] = frozenset(),
 ) -> bool:
 	"""Remove the line regions this module placed in the segments around the focus.
 
-	The focus segment and any segment holding a pinned object are left alone, so this
-	takes back only what the add-on itself put on the display.
+	Only free segments are touched, so this takes back what the add-on itself put on the
+	display and nothing else.
 
-	:param container: the multi segment buffer.
-	:param excludedSegments: segments that must be left alone.
+	:param container: the whole display.
+	:param claimedKeys: keys of segments claimed at runtime, such as those holding a pinned
+		object.
 	:return: whether anything was cleared, so the caller knows to recombine the display.
 	"""
 	focusNumber = container.focusSegmentNumber
 	cleared = False
 	for index, segment in enumerate(container.segments):
-		if index == focusNumber or index in excludedSegments:
+		if not isFree(segment, index, focusNumber, claimedKeys):
 			continue
 		if any(isinstance(region, TextInfoPositionRegion) for region in segment.regions):
 			segment.clear()
@@ -157,14 +184,14 @@ def clearDocumentRegions(
 
 
 def populate(
-	container: "BrailleBufferContainer",
-	excludedSegments: set[int],
+	container: "DisplayContainer",
+	claimedKeys: frozenset[str] | set[str] = frozenset(),
 ) -> bool:
 	"""Fill the free segments with the lines around the caret.
 
-	:param container: the multi segment buffer.
-	:param excludedSegments: segments that must be left alone, such as those holding a
-		pinned object.
+	:param container: the whole display.
+	:param claimedKeys: keys of segments claimed at runtime, such as those holding a pinned
+		object.
 	:return: whether any segment's contents changed, so the caller knows to recombine the
 		display.
 	"""
@@ -175,17 +202,20 @@ def populate(
 		# The focus is not in something with readable lines. Lines belonging to the
 		# document the focus has just left would otherwise stay under the reader's
 		# fingers, and would go on tracking a caret that is no longer theirs.
-		return clearDocumentRegions(container, excludedSegments)
+		return clearDocumentRegions(container, claimedKeys)
 	changed = False
 	for index, segment in enumerate(container.segments):
-		if index == focusNumber or index in excludedSegments:
+		if not isFree(segment, index, focusNumber, claimedKeys):
 			continue
+		# The offset follows display order, so the segment two above the focus segment
+		# shows the line two above the caret. Reserved segments sitting between them are
+		# still counted, so the lines stay in step with the rows they are printed on.
 		region = TextInfoPositionRegion(source.obj, lineOffset=index - focusNumber)
-		region.targetSegment = index
+		region.targetSegment = segment.key
 		try:
 			region.update()
 		except Exception:
-			log.debugWarning(f"Could not build a line region for segment {index}", exc_info=True)
+			log.debugWarning(f"Could not build a line region for segment {segment.key!r}", exc_info=True)
 			continue
 		segment.clear()
 		segment.append(region)
