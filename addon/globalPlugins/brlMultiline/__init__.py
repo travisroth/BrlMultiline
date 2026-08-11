@@ -18,6 +18,7 @@ that keeps their segment keeps the pin.
 import addonHandler
 import api
 import braille
+import config
 import globalPluginHandler
 import gui
 import ui
@@ -60,6 +61,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		Keyed rather than numbered so that a rebuild which keeps a segment keeps its pin.
 		"""
 		self._rebuildPending = False
+		self._terminated = False
+		"""Set by L{terminate}, so that work already queued does not run afterwards."""
 		self._activeView: SegmentView | None = None
 		"""A view installed by code rather than by the settings, if any.
 
@@ -77,12 +80,20 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(BrailleMultilineSettingsPanel)
 		displaySizeChanged.register(self._handleDisplayChanged)
 		displayChanged.register(self._handleDisplayChanged)
+		# Settings are read through `config.conf`, which is profile aware, so switching
+		# profile can change the layout, the focus segment and the panning direction
+		# without any braille event firing.
+		config.post_configProfileSwitch.register(self._handleProfileSwitch)
 		self.rebuildBuffer()
 
 	def terminate(self):
+		# Set first, so that anything already queued sees it even if the teardown below
+		# raises part way through.
+		self._terminated = True
 		try:
 			displaySizeChanged.unregister(self._handleDisplayChanged)
 			displayChanged.unregister(self._handleDisplayChanged)
+			config.post_configProfileSwitch.unregister(self._handleProfileSwitch)
 			self.stopAllMonitoring()
 			self._restoreOriginalBuffer()
 			patches.remove()
@@ -150,12 +161,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def activatePanel(self, panel: BraillePanel) -> None:
 		"""Lay a panel over the display, leaving everything it does not claim alone.
 
+		EXPERIMENTAL. The geometry half of this is settled, but the contract is not: an
+		owner is told nothing when its claim is rebuilt or dropped, and has no way to
+		redraw its cells except by noticing for itself. Expect this to gain a lease object
+		carrying those callbacks, which will change the return type. Do not depend on it
+		from another add-on yet.
+
 		This is how code takes part of the display: a table reader claims the rows it wants
 		as a grid, and a pinned object elsewhere keeps both its segment and its content,
 		because the panel holding it was never involved in the claim.
 
 		A panel with the same name as one already active replaces it, so refreshing a
-		claim is a matter of activating it again.
+		claim is a matter of activating it again. The panel is held by reference and read
+		again on every rebuild, so it must not be mutated after being passed in.
 
 		:param panel: the claim to lay over the current view.
 		:raises ValueError: if the claim falls outside the display, or its segments do not
@@ -281,19 +299,31 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		A pin names its segment by key, so it survives any rebuild that keeps that segment:
 		a settings change elsewhere on the display, a claim laid over other rows, a display
-		reconnecting at the same size. It is dropped when its segment is gone, and also when
-		a claim has taken over a segment of the same key, since the new owner would redraw
-		over the pin and the two would fight for the cells.
+		reconnecting at the same size. It is dropped in three cases:
+
+		1. Its segment is gone.
+		2. A claim has taken over a segment of the same key, since the new owner would
+			redraw over the pin and the two would fight for the cells.
+		3. Its segment now follows the system focus. `startMonitoring` refuses the focus
+			segment for that reason, and a settings change can move the focus onto a
+			segment that was pinned when the pin was made. Keeping it would let
+			`refreshMonitors` clear the freshly drawn focus content and replace it with the
+			pinned object.
 
 		:param container: the container about to be installed.
 		"""
 		survivors = {
 			key: monitor
 			for key, monitor in self._monitors.items()
-			if container.hasKey(key) and not container.segmentForKey(key).isReserved
+			if container.hasKey(key)
+			and not container.segmentForKey(key).isReserved
+			and key != container.focusSegmentKey
 		}
 		for key in self._monitors.keys() - survivors.keys():
-			log.debug(f"BrlMultiline: segment {key!r} is gone or claimed, so its pinned object is released")
+			log.debug(
+				f"BrlMultiline: segment {key!r} is gone, claimed, or now follows the focus, "
+				f"so its pinned object is released",
+			)
 		self._monitors = survivors
 
 	def _restoreOriginalBuffer(self) -> None:
@@ -327,13 +357,33 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		property, which has not finished updating its own cache yet, and reading those
 		dimensions again from here would re-enter it.
 		"""
-		if self._rebuildPending:
-			# Both events fire for a single swap. One rebuild answers both.
+		self._scheduleRebuild()
+
+	def _handleProfileSwitch(self, **kwargs) -> None:
+		"""Rebuild when NVDA switches configuration profile.
+
+		The layout, the focus segment and the panning direction all live in `config.conf`,
+		which is profile aware, so a profile switch can change them with no braille event
+		to announce it. Deferred for the same reason a display change is: the switch is
+		still being applied when this runs.
+		"""
+		self._scheduleRebuild()
+
+	def _scheduleRebuild(self) -> None:
+		"""Queue one rebuild, however many events asked for it."""
+		if self._rebuildPending or self._terminated:
+			# Both display events fire for a single swap. One rebuild answers both.
 			return
 		self._rebuildPending = True
 		wx.CallAfter(self._deferredRebuild)
 
 	def _deferredRebuild(self) -> None:
+		if self._terminated:
+			# The plugin was unloaded between queueing this and it running. Rebuilding now
+			# would install a container over the buffer `terminate` just handed back to
+			# NVDA, leaving the add-on driving the display after it was disabled.
+			log.debug("BrlMultiline: skipping a rebuild queued before termination")
+			return
 		try:
 			self.rebuildBuffer()
 		except Exception:

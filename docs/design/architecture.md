@@ -330,8 +330,35 @@ display changed.
 replacing the whole arrangement, but a panel should be preferred: a view replaces
 everything, including segments other code is relying on.
 
+A pin is released when its segment is gone, when a claim has taken over a segment of the
+same key, or when its segment now follows the focus. The last is not hypothetical: changing
+"segment that follows the focus" in settings to a segment that already held a pin would
+otherwise let `refreshMonitors` clear the freshly drawn focus content and write the pinned
+object over it.
+
 Pinning into a segment another panel has reserved is refused with a spoken message, because
 the owner would keep redrawing over it and the user would not be told why.
+
+### What the claim contract does not yet do
+
+`activatePanel` is marked experimental, and these are the reasons:
+
+- **Geometry survives a rebuild; content does not.** A claim is re-composed, so its cells
+  come back, but they come back empty and nothing tells the owner to redraw them. Speech
+  output mode has the same shape: `_set_regions` empties every segment, and a pin can be
+  restored with `refreshMonitors` while a panel has no equivalent at all.
+- **Eviction is a log line.** An owner whose claim no longer fits is not told, and may go
+  on producing regions targeted at segments that have gone.
+- **Reserved does not mean exclusive.** A panel hosting the focus is both reserved for its
+  owner and the destination for NVDA's untargeted regions, and `_doNewObjectMultiSegment`
+  clears the focus segment on every focus change. Those two producers will fight. The
+  likely answer is to split the single `owner` flag into reserved, hostsSystemFocus and
+  exclusive.
+- **Panels are held by reference.** `_activePanels` re-reads them on every rebuild, so
+  mutating a panel after activation silently changes the view later.
+
+All four want designing against a real consumer rather than in the abstract, which is why
+the table reader comes before the lease API rather than after it.
 
 ## Reverse panning, per display
 
@@ -350,11 +377,10 @@ buffer timer reset, auto scroll timer reset).
 ## Document lines
 
 When enabled, the **free** segments are filled with `TextInfoPositionRegion`s reading the
-document at a fixed line offset: segment k shows the line `k - focusSegmentNumber` away
-from the caret.
+document at a fixed line offset.
 
-`documentLines.isFree` is the single place that decides. Three things put a segment out of
-bounds, and they arrive by different routes:
+`documentLines.isFree` is the single place that decides what is free. Four things put a
+segment out of bounds, and they arrive by different routes:
 
 1. It follows the system focus, so it already shows the caret's own line.
 2. `spec.owner` reserves it for a panel — a claim made when the view was composed. A
@@ -362,9 +388,46 @@ bounds, and they arrive by different routes:
    with document lines the moment a table appears.
 3. Its key is in the runtime-claimed set, because an object is pinned there. Pinning
    happens long after the view was composed, so it cannot be carried on the spec.
+4. It has no `documentContextIndex`, so there is no line it could be showing.
 
-Reserved segments still count towards the offsets, so the lines stay in step with the rows
-they are printed on rather than shuffling around a skipped row.
+### The offset is stated, not inferred
+
+`SegmentSpec.documentContextIndex` gives a segment its place in the reading order, and the
+offset between two segments is the difference between theirs. It cannot be derived:
+
+- **Not from display order.** A panel may put several segments on one physical row. A three
+  column grid consumes three indices per row band, so a segment below it would read three
+  times too many lines away. This was a real defect: a segment seven rows above the focus
+  read ten lines back.
+- **Not from the row.** A single row display divided into columns puts every segment on row
+  0, and those segments still want to read consecutively.
+
+So the configured view's panels each carry their ordinal, and claimed panels carry `None`
+by default. If the focus segment itself has no context — the focus moved into a table cell,
+say — there is no caret line for anything to be relative to, and the document lines are
+withdrawn rather than computed against a fiction.
+
+## Two things a region can be told, and why they are separate
+
+A region can carry two different pieces of information about segments, and conflating them
+caused a real problem:
+
+1. `targetSegment` is **an owner's explicit destination**. It is a claim. If it names a
+   segment that no longer exists, the panel that owned it has gone, and the content has
+   nowhere legitimate to go — so `resolvePlacementTarget` returns None and delivery fails.
+   Falling back to the focus segment would paint a departed panel's content over the user's
+   ordinary braille.
+2. `_brlMultilineSegmentKey` is **this add-on's own note** of where an untargeted region was
+   put, written by `recordPlacement`. It is bookkeeping, never a destination, and
+   `resolvePlacementTarget` does not consult it.
+
+Originally both were stored in `targetSegment`, because the `_doNewObject` patch stamped it
+onto NVDA's own regions. That made every NVDA focus region indistinguishable from a panel's
+claim, which is why a dead key could not simply be rejected.
+
+`findContainingSegment` answers the different question of where a region *is*, for `focus`
+and `scrollTo`. It searches by identity (`is`, never equality) before consulting the
+recorded key, because identity is the only answer that cannot go stale.
 
 The offsets never change. Nothing rotates as the caret moves; each region simply re-reads
 its own line. This is the deliberate simplification against the 2023 ScrollingManager,

@@ -34,6 +34,14 @@ if TYPE_CHECKING:
 	from .panels import SegmentSpec
 	from .views import SegmentView
 
+PLACEMENT_KEY_ATTRIBUTE = "_brlMultilineSegmentKey"
+"""Attribute this add-on writes on a region to note which segment it was placed in.
+
+Namespaced because it is set on NVDA's own `Region` objects. Deliberately not
+`targetSegment`: that attribute is an owner's explicit destination, and conflating the two
+would make this add-on's bookkeeping indistinguishable from a claim.
+"""
+
 
 class FakeRegionsList(MutableSequence):
 	"""Stands in for a buffer's `regions` list, resolving to the focus segment.
@@ -71,8 +79,14 @@ class FakeRegionsList(MutableSequence):
 
 		Callers outside this add-on (NVDA's speech in braille, add-ons such as MathCAT)
 		append to the focus segment simply by not setting the attribute.
+
+		A region naming a segment that no longer exists is dropped rather than shown
+		somewhere else. See L{DisplayContainer.resolvePlacementTarget}.
 		"""
-		self._container.getSegmentForRegion(region).append(region)
+		index = self._container.resolvePlacementTarget(region)
+		if index is None:
+			return
+		self._container.segments[index].append(region)
 
 	def __repr__(self) -> str:
 		return f"<FakeRegionsList {self._target!r}>"
@@ -211,34 +225,71 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 		"""
 		return key in self._byKey
 
-	def getSegmentNumberForRegion(self, region: "Region") -> int:
-		"""Find the index of the segment a region belongs to.
+	def resolvePlacementTarget(self, region: "Region") -> int | None:
+		"""Decide which segment a region should be written into.
 
-		:param region: a braille region, which may carry a `targetSegment` attribute
-			naming the segment it is destined for, either by key or by number.
-		:return: the index of the named segment, or of the focus segment if the region
-			names none or names one that does not exist.
+		Two different things can be recorded on a region, and they are not
+		interchangeable:
+
+		1. `targetSegment` is an owner's explicit destination. It is a promise about where
+			the content belongs, so a target that no longer exists means the owner's claim
+			has gone and the content has nowhere legitimate to go. Delivery fails rather
+			than falling back, because redirecting a table's cell content into the focus
+			segment would write over the user's ordinary braille output.
+		2. `PLACEMENT_KEY_ATTRIBUTE` is this add-on's own note of where an untargeted
+			region was put. It is bookkeeping, never a destination, and is not consulted
+			here at all. See L{findContainingSegment}.
+
+		:param region: the region to place.
+		:return: the index to write into, or None if the region cannot be delivered.
 		"""
 		target = getattr(region, "targetSegment", None)
 		if target is None:
+			# Untargeted content is NVDA's own, and belongs wherever the focus is.
 			return self._focusSegmentNumber
 		try:
 			if isinstance(target, str):
 				return self.numberForKey(target)
 			return self.resolveSegmentNumber(target)
 		except LookupError:
-			# A layout change can leave a region pointing at a segment that no longer
-			# exists. Showing it in the focus segment beats losing it.
-			log.debugWarning(f"Region targets segment {target!r}, which does not exist")
-			return self._focusSegmentNumber
+			log.debugWarning(
+				f"Dropping a region targeted at segment {target!r}, which no longer exists; "
+				f"the claim that owned it has gone",
+			)
+			return None
 
-	def getSegmentForRegion(self, region: "Region") -> BrailleBufferSegment:
-		"""Find the segment a region belongs to.
+	def findContainingSegment(self, region: "Region") -> BrailleBufferSegment | None:
+		"""Find the segment a region is already in.
 
-		:param region: a braille region, which may carry a `targetSegment` attribute.
-		:return: the segment the region belongs to.
+		Used by the operations NVDA performs on a region it has handed over previously,
+		where the question is not where the region belongs but where it actually is.
+		Identity is checked first, because it is the only answer that cannot go stale: the
+		recorded key is a note from a container that may since have been replaced.
+
+		:param region: a region already written into a segment.
+		:return: the segment holding it, or None if no segment does.
 		"""
-		return self.segments[self.getSegmentNumberForRegion(region)]
+		for segment in self.segments:
+			for candidate in segment.regions:
+				if candidate is region:
+					return segment
+		# Not found by identity, so fall back to where it was last recorded as going. A
+		# region can legitimately be absent, for instance after its segment was cleared.
+		key = getattr(region, PLACEMENT_KEY_ATTRIBUTE, None)
+		if isinstance(key, str) and self.hasKey(key):
+			return self.segmentForKey(key)
+		return None
+
+	def recordPlacement(self, region: "Region", index: int) -> None:
+		"""Note which segment a region was written into.
+
+		Kept separate from `targetSegment` so that this add-on's bookkeeping can never be
+		mistaken for an owner's explicit claim on a segment.
+
+		:param region: the region that was placed.
+		:param index: the segment it went into.
+		"""
+		setattr(region, PLACEMENT_KEY_ATTRIBUTE, self.specs[index].key)
 
 	# Regions
 
@@ -387,8 +438,11 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 	# Region directed operations
 
 	def focus(self, region: "Region") -> None:
-		"""Bring a region into view within the segment it belongs to."""
-		segment = self.getSegmentForRegion(region)
+		"""Bring a region into view within the segment holding it."""
+		segment = self.findContainingSegment(region)
+		if segment is None:
+			log.debugWarning(f"Cannot focus region {region!r}; no segment holds it")
+			return
 		try:
 			segment.focus(region)
 		except LookupError:
@@ -396,7 +450,10 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 
 	def scrollTo(self, region: "Region", pos: int) -> None:
 		"""Scroll the segment holding a region so that a position within it is visible."""
-		segment = self.getSegmentForRegion(region)
+		segment = self.findContainingSegment(region)
+		if segment is None:
+			log.debugWarning(f"Cannot scroll to {pos}; no segment holds region {region!r}")
+			return
 		try:
 			segment.scrollTo(region, pos)
 		except LookupError:

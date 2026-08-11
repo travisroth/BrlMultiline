@@ -70,10 +70,31 @@ class SegmentSpec:
 	routingPolicy: RoutingPolicy = DEFAULT_ROUTING_POLICY
 	"""What a cursor routing key press within this segment does."""
 
+	documentContextIndex: int | None = None
+	"""This segment's place in the reading order of the document lines feature.
+
+	The distance between two of these is how many lines apart the segments read, so a
+	segment two after the focus segment shows the line two after the caret.
+
+	It cannot be derived from the display order of segments, because a panel may put
+	several segments on one physical row: a three column grid consumes three indices per
+	row band, which would inflate the offsets of everything below it. Nor can it be derived
+	from the row, because a single row display divided into columns puts every segment on
+	row 0 and still wants them to read consecutively. So it is stated rather than inferred.
+
+	None means this segment takes no part in the document lines feature, which is the
+	default and is what every claimed panel gets unless it opts in.
+	"""
+
 	@property
 	def isReserved(self) -> bool:
 		""":return: whether this segment belongs to a panel that claimed it."""
 		return self.owner is not None
+
+	@property
+	def hasDocumentContext(self) -> bool:
+		""":return: whether this segment takes part in the document lines feature."""
+		return self.documentContextIndex is not None
 
 
 class BraillePanel:
@@ -94,6 +115,7 @@ class BraillePanel:
 		markCuts: bool = False,
 		routingPolicy: RoutingPolicy | None = None,
 		focusSegmentKey: str | None = None,
+		documentContextIndex: int | None = None,
 	) -> None:
 		"""
 		:param name: who this panel belongs to. Used as the prefix of its segment keys, so
@@ -109,6 +131,10 @@ class BraillePanel:
 		:param focusSegmentKey: the segment that should follow the system focus if this
 			panel is composed into a view that loses its own focus segment. None means this
 			panel cannot host the focus, so such a composition is refused.
+		:param documentContextIndex: this panel's place in the reading order of the
+			document lines feature. None, the default, means its segments take no part in
+			it, which is what a claimed panel usually wants. See
+			L{SegmentSpec.documentContextIndex}.
 		"""
 		self.name = name
 		self.rect = rect
@@ -117,6 +143,7 @@ class BraillePanel:
 		self.markCuts = markCuts
 		self.routingPolicy = routingPolicy if routingPolicy is not None else DEFAULT_ROUTING_POLICY
 		self.focusSegmentKey = focusSegmentKey
+		self.documentContextIndex = documentContextIndex
 
 	def segments(self) -> list[SegmentSpec]:
 		"""Subdivide this panel's claim.
@@ -126,13 +153,21 @@ class BraillePanel:
 		"""
 		raise NotImplementedError
 
-	def buildSpec(self, suffix: str, rect: SegmentRect) -> SegmentSpec:
+	def buildSpec(
+		self,
+		suffix: str,
+		rect: SegmentRect,
+		documentContextIndex: int | None = None,
+	) -> SegmentSpec:
 		"""Build one segment specification carrying this panel's defaults.
 
 		:param suffix: distinguishes this segment from the panel's others. Combined with
 			the panel name to form the key. Empty for a panel holding a single segment,
 			whose key is then the panel name itself.
 		:param rect: the rectangle the segment occupies, in display coordinates.
+		:param documentContextIndex: this segment's own place in the document reading
+			order, for a panel whose segments each need a different one. None falls back to
+			the panel's.
 		:return: the specification.
 		"""
 		return SegmentSpec(
@@ -142,6 +177,9 @@ class BraillePanel:
 			fillRows=self.fillRows,
 			markCuts=self.markCuts,
 			routingPolicy=self.routingPolicy,
+			documentContextIndex=(
+				documentContextIndex if documentContextIndex is not None else self.documentContextIndex
+			),
 		)
 
 	def validate(self) -> None:

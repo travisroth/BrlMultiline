@@ -20,10 +20,11 @@ Multi row display support (`DisplayDimensions`, `numRows`/`numCols`) is older an
 5. Milestone 5, ObjectMonitor — CODE COMPLETE, UNVERIFIED ON HARDWARE
 6. Milestone 6, views — CODE COMPLETE, UNVERIFIED ON HARDWARE
 7. Milestone 7, panels and composition — CODE COMPLETE, UNVERIFIED ON HARDWARE
+8. Milestone 8, lifecycle defects and the plugin harness — CODE COMPLETE, UNVERIFIED ON HARDWARE
 
 What "code complete" means here: the add-on builds to an installable `.nvda-addon`, ruff
-passes clean, and 237 unit tests over geometry, panels, views, the container and the
-document line regions pass. Nothing has been run inside NVDA or against a display. Do not
+passes clean, and 289 unit tests over geometry, panels, views, the container, the document
+line regions and the global plugin pass. Nothing has been run inside NVDA or against a display. Do not
 treat any of it as working until the list under "Verification owed" has been worked
 through. That list is the next task.
 
@@ -247,6 +248,53 @@ running screen reader.
 Deliberately not built: any actual component. The table reader is still later work, but
 `GridPanel` plus `activatePanel` is now the interface it would use.
 
+## Milestone 8 — Lifecycle defects and the plugin test harness
+
+Built in response to a second review of milestone 7. Four defects, one of which was
+reproduced before being fixed.
+
+Fixed:
+
+- **Document line offsets were derived from display order.** A grid puts several segments
+  on one physical row, so nine cells over three rows consumed nine indices and inflated the
+  offsets of everything below. Reproduced: a segment seven rows above the focus read ten
+  lines back. `SegmentSpec.documentContextIndex` now states the reading order instead. It
+  cannot be derived from the row either, because a single row display divided into columns
+  puts every segment on row 0 and still wants them consecutive. If the focus segment has no
+  context, document lines are withdrawn rather than computed against a fiction.
+- **A pin could become the focus segment.** `startMonitoring` refuses the focus segment,
+  but `_carryOverMonitors` did not, so changing "segment that follows the focus" in settings
+  to an already pinned segment let `refreshMonitors` overwrite the focus content.
+- **A rebuild queued before termination still ran.** `wx.CallAfter` could fire after
+  `terminate` handed NVDA's buffer back, reinstalling a container over it. Guarded by
+  `_terminated`.
+- **Configuration profile switches were ignored.** Settings are read through `config.conf`,
+  which is profile aware, so a profile switch could change the layout with no braille event
+  to announce it. `config.post_configProfileSwitch` is now registered.
+- **`targetSegment` meant two things.** It was both an owner's explicit destination and
+  this add-on's note of where an untargeted NVDA region was placed, because the
+  `_doNewObject` patch stamped it onto NVDA's own regions. That made a dead key impossible
+  to reject safely. Split into `targetSegment` (a claim; a dead key now fails delivery
+  rather than falling back to the focus segment) and `_brlMultilineSegmentKey`
+  (bookkeeping). `focus` and `scrollTo` use `findContainingSegment`, which searches by
+  identity before consulting the recorded key.
+
+Note that rejecting a dead key only in `FakeRegionsList.append` would not have been enough:
+`_doNewObjectMultiSegment` places regions by calling the container directly. Both paths now
+go through `resolvePlacementTarget`.
+
+Tests: 289, up from 237. `test_plugin.py` is new and covers the layer skipped in milestone
+7 — container installation and teardown, monitor carry-over in all four of its outcomes,
+the deferred rebuild race, profile switches, panel claims surviving rebuilds and being
+dropped when they no longer fit, and speech output mode. `_stubs.loadPlugin` executes the
+add-on's `__init__.py` under a name that keeps its relative imports pointing at the single
+copy of each module.
+
+The speech output tests record present behaviour rather than desired behaviour: a pin's
+content does not return on its own, and a panel has no recovery path at all. They exist so
+that the gap is pinned rather than implicit, and they should be revisited with the lease
+API.
+
 ## Verification owed
 
 Nothing here has been run against a real display or a running NVDA. Before this is
@@ -302,6 +350,15 @@ note in [architecture.md](architecture.md).
 3. Sub-row column splits stay out of the settings dialog, by decision: whole row groups on
    a multi row display, column slices on a single row display. Grids are reachable from
    code only.
+5. `MAX_UI_SEGMENTS` is a flat 8, but a Monarch exposes up to ten content rows depending on
+   line spacing, so a ten row display cannot be divided into ten segments from the dialog.
+   It should become geometry aware. The config spec bound and the dialog can both take the
+   connected display's row count; the generated per segment commands cannot, because they
+   are created at import time and their gesture bindings must be stable across displays. So
+   the likely answer is a geometry aware dialog bound plus a fixed, larger command count.
+6. What should a panel do when the display goes into speech output mode and comes back?
+   The current answer is nothing, and its content is lost. See the characterisation tests
+   in `test_plugin.py`. Probably part of the lease API rather than separate.
 4. Should the focus segment follow the caret on a multi row display — that is, should the
    ScrollingManager idea come back in a simpler form, moving which segment holds focus
    rather than shuffling regions between segments? Worth considering once milestone 4 has

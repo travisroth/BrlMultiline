@@ -102,25 +102,43 @@ class TestIdentity(ContainerTestCase):
 			self.container.resolveSegmentNumber(9)
 
 
-class TestRegionTargeting(ContainerTestCase):
+class TestPlacement(ContainerTestCase):
+	"""Where a region should be written, which is a question about an owner's claim."""
+
 	def test_targetByNumber(self):
 		region = Region("a")
 		region.targetSegment = 1
-		self.assertEqual(self.container.getSegmentNumberForRegion(region), 1)
+		self.assertEqual(self.container.resolvePlacementTarget(region), 1)
 
 	def test_targetByKey(self):
 		region = Region("a")
 		region.targetSegment = "display.2"
-		self.assertEqual(self.container.getSegmentNumberForRegion(region), 2)
+		self.assertEqual(self.container.resolvePlacementTarget(region), 2)
 
 	def test_untargetedGoesToTheFocus(self):
-		self.assertEqual(self.container.getSegmentNumberForRegion(Region("a")), 3)
+		self.assertEqual(self.container.resolvePlacementTarget(Region("a")), 3)
 
-	def test_aStaleKeyFallsBackToTheFocus(self):
-		"""Showing a region in the wrong segment beats losing it."""
+	def test_aDeadExplicitKeyIsNotDelivered(self):
+		"""The claim that owned it has gone, so there is nowhere legitimate for it to go.
+
+		Redirecting it to the focus segment would write a departed panel's content over the
+		user's ordinary braille output.
+		"""
 		region = Region("a")
 		region.targetSegment = "gone.0"
-		self.assertEqual(self.container.getSegmentNumberForRegion(region), 3)
+		self.assertIsNone(self.container.resolvePlacementTarget(region))
+
+	def test_aDeadExplicitNumberIsNotDelivered(self):
+		region = Region("a")
+		region.targetSegment = 99
+		self.assertIsNone(self.container.resolvePlacementTarget(region))
+
+	def test_placementBookkeepingIsNotADestination(self):
+		"""A recorded placement must never be mistaken for an owner's claim."""
+		region = Region("a")
+		self.container.recordPlacement(region, 1)
+		# No targetSegment was set, so this is still untargeted content bound for the focus.
+		self.assertEqual(self.container.resolvePlacementTarget(region), 3)
 
 	def test_appendingHonoursTheKey(self):
 		region = Region("a")
@@ -132,6 +150,57 @@ class TestRegionTargeting(ContainerTestCase):
 		region = Region("a")
 		self.container.regions.append(region)
 		self.assertEqual(self.container.segments[3].regions, [region])
+
+	def test_appendingADeadKeyDropsIt(self):
+		region = Region("a")
+		region.targetSegment = "gone.0"
+		self.container.regions.append(region)
+		self.assertTrue(all(not segment.regions for segment in self.container.segments))
+
+
+class TestFindContainingSegment(ContainerTestCase):
+	"""Where a region actually is, which is a different question from where it belongs."""
+
+	def test_findsByIdentity(self):
+		region = Region("a")
+		self.container.segments[1].append(region)
+		self.assertIs(self.container.findContainingSegment(region), self.container.segments[1])
+
+	def test_identityNotEquality(self):
+		"""Two regions with the same content are not the same region."""
+		mine = Region("same")
+		twin = Region("same")
+		self.container.segments[1].append(mine)
+		self.assertIsNone(self.container.findContainingSegment(twin))
+
+	def test_fallsBackToTheRecordedPlacement(self):
+		"""A region can be absent legitimately, for instance after its segment was cleared."""
+		region = Region("a")
+		self.container.recordPlacement(region, 2)
+		self.assertIs(self.container.findContainingSegment(region), self.container.segments[2])
+
+	def test_identityWinsOverAStaleRecord(self):
+		region = Region("a")
+		self.container.recordPlacement(region, 2)
+		self.container.segments[1].append(region)
+		self.assertIs(self.container.findContainingSegment(region), self.container.segments[1])
+
+	def test_unknownRegionIsNotFound(self):
+		self.assertIsNone(self.container.findContainingSegment(Region("a")))
+
+	def test_aStaleRecordedKeyIsNotFound(self):
+		region = Region("a")
+		setattr(region, "_brlMultilineSegmentKey", "gone.0")
+		self.assertIsNone(self.container.findContainingSegment(region))
+
+	def test_focusUsesMembershipNotTheTarget(self):
+		"""NVDA's own regions carry a recorded key that can go stale across a rebuild."""
+		region = Region("a")
+		self.container.segments[1].append(region)
+		setattr(region, "_brlMultilineSegmentKey", "gone.0")
+		self.container.segments[1].windowStartPos = 5
+		self.container.focus(region)
+		self.assertEqual(self.container.segments[1].windowStartPos, 0)
 
 	def test_regionsProxyReadsTheFocusSegment(self):
 		region = Region("a")
@@ -385,7 +454,7 @@ class TestTheMonitorAndTableScenario(ContainerTestCase):
 		self.assertEqual(len(rebuilt.reservedKeys), 9)
 		# The pin's own region does not carry over, but its key resolves, so whatever holds
 		# it can put it back. That is what the plugin's monitor carry over does.
-		self.assertEqual(rebuilt.getSegmentNumberForRegion(pinned), rebuilt.numberForKey("display.0"))
+		self.assertEqual(rebuilt.resolvePlacementTarget(pinned), rebuilt.numberForKey("display.0"))
 
 	def test_gridCellGeometryReachesTheSegments(self):
 		table = GridPanel(

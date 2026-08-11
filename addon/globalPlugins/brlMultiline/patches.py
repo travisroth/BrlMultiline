@@ -63,12 +63,16 @@ def _doNewObjectMultiSegment(self: BrailleHandler, regions) -> None:
 	self.autoScroll(enable=False)
 	grouped: dict[int, list] = {index: [] for index in range(container.numSegments)}
 	for region in regions:
-		index = container.getSegmentNumberForRegion(region)
-		# Record the decision on the region, so that later calls which are handed a
-		# region but no segment (focus, scrollTo) can find their way back here. The key is
-		# recorded rather than the number, so the region still points at the same segment
-		# if the view is recomposed before those calls arrive.
-		region.targetSegment = container.specs[index].key
+		index = container.resolvePlacementTarget(region)
+		if index is None:
+			# The region names a segment that no longer exists, so the claim that owned it
+			# has gone. Dropping it is the point: showing it in the focus segment would
+			# write a departed panel's content over the user's ordinary braille.
+			continue
+		# Note where it went, so that later calls handed a region but no segment (focus,
+		# scrollTo) can find their way back. Recorded separately from `targetSegment`,
+		# which belongs to whoever claimed the region, not to this bookkeeping.
+		container.recordPlacement(region, index)
 		grouped[index].append(region)
 	for index, group in grouped.items():
 		if not group:

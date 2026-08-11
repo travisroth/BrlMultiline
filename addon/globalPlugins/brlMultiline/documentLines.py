@@ -141,13 +141,14 @@ def isFree(
 ) -> bool:
 	"""Decide whether this module may write into a segment.
 
-	Three things put a segment out of bounds, and they arrive by different routes:
+	Four things put a segment out of bounds, and they arrive by different routes:
 
 	1. It follows the system focus, so it already shows the caret's own line.
 	2. Its specification reserves it for a panel, which is a claim made when the view was
 		built. A table's grid cells are reserved this way.
 	3. It has been claimed at runtime, by a pinned object. Those claims are not in the view
 		because pinning happens long after it was composed.
+	4. It has no place in the document reading order, so there is no line it could show.
 
 	:param segment: the segment to test.
 	:param index: its index in display order.
@@ -155,7 +156,12 @@ def isFree(
 	:param claimedKeys: keys claimed at runtime.
 	:return: whether the segment is free to fill.
 	"""
-	return index != focusNumber and not segment.isReserved and segment.key not in claimedKeys
+	return (
+		index != focusNumber
+		and not segment.isReserved
+		and segment.key not in claimedKeys
+		and segment.spec.hasDocumentContext
+	)
 
 
 def clearDocumentRegions(
@@ -197,6 +203,12 @@ def populate(
 	"""
 	focusNumber = container.focusSegmentNumber
 	focusSegment = container.segments[focusNumber]
+	focusContext = focusSegment.spec.documentContextIndex
+	if focusContext is None:
+		# The focus has moved into a segment with no place in the reading order, such as a
+		# table cell. There is no caret line for the surrounding segments to be relative
+		# to, so nothing may be shown around it.
+		return clearDocumentRegions(container, claimedKeys)
 	source = focusSegment.regions[-1] if focusSegment.regions else None
 	if source is None or not isDocumentRegion(source):
 		# The focus is not in something with readable lines. Lines belonging to the
@@ -207,10 +219,11 @@ def populate(
 	for index, segment in enumerate(container.segments):
 		if not isFree(segment, index, focusNumber, claimedKeys):
 			continue
-		# The offset follows display order, so the segment two above the focus segment
-		# shows the line two above the caret. Reserved segments sitting between them are
-		# still counted, so the lines stay in step with the rows they are printed on.
-		region = TextInfoPositionRegion(source.obj, lineOffset=index - focusNumber)
+		# The offset is the distance in the stated reading order, not in display order. A
+		# panel may put several segments on one physical row, which would inflate a display
+		# order offset for everything below it. See SegmentSpec.documentContextIndex.
+		offset = segment.spec.documentContextIndex - focusContext
+		region = TextInfoPositionRegion(source.obj, lineOffset=offset)
 		region.targetSegment = segment.key
 		try:
 			region.update()

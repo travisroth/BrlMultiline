@@ -265,11 +265,17 @@ def displayPanels(rects: list[SegmentRect]) -> list[SinglePanel]:
 	actually wants, so segments elsewhere on the display keep their keys, and anything
 	holding one of those keys, such as a pinned object, survives the rebuild.
 
+	Each is given its ordinal as its document context index, so the document lines feature
+	reads them consecutively however many claimed segments end up between them.
+
 	:param rects: the segment rectangles, in display order.
 	:return: one panel per rectangle, none of them reserved, so the add-on may fill the
 		free ones with the document lines around the caret.
 	"""
-	return [SinglePanel(displaySegmentKey(index), rect, reserve=False) for index, rect in enumerate(rects)]
+	return [
+		SinglePanel(displaySegmentKey(index), rect, reserve=False, documentContextIndex=index)
+		for index, rect in enumerate(rects)
+	]
 
 
 # The settings dialog offers no control over wrapping, continuation marks, or routing, so

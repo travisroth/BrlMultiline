@@ -3,9 +3,10 @@
 
 """Tests for filling the free segments with the lines around the caret.
 
-The rule these are about is which segments count as free. Three things put a segment out of
+The rule these are about is which segments count as free. Four things put a segment out of
 bounds, and they arrive by different routes: it follows the focus, a panel reserved it when
-the view was composed, or something claimed it at runtime by pinning an object there.
+the view was composed, something claimed it at runtime by pinning an object there, or it has
+no place in the document reading order at all.
 """
 
 import unittest
@@ -22,7 +23,7 @@ from brlMultiline.views import viewFromConfig  # noqa: E402
 
 MONARCH_ROWS = 8
 MONARCH_COLS = 32
-LINES = [f"line {index}" for index in range(20)]
+LINES = [f"line {index}" for index in range(40)]
 
 
 class DocumentLinesTestCase(unittest.TestCase):
@@ -86,7 +87,7 @@ class TestPopulate(DocumentLinesTestCase):
 		self.assertEqual(self.textIn(self.container, "display.0"), "line 3")
 		self.assertEqual(self.textIn(self.container, "display.6"), "line 9")
 
-	def test_offsetsFollowDisplayOrder(self):
+	def test_offsetsFollowTheReadingOrder(self):
 		"""The segment two above the focus segment shows the line two above the caret."""
 		self.putCaretInADocument(self.container, caretIndex=10)
 		documentLines.populate(self.container)
@@ -216,3 +217,77 @@ class TestTextInfoPositionRegion(DocumentLinesTestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestDocumentContext(DocumentLinesTestCase):
+	"""Offsets follow the stated reading order, not the display order of segments.
+
+	A panel may put several segments on one physical row. A three column grid consumes
+	three indices per row band, so anything derived from display order would read far too
+	many lines away.
+	"""
+
+	def gridView(self, claimRect=SegmentRect(1, 0, 6, MONARCH_COLS)):
+		from brlMultiline.panels import GridPanel
+
+		grid = GridPanel("table", claimRect, rowBands=[2, 2, 2], colWidths=[10, 10, 10])
+		return self.view.withPanel(grid, MONARCH_ROWS, MONARCH_COLS)
+
+	def test_configuredSegmentsAreNumberedConsecutively(self):
+		self.assertEqual(
+			[spec.documentContextIndex for spec in self.view.flatten()],
+			list(range(8)),
+		)
+
+	def test_claimedSegmentsHaveNoContext(self):
+		container = self.install(self.gridView())
+		for spec in container.specs:
+			if spec.key.startswith("table."):
+				self.assertIsNone(spec.documentContextIndex)
+				self.assertFalse(spec.hasDocumentContext)
+
+	def test_aGridDoesNotInflateTheOffsets(self):
+		"""The regression: nine cells on three rows consumed nine display indices."""
+		container = self.install(self.gridView())
+		# display.0 is on row 0 and the focus is display.7 on row 7, so seven lines back.
+		self.putCaretInADocument(container, caretIndex=20)
+		documentLines.populate(container)
+		self.assertEqual(self.textIn(container, "display.0"), "line 13")
+
+	def test_theOffsetMatchesTheRowDistanceForRowShapedSegments(self):
+		container = self.install(self.gridView())
+		self.putCaretInADocument(container, caretIndex=20)
+		documentLines.populate(container)
+		focusRow = container.focusSegment.rect.row
+		for segment in container.segments:
+			if segment.regions and segment is not container.focusSegment:
+				expected = f"line {20 + (segment.rect.row - focusRow)}"
+				self.assertEqual("".join(r.rawText for r in segment.regions), expected)
+
+	def test_aFocusWithoutContextSuspendsDocumentLines(self):
+		"""The focus moved into a table cell, so there is no caret line to be relative to."""
+		container = self.install(self.gridView())
+		self.putCaretInADocument(container, caretIndex=20)
+		documentLines.populate(container)
+		self.assertNotEqual(self.textIn(container, "display.0"), "")
+
+		# Now compose a claim that takes the focus into the grid.
+		from brlMultiline.panels import GridPanel
+
+		grid = GridPanel("table", SegmentRect(1, 0, 7, MONARCH_COLS), rowBands=[7], colWidths=[10, 10, 10])
+		moved = self.install(self.view.withPanel(grid, MONARCH_ROWS, MONARCH_COLS))
+		self.assertEqual(moved.focusSegmentKey, "table.r0c0")
+		self.putCaretInADocument(moved, caretIndex=20)
+		documentLines.populate(moved)
+		self.assertEqual(self.textIn(moved, "display.0"), "")
+
+	def test_aSingleRowDisplayStillReadsConsecutively(self):
+		"""Every column segment is on row 0, so row distance would give them all offset 0."""
+		handler = FakeHandler(1, 80)
+		CONFIG["segmentCount"] = 2
+		view = viewFromConfig(1, 80)
+		container = DisplayContainer(handler, view)
+		handler.mainBuffer = handler.buffer = container
+		self.putCaretInADocument(container, caretIndex=10)
+		documentLines.populate(container)
+		self.assertEqual(self.textIn(container, "display.0"), "line 9")

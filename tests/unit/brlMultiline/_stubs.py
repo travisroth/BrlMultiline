@@ -311,6 +311,8 @@ class FakeHandler:
 		self.mainBuffer = None
 		self.messageBuffer = None
 		self.updateCount = 0
+		self.display = types.SimpleNamespace(name="stub")
+		self._regionsPendingUpdate = set()
 
 	@property
 	def displaySize(self):
@@ -318,6 +320,99 @@ class FakeHandler:
 
 	def update(self):
 		self.updateCount += 1
+
+
+class AnyDisplayDict(dict):
+	"""Returns the one stub display section whatever key is asked for.
+
+	NVDA's `__many__` config sections materialise a subsection on demand, and the add-on
+	keys them on driver name plus geometry. Tests care about the settings, not the key, so
+	every key resolves to the same section.
+	"""
+
+	def __missing__(self, key):
+		return CONFIG
+
+
+class FakeConf(dict):
+	"""NVDA's configuration object: a mapping that also carries the registered specs."""
+
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self.spec = {}
+
+
+class Action:
+	"""Stands in for an NVDA extension point, recording who is listening."""
+
+	def __init__(self):
+		self.handlers = []
+
+	def register(self, handler):
+		self.handlers.append(handler)
+
+	def unregister(self, handler):
+		if handler in self.handlers:
+			self.handlers.remove(handler)
+
+	def notify(self, **kwargs):
+		for handler in list(self.handlers):
+			handler(**kwargs)
+
+
+class FakeBrailleHandler:
+	"""The class `patches` installs onto. Only the methods it replaces need to exist."""
+
+	def _doNewObject(self, regions):
+		self.lastNewObject = list(regions)
+
+	def scrollForward(self):
+		self.scrolledForward = True
+
+	def scrollBack(self):
+		self.scrolledBack = True
+
+	def _handlePendingUpdate(self):
+		self._regionsPendingUpdate = set()
+
+
+class CallAfterQueue:
+	"""Collects `wx.CallAfter` calls so a test can decide when, or whether, they run."""
+
+	def __init__(self):
+		self.pending = []
+
+	def callAfter(self, callable, *args, **kwargs):
+		self.pending.append((callable, args, kwargs))
+
+	def flush(self):
+		""":return: how many queued calls were run."""
+		queued, self.pending = self.pending, []
+		for callable, args, kwargs in queued:
+			callable(*args, **kwargs)
+		return len(queued)
+
+	def discard(self):
+		self.pending = []
+
+
+callAfterQueue = CallAfterQueue()
+"""The queue `wx.CallAfter` writes into. Tests flush it to run a deferred rebuild."""
+
+displayChanged = Action()
+displaySizeChanged = Action()
+post_configProfileSwitch = Action()
+
+spokenMessages: list[str] = []
+"""Everything `ui.message` was given, so a test can assert what the user was told."""
+
+
+class FakeNavigatorObject:
+	"""An object that can be pinned to a segment."""
+
+	def __init__(self, name="an object", role="button"):
+		self.name = name
+		self.role = role
 
 
 def _module(name, **attributes):
@@ -328,13 +423,95 @@ def _module(name, **attributes):
 	return module
 
 
+def _installPluginStubs() -> None:
+	"""Register the modules the global plugin and its settings panel reach for.
+
+	These are heavier than the braille stubs and exist only so that `__init__.py` can be
+	imported and driven. Nothing here models NVDA's behaviour; it models its shape.
+	"""
+	import builtins
+
+	# addonHandler.initTranslation installs the gettext underscore into builtins.
+	builtins._ = lambda message: message  # type: ignore[attr-defined]
+	_module("addonHandler", initTranslation=lambda: None)
+	_module(
+		"api",
+		getFocusObject=lambda: FakeNavigatorObject("the focus"),
+		getNavigatorObject=lambda: FakeNavigatorObject("the navigator object"),
+	)
+	_module("ui", message=spokenMessages.append)
+	_module(
+		"wx",
+		CallAfter=callAfterQueue.callAfter,
+		SpinCtrl=object,
+		TextCtrl=object,
+		CheckBox=object,
+		StaticText=object,
+		Window=object,
+		OK=1,
+		ICON_ERROR=2,
+	)
+
+	class GlobalPlugin:
+		def __init__(self):
+			pass
+
+		def terminate(self):
+			pass
+
+	_module("globalPluginHandler", GlobalPlugin=GlobalPlugin)
+
+	class SettingsPanel:
+		pass
+
+	class NVDASettingsDialog:
+		categoryClasses = []
+
+	class BlockAction:
+		class Context:
+			MODAL_DIALOG_OPEN = "modal"
+
+		def when(self, *args, **kwargs):
+			return lambda function: function
+
+	settingsDialogs = types.SimpleNamespace(
+		SettingsPanel=SettingsPanel,
+		NVDASettingsDialog=NVDASettingsDialog,
+	)
+	_module(
+		"gui",
+		settingsDialogs=settingsDialogs,
+		blockAction=BlockAction(),
+		mainFrame=None,
+		messageBox=lambda *args, **kwargs: None,
+		guiHelper=types.SimpleNamespace(BoxSizerHelper=object),
+	)
+	_module("gui.guiHelper", BoxSizerHelper=object)
+	_module("scriptHandler", script=lambda **kwargs: (lambda function: function))
+	_module("keyboardHandler", keyCounter=0)
+	_module("controlTypes", Role=lambda role: types.SimpleNamespace(displayString=str(role)))
+	_module("braille.extensions", displayChanged=displayChanged, displaySizeChanged=displaySizeChanged)
+	_module("braille.brailleHandler", BrailleHandler=FakeBrailleHandler)
+	_module("braille.constants", CONTEXTPRES_CHANGEDCONTEXT="changedContext")
+	_module("braille.regions.focus", getFocusRegions=lambda obj, review=False: [Region(str(obj.name))])
+	_module(
+		"config.configFlags",
+		BrailleMode=types.SimpleNamespace(SPEECH_OUTPUT=types.SimpleNamespace(value="speechOutput")),
+		TetherTo=types.SimpleNamespace(FOCUS=types.SimpleNamespace(value="focus")),
+	)
+
+
 def installStubs() -> None:
 	"""Register the stand-in modules. Safe to call more than once."""
 	if PACKAGE in sys.modules:
 		return
 	_module("logHandler", log=log)
 	_module("baseObject", AutoPropertyObject=AutoPropertyObject, ScriptableObject=object)
-	_module("config", conf={"BrlMultiline": {"displays": {"stub": CONFIG}}})
+	_module(
+		"config",
+		conf=FakeConf({"BrlMultiline": {"displays": AnyDisplayDict(stub=CONFIG)}}),
+		post_configProfileSwitch=post_configProfileSwitch,
+	)
 	braille = _module("braille", handler=None)
 	buffers = _module("braille.buffers", BrailleBuffer=BrailleBuffer, _WindowRowPositions=WindowRowPositions)
 	display = _module("braille.display", DisplayDimensions=DisplayDimensions)
@@ -347,6 +524,7 @@ def installStubs() -> None:
 	braille.regions = regions
 	regions.base = regionsBase
 	regions.textInfo = regionsTextInfo
+	_installPluginStubs()
 	# A package object with a path but no code, so that the add-on's relative imports
 	# resolve without running its plugin entry point, which needs a great deal more of NVDA.
 	package = types.ModuleType(PACKAGE)
@@ -363,6 +541,43 @@ def installStubs() -> None:
 	bmConfig.shouldReverseScrollButtons = lambda displayKey=None: CONFIG["reverseScrollBtns"]
 
 
+def loadPlugin():
+	"""Import the add-on's `__init__.py` as a module, and return it.
+
+	The package stand-in registered by L{installStubs} has a path but no code, precisely so
+	that importing `brlMultiline.layout` does not drag in the global plugin. Testing the
+	plugin means loading that code deliberately.
+
+	It is loaded under the name `brlMultiline.plugin`, which puts its package at
+	`brlMultiline` so its relative imports resolve. Its module level names are then copied
+	onto the package stand-in, because `patches` reaches back for `getPlugin` with
+	`from . import getPlugin`, and in a real installation the package and the plugin module
+	are the same object.
+
+	:return: the loaded module.
+	"""
+	import importlib.util
+
+	name = f"{PACKAGE}.plugin"
+	if name in sys.modules:
+		return sys.modules[name]
+	spec = importlib.util.spec_from_file_location(name, os.path.join(ADDON_DIR, "__init__.py"))
+	assert spec is not None and spec.loader is not None
+	# The file is named __init__.py, so importlib would otherwise treat it as a package in
+	# its own right, and its relative imports would resolve to `brlMultiline.plugin.layout`
+	# rather than `brlMultiline.layout` — a second copy of every module, whose classes fail
+	# every isinstance check against the first.
+	spec.submodule_search_locations = None
+	module = importlib.util.module_from_spec(spec)
+	module.__package__ = PACKAGE
+	sys.modules[name] = module
+	spec.loader.exec_module(module)
+	package = sys.modules[PACKAGE]
+	for attribute in ("getPlugin", "GlobalPlugin", "SCRIPT_CATEGORY"):
+		setattr(package, attribute, getattr(module, attribute))
+	return module
+
+
 def resetConfig() -> None:
 	"""Put the stub configuration back to its defaults, for a test that changed it."""
 	CONFIG.update(
@@ -372,3 +587,15 @@ def resetConfig() -> None:
 		reverseScrollBtns=False,
 		showDocumentLines=False,
 	)
+
+
+def resetPluginState() -> None:
+	"""Clear everything the plugin stubs accumulate between tests."""
+	resetConfig()
+	callAfterQueue.discard()
+	spokenMessages.clear()
+	log.messages.clear()
+	displayChanged.handlers.clear()
+	displaySizeChanged.handlers.clear()
+	post_configProfileSwitch.handlers.clear()
+	sys.modules["gui"].settingsDialogs.NVDASettingsDialog.categoryClasses.clear()
