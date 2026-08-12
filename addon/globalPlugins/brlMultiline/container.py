@@ -24,6 +24,7 @@ import baseObject
 from logHandler import log
 
 from .layout import SegmentRect, findSegmentAtWindowPos, segmentPosToWindowPos
+from .pinnedRegions import PinnedRegion
 from .segments import BrailleBufferSegment
 
 if TYPE_CHECKING:
@@ -520,8 +521,40 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 				buffer.scrollBack()
 			return
 		# A segment that does not hold focus is panned within its own content only.
-		# Falling through to nextLine or previousLine would move the caret in an object
-		# the user is not working in, which drags the system focus with it.
+		# Falling through to NVDA's nextLine or previousLine would move the caret in an
+		# object the user is not working in, which drags the system focus with it.
 		moved = buffer._nextWindow() if forward else buffer._previousWindow()
 		if moved:
 			buffer.updateDisplay()
+			return
+		self._panPinnedContent(buffer, forward)
+
+	def _panPinnedContent(self, buffer: BrailleBufferSegment, forward: bool) -> None:
+		"""Move pinned content to the next or previous line, if it is content that may move.
+
+		A segment holds one reading unit at a time, so a pin whose window has reached the end
+		of its line has nothing further to pan into and would otherwise simply stop — which
+		is the whole of a pinned document after its first line.
+
+		The objection above does not apply to a region that keeps a reading position of its
+		own: moving it changes nothing outside this segment, so there is no caret to drag the
+		focus with. See `pinnedRegions`.
+
+		:param buffer: the segment to pan.
+		:param forward: True to move to the next line, False to the previous.
+		"""
+		region = buffer.regions[-1] if buffer.regions else None
+		if not isinstance(region, PinnedRegion) or not region.panLine(forward):
+			return
+		buffer.update()
+		try:
+			cellCount = len(region.brailleCells)
+			if forward or not cellCount:
+				buffer.focus(region)
+			else:
+				# Panning back shows the end of the line moved onto, so that a document reads
+				# the same in both directions rather than skipping every line's tail.
+				buffer.windowEndPos = buffer.regionPosToBufferPos(region, cellCount - 1) + 1
+		except LookupError:
+			log.debugWarning("Could not place the window after panning a pinned segment", exc_info=True)
+		buffer.updateDisplay()

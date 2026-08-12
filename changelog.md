@@ -16,7 +16,12 @@ Added:
 - Reversed panning keys, stored per display. NVDA has no such setting of its own.
 - Per segment panning commands, unbound by default.
 - Pinning the navigator object to a segment, so it stays visible while the focus moves. A
-  pin survives a layout change as long as its segment does.
+  pin survives a layout change as long as its segment does. A pinned segment can be panned
+  line by line through the object, and does so without moving the caret, the browse mode
+  cursor or the focus. A browse mode document is pinned through its tree interceptor, so a
+  pinned web page covers the page rather than the one element the cursor was in. Pins are
+  re-read several times a second, so a pinned status line or clock keeps up, and re-reading
+  neither moves the reading position nor disturbs the window the user panned to.
 - Optionally filling the segments around the focus segment with the document lines above
   and below the caret.
 
@@ -28,4 +33,6 @@ For add-on authors and component work:
 - Wrapping and cursor routing behaviour are per segment, so a claimed area can behave
   differently from the display around it. Neither is exposed in the settings dialog.
 
-Not yet verified on hardware. See `docs/design/port-plan.md`.
+Verified on a Focus 80 so far: configuration, two segment layouts, focus and caret
+tracking, cursor routing, reversed panning, and pinning. Everything else is unverified. See
+`docs/design/port-plan.md`.

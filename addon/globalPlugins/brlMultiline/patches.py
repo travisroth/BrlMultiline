@@ -15,6 +15,8 @@ Both are installed and removed symmetrically, so that disabling the add-on resto
 NVDA's own behaviour without a restart.
 """
 
+import time
+
 import config
 import keyboardHandler
 from braille.brailleHandler import BrailleHandler
@@ -29,6 +31,15 @@ _originalDoNewObject = None
 _originalScrollForward = None
 _originalScrollBack = None
 _originalHandlePendingUpdate = None
+
+MONITOR_REFRESH_INTERVAL = 0.4
+"""Seconds between re-reads of a pinned object.
+
+Fast enough that a pinned clock or status line is not visibly stale, slow enough that
+reading a document's text through a `TextInfo` is not being done on every core cycle.
+"""
+
+_lastMonitorRefresh = 0.0
 
 
 def _applyFocusToHardLeft(handler: BrailleHandler, regions: list) -> None:
@@ -135,6 +146,33 @@ def _populateDocumentLines(container: DisplayContainer) -> None:
 		log.debugWarning("Could not show document lines", exc_info=True)
 
 
+def _refreshPinnedObjects() -> None:
+	"""Re-read pinned objects, so that a pin shows the object as it is now.
+
+	A pin shows something in a window the user is not working in, and nothing NVDA does
+	announces that it has changed: there is no focus or caret event to redraw from, and
+	events in a background window are not delivered at all unless something has asked for
+	them. So the objects are re-read on a timer, and this is the timer — `_handlePendingUpdate`
+	already runs on every core cycle, which is far more often than any of this needs, hence
+	the interval. `ObjectMonitor.refresh` writes nothing when nothing has changed, so the
+	cost between changes is a read of each pinned object and no display traffic.
+	"""
+	global _lastMonitorRefresh
+	from . import getPlugin
+
+	plugin = getPlugin()
+	if plugin is None or not plugin.monitoredKeys:
+		return
+	now = time.monotonic()
+	if now - _lastMonitorRefresh < MONITOR_REFRESH_INTERVAL:
+		return
+	_lastMonitorRefresh = now
+	try:
+		plugin.refreshMonitors()
+	except Exception:
+		log.debugWarning("Could not refresh pinned objects", exc_info=True)
+
+
 def _handlePendingUpdateWithDocumentLines(self: BrailleHandler) -> None:
 	"""Refresh the document line regions after NVDA has handled its own pending updates.
 
@@ -145,9 +183,14 @@ def _handlePendingUpdateWithDocumentLines(self: BrailleHandler) -> None:
 	returning, so whether there was anything to do has to be noted before delegating to it.
 	Refreshing regardless would re-read the caret and retranslate every row many times a
 	second while nothing at all was changing.
+
+	Pinned objects are the exception, and are refreshed whether or not anything was pending:
+	what they show is not driven by the caret, so a pending update is no signal at all for
+	them.
 	"""
 	hadPendingUpdate = bool(self._regionsPendingUpdate)
 	_originalHandlePendingUpdate(self)
+	_refreshPinnedObjects()
 	if not hadPendingUpdate:
 		return
 	container = self.mainBuffer

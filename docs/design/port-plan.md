@@ -14,10 +14,10 @@ Multi row display support (`DisplayDimensions`, `numRows`/`numCols`) is older an
 ## Status at a glance
 
 1. Milestone 1, scaffold — DONE
-2. Milestone 2, segments and container — CODE COMPLETE, UNVERIFIED ON HARDWARE
-3. Milestone 3, configuration and commands — CODE COMPLETE, UNVERIFIED ON HARDWARE
+2. Milestone 2, segments and container — VERIFIED ON A FOCUS 80, single row
+3. Milestone 3, configuration and commands — VERIFIED ON A FOCUS 80, single row
 4. Milestone 4, TextInfoPositionRegion — CODE COMPLETE, UNVERIFIED ON HARDWARE
-5. Milestone 5, ObjectMonitor — CODE COMPLETE, UNVERIFIED ON HARDWARE
+5. Milestone 5, ObjectMonitor — VERIFIED IN PART, one defect open: see the log below
 6. Milestone 6, views — CODE COMPLETE, UNVERIFIED ON HARDWARE
 7. Milestone 7, panels and composition — CODE COMPLETE, UNVERIFIED ON HARDWARE
 8. Milestone 8, lifecycle defects and the plugin harness — CODE COMPLETE, UNVERIFIED ON HARDWARE
@@ -339,6 +339,64 @@ trustworthy:
 
 The first thing to try, being the simplest, is a Focus 80 split into two segments with
 nothing else enabled.
+
+## Hardware verification log
+
+NVDA from source, Focus 80 over the `freedomScientific` driver, reporting one row of 80
+cells. The display key written to nvda.ini is `freedomScientific_1x80`.
+
+2026-08-12, items 1, 2, 3 and part of 6:
+
+1. Configuration round trip — PASS. A display with no stored settings no longer raises
+   `KeyError` on first read; the section is created and specced on demand. A saved setting
+   survives an NVDA restart and reappears correctly in the panel, and nvda.ini holds
+   `[BrlMultiline] [[displays]] [[[freedomScientific_1x80]]] reverseScrollBtns = True`.
+2. Two segments on the Focus 80 — PASS. Even split and an explicit `30, 50` split both
+   arrange correctly. Focus tracking, caret tracking, edits and cursor routing all land in
+   the focus segment. A focus segment of -1 and of 0 both behave; 0 is the better default
+   on this display, since the reader's hands rest at the left.
+3. Reverse panning — PASS, both paths. NVDA's own panning keys are swapped by the
+   `BrailleHandler` patches, and the per segment scroll commands are swapped independently
+   by `GlobalPlugin.scrollSegment`. The two do not compound, as intended: they act on
+   different classes.
+4. Segment layout report — PASS. Reports the segment count and the focus segment
+   correctly.
+6. ObjectMonitor — PASS for an editable text object. A Notepad document pinned to a
+   segment stays readable and pannable while the focus moves to another application
+   entirely. FAILS for a browse mode document: see below.
+
+### Defect found and fixed: a pinned browse mode document could not be panned
+
+Pinning a Chrome page announced the page and showed the line the browse mode cursor was
+on, correctly, but the segment would not pan. Three separate causes, all now addressed and
+all awaiting a hardware re-test:
+
+1. `ObjectMonitor` passed the raw navigator object to `getFocusRegions`, where NVDA's own
+   `BrailleHandler.handleGainFocus` substitutes the tree interceptor when there is one that
+   is ready and not in pass through. Without that step the regions were built over the one
+   element the browse mode cursor was in, which reads correctly — the content shown was
+   right — and then has nothing to pan into, because that element's text ends where the
+   element does. `objectMonitor.resolveTarget` now makes the same substitution.
+2. `DisplayContainer._scroll` panned a segment out of focus with `_nextWindow` and
+   `_previousWindow` only, and those move within the text already rendered. The rendered
+   text is one reading unit, so a pin could never leave the line it was made on. It looked
+   like panning worked whenever that line was longer than the segment, which is why Notepad
+   passed, and like nothing happened at all when it was shorter, which is why the web page
+   failed. `_panPinnedContent` now falls through to a line change, but only for regions
+   that can make one safely, which is what the new `pinnedRegions` module provides: a
+   region that keeps its own `TextInfo` and answers `_getSelection` and `_setCursor` from
+   it. NVDA's `nextLine` and `previousLine` then work unaltered and move only the pin's own
+   position, so the objection that stopped `_scroll` falling through — that it would move a
+   caret in an object the user is not in, and drag the focus with it — no longer applies.
+   Ordinary regions are still refused.
+3. Monitors were refreshed only from `rebuildBuffer` and `startMonitoring`, so a pin was a
+   snapshot of the moment it was made. `patches._refreshPinnedObjects` now re-reads them
+   from the core cycle, throttled to `MONITOR_REFRESH_INTERVAL`, and `ObjectMonitor.refresh`
+   writes to the display only when what it would show has changed, keeping the reading
+   position and the window position across the redraw.
+
+Worth re-testing together, since the three interact: pin a page, pan it well past the line
+it was pinned on, and confirm the position holds while the pin keeps updating.
 
 Note on type checking: `python -m uv run pyright` reports a large number of findings, most
 of which are strict-mode noise (missing annotations on wx and NVDA call sites, `wx` not

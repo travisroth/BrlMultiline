@@ -264,6 +264,12 @@ class BrailleBuffer:
 	def windowEndPos(self):
 		return min(len(self.brailleCells), self.windowStartPos + self.handler.displaySize)
 
+	@windowEndPos.setter
+	def windowEndPos(self, endPos):
+		# Through the method rather than assigning here, so that a subclass overriding
+		# `_set_windowEndPos` is honoured, as NVDA's auto properties honour it.
+		self._set_windowEndPos(endPos)
+
 	def _set_windowEndPos(self, endPos):
 		self.windowStartPos = max(0, endPos - self.handler.displaySize)
 
@@ -307,6 +313,21 @@ class BrailleBuffer:
 			raise LookupError("No window was saved")
 		self.windowStartPos = self._savedWindow
 
+	def regionPosToBufferPos(self, region, pos, allowNearest=False):
+		start = 0
+		for candidate in self.visibleRegions:
+			end = start + len(candidate.brailleCells)
+			if candidate is region:
+				if pos < end - start:
+					return start + pos
+				if allowNearest:
+					return start
+				break
+			start = end
+		if allowNearest:
+			return start
+		raise LookupError("No such position")
+
 	def scrollForward(self):
 		self.scrolled = "forward"
 
@@ -346,6 +367,11 @@ class FakeTextInfo:
 	def copy(self):
 		return FakeTextInfo(self.lines, self.index)
 
+	@property
+	def bookmark(self):
+		"""A comparable mark for this position, as NVDA's TextInfo carries."""
+		return (id(self.lines), self.index)
+
 	def collapse(self, end=False):
 		pass
 
@@ -369,31 +395,77 @@ class FakeDocument:
 		return FakeTextInfo(self.lines, self.caretIndex)
 
 
+class FakeTreeInterceptor:
+	"""A browse mode document, which reads through a cursor of its own rather than a caret."""
+
+	def __init__(self, lines, caretIndex=0, isReady=True, passThrough=False):
+		self.lines = lines
+		self.caretIndex = caretIndex
+		self.isReady = isReady
+		self.passThrough = passThrough
+
+	@property
+	def selection(self):
+		return FakeTextInfo(self.lines, self.caretIndex)
+
+	@selection.setter
+	def selection(self, info):
+		self.caretIndex = info.index
+
+
 class TextInfoRegion(Region):
-	"""Renders whatever line its object's caret is on."""
+	"""Renders whatever line its object's caret is on, and moves that caret when panned.
+
+	Faithful about moving the caret because that is the behaviour a pinned region has to
+	override: a test that panned a pin and found the object's caret unmoved would prove
+	nothing against a stub that never moved it in the first place.
+	"""
 
 	def __init__(self, obj):
 		super().__init__("")
 		self.obj = obj
+		self._readingInfo = None
 
 	def _getSelection(self):
 		return FakeTextInfo(self.obj.lines, self.obj.caretIndex)
+
+	def _setCursor(self, info):
+		self.obj.caretIndex = info.index
 
 	def _getDefaultRegionLanguage(self):
 		return "en"
 
 	def update(self):
-		self.rawText = self._getSelection().text
+		info = self._readingInfo = self._getSelection()
+		self.rawText = info.text
 		Region.update(self)
 
 	def routeTo(self, pos):
 		self.routedTo = pos
 
+	def _moveLine(self, count):
+		dest = self._readingInfo.copy()
+		dest.collapse()
+		dest.move(UNIT_LINE, count)
+		self._setCursor(dest)
+
 	def nextLine(self):
 		self.panned = "next"
+		self._moveLine(1)
 
 	def previousLine(self, start=False):
 		self.panned = "previous"
+		self._moveLine(-1)
+
+
+class CursorManagerRegion(TextInfoRegion):
+	"""Reads and writes the browse mode cursor rather than a caret, as NVDA's does."""
+
+	def _getSelection(self):
+		return self.obj.selection
+
+	def _setCursor(self, info):
+		self.obj.selection = info
 
 
 class FakeHandler:
@@ -510,9 +582,28 @@ spokenMessages: list[str] = []
 class FakeNavigatorObject:
 	"""An object that can be pinned to a segment."""
 
-	def __init__(self, name="an object", role="button"):
+	def __init__(self, name="an object", role="button", lines=None, treeInterceptor=None):
 		self.name = name
 		self.role = role
+		self.lines = lines
+		self.caretIndex = 0
+		self.treeInterceptor = treeInterceptor
+
+
+def fakeGetFocusRegions(obj, review=False):
+	"""Stand in for NVDA's `getFocusRegions`, with the same shape.
+
+	A label region always, and a text region after it when the object has text to read —
+	a cursor managed one for a tree interceptor, as NVDA produces for browse mode.
+	"""
+	regions = [Region(str(getattr(obj, "name", None) or "document"))]
+	if isinstance(obj, FakeTreeInterceptor):
+		regions.append(CursorManagerRegion(obj))
+	elif getattr(obj, "lines", None):
+		regions.append(TextInfoRegion(obj))
+	for region in regions:
+		region.update()
+	return regions
 
 
 def _module(name, **attributes):
@@ -593,7 +684,7 @@ def _installPluginStubs() -> None:
 	_module("braille.extensions", displayChanged=displayChanged, displaySizeChanged=displaySizeChanged)
 	_module("braille.brailleHandler", BrailleHandler=FakeBrailleHandler)
 	_module("braille.constants", CONTEXTPRES_CHANGEDCONTEXT="changedContext")
-	_module("braille.regions.focus", getFocusRegions=lambda obj, review=False: [Region(str(obj.name))])
+	_module("braille.regions.focus", getFocusRegions=fakeGetFocusRegions)
 	_module(
 		"config.configFlags",
 		BrailleMode=types.SimpleNamespace(SPEECH_OUTPUT=types.SimpleNamespace(value="speechOutput")),
@@ -622,7 +713,11 @@ def installStubs() -> None:
 	display = _module("braille.display", DisplayDimensions=DisplayDimensions)
 	regions = _module("braille.regions")
 	regionsBase = _module("braille.regions.base", Region=Region)
-	regionsTextInfo = _module("braille.regions.textInfo", TextInfoRegion=TextInfoRegion)
+	regionsTextInfo = _module(
+		"braille.regions.textInfo",
+		TextInfoRegion=TextInfoRegion,
+		CursorManagerRegion=CursorManagerRegion,
+	)
 	_module("textInfos", UNIT_LINE=UNIT_LINE, TextInfo=FakeTextInfo)
 	braille.buffers = buffers
 	braille.display = display
