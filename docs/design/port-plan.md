@@ -278,22 +278,32 @@ Fixed:
   rather than falling back to the focus segment) and `_brlMultilineSegmentKey`
   (bookkeeping). `focus` and `scrollTo` use `findContainingSegment`, which searches by
   identity before consulting the recorded key.
+- **A rebuild put pins back on a display showing speech.** `rebuildBuffer` ended by calling
+  `refreshMonitors` unconditionally. In speech output mode NVDA's `handleGainFocus` draws
+  nothing, so the rebuild left the pinned object beside the speech with nothing to refresh
+  or remove it — and the profile switch listener above made that easy to reach.
+  `bmConfig.isSpeechOutputMode` is now the one place the mode is read, and the two paths
+  that write content of the add-on's own consult it: `refreshMonitors`, which is also how
+  `startMonitoring` draws, and `_populateDocumentLines`. Registrations are kept either way,
+  so nothing is lost by being unable to draw.
 
 Note that rejecting a dead key only in `FakeRegionsList.append` would not have been enough:
 `_doNewObjectMultiSegment` places regions by calling the container directly. Both paths now
 go through `resolvePlacementTarget`.
 
-Tests: 289, up from 237. `test_plugin.py` is new and covers the layer skipped in milestone
+Tests: 304, up from 237. `test_plugin.py` is new and covers the layer skipped in milestone
 7 — container installation and teardown, monitor carry-over in all four of its outcomes,
 the deferred rebuild race, profile switches, panel claims surviving rebuilds and being
-dropped when they no longer fit, and speech output mode. `_stubs.loadPlugin` executes the
-add-on's `__init__.py` under a name that keeps its relative imports pointing at the single
-copy of each module.
+dropped when they no longer fit, speech output mode, and the installed `_doNewObject`
+replacement driven against a real container. `_stubs.loadPlugin` executes the add-on's
+`__init__.py` under a name that keeps its relative imports pointing at the single copy of
+each module.
 
-The speech output tests record present behaviour rather than desired behaviour: a pin's
-content does not return on its own, and a panel has no recovery path at all. They exist so
-that the gap is pinned rather than implicit, and they should be revisited with the lease
-API.
+The speech output tests now cover both directions. What the add-on refuses to draw while
+the mode is on is settled behaviour. What happens on the way back is not: a pin's content
+does not return until something redraws it, and a panel has no recovery path at all. The
+tests that leave the mode record that gap rather than endorse it, and should be revisited
+with the lease API.
 
 ## Verification owed
 
@@ -356,8 +366,10 @@ note in [architecture.md](architecture.md).
    connected display's row count; the generated per segment commands cannot, because they
    are created at import time and their gesture bindings must be stable across displays. So
    the likely answer is a geometry aware dialog bound plus a fixed, larger command count.
-6. What should a panel do when the display goes into speech output mode and comes back?
-   The current answer is nothing, and its content is lost. See the characterisation tests
+6. What should be redrawn when the display comes back out of speech output mode? Going in
+   is settled: the display is emptied and the add-on draws nothing while the mode is on. A
+   pin returns at the next rebuild or object update, but nothing announces the mode ending,
+   so it may be a while; a panel's content is lost outright. See the characterisation tests
    in `test_plugin.py`. Probably part of the lease API rather than separate.
 4. Should the focus segment follow the caret on a multi row display — that is, should the
    ScrollingManager idea come back in a simpler form, moving which segment holds focus

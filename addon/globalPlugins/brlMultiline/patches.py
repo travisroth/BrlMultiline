@@ -19,7 +19,7 @@ import config
 import keyboardHandler
 from braille.brailleHandler import BrailleHandler
 from braille.constants import CONTEXTPRES_CHANGEDCONTEXT
-from config.configFlags import BrailleMode, TetherTo
+from config.configFlags import TetherTo
 from logHandler import log
 
 from . import bmConfig, documentLines
@@ -119,6 +119,10 @@ def _populateDocumentLines(container: DisplayContainer) -> None:
 	"""
 	if container.numSegments == 1:
 		return
+	if bmConfig.isSpeechOutputMode():
+		# The display is showing speech. Lines written now would stay under the reader's
+		# fingers beside it, since nothing handles caret moves in this mode.
+		return
 	monitored = _getMonitoredKeys()
 	try:
 		if bmConfig.shouldShowDocumentLines():
@@ -151,7 +155,7 @@ def _handlePendingUpdateWithDocumentLines(self: BrailleHandler) -> None:
 		return
 	if not bmConfig.shouldShowDocumentLines():
 		return
-	if config.conf["braille"]["mode"] == BrailleMode.SPEECH_OUTPUT.value:
+	if bmConfig.isSpeechOutputMode():
 		# The display is showing speech, not the document the caret is in.
 		return
 	try:

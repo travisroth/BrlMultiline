@@ -215,10 +215,6 @@ class TestTextInfoPositionRegion(DocumentLinesTestCase):
 		self.assertFalse(hasattr(region, "panned"))
 
 
-if __name__ == "__main__":
-	unittest.main()
-
-
 class TestDocumentContext(DocumentLinesTestCase):
 	"""Offsets follow the stated reading order, not the display order of segments.
 
@@ -291,3 +287,9 @@ class TestDocumentContext(DocumentLinesTestCase):
 		self.putCaretInADocument(container, caretIndex=10)
 		documentLines.populate(container)
 		self.assertEqual(self.textIn(container, "display.0"), "line 9")
+
+
+# Last in the file, so that running this module directly runs every class above it rather
+# than stopping wherever the block happens to sit.
+if __name__ == "__main__":
+	unittest.main()

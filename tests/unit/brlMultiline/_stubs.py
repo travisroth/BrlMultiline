@@ -36,6 +36,30 @@ CONFIG = {
 }
 """The stub configuration the fake `bmConfig` reads. Tests mutate this directly."""
 
+FOLLOW_CURSORS_MODE = "followCursors"
+SPEECH_OUTPUT_MODE = "speechOutput"
+
+BRAILLE_CONFIG = {
+	"mode": FOLLOW_CURSORS_MODE,
+	"focusContextPresentation": "changedContext",
+}
+"""NVDA's own braille settings, which the add-on reads through the real `bmConfig`.
+
+Unlike L{CONFIG} these are not redirected, so a test changing the mode here changes what
+`bmConfig.isSpeechOutputMode` answers. Use L{setSpeechOutputMode} rather than writing to it.
+"""
+
+
+def setSpeechOutputMode(enabled: bool) -> None:
+	"""Put NVDA into or out of speech output braille mode, as the user's toggle does.
+
+	Only half of what entering the mode looks like: NVDA also assigns a fresh list to
+	`container.regions`, which empties every segment. A test entering the mode wants both.
+
+	:param enabled: True for speech output, False to follow cursors.
+	"""
+	BRAILLE_CONFIG["mode"] = SPEECH_OUTPUT_MODE if enabled else FOLLOW_CURSORS_MODE
+
 
 class FakeLog:
 	"""Swallows log output, but records it so a test can assert something was reported."""
@@ -122,6 +146,8 @@ class Region:
 		self.brailleCells = [ord(character) & 0xFF for character in text]
 		self.hidden = False
 		self.obj = None
+		# NVDA's own Region carries this, and `_doNewObject` reads and writes it.
+		self.focusToHardLeft = False
 
 	def update(self):
 		self.brailleCells = [ord(character) & 0xFF for character in self.rawText]
@@ -303,7 +329,12 @@ class TextInfoRegion(Region):
 
 
 class FakeHandler:
-	"""Stands in for `BrailleHandler` well enough to build a container against."""
+	"""Stands in for `BrailleHandler` well enough to build a container against.
+
+	Also answers what `patches._doNewObjectMultiSegment` asks of a handler, so that the
+	patch can be driven against a real container rather than only against
+	L{FakeBrailleHandler}, which exists to be patched rather than to be run.
+	"""
 
 	def __init__(self, numRows=8, numCols=32):
 		self.displayDimensions = DisplayDimensions(numRows, numCols)
@@ -313,6 +344,10 @@ class FakeHandler:
 		self.updateCount = 0
 		self.display = types.SimpleNamespace(name="stub")
 		self._regionsPendingUpdate = set()
+		self._keyCountForLastMessage = 0
+		self.tether = "focus"
+		self.autoScrollEnabled = None
+		self.scrolledTo = []
 
 	@property
 	def displaySize(self):
@@ -320,6 +355,15 @@ class FakeHandler:
 
 	def update(self):
 		self.updateCount += 1
+
+	def autoScroll(self, enable=False):
+		self.autoScrollEnabled = enable
+
+	def getTether(self):
+		return self.tether
+
+	def scrollToCursorOrSelection(self, region):
+		self.scrolledTo.append(region)
 
 
 class AnyDisplayDict(dict):
@@ -509,7 +553,12 @@ def installStubs() -> None:
 	_module("baseObject", AutoPropertyObject=AutoPropertyObject, ScriptableObject=object)
 	_module(
 		"config",
-		conf=FakeConf({"BrlMultiline": {"displays": AnyDisplayDict(stub=CONFIG)}}),
+		conf=FakeConf(
+			{
+				"BrlMultiline": {"displays": AnyDisplayDict(stub=CONFIG)},
+				"braille": BRAILLE_CONFIG,
+			},
+		),
 		post_configProfileSwitch=post_configProfileSwitch,
 	)
 	braille = _module("braille", handler=None)
@@ -587,6 +636,7 @@ def resetConfig() -> None:
 		reverseScrollBtns=False,
 		showDocumentLines=False,
 	)
+	setSpeechOutputMode(False)
 
 
 def resetPluginState() -> None:

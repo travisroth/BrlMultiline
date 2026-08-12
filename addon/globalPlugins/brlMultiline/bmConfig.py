@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Travis Roth <travis@travisroth.com>
 # This file is covered by the GNU General Public License version 2.
 
-"""Per display configuration.
+"""Per display configuration, and the one setting of NVDA's own the add-on has to obey.
 
 Settings are stored per display rather than globally, because the useful layout differs
 sharply between displays: an 8 row Monarch and an 80 cell single row Focus want different
@@ -11,10 +11,15 @@ segment counts, and reversed panning keys are wanted on one and not the other.
 
 Displays are keyed on driver name plus geometry, since the same driver can present
 different sized displays.
+
+L{isSpeechOutputMode} is the exception: it is NVDA's setting rather than this add-on's, and
+lives here because every place that has to consult it reads its configuration through this
+module already.
 """
 
 import braille
 import config
+from config.configFlags import BrailleMode
 from logHandler import log
 
 CONFIG_SECTION = "BrlMultiline"
@@ -113,6 +118,26 @@ def shouldShowDocumentLines(displayKey: str | None = None) -> bool:
 		return bool(getDisplayConfig(displayKey)["showDocumentLines"])
 	except Exception:
 		log.debugWarning("Could not read showDocumentLines", exc_info=True)
+		return False
+
+
+def isSpeechOutputMode() -> bool:
+	""":return: whether NVDA is showing speech on the display rather than following cursors.
+
+	This is NVDA's own braille mode, not a setting of this add-on's, and it decides whether
+	the add-on may write to the display at all. In speech output mode NVDA stops handling
+	focus, caret and review moves, and everything shown comes from speech. Anything this
+	add-on drew into a segment would sit there under the reader's fingers beside the speech,
+	with nothing to refresh or remove it, so every path that writes content of the add-on's
+	own asks this first: pinned objects in L{GlobalPlugin.refreshMonitors}, and document
+	lines in `patches`.
+	"""
+	try:
+		return config.conf["braille"]["mode"] == BrailleMode.SPEECH_OUTPUT.value
+	except Exception:
+		# Reading it failed, so assume the ordinary mode. Refusing to draw would be the more
+		# cautious guess, but it would leave a display that never updates.
+		log.debugWarning("Could not read NVDA's braille mode", exc_info=True)
 		return False
 
 

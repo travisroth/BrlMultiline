@@ -457,7 +457,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return
 		monitor = ObjectMonitor(obj, segment.key)
 		self._monitors[segment.key] = monitor
-		monitor.refresh()
+		# Through `refreshMonitors` rather than straight to the monitor, so that pinning
+		# while the display is showing speech registers the pin without drawing it.
+		self.refreshMonitors()
 		# Translators: reported when an object is pinned to a segment.
 		# Placeholders are the object's name and the segment number.
 		ui.message(_("Monitoring {name} in segment {number}").format(name=monitor.name, number=resolved))
@@ -497,7 +499,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				container.clear(key)
 
 	def refreshMonitors(self) -> None:
-		"""Redraw every pinned object. Called when a monitored object may have changed."""
+		"""Redraw every pinned object. Called when a monitored object may have changed.
+
+		The single place pins are drawn, so that the one condition under which they must not
+		be drawn is checked once. Registrations are kept either way: a pin is not lost by
+		being unable to draw, it simply waits for the next refresh.
+		"""
+		if bmConfig.isSpeechOutputMode():
+			# NVDA is showing speech on the display and has stopped handling focus, caret
+			# and review moves. A pin drawn now would sit beside the speech with nothing to
+			# refresh or remove it, and a rebuild is exactly when that would happen, since
+			# `_refreshDisplay` above draws nothing in this mode.
+			log.debug("BrlMultiline: not drawing pinned objects while braille shows speech")
+			return
 		for monitor in list(self._monitors.values()):
 			monitor.refresh()
 
