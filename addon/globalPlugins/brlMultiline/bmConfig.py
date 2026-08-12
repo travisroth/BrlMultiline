@@ -73,14 +73,26 @@ def getDisplayKey() -> str:
 
 
 def getDisplayConfig(displayKey: str | None = None):
-	"""Get the configuration section for a display.
+	"""Get the configuration section for a display, creating it if this is a new display.
+
+	NVDA does not materialise a `__many__` subsection on demand: reading a display that has
+	never been written raises `KeyError`, and every display is new until something writes
+	settings for it. So the section is created here, as NVDA creates one per synthesiser and
+	per braille display driver in `autoSettingsUtils.autoSettings`. A section created that
+	way is given an empty specification, which would leave the settings inside it raising
+	`KeyError` in turn, so the specification is attached to it as well.
 
 	:param displayKey: the display to look up, or None for the current one.
 	:return: the configuration section. Values not yet set return their defaults.
 	"""
 	if displayKey is None:
 		displayKey = getDisplayKey()
-	return config.conf[CONFIG_SECTION]["displays"][displayKey]
+	displays = config.conf[CONFIG_SECTION]["displays"]
+	if not displays.isSet(displayKey):
+		displays[displayKey] = {}
+	section = displays[displayKey]
+	section.spec.update(configSpec["displays"]["__many__"])
+	return section
 
 
 def getLayout(displayKey: str | None = None) -> int | list[int]:

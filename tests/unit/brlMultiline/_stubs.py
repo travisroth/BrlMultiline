@@ -18,6 +18,7 @@ every test module may call it.
 """
 
 import os
+import re
 import sys
 import types
 
@@ -27,14 +28,81 @@ ADDON_DIR = os.path.abspath(
 
 PACKAGE = "brlMultiline"
 
-CONFIG = {
-	"segmentCount": 4,
-	"segmentSizes": [],
-	"focusSegment": -1,
-	"reverseScrollBtns": False,
-	"showDocumentLines": False,
-}
+
+def _specDefault(spec: str):
+	"""Read the default out of a configobj specification string.
+
+	Crude beside NVDA's validator, which the stub has no access to, but the add-on's
+	settings are only integers, booleans and integer lists.
+
+	:param spec: a specification such as `integer(default=1, min=1, max=8)`.
+	:return: the default the validator would produce.
+	"""
+	match = re.search(r"default=(list\(\)|[^,)]+)", spec)
+	if not match:
+		raise KeyError(spec)
+	text = match.group(1).strip()
+	if text == "list()":
+		return []
+	if text in ("True", "False"):
+		return text == "True"
+	if text.lstrip("-").isdigit():
+		return int(text)
+	return text.strip("\"'")
+
+
+class DisplaySection(dict):
+	"""One display's settings, as NVDA's configuration presents them.
+
+	Carries a `spec` because a section NVDA creates on the fly is given an empty one, and a
+	setting only falls back to its default once a specification has been attached. A key
+	with neither a stored value nor a specification raises `KeyError`, as in NVDA.
+	"""
+
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self.spec = {}
+
+	def __missing__(self, key):
+		return _specDefault(self.spec[key])
+
+
+class DisplaysSection(dict):
+	"""The `__many__` section holding the settings of each display.
+
+	NVDA does not materialise one of these subsections on demand: reading a display that
+	has never been written raises `KeyError`, so anything wanting one has to create it
+	first, and the stub insists on that too. Tests care about the settings rather than the
+	key, so every display created resolves to the one stub section.
+	"""
+
+	def isSet(self, key) -> bool:
+		return key in self
+
+	def __setitem__(self, key, value):
+		if not isinstance(value, dict):
+			raise ValueError("Value must be a section")
+		super().__setitem__(key, CONFIG)
+
+
+CONFIG = DisplaySection(
+	{
+		"segmentCount": 4,
+		"segmentSizes": [],
+		"focusSegment": -1,
+		"reverseScrollBtns": False,
+		"showDocumentLines": False,
+	},
+)
 """The stub configuration the fake `bmConfig` reads. Tests mutate this directly."""
+
+realBmConfig: dict = {}
+"""The `bmConfig` functions L{installStubs} replaces, keyed on name, before it replaces them.
+
+Everything above `bmConfig` is tested against L{CONFIG} rather than against NVDA's
+configuration, so the accessors are redirected. Testing `bmConfig` itself means calling the
+real ones, which is what this is for.
+"""
 
 FOLLOW_CURSORS_MODE = "followCursors"
 SPEECH_OUTPUT_MODE = "speechOutput"
@@ -366,18 +434,6 @@ class FakeHandler:
 		self.scrolledTo.append(region)
 
 
-class AnyDisplayDict(dict):
-	"""Returns the one stub display section whatever key is asked for.
-
-	NVDA's `__many__` config sections materialise a subsection on demand, and the add-on
-	keys them on driver name plus geometry. Tests care about the settings, not the key, so
-	every key resolves to the same section.
-	"""
-
-	def __missing__(self, key):
-		return CONFIG
-
-
 class FakeConf(dict):
 	"""NVDA's configuration object: a mapping that also carries the registered specs."""
 
@@ -555,7 +611,7 @@ def installStubs() -> None:
 		"config",
 		conf=FakeConf(
 			{
-				"BrlMultiline": {"displays": AnyDisplayDict(stub=CONFIG)},
+				"BrlMultiline": {"displays": DisplaysSection()},
 				"braille": BRAILLE_CONFIG,
 			},
 		),
@@ -584,6 +640,23 @@ def installStubs() -> None:
 	import importlib
 
 	bmConfig = importlib.import_module(f"{PACKAGE}.bmConfig")
+	# Kept before the replacements below, so that the tests of bmConfig itself can reach the
+	# real ones. The functions not replaced are kept too, so those tests have one place to
+	# read all of them from.
+	realBmConfig.update(
+		{
+			name: getattr(bmConfig, name)
+			for name in (
+				"getDisplayKey",
+				"getDisplayConfig",
+				"getLayout",
+				"getFocusSegment",
+				"shouldShowDocumentLines",
+				"shouldReverseScrollButtons",
+				"setLayout",
+			)
+		},
+	)
 	bmConfig.getLayout = lambda displayKey=None: CONFIG["segmentSizes"] or CONFIG["segmentCount"]
 	bmConfig.getFocusSegment = lambda displayKey=None: CONFIG["focusSegment"]
 	bmConfig.shouldShowDocumentLines = lambda displayKey=None: CONFIG["showDocumentLines"]
@@ -629,6 +702,7 @@ def loadPlugin():
 
 def resetConfig() -> None:
 	"""Put the stub configuration back to its defaults, for a test that changed it."""
+	CONFIG.clear()
 	CONFIG.update(
 		segmentCount=4,
 		segmentSizes=[],
@@ -636,6 +710,11 @@ def resetConfig() -> None:
 		reverseScrollBtns=False,
 		showDocumentLines=False,
 	)
+	# Both are filled in by the real `getDisplayConfig` as displays are met, so a test that
+	# met one starts the next test with a display already known to the configuration.
+	CONFIG.spec.clear()
+	if "config" in sys.modules:
+		sys.modules["config"].conf["BrlMultiline"]["displays"].clear()
 	setSpeechOutputMode(False)
 
 
