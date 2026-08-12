@@ -11,8 +11,12 @@ Added:
 - Divides a braille display into independent segments, each with its own content and its
   own scrolling. Segments are groups of whole rows on a multi row display, and column
   slices on a single row display.
-- Per display configuration: segment count or explicit segment sizes, and which segment
-  follows the focus.
+- Per display configuration: whether to divide the display at all, segment count or
+  explicit segment sizes, and which segment follows the focus.
+- A switch, per display, for turning the configured layout off and on without disturbing
+  it, as a setting and as a command. While it is off the display behaves as it does without
+  the add-on, and objects cannot be pinned. A view or panel activated by code is unaffected,
+  since that is a claim about what the display is being used for rather than a preference.
 - Reversed panning keys, stored per display. NVDA has no such setting of its own.
 - Per segment panning commands, unbound by default.
 - Pinning the navigator object to a segment, so it stays visible while the focus moves. A

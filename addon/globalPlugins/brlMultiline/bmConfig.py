@@ -34,6 +34,7 @@ MAX_UI_SEGMENTS = 8
 configSpec = {
 	"displays": {
 		"__many__": {
+			"segmentsEnabled": "boolean(default=True)",
 			"segmentCount": f"integer(default=1, min=1, max={MAX_UI_SEGMENTS})",
 			"segmentSizes": "int_list(default=list())",
 			"focusSegment": f"integer(default=-1, min=-1, max={MAX_UI_SEGMENTS - 1})",
@@ -44,6 +45,9 @@ configSpec = {
 }
 """Configuration specification, registered under `config.conf.spec[CONFIG_SECTION]`.
 
+- `segmentsEnabled`: whether to divide the display at all. Turning it off overrides the
+	layout below without disturbing it, so that turning it back on restores the arrangement
+	rather than requiring it to be typed again.
 - `segmentCount`: how many segments to divide the display into. Used when
 	`segmentSizes` is empty, which is the usual case.
 - `segmentSizes`: explicit segment sizes, in rows on a multi row display and in cells on
@@ -93,6 +97,33 @@ def getDisplayConfig(displayKey: str | None = None):
 	section = displays[displayKey]
 	section.spec.update(configSpec["displays"]["__many__"])
 	return section
+
+
+def areSegmentsEnabled(displayKey: str | None = None) -> bool:
+	""":return: whether this display should be divided at all.
+
+	The master switch over everything the user configured, so that a layout can be put aside
+	for a while — a task that wants the whole display as one piece, a display being lent to
+	someone else — and taken up again without being retyped. It overrides the user's own
+	settings only: a view or a panel activated by code is a claim about what the display is
+	being used for rather than a preference, and is not affected.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["segmentsEnabled"])
+	except Exception:
+		# A configuration problem should leave the add-on doing what it was asked to do,
+		# rather than silently taking the display back to one segment.
+		log.debugWarning("Could not read segmentsEnabled", exc_info=True)
+		return True
+
+
+def setSegmentsEnabled(enabled: bool, displayKey: str | None = None) -> None:
+	"""Turn division of a display on or off, leaving its layout alone.
+
+	:param enabled: True to use the configured layout, False to show one segment.
+	:param displayKey: the display to store against, or None for the current one.
+	"""
+	getDisplayConfig(displayKey)["segmentsEnabled"] = bool(enabled)
 
 
 def getLayout(displayKey: str | None = None) -> int | list[int]:

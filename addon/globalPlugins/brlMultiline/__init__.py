@@ -424,6 +424,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		:param segmentNumber: the segment to pin it to, as the per segment commands count
 			them. The pin itself is held by key, so it survives a later rebuild.
 		"""
+		if not bmConfig.areSegmentsEnabled():
+			# There is one segment and it follows the focus, so the check below would refuse
+			# this anyway. Said plainly here, because the reason is the switch rather than
+			# anything about the segment the user named.
+			# Translators: reported when asked to pin an object while the display is undivided.
+			ui.message(_("The display is not divided into segments, so there is nowhere to pin an object"))
+			return
 		container = self.container
 		if container is None:
 			# Translators: reported when a command needs segments but none are configured.
@@ -554,6 +561,22 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			gui.settingsDialogs.NVDASettingsDialog,
 			BrailleMultilineSettingsPanel,
 		)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Turns the BrlMultiline segment layout on or off"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_toggleSegments(self, gesture):
+		enabled = not bmConfig.areSegmentsEnabled()
+		bmConfig.setSegmentsEnabled(enabled)
+		self.rebuildBuffer()
+		if enabled:
+			# Translators: reported when the display is divided into segments again.
+			ui.message(_("Segments on"))
+		else:
+			# Translators: reported when the display stops being divided into segments.
+			ui.message(_("Segments off"))
 
 	@script(
 		# Translators: input help message for a command.

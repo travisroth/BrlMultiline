@@ -75,6 +75,10 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Translators: label of a checkbox in settings.
+		enabledLabel = _("&Divide this display into segments")
+		self.segmentsEnabledCtrl = sHelper.addItem(wx.CheckBox(self, label=enabledLabel))
+		self.segmentsEnabledCtrl.SetValue(bool(section["segmentsEnabled"]))
 		# Translators: label of a spin control in settings.
 		segmentCountLabel = _("Number of &segments:")
 		self.segmentCountCtrl = sHelper.addLabeledControl(
@@ -114,8 +118,17 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		try:
 			sizes = parseSegmentSizes(self.segmentSizesCtrl.Value)
 		except ValueError as error:
+			# Checked whether or not the layout is in use, since it is stored either way and
+			# nothing should be able to put text into the configuration that cannot be read
+			# back.
 			self._reportError(str(error), self.segmentSizesCtrl)
 			return False
+		if not self.segmentsEnabledCtrl.IsChecked():
+			# The layout is not going to be used, so whether it fits this display is not a
+			# reason to refuse the save. It matters when a display has been replaced by a
+			# smaller one: turning division off is exactly what the user would reach for, and
+			# holding them to a layout that no longer fits would stop them doing it.
+			return True
 		layout = sizes if sizes else self.segmentCountCtrl.Value
 		try:
 			rects = calculateSegmentRects(self.numRows, self.numCols, layout)
@@ -154,6 +167,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			# isValid has already vetted this; keep whatever was stored before.
 			log.debugWarning("Segment sizes could not be parsed while saving", exc_info=True)
 			return
+		section["segmentsEnabled"] = self.segmentsEnabledCtrl.IsChecked()
 		section["segmentCount"] = self.segmentCountCtrl.Value
 		section["segmentSizes"] = sizes
 		section["focusSegment"] = self.focusSegmentCtrl.Value

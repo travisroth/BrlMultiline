@@ -111,11 +111,29 @@ class TestSettingsForANewDisplay(ConfigTestCase):
 		CONFIG["showDocumentLines"] = True
 		self.assertTrue(realBmConfig["shouldShowDocumentLines"](FOCUS))
 
+	def test_segmentsAreEnabledUntilTurnedOff(self):
+		"""Installing the add-on should not need a switch thrown before anything works."""
+		del CONFIG["segmentsEnabled"]
+		self.assertTrue(realBmConfig["areSegmentsEnabled"](FOCUS))
+
+	def test_segmentsCanBeTurnedOff(self):
+		CONFIG["segmentsEnabled"] = False
+		self.assertFalse(realBmConfig["areSegmentsEnabled"](FOCUS))
+
 	def test_setLayoutStoresAgainstADisplayNeverSeenBefore(self):
 		realBmConfig["setLayout"](2, [20, 60], FOCUS)
 		section = bmConfig.getDisplayConfig(FOCUS)
 		self.assertEqual(section["segmentCount"], 2)
 		self.assertEqual(section["segmentSizes"], [20, 60])
+
+	def test_theSwitchStoresAgainstADisplayNeverSeenBefore(self):
+		realBmConfig["setSegmentsEnabled"](False, FOCUS)
+		self.assertFalse(bmConfig.getDisplayConfig(FOCUS)["segmentsEnabled"])
+
+	def test_turningTheSwitchOffLeavesTheLayoutAlone(self):
+		realBmConfig["setLayout"](2, [20, 60], FOCUS)
+		realBmConfig["setSegmentsEnabled"](False, FOCUS)
+		self.assertEqual(bmConfig.getDisplayConfig(FOCUS)["segmentSizes"], [20, 60])
 
 
 if __name__ == "__main__":

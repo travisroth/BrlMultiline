@@ -395,8 +395,17 @@ all awaiting a hardware re-test:
    writes to the display only when what it would show has changed, keeping the reading
    position and the window position across the redraw.
 
-Worth re-testing together, since the three interact: pin a page, pan it well past the line
-it was pinned on, and confirm the position holds while the pin keeps updating.
+Re-tested together and PASSING: panning a pin across lines works in both Chrome and
+Notepad, and a pinned taskbar clock updates on its own.
+
+### Not yet verified
+
+The switch over the configured layout — the `segmentsEnabled` setting, the checkbox, and
+the toggle command — is code complete and unit tested but has not been run on hardware.
+Worth checking in particular that a claim made by code while the display is undivided
+behaves: the one segment holds the focus, so every claim touching it has to offer a focus
+segment of its own, where a divided display only asks that of a claim that actually evicts
+the focus segment.
 
 Note on type checking: `python -m uv run pyright` reports a large number of findings, most
 of which are strict-mode noise (missing annotations on wx and NVDA call sites, `wx` not

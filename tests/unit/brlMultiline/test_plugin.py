@@ -23,6 +23,7 @@ from ._stubs import (
 	displayChanged,
 	displaySizeChanged,
 	installStubs,
+	log,
 	loadPlugin,
 	post_configProfileSwitch,
 	resetPluginState,
@@ -42,6 +43,7 @@ from brlMultiline import patches  # noqa: E402
 from brlMultiline.container import PLACEMENT_KEY_ATTRIBUTE, DisplayContainer  # noqa: E402
 from brlMultiline.layout import SegmentRect  # noqa: E402
 from brlMultiline.panels import GridPanel, SinglePanel  # noqa: E402
+from brlMultiline.views import SegmentView  # noqa: E402
 
 MONARCH_ROWS = 8
 MONARCH_COLS = 32
@@ -488,6 +490,97 @@ class TestDoNewObjectPatch(PluginTestCase):
 		setSpeechOutputMode(True)
 		self.doNewObject(Region("focus content"))
 		self.assertEqual(len(calls), 1)
+
+
+class TestSegmentsSwitch(PluginTestCase):
+	"""Turning the configured layout off and on, from the command and from the settings.
+
+	The switch is over the user's own layout. A view or a panel activated by code says what
+	the display is being used for rather than what the user prefers, so it is not overridden;
+	the alternative would be a table reader silently losing its grid to a setting.
+	"""
+
+	segmentCount = 4
+
+	def toggle(self):
+		self.plugin.script_toggleSegments(None)
+
+	def test_theCommandUndividesTheDisplay(self):
+		self.assertEqual(self.container.numSegments, 4)
+		self.toggle()
+		self.assertEqual(self.container.numSegments, 1)
+
+	def test_theCommandDividesItAgain(self):
+		self.toggle()
+		self.toggle()
+		self.assertEqual(self.container.numSegments, 4)
+
+	def test_theCommandSaysWhichWayItWent(self):
+		self.toggle()
+		self.assertIn("Segments off", spokenMessages)
+		self.toggle()
+		self.assertIn("Segments on", spokenMessages)
+
+	def test_theLayoutIsNotDisturbed(self):
+		CONFIG["segmentSizes"] = [1, 5, 2]
+		self.plugin.rebuildBuffer()
+		self.toggle()
+		self.toggle()
+		self.assertEqual(self.container.numSegments, 3)
+
+	def test_pinsAreReleasedWhenTheDisplayIsUndivided(self):
+		"""There is one segment and it follows the focus, so no pin can be kept."""
+		self.pin(1)
+		self.assertEqual(self.plugin.monitoredKeys, {"display.1"})
+		self.toggle()
+		self.assertEqual(self.plugin.monitoredKeys, set())
+
+	def test_pinningIsRefusedWhileUndivided(self):
+		self.toggle()
+		spokenMessages.clear()
+		self.pin(0)
+		self.assertEqual(self.plugin.monitoredKeys, set())
+		self.assertTrue(any("not divided into segments" in message for message in spokenMessages))
+
+	def test_anActivatedViewIsNotOverridden(self):
+		"""A claim by code is not a preference, so the user's switch does not answer it."""
+		self.toggle()
+		self.plugin.activateView(
+			SegmentView(
+				"table",
+				[
+					SinglePanel("top", SegmentRect(0, 0, 4, MONARCH_COLS)),
+					SinglePanel("bottom", SegmentRect(4, 0, 4, MONARCH_COLS)),
+				],
+			),
+		)
+		self.assertEqual(self.container.numSegments, 2)
+
+	def test_anActivatedPanelIsComposedOverTheUndividedDisplay(self):
+		self.toggle()
+		self.plugin.activatePanel(
+			SinglePanel("table", SegmentRect(0, 0, 2, MONARCH_COLS), focusSegmentKey="table"),
+		)
+		self.assertTrue(self.container.hasKey("table"))
+
+	def test_aClaimOnTheUndividedDisplayMustOfferAFocusSegment(self):
+		"""The one segment holds the focus, so every claim touching it evicts the focus.
+
+		Divided, a claim over the top rows leaves the focus segment further down alone and
+		need offer nothing. Undivided there is nowhere else for it to be, so the rule that
+		applies to any claim evicting the focus applies to every claim.
+		"""
+		self.toggle()
+		with self.assertRaises(LookupError):
+			self.plugin.activatePanel(SinglePanel("table", SegmentRect(0, 0, 2, MONARCH_COLS)))
+
+	def test_aClaimThatCannotSurviveUndividingIsDropped(self):
+		"""Reported rather than raised: the rebuild was asked for by a setting, not a claim."""
+		self.plugin.activatePanel(SinglePanel("table", SegmentRect(0, 0, 2, MONARCH_COLS)))
+		self.assertTrue(self.container.hasKey("table"))
+		self.toggle()
+		self.assertFalse(self.container.hasKey("table"))
+		self.assertTrue(any("does not fit" in message for level, message in log.messages))
 
 
 class TestNoDisplay(PluginTestCase):

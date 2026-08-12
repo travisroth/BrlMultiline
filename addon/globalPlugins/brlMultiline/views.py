@@ -292,8 +292,13 @@ def viewFromConfig(numRows: int, numCols: int, displayKey: str | None = None) ->
 	:param numRows: number of rows on the display.
 	:param numCols: number of columns on the display.
 	:param displayKey: the display to read settings for, or None for the current one.
-	:return: the configured view.
+	:return: the configured view, or a single segment if the user has turned division off.
 	"""
+	if not bmConfig.areSegmentsEnabled(displayKey):
+		# The layout stays in the configuration untouched, so turning division back on
+		# restores it. Reported as the single view rather than as a failed configured one,
+		# because this is a deliberate choice rather than a layout that would not fit.
+		return singleSegmentView(numRows, numCols)
 	layout = bmConfig.getLayout(displayKey)
 	try:
 		rects = calculateSegmentRects(numRows, numCols, layout)

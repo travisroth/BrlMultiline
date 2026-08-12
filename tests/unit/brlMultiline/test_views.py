@@ -100,6 +100,46 @@ class TestConfiguredView(ViewTestCase):
 		)
 
 
+class TestSegmentsSwitch(ViewTestCase):
+	"""The master switch over the configured layout, not over the display.
+
+	It overrides what the user configured without disturbing it, so that a layout can be put
+	aside and taken up again. A view activated by code is a different kind of thing and is
+	not affected; that is tested where activation lives, in the plugin tests.
+	"""
+
+	def test_turningItOffGivesOneSegment(self):
+		CONFIG["segmentCount"] = 4
+		CONFIG["segmentsEnabled"] = False
+		view = viewFromConfig(MONARCH_ROWS, MONARCH_COLS)
+		view.validate(MONARCH_ROWS, MONARCH_COLS)
+		self.assertEqual(len(view.flatten()), 1)
+
+	def test_theUndividedDisplayReportsItself(self):
+		"""So that the layout report says why there is one segment."""
+		CONFIG["segmentsEnabled"] = False
+		self.assertEqual(viewFromConfig(MONARCH_ROWS, MONARCH_COLS).name, "single")
+
+	def test_theLayoutIsKept(self):
+		CONFIG["segmentSizes"] = [1, 5, 2]
+		CONFIG["segmentsEnabled"] = False
+		viewFromConfig(MONARCH_ROWS, MONARCH_COLS)
+		self.assertEqual(CONFIG["segmentSizes"], [1, 5, 2])
+
+	def test_turningItBackOnRestoresTheLayout(self):
+		CONFIG["segmentSizes"] = [1, 5, 2]
+		CONFIG["segmentsEnabled"] = False
+		viewFromConfig(MONARCH_ROWS, MONARCH_COLS)
+		CONFIG["segmentsEnabled"] = True
+		view = viewFromConfig(MONARCH_ROWS, MONARCH_COLS)
+		self.assertEqual([spec.rect.numRows for spec in view.flatten()], [1, 5, 2])
+
+	def test_theSegmentKeepsTheKeyOfSegmentZero(self):
+		"""So that switching the layout off and on does not strand a pin in segment 0."""
+		CONFIG["segmentsEnabled"] = False
+		self.assertEqual(keysOf(viewFromConfig(MONARCH_ROWS, MONARCH_COLS)), [displaySegmentKey(0)])
+
+
 class TestSingleSegmentView(ViewTestCase):
 	def test_oneSegmentCoveringTheDisplay(self):
 		view = singleSegmentView(MONARCH_ROWS, MONARCH_COLS)

@@ -87,6 +87,7 @@ class DisplaysSection(dict):
 
 CONFIG = DisplaySection(
 	{
+		"segmentsEnabled": True,
 		"segmentCount": 4,
 		"segmentSizes": [],
 		"focusSegment": -1,
@@ -748,14 +749,22 @@ def installStubs() -> None:
 				"getFocusSegment",
 				"shouldShowDocumentLines",
 				"shouldReverseScrollButtons",
+				"areSegmentsEnabled",
 				"setLayout",
+				"setSegmentsEnabled",
 			)
 		},
 	)
+
+	def setSegmentsEnabled(enabled, displayKey=None):
+		CONFIG["segmentsEnabled"] = bool(enabled)
+
 	bmConfig.getLayout = lambda displayKey=None: CONFIG["segmentSizes"] or CONFIG["segmentCount"]
 	bmConfig.getFocusSegment = lambda displayKey=None: CONFIG["focusSegment"]
 	bmConfig.shouldShowDocumentLines = lambda displayKey=None: CONFIG["showDocumentLines"]
 	bmConfig.shouldReverseScrollButtons = lambda displayKey=None: CONFIG["reverseScrollBtns"]
+	bmConfig.areSegmentsEnabled = lambda displayKey=None: CONFIG["segmentsEnabled"]
+	bmConfig.setSegmentsEnabled = setSegmentsEnabled
 
 
 def loadPlugin():
@@ -799,6 +808,7 @@ def resetConfig() -> None:
 	"""Put the stub configuration back to its defaults, for a test that changed it."""
 	CONFIG.clear()
 	CONFIG.update(
+		segmentsEnabled=True,
 		segmentCount=4,
 		segmentSizes=[],
 		focusSegment=-1,
