@@ -13,6 +13,7 @@ before, after, or instead of running.
 """
 
 import unittest
+from importlib import import_module
 
 from ._stubs import (
 	CONFIG,
@@ -174,6 +175,22 @@ class TestMonitorCarryOver(PluginTestCase):
 		self.assertEqual(self.plugin.monitoredKeys, set())
 		self.assertEqual(self.container.segmentForKey("display.3").regions, [])
 
+	def test_availableMonitoringSegmentsExcludeFocusReservedAndMonitored(self):
+		self.pin(1)
+		self.plugin.activatePanel(SinglePanel("table", SegmentRect(2, 0, 1, MONARCH_COLS)))
+		self.assertEqual(self.container.numberForKey("table"), 2)
+		self.assertEqual(self.plugin.availableMonitoringSegments(), [0, 3, 4, 5, 6])
+
+	def test_monitoredObjectsReportCurrentNumbers(self):
+		self.pin(6, name="watch me")
+		self.plugin.activatePanel(
+			GridPanel("t", SegmentRect(0, 0, 4, MONARCH_COLS), rowBands=[2, 2], colWidths=[10, 10, 10]),
+		)
+		self.assertEqual(
+			self.plugin.monitoredObjects(),
+			[("watch me", self.container.numberForKey("display.6"))],
+		)
+
 
 class TestDeferredRebuild(PluginTestCase):
 	def test_aDisplayEventQueuesOneRebuild(self):
@@ -206,6 +223,22 @@ class TestDeferredRebuild(PluginTestCase):
 		self.assertEqual(displayChanged.handlers, [])
 		self.assertEqual(displaySizeChanged.handlers, [])
 		self.assertEqual(config.post_configProfileSwitch.handlers, [])
+
+
+class TestMonitorDialogScript(PluginTestCase):
+	def test_script_manageMonitoredObjectsQueuesTheDialog(self):
+		calls = []
+		original = plugin.showMonitorDialog
+		plugin.showMonitorDialog = calls.append
+		self.addCleanup(setattr, plugin, "showMonitorDialog", original)
+		self.plugin.script_manageMonitoredObjects(None)
+		self.assertEqual(len(callAfterQueue.pending), 1)
+		callAfterQueue.flush()
+		self.assertEqual(calls, [self.plugin])
+
+	def test_monitorDialogModuleImports(self):
+		module = import_module("brlMultiline.monitorDialog")
+		self.assertTrue(hasattr(module, "MonitorObjectDialog"))
 
 
 class TestProfileSwitch(PluginTestCase):

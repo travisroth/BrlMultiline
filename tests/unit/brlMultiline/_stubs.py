@@ -635,6 +635,7 @@ def _installPluginStubs() -> None:
 	_module(
 		"wx",
 		CallAfter=callAfterQueue.callAfter,
+		Dialog=object,
 		SpinCtrl=object,
 		TextCtrl=object,
 		CheckBox=object,
