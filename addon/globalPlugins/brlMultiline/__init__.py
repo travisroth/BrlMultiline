@@ -47,6 +47,26 @@ def getPlugin() -> "GlobalPlugin | None":
 	return _plugin
 
 
+def showMonitorDialog(plugin: "GlobalPlugin") -> None:
+	"""Open the dialog used to assign or stop monitored objects."""
+	from .monitorDialog import MonitorObjectDialog
+
+	if plugin.container is None:
+		# Translators: reported when a command needs segments but none are configured.
+		ui.message(_("BrlMultiline is not active"))
+		return
+	mainFrame = gui.mainFrame
+	dialog = MonitorObjectDialog(mainFrame, plugin)
+	if mainFrame is not None and hasattr(mainFrame, "prePopup"):
+		mainFrame.prePopup()
+	try:
+		dialog.ShowModal()
+	finally:
+		if mainFrame is not None and hasattr(mainFrame, "postPopup"):
+			mainFrame.postPopup()
+		dialog.Destroy()
+
+
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	scriptCategory = SCRIPT_CATEGORY
 
@@ -418,6 +438,35 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				continue
 		return numbers
 
+	def availableMonitoringSegments(self) -> list[int]:
+		""":return: segment numbers that can accept a newly monitored object."""
+		container = self.container
+		if container is None or not bmConfig.areSegmentsEnabled():
+			return []
+		available = []
+		for number, segment in enumerate(container.segments):
+			if number == container.focusSegmentNumber:
+				continue
+			if segment.isReserved or segment.key in self._monitors:
+				continue
+			available.append(number)
+		return available
+
+	def monitoredObjects(self) -> list[tuple[str, int]]:
+		""":return: monitored object names paired with their current segment numbers."""
+		container = self.container
+		if container is None:
+			return []
+		objects = []
+		for key, monitor in self._monitors.items():
+			try:
+				number = container.numberForKey(key)
+			except LookupError:
+				continue
+			objects.append((monitor.name, number))
+		objects.sort(key=lambda item: item[1])
+		return objects
+
 	def startMonitoring(self, segmentNumber: int) -> None:
 		"""Pin the navigator object to a segment.
 
@@ -599,6 +648,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				focus=container.focusSegmentNumber,
 			),
 		)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Opens a dialog to manage monitored objects"),
+		category=SCRIPT_CATEGORY,
+	)
+	@gui.blockAction.when(gui.blockAction.Context.MODAL_DIALOG_OPEN)
+	def script_manageMonitoredObjects(self, gesture):
+		wx.CallAfter(showMonitorDialog, self)
 
 
 def _makeScrollScript(segmentNumber: int, forward: bool):
