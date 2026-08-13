@@ -289,15 +289,23 @@ def _shapeOf(driver: braille.display.driver.BrailleDisplayDriver) -> tuple[int, 
 	return numRows, numCols
 
 
-def _terminateQuietly(driver: braille.display.driver.BrailleDisplayDriver) -> None:
+def _terminateQuietly(driver: braille.display.driver.BrailleDisplayDriver, partial: bool = False) -> None:
 	"""Close a driver that is being dropped rather than used, reporting a failure but not raising.
 
 	:param driver: the driver to close.
+	:param partial: whether this driver failed part way through construction. Such a driver
+		may be missing anything its constructor had not reached, so `terminate` raising is
+		unremarkable and is reported quietly. A display that is simply not plugged in takes
+		this path on every attempt, and should not fill the log with errors.
 	"""
+	name = getattr(driver, "name", "?")
 	try:
 		driver.terminate()
 	except Exception:
-		log.error(f"BrlMultiline: error terminating {getattr(driver, 'name', '?')}", exc_info=True)
+		if partial:
+			log.debugWarning(f"BrlMultiline: {name} raised while releasing a failed attempt", exc_info=True)
+		else:
+			log.error(f"BrlMultiline: error terminating {name}", exc_info=True)
 
 
 def _openDriver(spec: DeviceSpec) -> braille.display.driver.BrailleDisplayDriver | None:
@@ -317,11 +325,21 @@ def _openDriver(spec: DeviceSpec) -> braille.display.driver.BrailleDisplayDriver
 		return None
 
 	for attempt in range(1, OPEN_ATTEMPTS + 1):
+		driver = None
 		try:
 			driver = driverClass.__new__(driverClass)
 			extensionPoints.callWithSupportedKwargs(driver.__init__, port=spec.port)
 			driver.initSettings()
 		except Exception:
+			# A constructor that raises may still have opened the device: both target
+			# drivers assign `self._dev` before they are finished, and `initSettings` runs
+			# after the device is open in every case. Their own failure paths close it, but
+			# an unexpected error between opening and returning does not, and the instance
+			# is about to be dropped where nothing else can reach it. So it is closed here,
+			# best effort, before the next attempt — which would otherwise be competing with
+			# the handle this one is still holding.
+			if driver is not None:
+				_terminateQuietly(driver, partial=True)
 			if attempt == OPEN_ATTEMPTS:
 				log.error(
 					f"BrlMultiline: {spec.driverName} did not open after {OPEN_ATTEMPTS} attempts",

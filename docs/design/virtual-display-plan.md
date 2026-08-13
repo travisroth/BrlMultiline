@@ -548,6 +548,25 @@ replacement captures the original before doing anything, so it survives removing
   refuses. Zero cell members are now dropped and closed individually, and anything opened is
   closed if the layout fails.
 
+A second review round then found the remaining half of that last one, and one compatibility
+risk:
+
+- **A member whose *construction* raised was never released.** `_openDriver` discarded the
+  instance without terminating it, and because it never returned that instance, no outer
+  cleanup could reach it. This is not theoretical: `hidBrailleStandard` and
+  `freedomScientific` both assign `self._dev` before their constructors finish, and
+  `initSettings` runs entirely after the device is open. Their own handled failure paths do
+  close the device, but an unexpected error between opening and returning does not — and the
+  next retry would then be competing with the handle the last attempt still held. Each failed
+  attempt is now released, best effort, and reported at debug level rather than as an error,
+  because a display that is simply not plugged in takes this path three times on every start.
+- **Removing a patch could discard a later add-on's.** Both patch modules restored their
+  saved method unconditionally, which would erase the wrapper of any add-on that patched the
+  same method afterwards. Each now restores only while it is still the outermost patch, and
+  otherwise stays in the chain and stands down — still called, still delegating, doing
+  nothing of its own. That needed the "installed" and "active" states to come apart, which is
+  what the `_active` flag in each module is.
+
 ### Test coverage
 
 `test_virtualDriver.py` covers the driver class, `vdConfig` and `ackPatch` against recording
@@ -557,7 +576,12 @@ reproduces NVDA's construct-before-terminate ordering rather than the sensible o
 member really is still held when the virtual display tries to open it. A stub that quietly
 got the ordering right would have tested nothing.
 
-452 tests, one expected failure, which is unchanged from before this work.
+461 tests, one expected failure, which is unchanged from before this work.
+
+Two of those tests exist because a claim in this document was too strong. "Anything opened is
+closed" was true only of members that were fully constructed and handed back; a member that
+failed part way through was not covered, and the tests for it now distinguish a constructor
+failure from an `initSettings` failure, since the two leave the device in different places.
 
 **Configuring it before there is a settings panel.** The panel is Phase 3, so until then the
 device list is set from the NVDA Python console:

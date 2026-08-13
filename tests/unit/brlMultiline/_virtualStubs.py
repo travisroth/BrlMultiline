@@ -148,20 +148,39 @@ class MemberDriver(StubBrailleDisplayDriver):
 	failedOpens = 0
 	"""How many construction attempts to fail before succeeding. -1 never succeeds."""
 
+	failInitSettings = False
+	"""Whether `initSettings` raises, which happens after the device is open."""
+
 	failOnTerminate = False
 	instances: list["MemberDriver"] = []
+	"""Instances that were constructed successfully."""
+
+	attempted: list["MemberDriver"] = []
+	"""Every instance, including those whose construction raised.
+
+	Separate from L{instances} because a driver that raises part way through construction is
+	exactly what the caller cannot reach, and whether it gets closed anyway is the thing
+	worth asserting. A real driver has its device open by this point.
+	"""
+
 	openAttempts = 0
 
 	def __init__(self, port=None):
 		super().__init__(port)
 		type(self).openAttempts += 1
-		failures = type(self).failedOpens
-		if failures < 0 or type(self).openAttempts <= failures:
-			raise RuntimeError(f"No {type(self).name} display found")
 		self.port = port
 		self.written: list[list[int]] = []
 		self.terminated = 0
+		# Recorded before the failure, so a test can find an instance the caller never saw.
+		type(self).attempted.append(self)
+		failures = type(self).failedOpens
+		if failures < 0 or type(self).openAttempts <= failures:
+			raise RuntimeError(f"No {type(self).name} display found")
 		type(self).instances.append(self)
+
+	def initSettings(self):
+		if type(self).failInitSettings:
+			raise RuntimeError(f"{type(self).name} settings are unwell")
 
 	def display(self, cells):
 		self.written.append(list(cells))
@@ -193,8 +212,10 @@ def makeMemberDriver(name: str, numRows: int = 1, numCols: int = 40, **attribute
 		"numCols": numCols,
 		"isThreadSafe": True,
 		"instances": [],
+		"attempted": [],
 		"openAttempts": 0,
 		"failedOpens": 0,
+		"failInitSettings": False,
 		"failOnTerminate": False,
 	}
 	namespace.update(attributes)

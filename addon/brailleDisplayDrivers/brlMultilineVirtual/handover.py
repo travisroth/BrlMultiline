@@ -55,7 +55,17 @@ from braille.brailleHandler import BrailleHandler
 from logHandler import log
 
 _originalSwitchDisplay = None
-"""`BrailleHandler._switchDisplay` as it was before the patch, or None when not patched."""
+"""`BrailleHandler._switchDisplay` as it was before the patch, or None when not in the chain."""
+
+_active = False
+"""Whether the patch should do anything.
+
+Separate from being installed, because the two can come apart. If another add-on wraps
+`_switchDisplay` after this patch is installed, then restoring the saved method on the way
+out would erase that add-on's wrapper. So removal restores the attribute only when this
+patch is still the outermost one, and otherwise leaves it in place and inert — still called,
+still delegating, doing nothing of its own.
+"""
 
 
 def _closeAndNeuter(display) -> None:
@@ -116,7 +126,8 @@ def _switchDisplayReleasingVirtual(
 	# through. This function outlives its own installation by exactly one call.
 	original = _originalSwitchDisplay
 	if (
-		oldDisplay is not None
+		_active
+		and oldDisplay is not None
 		and _isVirtualDisplay(oldDisplay)
 		and newDisplayClass is not oldDisplay.__class__
 	):
@@ -138,9 +149,11 @@ def _isVirtualDisplay(display) -> bool:
 
 
 def installSwitchPatch() -> None:
-	"""Install the switch patch. Safe to call when it is already installed."""
-	global _originalSwitchDisplay
+	"""Install the switch patch, or reactivate it. Safe to call when it is already installed."""
+	global _originalSwitchDisplay, _active
+	_active = True
 	if _originalSwitchDisplay is not None:
+		# Already in the chain, whether or not it was doing anything.
 		return
 	_originalSwitchDisplay = BrailleHandler._switchDisplay
 	BrailleHandler._switchDisplay = _switchDisplayReleasingVirtual
@@ -148,9 +161,21 @@ def installSwitchPatch() -> None:
 
 
 def removeSwitchPatch() -> None:
-	"""Restore NVDA's own method. Safe to call when nothing is installed."""
-	global _originalSwitchDisplay
+	"""Stand down. Safe to call when nothing is installed.
+
+	Restores NVDA's own method only when this patch is still the outermost one. If something
+	else has wrapped `_switchDisplay` since, restoring would throw that wrapper away, so the
+	patch stays in the chain and simply stops acting.
+	"""
+	global _originalSwitchDisplay, _active
 	if _originalSwitchDisplay is None:
+		return
+	_active = False
+	if BrailleHandler._switchDisplay is not _switchDisplayReleasingVirtual:
+		log.debugWarning(
+			"BrlMultiline: something else has patched _switchDisplay since; "
+			"leaving this patch in place but inert rather than discarding theirs",
+		)
 		return
 	BrailleHandler._switchDisplay = _originalSwitchDisplay
 	_originalSwitchDisplay = None

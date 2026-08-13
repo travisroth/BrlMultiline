@@ -38,7 +38,15 @@ from braille.display.driver import BrailleDisplayDriver
 from logHandler import log
 
 _originalHandleAck = None
-"""`BrailleDisplayDriver._handleAck` as it was before the patch, or None when not patched."""
+"""`BrailleDisplayDriver._handleAck` as it was before the patch, or None when not in the chain."""
+
+_active = False
+"""Whether the patch should do anything, as distinct from being installed.
+
+If another add-on wraps `_handleAck` after this patch is installed, restoring the saved
+method on the way out would erase that add-on's wrapper. So removal restores the attribute
+only when this patch is still the outermost one, and otherwise leaves it in place and inert.
+"""
 
 
 def _handleAckForMembers(self: BrailleDisplayDriver) -> None:
@@ -47,17 +55,21 @@ def _handleAckForMembers(self: BrailleDisplayDriver) -> None:
 	The display NVDA owns keeps NVDA's own behaviour. Anything else is a member of a virtual
 	display, or some other driver running alongside, and only needs its own flag cleared.
 	"""
+	original = _originalHandleAck
+	if not _active:
+		return original(self)
 	if not self.receivesAckPackets:
 		raise NotImplementedError("This display driver does not support ACK packet handling")
 	if braille.handler is not None and self is braille.handler.display:
-		return _originalHandleAck(self)
+		return original(self)
 	self._awaitingAck = False
 	return None
 
 
 def install() -> None:
-	"""Install the patch. Safe to call when it is already installed."""
-	global _originalHandleAck
+	"""Install the patch, or reactivate it. Safe to call when it is already installed."""
+	global _originalHandleAck, _active
+	_active = True
 	if _originalHandleAck is not None:
 		return
 	_originalHandleAck = BrailleDisplayDriver._handleAck
@@ -66,9 +78,20 @@ def install() -> None:
 
 
 def remove() -> None:
-	"""Restore NVDA's own method. Safe to call when nothing is installed."""
-	global _originalHandleAck
+	"""Stand down. Safe to call when nothing is installed.
+
+	Restores NVDA's own method only when this patch is still the outermost one, so that an
+	add-on which wrapped `_handleAck` later is not discarded.
+	"""
+	global _originalHandleAck, _active
 	if _originalHandleAck is None:
+		return
+	_active = False
+	if BrailleDisplayDriver._handleAck is not _handleAckForMembers:
+		log.debugWarning(
+			"BrlMultiline: something else has patched _handleAck since; "
+			"leaving this patch in place but inert rather than discarding theirs",
+		)
 		return
 	BrailleDisplayDriver._handleAck = _originalHandleAck
 	_originalHandleAck = None

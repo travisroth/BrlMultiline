@@ -24,6 +24,7 @@ from ._virtualStubs import (
 	driverRegistry,
 	installVirtualStubs,
 	loadDriver,
+	log,
 	makeMemberDriver,
 	resetStubs,
 )
@@ -137,6 +138,46 @@ class TestConstructionCleanup(VirtualDriverTestCase):
 			driverModule.stackDevices = original
 		self.assertEqual(self.monarch.instances[0].terminated, 1)
 		self.assertEqual(self.focus.instances[0].terminated, 1)
+
+	def test_aConstructorThatRaisesStillHasItsDeviceReleased(self):
+		"""Both target drivers open the device before their constructor can fail."""
+		self.focus.failedOpens = -1
+		self.build(MONARCH, FOCUS)
+		self.assertEqual(len(self.focus.attempted), driverModule.OPEN_ATTEMPTS)
+		for instance in self.focus.attempted:
+			self.assertEqual(instance.terminated, 1)
+
+	def test_aFailingInitSettingsStillHasItsDeviceReleased(self):
+		"""`initSettings` runs after the device is open in every case."""
+		self.focus.failInitSettings = True
+		self.build(MONARCH, FOCUS)
+		self.assertEqual(len(self.focus.attempted), driverModule.OPEN_ATTEMPTS)
+		for instance in self.focus.attempted:
+			self.assertEqual(instance.terminated, 1)
+
+	def test_aMemberThatOpensIsNotReleased(self):
+		display = self.build(MONARCH, FOCUS)
+		self.assertEqual(self.focus.instances[0].terminated, 0)
+		display.terminate()
+
+	def test_aRetriedMemberReleasesOnlyItsFailedAttempts(self):
+		self.focus.failedOpens = 1
+		display = self.build(MONARCH, FOCUS)
+		self.assertEqual([instance.terminated for instance in self.focus.attempted], [1, 0])
+		display.terminate()
+
+	def test_releasingAFailedAttemptIsNotReportedAsAnError(self):
+		"""A display that is simply not plugged in takes this path on every attempt.
+
+		Three failed attempts must not mean three logged errors. The one error worth having
+		is that the member could not be opened at all.
+		"""
+		self.focus.failedOpens = -1
+		self.focus.failOnTerminate = True
+		self.build(MONARCH, FOCUS)
+		errors = [message for level, message in log.messages if level == "error"]
+		self.assertEqual(len(errors), 1)
+		self.assertIn("did not open", errors[0])
 
 	def test_patchesAreRemovedWhenConstructionFails(self):
 		self.monarch.failedOpens = -1
@@ -329,10 +370,13 @@ class TestHandover(VirtualDriverTestCase):
 		self.assertEqual(self.monarch.instances[0].terminated, 1)
 
 
-class TestAckPatch(VirtualDriverTestCase):
+class AckPatchTestCase(VirtualDriverTestCase):
 	def setUp(self):
 		super().setUp()
 		self.acking = makeMemberDriver("ackingDisplay", receivesAckPackets=True)
+
+
+class TestAckPatch(AckPatchTestCase):
 
 	def test_theDisplayNVDAOwnsKeepsItsOwnBehaviour(self):
 		ackPatch.install()
@@ -365,6 +409,72 @@ class TestAckPatch(VirtualDriverTestCase):
 		self.assertIsNot(BrailleDisplayDriver._handleAck, original)
 		ackPatch.remove()
 		self.assertIs(BrailleDisplayDriver._handleAck, original)
+
+
+class TestPatchCoexistence(AckPatchTestCase):
+	"""Standing down must not discard a patch another add-on installed later."""
+
+	def test_theAckPatchDoesNotDiscardALaterWrapper(self):
+		from brlMultilineVirtual.ackPatch import BrailleDisplayDriver
+
+		ackPatch.install()
+		ours = BrailleDisplayDriver._handleAck
+		calls = []
+
+		def theirs(self):
+			calls.append(self)
+			return ours(self)
+
+		BrailleDisplayDriver._handleAck = theirs
+		try:
+			ackPatch.remove()
+			self.assertIs(BrailleDisplayDriver._handleAck, theirs)
+			# Still in the chain, but no longer acting: an ack now reaches NVDA's own method.
+			self.handler.setDisplay(self.acking)
+			self.handler.display._handleAck()
+			self.assertEqual(len(calls), 1)
+			self.assertEqual(self.handler.display.handlerAcksReceived, 1)
+		finally:
+			BrailleDisplayDriver._handleAck = ours
+			ackPatch.remove()
+
+	def test_theSwitchPatchDoesNotDiscardALaterWrapper(self):
+		from braille.brailleHandler import BrailleHandler
+
+		handover.installSwitchPatch()
+		ours = BrailleHandler._switchDisplay
+
+		def theirs(self, oldDisplay, newDisplayClass, **kwargs):
+			return ours(self, oldDisplay, newDisplayClass, **kwargs)
+
+		BrailleHandler._switchDisplay = theirs
+		try:
+			handover.removeSwitchPatch()
+			self.assertIs(BrailleHandler._switchDisplay, theirs)
+		finally:
+			BrailleHandler._switchDisplay = ours
+			handover.removeSwitchPatch()
+
+	def test_anInertSwitchPatchStillSwitchesCorrectly(self):
+		"""Left in the chain but stood down, it must be a clean pass through."""
+		self.configure(MONARCH, FOCUS)
+		self.handler.setDisplay(VirtualDisplay)
+		virtualDisplay = self.handler.display
+		# Stand the patch down while a virtual display is live, which is the state a later
+		# add-on discarding our restore would leave it in.
+		handover._active = False
+
+		self.handler.setDisplay(self.focus)
+
+		self.assertIs(self.handler.display, self.focus.instances[-1])
+		self.assertEqual(virtualDisplay.slots, ())
+
+	def test_reinstallingReactivates(self):
+		handover.installSwitchPatch()
+		handover.removeSwitchPatch()
+		handover.installSwitchPatch()
+		self.assertTrue(handover._active)
+		handover.removeSwitchPatch()
 
 
 class TestVdConfig(VirtualDriverTestCase):
