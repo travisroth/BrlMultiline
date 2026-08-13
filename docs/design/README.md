@@ -16,6 +16,9 @@ Read the files in this order:
 4. [legacy-inventory.md](legacy-inventory.md) — an audit of the 2023 `brailleMultiline`
    prototype this work supersedes, including the specific defects found in it. Useful
    when deciding whether an old idea is worth revisiting.
+5. [virtual-display-plan.md](virtual-display-plan.md) — feasibility findings and the plan
+   for driving several physical displays as one, so that a second display can serve as a
+   segment. Not yet started; read it before touching braille display drivers.
 
 ## Project background
 
