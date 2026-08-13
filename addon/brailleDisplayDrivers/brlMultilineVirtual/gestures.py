@@ -33,6 +33,8 @@ before `globalCommands.script_braille_routeTo` passes it to `braille.handler.rou
 
 from __future__ import annotations
 
+import threading
+
 import inputCore
 from braille.display.gesture import BrailleDisplayGesture
 from logHandler import log
@@ -41,6 +43,20 @@ from .virtualLayout import deviceCellIndexToVirtual
 
 _driver = None
 """The live virtual display, or None when this module is not installed."""
+
+_currentGesture = threading.local()
+"""Which member raised the gesture currently being resolved.
+
+`BrailleDisplayGesture._get_script` asks the display for modifier gestures without saying
+which display the gesture came from, and the answer differs per member. The source is
+therefore noted as the gesture passes through the decider and read back a few lines later in
+the same `executeGesture` call, on the same thread — braille gestures are dispatched from
+their driver's read loop, and `executeGesture` is synchronous, so there is nothing to
+interleave between the two.
+
+Recorded for every braille gesture, including ones from displays that are not members, so
+that a gesture from elsewhere cannot be answered with the last member's modifiers.
+"""
 
 
 class MemberGestureMap(inputCore.GlobalGestureMap):
@@ -82,7 +98,7 @@ class MemberGestureMap(inputCore.GlobalGestureMap):
 			yield from gestureMap.getScriptsForAllGestures()
 
 
-def _rebaseCellIndexes(gesture: BrailleDisplayGesture, slot) -> None:
+def _rebaseCellIndexes(gesture: BrailleDisplayGesture, slot) -> bool:
 	"""Move a gesture's cell indexes from its own display onto the composite.
 
 	Phase 0 confirmed the shape of what arrives: a Monarch reported 2, 39 and 102 for presses
@@ -97,6 +113,7 @@ def _rebaseCellIndexes(gesture: BrailleDisplayGesture, slot) -> None:
 
 	:param gesture: the gesture to rebase, modified in place.
 	:param slot: the member that produced it.
+	:return: whether the gesture should go on to execute.
 	"""
 	# Read before anything moves, assign so that nothing recomputes it afterwards.
 	frozenIndexesStr = gesture._cellIndexesStr
@@ -105,18 +122,21 @@ def _rebaseCellIndexes(gesture: BrailleDisplayGesture, slot) -> None:
 			deviceCellIndexToVirtual(index, slot.band, _driver.numCols) for index in gesture.cellIndexes
 		]
 	except ValueError:
-		# A cell the member does not have. Not something to route with, and not something to
-		# guess about, so the gesture is left exactly as it arrived.
-		log.debugWarning(
-			f"BrlMultiline: {slot.driverName} reported cells {gesture.cellIndexes}, "
-			f"which do not fit its {slot.band.numCells} cells",
-			exc_info=True,
+		# A cell the member does not have, so there is no honest composite position for it.
+		# Leaving it alone is not the safe option it looks like: an out of range index on a
+		# narrow member is still a perfectly valid index into the composite, so an untouched
+		# gesture would route confidently to some other display's cell. Cancelling is the
+		# only answer that cannot act on a cell the user did not press.
+		log.warning(
+			f"BrlMultiline: {slot.driverName} reported cells {gesture.cellIndexes}, which do not "
+			f"fit its {slot.band.numCells} cells. Ignoring the press rather than routing elsewhere.",
 		)
-		return
+		return False
 	gesture._cellIndexesStr = frozenIndexesStr
 	gesture.cellIndexes = rebased
 	# No cache to invalidate: `identifiers` may already have been built, but it was built
 	# from the string just frozen, so it is the identifier that was wanted either way.
+	return True
 
 
 def _translateCellIndexes(gesture=None, **kwargs) -> bool:
@@ -127,17 +147,20 @@ def _translateCellIndexes(gesture=None, **kwargs) -> bool:
 	already uses it to intercept braille gestures, so it is a supported pattern rather than a
 	trick.
 
-	Always returns True: this corrects gestures, it never cancels them. It must also never
-	raise, since a decider that throws would break input for the whole session.
+	It cancels exactly one thing: a member's cell addressed gesture whose cells cannot be
+	rebased, for the reason given in `_rebaseCellIndexes`. Everything else passes through.
+	It must never raise, since a decider that throws would break input for the whole session,
+	so an unexpected error lets the gesture through unchanged.
 	"""
 	try:
 		if _driver is None or not isinstance(gesture, BrailleDisplayGesture):
 			return True
-		if not gesture.cellIndexes:
-			return True
+		# Noted for every braille gesture, member or not: see `_currentGesture`.
+		_currentGesture.source = gesture.source
 		slot = _driver.slotForDriverName(gesture.source)
-		if slot is not None:
-			_rebaseCellIndexes(gesture, slot)
+		if slot is None or not gesture.cellIndexes:
+			return True
+		return _rebaseCellIndexes(gesture, slot)
 	except Exception:
 		log.error("BrlMultiline: error rebasing a gesture's cell indexes", exc_info=True)
 	return True
@@ -153,7 +176,14 @@ def install(driver) -> None:
 		remove()
 	_driver = driver
 	inputCore.decide_executeGesture.register(_translateCellIndexes)
-	log.debug("BrlMultiline: gesture translation installed")
+	# `Decider` stops at the first handler returning False, and NVDA Remote's handler on this
+	# same extension point returns False for every braille gesture once it has forwarded it.
+	# Registered after Remote, this would never run, and a routing key on the second display
+	# would be sent as a cell index belonging to the first. Going first is also the right
+	# order on its own terms: Remote should forward the composite position, since the
+	# composite is the display it has told the other machine about.
+	inputCore.decide_executeGesture.moveToEnd(_translateCellIndexes, last=False)
+	log.debug("BrlMultiline: gesture translation installed, ahead of any other decider")
 
 
 def remove() -> None:
@@ -167,23 +197,42 @@ def remove() -> None:
 
 
 def modifierGesturesForMembers(driver, model=None):
-	"""Chain every member's modifier gestures.
+	"""Give the modifier gestures of the member that raised the gesture being resolved.
 
-	`BrailleDisplayDriver._getModifierGestures` is a classmethod that filters on `cls.name`,
-	so each member sees only its own `br(name):` entries and the union is exactly right.
+	Only that member's, which is the correction. Chaining every member looked right — each
+	one's `_getModifierGestures` filters its own map by its own `br(name):` prefix — but what
+	it yields is stripped of that namespace: bare sets of key names and modifier names. The
+	caller then matches on key names alone::
+
+		for keys, modifiers in braille.handler.display._getModifierGestures(self.model):
+			if keys < gestureKeys:
+				gestureModifiers |= modifiers
+
+	So a Monarch mapping and a Focus gesture sharing a key name would combine, and a press on
+	one display would pick up a modifier defined for the other — silently executing a
+	keyboard shortcut nobody asked for. The default maps happen not to collide, but a user's
+	own mappings easily could, and other display combinations more so.
+
+	When the source is unknown, nothing is yielded rather than everything. Modifier emulation
+	then simply does not resolve, which is a gesture that does nothing — much better than a
+	gesture that does something else.
 
 	:param driver: the virtual display.
 	:param model: the optional display model, passed through unchanged.
 	:return: generator of (key ids, modifier names), as NVDA's own does.
 	"""
-	for slot in driver.slots:
-		try:
-			yield from type(slot.driver)._getModifierGestures(model)
-		except Exception:
-			log.debugWarning(
-				f"BrlMultiline: could not read modifier gestures from {slot.driverName}",
-				exc_info=True,
-			)
+	source = getattr(_currentGesture, "source", None)
+	slot = driver.slotForDriverName(source) if source else None
+	if slot is None:
+		log.debugWarning(f"BrlMultiline: no member for gesture source {source!r}, offering no modifiers")
+		return
+	try:
+		yield from type(slot.driver)._getModifierGestures(model)
+	except Exception:
+		log.debugWarning(
+			f"BrlMultiline: could not read modifier gestures from {slot.driverName}",
+			exc_info=True,
+		)
 
 
 def scriptForMember(driver, gesture):
@@ -193,11 +242,19 @@ def scriptForMember(driver, gesture):
 	virtual display rather than the member that has them. `freedomScientific` is such a
 	member; `hidBrailleStandard` is not, and is skipped by the `ScriptableObject` check.
 
+	This mirrors `scriptHandler._getObjScript` with the member standing in for the object
+	NVDA would have offered, rather than only calling `getScript`. The difference is user
+	bindings: `_getObjScript` first walks the global maps for an entry whose class the object
+	is an instance of, and a user who has bound a key to a member driver's own script has
+	written exactly such an entry. Tested against the virtual display, `isinstance` fails and
+	the binding is lost; tested against the member, it works as it always did.
+
 	:param driver: the virtual display.
 	:param gesture: the gesture being resolved.
 	:return: the bound script, or None.
 	"""
 	import baseObject
+	import scriptHandler
 
 	source = getattr(gesture, "source", None)
 	if source is None:
@@ -205,8 +262,18 @@ def scriptForMember(driver, gesture):
 	slot = driver.slotForDriverName(source)
 	if slot is None or not isinstance(slot.driver, baseObject.ScriptableObject):
 		return None
+	member = slot.driver
 	try:
-		return slot.driver.getScript(gesture)
+		for cls, scriptName in scriptHandler.getGlobalMapScripts(gesture):
+			if not isinstance(member, cls):
+				continue
+			if scriptName is None:
+				# The user has explicitly unbound this gesture for this class.
+				return None
+			script = getattr(member, f"script_{scriptName}", None)
+			if script is not None:
+				return script
+		return member.getScript(gesture)
 	except Exception:
 		log.error(f"BrlMultiline: error finding a script on {slot.driverName}", exc_info=True)
 		return None

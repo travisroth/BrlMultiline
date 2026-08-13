@@ -671,7 +671,55 @@ takes precedence over the instance dictionary, so the identifier freeze would ra
 it. A stub using `property` would fail the test it exists for, and a plain attribute would
 pass it vacuously.
 
-484 tests, one expected failure.
+Review then found four more things, two of which were real hazards rather than tidiness:
+
+- **The decider had to go first.** `extensionPoints.Decider` stops at the first handler
+  returning False, and NVDA Remote registers on this same extension point and returns False
+  for every braille gesture it forwards. Registered after Remote — which happens whenever a
+  Remote session is connected before the virtual display is selected — the translator would
+  never run, and a routing key on the second display would be forwarded carrying the first
+  display's cell index. `HandlerRegistrar.moveToEnd(handler, last=False)` is NVDA's own way
+  of going first, so no ingenuity was required. It is also the right order on its own terms:
+  Remote should forward the composite position, because the composite is the display it has
+  told the other machine about.
+- **Modifier gestures had to be scoped to one member.** Chaining every member looked right,
+  since each one's `_getModifierGestures` filters its own map by its own `br(name):` prefix.
+  But what it *yields* is stripped of that namespace — bare sets of key names — and
+  `BrailleDisplayGesture._get_script` then matches on key names alone. So a Monarch mapping
+  and a Focus gesture sharing a key name would combine and execute a keyboard shortcut
+  nobody asked for. The source is now noted as the gesture passes through the decider and
+  read back during the same synchronous `executeGesture` call. When the source is unknown,
+  nothing is yielded rather than everything: a gesture that does nothing beats one that does
+  something else.
+- **An unrebasable cell now cancels the gesture.** Leaving it unchanged was not the safe
+  option it looked like. An out of range index on a narrow member is still a perfectly valid
+  index into the composite, so an untouched gesture would route confidently to some other
+  display's cell.
+- **User bindings to a member's own scripts.** `scriptForMember` now mirrors
+  `scriptHandler._getObjScript` with the member standing in for the object NVDA would have
+  offered, rather than only calling `getScript`. Built-in member scripts worked already —
+  confirmed on hardware — but a user who had bound a key to a member driver's own script had
+  written a global map entry whose `isinstance` check fails against the virtual display.
+
+### A Phase 2 limitation, stated rather than fixed
+
+**A member's own scripts do not appear in the Input Gestures dialog** while the virtual
+display is active. `inputCore._AllGestureMappingsRetriever.addObj` enumerates
+`obj.__class__.__mro__` for `script_` methods, and the object NVDA offers is the virtual
+display, whose MRO contains no member. So `freedomScientific`'s wiz wheel toggle, or an
+ALVA or Handy Tech display command, cannot be found in the dialog to be rebound.
+
+What *does* still appear is everything reachable through the members' gesture maps, because
+`addGlobalMap` consults `braille.handler.display.gestureMap` and that is now a live view over
+the members. That covers the ordinary case — panning, routing, and every global command a
+display binds by default.
+
+Not fixed because the honest fixes are both bad: synthesising a class that inherits from the
+member drivers would drag in their `__init__` and `display`, and copying script attributes
+across would bind them to the wrong object. It wants either an NVDA change or a considered
+design, and neither belongs in a phase about gesture plumbing.
+
+493 tests, one expected failure.
 
 **Phase 3, add-on integration.** The device map becomes a base view with one panel per band
 and blank masking of dead columns. Settings panel for choosing members and their order.

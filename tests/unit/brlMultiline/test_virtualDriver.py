@@ -25,6 +25,7 @@ from ._virtualStubs import (
 	bgThread,
 	decide_executeGesture,
 	driverRegistry,
+	globalMapScripts,
 	installVirtualStubs,
 	loadDriver,
 	log,
@@ -576,9 +577,18 @@ class TestCellIndexTranslation(GestureTestCase):
 		gesture = self.press("someOtherDisplay", [5])
 		self.assertEqual(gesture.cellIndexes, [5])
 
-	def test_anImpossibleCellIsLeftAlone(self):
-		"""Not something to route with, and not something to guess about."""
-		gesture = self.press(MONARCH, [999])
+	def test_anImpossibleCellCancelsTheGesture(self):
+		"""An out of range index on a narrow member is a valid index into the composite.
+
+		Left alone it would route confidently to the other display's cell, so the press is
+		refused rather than acted on somewhere the user did not touch.
+		"""
+		gesture = StubBrailleDisplayGesture(MONARCH, "routing", [999])
+		self.assertFalse(decide_executeGesture.decide(gesture=gesture))
+
+	def test_theCancelledGestureIsNotRebased(self):
+		gesture = StubBrailleDisplayGesture(MONARCH, "routing", [999])
+		decide_executeGesture.decide(gesture=gesture)
 		self.assertEqual(gesture.cellIndexes, [999])
 
 	def test_translationStopsWhenTheDisplayIsTerminated(self):
@@ -587,9 +597,41 @@ class TestCellIndexTranslation(GestureTestCase):
 		decide_executeGesture.decide(gesture=gesture)
 		self.assertEqual(gesture.cellIndexes, [102])
 
-	def test_theGestureIsNeverCancelled(self):
-		gesture = StubBrailleDisplayGesture(MONARCH, "routing", [999])
+	def test_anOrdinaryGestureIsNeverCancelled(self):
+		gesture = StubBrailleDisplayGesture(MONARCH, "panRight")
 		self.assertTrue(decide_executeGesture.decide(gesture=gesture))
+
+
+class TestDeciderOrdering(VirtualDriverTestCase):
+	"""NVDA Remote registers on this same decider and returns False for braille gestures."""
+
+	def cancelEverything(self, gesture=None, **kwargs):
+		self.cancelled.append(gesture)
+		return False
+
+	def setUp(self):
+		super().setUp()
+		self.cancelled = []
+
+	def test_translationRunsEvenWhenAnEarlierHandlerCancels(self):
+		decide_executeGesture.register(self.cancelEverything)
+		display = self.build(MONARCH, FOCUS)
+		gesture = StubBrailleDisplayGesture(FOCUS, "routing", [5])
+
+		self.assertFalse(decide_executeGesture.decide(gesture=gesture))
+
+		# Cancelled by the other handler, but rebased first: 645, not 5.
+		self.assertEqual(gesture.cellIndexes, [8 * 80 + 5])
+		self.assertEqual(self.cancelled, [gesture])
+		display.terminate()
+
+	def test_theTranslatorIsPlacedFirst(self):
+		decide_executeGesture.register(self.cancelEverything)
+		display = self.build(MONARCH)
+		# Compared by equality: a bound method is a fresh object on every attribute access.
+		self.assertEqual(decide_executeGesture.handlers[-1], self.cancelEverything)
+		self.assertEqual(len(decide_executeGesture.handlers), 2)
+		display.terminate()
 
 
 class TestGestureMap(GestureTestCase):
@@ -663,29 +705,93 @@ class TestScriptDelegation(GestureTestCase):
 		gesture = StubBrailleDisplayGesture("someOtherDisplay", "someKey")
 		self.assertIsNone(self.display.getScript(gesture))
 
+	def test_aUserBindingToAMemberDriversScriptIsHonoured(self):
+		"""NVDA tests `isinstance` against the virtual display, where it cannot match."""
+		import baseObject
+
+		class ScriptableMember(baseObject.ScriptableObject):
+			name = FOCUS
+
+			def script_toggleLeftWizWheelAction(self, gesture):
+				return None
+
+		member = ScriptableMember()
+		self.display.slots[1].driver = member
+		globalMapScripts.append((ScriptableMember, "toggleLeftWizWheelAction"))
+
+		gesture = StubBrailleDisplayGesture(FOCUS, "leftWizWheelPress")
+		self.assertEqual(self.display.getScript(gesture), member.script_toggleLeftWizWheelAction)
+
+	def test_aUserUnbindingIsHonoured(self):
+		import baseObject
+
+		class ScriptableMember(baseObject.ScriptableObject):
+			name = FOCUS
+
+			def getScript(self, gesture):
+				return "the built in script"
+
+		self.display.slots[1].driver = ScriptableMember()
+		globalMapScripts.append((ScriptableMember, None))
+		gesture = StubBrailleDisplayGesture(FOCUS, "leftWizWheelPress")
+		self.assertIsNone(self.display.getScript(gesture))
+
+	def test_aBindingForSomeOtherClassIsIgnored(self):
+		import baseObject
+
+		class ScriptableMember(baseObject.ScriptableObject):
+			name = FOCUS
+
+			def getScript(self, gesture):
+				return "the built in script"
+
+		self.display.slots[1].driver = ScriptableMember()
+		globalMapScripts.append((int, "somethingElse"))
+		gesture = StubBrailleDisplayGesture(FOCUS, "leftWizWheelPress")
+		self.assertEqual(self.display.getScript(gesture), "the built in script")
+
 
 class TestModifierGestures(GestureTestCase):
-	def test_everyMemberIsChained(self):
+	"""What a member yields carries no namespace, so only the right member may be asked."""
+
+	def setUp(self):
+		super().setUp()
+		# The same key name on both displays, which is the collision that matters. It costs
+		# a user nothing to name a key "space" on each of two displays.
 		self.monarch._getModifierGestures = classmethod(
-			lambda cls, model=None: iter([({"dpadUp"}, {"control"})]),
+			lambda cls, model=None: iter([({"space"}, {"alt"})]),
 		)
 		self.focus._getModifierGestures = classmethod(
-			lambda cls, model=None: iter([({"leftShiftKey"}, {"shift"})]),
-		)
-		self.assertEqual(
-			list(self.display._getModifierGestures()),
-			[({"dpadUp"}, {"control"}), ({"leftShiftKey"}, {"shift"})],
+			lambda cls, model=None: iter([({"space"}, {"shift"})]),
 		)
 
-	def test_aMemberThatRaisesDoesNotStopTheOthers(self):
+	def test_onlyTheOriginatingMemberContributes(self):
+		self.press(FOCUS, gestureId="space+dot1")
+		self.assertEqual(list(self.display._getModifierGestures()), [({"space"}, {"shift"})])
+
+	def test_theOtherMemberContributesForItsOwnGestures(self):
+		self.press(MONARCH, gestureId="space+dot1")
+		self.assertEqual(list(self.display._getModifierGestures()), [({"space"}, {"alt"})])
+
+	def test_aGestureFromSomeOtherDisplayGetsNoModifiers(self):
+		"""Better a gesture that does nothing than one that does something else."""
+		self.press("someOtherDisplay", gestureId="space+dot1")
+		self.assertEqual(list(self.display._getModifierGestures()), [])
+
+	def test_noModifiersBeforeAnyGestureHasArrived(self):
+		import brlMultilineVirtual.gestures as gestureModule
+
+		if hasattr(gestureModule._currentGesture, "source"):
+			del gestureModule._currentGesture.source
+		self.assertEqual(list(self.display._getModifierGestures()), [])
+
+	def test_aMemberThatRaisesYieldsNothingRatherThanFailing(self):
 		def explode(cls, model=None):
 			raise RuntimeError("modifier gestures are unwell")
 
-		self.monarch._getModifierGestures = classmethod(explode)
-		self.focus._getModifierGestures = classmethod(
-			lambda cls, model=None: iter([({"leftShiftKey"}, {"shift"})]),
-		)
-		self.assertEqual(list(self.display._getModifierGestures()), [({"leftShiftKey"}, {"shift"})])
+		self.focus._getModifierGestures = classmethod(explode)
+		self.press(FOCUS, gestureId="space+dot1")
+		self.assertEqual(list(self.display._getModifierGestures()), [])
 
 
 class TestGestureLifecycle(VirtualDriverTestCase):

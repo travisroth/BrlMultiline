@@ -216,7 +216,15 @@ class GlobalGestureMap:
 
 
 class Decider:
-	"""An extension point that collects handlers and asks each in turn."""
+	"""NVDA's `extensionPoints.Decider`, including the two behaviours that matter here.
+
+	Registration order is preserved, and `decide` stops at the first handler returning False.
+	Together those are why the virtual display has to put its own handler at the front:
+	NVDA Remote registers on this same extension point and returns False for every braille
+	gesture it forwards.
+
+	`moveToEnd` matches NVDA's signature, where `last=False` means move to the front.
+	"""
 
 	def __init__(self):
 		self.handlers = []
@@ -228,12 +236,28 @@ class Decider:
 		if handler in self.handlers:
 			self.handlers.remove(handler)
 
+	def moveToEnd(self, handler, last: bool = True) -> bool:
+		if handler not in self.handlers:
+			return False
+		self.handlers.remove(handler)
+		if last:
+			self.handlers.append(handler)
+		else:
+			self.handlers.insert(0, handler)
+		return True
+
 	def decide(self, **kwargs) -> bool:
-		return all(handler(**kwargs) for handler in list(self.handlers))
+		for handler in list(self.handlers):
+			if not handler(**kwargs):
+				return False
+		return True
 
 
 decide_executeGesture = Decider()
 """The extension point `gestures` registers its cell index rebasing on."""
+
+globalMapScripts: list[tuple[type, str]] = []
+"""What `scriptHandler.getGlobalMapScripts` returns. Tests fill it to model a user binding."""
 
 
 class Getter:
@@ -331,6 +355,7 @@ def resetStubs() -> None:
 	bgThread.queued.clear()
 	driverRegistry.clear()
 	decide_executeGesture.handlers.clear()
+	globalMapScripts.clear()
 	braille.handler = None
 	config.conf[CONFIG_SECTION]["devices"] = []
 
@@ -367,6 +392,12 @@ def installVirtualStubs() -> None:
 	gestureModule = _module("braille.display.gesture", BrailleDisplayGesture=StubBrailleDisplayGesture)
 	braille.display.gesture = gestureModule
 	config.conf[CONFIG_SECTION] = {"devices": []}
+
+	# The user, locale and display gesture maps, as `scriptHandler` presents them. Tests set
+	# `globalMapScripts` to model a user having bound a key to a member driver's own script.
+	import scriptHandler
+
+	scriptHandler.getGlobalMapScripts = lambda gesture: list(globalMapScripts)
 
 	# A package object with a path but no code, so that the driver's relative imports
 	# resolve without running its `__init__.py`. Loading that deliberately is what
