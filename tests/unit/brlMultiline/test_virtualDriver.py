@@ -1,0 +1,391 @@
+# Copyright (C) 2026 Travis Roth
+# This file is covered by the GNU General Public License version 2.
+
+"""Tests for the virtual display driver's orchestration.
+
+Not for whether a Focus answers a query packet in time — no stub can tell you that, and the
+hardware runs are what settle it. What is tested here is everything around that: which
+members get opened, what happens to the ones that do not, who is holding a display during a
+switch, and that nothing is left open when construction fails.
+
+The switch tests are the point of the exercise. `_stubs.FakeBrailleHandler._switchDisplay`
+reproduces NVDA's ordering, in which the incoming driver is constructed before the outgoing
+one is closed, so a member the user is switching away from is genuinely still held when the
+virtual display tries to open it. That is the situation `handover` exists for, and it is
+reproduced here rather than described.
+"""
+
+import unittest
+
+import braille
+
+from ._virtualStubs import (
+	bgThread,
+	driverRegistry,
+	installVirtualStubs,
+	loadDriver,
+	makeMemberDriver,
+	resetStubs,
+)
+from ._stubs import FakeBrailleHandler
+
+installVirtualStubs()
+
+from brlMultilineVirtual import ackPatch, handover, vdConfig  # noqa: E402
+from brlMultilineVirtual.virtualLayout import DeviceSpec  # noqa: E402
+
+driverModule = loadDriver()
+VirtualDisplay = driverModule.BrailleDisplayDriver
+
+MONARCH = "hidBrailleStandard"
+FOCUS = "freedomScientific"
+
+
+class VirtualDriverTestCase(unittest.TestCase):
+	def setUp(self):
+		resetStubs()
+		# Retrying three times at 0.3 seconds would put a second on every failure test.
+		self._realDelay = driverModule.OPEN_RETRY_DELAY
+		driverModule.OPEN_RETRY_DELAY = 0
+		self.monarch = makeMemberDriver(MONARCH, numRows=8, numCols=32)
+		self.focus = makeMemberDriver(FOCUS, numRows=1, numCols=80)
+		self.handler = FakeBrailleHandler()
+		braille.handler = self.handler
+
+	def tearDown(self):
+		driverModule.OPEN_RETRY_DELAY = self._realDelay
+		handover.removeSwitchPatch()
+		ackPatch.remove()
+		braille.handler = None
+
+	def configure(self, *driverNames):
+		vdConfig.setDevices([DeviceSpec(name) for name in driverNames])
+
+	def build(self, *driverNames):
+		"""Construct a virtual display directly, as a test that is not switching would."""
+		self.configure(*driverNames)
+		return VirtualDisplay()
+
+
+class TestConstruction(VirtualDriverTestCase):
+	def test_membersStackTopFirst(self):
+		display = self.build(MONARCH, FOCUS)
+		self.assertEqual((display.numRows, display.numCols), (9, 80))
+		self.assertEqual([slot.driverName for slot in display.slots], [MONARCH, FOCUS])
+		self.assertEqual(display.slots[1].band.rowStart, 8)
+
+	def test_noDevicesConfiguredIsRefused(self):
+		with self.assertRaises(RuntimeError) as caught:
+			VirtualDisplay()
+		self.assertIn("no displays configured", str(caught.exception))
+
+	def test_aMemberThatWillNotOpenIsDropped(self):
+		self.focus.failedOpens = -1
+		display = self.build(MONARCH, FOCUS)
+		self.assertEqual([slot.driverName for slot in display.slots], [MONARCH])
+		self.assertEqual((display.numRows, display.numCols), (8, 32))
+
+	def test_noMemberOpeningIsRefused(self):
+		self.monarch.failedOpens = -1
+		self.focus.failedOpens = -1
+		self.configure(MONARCH, FOCUS)
+		with self.assertRaises(RuntimeError):
+			VirtualDisplay()
+
+	def test_anUnknownDriverIsDropped(self):
+		self.configure(MONARCH, "noSuchDriver")
+		display = VirtualDisplay()
+		self.assertEqual([slot.driverName for slot in display.slots], [MONARCH])
+
+	def test_openingIsRetried(self):
+		"""From Phase 0: a display just released may refuse once and then open normally."""
+		self.focus.failedOpens = 2
+		display = self.build(MONARCH, FOCUS)
+		self.assertEqual([slot.driverName for slot in display.slots], [MONARCH, FOCUS])
+		self.assertEqual(self.focus.openAttempts, 3)
+
+	def test_retriesAreBounded(self):
+		self.focus.failedOpens = -1
+		self.build(MONARCH, FOCUS)
+		self.assertEqual(self.focus.openAttempts, driverModule.OPEN_ATTEMPTS)
+
+
+class TestConstructionCleanup(VirtualDriverTestCase):
+	"""Nothing opened may be left open when construction does not complete."""
+
+	def test_aZeroCellMemberIsClosedRatherThanKept(self):
+		# What `noBraille` looks like, and what a display that connected but failed to
+		# identify itself looks like.
+		empty = makeMemberDriver("emptyDisplay", numRows=1, numCols=0)
+		display = self.build(MONARCH, "emptyDisplay")
+		self.assertEqual([slot.driverName for slot in display.slots], [MONARCH])
+		self.assertEqual(len(empty.instances), 1)
+		self.assertEqual(empty.instances[0].terminated, 1)
+
+	def test_openedMembersAreClosedWhenTheLayoutFails(self):
+		self.configure(MONARCH, FOCUS)
+
+		def explode(shapes):
+			raise ValueError("geometry is unwell")
+
+		original = driverModule.stackDevices
+		driverModule.stackDevices = explode
+		try:
+			with self.assertRaises(ValueError):
+				VirtualDisplay()
+		finally:
+			driverModule.stackDevices = original
+		self.assertEqual(self.monarch.instances[0].terminated, 1)
+		self.assertEqual(self.focus.instances[0].terminated, 1)
+
+	def test_patchesAreRemovedWhenConstructionFails(self):
+		self.monarch.failedOpens = -1
+		self.configure(MONARCH)
+		with self.assertRaises(RuntimeError):
+			VirtualDisplay()
+		self.assertIsNone(ackPatch._originalHandleAck)
+		self.assertIsNone(handover._originalSwitchDisplay)
+
+
+class TestConfigurationRefusals(VirtualDriverTestCase):
+	def test_theVirtualDriverCannotBeItsOwnMember(self):
+		with self.assertRaises(ValueError):
+			vdConfig.setDevices([DeviceSpec("brlMultilineVirtual")])
+
+	def test_aStoredSelfReferenceIsRefusedAtConstruction(self):
+		"""Written straight into configuration, bypassing `setDevices`."""
+		import config
+
+		config.conf["BrlMultilineVirtualDisplay"]["devices"] = ["brlMultilineVirtual"]
+		with self.assertRaises(RuntimeError) as caught:
+			VirtualDisplay()
+		self.assertIn("misconfigured", str(caught.exception))
+
+	def test_duplicateDriversAreRefusedAtConstruction(self):
+		import config
+
+		config.conf["BrlMultilineVirtualDisplay"]["devices"] = [FOCUS, f"{FOCUS}|COM3"]
+		with self.assertRaises(RuntimeError):
+			VirtualDisplay()
+
+
+class TestDisplayFanOut(VirtualDriverTestCase):
+	def setUp(self):
+		super().setUp()
+		self.display = self.build(MONARCH, FOCUS)
+		self.monarchDevice = self.monarch.instances[0]
+		self.focusDevice = self.focus.instances[0]
+		self.monarchDevice.written.clear()
+		self.focusDevice.written.clear()
+
+	def composite(self, monarchFill, focusFill):
+		"""A 9 by 80 array with one value across the Monarch's band and another on the Focus."""
+		cells = [monarchFill] * (8 * 80) + [focusFill] * 80
+		return cells
+
+	def write(self, cells):
+		"""Display, then let the queued writes run.
+
+		Both members are thread safe, so their slots queue onto the background thread rather
+		than writing inline. The stub thread holds those calls until they are flushed.
+		"""
+		self.display.display(cells)
+		bgThread.flush()
+
+	def test_eachMemberGetsItsOwnBand(self):
+		self.write(self.composite(1, 2))
+		self.assertEqual(self.monarchDevice.written, [[1] * 256])
+		self.assertEqual(self.focusDevice.written, [[2] * 80])
+
+	def test_anUnchangedMemberIsNotWrittenTo(self):
+		"""The reason a second display is usable at all: NVDA rewrites on every cursor blink."""
+		self.write(self.composite(1, 2))
+		self.write(self.composite(1, 3))
+		self.assertEqual(len(self.monarchDevice.written), 1)
+		self.assertEqual(len(self.focusDevice.written), 2)
+
+	def test_aShortArrayIsPadded(self):
+		self.write([1] * 10)
+		self.assertEqual(len(self.monarchDevice.written[0]), 256)
+		self.assertEqual(self.focusDevice.written, [[0] * 80])
+
+	def test_aLongArrayIsTruncated(self):
+		self.write([1] * 5000)
+		self.assertEqual(self.monarchDevice.written, [[1] * 256])
+		self.assertEqual(self.focusDevice.written, [[1] * 80])
+
+	def test_aFailedMemberIsSkippedButTheOtherIsNot(self):
+		self.display.slots[0].fail()
+		self.write(self.composite(1, 2))
+		self.assertEqual(self.monarchDevice.written, [])
+		self.assertEqual(self.focusDevice.written, [[2] * 80])
+
+	def test_aNonThreadSafeMemberIsWrittenInline(self):
+		"""Which, now the composite reports itself unsafe, means on the main thread."""
+		resetStubs()
+		makeMemberDriver(MONARCH, numRows=8, numCols=32, isThreadSafe=False)
+		display = self.build(MONARCH)
+		device = driverRegistry[MONARCH].instances[0]
+		device.written.clear()
+		display.display([7] * display.numCells)
+		self.assertEqual(bgThread.queued, [])
+		self.assertEqual(device.written, [[7] * 256])
+
+
+class TestTerminate(VirtualDriverTestCase):
+	def test_membersAreClosed(self):
+		display = self.build(MONARCH, FOCUS)
+		display.terminate()
+		self.assertEqual(self.monarch.instances[0].terminated, 1)
+		self.assertEqual(self.focus.instances[0].terminated, 1)
+		self.assertEqual(display.slots, ())
+
+	def test_membersAreBlankedFirst(self):
+		display = self.build(MONARCH, FOCUS)
+		device = self.monarch.instances[0]
+		device.written.clear()
+		display.terminate()
+		self.assertEqual(device.written, [[0] * 256])
+
+	def test_suppressedClearReachesTheMembers(self):
+		display = self.build(MONARCH, FOCUS)
+		device = self.monarch.instances[0]
+		display.display([1] * display.numCells)
+		device.written.clear()
+		display._suppressDisplayClear = True
+		display.terminate()
+		self.assertEqual(device.written, [])
+
+	def test_patchesAreRemoved(self):
+		display = self.build(MONARCH)
+		display.terminate()
+		self.assertIsNone(ackPatch._originalHandleAck)
+		self.assertIsNone(handover._originalSwitchDisplay)
+
+	def test_aMemberRaisingDoesNotStopTheOthersClosing(self):
+		self.monarch.failOnTerminate = True
+		display = self.build(MONARCH, FOCUS)
+		display.terminate()
+		self.assertEqual(self.focus.instances[0].terminated, 1)
+
+
+class TestHandover(VirtualDriverTestCase):
+	"""NVDA constructs the incoming driver before terminating the outgoing one."""
+
+	def test_switchingFromAMemberReleasesItFirst(self):
+		self.handler.setDisplay(self.focus)
+		focusDevice = self.focus.instances[0]
+		self.configure(MONARCH, FOCUS)
+
+		self.handler.setDisplay(VirtualDisplay)
+
+		display = self.handler.display
+		self.assertEqual([slot.driverName for slot in display.slots], [MONARCH, FOCUS])
+		# The one NVDA owned was closed, and a fresh one opened for the virtual display.
+		self.assertEqual(focusDevice.terminated, 1)
+		self.assertEqual(len(self.focus.instances), 2)
+
+	def test_theReleasedDisplayIsNotClosedTwice(self):
+		"""NVDA closes the old display itself once the switch completes."""
+		self.handler.setDisplay(self.focus)
+		focusDevice = self.focus.instances[0]
+		self.configure(FOCUS)
+		self.handler.setDisplay(VirtualDisplay)
+		self.assertEqual(focusDevice.terminated, 1)
+
+	def test_aDisplayThatIsNotAMemberIsLeftToNVDA(self):
+		other = makeMemberDriver("someOtherDisplay")
+		self.handler.setDisplay(other)
+		self.configure(MONARCH)
+		self.handler.setDisplay(VirtualDisplay)
+		# Closed once, by NVDA, after the virtual display was constructed.
+		self.assertEqual(other.instances[0].terminated, 1)
+		self.assertEqual(len(other.instances), 1)
+
+	def test_switchingBackToAMemberReleasesTheVirtualDisplayFirst(self):
+		self.configure(MONARCH, FOCUS)
+		self.handler.setDisplay(VirtualDisplay)
+		heldFocus = self.focus.instances[0]
+
+		self.handler.setDisplay(self.focus)
+
+		# The virtual display let go before the Focus driver was constructed, so the new
+		# Focus is the second instance and the one the virtual display held is closed.
+		self.assertEqual(heldFocus.terminated, 1)
+		self.assertEqual(len(self.focus.instances), 2)
+		self.assertIs(self.handler.display, self.focus.instances[1])
+
+	def test_theSwitchPatchIsRemovedOnTheWayOut(self):
+		self.configure(MONARCH)
+		self.handler.setDisplay(VirtualDisplay)
+		self.handler.setDisplay(self.focus)
+		self.assertIsNone(handover._originalSwitchDisplay)
+
+	def test_anUnrelatedSwitchIsUnaffected(self):
+		other = makeMemberDriver("someOtherDisplay")
+		self.handler.setDisplay(self.monarch)
+		self.handler.setDisplay(other)
+		self.assertIs(self.handler.display, other.instances[0])
+		self.assertEqual(self.monarch.instances[0].terminated, 1)
+
+
+class TestAckPatch(VirtualDriverTestCase):
+	def setUp(self):
+		super().setUp()
+		self.acking = makeMemberDriver("ackingDisplay", receivesAckPackets=True)
+
+	def test_theDisplayNVDAOwnsKeepsItsOwnBehaviour(self):
+		ackPatch.install()
+		self.handler.setDisplay(self.acking)
+		device = self.handler.display
+		device._handleAck()
+		self.assertEqual(device.handlerAcksReceived, 1)
+
+	def test_aMemberDoesNotReachTheHandler(self):
+		self.configure("ackingDisplay")
+		display = VirtualDisplay()
+		self.handler.display = display
+		member = self.acking.instances[0]
+		member._awaitingAck = True
+		member._handleAck()
+		self.assertFalse(member._awaitingAck)
+		self.assertFalse(hasattr(member, "handlerAcksReceived"))
+
+	def test_aDriverWithoutAcknowledgementsStillRefuses(self):
+		self.configure(MONARCH)
+		VirtualDisplay()
+		with self.assertRaises(NotImplementedError):
+			self.monarch.instances[0]._handleAck()
+
+	def test_removeRestoresNVDAsOwnMethod(self):
+		from brlMultilineVirtual.ackPatch import BrailleDisplayDriver
+
+		original = BrailleDisplayDriver._handleAck
+		ackPatch.install()
+		self.assertIsNot(BrailleDisplayDriver._handleAck, original)
+		ackPatch.remove()
+		self.assertIs(BrailleDisplayDriver._handleAck, original)
+
+
+class TestVdConfig(VirtualDriverTestCase):
+	def test_roundTrip(self):
+		specs = [DeviceSpec(MONARCH), DeviceSpec(FOCUS, "COM3")]
+		vdConfig.setDevices(specs)
+		self.assertEqual(vdConfig.getDevices(), specs)
+
+	def test_defaultIsEmpty(self):
+		self.assertEqual(vdConfig.getDevices(), [])
+
+	def test_aPortlessEntryIsStoredWithoutOne(self):
+		import config
+
+		vdConfig.setDevices([DeviceSpec(MONARCH)])
+		self.assertEqual(config.conf["BrlMultilineVirtualDisplay"]["devices"], [MONARCH])
+
+	def test_settingRefusesWhatLoadingWouldRefuse(self):
+		with self.assertRaises(ValueError):
+			vdConfig.setDevices([DeviceSpec(FOCUS), DeviceSpec(FOCUS, "COM3")])
+
+
+if __name__ == "__main__":
+	unittest.main()
