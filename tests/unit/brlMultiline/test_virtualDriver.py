@@ -68,9 +68,15 @@ class VirtualDriverTestCase(unittest.TestCase):
 		vdConfig.setDevices([DeviceSpec(name) for name in driverNames])
 
 	def build(self, *driverNames):
-		"""Construct a virtual display directly, as a test that is not switching would."""
+		"""Construct a virtual display and install it, as `_setDisplay` does.
+
+		The assignment matters: NVDA makes it only after the constructor has returned, and
+		several things this driver does are deliberately inert until it has happened.
+		"""
 		self.configure(*driverNames)
-		return VirtualDisplay()
+		display = VirtualDisplay()
+		self.handler.display = display
+		return display
 
 
 class TestConstruction(VirtualDriverTestCase):
@@ -591,6 +597,25 @@ class TestCellIndexTranslation(GestureTestCase):
 		decide_executeGesture.decide(gesture=gesture)
 		self.assertEqual(gesture.cellIndexes, [999])
 
+	def test_nothingIsTranslatedBeforeNVDAInstallsTheDisplay(self):
+		"""Mid switch, the outgoing display is still NVDA's and still routes for itself.
+
+		The window is real: `gestures.install` runs from the constructor, but
+		`braille.handler.display` is assigned only after that constructor returns, the
+		outgoing display is terminated and `initSettings` has run. An adopted Focus is
+		dispatching input throughout.
+		"""
+		self.handler.display = self.focus.instances[0]
+		gesture = StubBrailleDisplayGesture(FOCUS, "routing", [5])
+		self.assertTrue(decide_executeGesture.decide(gesture=gesture))
+		self.assertEqual(gesture.cellIndexes, [5])
+
+	def test_anImpossibleCellIsNotCancelledBeforeInstallation(self):
+		"""The outgoing display's own indexes are its business, whatever they are."""
+		self.handler.display = self.focus.instances[0]
+		gesture = StubBrailleDisplayGesture(FOCUS, "routing", [999])
+		self.assertTrue(decide_executeGesture.decide(gesture=gesture))
+
 	def test_translationStopsWhenTheDisplayIsTerminated(self):
 		self.display.terminate()
 		gesture = StubBrailleDisplayGesture(MONARCH, "routing", [102])
@@ -776,6 +801,16 @@ class TestModifierGestures(GestureTestCase):
 	def test_aGestureFromSomeOtherDisplayGetsNoModifiers(self):
 		"""Better a gesture that does nothing than one that does something else."""
 		self.press("someOtherDisplay", gestureId="space+dot1")
+		self.assertEqual(list(self.display._getModifierGestures()), [])
+
+	def test_noModifierContextIsRecordedBeforeInstallation(self):
+		"""Mid switch the outgoing display answers for its own modifiers, through NVDA."""
+		import brlMultilineVirtual.gestures as gestureModule
+
+		if hasattr(gestureModule._currentGesture, "source"):
+			del gestureModule._currentGesture.source
+		self.handler.display = self.focus.instances[0]
+		self.press(FOCUS, gestureId="space+dot1")
 		self.assertEqual(list(self.display._getModifierGestures()), [])
 
 	def test_noModifiersBeforeAnyGestureHasArrived(self):

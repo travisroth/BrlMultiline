@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import threading
 
+import braille
 import inputCore
 from braille.display.gesture import BrailleDisplayGesture
 from logHandler import log
@@ -139,6 +140,26 @@ def _rebaseCellIndexes(gesture: BrailleDisplayGesture, slot) -> bool:
 	return True
 
 
+def _isDisplayInstalled() -> bool:
+	"""Whether NVDA has actually put this virtual display in place yet.
+
+	Installed from the constructor, this module goes live some way before NVDA agrees that
+	the virtual display exists: `_setDisplay` assigns `braille.handler.display` only after
+	the constructor has returned, the outgoing display has been terminated and `initSettings`
+	has run. Throughout that window the *outgoing* display is still NVDA's, still dispatching
+	input, and still being routed against — and when it was adopted as a member, it is the
+	very display whose indexes would be rebased.
+
+	A routing key pressed in that window would therefore be rebased onto a composite that
+	nothing is yet reading, and routed against a buffer still sized for the display the user
+	is leaving. Small window; wrong answer; cheap to exclude.
+
+	:return: True once NVDA is driving this virtual display.
+	"""
+	handler = braille.handler
+	return handler is not None and handler.display is _driver
+
+
 def _translateCellIndexes(gesture=None, **kwargs) -> bool:
 	"""Rebase a member's routing keys. Registered on `inputCore.decide_executeGesture`.
 
@@ -154,6 +175,10 @@ def _translateCellIndexes(gesture=None, **kwargs) -> bool:
 	"""
 	try:
 		if _driver is None or not isinstance(gesture, BrailleDisplayGesture):
+			return True
+		if not _isDisplayInstalled():
+			# Mid switch: the outgoing display is still NVDA's, and should go on interpreting
+			# its own cell indexes and answering for its own modifiers.
 			return True
 		# Noted for every braille gesture, member or not: see `_currentGesture`.
 		_currentGesture.source = gesture.source

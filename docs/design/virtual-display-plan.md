@@ -700,14 +700,28 @@ Review then found four more things, two of which were real hazards rather than t
   offered, rather than only calling `getScript`. Built-in member scripts worked already —
   confirmed on hardware — but a user who had bound a key to a member driver's own script had
   written a global map entry whose `isinstance` check fails against the virtual display.
+- **Nothing is translated until NVDA has installed the display.** `gestures.install` runs
+  from the constructor, but `_setDisplay` assigns `braille.handler.display` only after that
+  constructor returns, the outgoing display is terminated and `initSettings` has run. An
+  adopted Focus is dispatching input throughout that window, and rebasing its cell indexes
+  there would route them against a buffer still sized for the display the user is leaving.
+  `_isDisplayInstalled` excludes the window; the outgoing display goes on interpreting its
+  own indexes and answering for its own modifiers, which is what NVDA still expects of it.
 
 ### A Phase 2 limitation, stated rather than fixed
 
 **A member's own scripts do not appear in the Input Gestures dialog** while the virtual
 display is active. `inputCore._AllGestureMappingsRetriever.addObj` enumerates
 `obj.__class__.__mro__` for `script_` methods, and the object NVDA offers is the virtual
-display, whose MRO contains no member. So `freedomScientific`'s wiz wheel toggle, or an
-ALVA or Handy Tech display command, cannot be found in the dialog to be rebound.
+display, whose MRO contains no member.
+
+Exactly three drivers in tree are affected, and they are the three that give their scripts a
+description: `alva` ("Toggles HID keyboard simulation"), `handyTech` ("Toggle braille
+input") and `eurobraille` ("Toggle HID keyboard simulation"). `makeNormalScriptInfo` returns
+None for a script with no `__doc__`, so everything else was already absent from that dialog.
+In particular the Focus's wiz wheel toggles have no description and never appeared there,
+with or without a virtual display — they are the wrong example to reach for, however
+naturally they come to mind.
 
 What *does* still appear is everything reachable through the members' gesture maps, because
 `addGlobalMap` consults `braille.handler.display.gestureMap` and that is now a live view over
@@ -719,7 +733,8 @@ member drivers would drag in their `__init__` and `display`, and copying script 
 across would bind them to the wrong object. It wants either an NVDA change or a considered
 design, and neither belongs in a phase about gesture plumbing.
 
-493 tests, one expected failure.
+496 tests, one expected failure. The three covering the install window were checked against
+the unfixed code and fail there, which is the only way to know a regression test regresses.
 
 **Phase 3, add-on integration.** The device map becomes a base view with one panel per band
 and blank masking of dead columns. Settings panel for choosing members and their order.
