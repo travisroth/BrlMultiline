@@ -180,6 +180,24 @@ class AutoPropertyObject(metaclass=_AutoPropertyMeta):
 	pass
 
 
+class ScriptableObject(AutoPropertyObject):
+	"""NVDA's ScriptableObject, reduced to the lookup that matters outside it.
+
+	A real class rather than `object`, because the virtual braille display inherits from it
+	and calls `super().getScript` when no member claims a gesture — exactly as NVDA's own
+	drivers do. Returning None for an unbound gesture is the behaviour being stood in for.
+	"""
+
+	_gestureMap: dict = {}
+
+	def getScript(self, gesture):
+		for identifier in getattr(gesture, "identifiers", ()):
+			script = self._gestureMap.get(identifier)
+			if script is not None:
+				return script
+		return None
+
+
 class DisplayDimensions:
 	def __init__(self, numRows, numCols):
 		self.numRows = numRows
@@ -741,7 +759,7 @@ def installStubs() -> None:
 	if PACKAGE in sys.modules:
 		return
 	_module("logHandler", log=log)
-	_module("baseObject", AutoPropertyObject=AutoPropertyObject, ScriptableObject=object)
+	_module("baseObject", AutoPropertyObject=AutoPropertyObject, ScriptableObject=ScriptableObject)
 	_module(
 		"config",
 		conf=FakeConf(

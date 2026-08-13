@@ -29,9 +29,32 @@ driver is being constructed and in the other it is being destroyed.
 
 **Into the virtual display.** `braille.handler.display` still points at the old driver while
 our `__init__` runs, because `_setDisplay` assigns the new one only after `_switchDisplay`
-returns. So we can find it and close it ourselves. Its `terminate` is then replaced with a
-no-op on that instance, so that NVDA closing it again a moment later does nothing rather
-than failing against a closed device.
+returns. So we can reach it — and rather than closing it and opening our own, we *adopt* it:
+the live, already initialised, already dispatching driver becomes our member as it stands.
+Its `terminate` is replaced by a one-shot no-op so that NVDA closing it a moment later does
+nothing, after which the real method is back and ours to call.
+
+Adopting rather than reopening was not the first design, and the reason it had to become one
+is worth writing down, because it is a defect in NVDA rather than in this add-on.
+
+`hwIo.base.IoBase.close` closes the device handle but never clears `self._file`, and
+`IoBase.__del__` calls `close` again. So once a driver has been terminated, finalising it
+closes its handle a *second* time — and by then Windows may have handed that handle value to
+something else. Closing a display and immediately opening it again therefore works, right up
+until the old driver object is garbage collected, at which point the new device's handle is
+pulled out from under it.
+
+That is exactly what a Phase 1 hardware run showed. The Focus was released and reopened
+successfully, `handler.display` was then assigned, dropping the last reference to the old
+driver, and the very next write failed with "the handle is invalid" nine milliseconds later.
+With two members it was worse: the Monarch, being opened first after the release, received
+the recycled handle value and lost it instead.
+
+The same log shows NVDA hitting this on its own, with no add-on involved: reinitialising the
+Focus from the braille settings failed identically, because `_switchDisplay` terminates and
+reconstructs the same driver instance. So this is upstream's to fix. What this module can do
+is stop provoking it — hence adoption, and hence `_retireDriver` in the driver module, which
+keeps a terminated driver alive so its finaliser never runs mid session.
 
 **Out of the virtual display.** Here we are the old driver, and the new one is constructed
 before we are told anything at all, so there is no method of ours to intervene in. That
@@ -88,14 +111,33 @@ def _closeAndNeuter(display) -> None:
 		display.terminate = lambda: None
 
 
-def releaseConflictingDisplay(driverNames: Iterable[str]) -> str | None:
-	"""Close the display NVDA is switching away from, if we are about to open it.
+def _suppressOneTerminate(display) -> None:
+	"""Make the next `terminate` on this instance do nothing, and the ones after it normal.
+
+	NVDA calls `terminate` on the outgoing display exactly once, immediately after the
+	incoming driver is constructed. An adopted display must survive that call, but it must
+	still be closable afterwards by whoever now owns it — so the no-op removes itself,
+	uncovering the class's own method again.
+
+	:param display: the driver to protect for one call.
+	"""
+
+	def terminateOnceIgnored() -> None:
+		del display.terminate
+
+	display.terminate = terminateOnceIgnored
+
+
+def adoptConflictingDisplay(driverNames: Iterable[str]):
+	"""Take over the display NVDA is switching away from, if it is to be one of our members.
 
 	Called from the virtual driver's constructor, where `braille.handler.display` is still
-	the outgoing driver.
+	the outgoing driver. Returns it live rather than closing it, because closing and
+	reopening the same device provokes the `hwIo` finaliser bug described at the top of this
+	module, and because a driver that is already open is the fastest possible way to open it.
 
 	:param driverNames: the drivers this virtual display is about to open.
-	:return: the name of the display released, or None if there was no conflict.
+	:return: a (name, driver) pair, or None if there was no conflict.
 	"""
 	handler = braille.handler
 	if handler is None:
@@ -106,8 +148,25 @@ def releaseConflictingDisplay(driverNames: Iterable[str]) -> str | None:
 	name = getattr(display, "name", None)
 	if name is None or name not in set(driverNames):
 		return None
-	_closeAndNeuter(display)
-	return name
+	_suppressOneTerminate(display)
+	log.debug(f"BrlMultiline: adopting the running {name} rather than reopening it")
+	return name, display
+
+
+def releaseAdoption(display) -> None:
+	"""Hand an adopted display back, so that NVDA can close it in the ordinary way.
+
+	For the path where the virtual display fails to construct after adopting something. Left
+	as it was, the one-shot would swallow NVDA's terminate and leave the device open with
+	nothing owning it.
+
+	:param display: the driver to hand back.
+	"""
+	try:
+		del display.terminate
+	except AttributeError:
+		# Already handed back, or never adopted.
+		pass
 
 
 def _switchDisplayReleasingVirtual(

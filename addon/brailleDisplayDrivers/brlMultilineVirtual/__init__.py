@@ -16,21 +16,16 @@ are; see `deviceSlot` for how writes are scheduled and why unchanged frames are 
 see `ackPatch` for the one place NVDA has to be adjusted, and for the careful statement of
 what that patch is not for.
 
-**Not yet done here, by design.** Input from members reaches NVDA already — Phase 0
-confirmed that gestures from a display NVDA does not own arrive with their own driver's
-identifiers, so existing gesture maps keep working — but three things are still wrong until
-the next phase:
+Input is handled in `gestures`. Members' keys already reach NVDA on their own, so the work
+there is rebasing routing cell indexes onto the composite and answering the three things NVDA
+looks up on `braille.handler.display` while resolving a gesture.
 
-- Routing keys carry cell indexes relative to their own device, so a press on the second
-  display routes to the wrong character. `virtualLayout.deviceCellIndexToVirtual` is the
-  arithmetic, written and tested, and simply not wired up yet.
-- `scriptHandler` reads `braille.handler.display.gestureMap`, which here is one map and
-  should be the members' maps merged.
-- A member that is a `ScriptableObject`, such as `freedomScientific`, loses its own scripts,
-  because NVDA offers `braille.handler.display` for those and that is now this driver.
-
-So this phase is about output. Both displays showing the halves of one buffer, with NVDA
-unaware, is the whole of what it claims.
+**Not yet done here, by design.** The composite is a rectangle as wide as its widest member,
+so a narrower member has dead columns that reach no hardware, and NVDA flowing one buffer
+across the whole rectangle loses text into them. Masking them means a base view with one
+panel per member, which is the add-on's job rather than the driver's, and is the next phase.
+Until then a mixed width arrangement reads gappily, and the driver says so in the log when it
+starts.
 """
 
 from __future__ import annotations
@@ -39,13 +34,14 @@ import collections
 import time
 import typing
 
+import baseObject
 import braille
 import braille.display.driver
 import extensionPoints
 from braille.display import _getDisplayDriver
 from logHandler import log
 
-from . import ackPatch, handover, vdConfig
+from . import ackPatch, gestures, handover, vdConfig
 from .deviceSlot import DeviceSlot
 from .virtualLayout import DeviceSpec, VirtualGeometry, deadColumnCount, sliceBandCells, stackDevices
 
@@ -71,8 +67,13 @@ OPEN_RETRY_DELAY = 0.3
 three attempts cost at most six tenths of a second per member that never appears."""
 
 
-class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver):
-	"""Presents several physical displays to NVDA as one."""
+class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObject.ScriptableObject):
+	"""Presents several physical displays to NVDA as one.
+
+	A `ScriptableObject` because NVDA offers `braille.handler.display` when it is looking for
+	a display's own scripts, and that is now this driver rather than the member that has
+	them. See `getScript`.
+	"""
 
 	name = "brlMultilineVirtual"
 	# Translators: the name of the virtual braille display, shown in NVDA's display list.
@@ -141,25 +142,34 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver):
 				"Choose them in NVDA menu, Preferences, Settings, Braille Multiline.",
 			)
 
-		# NVDA constructs this driver before terminating the one it is replacing, so a
-		# member the user is switching away from is still held open at this point. See
-		# `handover` for why that has to be dealt with before anything is opened.
-		released = handover.releaseConflictingDisplay(spec.driverName for spec in specs)
-		if released:
-			log.info(f"BrlMultiline: took {released} over from NVDA for the switch")
+		# NVDA constructs this driver before terminating the one it is replacing, so a member
+		# the user is switching away from is still held open at this point. It is taken over
+		# as it stands rather than closed and reopened; see `handover` for why reopening a
+		# display NVDA has just closed is a trap rather than a delay.
+		adopted = handover.adoptConflictingDisplay(spec.driverName for spec in specs)
+		if adopted:
+			log.info(f"BrlMultiline: took the running {adopted[0]} over from NVDA for the switch")
 
 		ackPatch.install()
 		handover.installSwitchPatch()
+		# A live view of the members' maps, so that a driver rewriting its own bindings —
+		# which the Focus does when its wiz wheel action is cycled — is followed rather than
+		# snapshotted.
+		self.gestureMap = gestures.MemberGestureMap(self)
 		try:
-			self._openMembers(specs)
+			self._openMembers(specs, adopted)
 		except Exception:
-			# Never leave half the members open behind a failed construction.
+			# Never leave half the members open behind a failed construction, and give back
+			# anything adopted so that NVDA can close it in the ordinary way.
 			self._closeMembers()
+			if adopted:
+				handover.releaseAdoption(adopted[1])
 			handover.removeSwitchPatch()
 			ackPatch.remove()
 			raise
+		gestures.install(self)
 
-	def _openMembers(self, specs: list[DeviceSpec]) -> None:
+	def _openMembers(self, specs: list[DeviceSpec], adopted=None) -> None:
 		"""Open what can be opened, lay it out, and report what the result is.
 
 		A member that will not open is dropped rather than fatal, so that two configured
@@ -168,11 +178,18 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver):
 		Everything opened is closed again if the layout cannot be built, because until the
 		slots exist there is nothing else holding these drivers, and a dropped driver keeps
 		its port.
+
+		:param specs: the members to open, in stacking order.
+		:param adopted: an optional (name, driver) pair taken over from NVDA, used in place
+			of opening that driver.
 		"""
 		opened: list[tuple[DeviceSpec, braille.display.driver.BrailleDisplayDriver]] = []
 		try:
 			for spec in specs:
-				driver = _openDriver(spec)
+				if adopted and spec.driverName == adopted[0]:
+					driver = adopted[1]
+				else:
+					driver = _openDriver(spec)
 				if driver is None:
 					log.warning(f"BrlMultiline: could not open {spec.driverName}, continuing without it")
 					continue
@@ -255,6 +272,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver):
 			# settings. Members are still open at this point, which is what makes it work.
 			super().terminate()
 		finally:
+			gestures.remove()
 			self._closeMembers(suppressDisplayClear)
 			handover.removeSwitchPatch()
 			ackPatch.remove()
@@ -263,6 +281,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver):
 		"""Terminate every member. Safe to call when none are open."""
 		for slot in self._slots:
 			slot.terminate(suppressDisplayClear)
+			_retireDriver(slot.driver)
 		self._slots = []
 
 	@property
@@ -273,6 +292,45 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver):
 		line up with a physical display and the dead columns can be masked.
 		"""
 		return tuple(self._slots)
+
+	def slotForDriverName(self, driverName: str) -> DeviceSlot | None:
+		"""Find the member a gesture came from.
+
+		A gesture's `source` is its driver's name, and a driver name identifies a member
+		uniquely because the configuration refuses to list one twice.
+
+		:param driverName: the name to look for.
+		:return: the member, or None if no member has that name.
+		"""
+		for slot in self._slots:
+			if slot.driverName == driverName:
+				return slot
+		return None
+
+	def getScript(self, gesture):
+		"""Hand a gesture to the member that raised it, for that member's own scripts.
+
+		NVDA offers `braille.handler.display` when looking for display specific scripts, and
+		that is this driver now. Without this, a Focus running as a member would lose every
+		command of its own.
+
+		:param gesture: the gesture being resolved.
+		:return: the bound script, or None.
+		"""
+		script = gestures.scriptForMember(self, gesture)
+		if script is not None:
+			return script
+		return super().getScript(gesture)
+
+	def _getModifierGestures(self, model=None):
+		"""Chain every member's modifier gestures.
+
+		Shadows the base class's classmethod deliberately: `BrailleDisplayGesture._get_script`
+		calls this on the instance, and only the instance knows what the members are.
+
+		:param model: the optional display model, passed through unchanged.
+		"""
+		return gestures.modifierGesturesForMembers(self, model)
 
 
 def _shapeOf(driver: braille.display.driver.BrailleDisplayDriver) -> tuple[int, int]:
@@ -287,6 +345,33 @@ def _shapeOf(driver: braille.display.driver.BrailleDisplayDriver) -> tuple[int, 
 	numRows = driver.numRows
 	numCols = driver.numCols if numRows > 1 else driver.numCells
 	return numRows, numCols
+
+
+_retiredDrivers: list[braille.display.driver.BrailleDisplayDriver] = []
+"""Every member this driver has closed, kept alive for the rest of the session.
+
+A deliberate, bounded leak, and it is working around a defect in NVDA rather than in this
+add-on. `hwIo.base.IoBase.close` closes the device handle without clearing `self._file`, and
+`IoBase.__del__` calls `close` again — so finalising a driver that was already terminated
+closes its handle a second time, by which point Windows may have given that handle value to
+something else entirely. A Phase 1 hardware run watched exactly that kill a freshly opened
+display nine milliseconds after it was opened.
+
+Holding a reference means the finaliser never runs while NVDA is up, so the second close
+never happens. What leaks is a handful of inert Python objects — a closed driver has had its
+receive callback cleared and its reads cancelled — one per member per display switch.
+
+Remove this once `hwIo` clears its handle fields on close. See the top of `handover`.
+"""
+
+
+def _retireDriver(driver: braille.display.driver.BrailleDisplayDriver) -> None:
+	"""Keep a closed driver alive, so that its finaliser cannot close a recycled handle.
+
+	:param driver: the driver that has just been terminated.
+	"""
+	if driver is not None and driver not in _retiredDrivers:
+		_retiredDrivers.append(driver)
 
 
 def _terminateQuietly(driver: braille.display.driver.BrailleDisplayDriver, partial: bool = False) -> None:
@@ -306,6 +391,9 @@ def _terminateQuietly(driver: braille.display.driver.BrailleDisplayDriver, parti
 			log.debugWarning(f"BrlMultiline: {name} raised while releasing a failed attempt", exc_info=True)
 		else:
 			log.error(f"BrlMultiline: error terminating {name}", exc_info=True)
+	finally:
+		# Whether or not it closed cleanly, it must not be finalised. See `_retiredDrivers`.
+		_retireDriver(driver)
 
 
 def _openDriver(spec: DeviceSpec) -> braille.display.driver.BrailleDisplayDriver | None:

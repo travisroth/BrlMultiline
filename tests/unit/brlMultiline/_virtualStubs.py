@@ -192,6 +192,96 @@ class MemberDriver(StubBrailleDisplayDriver):
 		super().terminate()
 
 
+class GlobalGestureMap:
+	"""NVDA's gesture map, reduced to the two lookups the virtual display delegates.
+
+	Entries are stored resolved rather than as module and class names, because nothing here
+	is testing NVDA's own import-by-name; what is being tested is that the right members'
+	maps are consulted, in order, and as they are now rather than as they were.
+	"""
+
+	def __init__(self, entries=None):
+		self._map: dict[str, list[tuple[type, str]]] = {}
+
+	def addResolved(self, identifier: str, cls: type, scriptName: str):
+		self._map.setdefault(identifier, []).append((cls, scriptName))
+
+	def getScriptsForGesture(self, gesture: str):
+		yield from self._map.get(gesture, [])
+
+	def getScriptsForAllGestures(self):
+		for identifier, scripts in self._map.items():
+			for cls, scriptName in scripts:
+				yield cls, identifier, scriptName
+
+
+class Decider:
+	"""An extension point that collects handlers and asks each in turn."""
+
+	def __init__(self):
+		self.handlers = []
+
+	def register(self, handler):
+		self.handlers.append(handler)
+
+	def unregister(self, handler):
+		if handler in self.handlers:
+			self.handlers.remove(handler)
+
+	def decide(self, **kwargs) -> bool:
+		return all(handler(**kwargs) for handler in list(self.handlers))
+
+
+decide_executeGesture = Decider()
+"""The extension point `gestures` registers its cell index rebasing on."""
+
+
+class Getter:
+	"""NVDA's `baseObject.Getter`: a descriptor defining only `__get__`.
+
+	Reproduced exactly rather than approximated with `property`, because the difference is
+	the whole point. `property` is a *data* descriptor and takes precedence over the
+	instance dictionary, so assigning over it raises. `Getter` is a *non data* descriptor,
+	so an instance attribute shadows it — which is what lets a gesture's identifier be
+	frozen before its cell indexes are rebased. A stub using `property` would fail the very
+	test it exists for, and one using a plain attribute would pass it vacuously.
+	"""
+
+	def __init__(self, fget):
+		self.fget = fget
+
+	def __get__(self, instance, owner):
+		if instance is None:
+			return self
+		return self.fget(instance)
+
+
+class StubBrailleDisplayGesture:
+	"""A braille display gesture, with the identifier behaviour that matters here."""
+
+	model = None
+
+	def __init__(self, source: str, gestureId: str = "routing", cellIndexes=None):
+		self.source = source
+		self.id = gestureId
+		self.cellIndexes = list(cellIndexes) if cellIndexes else None
+
+	def _computeCellIndexesStr(self):
+		if "+" not in self.id and self.cellIndexes:
+			return "+".join(f"{index + 1}" for index in self.cellIndexes)
+		return None
+
+	def _computeIdentifiers(self):
+		ids = []
+		if self._cellIndexesStr:
+			ids.append(f"br({self.source}):{self.id}{self._cellIndexesStr}")
+		ids.append(f"br({self.source}):{self.id}")
+		return ids
+
+	_cellIndexesStr = Getter(_computeCellIndexesStr)
+	identifiers = Getter(_computeIdentifiers)
+
+
 driverRegistry: dict[str, type] = {}
 """What `_getDisplayDriver` resolves. Tests fill it through L{makeMemberDriver}."""
 
@@ -240,6 +330,7 @@ def resetStubs() -> None:
 	log.messages.clear()
 	bgThread.queued.clear()
 	driverRegistry.clear()
+	decide_executeGesture.handlers.clear()
 	braille.handler = None
 	config.conf[CONFIG_SECTION]["devices"] = []
 
@@ -261,6 +352,11 @@ def installVirtualStubs() -> None:
 	installStubs()
 	_module("hwIo", bgThread=bgThread)
 	_module("extensionPoints", callWithSupportedKwargs=callWithSupportedKwargs)
+	_module(
+		"inputCore",
+		GlobalGestureMap=GlobalGestureMap,
+		decide_executeGesture=decide_executeGesture,
+	)
 
 	import braille
 	import config
@@ -268,6 +364,8 @@ def installVirtualStubs() -> None:
 	driverModule = _module("braille.display.driver", BrailleDisplayDriver=StubBrailleDisplayDriver)
 	braille.display.driver = driverModule
 	braille.display._getDisplayDriver = getDisplayDriver
+	gestureModule = _module("braille.display.gesture", BrailleDisplayGesture=StubBrailleDisplayGesture)
+	braille.display.gesture = gestureModule
 	config.conf[CONFIG_SECTION] = {"devices": []}
 
 	# A package object with a path but no code, so that the driver's relative imports

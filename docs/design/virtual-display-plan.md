@@ -335,8 +335,8 @@ global plugin:
 - `brlMultilineVirtual/vdConfig.py` — the device list.
 - `brlMultilineVirtual/ackPatch.py` — keeping member acknowledgements out of the handler.
 - `brlMultilineVirtual/handover.py` — taking a display over from NVDA, and giving it back.
-- `brlMultilineVirtual/gestures.py` — the decider handler, merged map, script delegation.
-  Phase 2.
+- `brlMultilineVirtual/gestures.py` — the decider handler, the live gesture map, script and
+  modifier delegation.
 
 **Why not under `globalPlugins/brlMultiline/`**, as this section originally proposed. Add-on
 package paths are all registered together at `addonHandler.initialize`, so a driver *can*
@@ -529,6 +529,46 @@ the unpatched code already does a few lines later. It is installed on constructi
 removed on termination — and because termination happens *inside* the patched function, the
 replacement captures the original before doing anything, so it survives removing itself.
 
+### The `hwIo` finaliser bug, found on hardware
+
+The first Phase 1 hardware run failed, and the cause turned out to be upstream rather than
+here. It is written up because anything that closes and reopens a braille display will hit
+it, and because the workarounds in this driver make no sense without it.
+
+`hwIo.base.IoBase.close` closes the device handle but never clears `self._file`, and
+`IoBase.__del__` calls `close` again. `Bulk.close` and `Hid.close` have the same shape. So
+finalising a driver that was already terminated closes its handle a **second** time — and by
+then Windows may have handed that handle value to something else.
+
+The log shows it precisely. The Focus was released and reopened successfully, identifying
+itself as it should; `handler.display = newDisplay` then dropped the last reference to the
+old driver; and the next write failed with "the handle is invalid" nine milliseconds later.
+With two members it was the Monarch that died instead, because being opened first after the
+release it received the recycled handle value.
+
+Two things are worth stating plainly:
+
+1. **NVDA hits this on its own.** The same log has `setDisplayByName("freedomScientific")`
+   failing while the add-on was not involved at all, because `_switchDisplay` terminates and
+   reconstructs the same instance when the driver has not changed. This is a defect to report
+   upstream, not something to fix here.
+2. **This driver provokes it constantly**, because closing one display and opening another is
+   its ordinary path rather than a rare event.
+
+Two changes follow, and both are better than what they replace:
+
+- **Members are adopted, not reopened.** When the display NVDA is switching away from is to
+  be one of our members, the live instance becomes the member as it stands. Nothing is
+  closed, so nothing can be double closed; it is also faster, and it sidesteps the Phase 0
+  finding that these devices are slow to reopen. Its `terminate` is replaced by a one-shot
+  no-op so that NVDA's post-switch close is swallowed and the real method is then back for
+  whoever owns it now.
+- **Closed members are kept alive.** `_retiredDrivers` holds every member this driver has
+  terminated, so the finaliser never runs while NVDA is up. A deliberate, bounded leak of
+  inert objects — a closed driver has had its receive callback cleared and its reads
+  cancelled — one per member per display switch. It should be removed once `hwIo` clears its
+  handle fields on close.
+
 ### Three other things review found
 
 - **The composite now reports `isThreadSafe = False`.** Reporting True had
@@ -596,9 +636,42 @@ Then choose "BrlMultiline: several displays as one" in NVDA's braille display li
 top first, so that example puts the Monarch above the Focus, giving 9 rows of 80 with the
 Monarch's 48 dead columns per row reported as a warning in the log.
 
-**Phase 2, gestures.** Decider translation, merged map, script delegation, modifier
-gestures. Success looks like: routing on the secondary routes to the right character, and
-the primary's own display specific commands still work.
+**Phase 2, gestures — CODE COMPLETE, UNVERIFIED ON HARDWARE.** Decider translation, gesture
+map, script delegation, modifier gestures. Success looks like: routing on the secondary
+routes to the right character, and the primary's own display specific commands still work.
+
+All of it lives in `gestures.py`. Three departures from this plan as written are worth
+recording:
+
+- **The gesture map is a live view, not a merge.** `freedomScientific` rewrites its own map
+  whenever the user cycles what the wiz wheels do — `gestureMap.add(..., replace=True)` in
+  `script_toggleLeftWizWheelAction` — so a copy taken when the display opened would be wrong
+  the first time that command was used. `MemberGestureMap` subclasses
+  `inputCore.GlobalGestureMap` and overrides only `getScriptsForGesture` and
+  `getScriptsForAllGestures`, chaining the members' own maps at lookup time. Subclassing
+  rather than duck typing keeps any `isinstance` check honest; identifiers are namespaced by
+  driver name, so chaining is the whole of the merge.
+- **The identifier is frozen, not recomputed.** `_get__cellIndexesStr` builds `routing103`
+  and the like out of `cellIndexes`, so rebasing without freezing would rewrite the
+  identifier the user's own gesture map is keyed on — a routing key bound by number would
+  stop matching, and would then start matching a *different* cell. Reading it before the
+  rebase and assigning it back works because `baseObject.Getter` defines only `__get__`, so
+  an instance attribute shadows it. No cache invalidation is needed afterwards: if
+  `identifiers` was already built, it was built from the string just frozen.
+- **No `isinstance(obj, cls)` gap after all.** The plan worried that a member's gesture map
+  entry naming the member's own driver class would fail to resolve, because
+  `scriptHandler._getObjScript` tests `isinstance(obj, cls)` against the virtual driver.
+  Checked against every driver in tree: none name a driver class as a script owner; they all
+  point at `globalCommands.GlobalCommands`. The concern was theoretical and no work was done
+  for it.
+
+The stub `baseObject.Getter` in the tests is reproduced exactly rather than approximated with
+`property`, because that difference is the whole point: `property` is a data descriptor and
+takes precedence over the instance dictionary, so the identifier freeze would raise against
+it. A stub using `property` would fail the test it exists for, and a plain attribute would
+pass it vacuously.
+
+484 tests, one expected failure.
 
 **Phase 3, add-on integration.** The device map becomes a base view with one panel per band
 and blank masking of dead columns. Settings panel for choosing members and their order.

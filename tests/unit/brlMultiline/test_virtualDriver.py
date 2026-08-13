@@ -20,7 +20,10 @@ import unittest
 import braille
 
 from ._virtualStubs import (
+	GlobalGestureMap,
+	StubBrailleDisplayGesture,
 	bgThread,
+	decide_executeGesture,
 	driverRegistry,
 	installVirtualStubs,
 	loadDriver,
@@ -57,6 +60,7 @@ class VirtualDriverTestCase(unittest.TestCase):
 		driverModule.OPEN_RETRY_DELAY = self._realDelay
 		handover.removeSwitchPatch()
 		ackPatch.remove()
+		driverModule._retiredDrivers.clear()
 		braille.handler = None
 
 	def configure(self, *driverNames):
@@ -313,7 +317,8 @@ class TestTerminate(VirtualDriverTestCase):
 class TestHandover(VirtualDriverTestCase):
 	"""NVDA constructs the incoming driver before terminating the outgoing one."""
 
-	def test_switchingFromAMemberReleasesItFirst(self):
+	def test_switchingFromAMemberAdoptsItRatherThanReopeningIt(self):
+		"""Reopening a display NVDA has just closed is what breaks on real hardware."""
 		self.handler.setDisplay(self.focus)
 		focusDevice = self.focus.instances[0]
 		self.configure(MONARCH, FOCUS)
@@ -322,17 +327,46 @@ class TestHandover(VirtualDriverTestCase):
 
 		display = self.handler.display
 		self.assertEqual([slot.driverName for slot in display.slots], [MONARCH, FOCUS])
-		# The one NVDA owned was closed, and a fresh one opened for the virtual display.
-		self.assertEqual(focusDevice.terminated, 1)
-		self.assertEqual(len(self.focus.instances), 2)
+		# The very instance NVDA had, still open, now a member.
+		self.assertIs(display.slots[1].driver, focusDevice)
+		self.assertEqual(len(self.focus.instances), 1)
+		self.assertEqual(focusDevice.terminated, 0)
 
-	def test_theReleasedDisplayIsNotClosedTwice(self):
-		"""NVDA closes the old display itself once the switch completes."""
+	def test_theAdoptedDisplaySurvivesNVDAsTerminate(self):
+		"""NVDA terminates the outgoing display once, after the switch completes."""
 		self.handler.setDisplay(self.focus)
 		focusDevice = self.focus.instances[0]
 		self.configure(FOCUS)
 		self.handler.setDisplay(VirtualDisplay)
+		self.assertEqual(focusDevice.terminated, 0)
+
+	def test_anAdoptedDisplayIsStillClosableAfterwards(self):
+		"""The one-shot must uncover the real method again, or the device never closes."""
+		self.handler.setDisplay(self.focus)
+		focusDevice = self.focus.instances[0]
+		self.configure(FOCUS)
+		self.handler.setDisplay(VirtualDisplay)
+		self.handler.display.terminate()
 		self.assertEqual(focusDevice.terminated, 1)
+
+	def test_adoptionIsHandedBackWhenConstructionFails(self):
+		"""Otherwise the one-shot swallows NVDA's terminate and the device is orphaned."""
+		self.handler.setDisplay(self.focus)
+		focusDevice = self.focus.instances[0]
+		import config
+
+		config.conf["BrlMultilineVirtualDisplay"]["devices"] = [FOCUS, FOCUS]
+		with self.assertRaises(RuntimeError):
+			self.handler.setDisplay(VirtualDisplay)
+		focusDevice.terminate()
+		self.assertEqual(focusDevice.terminated, 1)
+
+	def test_aClosedMemberIsKeptAliveRatherThanFinalised(self):
+		"""NVDA's hwIo closes an already closed handle when the driver is finalised."""
+		display = self.build(MONARCH)
+		device = self.monarch.instances[0]
+		display.terminate()
+		self.assertIn(device, driverModule._retiredDrivers)
 
 	def test_aDisplayThatIsNotAMemberIsLeftToNVDA(self):
 		other = makeMemberDriver("someOtherDisplay")
@@ -495,6 +529,178 @@ class TestVdConfig(VirtualDriverTestCase):
 	def test_settingRefusesWhatLoadingWouldRefuse(self):
 		with self.assertRaises(ValueError):
 			vdConfig.setDevices([DeviceSpec(FOCUS), DeviceSpec(FOCUS, "COM3")])
+
+
+class GestureTestCase(VirtualDriverTestCase):
+	def setUp(self):
+		super().setUp()
+		self.display = self.build(MONARCH, FOCUS)
+		self.monarchBand = self.display.slots[0].band
+		self.focusBand = self.display.slots[1].band
+
+	def press(self, source, cellIndexes=None, gestureId="routing"):
+		"""Send a gesture the way a member driver does, through the extension point."""
+		gesture = StubBrailleDisplayGesture(source, gestureId, cellIndexes)
+		self.assertTrue(decide_executeGesture.decide(gesture=gesture))
+		return gesture
+
+
+class TestCellIndexTranslation(GestureTestCase):
+	"""Checked against the cell indexes a real Monarch reported during the Phase 0 spike."""
+
+	def test_aMonarchRoutingKeyIsRebasedOntoTheComposite(self):
+		# 102 is row 3, column 6 of an 8 by 32 display, so row 3 column 6 of a 9 by 80 one.
+		gesture = self.press(MONARCH, [102])
+		self.assertEqual(gesture.cellIndexes, [3 * 80 + 6])
+
+	def test_aFocusRoutingKeyIsOffsetByItsBand(self):
+		gesture = self.press(FOCUS, [5])
+		self.assertEqual(gesture.cellIndexes, [8 * 80 + 5])
+
+	def test_theIdentifierKeepsThePhysicalCellNumber(self):
+		"""A routing key bound by number must not start matching a different cell."""
+		gesture = self.press(MONARCH, [102])
+		self.assertEqual(gesture._cellIndexesStr, "103")
+		self.assertIn(f"br({MONARCH}):routing103", gesture.identifiers)
+
+	def test_multipleCellsAreRebasedIndividually(self):
+		"""`selectRange` takes the lowest and highest, so both ends have to move together."""
+		gesture = self.press(MONARCH, [2, 39])
+		self.assertEqual(gesture.cellIndexes, [2, 1 * 80 + 7])
+
+	def test_aGestureWithNoCellsIsUntouched(self):
+		gesture = self.press(MONARCH, None, gestureId="panRight")
+		self.assertIsNone(gesture.cellIndexes)
+
+	def test_aGestureFromSomeOtherDisplayIsUntouched(self):
+		gesture = self.press("someOtherDisplay", [5])
+		self.assertEqual(gesture.cellIndexes, [5])
+
+	def test_anImpossibleCellIsLeftAlone(self):
+		"""Not something to route with, and not something to guess about."""
+		gesture = self.press(MONARCH, [999])
+		self.assertEqual(gesture.cellIndexes, [999])
+
+	def test_translationStopsWhenTheDisplayIsTerminated(self):
+		self.display.terminate()
+		gesture = StubBrailleDisplayGesture(MONARCH, "routing", [102])
+		decide_executeGesture.decide(gesture=gesture)
+		self.assertEqual(gesture.cellIndexes, [102])
+
+	def test_theGestureIsNeverCancelled(self):
+		gesture = StubBrailleDisplayGesture(MONARCH, "routing", [999])
+		self.assertTrue(decide_executeGesture.decide(gesture=gesture))
+
+
+class TestGestureMap(GestureTestCase):
+	def test_bothMembersAreConsulted(self):
+		self.monarch.gestureMap = GlobalGestureMap()
+		self.focus.gestureMap = GlobalGestureMap()
+		self.monarch.gestureMap.addResolved(f"br({MONARCH}):panRight", str, "scrollForward")
+		self.focus.gestureMap.addResolved(f"br({FOCUS}):topRouting1", int, "scrollBack")
+
+		gestureMap = self.display.gestureMap
+		self.assertEqual(
+			list(gestureMap.getScriptsForGesture(f"br({MONARCH}):panRight")),
+			[(str, "scrollForward")],
+		)
+		self.assertEqual(
+			list(gestureMap.getScriptsForGesture(f"br({FOCUS}):topRouting1")),
+			[(int, "scrollBack")],
+		)
+
+	def test_allGesturesSpansTheMembers(self):
+		self.monarch.gestureMap = GlobalGestureMap()
+		self.focus.gestureMap = GlobalGestureMap()
+		self.monarch.gestureMap.addResolved(f"br({MONARCH}):panRight", str, "scrollForward")
+		self.focus.gestureMap.addResolved(f"br({FOCUS}):topRouting1", int, "scrollBack")
+		identifiers = {gesture for _cls, gesture, _name in self.display.gestureMap.getScriptsForAllGestures()}
+		self.assertEqual(identifiers, {f"br({MONARCH}):panRight", f"br({FOCUS}):topRouting1"})
+
+	def test_itFollowsAMemberRewritingItsOwnMap(self):
+		"""The Focus does exactly this when its wiz wheel action is cycled."""
+		self.focus.gestureMap = GlobalGestureMap()
+		gestureMap = self.display.gestureMap
+		self.assertEqual(list(gestureMap.getScriptsForGesture(f"br({FOCUS}):leftWizWheelUp")), [])
+		self.focus.gestureMap.addResolved(f"br({FOCUS}):leftWizWheelUp", str, "moveByLine")
+		self.assertEqual(
+			list(gestureMap.getScriptsForGesture(f"br({FOCUS}):leftWizWheelUp")),
+			[(str, "moveByLine")],
+		)
+
+	def test_aMemberWithoutAMapIsSkipped(self):
+		self.monarch.gestureMap = None
+		self.focus.gestureMap = GlobalGestureMap()
+		self.focus.gestureMap.addResolved(f"br({FOCUS}):topRouting1", int, "scrollBack")
+		self.assertEqual(
+			list(self.display.gestureMap.getScriptsForGesture(f"br({FOCUS}):topRouting1")),
+			[(int, "scrollBack")],
+		)
+
+
+class TestScriptDelegation(GestureTestCase):
+	def test_aMembersOwnScriptIsFound(self):
+		import baseObject
+
+		found = []
+
+		class ScriptableMember(baseObject.ScriptableObject):
+			def getScript(self, gesture):
+				found.append(gesture)
+				return "the member's script"
+
+		self.display.slots[1].driver = ScriptableMember()
+		self.display.slots[1].driver.name = FOCUS
+		gesture = StubBrailleDisplayGesture(FOCUS, "leftBumperBarUp")
+		self.assertEqual(self.display.getScript(gesture), "the member's script")
+		self.assertEqual(found, [gesture])
+
+	def test_aMemberThatIsNotScriptableIsSkipped(self):
+		gesture = StubBrailleDisplayGesture(MONARCH, "panRight")
+		self.assertIsNone(self.display.getScript(gesture))
+
+	def test_aGestureFromSomeOtherDisplayIsNotDelegated(self):
+		gesture = StubBrailleDisplayGesture("someOtherDisplay", "someKey")
+		self.assertIsNone(self.display.getScript(gesture))
+
+
+class TestModifierGestures(GestureTestCase):
+	def test_everyMemberIsChained(self):
+		self.monarch._getModifierGestures = classmethod(
+			lambda cls, model=None: iter([({"dpadUp"}, {"control"})]),
+		)
+		self.focus._getModifierGestures = classmethod(
+			lambda cls, model=None: iter([({"leftShiftKey"}, {"shift"})]),
+		)
+		self.assertEqual(
+			list(self.display._getModifierGestures()),
+			[({"dpadUp"}, {"control"}), ({"leftShiftKey"}, {"shift"})],
+		)
+
+	def test_aMemberThatRaisesDoesNotStopTheOthers(self):
+		def explode(cls, model=None):
+			raise RuntimeError("modifier gestures are unwell")
+
+		self.monarch._getModifierGestures = classmethod(explode)
+		self.focus._getModifierGestures = classmethod(
+			lambda cls, model=None: iter([({"leftShiftKey"}, {"shift"})]),
+		)
+		self.assertEqual(list(self.display._getModifierGestures()), [({"leftShiftKey"}, {"shift"})])
+
+
+class TestGestureLifecycle(VirtualDriverTestCase):
+	def test_theDeciderIsRegisteredWhileTheDisplayIsLive(self):
+		display = self.build(MONARCH)
+		self.assertEqual(len(decide_executeGesture.handlers), 1)
+		display.terminate()
+		self.assertEqual(decide_executeGesture.handlers, [])
+
+	def test_theDeciderIsNotLeftBehindByAFailedConstruction(self):
+		self.monarch.failedOpens = -1
+		self.configure(MONARCH)
+		with self.assertRaises(RuntimeError):
+			VirtualDisplay()
+		self.assertEqual(decide_executeGesture.handlers, [])
 
 
 if __name__ == "__main__":
