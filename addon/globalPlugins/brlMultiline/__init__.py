@@ -56,15 +56,19 @@ def showMonitorDialog(plugin: "GlobalPlugin") -> None:
 		ui.message(_("BrlMultiline is not active"))
 		return
 	mainFrame = gui.mainFrame
-	dialog = MonitorObjectDialog(mainFrame, plugin)
 	if mainFrame is not None and hasattr(mainFrame, "prePopup"):
 		mainFrame.prePopup()
+	dialog = None
 	try:
-		dialog.ShowModal()
+		dialog = MonitorObjectDialog(mainFrame, plugin)
+		try:
+			dialog.ShowModal()
+		finally:
+			if dialog is not None:
+				dialog.Destroy()
 	finally:
 		if mainFrame is not None and hasattr(mainFrame, "postPopup"):
 			mainFrame.postPopup()
-		dialog.Destroy()
 
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):

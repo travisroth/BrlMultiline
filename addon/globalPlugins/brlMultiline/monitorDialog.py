@@ -22,6 +22,7 @@ class MonitorObjectDialog(wx.Dialog):
 		self.plugin = plugin
 		self._buildControls()
 		self.refreshControls()
+		self.Bind(wx.EVT_CLOSE, self.onClose)
 		self.segmentCombo.SetFocus()
 		self.CentreOnParent()
 
@@ -40,7 +41,7 @@ class MonitorObjectDialog(wx.Dialog):
 
 		self.startButton = wx.Button(
 			self,
-			wx.ID_OK,
+			wx.ID_ANY,
 			# Translators: button label to pin the navigator object to the chosen segment.
 			label=_("&Start monitoring"),
 		)
@@ -131,11 +132,7 @@ class MonitorObjectDialog(wx.Dialog):
 		number = self._selectedSegmentNumber()
 		if number is None:
 			return
-		before = self.plugin.monitoredKeys
 		self.plugin.startMonitoring(number)
-		if self.plugin.monitoredKeys != before:
-			self.EndModal(wx.ID_OK)
-			return
 		self.refreshControls()
 
 	def onStopMonitoring(self, event) -> None:
