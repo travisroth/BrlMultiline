@@ -30,6 +30,18 @@ Not a colon and not a comma: configobj splits list items on commas, and a port m
 device path full of colons and backslashes.
 """
 
+VIRTUAL_DRIVER_NAME = "brlMultilineVirtual"
+"""This driver's own name, which is the one name a member may not have.
+
+A member list naming this driver would have it construct itself, reading the same list and
+constructing itself again. Each level also retries every member it cannot open, so the
+recursion would not fail quickly and loudly; it would hang for a long time and then fail
+confusingly. Refused where the list is read instead.
+
+Duplicated from the driver class rather than imported from it, because this module stays
+free of NVDA so that it can be unit tested, and the driver class is not.
+"""
+
 DEFAULT_PORT = "auto"
 """The port used when an entry names only a driver.
 
@@ -118,12 +130,15 @@ def parseDeviceSpecs(entries: Iterable[str]) -> list[DeviceSpec]:
 	A configuration that cannot work should fail where it is written, not later and
 	mysteriously.
 
+	The virtual driver itself is refused as a member, for the reason given at
+	`VIRTUAL_DRIVER_NAME`.
+
 	Blank entries are skipped, since an empty string is what an empty configured list looks
 	like from some editors.
 
 	:param entries: the stored entries.
 	:return: the specifications, in stacking order.
-	:raise ValueError: if an entry is malformed, or two entries name one driver.
+	:raise ValueError: if an entry is malformed, names this driver, or names one driver twice.
 	"""
 	specs: list[DeviceSpec] = []
 	seen: set[str] = set()
@@ -131,6 +146,8 @@ def parseDeviceSpecs(entries: Iterable[str]) -> list[DeviceSpec]:
 		if not entry.strip():
 			continue
 		spec = parseDeviceSpec(entry)
+		if spec.driverName == VIRTUAL_DRIVER_NAME:
+			raise ValueError(f"{VIRTUAL_DRIVER_NAME!r} cannot be a display of its own")
 		if spec.driverName in seen:
 			raise ValueError(
 				f"{spec.driverName!r} is listed more than once. "

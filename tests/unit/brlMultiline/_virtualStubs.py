@@ -1,15 +1,20 @@
 # Copyright (C) 2026 Travis Roth
 # This file is covered by the GNU General Public License version 2.
 
-"""Enough of NVDA to import the virtual display driver's lower layers.
+"""Enough of NVDA to import and drive the virtual display driver.
 
 `virtualLayout` imports nothing from NVDA at all. `deviceSlot` imports two things: the log,
-and the background I/O thread it queues writes onto. That is the whole reason the write
-scheduling was kept in a module of its own — it is the part most likely to go quietly wrong,
-and it can be tested for the price of two stand-ins.
+and the background I/O thread it queues writes onto. The driver class itself needs rather
+more — a base class, a driver registry, a handler to be switched — but all of it is shape
+rather than behaviour, and modelling it is what lets the orchestration be tested: which
+members get opened, what happens to the ones that do not, and who is holding a display when.
 
-The driver class itself is not covered here. It opens real hardware and terminates it, which
-is not something to model; it is tested on displays.
+What is *not* modelled is a real display's protocol. Whether a Focus answers a query packet
+in time is not something a stub can tell you, and that is what the hardware tests are for.
+
+This builds on `_stubs` rather than beside it: it calls `installStubs` first, so that
+whichever test module is imported first, there is one `config`, one `braille` and one log
+across the whole suite.
 
 Call L{installVirtualStubs} before importing anything under `brlMultilineVirtual`. It is
 idempotent, so every test module may call it.
@@ -19,7 +24,7 @@ import os
 import sys
 import types
 
-from ._stubs import log
+from ._stubs import callWithSupportedKwargs, installStubs, log
 
 DRIVER_DIR = os.path.abspath(
 	os.path.join(
@@ -34,6 +39,9 @@ DRIVER_DIR = os.path.abspath(
 )
 
 PACKAGE = "brlMultilineVirtual"
+
+CONFIG_SECTION = "BrlMultilineVirtualDisplay"
+"""The section `vdConfig` reads. Named here too, so the stub can create it before it is read."""
 
 
 class FakeIoThread:
@@ -84,10 +92,135 @@ class FakeDriver:
 		self.terminated = True
 
 
+class StubBrailleDisplayDriver:
+	"""The base class every braille display driver inherits, reduced to what is depended on.
+
+	`terminate` reproduces NVDA's own, including that it blanks the display through
+	`self.display` unless `_suppressDisplayClear` is set, and that it consumes that flag.
+	The virtual driver delegates to this and relies on both.
+	"""
+
+	name = ""
+	description = ""
+	isThreadSafe = False
+	receivesAckPackets = False
+	timeout = 0.2
+	numRows = 1
+	numCols = 0
+	gestureMap = None
+	_awaitingAck = False
+	_suppressDisplayClear = False
+
+	def __init__(self, port=None):
+		pass
+
+	@property
+	def numCells(self):
+		return self.numRows * self.numCols
+
+	def initSettings(self):
+		pass
+
+	def display(self, cells):
+		pass
+
+	def _handleAck(self):
+		if not self.receivesAckPackets:
+			raise NotImplementedError("This display driver does not support ACK packet handling")
+		self.handlerAcksReceived = getattr(self, "handlerAcksReceived", 0) + 1
+		self._awaitingAck = False
+
+	def terminate(self):
+		if getattr(self, "_suppressDisplayClear", False):
+			self._suppressDisplayClear = False
+			return
+		self.display([0] * self.numCells)
+
+
+class MemberDriver(StubBrailleDisplayDriver):
+	"""A member of a virtual display: openable, writable, closable, and countable.
+
+	Class attributes drive its behaviour so that `makeMemberDriver` can produce a variant
+	per scenario, which is what `_openDriver` needs — it constructs from a class, as NVDA
+	does, rather than being handed an instance.
+	"""
+
+	failedOpens = 0
+	"""How many construction attempts to fail before succeeding. -1 never succeeds."""
+
+	failOnTerminate = False
+	instances: list["MemberDriver"] = []
+	openAttempts = 0
+
+	def __init__(self, port=None):
+		super().__init__(port)
+		type(self).openAttempts += 1
+		failures = type(self).failedOpens
+		if failures < 0 or type(self).openAttempts <= failures:
+			raise RuntimeError(f"No {type(self).name} display found")
+		self.port = port
+		self.written: list[list[int]] = []
+		self.terminated = 0
+		type(self).instances.append(self)
+
+	def display(self, cells):
+		self.written.append(list(cells))
+
+	def terminate(self):
+		self.terminated += 1
+		if type(self).failOnTerminate:
+			raise OSError("the display has gone away")
+		super().terminate()
+
+
+driverRegistry: dict[str, type] = {}
+"""What `_getDisplayDriver` resolves. Tests fill it through L{makeMemberDriver}."""
+
+
+def makeMemberDriver(name: str, numRows: int = 1, numCols: int = 40, **attributes) -> type:
+	"""Register a member driver class, and return it.
+
+	:param name: the driver name, as `_getDisplayDriver` will be asked for.
+	:param numRows: rows the display reports.
+	:param numCols: columns the display reports.
+	:param attributes: any other class attribute, such as `failedOpens` or `isThreadSafe`.
+	:return: the class.
+	"""
+	namespace = {
+		"name": name,
+		"description": f"{name} display",
+		"numRows": numRows,
+		"numCols": numCols,
+		"isThreadSafe": True,
+		"instances": [],
+		"openAttempts": 0,
+		"failedOpens": 0,
+		"failOnTerminate": False,
+	}
+	namespace.update(attributes)
+	driverClass = type(f"MemberDriver_{name}", (MemberDriver,), namespace)
+	driverRegistry[name] = driverClass
+	return driverClass
+
+
+def getDisplayDriver(name: str) -> type:
+	"""Stand in for `braille.display._getDisplayDriver`."""
+	try:
+		return driverRegistry[name]
+	except KeyError:
+		raise ImportError(f"No module named 'brailleDisplayDrivers.{name}'") from None
+
+
 def resetStubs() -> None:
-	"""Empty the recorded log and the queued writes. Call from `setUp`."""
+	"""Empty everything a test could have dirtied. Call from `setUp`."""
+	import braille
+	import config
+
 	log.messages.clear()
 	bgThread.queued.clear()
+	driverRegistry.clear()
+	braille.handler = None
+	config.conf[CONFIG_SECTION]["devices"] = []
 
 
 def _module(name, **attributes):
@@ -102,14 +235,50 @@ def installVirtualStubs() -> None:
 	"""Register the stand-in modules and the package stand-in. Safe to call more than once."""
 	if PACKAGE in sys.modules:
 		return
-	if "logHandler" not in sys.modules:
-		# The same log object `_stubs.installStubs` registers, so that whichever of the two
-		# runs first, every test in the suite asserts against one recorder.
-		_module("logHandler", log=log)
+	# One `config`, one `braille`, one log across the suite, whichever module is imported
+	# first. `installStubs` is idempotent and returns early once it has run.
+	installStubs()
 	_module("hwIo", bgThread=bgThread)
+	_module("extensionPoints", callWithSupportedKwargs=callWithSupportedKwargs)
+
+	import braille
+	import config
+
+	driverModule = _module("braille.display.driver", BrailleDisplayDriver=StubBrailleDisplayDriver)
+	braille.display.driver = driverModule
+	braille.display._getDisplayDriver = getDisplayDriver
+	config.conf[CONFIG_SECTION] = {"devices": []}
+
 	# A package object with a path but no code, so that the driver's relative imports
-	# resolve without running its `__init__.py`, which reaches for a great deal more of NVDA
-	# and would try to open hardware.
+	# resolve without running its `__init__.py`. Loading that deliberately is what
+	# L{loadDriver} is for.
 	package = types.ModuleType(PACKAGE)
 	package.__path__ = [DRIVER_DIR]
 	sys.modules[PACKAGE] = package
+
+
+def loadDriver():
+	"""Import the driver's `__init__.py` as a module, and return it.
+
+	The same manoeuvre `_stubs.loadPlugin` performs, and for the same reason: the package
+	stand-in has a path but no code, so that importing `brlMultilineVirtual.virtualLayout`
+	does not construct hardware. Testing the driver class means loading that code on purpose.
+
+	:return: the loaded module, whose `BrailleDisplayDriver` is the virtual driver.
+	"""
+	import importlib.util
+
+	name = f"{PACKAGE}.driver"
+	if name in sys.modules:
+		return sys.modules[name]
+	installVirtualStubs()
+	spec = importlib.util.spec_from_file_location(name, os.path.join(DRIVER_DIR, "__init__.py"))
+	assert spec is not None and spec.loader is not None
+	# The file is named __init__.py, so importlib would otherwise treat it as a package of
+	# its own and its relative imports would resolve to a second copy of every module.
+	spec.submodule_search_locations = None
+	module = importlib.util.module_from_spec(spec)
+	module.__package__ = PACKAGE
+	sys.modules[name] = module
+	spec.loader.exec_module(module)
+	return module

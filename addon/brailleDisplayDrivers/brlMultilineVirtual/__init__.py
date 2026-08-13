@@ -45,7 +45,7 @@ import extensionPoints
 from braille.display import _getDisplayDriver
 from logHandler import log
 
-from . import ackPatch, vdConfig
+from . import ackPatch, handover, vdConfig
 from .deviceSlot import DeviceSlot
 from .virtualLayout import DeviceSpec, VirtualGeometry, deadColumnCount, sliceBandCells, stackDevices
 
@@ -78,7 +78,22 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver):
 	# Translators: the name of the virtual braille display, shown in NVDA's display list.
 	description = _("BrlMultiline: several displays as one")
 
-	isThreadSafe = True
+	isThreadSafe = False
+	"""False so that members decide their own threading, rather than having ours forced on them.
+
+	Reporting True would have `BrailleHandler._writeCells` queue our `display` onto the
+	background I/O thread, and a member that is not thread safe would then be called from
+	it — the one thing `isThreadSafe = False` exists to promise will not happen. Reporting
+	False puts the fan out on the main thread, where the only work is slicing an array and
+	comparing it, and leaves each member free to be driven the way it asked for: a thread
+	safe one still gets its actual I/O queued onto the background thread by its slot, and an
+	unsafe one is called on the main thread as it requires.
+
+	Both target displays happen to be thread safe, so this does not change their behaviour.
+	It matters because a member list is a thing the user composes, and it should not be
+	possible to compose one that is unsafe.
+	"""
+
 	receivesAckPackets = False
 	"""False deliberately, and it is what makes members safe.
 
@@ -126,12 +141,21 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver):
 				"Choose them in NVDA menu, Preferences, Settings, Braille Multiline.",
 			)
 
+		# NVDA constructs this driver before terminating the one it is replacing, so a
+		# member the user is switching away from is still held open at this point. See
+		# `handover` for why that has to be dealt with before anything is opened.
+		released = handover.releaseConflictingDisplay(spec.driverName for spec in specs)
+		if released:
+			log.info(f"BrlMultiline: took {released} over from NVDA for the switch")
+
 		ackPatch.install()
+		handover.installSwitchPatch()
 		try:
 			self._openMembers(specs)
 		except Exception:
 			# Never leave half the members open behind a failed construction.
 			self._closeMembers()
+			handover.removeSwitchPatch()
 			ackPatch.remove()
 			raise
 
@@ -140,22 +164,41 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver):
 
 		A member that will not open is dropped rather than fatal, so that two configured
 		displays with one of them switched off still gives the user the other one.
+
+		Everything opened is closed again if the layout cannot be built, because until the
+		slots exist there is nothing else holding these drivers, and a dropped driver keeps
+		its port.
 		"""
 		opened: list[tuple[DeviceSpec, braille.display.driver.BrailleDisplayDriver]] = []
-		for spec in specs:
-			driver = _openDriver(spec)
-			if driver is None:
-				log.warning(f"BrlMultiline: could not open {spec.driverName}, continuing without it")
-				continue
-			opened.append((spec, driver))
-		if not opened:
-			raise RuntimeError("BrlMultiline virtual display could not open any of its displays")
+		try:
+			for spec in specs:
+				driver = _openDriver(spec)
+				if driver is None:
+					log.warning(f"BrlMultiline: could not open {spec.driverName}, continuing without it")
+					continue
+				if not _shapeOf(driver)[1]:
+					# A display reporting no cells is not one, whatever it says about itself.
+					# `noBraille` is the honest example; a display that connected but failed
+					# to identify itself is the awkward one.
+					log.warning(f"BrlMultiline: {spec.driverName} reports no cells, dropping it")
+					_terminateQuietly(driver)
+					continue
+				opened.append((spec, driver))
+			if not opened:
+				raise RuntimeError("BrlMultiline virtual display could not open any of its displays")
 
-		geometry = stackDevices([_shapeOf(driver) for _spec, driver in opened])
-		self._slots = [
-			DeviceSlot(spec, driver, band)
-			for (spec, driver), band in zip(opened, geometry.bands, strict=True)
-		]
+			geometry = stackDevices([_shapeOf(driver) for _spec, driver in opened])
+			self._slots = [
+				DeviceSlot(spec, driver, band)
+				for (spec, driver), band in zip(opened, geometry.bands, strict=True)
+			]
+		except Exception:
+			# The slots are what `_closeMembers` closes, so anything opened before they were
+			# built has to be closed here or it is simply lost, port and all.
+			if not self._slots:
+				for _spec, driver in opened:
+					_terminateQuietly(driver)
+			raise
 		self.numRows = geometry.numRows
 		self.numCols = geometry.numCols
 		self._describe(geometry)
@@ -213,6 +256,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver):
 			super().terminate()
 		finally:
 			self._closeMembers(suppressDisplayClear)
+			handover.removeSwitchPatch()
 			ackPatch.remove()
 
 	def _closeMembers(self, suppressDisplayClear: bool = False) -> None:
@@ -243,6 +287,17 @@ def _shapeOf(driver: braille.display.driver.BrailleDisplayDriver) -> tuple[int, 
 	numRows = driver.numRows
 	numCols = driver.numCols if numRows > 1 else driver.numCells
 	return numRows, numCols
+
+
+def _terminateQuietly(driver: braille.display.driver.BrailleDisplayDriver) -> None:
+	"""Close a driver that is being dropped rather than used, reporting a failure but not raising.
+
+	:param driver: the driver to close.
+	"""
+	try:
+		driver.terminate()
+	except Exception:
+		log.error(f"BrlMultiline: error terminating {getattr(driver, 'name', '?')}", exc_info=True)
 
 
 def _openDriver(spec: DeviceSpec) -> braille.display.driver.BrailleDisplayDriver | None:

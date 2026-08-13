@@ -533,8 +533,31 @@ class Action:
 			handler(**kwargs)
 
 
+def callWithSupportedKwargs(func, **kwargs):
+	"""Pass a callable only the keyword arguments it accepts, as NVDA's extension points do.
+
+	Used both by L{FakeBrailleHandler._switchDisplay} and, through `_virtualStubs`, as the
+	stand-in for `extensionPoints.callWithSupportedKwargs` itself, so that the two cannot
+	disagree about what a driver constructor is given.
+	"""
+	import inspect
+
+	parameters = inspect.signature(func).parameters
+	if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values()):
+		return func(**kwargs)
+	return func(**{name: value for name, value in kwargs.items() if name in parameters})
+
+
 class FakeBrailleHandler:
-	"""The class `patches` installs onto. Only the methods it replaces need to exist."""
+	"""The class `patches` and `handover` install onto, and enough handler to be switched.
+
+	Most of it exists only to be replaced. `_switchDisplay` is the exception: it reproduces
+	NVDA's own ordering, in which the incoming driver is constructed *before* the outgoing
+	one is terminated. That ordering is the whole reason `handover` exists, so a stub that
+	quietly got it the sensible way round would test nothing.
+	"""
+
+	display = None
 
 	def _doNewObject(self, regions):
 		self.lastNewObject = list(regions)
@@ -547,6 +570,26 @@ class FakeBrailleHandler:
 
 	def _handlePendingUpdate(self):
 		self._regionsPendingUpdate = set()
+
+	def _switchDisplay(self, oldDisplay, newDisplayClass, **kwargs):
+		"""Transcribed from `BrailleHandler._switchDisplay`, including the ordering."""
+		sameDisplayReInit = oldDisplay is not None and newDisplayClass == oldDisplay.__class__
+		if sameDisplayReInit:
+			oldDisplay.terminate()
+			newDisplay = oldDisplay
+		else:
+			newDisplay = newDisplayClass.__new__(newDisplayClass)
+		callWithSupportedKwargs(newDisplay.__init__, **kwargs)
+		if not sameDisplayReInit and oldDisplay:
+			oldDisplay.terminate()
+		newDisplay.initSettings()
+		return newDisplay
+
+	def setDisplay(self, newDisplayClass, **kwargs):
+		"""The part of `_setDisplay` that matters here: the new display is assigned last."""
+		newDisplay = self._switchDisplay(self.display, newDisplayClass, **kwargs)
+		self.display = newDisplay
+		return newDisplay
 
 
 class CallAfterQueue:

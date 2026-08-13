@@ -333,7 +333,8 @@ global plugin:
 - `brlMultilineVirtual/virtualLayout.py` — pure arithmetic and parsing. NVDA free, so it is
   unit tested, in the same spirit as the plugin's `layout.py`.
 - `brlMultilineVirtual/vdConfig.py` — the device list.
-- `brlMultilineVirtual/ackPatch.py` — the one patch to NVDA.
+- `brlMultilineVirtual/ackPatch.py` — keeping member acknowledgements out of the handler.
+- `brlMultilineVirtual/handover.py` — taking a display over from NVDA, and giving it back.
 - `brlMultilineVirtual/gestures.py` — the decider handler, merged map, script delegation.
   Phase 2.
 
@@ -489,6 +490,74 @@ Not done, and visible to anyone testing this phase: routing keys on a member rou
 wrong character, members' gesture maps are not merged, and a member that is a
 `ScriptableObject` loses its own scripts. All three are Phase 2, and all three are called out
 in the driver's own module docstring so that a tester meeting them knows they are expected.
+
+### The display handover problem, and the one patch it needs
+
+Found in review of the first Phase 1 draft, and it was a blocker rather than a polish item.
+
+`BrailleHandler._switchDisplay` constructs the incoming driver *before* terminating the
+outgoing one::
+
+	newDisplay = newDisplayClass.__new__(newDisplayClass)
+	extensionPoints.callWithSupportedKwargs(newDisplay.__init__, **kwargs)
+	if not sameDisplayReInit:
+		if oldDisplay:
+			oldDisplay.terminate()
+
+For every other driver in NVDA that ordering is harmless, because two different drivers do
+not normally want the same hardware. For this one it is the ordinary case: the display the
+user is switching away from is very often a member of the virtual display they are switching
+to. Switching from a Focus to the virtual display had it try to open the Focus while NVDA
+still held it, spend all three retries, and come up without the display the user had been
+using a second earlier.
+
+Both directions need answering, and they need different answers:
+
+- **Into the virtual display.** `braille.handler.display` is still the outgoing driver while
+  our constructor runs, because `_setDisplay` assigns the new one only afterwards. So the
+  constructor finds it, closes it, and replaces its `terminate` with a no-op on that instance
+  so NVDA closing it again a moment later does nothing rather than failing against a closed
+  device. No patch needed.
+- **Out of the virtual display.** Here this driver is the *old* one and the replacement is
+  built before we are told anything, so there is no method of ours to intervene in. That
+  needs `_switchDisplay` itself, patched while a virtual display is live, to close a
+  departing virtual display before building its replacement.
+
+The patch is worth its cost: no extension point covers this, the alternative is telling users
+to select "no braille" between every display change, and the patched behaviour is only what
+the unpatched code already does a few lines later. It is installed on construction and
+removed on termination — and because termination happens *inside* the patched function, the
+replacement captures the original before doing anything, so it survives removing itself.
+
+### Three other things review found
+
+- **The composite now reports `isThreadSafe = False`.** Reporting True had
+  `BrailleHandler._writeCells` queue our `display` onto the background I/O thread, from which
+  a member that is not thread safe would then have been called — the one thing that flag
+  exists to promise will not happen. False puts the fan out on the main thread, where the
+  work is slicing an array and comparing it, and leaves each member to be driven as it asked:
+  a thread safe one still gets its I/O queued by its slot. Both target displays are thread
+  safe so nothing changes for them, but a member list is something the user composes and it
+  should not be possible to compose an unsafe one.
+- **The virtual driver cannot be its own member.** It passed validation, and opening it would
+  have constructed another virtual driver reading the same list, each level retrying every
+  member it could not open. Refused where the list is read.
+- **Members opened before the layout was built could leak.** They lived in a local until the
+  slots existed, so a failure between opening and laying out left them open with nothing
+  holding them. Reachable: a `noBraille` member reports zero columns, which the geometry
+  refuses. Zero cell members are now dropped and closed individually, and anything opened is
+  closed if the layout fails.
+
+### Test coverage
+
+`test_virtualDriver.py` covers the driver class, `vdConfig` and `ackPatch` against recording
+member drivers, which is what review asked for and what would have caught the cleanup and
+self-reference cases. The handover tests are the ones worth knowing about: the stub handler
+reproduces NVDA's construct-before-terminate ordering rather than the sensible one, so a
+member really is still held when the virtual display tries to open it. A stub that quietly
+got the ordering right would have tested nothing.
+
+452 tests, one expected failure, which is unchanged from before this work.
 
 **Configuring it before there is a settings panel.** The panel is Phase 3, so until then the
 device list is set from the NVDA Python console:
