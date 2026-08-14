@@ -12,6 +12,7 @@ longer exists.
 before, after, or instead of running.
 """
 
+import types
 import unittest
 
 from ._stubs import (
@@ -22,11 +23,13 @@ from ._stubs import (
 	callAfterQueue,
 	displayChanged,
 	displaySizeChanged,
+	fakeVirtualDisplay,
 	installStubs,
 	log,
 	loadPlugin,
 	post_configProfileSwitch,
 	resetPluginState,
+	setBandConfig,
 	setSpeechOutputMode,
 	spokenMessages,
 )
@@ -52,10 +55,14 @@ MONARCH_COLS = 32
 class PluginTestCase(unittest.TestCase):
 	segmentCount = 4
 
+	def makeHandler(self):
+		""":return: the handler the plugin is built against. Overridden to change the display."""
+		return FakeHandler(MONARCH_ROWS, MONARCH_COLS)
+
 	def setUp(self):
 		resetPluginState()
 		CONFIG["segmentCount"] = self.segmentCount
-		self.handler = FakeHandler(MONARCH_ROWS, MONARCH_COLS)
+		self.handler = self.makeHandler()
 		self.originalBuffer = object()
 		self.handler.mainBuffer = self.handler.buffer = self.originalBuffer
 		braille.handler = self.handler
@@ -590,6 +597,68 @@ class TestNoDisplay(PluginTestCase):
 		self.plugin.rebuildBuffer()
 		self.assertIs(self.handler.mainBuffer, self.originalBuffer)
 		self.assertIsNone(self.plugin.container)
+
+
+class TestCompositeDisplay(PluginTestCase):
+	"""A display that is a Monarch above a Focus 80, driven through the add-on's own driver."""
+
+	def makeHandler(self):
+		handler = FakeHandler(9, 80)
+		handler.display = fakeVirtualDisplay(
+			("hidBrailleStandard", 0, 8, 32),
+			("freedomScientific", 8, 1, 80),
+		)
+		return handler
+
+	def setUp(self):
+		super().setUp()
+		# After the plugin is up, since building it resets the stub configuration.
+		setBandConfig("hidBrailleStandard_8x32", segmentCount=2)
+		setBandConfig("freedomScientific_1x80", segmentCount=1)
+		self.plugin.rebuildBuffer()
+
+	def test_theDisplayIsArrangedByItsPhysicalDisplays(self):
+		self.assertEqual(self.plugin.currentView.name, "devices")
+		self.assertEqual(self.container.numSegments, 3)
+
+	def test_theDeadColumnsAreClaimedByNothing(self):
+		"""Nothing may be written to cells that reach no hardware."""
+		for rect in self.container.rects:
+			if rect.row < 8:
+				self.assertLessEqual(rect.endCol, 32)
+
+	def test_theCompositeSegmentCountIsNotUsed(self):
+		"""It has none of its own: the displays behind it each answer for their own rows."""
+		CONFIG["segmentCount"] = 8
+		self.plugin.rebuildBuffer()
+		self.assertEqual(self.container.numSegments, 3)
+
+	def test_aClaimStillComposesOverIt(self):
+		"""The claim takes the Monarch's rows; the Focus keeps its segment and its key."""
+		self.plugin.activatePanel(
+			SinglePanel("reader", SegmentRect(row=0, col=0, numRows=8, numCols=32)),
+		)
+		self.assertTrue(self.container.hasKey("reader"))
+		self.assertTrue(self.container.hasKey("device.freedomScientific.0"))
+
+	def test_aPinOnTheSecondDisplaySurvivesTheOtherBeingRearranged(self):
+		"""What the whole phase is for: a pinned object held on the display beside the focus."""
+		# The focus onto the Monarch, so that the Focus 80 is free to be pinned: a pin is
+		# refused on the segment following the focus, which would otherwise redraw over it.
+		CONFIG["focusSegment"] = 0
+		self.plugin.rebuildBuffer()
+		self.pin(2)
+		setBandConfig("hidBrailleStandard_8x32", segmentCount=4)
+		self.plugin.rebuildBuffer()
+		self.assertIn("device.freedomScientific.0", self.plugin._monitors)
+
+	def test_anOrdinaryDisplayIsUnaffected(self):
+		"""The device view is reached only through the driver, never by an ordinary display."""
+		self.handler.display = types.SimpleNamespace(name="freedomScientific")
+		self.handler.displayDimensions.numRows = MONARCH_ROWS
+		self.handler.displayDimensions.numCols = MONARCH_COLS
+		self.plugin.rebuildBuffer()
+		self.assertEqual(self.plugin.currentView.name, "configured")
 
 
 if __name__ == "__main__":

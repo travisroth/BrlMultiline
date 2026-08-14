@@ -18,9 +18,10 @@ Read the files in this order:
    when deciding whether an old idea is worth revisiting.
 5. [virtual-display-plan.md](virtual-display-plan.md) — feasibility findings and the plan
    for driving several physical displays as one, so that a second display can serve as a
-   segment. Phase 0 passed on hardware; Phase 1, the driver itself, is code complete and
-   awaiting a hardware run. Read it before touching braille display drivers, and keep its
-   phase markers current rather than repeating them here.
+   segment. Phase 0 passed on hardware; the driver, its gestures and the add-on's
+   arrangement of a composite display are code complete and awaiting a hardware run. Read it
+   before touching braille display drivers, and keep its phase markers current rather than
+   repeating them here.
 
 ## Project background
 

@@ -29,10 +29,11 @@ from scriptHandler import script
 
 from . import bmConfig, patches
 from .container import DisplayContainer
+from .devices import deviceMap
 from .objectMonitor import ObjectMonitor
 from .panels import BraillePanel
-from .settingsPanel import BrailleMultilineSettingsPanel
-from .views import SegmentView, singleSegmentView, viewFromConfig
+from .settingsPanel import BrailleMultilineSettingsPanel, VirtualDisplaySettingsPanel
+from .views import SegmentView, deviceView, singleSegmentView, viewFromConfig
 
 addonHandler.initTranslation()
 
@@ -78,6 +79,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		bmConfig.initialize()
 		patches.install()
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(BrailleMultilineSettingsPanel)
+		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(VirtualDisplaySettingsPanel)
 		displaySizeChanged.register(self._handleDisplayChanged)
 		displayChanged.register(self._handleDisplayChanged)
 		# Settings are read through `config.conf`, which is profile aware, so switching
@@ -98,6 +100,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._restoreOriginalBuffer()
 			patches.remove()
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(BrailleMultilineSettingsPanel)
+			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(VirtualDisplaySettingsPanel)
 		except Exception:
 			log.error("Error while terminating BrlMultiline", exc_info=True)
 		finally:
@@ -232,6 +235,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					f"a {numRows} by {numCols} display; returning to the configured view",
 				)
 				self._activeView = None
+		devices = deviceMap()
+		if devices:
+			try:
+				# Validates itself against this size, so a driver and a handler that disagree
+				# about the geometry are caught here rather than inside the container.
+				return deviceView(numRows, numCols, devices)
+			except (ValueError, LookupError):
+				log.error(
+					f"BrlMultiline: the displays behind this one do not describe "
+					f"a {numRows} by {numCols} display; arranging it as one display instead. "
+					"Anything that lands on a display narrower than the widest will be lost.",
+					exc_info=True,
+				)
 		return viewFromConfig(numRows, numCols)
 
 	def _buildView(self, numRows: int, numCols: int) -> SegmentView:

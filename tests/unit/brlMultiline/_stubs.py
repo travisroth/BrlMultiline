@@ -97,6 +97,43 @@ CONFIG = DisplaySection(
 )
 """The stub configuration the fake `bmConfig` reads. Tests mutate this directly."""
 
+BAND_CONFIG: dict[str, "DisplaySection"] = {}
+"""Settings belonging to one named display, for tests that need them to differ.
+
+Everything reads L{CONFIG} unless a test puts a section here under the display key it is
+asking about. That keeps the common case a single dictionary, while letting the tests of a
+composite display give each of the displays behind it a layout of its own — which is the
+whole point of that view, and cannot be shown by a stub with one set of settings.
+"""
+
+
+def setBandConfig(displayKey: str, **values) -> None:
+	"""Give one display settings of its own, filling the rest in from the defaults.
+
+	:param displayKey: the display to store against.
+	:param values: the settings that differ.
+	"""
+	section = DisplaySection(
+		{
+			"segmentsEnabled": True,
+			"segmentCount": 1,
+			"segmentSizes": [],
+			"focusSegment": -1,
+			"reverseScrollBtns": False,
+			"showDocumentLines": False,
+		},
+	)
+	section.update(values)
+	BAND_CONFIG[displayKey] = section
+
+
+def _sectionFor(displayKey):
+	""":return: the settings a display key resolves to, which is L{CONFIG} unless overridden."""
+	if displayKey is not None and displayKey in BAND_CONFIG:
+		return BAND_CONFIG[displayKey]
+	return CONFIG
+
+
 realBmConfig: dict = {}
 """The `bmConfig` functions L{installStubs} replaces, keyed on name, before it replaces them.
 
@@ -525,6 +562,28 @@ class FakeHandler:
 		self.scrolledTo.append(region)
 
 
+def fakeVirtualDisplay(*bands):
+	"""A stand-in for the add-on's own braille display driver, which is several displays.
+
+	Shaped the way `devices.deviceMap` reads it — a name, and a slot per member carrying its
+	driver name and its band — and no more than that, because nothing above the driver has any
+	business reading more.
+
+	:param bands: each member's (driverName, rowStart, numRows, numCols), top first.
+	:return: the stand-in display.
+	"""
+	return types.SimpleNamespace(
+		name="brlMultilineVirtual",
+		slots=tuple(
+			types.SimpleNamespace(
+				driverName=driverName,
+				band=types.SimpleNamespace(rowStart=rowStart, numRows=numRows, numCols=numCols),
+			)
+			for driverName, rowStart, numRows, numCols in bands
+		),
+	)
+
+
 class FakeConf(dict):
 	"""NVDA's configuration object: a mapping that also carries the registered specs."""
 
@@ -818,13 +877,17 @@ def installStubs() -> None:
 	)
 
 	def setSegmentsEnabled(enabled, displayKey=None):
-		CONFIG["segmentsEnabled"] = bool(enabled)
+		_sectionFor(displayKey)["segmentsEnabled"] = bool(enabled)
 
-	bmConfig.getLayout = lambda displayKey=None: CONFIG["segmentSizes"] or CONFIG["segmentCount"]
-	bmConfig.getFocusSegment = lambda displayKey=None: CONFIG["focusSegment"]
-	bmConfig.shouldShowDocumentLines = lambda displayKey=None: CONFIG["showDocumentLines"]
-	bmConfig.shouldReverseScrollButtons = lambda displayKey=None: CONFIG["reverseScrollBtns"]
-	bmConfig.areSegmentsEnabled = lambda displayKey=None: CONFIG["segmentsEnabled"]
+	def getLayout(displayKey=None):
+		section = _sectionFor(displayKey)
+		return section["segmentSizes"] or section["segmentCount"]
+
+	bmConfig.getLayout = getLayout
+	bmConfig.getFocusSegment = lambda displayKey=None: _sectionFor(displayKey)["focusSegment"]
+	bmConfig.shouldShowDocumentLines = lambda displayKey=None: _sectionFor(displayKey)["showDocumentLines"]
+	bmConfig.shouldReverseScrollButtons = lambda displayKey=None: _sectionFor(displayKey)["reverseScrollBtns"]
+	bmConfig.areSegmentsEnabled = lambda displayKey=None: _sectionFor(displayKey)["segmentsEnabled"]
 	bmConfig.setSegmentsEnabled = setSegmentsEnabled
 
 
@@ -876,6 +939,7 @@ def resetConfig() -> None:
 		reverseScrollBtns=False,
 		showDocumentLines=False,
 	)
+	BAND_CONFIG.clear()
 	# Both are filled in by the real `getDisplayConfig` as displays are met, so a test that
 	# met one starts the next test with a display already known to the configuration.
 	CONFIG.spec.clear()

@@ -62,6 +62,41 @@ line the caret is on. The segment immediately above the focus segment shows the 
 line, the one above that shows the line before it, and so on. Segments holding a pinned
 object are left alone. Segments run past the start or end of the document show as blank.
 
+## Using two displays at once
+
+The add-on can drive several braille displays as one, stacked one above another, so that a
+second display becomes segments of its own. NVDA goes on believing it has a single display,
+so everything else about it works as usual, including the keys on both displays.
+
+This is new and has not yet been used for long. Treat it as experimental.
+
+Set it up under NVDA menu, Preferences, Settings, BrlMultiline displays. Choose the displays
+you want and put them in order, top first. Then, in NVDA's own Braille settings, choose
+"BrlMultiline: several displays as one" as the braille display.
+
+A Monarch above a Focus 80 gives a display of 9 rows: the Monarch's 8, then the Focus as the
+ninth. Each display is divided into segments by its own settings, the ones it has when you
+use it on its own, so there is usually nothing further to set up. To change them, open the
+BrlMultiline settings while the combined display is connected and use the "Segment settings
+for" box to choose which display you are changing.
+
+Things worth knowing:
+
+- The displays do not have to be the same width. The combined display is as wide as the
+  widest one, and the cells past a narrower display's edge are kept blank so nothing is
+  written where you could not read it.
+- One display per driver. Two displays of the same make cannot be told apart, so only one of
+  each can be used.
+- Each display is detected when it is opened, so a display that is switched off is simply
+  left out and the others are used.
+- NVDA's automatic braille display detection is off while the combined display is selected,
+  because it works by choosing the display for you and that choice is already made.
+- Settings that belong to one of the displays themselves, such as dot firmness, are not
+  reachable from NVDA's Braille settings while the combined display is in use.
+- The add-on has to be enabled. With it disabled and the combined display still selected,
+  NVDA writes across the full width of every row, and anything landing past a narrower
+  display's edge is lost.
+
 ## Commands
 
 None of the add-on's commands have a default key. Assign the ones you want under NVDA

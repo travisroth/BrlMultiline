@@ -10,7 +10,11 @@ established there.
 - `routing.py` — `RoutingPolicy` and its variants. Separate from `views.py` so that
   `panels.py` can carry a policy without importing the layer built on top of it.
 - `panels.py` — `SegmentSpec` and `BraillePanel` with its subclasses. Also NVDA-free.
-- `views.py` — `SegmentView`, composition, and the configured and single segment views.
+- `views.py` — `SegmentView`, composition, and the configured, single segment and composite
+  display views.
+- `devices.py` — reading the device map of a display that is several physical displays
+  combined. The only module above the braille display driver that knows a composite is one.
+  See [virtual-display-plan.md](virtual-display-plan.md).
 - `segments.py` — `_SegmentHandlerProxy` and `BrailleBufferSegment`.
 - `container.py` — `DisplayContainer` and `FakeRegionsList`.
 - `patches.py` — the three patches to `BrailleHandler`, installed and removed together.
@@ -95,6 +99,12 @@ now live *inside* a panel. The blank cells belong to the panel that chose to lea
 `BlankPanel` is the degenerate case: it claims cells and produces no segments at all, so no
 buffer is allocated and the cells composite blank. `remainderRects` computes the filler
 automatically, so no caller has to do the arithmetic.
+
+`BlankPanel` earned its keep on a display that is several displays combined. Such a display
+is as wide as its widest member, so a narrower member has cells on its rows that reach no
+hardware at all. A blank panel over each of them is what stops NVDA flowing text into cells
+nobody can read — the one case in the add-on where an unowned cell would lose content rather
+than merely look untidy. See `views.deviceView`.
 
 ### Composition: `withPanel`
 

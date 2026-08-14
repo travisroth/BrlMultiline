@@ -30,9 +30,12 @@ from collections.abc import Sequence
 from logHandler import log
 
 from . import bmConfig
+from .devices import DeviceInfo
 from .layout import (
 	SegmentRect,
 	calculateSegmentRects,
+	calculateSegmentRectsIn,
+	deviceBandRects,
 	rectContains,
 	rectsIntersect,
 	remainderRects,
@@ -45,8 +48,11 @@ from .routing import DEFAULT_ROUTING_POLICY, EdgeRowScrollRoutingPolicy, Routing
 
 __all__ = [
 	# This module's own.
+	"DEVICE_PANEL_NAME",
 	"DISPLAY_PANEL_NAME",
 	"SegmentView",
+	"deviceSegmentKey",
+	"deviceView",
 	"displayPanels",
 	"displaySegmentKey",
 	"singleSegmentView",
@@ -68,6 +74,15 @@ DISPLAY_PANEL_NAME = "display"
 
 Held constant across the single segment view and the configured view so that segment keys
 survive a settings change wherever the segment itself does.
+"""
+
+DEVICE_PANEL_NAME = "device"
+"""Prefix of the panels a composite display is built from.
+
+Distinct from L{DISPLAY_PANEL_NAME} because the two views are not interchangeable: keys of a
+configured view are numbered across the whole display, while a composite's are named after
+the physical display they sit on. A pin does not carry over between them, and it should not:
+the cells have moved to different hardware.
 """
 
 
@@ -335,3 +350,113 @@ def singleSegmentView(numRows: int, numCols: int) -> SegmentView:
 		panels=displayPanels([wholeDisplayRect(numRows, numCols)]),
 		focusSegmentKey=displaySegmentKey(0),
 	)
+
+
+def deviceSegmentKey(driverName: str, index: int) -> str:
+	""":return: the key of one segment of a composite display.
+
+	Named after the physical display it sits on rather than numbered across the composite, so
+	that a pin on the secondary display survives a settings change on the primary. A driver
+	name identifies a member uniquely, because the virtual driver refuses to list one driver
+	twice.
+	"""
+	return f"{DEVICE_PANEL_NAME}.{driverName}.{index}"
+
+
+def deviceBandSegmentRects(device: DeviceInfo, rect: SegmentRect) -> list[SegmentRect]:
+	"""Divide one physical display's rows using that display's own settings.
+
+	The key read is the one that display has when NVDA drives it on its own, so a Monarch
+	divided into three segments stays divided into three segments as part of a composite. The
+	settings the user already made are the settings that apply, with nothing to set up.
+
+	:param device: the physical display.
+	:param rect: the cells it actually has, in composite coordinates.
+	:return: one rectangle per segment, in display order. A single rectangle covering the
+		whole band when this display is not to be divided.
+	"""
+	displayKey = device.displayKey
+	if not bmConfig.areSegmentsEnabled(displayKey):
+		return [rect]
+	layout = bmConfig.getLayout(displayKey)
+	try:
+		return calculateSegmentRectsIn(rect, layout)
+	except ValueError:
+		log.error(
+			f"BrlMultiline: layout {layout} stored for {displayKey} does not fit its "
+			f"{rect.numRows} by {rect.numCols} band; leaving that display as one segment",
+			exc_info=True,
+		)
+		return [rect]
+
+
+def deviceView(
+	numRows: int,
+	numCols: int,
+	devices: Sequence[DeviceInfo],
+	displayKey: str | None = None,
+) -> SegmentView:
+	"""Build the view for a composite of several physical displays.
+
+	Two things make this different from L{viewFromConfig}, and both come from the composite
+	not being one piece of hardware.
+
+	The first is that no segment may straddle two displays. The composite is always divided at
+	the band boundaries, whatever the user has configured for it, and each display is then
+	divided within its own band by its own settings. So the composite has no segment count of
+	its own; the question "how many segments" is asked of each display separately, and answered
+	by the settings that display already had.
+
+	The second is the dead columns. A display narrower than the widest one has cells on its
+	rows that reach no hardware. They are claimed by a `BlankPanel` so that nothing is ever
+	flowed into them, which is the whole reason this view exists: without it, text landing in
+	those cells is silently lost.
+
+	:param numRows: number of rows on the composite.
+	:param numCols: number of columns on the composite, the widest display's width.
+	:param devices: the physical displays, in stacking order, top first.
+	:param displayKey: the composite's own configuration key, for the focus segment, or None
+		for the current display.
+	:return: the view.
+	:raises ValueError: if the bands do not tile a display of this size.
+	"""
+	if not devices:
+		raise ValueError("A composite display needs at least one physical display")
+	panels: list[BraillePanel] = []
+	keys: list[str] = []
+	for device, band in zip(devices, deviceBandRects([each.band for each in devices], numCols), strict=True):
+		for index, rect in enumerate(deviceBandSegmentRects(device, band.live)):
+			key = deviceSegmentKey(device.driverName, index)
+			panels.append(
+				# One panel per segment, as the configured view does and for the same reason:
+				# a claim laid over the composite then evicts only the segments whose cells it
+				# actually wants, leaving those on the other display with their keys.
+				SinglePanel(
+					key,
+					rect,
+					reserve=False,
+					# Numbered across the whole composite, so that the document lines feature
+					# reads on from one display to the next rather than restarting.
+					documentContextIndex=len(keys),
+				),
+			)
+			keys.append(key)
+		if band.dead is not None:
+			panels.append(BlankPanel(band.dead, name=f"{DEVICE_PANEL_NAME}.{device.driverName}.dead"))
+	focusSegment = bmConfig.getFocusSegment(displayKey)
+	if focusSegment != -1 and not 0 <= focusSegment < len(keys):
+		log.warning(
+			f"BrlMultiline: no segment {focusSegment} across these {len(keys)} segments; using the last",
+		)
+		focusSegment = -1
+	view = SegmentView(
+		name="devices",
+		panels=panels,
+		focusSegmentKey=keys[focusSegment if focusSegment != -1 else len(keys) - 1],
+	)
+	# Checked here rather than left to the caller, because the bands come from the driver
+	# while the size comes from the handler, and the two disagreeing is exactly the case a
+	# caller cannot detect for itself. `deviceBandRects` has already caught a gap between two
+	# displays; this catches the composite being a different shape from the displays in it.
+	view.validate(numRows, numCols)
+	return view

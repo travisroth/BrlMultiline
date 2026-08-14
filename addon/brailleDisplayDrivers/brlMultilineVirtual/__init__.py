@@ -20,12 +20,13 @@ Input is handled in `gestures`. Members' keys already reach NVDA on their own, s
 there is rebasing routing cell indexes onto the composite and answering the three things NVDA
 looks up on `braille.handler.display` while resolving a gesture.
 
-**Not yet done here, by design.** The composite is a rectangle as wide as its widest member,
-so a narrower member has dead columns that reach no hardware, and NVDA flowing one buffer
-across the whole rectangle loses text into them. Masking them means a base view with one
-panel per member, which is the add-on's job rather than the driver's, and is the next phase.
-Until then a mixed width arrangement reads gappily, and the driver says so in the log when it
-starts.
+**Not done here, by design.** The composite is a rectangle as wide as its widest member, so a
+narrower member has dead columns that reach no hardware, and NVDA flowing one buffer across
+the whole rectangle loses text into them. Masking them is the add-on's job rather than the
+driver's, because by the time cells arrive here they have already been laid out: the global
+plugin builds a view with one panel per member and a blank panel over each member's dead
+columns. With the plugin disabled, a mixed width arrangement reads gappily and loses whatever
+lands past the narrower display's edge. The driver says so in the log when it starts.
 """
 
 from __future__ import annotations

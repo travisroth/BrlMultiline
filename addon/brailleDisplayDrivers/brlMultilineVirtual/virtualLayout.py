@@ -15,8 +15,9 @@ dead: nothing ever writes them to hardware.
 
 Dead columns are the hazard this module exists to make visible. NVDA flowing one buffer
 across the whole rectangle would put text into cells no hardware receives, and it would
-simply vanish. `deadColumnCount` is what lets the driver say so at startup, and the base
-view built in a later phase is what actually masks them.
+simply vanish. `deadColumnCount` is what lets the driver say so at startup; the add-on's
+global plugin is what actually masks them, with a blank panel over each member's dead
+columns.
 """
 
 from __future__ import annotations

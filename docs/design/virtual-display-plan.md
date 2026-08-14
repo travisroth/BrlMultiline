@@ -623,8 +623,9 @@ closed" was true only of members that were fully constructed and handed back; a 
 failed part way through was not covered, and the tests for it now distinguish a constructor
 failure from an `initSettings` failure, since the two leave the device in different places.
 
-**Configuring it before there is a settings panel.** The panel is Phase 3, so until then the
-device list is set from the NVDA Python console:
+**Configuring it.** From Phase 3 the device list is chosen in NVDA menu, Preferences,
+Settings, BrlMultiline displays. It can also be set from the Python console, which is how the
+Phase 1 and 2 hardware runs were driven and remains the way to set a port:
 
 ```
 from brailleDisplayDrivers.brlMultilineVirtual import vdConfig
@@ -736,11 +737,81 @@ design, and neither belongs in a phase about gesture plumbing.
 496 tests, one expected failure. The three covering the install window were checked against
 the unfixed code and fail there, which is the only way to know a regression test regresses.
 
-**Phase 3, add-on integration.** The device map becomes a base view with one panel per band
-and blank masking of dead columns. Settings panel for choosing members and their order.
-Success looks like: the secondary display holds a pinned object while focus moves on the
-primary — with no new code in `objectMonitor.py`, `documentLines.py` or `panels.py`, because
-all of it is rectangle based already.
+**Phase 3, add-on integration — CODE COMPLETE, UNVERIFIED ON HARDWARE.** The device map
+becomes a base view with one panel per band and blank masking of dead columns. Settings panel
+for choosing members and their order. Success looks like: the secondary display holds a
+pinned object while focus moves on the primary — with no new code in `objectMonitor.py`,
+`documentLines.py` or `panels.py`, because all of it is rectangle based already.
+
+That last prediction held. Nothing in `objectMonitor.py`, `documentLines.py`, `panels.py`,
+`container.py`, `segments.py` or `routing.py` was touched. What landed is one new pure
+function in `layout.py`, one new module, one new function in `views.py`, four lines in the
+plugin, and the settings work.
+
+- **`devices.py`** reads the device map off `braille.handler.display` and gives back
+  `DeviceInfo` records. It is the only place above the driver that knows the composite is a
+  composite. It deliberately does not import the driver: that would pull `hwIo`, `inputCore`
+  and the driver base class into the view layer for the sake of a string and three integers,
+  and would make the whole view layer fail to import if the driver ever failed to.
+- **`layout.deviceBandRects`** splits each band into the part that reaches hardware and the
+  part that does not. Pure, and unit tested against the 9 by 80 case.
+- **`views.deviceView`** builds the arrangement: one `SinglePanel` per segment, and a
+  `BlankPanel` over each band's dead columns.
+
+### The composite has no segment count of its own
+
+The decision worth recording, because it is not what the settings dialog would have suggested.
+
+A segment may not straddle two displays: half its cells would be on hardware the other half
+is not on, which is the dead column trap wearing a different hat. So the composite is
+*always* divided at the band boundaries, and its own `segmentsEnabled`, `segmentCount` and
+`segmentSizes` are simply unused. Each display is then divided within its own band.
+
+By what? By the settings that display already had. `DeviceInfo.displayKey` composes
+`driverName_RxC` from the member's own geometry, which is exactly the key
+`bmConfig.getDisplayKey` composes when NVDA is driving that display on its own. A Monarch the
+user divided into three segments stays three segments as a band of a composite, with nothing
+to configure and nothing to explain. This is the "maintain the defaults NVDA already has"
+requirement applied to the add-on's own settings, and it fell out of the existing key scheme
+rather than needing a new one.
+
+What does belong to the composite is what there is only one of: which segment follows the
+focus (counted across every display), the panning direction, and whether the free segments
+show the document lines.
+
+Segment keys are `device.<driverName>.<n>` rather than the configured view's `display.<n>`.
+Named after the hardware, so a pin on the secondary survives a settings change on the primary.
+The two key schemes are deliberately not interchangeable: a pin does not carry from a
+composite to a single display, and it should not, because those cells have moved to different
+hardware.
+
+### The settings
+
+Two categories now, because they answer different questions.
+
+**BrlMultiline** arranges the display connected now. When that display is a composite it
+grows a "Segment settings for" chooser listing the displays behind it, and the division
+controls under it apply to whichever is chosen. Edits to a display that is not being shown are
+held in the panel rather than written as the user switches, so cancelling the dialog still
+cancels everything, and a layout that does not fit is reported against the display it was
+typed for — with that display selected, so the user is looking at what the message is about.
+
+**BrlMultiline displays** chooses which physical displays are combined and in what order,
+which is a standing arrangement rather than a property of what is connected. It is therefore
+editable whether or not the composite is in use — which it has to be, since the composite
+cannot be selected in NVDA's braille settings until it has members to open. Every driver is
+offered, including those whose hardware is switched off, for the same reason. No port is
+offered: members are detected afresh, per `DEFAULT_PORT`. Changing the list while the
+composite is live reopens it through `wx.CallAfter`, since the members are opened when the
+driver is constructed and nothing happens until it is constructed again.
+
+Both panels are unit tested without wx, by building them with `object.__new__` and standing
+recording objects in for the controls. That reaches everything between the controls and the
+configuration, which is where a bug would be: writing one display's layout into another's
+section is exactly the failure this design makes possible and the tests make loud.
+
+563 tests, one expected failure. The five covering the composite arrangement were checked
+against the unfixed code and fail there.
 
 **Phase 4, resilience.** Per device failure, a reconnect poll using
 `bdDetect.getConnectedUsbDevicesForDriver` and `getPossibleBluetoothDevicesForDriver`, and a
@@ -809,7 +880,11 @@ be the composite width — plausible but unverified.
 **The dead column trap.** Stated above and repeated here because it is the failure that will
 look like a bug in something else: with members of unequal width, any arrangement that lets
 NVDA flow one buffer across the full virtual rectangle will silently lose the text that lands
-in dead columns. The base view must mask them.
+in dead columns. The base view must mask them, and from Phase 3 it does — but only while the
+add-on's global plugin is running. A user who disables the plugin and leaves the virtual
+display selected gets NVDA's own single buffer across the whole rectangle, and the trap back.
+Nothing currently notices that, and the driver cannot mask the columns itself: it is handed
+cells that have already been laid out.
 
 ## Open questions
 

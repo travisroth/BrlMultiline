@@ -266,6 +266,72 @@ def calculateGridRects(
 	return rects
 
 
+@dataclasses.dataclass(frozen=True)
+class DeviceBandRects:
+	"""One physical display's rows, split at the right hand edge of that display."""
+
+	live: SegmentRect
+	"""The cells this display actually has."""
+
+	dead: SegmentRect | None
+	"""The cells of these rows that reach no hardware, or None if there are none."""
+
+
+def deviceBandRects(bands: list[tuple[int, int, int]], numCols: int) -> list[DeviceBandRects]:
+	"""Work out which cells of a composite display each physical display owns.
+
+	The virtual braille display driver stacks displays vertically and reports a rectangle as
+	wide as its widest member, so a narrower member has columns on its rows that reach no
+	hardware. Those dead columns are the hazard: NVDA flowing one buffer across the whole
+	rectangle would put text into them, and it would simply vanish under the reader's fingers
+	with nothing to say where it went.
+
+	This is the arithmetic behind masking them. Each band comes back split into the part that
+	can be shown and the part that has to be claimed and left blank.
+
+	:param bands: each display's (rowStart, numRows, numCols), in stacking order, top first.
+	:param numCols: the width of the composite, which is the widest member's width.
+	:return: one entry per band, in the order given.
+	:raises ValueError: if a band is empty, wider than the composite, or does not start where
+		the band above it ended.
+	"""
+	if numCols < 1:
+		raise ValueError(f"A composite display of {numCols} columns has no cells to divide")
+	rects: list[DeviceBandRects] = []
+	expectedRow = 0
+	for index, (rowStart, numRows, bandCols) in enumerate(bands):
+		if numRows < 1 or bandCols < 1:
+			raise ValueError(f"Display {index} reports {numRows} rows of {bandCols}, which has no cells")
+		if bandCols > numCols:
+			raise ValueError(
+				f"Display {index} is {bandCols} cells wide, more than the {numCols} of the composite",
+			)
+		# The bands have to tile the rows, because the panels built from them are held to
+		# covering the display exactly. A gap here would fail much later, as a coverage error
+		# naming cells rather than the display that should have owned them.
+		if rowStart != expectedRow:
+			raise ValueError(
+				f"Display {index} starts at row {rowStart}, but the display above it ended at {expectedRow}",
+			)
+		rects.append(
+			DeviceBandRects(
+				live=SegmentRect(row=rowStart, col=0, numRows=numRows, numCols=bandCols),
+				dead=(
+					None
+					if bandCols == numCols
+					else SegmentRect(
+						row=rowStart,
+						col=bandCols,
+						numRows=numRows,
+						numCols=numCols - bandCols,
+					)
+				),
+			),
+		)
+		expectedRow = rowStart + numRows
+	return rects
+
+
 def validateRects(rects: list[SegmentRect], numRows: int, numCols: int) -> None:
 	"""Check that a set of segment rectangles can be shown on a display.
 
