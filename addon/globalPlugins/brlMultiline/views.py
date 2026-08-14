@@ -56,6 +56,8 @@ __all__ = [
 	"displayPanels",
 	"displaySegmentKey",
 	"singleSegmentView",
+	"unavailableRects",
+	"validateAgainstHardware",
 	"viewFromConfig",
 	# Re-exported, so that code composing a view needs only this one import.
 	"BlankPanel",
@@ -350,6 +352,56 @@ def singleSegmentView(numRows: int, numCols: int) -> SegmentView:
 		panels=displayPanels([wholeDisplayRect(numRows, numCols)]),
 		focusSegmentKey=displaySegmentKey(0),
 	)
+
+
+def unavailableRects(devices: Sequence[DeviceInfo], numCols: int) -> list[SegmentRect]:
+	"""Work out which cells of a composite display reach no hardware at all.
+
+	:param devices: the physical displays, in stacking order.
+	:param numCols: the composite's width.
+	:return: the dead rectangles. Empty when every display is the same width, and empty for an
+		ordinary display, which has none.
+	:raises ValueError: if the bands do not describe a display of this width.
+	"""
+	if not devices:
+		return []
+	return [
+		band.dead
+		for band in deviceBandRects([device.band for device in devices], numCols)
+		if band.dead is not None
+	]
+
+
+def validateAgainstHardware(view: SegmentView, devices: Sequence[DeviceInfo], numCols: int) -> None:
+	"""Check that no segment of a view reaches cells that no hardware has.
+
+	This is an invariant of whatever is finally shown, not a property of the base view, and
+	that distinction is the point of this function. `deviceView` claims the dead columns with
+	a `BlankPanel`, but a blank panel is an ordinary panel: `SegmentView.withPanel` evicts
+	every panel a new claim intersects, so a claim spanning the full width of a narrow
+	display's rows would take the mask with it and put a segment over cells that reach nothing.
+	An activated view bypasses `deviceView` altogether.
+
+	The failure is silent, which is why it is worth a check of its own. `sliceBandCells` takes
+	only the first `numCols` of each of a display's rows, so text laid out past that edge is
+	dropped on the way to the hardware with nothing raised, nothing logged and nothing to say
+	where it went.
+
+	:param view: the view about to be shown.
+	:param devices: the physical displays behind it, empty for an ordinary display.
+	:param numCols: the composite's width.
+	:raises ValueError: if any segment reaches cells no hardware has.
+	"""
+	dead = unavailableRects(devices, numCols)
+	if not dead:
+		return
+	for spec in view.flatten():
+		for rect in dead:
+			if rectsIntersect(spec.rect, rect):
+				raise ValueError(
+					f"Segment {spec.key!r} at {spec.rect} reaches cells at {rect} that no display "
+					f"has; anything shown there would be dropped on the way to the hardware",
+				)
 
 
 def deviceSegmentKey(driverName: str, index: int) -> str:

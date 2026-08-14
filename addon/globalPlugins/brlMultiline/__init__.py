@@ -29,11 +29,17 @@ from scriptHandler import script
 
 from . import bmConfig, patches
 from .container import DisplayContainer
-from .devices import deviceMap
+from .devices import DeviceInfo, deviceMap
 from .objectMonitor import ObjectMonitor
 from .panels import BraillePanel
 from .settingsPanel import BrailleMultilineSettingsPanel, VirtualDisplaySettingsPanel
-from .views import SegmentView, deviceView, singleSegmentView, viewFromConfig
+from .views import (
+	SegmentView,
+	deviceView,
+	singleSegmentView,
+	validateAgainstHardware,
+	viewFromConfig,
+)
 
 addonHandler.initTranslation()
 
@@ -144,12 +150,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		first. Call L{restoreConfiguredView} to hand the display back.
 
 		:param view: the view to show.
-		:raises ValueError: if the view's panels do not tile the display.
+		:raises ValueError: if the view's panels do not tile the display, or a segment reaches
+			cells that no display behind a composite one actually has.
 		:raises LookupError: if the view's focus segment does not exist.
 		"""
 		numRows, numCols = self._displayDimensions()
 		# Validate before storing, so a view that does not fit leaves the display as it was.
+		# A view arrives whole and bypasses `deviceView`, so it is the one place a caller can
+		# put a segment over cells that reach no hardware without being told.
 		view.validate(numRows, numCols)
+		validateAgainstHardware(view, deviceMap(), numCols)
 		self._activeView = view
 		self.rebuildBuffer()
 
@@ -179,8 +189,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		again on every rebuild, so it must not be mutated after being passed in.
 
 		:param panel: the claim to lay over the current view.
-		:raises ValueError: if the claim falls outside the display, or its segments do not
-			fit within it.
+		:raises ValueError: if the claim falls outside the display, its segments do not fit
+			within it, or it would put a segment over cells that no display behind a composite
+			one actually has.
 		:raises LookupError: if the claim would take the focus segment without offering one
 			in its place.
 		"""
@@ -214,28 +225,40 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		:param numCols: number of columns on the display.
 		:param panels: the claims to lay over it.
 		:return: the composed view.
-		:raises ValueError: if a claim does not fit.
+		:raises ValueError: if a claim does not fit, or would put a segment over cells that no
+			display behind a composite one has.
 		:raises LookupError: if a claim takes the focus segment without replacing it.
 		"""
-		view = self._baseView(numRows, numCols)
+		devices = deviceMap()
+		view = self._baseView(numRows, numCols, devices)
 		for panel in panels:
 			view = view.withPanel(panel, numRows, numCols)
+		validateAgainstHardware(view, devices, numCols)
 		return view
 
-	def _baseView(self, numRows: int, numCols: int) -> SegmentView:
-		""":return: the view claims are laid over: an activated one, else the configured one."""
+	def _baseView(self, numRows: int, numCols: int, devices: list[DeviceInfo]) -> SegmentView:
+		""":return: the view claims are laid over: an activated one, else the configured one.
+
+		:param numRows: number of rows on the display.
+		:param numCols: number of columns on the display.
+		:param devices: the physical displays behind a composite one, empty for an ordinary one.
+		"""
 		if self._activeView is not None:
 			try:
 				self._activeView.validate(numRows, numCols)
+				# Rechecked on every rebuild rather than only when the view was activated,
+				# because the displays behind a composite one can change under a view that was
+				# perfectly good when it was made.
+				validateAgainstHardware(self._activeView, devices, numCols)
 				return self._activeView
 			except (ValueError, LookupError):
-				# The display changed under the view and its panels no longer fit.
+				# The display changed under the view and its panels no longer fit it.
 				log.warning(
-					f"BrlMultiline: view {self._activeView.name!r} does not fit "
+					f"BrlMultiline: view {self._activeView.name!r} cannot be shown on "
 					f"a {numRows} by {numCols} display; returning to the configured view",
+					exc_info=True,
 				)
 				self._activeView = None
-		devices = deviceMap()
 		if devices:
 			try:
 				# Validates itself against this size, so a driver and a handler that disagree
@@ -257,18 +280,24 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		so that a settings change or a display swap is answered by rebuilding the same
 		claims against the new base rather than by discarding them.
 		"""
-		view = self._baseView(numRows, numCols)
+		devices = deviceMap()
+		view = self._baseView(numRows, numCols, devices)
 		kept: list[BraillePanel] = []
 		for panel in self._activePanels:
 			try:
-				view = view.withPanel(panel, numRows, numCols)
+				candidate = view.withPanel(panel, numRows, numCols)
+				# Composed into a candidate rather than into `view`, so that a claim which
+				# reaches cells no hardware has is dropped whole rather than leaving the
+				# eviction it caused behind — including the eviction of a dead column mask.
+				validateAgainstHardware(candidate, devices, numCols)
 			except (ValueError, LookupError):
 				log.warning(
-					f"BrlMultiline: panel {panel.name!r} does not fit "
+					f"BrlMultiline: panel {panel.name!r} cannot be shown on "
 					f"a {numRows} by {numCols} display; dropping it",
 					exc_info=True,
 				)
 				continue
+			view = candidate
 			kept.append(panel)
 		self._activePanels = kept
 		return view
@@ -383,7 +412,41 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		to announce it. Deferred for the same reason a display change is: the switch is
 		still being applied when this runs.
 		"""
+		self._reportMemberDivergence()
 		self._scheduleRebuild()
+
+	def _reportMemberDivergence(self) -> None:
+		"""Say so in the log when the configured members are not the ones actually running.
+
+		`BrlMultilineVirtualDisplay` is an ordinary configuration section, so NVDA writes it
+		to whichever profile was last active, and a profile can therefore hold a member list
+		of its own. Nothing acts on that: NVDA does not reinitialise a display whose driver
+		name has not changed, so the composite goes on driving the members it opened while the
+		configuration and the settings panel both describe a different set.
+
+		This does not fix that; it makes it visible. The fix is to store the member list in the
+		base configuration only, which is the right contract — the members are which pieces of
+		hardware are wired together, and reopening two Bluetooth displays every time a profile
+		triggers would be a poor answer even if it worked. That is a change to where the list
+		is stored and is deliberately not being made between a code change and a hardware run.
+		"""
+		devices = deviceMap()
+		if not devices:
+			return
+		try:
+			from brailleDisplayDrivers.brlMultilineVirtual import vdConfig
+
+			configured = [spec.driverName for spec in vdConfig.getDevices()]
+		except Exception:
+			log.debugWarning("BrlMultiline: could not read the configured member list", exc_info=True)
+			return
+		running = [device.driverName for device in devices]
+		if configured != running:
+			log.warning(
+				f"BrlMultiline: this profile lists the displays {configured}, but the combined "
+				f"display is running {running}. The list is not applied until the combined "
+				"display is selected again in NVDA's braille settings.",
+			)
 
 	def _scheduleRebuild(self) -> None:
 		"""Queue one rebuild, however many events asked for it."""

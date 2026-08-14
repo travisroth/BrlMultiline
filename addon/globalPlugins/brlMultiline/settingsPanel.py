@@ -337,7 +337,11 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				)
 				return False
 			totalSegments += len(rects)
-		if not anyEnabled:
+		if not anyEnabled and len(self.targets) == 1:
+			# An ordinary display with division turned off has one segment, and the focus
+			# setting is not going to be read. A composite is different: it is divided at the
+			# hardware boundaries whatever the switches say, so it still has one segment per
+			# display and the focus number still has to name one of them.
 			return True
 		focusSegment = self.focusSegmentCtrl.Value
 		if focusSegment >= totalSegments:
@@ -410,7 +414,14 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 	def makeSettings(self, settingsSizer):
 		sHelper = guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
 		self.descriptions = displayDescriptions()
-		self.chosen = self._readDevices()
+		self.storedSpecs = self._readDevices()
+		"""What each chosen display was configured as, keyed on driver name.
+
+		Kept so that a port set outside this panel survives being reordered here. The panel
+		offers no port control, because members are detected afresh, but a value it cannot
+		show is not a value it may quietly discard.
+		"""
+		self.chosen = list(self.storedSpecs)
 		self._original = list(self.chosen)
 		sHelper.addItem(
 			wx.StaticText(
@@ -461,17 +472,21 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 		)
 		self._refresh()
 
-	def _readDevices(self) -> list[str]:
-		""":return: the configured member driver names, in stacking order."""
+	def _readDevices(self) -> dict:
+		""":return: the configured members, keyed on driver name, in stacking order.
+
+		A dictionary rather than a list because Python keeps insertion order, so this is the
+		stacking order and the lookup at once.
+		"""
 		try:
 			from brailleDisplayDrivers.brlMultilineVirtual import vdConfig
 
-			return [spec.driverName for spec in vdConfig.getDevices()]
+			return {spec.driverName: spec for spec in vdConfig.getDevices()}
 		except Exception:
 			# A list that cannot be read is shown as empty rather than refusing to open the
 			# panel, since the panel is where it would be put right.
 			log.error("BrlMultiline: could not read the combined display's device list", exc_info=True)
-			return []
+			return {}
 
 	def _describe(self, driverName: str) -> str:
 		""":return: what to call a driver in the list."""
@@ -550,12 +565,23 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 		self._refresh(select=len(self.chosen) - 1)
 		self.availableCtrl.SetFocus()
 
+	def specsToStore(self) -> list:
+		""":return: the chosen displays as specifications, in stacking order.
+
+		A display that was already configured keeps the specification it had, so that a port
+		set from the console is not silently changed to automatic detection by someone opening
+		this category and pressing OK. A newly added one is stored as a name alone, which means
+		detect afresh.
+		"""
+		from brailleDisplayDrivers.brlMultilineVirtual.virtualLayout import DeviceSpec
+
+		return [self.storedSpecs.get(name) or DeviceSpec(name) for name in self.chosen]
+
 	def onSave(self):
 		try:
 			from brailleDisplayDrivers.brlMultilineVirtual import vdConfig
-			from brailleDisplayDrivers.brlMultilineVirtual.virtualLayout import DeviceSpec
 
-			vdConfig.setDevices([DeviceSpec(name) for name in self.chosen])
+			vdConfig.setDevices(self.specsToStore())
 		except Exception:
 			# Refusing here would be refusing after the dialog has accepted the values, which
 			# it has no way to show. The list is validated as it is built, so this can only be

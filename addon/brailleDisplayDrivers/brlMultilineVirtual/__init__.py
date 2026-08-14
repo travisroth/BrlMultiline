@@ -132,6 +132,8 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		self._slots: list[DeviceSlot] = []
 		self.numRows = 1
 		self.numCols = 0
+		self._installed = False
+		"""Whether NVDA has finished putting this display in place. See `initSettings`."""
 
 		try:
 			specs = vdConfig.getDevices()
@@ -240,6 +242,23 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 				"Divide the display into segments that match the displays.",
 			)
 
+	def initSettings(self) -> None:
+		"""Note that NVDA has finished the switch, as well as reading the settings.
+
+		`_switchDisplay` calls this last, after the incoming driver is constructed and the
+		outgoing one terminated, so it is the earliest honest answer to "is this display in
+		place". Object identity is not, and the case that proves it is NVDA reselecting a
+		display that is already in use: `sameDisplayReInit` terminates and reconstructs *this
+		same instance*, so `braille.handler.display is self` stays true throughout, while the
+		members, the bands and the geometry are all being replaced underneath it.
+
+		Reopening the composite after its member list is edited takes exactly that path. A
+		routing key pressed during it would otherwise be rebased onto the new bands and routed
+		against the arrangement built for the old ones.
+		"""
+		super().initSettings()
+		self._installed = True
+
 	def display(self, cells: list[int]) -> None:
 		"""Fan one composite cell array out to the members.
 
@@ -267,6 +286,10 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		it, and is passed on to the members so that a switch to the secure desktop does not
 		spend time blanking displays that are about to be closed anyway.
 		"""
+		# First, so that nothing treats this display as NVDA's while it is being taken apart.
+		# On the `sameDisplayReInit` path this instance is about to be reconstructed rather
+		# than replaced, so identity says nothing; see `initSettings`.
+		self._installed = False
 		suppressDisplayClear = bool(getattr(self, "_suppressDisplayClear", False))
 		try:
 			# Blanks the display through `display` above, unless suppressed, then saves

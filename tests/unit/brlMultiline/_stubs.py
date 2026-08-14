@@ -26,6 +26,18 @@ ADDON_DIR = os.path.abspath(
 	os.path.join(os.path.dirname(__file__), "..", "..", "..", "addon", "globalPlugins", "brlMultiline"),
 )
 
+DRIVER_DIR = os.path.abspath(
+	os.path.join(
+		os.path.dirname(__file__),
+		"..",
+		"..",
+		"..",
+		"addon",
+		"brailleDisplayDrivers",
+		"brlMultilineVirtual",
+	),
+)
+
 PACKAGE = "brlMultiline"
 
 
@@ -806,6 +818,18 @@ def _installPluginStubs() -> None:
 	_module("braille.brailleHandler", BrailleHandler=FakeBrailleHandler)
 	_module("braille.constants", CONTEXTPRES_CHANGEDCONTEXT="changedContext")
 	_module("braille.regions.focus", getFocusRegions=fakeGetFocusRegions)
+	# The braille display driver package, as a path with no code, so that the settings panel's
+	# `from brailleDisplayDrivers.brlMultilineVirtual import vdConfig` resolves to the real
+	# module without running the driver's `__init__`, which wants `hwIo` and `inputCore`.
+	# `vdConfig` and `virtualLayout` reach for nothing beyond the configuration and the log,
+	# so the panel is tested against the same device list the driver actually reads.
+	drivers = types.ModuleType("brailleDisplayDrivers")
+	drivers.__path__ = []
+	sys.modules["brailleDisplayDrivers"] = drivers
+	virtualDriver = types.ModuleType("brailleDisplayDrivers.brlMultilineVirtual")
+	virtualDriver.__path__ = [DRIVER_DIR]
+	sys.modules["brailleDisplayDrivers.brlMultilineVirtual"] = virtualDriver
+	drivers.brlMultilineVirtual = virtualDriver
 	_module(
 		"config.configFlags",
 		BrailleMode=types.SimpleNamespace(SPEECH_OUTPUT=types.SimpleNamespace(value="speechOutput")),
@@ -824,6 +848,7 @@ def installStubs() -> None:
 		conf=FakeConf(
 			{
 				"BrlMultiline": {"displays": DisplaysSection()},
+				"BrlMultilineVirtualDisplay": {"devices": []},
 				"braille": BRAILLE_CONFIG,
 			},
 		),
@@ -944,7 +969,11 @@ def resetConfig() -> None:
 	# met one starts the next test with a display already known to the configuration.
 	CONFIG.spec.clear()
 	if "config" in sys.modules:
-		sys.modules["config"].conf["BrlMultiline"]["displays"].clear()
+		conf = sys.modules["config"].conf
+		conf["BrlMultiline"]["displays"].clear()
+		# The combined display's member list, which the settings panel and the plugin both
+		# read through the driver's own `vdConfig`. One test's list must not be the next's.
+		conf["BrlMultilineVirtualDisplay"]["devices"] = []
 	setSpeechOutputMode(False)
 
 

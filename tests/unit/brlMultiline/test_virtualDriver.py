@@ -17,8 +17,6 @@ reproduced here rather than described.
 
 import unittest
 
-import braille
-
 from ._virtualStubs import (
 	GlobalGestureMap,
 	StubBrailleDisplayGesture,
@@ -35,6 +33,8 @@ from ._virtualStubs import (
 from ._stubs import FakeBrailleHandler
 
 installVirtualStubs()
+
+import braille  # noqa: E402
 
 from brlMultilineVirtual import ackPatch, handover, vdConfig  # noqa: E402
 from brlMultilineVirtual.virtualLayout import DeviceSpec  # noqa: E402
@@ -70,12 +70,15 @@ class VirtualDriverTestCase(unittest.TestCase):
 	def build(self, *driverNames):
 		"""Construct a virtual display and install it, as `_setDisplay` does.
 
-		The assignment matters: NVDA makes it only after the constructor has returned, and
-		several things this driver does are deliberately inert until it has happened.
+		Both of the last two steps matter, and neither is decoration. NVDA assigns
+		`handler.display` only after the constructor has returned, and it calls `initSettings`
+		last of all; several things this driver does are deliberately inert until both have
+		happened. A helper that skipped either would leave those guards untested.
 		"""
 		self.configure(*driverNames)
 		display = VirtualDisplay()
 		self.handler.display = display
+		display.initSettings()
 		return display
 
 
@@ -418,7 +421,6 @@ class AckPatchTestCase(VirtualDriverTestCase):
 
 
 class TestAckPatch(AckPatchTestCase):
-
 	def test_theDisplayNVDAOwnsKeepsItsOwnBehaviour(self):
 		ackPatch.install()
 		self.handler.setDisplay(self.acking)
@@ -615,6 +617,37 @@ class TestCellIndexTranslation(GestureTestCase):
 		self.handler.display = self.focus.instances[0]
 		gesture = StubBrailleDisplayGesture(FOCUS, "routing", [999])
 		self.assertTrue(decide_executeGesture.decide(gesture=gesture))
+
+	def test_nothingIsTranslatedWhileTheSameInstanceIsReconstructed(self):
+		"""Reselecting a display already in use rebuilds it in place, so identity says nothing.
+
+		`_switchDisplay` takes its `sameDisplayReInit` path when the driver has not changed:
+		it terminates and reruns `__init__` on the very object `braille.handler.display`
+		already points at. Editing the member list and reopening the composite is exactly
+		that. The members, the bands and the geometry are all replaced while identity holds
+		steady, so a press in that window would be rebased onto the new bands and routed
+		against the arrangement built for the old ones.
+		"""
+		self.display.terminate()
+		self.configure(FOCUS, MONARCH)
+		self.display.__init__()
+		# Constructed, gesture handling reinstalled, and still the same object NVDA holds —
+		# but `initSettings` has not run, so nothing may act as though the switch is over.
+		self.assertIs(braille.handler.display, self.display)
+		gesture = StubBrailleDisplayGesture(MONARCH, "routing", [0])
+		self.assertTrue(decide_executeGesture.decide(gesture=gesture))
+		self.assertEqual(gesture.cellIndexes, [0])
+
+	def test_translationResumesOnceTheReinitialisationFinishes(self):
+		self.display.terminate()
+		self.configure(FOCUS, MONARCH)
+		self.display.__init__()
+		self.display.initSettings()
+		# The Focus is now the top band, so the Monarch starts at row 1 of an 80 wide
+		# composite: its own cell 0 is composite cell 80.
+		gesture = StubBrailleDisplayGesture(MONARCH, "routing", [0])
+		self.assertTrue(decide_executeGesture.decide(gesture=gesture))
+		self.assertEqual(gesture.cellIndexes, [80])
 
 	def test_translationStopsWhenTheDisplayIsTerminated(self):
 		self.display.terminate()

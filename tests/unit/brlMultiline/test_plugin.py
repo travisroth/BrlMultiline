@@ -45,7 +45,7 @@ from braille.brailleHandler import BrailleHandler  # noqa: E402
 from brlMultiline import patches  # noqa: E402
 from brlMultiline.container import PLACEMENT_KEY_ATTRIBUTE, DisplayContainer  # noqa: E402
 from brlMultiline.layout import SegmentRect  # noqa: E402
-from brlMultiline.panels import GridPanel, SinglePanel  # noqa: E402
+from brlMultiline.panels import BlankPanel, GridPanel, SinglePanel  # noqa: E402
 from brlMultiline.views import SegmentView  # noqa: E402
 
 MONARCH_ROWS = 8
@@ -587,7 +587,7 @@ class TestSegmentsSwitch(PluginTestCase):
 		self.assertTrue(self.container.hasKey("table"))
 		self.toggle()
 		self.assertFalse(self.container.hasKey("table"))
-		self.assertTrue(any("does not fit" in message for level, message in log.messages))
+		self.assertTrue(any("cannot be shown" in message for level, message in log.messages))
 
 
 class TestNoDisplay(PluginTestCase):
@@ -651,6 +651,98 @@ class TestCompositeDisplay(PluginTestCase):
 		setBandConfig("hidBrailleStandard_8x32", segmentCount=4)
 		self.plugin.rebuildBuffer()
 		self.assertIn("device.freedomScientific.0", self.plugin._monitors)
+
+	def claimAcrossTheMonarch(self, numCols):
+		"""A claim over the Monarch's rows, of a given width."""
+		return SinglePanel("reader", SegmentRect(row=0, col=0, numRows=8, numCols=numCols))
+
+	def test_aClaimWiderThanItsDisplayIsRefused(self):
+		"""The mask is an ordinary panel, so a wide claim evicts it and takes the cells.
+
+		Cells 32 to 79 of those rows reach no hardware. A segment over them would be filled
+		by NVDA and thrown away by the driver's slice, with nothing raised and nothing logged.
+		The caller is told at once, as it is for a claim that does not fit.
+		"""
+		with self.assertRaises(ValueError):
+			self.plugin.activatePanel(self.claimAcrossTheMonarch(80))
+		self.assertFalse(self.container.hasKey("reader"))
+
+	def test_aRefusedClaimLeavesTheDisplayAsItWas(self):
+		with self.assertRaises(ValueError):
+			self.plugin.activatePanel(self.claimAcrossTheMonarch(80))
+		for rect in self.container.rects:
+			if rect.row < 8:
+				self.assertLessEqual(rect.endCol, 32)
+
+	def test_aClaimIsDroppedWhenItsDisplayIsReplacedByANarrowerOne(self):
+		"""Accepted when it was made, and no longer possible. Dropped rather than refused."""
+		self.plugin.activatePanel(self.claimAcrossTheMonarch(32))
+		self.assertTrue(self.container.hasKey("reader"))
+		self.handler.display = fakeVirtualDisplay(
+			("hidBrailleStandard", 0, 8, 16),
+			("freedomScientific", 8, 1, 80),
+		)
+		setBandConfig("hidBrailleStandard_8x16", segmentCount=1)
+		self.plugin.rebuildBuffer()
+		self.assertFalse(self.container.hasKey("reader"))
+		self.assertTrue(
+			any("cannot be shown" in message for level, message in log.messages),
+			log.messages,
+		)
+
+	def test_aClaimWithinItsDisplayIsKept(self):
+		self.plugin.activatePanel(self.claimAcrossTheMonarch(32))
+		self.assertTrue(self.container.hasKey("reader"))
+
+	def test_anActivatedViewReachingDeadCellsIsRefused(self):
+		"""A view arrives whole, so it never passes through the composite view builder."""
+		view = SegmentView(
+			"wide",
+			[SinglePanel("all", SegmentRect(row=0, col=0, numRows=9, numCols=80))],
+		)
+		with self.assertRaises(ValueError):
+			self.plugin.activateView(view)
+		self.assertEqual(self.plugin.currentView.name, "devices")
+
+	def test_anActivatedViewWithinTheDisplaysIsAllowed(self):
+		view = SegmentView(
+			"narrow",
+			[
+				SinglePanel("top", SegmentRect(row=0, col=0, numRows=8, numCols=32)),
+				BlankPanel(SegmentRect(row=0, col=32, numRows=8, numCols=48)),
+				SinglePanel("bottom", SegmentRect(row=8, col=0, numRows=1, numCols=80)),
+			],
+		)
+		self.plugin.activateView(view)
+		self.assertEqual(self.plugin.currentView.name, "narrow")
+
+	def test_aProfileListingDifferentDisplaysIsReported(self):
+		"""The list is not applied until the composite is reopened, so say so rather than not.
+
+		A profile can hold a member list of its own, and NVDA does not reinitialise a display
+		whose driver name has not changed. The configuration and the hardware then disagree
+		with nothing to announce it.
+		"""
+		from brailleDisplayDrivers.brlMultilineVirtual import vdConfig
+		from brailleDisplayDrivers.brlMultilineVirtual.virtualLayout import DeviceSpec
+
+		vdConfig.setDevices([DeviceSpec("freedomScientific")])
+		post_configProfileSwitch.notify()
+		self.assertTrue(
+			any(level == "warning" and "is running" in message for level, message in log.messages),
+			log.messages,
+		)
+
+	def test_aProfileListingTheSameDisplaysIsQuiet(self):
+		from brailleDisplayDrivers.brlMultilineVirtual import vdConfig
+		from brailleDisplayDrivers.brlMultilineVirtual.virtualLayout import DeviceSpec
+
+		vdConfig.setDevices(
+			[DeviceSpec("hidBrailleStandard"), DeviceSpec("freedomScientific")],
+		)
+		log.messages.clear()
+		post_configProfileSwitch.notify()
+		self.assertFalse([message for level, message in log.messages if level == "warning"])
 
 	def test_anOrdinaryDisplayIsUnaffected(self):
 		"""The device view is reached only through the driver, never by an ordinary display."""

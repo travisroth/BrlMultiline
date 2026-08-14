@@ -154,10 +154,19 @@ def _isDisplayInstalled() -> bool:
 	nothing is yet reading, and routed against a buffer still sized for the display the user
 	is leaving. Small window; wrong answer; cheap to exclude.
 
+	Identity alone does not answer it, and the case that proves it is NVDA reselecting a
+	display that is already in use — which is what reopening the composite after its member
+	list is edited does. `_switchDisplay` takes its `sameDisplayReInit` path there and
+	reconstructs *this same instance*, so `handler.display is _driver` never stops being true
+	while the members, the bands and the geometry are all replaced. The driver's own
+	`_installed`, set in `initSettings` and cleared in `terminate`, is what marks the interval.
+
 	:return: True once NVDA is driving this virtual display.
 	"""
 	handler = braille.handler
-	return handler is not None and handler.display is _driver
+	if handler is None or handler.display is not _driver:
+		return False
+	return bool(getattr(_driver, "_installed", False))
 
 
 def _translateCellIndexes(gesture=None, **kwargs) -> bool:

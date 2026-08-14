@@ -810,8 +810,55 @@ recording objects in for the controls. That reaches everything between the contr
 configuration, which is where a bug would be: writing one display's layout into another's
 section is exactly the failure this design makes possible and the tests make loud.
 
-563 tests, one expected failure. The five covering the composite arrangement were checked
-against the unfixed code and fail there.
+### Review found five things, and one of them was the guarantee itself
+
+- **The dead column mask could be evicted.** `deviceView` claims the dead columns with a
+  `BlankPanel`, but a blank panel is an ordinary panel, and `SegmentView.withPanel` evicts
+  every panel a new claim intersects. A claim spanning the full width of the Monarch's rows
+  therefore took the mask with it and put a segment over cells that reach nothing. An
+  activated view bypassed `deviceView` altogether. Reproduced with an 8 by 80 claim.
+
+  The correction is that dead cells are an invariant of whatever is finally shown, not a
+  property of the base view. `views.validateAgainstHardware` checks every segment of the
+  composed view against the dead rectangles, and it is applied at all four places a view can
+  be settled: activating a view, activating a panel, revalidating an activated view on
+  rebuild, and composing the stored claims. The two answers differ deliberately —
+  `activatePanel` and `activateView` raise, because the caller has asked for something
+  impossible and should be told; the rebuild loop drops, because a claim that was fine when
+  it was made can stop being possible when the displays behind the composite change.
+
+- **Reselecting the live display defeated the install window guard.** `_isDisplayInstalled`
+  tested object identity, and NVDA's `sameDisplayReInit` path terminates and reruns `__init__`
+  on the very instance `braille.handler.display` already points at. Identity therefore never
+  stops being true while the members, the bands and the geometry are all replaced. Reopening
+  the composite after editing its member list takes exactly that path, and so does a user
+  typing `setDisplayByName` twice, which is how the Phase 1 hardware run went.
+
+  The driver now carries `_installed`, set in `initSettings` — which `_switchDisplay` calls
+  last — and cleared at the top of `terminate`. That is the earliest honest answer to "is this
+  display in place". The test harness's `build` was calling neither `initSettings` nor
+  anything else NVDA does last; it does now, which is what made the guard testable at all.
+
+  One gap remains and is inherent rather than overlooked: between `initSettings` and the
+  plugin's deferred rebuild, the driver is current and the container is not. That window
+  belongs to every display change, not to this one, and it closes within an event loop turn.
+
+- **Explicit ports were discarded by opening the panel.** The panel offers no port control,
+  because members are detected afresh, but it was rebuilding every entry as `DeviceSpec(name)`
+  on save — so a port set from the console became automatic detection if the user so much as
+  opened the category and pressed OK. The panel now holds the specification each display was
+  configured as and reuses it. A value it cannot show is not a value it may quietly discard.
+
+- **A composite with every display undivided skipped focus validation.** The early return was
+  right for an ordinary display, whose single segment makes the focus number moot. A composite
+  still has one segment per display, because the hardware boundaries are not optional, so the
+  number still has to name one. Now gated on there being a single target.
+
+- **The member list is stored per profile.** Stated as a limit below rather than fixed.
+
+579 tests, one expected failure. Every fix above was checked against the unfixed code and
+fails there — including the four dead column tests, which is the point of the exercise: a
+guarantee with no test that fails without it is a comment.
 
 **Phase 4, resilience.** Per device failure, a reconnect poll using
 `bdDetect.getConnectedUsbDevicesForDriver` and `getPossibleBluetoothDevicesForDriver`, and a
@@ -857,6 +904,30 @@ identifiers *in addition to* the plain ones, so giving each slot a distinct `mod
 disambiguate while leaving default maps working through the unmodelled identifier. Injecting
 `model` means subclassing the member driver per slot and reaching into how it builds
 gestures, which is driver specific. Not version one.
+
+**The member list is stored per profile, and should not be.** `BrlMultilineVirtualDisplay` is
+an ordinary configuration section, so NVDA writes it to whichever profile was last active.
+Nothing acts on a profile's copy: `_switchDisplay` is not called when the driver name has not
+changed, so the composite goes on driving the members it opened while the configuration and
+the settings panel both describe a different set. Three states, two of them wrong.
+
+The contract this should have is base only — `config.configSections.registerSection` takes
+`isBaseOnly`, and `ConfigManager.BASE_ONLY_SECTIONS` is documented as extensible by add-ons.
+The member list is which pieces of hardware are wired together, which is not a per-application
+preference; and the alternative contract is worse on its own terms, since honouring a
+profile's list would mean reopening two Bluetooth displays every time a profile triggers.
+
+Not yet done, because it moves where the list is stored and the failure mode is starting with
+no braille at all. `registerSection` also only takes effect at the next start — it persists to
+a YAML file that `_loadCustomSections` reads — so doing it properly means adding the name to
+`BASE_ONLY_SECTIONS` directly as well, and `config.conf[section]` then reads
+`profiles[0][section]`, which our own code has to create and give a specification to, exactly
+as `bmConfig.getDisplayConfig` does for a display subsection. Worth doing carefully rather
+than between a code change and a hardware run.
+
+What is done is that the plugin compares the configured list against the running members on
+every profile switch and says so in the log when they differ. That turns a silent
+disagreement into a diagnosable one.
 
 **Member driver settings are unreachable from NVDA's dialog.**
 `gui/settingsDialogs.py:5237` returns `braille.handler.display`, so the braille settings panel

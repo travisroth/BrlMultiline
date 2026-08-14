@@ -18,6 +18,9 @@ from ._stubs import installStubs, resetConfig
 
 installStubs()
 
+from brailleDisplayDrivers.brlMultilineVirtual import vdConfig  # noqa: E402
+from brailleDisplayDrivers.brlMultilineVirtual.virtualLayout import DeviceSpec  # noqa: E402
+
 from brlMultiline import bmConfig  # noqa: E402
 from brlMultiline.devices import DeviceInfo  # noqa: E402
 from brlMultiline.settingsPanel import (  # noqa: E402
@@ -239,6 +242,16 @@ class TestCompositeDisplay(SegmentPanelTestCase):
 		self.assertFalse(self.panel.isValid())
 		self.assertEqual(self.panel.targetIndex, 1)
 
+	def test_theFocusSegmentIsCheckedEvenWhenNoDisplayIsDivided(self):
+		"""A composite still has one segment per display: the boundaries are not optional."""
+		self.panel.segmentsEnabledCtrl.SetValue(False)
+		self.show(1)
+		self.panel.segmentsEnabledCtrl.SetValue(False)
+		self.panel.focusSegmentCtrl.SetValue(7)
+		self.assertFalse(self.panel.isValid())
+		self.panel.focusSegmentCtrl.SetValue(1)
+		self.assertTrue(self.panel.isValid())
+
 	def test_theFocusSegmentIsCountedAcrossEveryDisplay(self):
 		self.panel.segmentCountCtrl.SetValue(4)
 		self.show(1)
@@ -261,6 +274,7 @@ class TestDisplayList(SettingsPanelTestCase):
 			"hidBrailleStandard": "Standard HID braille display",
 			"brlMultilineVirtual": "BrlMultiline: several displays as one",
 		}
+		self.panel.storedSpecs = {}
 		self.panel.chosen = []
 		self.panel._original = []
 		self.panel.chosenCtrl = FakeControl(-1)
@@ -313,3 +327,65 @@ class TestDisplayList(SettingsPanelTestCase):
 		self.assertFalse(self.panel.removeButton.enabled)
 		self.panel._onRemove(None)
 		self.assertEqual(self.panel.chosen, [])
+
+
+class TestExplicitPorts(SettingsPanelTestCase):
+	"""A port can only be set from the console, so this panel must not quietly drop one.
+
+	Read through the real `vdConfig`, so that what the panel loads is what the driver stores.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		vdConfig.setDevices(
+			[DeviceSpec("hidBrailleStandard"), DeviceSpec("freedomScientific", "COM4")],
+		)
+		self.panel = object.__new__(VirtualDisplaySettingsPanel)
+		self.panel.descriptions = {
+			"freedomScientific": "Freedom Scientific Focus",
+			"hidBrailleStandard": "Standard HID braille display",
+		}
+		self.panel.storedSpecs = self.panel._readDevices()
+		self.panel.chosen = list(self.panel.storedSpecs)
+		self.panel._original = list(self.panel.chosen)
+		self.panel.chosenCtrl = FakeControl(-1)
+		self.panel.availableCtrl = FakeControl(0)
+		self.panel.moveUpButton = FakeControl()
+		self.panel.moveDownButton = FakeControl()
+		self.panel.removeButton = FakeControl()
+		self.panel.addButton = FakeControl()
+		self.panel._refresh()
+
+	def test_openingAndSavingKeepsAPort(self):
+		"""Pressing OK with nothing changed must change nothing."""
+		self.assertEqual(
+			[(spec.driverName, spec.port) for spec in self.panel.specsToStore()],
+			[("hidBrailleStandard", "auto"), ("freedomScientific", "COM4")],
+		)
+
+	def test_reorderingKeepsAPort(self):
+		self.panel._refresh(select=1)
+		self.panel._onMoveUp(None)
+		self.assertEqual(
+			[(spec.driverName, spec.port) for spec in self.panel.specsToStore()],
+			[("freedomScientific", "COM4"), ("hidBrailleStandard", "auto")],
+		)
+
+	def test_aNewlyAddedDisplayIsDetectedAfresh(self):
+		self.panel.storedSpecs = {}
+		self.panel.chosen = ["hidBrailleStandard"]
+		self.assertEqual([spec.port for spec in self.panel.specsToStore()], ["auto"])
+
+	def test_savingAndReadingBackAgreeWithTheDriver(self):
+		"""The round trip, so that the panel and the driver cannot drift apart."""
+		self.panel.onSave()
+		self.assertEqual(
+			[(spec.driverName, spec.port) for spec in vdConfig.getDevices()],
+			[("hidBrailleStandard", "auto"), ("freedomScientific", "COM4")],
+		)
+
+	def test_aRemovedDisplayIsGone(self):
+		self.panel._refresh(select=0)
+		self.panel._onRemove(None)
+		self.panel.onSave()
+		self.assertEqual([spec.driverName for spec in vdConfig.getDevices()], ["freedomScientific"])

@@ -96,6 +96,10 @@ Things worth knowing:
 - The add-on has to be enabled. With it disabled and the combined display still selected,
   NVDA writes across the full width of every row, and anything landing past a narrower
   display's edge is lost.
+- Choose the displays with no configuration profile active. NVDA stores changed settings in
+  the profile that is active at the time, and a profile cannot change which displays are
+  combined: the list only takes effect when the combined display is selected again. If they
+  ever disagree, the log says so.
 
 ## Commands
 
