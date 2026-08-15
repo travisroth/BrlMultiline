@@ -194,6 +194,24 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			max=bmConfig.MAX_UI_SEGMENTS - 1,
 			initial=int(section["focusSegment"]),
 		)
+		if self.devices:
+			# Translators: label of a spin control in settings, on a display made of several
+			# displays. -1 means wherever the focus is, which is where messages appear on an
+			# undivided display.
+			messageLabel = _(
+				"Segment that flash &messages appear in, counted across every display "
+				"(-1 to follow the focus):",
+			)
+		else:
+			# Translators: label of a spin control in settings. -1 means wherever the focus is.
+			messageLabel = _("Segment that flash &messages appear in (-1 to follow the focus):")
+		self.messageSegmentCtrl = sHelper.addLabeledControl(
+			messageLabel,
+			wx.SpinCtrl,
+			min=-1,
+			max=bmConfig.MAX_UI_SEGMENTS - 1,
+			initial=int(section["messageSegment"]),
+		)
 		# Translators: label of a checkbox in settings.
 		reverseLabel = _("&Reverse the panning keys on this display")
 		self.reverseScrollCtrl = sHelper.addItem(wx.CheckBox(self, label=reverseLabel))
@@ -343,18 +361,17 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			# hardware boundaries whatever the switches say, so it still has one segment per
 			# display and the focus number still has to name one of them.
 			return True
-		focusSegment = self.focusSegmentCtrl.Value
-		if focusSegment >= totalSegments:
-			self._reportError(
-				# Translators: reported when the chosen focus segment does not exist.
-				# Placeholders are the chosen number and the number of segments configured.
-				_("There is no segment {chosen}; this layout has {count} segments, numbered from 0.").format(
-					chosen=focusSegment,
-					count=totalSegments,
-				),
-				self.focusSegmentCtrl,
-			)
-			return False
+		for control in (self.focusSegmentCtrl, self.messageSegmentCtrl):
+			if control.Value >= totalSegments:
+				self._reportError(
+					# Translators: reported when a chosen segment number does not exist.
+					# Placeholders are the chosen number and the number of segments configured.
+					_(
+						"There is no segment {chosen}; this layout has {count} segments, numbered from 0.",
+					).format(chosen=control.Value, count=totalSegments),
+					control,
+				)
+				return False
 		return True
 
 	def _forTarget(self, target: _DivisionTarget, message: str) -> str:
@@ -393,6 +410,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		# it: there is one focus, one pair of panning keys, and one reading order.
 		section = bmConfig.getDisplayConfig(self.displayKey)
 		section["focusSegment"] = self.focusSegmentCtrl.Value
+		section["messageSegment"] = self.messageSegmentCtrl.Value
 		section["reverseScrollBtns"] = self.reverseScrollCtrl.IsChecked()
 		section["showDocumentLines"] = self.documentLinesCtrl.IsChecked()
 

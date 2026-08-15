@@ -45,6 +45,7 @@ from braille.brailleHandler import BrailleHandler  # noqa: E402
 from brlMultiline import patches  # noqa: E402
 from brlMultiline.container import PLACEMENT_KEY_ATTRIBUTE, DisplayContainer  # noqa: E402
 from brlMultiline.layout import SegmentRect  # noqa: E402
+from brlMultiline.messages import MessageBuffer  # noqa: E402
 from brlMultiline.panels import BlankPanel, GridPanel, SinglePanel  # noqa: E402
 from brlMultiline.views import SegmentView  # noqa: E402
 
@@ -588,6 +589,67 @@ class TestSegmentsSwitch(PluginTestCase):
 		self.toggle()
 		self.assertFalse(self.container.hasKey("table"))
 		self.assertTrue(any("cannot be shown" in message for level, message in log.messages))
+
+
+class TestMessageBuffer(PluginTestCase):
+	"""Flash messages go into a segment rather than across the whole display."""
+
+	segmentCount = 4
+
+	def messageBuffer(self):
+		return self.handler.messageBuffer
+
+	def test_nvdasOwnMessageBufferIsReplaced(self):
+		self.assertIsInstance(self.messageBuffer(), MessageBuffer)
+
+	def test_messagesFollowTheFocusSegmentByDefault(self):
+		"""Which is where a message lands on an undivided display."""
+		self.assertEqual(self.messageBuffer().rect, self.container.focusSegment.rect)
+
+	def test_aChosenSegmentIsUsedInstead(self):
+		CONFIG["messageSegment"] = 0
+		self.plugin.rebuildBuffer()
+		self.assertEqual(self.messageBuffer().rect, self.container.segments[0].rect)
+
+	def test_aSegmentThatDoesNotExistFallsBackToTheFocus(self):
+		CONFIG["messageSegment"] = 7
+		self.plugin.rebuildBuffer()
+		self.assertEqual(self.messageBuffer().rect, self.container.focusSegment.rect)
+		self.assertTrue(
+			any("for messages" in message for level, message in log.messages),
+			log.messages,
+		)
+
+	def test_theSameObjectIsKeptAcrossRebuilds(self):
+		"""The handler decides a message is showing by comparing identity with this object."""
+		before = self.messageBuffer()
+		CONFIG["messageSegment"] = 1
+		self.plugin.rebuildBuffer()
+		self.assertIs(self.messageBuffer(), before)
+		self.assertEqual(self.messageBuffer().rect, self.container.segments[1].rect)
+
+	def test_aShowingMessageSurvivesARebuild(self):
+		"""Replacing the object under a live message would leave one nothing could dismiss."""
+		self.handler.buffer = self.messageBuffer()
+		self.plugin.rebuildBuffer()
+		self.assertIs(self.handler.buffer, self.handler.messageBuffer)
+
+	def test_terminateGivesNVDAItsOwnBufferBack(self):
+		original = self.plugin._originalMessageBuffer
+		self.plugin.terminate()
+		self.assertIs(self.handler.messageBuffer, original)
+
+	def test_terminateWhileAMessageIsShowingDoesNotStrandIt(self):
+		self.handler.buffer = self.messageBuffer()
+		self.plugin.terminate()
+		self.assertIs(self.handler.buffer, self.handler.messageBuffer)
+
+	def test_losingTheDisplayGivesNVDAItsOwnBufferBack(self):
+		original = self.plugin._originalMessageBuffer
+		self.handler.displayDimensions.numRows = 0
+		self.handler.displayDimensions.numCols = 0
+		self.plugin.rebuildBuffer()
+		self.assertIs(self.handler.messageBuffer, original)
 
 
 class TestNoDisplay(PluginTestCase):

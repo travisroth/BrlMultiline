@@ -38,6 +38,7 @@ configSpec = {
 			"segmentCount": f"integer(default=1, min=1, max={MAX_UI_SEGMENTS})",
 			"segmentSizes": "int_list(default=list())",
 			"focusSegment": f"integer(default=-1, min=-1, max={MAX_UI_SEGMENTS - 1})",
+			"messageSegment": f"integer(default=-1, min=-1, max={MAX_UI_SEGMENTS - 1})",
 			"reverseScrollBtns": "boolean(default=False)",
 			"showDocumentLines": "boolean(default=False)",
 		},
@@ -53,6 +54,9 @@ configSpec = {
 - `segmentSizes`: explicit segment sizes, in rows on a multi row display and in cells on
 	a single row display. Empty means divide evenly into `segmentCount`.
 - `focusSegment`: which segment tracks the system focus. -1 means the last.
+- `messageSegment`: which segment NVDA's flash messages appear in. -1 means whichever segment
+	is following the focus, which is where a message appears on an undivided display and is
+	therefore the familiar answer.
 - `reverseScrollBtns`: swap the panning keys. NVDA has no such setting of its own.
 - `showDocumentLines`: fill the segments around the focus segment with the document lines
 	above and below the caret.
@@ -143,6 +147,20 @@ def getLayout(displayKey: str | None = None) -> int | list[int]:
 def getFocusSegment(displayKey: str | None = None) -> int:
 	""":return: the configured focus segment number, -1 meaning the last segment."""
 	return int(getDisplayConfig(displayKey)["focusSegment"])
+
+
+def getMessageSegment(displayKey: str | None = None) -> int:
+	""":return: the segment NVDA's flash messages should appear in.
+
+	-1, the default, means the segment following the focus. That is where a message lands on
+	an undivided display, so it is what a user changing nothing should get.
+	"""
+	try:
+		return int(getDisplayConfig(displayKey)["messageSegment"])
+	except Exception:
+		# A configuration problem must not cost the user their messages.
+		log.debugWarning("Could not read messageSegment", exc_info=True)
+		return -1
 
 
 def shouldReverseScrollButtons(displayKey: str | None = None) -> bool:

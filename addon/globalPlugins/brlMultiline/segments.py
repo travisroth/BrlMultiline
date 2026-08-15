@@ -29,11 +29,51 @@ if TYPE_CHECKING:
 	from .container import DisplayContainer
 
 
-class _SegmentHandlerProxy:
-	"""Stands in for the braille handler, reporting a segment's rectangle as the display.
+class RectHandlerProxy:
+	"""Stands in for the braille handler, reporting one rectangle as the whole display.
+
+	This is the trick the module docstring describes, on its own: every geometry dependent
+	method in `BrailleBuffer` reads its dimensions from `self.handler`, so a buffer given one
+	of these wraps its text, places its continuation marks and moves its window inside the
+	rectangle without knowing there is anything else on the display.
 
 	Every attribute other than the display dimensions is forwarded to the real handler.
 	"""
+
+	def __init__(self, handler: "BrailleHandler", rect: SegmentRect) -> None:
+		"""
+		:param handler: the real braille handler.
+		:param rect: the rectangle to report as the display.
+		"""
+		self._handler = handler
+		self.setRect(rect)
+
+	def setRect(self, rect: SegmentRect) -> None:
+		"""Report a different rectangle from now on.
+
+		:param rect: the new rectangle.
+		"""
+		self._dimensions = DisplayDimensions(numRows=rect.numRows, numCols=rect.numCols)
+
+	@property
+	def displayDimensions(self) -> DisplayDimensions:
+		return self._dimensions
+
+	@property
+	def displaySize(self) -> int:
+		return self._dimensions.displaySize
+
+	def __getattr__(self, name: str) -> Any:
+		# Only called when normal attribute lookup fails, so the properties above win.
+		try:
+			handler = object.__getattribute__(self, "_handler")
+		except AttributeError:
+			raise AttributeError(name) from None
+		return getattr(handler, name)
+
+
+class _SegmentHandlerProxy(RectHandlerProxy):
+	"""A rectangle proxy for a segment of the container."""
 
 	def __init__(
 		self,
@@ -46,19 +86,10 @@ class _SegmentHandlerProxy:
 		:param container: the container that owns the segment using this proxy.
 		:param rect: the rectangle the segment occupies.
 		"""
-		self._handler = handler
+		super().__init__(handler, rect)
 		self._container = container
-		self._dimensions = DisplayDimensions(numRows=rect.numRows, numCols=rect.numCols)
 		self.segment: "BrailleBufferSegment | None" = None
 		"""The segment using this proxy. Assigned by the segment on construction."""
-
-	@property
-	def displayDimensions(self) -> DisplayDimensions:
-		return self._dimensions
-
-	@property
-	def displaySize(self) -> int:
-		return self._dimensions.displaySize
 
 	@property
 	def buffer(self) -> Any:
@@ -68,19 +99,14 @@ class _SegmentHandlerProxy:
 		A segment is never the handler's buffer, because the container is. Reporting the
 		segment while the container is active lets that guard pass, so a segment can
 		refresh the display in the normal way.
+
+		A message buffer needs no such thing: it really is `handler.buffer` while it is
+		showing, so the forwarded attribute is already the right answer.
 		"""
 		realBuffer = self._handler.buffer
 		if realBuffer is self._container:
 			return self.segment
 		return realBuffer
-
-	def __getattr__(self, name: str) -> Any:
-		# Only called when normal attribute lookup fails, so the properties above win.
-		try:
-			handler = object.__getattribute__(self, "_handler")
-		except AttributeError:
-			raise AttributeError(name) from None
-		return getattr(handler, name)
 
 
 class BrailleBufferSegment(BrailleBuffer):

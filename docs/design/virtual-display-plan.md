@@ -860,6 +860,55 @@ section is exactly the failure this design makes possible and the tests make lou
 fails there — including the four dead column tests, which is the point of the exercise: a
 guarantee with no test that fails without it is a comment.
 
+### The hardware run found the one path a view cannot cover
+
+Phases 1 to 3 passed on a Monarch above a Focus 80: geometry, routing on both displays across
+rows, the Focus's wiz wheel rebinding live, and multi key modifiers staying scoped to the
+display that raised them. What the run also found was flash messages appearing on the Monarch
+rather than beside the focus.
+
+The placement is not a bug and the focus segment was never going to catch them.
+`BrailleHandler.message` swaps `handler.buffer` for `handler.messageBuffer`, a plain
+`BrailleBuffer` built in the handler's constructor, so while a message is showing the display
+container is bypassed entirely and NVDA's own flat buffer drives every cell. A flat buffer
+starts at cell 0, and on a composite cell 0 is the top left of the upper display. The focus
+segment is a property of `mainBuffer`; a message is never in it.
+
+Behind the placement was the defect. `BrailleBuffer._get_windowBrailleCells` pads every row
+to `handler.displayDimensions.numCols`, which is the composite's 80, while the Monarch's rows
+have 32 cells that reach hardware — so up to 48 characters of every row were written into
+cells that display nothing, and the rest of a long message read as though it had never been
+sent. The dead column trap, reappearing through the one path `deviceView` cannot reach,
+because that path replaces the buffer the view built.
+
+`messages.MessageBuffer` answers both by doing to the message buffer what `segments` does to
+the main one: a `RectHandlerProxy` so NVDA's own wrapping lays the message out at the
+segment's width, and a composite step that places the result at the segment's position.
+Nothing can reach a dead column because nothing is laid out wider than the hardware it is
+going to. Which segment is now a setting, `messageSegment`, defaulting to -1 for "follow the
+focus" — which is where a message lands on an undivided display and therefore what a user
+changing nothing should get.
+
+Two details worth keeping:
+
+- **The object is retargeted, never replaced.** The handler decides whether a message is
+  showing by comparing `buffer is messageBuffer`, in six places. Swapping the object those
+  comparisons point at while a message was up would leave one that nothing could dismiss.
+  `setRect` moves the rectangle and keeps the identity.
+- **`routeTo` is translated even though nothing observes it.** NVDA dismisses the message
+  immediately after routing into it and `TextRegion.routeTo` does nothing, so the translation
+  has no effect today. It is written correctly because the day a message holds something
+  routable, an untranslated position acts on a cell the user did not press — the failure this
+  driver already met once in cell index rebasing.
+
+This also forced a fidelity fix in the test stubs. NVDA's `BrailleBuffer` is an
+`AutoPropertyObject`, and the stub declared its geometry with `@property`. A subclass
+overriding `_get_windowBrailleCells` overrides nothing against that, so every test of the
+override would have passed while exercising the stub. The stub now defines its geometry in
+`_get_` form, and `test_messages.TestStubFidelity` asserts the wiring so it cannot drift back.
+
+608 tests, one expected failure.
+
 **Phase 4, resilience.** Per device failure, a reconnect poll using
 `bdDetect.getConnectedUsbDevicesForDriver` and `getPossibleBluetoothDevicesForDriver`, and a
 geometry change path: `braille.handler.invalidateCache()` clears the cached

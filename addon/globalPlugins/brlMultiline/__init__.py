@@ -30,6 +30,8 @@ from scriptHandler import script
 from . import bmConfig, patches
 from .container import DisplayContainer
 from .devices import DeviceInfo, deviceMap
+from .layout import SegmentRect
+from .messages import MessageBuffer
 from .objectMonitor import ObjectMonitor
 from .panels import BraillePanel
 from .settingsPanel import BrailleMultilineSettingsPanel, VirtualDisplaySettingsPanel
@@ -67,6 +69,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		Keyed rather than numbered so that a rebuild which keeps a segment keeps its pin.
 		"""
+		self._messageBuffer: MessageBuffer | None = None
+		"""NVDA's flash messages, confined to one segment. Made on the first rebuild.
+
+		Made once and retargeted, never replaced: the handler decides whether a message is
+		showing by comparing `buffer is messageBuffer`, so swapping the object under it would
+		leave a message that could not be dismissed. See L{_installMessageBuffer}.
+		"""
+		self._originalMessageBuffer = None
+		"""NVDA's own, kept to be put back on termination."""
 		self._rebuildPending = False
 		self._terminated = False
 		"""Set by L{terminate}, so that work already queued does not run afterwards."""
@@ -334,10 +345,80 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		handler.mainBuffer = container
 		if wasShowingMainBuffer:
 			handler.buffer = container
+		self._installMessageBuffer(handler, container)
 		self._refreshDisplay()
 		# After the display has been redrawn from the focus, so that a pinned object is
 		# written over the fresh layout rather than under it.
 		self.refreshMonitors()
+
+	def _messageRect(self, container: DisplayContainer) -> SegmentRect:
+		""":return: the rectangle NVDA's flash messages should appear in.
+
+		:param container: the container about to be shown.
+		"""
+		number = bmConfig.getMessageSegment()
+		if number != -1:
+			try:
+				return container.segments[container.resolveSegmentNumber(number)].rect
+			except LookupError:
+				log.warning(
+					f"BrlMultiline: no segment {number} for messages in this layout; "
+					"using the segment that follows the focus",
+				)
+		return container.focusSegment.rect
+
+	def _installMessageBuffer(self, handler, container: DisplayContainer) -> None:
+		"""Put messages in a segment rather than across the whole display.
+
+		NVDA's own message buffer wraps to the display's full width and starts at cell 0, so
+		on a divided display messages land wherever the top left happens to be, and on a
+		composite of displays of unequal width the overhang is written to cells that reach no
+		hardware. See `messages`.
+
+		The buffer object is made once and retargeted afterwards, never replaced. The handler
+		decides whether a message is showing by comparing `buffer is messageBuffer`, so a
+		replacement made while a message was up would leave one that could never be dismissed.
+
+		:param handler: the braille handler.
+		:param container: the container just installed, for the segment rectangles.
+		"""
+		try:
+			rect = self._messageRect(container)
+			if self._messageBuffer is None:
+				self._originalMessageBuffer = handler.messageBuffer
+				self._messageBuffer = MessageBuffer(handler, rect)
+			else:
+				self._messageBuffer.setRect(rect)
+			if handler.messageBuffer is not self._messageBuffer:
+				# Either the first install, or NVDA has rebuilt its own buffer underneath us,
+				# which it does whenever braille is reinitialised.
+				showingMessage = handler.buffer is handler.messageBuffer
+				handler.messageBuffer = self._messageBuffer
+				if showingMessage:
+					handler.buffer = self._messageBuffer
+		except Exception:
+			# Messages going to the wrong place is a poor reason to lose the whole layout.
+			log.error("BrlMultiline: could not install the message buffer", exc_info=True)
+
+	def _restoreMessageBuffer(self) -> None:
+		"""Give NVDA its own message buffer back."""
+		if self._messageBuffer is None:
+			return
+		handler = braille.handler
+		try:
+			if handler is not None and handler.messageBuffer is self._messageBuffer:
+				showingMessage = handler.buffer is self._messageBuffer
+				handler.messageBuffer = self._originalMessageBuffer
+				if showingMessage:
+					# Dismissing rather than carrying the message across, because the region
+					# belongs to a buffer that is about to stop being the handler's.
+					handler.buffer = self._originalMessageBuffer
+					handler.messageBuffer.clear()
+		except Exception:
+			log.error("BrlMultiline: could not restore NVDA's message buffer", exc_info=True)
+		finally:
+			self._messageBuffer = None
+			self._originalMessageBuffer = None
 
 	def _carryOverMonitors(self, container: DisplayContainer) -> None:
 		"""Keep the pins whose segment survived into a new container, and drop the rest.
@@ -372,7 +453,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._monitors = survivors
 
 	def _restoreOriginalBuffer(self) -> None:
-		"""Put NVDA's own buffer back."""
+		"""Put NVDA's own buffers back."""
+		# First, and outside the early return below: the message buffer is installed
+		# separately and has to come back whether or not the main buffer was ever replaced.
+		self._restoreMessageBuffer()
 		handler = braille.handler
 		if not handler or handler.mainBuffer is self._originalMainBuffer:
 			return

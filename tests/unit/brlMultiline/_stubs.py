@@ -295,8 +295,15 @@ class Region:
 		return f"<Region {self.rawText!r}>"
 
 
-class BrailleBuffer:
-	"""The smallest buffer that answers everything the container asks of a segment."""
+class BrailleBuffer(AutoPropertyObject):
+	"""The smallest buffer that answers everything the container asks of a segment.
+
+	An `AutoPropertyObject` because NVDA's own `BrailleBuffer` is one, and the difference is
+	not cosmetic. A subclass overriding `_get_windowBrailleCells` overrides nothing at all
+	against a base that declares `windowBrailleCells` with `@property`: the parent's property
+	wins, the override is never called, and a test of it passes while testing the stub. The
+	buffer's geometry is defined here in `_get_` form for that reason.
+	"""
 
 	def __init__(self, handler):
 		self.handler = handler
@@ -309,8 +316,7 @@ class BrailleBuffer:
 		self.scrolled = None
 		self._savedWindow = None
 
-	@property
-	def visibleRegions(self):
+	def _get_visibleRegions(self):
 		return [region for region in self.regions if not region.hidden]
 
 	def clear(self):
@@ -328,15 +334,8 @@ class BrailleBuffer:
 		if self is self.handler.buffer:
 			self.handler.update()
 
-	@property
-	def windowEndPos(self):
+	def _get_windowEndPos(self):
 		return min(len(self.brailleCells), self.windowStartPos + self.handler.displaySize)
-
-	@windowEndPos.setter
-	def windowEndPos(self, endPos):
-		# Through the method rather than assigning here, so that a subclass overriding
-		# `_set_windowEndPos` is honoured, as NVDA's auto properties honour it.
-		self._set_windowEndPos(endPos)
 
 	def _set_windowEndPos(self, endPos):
 		self.windowStartPos = max(0, endPos - self.handler.displaySize)
@@ -347,16 +346,13 @@ class BrailleBuffer:
 	def _isMidWordCut(self, end, bufferEnd):
 		return False
 
-	@property
-	def windowBrailleCells(self):
+	def _get_windowBrailleCells(self):
 		return self.brailleCells[self.windowStartPos : self.windowEndPos]
 
-	@property
-	def windowRawText(self):
+	def _get_windowRawText(self):
 		return self.rawText[self.windowStartPos : self.windowEndPos]
 
-	@property
-	def cursorWindowPos(self):
+	def _get_cursorWindowPos(self):
 		return self.cursorPos
 
 	def focus(self, region):

@@ -15,7 +15,10 @@ established there.
 - `devices.py` — reading the device map of a display that is several physical displays
   combined. The only module above the braille display driver that knows a composite is one.
   See [virtual-display-plan.md](virtual-display-plan.md).
-- `segments.py` — `_SegmentHandlerProxy` and `BrailleBufferSegment`.
+- `segments.py` — `RectHandlerProxy`, `_SegmentHandlerProxy` and `BrailleBufferSegment`.
+- `messages.py` — `MessageBuffer`, NVDA's flash messages confined to one segment. The other
+  user of `RectHandlerProxy`, and the one path a container cannot cover, since
+  `BrailleHandler.message` swaps the handler's buffer out from under it.
 - `container.py` — `DisplayContainer` and `FakeRegionsList`.
 - `patches.py` — the three patches to `BrailleHandler`, installed and removed together.
 - `documentLines.py` — `TextInfoPositionRegion` and the code that fills free segments.

@@ -76,6 +76,7 @@ def defaults():
 		"segmentCount": 1,
 		"segmentSizes": [],
 		"focusSegment": -1,
+		"messageSegment": -1,
 		"reverseScrollBtns": False,
 		"showDocumentLines": False,
 	}
@@ -146,6 +147,7 @@ class SegmentPanelTestCase(SettingsPanelTestCase):
 		self.panel.segmentSizesCtrl = FakeControl("")
 		self.panel.sizesHintCtrl = FakeControl()
 		self.panel.focusSegmentCtrl = FakeControl(-1)
+		self.panel.messageSegmentCtrl = FakeControl(-1)
 		self.panel.reverseScrollCtrl = FakeControl(False)
 		self.panel.documentLinesCtrl = FakeControl(False)
 		self.panel._showTarget(0)

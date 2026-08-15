@@ -50,6 +50,11 @@ on a Monarch gives a one row segment, then a five row segment, then a two row se
 showing whatever has focus. Segments are numbered from 0. Enter -1 for the last segment,
 which is the default.
 
+**Segment that flash messages appear in.** Where NVDA's brief messages go — the time, a
+setting you just changed, "selected". Enter -1, the default, to put them wherever the focus
+is, which is where they appear on an undivided display. Choosing a segment is most useful
+with two displays combined, where you can keep messages off the display you are reading.
+
 **Reverse the panning keys on this display.** Swaps the effect of the panning keys, so the
 key that normally scrolls back scrolls forward instead. This is stored per display, which
 is the point of it: on a Focus 80 the left hand key is the comfortable one for moving
@@ -87,6 +92,9 @@ Things worth knowing:
   written where you could not read it.
 - One display per driver. Two displays of the same make cannot be told apart, so only one of
   each can be used.
+- Flash messages follow the focus by default, as they do on one display. "Segment that flash
+  messages appear in" moves them, which is worth setting if you want the second display left
+  alone while you read.
 - Each display is detected when it is opened, so a display that is switched off is simply
   left out and the others are used.
 - NVDA's automatic braille display detection is off while the combined display is selected,
