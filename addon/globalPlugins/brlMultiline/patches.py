@@ -24,7 +24,7 @@ from braille.constants import CONTEXTPRES_CHANGEDCONTEXT
 from config.configFlags import TetherTo
 from logHandler import log
 
-from . import bmConfig, documentLines
+from . import bmConfig, documentLines, panning
 from .container import DisplayContainer
 
 _originalDoNewObject = None
@@ -219,13 +219,13 @@ def _handlePendingUpdateWithDocumentLines(self: BrailleHandler) -> None:
 
 
 def _scrollForwardMaybeReversed(self: BrailleHandler) -> None:
-	if bmConfig.shouldReverseScrollButtons():
+	if panning.shouldReverse():
 		return _originalScrollBack(self)
 	return _originalScrollForward(self)
 
 
 def _scrollBackMaybeReversed(self: BrailleHandler) -> None:
-	if bmConfig.shouldReverseScrollButtons():
+	if panning.shouldReverse():
 		return _originalScrollForward(self)
 	return _originalScrollBack(self)
 

@@ -168,9 +168,13 @@ class TestOrdinaryDisplay(SegmentPanelTestCase):
 	def test_savingWritesTheOneSection(self):
 		self.panel.segmentCountCtrl.SetValue(3)
 		self.panel.focusSegmentCtrl.SetValue(1)
+		self.panel.reverseScrollCtrl.SetValue(True)
 		self.panel.onSave()
 		self.assertEqual(self.sections[self.displayKey]["segmentCount"], 3)
 		self.assertEqual(self.sections[self.displayKey]["focusSegment"], 1)
+		# One display, so per display and per arrangement are the same section: unchanged
+		# from before the panning direction moved into the per display group.
+		self.assertTrue(self.sections[self.displayKey]["reverseScrollBtns"])
 
 	def test_aLayoutThatDoesNotFitIsRefused(self):
 		self.panel.segmentSizesCtrl.SetValue("4, 5")
@@ -228,13 +232,34 @@ class TestCompositeDisplay(SegmentPanelTestCase):
 	def test_theFocusSegmentBelongsToTheDisplayAsAWhole(self):
 		"""There is one focus, whichever of the displays it happens to be sitting on."""
 		self.panel.focusSegmentCtrl.SetValue(2)
-		self.panel.reverseScrollCtrl.SetValue(True)
+		self.panel.messageSegmentCtrl.SetValue(1)
 		self.panel.onSave()
 		self.assertEqual(self.sections[COMPOSITE_KEY]["focusSegment"], 2)
-		self.assertTrue(self.sections[COMPOSITE_KEY]["reverseScrollBtns"])
+		self.assertEqual(self.sections[COMPOSITE_KEY]["messageSegment"], 1)
 		# Not written to the displays behind it, which have no focus of their own.
 		self.assertEqual(self.sections[MONARCH_KEY]["focusSegment"], -1)
+
+	def test_panningDirectionIsPerDisplay(self):
+		"""The panning keys are on one piece of hardware and sit differently on each."""
+		self.panel.reverseScrollCtrl.SetValue(True)
+		self.show(1)
+		self.panel.reverseScrollCtrl.SetValue(False)
+		self.panel.onSave()
+		self.assertTrue(self.sections[MONARCH_KEY]["reverseScrollBtns"])
 		self.assertFalse(self.sections[FOCUS_KEY]["reverseScrollBtns"])
+
+	def test_panningDirectionFollowsTheChooser(self):
+		"""The bug this fixes: the checkbox sat under the chooser and ignored it."""
+		self.panel.reverseScrollCtrl.SetValue(True)
+		self.show(1)
+		self.assertFalse(self.panel.reverseScrollCtrl.IsChecked())
+		self.show(0)
+		self.assertTrue(self.panel.reverseScrollCtrl.IsChecked())
+
+	def test_panningDirectionIsNotWrittenToTheComposite(self):
+		self.panel.reverseScrollCtrl.SetValue(True)
+		self.panel.onSave()
+		self.assertFalse(self.sections[COMPOSITE_KEY]["reverseScrollBtns"])
 
 	def test_aLayoutRefusedOnADisplayNotShownSelectsIt(self):
 		"""The error is about the Focus, so the Focus is what the user is put back on."""

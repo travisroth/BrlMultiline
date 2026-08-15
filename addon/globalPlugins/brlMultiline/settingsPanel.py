@@ -178,6 +178,13 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		sizesLabel = _("Segment si&zes, separated by commas (blank to divide evenly):")
 		self.segmentSizesCtrl = sHelper.addLabeledControl(sizesLabel, wx.TextCtrl)
 		self.sizesHintCtrl = sHelper.addItem(wx.StaticText(self, label=""))
+		# Above the line, with the chooser, because reversal belongs to the keys of one
+		# physical display rather than to the arrangement as a whole. Placed below the
+		# chooser but saved against the connected display, it read as though it followed the
+		# chooser and did not.
+		# Translators: label of a checkbox in settings.
+		reverseLabel = _("&Reverse the panning keys on this display")
+		self.reverseScrollCtrl = sHelper.addItem(wx.CheckBox(self, label=reverseLabel))
 		self._showTarget(0)
 
 		if self.devices:
@@ -212,10 +219,6 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			max=bmConfig.MAX_UI_SEGMENTS - 1,
 			initial=int(section["messageSegment"]),
 		)
-		# Translators: label of a checkbox in settings.
-		reverseLabel = _("&Reverse the panning keys on this display")
-		self.reverseScrollCtrl = sHelper.addItem(wx.CheckBox(self, label=reverseLabel))
-		self.reverseScrollCtrl.SetValue(bool(section["reverseScrollBtns"]))
 		# Translators: label of a checkbox in settings.
 		documentLinesLabel = _("Show the &document lines around the caret in the other segments")
 		self.documentLinesCtrl = sHelper.addItem(wx.CheckBox(self, label=documentLinesLabel))
@@ -276,6 +279,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			"segmentsEnabled": bool(section["segmentsEnabled"]),
 			"segmentCount": int(section["segmentCount"]),
 			"segmentSizes": ", ".join(str(size) for size in section["segmentSizes"]),
+			"reverseScrollBtns": bool(section["reverseScrollBtns"]),
 		}
 
 	def _stashTarget(self) -> None:
@@ -284,6 +288,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		values["segmentsEnabled"] = self.segmentsEnabledCtrl.IsChecked()
 		values["segmentCount"] = self.segmentCountCtrl.Value
 		values["segmentSizes"] = self.segmentSizesCtrl.Value
+		values["reverseScrollBtns"] = self.reverseScrollCtrl.IsChecked()
 
 	def _showTarget(self, index: int) -> None:
 		"""Put one display's held settings into the controls.
@@ -296,6 +301,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		self.segmentsEnabledCtrl.SetValue(values["segmentsEnabled"])
 		self.segmentCountCtrl.SetValue(values["segmentCount"])
 		self.segmentSizesCtrl.Value = values["segmentSizes"]
+		self.reverseScrollCtrl.SetValue(values["reverseScrollBtns"])
 		if target.dividesByRows:
 			# Translators: shown in settings under the segment sizes field, on a display with
 			# more than one row. The placeholder is the number of rows it has.
@@ -406,12 +412,14 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			section["segmentsEnabled"] = values["segmentsEnabled"]
 			section["segmentCount"] = values["segmentCount"]
 			section["segmentSizes"] = sizes
+			# Per display, because the panning keys are on one piece of hardware and sit
+			# differently on each. See `panning`.
+			section["reverseScrollBtns"] = values["reverseScrollBtns"]
 		# The rest belong to the display as a whole rather than to one of the displays behind
-		# it: there is one focus, one pair of panning keys, and one reading order.
+		# it: there is one focus, one place for messages, and one reading order.
 		section = bmConfig.getDisplayConfig(self.displayKey)
 		section["focusSegment"] = self.focusSegmentCtrl.Value
 		section["messageSegment"] = self.messageSegmentCtrl.Value
-		section["reverseScrollBtns"] = self.reverseScrollCtrl.IsChecked()
 		section["showDocumentLines"] = self.documentLinesCtrl.IsChecked()
 
 	def postSave(self):

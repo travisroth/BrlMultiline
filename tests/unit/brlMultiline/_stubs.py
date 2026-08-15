@@ -600,6 +600,58 @@ class FakeConf(dict):
 		self.spec = {}
 
 
+class Decider:
+	"""NVDA's `extensionPoints.Decider`, including the two behaviours that matter.
+
+	Registration order is preserved, and `decide` stops at the first handler returning False.
+	Together those are why the virtual display puts its own handler at the front: NVDA Remote
+	registers on this same extension point and returns False for every braille gesture it
+	forwards.
+
+	`moveToEnd` matches NVDA's signature, where `last=False` means move to the front.
+
+	Lives here rather than beside the driver stubs because the global plugin registers on
+	`decide_executeGesture` too, to follow which display is being used. A stub only the driver
+	tests installed left the plugin tests passing or failing by import order.
+	"""
+
+	def __init__(self):
+		self.handlers = []
+
+	def register(self, handler):
+		self.handlers.append(handler)
+
+	def unregister(self, handler):
+		if handler in self.handlers:
+			self.handlers.remove(handler)
+
+	def moveToEnd(self, handler, last: bool = True) -> bool:
+		if handler not in self.handlers:
+			return False
+		self.handlers.remove(handler)
+		if last:
+			self.handlers.append(handler)
+		else:
+			self.handlers.insert(0, handler)
+		return True
+
+	def decide(self, **kwargs) -> bool:
+		for handler in list(self.handlers):
+			if handler(**kwargs) is False:
+				return False
+		return True
+
+
+decide_executeGesture = Decider()
+"""The one extension point both the driver and the plugin register on."""
+
+
+class BrailleDisplayGesture:
+	"""The base every braille gesture is tested against with `isinstance`."""
+
+	source = ""
+
+
 class Action:
 	"""Stands in for an NVDA extension point, recording who is listening."""
 
@@ -838,6 +890,7 @@ def installStubs() -> None:
 	if PACKAGE in sys.modules:
 		return
 	_module("logHandler", log=log)
+	_module("inputCore", decide_executeGesture=decide_executeGesture)
 	_module("baseObject", AutoPropertyObject=AutoPropertyObject, ScriptableObject=ScriptableObject)
 	_module(
 		"config",
@@ -853,6 +906,7 @@ def installStubs() -> None:
 	braille = _module("braille", handler=None)
 	buffers = _module("braille.buffers", BrailleBuffer=BrailleBuffer, _WindowRowPositions=WindowRowPositions)
 	display = _module("braille.display", DisplayDimensions=DisplayDimensions)
+	gestureModule = _module("braille.display.gesture", BrailleDisplayGesture=BrailleDisplayGesture)
 	regions = _module("braille.regions")
 	regionsBase = _module("braille.regions.base", Region=Region)
 	regionsTextInfo = _module(
@@ -863,6 +917,7 @@ def installStubs() -> None:
 	_module("textInfos", UNIT_LINE=UNIT_LINE, TextInfo=FakeTextInfo)
 	braille.buffers = buffers
 	braille.display = display
+	display.gesture = gestureModule
 	braille.regions = regions
 	regions.base = regionsBase
 	regions.textInfo = regionsTextInfo
@@ -982,4 +1037,5 @@ def resetPluginState() -> None:
 	displayChanged.handlers.clear()
 	displaySizeChanged.handlers.clear()
 	post_configProfileSwitch.handlers.clear()
+	decide_executeGesture.handlers.clear()
 	sys.modules["gui"].settingsDialogs.NVDASettingsDialog.categoryClasses.clear()

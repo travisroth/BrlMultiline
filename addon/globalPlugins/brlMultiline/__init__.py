@@ -27,7 +27,7 @@ from braille.extensions import displayChanged, displaySizeChanged
 from logHandler import log
 from scriptHandler import script
 
-from . import bmConfig, patches
+from . import bmConfig, panning, patches
 from .container import DisplayContainer
 from .devices import DeviceInfo, deviceMap
 from .layout import SegmentRect
@@ -95,6 +95,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""
 		bmConfig.initialize()
 		patches.install()
+		# Which display's keys are being pressed, for the per display panning direction.
+		panning.install()
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(BrailleMultilineSettingsPanel)
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(VirtualDisplaySettingsPanel)
 		displaySizeChanged.register(self._handleDisplayChanged)
@@ -116,6 +118,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self.stopAllMonitoring()
 			self._restoreOriginalBuffer()
 			patches.remove()
+			panning.remove()
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(BrailleMultilineSettingsPanel)
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(VirtualDisplaySettingsPanel)
 		except Exception:
@@ -703,7 +706,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when a command needs segments but none are configured.
 			ui.message(_("BrlMultiline is not active"))
 			return
-		if bmConfig.shouldReverseScrollButtons():
+		if panning.shouldReverse():
 			forward = not forward
 		if forward:
 			container.scrollForward(segmentNumber)

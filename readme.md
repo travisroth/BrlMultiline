@@ -61,6 +61,11 @@ is the point of it: on a Focus 80 the left hand key is the comfortable one for m
 forward, while on a Monarch you may want the normal arrangement. NVDA itself has no such
 setting.
 
+With two displays combined, this applies to whichever display you are using: it belongs to
+the keys rather than to what is on the display, so pressing the Monarch's panning key uses
+the Monarch's setting even when the segment that moves is on the other display. Use the
+"Segment settings for" box to set it for each.
+
 **Show the document lines around the caret in the other segments.** When you are in a
 document, fills the segments around the focus segment with the lines above and below the
 line the caret is on. The segment immediately above the focus segment shows the previous

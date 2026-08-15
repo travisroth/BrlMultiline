@@ -1011,11 +1011,24 @@ cells that have already been laid out.
 1. Should the focus segment be pinned to the primary display, or should it be free to sit on
    the secondary? Free is more expressive and costs nothing in code, since the focus segment
    is already named by key. It may be confusing in use. Decide against real use.
-2. Should reverse panning stay per virtual display, or become per member? The setting exists
-   because the comfortable panning key differs by hardware, which argues for per member. But
-   panning acts on a segment, and a segment belongs to a band, so per member is expressible
-   without a new concept: the reversal could be looked up from the device that owns the
-   segment being scrolled.
+2. ~~Should reverse panning stay per virtual display, or become per member?~~ **Settled by
+   the hardware run: per member, keyed on the display whose key was pressed.** The proposal
+   here — look it up from the device owning the segment being scrolled — is wrong, and the
+   run showed why. Reversal is a fact about where the two keys sit on a piece of hardware, so
+   pressing the Monarch's panning key wants the Monarch's setting even when the segment that
+   moves is on the Focus. Segment ownership is only a proxy, right when the two coincide.
+
+   Getting the pressed display is harder than it looks and the obvious route does not work.
+   `decide_executeGesture` runs on the thread the driver dispatched from, while
+   `InputManager.executeGesture` ends in `scriptHandler.queueScript`, which runs the script on
+   the main thread — so the thread local that `brlMultilineVirtual.gestures` uses for modifier
+   scoping would be empty by the time panning read it. `panning` therefore keeps a plain
+   module global holding the display last used, which is exact for every key press and
+   inexact only for scrolling no key caused.
+
+   The settings panel had the matching bug: the checkbox sat below the "Segment settings for"
+   chooser and saved against the connected display, so it read as though it followed the
+   chooser and did not. It is now part of the per display group in both senses.
 3. What should happen to content on a device that disappears? The geometry shrinks and the
    container rebuilds, and `_carryOverMonitors` already drops pins whose segment is gone. But
    a display coming back should probably restore what it had, and nothing currently remembers

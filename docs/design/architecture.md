@@ -23,6 +23,8 @@ established there.
 - `patches.py` — the three patches to `BrailleHandler`, installed and removed together.
 - `documentLines.py` — `TextInfoPositionRegion` and the code that fills free segments.
 - `objectMonitor.py` — pinning an object to a segment.
+- `panning.py` — which physical display's keys were last pressed, and therefore whose
+  panning direction applies. See the module docstring for why it is not a thread local.
 - `bmConfig.py` — per display configuration. Named to avoid shadowing NVDA's `config`.
 - `settingsPanel.py` — the NVDA settings category.
 - `__init__.py` — the global plugin: lifetime, claims, commands, and object monitor state.

@@ -57,7 +57,10 @@ configSpec = {
 - `messageSegment`: which segment NVDA's flash messages appear in. -1 means whichever segment
 	is following the focus, which is where a message appears on an undivided display and is
 	therefore the familiar answer.
-- `reverseScrollBtns`: swap the panning keys. NVDA has no such setting of its own.
+- `reverseScrollBtns`: swap the panning keys. NVDA has no such setting of its own. Stored
+	per physical display rather than per arrangement, because the keys sit differently on
+	each piece of hardware; see `panning` for which display's setting applies when several
+	are driven as one.
 - `showDocumentLines`: fill the segments around the focus segment with the document lines
 	above and below the caret.
 """
@@ -164,7 +167,12 @@ def getMessageSegment(displayKey: str | None = None) -> int:
 
 
 def shouldReverseScrollButtons(displayKey: str | None = None) -> bool:
-	""":return: whether the panning keys should be swapped on this display."""
+	""":return: whether the panning keys should be swapped on this display.
+
+	Callers driving a composite pass the key of the member whose key was pressed, which
+	`panning.shouldReverse` works out. Passing None means the connected display, which is
+	the right answer whenever there is only one.
+	"""
 	try:
 		return bool(getDisplayConfig(displayKey)["reverseScrollBtns"])
 	except Exception:

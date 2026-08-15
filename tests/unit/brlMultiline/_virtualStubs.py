@@ -24,7 +24,13 @@ import os
 import sys
 import types
 
-from ._stubs import callWithSupportedKwargs, installStubs, log
+from ._stubs import (
+	BrailleDisplayGesture,
+	callWithSupportedKwargs,
+	decide_executeGesture,
+	installStubs,
+	log,
+)
 
 DRIVER_DIR = os.path.abspath(
 	os.path.join(
@@ -215,47 +221,6 @@ class GlobalGestureMap:
 				yield cls, identifier, scriptName
 
 
-class Decider:
-	"""NVDA's `extensionPoints.Decider`, including the two behaviours that matter here.
-
-	Registration order is preserved, and `decide` stops at the first handler returning False.
-	Together those are why the virtual display has to put its own handler at the front:
-	NVDA Remote registers on this same extension point and returns False for every braille
-	gesture it forwards.
-
-	`moveToEnd` matches NVDA's signature, where `last=False` means move to the front.
-	"""
-
-	def __init__(self):
-		self.handlers = []
-
-	def register(self, handler):
-		self.handlers.append(handler)
-
-	def unregister(self, handler):
-		if handler in self.handlers:
-			self.handlers.remove(handler)
-
-	def moveToEnd(self, handler, last: bool = True) -> bool:
-		if handler not in self.handlers:
-			return False
-		self.handlers.remove(handler)
-		if last:
-			self.handlers.append(handler)
-		else:
-			self.handlers.insert(0, handler)
-		return True
-
-	def decide(self, **kwargs) -> bool:
-		for handler in list(self.handlers):
-			if not handler(**kwargs):
-				return False
-		return True
-
-
-decide_executeGesture = Decider()
-"""The extension point `gestures` registers its cell index rebasing on."""
-
 globalMapScripts: list[tuple[type, str]] = []
 """What `scriptHandler.getGlobalMapScripts` returns. Tests fill it to model a user binding."""
 
@@ -280,7 +245,7 @@ class Getter:
 		return self.fget(instance)
 
 
-class StubBrailleDisplayGesture:
+class StubBrailleDisplayGesture(BrailleDisplayGesture):
 	"""A braille display gesture, with the identifier behaviour that matters here."""
 
 	model = None
@@ -377,11 +342,12 @@ def installVirtualStubs() -> None:
 	installStubs()
 	_module("hwIo", bgThread=bgThread)
 	_module("extensionPoints", callWithSupportedKwargs=callWithSupportedKwargs)
-	_module(
-		"inputCore",
-		GlobalGestureMap=GlobalGestureMap,
-		decide_executeGesture=decide_executeGesture,
-	)
+	# Added to the module `_stubs` already registered, rather than replacing it: the global
+	# plugin registers on the same `decide_executeGesture`, and two modules would mean two
+	# extension points and a plugin listening to one while the driver used the other.
+	import inputCore
+
+	inputCore.GlobalGestureMap = GlobalGestureMap
 
 	import braille
 	import config
@@ -389,7 +355,9 @@ def installVirtualStubs() -> None:
 	driverModule = _module("braille.display.driver", BrailleDisplayDriver=StubBrailleDisplayDriver)
 	braille.display.driver = driverModule
 	braille.display._getDisplayDriver = getDisplayDriver
-	gestureModule = _module("braille.display.gesture", BrailleDisplayGesture=StubBrailleDisplayGesture)
+	# Kept as the shared base, so that `isinstance(gesture, BrailleDisplayGesture)` is the
+	# same question everywhere. The driver's richer stub subclasses it.
+	gestureModule = _module("braille.display.gesture", BrailleDisplayGesture=BrailleDisplayGesture)
 	braille.display.gesture = gestureModule
 	config.conf[CONFIG_SECTION] = {"devices": []}
 
