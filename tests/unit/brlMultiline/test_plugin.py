@@ -591,6 +591,169 @@ class TestSegmentsSwitch(PluginTestCase):
 		self.assertTrue(any("cannot be shown" in message for level, message in log.messages))
 
 
+class TestNativePanning(PluginTestCase):
+	"""NVDA's own panning keys, on a Monarch above a Focus 80.
+
+	The Monarch is divided in two and the Focus is whole, so segments 0 and 1 are on the
+	Monarch and segment 2 is on the Focus.
+	"""
+
+	def makeHandler(self):
+		handler = FakeHandler(9, 80)
+		handler.display = fakeVirtualDisplay(
+			("hidBrailleStandard", 0, 8, 32),
+			("freedomScientific", 8, 1, 80),
+		)
+		return handler
+
+	def setUp(self):
+		super().setUp()
+		setBandConfig("hidBrailleStandard_8x32", segmentCount=2)
+		setBandConfig("freedomScientific_1x80", segmentCount=1)
+		self.rebuild()
+
+	def rebuild(self):
+		"""Rebuild and give every segment more content than it can show at once.
+
+		The largest segment here is four rows of 32, so the text has to be longer than 128
+		cells or a segment simply has nowhere to pan to and the test proves nothing.
+		"""
+		self.plugin.rebuildBuffer()
+		self.handler.buffer = self.handler.mainBuffer
+		for segment in self.container.segments:
+			segment.append(Region("word " * 80))
+		self.container.update()
+
+	def pan(self, source, forward=True):
+		"""Press a display's own panning key, as NVDA's command does."""
+		from brlMultiline import panning
+
+		panning._pendingSource = source
+		if forward:
+			BrailleHandler.scrollForward(self.handler)
+		else:
+			BrailleHandler.scrollBack(self.handler)
+
+	def movedSegments(self):
+		"""Which segments panned.
+
+		Two ways to tell, because the container pans them two ways: the focus segment scrolls
+		as an ordinary buffer does, and any other segment moves its own window instead, so
+		that panning something the user is only reading cannot drag the caret.
+		"""
+		return [
+			index
+			for index, segment in enumerate(self.container.segments)
+			if segment.scrolled is not None or segment.windowStartPos != 0
+		]
+
+	def test_aDisplaysKeysDriveItsOwnSegment(self):
+		"""The hardware bug: the Monarch's keys were scrolling the Focus."""
+		self.pan("hidBrailleStandard")
+		self.assertEqual(self.movedSegments(), [0])
+
+	def test_theOtherDisplaysKeysDriveTheFocusSegment(self):
+		self.pan("freedomScientific")
+		self.assertEqual(self.movedSegments(), [2])
+
+	def test_aDisplayHoldingTheFocusDrivesTheFocusSegment(self):
+		CONFIG["focusSegment"] = 1
+		self.rebuild()
+		self.pan("hidBrailleStandard")
+		self.assertEqual(self.movedSegments(), [1])
+
+	def test_scrollingWithNoKeyPressBehindItIsUnchanged(self):
+		"""Automatic scroll, which must go on driving the focus segment."""
+		self.pan(None)
+		self.assertEqual(self.movedSegments(), [2])
+
+	def test_theDirectionIsThePressedDisplays(self):
+		"""The focus on the Monarch, so the direction is observable as a scroll either way."""
+		CONFIG["focusSegment"] = 0
+		setBandConfig("hidBrailleStandard_8x32", segmentCount=2, reverseScrollBtns=True)
+		self.rebuild()
+		self.pan("hidBrailleStandard", forward=True)
+		self.assertEqual(self.container.segments[0].scrolled, "back")
+
+	def test_theOtherDisplayKeepsItsOwnDirection(self):
+		setBandConfig("hidBrailleStandard_8x32", segmentCount=2, reverseScrollBtns=True)
+		self.rebuild()
+		self.pan("freedomScientific", forward=True)
+		self.assertEqual(self.container.segments[2].scrolled, "forward")
+
+	def test_onePressDrivesOneScroll(self):
+		"""The record is consumed, so a second scroll falls back to the focus segment."""
+		self.pan("hidBrailleStandard")
+		self.assertEqual(self.movedSegments(), [0])
+		self.pan(None)
+		self.assertEqual(self.movedSegments(), [0, 2])
+
+
+class TestDisplayRelativeCommands(PluginTestCase):
+	"""Commands that name a segment by which display it is on."""
+
+	def makeHandler(self):
+		handler = FakeHandler(9, 80)
+		handler.display = fakeVirtualDisplay(
+			("hidBrailleStandard", 0, 8, 32),
+			("freedomScientific", 8, 1, 80),
+		)
+		return handler
+
+	def setUp(self):
+		super().setUp()
+		setBandConfig("hidBrailleStandard_8x32", segmentCount=2)
+		setBandConfig("freedomScientific_1x80", segmentCount=1)
+		self.plugin.rebuildBuffer()
+
+	def test_theSecondDisplaysFirstSegmentIsResolved(self):
+		self.assertEqual(self.plugin.displaySegmentNumber(1, 0), 2)
+
+	def test_theFirstDisplaysSegmentsAreResolved(self):
+		self.assertEqual(self.plugin.displaySegmentNumber(0, 0), 0)
+		self.assertEqual(self.plugin.displaySegmentNumber(0, 1), 1)
+
+	def test_theBindingSurvivesARearrangement(self):
+		"""What the whole family is for: the index moved and the command did not."""
+		self.assertEqual(self.plugin.displaySegmentNumber(1, 0), 2)
+		setBandConfig("hidBrailleStandard_8x32", segmentCount=4)
+		self.plugin.rebuildBuffer()
+		self.assertEqual(self.plugin.displaySegmentNumber(1, 0), 4)
+
+	def test_aSegmentThatIsNotThereIsReported(self):
+		self.assertIsNone(self.plugin.displaySegmentNumber(1, 3))
+		self.assertTrue(any("No segment" in message for message in spokenMessages), spokenMessages)
+
+	def test_theScrollScriptsExist(self):
+		self.assertTrue(hasattr(self.plugin, "script_scrollDisplay1Segment0Forward"))
+		self.assertTrue(hasattr(self.plugin, "script_scrollDisplay2Segment3Back"))
+
+	def test_theMonitorScriptsExist(self):
+		self.assertTrue(hasattr(self.plugin, "script_monitorObjectInDisplay1Segment0"))
+		self.assertTrue(hasattr(self.plugin, "script_stopMonitoringDisplay0Segment1"))
+
+	def test_aScrollScriptScrollsTheRightSegment(self):
+		for segment in self.container.segments:
+			segment.append(Region("some words to pan through"))
+		self.container.update()
+		self.plugin.script_scrollDisplay1Segment0Forward(None)
+		self.assertEqual(self.container.segments[2].scrolled, "forward")
+
+	def test_aMonitorScriptPinsTheRightSegment(self):
+		import api
+
+		api.getNavigatorObject = lambda: FakeNavigatorObject("a pinned thing")
+		self.plugin.script_monitorObjectInDisplay0Segment0(None)
+		self.assertIn("device.hidBrailleStandard.0", self.plugin.monitoredKeys)
+
+	def test_aMonitorScriptOnAMissingSegmentPinsNothing(self):
+		import api
+
+		api.getNavigatorObject = lambda: FakeNavigatorObject("a pinned thing")
+		self.plugin.script_monitorObjectInDisplay1Segment2(None)
+		self.assertEqual(self.plugin.monitoredKeys, set())
+
+
 class TestMessageBuffer(PluginTestCase):
 	"""Flash messages go into a segment rather than across the whole display."""
 

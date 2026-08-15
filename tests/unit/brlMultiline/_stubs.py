@@ -700,10 +700,15 @@ class FakeBrailleHandler:
 		self.lastNewObject = list(regions)
 
 	def scrollForward(self):
+		# Transcribed from NVDA's, which scrolls whatever buffer the handler is showing.
+		# The add-on patches this method and falls back to it whenever a scroll has no
+		# display behind it, so a stub that only set a flag would leave that path untested.
 		self.scrolledForward = True
+		self.buffer.scrollForward()
 
 	def scrollBack(self):
 		self.scrolledBack = True
+		self.buffer.scrollBack()
 
 	def _handlePendingUpdate(self):
 		self._regionsPendingUpdate = set()

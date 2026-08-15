@@ -218,16 +218,39 @@ def _handlePendingUpdateWithDocumentLines(self: BrailleHandler) -> None:
 		log.debugWarning("Could not refresh document lines", exc_info=True)
 
 
+def _nativeScroll(handler: BrailleHandler, forward: bool) -> None:
+	"""Pan for NVDA's own panning commands, on the display whose key was pressed.
+
+	Two corrections to what NVDA would do, both from the keys belonging to one piece of
+	hardware: the direction is the pressed display's, and so is the segment. Everything else
+	is left exactly as it was, and deliberately so — while a message is showing, the handler's
+	buffer is the message buffer rather than the container, and panning must go on scrolling
+	the message and resetting its timeout.
+
+	:param handler: the braille handler.
+	:param forward: which of the two commands was run, before reversal.
+	"""
+	source = panning.takePendingSource()
+	if panning.shouldReverseForSource(source):
+		forward = not forward
+	container = handler.buffer if isinstance(handler.buffer, DisplayContainer) else None
+	segment = panning.nativeSegmentForSource(source, container)
+	if segment is None:
+		# No key press behind this scroll, an ordinary display, or a message showing. NVDA's
+		# own behaviour, which for the container means the segment following the focus.
+		return _originalScrollForward(handler) if forward else _originalScrollBack(handler)
+	if forward:
+		container.scrollForward(segment)
+	else:
+		container.scrollBack(segment)
+
+
 def _scrollForwardMaybeReversed(self: BrailleHandler) -> None:
-	if panning.shouldReverse():
-		return _originalScrollBack(self)
-	return _originalScrollForward(self)
+	return _nativeScroll(self, forward=True)
 
 
 def _scrollBackMaybeReversed(self: BrailleHandler) -> None:
-	if panning.shouldReverse():
-		return _originalScrollForward(self)
-	return _originalScrollBack(self)
+	return _nativeScroll(self, forward=False)
 
 
 def install() -> None:

@@ -29,7 +29,13 @@ installStubs()
 
 import braille  # noqa: E402
 
-from brlMultiline.devices import DeviceInfo, deviceMap, isVirtualDisplay  # noqa: E402
+from brlMultiline.devices import (  # noqa: E402
+	DeviceInfo,
+	deviceMap,
+	isVirtualDisplay,
+	resolveDisplaySegment,
+	segmentsForDevice,
+)
 from brlMultiline.layout import SegmentRect, deviceBandRects  # noqa: E402
 from brlMultiline.panels import BlankPanel  # noqa: E402
 from brlMultiline.views import deviceSegmentKey, deviceView  # noqa: E402
@@ -282,6 +288,72 @@ class TestDeviceMap(unittest.TestCase):
 		braille.handler.display = types.SimpleNamespace(name="brlMultilineVirtual", slots=[object()])
 		self.assertEqual(deviceMap(), [])
 		self.assertTrue(any(level == "error" for level, _message in log.messages), log.messages)
+
+
+class TestDisplayRelativeAddressing(unittest.TestCase):
+	"""Naming a segment by which display it is on, which survives a rearrangement.
+
+	A segment's index counts across the whole display and moves whenever the layout changes,
+	so a command bound to "segment 5" quietly starts addressing something else. "The second
+	display's first segment" does not move.
+	"""
+
+	#: The Monarch in two, the Focus whole: segments 0 and 1 on the Monarch, 2 on the Focus.
+	RECTS = [
+		SegmentRect(row=0, col=0, numRows=4, numCols=32),
+		SegmentRect(row=4, col=0, numRows=4, numCols=32),
+		SegmentRect(row=8, col=0, numRows=1, numCols=80),
+	]
+	DEVICES = [MONARCH, FOCUS]
+
+	def resolve(self, displayOrdinal, segmentOrdinal, rects=None, devices=None):
+		return resolveDisplaySegment(
+			self.RECTS if rects is None else rects,
+			self.DEVICES if devices is None else devices,
+			displayOrdinal,
+			segmentOrdinal,
+		)
+
+	def test_segmentsAreFoundOnTheirOwnDisplay(self):
+		self.assertEqual(segmentsForDevice(self.RECTS, MONARCH), [0, 1])
+		self.assertEqual(segmentsForDevice(self.RECTS, FOCUS), [2])
+
+	def test_theFirstDisplayIsTheTopOne(self):
+		self.assertEqual(self.resolve(0, 0), 0)
+		self.assertEqual(self.resolve(0, 1), 1)
+
+	def test_theSecondDisplayCountsFromItsOwnFirstSegment(self):
+		"""Segment 0 of the second display is segment 2 of the composite."""
+		self.assertEqual(self.resolve(1, 0), 2)
+
+	def test_anIndexThatMovedStillResolves(self):
+		"""The whole point: the Focus is segment 2 today and segment 4 after a rearrangement."""
+		rects = [
+			SegmentRect(row=0, col=0, numRows=2, numCols=32),
+			SegmentRect(row=2, col=0, numRows=2, numCols=32),
+			SegmentRect(row=4, col=0, numRows=2, numCols=32),
+			SegmentRect(row=6, col=0, numRows=2, numCols=32),
+			SegmentRect(row=8, col=0, numRows=1, numCols=80),
+		]
+		self.assertEqual(self.resolve(1, 0, rects=rects), 4)
+
+	def test_anOrdinaryDisplayIsTheFirstDisplay(self):
+		"""So a binding made for a composite goes on working with one display."""
+		self.assertEqual(self.resolve(0, 2, devices=[]), 2)
+
+	def test_anOrdinaryDisplayHasNoSecondDisplay(self):
+		self.assertIsNone(self.resolve(1, 0, devices=[]))
+
+	def test_aDisplayThatIsNotThereResolvesToNothing(self):
+		self.assertIsNone(self.resolve(2, 0))
+
+	def test_aSegmentThatIsNotThereResolvesToNothing(self):
+		self.assertIsNone(self.resolve(1, 1))
+		self.assertIsNone(self.resolve(0, 2))
+
+	def test_negativeOrdinalsResolveToNothing(self):
+		self.assertIsNone(self.resolve(-1, 0))
+		self.assertIsNone(self.resolve(0, -1))
 
 
 class TestBandConfigStub(unittest.TestCase):

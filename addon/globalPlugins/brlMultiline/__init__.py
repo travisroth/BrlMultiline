@@ -29,7 +29,8 @@ from scriptHandler import script
 
 from . import bmConfig, panning, patches
 from .container import DisplayContainer
-from .devices import DeviceInfo, deviceMap
+from . import devices as devicesModule
+from .devices import DeviceInfo, deviceMap, resolveDisplaySegment
 from .layout import SegmentRect
 from .messages import MessageBuffer
 from .objectMonitor import ObjectMonitor
@@ -695,23 +696,52 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	# Scrolling
 
-	def scrollSegment(self, segmentNumber: int, forward: bool) -> None:
+	def scrollSegment(self, segmentNumber: int, forward: bool, gesture=None) -> None:
 		"""Scroll one segment, whether or not it holds focus.
 
 		:param segmentNumber: the segment to scroll.
 		:param forward: True to scroll forward, False to scroll back.
+		:param gesture: the gesture that asked, if there was one. Its display decides which
+			way the panning keys go, since the keys are on one piece of hardware. Taken from
+			the gesture rather than from `panning`'s record, which is kept only for NVDA's own
+			panning commands.
 		"""
 		container = self.container
 		if container is None:
 			# Translators: reported when a command needs segments but none are configured.
 			ui.message(_("BrlMultiline is not active"))
 			return
-		if panning.shouldReverse():
+		if panning.shouldReverseForGesture(gesture):
 			forward = not forward
 		if forward:
 			container.scrollForward(segmentNumber)
 		else:
 			container.scrollBack(segmentNumber)
+
+	def displaySegmentNumber(self, displayOrdinal: int, segmentOrdinal: int) -> int | None:
+		"""Find a segment by which display it is on, reporting it if there is no such segment.
+
+		:param displayOrdinal: which display, counting from 0 at the top.
+		:param segmentOrdinal: which of that display's segments, counting from 0.
+		:return: the segment's index, or None if there is no such segment now.
+		"""
+		container = self.container
+		if container is None:
+			# Translators: reported when a command needs segments but none are configured.
+			ui.message(_("BrlMultiline is not active"))
+			return None
+		number = resolveDisplaySegment(container.rects, deviceMap(), displayOrdinal, segmentOrdinal)
+		if number is None:
+			ui.message(
+				# Translators: reported when a command names a segment that the current
+				# arrangement does not have. Placeholders are a segment number and the name of
+				# one of the combined displays.
+				_("No segment {segment} on {display}").format(
+					segment=segmentOrdinal,
+					display=_displayName(displayOrdinal),
+				),
+			)
+		return number
 
 	# Scripts
 
@@ -767,11 +797,91 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		)
 
 
+def _displayName(displayOrdinal: int) -> str:
+	""":return: what to call one of the combined displays in a command description.
+
+	Named rather than numbered, so that nothing has to explain why displays count from one
+	while segments count from zero. Segments keep the numbering the rest of the add-on uses.
+	"""
+	names = (
+		# Translators: the topmost of several combined braille displays.
+		_("the first display"),
+		# Translators: the second of several combined braille displays, from the top.
+		_("the second display"),
+		# Translators: the third of several combined braille displays, from the top.
+		_("the third display"),
+	)
+	if displayOrdinal < len(names):
+		return names[displayOrdinal]
+	# Translators: one of several combined braille displays, counted from the top.
+	return _("display {number}").format(number=displayOrdinal + 1)
+
+
+def _makeDisplayScrollScript(displayOrdinal: int, segmentOrdinal: int, forward: bool):
+	"""Build one scrolling script that names its segment by display.
+
+	The stable way to bind panning. A segment's index counts across the whole display and
+	moves whenever the layout changes, so a key bound to "segment 5" addresses something else
+	after a rearrangement. "The second display's first segment" does not move.
+	"""
+
+	def scrollScript(self, gesture):
+		number = self.displaySegmentNumber(displayOrdinal, segmentOrdinal)
+		if number is not None:
+			self.scrollSegment(number, forward, gesture)
+
+	# Translators: input help message for a command. Placeholders are a segment number,
+	# counting from 0 on that display, and the name of one of the combined displays.
+	template = (
+		_("Scrolls segment {segment} of {display} forward")
+		if forward
+		else _("Scrolls segment {segment} of {display} back")
+	)
+	scrollScript.__doc__ = template.format(
+		segment=segmentOrdinal,
+		display=_displayName(displayOrdinal),
+	)
+	scrollScript.category = SCRIPT_CATEGORY
+	scrollScript.bypassInputHelp = False
+	return scrollScript
+
+
+def _makeDisplayMonitorScript(displayOrdinal: int, segmentOrdinal: int, start: bool):
+	"""Build one object monitoring script that names its segment by display.
+
+	Pinning has the same problem panning did: a segment's index moves under a binding made
+	against it, and a display kept for monitored objects is exactly where that hurts.
+	"""
+
+	def monitorScript(self, gesture):
+		number = self.displaySegmentNumber(displayOrdinal, segmentOrdinal)
+		if number is None:
+			return
+		if start:
+			self.startMonitoring(number)
+		else:
+			self.stopMonitoring(number)
+
+	# Translators: input help message for a command. Placeholders are a segment number,
+	# counting from 0 on that display, and the name of one of the combined displays.
+	template = (
+		_("Shows the navigator object in segment {segment} of {display}")
+		if start
+		else _("Stops showing an object in segment {segment} of {display}")
+	)
+	monitorScript.__doc__ = template.format(
+		segment=segmentOrdinal,
+		display=_displayName(displayOrdinal),
+	)
+	monitorScript.category = SCRIPT_CATEGORY
+	return monitorScript
+
+
 def _makeScrollScript(segmentNumber: int, forward: bool):
 	"""Build one per segment scrolling script."""
 
 	def scrollScript(self, gesture):
-		self.scrollSegment(segmentNumber, forward)
+		self.scrollSegment(segmentNumber, forward, gesture)
 
 	if forward:
 		# Translators: input help message for a command. The placeholder is a segment number.
@@ -810,10 +920,39 @@ def _makeMonitorScript(segmentNumber: int, start: bool):
 def _generateSegmentScripts() -> None:
 	"""Add the per segment commands to the plugin class.
 
-	One set is generated for every segment the add-on can offer, whether or not the
-	current layout has that many. None are bound by default: assign the ones wanted
-	through NVDA's Input Gestures dialog, ideally to keys on the display itself.
+	Two families, and they answer different questions. The display relative ones name a
+	segment by which display it is on and how far down that display it sits, which survives
+	every rearrangement that keeps the displays — bind these to the keys you keep reaching
+	for. The ones that name a segment outright count across the whole display, so they can
+	reach a segment the first family cannot, at the cost of moving when the layout does.
+
+	One set is generated for every segment the add-on can offer, whether or not the current
+	layout has that many. None are bound by default: assign the ones wanted through NVDA's
+	Input Gestures dialog, ideally to keys on the display itself.
 	"""
+	for displayOrdinal in range(devicesModule.MAX_UI_DISPLAYS):
+		for segmentOrdinal in range(devicesModule.MAX_UI_DISPLAY_SEGMENTS):
+			suffix = f"Display{displayOrdinal}Segment{segmentOrdinal}"
+			setattr(
+				GlobalPlugin,
+				f"script_scroll{suffix}Forward",
+				_makeDisplayScrollScript(displayOrdinal, segmentOrdinal, True),
+			)
+			setattr(
+				GlobalPlugin,
+				f"script_scroll{suffix}Back",
+				_makeDisplayScrollScript(displayOrdinal, segmentOrdinal, False),
+			)
+			setattr(
+				GlobalPlugin,
+				f"script_monitorObjectIn{suffix}",
+				_makeDisplayMonitorScript(displayOrdinal, segmentOrdinal, True),
+			)
+			setattr(
+				GlobalPlugin,
+				f"script_stopMonitoring{suffix}",
+				_makeDisplayMonitorScript(displayOrdinal, segmentOrdinal, False),
+			)
 	for segmentNumber in range(bmConfig.MAX_UI_SEGMENTS):
 		setattr(
 			GlobalPlugin,

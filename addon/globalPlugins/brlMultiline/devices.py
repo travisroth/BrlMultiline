@@ -72,6 +72,70 @@ class DeviceInfo(NamedTuple):
 		return (self.rowStart, self.numRows, self.numCols)
 
 
+MAX_UI_DISPLAYS = 3
+"""How many physical displays the display relative commands are generated for.
+
+Three because the driver refuses two displays sharing a driver, so a fourth is unlikely to be
+tellable apart from one of the first three. A limit on the commands only: a composite may have
+as many members as the user can open.
+"""
+
+MAX_UI_DISPLAY_SEGMENTS = 4
+"""How many segments per display the display relative commands are generated for.
+
+A display split more finely than this is still reachable by the commands that name a segment
+outright; these exist to be stable, not to be exhaustive.
+"""
+
+
+def segmentsForDevice(rects, device: DeviceInfo) -> list[int]:
+	"""Find the segments lying on one physical display.
+
+	:param rects: the segment rectangles, in display order.
+	:param device: the physical display.
+	:return: their indices, in display order. Empty if the display holds no segment, which a
+		display made entirely of dead columns would be.
+	"""
+	return [index for index, rect in enumerate(rects) if device.rowStart <= rect.row < device.rowEnd]
+
+
+def resolveDisplaySegment(
+	rects,
+	devices: list[DeviceInfo],
+	displayOrdinal: int,
+	segmentOrdinal: int,
+) -> int | None:
+	"""Find a segment by which display it is on and where it sits on that display.
+
+	This is the stable way to name a segment. A segment's index counts across the whole
+	display and moves whenever the layout changes — the focus might be segments 0 and 1 today
+	and 5 and 6 tomorrow — so a command bound to an index quietly starts addressing something
+	else. Which display a segment is on, and how far down that display it is, survives every
+	rearrangement that keeps the displays.
+
+	An ordinary display answers as the first display, so a command bound for a composite goes
+	on working when the second display is unplugged.
+
+	:param rects: the segment rectangles, in display order.
+	:param devices: the physical displays, in stacking order. Empty for an ordinary display.
+	:param displayOrdinal: which display, counting from 0 at the top.
+	:param segmentOrdinal: which of that display's segments, counting from 0.
+	:return: the segment's index, or None if there is no such display or no such segment on it.
+	"""
+	if displayOrdinal < 0 or segmentOrdinal < 0:
+		return None
+	if not devices:
+		if displayOrdinal != 0:
+			return None
+		return segmentOrdinal if segmentOrdinal < len(rects) else None
+	if displayOrdinal >= len(devices):
+		return None
+	segments = segmentsForDevice(rects, devices[displayOrdinal])
+	if segmentOrdinal >= len(segments):
+		return None
+	return segments[segmentOrdinal]
+
+
 def isVirtualDisplay(display=None) -> bool:
 	"""Say whether a display is the add-on's composite one.
 

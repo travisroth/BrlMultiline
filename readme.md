@@ -97,6 +97,9 @@ Things worth knowing:
   written where you could not read it.
 - One display per driver. Two displays of the same make cannot be told apart, so only one of
   each can be used.
+- Each display's own panning keys pan that display: the segment following the focus if that
+  display holds it, otherwise that display's first segment. So the Monarch's keys move what
+  is on the Monarch while the Focus goes on following the focus.
 - Flash messages follow the focus by default, as they do on one display. "Segment that flash
   messages appear in" moves them, which is worth setting if you want the second display left
   alone while you read.
@@ -125,12 +128,24 @@ useful assigned to keys on the display itself.
 **Reports the BrlMultiline segment layout.** Says how many segments there are and
 which one is following the focus. Useful for confirming a layout took effect.
 
+**Scrolls segment N of the first / second / third display forward / back.** Pans a segment named by which display
+it is on and how far down that display it sits. Prefer these: a segment's plain number
+counts across the whole display and moves whenever the layout changes, so a key bound to
+"segment 5" quietly starts panning something else. "The second display's first segment"
+does not move. On one display, the first display is that display, so these keep working
+when you unplug the second one.
+
 **Scrolls segment N forward / back.** Pans one segment, whether or not it is the segment
-following the focus. There is a pair of these for each segment.
+following the focus. There is a pair of these for each segment. These count across the
+whole display, so they can reach a segment the display relative commands cannot, at the
+cost of moving when the layout does.
 
 A segment that is not following the focus is panned within the content it already has. It
 will not move to the next or previous line of a document, because doing so would move the
 caret in something you are only reading, and drag the focus with it.
+
+**Shows the navigator object in segment N of the first / second / third display.** Pins the current navigator
+object to a segment named by display, for the same reason as the panning commands above.
 
 **Shows the navigator object in segment N.** Pins the current navigator object to that
 segment, so it stays there while you move around elsewhere. There is one of these for each
