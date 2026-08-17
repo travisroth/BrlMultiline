@@ -40,6 +40,7 @@ configSpec = {
 			"focusSegment": f"integer(default=-1, min=-1, max={MAX_UI_SEGMENTS - 1})",
 			"messageSegment": f"integer(default=-1, min=-1, max={MAX_UI_SEGMENTS - 1})",
 			"reverseScrollBtns": "boolean(default=False)",
+			"reverseScrollBtnsMigrated": "boolean(default=False)",
 			"showDocumentLines": "boolean(default=False)",
 		},
 	},
@@ -61,6 +62,9 @@ configSpec = {
 	per physical display rather than per arrangement, because the keys sit differently on
 	each piece of hardware; see `panning` for which display's setting applies when several
 	are driven as one.
+- `reverseScrollBtnsMigrated`: bookkeeping, and only on a composite display's own section.
+	Set once the value above has been carried onto the displays behind it. See
+	L{migrateReverseScrollButtons}.
 - `showDocumentLines`: fill the segments around the focus segment with the document lines
 	above and below the caret.
 """
@@ -179,6 +183,45 @@ def shouldReverseScrollButtons(displayKey: str | None = None) -> bool:
 		# Never let a configuration problem break panning.
 		log.debugWarning("Could not read reverseScrollBtns", exc_info=True)
 		return False
+
+
+def migrateReverseScrollButtons(displayKey: str, memberKeys) -> None:
+	"""Carry a composite display's stored panning direction onto the displays behind it.
+
+	Reversed panning used to be one setting for the whole composite, and is now a setting of
+	each physical display, because which key means forward depends on where the keys sit. The
+	old value is no longer read anywhere, so without this an existing user's panning silently
+	swaps back to the default the first time they run this version — and panning the wrong way
+	is the kind of thing a reader blames on themselves for a while before blaming the software.
+
+	Copied to every member rather than to some of them, because that is what the old setting
+	meant: it applied to whichever keys were pressed.
+
+	Done once, and recorded rather than inferred. There is no telling a member's stored `False`
+	from a member that has never been asked, so a migration that ran on every rebuild would
+	keep putting the composite's answer back over a member the user had since set the other way.
+
+	:param displayKey: the composite display's own configuration key.
+	:param memberKeys: the configuration keys of the physical displays behind it.
+	"""
+	try:
+		section = getDisplayConfig(displayKey)
+		if section["reverseScrollBtnsMigrated"]:
+			return
+		section["reverseScrollBtnsMigrated"] = True
+		if not section["reverseScrollBtns"]:
+			# Nothing to carry. Not reversed is what a display that was never asked reports.
+			return
+		keys = list(memberKeys)
+		for key in keys:
+			getDisplayConfig(key)["reverseScrollBtns"] = True
+		log.info(
+			f"BrlMultiline: the panning keys were reversed for {displayKey} as a whole. That is "
+			f"now a setting of each display, and has been copied to {keys}.",
+		)
+	except Exception:
+		# Panning the default way round is a poor outcome and not one worth losing a display to.
+		log.debugWarning("Could not carry over the reversed panning setting", exc_info=True)
 
 
 def shouldShowDocumentLines(displayKey: str | None = None) -> bool:

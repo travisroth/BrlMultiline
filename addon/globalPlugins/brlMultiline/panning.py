@@ -17,73 +17,81 @@ that display holds it, otherwise that display's first segment.
 how they sit on a piece of hardware, so the setting that applies is the pressed display's,
 not that of the display holding the segment being scrolled.
 
-Both need to know which display was pressed, and NVDA's hook does not say.
-`BrailleHandler.scrollForward` takes no gesture, so the display has to be noted when the
-gesture passes and read back when the scroll happens. That cannot be a thread local:
-`decide_executeGesture` runs on the thread the driver dispatched from, while
-`InputManager.executeGesture` ends in `scriptHandler.queueScript`, which runs the script on
-the main thread.
+Both need to know which display was pressed, and the method that does the scrolling does not
+say: `BrailleHandler.scrollForward` takes no gesture. What does have the gesture is the
+command that calls it — NVDA's own `script_braille_scrollForward` and `script_braille_scrollBack`
+— so those two are wrapped, and each records the display it was given for as long as it runs.
+`_nativeScroll` in `patches` reads it from inside that call.
 
-So it is a module global — but a narrow one. Only gestures actually bound to NVDA's two
-braille scrolling commands are recorded, and the record is consumed by the scroll that
-follows. A routing key press can no longer leave a display behind for a later scroll to act
-on, which matters much more now that the value picks a segment rather than only a direction.
+**Why not the gesture itself, when it passes.** The first version of this registered on
+`inputCore.decide_executeGesture` and remembered the display there. It looks like the natural
+hook and it is the wrong one, for two reasons that both come from what `executeGesture` does
+after deciding. It does not run the script: it calls `scriptHandler.queueScript`, so the
+script runs later, on the main thread, while the decider ran on the thread the driver
+dispatched from. Two displays are two threads, so a pan on each could be decided before
+either script ran and the second would overwrite the first, leaving one scroll acting on the
+wrong display and the other on none. And several paths between the decider and the script
+abandon the gesture entirely — input help captures it, sleep mode refuses it, a modifier
+raises — each leaving a display recorded that no scroll would ever collect, for the next
+scroll with no gesture behind it, such as automatic scroll, to pick up instead.
 
-Commands that already hold their gesture do not use the global at all; they pass it in.
+Wrapping the script puts the record and its only reader in one synchronous call on one
+thread, which is why what follows can be a plain module global with no locking and no
+consuming: it is set on entry and restored on exit, and nothing else can be running in
+between.
+
+Commands of this add-on's own already hold their gesture and never touch the global; they
+pass it in.
 """
 
-import inputCore
+import functools
+
 from logHandler import log
 
 from . import bmConfig, devices
 
-NATIVE_SCROLL_SCRIPTS = frozenset(
-	{
-		"script_braille_scrollForward",
-		"script_braille_scrollBack",
-	},
+NATIVE_SCROLL_SCRIPTS = (
+	"script_braille_scrollForward",
+	"script_braille_scrollBack",
 )
-"""NVDA's own panning commands, by name.
+"""NVDA's own panning commands, by attribute name on `globalCommands.GlobalCommands`.
 
-Matched by name rather than by identity so that nothing here has to import `globalCommands`,
-which is a large import to take at braille time for two strings. A user who has rebound their
-panning keys to this add-on's own commands takes the other path entirely, since those receive
-their gesture directly.
+Those two names are what every braille display driver's own gesture map binds its panning
+keys to, through the `braille_scrollForward` and `braille_scrollBack` script names, so
+wrapping them catches the keys on every member of a composite without knowing anything about
+the hardware. A user who has rebound their panning keys to this add-on's own commands takes
+the other path entirely, since those receive their gesture directly.
 """
 
-_pendingSource: str | None = None
-"""The display whose panning key was pressed and whose scroll has not happened yet."""
+_activeSource: str | None = None
+"""The display whose panning key is running the scroll that is happening now."""
+
+_originals: dict[str, object] = {}
+"""NVDA's own commands, kept to be put back."""
 
 _installed = False
 
 
-def _isNativeScroll(gesture) -> bool:
-	""":return: whether a gesture is bound to one of NVDA's panning commands.
+def _withSource(original):
+	"""Wrap one of NVDA's panning commands so that it says which display ran it.
 
-	Resolving `gesture.script` here is not the extra work it looks like: `executeGesture`
-	reads the same property a few lines later, and gestures cache their properties, so the
-	answer is computed once either way.
+	:param original: the command as NVDA defines it.
+	:return: the replacement, indistinguishable from it to everything that inspects a script.
 	"""
-	script = gesture.script
-	return script is not None and getattr(script, "__name__", None) in NATIVE_SCROLL_SCRIPTS
 
+	@functools.wraps(original)
+	def scrollWithSource(commands, gesture):
+		global _activeSource
+		# Restored rather than cleared, because a script that sends its gesture on can end up
+		# running another script inside this one.
+		previous = _activeSource
+		_activeSource = getattr(gesture, "source", None)
+		try:
+			return original(commands, gesture)
+		finally:
+			_activeSource = previous
 
-def _noteGestureSource(gesture=None, **kwargs) -> bool:
-	"""Remember the display behind a panning key. Registered on `decide_executeGesture`.
-
-	Never decides anything: it always returns True, and any error is swallowed, because a
-	decider that raises would break input for the whole session and the worst this can get
-	wrong is which segment a panning key moves.
-	"""
-	global _pendingSource
-	try:
-		from braille.display.gesture import BrailleDisplayGesture
-
-		if isinstance(gesture, BrailleDisplayGesture) and _isNativeScroll(gesture):
-			_pendingSource = gesture.source
-	except Exception:
-		log.debugWarning("BrlMultiline: could not read a gesture's display", exc_info=True)
-	return True
+	return scrollWithSource
 
 
 def install() -> None:
@@ -91,29 +99,54 @@ def install() -> None:
 	global _installed
 	if _installed:
 		return
-	inputCore.decide_executeGesture.register(_noteGestureSource)
+	try:
+		import globalCommands
+
+		commands = globalCommands.GlobalCommands
+		# Built before anything is replaced, so a failure leaves NVDA's commands untouched.
+		wrapped = {name: _withSource(getattr(commands, name)) for name in NATIVE_SCROLL_SCRIPTS}
+	except Exception:
+		# Panning then keeps NVDA's own behaviour: every scroll reports no display, which is
+		# the answer for a single display and the answer this add-on gave before any of this.
+		log.error(
+			"BrlMultiline: could not follow which display's panning keys are pressed; "
+			"panning keys will pan the segment following the focus, whichever display they are on",
+			exc_info=True,
+		)
+		return
+	for name, wrapper in wrapped.items():
+		_originals[name] = getattr(commands, name)
+		setattr(commands, name, wrapper)
 	_installed = True
 
 
 def remove() -> None:
 	"""Stop. Safe to call when nothing is installed."""
-	global _installed, _pendingSource
+	global _installed, _activeSource
 	if not _installed:
 		return
-	inputCore.decide_executeGesture.unregister(_noteGestureSource)
-	_installed = False
-	_pendingSource = None
+	try:
+		import globalCommands
+
+		for name, original in _originals.items():
+			setattr(globalCommands.GlobalCommands, name, original)
+	except Exception:
+		log.error("BrlMultiline: could not restore NVDA's panning commands", exc_info=True)
+	finally:
+		# Whatever happened above, this module is no longer following anything, and saying so
+		# is what lets a later install try again.
+		_originals.clear()
+		_installed = False
+		_activeSource = None
 
 
-def takePendingSource() -> str | None:
-	""":return: the display whose panning key caused the scroll about to happen, or None.
+def sourceForNativeScroll() -> str | None:
+	""":return: the display whose panning key is driving the scroll happening now, or None.
 
-	Consumed, so that one key press drives one scroll. Anything scrolling without a key press
-	behind it — automatic scroll — gets None and the behaviour it had before any of this.
+	None whenever the scroll has no key press behind it — automatic scroll, or anything else
+	calling the handler directly — and that answer means NVDA's own behaviour, unchanged.
 	"""
-	global _pendingSource
-	source, _pendingSource = _pendingSource, None
-	return source
+	return _activeSource
 
 
 def displayKeyForSource(source: str | None) -> str | None:

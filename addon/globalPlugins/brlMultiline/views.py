@@ -373,28 +373,40 @@ def unavailableRects(devices: Sequence[DeviceInfo], numCols: int) -> list[Segmen
 
 
 def validateAgainstHardware(view: SegmentView, devices: Sequence[DeviceInfo], numCols: int) -> None:
-	"""Check that no segment of a view reaches cells that no hardware has.
+	"""Check that every segment of a view sits on exactly one physical display.
 
 	This is an invariant of whatever is finally shown, not a property of the base view, and
-	that distinction is the point of this function. `deviceView` claims the dead columns with
-	a `BlankPanel`, but a blank panel is an ordinary panel: `SegmentView.withPanel` evicts
-	every panel a new claim intersects, so a claim spanning the full width of a narrow
-	display's rows would take the mask with it and put a segment over cells that reach nothing.
-	An activated view bypasses `deviceView` altogether.
+	that distinction is the point of this function. `deviceView` builds both halves of it in,
+	but a view can arrive here without having been through `deviceView` at all — an activated
+	view is composed by whatever code wanted the display — and even a view derived from
+	`deviceView` can lose them: `SegmentView.withPanel` evicts every panel a new claim
+	intersects, so a claim spanning a narrow display's full rows takes the dead column mask
+	with it.
 
-	The failure is silent, which is why it is worth a check of its own. `sliceBandCells` takes
-	only the first `numCols` of each of a display's rows, so text laid out past that edge is
-	dropped on the way to the hardware with nothing raised, nothing logged and nothing to say
-	where it went.
+	Two ways to break it, and neither announces itself.
+
+	**Reaching a dead column loses text.** `sliceBandCells` takes only the first `numCols` of
+	each of a display's rows, so text laid out past that edge is dropped on the way to the
+	hardware with nothing raised, nothing logged and nothing to say where it went.
+
+	**Straddling two displays misplaces everything that addresses a segment.** These cells do
+	reach hardware, so nothing is lost, but the segment is no longer a thing one display owns:
+	`segmentsForDevice` can no longer say whose it is, so a display's own panning keys, the
+	display relative commands and a pin all end up reasoning about a segment that is half
+	somewhere else. It is also unreadable, a line of text continuing from the bottom of one
+	display onto another. This half of the check is why an all equal width composite is
+	validated too, where there are no dead columns to find.
 
 	:param view: the view about to be shown.
 	:param devices: the physical displays behind it, empty for an ordinary display.
 	:param numCols: the composite's width.
-	:raises ValueError: if any segment reaches cells no hardware has.
+	:raises ValueError: if any segment reaches cells no hardware has or spans two displays, or
+		if the bands do not describe a display of this width.
 	"""
-	dead = unavailableRects(devices, numCols)
-	if not dead:
+	if not devices:
 		return
+	bands = deviceBandRects([device.band for device in devices], numCols)
+	dead = [band.dead for band in bands if band.dead is not None]
 	for spec in view.flatten():
 		for rect in dead:
 			if rectsIntersect(spec.rect, rect):
@@ -402,6 +414,18 @@ def validateAgainstHardware(view: SegmentView, devices: Sequence[DeviceInfo], nu
 					f"Segment {spec.key!r} at {spec.rect} reaches cells at {rect} that no display "
 					f"has; anything shown there would be dropped on the way to the hardware",
 				)
+		if any(rectContains(band.live, spec.rect) for band in bands):
+			continue
+		touched = [
+			device.driverName
+			for device, band in zip(devices, bands, strict=True)
+			if rectsIntersect(spec.rect, band.live)
+		]
+		raise ValueError(
+			f"Segment {spec.key!r} at {spec.rect} is spread across {touched or 'no display'} rather "
+			f"than sitting on one; panning, pinning and the per segment commands all address a "
+			f"segment as belonging to a display",
+		)
 
 
 def deviceSegmentKey(driverName: str, index: int) -> str:

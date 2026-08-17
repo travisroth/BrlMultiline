@@ -71,11 +71,15 @@ class DisplaySection(dict):
 	with neither a stored value nor a specification raises `KeyError`, as in NVDA.
 	"""
 
-	def __init__(self, *args, **kwargs):
+	def __init__(self, *args, fallback=None, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.spec = {}
+		self.fallback = fallback
+		"""Where a setting this display has none of its own comes from. See L{DisplaysSection}."""
 
 	def __missing__(self, key):
+		if self.fallback is not None and key in self.fallback:
+			return self.fallback[key]
 		return _specDefault(self.spec[key])
 
 
@@ -84,8 +88,13 @@ class DisplaysSection(dict):
 
 	NVDA does not materialise one of these subsections on demand: reading a display that
 	has never been written raises `KeyError`, so anything wanting one has to create it
-	first, and the stub insists on that too. Tests care about the settings rather than the
-	key, so every display created resolves to the one stub section.
+	first, and the stub insists on that too.
+
+	Each display gets a section of its own, falling back to the one stub section L{CONFIG} for
+	anything nothing has written to it. So the ordinary test still sets a value in one
+	dictionary and has every display see it, while a test about *which* display a value lands
+	under can tell the difference — which the settings that are per physical display, and the
+	migration that moved one of them there, are entirely about.
 	"""
 
 	def isSet(self, key) -> bool:
@@ -94,7 +103,7 @@ class DisplaysSection(dict):
 	def __setitem__(self, key, value):
 		if not isinstance(value, dict):
 			raise ValueError("Value must be a section")
-		super().__setitem__(key, CONFIG)
+		super().__setitem__(key, DisplaySection(fallback=CONFIG))
 
 
 CONFIG = DisplaySection(
@@ -552,6 +561,8 @@ class FakeHandler:
 		self.tether = "focus"
 		self.autoScrollEnabled = None
 		self.scrolledTo = []
+		self._messageCallLater = None
+		self.gainedFocus = []
 
 	@property
 	def displaySize(self):
@@ -568,6 +579,32 @@ class FakeHandler:
 
 	def scrollToCursorOrSelection(self, region):
 		self.scrolledTo.append(region)
+
+	def handleGainFocus(self, obj):
+		"""Records the request rather than redrawing.
+
+		NVDA's redraws the display from the focus, and reproducing that would mean reproducing
+		region building. Every test that cares about this asks only whether the add-on asked for
+		a redraw at all — the case being that handing a message back has to leave braille
+		showing something without waiting for the user's next keystroke.
+		"""
+		self.gainedFocus.append(obj)
+
+	def _dismissMessage(self, shouldUpdate: bool = True):
+		"""Transcribed from `BrailleHandler._dismissMessage`, all four steps of it.
+
+		Written out rather than reduced to a flag because the add-on hands a showing message
+		back to NVDA through this, and each step is one the add-on was found not to be doing:
+		the message is cleared, the display returns to the main buffer, and the timeout stops.
+		A stub that only recorded the call would let all three go on being missed.
+		"""
+		self.buffer.clear()
+		self.buffer = self.mainBuffer
+		if self._messageCallLater:
+			self._messageCallLater.Stop()
+			self._messageCallLater = None
+		if shouldUpdate:
+			self.update()
 
 
 def fakeVirtualDisplay(*bands):
@@ -614,6 +651,10 @@ class FakeConf(dict):
 	2. Anything else is read from the active profile first, falling back to base.
 	3. Writes go to the active profile when there is one. Upstream: "Changed settings are
 	   written to the most recently activated profile."
+
+	And about one thing that is not a behaviour but a distinction: `profiles` is the *active*
+	stack, while L{listProfiles} names every profile saved on disk. A saved profile that is not
+	triggered right now appears only in the second, which is where a device list can hide.
 	"""
 
 	def __init__(self, *args, **kwargs):
@@ -621,19 +662,47 @@ class FakeConf(dict):
 		self.spec = {}
 		self.profiles = [dict(self)]
 		"""Profile 0 is the base configuration, as in NVDA. Later entries are activated ones."""
+		self.savedProfiles = {}
+		"""The profile files on disk, by name, whether or not they are active."""
 
 	@property
 	def activeProfile(self):
 		""":return: the most recently activated profile, or None when only base is in force."""
 		return self.profiles[-1] if len(self.profiles) > 1 else None
 
-	def activateProfile(self, values=None):
+	def listProfiles(self):
+		""":return: the names of the saved profiles, as NVDA's reads them off disk."""
+		return list(self.savedProfiles)
+
+	def _getProfile(self, name, load=True):
+		"""Load a saved profile. The private name is deliberate: it is the one that loads."""
+		return self.savedProfiles[name]
+
+	def getProfile(self, name):
+		"""NVDA's public one, which refuses to load. Here to keep the distinction visible."""
+		raise KeyError(name)
+
+	def saveProfile(self, name, values=None):
+		"""Write a profile to disk without activating it, which NVDA does when one is edited.
+
+		:param name: the profile's name.
+		:param values: what it overrides, as section name to mapping.
+		:return: the profile.
+		"""
+		self.savedProfiles[name] = dict(values or {})
+		return self.savedProfiles[name]
+
+	def activateProfile(self, values=None, name=None):
 		"""Push a configuration profile, as a profile trigger does.
 
 		:param values: what the profile overrides, as section name to mapping.
+		:param name: the name to save it under, since a profile that can be activated is one
+			that exists on disk. Omit for a profile that has not been saved.
 		:return: the profile.
 		"""
 		profile = dict(values or {})
+		if name is not None:
+			self.savedProfiles[name] = profile
 		self.profiles.append(profile)
 		return profile
 
@@ -789,6 +858,87 @@ class FakeBrailleHandler:
 		newDisplay = self._switchDisplay(self.display, newDisplayClass, **kwargs)
 		self.display = newDisplay
 		return newDisplay
+
+
+class GlobalCommands:
+	"""NVDA's `globalCommands.GlobalCommands`, with the two commands the add-on wraps.
+
+	A real class with real methods, because the add-on replaces class attributes and NVDA
+	resolves a gesture's script by `getattr` on the instance holding it. A stub keeping
+	callables in a dictionary would let a wrapper be installed that nothing could ever reach,
+	and every test of it would pass while testing nothing.
+
+	The bodies are NVDA's own: one line each, panning the handler.
+	"""
+
+	def script_braille_scrollForward(self, gesture):
+		"""Pans the braille display forward."""
+		import braille
+
+		braille.handler.scrollForward()
+
+	def script_braille_scrollBack(self, gesture):
+		"""Pans the braille display back."""
+		import braille
+
+		braille.handler.scrollBack()
+
+	def script_braille_routeTo(self, gesture):
+		"""Routes the cursor to or activates the object under this braille cell."""
+
+
+class InputManager:
+	"""NVDA's `inputCore.manager`, in the order that decides where a gesture's display goes.
+
+	Transcribed for the ordering rather than the behaviour, because the ordering is the whole
+	reason the add-on stopped recording a gesture's display when the gesture passed:
+
+	1. `decide_executeGesture` runs first, on the thread the driver dispatched from.
+	2. The capture function runs *after* it. Input help's returns False for a gesture it only
+	   describes, so the script never runs at all.
+	3. The script is then queued rather than called — `scriptHandler.queueScript` puts it on
+	   the main thread's queue — so any number of gestures can get through steps 1 and 2
+	   before the first script runs.
+
+	L{runQueued} stands in for the main thread's event queue, which is what lets a test hold
+	two displays' gestures and then run them.
+	"""
+
+	def __init__(self):
+		self.captureFunc = None
+		"""Set to a callable to stand in for input help, which returns False."""
+		self.queue = []
+
+	def executeGesture(self, gesture):
+		if not decide_executeGesture.decide(gesture=gesture):
+			return
+		if self.captureFunc is not None and self.captureFunc(gesture) is False:
+			return
+		script = gesture.script
+		if script is None:
+			return
+		self.queue.append((script, gesture))
+
+	def runQueued(self):
+		""":return: how many queued scripts ran."""
+		queued, self.queue = self.queue, []
+		for script, gesture in queued:
+			script(gesture)
+		return len(queued)
+
+
+class FakeCallLater:
+	"""A stand-in for the `wx.CallLater` NVDA holds a message's timeout in.
+
+	Only `Stop` is used from it, and whether it was called is the whole question: a timeout
+	left running fires into `_dismissMessage`, whose precondition is that a message is showing.
+	"""
+
+	def __init__(self):
+		self.stopped = False
+
+	def Stop(self):  # noqa: N802 - wx's own spelling.
+		self.stopped = True
 
 
 class CallAfterQueue:
@@ -952,7 +1102,9 @@ def installStubs() -> None:
 	if PACKAGE in sys.modules:
 		return
 	_module("logHandler", log=log)
-	_module("inputCore", decide_executeGesture=decide_executeGesture)
+	_module("inputCore", decide_executeGesture=decide_executeGesture, manager=InputManager())
+	# The two panning commands the add-on wraps, on the class it wraps them on.
+	_module("globalCommands", GlobalCommands=GlobalCommands, commands=GlobalCommands())
 	_module("baseObject", AutoPropertyObject=AutoPropertyObject, ScriptableObject=ScriptableObject)
 	_module(
 		"config",
@@ -1085,7 +1237,9 @@ def resetConfig() -> None:
 	if "config" in sys.modules:
 		conf = sys.modules["config"].conf
 		# Every profile but the base one, or one test's profile is the next test's surprise.
+		# Saved as well as active: a profile on disk outlives being deactivated.
 		conf.deactivateProfiles()
+		conf.savedProfiles.clear()
 		conf["BrlMultiline"]["displays"].clear()
 		# The combined display's member list, which the settings panel and the plugin both
 		# read through the driver's own `vdConfig`. Cleared in both places it can live, since

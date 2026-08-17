@@ -64,7 +64,9 @@ setting.
 With two displays combined, this applies to whichever display you are using: it belongs to
 the keys rather than to what is on the display, so pressing the Monarch's panning key uses
 the Monarch's setting even when the segment that moves is on the other display. Use the
-"Segment settings for" box to set it for each.
+"Segment settings for" box to set it for each. If you had reversed the keys for a combined
+display in an earlier version, when it was one setting for the pair, that choice is carried
+onto both displays the first time you run this one.
 
 **Show the document lines around the caret in the other segments.** When you are in a
 document, fills the segments around the focus segment with the lines above and below the
@@ -97,6 +99,8 @@ Things worth knowing:
   written where you could not read it.
 - One display per driver. Two displays of the same make cannot be told apart, so only one of
   each can be used.
+- No segment spans two displays. Each display is divided by its own settings, within its own
+  rows, so a line of braille never continues from the bottom of one display onto another.
 - Each display's own panning keys pan that display: the segment following the focus if that
   display holds it, otherwise that display's first segment. So the Monarch's keys move what
   is on the Monarch while the Focus goes on following the focus.

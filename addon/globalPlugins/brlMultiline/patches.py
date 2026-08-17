@@ -230,7 +230,7 @@ def _nativeScroll(handler: BrailleHandler, forward: bool) -> None:
 	:param handler: the braille handler.
 	:param forward: which of the two commands was run, before reversal.
 	"""
-	source = panning.takePendingSource()
+	source = panning.sourceForNativeScroll()
 	if panning.shouldReverseForSource(source):
 		forward = not forward
 	container = handler.buffer if isinstance(handler.buffer, DisplayContainer) else None

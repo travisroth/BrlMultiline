@@ -136,5 +136,72 @@ class TestSettingsForANewDisplay(ConfigTestCase):
 		self.assertEqual(bmConfig.getDisplayConfig(FOCUS)["segmentSizes"], [20, 60])
 
 
+class TestCarryingOverReversedPanning(ConfigTestCase):
+	"""Reversed panning moved from the composite display to the displays behind it.
+
+	The old value is no longer read anywhere, so an existing user's panning would silently swap
+	back to the default — and panning the wrong way is the kind of thing a reader blames on
+	themselves for a while before blaming the software.
+
+	Tested against the real configuration layers rather than the stand-ins the rest of the suite
+	reads through, because where the value lands is the whole question.
+	"""
+
+	COMPOSITE = "brlMultilineVirtual_9x80"
+	MEMBERS = [MONARCH, FOCUS]
+
+	def migrate(self):
+		bmConfig.migrateReverseScrollButtons(self.COMPOSITE, self.MEMBERS)
+
+	def reversed(self, displayKey):
+		return bool(bmConfig.getDisplayConfig(displayKey)["reverseScrollBtns"])
+
+	def test_theCompositesSettingIsCopiedToEveryDisplayBehindIt(self):
+		"""Every one of them, which is what one setting for the whole composite meant."""
+		bmConfig.getDisplayConfig(self.COMPOSITE)["reverseScrollBtns"] = True
+		self.migrate()
+		self.assertTrue(self.reversed(MONARCH))
+		self.assertTrue(self.reversed(FOCUS))
+
+	def test_aCompositeThatWasNotReversedChangesNothing(self):
+		self.migrate()
+		self.assertFalse(self.reversed(MONARCH))
+		self.assertFalse(self.reversed(FOCUS))
+
+	def test_itHappensOnceSoALaterChoiceIsNotUndone(self):
+		"""The rebuild happens on every settings save, and this must not fight the user.
+
+		There is no telling a member's stored `False` from a member that has never been asked,
+		so running again would keep putting the composite's old answer back over the setting the
+		user had just made.
+		"""
+		bmConfig.getDisplayConfig(self.COMPOSITE)["reverseScrollBtns"] = True
+		self.migrate()
+		bmConfig.getDisplayConfig(MONARCH)["reverseScrollBtns"] = False
+		self.migrate()
+		self.assertFalse(self.reversed(MONARCH))
+
+	def test_itIsRecordedAgainstTheCompositeRatherThanInferred(self):
+		self.migrate()
+		self.assertTrue(bmConfig.getDisplayConfig(self.COMPOSITE)["reverseScrollBtnsMigrated"])
+
+	def test_aNewCompositeIsNotAffectedByAnOldOnesMigration(self):
+		"""The mark belongs to the arrangement it was made for, keyed by geometry as usual."""
+		self.migrate()
+		self.assertFalse(bmConfig.getDisplayConfig("brlMultilineVirtual_2x40")["reverseScrollBtnsMigrated"])
+
+	def test_itIsCopiedByTheRealReader(self):
+		"""Not only stored where it looks right: read back the way panning reads it."""
+		bmConfig.getDisplayConfig(self.COMPOSITE)["reverseScrollBtns"] = True
+		self.migrate()
+		self.assertTrue(realBmConfig["shouldReverseScrollButtons"](FOCUS))
+
+	def test_aBrokenConfigurationIsNotFatal(self):
+		"""Panning the default way round is not worth losing a display over."""
+		bmConfig.getDisplayConfig(self.COMPOSITE)["reverseScrollBtns"] = True
+		bmConfig.migrateReverseScrollButtons(self.COMPOSITE, None)
+		self.assertFalse(self.reversed(FOCUS))
+
+
 if __name__ == "__main__":
 	unittest.main()

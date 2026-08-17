@@ -17,6 +17,7 @@ import unittest
 
 from ._stubs import (
 	CONFIG,
+	FakeCallLater,
 	FakeHandler,
 	FakeNavigatorObject,
 	Region,
@@ -625,14 +626,23 @@ class TestNativePanning(PluginTestCase):
 		self.container.update()
 
 	def pan(self, source, forward=True):
-		"""Press a display's own panning key, as NVDA's command does."""
+		"""Press a display's own panning key.
+
+		The display is put in place around the call, which is what the wrapper around NVDA's
+		panning command does for as long as the command runs. `test_panning` covers the wrapper
+		and every way a gesture can fail to reach one; this covers what the handler does once a
+		display is known.
+		"""
 		from brlMultiline import panning
 
-		panning._pendingSource = source
-		if forward:
-			BrailleHandler.scrollForward(self.handler)
-		else:
-			BrailleHandler.scrollBack(self.handler)
+		panning._activeSource = source
+		try:
+			if forward:
+				BrailleHandler.scrollForward(self.handler)
+			else:
+				BrailleHandler.scrollBack(self.handler)
+		finally:
+			panning._activeSource = None
 
 	def movedSegments(self):
 		"""Which segments panned.
@@ -682,7 +692,7 @@ class TestNativePanning(PluginTestCase):
 		self.assertEqual(self.container.segments[2].scrolled, "forward")
 
 	def test_onePressDrivesOneScroll(self):
-		"""The record is consumed, so a second scroll falls back to the focus segment."""
+		"""The display lasts only as long as its command, so the next scroll starts clean."""
 		self.pan("hidBrailleStandard")
 		self.assertEqual(self.movedSegments(), [0])
 		self.pan(None)
@@ -754,6 +764,16 @@ class TestDisplayRelativeCommands(PluginTestCase):
 		self.assertEqual(self.plugin.monitoredKeys, set())
 
 
+class NvdaMessageBuffer:
+	"""A stand-in for the message buffer NVDA builds for itself, with nothing of ours in it."""
+
+	def __init__(self):
+		self.cleared = False
+
+	def clear(self):
+		self.cleared = True
+
+
 class TestMessageBuffer(PluginTestCase):
 	"""Flash messages go into a segment rather than across the whole display."""
 
@@ -802,10 +822,62 @@ class TestMessageBuffer(PluginTestCase):
 		self.plugin.terminate()
 		self.assertIs(self.handler.messageBuffer, original)
 
-	def test_terminateWhileAMessageIsShowingDoesNotStrandIt(self):
-		self.handler.buffer = self.messageBuffer()
+	def showAMessage(self):
+		"""Put a message up, as `BrailleHandler.message` does, timeout and all."""
+		buffer = self.messageBuffer()
+		buffer.clear()
+		region = Region("a message")
+		region.update()
+		buffer.regions.append(region)
+		buffer.update()
+		self.handler.buffer = buffer
+		self.handler._messageCallLater = FakeCallLater()
+		return buffer
+
+	def test_terminateWhileAMessageIsShowingHandsEveryBufferBack(self):
+		"""Both buffers, and the display showing the one NVDA expects to be showing.
+
+		The message cannot come with us: its regions are in a buffer that stops being the
+		handler's. So it is dismissed the way NVDA dismisses one, which is the part that was
+		missing — leaving the display on an emptied buffer that was no longer anybody's, with
+		nothing scheduled to move it on if messages are shown indefinitely.
+		"""
+		originalMessageBuffer = self.plugin._originalMessageBuffer
+		self.showAMessage()
 		self.plugin.terminate()
-		self.assertIs(self.handler.buffer, self.handler.messageBuffer)
+		self.assertIs(self.handler.messageBuffer, originalMessageBuffer)
+		self.assertIs(self.handler.mainBuffer, self.originalBuffer)
+		self.assertIs(self.handler.buffer, self.handler.mainBuffer)
+
+	def test_terminateWhileAMessageIsShowingStopsItsTimeout(self):
+		"""Left running it fires into `_dismissMessage`, which would clear the main buffer."""
+		self.showAMessage()
+		timer = self.handler._messageCallLater
+		self.plugin.terminate()
+		self.assertTrue(timer.stopped)
+		self.assertIsNone(self.handler._messageCallLater)
+
+	def test_theDisplayIsRedrawnAfterAMessageIsHandedBack(self):
+		"""So that braille shows something again without waiting for the next event."""
+		self.showAMessage()
+		self.handler.gainedFocus.clear()
+		self.plugin.terminate()
+		self.assertTrue(self.handler.gainedFocus)
+
+	def test_aMessageInABufferNVDAHasReplacedIsDismissedRatherThanLeftShowing(self):
+		"""NVDA builds a fresh message buffer of its own whenever braille is reinitialised.
+
+		The message in it belongs to that buffer, so taking over cannot carry it along; what it
+		must not do is leave the display on a buffer nothing will write to again.
+		"""
+		replacement = NvdaMessageBuffer()
+		self.handler.messageBuffer = self.handler.buffer = replacement
+		timer = self.handler._messageCallLater = FakeCallLater()
+		self.plugin.rebuildBuffer()
+		self.assertTrue(replacement.cleared)
+		self.assertIs(self.handler.messageBuffer, self.plugin._messageBuffer)
+		self.assertIs(self.handler.buffer, self.handler.mainBuffer)
+		self.assertTrue(timer.stopped)
 
 	def test_losingTheDisplayGivesNVDAItsOwnBufferBack(self):
 		original = self.plugin._originalMessageBuffer
@@ -940,6 +1012,73 @@ class TestCompositeDisplay(PluginTestCase):
 		)
 		self.plugin.activateView(view)
 		self.assertEqual(self.plugin.currentView.name, "narrow")
+
+	def test_aClaimSpanningTwoDisplaysIsRefused(self):
+		"""The Monarch's last row and the Focus's row. Every cell is live, and it is still wrong.
+
+		Nothing is lost here, which is what makes it worth its own test: the cells all reach
+		hardware, so the only symptom is that the segment belongs to no display, and everything
+		that addresses a segment through its display stops being able to find it.
+		"""
+		self.focusOntoTheMonarch()
+		with self.assertRaises(ValueError):
+			self.plugin.activatePanel(
+				SinglePanel("reader", SegmentRect(row=7, col=0, numRows=2, numCols=32)),
+			)
+		self.assertFalse(self.container.hasKey("reader"))
+		self.assertEqual(self.container.numSegments, 3)
+
+	def test_anActivatedViewSpanningTwoDisplaysIsRefused(self):
+		view = SegmentView(
+			"across",
+			[
+				BlankPanel(SegmentRect(row=0, col=0, numRows=7, numCols=32)),
+				SinglePanel("across", SegmentRect(row=7, col=0, numRows=2, numCols=32)),
+				BlankPanel(SegmentRect(row=0, col=32, numRows=8, numCols=48)),
+				BlankPanel(SegmentRect(row=8, col=32, numRows=1, numCols=48)),
+			],
+		)
+		with self.assertRaises(ValueError):
+			self.plugin.activateView(view)
+		self.assertEqual(self.plugin.currentView.name, "devices")
+
+	def focusOntoTheMonarch(self):
+		"""Put the system focus on the Monarch's first segment.
+
+		So that a claim over the boundary between the two displays is refused for spanning it
+		rather than for evicting the focus segment, which by default is the Focus's.
+		"""
+		CONFIG["focusSegment"] = 0
+		self.plugin.rebuildBuffer()
+
+	def test_aSegmentWithinOneDisplayIsStillAllowedAtEitherEdge(self):
+		"""Both sides of the boundary, so that the check is about spanning it and not about it."""
+		self.focusOntoTheMonarch()
+		self.plugin.activatePanel(
+			SinglePanel("last", SegmentRect(row=7, col=0, numRows=1, numCols=32)),
+		)
+		self.assertTrue(self.container.hasKey("last"))
+		self.plugin.activatePanel(
+			SinglePanel("beside", SegmentRect(row=8, col=0, numRows=1, numCols=80)),
+		)
+		self.assertTrue(self.container.hasKey("beside"))
+
+	def test_arrangingACompositeCarriesOverAnOldReversalSetting(self):
+		"""Where the carry over is hooked in: the one place both keys are known at once.
+
+		Asserted against the configuration section rather than through
+		`bmConfig.shouldReverseScrollButtons`, which the rest of the suite reads through a
+		stand-in. Which section the value is in is the whole question here.
+		"""
+		from brlMultiline import bmConfig
+
+		composite = bmConfig.getDisplayConfig("brlMultilineVirtual_9x80")
+		composite["reverseScrollBtns"] = True
+		# As it stands the first time this version runs: setUp has already built the display.
+		composite["reverseScrollBtnsMigrated"] = False
+		self.plugin.rebuildBuffer()
+		self.assertTrue(bmConfig.getDisplayConfig("hidBrailleStandard_8x32")["reverseScrollBtns"])
+		self.assertTrue(bmConfig.getDisplayConfig("freedomScientific_1x80")["reverseScrollBtns"])
 
 	def test_aProfileListingDifferentDisplaysIsReported(self):
 		"""The list is not applied until the composite is reopened, so say so rather than not.

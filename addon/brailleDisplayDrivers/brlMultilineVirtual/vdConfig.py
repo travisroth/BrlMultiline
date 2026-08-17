@@ -116,31 +116,94 @@ def _baseSection():
 	return base[CONFIG_SECTION]
 
 
+def _coerceEntries(entries) -> list[str] | None:
+	"""Make a list of driver names out of whatever was stored.
+
+	A list of exactly one entry comes back from configobj as a bare string when it has not been
+	validated, so a single member composite would otherwise be read as one driver name per
+	character. That is the whole of this function's reason to exist.
+
+	:param entries: the stored value.
+	:return: the entries, or None if the value is not something a list could be made of.
+	"""
+	if isinstance(entries, str):
+		return [entries] if entries.strip() else []
+	try:
+		return [str(entry) for entry in entries]
+	except TypeError:
+		return None
+
+
 def _readEntries() -> list[str]:
 	"""Read the stored entries, tolerating everything an unvalidated section can be.
 
 	Three things can go wrong here and none of them is the user's fault, so none of them
 	raises. The section may be missing, because nothing validated it into existence. The key
-	may be missing, because the specification's default was never applied. And a list of
-	exactly one entry comes back from configobj as a bare string when it has not been
-	validated — so a single member composite would otherwise be read as one driver name per
-	character.
+	may be missing, because the specification's default was never applied. And the value may
+	be the bare string L{_coerceEntries} is about.
 
 	:return: the entries, or an empty list if there is nothing readable there.
 	"""
 	try:
-		entries = _baseSection().get("devices", [])
+		stored = _baseSection().get("devices", [])
 	except Exception:
 		log.error(f"BrlMultiline: could not read {CONFIG_SECTION}", exc_info=True)
 		return []
-	if isinstance(entries, str):
-		# configobj gives a string rather than a one item list when nothing validated it.
-		return [entries] if entries.strip() else []
-	try:
-		return [str(entry) for entry in entries]
-	except TypeError:
-		log.error(f"BrlMultiline: {CONFIG_SECTION} devices is {entries!r}, which is not a list")
+	entries = _coerceEntries(stored)
+	if entries is None:
+		log.error(f"BrlMultiline: {CONFIG_SECTION} devices is {stored!r}, which is not a list")
 		return []
+	return entries
+
+
+def _eachProfile():
+	"""Yield every configuration profile a stored device list could be hiding in.
+
+	Two places, because neither is the whole answer. `config.conf.profiles` is the *active*
+	stack, which is the only place a profile created in this session and not yet saved appears.
+	`listProfiles` names every profile saved on disk, which is where an application profile
+	that happens not to be triggered right now lives — and that is the case the first version
+	of this missed, since a list saved under a profile the user was not in became unreachable
+	the moment reads were redirected to base.
+
+	`_getProfile` rather than the public `getProfile`, because the public one returns only
+	profiles NVDA has already loaded and loading them is the entire point. It caches into
+	NVDA's own profile cache, which is where a triggered profile would have put it anyway.
+
+	:return: pairs of a name to report and the profile, skipping any that cannot be read.
+	"""
+	for index, profile in enumerate(config.conf.profiles[1:], start=1):
+		yield getattr(profile, "name", None) or f"active profile {index}", profile
+	try:
+		names = list(config.conf.listProfiles())
+	except Exception:
+		log.debugWarning("BrlMultiline: could not list the configuration profiles", exc_info=True)
+		return
+	for name in names:
+		try:
+			yield name, config.conf._getProfile(name)
+		except Exception:
+			# One unreadable profile must not stop the others being looked at.
+			log.debugWarning(f"BrlMultiline: could not read configuration profile {name!r}", exc_info=True)
+
+
+def _devicesInProfiles() -> dict[str, list[str]]:
+	""":return: every non-empty device list stored in a profile, by the profile's name."""
+	found: dict[str, list[str]] = {}
+	for name, profile in _eachProfile():
+		if name in found:
+			# The same profile reached twice: active, and saved on disk.
+			continue
+		try:
+			section = profile.get(CONFIG_SECTION)
+			stored = section.get("devices") if section is not None else None
+		except Exception:
+			log.debugWarning(f"BrlMultiline: could not read {CONFIG_SECTION} from {name!r}", exc_info=True)
+			continue
+		entries = _coerceEntries(stored) if stored else None
+		if entries:
+			found[name] = entries
+	return found
 
 
 def _migrateFromProfiles() -> None:
@@ -154,22 +217,35 @@ def _migrateFromProfiles() -> None:
 	configuration is the authority. A profile's leftover copy is left in place rather than
 	deleted, because deleting from someone's saved profile is not this driver's business, but
 	it is reported so that a puzzling `.ini` file has an explanation.
+
+	Profiles disagreeing is the one case nothing is copied. There is no way to tell which of
+	them the user meant, and picking one silently would leave them with a composite of displays
+	they did not choose — worse than choosing again, which is a page of settings away and which
+	the log then asks for by name.
 	"""
 	try:
 		base = _baseSection()
+		found = _devicesInProfiles()
 		if "devices" in base:
 			# Already where it belongs. Say so if a profile still carries one, since that copy
 			# is about to stop having any effect.
-			if any(CONFIG_SECTION in profile for profile in config.conf.profiles[1:]):
+			if found:
 				log.info(
-					f"BrlMultiline: a configuration profile also holds {CONFIG_SECTION}. "
-					"The base configuration is used; the profile's copy is ignored.",
+					f"BrlMultiline: configuration profiles {sorted(found)} also hold "
+					f"{CONFIG_SECTION}. The base configuration is used; their copies are ignored.",
 				)
 			return
-		stored = config.conf[CONFIG_SECTION].get("devices")
-		if not stored:
+		if not found:
 			return
-		base["devices"] = list(stored) if not isinstance(stored, str) else [stored]
+		distinct = {tuple(entries) for entries in found.values()}
+		if len(distinct) > 1:
+			log.warning(
+				f"BrlMultiline: configuration profiles hold different lists of displays to "
+				f"combine ({found}), and this is now one setting for all of them. None has been "
+				f"used; choose the displays again in the BrlMultiline displays settings.",
+			)
+			return
+		base["devices"] = list(next(iter(distinct)))
 		log.info(
 			f"BrlMultiline: moved the combined display's device list into the base "
 			f"configuration, where profiles cannot change it: {base['devices']}",

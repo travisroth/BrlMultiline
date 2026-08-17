@@ -275,6 +275,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				)
 				self._activeView = None
 		if devices:
+			# Hooked in here because this is the one place that knows both the composite's own
+			# configuration key and the keys of the displays behind it. It does its work once
+			# and leaves a mark saying so, so every later rebuild costs one read.
+			bmConfig.migrateReverseScrollButtons(
+				bmConfig.getDisplayKey(),
+				[device.displayKey for device in devices],
+			)
 			try:
 				# Validates itself against this size, so a driver and a handler that disagree
 				# about the geometry are caught here rather than inside the container.
@@ -396,13 +403,43 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			if handler.messageBuffer is not self._messageBuffer:
 				# Either the first install, or NVDA has rebuilt its own buffer underneath us,
 				# which it does whenever braille is reinitialised.
-				showingMessage = handler.buffer is handler.messageBuffer
+				if handler.buffer is handler.messageBuffer:
+					# A message is up in the buffer about to be replaced. Its regions belong to
+					# that buffer, so it is taken down rather than carried over; the rebuild
+					# redraws from the focus immediately afterwards.
+					self._dismissShowingMessage(handler)
 				handler.messageBuffer = self._messageBuffer
-				if showingMessage:
-					handler.buffer = self._messageBuffer
 		except Exception:
 			# Messages going to the wrong place is a poor reason to lose the whole layout.
 			log.error("BrlMultiline: could not install the message buffer", exc_info=True)
+
+	@staticmethod
+	def _dismissShowingMessage(handler) -> None:
+		"""Take down the message being shown, before the buffer showing it changes hands.
+
+		NVDA's own dismissal, because a message is not only some cells: `_dismissMessage`
+		clears it, returns the display to the main buffer, stops the timeout and tells
+		`_post_dismissBrailleMessage`. Doing part of that is what left the display showing an
+		empty buffer belonging to nobody — until the next key press moved it on, and with
+		messages configured to be shown indefinitely there is no next anything.
+
+		`shouldUpdate=False` because every caller here redraws straight afterwards, from the
+		buffer that is by then the right one.
+
+		:param handler: the braille handler, with a message showing.
+		"""
+		try:
+			handler._dismissMessage(shouldUpdate=False)
+		except Exception:
+			# The two parts that must happen even so. The timer is the dangerous one: it fires
+			# into `_dismissMessage`, whose precondition is that a message is showing, so left
+			# running it would clear the main buffer some seconds later.
+			log.error("BrlMultiline: could not dismiss the message being shown", exc_info=True)
+			handler.buffer = handler.mainBuffer
+			callLater = getattr(handler, "_messageCallLater", None)
+			if callLater is not None:
+				callLater.Stop()
+				handler._messageCallLater = None
 
 	def _restoreMessageBuffer(self) -> None:
 		"""Give NVDA its own message buffer back."""
@@ -411,13 +448,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		handler = braille.handler
 		try:
 			if handler is not None and handler.messageBuffer is self._messageBuffer:
-				showingMessage = handler.buffer is self._messageBuffer
+				if handler.buffer is self._messageBuffer:
+					# Dismissed rather than carried across, because the regions belong to a
+					# buffer that is about to stop being the handler's.
+					self._dismissShowingMessage(handler)
 				handler.messageBuffer = self._originalMessageBuffer
-				if showingMessage:
-					# Dismissing rather than carrying the message across, because the region
-					# belongs to a buffer that is about to stop being the handler's.
-					handler.buffer = self._originalMessageBuffer
-					handler.messageBuffer.clear()
 		except Exception:
 			log.error("BrlMultiline: could not restore NVDA's message buffer", exc_info=True)
 		finally:

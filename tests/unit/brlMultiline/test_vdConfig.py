@@ -138,7 +138,7 @@ class TestMigration(VdConfigTestCase):
 		config.conf.activateProfile({SECTION: {"devices": [FOCUS]}})
 		vdConfig.initialize()
 		self.assertTrue(
-			any("profile's copy is ignored" in message for _level, message in log.messages),
+			any("copies are ignored" in message for _level, message in log.messages),
 			log.messages,
 		)
 
@@ -147,6 +147,71 @@ class TestMigration(VdConfigTestCase):
 		vdConfig.initialize()
 		self.assertEqual(self.names(), [])
 		self.assertFalse(self.base().get("devices"))
+
+	def test_aListInASavedProfileThatIsNotActiveIsMoved(self):
+		"""The case an active-stack-only migration misses, and it loses the list for good.
+
+		An application profile holds a list only if the user changed the member list while that
+		application was in front. Nothing says the same application is in front at the next NVDA
+		start, and once reads go to base the list can never be found again.
+		"""
+		self.freshStart()
+		config.conf.saveProfile("firefox", {SECTION: {"devices": [MONARCH, FOCUS]}})
+		vdConfig.initialize()
+		self.assertEqual(self.names(), [MONARCH, FOCUS])
+
+	def test_profilesAgreeingIsOneAnswer(self):
+		"""Several profiles naming the same displays is the same list, whatever the count."""
+		self.freshStart()
+		config.conf.saveProfile("firefox", {SECTION: {"devices": [MONARCH]}})
+		config.conf.saveProfile("word", {SECTION: {"devices": [MONARCH]}})
+		vdConfig.initialize()
+		self.assertEqual(self.names(), [MONARCH])
+
+	def test_profilesDisagreeingMigratesNothingAndSaysSo(self):
+		"""Nothing can tell which was meant, and a composite of displays nobody chose is worse.
+
+		The log names the profiles and asks for the choice to be made again, which is one page
+		of settings rather than a guess the user cannot see.
+		"""
+		self.freshStart()
+		config.conf.saveProfile("firefox", {SECTION: {"devices": [MONARCH]}})
+		config.conf.saveProfile("word", {SECTION: {"devices": [FOCUS]}})
+		vdConfig.initialize()
+		self.assertEqual(self.names(), [])
+		self.assertTrue(
+			any(level == "warning" and "different lists" in message for level, message in log.messages),
+			log.messages,
+		)
+
+	def test_anEmptyListInAProfileIsNotAList(self):
+		"""So a profile that only ever had the section created in it does not count as a choice."""
+		self.freshStart()
+		config.conf.saveProfile("firefox", {SECTION: {"devices": []}})
+		config.conf.saveProfile("word", {SECTION: {"devices": [FOCUS]}})
+		vdConfig.initialize()
+		self.assertEqual(self.names(), [FOCUS])
+
+	def test_aProfileThatCannotBeReadDoesNotStopTheOthers(self):
+		self.freshStart()
+		config.conf.savedProfiles["broken"] = None
+		config.conf.saveProfile("word", {SECTION: {"devices": [FOCUS]}})
+		vdConfig.initialize()
+		self.assertEqual(self.names(), [FOCUS])
+
+	def test_anActiveProfileIsNotCountedTwice(self):
+		"""It is both on disk and on the stack, and one list is not two disagreeing ones."""
+		self.freshStart()
+		config.conf.activateProfile({SECTION: {"devices": [MONARCH]}}, name="firefox")
+		vdConfig.initialize()
+		self.assertEqual(self.names(), [MONARCH])
+
+	def test_aSingleEntryStoredAsAStringMigratesAsOneDisplay(self):
+		"""configobj's bare string, in a profile this time, where it would read per character."""
+		self.freshStart()
+		config.conf.saveProfile("firefox", {SECTION: {"devices": FOCUS}})
+		vdConfig.initialize()
+		self.assertEqual(self.names(), [FOCUS])
 
 	def test_theMigrationRunsBeforeTheSectionBecomesBaseOnly(self):
 		"""Ordering, asserted directly: afterwards a profile's copy is unreachable."""

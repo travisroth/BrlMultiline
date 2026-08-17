@@ -23,8 +23,9 @@ established there.
 - `patches.py` — the three patches to `BrailleHandler`, installed and removed together.
 - `documentLines.py` — `TextInfoPositionRegion` and the code that fills free segments.
 - `objectMonitor.py` — pinning an object to a segment.
-- `panning.py` — which physical display's keys were last pressed, and therefore whose
-  panning direction applies. See the module docstring for why it is not a thread local.
+- `panning.py` — which physical display's panning key is running the scroll happening now,
+  and therefore whose panning direction and whose segment apply. See the module docstring for
+  why it wraps NVDA's two panning commands rather than watching gestures pass.
 - `bmConfig.py` — per display configuration. Named to avoid shadowing NVDA's `config`.
 - `settingsPanel.py` — the NVDA settings category.
 - `__init__.py` — the global plugin: lifetime, claims, commands, and object monitor state.
@@ -381,13 +382,19 @@ NVDA has no reverse panning setting (see [nvda-api-notes.md](nvda-api-notes.md))
 add-on provides one, stored per display.
 
 The implementation swaps at the handler level: `BrailleHandler.scrollForward` and
-`scrollBack` are patched so that, when the setting is on for the current display, each
-delegates to the other's original implementation. Swapping there rather than in the
-container means it applies to whatever gesture the display driver maps to panning,
+`scrollBack` are patched so that, when the setting is on for the display whose key was
+pressed, each delegates to the other's original implementation. Swapping there rather than in
+the container means it applies to whatever gesture the display driver maps to panning,
 including the built-in `braille_scrollForward` and `braille_scrollBack` commands, without
 the add-on needing to know the driver's gesture names. It is safe to swap at that level
 because the two handler methods are otherwise identical in their side effects (message
 buffer timer reset, auto scroll timer reset).
+
+Per display, not per arrangement: which of the two keys means forward is a fact about where
+they sit on a piece of hardware. So when several displays are driven as one, the setting that
+applies is the pressed display's, whichever display holds the segment that moves. `panning`
+is how the pressed display is known, and the same answer picks the segment: the focus segment
+when that display holds it, otherwise that display's first segment.
 
 ## Document lines
 

@@ -25,6 +25,8 @@ from typing import NamedTuple
 import braille
 from logHandler import log
 
+from .layout import SegmentRect, rectContains
+
 VIRTUAL_DISPLAY_NAME = "brlMultilineVirtual"
 """The name of the add-on's own braille display driver.
 
@@ -71,6 +73,16 @@ class DeviceInfo(NamedTuple):
 		""":return: this display's band, in the form `layout.deviceBandRects` takes."""
 		return (self.rowStart, self.numRows, self.numCols)
 
+	@property
+	def liveRect(self) -> SegmentRect:
+		""":return: the cells of the composite this display actually has, in composite coordinates.
+
+		The same rectangle `layout.deviceBandRects` calls a band's live part, and computable
+		without knowing the composite's width, because a display's own cells start at column 0
+		and end where the hardware does. What the composite's width adds is the dead part.
+		"""
+		return SegmentRect(row=self.rowStart, col=0, numRows=self.numRows, numCols=self.numCols)
+
 
 MAX_UI_DISPLAYS = 3
 """How many physical displays the display relative commands are generated for.
@@ -91,12 +103,22 @@ outright; these exist to be stable, not to be exhaustive.
 def segmentsForDevice(rects, device: DeviceInfo) -> list[int]:
 	"""Find the segments lying on one physical display.
 
+	Full containment rather than "where does it start", so that a segment straddling two
+	displays belongs to neither rather than to whichever one holds its first row. Such a
+	segment is refused by `views.validateAgainstHardware` before it can be shown, so this is
+	the second line of the same defence — but it is the line that decides what a display's own
+	panning keys do, and answering "this display" for a segment half of which is on the other
+	one is worse than answering nothing.
+
 	:param rects: the segment rectangles, in display order.
 	:param device: the physical display.
-	:return: their indices, in display order. Empty if the display holds no segment, which a
-		display made entirely of dead columns would be.
+	:return: their indices, in display order. Empty if the display holds no segment, which is
+		the answer for a display made entirely of dead columns and for the single segment the
+		plugin falls back to when a view cannot be shown, since that segment covers the whole
+		composite and so sits on no one display.
 	"""
-	return [index for index, rect in enumerate(rects) if device.rowStart <= rect.row < device.rowEnd]
+	live = device.liveRect
+	return [index for index, rect in enumerate(rects) if rectContains(live, rect)]
 
 
 def resolveDisplaySegment(

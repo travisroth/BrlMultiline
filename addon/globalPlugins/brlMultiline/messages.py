@@ -84,6 +84,13 @@ class MessageBuffer(BrailleBuffer):
 			# out again is cheap and the alternative is a message half wrapped to a width it
 			# no longer has.
 			self.update()
+			# And written out, which nothing else will do. A message moves because the layout
+			# was rebuilt, and the rebuild redraws through `handleGainFocus`, which deliberately
+			# leaves the display alone while a message is showing. Without this the message
+			# stays under the reader's fingers where it was while every calculation about it —
+			# routing above all — has moved to where it now is. `updateDisplay` checks that this
+			# buffer is the one being shown, so it costs nothing when the message has gone.
+			self.updateDisplay()
 
 	@property
 	def _displayNumCols(self) -> int:

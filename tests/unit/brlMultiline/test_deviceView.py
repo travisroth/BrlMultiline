@@ -37,8 +37,13 @@ from brlMultiline.devices import (  # noqa: E402
 	segmentsForDevice,
 )
 from brlMultiline.layout import SegmentRect, deviceBandRects  # noqa: E402
-from brlMultiline.panels import BlankPanel  # noqa: E402
-from brlMultiline.views import deviceSegmentKey, deviceView  # noqa: E402
+from brlMultiline.panels import BlankPanel, SinglePanel  # noqa: E402
+from brlMultiline.views import (  # noqa: E402
+	SegmentView,
+	deviceSegmentKey,
+	deviceView,
+	validateAgainstHardware,
+)
 
 MONARCH = DeviceInfo(driverName="hidBrailleStandard", rowStart=0, numRows=8, numCols=32)
 FOCUS = DeviceInfo(driverName="freedomScientific", rowStart=8, numRows=1, numCols=80)
@@ -257,6 +262,87 @@ class TestDeviceViewRefusals(DeviceViewTestCase):
 			deviceView(COMPOSITE_ROWS, COMPOSITE_COLS, [MONARCH])
 
 
+class TestSegmentsMustSitOnOneDisplay(DeviceViewTestCase):
+	"""The invariant `deviceView` builds in, checked against views that did not come from it.
+
+	An activated view is composed by whatever code wanted the display, and `withPanel` evicts
+	whole panels — so a view arriving at the container may divide the composite anywhere,
+	including across the boundary between two pieces of hardware. Those cells do reach
+	hardware, so nothing is lost and nothing complains; what breaks is everything that treats
+	a segment as belonging to a display.
+	"""
+
+	def viewOf(self, *rects):
+		"""A view of one segment per rectangle, and nothing else.
+
+		Deliberately not a tiling view: `validateAgainstHardware` reads the segments and only
+		the segments, and building a legal tiling around each case would obscure what each case
+		actually is.
+		"""
+		panels = [SinglePanel(f"seg{index}", rect) for index, rect in enumerate(rects)]
+		return SegmentView(name="composed", panels=panels, focusSegmentKey="seg0")
+
+	def check(self, view, devices=(MONARCH, FOCUS), numCols=COMPOSITE_COLS):
+		validateAgainstHardware(view, list(devices), numCols)
+
+	def test_theBaseViewPasses(self):
+		"""Whatever else this refuses, it must not refuse the arrangement the add-on builds."""
+		self.check(self.build())
+
+	def test_aSegmentSpanningTwoDisplaysIsRefused(self):
+		"""The Monarch's last row and the Focus's row: 32 cells wide, and all of them live."""
+		straddling = SegmentRect(row=7, col=0, numRows=2, numCols=32)
+		with self.assertRaises(ValueError) as caught:
+			self.check(self.viewOf(straddling))
+		self.assertIn("hidBrailleStandard", str(caught.exception))
+		self.assertIn("freedomScientific", str(caught.exception))
+
+	def test_aSegmentSpanningTwoDisplaysOfEqualWidthIsRefused(self):
+		"""The case that used to pass unexamined, since equal widths leave no dead columns."""
+		devices = (DeviceInfo("alva", 0, 1, 40), DeviceInfo("handyTech", 1, 1, 40))
+		with self.assertRaises(ValueError):
+			self.check(
+				self.viewOf(SegmentRect(row=0, col=0, numRows=2, numCols=40)),
+				devices=devices,
+				numCols=40,
+			)
+
+	def test_aSegmentOnEachDisplayPasses(self):
+		self.check(
+			self.viewOf(
+				SegmentRect(row=0, col=0, numRows=8, numCols=32),
+				SegmentRect(row=8, col=0, numRows=1, numCols=80),
+			),
+		)
+
+	def test_severalSegmentsWithinOneDisplayPass(self):
+		self.check(
+			self.viewOf(
+				SegmentRect(row=0, col=0, numRows=4, numCols=32),
+				SegmentRect(row=4, col=0, numRows=4, numCols=32),
+			),
+		)
+
+	def test_aSegmentReachingDeadColumnsIsRefusedForLosingText(self):
+		"""Both failures are refused, but they are different failures and say so."""
+		with self.assertRaises(ValueError) as caught:
+			self.check(self.viewOf(SegmentRect(row=0, col=0, numRows=1, numCols=80)))
+		self.assertIn("no display", str(caught.exception))
+
+	def test_anOrdinaryDisplayIsNotCheckedAtAll(self):
+		"""There is one piece of hardware, so every segment is on it by definition."""
+		self.check(self.viewOf(SegmentRect(row=0, col=0, numRows=1, numCols=40)), devices=(), numCols=40)
+
+	def test_aDisplayWiderThanTheCompositeIsRefused(self):
+		"""The driver and the handler disagreeing about the geometry, caught on the way past."""
+		with self.assertRaises(ValueError):
+			self.check(
+				self.viewOf(SegmentRect(row=0, col=0, numRows=1, numCols=40)),
+				devices=(FOCUS._replace(rowStart=0),),
+				numCols=40,
+			)
+
+
 class TestDeviceMap(unittest.TestCase):
 	def setUp(self):
 		self.originalHandler = braille.handler
@@ -317,6 +403,22 @@ class TestDisplayRelativeAddressing(unittest.TestCase):
 	def test_segmentsAreFoundOnTheirOwnDisplay(self):
 		self.assertEqual(segmentsForDevice(self.RECTS, MONARCH), [0, 1])
 		self.assertEqual(segmentsForDevice(self.RECTS, FOCUS), [2])
+
+	def test_aSegmentSpanningTwoDisplaysBelongsToNeither(self):
+		"""Refused before it can be shown, but this is what decides a panning key's target.
+
+		Answering "the Monarch" for a segment half of which is on the Focus would pan cells the
+		reader is not looking at; answering nothing leaves NVDA's own behaviour in place.
+		"""
+		rects = [SegmentRect(row=7, col=0, numRows=2, numCols=32)]
+		self.assertEqual(segmentsForDevice(rects, MONARCH), [])
+		self.assertEqual(segmentsForDevice(rects, FOCUS), [])
+
+	def test_theFallbackSingleSegmentBelongsToNoDisplay(self):
+		"""What the plugin shows when a view cannot be built: one segment over the composite."""
+		rects = [SegmentRect(row=0, col=0, numRows=COMPOSITE_ROWS, numCols=COMPOSITE_COLS)]
+		self.assertEqual(segmentsForDevice(rects, MONARCH), [])
+		self.assertEqual(segmentsForDevice(rects, FOCUS), [])
 
 	def test_theFirstDisplayIsTheTopOne(self):
 		self.assertEqual(self.resolve(0, 0), 0)

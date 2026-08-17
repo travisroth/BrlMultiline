@@ -931,6 +931,94 @@ override would have passed while exercising the stub. The stub now defines its g
 
 608 tests, one expected failure.
 
+### Review found six more things, and the panning hook was the wrong one
+
+None was a P1 and one of them was the design rather than a slip.
+
+**The display behind a panning key was read at the wrong moment.** The first version noted the
+display as the gesture passed `inputCore.decide_executeGesture` and read it back at the
+scroll. That is one hook too early, and reading `executeGesture` again says why twice over.
+It does not run the script; it calls `scriptHandler.queueScript`, so the script runs later on
+the main thread while the decider ran on the thread the driver dispatched from — two displays
+are two threads, and a pan on each could both be decided before either script ran, leaving one
+scroll acting on the wrong display and the other on none. And three paths between the decider
+and the script abandon the gesture outright: the capture function at line 625, which is input
+help and which returns before the script; sleep mode at line 573; a modifier at line 633. Each
+left a display recorded that no scroll would collect, waiting for the next scroll with no key
+press behind it — automatic scroll — to act on.
+
+`panning` now wraps `globalCommands.GlobalCommands.script_braille_scrollForward` and
+`script_braille_scrollBack` instead, which is where the gesture and the call to
+`BrailleHandler.scrollForward` are in the same stack frame. The record and its only reader are
+one synchronous call on one thread, so the module global needs no locking and no consuming:
+set on entry, restored on exit. Wrapping the two commands also drops the `inputCore` dependency
+and the `isinstance` filter, since nothing but those two commands can set anything now.
+`functools.wraps` keeps the name, documentation and script attributes, so input help and the
+Input Gestures dialog still describe NVDA's own commands.
+
+The tests are what this bought. `_stubs.InputManager` reproduces the order — decide, capture,
+queue — and `runQueued` stands in for the main thread's queue, so "both displays pressed before
+either command runs" is a test rather than a paragraph. Reinstating the old mechanism fails
+five of them: the input help leak, the cancelled gesture leak, and all three orderings.
+
+**A message handed back mid flash left braille stranded.** `_restoreMessageBuffer` cleared
+NVDA's message buffer and made it the handler's buffer, which is not what dismissing a message
+is. `_dismissMessage` clears it, returns the display to `mainBuffer`, stops `_messageCallLater`
+and notifies `_post_dismissBrailleMessage`; doing part of it left the display on an emptied
+buffer belonging to nobody, until the next key press moved it on — and with messages configured
+to be shown indefinitely there is no next anything. The add-on now calls NVDA's own dismissal
+while its buffer is still installed, and the same applies where NVDA has rebuilt its message
+buffer underneath us. The old test asserted `buffer is messageBuffer` afterwards, which
+encoded the wrong contract; it now asserts both buffers, the display showing the main one, and
+the timeout stopped. The timeout is the part that is not merely untidy: left running it fires
+into `_dismissMessage`, whose precondition is that a message is showing, and clears the main
+buffer some seconds later.
+
+**Moving a live message did not redraw it.** `setRect` laid the message out again but never
+wrote it, and nothing else would: a message moves because the layout was rebuilt, and the
+rebuild redraws through `handleGainFocus`, which deliberately leaves the display alone while a
+message is showing. So the reader went on feeling the message where it was while routing and
+the cursor had moved to where it now is. One `updateDisplay()`, which asks whether this buffer
+is the one being shown and so costs nothing between messages.
+
+**Segments were allowed to straddle two displays.** `validateAgainstHardware` only looked for
+dead columns, so a 32 cell segment covering the Monarch's last row and the Focus's row passed —
+every cell of it live — and an all equal width composite returned before checking anything. It
+now requires each segment to be contained in exactly one live device rectangle, which subsumes
+the dead column rule, and `segmentsForDevice` uses containment rather than the segment's first
+row. Nothing is lost by a straddling segment; what breaks is everything that treats a segment
+as belonging to a display, which after Phase 3 is panning, pinning and every display relative
+command. `segmentsForDevice` answering "no display" is deliberate for the single segment the
+plugin falls back to when a view cannot be shown: it covers the whole composite, so it is on
+no one display, and native panning is left to NVDA, which does the right thing with one
+segment.
+
+**The base only migration only looked at the active profile stack.** `config.conf.profiles` is
+what is in force now, so a device list saved under an application profile that happened not to
+be triggered was invisible — and once reads went to base, permanently so. It now also walks
+`listProfiles()` and loads each one. Profiles agreeing is one answer; profiles disagreeing
+migrates nothing and says so, naming them, because there is no telling which the user meant and
+a composite of displays nobody chose is worse than choosing again.
+
+**An older composite's reversed panning was orphaned.** Reversal moved from the composite to
+each physical display, and the old value is not read anywhere, so an existing user's panning
+would silently swap back to the default — the kind of thing a reader blames on themselves for a
+while before blaming the software. `bmConfig.migrateReverseScrollButtons` copies a stored
+composite value onto every member, once, recording `reverseScrollBtnsMigrated` against the
+composite. Recorded rather than inferred: there is no telling a member's stored `False` from a
+member that has never been asked, so a migration that ran on every rebuild would keep putting
+the composite's old answer back over the setting the user had just made.
+
+One stub had to become more faithful for the last of those. `_stubs.DisplaysSection` resolved
+every display key to the one `CONFIG` dictionary, on the grounds that tests care about settings
+rather than keys — true until a change is entirely about which key a value lands under. Each
+display now gets a section of its own that falls back to `CONFIG` for anything unwritten, so
+the ordinary test still sets one value and has every display see it.
+
+728 tests, one expected failure. Every one of the six was confirmed to regress when its fix
+was removed.
+
+
 **Phase 4, resilience.** Per device failure, a reconnect poll using
 `bdDetect.getConnectedUsbDevicesForDriver` and `getPossibleBluetoothDevicesForDriver`, and a
 geometry change path: `braille.handler.invalidateCache()` clears the cached
@@ -1069,13 +1157,13 @@ cells that have already been laid out.
    pressing the Monarch's panning key wants the Monarch's setting even when the segment that
    moves is on the Focus. Segment ownership is only a proxy, right when the two coincide.
 
-   Getting the pressed display is harder than it looks and the obvious route does not work.
-   `decide_executeGesture` runs on the thread the driver dispatched from, while
-   `InputManager.executeGesture` ends in `scriptHandler.queueScript`, which runs the script on
-   the main thread — so the thread local that `brlMultilineVirtual.gestures` uses for modifier
-   scoping would be empty by the time panning read it. `panning` therefore keeps a plain
-   module global holding the display last used, which is exact for every key press and
-   inexact only for scrolling no key caused.
+   Getting the pressed display is harder than it looks and both obvious routes fail.
+   The thread local that `brlMultilineVirtual.gestures` uses for modifier scoping is empty by
+   the time panning reads it, because `InputManager.executeGesture` ends in
+   `scriptHandler.queueScript` and the script runs on the main thread while the decider ran on
+   the driver's. Noting it in the decider and reading it back at the scroll fails too, for the
+   reasons in the review round above. `panning` wraps NVDA's own two panning commands, which
+   are the last place the gesture and the scroll are in one call.
 
    The settings panel had the matching bug: the checkbox sat below the "Segment settings for"
    chooser and saved against the connected display, so it read as though it followed the

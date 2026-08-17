@@ -13,7 +13,7 @@ the message lands.
 
 import unittest
 
-from ._stubs import CONFIG, FakeHandler, Region, installStubs, resetConfig
+from ._stubs import FakeHandler, Region, installStubs, resetConfig
 
 installStubs()
 
@@ -149,6 +149,67 @@ class TestRetargeting(MessageBufferTestCase):
 	def test_movingWithNoMessageShowingIsFine(self):
 		self.buffer.setRect(MONARCH_BAND)
 		self.assertEqual(self.occupied(self.buffer.windowBrailleCells), [])
+
+
+class RecordingHandler(FakeHandler):
+	"""A handler that keeps what was written to it, rather than only counting.
+
+	Whether a moved message reaches the hardware cannot be told from an update count: the
+	message is re-laid out either way, and the question is only whether anything writes the
+	result out.
+	"""
+
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self.writes = []
+
+	def update(self):
+		super().update()
+		self.writes.append(list(self.buffer.windowBrailleCells))
+
+
+class TestRedrawingAMovedMessage(MessageBufferTestCase):
+	"""Moving a message that is showing has to reach the display, and nothing else will do it.
+
+	A message moves because the layout was rebuilt, and a rebuild redraws through
+	`handleGainFocus`, which deliberately leaves the display alone while a message is showing.
+	So without a write from here the reader goes on feeling the message where it was while
+	routing, panning and the cursor have all moved to where it now is — indefinitely, if
+	messages are configured to be shown indefinitely.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		self.handler = RecordingHandler(COMPOSITE_ROWS, COMPOSITE_COLS)
+		self.buffer = MessageBuffer(self.handler, FOCUS_BAND)
+
+	def showing(self):
+		"""Put the buffer in the state `BrailleHandler.message` leaves it in."""
+		self.handler.buffer = self.buffer
+		self.show("hi")
+		self.handler.writes.clear()
+
+	def test_theMessageIsWrittenWhereItHasMovedTo(self):
+		self.showing()
+		self.buffer.setRect(MONARCH_BAND)
+		self.assertEqual(self.occupied(self.handler.writes[-1]), [0, 1])
+
+	def test_nothingIsLeftWhereTheMessageWas(self):
+		self.showing()
+		self.buffer.setRect(MONARCH_BAND)
+		for position in self.occupied(self.handler.writes[-1]):
+			self.assertLess(position, 8 * COMPOSITE_COLS, "a cell is still on the old segment")
+
+	def test_aMessageThatIsNotShowingIsNotWritten(self):
+		"""`updateDisplay` asks first, so retargeting between messages costs no display traffic."""
+		self.show("hi")
+		self.buffer.setRect(MONARCH_BAND)
+		self.assertEqual(self.handler.writes, [])
+
+	def test_movingWithNoMessageAtAllWritesNothing(self):
+		self.handler.buffer = self.buffer
+		self.buffer.setRect(MONARCH_BAND)
+		self.assertEqual(self.handler.writes, [])
 
 
 class TestRouting(MessageBufferTestCase):
