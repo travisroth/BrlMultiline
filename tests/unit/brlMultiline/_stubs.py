@@ -82,6 +82,16 @@ class DisplaySection(dict):
 			return self.fallback[key]
 		return _specDefault(self.spec[key])
 
+	def isSet(self, key) -> bool:
+		"""Whether this display has a value of its own, as `AggregatedSection.isSet` reports.
+
+		Upstream that means the key is stored in some profile, as against merely having a
+		default — which is the distinction the whole method exists for. Here the fallback
+		deliberately does not count: it stands in for what a display reports before anything
+		asked it, which upstream is the specification's default.
+		"""
+		return key in self
+
 
 class DisplaysSection(dict):
 	"""The `__many__` section holding the settings of each display.

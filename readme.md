@@ -66,7 +66,7 @@ the keys rather than to what is on the display, so pressing the Monarch's pannin
 the Monarch's setting even when the segment that moves is on the other display. Use the
 "Segment settings for" box to set it for each. If you had reversed the keys for a combined
 display in an earlier version, when it was one setting for the pair, that choice is carried
-onto both displays the first time you run this one.
+onto each display you have not already set it for yourself.
 
 **Show the document lines around the caret in the other segments.** When you are in a
 document, fills the segments around the focus segment with the lines above and below the

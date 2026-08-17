@@ -194,12 +194,15 @@ def migrateReverseScrollButtons(displayKey: str, memberKeys) -> None:
 	swaps back to the default the first time they run this version — and panning the wrong way
 	is the kind of thing a reader blames on themselves for a while before blaming the software.
 
-	Copied to every member rather than to some of them, because that is what the old setting
-	meant: it applied to whichever keys were pressed.
+	Copied to every member that has not been asked, because that is what the old setting meant:
+	it applied to whichever keys were pressed. A member with a setting of its own keeps it,
+	including an explicit `False` — `AggregatedSection.isSet` reports whether a key is stored in
+	any profile rather than whether it differs from its default, so the two are distinguishable
+	and a choice the user made by hand is never the thing to overwrite.
 
-	Done once, and recorded rather than inferred. There is no telling a member's stored `False`
-	from a member that has never been asked, so a migration that ran on every rebuild would
-	keep putting the composite's answer back over a member the user had since set the other way.
+	Done once, and recorded, so that a member left unset here is not asked again the next time
+	the display is rebuilt. The mark goes on last: an attempt that failed part way through is
+	better retried than remembered as finished.
 
 	:param displayKey: the composite display's own configuration key.
 	:param memberKeys: the configuration keys of the physical displays behind it.
@@ -208,19 +211,25 @@ def migrateReverseScrollButtons(displayKey: str, memberKeys) -> None:
 		section = getDisplayConfig(displayKey)
 		if section["reverseScrollBtnsMigrated"]:
 			return
-		section["reverseScrollBtnsMigrated"] = True
-		if not section["reverseScrollBtns"]:
-			# Nothing to carry. Not reversed is what a display that was never asked reports.
-			return
 		keys = list(memberKeys)
-		for key in keys:
-			getDisplayConfig(key)["reverseScrollBtns"] = True
-		log.info(
-			f"BrlMultiline: the panning keys were reversed for {displayKey} as a whole. That is "
-			f"now a setting of each display, and has been copied to {keys}.",
-		)
+		if section["reverseScrollBtns"]:
+			carried = []
+			for key in keys:
+				member = getDisplayConfig(key)
+				if member.isSet("reverseScrollBtns"):
+					# This display has been asked directly. Its own answer is the better one.
+					continue
+				member["reverseScrollBtns"] = True
+				carried.append(key)
+			if carried:
+				log.info(
+					f"BrlMultiline: the panning keys were reversed for {displayKey} as a whole. "
+					f"That is now a setting of each display, and has been copied to {carried}.",
+				)
+		section["reverseScrollBtnsMigrated"] = True
 	except Exception:
 		# Panning the default way round is a poor outcome and not one worth losing a display to.
+		# The mark is unset, so the next rebuild tries again.
 		log.debugWarning("Could not carry over the reversed panning setting", exc_info=True)
 
 

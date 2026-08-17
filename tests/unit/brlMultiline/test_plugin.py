@@ -48,7 +48,8 @@ from brlMultiline.container import PLACEMENT_KEY_ATTRIBUTE, DisplayContainer  # 
 from brlMultiline.layout import SegmentRect  # noqa: E402
 from brlMultiline.messages import MessageBuffer  # noqa: E402
 from brlMultiline.panels import BlankPanel, GridPanel, SinglePanel  # noqa: E402
-from brlMultiline.views import SegmentView  # noqa: E402
+from brlMultiline.devices import deviceMap  # noqa: E402
+from brlMultiline.views import SegmentView, validateAgainstHardware  # noqa: E402
 
 MONARCH_ROWS = 8
 MONARCH_COLS = 32
@@ -864,11 +865,13 @@ class TestMessageBuffer(PluginTestCase):
 		self.plugin.terminate()
 		self.assertTrue(self.handler.gainedFocus)
 
-	def test_aMessageInABufferNVDAHasReplacedIsDismissedRatherThanLeftShowing(self):
-		"""NVDA builds a fresh message buffer of its own whenever braille is reinitialised.
+	def test_aMessageInAReplacedBufferIsDismissedRatherThanLeftShowing(self):
+		"""Something else has put its own message buffer there — another add-on, most likely.
 
-		The message in it belongs to that buffer, so taking over cannot carry it along; what it
-		must not do is leave the display on a buffer nothing will write to again.
+		Not NVDA: `messageBuffer` is assigned once, in `BrailleHandler.__init__`, so a rebuilt
+		one arrives with a whole new handler. The message in the replacement belongs to it, so
+		taking over cannot carry it along; what it must not do is leave the display on a buffer
+		nothing will write to again.
 		"""
 		replacement = NvdaMessageBuffer()
 		self.handler.messageBuffer = self.handler.buffer = replacement
@@ -878,6 +881,15 @@ class TestMessageBuffer(PluginTestCase):
 		self.assertIs(self.handler.messageBuffer, self.plugin._messageBuffer)
 		self.assertIs(self.handler.buffer, self.handler.mainBuffer)
 		self.assertTrue(timer.stopped)
+
+	def test_aReplacedBufferIsTheOneGivenBack(self):
+		"""Whatever was there when we took over is what termination owes, not what was there
+		at startup. Restoring the older one would throw away another add-on's buffer."""
+		replacement = NvdaMessageBuffer()
+		self.handler.messageBuffer = replacement
+		self.plugin.rebuildBuffer()
+		self.plugin.terminate()
+		self.assertIs(self.handler.messageBuffer, replacement)
 
 	def test_losingTheDisplayGivesNVDAItsOwnBufferBack(self):
 		original = self.plugin._originalMessageBuffer
@@ -1062,6 +1074,64 @@ class TestCompositeDisplay(PluginTestCase):
 			SinglePanel("beside", SegmentRect(row=8, col=0, numRows=1, numCols=80)),
 		)
 		self.assertTrue(self.container.hasKey("beside"))
+
+	def failTheFirstContainer(self):
+		"""Make the first container built raise, as one built from an impossible view does.
+
+		The fallback is otherwise unreachable from a test, and it is the one arrangement that
+		gets installed without ever having been through `validateAgainstHardware`.
+		"""
+		real = DisplayContainer.__init__
+		built = []
+
+		def failOnce(container, handler, view):
+			built.append(view)
+			if len(built) == 1:
+				raise ValueError("this view cannot be built")
+			real(container, handler, view)
+
+		# The constructor rather than the class, so that the class stays the class: the plugin
+		# tests `isinstance(buffer, DisplayContainer)` to find its own container.
+		DisplayContainer.__init__ = failOnce
+		self.addCleanup(setattr, DisplayContainer, "__init__", real)
+		return built
+
+	def test_theFallbackForACompositeIsOneSegmentPerDisplay(self):
+		self.failTheFirstContainer()
+		self.plugin.rebuildBuffer()
+		self.assertEqual(self.plugin.currentView.name, "devices.fallback")
+		self.assertEqual(self.container.numSegments, 2)
+
+	def test_theFallbackObeysTheHardware(self):
+		"""What the old one did not: a single segment over a composite covers dead columns.
+
+		Cells 32 to 79 of the Monarch's rows reach nothing, so an emergency arrangement across
+		the whole display starts losing text — silently, and at the worst possible moment.
+		"""
+		self.failTheFirstContainer()
+		self.plugin.rebuildBuffer()
+		validateAgainstHardware(self.plugin.currentView, deviceMap(), 80)
+		for rect in self.container.rects:
+			if rect.row < 8:
+				self.assertLessEqual(rect.endCol, 32, f"{rect} runs past the Monarch")
+
+	def test_theFallbackReadsNoSettings(self):
+		"""A setting is the likeliest reason the other view could not be built."""
+		setBandConfig("hidBrailleStandard_8x32", segmentCount=4)
+		self.failTheFirstContainer()
+		self.plugin.rebuildBuffer()
+		self.assertEqual(self.container.numSegments, 2)
+
+	def test_aPinOnADisplaySurvivesTheFallback(self):
+		"""Its keys are the ones a display's first segment has either way.
+
+		The Monarch's first segment, since the fallback leaves the focus on the last segment
+		and a pin there is released whatever else happens.
+		"""
+		self.pin(0)
+		self.failTheFirstContainer()
+		self.plugin.rebuildBuffer()
+		self.assertIn("device.hidBrailleStandard.0", self.plugin.monitoredKeys)
 
 	def test_arrangingACompositeCarriesOverAnOldReversalSetting(self):
 		"""Where the carry over is hooked in: the one place both keys are known at once.

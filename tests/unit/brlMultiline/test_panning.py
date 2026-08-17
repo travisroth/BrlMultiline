@@ -318,6 +318,27 @@ class TestLifetime(PanningTestCase):
 		for name, original in originals.items():
 			self.assertIs(getattr(globalCommands.GlobalCommands, name), original)
 
+	def test_removingLeavesAnotherAddOnsReplacementAlone(self):
+		"""A shared class attribute: restoring NVDA's own over someone else's work undoes it."""
+
+		def somebodyElsesCommand(commands, gesture):
+			"""Pans the braille display forward."""
+
+		name = panning.NATIVE_SCROLL_SCRIPTS[0]
+		setattr(globalCommands.GlobalCommands, name, somebodyElsesCommand)
+		self.addCleanup(setattr, globalCommands.GlobalCommands, name, panning._originals[name])
+		panning.remove()
+		self.assertIs(getattr(globalCommands.GlobalCommands, name), somebodyElsesCommand)
+
+	def test_theOtherCommandIsStillRestored(self):
+		"""One command being someone else's is no reason to leave the other one wrapped."""
+		first, second = panning.NATIVE_SCROLL_SCRIPTS
+		original = panning._originals[second]
+		setattr(globalCommands.GlobalCommands, first, lambda commands, gesture: None)
+		self.addCleanup(setattr, globalCommands.GlobalCommands, first, panning._originals[first])
+		panning.remove()
+		self.assertIs(getattr(globalCommands.GlobalCommands, second), original)
+
 	def test_removingTwiceIsHarmless(self):
 		panning.remove()
 		panning.remove()

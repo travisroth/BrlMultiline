@@ -51,6 +51,7 @@ __all__ = [
 	"DEVICE_PANEL_NAME",
 	"DISPLAY_PANEL_NAME",
 	"SegmentView",
+	"deviceFallbackView",
 	"deviceSegmentKey",
 	"deviceView",
 	"displayPanels",
@@ -464,6 +465,43 @@ def deviceBandSegmentRects(device: DeviceInfo, rect: SegmentRect) -> list[Segmen
 			exc_info=True,
 		)
 		return [rect]
+
+
+def deviceFallbackView(numRows: int, numCols: int, devices: Sequence[DeviceInfo]) -> SegmentView:
+	"""Build the simplest arrangement a composite display can have.
+
+	One segment per physical display, and nothing else. This is what to show when the view that
+	should have been shown could not be built, and it differs from L{deviceView} in reading no
+	settings at all — deliberately, because a setting is the likeliest reason the other view
+	failed, and a fallback that consulted the same settings could fail the same way.
+
+	What it does keep is the dead column mask. Those columns are a fact about the hardware
+	rather than a preference, so the emergency arrangement has to respect them just as the
+	ordinary one does: `singleSegmentView` across a composite of unequal widths would flow text
+	into cells that no display has, which is the silent loss all of this exists to prevent.
+
+	The segment keys are the ones L{deviceView} gives a display's first segment, so a pinned
+	object on a display divided one way can survive the fall back to this.
+
+	:param numRows: number of rows on the composite.
+	:param numCols: number of columns on the composite, the widest display's width.
+	:param devices: the physical displays, in stacking order, top first.
+	:return: the view.
+	:raises ValueError: if the bands do not tile a display of this size.
+	"""
+	if not devices:
+		raise ValueError("A composite display needs at least one physical display")
+	panels: list[BraillePanel] = []
+	keys: list[str] = []
+	for device, band in zip(devices, deviceBandRects([each.band for each in devices], numCols), strict=True):
+		key = deviceSegmentKey(device.driverName, 0)
+		panels.append(SinglePanel(key, band.live, reserve=False, documentContextIndex=len(keys)))
+		keys.append(key)
+		if band.dead is not None:
+			panels.append(BlankPanel(band.dead, name=f"{DEVICE_PANEL_NAME}.{device.driverName}.dead"))
+	view = SegmentView(name="devices.fallback", panels=panels, focusSegmentKey=keys[-1])
+	view.validate(numRows, numCols)
+	return view
 
 
 def deviceView(

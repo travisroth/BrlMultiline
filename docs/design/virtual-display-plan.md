@@ -1019,6 +1019,51 @@ the ordinary test still sets one value and has every display see it.
 was removed.
 
 
+### A second pass, and the emergency path nobody had looked at
+
+Four more, two of them worth the round on their own.
+
+**The fallback was the last place still ignoring the hardware.** When `DisplayContainer`
+construction fails, the plugin falls back to a simple arrangement — and that arrangement was
+`singleSegmentView`, one segment across the whole composite. Which is to say: the containment
+rule was enforced everywhere except the path taken when something has already gone wrong, and
+on a Monarch above a Focus that segment covers 48 dead columns per row. An emergency is a poor
+moment to start losing text silently. `views.deviceFallbackView` now gives a composite one
+segment per physical display with the dead columns masked, and reads no settings while doing
+it, since a setting is the likeliest reason the other view could not be built. Its keys are the
+ones `deviceView` gives a display's first segment, so a pin can survive the fall back.
+`singleSegmentView` stays for ordinary displays and for the case where the bands do not
+describe the display at all — there being nothing then to mask them with.
+
+The new test forces the first container to fail by patching `DisplayContainer.__init__` rather
+than the name in the plugin module: the plugin finds its own container with
+`isinstance(buffer, DisplayContainer)`, so the class has to stay the class.
+
+**`isSet` does tell a stored `False` from a default, and I said it did not.**
+`AggregatedSection.isSet` walks the profiles and reports whether the key is stored in any of
+them, which is exactly the distinction the reversal migration claimed was unavailable. So the
+composite's old value is now copied only onto members with no setting of their own, and a
+member the user answered for by hand — including with `False` — is left alone. The marker also
+moved to after the writes: an attempt that fell over part way is better retried than remembered
+as finished.
+
+**Removing the panning wrappers could undo another add-on.** `globalCommands.GlobalCommands` is
+a class attribute anyone can reach, and restoring NVDA's own over whatever is there now throws
+away a replacement made after ours. Each command now goes back only if it is still the wrapper
+this module installed. The cost of leaving one alone is that the wrapper stays reachable inside
+someone else's chain, where it sets a global nothing reads any more.
+
+**A replaced message buffer was dismissed but not remembered.** The path exists for a message
+buffer that is not ours being found in place, and the plugin took it down without noting that
+it, rather than the buffer saved at plugin startup, is what termination owes. It is saved now.
+The comment and test explaining that path said NVDA rebuilds `messageBuffer` when braille is
+reinitialised; it does not. `messageBuffer` is assigned once, at `brailleHandler.py` line 144
+in `BrailleHandler.__init__`, so a rebuilt one arrives with a whole new handler. Another add-on
+is the realistic occupant, and both now say so.
+
+737 tests, one expected failure.
+
+
 **Phase 4, resilience.** Per device failure, a reconnect poll using
 `bdDetect.getConnectedUsbDevicesForDriver` and `getPossibleBluetoothDevicesForDriver`, and a
 geometry change path: `braille.handler.invalidateCache()` clears the cached

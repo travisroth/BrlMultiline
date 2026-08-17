@@ -38,6 +38,7 @@ from .panels import BraillePanel
 from .settingsPanel import BrailleMultilineSettingsPanel, VirtualDisplaySettingsPanel
 from .views import (
 	SegmentView,
+	deviceFallbackView,
 	deviceView,
 	singleSegmentView,
 	validateAgainstHardware,
@@ -342,15 +343,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			container = DisplayContainer(handler, view)
 		except (ValueError, LookupError):
 			log.error(
-				f"BrlMultiline: could not build view {view.name!r}; using a single segment",
+				f"BrlMultiline: could not build view {view.name!r}; falling back",
 				exc_info=True,
 			)
 			self._activeView = None
 			self._activePanels = []
-			container = DisplayContainer(
-				handler,
-				singleSegmentView(dimensions.numRows, dimensions.numCols),
-			)
+			container = self._fallbackContainer(handler, dimensions)
 		self._carryOverMonitors(container)
 		wasShowingMainBuffer = handler.buffer is handler.mainBuffer
 		handler.mainBuffer = container
@@ -361,6 +359,40 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# After the display has been redrawn from the focus, so that a pinned object is
 		# written over the fresh layout rather than under it.
 		self.refreshMonitors()
+
+	def _fallbackContainer(self, handler, dimensions) -> DisplayContainer:
+		"""Build the simplest container the connected display can have.
+
+		The arrangement to show when the one that should have been shown could not be built.
+		For a composite that is one segment per physical display rather than one segment across
+		everything, because a segment across everything covers the columns a narrower display
+		does not have — and text put there is dropped on the way to the hardware with nothing
+		to say where it went. An emergency is a poor moment to start losing text silently.
+
+		Ordinary displays keep the single segment, which is NVDA's own arrangement and cannot
+		be wrong about hardware there is only one of.
+
+		:param handler: the braille handler.
+		:param dimensions: the display's dimensions.
+		:return: the container.
+		:raises ValueError: if even a single segment cannot be built, which leaves the caller
+			nothing to install and the add-on nothing to do.
+		"""
+		numRows, numCols = dimensions.numRows, dimensions.numCols
+		devices = deviceMap()
+		if devices:
+			try:
+				return DisplayContainer(handler, deviceFallbackView(numRows, numCols, devices))
+			except (ValueError, LookupError):
+				# The bands do not describe this display, so there is no telling where the dead
+				# columns are. Nothing here can mask them; the warning is all there is to give.
+				log.error(
+					f"BrlMultiline: could not arrange this display as its {len(devices)} displays "
+					"either; showing it as one segment. Anything that lands on a display narrower "
+					"than the widest will be lost.",
+					exc_info=True,
+				)
+		return DisplayContainer(handler, singleSegmentView(numRows, numCols))
 
 	def _messageRect(self, container: DisplayContainer) -> SegmentRect:
 		""":return: the rectangle NVDA's flash messages should appear in.
@@ -396,13 +428,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		try:
 			rect = self._messageRect(container)
 			if self._messageBuffer is None:
-				self._originalMessageBuffer = handler.messageBuffer
 				self._messageBuffer = MessageBuffer(handler, rect)
 			else:
 				self._messageBuffer.setRect(rect)
 			if handler.messageBuffer is not self._messageBuffer:
-				# Either the first install, or NVDA has rebuilt its own buffer underneath us,
-				# which it does whenever braille is reinitialised.
+				# Either the first install, or something has put a buffer of its own there since.
+				# Whatever it is, it is what has to go back on termination — otherwise this
+				# restores a buffer that stopped being NVDA's while another add-on's is thrown
+				# away. (Not NVDA itself: `messageBuffer` is assigned once, in
+				# `BrailleHandler.__init__`, so a rebuilt one comes with a whole new handler.)
+				self._originalMessageBuffer = handler.messageBuffer
 				if handler.buffer is handler.messageBuffer:
 					# A message is up in the buffer about to be replaced. Its regions belong to
 					# that buffer, so it is taken down rather than carried over; the rebuild

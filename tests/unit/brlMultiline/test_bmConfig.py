@@ -196,11 +196,31 @@ class TestCarryingOverReversedPanning(ConfigTestCase):
 		self.migrate()
 		self.assertTrue(realBmConfig["shouldReverseScrollButtons"](FOCUS))
 
+	def test_aDisplayWithASettingOfItsOwnKeepsIt(self):
+		"""Including an explicit False, which is a choice and not an absence.
+
+		`isSet` reports whether a value is stored rather than whether it differs from the
+		default, so a display the user has answered for directly is never overwritten.
+		"""
+		bmConfig.getDisplayConfig(self.COMPOSITE)["reverseScrollBtns"] = True
+		bmConfig.getDisplayConfig(MONARCH)["reverseScrollBtns"] = False
+		self.migrate()
+		self.assertFalse(self.reversed(MONARCH))
+		self.assertTrue(self.reversed(FOCUS))
+
 	def test_aBrokenConfigurationIsNotFatal(self):
 		"""Panning the default way round is not worth losing a display over."""
 		bmConfig.getDisplayConfig(self.COMPOSITE)["reverseScrollBtns"] = True
 		bmConfig.migrateReverseScrollButtons(self.COMPOSITE, None)
 		self.assertFalse(self.reversed(FOCUS))
+
+	def test_aFailedAttemptIsTriedAgain(self):
+		"""The mark is set last, so a run that fell over is not remembered as finished."""
+		bmConfig.getDisplayConfig(self.COMPOSITE)["reverseScrollBtns"] = True
+		bmConfig.migrateReverseScrollButtons(self.COMPOSITE, None)
+		self.assertFalse(bmConfig.getDisplayConfig(self.COMPOSITE)["reverseScrollBtnsMigrated"])
+		self.migrate()
+		self.assertTrue(self.reversed(FOCUS))
 
 
 if __name__ == "__main__":

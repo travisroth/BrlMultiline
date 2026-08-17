@@ -69,6 +69,9 @@ _activeSource: str | None = None
 _originals: dict[str, object] = {}
 """NVDA's own commands, kept to be put back."""
 
+_wrappers: dict[str, object] = {}
+"""What was put in their place, so that L{remove} can tell whether it is still there."""
+
 _installed = False
 
 
@@ -116,26 +119,42 @@ def install() -> None:
 		return
 	for name, wrapper in wrapped.items():
 		_originals[name] = getattr(commands, name)
+		_wrappers[name] = wrapper
 		setattr(commands, name, wrapper)
 	_installed = True
 
 
 def remove() -> None:
-	"""Stop. Safe to call when nothing is installed."""
+	"""Stop. Safe to call when nothing is installed.
+
+	Each command goes back only if it is still the one this module put there. Another add-on
+	may have replaced or wrapped it since — this is a class attribute anyone can reach — and
+	restoring NVDA's own over that would silently undo their work, which is the more damaging
+	half of a shared monkey patch. Leaving theirs in place may leave this module's wrapper
+	reachable inside it; that costs one call and sets a global nothing reads any more.
+	"""
 	global _installed, _activeSource
 	if not _installed:
 		return
 	try:
 		import globalCommands
 
+		commands = globalCommands.GlobalCommands
 		for name, original in _originals.items():
-			setattr(globalCommands.GlobalCommands, name, original)
+			if getattr(commands, name, None) is not _wrappers.get(name):
+				log.debugWarning(
+					f"BrlMultiline: {name} has been replaced since it was wrapped; "
+					"leaving it as it is rather than undoing whatever replaced it",
+				)
+				continue
+			setattr(commands, name, original)
 	except Exception:
 		log.error("BrlMultiline: could not restore NVDA's panning commands", exc_info=True)
 	finally:
 		# Whatever happened above, this module is no longer following anything, and saying so
 		# is what lets a later install try again.
 		_originals.clear()
+		_wrappers.clear()
 		_installed = False
 		_activeSource = None
 
