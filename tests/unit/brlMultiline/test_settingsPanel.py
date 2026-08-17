@@ -316,6 +316,39 @@ class TestDisplayList(SettingsPanelTestCase):
 		"""It is the absence of a display rather than one."""
 		self.assertNotIn("noBraille", self.panel._addable())
 
+	def listed(self, states=None, chosen=("hidBrailleStandard", "freedomScientific")):
+		"""Put a list into the panel with a given set of live states, and read it back."""
+		self.panel._states = states
+		self.panel.chosen = list(chosen)
+		self.panel._refresh(select=0)
+		return self.panel.chosenCtrl.items
+
+	def test_withNoCompositeRunningTheNamesAreGivenPlainly(self):
+		"""Nothing else knows which of these displays were opened, so nothing is claimed."""
+		self.assertEqual(
+			self.listed(states=None),
+			["Standard HID braille display", "Freedom Scientific Focus"],
+		)
+
+	def test_aDisplayBeingDrivenSaysSo(self):
+		listed = self.listed(states={"hidBrailleStandard": True, "freedomScientific": True})
+		self.assertEqual(listed[0], "Standard HID braille display: in use")
+
+	def test_aDisplayTheCompositeNeverOpenedSaysSo(self):
+		"""Switched off, or out of range, when braille started."""
+		listed = self.listed(states={"freedomScientific": True})
+		self.assertEqual(listed[0], "Standard HID braille display: not connected")
+
+	def test_aDisplayThatHasStoppedRespondingSaysSo(self):
+		listed = self.listed(states={"hidBrailleStandard": False, "freedomScientific": True})
+		self.assertEqual(listed[0], "Standard HID braille display: not responding")
+
+	def test_theDisplaysThatMayBeAddedAreNamedPlainly(self):
+		"""They are not in the composite, so there is no state to report for them."""
+		self.listed(states={"hidBrailleStandard": True, "freedomScientific": True})
+		for name in self.panel.availableCtrl.items:
+			self.assertNotIn(":", name)
+
 	def test_theCombinedDisplayCannotContainItself(self):
 		self.assertNotIn("brlMultilineVirtual", self.panel._addable())
 

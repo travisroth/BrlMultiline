@@ -212,6 +212,61 @@ class TestRedrawingAMovedMessage(MessageBufferTestCase):
 		self.assertEqual(self.handler.writes, [])
 
 
+class FakeMainBuffer:
+	"""Stands in for the container, for the one thing a message asks of it: its cells."""
+
+	def __init__(self, cells):
+		self.windowBrailleCells = list(cells)
+
+
+class TestWhatIsAroundTheMessage(MessageBufferTestCase):
+	"""A message must not blank the display it is not on.
+
+	Found on hardware: reading the time cleared both displays, taking a pinned object with it
+	and writing to every display to do so. NVDA's own message buffer holds the message and
+	nothing else, so everything outside it composites as blank — right for one display, where a
+	message covers the display, and wrong the moment the display is divided.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		# Something recognisable across the whole display: cell n holds n modulo 255, so any
+		# cell that survives can be checked against where it is.
+		self.handler.mainBuffer = FakeMainBuffer(
+			(position % 255) + 1 for position in range(COMPOSITE_ROWS * COMPOSITE_COLS)
+		)
+
+	def test_theRestOfTheDisplayIsLeftAsItWas(self):
+		cells = self.show("hi")
+		for position in range(8 * COMPOSITE_COLS):
+			self.assertEqual(cells[position], (position % 255) + 1, f"cell {position} was blanked")
+
+	def test_theMessagesOwnSegmentIsCleared(self):
+		"""Its whole rectangle, not only the part the message fills."""
+		cells = self.show("hi")
+		self.assertEqual(self.occupied(cells[8 * COMPOSITE_COLS :]), [0, 1])
+
+	def test_aShortMessageDoesNotLeaveTheRowsBelowItShowing(self):
+		"""The Monarch's segment is 8 rows; a two cell message fills one of them."""
+		buffer = MessageBuffer(self.handler, MONARCH_BAND)
+		cells = self.show("hi", buffer)
+		for position in range(2, 8 * COMPOSITE_COLS):
+			if position % COMPOSITE_COLS < 32:
+				self.assertEqual(cells[position], 0, f"cell {position} is still showing")
+
+	def test_aDisplayWithNothingBehindItIsBlank(self):
+		"""No container installed, which is every message before the add-on builds one."""
+		self.handler.mainBuffer = None
+		self.assertEqual(self.occupied(self.show("hi")), [640, 641])
+
+	def test_aMainBufferOfTheWrongSizeIsNotFatal(self):
+		"""Between a display changing size and the container being rebuilt."""
+		self.handler.mainBuffer = FakeMainBuffer([1, 2, 3])
+		cells = self.show("hi")
+		self.assertEqual(len(cells), COMPOSITE_ROWS * COMPOSITE_COLS)
+		self.assertEqual(self.occupied(cells), [0, 1, 2, 640, 641])
+
+
 class TestRouting(MessageBufferTestCase):
 	"""NVDA dismisses the message straight afterwards, but the translation has to be right."""
 

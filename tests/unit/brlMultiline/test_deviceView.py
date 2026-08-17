@@ -33,6 +33,7 @@ from brlMultiline.devices import (  # noqa: E402
 	DeviceInfo,
 	deviceMap,
 	isVirtualDisplay,
+	memberStates,
 	resolveDisplaySegment,
 	segmentsForDevice,
 )
@@ -369,6 +370,30 @@ class TestDeviceMap(unittest.TestCase):
 	def test_aDisplayKeyIsTheOneThatDisplayHasOnItsOwn(self):
 		self.assertEqual(MONARCH.displayKey, MONARCH_KEY)
 		self.assertEqual(FOCUS.displayKey, FOCUS_KEY)
+
+	def test_anOrdinaryDisplaySaysNothingAboutMembers(self):
+		"""None rather than an empty mapping: not "no members" but "no one to ask"."""
+		braille.handler.display = types.SimpleNamespace(name="freedomScientific")
+		self.assertIsNone(memberStates())
+
+	def test_theCompositeReportsWhichMembersItIsDriving(self):
+		braille.handler.display = fakeVirtualDisplay(tuple(MONARCH), tuple(FOCUS))
+		self.assertEqual(
+			memberStates(),
+			{"hidBrailleStandard": True, "freedomScientific": True},
+		)
+
+	def test_aMemberGivenUpOnIsReportedAsSuch(self):
+		"""`DeviceSlot.fail` is set when a write to that display raises."""
+		display = fakeVirtualDisplay(tuple(MONARCH), tuple(FOCUS))
+		display.slots[0].failed = True
+		braille.handler.display = display
+		self.assertEqual(memberStates()["hidBrailleStandard"], False)
+
+	def test_aMemberThatWasNeverOpenedIsSimplyAbsent(self):
+		"""The composite opens what it can and leaves out what it cannot."""
+		braille.handler.display = fakeVirtualDisplay(tuple(FOCUS._replace(rowStart=0)))
+		self.assertEqual(memberStates(), {"freedomScientific": True})
 
 	def test_somethingClaimingToBeTheCompositeButNotShapedLikeItIsReported(self):
 		braille.handler.display = types.SimpleNamespace(name="brlMultilineVirtual", slots=[object()])

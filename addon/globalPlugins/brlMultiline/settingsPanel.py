@@ -437,9 +437,18 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 	# Translators: title of the settings category for combining several braille displays.
 	title = _("BrlMultiline displays")
 
+	_states: dict[str, bool] | None = None
+	"""Which chosen displays the composite is driving, or None if it is not the display in use.
+
+	Read once, when the category is opened: this reports what the running display has, and
+	nothing in this panel changes that. None until then, and None whenever there is no composite
+	to ask, in which case the list says nothing about any display's state rather than guessing.
+	"""
+
 	def makeSettings(self, settingsSizer):
 		sHelper = guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
 		self.descriptions = displayDescriptions()
+		self._states = devices.memberStates()
 		self.storedSpecs = self._readDevices()
 		"""What each chosen display was configured as, keyed on driver name.
 
@@ -492,7 +501,9 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 				# braille displays.
 				label=_(
 					"Each display is detected afresh when it is opened, so no port is chosen here. "
-					"One display per driver: two displays of the same make cannot be told apart.",
+					"One display per driver: two displays of the same make cannot be told apart. "
+					"A display is shown as in use while the combined display is the one in use; "
+					"one that stops responding is noticed when something is next written to it.",
 				),
 			),
 		)
@@ -518,6 +529,27 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 		""":return: what to call a driver in the list."""
 		return self.descriptions.get(driverName, driverName)
 
+	def _describeChosen(self, driverName: str) -> str:
+		""":return: what to call a chosen display, with what is known about it now.
+
+		Only the running composite knows which of these it opened, so when something else is
+		the display in use the names are given plainly rather than with a state that would be
+		a guess.
+		"""
+		name = self._describe(driverName)
+		if self._states is None:
+			return name
+		if driverName not in self._states:
+			# Configured, and the composite is running without it: it was not there, or would
+			# not open, when braille started.
+			# Translators: a display in the combined display's list that is not being used.
+			return _("{display}: not connected").format(display=name)
+		if not self._states[driverName]:
+			# Translators: a display in the combined display's list that has stopped working.
+			return _("{display}: not responding").format(display=name)
+		# Translators: a display in the combined display's list that is being used now.
+		return _("{display}: in use").format(display=name)
+
 	def _addable(self) -> list[str]:
 		""":return: the drivers that may still be added, in NVDA's own order.
 
@@ -538,7 +570,7 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 		"""
 		if select is None:
 			select = self.chosenCtrl.GetSelection()
-		self.chosenCtrl.Set([self._describe(name) for name in self.chosen])
+		self.chosenCtrl.Set([self._describeChosen(name) for name in self.chosen])
 		if self.chosen:
 			self.chosenCtrl.SetSelection(max(0, min(select, len(self.chosen) - 1)))
 		self._available = self._addable()

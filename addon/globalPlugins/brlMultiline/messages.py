@@ -12,7 +12,8 @@ out or a routing key dismisses it. So while a message is showing, the display co
 add-on installs is bypassed completely, and NVDA's own flat buffer drives every cell.
 
 On a single display nobody notices: the message covers the display, which is what a message
-did before. Two things go wrong as soon as the display is divided, and one of them loses text.
+did before. Three things go wrong as soon as the display is divided, and one of them loses
+text.
 
 **Messages land at the top left.** A flat buffer starts at cell 0, and on a composite of two
 physical displays cell 0 is the top left of the *upper* display. So messages appear on the
@@ -26,7 +27,13 @@ reach hardware — so up to 48 characters of every row are written into cells no
 and the rest of the message reads as though it were never there. It is the dead column trap
 of `views.deviceView`, reappearing through the one path that view cannot cover.
 
-L{MessageBuffer} answers both at once by doing to the message buffer what `segments` does to
+**Everything else on the display goes blank.** A flat buffer holds the message and nothing
+else, so every cell outside it is written as blank — including, on a composite, a pinned object
+on the display the message is not even on. It also means every display is written to for every
+message, since every display's cells have changed, which is felt as the displays slowing down.
+Found on hardware, and the fix is L{MessageBuffer._cellsAroundTheMessage}.
+
+L{MessageBuffer} answers all three by doing to the message buffer what `segments` does to
 the main one: it is given a `RectHandlerProxy`, so NVDA's own wrapping lays the message out
 at the segment's width rather than the display's, and its cells are then composited into that
 segment's rectangle. Nothing can reach a dead column because nothing is laid out wider than
@@ -97,8 +104,37 @@ class MessageBuffer(BrailleBuffer):
 		""":return: the width of the whole display, which the proxy hides from everything else."""
 		return self._realHandler.displayDimensions.numCols
 
+	def _cellsAroundTheMessage(self, dimensions) -> list[int]:
+		"""What the rest of the display is showing, for the message to be placed onto.
+
+		Blanking it would be NVDA's behaviour, and on one display it is the right one: a
+		message covers the display it is on. On several it is wrong twice over. Everything
+		outside the message's segment goes blank for as long as the message lasts — including
+		a pinned object on the other display, which is precisely what the reader put there to
+		keep — and every display is written to, because every display's cells changed. Reading
+		the time should not clear the display beside it.
+
+		Taking the main buffer's cells instead leaves the other segments as they were, and the
+		display they are on then receives nothing at all: `DeviceSlot.write` compares against
+		what it last sent and skips a member whose cells have not changed.
+
+		:param dimensions: the whole display's dimensions.
+		:return: a display sized array. Blank if the main buffer cannot be read, which is what
+			this class did for every message before.
+		"""
+		size = dimensions.displaySize
+		try:
+			cells = list(self._realHandler.mainBuffer.windowBrailleCells)
+		except Exception:
+			log.debugWarning("BrlMultiline: could not read what is behind a message", exc_info=True)
+			return [0] * size
+		if len(cells) != size:
+			cells = cells[:size]
+			cells.extend([0] * (size - len(cells)))
+		return cells
+
 	windowBrailleCells: Any
-	"""The message, placed in its segment, on an otherwise blank display."""
+	"""The message in its segment, with the rest of the display left as it was."""
 
 	def _get_windowBrailleCells(self) -> list[int]:
 		"""Composite this segment's cells into a display sized array.
@@ -108,8 +144,14 @@ class MessageBuffer(BrailleBuffer):
 		around it — which is the behaviour this class exists to stop.
 		"""
 		dimensions = self._realHandler.displayDimensions
-		cells = [0] * dimensions.displaySize
+		cells = self._cellsAroundTheMessage(dimensions)
 		rect = self.rect
+		# Cleared before it is written, rather than relying on the message to cover its own
+		# segment: a message shorter than the segment would otherwise leave the rows below it
+		# showing whatever the main buffer had there.
+		for row in range(rect.numRows):
+			start = (rect.row + row) * dimensions.numCols + rect.col
+			cells[start : start + rect.numCols] = [0] * rect.numCols
 		for position, cell in enumerate(super()._get_windowBrailleCells()):
 			if position >= rect.displaySize:
 				# The inherited getter pads each row to the proxy's width, so this cannot

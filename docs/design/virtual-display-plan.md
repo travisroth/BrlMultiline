@@ -1071,6 +1071,50 @@ is the realistic occupant, and both now say so.
 743 tests, one expected failure.
 
 
+### The second hardware run, and what a message costs
+
+Panning passed in the arrangement that found the bug — focus segment on the Focus, an object
+pinned to the Monarch's first segment, each display's keys moving its own thing and obeying its
+own reversal. Panning a monitored segment and letting the object change while away from it
+passed too, on a live Robinhood ticker: the pinned price went on updating and the browse caret
+stayed where it had been left. Panning during a message still scrolled the message.
+
+What the run found was that a flash message blanked both displays.
+
+The cause is one line: `MessageBuffer` composited the message onto an array of zeros, so every
+cell outside the message's segment was written as blank. On one display that is exactly right —
+a message covers the display it is on — and on a composite it is wrong twice. The pinned object
+on the other display disappeared for the length of every message, and every display was written
+to, because every display's cells had changed. Reading the time cleared the display beside it
+and took the time of two writes to do so.
+
+The message is now composited onto whatever the main buffer is showing, with only its own
+rectangle cleared first — cleared explicitly rather than by relying on the message to cover it,
+since a two cell message in an eight row segment covers one row of it. The saving comes for
+free from something already there: `DeviceSlot.write` compares each member's cells against what
+it last sent and skips a member whose cells have not changed, so a message in the Focus's
+segment now costs the Monarch nothing at all.
+
+The one thing lost is that the other segments show no cursor while a message is up, since the
+cursor is applied by the handler to the buffer being shown and that buffer is the message's.
+They showed nothing at all before.
+
+**Which displays the list is driving.** The same run had the Monarch drop its Bluetooth, which
+the composite survived because the focus segment was on the Focus. The list of chosen displays
+said nothing about any of that. `devices.memberStates` now reports, for each configured driver
+name, whether the running composite has a slot for it and whether it has given up on it, and
+the settings list labels each entry in use, not connected, or not responding.
+
+The honest limit is worth stating, because it is exactly the case that prompted this. A member
+is given up on when a write to it raises, and a write is only attempted when that member's
+cells change — so a display showing something still, a pinned clock or a paused document, can
+be off for some time before anything tries to write to it and finds out. In the run above the
+list would have gone on saying "in use". Noticing sooner, and taking a display back when it
+returns, is Phase 4.
+
+758 tests, one expected failure.
+
+
 **Phase 4, resilience.** Per device failure, a reconnect poll using
 `bdDetect.getConnectedUsbDevicesForDriver` and `getPossibleBluetoothDevicesForDriver`, and a
 geometry change path: `braille.handler.invalidateCache()` clears the cached

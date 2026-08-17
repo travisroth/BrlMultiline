@@ -620,9 +620,10 @@ class FakeHandler:
 def fakeVirtualDisplay(*bands):
 	"""A stand-in for the add-on's own braille display driver, which is several displays.
 
-	Shaped the way `devices.deviceMap` reads it — a name, and a slot per member carrying its
-	driver name and its band — and no more than that, because nothing above the driver has any
-	business reading more.
+	Shaped the way `devices` reads it — a name, and a slot per member carrying its driver name,
+	its band and whether it has been given up on — and no more than that, because nothing above
+	the driver has any business reading more. A test wanting a member that has stopped
+	responding sets `display.slots[n].failed`, as `DeviceSlot.fail` does when a write raises.
 
 	:param bands: each member's (driverName, rowStart, numRows, numCols), top first.
 	:return: the stand-in display.
@@ -633,6 +634,7 @@ def fakeVirtualDisplay(*bands):
 			types.SimpleNamespace(
 				driverName=driverName,
 				band=types.SimpleNamespace(rowStart=rowStart, numRows=numRows, numCols=numCols),
+				failed=False,
 			)
 			for driverName, rowStart, numRows, numCols in bands
 		),

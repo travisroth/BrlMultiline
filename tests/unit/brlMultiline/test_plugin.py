@@ -1197,6 +1197,27 @@ class TestCompositeDisplay(PluginTestCase):
 		self.plugin.rebuildBuffer()
 		self.assertIn("device.hidBrailleStandard.0", self.plugin.monitoredKeys)
 
+	def test_aMessageDoesNotChangeTheOtherDisplaysCells(self):
+		"""Which is what stops the other display being written to at all.
+
+		`DeviceSlot.write` compares each member's cells against what it last sent and skips the
+		member if they match, so a message in the Focus's segment costs the Monarch nothing —
+		neither its content nor the time it takes to redraw it.
+		"""
+		for segment in self.container.segments:
+			segment.append(Region("some content"))
+		self.container.update()
+		before = list(self.container.windowBrailleCells)
+		buffer = self.handler.messageBuffer
+		buffer.clear()
+		region = Region("a message")
+		region.update()
+		buffer.regions.append(region)
+		buffer.update()
+		self.handler.buffer = buffer
+		monarch = slice(0, 8 * 80)
+		self.assertEqual(list(buffer.windowBrailleCells)[monarch], before[monarch])
+
 	def test_arrangingACompositeCarriesOverAnOldReversalSetting(self):
 		"""Where the carry over is hooked in: the one place both keys are known at once.
 

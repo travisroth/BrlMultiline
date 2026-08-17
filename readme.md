@@ -106,9 +106,15 @@ Things worth knowing:
   is on the Monarch while the Focus goes on following the focus.
 - Flash messages follow the focus by default, as they do on one display. "Segment that flash
   messages appear in" moves them, which is worth setting if you want the second display left
-  alone while you read.
+  alone while you read. A message changes only the segment it is in: everything else stays as
+  it was, and a display the message is not on is not written to at all.
 - Each display is detected when it is opened, so a display that is switched off is simply
   left out and the others are used.
+- While the combined display is in use, the list under "BrlMultiline displays" says which of
+  the chosen displays it is driving: in use, not connected, or not responding. A display that
+  goes quiet part way through a session — a Bluetooth link dropping, say — is noticed when
+  something is next written to it, so a display showing something that is not changing may be
+  listed as in use for a while after it has gone.
 - NVDA's automatic braille display detection is off while the combined display is selected,
   because it works by choosing the display for you and that choice is already made.
 - Settings that belong to one of the displays themselves, such as dot firmness, are not

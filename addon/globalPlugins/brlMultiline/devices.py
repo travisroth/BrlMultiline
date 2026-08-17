@@ -158,6 +158,38 @@ def resolveDisplaySegment(
 	return segments[segmentOrdinal]
 
 
+def memberStates(display=None) -> dict[str, bool] | None:
+	"""Say which of the composite's members it is actually driving.
+
+	Only the composite can answer this, and only while it is the display in use: a driver name
+	in the configuration is a choice, not a connection, and nothing outside the running display
+	knows which of those choices was opened.
+
+	What "being driven" means is worth being exact about, because it is narrower than
+	"connected". A member appears here if the composite opened it at braille start and has not
+	since given up on it, and it is given up on when a write to it raises — which is only ever
+	found out by writing. A display holding still content, a pinned object say, may be off or
+	out of range for some time before anything tries to write to it and notices. Watching for
+	that, and taking a display back when it returns, is the resilience work that has not been
+	done yet.
+
+	:param display: the display to read, or None for the one NVDA is driving.
+	:return: True for a member being driven and False for one given up on, by driver name; or
+		None when the composite is not the display in use, in which case nothing here can say
+		anything about any display at all.
+	"""
+	if display is None:
+		handler = braille.handler
+		display = handler.display if handler is not None else None
+	if not isVirtualDisplay(display):
+		return None
+	try:
+		return {slot.driverName: not slot.failed for slot in display.slots}
+	except Exception:
+		log.error("BrlMultiline: could not read the virtual display's members", exc_info=True)
+		return None
+
+
 def isVirtualDisplay(display=None) -> bool:
 	"""Say whether a display is the add-on's composite one.
 
