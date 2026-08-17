@@ -1115,17 +1115,82 @@ returns, is Phase 4.
 758 tests, one expected failure.
 
 
-**Phase 4, resilience.** Per device failure, a reconnect poll using
-`bdDetect.getConnectedUsbDevicesForDriver` and `getPossibleBluetoothDevicesForDriver`, and a
-geometry change path: `braille.handler.invalidateCache()` clears the cached
-`displayDimensions`, `displaySize` and `enabled` properties, `displaySizeChanged` fires from
-`_get_displayDimensions` on its own, and the plugin rebuilds the container.
+### Phase 4 results: losing a display, and getting it back
 
-**Phase 5, polish.** Expose member driver settings, which NVDA's braille settings dialog
-cannot reach once the virtual driver is selected. Documentation and translations.
+The hardware run that prompted this had the Monarch drop its Bluetooth mid-session. The
+composite survived because the focus segment happened to be on the Focus, and the log turned
+out to hold more than the loss.
 
-Phases 1 and 2 are the whole feasibility question. Phase 3 is expected to be small precisely
-because of the work already done on panels.
+**Noticing.** Two errors, twenty milliseconds apart. The second was this add-on catching a
+failed write. The first was `hwIo.hid.Hid._ioDone` raising `WinError 1167` on an overlapped
+*read* completion, logged by `ioThread._internalCompletionRoutine` and going no further. That
+matters because a write is a poor detector here: `DeviceSlot.write` skips a member whose cells
+have not changed, so a display showing something static is never written to and can be gone
+for a long time unnoticed.
+
+`hwIo/base.py` line 219 is the way in::
+
+	elif error != 0:
+		if not self._onReadError or not self._onReadError(error):
+			raise ctypes.WinError(error)
+
+`DeviceSlot.watchForDisconnect` chains onto that hook. Three cares, all because it is someone
+else's object: it chains rather than replaces, since `freedomScientific` supplies one that
+restarts the display after a suspend and returns True; it gives up on the member only when the
+driver's own hook did not handle the error; and it returns the driver's own answer, so the
+traceback that found this is still logged. `_dev` is private and not every driver has one, so
+write detection stays as the floor.
+
+NVDA core has no better signal, incidentally: `handleDisplayUnavailable` is only ever reached
+from `display(cells)` raising.
+
+**Rearranging.** `_relayout` restacks the surviving members and reads
+`braille.handler.displayDimensions` once. That is the whole notification — `_get_displayDimensions`
+recomputes from the driver on every read and raises `displaySizeChanged` itself — so the
+plugin's existing listener rebuilds the segments. `invalidateCache` turned out not to be
+needed; the property is not cached, only compared against its previous value.
+
+Losing every member deliberately does *not* become `handleDisplayUnavailable`. That falls back
+to no braille, and with automatic detection on it could hand the returning display straight to
+NVDA rather than back to the composite the user asked for. The composite waits instead, dark.
+
+**What was pinned.** The author's rule, and the third clause is the one that would have been
+got wrong alone: the focus must end up on a display that is still there; a pinned object moves
+into a free segment on what is left; and if the only segment left is the one following the
+focus, the pin is released rather than taking it. Re-homing applies only to a display that has
+gone — a pin released by a claim, or by the focus moving onto it, was released by a decision
+and stays released.
+
+**Coming back.** A `wx.CallLater` poll, five seconds, on the main thread because that is where
+opening a display has to happen. `bdDetect` is asked first and a driver Windows cannot see is
+not opened at all; absence is the trustworthy half of that answer, since a paired Bluetooth
+device is often still enumerated while switched off. One attempt per tick rather than the three
+the startup path takes — the poll *is* the retry Phase 0 asked for — and each failure doubles
+that member's wait, to a minute, so a display left off costs almost nothing.
+
+### Phase 5 results: the members' own settings
+
+Selecting the composite used to hide every setting of the displays behind it, because NVDA's
+Braille settings dialog builds its controls from `supportedSettings` on the display in use.
+
+The composite now offers each member's settings as its own, with the id namespaced by driver
+name and the display name prefixed by the member's description. Reads and writes pass through
+to the member. What deliberately does not pass through is storage: each copy is marked
+`useConfig = False`, so the composite persists nothing, and `saveSettings` calls each member's
+own, which writes into the section that member reads when NVDA drives it directly. One display,
+one place its settings live, whichever way it is being driven.
+
+Two details that only reading NVDA's dialog gives you. The choices for a selection setting are
+fetched as `available{id.capitalize()}s`, and `capitalize` lowercases everything after the first
+letter, so the name cannot be reconstructed from the id afterwards — both names are recorded
+when the settings are built. And the members' own `DriverSetting` objects are copied rather than
+edited, since they belong to the member and a subclass has to keep being what it was.
+
+814 tests, one expected failure.
+
+Phases 1 and 2 were the whole feasibility question, and Phase 3 was indeed small because of
+the work already done on panels. Every phase is now code complete; what is left is hardware
+verification of Phases 4 and 5, and translations.
 
 ## Testing
 

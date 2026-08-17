@@ -568,6 +568,105 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 				return slot
 		return None
 
+	# Member settings
+	#
+	# NVDA's Braille settings dialog builds its controls from `supportedSettings` on the
+	# display in use, which is this driver. Left alone, that means selecting the composite
+	# hides every setting the displays behind it have — dot firmness, a Focus's wiz wheel
+	# action — with no way to reach them short of selecting that display on its own.
+	#
+	# So the members' settings are offered as this driver's own, under names that say which
+	# display each belongs to, and reads and writes are passed through to the member. What is
+	# deliberately not passed through is storage: each copy is marked `useConfig = False`, so
+	# the composite keeps none of them, and the value is saved by the member itself into the
+	# section it reads when it is used alone. One display, one place its settings live,
+	# whichever way it is being driven.
+
+	def _get_supportedSettings(self):
+		""":return: every setting of every member, named for the display it belongs to."""
+		import copy
+
+		settings = []
+		proxies = {}
+		for slot in self._slots:
+			if slot.failed:
+				continue
+			try:
+				own = list(slot.driver.supportedSettings)
+			except Exception:
+				log.debugWarning(f"BrlMultiline: could not read {slot.driverName}'s settings", exc_info=True)
+				continue
+			for setting in own:
+				copied = copy.copy(setting)
+				copied.id = f"{slot.driverName}_{setting.id}"
+				copied.useConfig = False
+				label = getattr(slot.driver, "description", slot.driverName)
+				copied.displayName = f"{label}: {setting.displayName}"
+				copied.displayNameWithAccelerator = f"{label}: {setting.displayNameWithAccelerator}"
+				settings.append(copied)
+				proxies[copied.id] = (slot, setting.id)
+				# The dialog asks for a choice setting's options under this name, and
+				# `capitalize` lowercases everything after the first letter, so the name is
+				# not one that can be guessed from the id later.
+				proxies[f"available{copied.id.capitalize()}s"] = (
+					slot,
+					f"available{setting.id.capitalize()}s",
+				)
+		self._settingProxies = proxies
+		return settings
+
+	def _proxyFor(self, name: str):
+		""":return: the member and attribute a settings name stands for, or None.
+
+		:param name: the attribute being read or written.
+		"""
+		if name.startswith("_"):
+			# Nothing private is a setting, and looking one up here would re-enter
+			# `supportedSettings` while it is part way through building the map.
+			return None
+		try:
+			proxies = object.__getattribute__(self, "_settingProxies")
+		except AttributeError:
+			proxies = None
+		if proxies is None or name not in proxies:
+			if not object.__getattribute__(self, "_slots"):
+				return None
+			# Built on demand, since a caller may reach for a setting before anything has
+			# asked this driver what settings it has.
+			self.supportedSettings  # noqa: B018 - read to rebuild the map.
+			proxies = object.__getattribute__(self, "_settingProxies")
+		return proxies.get(name)
+
+	def __getattr__(self, name: str):
+		proxy = self._proxyFor(name) if not name.startswith("_") else None
+		if proxy is None:
+			raise AttributeError(name)
+		slot, attribute = proxy
+		return getattr(slot.driver, attribute)
+
+	def __setattr__(self, name: str, value) -> None:
+		proxy = self._proxyFor(name) if not name.startswith("_") else None
+		if proxy is None:
+			super().__setattr__(name, value)
+			return
+		slot, attribute = proxy
+		setattr(slot.driver, attribute, value)
+
+	def saveSettings(self) -> None:
+		"""Save this display's settings, and let each member save its own.
+
+		The members' values are theirs to keep: they are stored under the member's own name,
+		which is where that display reads them when NVDA drives it directly.
+		"""
+		super().saveSettings()
+		for slot in self._slots:
+			if slot.failed:
+				continue
+			try:
+				slot.driver.saveSettings()
+			except Exception:
+				log.error(f"BrlMultiline: could not save {slot.driverName}'s settings", exc_info=True)
+
 	def getScript(self, gesture):
 		"""Hand a gesture to the member that raised it, for that member's own scripts.
 

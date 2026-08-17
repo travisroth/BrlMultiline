@@ -18,6 +18,7 @@ reproduced here rather than described.
 import unittest
 
 from ._virtualStubs import (
+	DriverSetting,
 	GlobalGestureMap,
 	StubBrailleDisplayGesture,
 	bgThread,
@@ -491,6 +492,93 @@ class TestWaitingForAMemberToComeBack(VirtualDriverTestCase):
 		self.build(MONARCH, FOCUS)
 		self.poll()
 		self.assertEqual(len(callLaterQueue.pending), 1)
+
+
+class TestMemberSettings(VirtualDriverTestCase):
+	"""Selecting the composite must not hide the settings of the displays behind it.
+
+	NVDA's Braille settings dialog builds its controls from `supportedSettings` on the display
+	in use. Without this, dot firmness and everything like it becomes unreachable for as long
+	as the displays are being used together.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		self.monarch.supportedSettings = (DriverSetting("dotFirmness", "Dot &firmness", defaultVal="1"),)
+		self.focus.supportedSettings = (DriverSetting("wizWheelAction", "Wiz wheel &action"),)
+		self.display = self.build(MONARCH, FOCUS)
+		self.monarchDriver = self.monarch.instances[0]
+		self.focusDriver = self.focus.instances[0]
+		self.monarchDriver.dotFirmness = "1"
+		self.monarchDriver.availableDotfirmnesss = {"1": "Soft", "2": "Firm"}
+		self.focusDriver.wizWheelAction = "scroll"
+
+	def ids(self):
+		return [setting.id for setting in self.display.supportedSettings]
+
+	def test_everyMembersSettingsAreOffered(self):
+		self.assertEqual(
+			self.ids(),
+			["hidBrailleStandard_dotFirmness", "freedomScientific_wizWheelAction"],
+		)
+
+	def test_eachOneSaysWhichDisplayItBelongsTo(self):
+		setting = self.display.supportedSettings[0]
+		self.assertIn("hidBrailleStandard display", setting.displayName)
+		self.assertIn("Dot &firmness", setting.displayNameWithAccelerator)
+
+	def test_readingOneReadsTheMembers(self):
+		self.assertEqual(self.display.hidBrailleStandard_dotFirmness, "1")
+
+	def test_writingOneWritesToTheMember(self):
+		self.display.hidBrailleStandard_dotFirmness = "2"
+		self.assertEqual(self.monarchDriver.dotFirmness, "2")
+		self.assertFalse(hasattr(type(self.display), "hidBrailleStandard_dotFirmness"))
+
+	def test_theChoicesForASettingComeFromTheMember(self):
+		"""Under the name the dialog asks for, which `capitalize` makes unguessable."""
+		self.assertEqual(
+			self.display.availableHidbraillestandard_dotfirmnesss,
+			{"1": "Soft", "2": "Firm"},
+		)
+
+	def test_theCompositeStoresNoneOfThem(self):
+		"""Each is the member's to keep, in the section it reads when used on its own."""
+		for setting in self.display.supportedSettings:
+			self.assertFalse(setting.useConfig)
+
+	def test_theMembersOwnSettingIsNotAltered(self):
+		"""It is copied, not renamed: that object belongs to the member."""
+		self.display.supportedSettings  # noqa: B018 - read for its effect on the member.
+		self.assertEqual(self.monarch.supportedSettings[0].id, "dotFirmness")
+		self.assertTrue(self.monarch.supportedSettings[0].useConfig)
+
+	def test_savingSavesEachMember(self):
+		self.display.saveSettings()
+		self.assertEqual(self.monarchDriver.settingsSaved, 1)
+		self.assertEqual(self.focusDriver.settingsSaved, 1)
+
+	def test_aMemberThatHasGoneOffersNothing(self):
+		self.display.slots[0].failed = True
+		self.assertEqual(self.ids(), ["freedomScientific_wizWheelAction"])
+
+	def test_aMemberWhoseSettingsCannotBeReadIsSkipped(self):
+		def explode(self):
+			raise RuntimeError("settings are unwell")
+
+		type(self.monarchDriver).supportedSettings = property(explode)
+		try:
+			self.assertEqual(self.ids(), ["freedomScientific_wizWheelAction"])
+		finally:
+			del type(self.monarchDriver).supportedSettings
+
+	def test_anUnknownAttributeIsStillAnError(self):
+		with self.assertRaises(AttributeError):
+			self.display.somethingNobodyHas
+
+	def test_ordinaryAttributesAreUntouched(self):
+		self.display.numRows = 3
+		self.assertEqual(self.display.numRows, 3)
 
 
 class TestTerminate(VirtualDriverTestCase):

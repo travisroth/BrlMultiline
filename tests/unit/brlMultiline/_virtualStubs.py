@@ -140,6 +140,9 @@ class StubBrailleDisplayDriver:
 	_awaitingAck = False
 	_suppressDisplayClear = False
 
+	supportedSettings: tuple = ()
+	"""What NVDA's Braille settings dialog builds its controls from."""
+
 	def __init__(self, port=None):
 		pass
 
@@ -149,6 +152,11 @@ class StubBrailleDisplayDriver:
 
 	def initSettings(self):
 		pass
+
+	def saveSettings(self):
+		"""Records the call. Upstream this writes the settings into the driver's own section,
+		and where a member's values are stored is the whole question the composite answers."""
+		self.settingsSaved = getattr(self, "settingsSaved", 0) + 1
 
 	def display(self, cells):
 		pass
@@ -164,6 +172,23 @@ class StubBrailleDisplayDriver:
 			self._suppressDisplayClear = False
 			return
 		self.display([0] * self.numCells)
+
+
+class DriverSetting:
+	"""One entry of `supportedSettings`, as far as anything here reads one.
+
+	Shaped after `autoSettingsUtils.driverSetting.DriverSetting`, and copied rather than
+	rebuilt when the composite offers it as its own, so that a subclass — a numeric setting,
+	a boolean one — keeps being what it was.
+	"""
+
+	def __init__(self, id, displayName, defaultVal=None, useConfig=True, availableInSettingsRing=False):
+		self.id = id
+		self.displayName = displayName
+		self.displayNameWithAccelerator = displayName
+		self.defaultVal = defaultVal
+		self.useConfig = useConfig
+		self.availableInSettingsRing = availableInSettingsRing
 
 
 class MemberDriver(StubBrailleDisplayDriver):

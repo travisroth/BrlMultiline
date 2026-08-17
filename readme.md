@@ -109,16 +109,22 @@ Things worth knowing:
   alone while you read. A message changes only the segment it is in: everything else stays as
   it was, and a display the message is not on is not written to at all.
 - Each display is detected when it is opened, so a display that is switched off is simply
-  left out and the others are used.
+  left out and the others are used. It is looked for while you work, and joins the combined
+  display when it appears — switch it on, or bring it back into range, and it takes its place
+  in the order you chose within a few seconds.
+- A display that goes away is dropped and the rest carry on. The combined display shrinks to
+  what is left, so the focus moves onto a display you still have rather than onto rows that
+  are no longer there. An object you had pinned to the display that went moves to a free
+  segment if there is one; if the only segment left is the one following the focus, the pin is
+  released rather than taking the focus's place.
 - While the combined display is in use, the list under "BrlMultiline displays" says which of
-  the chosen displays it is driving: in use, not connected, or not responding. A display that
-  goes quiet part way through a session — a Bluetooth link dropping, say — is noticed when
-  something is next written to it, so a display showing something that is not changing may be
-  listed as in use for a while after it has gone.
+  the chosen displays it is driving: in use, not connected, or not responding.
 - NVDA's automatic braille display detection is off while the combined display is selected,
   because it works by choosing the display for you and that choice is already made.
-- Settings that belong to one of the displays themselves, such as dot firmness, are not
-  reachable from NVDA's Braille settings while the combined display is in use.
+- Settings that belong to one of the displays themselves, such as dot firmness or a Focus's
+  wiz wheel action, appear in NVDA's Braille settings named after the display they belong to.
+  Changing one changes that display's own setting, so it is still there when you use that
+  display on its own.
 - A display driver's own commands still work on their default keys, but do not appear in the
   Input Gestures dialog while the combined display is in use, so they cannot be rebound there.
   Only three drivers are affected, because only three describe their commands: Alva ("Toggles
