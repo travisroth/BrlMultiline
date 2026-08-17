@@ -729,10 +729,31 @@ What *does* still appear is everything reachable through the members' gesture ma
 the members. That covers the ordinary case — panning, routing, and every global command a
 display binds by default.
 
+What is lost is narrower than "the command stops working", and the distinction is worth
+keeping. Each of those three binds its script through `__gestures` on its own class, so the
+binding lives in the member's own `_gestureMap` — and dispatch reaches it, because
+`gestures.scriptForMember` hands the gesture to the member. A HandyTech member keeps its
+braille input toggle on space with b1, b3 and b4, and on the five other chords it ships with.
+What cannot be done is rebinding it, because it is not listed to be rebound.
+
+The mechanism, for whoever reads this next. `_AllGestureMappingsRetriever.__init__` fills the
+dialog from two independent passes: `addGlobalMap(braille.handler.display.gestureMap)` at line
+814, which sees our live `MemberGestureMap` and so still lists everything the members bind
+through their maps; and `addObj(braille.handler.display)` at line 828, which is the one that
+breaks. `addObj` walks `obj.__class__.__mro__` for `script_` methods and then reads
+`obj._gestureMap` for their default bindings, and the object it is handed is this driver, whose
+MRO contains no member. `makeNormalScriptInfo` is why the blast radius is three drivers: it
+returns None when a script has no `__doc__`, so every undescribed driver script was already
+absent from that dialog.
+
 Not fixed because the honest fixes are both bad: synthesising a class that inherits from the
 member drivers would drag in their `__init__` and `display`, and copying script attributes
-across would bind them to the wrong object. It wants either an NVDA change or a considered
-design, and neither belongs in a phase about gesture plumbing.
+across would bind them to the wrong object. It wants either an NVDA change — the dialog asking
+the display for its scriptable objects rather than assuming there is one — or a considered
+design here, and neither belongs in a phase about gesture plumbing.
+
+Accepted as a limitation by the author, who owns a HandyTech display and does not normally
+drive it from NVDA. Recorded so the decision does not have to be made twice.
 
 496 tests, one expected failure. The three covering the install window were checked against
 the unfixed code and fail there, which is the only way to know a regression test regresses.
@@ -854,7 +875,8 @@ section is exactly the failure this design makes possible and the tests make lou
   still has one segment per display, because the hardware boundaries are not optional, so the
   number still has to name one. Now gated on there being a single target.
 
-- **The member list is stored per profile.** Stated as a limit below rather than fixed.
+- **The member list was stored per profile.** Since resolved; see the known limits below
+  for what base only storage needed.
 
 579 tests, one expected failure. Every fix above was checked against the unfixed code and
 fails there — including the four dead column tests, which is the point of the exercise: a
@@ -954,29 +976,58 @@ disambiguate while leaving default maps working through the unmodelled identifie
 `model` means subclassing the member driver per slot and reaching into how it builds
 gestures, which is driver specific. Not version one.
 
-**The member list is stored per profile, and should not be.** `BrlMultilineVirtualDisplay` is
-an ordinary configuration section, so NVDA writes it to whichever profile was last active.
-Nothing acts on a profile's copy: `_switchDisplay` is not called when the driver name has not
-changed, so the composite goes on driving the members it opened while the configuration and
-the settings panel both describe a different set. Three states, two of them wrong.
+**The member list is base only, and getting there took more than a name in a set.** Resolved;
+recorded because the reasoning is not obvious from the code.
 
-The contract this should have is base only — `config.configSections.registerSection` takes
-`isBaseOnly`, and `ConfigManager.BASE_ONLY_SECTIONS` is documented as extensible by add-ons.
-The member list is which pieces of hardware are wired together, which is not a per-application
-preference; and the alternative contract is worse on its own terms, since honouring a
-profile's list would mean reopening two Bluetooth displays every time a profile triggers.
+`BrlMultilineVirtualDisplay` was an ordinary configuration section, so NVDA wrote it to
+whichever profile was last active. Nothing acted on a profile's copy: `_switchDisplay` is not
+called when the driver name has not changed, so the composite went on driving the members it
+opened while the configuration and the settings panel both described a different set. Three
+states, two of them wrong.
 
-Not yet done, because it moves where the list is stored and the failure mode is starting with
-no braille at all. `registerSection` also only takes effect at the next start — it persists to
-a YAML file that `_loadCustomSections` reads — so doing it properly means adding the name to
-`BASE_ONLY_SECTIONS` directly as well, and `config.conf[section]` then reads
-`profiles[0][section]`, which our own code has to create and give a specification to, exactly
-as `bmConfig.getDisplayConfig` does for a display subsection. Worth doing carefully rather
-than between a code change and a hardware run.
+Base only is the right contract, and the alternative is worse on its own terms: honouring a
+profile's list would mean closing and reopening two Bluetooth displays every time a profile
+triggered. The list is which pieces of hardware are wired together, not a per-application
+preference. Note the scoping — the `BrlMultiline` section holding the per-display layouts stays
+profile-specific, which is a feature.
 
-What is done is that the plugin compares the configured list against the running members on
-every profile switch and says so in the log when they differ. That turns a silent
-disagreement into a diagnosable one.
+Three things had to be dealt with, all following from one fact: everything NVDA does for a base
+only section happens while the base configuration is being loaded, and this driver registers at
+braille init, long afterwards.
+
+- **Registration is too late.** `config.configSections.registerSection` takes `isBaseOnly`, but
+  it persists to a YAML file that `_loadCustomSections` reads at the *next* start — so it would
+  take effect a session late, and would outlive the add-on, needing an uninstall hook.
+  `_makeBaseOnly` adds the name to `ConfigManager.BASE_ONLY_SECTIONS` directly, which the
+  upstream docstring sanctions, and re-registers every session instead.
+- **The destination may not exist.** `_initBaseConf` creates and validates each base only
+  section, looping over those registered at that moment. Ours is not among them, so
+  `config.conf[section]` would raise `KeyError`. `_baseSection` creates it in `profiles[0]`
+  itself, and going there directly also means the list is written to base whether or not the
+  registration succeeded — which matters on the first read of every session, before
+  `_makeBaseOnly` has run.
+- **Validation will not have run.** Nothing applies `string_list(default=list())`, and configobj
+  hands back a *bare string* for a list of exactly one entry that has not been validated. A
+  single member composite would have read as one driver name per character. `_readEntries`
+  coerces it, tolerates a missing key and a missing section, and reports anything else without
+  raising.
+
+That last point is the hardening, and it is deliberate about what still raises. A section that
+cannot be read is a plumbing failure and degrades to "no displays configured", which the driver
+reports usefully. A list naming one driver twice is the user's own error and still raises,
+because the message is worth more than the silence.
+
+`_migrateFromProfiles` copies a list stored under a profile into base, once, before
+`_makeBaseOnly` redirects the reads — that ordering is the whole of it, and a test asserts it
+directly. It only ever copies up, never overwrites, and leaves a profile's stale copy in place
+rather than editing someone's saved profile, reporting it so that a puzzling `.ini` has an
+explanation.
+
+Testing it needed a profile aware configuration stub: base only resolution, an active profile
+shadowing base, and writes landing in the active profile. Without that the migration could not
+be tested at all, and the four states — nothing stored, stored in base, stored in a profile,
+stored in both — are exactly where a mistake would cost the user their device list.
+
 
 **Member driver settings are unreachable from NVDA's dialog.**
 `gui/settingsDialogs.py:5237` returns `braille.handler.display`, so the braille settings panel

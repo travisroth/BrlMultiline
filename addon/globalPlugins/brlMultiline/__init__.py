@@ -506,17 +506,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _reportMemberDivergence(self) -> None:
 		"""Say so in the log when the configured members are not the ones actually running.
 
-		`BrlMultilineVirtualDisplay` is an ordinary configuration section, so NVDA writes it
-		to whichever profile was last active, and a profile can therefore hold a member list
-		of its own. Nothing acts on that: NVDA does not reinitialise a display whose driver
-		name has not changed, so the composite goes on driving the members it opened while the
-		configuration and the settings panel both describe a different set.
+		A profile can no longer cause this: `vdConfig` stores the member list in the base
+		configuration only, for the reasons in that module. What is left is the honest case —
+		the list was edited without the composite being reopened, which the settings panel does
+		for the user but a console edit does not. NVDA does not reinitialise a display whose
+		driver name has not changed, so the composite goes on driving the members it opened.
 
-		This does not fix that; it makes it visible. The fix is to store the member list in the
-		base configuration only, which is the right contract — the members are which pieces of
-		hardware are wired together, and reopening two Bluetooth displays every time a profile
-		triggers would be a poor answer even if it worked. That is a change to where the list
-		is stored and is deliberately not being made between a code change and a hardware run.
+		Checked on a profile switch because that is a cheap moment to look, not because a
+		profile is expected to be the cause.
 		"""
 		devices = deviceMap()
 		if not devices:
@@ -531,8 +528,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		running = [device.driverName for device in devices]
 		if configured != running:
 			log.warning(
-				f"BrlMultiline: this profile lists the displays {configured}, but the combined "
-				f"display is running {running}. The list is not applied until the combined "
+				f"BrlMultiline: the displays configured are {configured}, but the combined "
+				f"display is running {running}. A changed list is not applied until the combined "
 				"display is selected again in NVDA's braille settings.",
 			)
 

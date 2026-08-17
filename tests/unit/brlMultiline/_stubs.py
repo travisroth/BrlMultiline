@@ -592,12 +592,69 @@ def fakeVirtualDisplay(*bands):
 	)
 
 
+class ConfigManager:
+	"""Stands in for NVDA's `config.ConfigManager`, for the one class attribute add-ons touch.
+
+	`BASE_ONLY_SECTIONS` is documented upstream as extensible by add-ons, and it is a class
+	attribute mutated in place — so a stub has to expose the same shape or the code that
+	extends it cannot be tested at all.
+	"""
+
+	BASE_ONLY_SECTIONS = {"general", "update", "development", "addonStore"}
+
+
 class FakeConf(dict):
-	"""NVDA's configuration object: a mapping that also carries the registered specs."""
+	"""NVDA's configuration object: profile aware, and carrying the registered specs.
+
+	Faithful about the three behaviours that decide where a setting ends up, because the
+	add-on now depends on all three:
+
+	1. A section named in `BASE_ONLY_SECTIONS` is read straight out of the base profile,
+	   whatever profile is active. `ConfigManager.__getitem__` does exactly this.
+	2. Anything else is read from the active profile first, falling back to base.
+	3. Writes go to the active profile when there is one. Upstream: "Changed settings are
+	   written to the most recently activated profile."
+	"""
 
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.spec = {}
+		self.profiles = [dict(self)]
+		"""Profile 0 is the base configuration, as in NVDA. Later entries are activated ones."""
+
+	@property
+	def activeProfile(self):
+		""":return: the most recently activated profile, or None when only base is in force."""
+		return self.profiles[-1] if len(self.profiles) > 1 else None
+
+	def activateProfile(self, values=None):
+		"""Push a configuration profile, as a profile trigger does.
+
+		:param values: what the profile overrides, as section name to mapping.
+		:return: the profile.
+		"""
+		profile = dict(values or {})
+		self.profiles.append(profile)
+		return profile
+
+	def deactivateProfiles(self):
+		"""Drop every profile, leaving the base configuration."""
+		del self.profiles[1:]
+
+	def __getitem__(self, key):
+		if key in ConfigManager.BASE_ONLY_SECTIONS:
+			return self.profiles[0][key]
+		profile = self.activeProfile
+		if profile is not None and key in profile:
+			return profile[key]
+		return super().__getitem__(key)
+
+	def __setitem__(self, key, value):
+		profile = self.activeProfile
+		if profile is not None and key not in ConfigManager.BASE_ONLY_SECTIONS:
+			profile[key] = value
+			return
+		super().__setitem__(key, value)
 
 
 class Decider:
@@ -907,6 +964,7 @@ def installStubs() -> None:
 			},
 		),
 		post_configProfileSwitch=post_configProfileSwitch,
+		ConfigManager=ConfigManager,
 	)
 	braille = _module("braille", handler=None)
 	buffers = _module("braille.buffers", BrailleBuffer=BrailleBuffer, _WindowRowPositions=WindowRowPositions)
@@ -1026,10 +1084,14 @@ def resetConfig() -> None:
 	CONFIG.spec.clear()
 	if "config" in sys.modules:
 		conf = sys.modules["config"].conf
+		# Every profile but the base one, or one test's profile is the next test's surprise.
+		conf.deactivateProfiles()
 		conf["BrlMultiline"]["displays"].clear()
 		# The combined display's member list, which the settings panel and the plugin both
-		# read through the driver's own `vdConfig`. One test's list must not be the next's.
-		conf["BrlMultilineVirtualDisplay"]["devices"] = []
+		# read through the driver's own `vdConfig`. Cleared in both places it can live, since
+		# whether the section is base only depends on whether `vdConfig` has been imported.
+		conf.profiles[0].setdefault("BrlMultilineVirtualDisplay", {})["devices"] = []
+		dict.__getitem__(conf, "BrlMultilineVirtualDisplay")["devices"] = []
 	setSpeechOutputMode(False)
 
 

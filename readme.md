@@ -109,13 +109,23 @@ Things worth knowing:
   because it works by choosing the display for you and that choice is already made.
 - Settings that belong to one of the displays themselves, such as dot firmness, are not
   reachable from NVDA's Braille settings while the combined display is in use.
+- A display driver's own commands still work on their default keys, but do not appear in the
+  Input Gestures dialog while the combined display is in use, so they cannot be rebound there.
+  Only three drivers are affected, because only three describe their commands: Alva ("Toggles
+  HID keyboard simulation"), HandyTech ("Toggle braille input") and Eurobraille ("Toggle HID
+  keyboard simulation"). A HandyTech used as one of the combined displays keeps its braille
+  input toggle on space with dots 1, 3 and 4; you just cannot move it. Nothing on a Focus or a
+  Monarch is affected, since neither describes any command of its own.
 - The add-on has to be enabled. With it disabled and the combined display still selected,
   NVDA writes across the full width of every row, and anything landing past a narrower
   display's edge is lost.
-- Choose the displays with no configuration profile active. NVDA stores changed settings in
-  the profile that is active at the time, and a profile cannot change which displays are
-  combined: the list only takes effect when the combined display is selected again. If they
-  ever disagree, the log says so.
+- The list of combined displays is not part of a configuration profile. It describes which
+  pieces of hardware are wired together, so it is stored once and applies everywhere,
+  whichever profile is active. A list stored under a profile by an earlier version of the
+  add-on is moved across the first time this one runs.
+- A changed list takes effect when the combined display is opened again. Saving it in the
+  settings does that for you; changing it from the Python console does not, and the log says
+  so if the two disagree.
 
 ## Commands
 
