@@ -3,16 +3,20 @@
 # Copyright (C) 2026 Travis Roth <travis@travisroth.com>
 # This file is covered by the GNU General Public License version 2.
 
-"""The two places NVDA's braille handler has to be adjusted.
+"""The places NVDA's braille handler has to be adjusted.
 
 1. `_doNewObject` clears the whole buffer and appends every region to it. With several
 	segments the regions have to be sorted first, and only the segments actually
 	receiving regions may be cleared.
-2. `scrollForward` and `scrollBack` are swapped when reversed panning is configured for
-	the current display.
+2. `scrollForward` and `scrollBack` pan the display whose panning key was pressed, in the
+	direction that display is configured for.
+3. `_handlePendingUpdate` refreshes the document line regions and the pinned objects, neither
+	of which NVDA has any reason to mark as needing an update.
 
-Both are installed and removed symmetrically, so that disabling the add-on restores
-NVDA's own behaviour without a restart.
+All are installed and removed symmetrically, so that disabling the add-on restores NVDA's own
+behaviour without a restart. Symmetrically, but not unconditionally: these are attributes of a
+class anyone can reach, and a method that is no longer the one this module installed belongs
+to whoever put it there. See L{remove}.
 """
 
 import time
@@ -27,10 +31,15 @@ from logHandler import log
 from . import bmConfig, documentLines, panning
 from .container import DisplayContainer
 
-_originalDoNewObject = None
-_originalScrollForward = None
-_originalScrollBack = None
-_originalHandlePendingUpdate = None
+_originals: dict[str, object] = {}
+"""NVDA's own methods, by the name each one is patched under.
+
+An entry lives as long as this module's replacement is in place, and outlives L{remove} when
+the replacement could not be taken back — because in that case it is still being delegated to.
+"""
+
+_installedMethods: dict[str, object] = {}
+"""What was put in their place, so that L{remove} can tell whether it is still there."""
 
 MONITOR_REFRESH_INTERVAL = 0.4
 """Seconds between re-reads of a pinned object.
@@ -70,7 +79,7 @@ def _doNewObjectMultiSegment(self: BrailleHandler, regions) -> None:
 	container = self.mainBuffer
 	if not isinstance(container, DisplayContainer) or container.numSegments == 1:
 		# Nothing to sort. Let NVDA do exactly what it normally does.
-		return _originalDoNewObject(self, regions)
+		return _originals["_doNewObject"](self, regions)
 	self.autoScroll(enable=False)
 	grouped: dict[int, list] = {index: [] for index in range(container.numSegments)}
 	for region in regions:
@@ -189,7 +198,7 @@ def _handlePendingUpdateWithDocumentLines(self: BrailleHandler) -> None:
 	them.
 	"""
 	hadPendingUpdate = bool(self._regionsPendingUpdate)
-	_originalHandlePendingUpdate(self)
+	_originals["_handlePendingUpdate"](self)
 	_refreshPinnedObjects()
 	if not hadPendingUpdate:
 		return
@@ -238,7 +247,7 @@ def _nativeScroll(handler: BrailleHandler, forward: bool) -> None:
 	if segment is None:
 		# No key press behind this scroll, an ordinary display, or a message showing. NVDA's
 		# own behaviour, which for the container means the segment following the focus.
-		return _originalScrollForward(handler) if forward else _originalScrollBack(handler)
+		return _originals["scrollForward" if forward else "scrollBack"](handler)
 	if forward:
 		container.scrollForward(segment)
 	else:
@@ -253,36 +262,53 @@ def _scrollBackMaybeReversed(self: BrailleHandler) -> None:
 	return _nativeScroll(self, forward=False)
 
 
+def _replacements() -> dict[str, object]:
+	""":return: the methods this module installs, by the name each one replaces.
+
+	The same function objects every call, since identity is what L{remove} asks about.
+	"""
+	return {
+		"_doNewObject": _doNewObjectMultiSegment,
+		"scrollForward": _scrollForwardMaybeReversed,
+		"scrollBack": _scrollBackMaybeReversed,
+		"_handlePendingUpdate": _handlePendingUpdateWithDocumentLines,
+	}
+
+
 def install() -> None:
 	"""Install the patches. Safe to call when they are already installed."""
-	global _originalDoNewObject, _originalScrollForward, _originalScrollBack
-	global _originalHandlePendingUpdate
-	if _originalDoNewObject is not None:
-		log.debug("BrlMultiline patches already installed")
-		return
-	_originalDoNewObject = BrailleHandler._doNewObject
-	_originalScrollForward = BrailleHandler.scrollForward
-	_originalScrollBack = BrailleHandler.scrollBack
-	_originalHandlePendingUpdate = BrailleHandler._handlePendingUpdate
-	BrailleHandler._doNewObject = _doNewObjectMultiSegment
-	BrailleHandler.scrollForward = _scrollForwardMaybeReversed
-	BrailleHandler.scrollBack = _scrollBackMaybeReversed
-	BrailleHandler._handlePendingUpdate = _handlePendingUpdateWithDocumentLines
+	for name, replacement in _replacements().items():
+		if name in _originals:
+			# Already installed, or left in place by a removal that found something else on
+			# top. Installing over that would either undo the other add-on or, if it wrapped
+			# this module's method rather than replacing it, put this one on top of a wrapper
+			# that calls it — a loop with no end.
+			log.debug(f"BrlMultiline: {name} is already patched")
+			continue
+		_originals[name] = getattr(BrailleHandler, name)
+		_installedMethods[name] = replacement
+		setattr(BrailleHandler, name, replacement)
 	log.debug("BrlMultiline patches installed")
 
 
 def remove() -> None:
-	"""Restore NVDA's own methods. Safe to call when nothing is installed."""
-	global _originalDoNewObject, _originalScrollForward, _originalScrollBack
-	global _originalHandlePendingUpdate
-	if _originalDoNewObject is None:
-		return
-	BrailleHandler._doNewObject = _originalDoNewObject
-	BrailleHandler.scrollForward = _originalScrollForward
-	BrailleHandler.scrollBack = _originalScrollBack
-	BrailleHandler._handlePendingUpdate = _originalHandlePendingUpdate
-	_originalDoNewObject = None
-	_originalScrollForward = None
-	_originalScrollBack = None
-	_originalHandlePendingUpdate = None
+	"""Restore NVDA's own methods. Safe to call when nothing is installed.
+
+	Each method goes back only if it is still the one this module installed. Another add-on may
+	have replaced or wrapped it since — these are attributes of a shared class — and putting
+	NVDA's own back over that would silently undo their work.
+
+	A method left in place keeps its entry in L{_originals}, because this module's replacement
+	is still there and still delegating to it. That entry is also what stops a later install
+	putting a second copy on top.
+	"""
+	for name in list(_originals):
+		if getattr(BrailleHandler, name, None) is not _installedMethods.get(name):
+			log.debugWarning(
+				f"BrlMultiline: {name} has been replaced since it was patched; "
+				"leaving it as it is rather than undoing whatever replaced it",
+			)
+			continue
+		setattr(BrailleHandler, name, _originals.pop(name))
+		_installedMethods.pop(name, None)
 	log.debug("BrlMultiline patches removed")

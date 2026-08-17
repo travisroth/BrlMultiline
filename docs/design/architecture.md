@@ -20,7 +20,8 @@ established there.
   user of `RectHandlerProxy`, and the one path a container cannot cover, since
   `BrailleHandler.message` swaps the handler's buffer out from under it.
 - `container.py` — `DisplayContainer` and `FakeRegionsList`.
-- `patches.py` — the three patches to `BrailleHandler`, installed and removed together.
+- `patches.py` — the patches to `BrailleHandler`, installed and removed together — and taken
+  back only where the method is still the one this add-on installed.
 - `documentLines.py` — `TextInfoPositionRegion` and the code that fills free segments.
 - `objectMonitor.py` — pinning an object to a segment.
 - `panning.py` — which physical display's panning key is running the scroll happening now,

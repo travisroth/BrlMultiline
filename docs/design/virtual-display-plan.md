@@ -1053,6 +1053,13 @@ away a replacement made after ours. Each command now goes back only if it is sti
 this module installed. The cost of leaving one alone is that the wrapper stays reachable inside
 someone else's chain, where it sets a global nothing reads any more.
 
+`patches` had the same property against `BrailleHandler` and was swept the same way, with one
+addition it needs and `panning` does not: its replacements delegate to the method they replaced,
+so a method left in place keeps its entry in `_originals` — both because it is still being
+delegated to, and because that entry is what stops a later install putting a second copy on top.
+Without that guard, an add-on that *wrapped* one of these methods rather than replacing it would
+leave the two calling each other until the stack ran out.
+
 **A replaced message buffer was dismissed but not remembered.** The path exists for a message
 buffer that is not ours being found in place, and the plugin took it down without noting that
 it, rather than the buffer saved at plugin startup, is what termination owes. It is saved now.
@@ -1061,7 +1068,7 @@ reinitialised; it does not. `messageBuffer` is assigned once, at `brailleHandler
 in `BrailleHandler.__init__`, so a rebuilt one arrives with a whole new handler. Another add-on
 is the realistic occupant, and both now say so.
 
-737 tests, one expected failure.
+743 tests, one expected failure.
 
 
 **Phase 4, resilience.** Per device failure, a reconnect poll using

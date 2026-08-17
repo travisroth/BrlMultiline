@@ -765,6 +765,70 @@ class TestDisplayRelativeCommands(PluginTestCase):
 		self.assertEqual(self.plugin.monitoredKeys, set())
 
 
+class TestPatchOwnership(PluginTestCase):
+	"""`BrailleHandler` is a class every add-on can reach, and several of them do.
+
+	Installing over someone else's method and restoring over it are the two ways a monkey patch
+	damages something other than itself. The second is the worse one, because it happens while
+	this add-on is being disabled and looks like the other add-on breaking.
+	"""
+
+	def restore(self, name, original):
+		setattr(BrailleHandler, name, original)
+		patches._originals.pop(name, None)
+		patches._installedMethods.pop(name, None)
+
+	def somebodyElseTakesOver(self, name):
+		"""Another add-on replaces one of the patched methods after this one did."""
+
+		def theirs(handler, *args, **kwargs):
+			pass
+
+		self.addCleanup(self.restore, name, patches._originals[name])
+		setattr(BrailleHandler, name, theirs)
+		return theirs
+
+	def test_everyPatchIsInstalled(self):
+		for name, replacement in patches._replacements().items():
+			self.assertIs(getattr(BrailleHandler, name), replacement)
+
+	def test_removingPutsNVDAsOwnMethodsBack(self):
+		originals = dict(patches._originals)
+		patches.remove()
+		for name, original in originals.items():
+			self.assertIs(getattr(BrailleHandler, name), original)
+
+	def test_removingLeavesAnotherAddOnsMethodAlone(self):
+		theirs = self.somebodyElseTakesOver("scrollForward")
+		patches.remove()
+		self.assertIs(BrailleHandler.scrollForward, theirs)
+
+	def test_theOtherPatchesAreStillTakenBack(self):
+		"""One method being someone else's is no reason to leave the rest patched."""
+		original = patches._originals["scrollBack"]
+		self.somebodyElseTakesOver("scrollForward")
+		patches.remove()
+		self.assertIs(BrailleHandler.scrollBack, original)
+
+	def test_aLaterInstallDoesNotStackOnTopOfTheirs(self):
+		"""And this is the one that would hang NVDA rather than merely misbehave.
+
+		If they wrapped this add-on's method rather than replacing it, installing again would
+		put this one over a wrapper that calls it, and the two would call each other until the
+		stack ran out.
+		"""
+		theirs = self.somebodyElseTakesOver("scrollForward")
+		patches.remove()
+		patches.install()
+		self.assertIs(BrailleHandler.scrollForward, theirs)
+
+	def test_theRestAreInstalledAgainAfterwards(self):
+		self.somebodyElseTakesOver("scrollForward")
+		patches.remove()
+		patches.install()
+		self.assertIs(BrailleHandler.scrollBack, patches._scrollBackMaybeReversed)
+
+
 class NvdaMessageBuffer:
 	"""A stand-in for the message buffer NVDA builds for itself, with nothing of ours in it."""
 
