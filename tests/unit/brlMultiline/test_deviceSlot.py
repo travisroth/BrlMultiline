@@ -12,7 +12,7 @@ behaviour `BrailleHandler` has and the reason it collapses a burst into its last
 
 import unittest
 
-from ._virtualStubs import FakeDriver, bgThread, installVirtualStubs, log, resetStubs
+from ._virtualStubs import FakeDevice, FakeDriver, bgThread, installVirtualStubs, log, resetStubs
 
 installVirtualStubs()
 
@@ -130,6 +130,147 @@ class TestFailure(unittest.TestCase):
 		self.driver.failOnDisplay = False
 		self.assertFalse(self.slot.write([5, 6, 7, 8]))
 		self.assertEqual(self.driver.written, [])
+
+
+class TestNoticingADisconnection(unittest.TestCase):
+	"""The read side knows first, and a member showing something static is never written to.
+
+	Taken from a real log: a Bluetooth display dropped, the overlapped read completion failed
+	with WinError 1167 twenty milliseconds before anything tried to write, and NVDA's I/O thread
+	logged the traceback and went no further. `IoBase._ioDone` offers that error to
+	`_onReadError` before raising, which is the one route out of it.
+	"""
+
+	def setUp(self):
+		resetStubs()
+		self.lost = []
+		self.device = FakeDevice()
+		self.driver = FakeDriver(isThreadSafe=False, device=self.device)
+		self.slot = DeviceSlot(SPEC, self.driver, BAND, onFailure=self.lost.append)
+
+	def readFails(self, error=1167):
+		"""Let the read fail as NVDA's I/O thread would, swallowing what it swallows."""
+		try:
+			self.device.readFails(error)
+		except OSError:
+			pass
+
+	def test_aLostDeviceIsNoticedWithoutWritingToIt(self):
+		self.readFails()
+		self.assertTrue(self.slot.failed)
+		self.assertEqual(self.driver.written, [])
+
+	def test_theCompositeIsTold(self):
+		self.readFails()
+		self.assertEqual(self.lost, [self.slot])
+
+	def test_itIsToldOnceForOneLoss(self):
+		"""A display coming apart fails its read and its next write moments apart."""
+		self.readFails()
+		self.driver.failOnDisplay = True
+		self.slot.write([1, 2, 3, 4])
+		self.assertEqual(self.lost, [self.slot])
+
+	def test_nothingIsWrittenToItAfterwards(self):
+		self.readFails()
+		self.assertFalse(self.slot.write([1, 2, 3, 4]))
+		self.assertEqual(self.driver.written, [])
+
+
+class TestChainingTheDriversOwnHook(unittest.TestCase):
+	"""`freedomScientific` supplies one of these, and losing it would cost the user a display.
+
+	Its hook restarts the display when a suspend breaks the pipe, and returns True to say so.
+	A driver that says it has handled the error is restarting, not dying.
+	"""
+
+	def setUp(self):
+		resetStubs()
+		self.lost = []
+		self.seen = []
+		self.handle = False
+		# One bound method object rather than a fresh one per attribute read, so that "the
+		# driver got its own hook back" can be asked as a question about identity.
+		self.theirsHook = self.theirs
+		self.device = FakeDevice(onReadError=self.theirsHook)
+		self.driver = FakeDriver(isThreadSafe=False, device=self.device)
+		self.slot = DeviceSlot(SPEC, self.driver, BAND, onFailure=self.lost.append)
+
+	def theirs(self, error: int) -> bool:
+		self.seen.append(error)
+		return self.handle
+
+	def test_theDriversOwnHookStillRuns(self):
+		try:
+			self.device.readFails(995)
+		except OSError:
+			pass
+		self.assertEqual(self.seen, [995])
+
+	def test_anErrorTheDriverHandledDoesNotDropTheMember(self):
+		self.handle = True
+		self.device.readFails(995)
+		self.assertFalse(self.slot.failed)
+		self.assertEqual(self.lost, [])
+
+	def test_anErrorTheDriverDidNotHandleDoes(self):
+		try:
+			self.device.readFails(1167)
+		except OSError:
+			pass
+		self.assertTrue(self.slot.failed)
+
+	def test_theAnswerGivenBackIsTheDriversOwn(self):
+		"""So the I/O thread goes on logging what it logged; that log is how this was found."""
+		self.handle = True
+		self.assertTrue(self.device._onReadError(995))
+		self.handle = False
+		self.assertFalse(self.device._onReadError(1167))
+
+	def test_aDriverHookThatRaisesDoesNotStopTheMemberBeingDropped(self):
+		def raising(error):
+			raise RuntimeError("nothing good")
+
+		self.device._onReadError = None
+		slot = DeviceSlot(SPEC, FakeDriver(device=FakeDevice(onReadError=raising)), BAND)
+		device = slot.driver._dev
+		try:
+			device.readFails(1167)
+		except OSError:
+			pass
+		self.assertTrue(slot.failed)
+
+	def test_theDriverGetsItsOwnHookBackWhenTheMemberIsClosed(self):
+		self.slot.terminate()
+		self.assertIs(self.device._onReadError, self.theirsHook)
+
+	def test_aHookSomethingElseReplacedIsLeftAlone(self):
+		def somebodyElse(error):
+			return False
+
+		self.device._onReadError = somebodyElse
+		self.slot.terminate()
+		self.assertIs(self.device._onReadError, somebodyElse)
+
+
+class TestADriverWithNoDeviceToWatch(unittest.TestCase):
+	"""`_dev` is a private attribute of somebody else's driver, and not every driver has one."""
+
+	def setUp(self):
+		resetStubs()
+		self.driver = FakeDriver(isThreadSafe=False, failOnDisplay=True)
+		self.slot = DeviceSlot(SPEC, self.driver, BAND)
+
+	def test_theMemberStillWorks(self):
+		self.assertFalse(self.slot.failed)
+
+	def test_theSlowerDetectionStillApplies(self):
+		self.slot.write([1, 2, 3, 4])
+		self.assertTrue(self.slot.failed)
+
+	def test_closingItIsHarmless(self):
+		self.slot.terminate()
+		self.assertTrue(self.driver.terminated)
 
 
 class TestTerminate(DeviceSlotTestCase):

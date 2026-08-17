@@ -223,6 +223,11 @@ def deviceMap(display=None) -> list[DeviceInfo]:
 				numCols=slot.band.numCols,
 			)
 			for slot in display.slots
+			# A member the composite has given up on is not part of the display any more: its
+			# rows have been taken out of the geometry, and a band for it here would put
+			# segments on hardware that is not there. L{memberStates} is where it is still
+			# visible, because "configured and gone" is worth saying and this is not the place.
+			if not slot.failed
 		]
 	except Exception:
 		# A display naming itself ours but not shaped like ours. Reporting nothing leaves the

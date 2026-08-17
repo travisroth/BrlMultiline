@@ -829,6 +829,102 @@ class TestPatchOwnership(PluginTestCase):
 		self.assertIs(BrailleHandler.scrollBack, patches._scrollBackMaybeReversed)
 
 
+class TestLosingADisplay(PluginTestCase):
+	"""What the reader is left with when one of two displays goes.
+
+	The rule, in the author's words: the focus has to end up on a display that is still there.
+	If what is left has room, recover what the lost display was showing into it. If what is
+	left is a single segment, do not — that segment follows the focus, and taking it for a
+	pinned object would leave the reader with neither.
+	"""
+
+	def makeHandler(self):
+		handler = FakeHandler(9, 80)
+		handler.display = fakeVirtualDisplay(
+			("hidBrailleStandard", 0, 8, 32),
+			("freedomScientific", 8, 1, 80),
+		)
+		return handler
+
+	def setUp(self):
+		super().setUp()
+		setBandConfig("hidBrailleStandard_8x32", segmentCount=2)
+		setBandConfig("freedomScientific_1x80", segmentCount=1)
+		self.plugin.rebuildBuffer()
+
+	def loseTheMonarch(self, focusSegments=1):
+		"""Let the Monarch go, as the driver's own `_relayout` leaves things.
+
+		Three parts, and all three are the driver's doing: the slot is marked failed, the
+		display that is left moves up to row 0, and the composite is one row of 80.
+
+		:param focusSegments: how many segments the Focus is divided into afterwards.
+		"""
+		self.handler.display.slots[0].failed = True
+		self.handler.display.slots[1].band.rowStart = 0
+		self.handler.displayDimensions.numRows = 1
+		self.handler.displayDimensions.numCols = 80
+		setBandConfig("freedomScientific_1x80", segmentCount=focusSegments)
+		self.plugin.rebuildBuffer()
+
+	def test_whatIsLeftIsArrangedByItself(self):
+		self.loseTheMonarch()
+		self.assertEqual(self.container.numSegments, 1)
+		self.assertEqual(self.container.rects[0], SegmentRect(row=0, col=0, numRows=1, numCols=80))
+
+	def test_theFocusIsOnTheDisplayThatIsStillThere(self):
+		self.loseTheMonarch()
+		self.assertEqual(self.container.focusSegmentKey, "device.freedomScientific.0")
+
+	def test_aPinOnTheLostDisplayMovesToASegmentThatIsFree(self):
+		"""The Focus in two: one follows the focus, and the other can take the orphan."""
+		self.pin(0)
+		self.assertEqual(self.plugin.monitoredKeys, {"device.hidBrailleStandard.0"})
+		self.loseTheMonarch(focusSegments=2)
+		self.assertEqual(self.plugin.monitoredKeys, {"device.freedomScientific.0"})
+
+	def test_aPinIsReleasedWhenTheOneSegmentLeftFollowsTheFocus(self):
+		"""Taking it would leave the reader with something they did not ask to be reading."""
+		self.pin(0)
+		self.loseTheMonarch(focusSegments=1)
+		self.assertEqual(self.plugin.monitoredKeys, set())
+
+	def test_theMoveIsReported(self):
+		self.pin(0)
+		self.loseTheMonarch(focusSegments=2)
+		self.assertTrue(
+			any("has gone" in message for level, message in log.messages if level == "info"),
+			log.messages,
+		)
+
+	def test_twoPinsCompeteForOneFreeSegment(self):
+		"""Only one can have it, and the other is released rather than sharing."""
+		setBandConfig("hidBrailleStandard_8x32", segmentCount=3)
+		self.plugin.rebuildBuffer()
+		self.pin(0)
+		self.pin(1)
+		self.loseTheMonarch(focusSegments=2)
+		self.assertEqual(len(self.plugin.monitoredKeys), 1)
+
+	def test_aPinOnTheSurvivingDisplayIsNotDisturbed(self):
+		"""It has not lost anything, so nothing about it should move.
+
+		The Focus in two throughout: its second segment follows the focus, and its first is
+		pinned before and after.
+		"""
+		setBandConfig("freedomScientific_1x80", segmentCount=2)
+		self.plugin.rebuildBuffer()
+		self.pin(2)
+		self.assertEqual(self.plugin.monitoredKeys, {"device.freedomScientific.0"})
+		self.loseTheMonarch(focusSegments=2)
+		self.assertEqual(self.plugin.monitoredKeys, {"device.freedomScientific.0"})
+
+	def test_nothingIsLaidOverTheDisplayThatHasGone(self):
+		self.loseTheMonarch()
+		for rect in self.container.rects:
+			self.assertLess(rect.row, 1, f"{rect} is on rows the display no longer has")
+
+
 class NvdaMessageBuffer:
 	"""A stand-in for the message buffer NVDA builds for itself, with nothing of ours in it."""
 

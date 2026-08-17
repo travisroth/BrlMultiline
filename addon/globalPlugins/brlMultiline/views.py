@@ -54,6 +54,7 @@ __all__ = [
 	"deviceFallbackView",
 	"deviceSegmentKey",
 	"deviceView",
+	"driverNameForSegmentKey",
 	"displayPanels",
 	"displaySegmentKey",
 	"singleSegmentView",
@@ -438,6 +439,22 @@ def deviceSegmentKey(driverName: str, index: int) -> str:
 	twice.
 	"""
 	return f"{DEVICE_PANEL_NAME}.{driverName}.{index}"
+
+
+def driverNameForSegmentKey(key: str) -> str | None:
+	"""Read back which display a segment key names.
+
+	The inverse of L{deviceSegmentKey}, and safe against every other kind of key: a driver name
+	is a module name, so it cannot contain a dot, and nothing else this add-on makes has this
+	shape.
+
+	:param key: any segment key.
+	:return: the driver name, or None if this key does not name a physical display.
+	"""
+	parts = key.split(".")
+	if len(parts) == 3 and parts[0] == DEVICE_PANEL_NAME:
+		return parts[1]
+	return None
 
 
 def deviceBandSegmentRects(device: DeviceInfo, rect: SegmentRect) -> list[SegmentRect]:

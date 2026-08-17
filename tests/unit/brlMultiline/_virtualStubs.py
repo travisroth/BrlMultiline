@@ -28,6 +28,8 @@ from ._stubs import (
 	BrailleDisplayGesture,
 	callWithSupportedKwargs,
 	decide_executeGesture,
+	callAfterQueue,
+	callLaterQueue,
 	installStubs,
 	log,
 )
@@ -76,18 +78,39 @@ bgThread = FakeIoThread()
 """The thread `deviceSlot` queues onto. Tests flush it to let a queued write happen."""
 
 
+class FakeDevice:
+	"""An `hwIo.IoBase` as far as a slot is concerned: something with a read error hook.
+
+	`readFails` is transcribed from `IoBase._ioDone`, because the whole point of the hook is
+	the contract around it — the error is offered to `_onReadError` first, and raised only if
+	nothing says it has handled it. A stub that merely called the hook would not show that a
+	driver handling its own error keeps its display.
+	"""
+
+	def __init__(self, onReadError=None):
+		self._onReadError = onReadError
+
+	def readFails(self, error: int = 1167) -> None:
+		""":raises OSError: when nothing handled the error, as NVDA's I/O thread would see."""
+		if not self._onReadError or not self._onReadError(error):
+			raise OSError(error, "The device is not connected")
+
+
 class FakeDriver:
 	"""A braille display driver as far as a slot is concerned.
 
 	Records what it was shown, so that a test can check both what reached it and how often.
 	"""
 
-	def __init__(self, isThreadSafe: bool = True, failOnDisplay: bool = False):
+	def __init__(self, isThreadSafe: bool = True, failOnDisplay: bool = False, device=None):
 		self.isThreadSafe = isThreadSafe
 		self.failOnDisplay = failOnDisplay
 		self.written: list[list[int]] = []
 		self.terminated = False
 		self._suppressDisplayClear = False
+		if device is not None:
+			self._dev = device
+			"""Named as NVDA's drivers name it, since that is what the slot looks for."""
 
 	def display(self, cells):
 		if self.failOnDisplay:
@@ -318,6 +341,8 @@ def resetStubs() -> None:
 
 	log.messages.clear()
 	bgThread.queued.clear()
+	callAfterQueue.discard()
+	callLaterQueue.pending.clear()
 	driverRegistry.clear()
 	decide_executeGesture.handlers.clear()
 	globalMapScripts.clear()

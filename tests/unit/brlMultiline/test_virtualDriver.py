@@ -30,7 +30,7 @@ from ._virtualStubs import (
 	makeMemberDriver,
 	resetStubs,
 )
-from ._stubs import FakeBrailleHandler
+from ._stubs import FakeBrailleHandler, callAfterQueue, callLaterQueue, displaySizeChanged
 
 installVirtualStubs()
 
@@ -285,6 +285,212 @@ class TestDisplayFanOut(VirtualDriverTestCase):
 		display.display([7] * display.numCells)
 		self.assertEqual(bgThread.queued, [])
 		self.assertEqual(device.written, [[7] * 256])
+
+
+class TestLosingAMember(VirtualDriverTestCase):
+	"""What happens to the composite when one of its displays goes.
+
+	Before this, a lost member left its rows in the geometry and its band dark. NVDA went on
+	laying text into rows that reached nothing, and if the segment following the focus was one
+	of them the reader was left with a working display showing nothing at all.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		self.display = self.build(MONARCH, FOCUS)
+		self.sizes = []
+		displaySizeChanged.register(self.noteSize)
+		self.addCleanup(displaySizeChanged.unregister, self.noteSize)
+
+	def noteSize(self, displaySize=None, numRows=None, numCols=None, **kwargs):
+		self.sizes.append((numRows, numCols))
+
+	def lose(self, index):
+		"""Let a member go, and run the work it hands to the main thread."""
+		self.display.slots[index].fail()
+		callAfterQueue.flush()
+
+	def test_theLostDisplaysRowsGoAway(self):
+		self.lose(0)
+		self.assertEqual((self.display.numRows, self.display.numCols), (1, 80))
+
+	def test_theSurvivorMovesUpTheDisplay(self):
+		"""The Focus was row 8 of 9; now it is the only row there is."""
+		self.lose(0)
+		self.assertEqual(self.display.slots[1].band.rowStart, 0)
+
+	def test_theSurvivorIsWrittenToAgainWhateverItWasShowing(self):
+		"""Its cells mean something different now, so what it last showed proves nothing."""
+		self.display.display([1] * self.display.numCells)
+		bgThread.flush()
+		before = len(self.focus.instances[0].written)
+		self.lose(0)
+		self.display.display([1] * self.display.numCells)
+		bgThread.flush()
+		self.assertGreater(len(self.focus.instances[0].written), before)
+
+	def test_writingFansOutToWhatIsLeft(self):
+		self.lose(0)
+		self.display.display(list(range(80)))
+		bgThread.flush()
+		self.assertEqual(self.focus.instances[0].written[-1], list(range(80)))
+
+	def test_nvdaIsToldTheDisplayHasChangedSize(self):
+		"""Through its own route: the handler recomputes the size and raises this itself."""
+		self.lose(0)
+		self.assertIn((1, 80), self.sizes)
+
+	def test_theLostMemberIsNotWrittenToAgain(self):
+		self.lose(0)
+		before = len(self.monarch.instances[0].written)
+		self.display.display(list(range(80)))
+		bgThread.flush()
+		self.assertEqual(len(self.monarch.instances[0].written), before)
+
+	def test_losingTheOtherOneWorksTheSameWay(self):
+		self.lose(1)
+		self.assertEqual((self.display.numRows, self.display.numCols), (8, 32))
+		self.assertEqual(self.display.slots[0].band.rowStart, 0)
+
+	def test_losingEveryMemberKeepsTheCompositeWaiting(self):
+		"""Rather than handing NVDA `handleDisplayUnavailable`, which falls back to no braille.
+
+		With automatic detection on, that fallback could hand the returning display straight to
+		NVDA instead of back to the composite the user asked for.
+		"""
+		self.lose(0)
+		self.lose(1)
+		self.assertEqual((self.display.numRows, self.display.numCols), (1, 80))
+		self.assertTrue(
+			any("waiting for one to return" in message for _level, message in log.messages),
+			log.messages,
+		)
+
+	def test_writingWithNothingLeftIsHarmless(self):
+		self.lose(0)
+		self.lose(1)
+		self.display.display([1] * self.display.numCells)
+		bgThread.flush()
+
+	def test_theWorkIsHandedToTheMainThread(self):
+		"""A read failure runs on NVDA's I/O thread, where nothing may touch the handler."""
+		self.display.slots[0].fail()
+		self.assertEqual((self.display.numRows, self.display.numCols), (9, 80))
+		callAfterQueue.flush()
+		self.assertEqual((self.display.numRows, self.display.numCols), (1, 80))
+
+
+class TestWaitingForAMemberToComeBack(VirtualDriverTestCase):
+	"""A display switched off at startup, or lost since, is looked for until it is there."""
+
+	def setUp(self):
+		super().setUp()
+		self.present = {MONARCH, FOCUS}
+		self._realIsPresent = driverModule._isPresent
+		driverModule._isPresent = lambda driverName: driverName in self.present
+		self.addCleanup(setattr, driverModule, "_isPresent", self._realIsPresent)
+
+	def poll(self, times=1):
+		"""Let the timer fire, which is what the poll runs on."""
+		for _each in range(times):
+			callLaterQueue.fire()
+
+	def test_aMemberThatWouldNotOpenAtStartupIsTriedAgain(self):
+		self.focus.failedOpens = -1
+		display = self.build(MONARCH, FOCUS)
+		self.assertEqual([slot.driverName for slot in display.slots], [MONARCH])
+		self.focus.failedOpens = 0
+		self.poll()
+		self.assertEqual([slot.driverName for slot in display.slots], [MONARCH, FOCUS])
+
+	def test_itGoesBackInItsConfiguredPlace(self):
+		"""Stacking order is the user's arrangement, not the order things happened to arrive."""
+		self.monarch.failedOpens = -1
+		display = self.build(MONARCH, FOCUS)
+		self.monarch.failedOpens = 0
+		self.poll()
+		self.assertEqual([slot.driverName for slot in display.slots], [MONARCH, FOCUS])
+		self.assertEqual(display.slots[0].band.rowStart, 0)
+		self.assertEqual(display.slots[1].band.rowStart, 8)
+
+	def test_theDisplayGrowsAgain(self):
+		self.focus.failedOpens = -1
+		display = self.build(MONARCH, FOCUS)
+		self.assertEqual((display.numRows, display.numCols), (8, 32))
+		self.focus.failedOpens = 0
+		self.poll()
+		self.assertEqual((display.numRows, display.numCols), (9, 80))
+
+	def test_aMemberLostDuringTheSessionComesBack(self):
+		display = self.build(MONARCH, FOCUS)
+		display.slots[0].fail()
+		callAfterQueue.flush()
+		self.assertEqual((display.numRows, display.numCols), (1, 80))
+		self.poll()
+		self.assertEqual((display.numRows, display.numCols), (9, 80))
+		self.assertFalse(display.slots[0].failed)
+
+	def test_theDeadDriverIsLetGoOfWhenItsReplacementArrives(self):
+		display = self.build(MONARCH, FOCUS)
+		dead = display.slots[0].driver
+		display.slots[0].fail()
+		callAfterQueue.flush()
+		self.poll()
+		self.assertEqual(dead.terminated, 1)
+		self.assertIsNot(display.slots[0].driver, dead)
+
+	def test_aDisplayWindowsCannotSeeIsNotOpened(self):
+		"""Opening talks to hardware on the main thread, so absence is worth believing."""
+		self.focus.failedOpens = -1
+		self.build(MONARCH, FOCUS)
+		self.present.discard(FOCUS)
+		attempts = self.focus.openAttempts
+		self.poll()
+		self.assertEqual(self.focus.openAttempts, attempts)
+
+	def test_attemptsSpreadOutWhileADisplayStaysAway(self):
+		"""A display left switched off must not cost an open attempt every few seconds."""
+		self.focus.failedOpens = -1
+		display = self.build(MONARCH, FOCUS)
+		self.poll()
+		first = self.focus.openAttempts
+		self.poll(times=3)
+		self.assertEqual(self.focus.openAttempts, first)
+		self.assertGreater(display._nextAttempt[FOCUS], 0)
+
+	def test_theWaitIsBounded(self):
+		display = self.build(MONARCH, FOCUS)
+		display._nextAttempt[FOCUS] = 0
+		for _each in range(20):
+			display._deferAttempt(FOCUS, 0)
+		self.assertLessEqual(display._nextAttempt[FOCUS], driverModule.POLL_BACKOFF_LIMIT)
+
+	def test_aFailedAttemptIsNotAnErrorInTheLog(self):
+		"""It is the ordinary state of a display that is switched off."""
+		self.focus.failedOpens = -1
+		self.build(MONARCH, FOCUS)
+		log.messages.clear()
+		self.poll()
+		self.assertEqual([message for level, message in log.messages if level == "error"], [])
+
+	def test_nothingIsLookedForWhenEveryMemberIsThere(self):
+		display = self.build(MONARCH, FOCUS)
+		attempts = self.focus.openAttempts
+		self.poll()
+		self.assertEqual(self.focus.openAttempts, attempts)
+		self.assertEqual(display._missingSpecs(), [])
+
+	def test_thePollStopsWithTheDisplay(self):
+		display = self.build(MONARCH, FOCUS)
+		display.terminate()
+		self.assertIsNone(display._pollTimer)
+		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_thePollKeepsGoingWhileTheDisplayLives(self):
+		self.focus.failedOpens = -1
+		self.build(MONARCH, FOCUS)
+		self.poll()
+		self.assertEqual(len(callLaterQueue.pending), 1)
 
 
 class TestTerminate(VirtualDriverTestCase):

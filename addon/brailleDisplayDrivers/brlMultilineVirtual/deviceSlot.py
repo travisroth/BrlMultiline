@@ -40,29 +40,106 @@ from .virtualLayout import DeviceBand, DeviceSpec
 class DeviceSlot:
 	"""One physical display within the virtual one."""
 
-	def __init__(self, spec: DeviceSpec, driver, band: DeviceBand):
+	def __init__(self, spec: DeviceSpec, driver, band: DeviceBand, onFailure=None):
 		"""
 		:param spec: the configuration this member was opened from.
 		:param driver: the live `BrailleDisplayDriver` instance.
 		:param band: the rows of the composite this member occupies.
+		:param onFailure: called with this slot, once, when the member is given up on. The
+			composite uses it to lay itself out again around what is left. Called from
+			whichever thread noticed, which is why the composite marshals from there.
 		"""
 		self.spec = spec
 		self.driver = driver
 		self.band = band
 		self.failed = False
-		"""Set when the device has raised while displaying.
+		"""Set when the member has been given up on.
 
 		A failed member is skipped rather than taking the whole virtual display down with
 		it. NVDA's own `handleDisplayUnavailable` would fall back to no braille and lose
 		both displays, which is the wrong answer when one of two is still working.
 		"""
+		self._onFailure = onFailure
 		self._lastCells: list[int] | None = None
 		self._queuedWrite: list[int] | None = None
 		self._writeLock = threading.Lock()
+		self._watched: tuple | None = None
+		"""The device being watched, its own read error hook, and ours. See L{stopWatching}."""
+		self.watchForDisconnect()
 
 	@property
 	def driverName(self) -> str:
 		return self.spec.driverName
+
+	def watchForDisconnect(self) -> None:
+		"""Ask this member's device to say when it has gone, rather than waiting to find out.
+
+		A write is the obvious way to discover a display has been unplugged, and it is the slow
+		way: a member showing something that is not changing is not written to at all, so it can
+		be gone for a long time before anything notices. The read side knows at once. When a
+		Bluetooth display drops, the overlapped read completion fails immediately::
+
+			hwIo.ioThread._internalCompletionRoutine
+			OSError: [WinError 1167] The device is not connected.
+
+		`hwIo.IoBase._ioDone` offers that error to `self._onReadError` before raising, so
+		chaining onto it turns the failure into a notification. There is no other route: the
+		exception it raises is caught and logged by the I/O thread and goes no further.
+
+		Three cares, all of them about it being someone else's object:
+
+		- It chains rather than replaces. `freedomScientific` supplies one of these, which
+			handles a suspend induced broken pipe by restarting itself, and losing that would
+			cost the user their display over a laptop lid.
+		- The member is given up on only when the driver's own hook did not deal with the error.
+			A driver that says it has handled it is restarting, not dying.
+		- The return value is the driver's own, so the traceback in the log is unchanged. It is
+			how this was found, and someone else will need it.
+
+		Best effort throughout. `_dev` is a private attribute of somebody else's driver and not
+		every driver has one, so a member without a reachable device simply keeps the slower
+		detection. A driver that reopens its own device drops this hook with the old one, which
+		is the same case.
+		"""
+		device = getattr(self.driver, "_dev", None)
+		if device is None or not hasattr(device, "_onReadError"):
+			log.debug(f"BrlMultiline: {self.driverName} has no device to watch for disconnection")
+			return
+		original = device._onReadError
+
+		def onReadError(error: int) -> bool:
+			handled = False
+			try:
+				if original is not None:
+					handled = bool(original(error))
+			except Exception:
+				log.error(f"BrlMultiline: {self.driverName} raised handling a read error", exc_info=True)
+			if not handled and not self.failed:
+				log.warning(
+					f"BrlMultiline: {self.driverName} stopped responding (error {error}), dropping it",
+				)
+				self.fail()
+			return handled
+
+		device._onReadError = onReadError
+		self._watched = (device, original, onReadError)
+
+	def stopWatching(self) -> None:
+		"""Give the device its own read error hook back, for a member being closed.
+
+		Only if ours is still the one there, for the reason every other restore in this add-on
+		checks: putting something back over a replacement is how a monkey patch damages
+		something other than itself.
+		"""
+		if self._watched is None:
+			return
+		device, original, ours = self._watched
+		self._watched = None
+		try:
+			if getattr(device, "_onReadError", None) is ours:
+				device._onReadError = original
+		except Exception:
+			log.debugWarning(f"BrlMultiline: could not unwatch {self.driverName}", exc_info=True)
 
 	def __repr__(self) -> str:
 		return f"<DeviceSlot {self.driverName} rows {self.band.rowStart}:{self.band.rowEnd}>"
@@ -122,14 +199,27 @@ class DeviceSlot:
 			self.fail()
 
 	def fail(self) -> None:
-		"""Stop writing to this member.
+		"""Stop writing to this member, and tell the composite it has one fewer display.
 
-		The band it occupies goes dark and stays that way. Rebuilding the geometry around a
-		member that has gone belongs with the rest of the reconnection work, and doing it
-		here, part way through a write, would be the wrong place for it.
+		Once only, however many ways the same disconnection is noticed: a display coming apart
+		will often fail its read and its next write within a few milliseconds of each other,
+		and the composite must not lay itself out twice for one loss.
+
+		The callback runs on whichever thread noticed — the I/O thread for a read failure, and
+		either thread for a write — so what it must not do here is touch NVDA. The composite
+		marshals to the main thread; see `BrailleDisplayDriver._memberFailed`.
 		"""
+		if self.failed:
+			return
 		self.failed = True
 		self.invalidate()
+		self.stopWatching()
+		if self._onFailure is None:
+			return
+		try:
+			self._onFailure(self)
+		except Exception:
+			log.error(f"BrlMultiline: error reporting the loss of {self.driverName}", exc_info=True)
 
 	def terminate(self, suppressDisplayClear: bool = False) -> None:
 		"""Close this member.
@@ -141,6 +231,7 @@ class DeviceSlot:
 		with self._writeLock:
 			self._queuedWrite = None
 		self.invalidate()
+		self.stopWatching()
 		if suppressDisplayClear:
 			self.driver._suppressDisplayClear = True
 		try:

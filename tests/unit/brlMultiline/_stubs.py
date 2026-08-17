@@ -275,6 +275,19 @@ class DisplayDimensions:
 	def displaySize(self):
 		return self.numRows * self.numCols
 
+	def __eq__(self, other):
+		"""By value, as NVDA's is: it is a named tuple, and the handler compares one reading
+		against the last to decide whether the display has changed size."""
+		if not isinstance(other, DisplayDimensions):
+			return NotImplemented
+		return (self.numRows, self.numCols) == (other.numRows, other.numCols)
+
+	def __hash__(self):
+		return hash((self.numRows, self.numCols))
+
+	def __repr__(self):
+		return f"DisplayDimensions(numRows={self.numRows}, numCols={self.numCols})"
+
 
 class WindowRowPositions:
 	def __init__(self, start, end, showContinuationMark=False):
@@ -834,6 +847,35 @@ class FakeBrailleHandler:
 
 	display = None
 
+	def __init__(self):
+		self._displayDimensions = DisplayDimensions(1, 0)
+
+	@property
+	def displayDimensions(self):
+		"""Transcribed from `BrailleHandler._get_displayDimensions`, notification included.
+
+		Recomputed on every read rather than cached, and `displaySizeChanged` raised when the
+		answer differs from the previous one. That is the whole of how a display tells NVDA it
+		has changed size — the virtual display, losing a member, changes `numRows` and reads
+		this once — so a stub that cached, or that skipped the notification, would hide the
+		only mechanism there is.
+		"""
+		display = self.display
+		if display is None:
+			numRows = numCols = 0
+		else:
+			numRows = display.numRows
+			numCols = display.numCols if numRows > 1 else display.numCells
+		dimensions = DisplayDimensions(numRows=numRows, numCols=numCols)
+		if self._displayDimensions != dimensions:
+			displaySizeChanged.notify(
+				displaySize=dimensions.displaySize,
+				numRows=numRows,
+				numCols=numCols,
+			)
+		self._displayDimensions = dimensions
+		return dimensions
+
 	def _doNewObject(self, regions):
 		self.lastNewObject = list(regions)
 
@@ -953,6 +995,51 @@ class FakeCallLater:
 		self.stopped = True
 
 
+class CallLaterQueue:
+	"""Collects `wx.CallLater` timers so a test can fire them when it chooses.
+
+	A timer that re-arms itself is the ordinary case here — the virtual display's poll does —
+	so `fire` runs what was pending when it was called and not whatever that produces, or a
+	test would never get its thread back.
+	"""
+
+	def __init__(self):
+		self.pending = []
+
+	def callLater(self, milliseconds, callable, *args, **kwargs):
+		timer = FakeTimer(self, milliseconds, callable, args, kwargs)
+		self.pending.append(timer)
+		return timer
+
+	def fire(self):
+		""":return: how many timers ran."""
+		due, self.pending = self.pending, []
+		for timer in due:
+			timer.run()
+		return len(due)
+
+
+class FakeTimer:
+	"""One `wx.CallLater`, as far as anything in this add-on uses one."""
+
+	def __init__(self, queue, milliseconds, callable, args=(), kwargs=None):
+		self.queue = queue
+		self.milliseconds = milliseconds
+		self.callable = callable
+		self.args = args
+		self.kwargs = kwargs or {}
+		self.stopped = False
+
+	def Stop(self):  # noqa: N802 - wx's own spelling.
+		self.stopped = True
+		if self in self.queue.pending:
+			self.queue.pending.remove(self)
+
+	def run(self):
+		if not self.stopped:
+			self.callable(*self.args, **self.kwargs)
+
+
 class CallAfterQueue:
 	"""Collects `wx.CallAfter` calls so a test can decide when, or whether, they run."""
 
@@ -975,6 +1062,9 @@ class CallAfterQueue:
 
 callAfterQueue = CallAfterQueue()
 """The queue `wx.CallAfter` writes into. Tests flush it to run a deferred rebuild."""
+
+callLaterQueue = CallLaterQueue()
+"""The timers `wx.CallLater` creates. Tests fire them to run the display's reconnect poll."""
 
 displayChanged = Action()
 displaySizeChanged = Action()
@@ -1039,6 +1129,7 @@ def _installPluginStubs() -> None:
 	_module(
 		"wx",
 		CallAfter=callAfterQueue.callAfter,
+		CallLater=callLaterQueue.callLater,
 		SpinCtrl=object,
 		TextCtrl=object,
 		CheckBox=object,
@@ -1265,6 +1356,7 @@ def resetPluginState() -> None:
 	"""Clear everything the plugin stubs accumulate between tests."""
 	resetConfig()
 	callAfterQueue.discard()
+	callLaterQueue.pending.clear()
 	spokenMessages.clear()
 	log.messages.clear()
 	displayChanged.handlers.clear()

@@ -40,6 +40,7 @@ from .views import (
 	SegmentView,
 	deviceFallbackView,
 	deviceView,
+	driverNameForSegmentKey,
 	singleSegmentView,
 	validateAgainstHardware,
 	viewFromConfig,
@@ -510,21 +511,68 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			`refreshMonitors` clear the freshly drawn focus content and replace it with the
 			pinned object.
 
+		A pin whose segment has gone gets one chance at a new home first; see L{_rehomeMonitor}.
+
 		:param container: the container about to be installed.
 		"""
-		survivors = {
-			key: monitor
-			for key, monitor in self._monitors.items()
-			if container.hasKey(key)
-			and not container.segmentForKey(key).isReserved
-			and key != container.focusSegmentKey
-		}
-		for key in self._monitors.keys() - survivors.keys():
-			log.debug(
-				f"BrlMultiline: segment {key!r} is gone, claimed, or now follows the focus, "
-				f"so its pinned object is released",
+
+		def keeps(key: str) -> bool:
+			return (
+				container.hasKey(key)
+				and not container.segmentForKey(key).isReserved
+				and key != container.focusSegmentKey
 			)
+
+		survivors = {key: monitor for key, monitor in self._monitors.items() if keeps(key)}
+		present = {device.driverName for device in deviceMap()}
+		for key in self._monitors.keys() - survivors.keys():
+			driverName = driverNameForSegmentKey(key)
+			if driverName is not None and driverName not in present:
+				# The display this pin was on has gone. Every other way a segment can go —
+				# a claim taking it, the focus moving onto it, the user rearranging — is a
+				# decision, and a pin released by a decision stays released.
+				home = self._rehomeMonitor(container, survivors)
+				if home is not None:
+					log.info(
+						f"BrlMultiline: {driverName} has gone; the object pinned to it moves to "
+						f"segment {home!r}",
+					)
+					survivors[home] = self._monitors[key]
+					continue
+				log.info(
+					f"BrlMultiline: {driverName} has gone and there is nowhere left to put what "
+					f"was pinned to it, so it is released",
+				)
+			else:
+				log.debug(
+					f"BrlMultiline: segment {key!r} is gone, claimed, or now follows the focus, "
+					f"so its pinned object is released",
+				)
 		self._monitors = survivors
+
+	def _rehomeMonitor(self, container: DisplayContainer, taken: dict) -> str | None:
+		"""Find somewhere for a pin whose segment has gone.
+
+		This is what a display disappearing costs, made as small as it can honestly be made. If
+		what is left has room — a segment that is not the focus, not claimed by a panel, and not
+		already showing something pinned — the object moves there and the reader keeps it. If
+		what is left is a single segment, it does not: that segment follows the focus, and
+		taking it for a pinned object would leave the reader with a display showing something
+		they did not ask to be looking at and no focus at all. Then the pin is dropped, and
+		reconnecting or rearranging is the user's move.
+
+		The first free segment in display order, because there is nothing better to go on: the
+		segment the pin came from is not there to be near.
+
+		:param container: the container about to be installed.
+		:param taken: the homes already spoken for, which are not offered twice.
+		:return: the key to move to, or None to release the pin.
+		"""
+		for spec in container.specs:
+			if spec.key in taken or spec.key == container.focusSegmentKey or spec.isReserved:
+				continue
+			return spec.key
+		return None
 
 	def _restoreOriginalBuffer(self) -> None:
 		"""Put NVDA's own buffers back."""
