@@ -719,7 +719,7 @@ def installStubs() -> None:
 		TextInfoRegion=TextInfoRegion,
 		CursorManagerRegion=CursorManagerRegion,
 	)
-	_module("textInfos", UNIT_LINE=UNIT_LINE, TextInfo=FakeTextInfo)
+	_module("textInfos", UNIT_LINE=UNIT_LINE, UNIT_PARAGRAPH="paragraph", TextInfo=FakeTextInfo)
 	braille.buffers = buffers
 	braille.display = display
 	braille.regions = regions
