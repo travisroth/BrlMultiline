@@ -30,7 +30,7 @@ from scriptHandler import script
 from . import bmConfig, panning, patches
 from .container import DisplayContainer
 from . import devices as devicesModule
-from .devices import DeviceInfo, deviceMap, resolveDisplaySegment
+from .devices import DeviceInfo, configuredMembers, deviceMap, resolveDisplaySegment
 from .layout import SegmentRect
 from .messages import MessageBuffer
 from .objectMonitor import ObjectMonitor
@@ -82,6 +82,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._originalMessageBuffer = None
 		"""NVDA's own, kept to be put back on termination."""
 		self._rebuildPending = False
+		self._reportedDivergence: tuple[tuple[str, ...], tuple[str, ...]] | None = None
+		"""The last mismatch between the configured members and the ones the composite was
+		opened for, so that it is said once rather than on every profile switch."""
 		self._terminated = False
 		"""Set by L{terminate}, so that work already queued does not run afterwards."""
 		self._activeView: SegmentView | None = None
@@ -638,7 +641,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._scheduleRebuild()
 
 	def _reportMemberDivergence(self) -> None:
-		"""Say so in the log when the configured members are not the ones actually running.
+		"""Say so in the log when the configured members are not the ones the composite opened for.
 
 		A profile can no longer cause this: `vdConfig` stores the member list in the base
 		configuration only, for the reasons in that module. What is left is the honest case —
@@ -646,11 +649,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		for the user but a console edit does not. NVDA does not reinitialise a display whose
 		driver name has not changed, so the composite goes on driving the members it opened.
 
-		Checked on a profile switch because that is a cheap moment to look, not because a
-		profile is expected to be the cause.
+		What is compared matters here, and getting it wrong is worse than not looking. The right
+		side is the composite's *configured* members, not the ones it is driving: a display that
+		is switched off is not being driven and is not a changed list. Comparing against the
+		driven ones reported every disconnected display as a configuration problem, on every
+		profile switch, for as long as it stayed away — a hardware run with two profiles and one
+		display powered down filled the log with exactly that.
+
+		Said once per distinct divergence, for the same reason. This runs on every profile switch
+		because that is a cheap moment to look, not because a profile is expected to be the cause,
+		and a real divergence does not become truer for being repeated.
 		"""
-		devices = deviceMap()
-		if not devices:
+		running = configuredMembers()
+		if running is None:
 			return
 		try:
 			from brailleDisplayDrivers.brlMultilineVirtual import vdConfig
@@ -659,13 +670,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except Exception:
 			log.debugWarning("BrlMultiline: could not read the configured member list", exc_info=True)
 			return
-		running = [device.driverName for device in devices]
-		if configured != running:
-			log.warning(
-				f"BrlMultiline: the displays configured are {configured}, but the combined "
-				f"display is running {running}. A changed list is not applied until the combined "
-				"display is selected again in NVDA's braille settings.",
-			)
+		if configured == running:
+			self._reportedDivergence = None
+			return
+		divergence = (tuple(configured), tuple(running))
+		if divergence == self._reportedDivergence:
+			return
+		self._reportedDivergence = divergence
+		log.warning(
+			f"BrlMultiline: the displays configured are {configured}, but the combined "
+			f"display was opened for {running}. A changed list is not applied until the combined "
+			"display is selected again in NVDA's braille settings.",
+		)
 
 	def _scheduleRebuild(self) -> None:
 		"""Queue one rebuild, however many events asked for it."""

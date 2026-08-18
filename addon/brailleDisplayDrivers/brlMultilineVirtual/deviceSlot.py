@@ -224,6 +224,13 @@ class DeviceSlot:
 	def terminate(self, suppressDisplayClear: bool = False) -> None:
 		"""Close this member.
 
+		A member that has already been given up on is never blanked, whatever is asked for.
+		Being given up on means a write to it has raised, so the blank cannot succeed either:
+		what it produces is `terminate` logging its own error about a device that is not
+		connected, at the moment the user has just plugged the display back in and is watching
+		the composite come back. The device handle is still closed, which is what closing a
+		member is for.
+
 		:param suppressDisplayClear: leave whatever is on the device rather than blanking
 			it. NVDA sets this on the way to the secure desktop, where clearing the display
 			is both pointless and slow.
@@ -232,7 +239,7 @@ class DeviceSlot:
 			self._queuedWrite = None
 		self.invalidate()
 		self.stopWatching()
-		if suppressDisplayClear:
+		if suppressDisplayClear or self.failed:
 			self.driver._suppressDisplayClear = True
 		try:
 			self.driver.terminate()

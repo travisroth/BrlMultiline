@@ -1412,6 +1412,16 @@ class TestCompositeDisplay(PluginTestCase):
 		self.assertTrue(bmConfig.getDisplayConfig("hidBrailleStandard_8x32")["reverseScrollBtns"])
 		self.assertTrue(bmConfig.getDisplayConfig("freedomScientific_1x80")["reverseScrollBtns"])
 
+	def _configureBothDisplays(self) -> None:
+		"""Store the member list this class's composite was opened for, and clear the log."""
+		from brailleDisplayDrivers.brlMultilineVirtual import vdConfig
+		from brailleDisplayDrivers.brlMultilineVirtual.virtualLayout import DeviceSpec
+
+		vdConfig.setDevices(
+			[DeviceSpec("hidBrailleStandard"), DeviceSpec("freedomScientific")],
+		)
+		log.messages.clear()
+
 	def test_aProfileListingDifferentDisplaysIsReported(self):
 		"""The list is not applied until the composite is reopened, so say so rather than not.
 
@@ -1425,7 +1435,71 @@ class TestCompositeDisplay(PluginTestCase):
 		vdConfig.setDevices([DeviceSpec("freedomScientific")])
 		post_configProfileSwitch.notify()
 		self.assertTrue(
-			any(level == "warning" and "is running" in message for level, message in log.messages),
+			any(level == "warning" and "was opened for" in message for level, message in log.messages),
+			log.messages,
+		)
+
+	def test_aDisplayThatIsMerelyAwayIsNotReported(self):
+		"""The complaint is about the list, and a display being switched off is not about the list.
+
+		The composite drops a member that has gone and goes on with the rest, so the members it
+		is driving are not the members it was opened for. Comparing against those reported every
+		disconnection as a configuration problem — on every profile switch, for as long as the
+		display stayed away, which on a machine with two profiles is a log full of it.
+		"""
+		self._configureBothDisplays()
+		self.handler.display.slots[0].failed = True
+		post_configProfileSwitch.notify()
+		self.assertFalse(
+			[message for level, message in log.messages if level == "warning"],
+			log.messages,
+		)
+
+	def test_aDisplayNeverOpenedAtAllIsNotReported(self):
+		"""The same, for a display that was already switched off when braille started.
+
+		It has no slot rather than a failed one, so nothing below the driver can tell it from a
+		display that was never configured. The composite's own record of what it was opened for
+		is the only thing that can.
+		"""
+		self._configureBothDisplays()
+		self.handler.display = fakeVirtualDisplay(
+			("freedomScientific", 0, 1, 80),
+			configured=("hidBrailleStandard", "freedomScientific"),
+		)
+		post_configProfileSwitch.notify()
+		self.assertFalse(
+			[message for level, message in log.messages if level == "warning"],
+			log.messages,
+		)
+
+	def test_theSameDivergenceIsReportedOnce(self):
+		"""A profile switch is a cheap moment to look, which makes it a cheap moment to repeat."""
+		from brailleDisplayDrivers.brlMultilineVirtual import vdConfig
+		from brailleDisplayDrivers.brlMultilineVirtual.virtualLayout import DeviceSpec
+
+		vdConfig.setDevices([DeviceSpec("freedomScientific")])
+		post_configProfileSwitch.notify()
+		log.messages.clear()
+		post_configProfileSwitch.notify()
+		post_configProfileSwitch.notify()
+		self.assertFalse(
+			[message for level, message in log.messages if level == "warning"],
+			log.messages,
+		)
+
+	def test_aDivergenceIsReportedAgainOnceItHasChanged(self):
+		"""Said once is not said and forgotten: a different mismatch is a different thing to say."""
+		from brailleDisplayDrivers.brlMultilineVirtual import vdConfig
+		from brailleDisplayDrivers.brlMultilineVirtual.virtualLayout import DeviceSpec
+
+		vdConfig.setDevices([DeviceSpec("freedomScientific")])
+		post_configProfileSwitch.notify()
+		log.messages.clear()
+		vdConfig.setDevices([DeviceSpec("hidBrailleStandard")])
+		post_configProfileSwitch.notify()
+		self.assertTrue(
+			any(level == "warning" and "was opened for" in message for level, message in log.messages),
 			log.messages,
 		)
 

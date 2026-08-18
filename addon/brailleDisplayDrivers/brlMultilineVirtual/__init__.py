@@ -219,7 +219,9 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		"""Open what can be opened, lay it out, and report what the result is.
 
 		A member that will not open is dropped rather than fatal, so that two configured
-		displays with one of them switched off still gives the user the other one.
+		displays with one of them switched off still gives the user the other one. One that
+		Windows cannot see at all is not even attempted; see `_isPresent` for why that answer
+		is trusted in one direction only.
 
 		Everything opened is closed again if the layout cannot be built, because until the
 		slots exist there is nothing else holding these drivers, and a dropped driver keeps
@@ -237,6 +239,17 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 			for spec in specs:
 				if adopted and spec.driverName == adopted[0]:
 					driver = adopted[1]
+				elif not _isPresent(spec):
+					# Nothing this driver could talk to is in Windows' enumeration, so opening
+					# it would be three constructor failures and six tenths of a second spent
+					# on the main thread during startup, for an answer already known. Said at
+					# info level because a display the user switched off is not a fault, and
+					# the reconnect poll will take it the moment it appears.
+					log.info(
+						f"BrlMultiline: {spec.driverName} is not here; "
+						"continuing without it and watching for it",
+					)
+					continue
 				else:
 					driver = _openDriver(spec)
 				if driver is None:
@@ -539,16 +552,28 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 			log.error("BrlMultiline: could not tell NVDA the display had changed size", exc_info=True)
 
 	def _describe(self, geometry: VirtualGeometry) -> None:
-		"""Log what was built, including the one thing that will otherwise mystify."""
-		for slot in self._slots:
+		"""Log what was built, including the one thing that will otherwise mystify.
+
+		Only the members actually in the layout, which is not the same as every slot. A member
+		given up on keeps its slot until something replaces it, and keeps the band it had before
+		the display was laid out again — so walking all of them describes a display that does not
+		exist, at the rows it used to be at, and counts it in the total. A hardware log read
+		"1 rows of 80, 2 display(s)" with the display that had just gone still listed as
+		occupying rows 0 to 7. The ones that are away are worth a line of their own instead.
+		"""
+		live = [slot for slot in self._slots if not slot.failed]
+		for slot in live:
 			log.info(
 				f"BrlMultiline: {slot.driverName} occupies rows "
 				f"{slot.band.rowStart} to {slot.band.rowEnd - 1}, {slot.band.numCols} cells wide",
 			)
 		log.info(
 			f"BrlMultiline virtual display: {geometry.numRows} rows of {geometry.numCols}, "
-			f"{len(self._slots)} display(s)",
+			f"{len(live)} display(s)",
 		)
+		away = [name for name in self.configuredMembers if name not in {slot.driverName for slot in live}]
+		if away:
+			log.info(f"BrlMultiline: configured and not in the display: {away}")
 		dead = deadColumnCount(geometry)
 		if dead:
 			log.warning(
@@ -626,6 +651,18 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 			slot.terminate(suppressDisplayClear)
 			_retireDriver(slot.driver)
 		self._slots = []
+
+	@property
+	def configuredMembers(self) -> tuple[str, ...]:
+		"""The members this composite was opened for, in stacking order.
+
+		A different question from `slots`, and the difference is the point of having both. A
+		display that was switched off at startup, or that has since been given up on, is not in
+		`slots` and is still one of the displays this composite is for. Anything asking "has the
+		configured list changed since the display was opened" has to ask this one, or a display
+		merely switched off reads as a changed list.
+		"""
+		return tuple(spec.driverName for spec in self._specs)
 
 	@property
 	def slots(self) -> tuple[DeviceSlot, ...]:
@@ -919,6 +956,18 @@ def _terminateQuietly(driver: braille.display.driver.BrailleDisplayDriver, parti
 		this path on every attempt, and should not fill the log with errors.
 	"""
 	name = getattr(driver, "name", "?")
+	if partial:
+		# The base class blanks the display on the way out, and a constructor that raised may
+		# never have reached the fields its own `display` needs — `hidBrailleStandard` sets
+		# `_maxNumberOfCells` only once it has read the device's report descriptor. The blank
+		# then raises inside `terminate`, which catches and logs it as an error of its own, so
+		# it is out of reach of the `except` below: a hardware run of a display switched off at
+		# startup put three such tracebacks in the log for one absent display.
+		#
+		# NVDA's own flag for "close this without writing to it". Both target drivers call
+		# `super().terminate()` before closing their device, so suppressing the blank still
+		# closes the handle, which is the whole point of coming here.
+		driver._suppressDisplayClear = True
 	try:
 		driver.terminate()
 	except Exception:

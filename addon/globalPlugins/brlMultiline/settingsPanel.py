@@ -104,6 +104,17 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 	# Translators: title of the BrlMultiline settings category in NVDA's settings.
 	title = _("BrlMultiline")
 
+	# Translators: description of the BrlMultiline settings category, announced with it.
+	panelDescription = _(
+		"Divide the braille display into segments, each showing something of its own.",
+	)
+	"""What NVDA announces about this category beyond its name.
+
+	`SettingsPanelAccessible.GetDescription` reads this, and a panel that leaves it empty
+	announces nothing but its title — which is what a hardware run heard as an empty panel in
+	the tab order. NVDA's own categories set it; see `gui.settingsDialogs`.
+	"""
+
 	def makeSettings(self, settingsSizer):
 		sHelper = guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
 		self.displayKey = bmConfig.getDisplayKey()
@@ -437,6 +448,22 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 	# Translators: title of the settings category for combining several braille displays.
 	title = _("BrlMultiline displays")
 
+	# Translators: description of the settings category for combining several braille
+	# displays, announced with it and shown at the top of it.
+	panelDescription = _(
+		"Several braille displays can be driven as one, stacked one above another. "
+		"Choose them here, then choose "
+		'"BrlMultiline: several displays as one"'
+		" in NVDA's Braille settings. "
+		"Leaving this list empty turns the combined display off.",
+	)
+	"""What NVDA announces about this category, and the paragraph at the top of it.
+
+	One string serving both, which is NVDA's own arrangement for a category that needs
+	explaining: `SettingsPanelAccessible.GetDescription` reads this attribute, and the visible
+	text is added from it in `makeSettings`.
+	"""
+
 	_states: dict[str, bool] | None = None
 	"""Which chosen displays the composite is driving, or None if it is not the display in use.
 
@@ -458,19 +485,7 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 		"""
 		self.chosen = list(self.storedSpecs)
 		self._original = list(self.chosen)
-		sHelper.addItem(
-			wx.StaticText(
-				self,
-				# Translators: explanation at the top of the settings category for combining
-				# braille displays.
-				label=_(
-					"Several braille displays can be driven as one, stacked one above another. "
-					"Choose them here, then choose "
-					'"BrlMultiline: several displays as one" in NVDA\'s Braille settings. '
-					"Leaving this list empty turns the combined display off.",
-				),
-			),
-		)
+		sHelper.addItem(wx.StaticText(self, label=self.panelDescription))
 		# Translators: label of a list box in settings, holding the chosen braille displays.
 		chosenLabel = _("Displays, &top to bottom:")
 		self.chosenCtrl = sHelper.addLabeledControl(chosenLabel, wx.ListBox, choices=[])

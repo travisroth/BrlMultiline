@@ -630,19 +630,26 @@ class FakeHandler:
 			self.update()
 
 
-def fakeVirtualDisplay(*bands):
+def fakeVirtualDisplay(*bands, configured=None):
 	"""A stand-in for the add-on's own braille display driver, which is several displays.
 
-	Shaped the way `devices` reads it — a name, and a slot per member carrying its driver name,
-	its band and whether it has been given up on — and no more than that, because nothing above
-	the driver has any business reading more. A test wanting a member that has stopped
-	responding sets `display.slots[n].failed`, as `DeviceSlot.fail` does when a write raises.
+	Shaped the way `devices` reads it — a name, the members it was opened for, and a slot per
+	member carrying its driver name, its band and whether it has been given up on — and no more
+	than that, because nothing above the driver has any business reading more. A test wanting a
+	member that has stopped responding sets `display.slots[n].failed`, as `DeviceSlot.fail` does
+	when a write raises.
 
 	:param bands: each member's (driverName, rowStart, numRows, numCols), top first.
+	:param configured: the members it was opened for, or None for exactly the bands given. A
+		display switched off before braille started has no band and is still configured, which
+		is the case that separates "a display is away" from "the list has been edited".
 	:return: the stand-in display.
 	"""
 	return types.SimpleNamespace(
 		name="brlMultilineVirtual",
+		configuredMembers=tuple(
+			configured if configured is not None else (driverName for driverName, *_rest in bands),
+		),
 		slots=tuple(
 			types.SimpleNamespace(
 				driverName=driverName,

@@ -204,6 +204,83 @@ class TestConstructionCleanup(VirtualDriverTestCase):
 		self.assertIsNone(handover._originalSwitchDisplay)
 
 
+class TestQuietFailure(VirtualDriverTestCase):
+	"""A display that is not there is an ordinary thing, and must read like one in the log.
+
+	All three of these were found by one hardware run: NVDA started with one of two configured
+	displays switched off, and the log carried three tracebacks and an error for the display the
+	user had deliberately powered down.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		self.present = {MONARCH, FOCUS}
+		self._realIsPresent = driverModule._isPresent
+		driverModule._isPresent = lambda spec: spec.driverName in self.present
+		self.addCleanup(setattr, driverModule, "_isPresent", self._realIsPresent)
+
+	def test_aMemberWindowsCannotSeeIsNotOpenedAtAll(self):
+		"""Three constructor attempts for an answer detection already gave."""
+		self.present = {FOCUS}
+		display = self.build(MONARCH, FOCUS)
+		self.assertEqual([slot.driverName for slot in display.slots], [FOCUS])
+		self.assertEqual(self.monarch.attempted, [])
+
+	def test_aDisplayTheUserSwitchedOffIsNotAnError(self):
+		"""The whole point of the three changes above, stated as the user experiences it.
+
+		NVDA sounds its error tone at startup for anything logged at error level, so a display
+		deliberately powered down cost a tone and four log records including three tracebacks.
+		"""
+		self.present = {FOCUS}
+		# As the powered down display actually was: absent from the enumeration, and its
+		# constructor would raise if anything asked it to open.
+		self.monarch.failedOpens = -1
+		log.messages.clear()
+		self.build(MONARCH, FOCUS)
+		self.assertFalse(
+			[message for level, message in log.messages if level == "error"],
+			log.messages,
+		)
+
+	def test_aMemberWindowsCannotSeeIsStillOneOfTheDisplays(self):
+		"""Skipping it must not lose it: the poll works from the configured list."""
+		self.present = {FOCUS}
+		display = self.build(MONARCH, FOCUS)
+		self.assertEqual(display.configuredMembers, (MONARCH, FOCUS))
+
+	def test_aMemberWindowsCannotSeeIsStillOpenedWhenItHasAPortOfItsOwn(self):
+		"""`_isPresent` answers True for an explicit port, and this path must respect that."""
+		self.present = set()
+		vdConfig.setDevices([DeviceSpec(MONARCH, port="COM7"), DeviceSpec(FOCUS)])
+		driverModule._isPresent = self._realIsPresent
+		display = VirtualDisplay()
+		self.handler.display = display
+		display.initSettings()
+		self.assertEqual([slot.driverName for slot in display.slots], [MONARCH, FOCUS])
+
+	def test_noMemberBeingThereIsStillRefused(self):
+		"""Skipping absent members must not turn "no display at all" into a working display."""
+		self.present = set()
+		self.configure(MONARCH, FOCUS)
+		with self.assertRaises(RuntimeError):
+			VirtualDisplay()
+
+	def test_aHalfBuiltMemberIsNotWrittenToAsItIsReleased(self):
+		"""NVDA blanks a display while terminating it, and a half built one cannot be blanked.
+
+		`hidBrailleStandard` learns `_maxNumberOfCells` from the device's report descriptor, so
+		a constructor that raised before that leaves `display` unable to run — and the failure
+		lands inside `terminate`, which logs it as an error of its own where no caller can catch
+		it. Three attempts, three tracebacks, for one display switched off.
+		"""
+		self.focus.failedOpens = -1
+		self.build(MONARCH, FOCUS)
+		self.assertTrue(self.focus.attempted)
+		for instance in self.focus.attempted:
+			self.assertEqual(instance.written, [])
+
+
 class TestConfigurationRefusals(VirtualDriverTestCase):
 	def test_theVirtualDriverCannotBeItsOwnMember(self):
 		with self.assertRaises(ValueError):
@@ -440,6 +517,41 @@ class TestWaitingForAMemberToComeBack(VirtualDriverTestCase):
 		self.poll()
 		self.assertEqual(dead.terminated, 1)
 		self.assertIsNot(display.slots[0].driver, dead)
+
+	def test_theDeadDriverIsNotWrittenToAsItIsLetGoOf(self):
+		"""Letting go blanks the display, and the display it would blank is the one that has gone.
+
+		NVDA's `terminate` writes a row of blank cells before closing, and catches and logs its
+		own failure, so the error is out of reach of the composite. A hardware run put a
+		`WinError 1167` traceback in the log at the exact moment the user plugged the display
+		back in and was watching for it to work.
+		"""
+		display = self.build(MONARCH, FOCUS)
+		dead = display.slots[0].driver
+		display.slots[0].fail()
+		callAfterQueue.flush()
+		writes = len(dead.written)
+		self.poll()
+		self.assertEqual(dead.terminated, 1)
+		self.assertEqual(len(dead.written), writes)
+
+	def test_theLayoutIsDescribedAsTheDisplaysInIt(self):
+		"""A member that has gone keeps its slot and its old band, and is in neither.
+
+		The log is the one file a user is asked to send, so a line saying a display occupies
+		rows 0 to 7 of a display that is one row tall is worse than no line at all.
+		"""
+		display = self.build(MONARCH, FOCUS)
+		log.messages.clear()
+		display.slots[0].fail()
+		callAfterQueue.flush()
+		described = [message for level, message in log.messages if "occupies rows" in message]
+		self.assertEqual(len(described), 1)
+		self.assertIn(FOCUS, described[0])
+		self.assertTrue(
+			any("1 display(s)" in message for _level, message in log.messages),
+			log.messages,
+		)
 
 	def test_aDisplayWindowsCannotSeeIsNotOpened(self):
 		"""Opening talks to hardware on the main thread, so absence is worth believing."""

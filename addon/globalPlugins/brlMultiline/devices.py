@@ -215,6 +215,30 @@ def memberStates(display=None) -> dict[str, bool] | None:
 		return None
 
 
+def configuredMembers(display=None) -> list[str] | None:
+	"""Read which displays the running composite was opened for.
+
+	Not the same as which it is driving. A member switched off at startup, or one given up on
+	since, is still one of the displays the composite was built for, and only the composite
+	remembers that: the configuration says what is wanted now, and `deviceMap` says what is
+	working now, and neither answers what the running display was told.
+
+	:param display: the display to read, or None for the one NVDA is driving.
+	:return: the driver names in stacking order, or None when the composite is not the display
+		in use and so has nothing to say.
+	"""
+	if display is None:
+		handler = braille.handler
+		display = handler.display if handler is not None else None
+	if not isVirtualDisplay(display):
+		return None
+	try:
+		return list(display.configuredMembers)
+	except Exception:
+		log.error("BrlMultiline: could not read the virtual display's configured members", exc_info=True)
+		return None
+
+
 def isVirtualDisplay(display=None) -> bool:
 	"""Say whether a display is the add-on's composite one.
 
