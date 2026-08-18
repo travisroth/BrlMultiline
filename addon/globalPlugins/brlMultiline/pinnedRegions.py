@@ -69,6 +69,35 @@ class PinnedRegion:
 		except (AttributeError, NotImplementedError):
 			return None
 
+	def panUnit(self, unit: str, forward: bool) -> bool:
+		"""Move this region's position by one unit of the given granularity and re-render.
+
+		Behaves like L{panLine} but the movement granularity is supplied by the caller.
+		Pass a ``textInfos`` unit constant such as ``textInfos.UNIT_PARAGRAPH``.
+
+		:param unit: a ``textInfos`` unit constant.
+		:param forward: True for the next unit, False for the previous.
+		:return: whether the position actually moved.
+		"""
+		if getattr(self, "_readingInfo", None) is None:
+			return False
+		before = self._bookmark()
+		try:
+			info = self._position.copy()
+			info.collapse()
+			direction = 1 if forward else -1
+			if info.move(unit, direction) == 0:
+				return False
+			self._position = info
+			self.update()
+		except Exception:
+			log.debugWarning(f"Could not move {self!r} by unit {unit!r}", exc_info=True)
+			return False
+		after = self._bookmark()
+		if before is not None and after is not None and before == after:
+			return False
+		return True
+
 	def panLine(self, forward: bool) -> bool:
 		"""Move this region's position one line and re-render it.
 
@@ -110,6 +139,36 @@ class PinnedTextInfoRegion(PinnedRegion, TextInfoRegion):
 
 class PinnedCursorManagerRegion(PinnedRegion, CursorManagerRegion):
 	"""A pinned region over a browse mode document or anything else cursor managed."""
+
+	def panHeading(self, forward: bool) -> bool:
+		"""Move to the next or previous heading in a browse mode document.
+
+		Returns ``True`` if a heading was found and the position moved.  Returns
+		``False`` if heading iteration is unavailable or there is no heading in
+		the requested direction.  Does **not** fall back internally — fallback to
+		paragraph or line is handled by the caller (typically
+		:class:`~brlMultiline.semanticNav.SemanticNavigator`).
+
+		:param forward: ``True`` for the next heading, ``False`` for the previous.
+		:return: whether the position moved to a heading.
+		"""
+		iterNodes = getattr(self.obj, "_iterNodesByType", None)
+		if iterNodes is None:
+			return False
+		try:
+			direction = "next" if forward else "previous"
+			it = iterNodes("heading", direction=direction, pos=self._position)
+			item = next(it, None)
+			if item is None:
+				return False
+			info = item.textInfo
+			info.collapse()
+			self._position = info
+			self.update()
+			return True
+		except Exception:
+			log.debugWarning("Heading node iteration failed", exc_info=True)
+			return False
 
 
 def pinnedCounterpart(region):

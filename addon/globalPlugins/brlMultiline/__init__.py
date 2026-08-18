@@ -527,6 +527,52 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		for key, monitor in list(self._monitors.items()):
 			monitor.refresh(reveal=key == reveal)
 
+	# Semantic navigation
+
+	def moveMonitorInSegment(self, segmentNumber: int, unit: str, forward: bool) -> None:
+		"""Move the pinned content of a monitored segment by the given semantic unit.
+
+		Routes the request through :class:`~brlMultiline.semanticNav.SemanticNavigator`,
+		which falls back through coarser units as needed and reports what was done.
+
+		:param segmentNumber: the segment to move.
+		:param unit: a :data:`~brlMultiline.semanticNav.NavUnit` value.
+		:param forward: ``True`` to move forward, ``False`` to move back.
+		"""
+		container = self.container
+		if container is None:
+			# Translators: reported when a command needs segments but none are configured.
+			ui.message(_("BrlMultiline is not active"))
+			return
+		try:
+			resolved = container.resolveSegmentNumber(segmentNumber)
+		except LookupError:
+			# Translators: reported when a command names a segment that does not exist.
+			# The placeholder is replaced with the segment number.
+			ui.message(_("There is no segment {number}").format(number=segmentNumber))
+			return
+		key = container.segments[resolved].key
+		if key not in self._monitors:
+			# Translators: reported when asked to navigate a segment that has no pinned object.
+			# The placeholder is replaced with the segment number.
+			ui.message(_("Segment {number} is not monitoring anything").format(number=segmentNumber))
+			return
+		from .semanticNav import SemanticNavigator
+
+		navigator = SemanticNavigator(container, key)
+		result = navigator.move(unit, forward)
+		if result.moved and result.unit_used != unit:
+			# Translators: briefly reported when semantic navigation falls back to a coarser unit.
+			# {unit} is the unit asked for; {fallback} is the unit actually used.
+			ui.message(
+				_("{unit} not available; used {fallback}").format(unit=unit, fallback=result.unit_used),
+			)
+		elif not result.moved and result.unit_used != unit:
+			# Fell all the way through the fallback chain and still could not move.
+			# Translators: reported when no navigation unit was available or at a boundary.
+			# {unit} is the unit asked for.
+			ui.message(_("{unit} not available in this context").format(unit=unit))
+
 	# Scrolling
 
 	def scrollSegment(self, segmentNumber: int, forward: bool) -> None:
@@ -618,6 +664,31 @@ def _makeScrollScript(segmentNumber: int, forward: bool):
 	return scrollScript
 
 
+def _makeMoveMonitorScript(segmentNumber: int, unit: str, forward: bool):
+	"""Build one per-segment semantic navigation script."""
+
+	def moveScript(self, gesture):
+		self.moveMonitorInSegment(segmentNumber, unit, forward)
+
+	if forward:
+		# Translators: input help message for a command.
+		# {number} is the segment number; {unit} is the movement unit (line, paragraph, heading).
+		moveScript.__doc__ = _("Moves pinned content in segment {number} forward by {unit}").format(
+			number=segmentNumber,
+			unit=unit,
+		)
+	else:
+		# Translators: input help message for a command.
+		# {number} is the segment number; {unit} is the movement unit (line, paragraph, heading).
+		moveScript.__doc__ = _("Moves pinned content in segment {number} back by {unit}").format(
+			number=segmentNumber,
+			unit=unit,
+		)
+	moveScript.category = SCRIPT_CATEGORY
+	moveScript.bypassInputHelp = False
+	return moveScript
+
+
 def _makeMonitorScript(segmentNumber: int, start: bool):
 	"""Build one per segment object monitoring script."""
 
@@ -648,6 +719,8 @@ def _generateSegmentScripts() -> None:
 	current layout has that many. None are bound by default: assign the ones wanted
 	through NVDA's Input Gestures dialog, ideally to keys on the display itself.
 	"""
+	from .semanticNav import NavUnit
+
 	for segmentNumber in range(bmConfig.MAX_UI_SEGMENTS):
 		setattr(
 			GlobalPlugin,
@@ -669,6 +742,21 @@ def _generateSegmentScripts() -> None:
 			f"script_stopMonitoringSegment{segmentNumber}",
 			_makeMonitorScript(segmentNumber, False),
 		)
+		# Semantic navigation scripts for each unit (line, paragraph, heading).
+		# None are gesture-bound by default; assign through Input Gestures.
+		for unit in (NavUnit.LINE, NavUnit.PARAGRAPH, NavUnit.HEADING):
+			unitName = unit.capitalize()
+			setattr(
+				GlobalPlugin,
+				f"script_moveMonitor{unitName}Forward{segmentNumber}",
+				_makeMoveMonitorScript(segmentNumber, unit, True),
+			)
+			setattr(
+				GlobalPlugin,
+				f"script_moveMonitor{unitName}Back{segmentNumber}",
+				_makeMoveMonitorScript(segmentNumber, unit, False),
+			)
+
 
 
 _generateSegmentScripts()
