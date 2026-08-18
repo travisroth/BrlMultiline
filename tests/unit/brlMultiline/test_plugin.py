@@ -889,6 +889,39 @@ class TestLosingADisplay(PluginTestCase):
 		self.loseTheMonarch(focusSegments=1)
 		self.assertEqual(self.plugin.monitoredKeys, set())
 
+	def test_theMovedPinActuallyDrawsInItsNewHome(self):
+		"""Filing it under a new key moves nothing.
+
+		The monitor looks its segment up by the key it holds, and the regions it has already
+		built carry `targetSegment`, which is what decides where a region is placed. A pin
+		moved by the dictionary alone looks moved and draws nowhere.
+		"""
+		self.pin(0)
+		monitor = self.plugin._monitors["device.hidBrailleStandard.0"]
+		self.plugin.refreshMonitors()
+		self.loseTheMonarch(focusSegments=2)
+		self.assertEqual(monitor.segmentKey, "device.freedomScientific.0")
+		self.assertTrue(monitor.regions)
+		for region in monitor.regions:
+			self.assertEqual(region.targetSegment, "device.freedomScientific.0")
+		self.plugin.refreshMonitors()
+		self.assertEqual(
+			self.container.segmentForKey("device.freedomScientific.0").regions,
+			monitor.regions,
+		)
+
+	def test_theOldSegmentIsNotLeftHoldingIt(self):
+		"""There is no old segment; what matters is that nothing else claims to hold the pin."""
+		self.pin(0)
+		self.plugin.refreshMonitors()
+		self.loseTheMonarch(focusSegments=2)
+		self.plugin.refreshMonitors()
+		monitor = self.plugin._monitors["device.freedomScientific.0"]
+		for index, segment in enumerate(self.container.segments):
+			if self.container.specs[index].key == "device.freedomScientific.0":
+				continue
+			self.assertNotEqual(segment.regions, monitor.regions)
+
 	def test_theMoveIsReported(self):
 		self.pin(0)
 		self.loseTheMonarch(focusSegments=2)

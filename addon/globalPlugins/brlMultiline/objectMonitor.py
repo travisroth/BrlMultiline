@@ -94,6 +94,28 @@ class ObjectMonitor:
 		"""What was last written, so an unchanged refresh can leave the display alone."""
 		log.debug(f"Monitoring {self.name!r} ({self.obj!r}) in segment {segmentKey!r}")
 
+	def moveTo(self, segmentKey: str) -> None:
+		"""Show this pin in a different segment from now on.
+
+		Three things have to move together, and the key on this object is only the first. The
+		regions built for the pin carry `targetSegment`, which is what `_doNewObject` reads to
+		decide where a region belongs, so a region left stamped with the old key would be
+		dropped as belonging to a segment that no longer exists. And what was last written must
+		be forgotten, or the first refresh in the new home would find the cells unchanged and
+		write nothing at all.
+
+		Used when the display a pin was on has gone and there is somewhere else for it.
+
+		:param segmentKey: the key of the segment to show it in.
+		"""
+		if segmentKey == self.segmentKey:
+			return
+		log.debug(f"Moving the pin on {self.name!r} from {self.segmentKey!r} to {segmentKey!r}")
+		self.segmentKey = segmentKey
+		for region in self.regions or ():
+			region.targetSegment = segmentKey
+		self._lastCells = None
+
 	@staticmethod
 	def _describe(obj: "NVDAObject") -> str:
 		""":return: a short name for an object, for announcing what is being monitored."""

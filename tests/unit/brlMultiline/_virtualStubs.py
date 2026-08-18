@@ -25,6 +25,7 @@ import sys
 import types
 
 from ._stubs import (
+	Action,
 	BrailleDisplayGesture,
 	callWithSupportedKwargs,
 	decide_executeGesture,
@@ -154,9 +155,30 @@ class StubBrailleDisplayDriver:
 		pass
 
 	def saveSettings(self):
-		"""Records the call. Upstream this writes the settings into the driver's own section,
-		and where a member's values are stored is the whole question the composite answers."""
+		"""Writes the current values away, as upstream writes them into the driver's own section.
+
+		Where a member's values are stored is the whole question the composite answers, so this
+		keeps them rather than only counting the call.
+		"""
 		self.settingsSaved = getattr(self, "settingsSaved", 0) + 1
+		# `useConfig` is honoured, as `_saveSpecificSettings` honours it. It is how the composite
+		# keeps none of the members' settings, so a stub that stored them anyway would make the
+		# composite look able to restore what only the member can.
+		self.storedSettings = {
+			setting.id: getattr(self, setting.id, None)
+			for setting in self.supportedSettings
+			if setting.useConfig
+		}
+
+	def loadSettings(self, onlyChanged=False):
+		"""Puts the stored values back, which is what Cancel does.
+
+		NVDA writes a driver's settings as the dialog is used rather than when it is closed, so
+		this is the only thing that undoes a change the user did not keep.
+		"""
+		self.settingsLoaded = getattr(self, "settingsLoaded", 0) + 1
+		for key, value in getattr(self, "storedSettings", {}).items():
+			setattr(self, key, value)
 
 	def display(self, cells):
 		pass
@@ -391,7 +413,7 @@ def installVirtualStubs() -> None:
 	# first. `installStubs` is idempotent and returns early once it has run.
 	installStubs()
 	_module("hwIo", bgThread=bgThread)
-	_module("extensionPoints", callWithSupportedKwargs=callWithSupportedKwargs)
+	_module("extensionPoints", callWithSupportedKwargs=callWithSupportedKwargs, Action=Action)
 	# Added to the module `_stubs` already registered, rather than replacing it: the global
 	# plugin registers on the same `decide_executeGesture`, and two modules would mean two
 	# extension points and a plugin listening to one while the driver used the other.

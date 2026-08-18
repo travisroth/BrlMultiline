@@ -1186,7 +1186,53 @@ letter, so the name cannot be reconstructed from the id afterwards — both name
 when the settings are built. And the members' own `DriverSetting` objects are copied rather than
 edited, since they belong to the member and a subclass has to keep being what it was.
 
-814 tests, one expected failure.
+### Review of Phases 4 and 5: six things, two of them the promises themselves
+
+Both P1s were failures of the two most user-visible recovery promises, and both had passing
+tests over them.
+
+**A re-homed pin followed its dictionary key and nothing else.** `_carryOverMonitors` filed the
+monitor under the new segment, while the monitor's own `segmentKey` still named the display that
+had gone and its already built regions still carried that key in `targetSegment` — which is what
+`_doNewObject` reads to place a region. `refresh` looked up a segment that no longer existed,
+logged a debug warning and returned. The pin was moved in the bookkeeping and drew nowhere.
+`ObjectMonitor.moveTo` now moves all three: the key, the regions' target, and the memory of what
+was last written, without which the first refresh in the new home would find the cells unchanged
+and write nothing. The test asserted `monitoredKeys`, which is the dictionary, so it reported
+success either way; it now asserts that the segment holds the monitor's regions.
+
+**A same size reconnect told nobody.** `_relayout` returned early when the dimensions had not
+changed, and for one configured display lost and reconnected they never do — the composite keeps
+the last geometry while no member is there. So no `displaySizeChanged`, no rebuild, and the
+returning display went on showing whatever it had before NVDA saw it. Membership is now tracked
+separately from size, and `events.membersChanged` is raised for it: a new notification, because
+NVDA has none that means this. `displaySizeChanged` is about size and this is not a size change;
+`displayChanged` means NVDA has swapped the display for another, which other add-ons act on and
+is not what happened. `_announceMembership` also calls `handler.update`, so the returning display
+is written to at once rather than at the next thing that happens to change.
+
+Four smaller ones, all real:
+
+- **Cancel did not reach the members.** NVDA writes a driver's settings as the dialog is used and
+  calls `loadSettings` on Cancel; the composite's copies are `useConfig = False`, so its inherited
+  loader skipped them and no member was ever asked. `loadSettings` now delegates, through
+  `callWithSupportedKwargs` so a member whose override does not take `onlyChanged` still runs.
+- **A setting proxy could address a retired driver.** The map is rebuilt only when a name is
+  missing, so a name looked up before a member was replaced went on reaching the driver that had
+  been let go. Each proxy is now checked against the slots being driven before it is used.
+- **The backoff never grew.** `_deferAttempt` worked the previous wait back out of the deadline,
+  and it is only ever called once that deadline has passed — so the remaining time was zero and
+  every wait started again at five seconds. The delay is remembered now. The test had been
+  passing the same `now` every time, which made the old arithmetic appear to double; it advances
+  the clock to each deadline.
+- **Presence filtering ignored an explicit port.** A member configured with a port of its own is
+  not being detected at all, so detection must not be allowed to rule it out.
+
+One stub was making a test pass vacuously here too: the stand-in for `saveSettings` stored every
+setting rather than honouring `useConfig`, which let the composite appear able to restore what
+only a member can. It honours it now, and the Cancel test depends on the delegation as it should.
+
+829 tests, one expected failure.
 
 Phases 1 and 2 were the whole feasibility question, and Phase 3 was indeed small because of
 the work already done on panels. Every phase is now code complete; what is left is hardware

@@ -15,6 +15,7 @@ virtual display tries to open it. That is the situation `handover` exists for, a
 reproduced here rather than described.
 """
 
+import types
 import unittest
 
 from ._virtualStubs import (
@@ -37,7 +38,7 @@ installVirtualStubs()
 
 import braille  # noqa: E402
 
-from brlMultilineVirtual import ackPatch, handover, vdConfig  # noqa: E402
+from brlMultilineVirtual import ackPatch, events, handover, vdConfig  # noqa: E402
 from brlMultilineVirtual.virtualLayout import DeviceSpec  # noqa: E402
 
 driverModule = loadDriver()
@@ -388,7 +389,7 @@ class TestWaitingForAMemberToComeBack(VirtualDriverTestCase):
 		super().setUp()
 		self.present = {MONARCH, FOCUS}
 		self._realIsPresent = driverModule._isPresent
-		driverModule._isPresent = lambda driverName: driverName in self.present
+		driverModule._isPresent = lambda spec: spec.driverName in self.present
 		self.addCleanup(setattr, driverModule, "_isPresent", self._realIsPresent)
 
 	def poll(self, times=1):
@@ -459,12 +460,53 @@ class TestWaitingForAMemberToComeBack(VirtualDriverTestCase):
 		self.assertEqual(self.focus.openAttempts, first)
 		self.assertGreater(display._nextAttempt[FOCUS], 0)
 
+	def waits(self, display, times):
+		"""The wait chosen each time, with the clock moved to each deadline as it arrives.
+
+		Which is the whole of what makes this a test. Called with the same `now` every time, a
+		backoff that reads its previous wait back off the deadline appears to double while in
+		fact it never grows at all.
+		"""
+		chosen = []
+		now = 0.0
+		for _each in range(times):
+			display._deferAttempt(FOCUS, now)
+			chosen.append(display._nextAttempt[FOCUS] - now)
+			now = display._nextAttempt[FOCUS]
+		return chosen
+
+	def test_theWaitGrowsWithEachFailure(self):
+		display = self.build(MONARCH, FOCUS)
+		chosen = self.waits(display, 3)
+		self.assertEqual(chosen, sorted(chosen))
+		self.assertGreater(chosen[-1], chosen[0])
+
 	def test_theWaitIsBounded(self):
 		display = self.build(MONARCH, FOCUS)
+		self.assertEqual(max(self.waits(display, 20)), driverModule.POLL_BACKOFF_LIMIT)
+
+	def test_comingBackForgetsTheWait(self):
+		"""Or a display that goes away twice would start from where it left off."""
+		self.focus.failedOpens = -1
+		display = self.build(MONARCH, FOCUS)
+		self.waits(display, 5)
+		self.focus.failedOpens = 0
 		display._nextAttempt[FOCUS] = 0
-		for _each in range(20):
-			display._deferAttempt(FOCUS, 0)
-		self.assertLessEqual(display._nextAttempt[FOCUS], driverModule.POLL_BACKOFF_LIMIT)
+		self.poll()
+		self.assertNotIn(FOCUS, display._retryDelays)
+		self.assertNotIn(FOCUS, display._nextAttempt)
+
+	def test_aMemberWithAPortOfItsOwnIsAlwaysAttempted(self):
+		"""Nothing detected it, because the user said where it is."""
+		driverModule._isPresent = self._realIsPresent
+		vdConfig.setDevices([DeviceSpec(MONARCH), DeviceSpec(FOCUS, "COM4")])
+		self.focus.failedOpens = -1
+		display = VirtualDisplay()
+		self.handler.display = display
+		display.initSettings()
+		attempts = self.focus.openAttempts
+		self.poll()
+		self.assertGreater(self.focus.openAttempts, attempts)
 
 	def test_aFailedAttemptIsNotAnErrorInTheLog(self):
 		"""It is the ordinary state of a display that is switched off."""
@@ -492,6 +534,75 @@ class TestWaitingForAMemberToComeBack(VirtualDriverTestCase):
 		self.build(MONARCH, FOCUS)
 		self.poll()
 		self.assertEqual(len(callLaterQueue.pending), 1)
+
+
+class TestASameSizeReconnect(VirtualDriverTestCase):
+	"""The case a size alone cannot carry.
+
+	One configured display, lost and reconnected: the composite is exactly as big afterwards as
+	it was before, so nothing about its size ever changes. The arrangement above it is named
+	after physical displays, so it still has to be built again — and the returning display is
+	showing whatever it had before NVDA ever saw it until something writes to it.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		self.announced = []
+		events.membersChanged.register(self.noteMembers)
+		self.addCleanup(events.membersChanged.unregister, self.noteMembers)
+		self.sizes = []
+		displaySizeChanged.register(self.noteSize)
+		self.addCleanup(displaySizeChanged.unregister, self.noteSize)
+
+	def noteMembers(self, display=None, **kwargs):
+		self.announced.append([slot.driverName for slot in display.slots if not slot.failed])
+
+	def noteSize(self, **kwargs):
+		self.sizes.append(kwargs)
+
+	def loseAndRegain(self, display):
+		display.slots[0].fail()
+		callAfterQueue.flush()
+		callLaterQueue.fire()
+
+	def test_theMembersChangingIsAnnouncedEvenThoughTheSizeDoesNot(self):
+		display = self.build(MONARCH)
+		self.loseAndRegain(display)
+		self.assertEqual(self.sizes, [])
+		self.assertEqual(self.announced[-1], [MONARCH])
+
+	def test_theReturningDisplayIsWrittenToAtOnce(self):
+		"""It is showing whatever it had before NVDA saw it until something writes."""
+		display = self.build(MONARCH)
+		self.handler.buffer = types.SimpleNamespace(windowBrailleCells=[7] * display.numCells)
+		self.loseAndRegain(display)
+		bgThread.flush()
+		self.assertEqual(self.monarch.instances[-1].written[-1], [7] * display.numCells)
+
+	def test_theLossIsAnnouncedToo(self):
+		display = self.build(MONARCH, FOCUS)
+		display.slots[0].fail()
+		callAfterQueue.flush()
+		self.assertEqual(self.announced[-1], [FOCUS])
+
+	def test_theLastSurvivorReturningFirstIsAnnounced(self):
+		"""Every member gone keeps the geometry, so the first one back may not change it."""
+		display = self.build(MONARCH, FOCUS)
+		display.slots[0].fail()
+		callAfterQueue.flush()
+		display.slots[1].fail()
+		callAfterQueue.flush()
+		self.announced.clear()
+		# Only the Focus comes back; the Monarch is still away.
+		self.monarch.failedOpens = -1
+		callLaterQueue.fire()
+		self.assertEqual(self.announced[-1], [FOCUS])
+
+	def test_nothingIsAnnouncedWhenNothingChanged(self):
+		display = self.build(MONARCH, FOCUS)
+		self.announced.clear()
+		display._relayout()
+		self.assertEqual(self.announced, [])
 
 
 class TestMemberSettings(VirtualDriverTestCase):
@@ -557,6 +668,62 @@ class TestMemberSettings(VirtualDriverTestCase):
 		self.display.saveSettings()
 		self.assertEqual(self.monarchDriver.settingsSaved, 1)
 		self.assertEqual(self.focusDriver.settingsSaved, 1)
+
+	def test_cancellingPutsTheMembersSettingsBack(self):
+		"""NVDA writes a driver's settings as the dialog is used, so Cancel means this.
+
+		Without it the change the user backed out of stays in force, and stays until the next
+		configuration save writes it down for good.
+		"""
+		self.display.saveSettings()
+		self.display.hidBrailleStandard_dotFirmness = "2"
+		self.assertEqual(self.monarchDriver.dotFirmness, "2")
+		self.display.loadSettings()
+		self.assertEqual(self.monarchDriver.dotFirmness, "1")
+
+	def test_everyMemberIsAskedToPutItsSettingsBack(self):
+		self.display.loadSettings()
+		self.assertEqual(self.monarchDriver.settingsLoaded, 1)
+		self.assertEqual(self.focusDriver.settingsLoaded, 1)
+
+	def test_oneMemberFailingDoesNotStopTheOthers(self):
+		def explode(onlyChanged=False):
+			raise RuntimeError("settings are unwell")
+
+		self.monarchDriver.loadSettings = explode
+		self.display.loadSettings()
+		self.assertEqual(self.focusDriver.settingsLoaded, 1)
+
+	def replaceTheMonarch(self):
+		"""Put a fresh Monarch in, as a reconnection does, and hand back its driver.
+
+		The narrow step rather than the whole poll, because the whole poll happens to look up
+		other attributes on this driver and rebuilding the map is what those do. What is being
+		asked here is whether a name already in the map follows the display or the object.
+		"""
+		self.display.hidBrailleStandard_dotFirmness  # noqa: B018 - read to build the map.
+		retired = self.display.slots[0]
+		retired.failed = True
+		replacement = self.monarch(port=None)
+		replacement.dotFirmness = "new"
+		self.display._admit(retired.spec, replacement)
+		self.assertIsNot(self.display.slots[0], retired)
+		return replacement
+
+	def test_aSettingReachesTheDisplayThatIsThereNow(self):
+		"""A member replaced after a reconnection is a different driver object.
+
+		The settings dialog, or the settings ring, may be holding the list from before it, so a
+		name that was looked up once must not go on addressing the driver that has been let go.
+		"""
+		self.replaceTheMonarch()
+		self.assertEqual(self.display.hidBrailleStandard_dotFirmness, "new")
+
+	def test_writingReachesTheDisplayThatIsThereNow(self):
+		replacement = self.replaceTheMonarch()
+		self.display.hidBrailleStandard_dotFirmness = "2"
+		self.assertEqual(replacement.dotFirmness, "2")
+		self.assertEqual(self.monarchDriver.dotFirmness, "1")
 
 	def test_aMemberThatHasGoneOffersNothing(self):
 		self.display.slots[0].failed = True

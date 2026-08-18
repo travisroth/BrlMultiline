@@ -42,9 +42,10 @@ import extensionPoints
 from braille.display import _getDisplayDriver
 from logHandler import log
 
-from . import ackPatch, gestures, handover, vdConfig
+from . import ackPatch, events, gestures, handover, vdConfig
 from .deviceSlot import DeviceSlot
 from .virtualLayout import (
+	DEFAULT_PORT,
 	DeviceBand,
 	DeviceSpec,
 	VirtualGeometry,
@@ -155,7 +156,12 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		self._specs: list[DeviceSpec] = []
 		self._nextAttempt: dict[str, float] = {}
 		"""When to next try to open each member that is not being driven. See L{_pollForMembers}."""
+		self._retryDelays: dict[str, float] = {}
+		"""How long the last wait for each of those was, which is what the next one doubles."""
 		self._pollTimer = None
+		self._membership: tuple[str, ...] = ()
+		"""The members being driven, as of the last layout. What decides whether the arrangement
+		above this driver has to be built again, since its segments are named after displays."""
 		self.numRows = 1
 		self.numCols = 0
 		self._installed = False
@@ -250,6 +256,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 			raise
 		self.numRows = geometry.numRows
 		self.numCols = geometry.numCols
+		self._membership = tuple(slot.driverName for slot in self._slots)
 		self._describe(geometry)
 
 	def _startPolling(self) -> None:
@@ -317,7 +324,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		for spec in missing:
 			if now < self._nextAttempt.get(spec.driverName, 0.0):
 				continue
-			if not _isPresent(spec.driverName):
+			if not _isPresent(spec):
 				self._deferAttempt(spec.driverName, now)
 				continue
 			driver = _openDriver(spec, attempts=1, quiet=True)
@@ -328,15 +335,26 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 				continue
 			log.info(f"BrlMultiline: {spec.driverName} is back")
 			self._nextAttempt.pop(spec.driverName, None)
+			self._retryDelays.pop(spec.driverName, None)
 			self._admit(spec, driver)
 			regained = True
 		if regained:
 			self._relayout()
 
 	def _deferAttempt(self, driverName: str, now: float) -> None:
-		"""Wait longer before trying this member again, up to L{POLL_BACKOFF_LIMIT}."""
-		waited = max(POLL_INTERVAL, self._nextAttempt.get(driverName, 0.0) - now)
-		self._nextAttempt[driverName] = now + min(waited * 2, POLL_BACKOFF_LIMIT)
+		"""Wait longer before trying this member again, up to L{POLL_BACKOFF_LIMIT}.
+
+		The delay is remembered rather than worked back out from the deadline. This is only
+		ever called once that deadline has passed, so the time still to wait is zero and every
+		wait would start again from the beginning — five seconds, for as long as the display
+		stayed away, which is exactly what the backoff is for.
+
+		:param driverName: the member that is not there.
+		:param now: the current monotonic time.
+		"""
+		delay = min(self._retryDelays.get(driverName, POLL_INTERVAL) * 2, POLL_BACKOFF_LIMIT)
+		self._retryDelays[driverName] = delay
+		self._nextAttempt[driverName] = now + delay
 
 	def _admit(self, spec: DeviceSpec, driver) -> None:
 		"""Put a member that has just opened back into the stack, in its configured place.
@@ -421,8 +439,10 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 			# constructed. Either way this is not the display NVDA is showing.
 			return
 		live = [slot for slot in self._slots if not slot.failed]
+		membership = tuple(slot.driverName for slot in live)
 		if not live:
 			log.warning("BrlMultiline: no display left to show anything on; waiting for one to return")
+			self._membership = membership
 			return
 		try:
 			geometry = stackDevices([(slot.band.numRows, slot.band.numCols) for slot in live])
@@ -435,12 +455,42 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 				# Its cells mean something different now, so what it last showed says nothing
 				# about what it should show next.
 				slot.invalidate()
-		if (self.numRows, self.numCols) == (geometry.numRows, geometry.numCols):
+		changedMembers = membership != self._membership
+		changedSize = (self.numRows, self.numCols) != (geometry.numRows, geometry.numCols)
+		self._membership = membership
+		if not (changedMembers or changedSize):
 			return
 		self.numRows = geometry.numRows
 		self.numCols = geometry.numCols
-		self._describe(geometry)
-		self._announceGeometry()
+		if changedSize:
+			self._describe(geometry)
+			self._announceGeometry()
+		if changedMembers:
+			# Separately, and this is the case a size alone cannot carry: a display lost and
+			# reconnected leaves the composite exactly as big as it was, while the segments
+			# above it are named after the displays and have to be built again.
+			self._announceMembership()
+
+	def _announceMembership(self) -> None:
+		"""Say that the displays behind this one have changed, and write to what is there now.
+
+		Two things, and the second is what a returning display needs. The notification is for
+		the add-on's plugin, which names its segments after physical displays and so has to
+		build them again whether or not the composite changed size. The write is for the case
+		where nothing else will do one: a member that has just opened is showing whatever it
+		was showing before NVDA ever saw it, and `handler.update` puts the current braille on
+		it at once rather than at the next thing that happens to change.
+		"""
+		try:
+			events.membersChanged.notify(display=self)
+		except Exception:
+			log.error("BrlMultiline: error announcing the displays behind this one", exc_info=True)
+		try:
+			handler = braille.handler
+			if handler is not None and handler.display is self:
+				handler.update()
+		except Exception:
+			log.error("BrlMultiline: could not write to the displays that are here", exc_info=True)
 
 	@staticmethod
 	def _announceGeometry() -> None:
@@ -628,14 +678,25 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 			proxies = object.__getattribute__(self, "_settingProxies")
 		except AttributeError:
 			proxies = None
-		if proxies is None or name not in proxies:
+		if proxies is None or name not in proxies or not self._proxyIsLive(proxies[name]):
 			if not object.__getattribute__(self, "_slots"):
 				return None
-			# Built on demand, since a caller may reach for a setting before anything has
-			# asked this driver what settings it has.
+			# Built on demand, since a caller may reach for a setting before anything has asked
+			# this driver what settings it has — and rebuilt when what it points at is stale.
+			# A member replaced after a reconnection is a different driver object, and the
+			# settings dialog or the settings ring may be holding the list from before it.
 			self.supportedSettings  # noqa: B018 - read to rebuild the map.
 			proxies = object.__getattribute__(self, "_settingProxies")
-		return proxies.get(name)
+		proxy = proxies.get(name)
+		return proxy if proxy is not None and self._proxyIsLive(proxy) else None
+
+	def _proxyIsLive(self, proxy) -> bool:
+		""":return: whether a proxy still names a member this display is driving.
+
+		:param proxy: the slot and attribute a settings name stands for.
+		"""
+		slot = proxy[0]
+		return not slot.failed and any(each is slot for each in object.__getattribute__(self, "_slots"))
 
 	def __getattr__(self, name: str):
 		proxy = self._proxyFor(name) if not name.startswith("_") else None
@@ -651,6 +712,33 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 			return
 		slot, attribute = proxy
 		setattr(slot.driver, attribute, value)
+
+	def loadSettings(self, onlyChanged: bool = False) -> None:
+		"""Read this display's settings back, and have each member read its own back too.
+
+		This is what Cancel does. NVDA writes a driver's settings as the dialog is used rather
+		than when it is closed, so pressing Cancel means `loadSettings`, and a member that was
+		never asked keeps whatever the user was trying out. Worse, it keeps it until the next
+		configuration save writes it down.
+
+		The composite has nothing of its own to read — every copied setting is marked
+		`useConfig = False` — so this is almost entirely delegation. One member failing must not
+		stop the others being put back.
+
+		:param onlyChanged: passed through, and passed the way NVDA passes it: a driver whose
+			override does not take it still gets called.
+		"""
+		super().loadSettings(onlyChanged=onlyChanged)
+		for slot in self._slots:
+			if slot.failed:
+				continue
+			try:
+				extensionPoints.callWithSupportedKwargs(
+					slot.driver.loadSettings,
+					onlyChanged=onlyChanged,
+				)
+			except Exception:
+				log.error(f"BrlMultiline: could not read {slot.driverName}'s settings back", exc_info=True)
 
 	def saveSettings(self) -> None:
 		"""Save this display's settings, and let each member save its own.
@@ -693,20 +781,24 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		return gestures.modifierGesturesForMembers(self, model)
 
 
-def _isPresent(driverName: str) -> bool:
-	"""Ask Windows whether anything this driver knows how to talk to is there.
+def _isPresent(spec: DeviceSpec) -> bool:
+	"""Ask Windows whether anything this member could be is there.
 
 	A filter rather than a proof, and it is worth being clear which way it errs. A paired
 	Bluetooth display is often still enumerated while it is switched off, so True means "worth
 	trying" and not "connected". False is the trustworthy answer, and it is the one that saves
 	the work: opening a driver talks to hardware on the main thread.
 
-	A driver `bdDetect` has no data for — one driven entirely by a port the user names — cannot
-	be ruled out this way, so it is always tried.
+	Two members are never ruled out. One configured with a port of its own is not being detected
+	at all — the user has said where it is — and a driver `bdDetect` has no data for cannot be
+	ruled out by it either. Both are simply attempted, and the growing wait between attempts is
+	what keeps that from costing anything.
 
-	:param driverName: the driver to look for.
+	:param spec: the member to look for.
 	:return: whether to attempt it.
 	"""
+	if spec.port and spec.port != DEFAULT_PORT:
+		return True
 	try:
 		import bdDetect
 	except Exception:
@@ -714,14 +806,14 @@ def _isPresent(driverName: str) -> bool:
 	found = False
 	for lookup in (bdDetect.getConnectedUsbDevicesForDriver, bdDetect.getPossibleBluetoothDevicesForDriver):
 		try:
-			if next(iter(lookup(driverName)), None) is not None:
+			if next(iter(lookup(spec.driverName)), None) is not None:
 				return True
 			found = True
 		except LookupError:
 			# No detection data of this kind for this driver, which says nothing either way.
 			continue
 		except Exception:
-			log.debugWarning(f"BrlMultiline: could not look for {driverName}", exc_info=True)
+			log.debugWarning(f"BrlMultiline: could not look for {spec.driverName}", exc_info=True)
 			return True
 	# Something answered, and nothing was there. Only then is absence worth believing.
 	return not found

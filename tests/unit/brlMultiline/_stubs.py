@@ -876,6 +876,19 @@ class FakeBrailleHandler:
 		self._displayDimensions = dimensions
 		return dimensions
 
+	def update(self):
+		"""Write what the buffer holds to the display, as `BrailleHandler.update` does.
+
+		Reduced to the one step that matters outside NVDA — the cursor and the pending update
+		bookkeeping are not modelled — because this is how cells reach a display, and a display
+		that has just been opened receiving the current braille is a thing worth asserting.
+		"""
+		display = self.display
+		buffer = getattr(self, "buffer", None)
+		if display is None or buffer is None:
+			return
+		display.display(list(buffer.windowBrailleCells))
+
 	def _doNewObject(self, regions):
 		self.lastNewObject = list(regions)
 
@@ -1205,6 +1218,10 @@ def installStubs() -> None:
 	if PACKAGE in sys.modules:
 		return
 	_module("logHandler", log=log)
+	# Registered here rather than only beside the driver stubs: the plugin reaches for the
+	# composite display's own notification, and which stub module a test installed should not
+	# decide whether it finds one.
+	_module("extensionPoints", Action=Action, callWithSupportedKwargs=callWithSupportedKwargs)
 	_module("inputCore", decide_executeGesture=decide_executeGesture, manager=InputManager())
 	# The two panning commands the add-on wraps, on the class it wraps them on.
 	_module("globalCommands", GlobalCommands=GlobalCommands, commands=GlobalCommands())

@@ -108,6 +108,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# profile can change the layout, the focus segment and the panning direction
 		# without any braille event firing.
 		config.post_configProfileSwitch.register(self._handleProfileSwitch)
+		self._membersChanged = devicesModule.membersChangedAction()
+		"""The composite display's own notification, or None if the driver cannot be reached.
+
+		NVDA has nothing that means what this means. A member lost and reconnected leaves the
+		display exactly as big as it was, so `displaySizeChanged` never fires, while the
+		segments here are named after physical displays and have to be built again.
+		"""
+		if self._membersChanged is not None:
+			self._membersChanged.register(self._handleDisplayChanged)
 		self.rebuildBuffer()
 
 	def terminate(self):
@@ -118,6 +127,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			displaySizeChanged.unregister(self._handleDisplayChanged)
 			displayChanged.unregister(self._handleDisplayChanged)
 			config.post_configProfileSwitch.unregister(self._handleProfileSwitch)
+			if self._membersChanged is not None:
+				self._membersChanged.unregister(self._handleDisplayChanged)
 			self.stopAllMonitoring()
 			self._restoreOriginalBuffer()
 			patches.remove()
@@ -537,7 +548,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 						f"BrlMultiline: {driverName} has gone; the object pinned to it moves to "
 						f"segment {home!r}",
 					)
-					survivors[home] = self._monitors[key]
+					monitor = self._monitors[key]
+					# The key in this dictionary is only how the plugin finds it. What decides
+					# where it draws is the monitor's own key and the regions it has already
+					# stamped, so it is told to move rather than merely filed differently.
+					monitor.moveTo(home)
+					survivors[home] = monitor
 					continue
 				log.info(
 					f"BrlMultiline: {driverName} has gone and there is nowhere left to put what "

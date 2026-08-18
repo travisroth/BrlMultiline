@@ -158,6 +158,31 @@ def resolveDisplaySegment(
 	return segments[segmentOrdinal]
 
 
+def membersChangedAction():
+	"""Find the notification the composite raises when its displays change.
+
+	The one place in this module that does import the driver, and it is worth saying why the
+	rule bends here. The rule exists because everything else in this module runs while a view
+	is being built, several times a session; this runs once, when the plugin starts, and NVDA
+	has already imported every display driver by then in order to list them. What it must not
+	do is fail: an add-on installed without its driver, or a driver that will not import, is a
+	reason to go without this notification and not a reason to go without the plugin.
+
+	:return: the `extensionPoints.Action`, or None if the driver cannot be reached.
+	"""
+	try:
+		from brailleDisplayDrivers.brlMultilineVirtual.events import membersChanged
+
+		return membersChanged
+	except Exception:
+		log.debugWarning(
+			"BrlMultiline: the combined display cannot be reached, so its members changing "
+			"will not be noticed",
+			exc_info=True,
+		)
+		return None
+
+
 def memberStates(display=None) -> dict[str, bool] | None:
 	"""Say which of the composite's members it is actually driving.
 
