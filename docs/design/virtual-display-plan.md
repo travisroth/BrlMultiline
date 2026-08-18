@@ -1196,9 +1196,10 @@ monitor under the new segment, while the monitor's own `segmentKey` still named 
 had gone and its already built regions still carried that key in `targetSegment` — which is what
 `_doNewObject` reads to place a region. `refresh` looked up a segment that no longer existed,
 logged a debug warning and returned. The pin was moved in the bookkeeping and drew nowhere.
-`ObjectMonitor.moveTo` now moves all three: the key, the regions' target, and the memory of what
-was last written, without which the first refresh in the new home would find the cells unchanged
-and write nothing. The test asserted `monitoredKeys`, which is the dictionary, so it reported
+`ObjectMonitor.moveTo` now moves the key and the regions' target, and clears the memory of what
+was last written. That last one is housekeeping and was described here as a necessity, which it
+is not: `refresh` also compares the destination's regions against its own, and a segment the pin
+has never been in does not hold them, so it would install either way. The test asserted `monitoredKeys`, which is the dictionary, so it reported
 success either way; it now asserts that the segment holds the monitor's regions.
 
 **A same size reconnect told nobody.** `_relayout` returned early when the dimensions had not
@@ -1232,7 +1233,27 @@ One stub was making a test pass vacuously here too: the stand-in for `saveSettin
 setting rather than honouring `useConfig`, which let the composite appear able to restore what
 only a member can. It honours it now, and the Cancel test depends on the delegation as it should.
 
-829 tests, one expected failure.
+A second look at the same work found four more, and one of them was a test that proved nothing.
+
+- **A setting changed while its display was away became permanent.** `__setattr__` fell through
+  to ordinary storage for a name whose proxy was dead, and ordinary lookup then found that value
+  before `__getattr__` could route to the display that came back. The sequence is not exotic:
+  NVDA's settings controls are alive while a member disconnects. Names that have ever stood for
+  a member's setting are remembered now, and a write to one whose display is away is dropped
+  rather than kept.
+- **The immediate redraw could send one display's row to another.** The write after a membership
+  change went out before the handlers had run, and the handlers are what make the buffer match
+  the new arrangement. It is queued behind them now — always, not only when the size changed,
+  because the stale buffer is what matters and its size is not what says so.
+- **Losing the last member said nothing**, which made the notification's own contract false. It
+  is announced, with no write, since there is nothing to write to.
+- **Nothing proved the plugin was listening to that notification.** The driver tests showed it
+  was raised and the plugin tests showed a rebuild followed *something*; replacing the lookup
+  with None left all 129 plugin tests passing. There is now a test that imports the same action
+  the plugin imports, asserts the plugin is on it, drives a same size recovery through it, and
+  checks that terminating takes the plugin off it.
+
+837 tests, one expected failure.
 
 Phases 1 and 2 were the whole feasibility question, and Phase 3 was indeed small because of
 the work already done on panels. Every phase is now code complete; what is left is hardware

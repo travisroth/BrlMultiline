@@ -958,6 +958,54 @@ class TestLosingADisplay(PluginTestCase):
 			self.assertLess(rect.row, 1, f"{rect} is on rows the display no longer has")
 
 
+class TestMembersChangedSubscription(PluginTestCase):
+	"""That the plugin hears the composite's own notification, through the real one.
+
+	Worth a class of its own because the driver tests prove the event is raised and the plugin
+	tests proved a rebuild happens when *something* fires — and neither shows the two are the
+	same event. Replacing the lookup with None left every plugin test passing.
+	"""
+
+	def makeHandler(self):
+		handler = FakeHandler(9, 80)
+		handler.display = fakeVirtualDisplay(
+			("hidBrailleStandard", 0, 8, 32),
+			("freedomScientific", 8, 1, 80),
+		)
+		return handler
+
+	def membersChanged(self):
+		"""The canonical action, imported the way the plugin imports it."""
+		from brailleDisplayDrivers.brlMultilineVirtual.events import membersChanged
+
+		return membersChanged
+
+	def test_thePluginIsSubscribedToTheCanonicalAction(self):
+		self.assertIn(self.plugin._handleDisplayChanged, self.membersChanged().handlers)
+
+	def test_theMembersChangingRebuildsFromTheNewDeviceMap(self):
+		"""The same size case: nothing about the display's dimensions has changed."""
+		setBandConfig("hidBrailleStandard_8x32", segmentCount=2)
+		setBandConfig("freedomScientific_1x80", segmentCount=1)
+		self.plugin.rebuildBuffer()
+		self.assertEqual(self.container.numSegments, 3)
+		# One display goes, and the driver lays the rest out again before it says so.
+		self.handler.display.slots[0].failed = True
+		self.handler.display.slots[1].band.rowStart = 0
+		self.handler.displayDimensions.numRows = 1
+		self.membersChanged().notify(display=self.handler.display)
+		callAfterQueue.flush()
+		self.assertEqual(self.container.numSegments, 1)
+		self.assertTrue(self.container.hasKey("device.freedomScientific.0"))
+
+	def test_nothingHappensAfterThePluginHasGone(self):
+		self.plugin.terminate()
+		self.assertNotIn(self.plugin._handleDisplayChanged, self.membersChanged().handlers)
+		self.membersChanged().notify(display=self.handler.display)
+		self.assertEqual(callAfterQueue.pending, [])
+		self.assertIs(self.handler.mainBuffer, self.originalBuffer)
+
+
 class NvdaMessageBuffer:
 	"""A stand-in for the message buffer NVDA builds for itself, with nothing of ours in it."""
 

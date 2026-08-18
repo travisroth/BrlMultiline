@@ -97,12 +97,15 @@ class ObjectMonitor:
 	def moveTo(self, segmentKey: str) -> None:
 		"""Show this pin in a different segment from now on.
 
-		Three things have to move together, and the key on this object is only the first. The
-		regions built for the pin carry `targetSegment`, which is what `_doNewObject` reads to
-		decide where a region belongs, so a region left stamped with the old key would be
-		dropped as belonging to a segment that no longer exists. And what was last written must
-		be forgotten, or the first refresh in the new home would find the cells unchanged and
-		write nothing at all.
+		Two things have to move, and the key on this object is only the first. The regions built
+		for the pin carry `targetSegment`, which is what `_doNewObject` reads to decide where a
+		region belongs, so a region left stamped with the old key would be dropped as belonging
+		to a segment that no longer exists.
+
+		What was last written is forgotten as well, which is housekeeping rather than a third
+		necessity: `refresh` also asks whether the destination already holds these regions, and
+		a segment this pin has never been in does not, so it would install either way. Clearing
+		it keeps that from being the only thing standing between a move and a blank segment.
 
 		Used when the display a pin was on has gone and there is somewhere else for it.
 

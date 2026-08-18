@@ -159,6 +159,17 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		self._retryDelays: dict[str, float] = {}
 		"""How long the last wait for each of those was, which is what the next one doubles."""
 		self._pollTimer = None
+		self._settingNames: set[str] = set()
+		"""Every name that has stood for a member's setting, whether or not it does now.
+
+		A write to one of these while its display is away must not be kept: ordinary attribute
+		storage would put it on this driver, where it would shadow the member for good once the
+		display came back, since normal lookup finds it before `__getattr__` is ever asked.
+		NVDA's settings controls are alive while a member disconnects, and closing the dialog
+		can produce control events of its own, so this is a real sequence rather than a
+		theoretical one.
+		"""
+		self._settingProxies: dict = {}
 		self._membership: tuple[str, ...] = ()
 		"""The members being driven, as of the last layout. What decides whether the arrangement
 		above this driver has to be built again, since its segments are named after displays."""
@@ -442,7 +453,13 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		membership = tuple(slot.driverName for slot in live)
 		if not live:
 			log.warning("BrlMultiline: no display left to show anything on; waiting for one to return")
+			changed = membership != self._membership
 			self._membership = membership
+			if changed:
+				# Said even though there is nothing to show it on, so that the notification
+				# means what it says: the set of displays being driven has changed. The
+				# geometry is kept, so there is nothing to write and nothing to write it to.
+				self._announceMembership(write=False)
 			return
 		try:
 			geometry = stackDevices([(slot.band.numRows, slot.band.numCols) for slot in live])
@@ -471,7 +488,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 			# above it are named after the displays and have to be built again.
 			self._announceMembership()
 
-	def _announceMembership(self) -> None:
+	def _announceMembership(self, write: bool = True) -> None:
 		"""Say that the displays behind this one have changed, and write to what is there now.
 
 		Two things, and the second is what a returning display needs. The notification is for
@@ -480,11 +497,26 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		where nothing else will do one: a member that has just opened is showing whatever it
 		was showing before NVDA ever saw it, and `handler.update` puts the current braille on
 		it at once rather than at the next thing that happens to change.
+
+		The write goes behind the handlers rather than before them, always. The buffer above
+		this driver was laid out for the arrangement that has just changed, and what corrects it
+		is a handler — the plugin rebuilds on the main thread queue. Writing first would slice
+		yesterday's arrangement into today's bands and put one display's row onto another, which
+		is not merely a wasted frame on hardware that cannot be told to forget it. Queueing lands
+		it after the rebuild, the queue being first in first out, and `_writeCurrentCells` checks
+		by then that this is still the display NVDA has.
+
+		:param write: whether there is anything to write to. False when no member is left.
 		"""
 		try:
 			events.membersChanged.notify(display=self)
 		except Exception:
 			log.error("BrlMultiline: error announcing the displays behind this one", exc_info=True)
+		if write:
+			self._onMainThread(self._writeCurrentCells)
+
+	def _writeCurrentCells(self) -> None:
+		"""Put whatever braille is current onto the displays that are here."""
 		try:
 			handler = braille.handler
 			if handler is not None and handler.display is self:
@@ -663,6 +695,11 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 					f"available{setting.id.capitalize()}s",
 				)
 		self._settingProxies = proxies
+		self._settingNames.update(proxies)
+		for name in proxies:
+			# Anything of this name stored on the composite is a value that was written while
+			# its display was away. The member is the authority now that it is back.
+			self.__dict__.pop(name, None)
 		return settings
 
 	def _proxyFor(self, name: str):
@@ -707,11 +744,23 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 
 	def __setattr__(self, name: str, value) -> None:
 		proxy = self._proxyFor(name) if not name.startswith("_") else None
-		if proxy is None:
-			super().__setattr__(name, value)
+		if proxy is not None:
+			slot, attribute = proxy
+			setattr(slot.driver, attribute, value)
 			return
-		slot, attribute = proxy
-		setattr(slot.driver, attribute, value)
+		if not name.startswith("_") and name in self._knownSettingNames():
+			# A setting whose display is not here. Keeping the value would be worse than
+			# dropping it: it would sit on this driver and shadow the member that comes back.
+			log.debugWarning(f"BrlMultiline: {name} was set while its display was away; ignoring it")
+			return
+		super().__setattr__(name, value)
+
+	def _knownSettingNames(self) -> set:
+		""":return: every name that has stood for a member's setting, empty before any has."""
+		try:
+			return object.__getattribute__(self, "_settingNames")
+		except AttributeError:
+			return set()
 
 	def loadSettings(self, onlyChanged: bool = False) -> None:
 		"""Read this display's settings back, and have each member read its own back too.

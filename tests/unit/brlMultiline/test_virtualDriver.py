@@ -571,11 +571,16 @@ class TestASameSizeReconnect(VirtualDriverTestCase):
 		self.assertEqual(self.sizes, [])
 		self.assertEqual(self.announced[-1], [MONARCH])
 
-	def test_theReturningDisplayIsWrittenToAtOnce(self):
-		"""It is showing whatever it had before NVDA saw it until something writes."""
+	def test_theReturningDisplayIsWrittenToWithoutWaitingForAnEvent(self):
+		"""It is showing whatever it had before NVDA saw it until something writes.
+
+		Behind the handlers rather than before them — they are what makes the buffer match the
+		arrangement — but without waiting for a focus move or a cursor blink.
+		"""
 		display = self.build(MONARCH)
 		self.handler.buffer = types.SimpleNamespace(windowBrailleCells=[7] * display.numCells)
 		self.loseAndRegain(display)
+		callAfterQueue.flush()
 		bgThread.flush()
 		self.assertEqual(self.monarch.instances[-1].written[-1], [7] * display.numCells)
 
@@ -597,6 +602,39 @@ class TestASameSizeReconnect(VirtualDriverTestCase):
 		self.monarch.failedOpens = -1
 		callLaterQueue.fire()
 		self.assertEqual(self.announced[-1], [FOCUS])
+
+	def test_losingTheLastMemberIsAnnouncedToo(self):
+		"""The notification means what it says: the set being driven has changed."""
+		display = self.build(MONARCH)
+		display.slots[0].fail()
+		callAfterQueue.flush()
+		self.assertEqual(self.announced[-1], [])
+
+	def test_theFirstDisplayBackDoesNotGetAnotherDisplaysRow(self):
+		"""The buffer above is still laid out for the arrangement that has gone.
+
+		Writing before the plugin has rebuilt would slice yesterday's arrangement into today's
+		bands, and the Focus would be handed the Monarch's first row.
+		"""
+		display = self.build(MONARCH, FOCUS)
+		# Something recognisable in each band of the old 9 by 80 arrangement.
+		self.handler.buffer = types.SimpleNamespace(
+			windowBrailleCells=[1] * (8 * 80) + [2] * 80,
+		)
+		display.slots[0].fail()
+		callAfterQueue.flush()
+		display.slots[1].fail()
+		callAfterQueue.flush()
+		self.monarch.failedOpens = -1
+		callLaterQueue.fire()
+		bgThread.flush()
+		self.assertEqual(self.focus.instances[-1].written, [])
+		# What the plugin does on being told, before anything is written: lay the buffer out
+		# for the display that is actually here.
+		self.handler.buffer = types.SimpleNamespace(windowBrailleCells=[2] * 80)
+		callAfterQueue.flush()
+		bgThread.flush()
+		self.assertEqual(self.focus.instances[-1].written[-1], [2] * 80)
 
 	def test_nothingIsAnnouncedWhenNothingChanged(self):
 		display = self.build(MONARCH, FOCUS)
@@ -724,6 +762,37 @@ class TestMemberSettings(VirtualDriverTestCase):
 		self.display.hidBrailleStandard_dotFirmness = "2"
 		self.assertEqual(replacement.dotFirmness, "2")
 		self.assertEqual(self.monarchDriver.dotFirmness, "1")
+
+	def test_aSettingChangedWhileItsDisplayIsAwayIsNotKept(self):
+		"""Otherwise it sits on this driver and shadows the member that comes back.
+
+		The sequence is an ordinary one: the Braille settings dialog is open, a display
+		disconnects, and its control — still on screen — writes a value. Normal attribute
+		lookup would find that value before anything could route to the display again.
+		"""
+		self.display.hidBrailleStandard_dotFirmness  # noqa: B018 - read to build the map.
+		retired = self.display.slots[0]
+		retired.failed = True
+		self.display.hidBrailleStandard_dotFirmness = "while-away"
+		self.assertNotIn("hidBrailleStandard_dotFirmness", self.display.__dict__)
+
+	def test_theDisplayThatComesBackIsTheOneThatAnswers(self):
+		self.display.hidBrailleStandard_dotFirmness  # noqa: B018 - read to build the map.
+		retired = self.display.slots[0]
+		retired.failed = True
+		self.display.hidBrailleStandard_dotFirmness = "while-away"
+		replacement = self.monarch(port=None)
+		replacement.dotFirmness = "new"
+		self.display._admit(retired.spec, replacement)
+		self.assertEqual(self.display.hidBrailleStandard_dotFirmness, "new")
+		self.display.hidBrailleStandard_dotFirmness = "2"
+		self.assertEqual(replacement.dotFirmness, "2")
+
+	def test_ordinaryAttributesAreStillStoredWhileAMemberIsAway(self):
+		"""Only names that have stood for a setting are refused; everything else is ordinary."""
+		self.display.slots[0].failed = True
+		self.display.numRows = 3
+		self.assertEqual(self.display.numRows, 3)
 
 	def test_aMemberThatHasGoneOffersNothing(self):
 		self.display.slots[0].failed = True
