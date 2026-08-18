@@ -535,6 +535,37 @@ class TestWaitingForAMemberToComeBack(VirtualDriverTestCase):
 		self.assertEqual(dead.terminated, 1)
 		self.assertEqual(len(dead.written), writes)
 
+	def test_theDeadColumnsAreWarnedAboutOnce(self):
+		"""It is a fact about the shape of the composite, not news on every reconnect."""
+		display = self.build(MONARCH, FOCUS)
+		self.assertTrue(
+			[message for level, message in log.messages if "reach no hardware" in message],
+		)
+		display.slots[0].fail()
+		callAfterQueue.flush()
+		log.messages.clear()
+		self.poll()
+		self.assertEqual((display.numRows, display.numCols), (9, 80))
+		self.assertFalse(
+			[message for level, message in log.messages if "reach no hardware" in message],
+			log.messages,
+		)
+
+	def test_theDeadColumnsAreWarnedAboutAgainWhenTheirNumberChanges(self):
+		"""Said once is not said and forgotten: a different shape is a different warning."""
+		from brlMultilineVirtual.virtualLayout import DeviceBand
+
+		display = self.build(MONARCH, FOCUS)
+		log.messages.clear()
+		# A narrower Focus: the composite shrinks to 40 columns, so the dead count becomes 64.
+		display.slots[1].band = DeviceBand(rowStart=8, numRows=1, numCols=40)
+		display._relayout()
+		self.assertEqual((display.numRows, display.numCols), (9, 40))
+		self.assertTrue(
+			[message for level, message in log.messages if "reach no hardware" in message],
+			log.messages,
+		)
+
 	def test_theLayoutIsDescribedAsTheDisplaysInIt(self):
 		"""A member that has gone keeps its slot and its old band, and is in neither.
 

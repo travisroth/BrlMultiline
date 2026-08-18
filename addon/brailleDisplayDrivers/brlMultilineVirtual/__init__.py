@@ -170,6 +170,8 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		theoretical one.
 		"""
 		self._settingProxies: dict = {}
+		self._reportedDeadColumns = 0
+		"""The dead column count last warned about, so a reconnect does not warn again."""
 		self._membership: tuple[str, ...] = ()
 		"""The members being driven, as of the last layout. What decides whether the arrangement
 		above this driver has to be built again, since its segments are named after displays."""
@@ -575,12 +577,20 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		if away:
 			log.info(f"BrlMultiline: configured and not in the display: {away}")
 		dead = deadColumnCount(geometry)
-		if dead:
+		if dead and dead != self._reportedDeadColumns:
+			# Once per arrangement, not once per layout. The count is a fact about the shape of
+			# the composite, so it does not become truer for being repeated, and repeating it on
+			# every reconnect made a user reasonably ask what they had done wrong.
+			#
+			# Deliberately not cleared when an arrangement has no dead columns. Losing the narrow
+			# display is exactly such an arrangement, so clearing it would warn again every time
+			# that display came back — which is the case this is about.
 			log.warning(
 				f"BrlMultiline: {dead} cells of the virtual display reach no hardware, because the "
-				"displays are not the same width. Content flowed into them will not be shown. "
-				"Divide the display into segments that match the displays.",
+				"displays are not the same width. The add-on's own plugin masks them, arranging "
+				"one segment per display; without it, content flowed into them is lost.",
 			)
+			self._reportedDeadColumns = dead
 
 	def initSettings(self) -> None:
 		"""Note that NVDA has finished the switch, as well as reading the settings.
