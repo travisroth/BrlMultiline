@@ -733,6 +733,12 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 				)
 		self._settingProxies = proxies
 		self._settingNames.update(proxies)
+		# Most braille display drivers have no settings of their own: `BrailleDisplayDriver`
+		# defines `supportedSettings = ()` and only a few override it, so a composite showing
+		# nothing in NVDA's Braille settings is the ordinary answer rather than a fault. Said
+		# at debug level because it is the question a hardware run actually asked, and there is
+		# otherwise nothing anywhere to distinguish "no settings" from "not working".
+		log.debug(f"BrlMultiline: members offer {len(settings)} setting(s) between them")
 		for name in proxies:
 			# Anything of this name stored on the composite is a value that was written while
 			# its display was away. The member is the authority now that it is back.
