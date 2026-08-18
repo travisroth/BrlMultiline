@@ -120,9 +120,10 @@ logic as the existing `panLine`.
 
 ### `panHeading(forward)` — `PinnedCursorManagerRegion` only
 
-Tries the tree interceptor's `_iterNodesByType("heading", ...)` heading iterator first.
-Falls back to `panUnit(textInfos.UNIT_PARAGRAPH, ...)` when heading iteration is
-unavailable or raises.  Falls back further to `panLine` when paragraph movement also fails.
+Tries the tree interceptor's `_iterNodesByType("heading", ...)` heading iterator.  Returns
+`True` if a heading was found, `False` if the iterator is absent or has no more headings in
+the requested direction.  **Does not fall back internally**; the caller
+(`SemanticNavigator`) handles the descent to paragraph and line.
 
 ---
 

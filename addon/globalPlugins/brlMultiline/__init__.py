@@ -555,20 +555,23 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if key not in self._monitors:
 			# Translators: reported when asked to navigate a segment that has no pinned object.
 			# The placeholder is replaced with the segment number.
-			ui.message(_("Segment {number} is not monitoring anything").format(number=resolved))
+			ui.message(_("Segment {number} is not monitoring anything").format(number=segmentNumber))
 			return
 		from .semanticNav import SemanticNavigator
 
 		navigator = SemanticNavigator(container, key)
 		result = navigator.move(unit, forward)
-		if not result.moved and result.reason:
-			ui.message(result.reason)
-		elif result.moved and result.unit_used != unit:
+		if result.moved and result.unit_used != unit:
 			# Translators: briefly reported when semantic navigation falls back to a coarser unit.
 			# {unit} is the unit asked for; {fallback} is the unit actually used.
 			ui.message(
 				_("{unit} not available; used {fallback}").format(unit=unit, fallback=result.unit_used),
 			)
+		elif not result.moved and result.unit_used != unit:
+			# Fell all the way through the fallback chain and still could not move.
+			# Translators: reported when no navigation unit was available or at a boundary.
+			# {unit} is the unit asked for.
+			ui.message(_("{unit} not available in this context").format(unit=unit))
 
 	# Scrolling
 
