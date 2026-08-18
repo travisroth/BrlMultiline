@@ -1253,11 +1253,30 @@ A second look at the same work found four more, and one of them was a test that 
   the plugin imports, asserts the plugin is on it, drives a same size recovery through it, and
   checks that terminating takes the plugin off it.
 
-837 tests, one expected failure.
+851 tests, one expected failure.
 
 Phases 1 and 2 were the whole feasibility question, and Phase 3 was indeed small because of
-the work already done on panels. Every phase is now code complete; what is left is hardware
-verification of Phases 4 and 5, and translations.
+the work already done on panels. Every phase is code complete, and Phases 4 and 5 are verified
+on hardware: NVDA started with one of two configured displays switched off, and that display
+switched on again during the session, both cleanly. Panning both displays at once with the
+reversal set on only one of them was verified in the same run.
+
+## Translations
+
+The strings are marked and the build extracts them. `scons pot` needs the GNU gettext tools on
+PATH; `winget install --id mlocati.GetText -e` supplies them.
+
+Running it the first time earned its keep. Eleven of the sixty five strings came out with no
+translator comment, because **xgettext attaches a preceding comment to the line holding the
+string, not the line holding the `_(` call**. Every string long enough to be wrapped had lost
+its comment, which is every string a translator would most need context for. The comments now
+sit inside the parentheses, immediately above the string, which is what NVDA's own code does
+and why it does it. Worth re-running whenever strings are added: the failure is silent, and a
+translator sees only the loss.
+
+What remains is the ordinary distribution step -- offering the `.pot` to the NVDA translation
+community, which `sconstruct` already addresses at nvda-translations@groups.io. Nothing in the
+add-on blocks it.
 
 ## Testing
 

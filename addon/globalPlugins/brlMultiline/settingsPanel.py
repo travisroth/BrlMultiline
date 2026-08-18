@@ -104,8 +104,8 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 	# Translators: title of the BrlMultiline settings category in NVDA's settings.
 	title = _("BrlMultiline")
 
-	# Translators: description of the BrlMultiline settings category, announced with it.
 	panelDescription = _(
+		# Translators: description of the BrlMultiline settings category, announced with it.
 		"Divide the braille display into segments, each showing something of its own.",
 	)
 	"""What NVDA announces about this category beyond its name.
@@ -139,9 +139,9 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			sHelper.addItem(
 				wx.StaticText(
 					self,
-					# Translators: shown in settings when the display is several displays
-					# combined. Placeholders are the number of displays, rows and columns.
 					label=_(
+						# Translators: shown in settings when the display is several displays
+						# combined. Placeholders are the number of displays, rows and columns.
 						"This display is {count} displays combined, {rows} rows of {columns} cells. "
 						"Each display is divided into segments of its own.",
 					).format(count=len(self.devices), rows=self.numRows, columns=self.numCols),
@@ -213,10 +213,10 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			initial=int(section["focusSegment"]),
 		)
 		if self.devices:
-			# Translators: label of a spin control in settings, on a display made of several
-			# displays. -1 means wherever the focus is, which is where messages appear on an
-			# undivided display.
 			messageLabel = _(
+				# Translators: label of a spin control in settings, on a display made of several
+				# displays. -1 means wherever the focus is, which is where messages appear on an
+				# undivided display.
 				"Segment that flash &messages appear in, counted across every display "
 				"(-1 to follow the focus):",
 			)
@@ -381,9 +381,9 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		for control in (self.focusSegmentCtrl, self.messageSegmentCtrl):
 			if control.Value >= totalSegments:
 				self._reportError(
-					# Translators: reported when a chosen segment number does not exist.
-					# Placeholders are the chosen number and the number of segments configured.
 					_(
+						# Translators: reported when a chosen segment number does not exist.
+						# Placeholders are the chosen number and the number of segments configured.
 						"There is no segment {chosen}; this layout has {count} segments, numbered from 0.",
 					).format(chosen=control.Value, count=totalSegments),
 					control,
@@ -448,9 +448,9 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 	# Translators: title of the settings category for combining several braille displays.
 	title = _("BrlMultiline displays")
 
-	# Translators: description of the settings category for combining several braille
-	# displays, announced with it and shown at the top of it.
 	panelDescription = _(
+		# Translators: description of the settings category for combining several braille
+		# displays, announced with it and shown at the top of it.
 		"Several braille displays can be driven as one, stacked one above another. "
 		"Choose them here, then choose "
 		'"BrlMultiline: several displays as one"'
@@ -512,9 +512,9 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 		sHelper.addItem(
 			wx.StaticText(
 				self,
-				# Translators: a note at the bottom of the settings category for combining
-				# braille displays.
 				label=_(
+					# Translators: a note at the bottom of the settings category for combining
+					# braille displays.
 					"Each display is detected afresh when it is opened, so no port is chosen here. "
 					"One display per driver: two displays of the same make cannot be told apart. "
 					"A display is shown as in use while the combined display is the one in use; "

@@ -932,10 +932,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when a command needs segments but none are configured.
 			ui.message(_("BrlMultiline is not active"))
 			return
-		# Translators: reports the current layout. Placeholders are the name of the view,
-		# the number of panels, the number of segments, and the segment following the focus.
 		ui.message(
-			_("{view} view, {panels} panels, {count} segments, focus in segment {focus}").format(
+			_(
+				# Translators: reports the current layout. Placeholders are the name of the view,
+				# the number of panels, the number of segments, and the segment following the
+				# focus.
+				"{view} view, {panels} panels, {count} segments, focus in segment {focus}",
+			).format(
 				view=container.view.name,
 				panels=len(container.panels),
 				count=container.numSegments,
@@ -977,12 +980,18 @@ def _makeDisplayScrollScript(displayOrdinal: int, segmentOrdinal: int, forward: 
 		if number is not None:
 			self.scrollSegment(number, forward, gesture)
 
-	# Translators: input help message for a command. Placeholders are a segment number,
-	# counting from 0 on that display, and the name of one of the combined displays.
 	template = (
-		_("Scrolls segment {segment} of {display} forward")
+		_(
+			# Translators: input help message for a command. Placeholders are a segment number,
+			# counting from 0 on that display, and the name of one of the combined displays.
+			"Scrolls segment {segment} of {display} forward",
+		)
 		if forward
-		else _("Scrolls segment {segment} of {display} back")
+		else _(
+			# Translators: input help message for a command. Placeholders are a segment number,
+			# counting from 0 on that display, and the name of one of the combined displays.
+			"Scrolls segment {segment} of {display} back",
+		)
 	)
 	scrollScript.__doc__ = template.format(
 		segment=segmentOrdinal,
@@ -1009,12 +1018,18 @@ def _makeDisplayMonitorScript(displayOrdinal: int, segmentOrdinal: int, start: b
 		else:
 			self.stopMonitoring(number)
 
-	# Translators: input help message for a command. Placeholders are a segment number,
-	# counting from 0 on that display, and the name of one of the combined displays.
 	template = (
-		_("Shows the navigator object in segment {segment} of {display}")
+		_(
+			# Translators: input help message for a command. Placeholders are a segment number,
+			# counting from 0 on that display, and the name of one of the combined displays.
+			"Shows the navigator object in segment {segment} of {display}",
+		)
 		if start
-		else _("Stops showing an object in segment {segment} of {display}")
+		else _(
+			# Translators: input help message for a command. Placeholders are a segment number,
+			# counting from 0 on that display, and the name of one of the combined displays.
+			"Stops showing an object in segment {segment} of {display}",
+		)
 	)
 	monitorScript.__doc__ = template.format(
 		segment=segmentOrdinal,
