@@ -28,6 +28,18 @@ from brlMultiline.flowRender import FlowRenderer  # noqa: E402
 from brlMultiline.flowSources import DocumentFlowSource, FetchBudget, regionFactoryFor  # noqa: E402
 
 
+class FakeClock:
+	"""A clock a test drives by hand, so a budget can run out without anything sleeping."""
+
+	def __init__(self, step=0.0):
+		self.now = 0.0
+		self.step = step
+
+	def __call__(self):
+		self.now += self.step
+		return self.now
+
+
 class FakeHandler:
 	"""Enough of the braille handler for a layout buffer to read its settings through."""
 
@@ -180,6 +192,91 @@ class TestFetching(unittest.TestCase):
 		control.panBack()
 		control.panBack()
 		self.assertEqual(rowTexts(control), before)
+
+
+class TestLongBlocks(unittest.TestCase):
+	"""A block longer than one rendering is read in chunks, not cut off."""
+
+	def _paragraph(self, characters=400, numCols=8, numRows=4, chunkRows=8):
+		interceptor = FakeTreeInterceptor(["".join(chr(ord("a") + (n % 26)) for n in range(characters))])
+		source = DocumentFlowSource(
+			interceptor,
+			regionFactoryFor(CursorManagerRegion(interceptor), live=False),
+			generation=1,
+		)
+		render = FlowRenderer(FakeHandler(), numCols=numCols, fillRows=True, maxRows=chunkRows)
+		control = FlowController(source, render, numRows=numRows)
+		control.enterAtCursor()
+		return control
+
+	def test_aChunkHoldsOnlyItsOwnRows(self):
+		control = self._paragraph()
+		self.assertEqual(control.window.blocks[0].numRows, 8)
+		self.assertTrue(control.window.blocks[0].moreRows)
+
+	def test_panningReadsPastTheEndOfAChunk(self):
+		# The whole point: 400 characters over an 8 cell band is 50 rows, and the chunk
+		# holds 8 of them. Everything past the first chunk used to be unreachable.
+		control = self._paragraph()
+		seen = [rowTexts(control)[0]]
+		for _ in range(10):
+			if not control.panForward():
+				break
+			seen.append(rowTexts(control)[0])
+		self.assertEqual(len(seen), 11)
+		self.assertEqual(len(set(seen)), 11)
+
+	def test_theRowsAreContinuousAcrossAChunkBoundary(self):
+		control = self._paragraph(characters=400)
+		rows = rowTexts(control)
+		control.panForward()
+		self.assertEqual(rowTexts(control)[0], "".join(chr(ord("a") + ((32 + n) % 26)) for n in range(8)))
+		self.assertNotEqual(rowTexts(control)[0], rows[0])
+
+	def test_panningBackAcrossAChunkBoundaryReturns(self):
+		control = self._paragraph()
+		before = rowTexts(control)
+		for _ in range(4):
+			control.panForward()
+		for _ in range(4):
+			control.panBack()
+		self.assertEqual(rowTexts(control), before)
+
+	def test_aBlockShorterThanAChunkSaysThereIsNoMore(self):
+		control = self._paragraph(characters=20)
+		self.assertFalse(control.window.blocks[0].moreRows)
+
+
+class TestBudgetCoversAnOperation(unittest.TestCase):
+	"""One budget for what the reader asked for, not one per call underneath it."""
+
+	def test_fillingIsBoundedByOneBudget(self):
+		# Reset per source call, a budget of one block still filled a four row band with
+		# four blocks, which is no bound at all.
+		budget = FetchBudget(maxBlocks=1, maxSeconds=10.0, clock=lambda: 0.0)
+		control = controllerOver([str(number) for number in range(20)], numRows=4, budget=budget)
+		self.assertLessEqual(len(control.window.blocks), 2)
+
+	def test_aBoundedFillSaysThereIsMore(self):
+		budget = FetchBudget(maxBlocks=1, maxSeconds=10.0, clock=lambda: 0.0)
+		control = controllerOver([str(number) for number in range(20)], numRows=4, budget=budget)
+		self.assertEqual(control.window.edges[Edge.AFTER], EdgeState.DEFERRED)
+		self.assertEqual(control.window.visibleRows()[-1].kind, RowKind.PENDING)
+
+	def test_aFreshOperationGetsTheBudgetAgain(self):
+		# A bound on one pan is not a bound on every pan afterwards.
+		budget = FetchBudget(maxBlocks=2, maxSeconds=10.0, clock=lambda: 0.0)
+		control = controllerOver([str(number) for number in range(40)], numRows=2, budget=budget)
+		self.assertTrue(control.panForward())
+		self.assertTrue(control.panForward())
+
+	def test_layingOutIsChargedForAsWellAsReading(self):
+		clock = FakeClock(step=0.004)
+		budget = FetchBudget(maxBlocks=100, maxSeconds=0.02, clock=clock)
+		control = controllerOver([str(number) for number in range(40)], numRows=8, budget=budget)
+		# The clock only advances when something asks it the time, so a run that charged
+		# for reading alone would get further than one that charges for both.
+		self.assertLess(len(control.window.blocks), 8)
 
 
 class TestCursor(unittest.TestCase):

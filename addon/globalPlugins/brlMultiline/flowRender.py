@@ -46,12 +46,13 @@ A block longer than this is laid out in several passes, so the number is a worki
 rather than a limit. Eight is a Monarch's height, which makes the common case one pass.
 """
 
-MAX_BLOCK_ROWS = 64
-"""How many rows one block may occupy before the rest of it is dropped.
+CHUNK_ROWS = 64
+"""How many rows of one block are laid out at a time.
 
-A guard against a pathological block — a whole document rendered as one paragraph, a
-minified script in a code view — costing a great deal of layout for rows no reader will
-ever pan to. At 32 cells that is two thousand cells, far more than a display can show.
+A working set, not a limit: a block longer than this is rendered in chunks, and the
+controller asks for the next one when the reader pans towards it. What it bounds is the
+cells held for a pathological block — a whole document rendered as one paragraph, a
+minified script in a code view — not how much of it can be read.
 """
 
 
@@ -69,7 +70,7 @@ class FlowRenderer:
 		fillRows: bool = True,
 		markCuts: bool = False,
 		layoutRows: int = LAYOUT_ROWS,
-		maxRows: int = MAX_BLOCK_ROWS,
+		maxRows: int = CHUNK_ROWS,
 	) -> None:
 		"""
 		:param handler: the real braille handler, which the layout buffer reads its
@@ -80,7 +81,7 @@ class FlowRenderer:
 			setting applies; a narrow one has no cells to spare for keeping words whole.
 		:param markCuts: spend a cell on a continuation mark where a row was cut mid word.
 		:param layoutRows: how many rows to lay out per pass.
-		:param maxRows: how many rows one block may occupy at most.
+		:param maxRows: how many rows of one block to hold at a time.
 		:raises ValueError: if the width is not positive.
 		"""
 		if numCols < 1:
@@ -115,26 +116,33 @@ class FlowRenderer:
 		except Exception:
 			return None
 
-	def render(self, block: SourceBlock) -> RenderedBlock:
-		"""Lay a block out.
+	def render(self, block: SourceBlock, fromRow: int = 0) -> RenderedBlock:
+		"""Lay a block out, or one chunk of a long one.
 
 		:param block: the block to render, carrying the region to read it through.
+		:param fromRow: which row of the block to start at. A long block is read in chunks
+			so that a very long paragraph can be panned through rather than cut off.
 		:return: the rendering. A block with no text renders as one blank row, so that a
 			blank line in a document occupies the row it deserves.
 		"""
+		fromRow = max(0, fromRow)
 		rows: list[tuple[int, ...]] = []
 		positions: list[tuple[int, ...]] = []
+		more = False
 		buffer = self._layoutBuffer(block)
 		if buffer is not None:
-			rows, positions = self._layout(buffer)
+			rows, positions, more = self._layout(buffer, fromRow)
 		if not rows:
 			rows = [()]
 			positions = [()]
+			fromRow = 0
 		return RenderedBlock(
 			blockId=block.blockId,
 			rows=tuple(rows),
 			positions=tuple(positions),
 			renderKey=self.renderKey,
+			rowOffset=fromRow,
+			moreRows=more,
 			rawText=getattr(block.region, "rawText", ""),
 			gapBefore=block.gapBefore,
 			gapAfter=block.gapAfter,
@@ -164,14 +172,21 @@ class FlowRenderer:
 			return None
 		return buffer
 
-	def _layout(self, buffer: BrailleBufferSegment) -> tuple[list, list]:
-		"""Walk a laid out block, a pass at a time, collecting its rows.
+	def _layout(self, buffer: BrailleBufferSegment, fromRow: int = 0) -> tuple[list, list, bool]:
+		"""Walk a laid out block, a pass at a time, collecting the rows wanted.
+
+		Rows before `fromRow` are walked and discarded rather than skipped: where a row ends
+		depends on where the one before it ended, so the only way to know is to cut them.
+		The translation is done once either way, when the region is read.
 
 		:param buffer: the buffer holding the block.
-		:return: the rows and their position maps.
+		:param fromRow: the first row of the block to keep.
+		:return: the rows kept, their position maps, and whether the block continues past
+			them.
 		"""
 		rows: list[tuple[int, ...]] = []
 		positions: list[tuple[int, ...]] = []
+		seen = 0
 		cells = buffer.brailleCells
 		while True:
 			try:
@@ -185,21 +200,27 @@ class FlowRenderer:
 			if not offsets:
 				break
 			for rowPositions in offsets:
-				if rowPositions.start >= len(cells) and rows:
+				if rowPositions.start >= len(cells) and (rows or seen):
 					# Past the end of the block. A first row is kept even when empty, since
 					# a blank line is a row.
 					continue
+				if seen < fromRow:
+					seen += 1
+					continue
+				seen += 1
 				row, where = self._rowFrom(cells, rowPositions)
 				rows.append(row)
 				positions.append(where)
 				if len(rows) >= self.maxRows:
-					log.debugWarning(f"A block reached {self.maxRows} rows; the rest is not shown")
-					return rows, positions
+					# Not the end of the block, only the end of this chunk. The controller
+					# asks for the next one when the reader pans towards it.
+					more = buffer.windowEndPos < len(cells) or rowPositions.end < len(cells)
+					return rows, positions, more
 			if buffer.windowEndPos >= len(cells):
 				break
 			if not buffer._nextWindow():
 				break
-		return rows, positions
+		return rows, positions, False
 
 	def _rowFrom(self, cells: list, rowPositions) -> tuple[tuple[int, ...], tuple[int, ...]]:
 		"""Build one row and the map back to where each of its cells came from.

@@ -133,6 +133,18 @@ class RenderedBlock:
 	"""For each cell, the position within the block it came from, or `NO_POSITION`."""
 
 	renderKey: RenderKey
+	rowOffset: int = 0
+	"""Which row of the block `rows[0]` is.
+
+	A block longer than one rendering is laid out in chunks, and a row is named by its
+	place in the whole block rather than in the chunk it happens to be in. That is what
+	lets the anchor survive a chunk changing underneath it, which is how a reader pans
+	through a very long paragraph and back again without losing their place.
+	"""
+
+	moreRows: bool = False
+	"""Whether the block continues past this rendering."""
+
 	rawText: str = ""
 	"""The block's text, for logging and for tests. Not used to lay anything out."""
 
@@ -157,8 +169,17 @@ class RenderedBlock:
 
 	@property
 	def numRows(self) -> int:
-		""":return: how many rows this block occupies, not counting its gaps."""
+		""":return: how many rows this rendering holds, not counting its gaps."""
 		return len(self.rows)
+
+	@property
+	def endRow(self) -> int:
+		""":return: one past the last row of the block this rendering reaches."""
+		return self.rowOffset + len(self.rows)
+
+	def holdsRow(self, rowIndex: int) -> bool:
+		""":return: whether a row of the block is in this rendering."""
+		return self.rowOffset <= rowIndex < self.endRow
 
 
 @dataclasses.dataclass(frozen=True)
@@ -533,7 +554,9 @@ class FlowWindow:
 			if block.gapBefore:
 				rows.append(StreamRow(kind=RowKind.GAP, blockId=block.blockId, rowIndex=-1))
 			for index in range(block.numRows):
-				rows.append(StreamRow(kind=RowKind.CONTENT, blockId=block.blockId, rowIndex=index))
+				rows.append(
+					StreamRow(kind=RowKind.CONTENT, blockId=block.blockId, rowIndex=block.rowOffset + index),
+				)
 			if block.gapAfter:
 				rows.append(StreamRow(kind=RowKind.GAP, blockId=block.blockId, rowIndex=block.numRows))
 		return rows
@@ -831,7 +854,7 @@ class FlowWindow:
 		if row.blockId is None:
 			return False
 		block = self.blocks[self.blockIndex(row.blockId)]
-		rowIndex = 0 if entry is Entry.TOP else block.numRows - 1
+		rowIndex = block.rowOffset if entry is Entry.TOP else block.endRow - 1
 		self.anchor = Anchor(blockId=row.blockId, rowIndex=rowIndex, entry=entry)
 		return True
 
@@ -843,11 +866,11 @@ class FlowWindow:
 			block = self.blocks[self.blockIndex(self.anchor.blockId)]
 		except LookupError:
 			return
-		last = max(0, block.numRows - 1)
+		last = max(block.rowOffset, block.endRow - 1)
 		if self.anchor.rowIndex > last:
 			self.anchor = dataclasses.replace(self.anchor, rowIndex=last)
-		elif self.anchor.rowIndex < 0:
-			self.anchor = dataclasses.replace(self.anchor, rowIndex=0)
+		elif self.anchor.rowIndex < block.rowOffset:
+			self.anchor = dataclasses.replace(self.anchor, rowIndex=block.rowOffset)
 
 	def _recoverAnchor(self, previous: Sequence[BlockId]) -> bool:
 		"""Find something to hold on to after the anchored block went away.
@@ -867,7 +890,7 @@ class FlowWindow:
 			if not self.hasBlock(blockId):
 				continue
 			block = self.blocks[self.blockIndex(blockId)]
-			rowIndex = 0 if forward else max(0, block.numRows - 1)
+			rowIndex = block.rowOffset if forward else max(block.rowOffset, block.endRow - 1)
 			self.anchor = Anchor(blockId=blockId, rowIndex=rowIndex, entry=self.anchor.entry)
 			return True
 		return False
@@ -910,7 +933,9 @@ def cellSource(window: FlowWindow, numCols: int, position: int) -> tuple[BlockId
 	if row.kind is not RowKind.CONTENT or row.blockId is None:
 		return None
 	block = window.blocks[window.blockIndex(row.blockId)]
-	positions = block.positions[row.rowIndex]
+	if not block.holdsRow(row.rowIndex):
+		return None
+	positions = block.positions[row.rowIndex - block.rowOffset]
 	if col >= len(positions):
 		return None
 	where = positions[col]
@@ -926,7 +951,9 @@ def _rowCells(window: FlowWindow, row: StreamRow, numCols: int) -> list[int]:
 			block = window.blocks[window.blockIndex(row.blockId)]
 		except LookupError:
 			return [BLANK_CELL] * numCols
-		cells = list(block.rows[row.rowIndex])[:numCols]
+		if not block.holdsRow(row.rowIndex):
+			return [BLANK_CELL] * numCols
+		cells = list(block.rows[row.rowIndex - block.rowOffset])[:numCols]
 		return cells + [BLANK_CELL] * (numCols - len(cells))
 	if row.kind is RowKind.PENDING:
 		marks = min(PENDING_MARK_CELLS, numCols)

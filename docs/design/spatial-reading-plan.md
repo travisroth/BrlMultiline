@@ -577,12 +577,20 @@ and it needs three things before milestone 3:
 
    Still owed, and not blockers for a first hardware run:
 
-   - **Long blocks are truncated at 64 rows** with no marker and no way to reach the rest.
-     They want rendering in chunks with a continuation token. The cap does not save the
-     translation either, since the whole region is read before it is cut.
-   - **The fetch budget is per source call**, so it does not bound a whole fill or pan, and
-     rendering is not charged to it at all. One budget per operation, charged for both
-     fetching and rendering, is the shape it wants.
+   Since fixed: **long blocks are read in chunks** rather than cut off at sixty-four rows.
+   A row is named by its place in the whole block, not in the chunk it happens to be in,
+   which is what lets the anchor survive a chunk changing underneath it; and a new chunk
+   overlaps the old by a window, so the reader's place is inside it either way. The
+   controller renders the next chunk before it will fetch the next block, or a long
+   paragraph would be stepped over half read. Sixty-four rows is now a working set rather
+   than a limit.
+
+   Since fixed: **the budget belongs to an operation** — arriving, filling, panning,
+   following the cursor — rather than to each source call underneath it. Per call it
+   bounded nothing, as a band four rows tall makes four calls; a budget of one block now
+   stops after one and the band says on the display that there is more it has not read.
+   Laying a block out is charged for as well as reading it, since on a heavy page either
+   can be the slow one.
    Since fixed: the flow follows the focus from document to document. The band takes its
    target from the object NVDA built the focus regions for, rather than asking the system
    again and racing the change; it keeps the controller it has when that resolves to the

@@ -27,6 +27,7 @@ The controller also owns the two things a flow must be exact about:
 	viewer moves nothing outside its own band.
 """
 
+import contextlib
 from typing import TYPE_CHECKING, Optional
 
 from logHandler import log
@@ -131,6 +132,24 @@ class FlowController(PanelOwner):
 		Not a dictionary: a `BlockId` holds a bookmark, and a bookmark compares but does not
 		hash. See `flow.ByIdentity`."""
 
+	@contextlib.contextmanager
+	def operation(self):
+		"""One thing the reader asked for, sharing one budget.
+
+		Arriving in a document, filling the band, panning it and following the cursor are
+		each one operation. The budget is theirs rather than each source call's: reset per
+		call it would bound nothing, since a band four rows tall makes four calls.
+		"""
+		budget = self.source.budget
+		outer = budget.active
+		if not outer:
+			budget.start()
+		try:
+			yield budget
+		finally:
+			if not outer:
+				budget.finish()
+
 	# Arriving.
 
 	def enterAtCursor(self, contextRows: int = 0) -> bool:
@@ -144,6 +163,11 @@ class FlowController(PanelOwner):
 			display fills downward.
 		:return: whether anything is now on the display.
 		"""
+		with self.operation():
+			return self._enterAtCursor(contextRows)
+
+	def _enterAtCursor(self, contextRows: int = 0) -> bool:
+		""":return: whether anything is now on the display. See `enterAtCursor`."""
 		result = self.source.blockAtCursor()
 		self.lastResult = result
 		if result.kind is not ResultKind.BLOCK or result.block is None:
@@ -167,6 +191,10 @@ class FlowController(PanelOwner):
 
 	def fill(self) -> None:
 		"""Fetch whatever the window is short of, at both ends, and drop what is far away."""
+		with self.operation():
+			self._fillBothEnds()
+
+	def _fillBothEnds(self) -> None:
 		for edge in (Edge.AFTER, Edge.BEFORE):
 			shortfall = self.window.shortfall(edge)
 			if shortfall:
@@ -199,6 +227,11 @@ class FlowController(PanelOwner):
 		for _ in range(MAX_FETCHES):
 			if self.window.shortfall(edge) <= 0:
 				return True
+			if self.source.budget.exhausted:
+				# Out of budget, not out of document. Said so on the display, so that the
+				# rows the reader cannot see yet do not read as the end of the page.
+				self.window.setEdge(edge, EdgeState.DEFERRED)
+				return False
 			if not self._fetchOne(edge):
 				return False
 		log.debugWarning(f"A flow stopped fetching {edge.value} after {MAX_FETCHES} blocks")
@@ -215,6 +248,10 @@ class FlowController(PanelOwner):
 		blocks = self.window.blocks
 		if not blocks:
 			return False
+		if self._continueBlock(edge):
+			# The block at this end has more rows of its own. They come before the next
+			# block does, or a long paragraph would be stepped over half read.
+			return True
 		anchorId = blocks[0].blockId if edge is Edge.BEFORE else blocks[-1].blockId
 		result = (
 			self.source.blockBefore(anchorId) if edge is Edge.BEFORE else self.source.blockAfter(anchorId)
@@ -226,11 +263,54 @@ class FlowController(PanelOwner):
 			self.window.setEdge(edge, result.edgeState)
 			return False
 		block = self._keep(result.block)
+		began = self.source.budget.clock()
 		rendered = self.renderer.render(block)
+		# Laying a block out is charged for as well as reading it: both are work the reader
+		# waits through, and on a heavy page either can be the slow one.
+		self.source.budget.spend(self.source.budget.clock() - began)
 		if edge is Edge.BEFORE:
 			self.window.prependBlock(rendered)
 		else:
 			self.window.appendBlock(rendered)
+		return True
+
+	def _continueBlock(self, edge: Edge) -> bool:
+		"""Render the next chunk of a block that is longer than one rendering.
+
+		A very long paragraph is held a chunk at a time. The chunk that replaces this one
+		overlaps it by a window, so the anchor is still inside it and the reader's place
+		survives the change; rows are named by their place in the whole block, so the
+		anchor means the same thing on either side of it.
+
+		:param edge: which end of the stream is short.
+		:return: whether a chunk was rendered.
+		"""
+		blocks = self.window.blocks
+		if not blocks:
+			return False
+		forward = edge is Edge.AFTER
+		rendered = blocks[-1] if forward else blocks[0]
+		if forward and not rendered.moreRows:
+			return False
+		if not forward and rendered.rowOffset <= 0:
+			return False
+		block = self.blocks.get(rendered.blockId)
+		if block is None:
+			return False
+		overlap = self.window.numRows
+		if forward:
+			fromRow = max(0, rendered.endRow - overlap)
+		else:
+			fromRow = max(0, rendered.rowOffset - self.renderer.maxRows + overlap)
+		if fromRow == rendered.rowOffset:
+			return False
+		fresh = self.renderer.render(block, fromRow=fromRow)
+		if not fresh.rows or fresh.rowOffset == rendered.rowOffset:
+			return False
+		try:
+			self.window.replaceBlock(fresh)
+		except LookupError:
+			return False
 		return True
 
 	def _keep(self, block):
@@ -301,6 +381,11 @@ class FlowController(PanelOwner):
 		:param forward: the direction to pan.
 		:return: whether the window moved.
 		"""
+		with self.operation():
+			return self._panWithin(forward)
+
+	def _panWithin(self, forward: bool) -> bool:
+		""":return: whether the window moved. See `_pan`."""
 		for _ in range(MAX_FETCHES):
 			try:
 				moved = self.window.panForward() if forward else self.window.panBack()
@@ -364,6 +449,11 @@ class FlowController(PanelOwner):
 
 		:return: whether anything changed.
 		"""
+		with self.operation():
+			return self._followCursor()
+
+	def _followCursor(self) -> bool:
+		""":return: whether anything changed. See `followCursor`."""
 		result = self.source.blockAtCursor()
 		self.lastResult = result
 		if result.kind is not ResultKind.BLOCK or result.block is None:

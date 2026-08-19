@@ -39,7 +39,7 @@ from logHandler import log
 from .flow import BlockId, ByIdentity, FetchResult, SourceBlock
 
 DEFAULT_MAX_BLOCKS = 12
-"""How many blocks one fetch may walk before giving up.
+"""How many blocks one operation may read before giving up.
 
 A Monarch shows eight rows, so filling a window from nothing costs at most eight blocks
 when every block is one row. The margin above that is for a run of blank lines being
@@ -251,6 +251,13 @@ class FetchBudget:
 		self.clock = clock
 		self.blocks = 0
 		self.started = 0.0
+		self.active = False
+		"""Whether an operation is under way.
+
+		A budget belongs to a whole operation — filling the band, panning it, arriving in a
+		document — not to one call. Started per call it would reset on each of them and
+		bound nothing: a four row band could read four blocks under a budget of one."""
+
 		self.slowest = 0.0
 		"""The longest a single block took, in seconds, since this budget was made.
 
@@ -258,9 +265,26 @@ class FetchBudget:
 		is whether this document has slow blocks in it at all."""
 
 	def start(self) -> None:
-		"""Begin a fetch."""
+		"""Begin an operation, whatever was under way before."""
 		self.blocks = 0
 		self.started = self.clock()
+		self.active = True
+
+	def finish(self) -> None:
+		"""End the operation."""
+		self.active = False
+
+	def startUnlessActive(self) -> None:
+		"""Begin an operation only if the caller above has not already begun one."""
+		if not self.active:
+			self.start()
+
+	@property
+	def exhausted(self) -> bool:
+		""":return: whether this operation has used everything it was given."""
+		if self.blocks >= self.maxBlocks:
+			return True
+		return (self.clock() - self.started) >= self.maxSeconds
 
 	def observe(self, seconds: float) -> None:
 		"""Record how long a block took without spending any of the budget on it.
@@ -275,14 +299,15 @@ class FetchBudget:
 	def spend(self, seconds: float = 0.0) -> bool:
 		"""Account for one block, and say whether there is room for another.
 
+		Charged for reading a block and again for laying it out, since both are work the
+		reader waits through and either can be the slow one.
+
 		:param seconds: how long that block took, for the latency record.
 		:return: whether the budget allows going on.
 		"""
 		self.blocks += 1
 		self.slowest = max(self.slowest, seconds)
-		if self.blocks >= self.maxBlocks:
-			return False
-		return (self.clock() - self.started) < self.maxSeconds
+		return not self.exhausted
 
 
 class DocumentFlowSource:
@@ -340,7 +365,7 @@ class DocumentFlowSource:
 
 		:return: the block, or an error if the document could not be read.
 		"""
-		self.budget.start()
+		self.budget.startUnlessActive()
 		try:
 			info = self.obj.makeTextInfo(textInfos.POSITION_SELECTION)
 		except Exception as error:
@@ -358,7 +383,7 @@ class DocumentFlowSource:
 
 	def _step(self, blockId: BlockId, forward: bool) -> FetchResult:
 		"""Walk one block in a direction, collapsing blanks and honouring the budget."""
-		self.budget.start()
+		self.budget.startUnlessActive()
 		key = (blockId.bookmark, forward)
 		pending = self._resume.pop(key)
 		if pending is not None:
