@@ -469,6 +469,27 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self.segment.acceptFocusRegions(self._focusRegionsFor(second))
 		self.assertNotEqual(self.band.controller.source.generation, wasGeneration)
 
+	def test_focusOnSomethingOutsideADocumentIsGivenBackToNVDA(self):
+		# Notepad's edit control has no tree interceptor. A flow over it followed the caret
+		# and grew a row at a time as the reader typed, which is not a presentation anyone
+		# asked for; NVDA already presents it well.
+		page, _ = self._document(documentLines())
+		self._start(page)
+		notepad = self._focusOn(FakeNavigatorObject("a document", lines=documentLines()))
+		self.assertFalse(self.segment.acceptFocusRegions(self._focusRegionsFor(notepad)))
+		self.assertFalse(self.segment.isFlowing)
+
+	def test_aFieldInsideAPageStillFlows(self):
+		# The reader entering a form field has not left the document; it is the same page,
+		# differently attended to.
+		page, interceptor = self._document(documentLines())
+		self._start(page)
+		interceptor.passThrough = True
+		field = FakeNavigatorObject("a search field", treeInterceptor=interceptor, lines=["typed"])
+		self._focusOn(field)
+		self.assertTrue(self.segment.acceptFocusRegions(self._focusRegionsFor(field)))
+		self.assertTrue(self.segment.isFlowing)
+
 	def test_focusOnSomethingWithNoTextIsGivenBackToNVDA(self):
 		# A button in a dialog has no lines to flow. The band becomes an ordinary segment
 		# again rather than leaving the reader with a blank display.

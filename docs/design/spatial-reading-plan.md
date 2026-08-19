@@ -618,6 +618,29 @@ and it needs three things before milestone 3:
    was the constraint stated two sections above and then not honoured by the code that
    claims the band.
 
+   Second hardware run, on a Monarch: reading, panning in both directions, the cursor
+   following a tab within the window, tabbing past the window, and typing into a form field
+   all behaved. Two faults found and fixed.
+
+   A jump backwards showed no cursor until the reader tabbed forward again. A block is read
+   before anything knows whether it is the one the cursor is in, and a block that is not
+   active suppresses its cursor, so a path that activated a block without reading it again
+   left none — which is every path ending in `enterAtCursor`. The block that becomes active
+   is now read again for its cursor. The same run also stopped a jump backwards throwing
+   the window away: looking for the cursor's block now tries both directions, since when
+   the block is not in the window there is nothing to say which way it went.
+
+   A flow followed the focus out of the browser into Notepad and grew a row at a time as
+   the reader typed. Browse mode is what a flow has been designed and tested against, so
+   that is now the test: the object belongs to a browse mode document, or it is one.
+   Whether browse mode is presenting it at this moment is deliberately not the test — a
+   form field the reader has entered inside a page is still that page, and reads well as a
+   flow, which the same run confirmed. Anything else is left to NVDA until a flow knows how
+   to read objects, which is milestone 6.
+
+   Known incomplete, and confirmed as such on that run: a control the reader has entered
+   loses its prompt, and a combo box shows no choices. Those are milestones 5 and 6.
+
    Not done: the settings dialog. The flow is turned on by the "Reads the whole display as
    one flowing document" command, and takes a whole physical display. A band of some of one
    display's rows is the same code with a smaller rectangle once a setting names it.

@@ -52,6 +52,18 @@ focus from one document to another with the same generation would let a stale an
 a block in the new one, and the reader would be put somewhere arbitrary."""
 
 
+def _isTreeInterceptor(obj: Any) -> bool:
+	""":return: whether an object is a browse mode document rather than something in one."""
+	try:
+		from treeInterceptorHandler import TreeInterceptor
+
+		return isinstance(obj, TreeInterceptor)
+	except ImportError:
+		# Outside a running NVDA. A tree interceptor is the thing that can stand aside for
+		# the control the reader has entered, which is what `passThrough` says.
+		return hasattr(obj, "passThrough")
+
+
 class FlowBand(PanelOwner):
 	"""One flow, claimed onto the display and kept fed.
 
@@ -170,6 +182,13 @@ class FlowBand(PanelOwner):
 		segment = self.segment()
 		if segment is None:
 			return False
+		if not self.isFlowable(obj):
+			# Not something this flow is built for. The band goes back to being an ordinary
+			# segment and NVDA presents the focus in it as it always has.
+			self.controller = None
+			self.obj = None
+			segment.detach()
+			return False
 		target = self._resolve(obj)
 		if target is not None and self._isCurrentDocument(target):
 			# The same document, so the reader has moved within it rather than left it. A
@@ -203,6 +222,39 @@ class FlowBand(PanelOwner):
 		self.obj = obj
 		segment.attach(control, obj=control.source.obj)
 		return True
+
+	def isFlowable(self, obj: Any) -> bool:
+		"""Whether a flow is the right way to present this object yet.
+
+		Browse mode is what the flow has been designed and tested against, and what it
+		reads well: a document rendered as a run of blocks. So the test is whether the
+		object belongs to a browse mode document at all — it has a tree interceptor — and
+		not whether browse mode is presenting it at this moment. A form field the reader
+		has entered inside a page still belongs to that page, and reading it as a flow is
+		right; it is the same document, differently attended to.
+
+		An object with no tree interceptor is a different matter. Notepad's edit control
+		has none, and a flow over it followed the caret and grew a row at a time as the
+		reader typed, which is not a presentation anyone asked for. Until a flow knows how
+		to read objects — the adapters of milestone 6 — those are left to NVDA, which
+		already presents them well.
+
+		The object asked about may be either side of the same fact: an `NVDAObject` that has
+		a tree interceptor, or the tree interceptor itself, since that is what NVDA puts on
+		the regions it builds for a browse mode document.
+
+		:param obj: what the reader is on.
+		:return: whether to read it as a flow.
+		"""
+		if obj is None:
+			return False
+		try:
+			if getattr(obj, "treeInterceptor", None) is not None:
+				return True
+			return _isTreeInterceptor(obj)
+		except Exception:
+			log.debugWarning("Could not tell whether this can be flowed", exc_info=True)
+			return False
 
 	def _isCurrentDocument(self, target: Any) -> bool:
 		""":return: whether a resolved target is the one the current flow is reading."""

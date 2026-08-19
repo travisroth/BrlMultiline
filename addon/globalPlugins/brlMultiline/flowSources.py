@@ -199,6 +199,28 @@ def regionFactoryFor(template, live: bool) -> Callable:
 	return factory
 
 
+def _hasText(obj) -> bool:
+	"""Whether an object has text to read.
+
+	Asked by reading a position out of it rather than by looking for `makeTextInfo`, which
+	every `NVDAObject` has: the base raises `NotImplementedError` for the ones with no text,
+	so the presence of the method says nothing. A button would otherwise be flowed, and
+	would fail one step further on with a worse account of why.
+
+	:param obj: the object to test.
+	:return: whether it can be read.
+	"""
+	try:
+		obj.makeTextInfo(textInfos.POSITION_FIRST)
+	except (AttributeError, NotImplementedError, RuntimeError):
+		return False
+	except Exception:
+		# Something else went wrong reading it, which is not the same as having no text.
+		log.debugWarning(f"Could not tell whether {obj!r} has text", exc_info=True)
+		return False
+	return True
+
+
 def regionFactoryForObject(obj, live: bool) -> Callable:
 	"""Choose the region class from the object itself, when NVDA has offered no template.
 
@@ -215,7 +237,7 @@ def regionFactoryForObject(obj, live: bool) -> Callable:
 
 	if isinstance(obj, CursorManager):
 		built = FlowCursorManagerRegion
-	elif hasattr(obj, "makeTextInfo"):
+	elif _hasText(obj):
 		built = FlowTextInfoRegion
 	else:
 		raise TypeError(f"{obj!r} reads no text, so it cannot be flowed")

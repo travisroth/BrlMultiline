@@ -569,6 +569,10 @@ class TextInfoRegion(Region):
 		info = self._readingInfo = self._getSelection()
 		self.rawText = info.text
 		Region.update(self)
+		# A collapsed position is a cursor, as it is in NVDA. Regions that must not show one
+		# clear it after calling this, which is the behaviour worth being able to test.
+		self.cursorPos = 0
+		self.brailleCursorPos = 0
 
 	def routeTo(self, pos):
 		self.routedTo = pos
@@ -1141,6 +1145,15 @@ class FakeNavigatorObject:
 		self.lines = lines
 		self.caretIndex = 0
 		self.treeInterceptor = treeInterceptor
+
+	def makeTextInfo(self, position):
+		"""Build a position, as an object with text does.
+
+		:raises NotImplementedError: for an object with no text, as NVDA's base does.
+		"""
+		if not self.lines:
+			raise NotImplementedError(f"{self.name!r} has no text")
+		return FakeTextInfo(self.lines, self.caretIndex)
 
 
 def fakeGetFocusRegions(obj, review=False):

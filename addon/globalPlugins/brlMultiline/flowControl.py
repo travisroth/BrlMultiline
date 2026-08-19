@@ -494,13 +494,21 @@ class FlowController(PanelOwner):
 		:param forward: which way to look for it.
 		:return: whether it was reached.
 		"""
-		edge = Edge.AFTER if forward else Edge.BEFORE
-		for _ in range(self.window.numRows):
-			if not self._fetchOne(edge):
-				return False
-			if self.window.hasBlock(blockId):
-				return True
+		# Both ways, because which way the cursor went cannot always be told: the block it
+		# is in is not in the window, so there is nothing to compare it with. Looking the
+		# wrong way first costs a few reads; not looking the other way at all throws the
+		# reader's window away and rebuilds it around the cursor.
+		for edge in self._edgesToTry(forward):
+			for _ in range(self.window.numRows):
+				if not self._fetchOne(edge):
+					break
+				if self.window.hasBlock(blockId):
+					return True
 		return False
+
+	def _edgesToTry(self, forward: bool) -> tuple:
+		""":return: the ends to look for a block at, the likelier one first."""
+		return (Edge.AFTER, Edge.BEFORE) if forward else (Edge.BEFORE, Edge.AFTER)
 
 	def syncToCursor(self, forward: bool = True) -> bool:
 		"""Bring the active block onto the display, moving as little as possible.
@@ -564,6 +572,29 @@ class FlowController(PanelOwner):
 			if region is None:
 				continue
 			region.isActive = block.blockId == blockId
+		self._giveTheActiveBlockItsCursor()
+
+	def _giveTheActiveBlockItsCursor(self) -> None:
+		"""Re-read the block that has just become active, so that it has a cursor.
+
+		A block is read before anything knows whether it is the one the cursor is in, and a
+		block that is not active suppresses its cursor — so the reading that built it left
+		no cursor behind. Every path that ends by activating a block without reading it
+		again would then show none, which is what happened after a jump backwards: the
+		display moved to the right place with nothing on it to say where the cursor was.
+		"""
+		if not self.live:
+			return
+		region = self.activeRegion()
+		if region is None or getattr(region, "brailleCursorPos", None) is not None:
+			return
+		try:
+			region.update()
+		except Exception:
+			log.debugWarning("Could not read the active block for its cursor", exc_info=True)
+			return
+		# The flow asked for this reading, so it is not news to be acted on again.
+		region.dirty = False
 
 	def refreshActive(self) -> bool:
 		"""Re-render the block the cursor is in, after it changed under the reader.
