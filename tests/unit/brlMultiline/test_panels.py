@@ -18,6 +18,7 @@ from brlMultiline.layout import SegmentRect  # noqa: E402
 from brlMultiline.panels import (  # noqa: E402
 	BlankPanel,
 	BraillePanel,
+	FlowPanel,
 	GridPanel,
 	RowsPanel,
 	SegmentSpec,
@@ -200,3 +201,70 @@ class TestPanelValidation(unittest.TestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestOwnershipSplit(unittest.TestCase):
+	"""Reserved, hosting the focus and exclusive are three questions, not one flag."""
+
+	def test_anOrdinarySegmentAnswersNoToAllThree(self):
+		spec = SegmentSpec(rect=MONARCH, key="a")
+		self.assertFalse(spec.hostsSystemFocus)
+		self.assertFalse(spec.exclusive)
+		self.assertFalse(spec.ownerDrawsFocus)
+
+	def test_reservedDoesNotImplyExclusive(self):
+		# A pinned object reserves its segment without taking over the focus content.
+		spec = SegmentSpec(rect=MONARCH, key="a", owner="monitor")
+		self.assertTrue(spec.isReserved)
+		self.assertFalse(spec.ownerDrawsFocus)
+
+	def test_theFlowCombinationIsExpressible(self):
+		# Reserved and hosting the focus at once is what the single owner flag could not say.
+		spec = SegmentSpec(rect=MONARCH, key="a", owner="flow", hostsSystemFocus=True, exclusive=True)
+		self.assertTrue(spec.isReserved)
+		self.assertTrue(spec.ownerDrawsFocus)
+
+	def test_hostingWithoutExclusiveStillSharesWithNVDA(self):
+		spec = SegmentSpec(rect=MONARCH, key="a", owner="flow", hostsSystemFocus=True)
+		self.assertFalse(spec.ownerDrawsFocus)
+
+	def test_aPanelHandsTheFlagsToItsSegments(self):
+		panel = BraillePanelStub("owner", MONARCH, hostsSystemFocus=True, exclusive=True)
+		spec = panel.segments()[0]
+		self.assertTrue(spec.hostsSystemFocus)
+		self.assertTrue(spec.exclusive)
+
+
+class BraillePanelStub(BraillePanel):
+	"""A panel of one segment, for testing what the base class hands down."""
+
+	def segments(self):
+		return [self.buildSpec("", self.rect)]
+
+
+class TestFlowPanel(unittest.TestCase):
+	def test_theBandIsOneSegmentCoveringTheClaim(self):
+		panel = FlowPanel("flow", SegmentRect(row=0, col=0, numRows=6, numCols=32))
+		specs = panel.segments()
+		self.assertEqual(len(specs), 1)
+		self.assertEqual(specs[0].key, "flow")
+		self.assertEqual(specs[0].rect, panel.rect)
+
+	def test_theFocusFlowDrawsItsOwnFocusContent(self):
+		panel = FlowPanel("flow", MONARCH)
+		spec = panel.segments()[0]
+		self.assertTrue(spec.isReserved)
+		self.assertTrue(spec.ownerDrawsFocus)
+		self.assertEqual(panel.focusSegmentKey, "flow")
+
+	def test_aViewerBandHostsNothingAndOffersNoFocusSegment(self):
+		panel = FlowPanel("viewer", MONARCH, hostsSystemFocus=False)
+		spec = panel.segments()[0]
+		self.assertTrue(spec.isReserved)
+		self.assertFalse(spec.hostsSystemFocus)
+		self.assertFalse(spec.ownerDrawsFocus)
+		self.assertIsNone(panel.focusSegmentKey)
+
+	def test_theBandValidates(self):
+		panel = FlowPanel("flow", SegmentRect(row=2, col=0, numRows=4, numCols=32))
+		panel.validate()

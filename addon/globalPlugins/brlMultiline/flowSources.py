@@ -1,0 +1,399 @@
+# BrlMultiline: finding the blocks a flow shows.
+# Part of the BrlMultiline add-on for NVDA.
+# Copyright (C) 2026 Travis Roth <travis@travisroth.com>
+# This file is covered by the GNU General Public License version 2.
+
+"""Where a flow's content comes from.
+
+A source answers three questions and nothing else: the block at the cursor, the block
+after this one, and the block before it. Each answer is a `FetchResult`, because a source
+may also have to say that there is no more, that it ran out of budget, or that it failed —
+and telling those apart is what stops a slow page reading as a finished one.
+
+Two flavours, and the difference is only whether a move is written back:
+
+1. **Live**, for a flow that is the focus segment. Panning and routing move the browse mode
+	cursor, which is what NVDA's braille panning already does, and is what keeps speech and
+	braille together and leaves routing able to activate a link.
+2. **Viewer**, for a band the reader is not working in. It keeps a position of its own and
+	moves nothing outside itself.
+
+Both are position bound, which is not optional. Every `CursorManagerRegion` over one
+document answers `_getSelection` from the same live `obj.selection`, so a run of stock
+regions would all render the cursor's block rather than the blocks around it. The regions
+here answer from the position they were built with.
+
+Only the block the cursor is in exposes a braille cursor. `BrailleBuffer.update` assigns
+the buffer's cursor from every region that reports one, last wins, so a collapsed position
+in each block would otherwise put the cursor in whichever block happened to be last. See
+[flow-last-region-audit.md](../../../docs/design/flow-last-region-audit.md).
+"""
+
+import time
+from typing import Callable, Optional
+
+import textInfos
+from braille.regions.textInfo import CursorManagerRegion, TextInfoRegion
+from logHandler import log
+
+from .flow import BlockId, FetchResult, SourceBlock
+
+DEFAULT_MAX_BLOCKS = 12
+"""How many blocks one fetch may walk before giving up.
+
+A Monarch shows eight rows, so filling a window from nothing costs at most eight blocks
+when every block is one row. The margin above that is for a run of blank lines being
+collapsed, which walks several units to produce one block.
+"""
+
+DEFAULT_MAX_SECONDS = 0.05
+"""How long one fetch may take before giving up.
+
+A budget between blocks cannot make a single slow read fast — see `FetchBudget.spend` —
+so this bounds the number of slow reads, not the worst one.
+"""
+
+
+class FlowRegion:
+	"""Mixin giving a region a fixed position, and a cursor only when it is the active one.
+
+	Mixed in ahead of the region class whose cursor policy it adjusts, so that
+	`super()._getSelection` still reaches the right one. The same arrangement
+	`pinnedRegions` uses, for the same reason.
+	"""
+
+	def __init__(self, obj, info=None, live: bool = False) -> None:
+		"""
+		:param obj: the object or tree interceptor to read from.
+		:param info: the position this block starts at. None adopts the object's own.
+		:param live: whether moving this region moves the real cursor.
+		"""
+		super().__init__(obj)
+		self._position = info.copy() if info is not None else None
+		self.live = live
+		self.isActive = False
+		"""Whether this is the block the cursor is in. Only the active block shows one."""
+
+	@property
+	def position(self):
+		""":return: this block's own position, or None if it has never been read."""
+		return self._position
+
+	def _getSelection(self):
+		if self._position is None:
+			self._position = super()._getSelection().copy()
+		return self._position.copy()
+
+	def _setCursor(self, info) -> None:
+		self._position = info.copy()
+		if self.live:
+			# A live flow is the focus segment, so this is the browse mode cursor moving,
+			# which is what keeps routing able to activate what it lands on.
+			super()._setCursor(info)
+
+	def update(self) -> None:
+		super().update()
+		# Set by TextInfoRegion.update for any block that is not at the start of its object,
+		# which is nearly all of them. It tells NVDA's buffer to show the last region alone,
+		# and a flow assembles its own rows, so it is never wanted here.
+		self.hidePreviousRegions = False
+		if not self.isActive:
+			self.cursorPos = None
+			self.brailleCursorPos = None
+
+	def routeTo(self, braillePos: int) -> None:
+		if self.live:
+			super().routeTo(braillePos)
+			return
+		# A viewer must not activate anything. NVDA's routing activates the position when
+		# the key falls where the region already thinks its cursor is, and a private
+		# position is collapsed, so it always thinks it has one: inheriting this would let a
+		# routing press follow a link in a document the reader is only watching.
+		try:
+			dest = self.getTextInfoForBraillePos(braillePos)
+		except (LookupError, NotImplementedError, RuntimeError):
+			log.debugWarning(f"Could not route within {self!r}", exc_info=True)
+			return
+		self._setCursor(dest)
+
+	def __repr__(self) -> str:
+		flavour = "live" if self.live else "viewer"
+		return f"<{type(self).__name__} {flavour} {getattr(self, 'rawText', '')!r}>"
+
+
+class FlowTextInfoRegion(FlowRegion, TextInfoRegion):
+	"""A flow block over an object with navigable text: an edit field, a terminal."""
+
+
+class FlowCursorManagerRegion(FlowRegion, CursorManagerRegion):
+	"""A flow block over a browse mode document or anything else cursor managed."""
+
+
+def regionFactoryFor(template, live: bool) -> Callable:
+	"""Choose the region class for a document, from one NVDA built for it.
+
+	Taken from NVDA's own decision rather than made here, so that which kind of region an
+	object wants stays NVDA's judgement and only the cursor policy is ours. The same
+	reasoning as `pinnedRegions.pinnedCounterpart`.
+
+	:param template: a region from `getFocusRegions` for the object in question.
+	:param live: whether the flow moves the real cursor.
+	:return: a callable taking the object and a position, returning a region.
+	:raises TypeError: if the template is not a text region, so has no lines to flow.
+	"""
+	# Ordered subclass first: CursorManagerRegion is a TextInfoRegion.
+	if isinstance(template, CursorManagerRegion):
+		built = FlowCursorManagerRegion
+	elif isinstance(template, TextInfoRegion):
+		built = FlowTextInfoRegion
+	else:
+		raise TypeError(f"{template!r} reads no text, so it cannot be flowed")
+
+	def factory(obj, info):
+		return built(obj, info, live=live)
+
+	return factory
+
+
+class FetchBudget:
+	"""How much work one fetch may do before showing what it has.
+
+	Deliberately crude. It counts blocks and checks the clock between them, which bounds
+	how many slow reads happen in a row but cannot shorten one slow read: a single
+	`Region.update` on a heavy page is as long as it is. That is why per block latency is
+	recorded from this milestone rather than only measured at the end.
+	"""
+
+	def __init__(
+		self,
+		maxBlocks: int = DEFAULT_MAX_BLOCKS,
+		maxSeconds: float = DEFAULT_MAX_SECONDS,
+		clock: Callable[[], float] = time.perf_counter,
+	) -> None:
+		"""
+		:param maxBlocks: how many blocks one fetch may walk.
+		:param maxSeconds: how long one fetch may take.
+		:param clock: the clock to measure with, so tests need not sleep.
+		"""
+		self.maxBlocks = maxBlocks
+		self.maxSeconds = maxSeconds
+		self.clock = clock
+		self.blocks = 0
+		self.started = 0.0
+		self.slowest = 0.0
+		"""The longest a single block took, in seconds, since the budget was started."""
+
+	def start(self) -> None:
+		"""Begin a fetch."""
+		self.blocks = 0
+		self.started = self.clock()
+
+	def spend(self, seconds: float = 0.0) -> bool:
+		"""Account for one block, and say whether there is room for another.
+
+		:param seconds: how long that block took, for the latency record.
+		:return: whether the budget allows going on.
+		"""
+		self.blocks += 1
+		self.slowest = max(self.slowest, seconds)
+		if self.blocks >= self.maxBlocks:
+			return False
+		return (self.clock() - self.started) < self.maxSeconds
+
+
+class DocumentFlowSource:
+	"""Blocks read out of a document, by reading unit.
+
+	Cheap by construction: moving a `TextInfo` inside a browse mode document does not cross
+	to the application, because the virtual buffer's text is already in NVDA's process.
+	Walking `NVDAObject` relations is the expensive kind of reading and is not done here.
+	"""
+
+	def __init__(
+		self,
+		obj,
+		regionFactory: Callable,
+		unit: str = textInfos.UNIT_LINE,
+		generation: int = 0,
+		interactive: bool = False,
+		budget: Optional[FetchBudget] = None,
+	) -> None:
+		"""
+		:param obj: the object or tree interceptor to read.
+		:param regionFactory: builds a region for one block. See `regionFactoryFor`.
+		:param unit: the reading unit, following NVDA's read by paragraph setting.
+		:param generation: bumped by the caller when the document is replaced, so that a
+			bookmark from the old document can never match one from the new.
+		:param interactive: whether the reader is working inside this content rather than
+			reading it. Blank lines are the document when writing and are layout when
+			reading, so this decides whether a run of them collapses.
+		:param budget: how much work a fetch may do. One is made if none is given.
+		"""
+		self.obj = obj
+		self.regionFactory = regionFactory
+		self.unit = unit
+		self.generation = generation
+		self.interactive = interactive
+		self.budget = budget if budget is not None else FetchBudget()
+		self._positions: dict[object, object] = {}
+		"""The position each block starts at, by bookmark."""
+
+		self._exits: dict[tuple[object, bool], object] = {}
+		"""Where to carry on from when leaving a block, by block and direction.
+
+		The same as the block's own position for an ordinary block, and the far end of the
+		run for a collapsed set of blank lines."""
+
+		self._resume: dict[tuple[object, bool], tuple] = {}
+		"""Where a deferred walk through blank lines got to, by block and direction."""
+
+	# Reading.
+
+	def blockAtCursor(self) -> FetchResult:
+		"""The block the cursor is in.
+
+		:return: the block, or an error if the document could not be read.
+		"""
+		self.budget.start()
+		try:
+			info = self.obj.makeTextInfo(textInfos.POSITION_SELECTION)
+		except Exception:
+			log.debugWarning("Could not read the cursor position", exc_info=True)
+			return FetchResult.failed("no cursor position")
+		return self._blockAt(info)
+
+	def blockAfter(self, blockId: BlockId) -> FetchResult:
+		"""The block following one already fetched."""
+		return self._step(blockId, forward=True)
+
+	def blockBefore(self, blockId: BlockId) -> FetchResult:
+		"""The block preceding one already fetched."""
+		return self._step(blockId, forward=False)
+
+	def _step(self, blockId: BlockId, forward: bool) -> FetchResult:
+		"""Walk one block in a direction, collapsing blanks and honouring the budget."""
+		self.budget.start()
+		key = (blockId.bookmark, forward)
+		pending = self._resume.pop(key, None)
+		if pending is not None:
+			# A previous fetch stopped part way through a run of blank lines. Carry on from
+			# where it got to, keeping the run's start and count, so that a second pan makes
+			# progress rather than deferring at the same place forever.
+			info, runStart, count = pending
+			return self._walkBlanks(info, runStart, count, forward, key)
+		start = self._exits.get(key)
+		if start is None:
+			start = self._positions.get(blockId.bookmark)
+		if start is None:
+			return FetchResult.failed(f"no cached position for {blockId}")
+		try:
+			moved = self._move(start, forward)
+		except Exception:
+			log.debugWarning(f"Could not move {'forward' if forward else 'back'} a block", exc_info=True)
+			return FetchResult.failed("could not move")
+		if moved is None:
+			return FetchResult.endOfStream()
+		if self.interactive or not self._isBlank(moved):
+			return self._blockAt(moved)
+		# A blank block while reading: the run costs one row rather than a display.
+		return self._walkBlanks(moved, moved, 1, forward, key)
+
+	def _walkBlanks(self, info, runStart, count: int, forward: bool, key) -> FetchResult:
+		"""Walk to the end of a run of blank blocks and produce the one block standing for it.
+
+		:param info: the last blank reached so far.
+		:param runStart: the first blank of the run, in the direction being walked.
+		:param count: how many blanks have been counted.
+		:param forward: the direction being walked.
+		:param key: what to file a deferred fetch under, so it can be resumed.
+		:return: the collapsed block, or a deferred result if the budget ran out.
+		"""
+		while True:
+			began = self.budget.clock()
+			try:
+				moved = self._move(info, forward)
+			except Exception:
+				log.debugWarning("Could not walk a run of blank lines", exc_info=True)
+				moved = None
+			if moved is None or not self._isBlank(moved):
+				break
+			info = moved
+			count += 1
+			if not self.budget.spend(self.budget.clock() - began):
+				self._resume[key] = (info, runStart, count)
+				return FetchResult.deferred(resume=info)
+		# The run keeps the identity of its first member in reading order, which is the one
+		# that owns the visible row whichever way it was walked into.
+		earliest, latest = (runStart, info) if forward else (info, runStart)
+		found = self._buildBlock(earliest)
+		block = SourceBlock(
+			blockId=found.blockId,
+			region=found.region,
+			isBlank=True,
+			collapsed=count,
+		)
+		# Stepping out of a collapsed run must leave the whole run behind, or the next step
+		# walks back into it and the reader never gets past the blank rows.
+		self._exits[(block.blockId.bookmark, True)] = latest
+		self._exits[(block.blockId.bookmark, False)] = earliest
+		return FetchResult.found(block)
+
+	def _blockAt(self, info) -> FetchResult:
+		""":return: a result carrying the block at a position."""
+		try:
+			return FetchResult.found(self._buildBlock(info))
+		except Exception:
+			log.debugWarning("Could not build a block", exc_info=True)
+			return FetchResult.failed("could not build a block")
+
+	def _buildBlock(self, info) -> SourceBlock:
+		"""Build one block from a position, and remember where it starts."""
+		start = info.copy()
+		start.collapse()
+		blockId = BlockId(generation=self.generation, bookmark=self._bookmark(start), unit=self.unit)
+		self._positions[blockId.bookmark] = start
+		region = self.regionFactory(self.obj, start)
+		region.update()
+		return SourceBlock(blockId=blockId, region=region, isBlank=not region.rawText.strip())
+
+	# Positions.
+
+	def _move(self, info, forward: bool):
+		"""Move one reading unit.
+
+		:return: the new position, or None if the document ends there. A partial move is
+			no move: `TextInfo.move` stops at the edge of the document and reports how far
+			it got, and a block that stopped short would repeat the first or last one.
+		"""
+		dest = info.copy()
+		dest.collapse(end=not forward)
+		if dest.move(self.unit, 1 if forward else -1) != (1 if forward else -1):
+			return None
+		return dest
+
+	def _isBlank(self, info) -> bool:
+		""":return: whether the unit at a position is empty."""
+		probe = info.copy()
+		probe.expand(self.unit)
+		return not probe.text.strip()
+
+	def _bookmark(self, info):
+		""":return: something comparable that finds this position again.
+
+		Falls back to the position object itself where bookmarks are not implemented, which
+		still compares usefully within one document and simply makes recovery re-enter at
+		the cursor more often.
+		"""
+		try:
+			return info.bookmark
+		except (AttributeError, NotImplementedError):
+			return info
+
+	def forget(self) -> None:
+		"""Drop every cached position, after the document has been replaced."""
+		self._positions.clear()
+		self._exits.clear()
+		self._resume.clear()
+
+	def __repr__(self) -> str:
+		return f"<DocumentFlowSource {self.obj!r} by {self.unit} generation {self.generation}>"

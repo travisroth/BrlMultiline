@@ -59,6 +59,24 @@ class SegmentSpec:
 	reserved one belongs to whoever claimed it and is left alone.
 	"""
 
+	hostsSystemFocus: bool = False
+	"""Whether this segment is where NVDA's own focus content belongs.
+
+	Reserving a segment and hosting the focus were one flag until a flow needed both at
+	once. They are different questions: `owner` says who may draw here, and this says
+	whether NVDA's untargeted regions land here. A flow band is reserved *and* hosts the
+	focus, which is exactly the combination the old single flag could not express.
+	"""
+
+	exclusive: bool = False
+	"""Whether the owner is the only producer of this segment's content.
+
+	Set on a segment whose owner draws NVDA's focus content itself, as a flow does: the
+	ordinary focus regions are handed to the owner instead of being written into the
+	segment beside what the owner drew. Without it the two producers fight, because
+	`_doNewObjectMultiSegment` clears and rewrites the focus segment on every focus change.
+	"""
+
 	fillRows: bool = False
 	"""Fill each row completely, continuing mid word, rather than wrapping at word
 	boundaries. Narrow segments have no cells to spare for keeping words whole."""
@@ -92,6 +110,11 @@ class SegmentSpec:
 		return self.owner is not None
 
 	@property
+	def ownerDrawsFocus(self) -> bool:
+		""":return: whether the focus content here is the owner's to draw, not NVDA's."""
+		return self.hostsSystemFocus and self.exclusive
+
+	@property
 	def hasDocumentContext(self) -> bool:
 		""":return: whether this segment takes part in the document lines feature."""
 		return self.documentContextIndex is not None
@@ -116,6 +139,8 @@ class BraillePanel:
 		routingPolicy: RoutingPolicy | None = None,
 		focusSegmentKey: str | None = None,
 		documentContextIndex: int | None = None,
+		hostsSystemFocus: bool = False,
+		exclusive: bool = False,
 	) -> None:
 		"""
 		:param name: who this panel belongs to. Used as the prefix of its segment keys, so
@@ -135,6 +160,12 @@ class BraillePanel:
 			document lines feature. None, the default, means its segments take no part in
 			it, which is what a claimed panel usually wants. See
 			L{SegmentSpec.documentContextIndex}.
+		:param hostsSystemFocus: whether this panel's segments are where NVDA's own focus
+			content belongs. A panel offering a `focusSegmentKey` is saying which segment
+			*could* host the focus; this says its segments actually do.
+		:param exclusive: whether this panel's owner is the only producer of its segments'
+			content, drawing the focus itself rather than sharing the segment with NVDA's
+			untargeted regions.
 		"""
 		self.name = name
 		self.rect = rect
@@ -144,6 +175,8 @@ class BraillePanel:
 		self.routingPolicy = routingPolicy if routingPolicy is not None else DEFAULT_ROUTING_POLICY
 		self.focusSegmentKey = focusSegmentKey
 		self.documentContextIndex = documentContextIndex
+		self.hostsSystemFocus = hostsSystemFocus
+		self.exclusive = exclusive
 
 	def segments(self) -> list[SegmentSpec]:
 		"""Subdivide this panel's claim.
@@ -180,6 +213,8 @@ class BraillePanel:
 			documentContextIndex=(
 				documentContextIndex if documentContextIndex is not None else self.documentContextIndex
 			),
+			hostsSystemFocus=self.hostsSystemFocus,
+			exclusive=self.exclusive,
 		)
 
 	def validate(self) -> None:
@@ -322,3 +357,88 @@ class BlankPanel(BraillePanel):
 
 	def segments(self) -> list[SegmentSpec]:
 		return []
+
+
+class FlowPanel(BraillePanel):
+	"""A band of rows presented as one continuous flow of content.
+
+	Geometry and ownership only. What is shown in the band, how blocks are packed into its
+	rows and where the window sits are the flow controller's business; this exists so that
+	a flow can claim its rows through the same mechanism as everything else.
+
+	Two arrangements, and the difference is decision 1 of the spatial reading plan:
+
+	1. **The focus flow** hosts the system focus and draws it itself, so it is reserved,
+		`hostsSystemFocus` and `exclusive` all at once. NVDA's untargeted focus regions are
+		handed to the controller rather than written into the segment beside what it drew.
+	2. **A viewer band** shows content the reader is not working in. It is reserved and
+		nothing else, shows no cursor, and moves nothing outside itself.
+
+	The band is one segment covering the whole claim, because the flow does its own row
+	assembly: `flow.assembleCells` pads each row to the band's width, which is what stops
+	the block after a short one sharing its row. Subdividing the band into a segment per
+	row would hand that job back to NVDA's buffer, which cannot do it.
+	"""
+
+	def __init__(
+		self,
+		name: str,
+		rect: SegmentRect,
+		*,
+		hostsSystemFocus: bool = True,
+		routingPolicy: RoutingPolicy | None = None,
+	) -> None:
+		"""
+		:param name: who this band belongs to, and the key of its single segment.
+		:param rect: the rectangle claimed. It must lie within one physical display's live
+			band, which `views.validateAgainstHardware` enforces: a full width band across
+			a Monarch's rows in a Monarch and Focus composite would reach the Monarch's
+			dead columns and is refused.
+		:param hostsSystemFocus: True for the focus flow, False for a viewer band.
+		:param routingPolicy: what a routing key press in the band does. The flow's own
+			policy maps a pressed cell back through the window to a position in a block,
+			and does nothing for padding.
+		"""
+		super().__init__(
+			name,
+			rect,
+			reserve=True,
+			routingPolicy=routingPolicy,
+			focusSegmentKey=name if hostsSystemFocus else None,
+			hostsSystemFocus=hostsSystemFocus,
+			exclusive=hostsSystemFocus,
+		)
+
+	def segments(self) -> list[SegmentSpec]:
+		return [self.buildSpec("", self.rect)]
+
+
+class PanelOwner:
+	"""What an owner of a claim must answer, so that its content survives the display changing.
+
+	Geometry survives a rebuild and content does not: a claim is re-composed and comes back
+	empty, with nothing telling its owner to draw again. That is recoverable for a pinned
+	object, which is re-read from its object, and is a permanently blank band for a flow.
+	These are the calls that close the gap.
+
+	Implemented by the flow controller, and available to any other owner. The base does
+	nothing, so an owner may override only what it cares about.
+	"""
+
+	def onRebuilt(self, keys: frozenset[str]) -> None:
+		"""The display was rebuilt and this owner's segments are empty again.
+
+		:param keys: the keys of this owner's segments in the new arrangement.
+		"""
+
+	def onEvicted(self, keys: frozenset[str]) -> None:
+		"""This owner's claim no longer fits, and these segments have gone.
+
+		An owner told this must stop producing regions targeted at them. Until now eviction
+		was a log line, and an owner went on addressing segments that had departed.
+
+		:param keys: the keys that are gone.
+		"""
+
+	def onTerminate(self) -> None:
+		"""The add-on is shutting down, or this owner's claim has been given back."""

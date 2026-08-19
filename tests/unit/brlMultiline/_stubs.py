@@ -447,6 +447,9 @@ class BrailleBuffer(AutoPropertyObject):
 
 
 UNIT_LINE = "line"
+UNIT_PARAGRAPH = "paragraph"
+POSITION_SELECTION = "selection"
+POSITION_FIRST = "first"
 
 
 class FakeTextInfo:
@@ -470,6 +473,9 @@ class FakeTextInfo:
 
 	def collapse(self, end=False):
 		pass
+
+	def expand(self, unit):
+		"""Cover the whole unit, which this info already does: its text is a whole line."""
 
 	def move(self, unit, count):
 		"""Move by whole lines, reporting how far it actually got, as NVDA's TextInfo does."""
@@ -507,6 +513,10 @@ class FakeTreeInterceptor:
 	@selection.setter
 	def selection(self, info):
 		self.caretIndex = info.index
+
+	def makeTextInfo(self, position):
+		"""Build a position, as a tree interceptor does. Every position is the cursor's."""
+		return FakeTextInfo(self.lines, self.caretIndex)
 
 
 class TextInfoRegion(Region):
@@ -1256,7 +1266,14 @@ def installStubs() -> None:
 		TextInfoRegion=TextInfoRegion,
 		CursorManagerRegion=CursorManagerRegion,
 	)
-	_module("textInfos", UNIT_LINE=UNIT_LINE, TextInfo=FakeTextInfo)
+	_module(
+		"textInfos",
+		UNIT_LINE=UNIT_LINE,
+		UNIT_PARAGRAPH=UNIT_PARAGRAPH,
+		POSITION_SELECTION=POSITION_SELECTION,
+		POSITION_FIRST=POSITION_FIRST,
+		TextInfo=FakeTextInfo,
+	)
 	braille.buffers = buffers
 	braille.display = display
 	display.gesture = gestureModule
