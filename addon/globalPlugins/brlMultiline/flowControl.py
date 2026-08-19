@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Optional
 from logHandler import log
 
 from .flow import (
+	NO_POSITION,
 	ByIdentity,
 	ContentNeeded,
 	Edge,
@@ -56,6 +57,37 @@ A backstop under the source's own budget, for the case where a source keeps answ
 blocks that add no rows. Never reached in ordinary reading: filling a Monarch from nothing
 costs eight.
 """
+
+
+def rowText(region, rendered, rowIndex: int) -> str:
+	"""What one row of a rendered block actually reads.
+
+	For the log and the dry run. The block's own text is not the answer: a paragraph
+	occupying five rows would then be reported five times over, which reads as a repeated
+	paragraph rather than as one paragraph laid out. The row's cells are mapped back through
+	the region's `brailleToRawPos`, which is where contraction is accounted for.
+
+	:param region: the region the block was read through.
+	:param rendered: the rendering the row belongs to.
+	:param rowIndex: which row of it.
+	:return: the text on that row, empty if it cannot be worked out.
+	"""
+	raw = getattr(region, "rawText", "") or ""
+	if not raw or rowIndex >= len(rendered.positions):
+		return ""
+	positions = [where for where in rendered.positions[rowIndex] if where != NO_POSITION]
+	if not positions:
+		return ""
+	mapping = getattr(region, "brailleToRawPos", None)
+	if not mapping:
+		return raw[positions[0] : positions[-1] + 1]
+	try:
+		start = mapping[positions[0]]
+		after = positions[-1] + 1
+		end = mapping[after] if after < len(mapping) else len(raw)
+	except IndexError:
+		return raw
+	return raw[start:end]
 
 
 class FlowController(PanelOwner):
@@ -125,11 +157,28 @@ class FlowController(PanelOwner):
 	# Filling.
 
 	def fill(self) -> None:
-		"""Fetch whatever the window is short of, at both ends."""
+		"""Fetch whatever the window is short of, at both ends, and drop what is far away."""
 		for edge in (Edge.AFTER, Edge.BEFORE):
 			shortfall = self.window.shortfall(edge)
 			if shortfall:
 				self._fill(edge, shortfall)
+		self._trim()
+
+	def _trim(self) -> None:
+		"""Keep the cache to the window and a margin either side.
+
+		Without this a long reading session accumulates every block it has ever passed, and
+		the margin rule — a window's worth either side, no more — is only a comment. The
+		active block is kept whatever happens, since the commands act on it and it may sit
+		outside the window while the reader pans away from their cursor.
+		"""
+		self.window.trim(marginRows=self.window.numRows)
+		kept = ByIdentity()
+		for block in self.blocks.values():
+			isActive = self.activeBlockId is not None and block.blockId == self.activeBlockId
+			if isActive or self.window.hasBlock(block.blockId):
+				kept.set(block.blockId, block)
+		self.blocks = kept
 
 	def _fill(self, edge: Edge, rows: int) -> bool:
 		"""Fetch until the window is no longer short at one end.
@@ -399,13 +448,12 @@ class FlowController(PanelOwner):
 				lines.append(f"{index}: (gap)")
 				continue
 			region = self.regionFor(row.blockId)
-			text = getattr(region, "rawText", "")
 			rendered = self.window.blocks[self.window.blockIndex(row.blockId)]
 			cells = rendered.rows[row.rowIndex] if row.rowIndex < len(rendered.rows) else ()
 			active = " *" if row.blockId == self.activeBlockId else "  "
 			lines.append(
 				f"{index}:{active}[{len(cells)}/{numCols} cells] "
-				f"block {row.rowIndex + 1} of {rendered.numRows}: {text[:60]!r}",
+				f"block row {row.rowIndex + 1} of {rendered.numRows}: {rowText(region, rendered, row.rowIndex)!r}",
 			)
 		return lines
 

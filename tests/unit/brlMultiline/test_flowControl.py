@@ -142,6 +142,21 @@ class TestFetching(unittest.TestCase):
 		control = controllerOver(["a", "b", "c", "d", "e", "f"], caretIndex=0, numRows=4)
 		self.assertEqual(rowTexts(control)[:4], ["a       ", "b       ", "c       ", "d       "])
 
+	def test_theCacheDoesNotGrowAsTheReaderPansOn(self):
+		# The margin rule is a window's worth either side. Without trimming, a long read
+		# accumulates every block it has passed.
+		control = controllerOver([str(number) for number in range(200)], caretIndex=0, numRows=4)
+		for _ in range(20):
+			control.panForward()
+		self.assertLessEqual(len(control.window.blocks), 16)
+		self.assertLessEqual(len(control.blocks), 17)
+
+	def test_trimmingKeepsTheDisplayIntact(self):
+		control = controllerOver([str(number) for number in range(200)], caretIndex=0, numRows=4)
+		control.panForward()
+		control.panForward()
+		self.assertEqual(rowTexts(control)[0], "8       ")
+
 	def test_onlyWhatTheBandNeedsIsFetched(self):
 		# Nothing reads ahead: a four row band over a long document holds the blocks it
 		# shows and its margin, not the document.
@@ -249,6 +264,18 @@ class TestDescribing(unittest.TestCase):
 		self.assertEqual(len(lines), 4)
 		self.assertIn("Heading", lines[0])
 		self.assertIn("end of content", lines[-1])
+
+	def test_eachRowOfABlockReportsItsOwnText(self):
+		# Reporting the whole block's text on each of its rows reads as a repeated
+		# paragraph rather than as one paragraph laid out across the band.
+		control = controllerOver(["abcdefghijklmnop"], numCols=8, numRows=4)
+		lines = control.describeRows()
+		self.assertIn("'abcdefgh'", lines[0])
+		self.assertIn("'ijklmnop'", lines[1])
+
+	def test_theRowCountIsSaidPerRow(self):
+		control = controllerOver(["abcdefghijklmnop"], numCols=8, numRows=4)
+		self.assertIn("block row 2 of 2", control.describeRows()[1])
 
 	def test_theActiveBlockIsMarked(self):
 		control = controllerOver(["a", "b"], numCols=8, numRows=4)

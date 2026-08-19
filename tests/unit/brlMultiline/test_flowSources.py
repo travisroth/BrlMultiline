@@ -270,8 +270,8 @@ class TestRegionFlavours(unittest.TestCase):
 		block.region.nextLine()
 		self.assertEqual(source.obj.caretIndex, 1)
 
-	def test_onlyTheActiveBlockShowsACursor(self):
-		source = sourceOver(["a", "b"], caretIndex=0)
+	def test_onlyTheActiveBlockOfALiveFlowShowsACursor(self):
+		source = sourceOver(["a", "b"], caretIndex=0, live=True)
 		block = source.blockAtCursor().block
 		block.region.cursorPos = 0
 		block.region.brailleCursorPos = 0
@@ -282,6 +282,17 @@ class TestRegionFlavours(unittest.TestCase):
 		block.region.brailleCursorPos = 0
 		block.region.update()
 		self.assertEqual(block.region.brailleCursorPos, 0)
+
+	def test_aViewerShowsNoCursorEvenWhenActive(self):
+		# One cursor on the display, and it belongs to the focus. Being the active block
+		# says which block commands act on, not that a cursor is drawn.
+		source = sourceOver(["a", "b"], caretIndex=0, live=False)
+		block = source.blockAtCursor().block
+		block.region.isActive = True
+		block.region.cursorPos = 0
+		block.region.brailleCursorPos = 0
+		block.region.update()
+		self.assertIsNone(block.region.brailleCursorPos)
 
 	def test_hidePreviousRegionsIsNeverLeftSet(self):
 		# NVDA's buffer shows the last region alone when it is set, which for a flow would

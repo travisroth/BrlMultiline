@@ -97,7 +97,9 @@ class FlowRegion:
 		# which is nearly all of them. It tells NVDA's buffer to show the last region alone,
 		# and a flow assembles its own rows, so it is never wanted here.
 		self.hidePreviousRegions = False
-		if not self.isActive:
+		if not (self.isActive and self.live):
+			# Only the active block of a live flow shows a cursor. A viewer band shows none
+			# at all: there is one cursor on the display and it belongs to the focus.
 			self.cursorPos = None
 			self.brailleCursorPos = None
 
@@ -226,12 +228,25 @@ class FetchBudget:
 		self.blocks = 0
 		self.started = 0.0
 		self.slowest = 0.0
-		"""The longest a single block took, in seconds, since the budget was started."""
+		"""The longest a single block took, in seconds, since this budget was made.
+
+		Kept across fetches rather than reset with each one, because the question it answers
+		is whether this document has slow blocks in it at all."""
 
 	def start(self) -> None:
 		"""Begin a fetch."""
 		self.blocks = 0
 		self.started = self.clock()
+
+	def observe(self, seconds: float) -> None:
+		"""Record how long a block took without spending any of the budget on it.
+
+		Reading one block is not optional, so it is measured rather than charged for. What
+		the budget limits is how many more are read after it.
+
+		:param seconds: how long that block took.
+		"""
+		self.slowest = max(self.slowest, seconds)
 
 	def spend(self, seconds: float = 0.0) -> bool:
 		"""Account for one block, and say whether there is room for another.
@@ -387,11 +402,16 @@ class DocumentFlowSource:
 
 	def _blockAt(self, info) -> FetchResult:
 		""":return: a result carrying the block at a position."""
+		began = self.budget.clock()
 		try:
 			return FetchResult.found(self._buildBlock(info))
 		except Exception as error:
 			log.debugWarning("Could not build a block", exc_info=True)
 			return FetchResult.failed(f"could not build a block: {error!r}")
+		finally:
+			# Every block is timed, not only the ones walked while collapsing blanks, or a
+			# slow page would be invisible in the numbers.
+			self.budget.observe(self.budget.clock() - began)
 
 	def _buildBlock(self, info) -> SourceBlock:
 		"""Build one block from a position, and remember where it starts."""
