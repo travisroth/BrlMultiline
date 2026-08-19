@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import api
 from logHandler import log
 
+from . import flowQuickNav
 from .flowControl import FlowController
 from .flowDryRun import bandSize, buildController
 from .devices import DeviceInfo, deviceMap
@@ -101,6 +102,9 @@ class FlowBand(PanelOwner):
 			self.lastError = str(error)
 			return False
 		self._follow()
+		# Browse mode is patched only while a flow is showing: a reader without one has no
+		# use for it, and it is taken back in `stop`.
+		flowQuickNav.install()
 		if self.refresh(force=True):
 			return True
 		self.lastError = self.lastError or "nothing here reads as a flow"
@@ -134,6 +138,7 @@ class FlowBand(PanelOwner):
 
 	def stop(self) -> None:
 		"""Give the band back and forget the flow."""
+		flowQuickNav.remove()
 		self.controller = None
 		self.obj = None
 		try:
@@ -316,6 +321,7 @@ class FlowBand(PanelOwner):
 
 	def onTerminate(self) -> None:
 		"""Everything is being taken back."""
+		flowQuickNav.remove()
 		self.controller = None
 		self.obj = None
 

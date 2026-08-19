@@ -42,6 +42,7 @@ configSpec = {
 			"reverseScrollBtns": "boolean(default=False)",
 			"reverseScrollBtnsMigrated": "boolean(default=False)",
 			"showDocumentLines": "boolean(default=False)",
+			"flowGroundOnQuickNav": "boolean(default=True)",
 		},
 	},
 }
@@ -240,6 +241,22 @@ def shouldShowDocumentLines(displayKey: str | None = None) -> bool:
 	except Exception:
 		log.debugWarning("Could not read showDocumentLines", exc_info=True)
 		return False
+
+
+def shouldGroundOnQuickNav(displayKey: str | None = None) -> bool:
+	""":return: whether a browse mode jump by structure re-grounds a flow.
+
+	On, a quick navigation key that skips a section — a heading, a table, a landmark — puts
+	its target at the top of the band and flows from there, which is a place to start
+	reading rather than the old window nudged along. Off, every cursor move keeps the
+	reader's window and merely tracks the cursor. Which moves count as structural is
+	`flowQuickNav.GROUNDING_TYPES`, and is not a setting.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["flowGroundOnQuickNav"])
+	except Exception:
+		log.debugWarning("Could not read flowGroundOnQuickNav", exc_info=True)
+		return True
 
 
 def isSpeechOutputMode() -> bool:

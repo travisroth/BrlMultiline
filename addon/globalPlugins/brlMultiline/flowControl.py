@@ -439,7 +439,7 @@ class FlowController(PanelOwner):
 			return None
 		return self.regionFor(self.activeBlockId)
 
-	def followCursor(self) -> bool:
+	def followCursor(self, ground: bool = False) -> bool:
 		"""Answer a cursor move that was not a pan.
 
 		Asks the source where the cursor is now, and moves the window by the smallest
@@ -447,12 +447,16 @@ class FlowController(PanelOwner):
 		already there. A cursor that has gone somewhere the cache does not reach is a jump,
 		and the window is placed afresh rather than scrolled to it.
 
+		:param ground: put the cursor's block at the top of the band instead, with the
+			document running on from it. What a jump by structure wants: the reader has
+			left a section behind and is being set down in the next one, and a window
+			nudged along from where they were says nothing about where they have arrived.
 		:return: whether anything changed.
 		"""
 		with self.operation():
-			return self._followCursor()
+			return self._followCursor(ground=ground)
 
-	def _followCursor(self) -> bool:
+	def _followCursor(self, ground: bool = False) -> bool:
 		""":return: whether anything changed. See `followCursor`."""
 		result = self.source.blockAtCursor()
 		self.lastResult = result
@@ -465,9 +469,25 @@ class FlowController(PanelOwner):
 				return self.enterAtCursor()
 		self._keep(result.block)
 		self._setActive(blockId)
-		moved = self.syncToCursor(forward=forward)
+		if ground:
+			moved = self.groundAt(blockId)
+		else:
+			moved = self.syncToCursor(forward=forward)
 		self.refreshActive()
 		return moved
+
+	def groundAt(self, blockId: "BlockId") -> bool:
+		"""Put a block at the top of the band and let the document run on from it.
+
+		:param blockId: the block to start from.
+		:return: whether the window moved.
+		"""
+		try:
+			self.window.enterAt(blockId)
+		except LookupError:
+			return self._enterAtCursor()
+		self.fill()
+		return True
 
 	def _isForward(self, blockId: "BlockId") -> bool:
 		"""Which way the cursor went, so that a scroll shows what it came from.

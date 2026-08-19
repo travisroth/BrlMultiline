@@ -331,6 +331,39 @@ all, and getting there means object traversal or an adapter. So the two cases ar
 browse mode forms are milestone 5, and focused control presentation waits for
 `ObjectFlowSource` and the adapter protocol in milestone 6.
 
+## Grounding a jump
+
+Following the cursor and grounding on it are two different answers to a cursor move, and
+which one is right depends on why the cursor moved.
+
+Arrowing, tabbing and shift-tabbing are the reader working through what is in front of
+them, and there the rules above hold: a block already on the display moves nothing, and a
+block past the edge scrolls by the smallest amount that brings it back. A quick navigation
+key is not that. Pressing `h` skips a section the reader has decided they are done with,
+and their old window nudged along says nothing about where they have arrived. So the
+target goes to the top of the band and the document runs on from it, which is a place to
+start reading.
+
+Not every quick navigation key means a jump, which is why this is a policy rather than a
+rule. `l` moves to the next list, a change of section; `i` moves to the next list item, a
+step within one that reads like arrowing. The difference cannot be inferred, so it is
+stated in `flowQuickNav.GROUNDING_TYPES`: headings at every level, tables, lists,
+landmarks, frames, articles, groupings, block quotes, separators, figures and non-link
+blocks ground; list items, links, form fields, buttons and the paragraph moves do not.
+
+NVDA makes this cheap to hear. Every quick navigation script — around forty of them,
+generated at import time — funnels through `BrowseModeTreeInterceptor._quickNavScript`,
+which carries the item type, so one seam covers all of them. It is patched only while a
+flow is on the display and given back when the flow stops. A note of a grounding move is
+consumed by the caret move it causes, and expires after a second, so that a stale keypress
+cannot jump the display under an ordinary arrow key.
+
+The setting `flowGroundOnQuickNav` turns the whole behaviour off, per display, and
+defaults to on. Which moves count as structural is deliberately not a setting: it is a
+judgement about what reading is like, and a reader who disagrees with one entry is better
+served by the whole thing being off than by a list of forty checkboxes. That can be
+revisited once there is any evidence of anyone wanting it.
+
 ## Blank lines: collapsed when reading, kept when writing
 
 Whether a run of blank lines is noise or content depends on what the reader is doing with
@@ -637,6 +670,12 @@ and it needs three things before milestone 3:
    form field the reader has entered inside a page is still that page, and reads well as a
    flow, which the same run confirmed. Anything else is left to NVDA until a flow knows how
    to read objects, which is milestone 6.
+
+   Third run, and a behaviour asked for from it: a browse mode quick navigation key that
+   skips a section should set the reader down at what it found, with the document running
+   on from there, rather than nudging their old window along. Grounding is what a reader
+   wants after leaving a section behind; tracking is what they want while working through
+   one. See "Grounding a jump" below.
 
    Known incomplete, and confirmed as such on that run: a control the reader has entered
    loses its prompt, and a combo box shows no choices. Those are milestones 5 and 6.

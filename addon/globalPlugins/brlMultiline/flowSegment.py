@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from logHandler import log
 
+from . import bmConfig, flowQuickNav
 from .segments import BrailleBufferSegment
 
 if TYPE_CHECKING:
@@ -140,8 +141,11 @@ class FlowBufferSegment(BrailleBufferSegment):
 		region = self.controller.activeRegion()
 		if region is None or not getattr(region, "dirty", False):
 			return
+		# Taken whether or not it is acted on, so that a jump the reader made before the
+		# setting was turned off cannot ground a later move.
+		ground = flowQuickNav.takeGrounding() and bmConfig.shouldGroundOnQuickNav()
 		try:
-			self.controller.followCursor()
+			self.controller.followCursor(ground=ground)
 		except Exception:
 			log.debugWarning("A flow could not follow the cursor", exc_info=True)
 		finally:
