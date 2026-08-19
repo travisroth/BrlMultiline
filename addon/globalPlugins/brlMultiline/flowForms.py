@@ -132,13 +132,42 @@ def isControlAt(info, unit: str = textInfos.UNIT_LINE) -> bool:
 		if not isinstance(item, textInfos.FieldCommand) or item.command != "controlStart":
 			continue
 		field = item.field
+		if not hasattr(field, "get"):
+			continue
 		try:
-			role = field.get("role") if hasattr(field, "get") else None
+			if not isControlRole(field.get("role")):
+				continue
+			if not wholeControlHere(field):
+				continue
 		except Exception:
-			role = None
-		if isControlRole(role):
-			return True
+			log.debugWarning("Could not read a control field", exc_info=True)
+			continue
+		return True
 	return False
+
+
+def wholeControlHere(field) -> bool:
+	"""Whether a control field is a control this block holds, rather than one around it.
+
+	Two blocks would otherwise be misread, and both are common.
+
+	A block *inside* a control — a line of a rich text editor, which is a block of the page
+	within an editable region — carries that region's field without being it. NVDA marks the
+	difference with `_startOfNode`, and uses it for exactly this purpose when deciding what
+	to put in braille.
+
+	A block that only *starts* a control — the first line of that same editor — would take
+	the blank row that separates a finished answer from the next prompt and put it in the
+	middle of the field. `_endOfNode` is the other half of the same test.
+
+	A buffer that says neither is taken at its word rather than doubted: reporting no
+	controls at all would turn the whole of this off silently, which is worse than the
+	occasional row of spacing in the wrong place.
+
+	:param field: the control field.
+	:return: whether the control begins and ends within this block.
+	"""
+	return field.get("_startOfNode", True) is not False and field.get("_endOfNode", True) is not False
 
 
 def contextRowsFor(previousRows: int, gapRows: int, bandRows: int) -> int:

@@ -49,8 +49,10 @@ class FieldedInfo:
 		return [*self.fields, self.text]
 
 
-def controlStart(roleName):
-	return textInfos.FieldCommand("controlStart", textInfos.ControlField(role=FakeRole(roleName)))
+def controlStart(roleName, **attributes):
+	field = textInfos.ControlField(role=FakeRole(roleName))
+	field.update(attributes)
+	return textInfos.FieldCommand("controlStart", field)
 
 
 class TestWhatCountsAsAControl(unittest.TestCase):
@@ -99,6 +101,27 @@ class TestRecognisingABlock(unittest.TestCase):
 	def test_anEndFieldIsNotAStart(self):
 		fields = [textInfos.FieldCommand("controlEnd", textInfos.ControlField(role=FakeRole("BUTTON")))]
 		self.assertFalse(flowForms.isControlAt(FieldedInfo(fields), textInfos.UNIT_LINE))
+
+	def test_aLineInsideAnEditorIsNotTheEditor(self):
+		# A rich text editor is a control, and each of its lines is a block of the page
+		# inside it. Every one of them carries the editor's field without being it, and
+		# taking them for controls would put a blank row between every line typed.
+		info = FieldedInfo([controlStart("EDITABLETEXT", _startOfNode=False, _endOfNode=False)])
+		self.assertFalse(flowForms.isControlAt(info, textInfos.UNIT_LINE))
+
+	def test_aBlockThatOnlyStartsAControlIsNotOne(self):
+		"""The first line of that editor: the spacing after a control would land mid field."""
+		info = FieldedInfo([controlStart("EDITABLETEXT", _startOfNode=True, _endOfNode=False)])
+		self.assertFalse(flowForms.isControlAt(info, textInfos.UNIT_LINE))
+
+	def test_aFieldWholeWithinTheBlockIsOne(self):
+		info = FieldedInfo([controlStart("EDITABLETEXT", _startOfNode=True, _endOfNode=True)], "Ada")
+		self.assertTrue(flowForms.isControlAt(info, textInfos.UNIT_LINE))
+
+	def test_aBufferThatSaysNeitherIsTakenAtItsWord(self):
+		"""Reporting no controls at all would turn the whole of this off silently."""
+		info = FieldedInfo([controlStart("CHECKBOX")])
+		self.assertTrue(flowForms.isControlAt(info, textInfos.UNIT_LINE))
 
 	def test_aDocumentThatWillNotSayIsProse(self):
 		"""Which costs the reader a row of context and nothing else."""
