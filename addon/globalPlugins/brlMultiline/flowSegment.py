@@ -64,6 +64,12 @@ class FlowBufferSegment(BrailleBufferSegment):
 	) -> None:
 		super().__init__(handler, container, spec)
 		self.controller: "Optional[FlowController]" = None
+		self.onFocusRegions = None
+		"""Called with the regions NVDA built for a new focus, returning whether it took them.
+
+		Set by whoever owns the band. The segment cannot answer a focus change itself
+		because the focus may have gone to a different document, and choosing what to read
+		is the owner's business, not the display's."""
 
 	# Lifetime.
 
@@ -76,6 +82,14 @@ class FlowBufferSegment(BrailleBufferSegment):
 		self.controller = controller
 		controller.onChanged = self.refresh
 		self.refresh()
+
+	def follow(self, onFocusRegions) -> None:
+		"""Say who decides what this band shows when the focus changes.
+
+		:param onFocusRegions: called with NVDA's focus regions, returning whether it took
+			them. None leaves the band answering focus changes itself.
+		"""
+		self.onFocusRegions = onFocusRegions
 
 	def detach(self) -> None:
 		"""Stop showing a flow, leaving the band blank."""
@@ -221,9 +235,19 @@ class FlowBufferSegment(BrailleBufferSegment):
 		the focus segment on every focus change, so the flow would be wiped and replaced by
 		one object's regions.
 
+		The owner decides what to do with it, because the focus may have gone to a different
+		document — or to something with no text at all, in which case the band is given back
+		and these regions are placed in it as they would be in any other segment.
+
 		:param regions: the regions NVDA built for the new focus.
 		:return: whether they were dealt with, so the caller does not place them.
 		"""
+		if self.onFocusRegions is not None:
+			try:
+				return bool(self.onFocusRegions(regions))
+			except Exception:
+				log.debugWarning("A flow could not answer a focus change", exc_info=True)
+				return False
 		if self.controller is None:
 			return False
 		try:

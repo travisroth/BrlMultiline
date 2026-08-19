@@ -583,10 +583,23 @@ and it needs three things before milestone 3:
    - **The fetch budget is per source call**, so it does not bound a whole fill or pan, and
      rendering is not charged to it at all. One budget per operation, charged for both
      fetching and rendering, is the shape it wants.
-   - **The flow does not change document when the focus does.** A focus change re-enters at
-     the cursor of the controller it already has, whatever document that was over. Until it
-     does, a hardware run should stay within one document. It should also start from the
-     focus object rather than the navigator object, since the band is the focus segment.
+   Since fixed: the flow follows the focus from document to document. The band takes its
+   target from the object NVDA built the focus regions for, rather than asking the system
+   again and racing the change; it keeps the controller it has when that resolves to the
+   document already being read, and builds a new one otherwise. Each reading gets its own
+   generation, so a bookmark from a document that has been left can never match a block in
+   the one now being read. Targeting starts from the focus object, since the band is the
+   focus segment, with the navigator object as the fallback.
+
+   That also answers open question 2 for the focus flow. When the focus lands on something
+   with no lines to read — a button in a dialog — the band gives itself back: it becomes an
+   ordinary segment and NVDA presents the focus in it exactly as it always has, rather than
+   leaving the reader with a blank display until they find their way to a document. Coming
+   back to a document starts reading it again.
+
+   Blank line collapsing now follows the same signal. A control the reader is working
+   inside keeps every blank line, because there the blank lines are the document; browse
+   mode presenting a document collapses a run of them, because there they are layout.
 
    Not done: the settings dialog. The flow is turned on by the "Reads the whole display as
    one flowing document" command, and the band is the whole display. A band of some of the

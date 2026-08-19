@@ -21,6 +21,7 @@ here because the rectangle must lie inside one physical display's live band, whi
 question about the reader's hardware rather than about this module.
 """
 
+import itertools
 from typing import TYPE_CHECKING, Any, Optional
 
 import api
@@ -30,6 +31,7 @@ from .flowControl import FlowController
 from .flowDryRun import bandSize, buildController
 from .flowSegment import FlowBufferSegment
 from .layout import SegmentRect
+from .objectMonitor import resolveTarget
 from .panels import FlowPanel, PanelOwner
 
 if TYPE_CHECKING:
@@ -37,6 +39,13 @@ if TYPE_CHECKING:
 
 BAND_NAME = "flow"
 """The panel's name, and so the key of its single segment."""
+
+_generations = itertools.count(1)
+"""Numbers each reading of a document, so that two documents cannot share a block identity.
+
+A bookmark is a position within one document and says nothing about which. Following the
+focus from one document to another with the same generation would let a stale anchor match
+a block in the new one, and the reader would be put somewhere arbitrary."""
 
 
 class FlowBand(PanelOwner):
@@ -70,7 +79,14 @@ class FlowBand(PanelOwner):
 		except Exception:
 			log.error("Could not claim a band for the flow", exc_info=True)
 			return False
+		self._follow()
 		return self.refresh(force=True)
+
+	def _follow(self) -> None:
+		"""Make the band bring its focus changes here, rather than answering them itself."""
+		segment = self.segment()
+		if segment is not None:
+			segment.follow(self.handleFocusRegions)
 
 	def stop(self) -> None:
 		"""Give the band back and forget the flow."""
@@ -91,36 +107,100 @@ class FlowBand(PanelOwner):
 	def refresh(self, force: bool = False) -> bool:
 		"""Point the band at what the reader is in now.
 
-		:param force: build a controller even if the object has not changed, which is what
-			a fresh claim or a rebuilt display needs.
+		:param force: build a controller even if the reader has not moved, which is what a
+			fresh claim or a rebuilt display needs.
+		:return: whether a flow is showing afterwards.
+		"""
+		return self.showObject(self._target(), force=force)
+
+	def handleFocusRegions(self, regions) -> bool:
+		"""Answer a focus change, using the object NVDA built its regions for.
+
+		The regions say where the focus has gone, which is the only reliable account of it:
+		asking the system again can race the change, and the navigator object is somewhere
+		else entirely once the reader has moved it.
+
+		:param regions: the regions NVDA built for the new focus.
+		:return: whether the band dealt with it. False hands them back to NVDA, which is
+			what should happen when the focus has gone somewhere that cannot be read as a
+			flow — a button in a dialog then reads as it always has.
+		"""
+		obj = self._objectOf(regions)
+		return self.showObject(obj if obj is not None else self._target(), force=True)
+
+	def showObject(self, obj: Any, force: bool = False) -> bool:
+		"""Show a flow over an object, keeping the current one if it is the same document.
+
+		:param obj: what the reader is now on.
+		:param force: rebuild even when the document has not changed.
 		:return: whether a flow is showing afterwards.
 		"""
 		segment = self.segment()
 		if segment is None:
 			return False
-		obj = self._target()
-		if not force and obj is self.obj and self.controller is not None:
-			return True
-		numRows, numCols = self._bandSize(segment)
+		target = self._resolve(obj)
+		if target is not None and self._isCurrentDocument(target):
+			# The same document, so the reader has moved within it rather than left it. A
+			# focus change is a jump, so the window is placed afresh at the cursor, but the
+			# blocks already read and the positions they were read from are still good.
+			if not force and self.obj is obj:
+				return True
+			self.obj = obj
+			showing = bool(self.controller and self.controller.enterAtCursor())
+			segment.refresh()
+			return showing
 		control = buildController(
 			obj=obj,
-			numRows=numRows,
-			numCols=numCols,
+			numRows=segment.rect.numRows,
+			numCols=segment.rect.numCols,
 			handler=self._handler(),
 			# The band is the focus segment, so this is the reader's own place in the
 			# document: panning moves the browse mode cursor, and routing can activate.
 			live=True,
+			generation=next(_generations),
 		)
 		if control is None:
+			# Nothing here reads as a flow. The band becomes an ordinary segment again and
+			# NVDA presents the focus in it as it always has, rather than leaving the reader
+			# with a blank display until they find their way back to a document.
 			self.controller = None
 			self.obj = None
 			segment.detach()
-			segment.refresh()
 			return False
 		self.controller = control
 		self.obj = obj
 		segment.attach(control, obj=control.source.obj)
 		return True
+
+	def _isCurrentDocument(self, target: Any) -> bool:
+		""":return: whether a resolved target is the one the current flow is reading."""
+		return self.controller is not None and self.controller.source.obj is target
+
+	def _resolve(self, obj: Any) -> Any:
+		""":return: what would actually be read for an object, or None."""
+		if obj is None:
+			return None
+		try:
+			return resolveTarget(obj)
+		except Exception:
+			log.debugWarning("Could not resolve what to flow", exc_info=True)
+			return None
+
+	def _objectOf(self, regions) -> Any:
+		"""Find what NVDA built a set of focus regions for.
+
+		The last region is the one over the text — a browse mode document's tree
+		interceptor, or the object itself — which is the same thing `resolveTarget` would
+		arrive at from the focus.
+
+		:param regions: the regions NVDA built.
+		:return: the object they are over, or None.
+		"""
+		for region in reversed(list(regions or ())):
+			obj = getattr(region, "obj", None)
+			if obj is not None:
+				return obj
+		return None
 
 	def segment(self) -> Optional[FlowBufferSegment]:
 		""":return: the band's segment, or None if the claim is not on the display."""
@@ -139,6 +219,9 @@ class FlowBand(PanelOwner):
 		"""The display was rebuilt, so the band came back empty and wants drawing again."""
 		if self.controller is None:
 			return
+		# A rebuild builds new segments, so the new one has to be told where its focus
+		# changes go before anything else happens to it.
+		self._follow()
 		self.refresh(force=True)
 
 	def onEvicted(self, keys: frozenset[str] = frozenset()) -> None:
@@ -155,8 +238,18 @@ class FlowBand(PanelOwner):
 	# Where things are.
 
 	def _target(self):
-		""":return: the object to read, which is where the reader is now."""
-		return api.getNavigatorObject()
+		""":return: the object to read, which is where the focus is.
+
+		The focus rather than the navigator object, because this band *is* the focus
+		segment: it shows the document the reader is working in, while the navigator object
+		is wherever they last sent it. The navigator object is the fallback for the case
+		where there is no focus to be had.
+		"""
+		try:
+			obj = api.getFocusObject()
+		except Exception:
+			obj = None
+		return obj if obj is not None else api.getNavigatorObject()
 
 	def _container(self) -> "Optional[DisplayContainer]":
 		return getattr(self.plugin, "container", None)

@@ -11,7 +11,13 @@ and each of those would drag the band off the rows the reader is holding.
 
 import unittest
 
-from ._stubs import CursorManagerRegion, FakeHandler, FakeTreeInterceptor, installStubs
+from ._stubs import (
+	CursorManagerRegion,
+	FakeHandler,
+	FakeNavigatorObject,
+	FakeTreeInterceptor,
+	installStubs,
+)
 
 installStubs()
 
@@ -301,6 +307,116 @@ class TestFocusChanges(unittest.TestCase):
 		_, segment, control = attachedBand()
 		segment.clear()
 		self.assertEqual(segment.regions, [control.activeRegion()])
+
+
+class FakePlugin:
+	"""Enough plugin for a band to claim part of the display and be rebuilt."""
+
+	def __init__(self, container):
+		self.container = container
+		self.claimed = []
+
+	def activatePanel(self, panel):
+		self.claimed.append(panel.name)
+
+	def deactivatePanel(self, name):
+		self.claimed = [claim for claim in self.claimed if claim != name]
+
+
+class TestFollowingTheFocus(unittest.TestCase):
+	"""A flow shows the document the focus is in, and follows it to the next one."""
+
+	def setUp(self):
+		import api
+		from brlMultiline.flowBand import FlowBand
+
+		self.handler = FakeHandler(ROWS, COLS)
+		self.container = containerWithBand(self.handler)
+		self.handler.mainBuffer = self.handler.buffer = self.container
+		self.segment = self.container.segmentForKey("flow")
+		self.plugin = FakePlugin(self.container)
+		self.band = FlowBand(self.plugin)
+		self.previousFocus = api.getFocusObject
+		self.addCleanup(setattr, api, "getFocusObject", self.previousFocus)
+		self.api = api
+
+	def _focusOn(self, obj):
+		self.api.getFocusObject = lambda: obj
+		return obj
+
+	def _document(self, lines=None, caretIndex=0):
+		interceptor = FakeTreeInterceptor(lines or documentLines(), caretIndex=caretIndex)
+		return FakeNavigatorObject("a page", treeInterceptor=interceptor), interceptor
+
+	def _start(self, obj):
+		self._focusOn(obj)
+		self.band._follow()
+		return self.band.refresh(force=True)
+
+	def _focusRegionsFor(self, obj):
+		"""What NVDA hands the band on a focus change: its regions for the new focus."""
+		from ._stubs import fakeGetFocusRegions
+		from brlMultiline.objectMonitor import resolveTarget
+
+		return fakeGetFocusRegions(resolveTarget(obj))
+
+	def test_theBandReadsWhereTheFocusIsNotWhereTheNavigatorIs(self):
+		# The band is the focus segment, so it shows the document being worked in, while
+		# the navigator object is wherever it was last sent.
+		focused, interceptor = self._document(["focused document"])
+		self.assertTrue(self._start(focused))
+		self.assertIs(self.band.controller.source.obj, interceptor)
+
+	def test_aFocusChangeToAnotherDocumentReadsTheNewOne(self):
+		first, firstInterceptor = self._document(["first document"])
+		self._start(first)
+		second, secondInterceptor = self._document(["second document"])
+		self._focusOn(second)
+		self.assertTrue(self.segment.acceptFocusRegions(self._focusRegionsFor(second)))
+		self.assertIs(self.band.controller.source.obj, secondInterceptor)
+		# Asserted on what the band is reading rather than on its cells: a band built
+		# through `buildController` wraps at word boundaries, which the harness's buffer
+		# does not implement, so its cells are empty here and are not in NVDA.
+		self.assertEqual(self.band.controller.window.blocks[0].rawText, "second document")
+
+	def test_aFocusChangeWithinTheSameDocumentKeepsTheReading(self):
+		# The controller holds the blocks already read and the positions they came from,
+		# so moving within a document must not throw them away.
+		page, _ = self._document(documentLines())
+		self._start(page)
+		control = self.band.controller
+		self.assertTrue(self.segment.acceptFocusRegions(self._focusRegionsFor(page)))
+		self.assertIs(self.band.controller, control)
+
+	def test_anotherDocumentGetsItsOwnGeneration(self):
+		# A bookmark is a position within one document and says nothing about which, so a
+		# stale anchor must never match a block in the document now being read.
+		first, _ = self._document(["first"])
+		self._start(first)
+		wasGeneration = self.band.controller.source.generation
+		second, _ = self._document(["second"])
+		self._focusOn(second)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(second))
+		self.assertNotEqual(self.band.controller.source.generation, wasGeneration)
+
+	def test_focusOnSomethingWithNoTextIsGivenBackToNVDA(self):
+		# A button in a dialog has no lines to flow. The band becomes an ordinary segment
+		# again rather than leaving the reader with a blank display.
+		page, _ = self._document(documentLines())
+		self._start(page)
+		button = self._focusOn(FakeNavigatorObject("a button"))
+		self.assertFalse(self.segment.acceptFocusRegions(self._focusRegionsFor(button)))
+		self.assertFalse(self.segment.isFlowing)
+		self.assertIsNone(self.band.controller)
+
+	def test_comingBackToADocumentReadsItAgain(self):
+		page, interceptor = self._document(documentLines())
+		self._start(page)
+		button = self._focusOn(FakeNavigatorObject("a button"))
+		self.segment.acceptFocusRegions(self._focusRegionsFor(button))
+		self._focusOn(page)
+		self.assertTrue(self.segment.acceptFocusRegions(self._focusRegionsFor(page)))
+		self.assertIs(self.band.controller.source.obj, interceptor)
 
 
 if __name__ == "__main__":

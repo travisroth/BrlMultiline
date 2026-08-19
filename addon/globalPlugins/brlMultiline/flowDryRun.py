@@ -91,12 +91,38 @@ def templateRegion(obj, notes: Optional[list] = None) -> Optional[TextInfoRegion
 	return found
 
 
+def isBeingWrittenIn(target, obj) -> bool:
+	"""Whether the reader is working inside this content rather than reading it.
+
+	Decides whether a run of blank lines collapses to one row or keeps every one, which is
+	decision 6: blank lines are layout while reading and are the document while writing.
+	The test is interaction, not role — the same textarea is both at different moments —
+	and interaction shows up here as browse mode having stood aside, either because there
+	is no tree interceptor or because it has gone to focus mode for this control.
+
+	:param target: what will be read.
+	:param obj: the object the reader is on.
+	:return: whether blank lines should be kept.
+	"""
+	interceptor = getattr(obj, "treeInterceptor", None)
+	if interceptor is not None and target is interceptor:
+		# Browse mode is presenting this, so it is being read.
+		return False
+	try:
+		import controlTypes
+
+		return controlTypes.State.EDITABLE in obj.states
+	except Exception:
+		return False
+
+
 def buildController(
 	obj: Optional["NVDAObject"] = None,
 	numRows: int = DEFAULT_ROWS,
 	numCols: int = DEFAULT_COLS,
 	handler=None,
 	live: bool = False,
+	generation: int = 0,
 	notes: Optional[list] = None,
 ) -> Optional[FlowController]:
 	"""Build a flow over an object, ready to be asked what it would show.
@@ -106,6 +132,10 @@ def buildController(
 	:param numCols: its width.
 	:param handler: the braille handler the renderer lays out through.
 	:param live: whether the flow may move the real cursor. False for a dry run.
+	:param generation: distinguishes this reading from an earlier one, so that a bookmark
+		from a document that has been left can never match one in the document now being
+		read. A caller that follows the focus from document to document must pass a new
+		one each time.
 	:param notes: a list to record each step in, so that a failure says which step failed.
 	:return: the controller, or None if this object has nothing to flow.
 	"""
@@ -138,9 +168,8 @@ def buildController(
 		target,
 		factory,
 		unit=readingUnit(),
-		generation=0,
-		# A dry run reads; it never writes. Blank lines collapse, as they do for a reader.
-		interactive=False,
+		generation=generation,
+		interactive=isBeingWrittenIn(target, obj),
 	)
 	notes.append(f"Reading by {source.unit}, band {numRows} rows of {numCols} cells.")
 	renderer = FlowRenderer(handler, numCols=numCols, fillRows=False)
