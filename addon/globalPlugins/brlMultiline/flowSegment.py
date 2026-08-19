@@ -19,17 +19,23 @@ the anchor, so those calls are refused here. Following the cursor is the control
 `syncToCursor`, which moves by the smallest amount that brings the cursor into view, and
 does nothing at all when it is already there.
 
-The other half is `FlowCommandRegion`. NVDA reaches for `mainBuffer.regions[-1]` in nine
-places — see [flow-last-region-audit.md](../../../docs/design/flow-last-region-audit.md) —
-and a flow band has no regions in that list to find. Rather than let those calls reach
-nothing, the band holds exactly one stand-in whose job is to route them to the controller,
-which sends them to the active block. It is not a `TextInfoRegion`, deliberately: that is
-what stops `_handlePendingUpdate` treating it as something to scroll to.
+The other half is what the band puts in its `regions` list. NVDA reaches for
+`mainBuffer.regions[-1]` in nine places — see
+[flow-last-region-audit.md](../../../docs/design/flow-last-region-audit.md) — and on a
+single line display that is the block the cursor is in. So that is what a band puts there:
+the active block's own region, and nothing else. A stand-in of our own was tried first and
+was wrong, because braille input only writes to the last region when it is a
+`TextInfoRegion`, so untranslated dots went nowhere and the erase that checks them could
+flush the input buffer. The real region is a `TextInfoRegion`, so those paths work
+unaltered, and the line commands move the browse mode cursor because it is a live region.
+
+What has to be added is the other direction: those commands move the region without telling
+anyone, so a live region calls back when its position changes, and the band follows it. The
+one call that must not reach the band is the window moving, and that is refused above.
 """
 
 from typing import TYPE_CHECKING, Any, Optional
 
-from braille.regions.base import Region
 from logHandler import log
 
 from .segments import BrailleBufferSegment
@@ -40,76 +46,6 @@ if TYPE_CHECKING:
 	from .container import DisplayContainer
 	from .flowControl import FlowController
 	from .panels import SegmentSpec
-
-
-class FlowCommandRegion(Region):
-	"""Where NVDA's reach for the last region lands in a flow band.
-
-	Carries the object being read, so that `handleCaretMove` recognises it and marks it for
-	update, which is how a flow hears that the cursor moved. Everything it is asked to do is
-	passed to the controller and thence to the active block, rather than to whatever happens
-	to be last.
-	"""
-
-	def __init__(self, segment: "FlowBufferSegment") -> None:
-		"""
-		:param segment: the band this stands in for.
-		"""
-		super().__init__()
-		self.segment = segment
-		self.obj: Any = None
-		"""The object the flow is reading, as NVDA's own regions carry."""
-
-		self.pendingCaretUpdate = False
-		"""Set by `handleCaretMove`. Read and cleared by NVDA; acted on in `update`."""
-
-	@property
-	def controller(self) -> "Optional[FlowController]":
-		return self.segment.controller
-
-	def update(self) -> None:
-		"""Answer a caret move, which is what NVDA queues this region for.
-
-		The block the cursor is in is re-read, and the window then moves by the smallest
-		amount that brings it into view — which is nothing at all when the cursor has landed
-		on something already under the reader's fingers.
-		"""
-		control = self.controller
-		if control is None:
-			return
-		self.pendingCaretUpdate = False
-		try:
-			control.followCursor()
-		except Exception:
-			log.debugWarning("A flow could not follow the cursor", exc_info=True)
-		self.segment.refresh()
-
-	def nextLine(self) -> None:
-		"""NVDA's next line command: one block on, taking the cursor."""
-		self._step(forward=True)
-
-	def previousLine(self, start: bool = False) -> None:
-		"""NVDA's previous line command: one block back, taking the cursor."""
-		self._step(forward=False)
-
-	def _step(self, forward: bool) -> None:
-		control = self.controller
-		if control is None:
-			return
-		try:
-			control.stepBlock(forward)
-		except Exception:
-			log.debugWarning("A flow could not step a block", exc_info=True)
-			return
-		self.segment.refresh()
-
-	def routeTo(self, braillePos: int) -> None:
-		# Routing is answered by the segment, which knows where in the band the press
-		# landed. Reaching this is NVDA routing through the region rather than the buffer.
-		self.segment.routeTo(braillePos)
-
-	def __repr__(self) -> str:
-		return f"<FlowCommandRegion for {self.segment.key!r}>"
 
 
 class FlowBufferSegment(BrailleBufferSegment):
@@ -128,8 +64,6 @@ class FlowBufferSegment(BrailleBufferSegment):
 	) -> None:
 		super().__init__(handler, container, spec)
 		self.controller: "Optional[FlowController]" = None
-		self.commandRegion = FlowCommandRegion(self)
-		self.regions.append(self.commandRegion)
 
 	# Lifetime.
 
@@ -140,22 +74,24 @@ class FlowBufferSegment(BrailleBufferSegment):
 		:param obj: the object being read, for NVDA's caret handling to recognise.
 		"""
 		self.controller = controller
-		self.commandRegion.obj = obj if obj is not None else getattr(controller.source, "obj", None)
+		controller.onChanged = self.refresh
 		self.refresh()
 
 	def detach(self) -> None:
 		"""Stop showing a flow, leaving the band blank."""
+		if self.controller is not None:
+			self.controller.onChanged = None
 		self.controller = None
-		self.commandRegion.obj = None
+		self.regions = []
 		self.brailleCells = []
 		self.rawText = ""
 		self.cursorPos = None
 
 	def clear(self) -> None:
-		# The command region is this segment's own furniture rather than content, so it
-		# survives a clear; without it NVDA's reach for the last region finds nothing.
 		super().clear()
-		self.regions.append(self.commandRegion)
+		# The band's regions are not content that can be cleared away: the active block is
+		# what NVDA's own commands act on, so it is put back at once.
+		self._syncRegions()
 
 	@property
 	def isFlowing(self) -> bool:
@@ -167,9 +103,35 @@ class FlowBufferSegment(BrailleBufferSegment):
 	def update(self) -> None:
 		if self.controller is None:
 			return super().update()
+		self._syncRegions()
+		self._followIfRead()
 		self.brailleCells = self.cells()
 		self.rawText = ""
 		self.cursorPos = self.controller.cursorCell()
+
+	def _syncRegions(self) -> None:
+		"""Put the active block's region where NVDA looks for the last one, and nothing else."""
+		if self.controller is None:
+			return
+		region = self.controller.activeRegion()
+		self.regions = [region] if region is not None else []
+
+	def _followIfRead(self) -> None:
+		"""Follow the cursor when NVDA has re-read the block it is in.
+
+		`_handlePendingUpdate` re-reads the queued region and then updates the buffer, which
+		is this. Re-reading is how a flow hears that the caret moved within the document, or
+		that braille input changed what the block says.
+		"""
+		region = self.controller.activeRegion()
+		if region is None or not getattr(region, "dirty", False):
+			return
+		try:
+			self.controller.followCursor()
+		except Exception:
+			log.debugWarning("A flow could not follow the cursor", exc_info=True)
+		finally:
+			region.dirty = False
 
 	def cells(self) -> list:
 		""":return: the band's cells, exactly as many as the rectangle holds."""

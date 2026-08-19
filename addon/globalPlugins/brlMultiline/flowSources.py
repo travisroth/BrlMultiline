@@ -74,6 +74,20 @@ class FlowRegion:
 		self.isActive = False
 		"""Whether this is the block the cursor is in. Only the active block shows one."""
 
+		self.dirty = False
+		"""Set when this region was re-read, so the band knows to lay it out again.
+
+		NVDA re-reads the region it has queued and then updates the buffer, which is where
+		a flow hears that the block under the cursor has changed — by braille input, by an
+		application rewriting it, or by the caret moving within it."""
+
+		self.onMoved = None
+		"""Called when something moved this region's position, with the region.
+
+		NVDA's own commands reach the last region directly: the line commands move it a
+		reading unit, and routing moves it to a cell. In a live flow those move the browse
+		mode cursor, and the band has to follow. Set by the controller."""
+
 	@property
 	def position(self):
 		""":return: this block's own position, or None if it has never been read."""
@@ -90,9 +104,16 @@ class FlowRegion:
 			# A live flow is the focus segment, so this is the browse mode cursor moving,
 			# which is what keeps routing able to activate what it lands on.
 			super()._setCursor(info)
+		if self.onMoved is None:
+			return
+		try:
+			self.onMoved(self)
+		except Exception:
+			log.debugWarning(f"Could not follow {self!r} after it moved", exc_info=True)
 
 	def update(self) -> None:
 		super().update()
+		self.dirty = True
 		# Set by TextInfoRegion.update for any block that is not at the start of its object,
 		# which is nearly all of them. It tells NVDA's buffer to show the last region alone,
 		# and a flow assembles its own rows, so it is never wanted here.
@@ -115,6 +136,9 @@ class FlowRegion:
 		if not self.live or self._position is None:
 			return False
 		try:
+			# Deliberately the base class's, not this one's: the controller is moving the
+			# cursor to a block it has already chosen, so telling it that the region moved
+			# would send it round the same decision again.
 			super()._setCursor(self._position.copy())
 		except Exception:
 			log.debugWarning(f"Could not move the cursor to {self!r}", exc_info=True)

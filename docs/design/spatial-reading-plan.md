@@ -560,6 +560,34 @@ and it needs three things before milestone 3:
    focus change to such an owner instead of clearing the band and writing NVDA's regions
    into it. 21 tests in `test_flowSegment.py`.
 
+   Corrected after review, all confirmed against the code: a flow claiming the whole
+   display is one segment, and the patch handed every one segment container to NVDA, so no
+   focus change ever reached the band — NVDA cleared it and appended its own regions.
+   Stepping a block moved the add-on's idea of which block was active without moving the
+   browse mode cursor. And a stand-in region of our own was the wrong shape: braille input
+   only writes to the last region when it is a `TextInfoRegion`, so untranslated dots went
+   nowhere and the erase that checks them could flush the input buffer. The band now puts
+   the active block's own region there, which is what a single line display has in that
+   place, and a live region calls back when something moves it so the window follows.
+
+   Also fixed: panning could loop for ever on a block with a declared gap, since a gap
+   cannot hold an anchor and mapped back to the block it belongs to; and a budget stop was
+   drawn as blank cells, so under the fingers it was indistinguishable from the end of the
+   document, which is the confusion the result states exist to prevent.
+
+   Still owed, and not blockers for a first hardware run:
+
+   - **Long blocks are truncated at 64 rows** with no marker and no way to reach the rest.
+     They want rendering in chunks with a continuation token. The cap does not save the
+     translation either, since the whole region is read before it is cut.
+   - **The fetch budget is per source call**, so it does not bound a whole fill or pan, and
+     rendering is not charged to it at all. One budget per operation, charged for both
+     fetching and rendering, is the shape it wants.
+   - **The flow does not change document when the focus does.** A focus change re-enters at
+     the cursor of the controller it already has, whatever document that was over. Until it
+     does, a hardware run should stay within one document. It should also start from the
+     focus object rather than the navigator object, since the band is the focus segment.
+
    Not done: the settings dialog. The flow is turned on by the "Reads the whole display as
    one flowing document" command, and the band is the whole display. A band of some of the
    rows is the same code with a different rectangle, and wants the setting to name a display

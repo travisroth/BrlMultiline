@@ -30,6 +30,7 @@ from flow import (  # noqa: E402
 	NO_POSITION,
 	RenderedBlock,
 	RenderKey,
+	PENDING_CELL,
 	RowKind,
 	assembleCells,
 	cellSource,
@@ -146,6 +147,52 @@ class TestBlankAndPendingRows(unittest.TestCase):
 	def test_unfetchedContentIsPendingNotBlank(self):
 		window = windowWith(4, [block("only")], after=EdgeState.OPEN)
 		self.assertEqual(visibleNames(window)[1:], ["pending", "pending", "pending"])
+
+	def test_aPendingRowFeelsDifferentFromTheEnd(self):
+		# Under the fingers is the only place this distinction matters, and both were blank
+		# cells until now, whatever the model said about them.
+		ended = windowWith(2, [block("only", numCols=4)], after=EdgeState.END)
+		deferred = windowWith(2, [block("only", numCols=4)], after=EdgeState.DEFERRED)
+		endRow = assembleCells(ended, numCols=8)[8:]
+		pendingRow = assembleCells(deferred, numCols=8)[8:]
+		self.assertNotEqual(endRow, pendingRow)
+		self.assertEqual(endRow, [0] * 8)
+		self.assertEqual(pendingRow[0], PENDING_CELL)
+
+	def test_aPendingRowIsNotRoutable(self):
+		deferred = windowWith(2, [block("only", numCols=4)], after=EdgeState.DEFERRED)
+		self.assertIsNone(cellSource(deferred, 8, 8))
+
+
+class TestGapRows(unittest.TestCase):
+	"""A gap belongs to a block rather than being one of its rows, so it cannot be anchored."""
+
+	def test_panningPastATrailingGapReachesTheNextBlock(self):
+		# A one row window over a block with a gap after it would otherwise report that it
+		# moved, for ever, while showing the same row.
+		window = windowWith(1, [block("a", gapAfter=True), block("b")])
+		self.assertEqual(visibleNames(window), ["a0"])
+		self.assertTrue(window.panForward())
+		self.assertEqual(visibleNames(window), ["b0"])
+		self.assertFalse(window.panForward())
+
+	def test_panningBackPastALeadingGapReachesThePreviousBlock(self):
+		# A one row window never rests on a gap: there is no content on it to read, and an
+		# anchor there means the block's own first row, which is where it came from.
+		window = windowWith(1, [block("a"), block("b", gapBefore=True)])
+		self.assertTrue(window.panForward())
+		self.assertEqual(visibleNames(window), ["b0"])
+		self.assertTrue(window.panBack())
+		self.assertEqual(visibleNames(window), ["a0"])
+
+	def test_aGapDoesNotSwallowThePanForever(self):
+		window = windowWith(1, [block("a", gapAfter=True), block("b", gapAfter=True), block("c")])
+		seen = [visibleNames(window)[0]]
+		for _ in range(6):
+			if not window.panForward():
+				break
+			seen.append(visibleNames(window)[0])
+		self.assertEqual(seen, ["a0", "b0", "c0"])
 
 
 class TestPanning(unittest.TestCase):

@@ -110,11 +110,20 @@ class FlowController(PanelOwner):
 		self.renderer = renderer
 		self.window = FlowWindow(numRows)
 		self.live = live
+		self._following = False
+		"""Guards against following a cursor move that this controller made itself."""
+
 		self.activeBlockId: Optional["BlockId"] = None
 		"""The block the cursor is in, and the only one that may show a cursor."""
 
 		self.lastResult = None
 		"""The source's last answer, so a caller can say why nothing appeared."""
+
+		self.onChanged = None
+		"""Called when something moved the flow from underneath, so the band can redraw.
+
+		Set by the segment showing this flow. NVDA's commands reach the active region
+		directly, so a move can start below the controller rather than above it."""
 
 		self.blocks = ByIdentity()
 		"""The source block behind each rendering, by identity, for its region.
@@ -144,9 +153,9 @@ class FlowController(PanelOwner):
 		self.blocks.clear()
 		self.window.setEdge(Edge.BEFORE, EdgeState.OPEN)
 		self.window.setEdge(Edge.AFTER, EdgeState.OPEN)
-		self._keep(result.block)
-		self.window.appendBlock(self.renderer.render(result.block))
-		self.window.enterAt(result.block.blockId)
+		block = self._keep(result.block)
+		self.window.appendBlock(self.renderer.render(block))
+		self.window.enterAt(block.blockId)
 		self._setActive(result.block.blockId)
 		if contextRows > 0:
 			self._fill(Edge.BEFORE, contextRows)
@@ -216,17 +225,60 @@ class FlowController(PanelOwner):
 			# more we have not got.
 			self.window.setEdge(edge, result.edgeState)
 			return False
-		self._keep(result.block)
-		rendered = self.renderer.render(result.block)
+		block = self._keep(result.block)
+		rendered = self.renderer.render(block)
 		if edge is Edge.BEFORE:
 			self.window.prependBlock(rendered)
 		else:
 			self.window.appendBlock(rendered)
 		return True
 
-	def _keep(self, block) -> None:
-		"""Remember a source block, so its region can be reached from its identity."""
+	def _keep(self, block):
+		"""Remember a source block, so its region can be reached from its identity.
+
+		A block already held keeps the region it was first read with, and the newly built
+		one is discarded. Two things depend on that. NVDA queues a region object for update
+		and comes back to it later, so swapping the object underneath would leave it
+		holding one this flow no longer draws. And the region is where the block's own
+		reading position lives, which is what a viewer pans within.
+
+		:param block: the block just read.
+		:return: the block to use, which may be one already held.
+		"""
+		existing = self.blocks.get(block.blockId)
+		if existing is not None:
+			return existing
 		self.blocks.set(block.blockId, block)
+		region = getattr(block, "region", None)
+		if region is not None and hasattr(region, "onMoved"):
+			region.onMoved = self._regionMoved
+		return block
+
+	def _regionMoved(self, region) -> None:
+		"""Answer a move that started in the region rather than here.
+
+		NVDA's line commands and its routing act on the last region in the buffer, which in
+		a flow is the block the cursor is in. When one of those moves the cursor, the window
+		follows it exactly as it does for an arrow key.
+
+		:param region: the region that moved.
+		"""
+		if self._following:
+			return
+		if self.live:
+			# The real cursor moved, so the window follows it. A viewer's regions move a
+			# position of their own, which the object's cursor knows nothing about: asking
+			# where the cursor is would send the band back to where the reader is not.
+			self._following = True
+			try:
+				self.followCursor()
+			finally:
+				self._following = False
+		if self.onChanged is not None:
+			try:
+				self.onChanged()
+			except Exception:
+				log.debugWarning("A flow could not redraw after a move", exc_info=True)
 
 	def regionFor(self, blockId: "BlockId"):
 		""":return: the region reading one block, or None if it is not held."""
@@ -286,8 +338,21 @@ class FlowController(PanelOwner):
 			if nextId is None:
 				return False
 		self._setActive(nextId)
+		self._takeCursor(nextId)
 		self.syncToCursor(forward=forward)
 		return True
+
+	def activeRegion(self):
+		""":return: the region reading the block the cursor is in, or None.
+
+		This is what NVDA's own commands must reach. `regions[-1]` is a real text region in
+		a flow band for that reason: braille input only writes to the last region when it is
+		a `TextInfoRegion`, and a stand-in would silently swallow untranslated dots and the
+		erase that checks them.
+		"""
+		if self.activeBlockId is None:
+			return None
+		return self.regionFor(self.activeBlockId)
 
 	def followCursor(self) -> bool:
 		"""Answer a cursor move that was not a pan.
@@ -366,6 +431,24 @@ class FlowController(PanelOwner):
 			self.fill()
 		return moved
 
+	def _takeCursor(self, blockId: "BlockId") -> bool:
+		"""Move the real cursor to a block, for a live flow.
+
+		Selecting a block and moving the cursor to it are two things, and only the second
+		is what makes speech follow, what the arrow keys carry on from, and what a routing
+		key would activate. A viewer does neither.
+
+		:param blockId: the block to move to.
+		:return: whether the cursor was moved.
+		"""
+		if not self.live:
+			return False
+		region = self.regionFor(blockId)
+		takeCursor = getattr(region, "takeCursor", None)
+		if takeCursor is None:
+			return False
+		return bool(takeCursor())
+
 	def _cursorToTop(self) -> None:
 		"""Put the cursor on the top block of the window, after a pan.
 
@@ -377,12 +460,7 @@ class FlowController(PanelOwner):
 		if topId is None:
 			return
 		self._setActive(topId)
-		if not self.live:
-			return
-		region = self.regionFor(topId)
-		takeCursor = getattr(region, "takeCursor", None)
-		if takeCursor is not None:
-			takeCursor()
+		self._takeCursor(topId)
 
 	def _setActive(self, blockId: "BlockId") -> None:
 		"""Make one block the active one, and no other.

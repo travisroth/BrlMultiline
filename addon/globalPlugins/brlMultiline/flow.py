@@ -44,6 +44,18 @@ from typing import Iterable, Sequence
 BLANK_CELL = 0
 """The cell value of a blank cell, matching NVDA's own use of 0 for an empty cell."""
 
+PENDING_CELL = 0xC0
+"""Dots 7 and 8, the mark on a row that stands for content not fetched.
+
+`RowKind` has always distinguished the end of a document from a budget stop, but both were
+drawn as blank cells, so under the fingers they were the same thing — which is the very
+confusion the result states exist to prevent. NVDA uses the same shape for a row cut mid
+word, which reads as "there is more of this" and is what is meant here too.
+"""
+
+PENDING_MARK_CELLS = 3
+"""How many cells a pending or failed row spends on saying so."""
+
 NO_POSITION = -1
 """Marks a cell that came from no position in a block: padding, a gap, a status row.
 
@@ -709,12 +721,12 @@ class FlowWindow:
 		"""
 		rows = self.streamRows()
 		_, end = self._bounds(rows)
-		if end >= len(rows):
+		position = self._nextContent(rows, end, forward=True)
+		if position is None:
 			if self.edges[Edge.AFTER] is EdgeState.END:
 				return False
-			raise ContentNeeded(Edge.AFTER, end - len(rows) + 1)
-		row = rows[end]
-		return self._anchorTo(row, Entry.TOP)
+			raise ContentNeeded(Edge.AFTER, max(1, end - len(rows) + 1))
+		return self._anchorTo(rows[position], Entry.TOP)
 
 	def panBack(self) -> bool:
 		"""Move the window back by a whole display.
@@ -728,12 +740,12 @@ class FlowWindow:
 		"""
 		rows = self.streamRows()
 		start, _ = self._bounds(rows)
-		if start <= 0:
+		position = self._nextContent(rows, start - 1, forward=False)
+		if position is None:
 			if self.edges[Edge.BEFORE] is EdgeState.END:
 				return False
-			raise ContentNeeded(Edge.BEFORE, 1 - start)
-		row = rows[start - 1]
-		return self._anchorTo(row, Entry.BOTTOM)
+			raise ContentNeeded(Edge.BEFORE, max(1, 1 - start))
+		return self._anchorTo(rows[position], Entry.BOTTOM)
 
 	def ensureVisible(self, blockId: BlockId, rowIndex: int = 0, forward: bool = True) -> bool:
 		"""Bring a row onto the display by the smallest movement that does so.
@@ -783,6 +795,26 @@ class FlowWindow:
 		if not 0 <= index < len(self.blocks):
 			return None
 		return self.blocks[index].blockId
+
+	def _nextContent(self, rows: Sequence[StreamRow], position: int, forward: bool) -> int | None:
+		"""Find the nearest row that can hold an anchor.
+
+		A gap is not one: it belongs to a block rather than being one of its rows, so
+		anchoring to it puts the window back on that block's own first row and the pan
+		reports that it moved while showing the same thing. A one row window over a block
+		with a trailing gap would pan forever.
+
+		:param rows: the stream.
+		:param position: where to start looking.
+		:param forward: which way to look.
+		:return: the position of the nearest content row, or None if there is none that way.
+		"""
+		step = 1 if forward else -1
+		while 0 <= position < len(rows):
+			if rows[position].kind is RowKind.CONTENT:
+				return position
+			position += step
+		return None
 
 	def _anchorTo(self, row: StreamRow, entry: Entry) -> bool:
 		"""Anchor the window to a stream row, skipping rows that cannot hold an anchor.
@@ -896,4 +928,7 @@ def _rowCells(window: FlowWindow, row: StreamRow, numCols: int) -> list[int]:
 			return [BLANK_CELL] * numCols
 		cells = list(block.rows[row.rowIndex])[:numCols]
 		return cells + [BLANK_CELL] * (numCols - len(cells))
+	if row.kind is RowKind.PENDING:
+		marks = min(PENDING_MARK_CELLS, numCols)
+		return [PENDING_CELL] * marks + [BLANK_CELL] * (numCols - marks)
 	return [BLANK_CELL] * numCols

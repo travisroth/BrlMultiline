@@ -137,14 +137,14 @@ class TestNVDACannotMoveTheWindow(unittest.TestCase):
 		_, segment, control = attachedBand()
 		control.panForward()
 		before = bandRows(segment)
-		segment.scrollTo(segment.commandRegion, 0)
+		segment.scrollTo(segment.regions[-1], 0)
 		self.assertEqual(bandRows(segment), before)
 
 	def test_focusingARegionChangesNothing(self):
 		_, segment, control = attachedBand()
 		control.panForward()
 		before = bandRows(segment)
-		segment.focus(segment.commandRegion)
+		segment.focus(segment.regions[-1])
 		self.assertEqual(bandRows(segment), before)
 
 	def test_aWholePendingUpdateCycleLeavesTheWindowWhereItWas(self):
@@ -167,34 +167,63 @@ class TestCommandsReachTheFlow(unittest.TestCase):
 		segment.scrollBack()
 		self.assertEqual(bandRows(segment), first)
 
-	def test_theLastRegionIsTheStandInRatherThanNothing(self):
-		# NVDA reaches for regions[-1] in nine places. A band with no regions would give
-		# every one of them nothing to act on.
-		container, segment, _ = attachedBand()
-		self.assertIs(container.regions[-1], segment.commandRegion)
+	def test_theLastRegionIsTheActiveBlocksOwnRegion(self):
+		# NVDA reaches for regions[-1] in nine places, and on a single line display that is
+		# the block the cursor is in. A band puts the same thing there.
+		container, segment, control = attachedBand()
+		self.assertIs(container.regions[-1], control.activeRegion())
 
-	def test_theStandInStepsABlockRatherThanScrolling(self):
-		_, segment, control = attachedBand()
-		before = control.activeBlockId
-		segment.commandRegion.nextLine()
-		self.assertNotEqual(control.activeBlockId, before)
+	def test_theLastRegionIsARealTextRegion(self):
+		# Braille input only writes to the last region when it is a TextInfoRegion, so a
+		# stand-in of our own would swallow untranslated dots and break the erase that
+		# checks them.
+		from braille.regions.textInfo import TextInfoRegion
 
-	def test_theStandInCarriesTheObjectSoNVDARecognisesIt(self):
+		container, _, _ = attachedBand()
+		self.assertIsInstance(container.regions[-1], TextInfoRegion)
+
+	def test_theLastRegionFollowsTheActiveBlock(self):
+		container, segment, control = attachedBand()
+		first = container.regions[-1]
+		control.stepBlock(forward=True)
+		segment.refresh()
+		self.assertIsNot(container.regions[-1], first)
+		self.assertIs(container.regions[-1], control.activeRegion())
+
+	def test_nvdasLineCommandMovesTheBrowseModeCursor(self):
+		# What script_braille_nextLine does: regions[-1].nextLine(). In a live flow that is
+		# a live region, so the cursor moves and the band follows it.
+		container, segment, control = attachedBand()
+		self.assertEqual(control.source.obj.caretIndex, 0)
+		container.regions[-1].nextLine()
+		self.assertEqual(control.source.obj.caretIndex, 1)
+
+	def test_steppingABlockMovesTheBrowseModeCursorToo(self):
+		# Selecting a block and moving the cursor to it are two things, and only the second
+		# makes speech follow and the arrow keys carry on from there.
 		_, segment, control = attachedBand()
-		self.assertIs(segment.commandRegion.obj, control.source.obj)
+		control.stepBlock(forward=True)
+		self.assertEqual(control.source.obj.caretIndex, 1)
+
+	def test_theLastRegionCarriesTheObjectSoNVDARecognisesIt(self):
+		container, segment, control = attachedBand()
+		self.assertIs(container.regions[-1].obj, control.source.obj)
 
 	def test_aCaretMoveFollowsTheCursor(self):
 		container, segment, control = attachedBand()
-		# The reader arrows down past the bottom of the band.
+		# The reader arrows down past the bottom of the band. NVDA re-reads the queued
+		# region and then updates the buffer, which is where a flow hears about it.
 		control.source.obj.caretIndex = 6
-		segment.commandRegion.update()
+		container.regions[-1].update()
+		segment.update()
 		self.assertEqual(bandRows(segment)[-1], "line 6  ")
 
 	def test_aCaretMoveOntoSomethingAlreadyShownMovesNothing(self):
 		container, segment, control = attachedBand()
 		before = bandRows(segment)
 		control.source.obj.caretIndex = 2
-		segment.commandRegion.update()
+		container.regions[-1].update()
+		segment.update()
 		self.assertEqual(bandRows(segment), before)
 
 	def test_routingReachesTheBlockUnderTheKey(self):
@@ -202,6 +231,60 @@ class TestCommandsReachTheFlow(unittest.TestCase):
 		segment.routeTo(9)
 		second = control.window.blocks[1].blockId
 		self.assertEqual(control.regionFor(second).routedTo, 1)
+
+
+class TestThroughThePatch(unittest.TestCase):
+	"""A focus change as NVDA delivers it, through the patched `_doNewObject`.
+
+	The path that mattered and was not covered: a flow claiming the whole display is one
+	segment, and the patch used to hand every one segment container back to NVDA, which
+	cleared the band and appended its own regions to it.
+	"""
+
+	def setUp(self):
+		from brlMultiline import patches
+
+		patches.install()
+		self.addCleanup(patches.remove)
+
+	def _newObject(self, container, handler, regions):
+		from brlMultiline import patches
+
+		handler.mainBuffer = handler.buffer = container
+		patches._doNewObjectMultiSegment(handler, regions)
+
+	def test_aFocusChangeIsOfferedToTheBandRatherThanWrittenIntoIt(self):
+		container, segment, control = attachedBand()
+		handler = container.handler
+		nvdaRegion = CursorManagerRegion(control.source.obj)
+		self._newObject(container, handler, [nvdaRegion])
+		self.assertNotIn(nvdaRegion, segment.regions)
+		self.assertIs(container.regions[-1], control.activeRegion())
+
+	def test_anOrdinaryOneSegmentDisplayStillGoesToNVDA(self):
+		view = SegmentView(
+			name="plain",
+			panels=[SinglePanel("plain", SegmentRect(row=0, col=0, numRows=ROWS, numCols=COLS))],
+			focusSegmentKey="plain",
+		)
+		handler = FakeHandler(ROWS, COLS)
+		container = DisplayContainer(handler, view)
+		from brlMultiline import patches
+
+		delegated = []
+		patches._originals["_doNewObject"] = lambda handlerArg, regionsArg: delegated.append(regionsArg)
+		region = CursorManagerRegion(FakeTreeInterceptor(documentLines()))
+		self._newObject(container, handler, [region])
+		self.assertEqual(delegated, [[region]])
+
+	def test_aFlowOnAOneSegmentDisplayIsNotDelegated(self):
+		from brlMultiline import patches
+
+		container, segment, control = attachedBand()
+		delegated = []
+		patches._originals["_doNewObject"] = lambda handlerArg, regionsArg: delegated.append(regionsArg)
+		self._newObject(container, container.handler, [CursorManagerRegion(control.source.obj)])
+		self.assertEqual(delegated, [])
 
 
 class TestFocusChanges(unittest.TestCase):
@@ -214,10 +297,10 @@ class TestFocusChanges(unittest.TestCase):
 		segment = container.segmentForKey("flow")
 		self.assertFalse(segment.acceptFocusRegions([]))
 
-	def test_clearingKeepsTheStandIn(self):
-		_, segment, _ = attachedBand()
+	def test_clearingKeepsTheActiveRegion(self):
+		_, segment, control = attachedBand()
 		segment.clear()
-		self.assertIn(segment.commandRegion, segment.regions)
+		self.assertEqual(segment.regions, [control.activeRegion()])
 
 
 if __name__ == "__main__":

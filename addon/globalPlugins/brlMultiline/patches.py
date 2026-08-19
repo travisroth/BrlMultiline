@@ -77,8 +77,15 @@ def _applyFocusToHardLeft(handler: BrailleHandler, regions: list) -> None:
 def _doNewObjectMultiSegment(self: BrailleHandler, regions) -> None:
 	"""Replacement for `BrailleHandler._doNewObject` that knows about segments."""
 	container = self.mainBuffer
-	if not isinstance(container, DisplayContainer) or container.numSegments == 1:
+	if not isinstance(container, DisplayContainer):
+		return _originals["_doNewObject"](self, regions)
+	if container.numSegments == 1 and not container.specs[0].ownerDrawsFocus:
 		# Nothing to sort. Let NVDA do exactly what it normally does.
+		#
+		# Not when the one segment draws its own focus content, though: a flow claiming the
+		# whole display is a single segment, and handing it to NVDA clears the band and
+		# appends NVDA's regions to it, which is the arrangement `exclusive` exists to
+		# prevent. The number of segments says nothing about who owns them.
 		return _originals["_doNewObject"](self, regions)
 	self.autoScroll(enable=False)
 	grouped: dict[int, list] = {index: [] for index in range(container.numSegments)}
