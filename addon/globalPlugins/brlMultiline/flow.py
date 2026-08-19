@@ -702,7 +702,7 @@ class FlowWindow:
 		self._clampAnchor()
 		return True
 
-	def stepBlock(self, forward: bool) -> BlockId | None:
+	def stepBlock(self, forward: bool, fromBlockId: BlockId | None = None) -> BlockId | None:
 		"""The block one step from the one the cursor is in, for the line commands.
 
 		NVDA's next and previous line commands move by a reading unit, which is a block
@@ -712,12 +712,17 @@ class FlowWindow:
 		instead, which is what this supports.
 
 		:param forward: True for the next block, False for the previous.
+		:param fromBlockId: the block to step from. Defaults to the anchored one, which is
+			the top of the window and is only the right answer when the cursor happens to
+			be there — so a caller that knows where the cursor is should say.
 		:return: the neighbouring block's identity, or None if it is not cached.
 		"""
-		if self.anchor is None:
+		if fromBlockId is None:
+			fromBlockId = self.anchor.blockId if self.anchor is not None else None
+		if fromBlockId is None:
 			return None
 		try:
-			index = self.blockIndex(self.anchor.blockId)
+			index = self.blockIndex(fromBlockId)
 		except LookupError:
 			return None
 		index += 1 if forward else -1

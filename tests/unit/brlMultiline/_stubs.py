@@ -549,6 +549,10 @@ class TextInfoRegion(Region):
 	def routeTo(self, pos):
 		self.routedTo = pos
 
+	def getTextInfoForBraillePos(self, braillePos):
+		"""Where a cell of this region points, which routing asks for before acting."""
+		return self._getSelection()
+
 	def _moveLine(self, count):
 		dest = self._readingInfo.copy()
 		dest.collapse()
@@ -1209,7 +1213,11 @@ def _installPluginStubs() -> None:
 	_module("controlTypes", Role=lambda role: types.SimpleNamespace(displayString=str(role)))
 	_module("braille.extensions", displayChanged=displayChanged, displaySizeChanged=displaySizeChanged)
 	_module("braille.brailleHandler", BrailleHandler=FakeBrailleHandler)
-	_module("braille.constants", CONTEXTPRES_CHANGEDCONTEXT="changedContext")
+	_module(
+		"braille.constants",
+		CONTEXTPRES_CHANGEDCONTEXT="changedContext",
+		CONTINUATION_SHAPE=0xC0,
+	)
 	_module("braille.regions.focus", getFocusRegions=fakeGetFocusRegions)
 	# The braille display driver package, as a path with no code, so that the settings panel's
 	# `from brailleDisplayDrivers.brlMultilineVirtual import vdConfig` resolves to the real

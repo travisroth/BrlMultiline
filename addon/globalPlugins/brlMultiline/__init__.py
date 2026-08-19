@@ -923,6 +923,33 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
+		description=_("Writes what a flowed reading of this object would show to the log"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_flowDryRun(self, gesture):
+		"""Read the object under the navigator as a flow, into the log.
+
+		A diagnostic for the spatial reading work, which is not yet on the display. It
+		claims nothing and moves nothing: the flow it builds is a viewer, so the browse
+		mode cursor stays where the reader left it.
+		"""
+		from .flowDryRun import dryRun
+
+		try:
+			lines = dryRun(handler=braille.handler)
+		except Exception:
+			log.error("The flow dry run failed", exc_info=True)
+			# Translators: reported when a diagnostic command fails.
+			ui.message(_("Flow dry run failed, see the log"))
+			return
+		verdict = next((line for line in lines if line.startswith("Reversibility")), "")
+		# Translators: reported after a diagnostic has written its result to the log.
+		# The placeholder is the number of lines written.
+		ui.message(_("Flow dry run written to the log, {count} lines").format(count=len(lines)))
+		log.debug(verdict)
+
+	@script(
+		# Translators: input help message for a command.
 		description=_("Reports the BrlMultiline segment layout"),
 		category=SCRIPT_CATEGORY,
 	)

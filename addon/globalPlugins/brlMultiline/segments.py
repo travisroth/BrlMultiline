@@ -78,12 +78,14 @@ class _SegmentHandlerProxy(RectHandlerProxy):
 	def __init__(
 		self,
 		handler: "BrailleHandler",
-		container: "DisplayContainer",
+		container: "DisplayContainer | None",
 		rect: SegmentRect,
 	) -> None:
 		"""
 		:param handler: the real braille handler.
-		:param container: the container that owns the segment using this proxy.
+		:param container: the container that owns the segment using this proxy, or None for
+			a segment that is not on the display at all. `flowRender` builds one of those to
+			lay a block out in, so that the cutting of text into rows stays NVDA's.
 		:param rect: the rectangle the segment occupies.
 		"""
 		super().__init__(handler, rect)
@@ -119,12 +121,13 @@ class BrailleBufferSegment(BrailleBuffer):
 	def __init__(
 		self,
 		handler: "BrailleHandler",
-		container: "DisplayContainer",
+		container: "DisplayContainer | None",
 		spec: SegmentSpec,
 	) -> None:
 		"""
 		:param handler: the real braille handler.
-		:param container: the container that owns this segment.
+		:param container: the container that owns this segment, or None for a segment built
+			only to lay text out. See `RectHandlerProxy`.
 		:param spec: everything about this segment that does not change once it is built:
 			its rectangle, its key, its owner, and the policies it behaves by.
 		"""

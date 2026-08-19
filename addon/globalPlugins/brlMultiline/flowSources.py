@@ -101,6 +101,24 @@ class FlowRegion:
 			self.cursorPos = None
 			self.brailleCursorPos = None
 
+	def takeCursor(self) -> bool:
+		"""Move the real cursor to this block, for a live flow.
+
+		What panning does in a live flow: the browse mode cursor follows the window to the
+		top block of what is now shown, so speech and braille agree and the arrow keys
+		carry on from what is under the reader's hands. A viewer moves nothing.
+
+		:return: whether the cursor was moved.
+		"""
+		if not self.live or self._position is None:
+			return False
+		try:
+			super()._setCursor(self._position.copy())
+		except Exception:
+			log.debugWarning(f"Could not move the cursor to {self!r}", exc_info=True)
+			return False
+		return True
+
 	def routeTo(self, braillePos: int) -> None:
 		if self.live:
 			super().routeTo(braillePos)
