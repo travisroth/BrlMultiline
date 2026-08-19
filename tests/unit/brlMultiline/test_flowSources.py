@@ -13,6 +13,7 @@ import unittest
 
 from ._stubs import (
 	CursorManagerRegion,
+	FakeNavigatorObject,
 	FakeTextInfo,
 	FakeTreeInterceptor,
 	Region,
@@ -24,12 +25,24 @@ installStubs()
 
 from brlMultiline.flow import ResultKind  # noqa: E402
 from brlMultiline.flowSources import (  # noqa: E402
+	DEFAULT_MAX_BLOCKS,
 	DocumentFlowSource,
 	FetchBudget,
 	FlowCursorManagerRegion,
 	FlowTextInfoRegion,
+	budgetForBand,
 	regionFactoryFor,
 )
+
+
+def control(index: int, role: str = "EDITABLETEXT") -> FakeNavigatorObject:
+	""":return: a form control the document can place on a given line."""
+	return FakeNavigatorObject(name="a field", role=role, documentIndex=index)
+
+
+def unplaceable() -> FakeNavigatorObject:
+	""":return: a control this document knows nothing about."""
+	return FakeNavigatorObject(name="somewhere else", role="EDITABLETEXT")
 
 
 class FakeClock:
@@ -44,14 +57,7 @@ class FakeClock:
 		return self.now
 
 
-def sourceOver(
-	lines,
-	caretIndex=0,
-	live=False,
-	interactive=False,
-	budget=None,
-	controlProbe=None,
-) -> DocumentFlowSource:
+def sourceOver(lines, caretIndex=0, live=False, interactive=False, budget=None) -> DocumentFlowSource:
 	"""Build a source over a browse mode document of the given lines."""
 	interceptor = FakeTreeInterceptor(lines, caretIndex=caretIndex)
 	factory = regionFactoryFor(CursorManagerRegion(interceptor), live=live)
@@ -61,17 +67,7 @@ def sourceOver(
 		generation=1,
 		interactive=interactive,
 		budget=budget,
-		controlProbe=controlProbe,
 	)
-
-
-def probeForLinesStartingWith(marker: str):
-	"""A control probe standing in for `flowForms`, so these tests are about the wiring.
-
-	What counts as a control is `flowForms`' decision and is tested there. What is tested
-	here is that a source asks, and what it does with the answer.
-	"""
-	return lambda info: info.text.startswith(marker)
 
 
 def textsFrom(source: DocumentFlowSource, count: int, forward: bool = True) -> list[str]:
@@ -324,67 +320,64 @@ class TestRegionFlavours(unittest.TestCase):
 
 
 class TestControls(unittest.TestCase):
-	"""A source classifies blocks so that a form can be presented as one.
+	"""A control is read at its own place in the document, not at the cursor.
 
-	Two things depend on it, and both are in `flowForms`: a control declares a blank row
-	after itself, so a one row answer is separated from the next prompt; and arriving at one
-	places its label above it.
+	Which blocks are controls used to be read out of every block's own field commands. That
+	was wrong about cost and wrong about focus mode, and `flowForms` records why. What is
+	left here is the wiring: the source is told what the reader arrived at, and reads the
+	document there.
 	"""
 
-	def test_aBlockHoldingAControlSaysSo(self):
-		source = sourceOver(
-			["Your name", "field: Ada"],
-			caretIndex=1,
-			controlProbe=probeForLinesStartingWith("field:"),
-		)
-		self.assertTrue(source.blockAtCursor().block.isControl)
+	def test_aControlIsReadAtItsOwnPlace(self):
+		# Tabbing into an edit field puts the cursor inside it, where the line is the value
+		# being edited. The block wanted is the one browse mode shows for the control.
+		source = sourceOver(["Your name", "Name: edit", "Your town"], caretIndex=2)
+		field = control(1)
+		block = source.blockAtCursor(field).block
+		self.assertEqual(block.region.rawText, "Name: edit")
 
-	def test_proseDoesNot(self):
-		source = sourceOver(
-			["Your name", "field: Ada"],
-			caretIndex=0,
-			controlProbe=probeForLinesStartingWith("field:"),
-		)
-		self.assertFalse(source.blockAtCursor().block.isControl)
+	def test_soPlacedItIsAControl(self):
+		source = sourceOver(["Your name", "Name: edit"], caretIndex=0)
+		block = source.blockAtCursor(control(1)).block
+		self.assertTrue(block.isControl)
 
-	def test_aControlIsSeparatedFromWhatFollowsIt(self):
+	def test_andIsSeparatedFromWhatFollowsIt(self):
 		"""Rule 5: spacing is declared by the block, never produced by packing."""
-		source = sourceOver(
-			["field: Ada"],
-			controlProbe=probeForLinesStartingWith("field:"),
-		)
-		self.assertTrue(source.blockAtCursor().block.gapAfter)
+		source = sourceOver(["Your name", "Name: edit"], caretIndex=0)
+		block = source.blockAtCursor(control(1)).block
+		self.assertTrue(block.gapAfter)
 
-	def test_proseAsksForNoSpacing(self):
-		source = sourceOver(["Some prose."], controlProbe=probeForLinesStartingWith("field:"))
-		self.assertFalse(source.blockAtCursor().block.gapAfter)
-
-	def test_aSourceWithNoProbeReadsEverythingAsProse(self):
-		"""Which is right for anything that is not a form, and costs nothing to ask."""
-		source = sourceOver(["field: Ada"])
+	def test_readingFromTheCursorAsksForNoSpacing(self):
+		source = sourceOver(["Your name", "Name: edit"], caretIndex=1)
 		block = source.blockAtCursor().block
 		self.assertFalse(block.isControl)
 		self.assertFalse(block.gapAfter)
 
-	def test_blocksWalkedToAreClassifiedToo(self):
-		# Not only the one at the cursor: the reader panning down a form wants each field
-		# separated from the prompt after it.
-		source = sourceOver(
-			["Your name", "field: Ada"],
-			caretIndex=0,
-			controlProbe=probeForLinesStartingWith("field:"),
-		)
+	def test_anObjectThisDocumentCannotPlaceFallsBackToTheCursor(self):
+		"""Which is what a control in some other document, or none at all, amounts to."""
+		source = sourceOver(["Your name", "Name: edit"], caretIndex=0)
+		block = source.blockAtCursor(unplaceable()).block
+		self.assertEqual(block.region.rawText, "Your name")
+
+	def test_blocksWalkedToAreNotProbedAtAll(self):
+		# The question only matters at the block the reader arrived at. Asking it of every
+		# block was a tax on all reading, and on an eight row band it spent the budget.
+		source = sourceOver(["Your name", "Name: edit", "Your town"], caretIndex=0)
 		first = source.blockAtCursor().block
-		self.assertTrue(source.blockAfter(first.blockId).block.isControl)
+		self.assertFalse(source.blockAfter(first.blockId).block.isControl)
 
-	def test_aProbeThatRaisesLeavesTheBlockAsProse(self):
-		"""A block that cannot be classified costs a row of context and nothing else."""
 
-		def difficult(info):
-			raise RuntimeError("cannot say")
+class TestTheBudgetFitsTheBand(unittest.TestCase):
+	"""The budget stops a heavy page being walked, not the display being filled."""
 
-		source = sourceOver(["field: Ada"], controlProbe=difficult)
-		self.assertFalse(source.blockAtCursor().block.isControl)
+	def test_aTallBandGetsMoreThanItNeedsToFill(self):
+		self.assertGreater(budgetForBand(8).maxBlocks, 8)
+
+	def test_aShortBandStillGetsTheFloor(self):
+		self.assertGreaterEqual(budgetForBand(1).maxBlocks, DEFAULT_MAX_BLOCKS)
+
+	def test_itGrowsWithTheBand(self):
+		self.assertGreater(budgetForBand(16).maxBlocks, budgetForBand(8).maxBlocks)
 
 
 if __name__ == "__main__":

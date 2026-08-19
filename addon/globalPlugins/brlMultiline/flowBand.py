@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import api
 from logHandler import log
 
-from . import bmConfig, flowQuickNav
+from . import bmConfig, flowForms, flowQuickNav
 from .flowControl import FlowController
 from .flowDryRun import bandSize, buildController
 from .devices import DeviceInfo, deviceMap, preferredDevice
@@ -235,7 +235,13 @@ class FlowBand(PanelOwner):
 			if not force and self.obj is obj:
 				return True
 			self.obj = obj
-			showing = bool(self.controller and self.controller.enterAtCursor())
+			showing = bool(
+				self.controller and self.controller.enterAtCursor(atObject=self._control(obj, target))
+			)
+			# An arrival places the window afresh at what the reader has come to, which is
+			# what grounding would have done. Any note a quick navigation key left is spent
+			# here, so that it cannot ground the reader's next ordinary arrow key as well.
+			flowQuickNav.forget()
 			segment.refresh()
 			return showing
 		control = buildController(
@@ -247,6 +253,7 @@ class FlowBand(PanelOwner):
 			# document: panning moves the browse mode cursor, and routing can activate.
 			live=True,
 			generation=next(_generations),
+			atObject=self._control(obj, target),
 		)
 		if control is None:
 			# Nothing here reads as a flow. The band becomes an ordinary segment again and
@@ -258,8 +265,45 @@ class FlowBand(PanelOwner):
 			return False
 		self.controller = control
 		self.obj = obj
+		flowQuickNav.forget()
 		segment.attach(control, obj=control.source.obj)
 		return True
+
+	def _control(self, obj: Any, target: Any) -> Any:
+		"""The control the reader has arrived at, if that is what happened.
+
+		A control is read at its own place in the document rather than at the cursor, because
+		tabbing into an edit field or a combo box drops browse mode into focus mode and puts
+		the cursor inside the control — where the line is the value being edited, and for an
+		empty field is nothing at all.
+
+		Which control cannot be taken from the focus regions. They say which document, and
+		for a control inside a page the document is what they are built over, so the control
+		itself is not among them. It is taken from the focus object instead, and a focus
+		object that has since moved on somewhere else is ignored — which is what makes
+		reading it here safe, since the regions remain the account of which document.
+
+		:param obj: what the focus regions were built for.
+		:param target: the document being read.
+		:return: the control, or None to read from the cursor as ever.
+		"""
+		if flowForms.isControlObject(obj):
+			return obj
+		focus = self._focusObject()
+		if not flowForms.isControlObject(focus):
+			return None
+		if focus is target or getattr(focus, "treeInterceptor", None) is target:
+			return focus
+		# Somewhere else by now. Reading at it would put the reader in another document.
+		return None
+
+	def _focusObject(self) -> Any:
+		""":return: where the system focus is, or None if it cannot be read."""
+		try:
+			return api.getFocusObject()
+		except Exception:
+			log.debugWarning("Could not read the focus object", exc_info=True)
+			return None
 
 	def isFlowable(self, obj: Any) -> bool:
 		"""Whether a flow is the right way to present this object yet.

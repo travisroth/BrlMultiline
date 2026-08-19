@@ -132,7 +132,9 @@ Things worth knowing:
 - A control you have entered inside a page still reads as part of that page.
 - On a form, the prompt is put above the field it belongs to rather than left behind, and a
   field is separated from the next prompt by a blank row. A multi line edit grows into the
-  rows as you type, keeping what you have just written on the display.
+  rows as you type, keeping what you have just written on the display. A field you tab to is
+  shown the way browse mode shows it, with its name, its role and its state, whether that
+  name comes from a visible label or from the page's markup.
 - Known incomplete: a combo box does not show its choices.
 
 ## Using two displays at once

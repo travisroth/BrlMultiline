@@ -154,7 +154,7 @@ class FlowController(PanelOwner):
 
 	# Arriving.
 
-	def enterAtCursor(self, contextRows: int = 0) -> bool:
+	def enterAtCursor(self, contextRows: int = 0, atObject=None) -> bool:
 		"""Place the window afresh at the cursor.
 
 		Used on arrival and whenever the window has to be abandoned: a focus change, a
@@ -162,16 +162,18 @@ class FlowController(PanelOwner):
 
 		:param contextRows: how many rows of what precedes the cursor to show above it. A
 			plain document asks for none, so the cursor's block sits at the top and the
-			display fills downward. Left at none, a block holding a form control asks for
-			enough to show its label; see `flowForms`.
+			display fills downward.
+		:param atObject: a form control the reader has arrived at, whose own place in the
+			document is read rather than the cursor's, and whose prompt is then placed above
+			it. See `flowForms` for why this is asked of the object rather than the text.
 		:return: whether anything is now on the display.
 		"""
 		with self.operation():
-			return self._enterAtCursor(contextRows)
+			return self._enterAtCursor(contextRows, atObject)
 
-	def _enterAtCursor(self, contextRows: int = 0) -> bool:
+	def _enterAtCursor(self, contextRows: int = 0, atObject=None) -> bool:
 		""":return: whether anything is now on the display. See `enterAtCursor`."""
-		result = self.source.blockAtCursor()
+		result = self.source.blockAtCursor(atObject)
 		self.lastResult = result
 		if result.kind is not ResultKind.BLOCK or result.block is None:
 			log.debugWarning(f"A flow could not enter at the cursor: {result.kind} {result.message}")
@@ -199,15 +201,27 @@ class FlowController(PanelOwner):
 	def _labelContext(self, blockId: "BlockId") -> int:
 		"""How far above a control to start the window, so that its prompt is on the display.
 
+		One block is read backwards, and one is enough: the prompt is what immediately
+		precedes the control, and how far above the window should start is decided from that
+		block's own height. An earlier version asked for half a band of *rows* instead,
+		which on an eight row Monarch fetched four blocks to use one and spent a third of
+		the operation's budget doing it — the display then filled with the marker meaning
+		there is more we have not read.
+
 		:param blockId: the control's block.
 		:return: how many rows above it the window should start, 0 to leave it at the top.
 		"""
-		cap = max(1, self.window.numRows // flowForms.MAX_CONTEXT_SHARE)
-		self._reachBack(cap)
+		if self.window.numRows <= 1:
+			return 0
 		try:
 			index = self.window.blockIndex(blockId)
 		except LookupError:
 			return 0
+		if index <= 0 and self._fetchOne(Edge.BEFORE):
+			try:
+				index = self.window.blockIndex(blockId)
+			except LookupError:
+				return 0
 		if index <= 0:
 			# Nothing above it: the control is the first thing in the document, or what is
 			# above could not be read. It sits at the top, as any block does.

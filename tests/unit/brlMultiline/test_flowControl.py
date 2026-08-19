@@ -58,8 +58,8 @@ def controllerOver(
 	numCols=8,
 	live=False,
 	budget=None,
-	controlProbe=None,
 	enter=True,
+	atObject=None,
 ):
 	"""Build a controller over a browse mode document of the given lines."""
 	interceptor = FakeTreeInterceptor(lines, caretIndex=caretIndex)
@@ -68,17 +68,16 @@ def controllerOver(
 		regionFactoryFor(CursorManagerRegion(interceptor), live=live),
 		generation=1,
 		budget=budget,
-		controlProbe=controlProbe,
 	)
 	control = FlowController(source, renderer(numCols), numRows=numRows, live=live)
 	if enter:
-		control.enterAtCursor()
+		control.enterAtCursor(atObject=atObject)
 	return control
 
 
-def probeForLinesStartingWith(marker: str):
-	"""A control probe standing in for `flowForms`; what counts as one is tested there."""
-	return lambda info: info.text.startswith(marker)
+def control(index: int, role: str = "EDITABLETEXT") -> FakeNavigatorObject:
+	""":return: a form control the document can place on a given line."""
+	return FakeNavigatorObject(name="a field", role=role, documentIndex=index)
 
 
 def rowTexts(control: FlowController) -> list[str]:
@@ -505,6 +504,12 @@ class TestAFormControlsPrompt(unittest.TestCase):
 	Arriving at a form field on a single line display shows the field, with whatever said
 	what it was for now behind the reader. A flow has rows to spend on that, and this is
 	what they are spent on.
+
+	The reader arrives at the *object*, and the document is read at that object's own place.
+	That matters and is not ceremony: tabbing into an edit field or a combo box drops browse
+	mode into focus mode, so the cursor is inside the control and the line it is on is the
+	value being edited rather than the control. Reading at the object is what gets the line
+	browse mode would show — the one carrying the name, the role and the state.
 	"""
 
 	FORM = ["Name", "f: Ada", "Town", "f: Kent"]
@@ -514,65 +519,91 @@ class TestAFormControlsPrompt(unittest.TestCase):
 	of the form and a test can say what the reader would feel.
 	"""
 
-	def form(self, caretIndex=1, numRows=4, lines=None, live=False):
+	def form(self, at=1, caretIndex=0, numRows=4, lines=None, live=False):
+		"""Arrive at the control on one line of the form, as tabbing to it does.
+
+		:param at: which line of the form holds the control, or None to read from the cursor.
+		:param caretIndex: where the browse mode cursor is, which for a control the reader
+			has entered is not where the control is.
+		"""
 		return controllerOver(
 			lines or self.FORM,
 			caretIndex=caretIndex,
 			numRows=numRows,
 			live=live,
-			controlProbe=probeForLinesStartingWith("f:"),
+			atObject=control(at) if at is not None else None,
 		)
 
-	def test_theLabelIsOnTheRowAboveTheControl(self):
-		control = self.form()
-		rows = rowTexts(control)
+	def test_thePromptIsOnTheRowAboveTheControl(self):
+		flow = self.form()
+		rows = rowTexts(flow)
 		self.assertEqual(rows[0], "Name    ")
 		self.assertEqual(rows[1], "f: Ada  ")
 
+	def test_theControlIsReadEvenWithTheCursorInsideIt(self):
+		# Focus mode: the cursor is somewhere else entirely, and the control is still what
+		# is shown. This is the case the field-reading version got wrong.
+		flow = self.form(at=1, caretIndex=3)
+		self.assertEqual(rowTexts(flow)[1], "f: Ada  ")
+
 	def test_theFormGoesOnBelowIt(self):
-		control = self.form()
-		# The control declares a blank row after it, so the next prompt is separated from
+		flow = self.form()
+		# The control asks for a blank row after it, so the next prompt is separated from
 		# the answer rather than sitting against it.
-		rows = rowTexts(control)
+		rows = rowTexts(flow)
 		self.assertEqual(rows[2], "        ")
 		self.assertEqual(rows[3], "Town    ")
 
 	def test_arrivingAtProsePutsItAtTheTop(self):
-		"""Nothing changes for a block that is not a control."""
-		control = self.form(caretIndex=2)
-		self.assertEqual(rowTexts(control)[0], "Town    ")
+		"""Nothing changes for anything that is not a control."""
+		flow = self.form(at=None, caretIndex=2)
+		self.assertEqual(rowTexts(flow)[0], "Town    ")
 
 	def test_aControlAtTheVeryTopStaysAtTheTop(self):
-		control = self.form(caretIndex=0, lines=["f: Ada", "Town"])
-		self.assertEqual(rowTexts(control)[0], "f: Ada  ")
+		flow = self.form(at=0, lines=["f: Ada", "Town"])
+		self.assertEqual(rowTexts(flow)[0], "f: Ada  ")
 
-	def test_aLongLabelIsShownByItsLastRows(self):
+	def test_aLongPromptIsShownByItsLastRows(self):
 		# Half the band at most, so the control is still on the display. Eight rows of
-		# label, four row band: two rows of label, then the control.
-		control = self.form(caretIndex=1, numRows=4, lines=["a" * 64, "f: Ada", "Town"])
-		rows = rowTexts(control)
+		# prompt, four row band: two rows of prompt, then the control.
+		flow = self.form(at=1, numRows=4, lines=["a" * 64, "f: Ada", "Town"])
+		rows = rowTexts(flow)
 		self.assertEqual(rows[0], "a" * 8)
 		self.assertEqual(rows[2], "f: Ada  ")
 
-	def test_theControlIsStillTheActiveBlock(self):
+	def test_theControlIsTheActiveBlock(self):
 		"""The window moved, not the cursor: the commands still act on the field."""
-		control = self.form()
-		self.assertEqual(control.activeBlockId, control.window.blocks[1].blockId)
+		flow = self.form()
+		self.assertEqual(flow.activeBlockId, flow.window.blocks[1].blockId)
 
-	def test_theCursorIsOnTheControlNotOnTheLabel(self):
-		control = self.form(live=True)
-		self.assertIsNotNone(control.cursorCell())
-		self.assertGreaterEqual(control.cursorCell(), control.renderer.numCols)
+	def test_theCursorIsOnTheControlNotOnThePrompt(self):
+		flow = self.form(live=True)
+		self.assertIsNotNone(flow.cursorCell())
+		self.assertGreaterEqual(flow.cursorCell(), flow.renderer.numCols)
+
+	def test_thePromptCostsOneFetchAndNoMore(self):
+		# It used to ask for half a band of rows, which on an eight row Monarch fetched four
+		# blocks to use one and spent a third of the operation's budget doing it.
+		budget = FetchBudget(maxBlocks=20, maxSeconds=10.0, clock=lambda: 0.0)
+		flow = controllerOver(self.FORM, caretIndex=0, numRows=4, budget=budget, enter=False)
+		flow.enterAtCursor(atObject=control(1))
+		self.assertEqual(rowTexts(flow)[0], "Name    ")
+		self.assertLessEqual(budget.blocks, 4)
 
 	def test_anExplicitContextRowCountIsObeyed(self):
 		"""A caller that knows what it wants is not overruled by the forms policy."""
-		control = self.form(caretIndex=2)
-		control.enterAtCursor(contextRows=2)
-		self.assertEqual(rowTexts(control)[0], "f: Ada  ")
+		flow = self.form(at=None, caretIndex=2)
+		flow.enterAtCursor(contextRows=1)
+		self.assertEqual(rowTexts(flow)[0], "f: Ada  ")
 
-	def test_aDocumentWithNoProbeIsUnaffected(self):
-		control = controllerOver(self.FORM, caretIndex=1, numRows=4)
-		self.assertEqual(rowTexts(control)[0], "f: Ada  ")
+	def test_anObjectTheDocumentCannotPlaceReadsFromTheCursor(self):
+		flow = controllerOver(
+			self.FORM,
+			caretIndex=2,
+			numRows=4,
+			atObject=FakeNavigatorObject(name="somewhere else", role="EDITABLETEXT"),
+		)
+		self.assertEqual(rowTexts(flow)[0], "Town    ")
 
 
 class TestReachingBackForContext(unittest.TestCase):

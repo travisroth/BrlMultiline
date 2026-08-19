@@ -571,8 +571,19 @@ class FakeTreeInterceptor(CursorManager):
 		self.caretIndex = info.index
 
 	def makeTextInfo(self, position):
-		"""Build a position, as a tree interceptor does. Every position is the cursor's."""
-		return FakeTextInfo(self.lines, self.caretIndex)
+		"""Build a position, as a tree interceptor does.
+
+		A position may be an object rather than one of NVDA's position constants: that is how
+		a virtual buffer is asked where something sits in its document, and it is what reads a
+		form control at its own place rather than at a cursor that has gone inside it. An
+		object this document cannot place raises `LookupError`, as NVDA's own does.
+		"""
+		if isinstance(position, str):
+			return FakeTextInfo(self.lines, self.caretIndex)
+		index = getattr(position, "documentIndex", None)
+		if index is None:
+			raise LookupError(f"{position!r} is not in this document")
+		return FakeTextInfo(self.lines, index)
 
 
 class TextInfoRegion(Region):
@@ -1178,12 +1189,26 @@ spokenMessages: list[str] = []
 class FakeNavigatorObject:
 	"""An object that can be pinned to a segment."""
 
-	def __init__(self, name="an object", role="button", lines=None, treeInterceptor=None):
+	def __init__(
+		self,
+		name="an object",
+		role="button",
+		lines=None,
+		treeInterceptor=None,
+		documentIndex=None,
+	):
 		self.name = name
 		self.role = role
 		self.lines = lines
 		self.caretIndex = 0
 		self.treeInterceptor = treeInterceptor
+		self.documentIndex = documentIndex
+		"""Which line of its document this object sits on, or None if it cannot be placed.
+
+		A virtual buffer can be asked where an object is — that is how a control is read at
+		its own place rather than at a cursor that has gone inside it. An object the buffer
+		cannot place raises, which is the ordinary answer for one that is somewhere else.
+		"""
 
 	def makeTextInfo(self, position):
 		"""Build a position, as an object with text does.

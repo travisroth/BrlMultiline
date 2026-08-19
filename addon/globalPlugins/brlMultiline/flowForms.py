@@ -3,39 +3,47 @@
 # Copyright (C) 2026 Travis Roth <travis@travisroth.com>
 # This file is covered by the GNU General Public License version 2.
 
-"""Telling a form control apart from prose, and what a flow does differently for one.
+"""Arriving at a form control, and what a flow does differently for one.
 
 A form is where spatial context pays best, and it is also where a single line display is
 at its worst: the reader arrives at an edit field and is shown the field, with whatever
 said what the field was for now somewhere behind them. Everything else about a form
-follows from the packing rules already in `flow`, but two things do not, and both need to
-know that a block holds a control.
+follows from the packing rules already in `flow`, but two things do not.
 
 **A control's prompt is context, and context goes above it.** Arriving at a control, the
 window is placed so that what precedes it is on the display with the control below, rather
-than putting the control on the top row and filling downward with the rest of the form.
-The rows this costs are bounded, because a label that filled the display would be no better
-than the field that filled it.
+than putting the control on the top row and filling downward. The rows this costs are
+bounded, because a prompt that filled the display would be no better than the field that
+filled it.
 
-**A short answer does not deserve the whole display.** A control declares a blank row after
-it, so that a one row edit holding "Ada" is separated from the next prompt. This is rule 5
-of the packing rules — spacing declared by the block — and it is why a source has to know
-which blocks are controls at all rather than only being asked about the one at the cursor.
+**A short answer does not deserve the whole display.** The control the reader is on asks
+for a blank row after it, so that a one row edit holding "Ada" is separated from the next
+prompt. This is rule 5 of the packing rules — spacing declared by the block.
 
-How a control is recognised is deliberately cheap. In browse mode the whole form is in one
-virtual buffer, and its field commands are already in NVDA's process: reading them costs no
-call to the application, which walking to the `NVDAObject` for each block would. That is the
-difference between a probe run on every block of a document and one that could not be.
+How a control is recognised was got wrong once, and the way it was wrong is worth keeping
+written down. The first attempt read the field commands of every block's own text, looking
+for a control role. It was wrong twice over.
 
-Focus mode is not this. Once browse mode drops into focus mode the control's `TextInfo`
-usually cannot reach the next object at all, so there is nothing above or below to place;
-that wants object traversal and an adapter, which is milestone 6.
+It was wrong about cost. Those fields are in NVDA's process, so one read looks cheap, but
+it ran on every block of every document — a tax on all reading, to answer a question that
+only matters at the one block the reader has arrived at. On an eight row band that pushed
+the fetch budget over on arrival, and the display filled with the marker that means "there
+is more I have not read".
+
+It was wrong about correctness, which is the more interesting half. Tabbing to an edit
+field or a combo box drops browse mode into focus mode, and the reading position is then
+*inside* the control, so the line the reader is on carries the control's field as an
+enclosing one rather than as its own. Every attempt to tell "this block is a control" from
+"this block is inside a control" by the field's `_startOfNode` therefore answered no for
+exactly the two controls a reader most wants a prompt for. A checkbox, which does not enter
+focus mode, worked — which is what the hardware run found.
+
+So the question is asked of the object instead. NVDA hands the band the focus object on
+every focus change, and its role is authoritative, free, and right in both modes. The
+control's own place in the document is then found from that object, which is also what puts
+the reading position back at the start of the control rather than inside it — so the block
+carries the control's name, role and value as browse mode presents them.
 """
-
-from typing import Callable, Optional
-
-import textInfos
-from logHandler import log
 
 CONTROL_ROLES = frozenset(
 	{
@@ -51,24 +59,26 @@ CONTROL_ROLES = frozenset(
 		"DROPDOWNBUTTON",
 		"SPLITBUTTON",
 		"DROPLIST",
+		"LISTBOX",
+		"RADIOMENUITEM",
+		"CHECKMENUITEM",
 	},
 )
-"""The roles whose blocks are read as controls, by `controlTypes.Role` member name.
+"""The roles a reader stops at and answers, by `controlTypes.Role` member name.
 
 Named rather than imported so that a role NVDA has not got — the set is written against
 several NVDA versions, and roles are added — costs nothing and matches nothing, and so that
 the policy can be read and tested without a running screen reader.
 
-What is not here matters as much. A link is not a control: a page of links would then
-declare a blank row after each of them and spend half the display on spacing. A list item
-is not one either, for the same reason. What is here is the things a reader stops at and
-answers, which is what has a prompt.
+What is not here matters as much. A link is not a control: a page of links would then spend
+a row of spacing on each of them. A list item is not one either. What is here is the things
+that have a prompt.
 """
 
 MAX_CONTEXT_SHARE = 2
-"""The fraction of the band a control's label may take: one row in this many.
+"""The fraction of the band a control's prompt may take: one row in this many.
 
-Half. A label longer than that is shown by its last rows, since the rows nearest the
+Half. A prompt longer than that is shown by its last rows, since the rows nearest the
 control are the ones that say what it is for, and the control itself must stay on the
 display — a window filled with the prompt would be the same failure as a window filled with
 the field.
@@ -79,7 +89,7 @@ def roleName(role) -> str:
 	""":return: the name of a role, however it was given.
 
 	`controlTypes.Role` is an enumeration, so its members have a name. Anything else is
-	rendered as text, which keeps this working against a field carrying a bare string.
+	rendered as text, which keeps this working against an object carrying a bare string.
 	"""
 	name = getattr(role, "name", None)
 	if isinstance(name, str):
@@ -94,80 +104,24 @@ def isControlRole(role) -> bool:
 	return roleName(role) in CONTROL_ROLES
 
 
-def controlProbe(unit: str) -> Callable[[object], bool]:
-	"""Build the test a source uses to decide whether a block holds a control.
+def isControlObject(obj) -> bool:
+	"""Whether the reader has arrived at a form control.
 
-	:param unit: the reading unit blocks are cut by, so that the probe looks at exactly the
-		text the block holds.
-	:return: a callable taking a position and answering whether the block there is a control.
+	Asked of the object NVDA built its focus regions for, which is the only account of this
+	that is right in both browse mode and focus mode. See the module docstring for the two
+	ways reading it out of the document's own fields was wrong.
+
+	:param obj: what the reader has arrived at.
+	:return: whether to present it as a control.
 	"""
-
-	def probe(info) -> bool:
-		return isControlAt(info, unit)
-
-	return probe
-
-
-def isControlAt(info, unit: str = textInfos.UNIT_LINE) -> bool:
-	"""Whether the block at a position holds a form control.
-
-	Answered from the field commands of the text itself, which in a browse mode document
-	are already in NVDA's process, rather than by fetching an object per block.
-
-	Never raises. A document whose fields cannot be read is prose as far as this is
-	concerned, which costs the reader a row of context and nothing else.
-
-	:param info: a position within the block.
-	:param unit: the reading unit the block is cut by.
-	:return: whether it holds a control.
-	"""
-	try:
-		probe = info.copy()
-		probe.expand(unit)
-		fields = probe.getTextWithFields()
-	except Exception:
-		log.debugWarning("Could not read the fields of a block", exc_info=True)
+	if obj is None:
 		return False
-	for item in fields:
-		if not isinstance(item, textInfos.FieldCommand) or item.command != "controlStart":
-			continue
-		field = item.field
-		if not hasattr(field, "get"):
-			continue
-		try:
-			if not isControlRole(field.get("role")):
-				continue
-			if not wholeControlHere(field):
-				continue
-		except Exception:
-			log.debugWarning("Could not read a control field", exc_info=True)
-			continue
-		return True
-	return False
-
-
-def wholeControlHere(field) -> bool:
-	"""Whether a control field is a control this block holds, rather than one around it.
-
-	Two blocks would otherwise be misread, and both are common.
-
-	A block *inside* a control — a line of a rich text editor, which is a block of the page
-	within an editable region — carries that region's field without being it. NVDA marks the
-	difference with `_startOfNode`, and uses it for exactly this purpose when deciding what
-	to put in braille.
-
-	A block that only *starts* a control — the first line of that same editor — would take
-	the blank row that separates a finished answer from the next prompt and put it in the
-	middle of the field. `_endOfNode` is the other half of the same test.
-
-	A buffer that says neither is taken at its word rather than doubted: reporting no
-	controls at all would turn the whole of this off silently, which is worse than the
-	occasional row of spacing in the wrong place.
-
-	:param field: the control field.
-	:return: whether the control begins and ends within this block.
-	"""
-	return field.get("_startOfNode", True) is not False and field.get("_endOfNode", True) is not False
+	try:
+		return isControlRole(getattr(obj, "role", None))
+	except Exception:
+		# An object that will not say what it is reads as prose, which costs the reader a row
+		# of context and nothing else.
+		return False
 
 
 def contextRowsFor(previousRows: int, gapRows: int, bandRows: int) -> int:
@@ -182,27 +136,3 @@ def contextRowsFor(previousRows: int, gapRows: int, bandRows: int) -> int:
 		return 0
 	cap = max(1, bandRows // MAX_CONTEXT_SHARE)
 	return min(previousRows + max(0, gapRows), cap)
-
-
-def probeFor(obj, unit: str) -> Optional[Callable[[object], bool]]:
-	"""Choose the control probe for what is being read, if it is a kind that has controls.
-
-	Browse mode documents only. Everything else is either prose, where the probe would cost
-	a field read per block and answer no every time, or a control the reader is already
-	inside, where there is nothing around it to place.
-
-	:param obj: the object or tree interceptor being read.
-	:param unit: the reading unit blocks are cut by.
-	:return: the probe, or None to read every block as prose.
-	"""
-	try:
-		from treeInterceptorHandler import TreeInterceptor
-
-		if not isinstance(obj, TreeInterceptor):
-			return None
-	except ImportError:
-		# Outside a running NVDA. A tree interceptor is the thing that can stand aside for a
-		# control the reader has entered, which is what `passThrough` says.
-		if not hasattr(obj, "passThrough"):
-			return None
-	return controlProbe(unit)

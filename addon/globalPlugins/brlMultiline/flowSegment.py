@@ -132,24 +132,30 @@ class FlowBufferSegment(BrailleBufferSegment):
 		self.regions = [region] if region is not None else []
 
 	def _followIfRead(self) -> None:
-		"""Follow the cursor when NVDA has re-read the block it is in.
+		"""Follow the cursor when NVDA has re-read the block it is in, or a jump is waiting.
 
 		`_handlePendingUpdate` re-reads the queued region and then updates the buffer, which
 		is this. Re-reading is how a flow hears that the caret moved within the document, or
 		that braille input changed what the block says.
+
+		A jump by structure is answered whether or not the region was re-read. It used to be
+		answered only inside that condition, which made it depend on NVDA having queued our
+		region — and a quick navigation key whose note was never taken left the display
+		sitting where it was while speech announced the heading it had moved to.
 		"""
 		region = self.controller.activeRegion()
-		if region is None or not getattr(region, "dirty", False):
-			return
 		# Taken whether or not it is acted on, so that a jump the reader made before the
 		# setting was turned off cannot ground a later move.
 		ground = flowQuickNav.takeGrounding() and bmConfig.shouldGroundOnQuickNav()
+		if not ground and (region is None or not getattr(region, "dirty", False)):
+			return
 		try:
 			self.controller.followCursor(ground=ground)
 		except Exception:
 			log.debugWarning("A flow could not follow the cursor", exc_info=True)
 		finally:
-			region.dirty = False
+			if region is not None:
+				region.dirty = False
 
 	def cells(self) -> list:
 		""":return: the band's cells, exactly as many as the rectangle holds."""

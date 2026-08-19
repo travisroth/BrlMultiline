@@ -7,11 +7,10 @@ Two decisions live here and nowhere else: which roles count as controls, and how
 of a control's prompt belong above it. Both are policy rather than arithmetic, so both are
 stated in one place and tested against that statement.
 
-The recognition itself is worth testing because of how it is done. A block is classified
-from the field commands of its own text, which in a browse mode document costs no call to
-the application — the alternative, fetching an object per block, is what makes a page with
-expensive accessibility calls unreadable, and is the thing this design has avoided from the
-start.
+The recognition is asked of the object NVDA hands the band on a focus change. Reading it out
+of the document's own field commands was tried first and was wrong twice over — see the
+module docstring — and the case that proves it is a reader tabbing into an edit field, where
+browse mode drops into focus mode and the reading position goes inside the control.
 """
 
 import unittest
@@ -20,39 +19,21 @@ from ._stubs import installStubs
 
 installStubs()
 
-import textInfos  # noqa: E402
-
 from brlMultiline import flowForms  # noqa: E402
 
 
 class FakeRole:
-	"""An enumeration member, which is what NVDA puts in a control field's role."""
+	"""An enumeration member, which is what NVDA gives an object as its role."""
 
 	def __init__(self, name):
 		self.name = name
 
 
-class FieldedInfo:
-	"""A position whose block carries the given fields."""
+class FakeObject:
+	"""An object with a role, which is all this policy asks of one."""
 
-	def __init__(self, fields, text=""):
-		self.fields = fields
-		self.text = text
-
-	def copy(self):
-		return FieldedInfo(self.fields, self.text)
-
-	def expand(self, unit):
-		pass
-
-	def getTextWithFields(self, formatConfig=None):
-		return [*self.fields, self.text]
-
-
-def controlStart(roleName, **attributes):
-	field = textInfos.ControlField(role=FakeRole(roleName))
-	field.update(attributes)
-	return textInfos.FieldCommand("controlStart", field)
+	def __init__(self, role):
+		self.role = role
 
 
 class TestWhatCountsAsAControl(unittest.TestCase):
@@ -62,8 +43,7 @@ class TestWhatCountsAsAControl(unittest.TestCase):
 				self.assertTrue(flowForms.isControlRole(FakeRole(name)))
 
 	def test_aLinkIsNotOne(self):
-		# A page of links would otherwise declare a blank row after each of them and spend
-		# half the display on spacing.
+		# A page of links would otherwise spend a row of spacing on each of them.
 		for name in ("LINK", "LISTITEM", "PARAGRAPH", "HEADING", "STATICTEXT"):
 			with self.subTest(role=name):
 				self.assertFalse(flowForms.isControlRole(FakeRole(name)))
@@ -72,92 +52,58 @@ class TestWhatCountsAsAControl(unittest.TestCase):
 		self.assertFalse(flowForms.isControlRole(None))
 
 	def test_aRoleGivenAsTextStillReads(self):
-		"""So that a field carrying a bare string is classified rather than raising."""
+		"""So that an object carrying a bare string is classified rather than raising."""
 		self.assertTrue(flowForms.isControlRole("editableText"))
 
 	def test_aRoleNameIsTakenFromTheMemberNotItsNumber(self):
 		self.assertEqual(flowForms.roleName(FakeRole("comboBox")), "COMBOBOX")
 
 
-class TestRecognisingABlock(unittest.TestCase):
-	def test_aBlockHoldingAControl(self):
-		info = FieldedInfo([controlStart("EDITABLETEXT")], "Ada")
-		self.assertTrue(flowForms.isControlAt(info, textInfos.UNIT_LINE))
+class TestRecognisingWhatTheReaderArrivedAt(unittest.TestCase):
+	"""Asked of the object, which is the only account right in both browse and focus mode."""
 
-	def test_aBlockOfProse(self):
-		info = FieldedInfo([controlStart("PARAGRAPH")], "Some prose.")
-		self.assertFalse(flowForms.isControlAt(info, textInfos.UNIT_LINE))
+	def test_anEditFieldIsAControl(self):
+		self.assertTrue(flowForms.isControlObject(FakeObject(FakeRole("EDITABLETEXT"))))
 
-	def test_aBlockWithNoFieldsAtAll(self):
-		self.assertFalse(flowForms.isControlAt(FieldedInfo([], "Some prose."), textInfos.UNIT_LINE))
+	def test_aComboBoxIsAControl(self):
+		# The two the hardware run found missing their prompt, because tabbing to either
+		# drops browse mode into focus mode and puts the reading position inside them.
+		self.assertTrue(flowForms.isControlObject(FakeObject(FakeRole("COMBOBOX"))))
 
-	def test_aControlNestedAmongOtherFields(self):
-		info = FieldedInfo(
-			[controlStart("SECTION"), controlStart("PARAGRAPH"), controlStart("CHECKBOX")],
-			"Remember me",
-		)
-		self.assertTrue(flowForms.isControlAt(info, textInfos.UNIT_LINE))
+	def test_aCheckBoxIsAControl(self):
+		self.assertTrue(flowForms.isControlObject(FakeObject(FakeRole("CHECKBOX"))))
 
-	def test_anEndFieldIsNotAStart(self):
-		fields = [textInfos.FieldCommand("controlEnd", textInfos.ControlField(role=FakeRole("BUTTON")))]
-		self.assertFalse(flowForms.isControlAt(FieldedInfo(fields), textInfos.UNIT_LINE))
+	def test_aParagraphIsNot(self):
+		self.assertFalse(flowForms.isControlObject(FakeObject(FakeRole("PARAGRAPH"))))
 
-	def test_aLineInsideAnEditorIsNotTheEditor(self):
-		# A rich text editor is a control, and each of its lines is a block of the page
-		# inside it. Every one of them carries the editor's field without being it, and
-		# taking them for controls would put a blank row between every line typed.
-		info = FieldedInfo([controlStart("EDITABLETEXT", _startOfNode=False, _endOfNode=False)])
-		self.assertFalse(flowForms.isControlAt(info, textInfos.UNIT_LINE))
+	def test_nothingIsNot(self):
+		self.assertFalse(flowForms.isControlObject(None))
 
-	def test_aBlockThatOnlyStartsAControlIsNotOne(self):
-		"""The first line of that editor: the spacing after a control would land mid field."""
-		info = FieldedInfo([controlStart("EDITABLETEXT", _startOfNode=True, _endOfNode=False)])
-		self.assertFalse(flowForms.isControlAt(info, textInfos.UNIT_LINE))
+	def test_anObjectWithNoRoleIsNot(self):
+		self.assertFalse(flowForms.isControlObject(object()))
 
-	def test_aFieldWholeWithinTheBlockIsOne(self):
-		info = FieldedInfo([controlStart("EDITABLETEXT", _startOfNode=True, _endOfNode=True)], "Ada")
-		self.assertTrue(flowForms.isControlAt(info, textInfos.UNIT_LINE))
-
-	def test_aBufferThatSaysNeitherIsTakenAtItsWord(self):
-		"""Reporting no controls at all would turn the whole of this off silently."""
-		info = FieldedInfo([controlStart("CHECKBOX")])
-		self.assertTrue(flowForms.isControlAt(info, textInfos.UNIT_LINE))
-
-	def test_aDocumentThatWillNotSayIsProse(self):
+	def test_anObjectThatWillNotSayIsNot(self):
 		"""Which costs the reader a row of context and nothing else."""
 
-		class Difficult(FieldedInfo):
-			def getTextWithFields(self, formatConfig=None):
-				raise RuntimeError("no fields here")
+		class Difficult:
+			@property
+			def role(self):
+				raise RuntimeError("cannot say")
 
-		self.assertFalse(flowForms.isControlAt(Difficult([]), textInfos.UNIT_LINE))
-
-	def test_theProbeIsBoundToTheReadingUnit(self):
-		seen = []
-
-		class Watching(FieldedInfo):
-			def copy(self):
-				return self
-
-			def expand(self, unit):
-				seen.append(unit)
-
-		probe = flowForms.controlProbe(textInfos.UNIT_PARAGRAPH)
-		probe(Watching([controlStart("BUTTON")]))
-		self.assertEqual(seen, [textInfos.UNIT_PARAGRAPH])
+		self.assertFalse(flowForms.isControlObject(Difficult()))
 
 
 class TestHowMuchContext(unittest.TestCase):
 	"""A prompt goes above its control, and a prompt that filled the display would not help."""
 
-	def test_aOneRowLabelSitsAboveTheControl(self):
+	def test_aOneRowPromptSitsAboveTheControl(self):
 		self.assertEqual(flowForms.contextRowsFor(previousRows=1, gapRows=0, bandRows=8), 1)
 
 	def test_declaredSpacingIsCountedToo(self):
-		"""Or the window would start a row inside the label rather than at its top."""
+		"""Or the window would start a row inside the prompt rather than at its top."""
 		self.assertEqual(flowForms.contextRowsFor(previousRows=1, gapRows=1, bandRows=8), 2)
 
-	def test_aLongLabelIsShownByItsLastRows(self):
+	def test_aLongPromptIsShownByItsLastRows(self):
 		# Half the band, so the control itself is still on the display.
 		self.assertEqual(flowForms.contextRowsFor(previousRows=20, gapRows=0, bandRows=8), 4)
 
@@ -170,21 +116,6 @@ class TestHowMuchContext(unittest.TestCase):
 
 	def test_aTwoRowBandStillManagesOne(self):
 		self.assertEqual(flowForms.contextRowsFor(previousRows=1, gapRows=0, bandRows=2), 1)
-
-
-class TestWhoGetsAProbe(unittest.TestCase):
-	def test_aBrowseModeDocumentDoes(self):
-		from ._stubs import FakeTreeInterceptor
-
-		probe = flowForms.probeFor(FakeTreeInterceptor(["a line"]), textInfos.UNIT_LINE)
-		self.assertIsNotNone(probe)
-
-	def test_anObjectDoesNot(self):
-		# Prose in an edit control has no form fields, so the probe would cost a field read
-		# per block and answer no every time.
-		from ._stubs import FakeNavigatorObject
-
-		self.assertIsNone(flowForms.probeFor(FakeNavigatorObject("a note"), textInfos.UNIT_LINE))
 
 
 if __name__ == "__main__":

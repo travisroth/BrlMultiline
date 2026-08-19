@@ -240,6 +240,14 @@ Recovery rules, applied in order:
    by-product of packing, which inserts nothing.
 6. The stream is only ever materialised for the rows the window can show plus a small
    margin either side. Nothing renders a whole document.
+
+   The budget that bounds this is sized to the band, and that is not a detail. Filling eight
+   rows costs at least eight blocks, more where blank lines are collapsed or a prompt is
+   read above a control, so a budget near the band's own height is one the ordinary case
+   trips over — and tripping over it looks like a display of markers saying there is more we
+   have not read. A budget the ordinary case meets is not a safety limit, it is a fault. It
+   is twice the band plus a margin, and reaching it means something is wrong with the page
+   rather than tall about the display.
 7. Routing into padding — the blank cells after a block's last row, or a deliberately blank
    row — does nothing. NVDA's usual behaviour of mapping trailing blank columns to the last
    content cell must not be inherited here, or a press in the gap after a short field would
@@ -727,8 +735,9 @@ and it needs three things before milestone 3:
 4. **Following.** The in-window test, minimal scroll, entry context, and keeping the
    cursor's row visible inside a growing block. Includes what a flow does when the focus
    leaves it, which entering and leaving focus mode exercises directly.
-5. **Browse mode forms.** CODE COMPLETE, AWAITING HARDWARE. Label above control, declared
-   spacing after a short field, a multi line edit growing into the window.
+5. **Browse mode forms.** FIRST HARDWARE RUN DONE, CORRECTED, AWAITING A SECOND. Label
+   above control, declared spacing after a short field, a multi line edit growing into the
+   window.
 
    What landed: `flowForms.py`, holding the two decisions that are policy rather than
    arithmetic — which roles read as controls, and how many rows of a prompt belong above
@@ -755,8 +764,35 @@ and it needs three things before milestone 3:
    under the window follows its growing end down. The same correction is what keeps a reader
    at the bottom of a long paragraph from being thrown back to its top.
 
-   Still owed: the hardware run on a real form, and what a combo box does — its choices are
-   an object question, which is milestone 6.
+   The hardware run then found all of that wrong, in two ways worth keeping written down.
+
+   **A control is recognised from the object, not from the document.** Reading the field
+   commands of each block looked cheap — those fields are in NVDA's process — but it ran on
+   every block of every document, a tax on all reading to answer a question that only
+   matters at the block the reader arrived at. On an eight row band that spent the fetch
+   budget, and the display filled with the marker meaning "there is more I have not read".
+   Worse, it was wrong: tabbing into an edit field or a combo box drops browse mode into
+   focus mode, so the reading position is *inside* the control and the line carries the
+   control's field as an enclosing one. Every test of "is this block a control", by
+   `_startOfNode` or otherwise, therefore answered no for exactly the two controls a reader
+   most wants a prompt for. A checkbox, which does not enter focus mode, worked — which is
+   what the hardware run reported. The question is now asked of the focus object's role,
+   which is free and right in both modes.
+
+   **A control is read at its own place, not at the cursor.** The same focus mode fact says
+   where to read: with the cursor inside the field, the line is the value being edited, and
+   for an empty field that is nothing at all — the blank row the run found where a tabbed-to
+   item should have been. Asking the document where the control is (`makeTextInfo(obj)`,
+   which a virtual buffer answers) gives the line browse mode itself would show for it,
+   carrying the name, the role and the state. That is also the answer to "we want the
+   accessible name when it is set": the flow no longer presents anything of its own here, it
+   presents the line browse mode presents.
+
+   Also from that run: the prompt cost four fetches to use one, because it asked for half a
+   band of *rows* before looking at what was above. It asks for one block now.
+
+   Still owed: a second hardware run on a real form, and what a combo box does — its choices
+   are an object question, which is milestone 6.
 6. **Adapters, viewer bands and objects.** The protocol and registry, consuming
    `getBrailleRegions` where an object provides it, `ObjectFlowSource` for lists and trees,
    focused control presentation, and the decision in open question 1.

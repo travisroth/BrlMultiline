@@ -39,19 +39,41 @@ from logHandler import log
 from .flow import BlockId, ByIdentity, FetchResult, SourceBlock
 
 DEFAULT_MAX_BLOCKS = 12
-"""How many blocks one operation may read before giving up.
+"""How many blocks one operation may read before giving up, on a band of unstated height.
 
-A Monarch shows eight rows, so filling a window from nothing costs at most eight blocks
-when every block is one row. The margin above that is for a run of blank lines being
-collapsed, which walks several units to produce one block.
+See L{budgetForBand}, which is what anything with a band to fill should use instead.
 """
 
-DEFAULT_MAX_SECONDS = 0.05
-"""How long one fetch may take before giving up.
+DEFAULT_MAX_SECONDS = 0.12
+"""How long one operation may take before showing what it has.
 
-A budget between blocks cannot make a single slow read fast — see `FetchBudget.spend` —
-so this bounds the number of slow reads, not the worst one.
+A budget between blocks cannot make a single slow read fast — see `FetchBudget.spend` — so
+this bounds the number of slow reads, not the worst one.
+
+Was fifty milliseconds, which was measured against nothing: the hardware run that produced
+a number put the slowest block on a Chromium buffer at two milliseconds, so eight rows of a
+Monarch cost around twenty. That left almost no margin, and an arrival that did any extra
+reading — a control's prompt, a run of blank lines — spent it. A budget the ordinary case
+trips over is not a safety limit, it is a fault.
 """
+
+
+def budgetForBand(numRows: int) -> "FetchBudget":
+	"""How much work one operation may do to fill a band of a given height.
+
+	The budget exists to stop a heavy page being walked further than the display can show,
+	*not* to stop the display being filled. Filling a band of eight rows costs at least
+	eight blocks, and more where blank lines are collapsed or a prompt is read above a
+	control, so a limit near the band's own height is one the reader meets constantly — and
+	meeting it looks like a display of markers saying there is more we have not read.
+
+	Twice the band plus a margin. Reaching that means something is genuinely wrong with the
+	page rather than tall with the display.
+
+	:param numRows: the height of the band.
+	:return: a budget for it.
+	"""
+	return FetchBudget(maxBlocks=max(DEFAULT_MAX_BLOCKS, numRows * 2 + 6))
 
 
 class FlowRegion:
@@ -348,7 +370,6 @@ class DocumentFlowSource:
 		generation: int = 0,
 		interactive: bool = False,
 		budget: Optional[FetchBudget] = None,
-		controlProbe: Optional[Callable] = None,
 	) -> None:
 		"""
 		:param obj: the object or tree interceptor to read.
@@ -360,16 +381,12 @@ class DocumentFlowSource:
 			reading it. Blank lines are the document when writing and are layout when
 			reading, so this decides whether a run of them collapses.
 		:param budget: how much work a fetch may do. One is made if none is given.
-		:param controlProbe: says whether the block at a position holds a form control. See
-			`flowForms`. None reads every block as prose, which is right for anything that
-			is not a form and is what a source with no opinion about controls does.
 		"""
 		self.obj = obj
 		self.regionFactory = regionFactory
 		self.unit = unit
 		self.generation = generation
 		self.interactive = interactive
-		self.controlProbe = controlProbe
 		self.budget = budget if budget is not None else FetchBudget()
 		self._positions = ByIdentity()
 		"""The position each block starts at, by bookmark.
@@ -387,18 +404,52 @@ class DocumentFlowSource:
 
 	# Reading.
 
-	def blockAtCursor(self) -> FetchResult:
-		"""The block the cursor is in.
+	def blockAtCursor(self, atObject=None) -> FetchResult:
+		"""The block the cursor is in, or the one a given control starts.
 
+		:param atObject: a form control the reader has arrived at. Its own place in the
+			document is read rather than the cursor's, because tabbing into an edit field or
+			a combo box drops browse mode into focus mode and puts the cursor *inside* the
+			control — where the line is the value being edited, and the control's name, role
+			and state are an enclosing field rather than this line's own. Starting at the
+			control gives the line browse mode would show for it, which is the one carrying
+			the name.
 		:return: the block, or an error if the document could not be read.
 		"""
 		self.budget.startUnlessActive()
+		info = self._positionOf(atObject) if atObject is not None else None
+		# Only a block actually read at the control's own place is one: a control this
+		# document cannot place falls back to the cursor, and what is there is whatever the
+		# reader was last on, which has no prompt of its own to show.
+		isControl = info is not None
+		if info is None:
+			try:
+				info = self.obj.makeTextInfo(textInfos.POSITION_SELECTION)
+			except Exception as error:
+				log.debugWarning("Could not read the cursor position", exc_info=True)
+				return FetchResult.failed(f"no cursor position: {error!r}")
+		# A control asks for a blank row after it, so that a one row answer is separated from
+		# the next prompt. Declared by the block, never produced by packing.
+		return self._blockAt(info, isControl=isControl)
+
+	def _positionOf(self, obj):
+		"""Where an object starts in this document.
+
+		:param obj: the object to find.
+		:return: a position at its start, or None if this document cannot place it — which is
+			the ordinary answer for anything that is not in it, and leaves the caller reading
+			from the cursor as it always has.
+		"""
 		try:
-			info = self.obj.makeTextInfo(textInfos.POSITION_SELECTION)
-		except Exception as error:
-			log.debugWarning("Could not read the cursor position", exc_info=True)
-			return FetchResult.failed(f"no cursor position: {error!r}")
-		return self._blockAt(info)
+			info = self.obj.makeTextInfo(obj)
+		except (LookupError, NotImplementedError, RuntimeError, TypeError, ValueError):
+			log.debug(f"This document cannot place {obj!r}")
+			return None
+		except Exception:
+			log.debugWarning(f"Could not place {obj!r} in the document", exc_info=True)
+			return None
+		info.collapse()
+		return info
 
 	def blockAfter(self, blockId: BlockId) -> FetchResult:
 		"""The block following one already fetched."""
@@ -476,11 +527,11 @@ class DocumentFlowSource:
 		self._exits.set((block.blockId.bookmark, False), earliest)
 		return FetchResult.found(block)
 
-	def _blockAt(self, info) -> FetchResult:
+	def _blockAt(self, info, isControl: bool = False) -> FetchResult:
 		""":return: a result carrying the block at a position."""
 		began = self.budget.clock()
 		try:
-			return FetchResult.found(self._buildBlock(info))
+			return FetchResult.found(self._buildBlock(info, isControl=isControl))
 		except Exception as error:
 			log.debugWarning("Could not build a block", exc_info=True)
 			return FetchResult.failed(f"could not build a block: {error!r}")
@@ -489,7 +540,7 @@ class DocumentFlowSource:
 			# slow page would be invisible in the numbers.
 			self.budget.observe(self.budget.clock() - began)
 
-	def _buildBlock(self, info) -> SourceBlock:
+	def _buildBlock(self, info, isControl: bool = False) -> SourceBlock:
 		"""Build one block from a position, and remember where it starts."""
 		start = info.copy()
 		start.collapse()
@@ -497,29 +548,13 @@ class DocumentFlowSource:
 		self._positions.set(blockId.bookmark, start)
 		region = self.regionFactory(self.obj, start)
 		region.update()
-		isControl = self._isControl(start)
 		return SourceBlock(
 			blockId=blockId,
 			region=region,
 			isBlank=not region.rawText.strip(),
 			isControl=isControl,
-			# A control declares a blank row after it, so that a one row answer is separated
-			# from the next prompt. Spacing is declared by the block and never produced by
-			# packing, which is why it is decided here rather than while rows are assembled.
 			gapAfter=isControl,
 		)
-
-	def _isControl(self, info) -> bool:
-		""":return: whether the block at a position holds a form control."""
-		if self.controlProbe is None:
-			return False
-		try:
-			return bool(self.controlProbe(info))
-		except Exception:
-			# A block that cannot be classified is prose, which costs the reader a row of
-			# context and nothing else.
-			log.debugWarning("Could not tell whether a block holds a control", exc_info=True)
-			return False
 
 	# Positions.
 

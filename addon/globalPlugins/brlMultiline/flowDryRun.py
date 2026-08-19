@@ -32,7 +32,12 @@ from logHandler import log
 from . import flowForms
 from .flowControl import FlowController
 from .flowRender import FlowRenderer
-from .flowSources import DocumentFlowSource, regionFactoryFor, regionFactoryForObject
+from .flowSources import (
+	DocumentFlowSource,
+	budgetForBand,
+	regionFactoryFor,
+	regionFactoryForObject,
+)
 from .objectMonitor import resolveTarget
 
 if TYPE_CHECKING:
@@ -57,6 +62,15 @@ def bandSize(handler) -> tuple[int, int]:
 	numRows = getattr(dimensions, "numRows", 0) or DEFAULT_ROWS
 	numCols = getattr(dimensions, "numCols", 0) or DEFAULT_COLS
 	return numRows, numCols
+
+
+def _focusObject():
+	""":return: where the system focus is, or None if it cannot be read."""
+	try:
+		return api.getFocusObject()
+	except Exception:
+		log.debugWarning("Could not read the focus object", exc_info=True)
+		return None
 
 
 def describeObject(obj) -> str:
@@ -125,6 +139,7 @@ def buildController(
 	live: bool = False,
 	generation: int = 0,
 	notes: Optional[list] = None,
+	atObject: Optional["NVDAObject"] = None,
 ) -> Optional[FlowController]:
 	"""Build a flow over an object, ready to be asked what it would show.
 
@@ -138,6 +153,8 @@ def buildController(
 		read. A caller that follows the focus from document to document must pass a new
 		one each time.
 	:param notes: a list to record each step in, so that a failure says which step failed.
+	:param atObject: a form control the reader has arrived at, read at its own place in the
+		document rather than at the cursor. See `flowForms`.
 	:return: the controller, or None if this object has nothing to flow.
 	"""
 	if notes is None:
@@ -165,22 +182,25 @@ def buildController(
 	except TypeError as error:
 		notes.append(f"Nothing to flow: {error}")
 		return None
-	unit = readingUnit()
 	source = DocumentFlowSource(
 		target,
 		factory,
-		unit=unit,
+		unit=readingUnit(),
 		generation=generation,
 		interactive=isBeingWrittenIn(target, obj),
-		# A form's controls are recognised so that a prompt can be placed above the control
-		# it belongs to, and a short answer separated from the next prompt. Only where there
-		# are controls to find: see `flowForms.probeFor`.
-		controlProbe=flowForms.probeFor(target, unit),
+		# Sized to the band: filling eight rows costs at least eight blocks, so a budget near
+		# the band's own height is one the reader meets on every arrival. See `budgetForBand`.
+		budget=budgetForBand(numRows),
 	)
-	notes.append(f"Reading by {source.unit}, band {numRows} rows of {numCols} cells.")
+	notes.append(
+		f"Reading by {source.unit}, band {numRows} rows of {numCols} cells, "
+		f"budget {source.budget.maxBlocks} blocks.",
+	)
+	if atObject is not None:
+		notes.append(f"Arrived at a control: {describeObject(atObject)}")
 	renderer = FlowRenderer(handler, numCols=numCols, fillRows=False)
 	control = FlowController(source, renderer, numRows=numRows, live=live)
-	if not control.enterAtCursor():
+	if not control.enterAtCursor(atObject=atObject):
 		result = control.lastResult
 		kind = getattr(getattr(result, "kind", None), "value", "no answer")
 		notes.append(
@@ -232,7 +252,19 @@ def dryRun(handler=None, obj: Optional["NVDAObject"] = None) -> list[str]:
 	"""
 	numRows, numCols = bandSize(handler)
 	notes: list[str] = []
-	control = buildController(obj=obj, numRows=numRows, numCols=numCols, handler=handler, notes=notes)
+	# The same question the band asks on a focus change, so that running this while standing
+	# on a form field reports what the band would actually show there.
+	focus = _focusObject()
+	notes.append(f"focus: {describeObject(focus)}")
+	atObject = focus if flowForms.isControlObject(focus) else None
+	control = buildController(
+		obj=obj,
+		numRows=numRows,
+		numCols=numCols,
+		handler=handler,
+		notes=notes,
+		atObject=atObject,
+	)
 	if control is None:
 		# Every step is reported, because "nothing here can be flowed" was one message for
 		# four different failures and said nothing about which had happened.

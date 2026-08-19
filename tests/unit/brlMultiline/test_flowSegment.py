@@ -560,6 +560,86 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self.assertFalse(self._start(page))
 		self.assertFalse(self.segment.isFlowing)
 
+	def test_arrivingAtAControlReadsItAtItsOwnPlace(self):
+		# Tabbing into an edit field drops browse mode into focus mode, so the cursor is
+		# inside the control and the line it is on is the value being edited — empty, for an
+		# empty field, which is the blank row the hardware run felt. The control's own line
+		# is what browse mode shows, and it is the one carrying the name and the role.
+		page, interceptor = self._document(["Name", "f: Ada", "Town"])
+		self._start(page)
+		interceptor.caretIndex = 2
+		field = FakeNavigatorObject(
+			"a field",
+			role="EDITABLETEXT",
+			treeInterceptor=interceptor,
+			documentIndex=1,
+		)
+		self._focusOn(field)
+		self.assertTrue(self.segment.acceptFocusRegions(self._focusRegionsFor(field)))
+		flow = self.band.controller
+		self.assertEqual(flow.regionFor(flow.activeBlockId).rawText, "f: Ada")
+
+	def test_soThePromptSitsAboveIt(self):
+		page, interceptor = self._document(["Name", "f: Ada", "Town"])
+		self._start(page)
+		field = FakeNavigatorObject(
+			"a field",
+			role="EDITABLETEXT",
+			treeInterceptor=interceptor,
+			documentIndex=1,
+		)
+		self._focusOn(field)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(field))
+		flow = self.band.controller
+		self.assertEqual(flow.window.topBlockId(), flow.window.blocks[0].blockId)
+		self.assertEqual(flow.regionFor(flow.window.topBlockId()).rawText, "Name")
+
+	def test_arrivingAtProseReadsFromTheCursor(self):
+		"""Only a control is read at its own place; everything else reads as it always has."""
+		page, interceptor = self._document(["Name", "f: Ada", "Town"])
+		self._start(page)
+		interceptor.caretIndex = 2
+		link = FakeNavigatorObject(
+			"a link",
+			role="LINK",
+			treeInterceptor=interceptor,
+			documentIndex=0,
+		)
+		self._focusOn(link)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(link))
+		flow = self.band.controller
+		self.assertEqual(flow.regionFor(flow.activeBlockId).rawText, "Town")
+
+	def test_aPendingJumpIsAnsweredWithoutTheRegionBeingReread(self):
+		# It used to be answered only when NVDA had queued our region for re-reading, which
+		# is a condition outside our control: a quick navigation key whose note was never
+		# taken left the display where it was while speech announced the new heading.
+		from brlMultiline import flowQuickNav
+
+		page, interceptor = self._document(documentLines())
+		self._start(page)
+		flow = self.band.controller
+		region = flow.activeRegion()
+		if region is not None:
+			region.dirty = False
+		# Six lines down, which on a four row band is well past the bottom of the window.
+		interceptor.caretIndex = 6
+		flowQuickNav.note("heading")
+		self.segment.update()
+		self.assertEqual(flow.regionFor(flow.window.topBlockId()).rawText, "line 6")
+
+	def test_anArrivalSpendsAPendingJump(self):
+		# An arrival places the window afresh at what the reader came to, which is what
+		# grounding would have done. A note left behind would ground their next arrow key.
+		from brlMultiline import flowQuickNav
+
+		page, interceptor = self._document(documentLines())
+		self._start(page)
+		flowQuickNav.note("heading")
+		self._focusOn(page)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(page))
+		self.assertFalse(flowQuickNav.takeGrounding())
+
 	def test_focusOnSomethingWithNoTextIsGivenBackToNVDA(self):
 		# A button in a dialog has no lines to flow. The band becomes an ordinary segment
 		# again rather than leaving the reader with a blank display.
