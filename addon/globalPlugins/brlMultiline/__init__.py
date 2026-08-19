@@ -969,6 +969,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		band = FlowBand(self)
 		if not band.start():
 			band.stop()
+			if band.lastError:
+				log.debugWarning(f"The flow could not start: {band.lastError}")
 			# Translators: reported when there is nothing here that can be read as a flow.
 			ui.message(_("Nothing here to flow"))
 			return

@@ -15,10 +15,13 @@ missing lives — being told that the display was rebuilt, that the claim was ev
 that everything is being taken back. Geometry survives a rebuild and content does not, so
 without `onRebuilt` a flow comes back as an empty band and stays that way.
 
-The band is the whole display for now. A band of some of the rows is the same code with a
-different rectangle, and wants a setting rather than an assumption; it is not attempted
-here because the rectangle must lie inside one physical display's live band, which is a
-question about the reader's hardware rather than about this module.
+The band is as much of one physical display as there is. Not the whole composite: a
+Monarch and a Focus 80 driven as one display are nine rows of eighty cells, of which the
+Monarch's eight rows have only thirty-two — and a claim across the whole rectangle reaches
+forty-eight columns of dead cells that no hardware has, which `validateAgainstHardware`
+refuses outright. Choosing the band is therefore a question about the reader's hardware,
+answered in `bandRect` below, and a band of some of one display's rows is the same code
+with a smaller rectangle once there is a setting to name it.
 """
 
 import itertools
@@ -29,8 +32,9 @@ from logHandler import log
 
 from .flowControl import FlowController
 from .flowDryRun import bandSize, buildController
+from .devices import DeviceInfo, deviceMap
 from .flowSegment import FlowBufferSegment
-from .layout import SegmentRect
+from .layout import SegmentRect, deviceBandRects, wholeDisplayRect
 from .objectMonitor import resolveTarget
 from .panels import FlowPanel, PanelOwner
 
@@ -61,6 +65,9 @@ class FlowBand(PanelOwner):
 		:param plugin: the global plugin, for the display and its claims.
 		"""
 		self.plugin = plugin
+		self.lastError: Optional[str] = None
+		"""Why the band could not be shown, for a command to report."""
+
 		self.controller: Optional[FlowController] = None
 		self.obj: Any = None
 		"""What the current controller is reading, so a focus change can be recognised."""
@@ -70,17 +77,42 @@ class FlowBand(PanelOwner):
 	def start(self) -> bool:
 		"""Claim the band and show a flow in it.
 
-		:return: whether a flow is now showing.
+		:return: whether a flow is now showing. `lastError` says why not, and tells a band
+			that could not be claimed apart from one that had nothing to read.
 		"""
+		self.lastError = None
 		try:
-			numRows, numCols = self._displaySize()
-			panel = FlowPanel(BAND_NAME, SegmentRect(row=0, col=0, numRows=numRows, numCols=numCols))
+			panel = FlowPanel(BAND_NAME, self.bandRect())
 			self.plugin.activatePanel(panel)
-		except Exception:
+		except Exception as error:
 			log.error("Could not claim a band for the flow", exc_info=True)
+			self.lastError = str(error)
 			return False
 		self._follow()
-		return self.refresh(force=True)
+		if self.refresh(force=True):
+			return True
+		self.lastError = self.lastError or "nothing here reads as a flow"
+		return False
+
+	def bandRect(self, devices: "Optional[list[DeviceInfo]]" = None) -> SegmentRect:
+		"""Choose the rectangle to claim.
+
+		A flow band must lie inside one physical display's live cells. On an ordinary
+		display that is the whole thing. On a composite it is one member's band, and the
+		one chosen is the tallest, because rows are what a flow has to spend: a Monarch's
+		eight rows of thirty-two are worth more to it than a Focus 80's single row of
+		eighty, and a claim across both would reach the dead columns beside the Monarch.
+
+		:param devices: the physical displays, read from the driver when not given.
+		:return: the rectangle to claim.
+		"""
+		numRows, numCols = self._displaySize()
+		devices = deviceMap() if devices is None else devices
+		if not devices:
+			return wholeDisplayRect(numRows, numCols)
+		bands = deviceBandRects([device.band for device in devices], numCols)
+		best = max(bands, key=lambda band: (band.live.numRows, band.live.displaySize))
+		return best.live
 
 	def _follow(self) -> None:
 		"""Make the band bring its focus changes here, rather than answering them itself."""
@@ -260,7 +292,14 @@ class FlowBand(PanelOwner):
 		return braille.handler
 
 	def _displaySize(self) -> tuple[int, int]:
-		""":return: the whole display's size, for the claim."""
+		""":return: the size of the display being claimed against.
+
+		The container's, not the handler's: the container is what the claim is composed
+		over, and it is the thing that knows the shape it was built for.
+		"""
+		container = self._container()
+		if container is not None:
+			return container.numRows, container.numCols
 		return bandSize(self._handler())
 
 	def _bandSize(self, segment: FlowBufferSegment) -> tuple[int, int]:

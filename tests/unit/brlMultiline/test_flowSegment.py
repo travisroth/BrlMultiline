@@ -323,6 +323,76 @@ class FakePlugin:
 		self.claimed = [claim for claim in self.claimed if claim != name]
 
 
+class TestChoosingTheBand(unittest.TestCase):
+	"""A flow band must lie inside one physical display's live cells."""
+
+	def setUp(self):
+		from brlMultiline.flowBand import FlowBand
+
+		self.handler = FakeHandler(9, 80)
+		self.container = containerWithBand(self.handler, numRows=9, numCols=80)
+		self.handler.mainBuffer = self.handler.buffer = self.container
+		self.band = FlowBand(FakePlugin(self.container))
+
+	def test_anOrdinaryDisplayGivesTheWholeThing(self):
+		rect = self.band.bandRect(devices=[])
+		self.assertEqual((rect.numRows, rect.numCols), (9, 80))
+
+	def test_aCompositeGivesOneMembersBandNotTheWholeRectangle(self):
+		# A Monarch and a Focus 80 driven as one display are nine rows of eighty cells, of
+		# which the Monarch's eight have only thirty-two. Claiming the whole rectangle
+		# reaches forty-eight columns that no hardware has, and is refused outright.
+		from brlMultiline.devices import DeviceInfo
+
+		devices = [
+			DeviceInfo(driverName="monarch", rowStart=0, numRows=8, numCols=32),
+			DeviceInfo(driverName="focus", rowStart=8, numRows=1, numCols=80),
+		]
+		rect = self.band.bandRect(devices=devices)
+		self.assertEqual((rect.row, rect.col, rect.numRows, rect.numCols), (0, 0, 8, 32))
+
+	def test_theTallestBandWinsBecauseAFlowSpendsRows(self):
+		from brlMultiline.devices import DeviceInfo
+
+		devices = [
+			DeviceInfo(driverName="focus", rowStart=0, numRows=1, numCols=80),
+			DeviceInfo(driverName="monarch", rowStart=1, numRows=8, numCols=32),
+		]
+		rect = self.band.bandRect(devices=devices)
+		self.assertEqual((rect.row, rect.numRows, rect.numCols), (1, 8, 32))
+
+	def test_theChosenBandIsAcceptedByTheHardwareCheck(self):
+		# The check that refused the whole display claim on real hardware.
+		from brlMultiline.devices import DeviceInfo
+		from brlMultiline.panels import FlowPanel
+		from brlMultiline.views import SegmentView, validateAgainstHardware
+
+		devices = [
+			DeviceInfo(driverName="monarch", rowStart=0, numRows=8, numCols=32),
+			DeviceInfo(driverName="focus", rowStart=8, numRows=1, numCols=80),
+		]
+		rect = self.band.bandRect(devices=devices)
+		view = SegmentView(name="flow", panels=[FlowPanel("flow", rect)], focusSegmentKey="flow")
+		validateAgainstHardware(view, devices, 80)
+
+	def test_theWholeDisplayWouldNotBe(self):
+		from brlMultiline.devices import DeviceInfo
+		from brlMultiline.panels import FlowPanel
+		from brlMultiline.views import SegmentView, validateAgainstHardware
+
+		devices = [
+			DeviceInfo(driverName="monarch", rowStart=0, numRows=8, numCols=32),
+			DeviceInfo(driverName="focus", rowStart=8, numRows=1, numCols=80),
+		]
+		view = SegmentView(
+			name="flow",
+			panels=[FlowPanel("flow", SegmentRect(row=0, col=0, numRows=9, numCols=80))],
+			focusSegmentKey="flow",
+		)
+		with self.assertRaises(ValueError):
+			validateAgainstHardware(view, devices, 80)
+
+
 class TestFollowingTheFocus(unittest.TestCase):
 	"""A flow shows the document the focus is in, and follows it to the next one."""
 

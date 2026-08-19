@@ -609,11 +609,18 @@ and it needs three things before milestone 3:
    inside keeps every blank line, because there the blank lines are the document; browse
    mode presenting a document collapses a run of them, because there they are layout.
 
+   Found on hardware and fixed: the band claimed the whole display, which on a composite is
+   not a rectangle any hardware has. A Monarch and a Focus 80 driven as one display are
+   nine rows of eighty cells, of which the Monarch's eight have only thirty-two, so the
+   claim reached forty-eight dead columns and `validateAgainstHardware` refused it — every
+   time, on that hardware, which is why nothing ever flowed there. The band is now the
+   tallest physical display's own live rectangle, because rows are what a flow spends. This
+   was the constraint stated two sections above and then not honoured by the code that
+   claims the band.
+
    Not done: the settings dialog. The flow is turned on by the "Reads the whole display as
-   one flowing document" command, and the band is the whole display. A band of some of the
-   rows is the same code with a different rectangle, and wants the setting to name a display
-   as well as a row range, since the rectangle must lie inside one physical display's live
-   band.
+   one flowing document" command, and takes a whole physical display. A band of some of one
+   display's rows is the same code with a smaller rectangle once a setting names it.
 4. **Following.** The in-window test, minimal scroll, entry context, and keeping the
    cursor's row visible inside a growing block. Includes what a flow does when the focus
    leaves it, which entering and leaving focus mode exercises directly.
