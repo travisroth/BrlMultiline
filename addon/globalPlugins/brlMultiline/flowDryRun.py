@@ -176,6 +176,9 @@ def report(control: FlowController) -> list[str]:
 		lines.append("Reversibility: panning back returned to the arrival rows.")
 	else:
 		lines.append("Reversibility: FAILED, panning back did not return to the arrival rows.")
+	used, total = control.fillStats()
+	percent = (100 * used / total) if total else 0
+	lines.append(f"Band fill: {used} of {total} cells ({percent:.0f}%) on the last window shown.")
 	slowest = getattr(control.source.budget, "slowest", None)
 	if slowest:
 		lines.append(f"Slowest block: {slowest * 1000:.1f} ms")

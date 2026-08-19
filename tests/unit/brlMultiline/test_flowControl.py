@@ -273,6 +273,16 @@ class TestDescribing(unittest.TestCase):
 		self.assertIn("'abcdefgh'", lines[0])
 		self.assertIn("'ijklmnop'", lines[1])
 
+	def test_theBandFillIsMeasured(self):
+		# A block always starts a new row, so what a reading unit costs in empty cells is
+		# worth measuring rather than guessing at.
+		control = controllerOver(["abc", "de"], numCols=8, numRows=4)
+		self.assertEqual(control.fillStats(), (5, 32))
+
+	def test_aFullRowCountsAsFull(self):
+		control = controllerOver(["abcdefgh"], numCols=8, numRows=1)
+		self.assertEqual(control.fillStats(), (8, 8))
+
 	def test_theRowCountIsSaidPerRow(self):
 		control = controllerOver(["abcdefghijklmnop"], numCols=8, numRows=4)
 		self.assertIn("block row 2 of 2", control.describeRows()[1])

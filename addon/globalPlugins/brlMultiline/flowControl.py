@@ -423,6 +423,32 @@ class FlowController(PanelOwner):
 			return False
 		return True
 
+	def fillStats(self) -> tuple[int, int]:
+		"""How much of the band is content rather than the space after a row's last cell.
+
+		The measure that tells one reading unit apart from another on a given display: a
+		block always starts a new row, so every block leaves the tail of its last row empty,
+		and how much that costs depends on the block's length against the band's width.
+
+		:return: the cells holding content, and the cells in the band.
+		"""
+		total = self.window.numRows * self.renderer.numCols
+		used = 0
+		try:
+			visible = self.window.visibleRows()
+		except LookupError:
+			return 0, total
+		for row in visible:
+			if row.kind is not RowKind.CONTENT or row.blockId is None:
+				continue
+			try:
+				rendered = self.window.blocks[self.window.blockIndex(row.blockId)]
+			except LookupError:
+				continue
+			if row.rowIndex < len(rendered.rows):
+				used += min(len(rendered.rows[row.rowIndex]), self.renderer.numCols)
+		return used, total
+
 	def describeRows(self) -> list[str]:
 		"""What each row of the band holds, in words rather than cells.
 
