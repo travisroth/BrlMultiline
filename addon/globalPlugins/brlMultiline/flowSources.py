@@ -348,6 +348,7 @@ class DocumentFlowSource:
 		generation: int = 0,
 		interactive: bool = False,
 		budget: Optional[FetchBudget] = None,
+		controlProbe: Optional[Callable] = None,
 	) -> None:
 		"""
 		:param obj: the object or tree interceptor to read.
@@ -359,12 +360,16 @@ class DocumentFlowSource:
 			reading it. Blank lines are the document when writing and are layout when
 			reading, so this decides whether a run of them collapses.
 		:param budget: how much work a fetch may do. One is made if none is given.
+		:param controlProbe: says whether the block at a position holds a form control. See
+			`flowForms`. None reads every block as prose, which is right for anything that
+			is not a form and is what a source with no opinion about controls does.
 		"""
 		self.obj = obj
 		self.regionFactory = regionFactory
 		self.unit = unit
 		self.generation = generation
 		self.interactive = interactive
+		self.controlProbe = controlProbe
 		self.budget = budget if budget is not None else FetchBudget()
 		self._positions = ByIdentity()
 		"""The position each block starts at, by bookmark.
@@ -492,7 +497,29 @@ class DocumentFlowSource:
 		self._positions.set(blockId.bookmark, start)
 		region = self.regionFactory(self.obj, start)
 		region.update()
-		return SourceBlock(blockId=blockId, region=region, isBlank=not region.rawText.strip())
+		isControl = self._isControl(start)
+		return SourceBlock(
+			blockId=blockId,
+			region=region,
+			isBlank=not region.rawText.strip(),
+			isControl=isControl,
+			# A control declares a blank row after it, so that a one row answer is separated
+			# from the next prompt. Spacing is declared by the block and never produced by
+			# packing, which is why it is decided here rather than while rows are assembled.
+			gapAfter=isControl,
+		)
+
+	def _isControl(self, info) -> bool:
+		""":return: whether the block at a position holds a form control."""
+		if self.controlProbe is None:
+			return False
+		try:
+			return bool(self.controlProbe(info))
+		except Exception:
+			# A block that cannot be classified is prose, which costs the reader a row of
+			# context and nothing else.
+			log.debugWarning("Could not tell whether a block holds a control", exc_info=True)
+			return False
 
 	# Positions.
 

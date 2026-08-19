@@ -536,6 +536,23 @@ class CursorManager:
 	"""
 
 
+class FieldCommand:
+	"""NVDA's `textInfos.FieldCommand`: a marker in a run of text saying a field starts or ends.
+
+	Here because `flowForms` recognises a form control from the fields of the text itself,
+	and does so with an `isinstance` check, so a stand-in has to be the type the code tests
+	against rather than something shaped like it.
+	"""
+
+	def __init__(self, command, field=None):
+		self.command = command
+		self.field = field
+
+
+class ControlField(dict):
+	"""NVDA's `textInfos.ControlField`, which is a dictionary carrying a role and more."""
+
+
 class FakeTreeInterceptor(CursorManager):
 	"""A browse mode document, which reads through a cursor of its own rather than a caret."""
 
@@ -586,8 +603,15 @@ class TextInfoRegion(Region):
 		Region.update(self)
 		# A collapsed position is a cursor, as it is in NVDA. Regions that must not show one
 		# clear it after calling this, which is the behaviour worth being able to test.
-		self.cursorPos = 0
-		self.brailleCursorPos = 0
+		# Where in the line it sits is the object's business: a caret at the end of what has
+		# just been typed is what makes a growing edit field testable, and the default of
+		# nought is where every other test leaves it.
+		# Clamped to a cell that exists, as NVDA clamps it: there the reading unit gains a
+		# trailing space so that a caret at its end has somewhere to be, and the cursor is
+		# then held inside the text. A cursor past the last cell is not a state a region
+		# ever reaches, so it is not one a test should be able to produce.
+		self.cursorPos = min(getattr(self.obj, "caretOffset", 0), max(0, len(self.rawText) - 1))
+		self.brailleCursorPos = self.cursorPos
 
 	def routeTo(self, pos):
 		self.routedTo = pos
@@ -1334,6 +1358,8 @@ def installStubs() -> None:
 		POSITION_SELECTION=POSITION_SELECTION,
 		POSITION_FIRST=POSITION_FIRST,
 		TextInfo=FakeTextInfo,
+		FieldCommand=FieldCommand,
+		ControlField=ControlField,
 	)
 	braille.buffers = buffers
 	braille.display = display

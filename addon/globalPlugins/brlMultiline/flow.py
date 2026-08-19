@@ -196,6 +196,15 @@ class SourceBlock:
 	gapBefore: bool = False
 	gapAfter: bool = False
 	isBlank: bool = False
+	isControl: bool = False
+	"""Whether this block holds a form control the reader stops at and answers.
+
+	Two things follow from it, both in `flowForms`: the block declares a blank row after
+	itself, so a one row answer is separated from the next prompt; and arriving at it places
+	the window so that what precedes it — its label — is on the display above it, rather
+	than putting the control on the top row and filling downward.
+	"""
+
 	collapsed: int = 1
 	"""How many blank blocks this one stands for.
 
@@ -631,6 +640,24 @@ class FlowWindow:
 		if missing <= 0 or self.edges[edge] is EdgeState.END:
 			return 0
 		return missing
+
+	def rowsAbove(self) -> int:
+		"""How many stream rows sit above the top row of the window.
+
+		What a caller wanting context above the window asks: the shortfall says only whether
+		the window is full, and a window anchored at its top row is full while having
+		nothing above it at all. Placing a control's label above it means fetching rows the
+		window does not need, so it has to be possible to ask how many are there.
+
+		:return: the number of cached rows above the window, zero if it starts at the top of
+			what has been read.
+		"""
+		rows = self.streamRows()
+		try:
+			start, _end = self._bounds(rows)
+		except LookupError:
+			return 0
+		return max(0, start)
 
 	def visibleRows(self) -> list[StreamRow]:
 		"""The rows the display should show.

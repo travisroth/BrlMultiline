@@ -130,8 +130,10 @@ Things worth knowing:
 - Panning moves the browse mode cursor to what is now at the top of the band, so speech and
   braille stay together and your arrow keys carry on from what is under your hands.
 - A control you have entered inside a page still reads as part of that page.
-- Known incomplete: a control you have entered does not yet show its label above it, and a
-  combo box does not show its choices.
+- On a form, the prompt is put above the field it belongs to rather than left behind, and a
+  field is separated from the next prompt by a blank row. A multi line edit grows into the
+  rows as you type, keeping what you have just written on the display.
+- Known incomplete: a combo box does not show its choices.
 
 ## Using two displays at once
 

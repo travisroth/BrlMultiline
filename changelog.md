@@ -32,8 +32,10 @@ Added:
 - Reading a document as a flow, on a band of the display: a heading followed by what comes
   after it, a paragraph running on across the rows, panning that moves a whole display's
   worth and is reversible, and a cursor move within what is shown moving nothing. Browse
-  mode only so far. Off until it is turned on, per display and per configuration profile,
-  so it can be on in one browser and off in another. Experimental.
+  mode only so far, including forms: a control's prompt is placed above it, a field is
+  separated from the next prompt, and a multi line edit grows into the rows as it is typed
+  into. Off until it is turned on, per display and per configuration profile, so it can be
+  on in one browser and off in another. Experimental.
 
 For add-on authors and component work:
 

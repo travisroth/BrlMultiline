@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Optional
 
 from logHandler import log
 
+from . import flowForms
 from .flow import (
 	NO_POSITION,
 	ByIdentity,
@@ -160,7 +161,8 @@ class FlowController(PanelOwner):
 
 		:param contextRows: how many rows of what precedes the cursor to show above it. A
 			plain document asks for none, so the cursor's block sits at the top and the
-			display fills downward.
+			display fills downward. Left at none, a block holding a form control asks for
+			enough to show its label; see `flowForms`.
 		:return: whether anything is now on the display.
 		"""
 		with self.operation():
@@ -182,10 +184,55 @@ class FlowController(PanelOwner):
 		self.window.enterAt(block.blockId)
 		self._setActive(result.block.blockId)
 		if contextRows > 0:
-			self._fill(Edge.BEFORE, contextRows)
+			self._reachBack(contextRows)
+		elif result.block.isControl:
+			# A control's prompt is context, and context goes above it. What the reader has
+			# arrived at is the field; what says what the field is for is behind them, and
+			# on one row there has never been anywhere to put it.
+			contextRows = self._labelContext(result.block.blockId)
+		if contextRows > 0:
 			self.window.enterAt(result.block.blockId, contextRows=contextRows)
 		self.fill()
 		return True
+
+	def _labelContext(self, blockId: "BlockId") -> int:
+		"""How far above a control to start the window, so that its prompt is on the display.
+
+		:param blockId: the control's block.
+		:return: how many rows above it the window should start, 0 to leave it at the top.
+		"""
+		cap = max(1, self.window.numRows // flowForms.MAX_CONTEXT_SHARE)
+		self._reachBack(cap)
+		try:
+			index = self.window.blockIndex(blockId)
+		except LookupError:
+			return 0
+		if index <= 0:
+			# Nothing above it: the control is the first thing in the document, or what is
+			# above could not be read. It sits at the top, as any block does.
+			return 0
+		control = self.window.blocks[index]
+		previous = self.window.blocks[index - 1]
+		gapRows = (1 if previous.gapAfter else 0) + (1 if control.gapBefore else 0)
+		return flowForms.contextRowsFor(previous.numRows, gapRows, self.window.numRows)
+
+	def _reachBack(self, rows: int) -> None:
+		"""Fetch rows above the window, which the window itself would never ask for.
+
+		`_fill` makes up a shortfall, and a window anchored at its own top row has none: it
+		is full, and there is nothing above it. Showing a control's label means reading what
+		the window does not need, so this asks by row count instead.
+
+		:param rows: how many rows are wanted above the top of the window.
+		"""
+		for _ in range(MAX_FETCHES):
+			if self.window.rowsAbove() >= rows:
+				return
+			if self.source.budget.exhausted:
+				self.window.setEdge(Edge.BEFORE, EdgeState.DEFERRED)
+				return
+			if not self._fetchOne(Edge.BEFORE):
+				return
 
 	# Filling.
 
@@ -541,8 +588,17 @@ class FlowController(PanelOwner):
 		"""
 		if self.activeBlockId is None:
 			return False
+		# The cursor's own row, not the block's first: a paragraph or an edit field taller
+		# than the band would otherwise be brought on by its top while the reader is at the
+		# bottom of it, which is the whole of what "the cursor's row must stay visible" is
+		# about.
+		row = self.cursorRow()
 		try:
-			moved = self.window.ensureVisible(self.activeBlockId, forward=forward)
+			moved = self.window.ensureVisible(
+				self.activeBlockId,
+				rowIndex=row if row is not None else 0,
+				forward=forward,
+			)
 		except LookupError:
 			return self.enterAtCursor()
 		if moved:
@@ -641,8 +697,41 @@ class FlowController(PanelOwner):
 		if rendered.rows == before.rows:
 			return False
 		self.window.replaceBlock(rendered)
+		# A multi line edit grows into the space as it is typed into, and what the reader
+		# wants on the display is what they have just written rather than the top of the
+		# field. The window follows the growing end down.
+		self.syncToCursor(forward=True)
 		self.fill()
 		return True
+
+	def cursorRow(self) -> Optional[int]:
+		"""Which row of the active block the cursor is on, counted within the whole block.
+
+		Not which row of the display: the point of asking is usually that it is not on the
+		display and has to be brought back.
+
+		:return: the row, or None if there is no cursor or the block is not cached.
+		"""
+		if self.activeBlockId is None:
+			return None
+		region = self.regionFor(self.activeBlockId)
+		at = getattr(region, "brailleCursorPos", None)
+		if at is None:
+			return None
+		try:
+			rendered = self.window.blocks[self.window.blockIndex(self.activeBlockId)]
+		except LookupError:
+			return None
+		for index, positions in enumerate(rendered.positions):
+			if at in positions:
+				return rendered.rowOffset + index
+		if not rendered.rows:
+			return None
+		# A cursor outside the rendered cells. NVDA holds it inside the reading unit — the
+		# unit gains a trailing space so a caret at its end has somewhere to be — so this is
+		# reached only by a region that does not, and the last row is the honest guess: it is
+		# where a reader writing is.
+		return rendered.endRow - 1
 
 	# Showing.
 
@@ -754,8 +843,13 @@ class FlowController(PanelOwner):
 			rendered = self.window.blocks[self.window.blockIndex(row.blockId)]
 			cells = rendered.rows[row.rowIndex] if row.rowIndex < len(rendered.rows) else ()
 			active = " *" if row.blockId == self.activeBlockId else "  "
+			block = self.blocks.get(row.blockId)
+			# Said on every row of the block rather than only its first: the log is read a
+			# row at a time, and a form is exactly where knowing which rows are the control
+			# and which are its prompt is the thing being checked.
+			kind = " control" if block is not None and block.isControl else ""
 			lines.append(
-				f"{index}:{active}[{len(cells)}/{numCols} cells] "
+				f"{index}:{active}[{len(cells)}/{numCols} cells]{kind} "
 				f"block row {row.rowIndex + 1} of {rendered.numRows}: {rowText(region, rendered, row.rowIndex)!r}",
 			)
 		return lines

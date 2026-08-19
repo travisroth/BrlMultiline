@@ -6,8 +6,9 @@ display as one continuous piece, rather than showing the focused line and readin
 offset into every other segment.
 
 This is the design, the decisions taken so far, the order of work, and the questions
-still open. Milestones 0 to 3 are built, unit tested and run on hardware. The milestone
-list says precisely what that means.
+still open. Milestones 0 to 3 are built, unit tested and run on hardware; milestone 5 is
+built and unit tested and wants a hardware run on a real form. The milestone list says
+precisely what that means.
 
 ## The problem
 
@@ -678,7 +679,8 @@ and it needs three things before milestone 3:
    one. See "Grounding a jump" below.
 
    Known incomplete, and confirmed as such on that run: a control the reader has entered
-   loses its prompt, and a combo box shows no choices. Those are milestones 5 and 6.
+   loses its prompt, and a combo box shows no choices. Those are milestones 5 and 6. The
+   prompt is answered below; the choices are not.
 
    Since done: the settings dialog, which is what turned the flow from a command into a
    feature. `BrlMultiline flow` is a settings category of its own, because it answers a
@@ -704,8 +706,36 @@ and it needs three things before milestone 3:
 4. **Following.** The in-window test, minimal scroll, entry context, and keeping the
    cursor's row visible inside a growing block. Includes what a flow does when the focus
    leaves it, which entering and leaving focus mode exercises directly.
-5. **Browse mode forms.** Label above control, declared spacing after a short field, a
-   multi line edit growing into the window. Hardware run on a real form.
+5. **Browse mode forms.** CODE COMPLETE, AWAITING HARDWARE. Label above control, declared
+   spacing after a short field, a multi line edit growing into the window.
+
+   What landed: `flowForms.py`, holding the two decisions that are policy rather than
+   arithmetic — which roles read as controls, and how many rows of a prompt belong above
+   one. A block is recognised as a control from the field commands of its own text, which
+   in a browse mode document are already in NVDA's process; fetching an `NVDAObject` per
+   block is the reading this design has avoided from the start, and would have made a heavy
+   page unreadable to pay for a row of context.
+
+   A control declares a blank row after itself, which is rule 5 — spacing declared by the
+   block — and is why the source classifies every block it walks rather than only the one at
+   the cursor. Arriving at a control places the window so that what precedes it is above it,
+   capped at half the band so the field itself is never pushed off; a long label is shown by
+   its last rows, which are the ones that say what the field is for.
+
+   That capping needed something the window did not have. `_fill` makes up a shortfall, and
+   a window anchored at its own top row has none — it is full, and there is nothing above
+   it — so reading rows the window does not need is `rowsAbove` and `_reachBack`, asked by
+   row count rather than by shortfall.
+
+   The growing edit turned out not to be quite "the existing rules" after all. Following the
+   cursor brought the *block* into view, not the cursor's row within it, so a field taller
+   than the band would have been shown by its top while the reader was writing at its
+   bottom. The cursor's row is now what `syncToCursor` keeps visible, and a block that grew
+   under the window follows its growing end down. The same correction is what keeps a reader
+   at the bottom of a long paragraph from being thrown back to its top.
+
+   Still owed: the hardware run on a real form, and what a combo box does — its choices are
+   an object question, which is milestone 6.
 6. **Adapters, viewer bands and objects.** The protocol and registry, consuming
    `getBrailleRegions` where an object provides it, `ObjectFlowSource` for lists and trees,
    focused control presentation, and the decision in open question 1.

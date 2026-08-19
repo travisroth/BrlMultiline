@@ -44,7 +44,14 @@ class FakeClock:
 		return self.now
 
 
-def sourceOver(lines, caretIndex=0, live=False, interactive=False, budget=None) -> DocumentFlowSource:
+def sourceOver(
+	lines,
+	caretIndex=0,
+	live=False,
+	interactive=False,
+	budget=None,
+	controlProbe=None,
+) -> DocumentFlowSource:
 	"""Build a source over a browse mode document of the given lines."""
 	interceptor = FakeTreeInterceptor(lines, caretIndex=caretIndex)
 	factory = regionFactoryFor(CursorManagerRegion(interceptor), live=live)
@@ -54,7 +61,17 @@ def sourceOver(lines, caretIndex=0, live=False, interactive=False, budget=None) 
 		generation=1,
 		interactive=interactive,
 		budget=budget,
+		controlProbe=controlProbe,
 	)
+
+
+def probeForLinesStartingWith(marker: str):
+	"""A control probe standing in for `flowForms`, so these tests are about the wiring.
+
+	What counts as a control is `flowForms`' decision and is tested there. What is tested
+	here is that a source asks, and what it does with the answer.
+	"""
+	return lambda info: info.text.startswith(marker)
 
 
 def textsFrom(source: DocumentFlowSource, count: int, forward: bool = True) -> list[str]:
@@ -62,7 +79,9 @@ def textsFrom(source: DocumentFlowSource, count: int, forward: bool = True) -> l
 	result = source.blockAtCursor()
 	texts = [result.block.region.rawText]
 	for _ in range(count):
-		step = source.blockAfter(result.block.blockId) if forward else source.blockBefore(result.block.blockId)
+		step = (
+			source.blockAfter(result.block.blockId) if forward else source.blockBefore(result.block.blockId)
+		)
 		if step.block is None:
 			break
 		result = step
@@ -302,6 +321,70 @@ class TestRegionFlavours(unittest.TestCase):
 		block.region.hidePreviousRegions = True
 		block.region.update()
 		self.assertFalse(block.region.hidePreviousRegions)
+
+
+class TestControls(unittest.TestCase):
+	"""A source classifies blocks so that a form can be presented as one.
+
+	Two things depend on it, and both are in `flowForms`: a control declares a blank row
+	after itself, so a one row answer is separated from the next prompt; and arriving at one
+	places its label above it.
+	"""
+
+	def test_aBlockHoldingAControlSaysSo(self):
+		source = sourceOver(
+			["Your name", "field: Ada"],
+			caretIndex=1,
+			controlProbe=probeForLinesStartingWith("field:"),
+		)
+		self.assertTrue(source.blockAtCursor().block.isControl)
+
+	def test_proseDoesNot(self):
+		source = sourceOver(
+			["Your name", "field: Ada"],
+			caretIndex=0,
+			controlProbe=probeForLinesStartingWith("field:"),
+		)
+		self.assertFalse(source.blockAtCursor().block.isControl)
+
+	def test_aControlIsSeparatedFromWhatFollowsIt(self):
+		"""Rule 5: spacing is declared by the block, never produced by packing."""
+		source = sourceOver(
+			["field: Ada"],
+			controlProbe=probeForLinesStartingWith("field:"),
+		)
+		self.assertTrue(source.blockAtCursor().block.gapAfter)
+
+	def test_proseAsksForNoSpacing(self):
+		source = sourceOver(["Some prose."], controlProbe=probeForLinesStartingWith("field:"))
+		self.assertFalse(source.blockAtCursor().block.gapAfter)
+
+	def test_aSourceWithNoProbeReadsEverythingAsProse(self):
+		"""Which is right for anything that is not a form, and costs nothing to ask."""
+		source = sourceOver(["field: Ada"])
+		block = source.blockAtCursor().block
+		self.assertFalse(block.isControl)
+		self.assertFalse(block.gapAfter)
+
+	def test_blocksWalkedToAreClassifiedToo(self):
+		# Not only the one at the cursor: the reader panning down a form wants each field
+		# separated from the prompt after it.
+		source = sourceOver(
+			["Your name", "field: Ada"],
+			caretIndex=0,
+			controlProbe=probeForLinesStartingWith("field:"),
+		)
+		first = source.blockAtCursor().block
+		self.assertTrue(source.blockAfter(first.blockId).block.isControl)
+
+	def test_aProbeThatRaisesLeavesTheBlockAsProse(self):
+		"""A block that cannot be classified costs a row of context and nothing else."""
+
+		def difficult(info):
+			raise RuntimeError("cannot say")
+
+		source = sourceOver(["field: Ada"], controlProbe=difficult)
+		self.assertFalse(source.blockAtCursor().block.isControl)
 
 
 if __name__ == "__main__":

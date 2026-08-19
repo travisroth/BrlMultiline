@@ -51,7 +51,16 @@ def renderer(numCols=8, **kwargs) -> FlowRenderer:
 	return FlowRenderer(FakeHandler(), numCols=numCols, fillRows=True, **kwargs)
 
 
-def controllerOver(lines, caretIndex=0, numRows=4, numCols=8, live=False, budget=None):
+def controllerOver(
+	lines,
+	caretIndex=0,
+	numRows=4,
+	numCols=8,
+	live=False,
+	budget=None,
+	controlProbe=None,
+	enter=True,
+):
 	"""Build a controller over a browse mode document of the given lines."""
 	interceptor = FakeTreeInterceptor(lines, caretIndex=caretIndex)
 	source = DocumentFlowSource(
@@ -59,10 +68,17 @@ def controllerOver(lines, caretIndex=0, numRows=4, numCols=8, live=False, budget
 		regionFactoryFor(CursorManagerRegion(interceptor), live=live),
 		generation=1,
 		budget=budget,
+		controlProbe=controlProbe,
 	)
 	control = FlowController(source, renderer(numCols), numRows=numRows, live=live)
-	control.enterAtCursor()
+	if enter:
+		control.enterAtCursor()
 	return control
+
+
+def probeForLinesStartingWith(marker: str):
+	"""A control probe standing in for `flowForms`; what counts as one is tested there."""
+	return lambda info: info.text.startswith(marker)
 
 
 def rowTexts(control: FlowController) -> list[str]:
@@ -448,6 +464,167 @@ class TestDryRun(unittest.TestCase):
 		lines = dryRun(handler=FakeHandler())
 		self.assertTrue(any("getFocusRegions gave" in line for line in lines))
 		self.assertTrue(any("Nothing to flow" in line for line in lines))
+
+
+class TestAFormControlsPrompt(unittest.TestCase):
+	"""A control's prompt is context, and context goes above it.
+
+	Arriving at a form field on a single line display shows the field, with whatever said
+	what it was for now behind the reader. A flow has rows to spend on that, and this is
+	what they are spent on.
+	"""
+
+	FORM = ["Name", "f: Ada", "Town", "f: Kent"]
+	"""A form as browse mode lays it out: a prompt, then the field, then the next prompt.
+
+	Short enough to be one row each at eight cells, so that a row of the display is a line
+	of the form and a test can say what the reader would feel.
+	"""
+
+	def form(self, caretIndex=1, numRows=4, lines=None, live=False):
+		return controllerOver(
+			lines or self.FORM,
+			caretIndex=caretIndex,
+			numRows=numRows,
+			live=live,
+			controlProbe=probeForLinesStartingWith("f:"),
+		)
+
+	def test_theLabelIsOnTheRowAboveTheControl(self):
+		control = self.form()
+		rows = rowTexts(control)
+		self.assertEqual(rows[0], "Name    ")
+		self.assertEqual(rows[1], "f: Ada  ")
+
+	def test_theFormGoesOnBelowIt(self):
+		control = self.form()
+		# The control declares a blank row after it, so the next prompt is separated from
+		# the answer rather than sitting against it.
+		rows = rowTexts(control)
+		self.assertEqual(rows[2], "        ")
+		self.assertEqual(rows[3], "Town    ")
+
+	def test_arrivingAtProsePutsItAtTheTop(self):
+		"""Nothing changes for a block that is not a control."""
+		control = self.form(caretIndex=2)
+		self.assertEqual(rowTexts(control)[0], "Town    ")
+
+	def test_aControlAtTheVeryTopStaysAtTheTop(self):
+		control = self.form(caretIndex=0, lines=["f: Ada", "Town"])
+		self.assertEqual(rowTexts(control)[0], "f: Ada  ")
+
+	def test_aLongLabelIsShownByItsLastRows(self):
+		# Half the band at most, so the control is still on the display. Eight rows of
+		# label, four row band: two rows of label, then the control.
+		control = self.form(caretIndex=1, numRows=4, lines=["a" * 64, "f: Ada", "Town"])
+		rows = rowTexts(control)
+		self.assertEqual(rows[0], "a" * 8)
+		self.assertEqual(rows[2], "f: Ada  ")
+
+	def test_theControlIsStillTheActiveBlock(self):
+		"""The window moved, not the cursor: the commands still act on the field."""
+		control = self.form()
+		self.assertEqual(control.activeBlockId, control.window.blocks[1].blockId)
+
+	def test_theCursorIsOnTheControlNotOnTheLabel(self):
+		control = self.form(live=True)
+		self.assertIsNotNone(control.cursorCell())
+		self.assertGreaterEqual(control.cursorCell(), control.renderer.numCols)
+
+	def test_anExplicitContextRowCountIsObeyed(self):
+		"""A caller that knows what it wants is not overruled by the forms policy."""
+		control = self.form(caretIndex=2)
+		control.enterAtCursor(contextRows=2)
+		self.assertEqual(rowTexts(control)[0], "f: Ada  ")
+
+	def test_aDocumentWithNoProbeIsUnaffected(self):
+		control = controllerOver(self.FORM, caretIndex=1, numRows=4)
+		self.assertEqual(rowTexts(control)[0], "f: Ada  ")
+
+
+class TestReachingBackForContext(unittest.TestCase):
+	"""Rows above the window are read by count, since the window itself never wants them."""
+
+	def test_aFullWindowStillHasNothingAboveIt(self):
+		control = controllerOver(["one", "two", "three", "four"], caretIndex=0)
+		self.assertEqual(control.window.rowsAbove(), 0)
+
+	def test_readingBackwardsPutsRowsAboveIt(self):
+		control = controllerOver(["one", "two", "three", "four"], caretIndex=2)
+		control._reachBack(2)
+		self.assertGreaterEqual(control.window.rowsAbove(), 2)
+
+	def test_theStartOfTheDocumentIsAsFarAsItGoes(self):
+		control = controllerOver(["one", "two"], caretIndex=0)
+		control._reachBack(4)
+		self.assertEqual(control.window.rowsAbove(), 0)
+
+	def test_aSpentBudgetStopsItAndSaysSo(self):
+		# Not the end of the document: the display must not read as though it were.
+		budget = FetchBudget(maxBlocks=0, clock=FakeClock())
+		control = controllerOver(
+			["one", "two", "three", "four", "five"],
+			caretIndex=4,
+			budget=budget,
+		)
+		budget.start()
+		budget.blocks = budget.maxBlocks
+		control._reachBack(3)
+		self.assertIs(control.window.edges[Edge.BEFORE], EdgeState.DEFERRED)
+
+
+class TestAGrowingEdit(unittest.TestCase):
+	"""A multi line edit grows into the space and pushes the rest off.
+
+	The rule behind it is the general one — the cursor's own row must stay visible within
+	the block it is in — and it is the same rule that keeps a reader at the bottom of a long
+	paragraph from being thrown back to its top. A field being typed into is where it shows
+	most, because there the block changes under the window on every keystroke.
+	"""
+
+	def field(self, text, numRows=2, numCols=8, caretOffset=None):
+		control = controllerOver(["Notes", text], caretIndex=1, numRows=numRows, numCols=numCols, live=True)
+		control.source.obj.caretOffset = len(text) if caretOffset is None else caretOffset
+		# Where the caret is arrives with the next read of the block, as it does in NVDA.
+		control.refreshActive()
+		return control
+
+	def grow(self, control, text, caretOffset=None):
+		"""Type into the field, as the reader would, and let the band answer."""
+		control.source.obj.lines[1] = text
+		control.source.obj.caretOffset = len(text) if caretOffset is None else caretOffset
+		control.refreshActive()
+
+	def test_theCursorsRowStaysOnTheDisplay(self):
+		control = self.field("abc")
+		self.grow(control, "a" * 40)
+		self.assertIsNotNone(control.cursorCell())
+
+	def test_whatWasJustWrittenIsWhatIsShown(self):
+		# Five rows of field in a two row band: the last two, not the first two.
+		control = self.field("abc")
+		self.grow(control, "a" * 32 + "end")
+		self.assertEqual(rowTexts(control)[-1], "end     ")
+
+	def test_aFieldThatStillFitsDoesNotMoveTheWindow(self):
+		"""Nothing scrolls until what is being written runs off the bottom."""
+		control = self.field("abc", numRows=4)
+		self.grow(control, "abcdef")
+		self.assertTrue(control.window.isVisible(control.activeBlockId, 0))
+		self.assertEqual(rowTexts(control)[0], "abcdef  ")
+
+	def test_theCursorRowIsWhereTheCaretIs(self):
+		control = self.field("a" * 40, caretOffset=20)
+		self.assertEqual(control.cursorRow(), 2)
+
+	def test_aCaretAtTheEndOfWhatWasTypedIsOnTheLastRow(self):
+		"""Where a reader writing always is, and the row that has to stay on the display."""
+		control = self.field("a" * 16, caretOffset=16)
+		self.assertEqual(control.cursorRow(), 1)
+
+	def test_aViewerHasNoCursorRow(self):
+		control = controllerOver(["Notes", "abc"], caretIndex=1, live=False)
+		self.assertIsNone(control.cursorRow())
 
 
 if __name__ == "__main__":

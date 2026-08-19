@@ -29,6 +29,7 @@ from braille.regions.focus import getFocusRegions
 from braille.regions.textInfo import TextInfoRegion
 from logHandler import log
 
+from . import flowForms
 from .flowControl import FlowController
 from .flowRender import FlowRenderer
 from .flowSources import DocumentFlowSource, regionFactoryFor, regionFactoryForObject
@@ -164,12 +165,17 @@ def buildController(
 	except TypeError as error:
 		notes.append(f"Nothing to flow: {error}")
 		return None
+	unit = readingUnit()
 	source = DocumentFlowSource(
 		target,
 		factory,
-		unit=readingUnit(),
+		unit=unit,
 		generation=generation,
 		interactive=isBeingWrittenIn(target, obj),
+		# A form's controls are recognised so that a prompt can be placed above the control
+		# it belongs to, and a short answer separated from the next prompt. Only where there
+		# are controls to find: see `flowForms.probeFor`.
+		controlProbe=flowForms.probeFor(target, unit),
 	)
 	notes.append(f"Reading by {source.unit}, band {numRows} rows of {numCols} cells.")
 	renderer = FlowRenderer(handler, numCols=numCols, fillRows=False)
@@ -177,7 +183,9 @@ def buildController(
 	if not control.enterAtCursor():
 		result = control.lastResult
 		kind = getattr(getattr(result, "kind", None), "value", "no answer")
-		notes.append(f"The source could not give the block at the cursor: {kind} {getattr(result, 'message', '')}")
+		notes.append(
+			f"The source could not give the block at the cursor: {kind} {getattr(result, 'message', '')}"
+		)
 		return None
 	return control
 
