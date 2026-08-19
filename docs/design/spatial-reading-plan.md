@@ -6,8 +6,8 @@ display as one continuous piece, rather than showing the focused line and readin
 offset into every other segment.
 
 This is the design, the decisions taken so far, the order of work, and the questions
-still open. Milestones 0 and 1 are built and unit tested, and milestone 2 is half built.
-The milestone list says precisely what that means.
+still open. Milestones 0 to 3 are built and unit tested, and milestone 3 is
+awaiting its hardware run. The milestone list says precisely what that means.
 
 ## The problem
 
@@ -78,9 +78,8 @@ These were settled before the work starts and are recorded here so they are not 
    form fields remain interactive. This is the opposite of `objectMonitor`, deliberately:
    a pin is a viewer, and a viewer must not move anything.
 3. **A block is a line or a paragraph according to NVDA's read-by-paragraph setting.** The
-   user's existing choice for braille reading applies here too. Lines are expected to be
-   the common case, and panning backwards behaves better with lines in practice, at the
-   cost of more, smaller fetches. Both must work.
+   user's existing choice for braille reading applies here too. Both must work, and which
+   is better is a question about the display rather than about the document — see below.
 4. **On entry, the display shows the caret's block with its context above it.** For a plain
    document that context is nothing, so the block sits at the top and the display fills
    downward. For a control it is the label or prompt — see the section on controls below.
@@ -94,6 +93,26 @@ These were settled before the work starts and are recorded here so they are not 
    "this block starts a new row", so the flow renders each block to rows itself and
    assembles them. See the next section, which is the largest correction to this plan and
    the reason for milestone 0.
+
+### Why both reading units have to work
+
+A line in browse mode is not the browser's rendered line. It is NVDA's own, cut at the
+**Browse Mode Maximum number of characters on one line** setting, which defaults to 100 and
+is meant to sit at or a little past the visual line so that speech follows what is on the
+screen. That is why the dry runs showed lines of about ninety-five characters, and why the
+number is the reader's to change rather than ours.
+
+The consequence for a band is arithmetic. A block always starts on a new row, so a unit
+that overshoots the band's width by a little wastes most of a row: a ninety-five character
+line on an eighty cell band is a full row and a stub, and the band ends up little more than
+half full. The same line on a Monarch's thirty-two cells is three nearly full rows, so the
+waste is slight. Paragraphs pay that cost once per paragraph instead of once per line,
+which is why they suit narrow rows.
+
+Against that, a paragraph on a single row display, or in a single row segment, drifts out
+of step with what speech is saying, which is confusing in a way that a line never is. So
+neither unit is the right default for every arrangement, the setting stays the reader's,
+and the dry run reports how much of the band each one actually fills.
 
 ## What NVDA's buffer does not give us
 
@@ -524,12 +543,28 @@ and it needs three things before milestone 3:
    band's width. It is the half that needs real translation, so it wants writing against
    NVDA's own row splitting rather than against the test harness's deliberately crude
    buffer.
-3. **The focus flow on the display.** `FlowPanel` as the focus segment, the configuration,
+3. **The focus flow on the display.** CODE COMPLETE, AWAITING HARDWARE. `FlowPanel` as the focus segment, the configuration,
    both movement commands routed to the active block, and the cursor-on-pan rule. First
    hardware run on the Monarch in browse mode, testing with the cursor in a middle block:
    typing, untranslated braille input, caret events, routing, line commands and braille to
    focus. This milestone proves NVDA's rebuild can be made to land in our window rather
    than resetting it.
+
+   What landed: `flowSegment.py` — a segment drawn by its controller, refusing the four
+   calls with which NVDA moves a buffer's window (`saveWindow`, `restoreWindow`, `scrollTo`
+   and `focus`), and holding one `FlowCommandRegion` so that NVDA's reach for `regions[-1]`
+   finds something that routes to the active block. `flowBand.py` claims the band, builds
+   the controller and answers `onRebuilt`, `onEvicted` and `onTerminate`, which is the first
+   use of the lifecycle the claim contract was missing. The container builds a flow segment
+   for any specification whose owner draws the focus, and `_doNewObjectMultiSegment` hands a
+   focus change to such an owner instead of clearing the band and writing NVDA's regions
+   into it. 21 tests in `test_flowSegment.py`.
+
+   Not done: the settings dialog. The flow is turned on by the "Reads the whole display as
+   one flowing document" command, and the band is the whole display. A band of some of the
+   rows is the same code with a different rectangle, and wants the setting to name a display
+   as well as a row range, since the rectangle must lie inside one physical display's live
+   band.
 4. **Following.** The in-window test, minimal scroll, entry context, and keeping the
    cursor's row visible inside a growing block. Includes what a flow does when the focus
    leaves it, which entering and leaving focus mode exercises directly.

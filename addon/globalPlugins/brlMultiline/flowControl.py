@@ -289,6 +289,64 @@ class FlowController(PanelOwner):
 		self.syncToCursor(forward=forward)
 		return True
 
+	def followCursor(self) -> bool:
+		"""Answer a cursor move that was not a pan.
+
+		Asks the source where the cursor is now, and moves the window by the smallest
+		amount that brings that block into view — which is nothing at all when it is
+		already there. A cursor that has gone somewhere the cache does not reach is a jump,
+		and the window is placed afresh rather than scrolled to it.
+
+		:return: whether anything changed.
+		"""
+		result = self.source.blockAtCursor()
+		self.lastResult = result
+		if result.kind is not ResultKind.BLOCK or result.block is None:
+			return False
+		blockId = result.block.blockId
+		forward = self._isForward(blockId)
+		if not self.window.hasBlock(blockId):
+			if not self._reach(blockId, forward):
+				return self.enterAtCursor()
+		self._keep(result.block)
+		self._setActive(blockId)
+		moved = self.syncToCursor(forward=forward)
+		self.refreshActive()
+		return moved
+
+	def _isForward(self, blockId: "BlockId") -> bool:
+		"""Which way the cursor went, so that a scroll shows what it came from.
+
+		:param blockId: where the cursor is now.
+		:return: True when it moved on from what is shown, or when it cannot be told.
+		"""
+		if self.activeBlockId is None:
+			return True
+		try:
+			was = self.window.blockIndex(self.activeBlockId)
+			now = self.window.blockIndex(blockId)
+		except LookupError:
+			return True
+		return now >= was
+
+	def _reach(self, blockId: "BlockId", forward: bool) -> bool:
+		"""Fetch towards a block the cache does not hold yet.
+
+		Bounded: a cursor that has gone further than a few blocks is a jump rather than a
+		step, and is answered by placing the window afresh.
+
+		:param blockId: the block wanted.
+		:param forward: which way to look for it.
+		:return: whether it was reached.
+		"""
+		edge = Edge.AFTER if forward else Edge.BEFORE
+		for _ in range(self.window.numRows):
+			if not self._fetchOne(edge):
+				return False
+			if self.window.hasBlock(blockId):
+				return True
+		return False
+
 	def syncToCursor(self, forward: bool = True) -> bool:
 		"""Bring the active block onto the display, moving as little as possible.
 

@@ -98,6 +98,13 @@ def _doNewObjectMultiSegment(self: BrailleHandler, regions) -> None:
 		if not group:
 			# A segment receiving nothing keeps what it already had.
 			continue
+		if _ownerTookTheFocus(container.segments[index], group):
+			# The segment's owner draws its own focus content, so NVDA's regions are handed
+			# over rather than written in beside what the owner drew. Without this the two
+			# producers fight, and this loop wins by clearing the segment on every focus
+			# change. See `SegmentSpec.exclusive`.
+			grouped[index] = []
+			continue
 		container.clear(index)
 		_applyFocusToHardLeft(self, group)
 		for region in group:
@@ -114,6 +121,23 @@ def _doNewObjectMultiSegment(self: BrailleHandler, regions) -> None:
 		self.update()
 	elif self.buffer is self.messageBuffer and keyboardHandler.keyCounter > self._keyCountForLastMessage:
 		self._dismissMessage()
+
+
+def _ownerTookTheFocus(segment, regions) -> bool:
+	"""Offer a focus change to a segment whose owner draws its own content.
+
+	:param segment: the segment the regions were destined for.
+	:param regions: the regions NVDA built for the new focus.
+	:return: whether the owner dealt with them.
+	"""
+	accept = getattr(segment, "acceptFocusRegions", None)
+	if accept is None:
+		return False
+	try:
+		return bool(accept(regions))
+	except Exception:
+		log.debugWarning(f"An owner could not take the focus in {segment!r}", exc_info=True)
+		return False
 
 
 def _getMonitoredKeys() -> set[str]:

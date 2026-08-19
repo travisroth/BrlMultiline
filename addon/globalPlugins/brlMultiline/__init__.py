@@ -93,6 +93,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		While this is set it takes over the display wholesale; clearing it returns to the
 		view the user configured.
 		"""
+		self.flowBand = None
+		"""The flow claiming part of the display, or None. EXPERIMENTAL, see script_toggleFlow."""
+
 		self._activePanels: list[BraillePanel] = []
 		"""Claims laid over whatever view is in force, in the order they were made.
 
@@ -132,6 +135,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			config.post_configProfileSwitch.unregister(self._handleProfileSwitch)
 			if self._membersChanged is not None:
 				self._membersChanged.unregister(self._handleDisplayChanged)
+			if self.flowBand is not None:
+				self.flowBand.onTerminate()
+				self.flowBand = None
 			self.stopAllMonitoring()
 			self._restoreOriginalBuffer()
 			patches.remove()
@@ -374,6 +380,25 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# After the display has been redrawn from the focus, so that a pinned object is
 		# written over the fresh layout rather than under it.
 		self.refreshMonitors()
+		self._carryOverFlow(container)
+
+	def _carryOverFlow(self, container: DisplayContainer) -> None:
+		"""Draw the flow again after a rebuild, or drop it if its band has gone.
+
+		Geometry survives a rebuild and content does not: a claim is re-composed and its
+		cells come back empty, with nothing telling its owner to redraw them. This is that
+		telling, and it is the first use of the lifecycle the claim contract was missing.
+
+		:param container: the container just installed.
+		"""
+		band = self.flowBand
+		if band is None:
+			return
+		if band.segment() is None:
+			band.onEvicted()
+			self.flowBand = None
+			return
+		band.onRebuilt()
 
 	def _fallbackContainer(self, handler, dimensions) -> DisplayContainer:
 		"""Build the simplest container the connected display can have.
@@ -920,6 +945,36 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		else:
 			# Translators: reported when the display stops being divided into segments.
 			ui.message(_("Segments off"))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Reads the whole display as one flowing document"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_toggleFlow(self, gesture):
+		"""Turn the flowing reading of the display on or off.
+
+		EXPERIMENTAL, and not yet in the settings dialog: this is the first arrangement in
+		which the add-on draws the focus content itself rather than letting NVDA place it,
+		and it wants running on hardware before it is offered as a setting.
+		"""
+		if self.flowBand is not None and self.flowBand.isShowing:
+			self.flowBand.stop()
+			self.flowBand = None
+			# Translators: reported when the display stops reading as one flowing document.
+			ui.message(_("Flow off"))
+			return
+		from .flowBand import FlowBand
+
+		band = FlowBand(self)
+		if not band.start():
+			band.stop()
+			# Translators: reported when there is nothing here that can be read as a flow.
+			ui.message(_("Nothing here to flow"))
+			return
+		self.flowBand = band
+		# Translators: reported when the display starts reading as one flowing document.
+		ui.message(_("Flow on"))
 
 	@script(
 		# Translators: input help message for a command.

@@ -119,7 +119,7 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 		self.view = view
 		self.specs: list["SegmentSpec"] = view.flatten()
 		self.rects: list[SegmentRect] = [spec.rect for spec in self.specs]
-		self.segments = [BrailleBufferSegment(handler, self, spec) for spec in self.specs]
+		self.segments = [self._buildSegment(handler, spec) for spec in self.specs]
 		self._byKey = {spec.key: index for index, spec in enumerate(self.specs)}
 		self._focusSegmentNumber = self._byKey[view.focusSegmentKey]
 		self.segments[self._focusSegmentNumber].isFocusBuffer = True
@@ -348,6 +348,24 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 			self.segmentForKey(segment).clear()
 			return
 		self.segments[self.resolveSegmentNumber(segment)].clear()
+
+	def _buildSegment(self, handler, spec) -> BrailleBufferSegment:
+		"""Build the segment one specification asks for.
+
+		A segment whose owner draws the focus content itself is a flow band, and draws from
+		a controller rather than from regions. Everything else is an ordinary segment.
+
+		:param handler: the real braille handler.
+		:param spec: the specification to build.
+		:return: the segment.
+		"""
+		if spec.ownerDrawsFocus:
+			# Imported here rather than at the top: `flowSegment` imports this module for
+			# its type hints, and the flow is only reached by a display that asked for one.
+			from .flowSegment import FlowBufferSegment
+
+			return FlowBufferSegment(handler, self, spec)
+		return BrailleBufferSegment(handler, self, spec)
 
 	def update(self) -> None:
 		"""Update every segment, then recombine their state."""
