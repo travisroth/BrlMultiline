@@ -31,6 +31,40 @@ CONFIG_SECTION = "BrlMultiline"
 #: may build views with more segments than this.
 MAX_UI_SEGMENTS = 8
 
+MAX_FLOW_ROWS = 64
+"""Largest band height the settings dialog offers. A limit on the spin control only."""
+
+FLOW_MODES: tuple[str, ...] = ("browseMode",)
+"""The kinds of content a flow may be used for, in the order the settings dialog offers them.
+
+A flow is turned on for a display and then for each kind of content separately, because
+they are different pieces of work and they arrive one at a time: browse mode is built and
+tested, objects and focused controls are not. A reader who wants a flow on a web page and
+NVDA's own presentation everywhere else says so here rather than reaching for the command
+each time.
+
+Adding a kind means adding its name here, its default below, and its label in
+`settingsPanel`. Everything that reads the setting works from this list.
+"""
+
+FLOW_MODE_DEFAULTS: dict[str, bool] = {"browseMode": True}
+"""Whether each kind of content flows when a flow is turned on at all.
+
+Browse mode is on by default because it is what turning a flow on has meant so far, and a
+reader upgrading should get what the command gave them.
+"""
+
+
+def flowModeKey(mode: str) -> str:
+	""":return: the configuration key holding whether a flow is used for one kind of content.
+
+	One key per kind rather than a list of the enabled ones, because a configuration profile
+	overrides single values: a profile for one browser can turn browse mode off without
+	restating every other kind.
+	"""
+	return f"flow{mode[0].upper()}{mode[1:]}"
+
+
 configSpec = {
 	"displays": {
 		"__many__": {
@@ -42,7 +76,14 @@ configSpec = {
 			"reverseScrollBtns": "boolean(default=False)",
 			"reverseScrollBtnsMigrated": "boolean(default=False)",
 			"showDocumentLines": "boolean(default=False)",
+			"flowEnabled": "boolean(default=False)",
+			"flowRows": f"integer(default=0, min=0, max={MAX_FLOW_ROWS})",
+			"flowDisplay": 'string(default="")',
 			"flowGroundOnQuickNav": "boolean(default=True)",
+			**{
+				flowModeKey(mode): f"boolean(default={FLOW_MODE_DEFAULTS.get(mode, False)})"
+				for mode in FLOW_MODES
+			},
 		},
 	},
 }
@@ -68,6 +109,18 @@ configSpec = {
 	L{migrateReverseScrollButtons}.
 - `showDocumentLines`: fill the segments around the focus segment with the document lines
 	above and below the caret.
+- `flowEnabled`: whether a band of this display reads content as one flowing document.
+- `flow<Mode>`: one per entry in `FLOW_MODES`, whether that kind of content flows.
+- `flowRows`: how many rows the band takes, counted from the top of the display it is on.
+	0, the default, means all of them.
+- `flowDisplay`: the driver name of the physical display to put the band on, when several
+	are driven as one. Empty, the default, means the tallest of them.
+- `flowGroundOnQuickNav`: whether a browse mode jump by structure re-grounds the band.
+
+Everything above is read through `config.conf`, which is profile aware, so all of it can
+differ per configuration profile. That matters most for the flow: a profile triggered by
+one browser can flow while the normal configuration does not, which is how a reader keeps
+one application reading the way it always has.
 """
 
 
@@ -241,6 +294,90 @@ def shouldShowDocumentLines(displayKey: str | None = None) -> bool:
 	except Exception:
 		log.debugWarning("Could not read showDocumentLines", exc_info=True)
 		return False
+
+
+def isFlowEnabled(displayKey: str | None = None) -> bool:
+	""":return: whether a band of this display should read content as a flowing document.
+
+	The master switch, and the one the toggle command sets. It says nothing about whether
+	there is anything to flow here and now: see L{shouldClaimFlowBand}.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["flowEnabled"])
+	except Exception:
+		# A configuration problem should leave the display presenting content the way NVDA
+		# always has, which is what a flow that never starts amounts to.
+		log.debugWarning("Could not read flowEnabled", exc_info=True)
+		return False
+
+
+def setFlowEnabled(enabled: bool, displayKey: str | None = None) -> None:
+	"""Turn the flow on or off for a display, in the profile being edited.
+
+	Written through `config.conf`, so a profile triggered by one application stores its own
+	answer and the normal configuration keeps its.
+
+	:param enabled: whether to read a band of this display as a flowing document.
+	:param displayKey: the display to store against, or None for the current one.
+	"""
+	getDisplayConfig(displayKey)["flowEnabled"] = bool(enabled)
+
+
+def isFlowEnabledFor(mode: str, displayKey: str | None = None) -> bool:
+	""":return: whether one kind of content should be read as a flow.
+
+	Both switches have to be on: the display's, and this kind of content's. A reader who
+	turns the flow off gets NVDA's presentation everywhere without having to visit each
+	kind, and a reader who leaves it on chooses which kinds it applies to.
+
+	:param mode: one of L{FLOW_MODES}. An unknown one never flows.
+	:param displayKey: the display to look up, or None for the current one.
+	"""
+	if mode not in FLOW_MODES:
+		return False
+	try:
+		section = getDisplayConfig(displayKey)
+		return bool(section["flowEnabled"]) and bool(section[flowModeKey(mode)])
+	except Exception:
+		log.debugWarning(f"Could not read whether {mode} flows", exc_info=True)
+		return False
+
+
+def shouldClaimFlowBand(displayKey: str | None = None) -> bool:
+	""":return: whether a band should be claimed on this display at all.
+
+	A claim with no kind of content enabled would take rows the reader configured for
+	something else and never put anything in them, so the band is only laid down when it
+	could show something.
+	"""
+	return any(isFlowEnabledFor(mode, displayKey) for mode in FLOW_MODES)
+
+
+def getFlowRows(displayKey: str | None = None) -> int:
+	""":return: how many rows the band takes, 0 meaning all of the display it is on.
+
+	Counted from the top of that display, so the rows below it keep whatever the segment
+	layout puts there. A band taller than the display it lands on is trimmed to fit rather
+	than refused: the setting outliving the hardware it was typed for is the ordinary case.
+	"""
+	try:
+		return max(0, int(getDisplayConfig(displayKey)["flowRows"]))
+	except Exception:
+		log.debugWarning("Could not read flowRows", exc_info=True)
+		return 0
+
+
+def getFlowDisplay(displayKey: str | None = None) -> str:
+	""":return: the driver name of the display to put the band on, empty for the tallest.
+
+	Only meaningful when several displays are driven as one. A band must lie inside one
+	physical display's live cells, so it is always on one of them; this says which.
+	"""
+	try:
+		return str(getDisplayConfig(displayKey)["flowDisplay"] or "")
+	except Exception:
+		log.debugWarning("Could not read flowDisplay", exc_info=True)
+		return ""
 
 
 def shouldGroundOnQuickNav(displayKey: str | None = None) -> bool:

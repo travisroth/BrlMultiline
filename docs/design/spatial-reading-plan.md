@@ -6,8 +6,8 @@ display as one continuous piece, rather than showing the focused line and readin
 offset into every other segment.
 
 This is the design, the decisions taken so far, the order of work, and the questions
-still open. Milestones 0 to 3 are built and unit tested, and milestone 3 is
-awaiting its hardware run. The milestone list says precisely what that means.
+still open. Milestones 0 to 3 are built, unit tested and run on hardware. The milestone
+list says precisely what that means.
 
 ## The problem
 
@@ -576,7 +576,7 @@ and it needs three things before milestone 3:
    band's width. It is the half that needs real translation, so it wants writing against
    NVDA's own row splitting rather than against the test harness's deliberately crude
    buffer.
-3. **The focus flow on the display.** CODE COMPLETE, AWAITING HARDWARE. `FlowPanel` as the focus segment, the configuration,
+3. **The focus flow on the display.** DONE. `FlowPanel` as the focus segment, the configuration,
    both movement commands routed to the active block, and the cursor-on-pan rule. First
    hardware run on the Monarch in browse mode, testing with the cursor in a middle block:
    typing, untranslated braille input, caret events, routing, line commands and braille to
@@ -680,9 +680,27 @@ and it needs three things before milestone 3:
    Known incomplete, and confirmed as such on that run: a control the reader has entered
    loses its prompt, and a combo box shows no choices. Those are milestones 5 and 6.
 
-   Not done: the settings dialog. The flow is turned on by the "Reads the whole display as
-   one flowing document" command, and takes a whole physical display. A band of some of one
-   display's rows is the same code with a smaller rectangle once a setting names it.
+   Since done: the settings dialog, which is what turned the flow from a command into a
+   feature. `BrlMultiline flow` is a settings category of its own, because it answers a
+   different question from the segment layout — how content is presented rather than how the
+   display is divided — and because the reader's answer changes from one application to the
+   next. It holds the switch, one checkbox per kind of content with browse mode as the only
+   one so far, which physical display the band goes on, how many of its rows it takes, and
+   whether a quick navigation jump re-grounds it.
+
+   Two consequences worth stating. The band is now claimed for as long as the flow is on,
+   whether or not there is anything to read as one at that moment: a band with nothing to
+   flow presents the focus exactly as an undivided display would, and lights up by itself at
+   the next document. Giving it back each time was what made the reader re-enable the flow
+   after every dialog — the "reflow still has to be manually enabled when I go back to
+   Chrome" of the third hardware run. And the setting is read on every rebuild, which is what
+   makes a configuration profile the tool for "in this browser and not that one": NVDA
+   switches profile when the foreground application changes, the switch rebuilds the display,
+   and the rebuild claims or gives back the band with nothing to press.
+
+   The band is no longer always a whole physical display. `flowRows` takes some of one
+   display's rows from the top, leaving the rest to the segment layout, which is the same
+   code with a smaller rectangle as this plan said it would be. Milestone 3 is complete.
 4. **Following.** The in-window test, minimal scroll, entry context, and keeping the
    cursor's row visible inside a growing block. Includes what a flow does when the focus
    leaves it, which entering and leaving focus mode exercises directly.

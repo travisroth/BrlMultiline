@@ -502,6 +502,92 @@ class TestDoNewObjectPatch(PluginTestCase):
 		self.assertEqual(len(calls), 1)
 
 
+class TestFlowSwitch(PluginTestCase):
+	"""Claiming and giving back the flow band, from the setting and from the command.
+
+	The setting is read on every rebuild, which is what makes it answer a configuration
+	profile: NVDA switches profile when the foreground application changes, that rebuilds
+	the display, and the rebuild is where the band is claimed or given back. Before this the
+	flow was a command and nothing else, so a reader who wanted it had to press it again
+	after every profile switch, display change and restart.
+	"""
+
+	segmentCount = 4
+
+	def toggle(self):
+		self.plugin.script_toggleFlow(None)
+
+	def test_theBandIsNotClaimedUntilItIsAskedFor(self):
+		"""Installing the add-on must not change how anything reads."""
+		self.assertIsNone(self.plugin.flowBand)
+		self.assertEqual(self.container.numSegments, 4)
+
+	def test_aRebuildClaimsTheBandWhenTheSettingSaysSo(self):
+		CONFIG["flowEnabled"] = True
+		self.plugin.rebuildBuffer()
+		self.assertIsNotNone(self.plugin.flowBand)
+		self.assertTrue(self.plugin.flowBand.isClaimed)
+
+	def test_aProfileThatTurnsItOffGivesTheBandBack(self):
+		CONFIG["flowEnabled"] = True
+		self.plugin.rebuildBuffer()
+		CONFIG["flowEnabled"] = False
+		post_configProfileSwitch.notify()
+		callAfterQueue.flush()
+		self.assertIsNone(self.plugin.flowBand)
+		self.assertEqual(self.container.numSegments, 4)
+
+	def test_theBandIsClaimedEvenWithNothingToFlowHere(self):
+		"""It presents the focus as an undivided display would, and lights up at a document.
+
+		Giving it back would mean asking for it again after every dialog.
+		"""
+		CONFIG["flowEnabled"] = True
+		self.plugin.rebuildBuffer()
+		self.assertTrue(self.plugin.flowBand.isClaimed)
+		self.assertFalse(self.plugin.flowBand.isShowing)
+
+	def test_theCommandRemembersItsAnswer(self):
+		self.toggle()
+		self.assertTrue(self.plugin.flowBand.isClaimed)
+		from brlMultiline import bmConfig
+
+		self.assertTrue(bmConfig.isFlowEnabled())
+
+	def test_theCommandTurnsItOffAgain(self):
+		self.toggle()
+		self.toggle()
+		self.assertIsNone(self.plugin.flowBand)
+		self.assertEqual(self.container.numSegments, 4)
+
+	def test_theCommandSaysWhichWayItWent(self):
+		self.toggle()
+		self.assertIn("Flow on", spokenMessages)
+		self.toggle()
+		self.assertIn("Flow off", spokenMessages)
+
+	def test_turningItOnWithNothingSetToFlowSaysSo(self):
+		"""A band that could never show anything is not claimed, and the reader is told why."""
+		CONFIG["flowBrowseMode"] = False
+		self.toggle()
+		self.assertIsNone(self.plugin.flowBand)
+		self.assertTrue(any("nothing is set to flow" in message for message in spokenMessages))
+
+	def test_claimingTheBandDoesNotClaimItAgain(self):
+		"""Claiming rebuilds the display, and the rebuild is where claiming happens."""
+		CONFIG["flowEnabled"] = True
+		self.plugin.rebuildBuffer()
+		first = self.plugin.flowBand
+		self.plugin.rebuildBuffer()
+		self.assertIs(self.plugin.flowBand, first)
+
+	def test_terminatingWithABandIsClean(self):
+		CONFIG["flowEnabled"] = True
+		self.plugin.rebuildBuffer()
+		self.plugin.terminate()
+		self.assertIsNone(self.plugin.flowBand)
+
+
 class TestSegmentsSwitch(PluginTestCase):
 	"""Turning the configured layout off and on, from the command and from the settings.
 

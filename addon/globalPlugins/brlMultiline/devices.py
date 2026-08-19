@@ -100,6 +100,36 @@ outright; these exist to be stable, not to be exhaustive.
 """
 
 
+def preferredDevice(preferred: str = "", devices: "list[DeviceInfo] | None" = None) -> "DeviceInfo | None":
+	"""Choose the physical display a claim covering a whole display should be made on.
+
+	A claim may not straddle two pieces of hardware, and on a composite it may not reach the
+	dead columns beside a narrow one, so anything wanting "the display" has to mean one of
+	them. This is that choice, in one place, so that the settings dialog and the code making
+	the claim cannot disagree about which display was meant.
+
+	The named display when it is there, and otherwise the tallest, because rows are what
+	spatial reading spends: a Monarch's eight rows of thirty-two are worth more to it than a
+	Focus 80's single row of eighty. Ties are broken by width.
+
+	:param preferred: the driver name asked for, empty to take the tallest.
+	:param devices: the physical displays, read from the driver when not given.
+	:return: the display to claim on, or None when there is no composite and the caller
+		should use the whole display it already has.
+	"""
+	devices = deviceMap() if devices is None else devices
+	if not devices:
+		return None
+	if preferred:
+		for device in devices:
+			if device.driverName == preferred:
+				return device
+		# Configured for hardware that is not here. The tallest is a better answer than
+		# nothing: a reader whose second display is switched off still wants their flow.
+		log.debug(f"BrlMultiline: {preferred} is not among the displays in use")
+	return max(devices, key=lambda device: (device.numRows, device.numCols))
+
+
 def segmentsForDevice(rects, device: DeviceInfo) -> list[int]:
 	"""Find the segments lying on one physical display.
 

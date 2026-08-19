@@ -74,6 +74,65 @@ line the caret is on. The segment immediately above the focus segment shows the 
 line, the one above that shows the line before it, and so on. Segments holding a pinned
 object are left alone. Segments run past the start or end of the document show as blank.
 
+## Reading as a flow
+
+This is the newest part of the add-on, and the part that most needs your report of how it
+behaves. Treat it as experimental.
+
+Ordinarily a braille display shows one thing: the line the cursor is in, or the object with
+focus. On a display with several rows that leaves a heading sitting alone on the top row
+with the rest of the display blank, and it makes a long paragraph pan a line at a time
+through rows that could have held all of it.
+
+Reading as a flow presents a document as one continuous piece instead. A heading is
+followed by whatever comes after it in the page, a paragraph runs on across as many rows as
+it needs, and panning moves the whole display's worth at a time — so panning back puts you
+where panning forward brought you from, which reading a line at a time never quite managed.
+Moving the cursor within what is already on the display moves nothing, so you keep your
+place while you read; pressing a quick navigation key such as `h` for the next heading sets
+you down at what it found, with the document running on from there.
+
+Set it up under NVDA menu, Preferences, Settings, BrlMultiline flow.
+
+**Read this display as a flowing document.** The switch. Off until you turn it on, so
+installing the add-on changes nothing.
+
+**Use it for.** Which kinds of content are read this way. Browse mode — web pages, and
+documents NVDA reads like one — is the only one so far; forms and other objects are being
+worked on. Everything else goes on being presented by NVDA as it always has, in the same
+band, so nothing disappears when you leave a page.
+
+**Display the flow appears on.** Only shown when several displays are driven as one. A flow
+must sit on one piece of hardware, so this says which. Left on the automatic setting it goes
+to the display with the most rows, since rows are what a flow has to spend.
+
+**Rows it uses.** How many rows of that display the flow takes, counted from the top. Leave
+it at 0 for all of them. Giving it four rows of a Monarch leaves the other four to your
+segment layout, so you can read a page as a flow and keep an eye on something else below it.
+
+**Start reading afresh from what a quick navigation key found.** On by default. When you
+press a quick navigation key that skips a section — a heading, a table, a landmark, a list —
+the thing it found is put on the top row and the document runs on from there. Turn this off
+if you would rather the display always kept the window you had and simply followed the
+cursor.
+
+These settings are part of the configuration profile you are editing. That is the useful
+part: make a profile for the browser you want to read this way, turn the flow on in it, and
+leave the normal configuration alone. The flow then comes and goes as you switch between
+applications, with nothing to press.
+
+Things worth knowing:
+
+- The band is claimed for as long as the flow is turned on, and it takes those rows from
+  your segment layout. Where there is nothing to read as a flow — a dialog, an application
+  the flow does not know yet — the band presents the focus exactly as an undivided display
+  would, and starts flowing again by itself when you reach a document.
+- Panning moves the browse mode cursor to what is now at the top of the band, so speech and
+  braille stay together and your arrow keys carry on from what is under your hands.
+- A control you have entered inside a page still reads as part of that page.
+- Known incomplete: a control you have entered does not yet show its label above it, and a
+  combo box does not show its choices.
+
 ## Using two displays at once
 
 The add-on can drive several braille displays as one, stacked one above another, so that a
@@ -150,6 +209,10 @@ menu, Preferences, Input Gestures, in the BrlMultiline category. They are most
 useful assigned to keys on the display itself.
 
 **Opens the BrlMultiline settings.** Goes straight to the settings category.
+
+**Reads the whole display as one flowing document.** Turns the flow on or off, and
+remembers the answer in the profile in force, so it is the same switch as the one in the
+settings. See "Reading as a flow" above.
 
 **Reports the BrlMultiline segment layout.** Says how many segments there are and
 which one is following the focus. Useful for confirming a layout took effect.

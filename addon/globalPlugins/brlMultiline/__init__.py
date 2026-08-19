@@ -35,7 +35,11 @@ from .layout import SegmentRect
 from .messages import MessageBuffer
 from .objectMonitor import ObjectMonitor
 from .panels import BraillePanel
-from .settingsPanel import BrailleMultilineSettingsPanel, VirtualDisplaySettingsPanel
+from .settingsPanel import (
+	BrailleMultilineSettingsPanel,
+	FlowSettingsPanel,
+	VirtualDisplaySettingsPanel,
+)
 from .views import (
 	SegmentView,
 	deviceFallbackView,
@@ -94,7 +98,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		view the user configured.
 		"""
 		self.flowBand = None
-		"""The flow claiming part of the display, or None. EXPERIMENTAL, see script_toggleFlow."""
+		"""The flow claiming part of the display, or None. See L{_applyFlow}."""
+
+		self._applyingFlow = False
+		"""Guards L{_applyFlow} against itself: claiming the band rebuilds the display."""
 
 		self._activePanels: list[BraillePanel] = []
 		"""Claims laid over whatever view is in force, in the order they were made.
@@ -107,6 +114,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Which display's keys are being pressed, for the per display panning direction.
 		panning.install()
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(BrailleMultilineSettingsPanel)
+		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(FlowSettingsPanel)
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(VirtualDisplaySettingsPanel)
 		displaySizeChanged.register(self._handleDisplayChanged)
 		displayChanged.register(self._handleDisplayChanged)
@@ -143,6 +151,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			patches.remove()
 			panning.remove()
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(BrailleMultilineSettingsPanel)
+			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(FlowSettingsPanel)
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(VirtualDisplaySettingsPanel)
 		except Exception:
 			log.error("Error while terminating BrlMultiline", exc_info=True)
@@ -381,6 +390,60 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# written over the fresh layout rather than under it.
 		self.refreshMonitors()
 		self._carryOverFlow(container)
+		self._applyFlow()
+
+	def _applyFlow(self) -> None:
+		"""Claim or give back the flow band, following the setting for this display and profile.
+
+		Called after every rebuild, which is what makes the setting answer a profile switch.
+		NVDA switches profile when the foreground application changes, the switch rebuilds
+		the display, and the rebuild arrives here — so a profile for one browser can read as
+		a flow while the normal configuration goes on as before, with nothing to press.
+
+		This is also what makes the flow survive a restart. It was a command and nothing
+		else until now, which meant a reader who wanted it had to ask for it again after
+		every display change, every profile switch and every session.
+		"""
+		if self._terminated or self._applyingFlow:
+			# Claiming the band rebuilds the display, which arrives back here. One pass does it.
+			return
+		wanted = bmConfig.shouldClaimFlowBand()
+		if wanted == (self.flowBand is not None):
+			return
+		self._applyingFlow = True
+		try:
+			if wanted:
+				self.startFlow()
+			else:
+				self.stopFlow()
+		finally:
+			self._applyingFlow = False
+
+	def startFlow(self) -> bool:
+		"""Claim a band and read the reader's content as a flow in it.
+
+		:return: whether the band is claimed. It is kept whether or not there is anything to
+			flow at this moment, since a band with nothing to show presents the focus as an
+			undivided display would and lights up when the reader reaches a document.
+		"""
+		from .flowBand import FlowBand
+
+		band = FlowBand(self)
+		if not band.start():
+			band.stop()
+			log.debugWarning(f"BrlMultiline: the flow band could not be claimed: {band.lastError}")
+			return False
+		self.flowBand = band
+		return True
+
+	def stopFlow(self) -> None:
+		"""Give the flow band back, leaving the configured layout in its place."""
+		band = self.flowBand
+		# Cleared first: giving the band back rebuilds the display, and the rebuild must not
+		# find a band that is on its way out and try to draw it again.
+		self.flowBand = None
+		if band is not None:
+			band.stop()
 
 	def _carryOverFlow(self, container: DisplayContainer) -> None:
 		"""Draw the flow again after a rebuild, or drop it if its band has gone.
@@ -952,29 +1015,32 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		category=SCRIPT_CATEGORY,
 	)
 	def script_toggleFlow(self, gesture):
-		"""Turn the flowing reading of the display on or off.
+		"""Turn the flowing reading of the display on or off, and remember the answer.
 
-		EXPERIMENTAL, and not yet in the settings dialog: this is the first arrangement in
-		which the add-on draws the focus content itself rather than letting NVDA place it,
-		and it wants running on hardware before it is offered as a setting.
+		The same switch the flow settings hold, so a reader who turns it off from the
+		keyboard finds it off when they open the dialog, and a display or profile that has
+		it on gets it back without the command being pressed again. Stored against the
+		display in the profile in force, which is what makes it possible to have it on in
+		one application and off in another.
 		"""
-		if self.flowBand is not None and self.flowBand.isShowing:
-			self.flowBand.stop()
-			self.flowBand = None
+		enabled = not bmConfig.isFlowEnabled()
+		bmConfig.setFlowEnabled(enabled)
+		self._applyFlow()
+		if not enabled:
 			# Translators: reported when the display stops reading as one flowing document.
 			ui.message(_("Flow off"))
 			return
-		from .flowBand import FlowBand
-
-		band = FlowBand(self)
-		if not band.start():
-			band.stop()
-			if band.lastError:
-				log.debugWarning(f"The flow could not start: {band.lastError}")
-			# Translators: reported when there is nothing here that can be read as a flow.
-			ui.message(_("Nothing here to flow"))
+		if self.flowBand is None:
+			if not bmConfig.shouldClaimFlowBand():
+				ui.message(
+					# Translators: reported when the flow is turned on but no kind of content is
+					# set to use it, which is chosen in the BrlMultiline flow settings.
+					_("Flow on, but nothing is set to flow. See the BrlMultiline flow settings."),
+				)
+			else:
+				# Translators: reported when a band for the flow could not be shown.
+				ui.message(_("The flow could not be shown"))
 			return
-		self.flowBand = band
 		# Translators: reported when the display starts reading as one flowing document.
 		ui.message(_("Flow on"))
 

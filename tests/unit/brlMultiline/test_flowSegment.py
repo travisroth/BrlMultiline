@@ -22,6 +22,7 @@ from ._stubs import (
 installStubs()
 
 from brlMultiline.container import DisplayContainer  # noqa: E402
+from brlMultiline.devices import DeviceInfo  # noqa: E402
 from brlMultiline.flowControl import FlowController  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
 from brlMultiline.flowSegment import FlowBufferSegment  # noqa: E402
@@ -326,10 +327,24 @@ class FakePlugin:
 class TestChoosingTheBand(unittest.TestCase):
 	"""A flow band must lie inside one physical display's live cells."""
 
+	MONARCH = DeviceInfo(driverName="monarch", rowStart=0, numRows=8, numCols=32)
+	FOCUS80 = DeviceInfo(driverName="focus", rowStart=8, numRows=1, numCols=80)
+
 	def setUp(self):
+		import braille
+
 		from brlMultiline.flowBand import FlowBand
 
+		from ._stubs import CONFIG, resetConfig
+
+		resetConfig()
+		self.addCleanup(resetConfig)
 		self.handler = FakeHandler(9, 80)
+		# The band reads which display and how many rows it was given from the settings of
+		# the display it is on, so there has to be one.
+		self.addCleanup(setattr, braille, "handler", braille.handler)
+		braille.handler = self.handler
+		self.config = CONFIG
 		self.container = containerWithBand(self.handler, numRows=9, numCols=80)
 		self.handler.mainBuffer = self.handler.buffer = self.container
 		self.band = FlowBand(FakePlugin(self.container))
@@ -392,15 +407,49 @@ class TestChoosingTheBand(unittest.TestCase):
 		with self.assertRaises(ValueError):
 			validateAgainstHardware(view, devices, 80)
 
+	def test_theBandCanBeGivenSomeOfTheRows(self):
+		"""The rows below it keep whatever the segment layout puts there."""
+		self.config["flowRows"] = 4
+		rect = self.band.bandRect(devices=[self.MONARCH, self.FOCUS80])
+		self.assertEqual((rect.row, rect.col, rect.numRows, rect.numCols), (0, 0, 4, 32))
+
+	def test_askingForMoreRowsThanTheDisplayHasTakesThemAll(self):
+		"""A setting outliving the hardware it was typed for is ordinary, not an error."""
+		self.config["flowRows"] = 20
+		rect = self.band.bandRect(devices=[self.MONARCH, self.FOCUS80])
+		self.assertEqual(rect.numRows, 8)
+
+	def test_theReaderMayNameTheDisplayItAppearsOn(self):
+		self.config["flowDisplay"] = "focus"
+		rect = self.band.bandRect(devices=[self.MONARCH, self.FOCUS80])
+		self.assertEqual((rect.row, rect.numRows, rect.numCols), (8, 1, 80))
+
+	def test_aNamedDisplayThatIsNotThereFallsBackToTheTallest(self):
+		"""A reader whose second display is switched off still wants their flow."""
+		self.config["flowDisplay"] = "brailliant"
+		rect = self.band.bandRect(devices=[self.MONARCH, self.FOCUS80])
+		self.assertEqual((rect.row, rect.numRows, rect.numCols), (0, 8, 32))
+
 
 class TestFollowingTheFocus(unittest.TestCase):
 	"""A flow shows the document the focus is in, and follows it to the next one."""
 
 	def setUp(self):
 		import api
+		import braille
 		from brlMultiline.flowBand import FlowBand
 
+		from ._stubs import CONFIG, resetConfig
+
+		resetConfig()
+		self.addCleanup(resetConfig)
+		# Whether browse mode is read as a flow is a setting, and its default is off, so a
+		# reader turns it on. These tests are about what happens once they have.
+		CONFIG["flowEnabled"] = True
 		self.handler = FakeHandler(ROWS, COLS)
+		# The band reads its settings against the display it is on, so there has to be one.
+		self.addCleanup(setattr, braille, "handler", braille.handler)
+		braille.handler = self.handler
 		self.container = containerWithBand(self.handler)
 		self.handler.mainBuffer = self.handler.buffer = self.container
 		self.segment = self.container.segmentForKey("flow")
@@ -489,6 +538,16 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self._focusOn(field)
 		self.assertTrue(self.segment.acceptFocusRegions(self._focusRegionsFor(field)))
 		self.assertTrue(self.segment.isFlowing)
+
+	def test_browseModeDoesNotFlowWhenTheReaderHasTurnedItOff(self):
+		# The setting is asked before anything else: a reader who wants NVDA's own reading
+		# of a web page gets it, and the band presents the focus as any segment would.
+		from ._stubs import CONFIG
+
+		CONFIG["flowBrowseMode"] = False
+		page, _ = self._document(documentLines())
+		self.assertFalse(self._start(page))
+		self.assertFalse(self.segment.isFlowing)
 
 	def test_focusOnSomethingWithNoTextIsGivenBackToNVDA(self):
 		# A button in a dialog has no lines to flow. The band becomes an ordinary segment

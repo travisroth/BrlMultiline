@@ -29,6 +29,12 @@ Added:
 - Optionally filling the segments around the focus segment with the document lines above
   and below the caret.
 
+- Reading a document as a flow, on a band of the display: a heading followed by what comes
+  after it, a paragraph running on across the rows, panning that moves a whole display's
+  worth and is reversible, and a cursor move within what is shown moving nothing. Browse
+  mode only so far. Off until it is turned on, per display and per configuration profile,
+  so it can be on in one browser and off in another. Experimental.
+
 For add-on authors and component work:
 
 - Panels. Code can claim part of the display, subdivide it as it likes, and hand it back,

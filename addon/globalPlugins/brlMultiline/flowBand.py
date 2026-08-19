@@ -30,12 +30,12 @@ from typing import TYPE_CHECKING, Any, Optional
 import api
 from logHandler import log
 
-from . import flowQuickNav
+from . import bmConfig, flowQuickNav
 from .flowControl import FlowController
 from .flowDryRun import bandSize, buildController
-from .devices import DeviceInfo, deviceMap
+from .devices import DeviceInfo, deviceMap, preferredDevice
 from .flowSegment import FlowBufferSegment
-from .layout import SegmentRect, deviceBandRects, wholeDisplayRect
+from .layout import SegmentRect, wholeDisplayRect
 from .objectMonitor import resolveTarget
 from .panels import FlowPanel, PanelOwner
 
@@ -88,10 +88,20 @@ class FlowBand(PanelOwner):
 	# The claim.
 
 	def start(self) -> bool:
-		"""Claim the band and show a flow in it.
+		"""Claim the band, and show a flow in it if there is one to show.
 
-		:return: whether a flow is now showing. `lastError` says why not, and tells a band
-			that could not be claimed apart from one that had nothing to read.
+		The claim is kept for as long as the reader wants a flow, whether or not there is
+		anything to read as one at this moment. A band with nothing to flow presents the
+		focus exactly as an undivided display would, and lights up by itself when the
+		reader reaches a document — which is the difference between a feature and a command
+		that has to be pressed again after every dialog.
+
+		Which is not to say the claim is free: it takes rows the segment layout would
+		otherwise fill. That is what the setting decides, and what a configuration profile
+		makes conditional on the application in front.
+
+		:return: whether the band is claimed. `lastError` says what went wrong, and tells a
+			band that could not be claimed apart from one that has nothing to read yet.
 		"""
 		self.lastError = None
 		try:
@@ -102,33 +112,39 @@ class FlowBand(PanelOwner):
 			self.lastError = str(error)
 			return False
 		self._follow()
-		# Browse mode is patched only while a flow is showing: a reader without one has no
+		# Browse mode is patched only while a band is claimed: a reader without one has no
 		# use for it, and it is taken back in `stop`.
 		flowQuickNav.install()
-		if self.refresh(force=True):
-			return True
-		self.lastError = self.lastError or "nothing here reads as a flow"
-		return False
+		if not self.refresh(force=True):
+			self.lastError = "nothing here reads as a flow"
+		return True
 
 	def bandRect(self, devices: "Optional[list[DeviceInfo]]" = None) -> SegmentRect:
 		"""Choose the rectangle to claim.
 
 		A flow band must lie inside one physical display's live cells. On an ordinary
-		display that is the whole thing. On a composite it is one member's band, and the
-		one chosen is the tallest, because rows are what a flow has to spend: a Monarch's
-		eight rows of thirty-two are worth more to it than a Focus 80's single row of
-		eighty, and a claim across both would reach the dead columns beside the Monarch.
+		display that is the whole thing. On a composite it is one member's band — the one
+		the reader named, or else the tallest, since rows are what a flow has to spend —
+		because a claim across both would reach the dead columns beside the narrower one.
+
+		The band is as many rows of that display as the reader asked for, counted from its
+		top, so that the rows below it keep whatever the segment layout puts there. Asking
+		for none, which is the default, means all of them. A count larger than the display
+		has is trimmed rather than refused: a setting outliving the hardware it was typed
+		for is ordinary, and a reader who plugs in a smaller display wants their flow, not
+		an error.
 
 		:param devices: the physical displays, read from the driver when not given.
 		:return: the rectangle to claim.
 		"""
 		numRows, numCols = self._displaySize()
 		devices = deviceMap() if devices is None else devices
-		if not devices:
-			return wholeDisplayRect(numRows, numCols)
-		bands = deviceBandRects([device.band for device in devices], numCols)
-		best = max(bands, key=lambda band: (band.live.numRows, band.live.displaySize))
-		return best.live
+		device = preferredDevice(bmConfig.getFlowDisplay(), devices)
+		whole = device.liveRect if device is not None else wholeDisplayRect(numRows, numCols)
+		rows = bmConfig.getFlowRows()
+		if rows and rows < whole.numRows:
+			return SegmentRect(row=whole.row, col=whole.col, numRows=rows, numCols=whole.numCols)
+		return whole
 
 	def _follow(self) -> None:
 		"""Make the band bring its focus changes here, rather than answering them itself."""
@@ -150,6 +166,11 @@ class FlowBand(PanelOwner):
 	def isShowing(self) -> bool:
 		""":return: whether a flow is on the display."""
 		return self.controller is not None
+
+	@property
+	def isClaimed(self) -> bool:
+		""":return: whether the band is on the display, flowing or not."""
+		return self.segment() is not None
 
 	# Keeping it fed.
 
@@ -248,10 +269,16 @@ class FlowBand(PanelOwner):
 		a tree interceptor, or the tree interceptor itself, since that is what NVDA puts on
 		the regions it builds for a browse mode document.
 
+		Whether browse mode is one of the kinds of content this reader wants flowed is a
+		setting, and is asked first: a reader who has turned it off gets NVDA's own
+		presentation of a web page while whatever else they turned on still flows.
+
 		:param obj: what the reader is on.
 		:return: whether to read it as a flow.
 		"""
 		if obj is None:
+			return False
+		if not bmConfig.isFlowEnabledFor("browseMode"):
 			return False
 		try:
 			if getattr(obj, "treeInterceptor", None) is not None:

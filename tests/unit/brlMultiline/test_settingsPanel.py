@@ -25,6 +25,7 @@ from brlMultiline import bmConfig  # noqa: E402
 from brlMultiline.devices import DeviceInfo  # noqa: E402
 from brlMultiline.settingsPanel import (  # noqa: E402
 	BrailleMultilineSettingsPanel,
+	FlowSettingsPanel,
 	VirtualDisplaySettingsPanel,
 	parseSegmentSizes,
 )
@@ -79,6 +80,11 @@ def defaults():
 		"messageSegment": -1,
 		"reverseScrollBtns": False,
 		"showDocumentLines": False,
+		"flowEnabled": False,
+		"flowBrowseMode": True,
+		"flowRows": 0,
+		"flowDisplay": "",
+		"flowGroundOnQuickNav": True,
 	}
 
 
@@ -449,3 +455,130 @@ class TestExplicitPorts(SettingsPanelTestCase):
 		self.panel._onRemove(None)
 		self.panel.onSave()
 		self.assertEqual([spec.driverName for spec in vdConfig.getDevices()], ["freedomScientific"])
+
+
+class FlowPanelTestCase(SettingsPanelTestCase):
+	"""Builds the flow panel without wx, as the segment panel tests build theirs."""
+
+	devices: list[DeviceInfo] = []
+	numRows = 8
+	numCols = 32
+	displayKey = MONARCH_KEY
+
+	def setUp(self):
+		super().setUp()
+		import braille
+
+		from ._stubs import FakeHandler
+
+		self.addCleanup(setattr, braille, "handler", braille.handler)
+		braille.handler = FakeHandler(self.numRows, self.numCols)
+		self.panel = object.__new__(FlowSettingsPanel)
+		self.panel.displayKey = self.displayKey
+		self.panel.devices = self.devices
+		self.panel.targets = self.panel._bandTargets()
+		self.panel.enabledCtrl = FakeControl(False)
+		self.panel.modeCtrls = {mode: FakeControl(True) for mode in bmConfig.FLOW_MODES}
+		self.panel.bandDisplayCtrl = FakeControl(0) if len(self.panel.targets) > 1 else None
+		self.panel.rowsCtrl = FakeControl(0)
+		self.panel.rowsHintCtrl = FakeControl()
+		self.panel.groundCtrl = FakeControl(True)
+
+	def section(self, displayKey=None):
+		return self.sections.setdefault(displayKey, defaults())
+
+
+class TestFlowOnOneDisplay(FlowPanelTestCase):
+	def test_thereIsNothingToChoose(self):
+		"""One display, so the band goes on it and the chooser is left out of the dialog."""
+		self.assertEqual(len(self.panel.targets), 1)
+		self.assertIsNone(self.panel.bandDisplayCtrl)
+
+	def test_turningItOnIsSaved(self):
+		self.panel.enabledCtrl.SetValue(True)
+		self.panel.rowsCtrl.SetValue(4)
+		self.panel.onSave()
+		self.assertTrue(self.sections[MONARCH_KEY]["flowEnabled"])
+		self.assertEqual(self.sections[MONARCH_KEY]["flowRows"], 4)
+
+	def test_eachKindOfContentIsSavedSeparately(self):
+		self.panel.enabledCtrl.SetValue(True)
+		self.panel.modeCtrls["browseMode"].SetValue(False)
+		self.panel.onSave()
+		self.assertTrue(self.sections[MONARCH_KEY]["flowEnabled"])
+		self.assertFalse(self.sections[MONARCH_KEY]["flowBrowseMode"])
+
+	def test_groundingIsSaved(self):
+		self.panel.groundCtrl.SetValue(False)
+		self.panel.onSave()
+		self.assertFalse(self.sections[MONARCH_KEY]["flowGroundOnQuickNav"])
+
+	def test_moreRowsThanTheDisplayHasIsRefused(self):
+		self.panel.enabledCtrl.SetValue(True)
+		self.panel.rowsCtrl.SetValue(9)
+		self.assertFalse(self.panel.isValid())
+		self.assertTrue(self.panel.rowsCtrl.focused)
+
+	def test_allOfTheRowsIsWhatZeroMeans(self):
+		self.panel.enabledCtrl.SetValue(True)
+		self.panel.rowsCtrl.SetValue(0)
+		self.assertTrue(self.panel.isValid())
+
+	def test_aBandThatNoLongerFitsIsAllowedWhenTheFlowIsOff(self):
+		"""Turning the flow off is what a reader reaches for when the display got smaller."""
+		self.panel.rowsCtrl.SetValue(20)
+		self.assertTrue(self.panel.isValid())
+
+	def test_theHintSaysHowManyRowsThereAre(self):
+		self.panel._updateRowsHint()
+		self.assertIn("8", self.panel.rowsHintCtrl.label)
+
+
+class TestFlowOnACompositeDisplay(FlowPanelTestCase):
+	devices = [MONARCH, FOCUS]
+	numRows = 9
+	numCols = 80
+	displayKey = COMPOSITE_KEY
+
+	def test_thereIsAnAutomaticChoiceAndOnePerDisplay(self):
+		self.assertEqual(
+			[target.driverName for target in self.panel.targets],
+			["", MONARCH.driverName, FOCUS.driverName],
+		)
+
+	def test_theAutomaticChoiceIsTheTallest(self):
+		"""Rows are what a flow spends, so eight rows of thirty-two beat one of eighty."""
+		self.assertEqual(self.panel.targets[0].numRows, 8)
+		self.assertIn(MONARCH.driverName, self.panel.targets[0].label)
+
+	def test_namingADisplayIsSaved(self):
+		self.panel.enabledCtrl.SetValue(True)
+		self.panel.bandDisplayCtrl.SetSelection(2)
+		self.panel.onSave()
+		self.assertEqual(self.sections[COMPOSITE_KEY]["flowDisplay"], FOCUS.driverName)
+
+	def test_theStoredDisplayIsTheOneShown(self):
+		self.assertEqual(self.panel._targetIndex(FOCUS.driverName), 2)
+
+	def test_aStoredDisplayThatIsNotHereShowsAsAutomatic(self):
+		"""Which is what the band will do until that display comes back."""
+		self.assertEqual(self.panel._targetIndex("brailliant"), 0)
+
+	def test_theRowsAreBoundedByTheChosenDisplayNotTheWholeThing(self):
+		# The composite is nine rows tall, but a band may not straddle two displays: chosen
+		# on the Focus 80 it has one row to spend, not nine.
+		self.panel.enabledCtrl.SetValue(True)
+		self.panel.bandDisplayCtrl.SetSelection(2)
+		self.panel.rowsCtrl.SetValue(4)
+		self.assertFalse(self.panel.isValid())
+
+	def test_theSameRowsFitOnTheTallerDisplay(self):
+		self.panel.enabledCtrl.SetValue(True)
+		self.panel.bandDisplayCtrl.SetSelection(1)
+		self.panel.rowsCtrl.SetValue(4)
+		self.assertTrue(self.panel.isValid())
+
+	def test_theHintFollowsTheChosenDisplay(self):
+		self.panel.bandDisplayCtrl.SetSelection(2)
+		self.panel._onBandDisplayChanged(None)
+		self.assertIn("one row", self.panel.rowsHintCtrl.label)

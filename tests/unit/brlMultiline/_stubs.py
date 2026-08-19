@@ -125,9 +125,19 @@ CONFIG = DisplaySection(
 		"focusSegment": -1,
 		"reverseScrollBtns": False,
 		"showDocumentLines": False,
+		"flowEnabled": False,
+		"flowBrowseMode": True,
+		"flowRows": 0,
+		"flowDisplay": "",
+		"flowGroundOnQuickNav": True,
 	},
 )
-"""The stub configuration the fake `bmConfig` reads. Tests mutate this directly."""
+"""The stub configuration the fake `bmConfig` reads. Tests mutate this directly.
+
+The flow settings are here at their real defaults, off, so that a test wanting a flow turns
+it on as a reader would. That is not ceremony: whether the band is claimed at all is now a
+setting, and a stub that quietly had it on could not show a test that it is being read.
+"""
 
 BAND_CONFIG: dict[str, "DisplaySection"] = {}
 """Settings belonging to one named display, for tests that need them to differ.
@@ -153,6 +163,11 @@ def setBandConfig(displayKey: str, **values) -> None:
 			"focusSegment": -1,
 			"reverseScrollBtns": False,
 			"showDocumentLines": False,
+			"flowEnabled": False,
+			"flowBrowseMode": True,
+			"flowRows": 0,
+			"flowDisplay": "",
+			"flowGroundOnQuickNav": True,
 		},
 	)
 	section.update(values)
@@ -1419,6 +1434,11 @@ def resetConfig() -> None:
 		focusSegment=-1,
 		reverseScrollBtns=False,
 		showDocumentLines=False,
+		flowEnabled=False,
+		flowBrowseMode=True,
+		flowRows=0,
+		flowDisplay="",
+		flowGroundOnQuickNav=True,
 	)
 	BAND_CONFIG.clear()
 	# Both are filled in by the real `getDisplayConfig` as displays are met, so a test that

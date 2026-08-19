@@ -5,16 +5,24 @@
 
 """NVDA settings categories for BrlMultiline.
 
-Two of them, because they are answers to different questions.
+Three of them, because they are answers to different questions.
 
 L{BrailleMultilineSettingsPanel} arranges the display that is connected now, and stores
 against it. When that display is several physical displays combined, division is asked of
 each of them separately, since a segment may not straddle two pieces of hardware — so the
 panel gains a chooser, and everything under it applies to the chosen display.
 
+L{FlowSettingsPanel} turns spatial reading on, and says which kinds of content it applies
+to. That is a question about how content is presented rather than about how the display is
+divided, and the reader's answer to it changes from one application to the next, so it has
+a category of its own where a configuration profile is the obvious thing to reach for.
+
 L{VirtualDisplaySettingsPanel} chooses which physical displays are combined, and in what
 order. That is a standing arrangement rather than a property of what is connected, so it is
 stored on its own and is editable whether or not the combined display is in use.
+
+All three write through `config.conf`, so every setting here belongs to the configuration
+profile being edited. NVDA says which that is in the dialog's own title.
 """
 
 from typing import NamedTuple
@@ -58,6 +66,26 @@ def parseSegmentSizes(text: str) -> list[int]:
 			)
 		sizes.append(size)
 	return sizes
+
+
+def reportSettingsError(panel, message: str, control) -> None:
+	"""Tell the reader why a setting was refused, and put them on the control it was about.
+
+	The focus move is the point: a message box saying what is wrong, followed by the reader
+	having to find the field again, is a message box that has only half worked.
+
+	:param panel: the settings category the error is about, which owns the dialog.
+	:param message: what is wrong, as the reader should hear it.
+	:param control: the control to put the focus on.
+	"""
+	gui.messageBox(
+		message,
+		# Translators: title of an error dialog shown when settings cannot be applied.
+		_("BrlMultiline settings"),
+		wx.OK | wx.ICON_ERROR,
+		panel,
+	)
+	control.SetFocus()
 
 
 def displayDescriptions() -> dict[str, str]:
@@ -400,14 +428,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		return _("{display}: {problem}").format(display=target.description, problem=message)
 
 	def _reportError(self, message: str, control: wx.Window) -> None:
-		gui.messageBox(
-			message,
-			# Translators: title of an error dialog shown when settings cannot be applied.
-			_("BrlMultiline settings"),
-			wx.OK | wx.ICON_ERROR,
-			self,
-		)
-		control.SetFocus()
+		reportSettingsError(self, message, control)
 
 	def onSave(self):
 		self._stashTarget()
@@ -435,6 +456,224 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 
 	def postSave(self):
 		# Rebuild the display with the new layout straight away.
+		from . import getPlugin
+
+		plugin = getPlugin()
+		if plugin is not None:
+			plugin.rebuildBuffer()
+
+
+FLOW_MODE_LABELS = {
+	# Translators: label of a checkbox in the flow settings, naming the kind of content the
+	# flow is used for. Browse mode is what NVDA calls its reading of a web page.
+	"browseMode": _("&Browse mode: web pages, and documents NVDA reads like one"),
+}
+"""What to call each kind of content in the dialog, keyed as `bmConfig.FLOW_MODES` names them.
+
+A kind with no label here is shown by its name, so that adding one to `FLOW_MODES` cannot
+leave a checkbox the reader cannot see.
+"""
+
+
+class _BandTarget(NamedTuple):
+	"""One place the flow band can be put."""
+
+	driverName: str
+	"""The display's driver, or empty for "whichever is tallest"."""
+
+	label: str
+	"""What to call it in the chooser."""
+
+	numRows: int
+	"""How many rows it has, which is the most the band can use."""
+
+
+class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
+	"""Turning spatial reading on, and saying what it applies to."""
+
+	# Translators: title of the settings category for BrlMultiline's flowing reading.
+	title = _("BrlMultiline flow")
+
+	panelDescription = _(
+		# Translators: description of the flow settings category, announced with it and shown
+		# at the top of it.
+		"Read a band of the display as one flowing document, so that a heading is followed by "
+		"what comes after it and a paragraph runs on across the rows, rather than one line "
+		"being shown at a time. "
+		"These settings belong to the configuration profile being edited, so a profile for one "
+		"application can read as a flow while the normal configuration goes on as before.",
+	)
+	"""What NVDA announces about this category, and the paragraph at the top of it.
+
+	One string serving both, as `VirtualDisplaySettingsPanel` does: the arrangement NVDA
+	uses for a category that needs explaining.
+	"""
+
+	def makeSettings(self, settingsSizer):
+		sHelper = guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
+		self.displayKey = bmConfig.getDisplayKey()
+		section = bmConfig.getDisplayConfig(self.displayKey)
+		self.devices = devices.deviceMap()
+		self.targets = self._bandTargets()
+		sHelper.addItem(wx.StaticText(self, label=self.panelDescription))
+		# Translators: label of a checkbox in settings, turning the flowing reading on.
+		enabledLabel = _("&Read this display as a flowing document")
+		self.enabledCtrl = sHelper.addItem(wx.CheckBox(self, label=enabledLabel))
+		self.enabledCtrl.SetValue(bool(section["flowEnabled"]))
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				# Translators: shown in settings above the list of kinds of content that flow.
+				label=_("Use it for:"),
+			),
+		)
+		self.modeCtrls = {}
+		for mode in bmConfig.FLOW_MODES:
+			control = sHelper.addItem(wx.CheckBox(self, label=FLOW_MODE_LABELS.get(mode, mode)))
+			control.SetValue(bool(section[bmConfig.flowModeKey(mode)]))
+			self.modeCtrls[mode] = control
+		if len(self.targets) > 1:
+			# Translators: label of a combo box in settings, choosing which of several combined
+			# displays the flow appears on.
+			displayLabel = _("&Display the flow appears on:")
+			self.bandDisplayCtrl = sHelper.addLabeledControl(
+				displayLabel,
+				wx.Choice,
+				choices=[target.label for target in self.targets],
+			)
+			self.bandDisplayCtrl.SetSelection(self._targetIndex(str(section["flowDisplay"] or "")))
+			self.bandDisplayCtrl.Bind(wx.EVT_CHOICE, self._onBandDisplayChanged)
+		else:
+			self.bandDisplayCtrl = None
+		# Translators: label of a spin control in settings, saying how tall the flow band is.
+		rowsLabel = _("Ro&ws it uses, counted from the top (0 for all of them):")
+		self.rowsCtrl = sHelper.addLabeledControl(
+			rowsLabel,
+			wx.SpinCtrl,
+			min=0,
+			max=bmConfig.MAX_FLOW_ROWS,
+			initial=int(section["flowRows"]),
+		)
+		self.rowsHintCtrl = sHelper.addItem(wx.StaticText(self, label=""))
+		# Translators: label of a checkbox in settings. Quick navigation keys are the single
+		# letters that move to the next heading, table or landmark in browse mode.
+		groundLabel = _("Start reading afresh from what a &quick navigation key found")
+		self.groundCtrl = sHelper.addItem(wx.CheckBox(self, label=groundLabel))
+		self.groundCtrl.SetValue(bool(section["flowGroundOnQuickNav"]))
+		self._updateRowsHint()
+
+	# Where the band goes.
+
+	def _bandTargets(self) -> list[_BandTarget]:
+		""":return: the places the band can be put, the automatic choice first.
+
+		A band must lie inside one physical display's live cells, so on a display made of
+		several there is a choice to make and the reader may want it made for them. On an
+		ordinary display there is nothing to choose and the list holds the one answer, which
+		is what leaves the chooser out of the dialog.
+		"""
+		import braille
+
+		dimensions = braille.handler.displayDimensions
+		if not self.devices:
+			return [_BandTarget(driverName="", label=self.displayKey, numRows=dimensions.numRows)]
+		names = displayDescriptions()
+		tallest = devices.preferredDevice("", self.devices)
+		targets = [
+			_BandTarget(
+				driverName="",
+				# Translators: the automatic entry in the settings chooser of which combined
+				# display the flow appears on. The placeholder is the display chosen for it.
+				label=_("Whichever has the most rows (now {display})").format(
+					display=names.get(tallest.driverName, tallest.driverName),
+				),
+				numRows=tallest.numRows,
+			),
+		]
+		for device in self.devices:
+			targets.append(
+				_BandTarget(
+					driverName=device.driverName,
+					# Translators: an entry in the settings chooser of which combined display the
+					# flow appears on. Placeholders are its name and how many rows it has.
+					label=_("{display}, {rows} rows").format(
+						display=names.get(device.driverName, device.driverName),
+						rows=device.numRows,
+					),
+					numRows=device.numRows,
+				),
+			)
+		return targets
+
+	def _targetIndex(self, driverName: str) -> int:
+		""":return: which entry of the chooser a stored driver name means, 0 for automatic."""
+		for index, target in enumerate(self.targets):
+			if target.driverName == driverName:
+				return index
+		# Configured for a display that is not among these. Automatic is the honest answer:
+		# it is what the band will actually do until that display comes back.
+		return 0
+
+	def _chosenTarget(self) -> _BandTarget:
+		""":return: the display the band would be put on now."""
+		if self.bandDisplayCtrl is None:
+			return self.targets[0]
+		index = self.bandDisplayCtrl.GetSelection()
+		return self.targets[index] if 0 <= index < len(self.targets) else self.targets[0]
+
+	def _onBandDisplayChanged(self, event) -> None:
+		self._updateRowsHint()
+
+	def _updateRowsHint(self) -> None:
+		"""Say how many rows the chosen display has, since that is what bounds the band."""
+		target = self._chosenTarget()
+		if target.numRows > 1:
+			# Translators: shown in settings under the number of rows the flow uses. The
+			# placeholder is how many rows the display it appears on has.
+			hint = _("That display has {rows} rows.").format(rows=target.numRows)
+		else:
+			hint = _(
+				# Translators: shown in settings when the display the flow would appear on has
+				# only one row, where a flow can show no more than an ordinary segment.
+				"That display has one row, so a flow shows no more of the document than a single line does.",
+			)
+		self.rowsHintCtrl.SetLabel(hint)
+
+	# Saving.
+
+	def isValid(self) -> bool:
+		if not self.enabledCtrl.IsChecked():
+			# Not going to be used, so a band that does not fit is not a reason to refuse the
+			# save. It matters when a display has been replaced by a smaller one: turning the
+			# flow off is what the reader would reach for, and holding them to a band that no
+			# longer fits would stop them doing it.
+			return True
+		target = self._chosenTarget()
+		if self.rowsCtrl.Value > target.numRows:
+			reportSettingsError(
+				self,
+				_(
+					# Translators: reported when the flow is asked for more rows than the display
+					# it appears on has. Placeholders are the number asked for and the number of
+					# rows that display has.
+					"The flow cannot use {chosen} rows; that display has {rows}. Use 0 for all of them.",
+				).format(chosen=self.rowsCtrl.Value, rows=target.numRows),
+				self.rowsCtrl,
+			)
+			return False
+		return True
+
+	def onSave(self):
+		section = bmConfig.getDisplayConfig(self.displayKey)
+		section["flowEnabled"] = self.enabledCtrl.IsChecked()
+		for mode, control in self.modeCtrls.items():
+			section[bmConfig.flowModeKey(mode)] = control.IsChecked()
+		section["flowDisplay"] = self._chosenTarget().driverName
+		section["flowRows"] = self.rowsCtrl.Value
+		section["flowGroundOnQuickNav"] = self.groundCtrl.IsChecked()
+
+	def postSave(self):
+		# Claim or give back the band straight away, rather than at the next display event.
 		from . import getPlugin
 
 		plugin = getPlugin()

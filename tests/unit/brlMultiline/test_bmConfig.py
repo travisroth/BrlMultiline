@@ -223,5 +223,80 @@ class TestCarryingOverReversedPanning(ConfigTestCase):
 		self.assertTrue(self.reversed(FOCUS))
 
 
+class TestFlowSettings(ConfigTestCase):
+	"""Turning spatial reading on, per display and per kind of content.
+
+	Every one of these goes through `getDisplayConfig`, and so through `config.conf`, which
+	is what makes them differ per configuration profile. That is the point of storing them
+	this way rather than on the band: a profile triggered by one browser can read as a flow
+	while the normal configuration goes on as before.
+	"""
+
+	def test_offUntilItIsAskedFor(self):
+		"""Installing the add-on must not change how anything reads."""
+		del CONFIG["flowEnabled"]
+		self.assertFalse(bmConfig.isFlowEnabled(FOCUS))
+		self.assertFalse(bmConfig.shouldClaimFlowBand(FOCUS))
+
+	def test_turningItOnIsStoredAgainstTheDisplay(self):
+		bmConfig.setFlowEnabled(True, FOCUS)
+		self.assertTrue(bmConfig.getDisplayConfig(FOCUS)["flowEnabled"])
+		self.assertTrue(bmConfig.isFlowEnabled(FOCUS))
+
+	def test_browseModeFlowsOnceTheDisplayDoes(self):
+		"""What the toggle command has always meant, now with somewhere to remember it."""
+		bmConfig.setFlowEnabled(True, FOCUS)
+		self.assertTrue(bmConfig.isFlowEnabledFor("browseMode", FOCUS))
+		self.assertTrue(bmConfig.shouldClaimFlowBand(FOCUS))
+
+	def test_aKindOfContentDoesNotFlowWhileTheDisplayIsOff(self):
+		"""One switch turns the whole thing off without visiting each kind of content."""
+		CONFIG["flowBrowseMode"] = True
+		self.assertFalse(bmConfig.isFlowEnabledFor("browseMode", FOCUS))
+
+	def test_noBandIsClaimedWhenNothingIsSetToFlow(self):
+		"""A band with nothing to show would take rows the layout wanted and never fill them."""
+		bmConfig.setFlowEnabled(True, FOCUS)
+		CONFIG["flowBrowseMode"] = False
+		self.assertTrue(bmConfig.isFlowEnabled(FOCUS))
+		self.assertFalse(bmConfig.shouldClaimFlowBand(FOCUS))
+
+	def test_aKindOfContentNobodyHasHeardOfNeverFlows(self):
+		bmConfig.setFlowEnabled(True, FOCUS)
+		self.assertFalse(bmConfig.isFlowEnabledFor("interpretiveDance", FOCUS))
+
+	def test_eachDisplayAnswersForItself(self):
+		"""A Monarch can flow while a single line display does not: it has rows to spend."""
+		bmConfig.getDisplayConfig(MONARCH)["flowEnabled"] = True
+		bmConfig.getDisplayConfig(FOCUS)["flowEnabled"] = False
+		self.assertTrue(bmConfig.isFlowEnabledFor("browseMode", MONARCH))
+		self.assertFalse(bmConfig.isFlowEnabledFor("browseMode", FOCUS))
+
+	def test_everyReadGoesBackToTheConfiguration(self):
+		"""Nothing caches the answer, or a profile switch would not change it."""
+		bmConfig.setFlowEnabled(True, FOCUS)
+		self.assertTrue(bmConfig.isFlowEnabled(FOCUS))
+		bmConfig.setFlowEnabled(False, FOCUS)
+		self.assertFalse(bmConfig.isFlowEnabled(FOCUS))
+
+	def test_theBandTakesTheWholeDisplayUntilItIsToldOtherwise(self):
+		del CONFIG["flowRows"]
+		del CONFIG["flowDisplay"]
+		self.assertEqual(bmConfig.getFlowRows(FOCUS), 0)
+		self.assertEqual(bmConfig.getFlowDisplay(FOCUS), "")
+
+	def test_theBandCanBeGivenSomeOfTheRows(self):
+		CONFIG["flowRows"] = 5
+		CONFIG["flowDisplay"] = "hidBrailleStandard"
+		self.assertEqual(bmConfig.getFlowRows(MONARCH), 5)
+		self.assertEqual(bmConfig.getFlowDisplay(MONARCH), "hidBrailleStandard")
+
+	def test_groundingOnAJumpIsOnUntilItIsTurnedOff(self):
+		del CONFIG["flowGroundOnQuickNav"]
+		self.assertTrue(bmConfig.shouldGroundOnQuickNav(FOCUS))
+		CONFIG["flowGroundOnQuickNav"] = False
+		self.assertFalse(bmConfig.shouldGroundOnQuickNav(FOCUS))
+
+
 if __name__ == "__main__":
 	unittest.main()
