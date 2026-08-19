@@ -213,12 +213,13 @@ class TestFetching(unittest.TestCase):
 class TestLongBlocks(unittest.TestCase):
 	"""A block longer than one rendering is read in chunks, not cut off."""
 
-	def _paragraph(self, characters=400, numCols=8, numRows=4, chunkRows=8):
+	def _paragraph(self, characters=400, numCols=8, numRows=4, chunkRows=8, budget=None):
 		interceptor = FakeTreeInterceptor(["".join(chr(ord("a") + (n % 26)) for n in range(characters))])
 		source = DocumentFlowSource(
 			interceptor,
 			regionFactoryFor(CursorManagerRegion(interceptor), live=False),
 			generation=1,
+			budget=budget,
 		)
 		render = FlowRenderer(FakeHandler(), numCols=numCols, fillRows=True, maxRows=chunkRows)
 		control = FlowController(source, render, numRows=numRows)
@@ -262,6 +263,29 @@ class TestLongBlocks(unittest.TestCase):
 		control = self._paragraph(characters=20)
 		self.assertFalse(control.window.blocks[0].moreRows)
 
+	def test_describingANonzeroChunkUsesItsLocalRows(self):
+		control = self._paragraph()
+		for _ in range(3):
+			control.panForward()
+		self.assertGreater(control.window.blocks[0].rowOffset, 0)
+		lines = control.describeRows()
+		self.assertTrue(all("[8/8 cells]" in line for line in lines), lines)
+		self.assertTrue(all(": ''" not in line for line in lines), lines)
+		self.assertTrue(all(" of 8:" not in line for line in lines), lines)
+
+	def test_fillStatsCountRowsInANonzeroChunk(self):
+		control = self._paragraph()
+		for _ in range(3):
+			control.panForward()
+		self.assertEqual(control.fillStats(), (32, 32))
+
+	def test_continuingALongBlockSpendsTheOperationBudget(self):
+		budget = FetchBudget(maxBlocks=1, maxSeconds=10.0, clock=lambda: 0.0)
+		control = self._paragraph(budget=budget)
+		control.panForward()
+		self.assertTrue(control.panForward())
+		self.assertEqual(budget.blocks, 1)
+
 
 class TestBudgetCoversAnOperation(unittest.TestCase):
 	"""One budget for what the reader asked for, not one per call underneath it."""
@@ -293,6 +317,15 @@ class TestBudgetCoversAnOperation(unittest.TestCase):
 		# The clock only advances when something asks it the time, so a run that charged
 		# for reading alone would get further than one that charges for both.
 		self.assertLess(len(control.window.blocks), 8)
+
+	def test_panningCannotFetchPastTheSharedBudget(self):
+		budget = FetchBudget(maxBlocks=1, maxSeconds=10.0, clock=lambda: 0.0)
+		control = controllerOver([str(number) for number in range(20)], numRows=4, budget=budget)
+		before = len(control.window.blocks)
+		self.assertFalse(control.panForward())
+		self.assertLessEqual(len(control.window.blocks) - before, 1)
+		self.assertLessEqual(budget.blocks, 1)
+		self.assertIs(control.window.edges[Edge.AFTER], EdgeState.DEFERRED)
 
 
 class TestCursor(unittest.TestCase):

@@ -181,7 +181,19 @@ class FlowBand(PanelOwner):
 			fresh claim or a rebuilt display needs.
 		:return: whether a flow is showing afterwards.
 		"""
-		return self.showObject(self._target(), force=force)
+		obj = self._target()
+		if not self.isFlowable(obj):
+			# `refresh` follows a rebuild. NVDA has already drawn the current focus into the
+			# new segment, and clearing it here would leave a claimed but inactive band blank.
+			# Forget a controller from the previous container while preserving that freshly
+			# drawn fallback. A real focus change goes through `handleFocusRegions` instead;
+			# returning False there lets NVDA place the regions it has just built.
+			if self.controller is not None:
+				self.controller.onChanged = None
+			self.controller = None
+			self.obj = None
+			return False
+		return self.showObject(obj, force=force)
 
 	def handleFocusRegions(self, regions) -> bool:
 		"""Answer a focus change, using the object NVDA built its regions for.
@@ -333,10 +345,9 @@ class FlowBand(PanelOwner):
 
 	def onRebuilt(self, keys: frozenset[str] = frozenset()) -> None:
 		"""The display was rebuilt, so the band came back empty and wants drawing again."""
-		if self.controller is None:
-			return
 		# A rebuild builds new segments, so the new one has to be told where its focus
-		# changes go before anything else happens to it.
+		# changes go whether or not anything is flowing now. Otherwise a band rebuilt while
+		# focus is outside browse mode never hears that the reader came back to a document.
 		self._follow()
 		self.refresh(force=True)
 

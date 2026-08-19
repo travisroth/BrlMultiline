@@ -22,10 +22,12 @@ which is a step within one and reads like arrowing. The difference is not someth
 code can infer, so it is stated: structural jumps ground, everything else keeps the
 reader's window.
 
-NVDA gives this a single seam. Every quick navigation script — there are around forty of
-them, generated at import time — calls `BrowseModeTreeInterceptor._quickNavScript`, so
-that one method is the only thing to patch, and it carries the item type as an argument.
-Patched only while a flow is showing, and taken back when it stops.
+NVDA gives this two useful seams. Every quick navigation script — there are around forty
+of them, generated at import time — calls `BrowseModeTreeInterceptor._quickNavScript`,
+which carries the item type. A search that actually found something then calls
+`TextInfoQuickNavItem.moveTo`; hearing both is what keeps an unsuccessful search from
+grounding the next ordinary caret move. Patched only while a flow is showing, and taken
+back when it stops.
 """
 
 import time
@@ -67,6 +69,16 @@ ground the next one — a stale note would jump the display on an ordinary arrow
 
 _original = None
 """NVDA's own `_quickNavScript`, while this module's replacement is in place."""
+
+_originalMoveTo = None
+"""NVDA's own `TextInfoQuickNavItem.moveTo`, while the listener is in place."""
+
+_quickNavWrapper = None
+_moveToWrapper = None
+"""The exact functions installed here, so teardown never removes somebody else's patch."""
+
+_activeItemType: str | None = None
+"""The item type being searched for during the synchronous quick-navigation call."""
 
 _pending: tuple[str, float] | None = None
 """The last grounding move: its item type and when it happened, until it is taken."""
@@ -127,22 +139,49 @@ def install() -> None:
 	Installed when a flow starts rather than when the add-on loads: this patches browse
 	mode itself, and a reader with no flow on the display has no use for it.
 	"""
-	global _original
+	global _activeItemType, _moveToWrapper, _original, _originalMoveTo, _quickNavWrapper
 	if _original is not None:
 		return
 	try:
-		from browseMode import BrowseModeTreeInterceptor
+		from browseMode import BrowseModeTreeInterceptor, TextInfoQuickNavItem
 	except ImportError:
 		log.debugWarning("Browse mode is not available, so quick navigation cannot be heard")
 		return
-	_original = BrowseModeTreeInterceptor._quickNavScript
+	original = BrowseModeTreeInterceptor._quickNavScript
+	originalMoveTo = TextInfoQuickNavItem.moveTo
+	_original = original
+	_originalMoveTo = originalMoveTo
 
 	def _quickNavScriptNotingType(self, gesture, itemType, direction, errorMessage, readUnit):
-		note(itemType)
-		return _original(self, gesture, itemType, direction, errorMessage, readUnit)
+		global _activeItemType
+		# A failed search never reaches `TextInfoQuickNavItem.moveTo`. Clear an older note
+		# before starting, then let that successful seam put the new one back.
+		forget()
+		previous = _activeItemType
+		_activeItemType = itemType
+		try:
+			return original(self, gesture, itemType, direction, errorMessage, readUnit)
+		finally:
+			_activeItemType = previous
+
+	def _moveToNotingSuccess(self):
+		if _activeItemType is not None:
+			# Recorded immediately before the move because moving a focusable item may queue
+			# the focus event which consumes it. If the move itself fails, do not leave it for
+			# the next ordinary caret change.
+			note(_activeItemType)
+		try:
+			return originalMoveTo(self)
+		except Exception:
+			forget()
+			raise
 
 	_quickNavScriptNotingType.__name__ = "_quickNavScript"
+	_moveToNotingSuccess.__name__ = "moveTo"
+	_quickNavWrapper = _quickNavScriptNotingType
+	_moveToWrapper = _moveToNotingSuccess
 	BrowseModeTreeInterceptor._quickNavScript = _quickNavScriptNotingType
+	TextInfoQuickNavItem.moveTo = _moveToNotingSuccess
 
 
 def remove() -> None:
@@ -151,15 +190,21 @@ def remove() -> None:
 	Taken back only where the method is still the one installed here. Anything else belongs
 	to whoever put it there, and is still delegating to the original.
 	"""
-	global _original
+	global _activeItemType, _moveToWrapper, _original, _originalMoveTo, _quickNavWrapper
 	forget()
 	if _original is None:
 		return
 	try:
-		from browseMode import BrowseModeTreeInterceptor
+		from browseMode import BrowseModeTreeInterceptor, TextInfoQuickNavItem
 
-		if BrowseModeTreeInterceptor._quickNavScript.__module__ == __name__:
+		if BrowseModeTreeInterceptor._quickNavScript is _quickNavWrapper:
 			BrowseModeTreeInterceptor._quickNavScript = _original
+		if TextInfoQuickNavItem.moveTo is _moveToWrapper:
+			TextInfoQuickNavItem.moveTo = _originalMoveTo
 	except Exception:
 		log.debugWarning("Could not stop listening for quick navigation", exc_info=True)
 	_original = None
+	_originalMoveTo = None
+	_quickNavWrapper = None
+	_moveToWrapper = None
+	_activeItemType = None

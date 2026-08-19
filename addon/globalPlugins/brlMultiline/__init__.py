@@ -408,11 +408,28 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Claiming the band rebuilds the display, which arrives back here. One pass does it.
 			return
 		wanted = bmConfig.shouldClaimFlowBand()
-		if wanted == (self.flowBand is not None):
+		active = self.flowBand is not None
+		geometryChanged = False
+		if wanted and active:
+			# A panel claim carries the rectangle it was activated with. Re-composing that
+			# panel after a settings or profile change preserves the old rectangle, so an
+			# enabled flow has to be reclaimed when its configured rows or display changed.
+			segment = self.flowBand.segment()
+			try:
+				geometryChanged = segment is None or segment.rect != self.flowBand.bandRect()
+			except Exception:
+				# Treat an unreadable target as changed and let `startFlow` give the complete
+				# account of why the replacement could not be shown.
+				log.debugWarning("BrlMultiline: could not compare the flow band geometry", exc_info=True)
+				geometryChanged = True
+		if wanted == active and not geometryChanged:
 			return
 		self._applyingFlow = True
 		try:
-			if wanted:
+			if geometryChanged:
+				self.stopFlow()
+				self.startFlow()
+			elif wanted:
 				self.startFlow()
 			else:
 				self.stopFlow()

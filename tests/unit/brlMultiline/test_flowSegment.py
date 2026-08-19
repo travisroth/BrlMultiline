@@ -528,6 +528,17 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self.assertFalse(self.segment.acceptFocusRegions(self._focusRegionsFor(notepad)))
 		self.assertFalse(self.segment.isFlowing)
 
+	def test_aDirectRefreshOutsideADocumentPreservesNVDAsFocusContent(self):
+		"""Startup and rebuild have already drawn the fallback before the owner refreshes."""
+		button = self._focusOn(FakeNavigatorObject("a dialog button"))
+		fallback = self._focusRegionsFor(button)
+		self.segment.regions = fallback
+		self.segment.brailleCells = [1, 2, 3]
+		self.band._follow()
+		self.assertFalse(self.band.refresh(force=True))
+		self.assertEqual(self.segment.regions, fallback)
+		self.assertEqual(self.segment.brailleCells, [1, 2, 3])
+
 	def test_aFieldInsideAPageStillFlows(self):
 		# The reader entering a form field has not left the document; it is the same page,
 		# differently attended to.

@@ -20,10 +20,12 @@ from ._stubs import (
 	FakeCallLater,
 	FakeHandler,
 	FakeNavigatorObject,
+	FakeTreeInterceptor,
 	Region,
 	callAfterQueue,
 	displayChanged,
 	displaySizeChanged,
+	fakeGetFocusRegions,
 	fakeVirtualDisplay,
 	installStubs,
 	log,
@@ -581,11 +583,66 @@ class TestFlowSwitch(PluginTestCase):
 		self.plugin.rebuildBuffer()
 		self.assertIs(self.plugin.flowBand, first)
 
+	def test_anInactiveBandStillFollowsFocusAfterARebuild(self):
+		"""A new segment needs the owner's callback even when nothing was flowing yet."""
+		CONFIG["flowEnabled"] = True
+		self.plugin.rebuildBuffer()
+		band = self.plugin.flowBand
+		self.assertIsNone(band.controller)
+		self.plugin.rebuildBuffer()
+		segment = band.segment()
+		self.assertIsNotNone(segment.onFocusRegions)
+		page = FakeTreeInterceptor(["a page"])
+		self.assertTrue(segment.acceptFocusRegions(fakeGetFocusRegions(page)))
+		self.assertTrue(band.isShowing)
+
+	def test_changingRowsReclaimsAnEnabledBand(self):
+		"""Re-composing a panel preserves its old rectangle; settings must replace it."""
+		CONFIG["flowEnabled"] = True
+		self.plugin.rebuildBuffer()
+		first = self.plugin.flowBand
+		self.assertEqual(first.segment().rect.numRows, MONARCH_ROWS)
+		CONFIG["flowRows"] = 3
+		self.plugin.rebuildBuffer()
+		self.assertIsNot(self.plugin.flowBand, first)
+		self.assertEqual(self.plugin.flowBand.segment().rect.numRows, 3)
+
+	def test_anEnabledProfileMayChangeTheBandsRows(self):
+		CONFIG["flowEnabled"] = True
+		self.plugin.rebuildBuffer()
+		CONFIG["flowRows"] = 2
+		post_configProfileSwitch.notify()
+		callAfterQueue.flush()
+		self.assertEqual(self.plugin.flowBand.segment().rect.numRows, 2)
+
 	def test_terminatingWithABandIsClean(self):
 		CONFIG["flowEnabled"] = True
 		self.plugin.rebuildBuffer()
 		self.plugin.terminate()
 		self.assertIsNone(self.plugin.flowBand)
+
+
+class TestFlowTargetSwitch(PluginTestCase):
+	"""An enabled flow moves when its chosen physical display changes."""
+
+	def makeHandler(self):
+		handler = FakeHandler(9, 80)
+		handler.display = fakeVirtualDisplay(
+			("hidBrailleStandard", 0, 8, 32),
+			("freedomScientific", 8, 1, 80),
+		)
+		return handler
+
+	def test_changingTheDisplayReclaimsTheBandThere(self):
+		CONFIG["flowEnabled"] = True
+		CONFIG["flowDisplay"] = "hidBrailleStandard"
+		self.plugin.rebuildBuffer()
+		first = self.plugin.flowBand
+		self.assertEqual(first.segment().rect, SegmentRect(0, 0, 8, 32))
+		CONFIG["flowDisplay"] = "freedomScientific"
+		self.plugin.rebuildBuffer()
+		self.assertIsNot(self.plugin.flowBand, first)
+		self.assertEqual(self.plugin.flowBand.segment().rect, SegmentRect(8, 0, 1, 80))
 
 
 class TestSegmentsSwitch(PluginTestCase):

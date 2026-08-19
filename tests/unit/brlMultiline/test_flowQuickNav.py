@@ -27,15 +27,32 @@ class FakeBrowseMode:
 	"""Enough of NVDA's browse mode to be patched and to call through."""
 
 	calls = []
+	findsItem = True
 
 	def _quickNavScript(self, gesture, itemType, direction, errorMessage, readUnit):
 		FakeBrowseMode.calls.append((itemType, direction))
+		if self.findsItem:
+			FakeQuickNavItem().moveTo()
+
+
+class FakeQuickNavItem:
+	"""The success seam NVDA reaches only after its quick-navigation search found an item."""
+
+	moves = 0
+
+	def moveTo(self):
+		FakeQuickNavItem.moves += 1
+
+
+ORIGINAL_QUICK_NAV = FakeBrowseMode._quickNavScript
+ORIGINAL_MOVE_TO = FakeQuickNavItem.moveTo
 
 
 def installFakeBrowseMode():
 	"""Register a browse mode module the patch can find, as NVDA's own would be."""
 	module = types.ModuleType("browseMode")
 	module.BrowseModeTreeInterceptor = FakeBrowseMode
+	module.TextInfoQuickNavItem = FakeQuickNavItem
 	sys.modules["browseMode"] = module
 	return module
 
@@ -43,11 +60,16 @@ def installFakeBrowseMode():
 class QuickNavTestCase(unittest.TestCase):
 	def setUp(self):
 		FakeBrowseMode.calls = []
-		FakeBrowseMode._quickNavScript = FakeBrowseMode.__dict__["_quickNavScript"]
+		FakeBrowseMode.findsItem = True
+		FakeQuickNavItem.moves = 0
+		FakeBrowseMode._quickNavScript = ORIGINAL_QUICK_NAV
+		FakeQuickNavItem.moveTo = ORIGINAL_MOVE_TO
 		installFakeBrowseMode()
 		flowQuickNav.forget()
-		self.addCleanup(flowQuickNav.remove)
 		self.addCleanup(sys.modules.pop, "browseMode", None)
+		# LIFO: restore both patched methods while their module is still importable, then
+		# remove the fake module.
+		self.addCleanup(flowQuickNav.remove)
 
 
 class TestThePolicy(QuickNavTestCase):
@@ -79,19 +101,36 @@ class TestHearingTheKey(QuickNavTestCase):
 		flowQuickNav.install()
 		FakeBrowseMode()._quickNavScript(None, "heading", "next", "", None)
 		self.assertEqual(FakeBrowseMode.calls, [("heading", "next")])
+		self.assertEqual(FakeQuickNavItem.moves, 1)
 		self.assertTrue(flowQuickNav.takeGrounding())
+
+	def test_aSearchThatFindsNothingDoesNotGroundTheNextMove(self):
+		flowQuickNav.install()
+		FakeBrowseMode.findsItem = False
+		FakeBrowseMode()._quickNavScript(None, "heading", "next", "no more headings", None)
+		self.assertFalse(flowQuickNav.takeGrounding())
+
+	def test_aFailedSearchClearsAnOlderPendingJump(self):
+		flowQuickNav.note("heading")
+		flowQuickNav.install()
+		FakeBrowseMode.findsItem = False
+		FakeBrowseMode()._quickNavScript(None, "heading", "next", "no more headings", None)
+		self.assertFalse(flowQuickNav.takeGrounding())
 
 	def test_theSeamIsGivenBack(self):
 		flowQuickNav.install()
 		flowQuickNav.remove()
 		FakeBrowseMode()._quickNavScript(None, "heading", "next", "", None)
 		self.assertFalse(flowQuickNav.takeGrounding())
+		self.assertIs(FakeBrowseMode._quickNavScript, ORIGINAL_QUICK_NAV)
+		self.assertIs(FakeQuickNavItem.moveTo, ORIGINAL_MOVE_TO)
 
 	def test_installingTwiceKeepsOneOriginal(self):
 		flowQuickNav.install()
 		flowQuickNav.install()
 		flowQuickNav.remove()
-		self.assertIs(FakeBrowseMode._quickNavScript, FakeBrowseMode.__dict__["_quickNavScript"])
+		self.assertIs(FakeBrowseMode._quickNavScript, ORIGINAL_QUICK_NAV)
+		self.assertIs(FakeQuickNavItem.moveTo, ORIGINAL_MOVE_TO)
 
 	def test_aGroundingMoveIsAnsweredOnlyOnce(self):
 		# One keypress causes one caret move. A note left in place would ground every

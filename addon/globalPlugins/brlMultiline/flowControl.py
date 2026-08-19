@@ -75,9 +75,10 @@ def rowText(region, rendered, rowIndex: int) -> str:
 	:return: the text on that row, empty if it cannot be worked out.
 	"""
 	raw = getattr(region, "rawText", "") or ""
-	if not raw or rowIndex >= len(rendered.positions):
+	localRow = rowIndex - rendered.rowOffset
+	if not raw or not 0 <= localRow < len(rendered.positions):
 		return ""
-	positions = [where for where in rendered.positions[rowIndex] if where != NO_POSITION]
+	positions = [where for where in rendered.positions[localRow] if where != NO_POSITION]
 	if not positions:
 		return ""
 	mapping = getattr(region, "brailleToRawPos", None)
@@ -295,6 +296,12 @@ class FlowController(PanelOwner):
 		blocks = self.window.blocks
 		if not blocks:
 			return False
+		if self.source.budget.exhausted:
+			# Every path that fetches — filling, panning, cursor reach and long-block
+			# continuation — comes through here. Keeping the gate at that shared boundary
+			# prevents a caller from accidentally turning a per-operation budget into a hint.
+			self.window.setEdge(edge, EdgeState.DEFERRED)
+			return False
 		if self._continueBlock(edge):
 			# The block at this end has more rows of its own. They come before the next
 			# block does, or a long paragraph would be stepped over half read.
@@ -351,7 +358,12 @@ class FlowController(PanelOwner):
 			fromRow = max(0, rendered.rowOffset - self.renderer.maxRows + overlap)
 		if fromRow == rendered.rowOffset:
 			return False
+		began = self.source.budget.clock()
 		fresh = self.renderer.render(block, fromRow=fromRow)
+		# A continuation is layout work just as a newly fetched block is. Without charging
+		# it, one pathological paragraph can consume an unbounded operation one chunk at a
+		# time while the block counter stays at zero.
+		self.source.budget.spend(self.source.budget.clock() - began)
 		if not fresh.rows or fresh.rowOffset == rendered.rowOffset:
 			return False
 		try:
@@ -459,6 +471,11 @@ class FlowController(PanelOwner):
 		:param forward: True for the next block, False for the previous.
 		:return: whether the cursor moved.
 		"""
+		with self.operation():
+			return self._stepBlock(forward)
+
+	def _stepBlock(self, forward: bool) -> bool:
+		""":return: whether the cursor moved. See `stepBlock`."""
 		if self.activeBlockId is None:
 			return False
 		nextId = self.window.stepBlock(forward, fromBlockId=self.activeBlockId)
@@ -811,8 +828,9 @@ class FlowController(PanelOwner):
 				rendered = self.window.blocks[self.window.blockIndex(row.blockId)]
 			except LookupError:
 				continue
-			if row.rowIndex < len(rendered.rows):
-				used += min(len(rendered.rows[row.rowIndex]), self.renderer.numCols)
+			localRow = row.rowIndex - rendered.rowOffset
+			if 0 <= localRow < len(rendered.rows):
+				used += min(len(rendered.rows[localRow]), self.renderer.numCols)
 		return used, total
 
 	def describeRows(self) -> list[str]:
@@ -841,16 +859,23 @@ class FlowController(PanelOwner):
 				continue
 			region = self.regionFor(row.blockId)
 			rendered = self.window.blocks[self.window.blockIndex(row.blockId)]
-			cells = rendered.rows[row.rowIndex] if row.rowIndex < len(rendered.rows) else ()
+			localRow = row.rowIndex - rendered.rowOffset
+			cells = rendered.rows[localRow] if 0 <= localRow < len(rendered.rows) else ()
 			active = " *" if row.blockId == self.activeBlockId else "  "
 			block = self.blocks.get(row.blockId)
 			# Said on every row of the block rather than only its first: the log is read a
 			# row at a time, and a form is exactly where knowing which rows are the control
 			# and which are its prompt is the thing being checked.
 			kind = " control" if block is not None and block.isControl else ""
+			rowExtent = f"block row {row.rowIndex + 1}"
+			if not rendered.moreRows:
+				# The last chunk knows the complete extent. An earlier chunk does not, and
+				# calling its working-set size the block total produced reports such as
+				# "block row 13 of 8".
+				rowExtent += f" of {rendered.endRow}"
 			lines.append(
 				f"{index}:{active}[{len(cells)}/{numCols} cells]{kind} "
-				f"block row {row.rowIndex + 1} of {rendered.numRows}: {rowText(region, rendered, row.rowIndex)!r}",
+				f"{rowExtent}: {rowText(region, rendered, row.rowIndex)!r}",
 			)
 		return lines
 
