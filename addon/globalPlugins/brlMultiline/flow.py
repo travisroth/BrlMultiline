@@ -309,6 +309,60 @@ class Anchor:
 	entry: Entry
 
 
+class ByIdentity:
+	"""A small store keyed by things that compare but cannot be hashed.
+
+	A bookmark is whatever a `TextInfo` produces, and NVDA's own bookmark for a virtual
+	buffer is `textInfos.offsets.Offsets` — a plain dataclass, so it defines `__eq__` and
+	Python sets its `__hash__` to None. Keying a dictionary by one raises `TypeError`, and
+	a `BlockId` holding one cannot be a dictionary key either.
+
+	So lookup is a linear scan by equality. That is affordable precisely because a flow
+	holds so little: the window's blocks and a margin either side, a couple of dozen at
+	most, dropped by `FlowWindow.trim` as the reader moves.
+	"""
+
+	def __init__(self) -> None:
+		self._items: list[list] = []
+
+	def get(self, key, default=None):
+		""":return: the value stored under a key, or `default`."""
+		for item in self._items:
+			if item[0] == key:
+				return item[1]
+		return default
+
+	def set(self, key, value) -> None:
+		"""Store a value under a key, replacing any value already there."""
+		for item in self._items:
+			if item[0] == key:
+				item[1] = value
+				return
+		self._items.append([key, value])
+
+	def pop(self, key, default=None):
+		""":return: the value stored under a key, removing it."""
+		for index, item in enumerate(self._items):
+			if item[0] == key:
+				del self._items[index]
+				return item[1]
+		return default
+
+	def clear(self) -> None:
+		"""Forget everything."""
+		self._items.clear()
+
+	def values(self) -> list:
+		""":return: the values, in the order they were first stored."""
+		return [item[1] for item in self._items]
+
+	def __contains__(self, key) -> bool:
+		return any(item[0] == key for item in self._items)
+
+	def __len__(self) -> int:
+		return len(self._items)
+
+
 class ContentNeeded(Exception):
 	"""Raised when an operation needs rows the cache does not have.
 

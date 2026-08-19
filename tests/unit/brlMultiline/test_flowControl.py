@@ -301,7 +301,19 @@ class TestDryRun(unittest.TestCase):
 
 		api.getNavigatorObject = lambda: FakeNavigatorObject("a button")
 		lines = dryRun(handler=FakeHandler())
-		self.assertEqual(lines, ["Flow dry run: nothing here can be flowed."])
+		self.assertIn("nothing here can be flowed", lines[0])
+
+	def test_aFailureSaysWhichStepFailed(self):
+		# One message for four different failures said nothing about which had happened,
+		# which is how a real failure went undiagnosed.
+		from brlMultiline.flowDryRun import dryRun
+
+		import api
+
+		api.getNavigatorObject = lambda: FakeNavigatorObject("a button")
+		lines = dryRun(handler=FakeHandler())
+		self.assertTrue(any("getFocusRegions gave" in line for line in lines))
+		self.assertTrue(any("Nothing to flow" in line for line in lines))
 
 
 if __name__ == "__main__":

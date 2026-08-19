@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Optional
 from logHandler import log
 
 from .flow import (
+	ByIdentity,
 	ContentNeeded,
 	Edge,
 	EdgeState,
@@ -80,8 +81,14 @@ class FlowController(PanelOwner):
 		self.activeBlockId: Optional["BlockId"] = None
 		"""The block the cursor is in, and the only one that may show a cursor."""
 
-		self.blocks: dict[object, object] = {}
-		"""The source block behind each rendering, by bookmark, for its region."""
+		self.lastResult = None
+		"""The source's last answer, so a caller can say why nothing appeared."""
+
+		self.blocks = ByIdentity()
+		"""The source block behind each rendering, by identity, for its region.
+
+		Not a dictionary: a `BlockId` holds a bookmark, and a bookmark compares but does not
+		hash. See `flow.ByIdentity`."""
 
 	# Arriving.
 
@@ -97,8 +104,9 @@ class FlowController(PanelOwner):
 		:return: whether anything is now on the display.
 		"""
 		result = self.source.blockAtCursor()
+		self.lastResult = result
 		if result.kind is not ResultKind.BLOCK or result.block is None:
-			log.debugWarning(f"A flow could not enter at the cursor: {result.kind}")
+			log.debugWarning(f"A flow could not enter at the cursor: {result.kind} {result.message}")
 			return False
 		self.window.blocks.clear()
 		self.blocks.clear()
@@ -169,11 +177,11 @@ class FlowController(PanelOwner):
 
 	def _keep(self, block) -> None:
 		"""Remember a source block, so its region can be reached from its identity."""
-		self.blocks[block.blockId.bookmark] = block
+		self.blocks.set(block.blockId, block)
 
 	def regionFor(self, blockId: "BlockId"):
 		""":return: the region reading one block, or None if it is not held."""
-		block = self.blocks.get(blockId.bookmark)
+		block = self.blocks.get(blockId)
 		return getattr(block, "region", None)
 
 	# Moving.
@@ -291,7 +299,7 @@ class FlowController(PanelOwner):
 		"""
 		if self.activeBlockId is None:
 			return False
-		block = self.blocks.get(self.activeBlockId.bookmark)
+		block = self.blocks.get(self.activeBlockId)
 		if block is None:
 			return False
 		try:

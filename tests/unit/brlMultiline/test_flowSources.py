@@ -206,6 +206,28 @@ class TestBudget(unittest.TestCase):
 		self.assertGreater(budget.slowest, 0)
 
 
+class TestBookmarksAreNotHashable(unittest.TestCase):
+	"""The constraint that broke the first hardware run.
+
+	NVDA's bookmark for a virtual buffer is `textInfos.offsets.Offsets`, a plain dataclass,
+	so it defines `__eq__` and Python sets its `__hash__` to None. Anything keying a
+	dictionary by a bookmark, or by a `BlockId` holding one, works against a tuple in a test
+	and raises `TypeError` against every real document.
+	"""
+
+	def test_theHarnessProducesAnUnhashableBookmark(self):
+		source = sourceOver(["a"], caretIndex=0)
+		block = source.blockAtCursor().block
+		with self.assertRaises(TypeError):
+			{block.blockId.bookmark: 1}
+		with self.assertRaises(TypeError):
+			{block.blockId: 1}
+
+	def test_aDocumentWithUnhashableBookmarksStillReads(self):
+		source = sourceOver(["a", "b", "c"], caretIndex=0)
+		self.assertEqual(textsFrom(source, 2), ["a", "b", "c"])
+
+
 class TestFailures(unittest.TestCase):
 	def test_anUnknownBlockIsAnErrorNotACrash(self):
 		source = sourceOver(["a"], caretIndex=0)

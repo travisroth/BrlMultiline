@@ -36,7 +36,7 @@ import textInfos
 from braille.regions.textInfo import CursorManagerRegion, TextInfoRegion
 from logHandler import log
 
-from .flow import BlockId, FetchResult, SourceBlock
+from .flow import BlockId, ByIdentity, FetchResult, SourceBlock
 
 DEFAULT_MAX_BLOCKS = 12
 """How many blocks one fetch may walk before giving up.
@@ -173,6 +173,33 @@ def regionFactoryFor(template, live: bool) -> Callable:
 	return factory
 
 
+def regionFactoryForObject(obj, live: bool) -> Callable:
+	"""Choose the region class from the object itself, when NVDA has offered no template.
+
+	`regionFactoryFor` is preferred, because it keeps the choice NVDA's. This is the
+	fallback for the case where `getFocusRegions` produced nothing usable, which should not
+	happen for a browse mode document and is worth reading rather than giving up over.
+
+	:param obj: the object or tree interceptor to read.
+	:param live: whether the flow moves the real cursor.
+	:return: a callable taking the object and a position, returning a region.
+	:raises TypeError: if the object has no text to read.
+	"""
+	from cursorManager import CursorManager
+
+	if isinstance(obj, CursorManager):
+		built = FlowCursorManagerRegion
+	elif hasattr(obj, "makeTextInfo"):
+		built = FlowTextInfoRegion
+	else:
+		raise TypeError(f"{obj!r} reads no text, so it cannot be flowed")
+
+	def factory(objArg, info):
+		return built(objArg, info, live=live)
+
+	return factory
+
+
 class FetchBudget:
 	"""How much work one fetch may do before showing what it has.
 
@@ -253,16 +280,18 @@ class DocumentFlowSource:
 		self.generation = generation
 		self.interactive = interactive
 		self.budget = budget if budget is not None else FetchBudget()
-		self._positions: dict[object, object] = {}
-		"""The position each block starts at, by bookmark."""
+		self._positions = ByIdentity()
+		"""The position each block starts at, by bookmark.
 
-		self._exits: dict[tuple[object, bool], object] = {}
+		Not a dictionary: a bookmark compares but does not hash. See `flow.ByIdentity`."""
+
+		self._exits = ByIdentity()
 		"""Where to carry on from when leaving a block, by block and direction.
 
 		The same as the block's own position for an ordinary block, and the far end of the
 		run for a collapsed set of blank lines."""
 
-		self._resume: dict[tuple[object, bool], tuple] = {}
+		self._resume = ByIdentity()
 		"""Where a deferred walk through blank lines got to, by block and direction."""
 
 	# Reading.
@@ -275,9 +304,9 @@ class DocumentFlowSource:
 		self.budget.start()
 		try:
 			info = self.obj.makeTextInfo(textInfos.POSITION_SELECTION)
-		except Exception:
+		except Exception as error:
 			log.debugWarning("Could not read the cursor position", exc_info=True)
-			return FetchResult.failed("no cursor position")
+			return FetchResult.failed(f"no cursor position: {error!r}")
 		return self._blockAt(info)
 
 	def blockAfter(self, blockId: BlockId) -> FetchResult:
@@ -292,7 +321,7 @@ class DocumentFlowSource:
 		"""Walk one block in a direction, collapsing blanks and honouring the budget."""
 		self.budget.start()
 		key = (blockId.bookmark, forward)
-		pending = self._resume.pop(key, None)
+		pending = self._resume.pop(key)
 		if pending is not None:
 			# A previous fetch stopped part way through a run of blank lines. Carry on from
 			# where it got to, keeping the run's start and count, so that a second pan makes
@@ -306,9 +335,9 @@ class DocumentFlowSource:
 			return FetchResult.failed(f"no cached position for {blockId}")
 		try:
 			moved = self._move(start, forward)
-		except Exception:
+		except Exception as error:
 			log.debugWarning(f"Could not move {'forward' if forward else 'back'} a block", exc_info=True)
-			return FetchResult.failed("could not move")
+			return FetchResult.failed(f"could not move: {error!r}")
 		if moved is None:
 			return FetchResult.endOfStream()
 		if self.interactive or not self._isBlank(moved):
@@ -338,7 +367,7 @@ class DocumentFlowSource:
 			info = moved
 			count += 1
 			if not self.budget.spend(self.budget.clock() - began):
-				self._resume[key] = (info, runStart, count)
+				self._resume.set(key, (info, runStart, count))
 				return FetchResult.deferred(resume=info)
 		# The run keeps the identity of its first member in reading order, which is the one
 		# that owns the visible row whichever way it was walked into.
@@ -352,24 +381,24 @@ class DocumentFlowSource:
 		)
 		# Stepping out of a collapsed run must leave the whole run behind, or the next step
 		# walks back into it and the reader never gets past the blank rows.
-		self._exits[(block.blockId.bookmark, True)] = latest
-		self._exits[(block.blockId.bookmark, False)] = earliest
+		self._exits.set((block.blockId.bookmark, True), latest)
+		self._exits.set((block.blockId.bookmark, False), earliest)
 		return FetchResult.found(block)
 
 	def _blockAt(self, info) -> FetchResult:
 		""":return: a result carrying the block at a position."""
 		try:
 			return FetchResult.found(self._buildBlock(info))
-		except Exception:
+		except Exception as error:
 			log.debugWarning("Could not build a block", exc_info=True)
-			return FetchResult.failed("could not build a block")
+			return FetchResult.failed(f"could not build a block: {error!r}")
 
 	def _buildBlock(self, info) -> SourceBlock:
 		"""Build one block from a position, and remember where it starts."""
 		start = info.copy()
 		start.collapse()
 		blockId = BlockId(generation=self.generation, bookmark=self._bookmark(start), unit=self.unit)
-		self._positions[blockId.bookmark] = start
+		self._positions.set(blockId.bookmark, start)
 		region = self.regionFactory(self.obj, start)
 		region.update()
 		return SourceBlock(blockId=blockId, region=region, isBlank=not region.rawText.strip())

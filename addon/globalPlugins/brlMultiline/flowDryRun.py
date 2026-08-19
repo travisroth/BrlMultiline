@@ -31,7 +31,7 @@ from logHandler import log
 
 from .flowControl import FlowController
 from .flowRender import FlowRenderer
-from .flowSources import DocumentFlowSource, regionFactoryFor
+from .flowSources import DocumentFlowSource, regionFactoryFor, regionFactoryForObject
 from .objectMonitor import resolveTarget
 
 if TYPE_CHECKING:
@@ -58,22 +58,36 @@ def bandSize(handler) -> tuple[int, int]:
 	return numRows, numCols
 
 
-def templateRegion(obj) -> Optional[TextInfoRegion]:
+def describeObject(obj) -> str:
+	""":return: enough about an object to tell one failure from another in a log."""
+	role = getattr(obj, "role", None)
+	name = getattr(obj, "name", None)
+	return f"{type(obj).__name__} role={role} name={name!r}"
+
+
+def templateRegion(obj, notes: Optional[list] = None) -> Optional[TextInfoRegion]:
 	"""Ask NVDA which kind of region this object wants.
 
 	Taken from NVDA rather than decided here, so that the dry run flows what a flow would
 	flow. An object NVDA presents without a text region has no lines to read.
 
 	:param obj: the object or tree interceptor to present.
+	:param notes: a list to record what happened in, for the report.
 	:return: the text region NVDA built, or None if it built none.
 	"""
 	found = None
+	seen = []
 	try:
 		for region in getFocusRegions(obj, review=False):
+			seen.append(type(region).__name__)
 			if isinstance(region, TextInfoRegion):
 				found = region
-	except Exception:
+	except Exception as error:
 		log.debugWarning("Could not ask NVDA for regions", exc_info=True)
+		if notes is not None:
+			notes.append(f"getFocusRegions raised {error!r}")
+	if notes is not None:
+		notes.append(f"getFocusRegions gave {seen or 'nothing'}")
 	return found
 
 
@@ -83,6 +97,7 @@ def buildController(
 	numCols: int = DEFAULT_COLS,
 	handler=None,
 	live: bool = False,
+	notes: Optional[list] = None,
 ) -> Optional[FlowController]:
 	"""Build a flow over an object, ready to be asked what it would show.
 
@@ -91,20 +106,33 @@ def buildController(
 	:param numCols: its width.
 	:param handler: the braille handler the renderer lays out through.
 	:param live: whether the flow may move the real cursor. False for a dry run.
+	:param notes: a list to record each step in, so that a failure says which step failed.
 	:return: the controller, or None if this object has nothing to flow.
 	"""
+	if notes is None:
+		notes = []
 	if obj is None:
 		obj = api.getNavigatorObject()
+		notes.append(f"navigator object: {describeObject(obj)}")
 	if obj is None:
+		notes.append("There is no navigator object.")
 		return None
 	target = resolveTarget(obj)
-	template = templateRegion(target)
-	if template is None:
-		log.debug(f"{target!r} has no text region, so there is nothing to flow")
-		return None
+	if target is obj:
+		notes.append("No tree interceptor was substituted; reading the object itself.")
+	else:
+		notes.append(f"Reading through the tree interceptor: {describeObject(target)}")
+	template = templateRegion(target, notes)
 	try:
-		factory = regionFactoryFor(template, live=live)
-	except TypeError:
+		if template is not None:
+			factory = regionFactoryFor(template, live=live)
+		else:
+			# NVDA offered no text region. Worth reading anyway rather than giving up, and
+			# worth saying so, since for a browse mode document it should not happen.
+			notes.append("No text region from NVDA; choosing one from the object instead.")
+			factory = regionFactoryForObject(target, live=live)
+	except TypeError as error:
+		notes.append(f"Nothing to flow: {error}")
 		return None
 	source = DocumentFlowSource(
 		target,
@@ -114,9 +142,13 @@ def buildController(
 		# A dry run reads; it never writes. Blank lines collapse, as they do for a reader.
 		interactive=False,
 	)
+	notes.append(f"Reading by {source.unit}, band {numRows} rows of {numCols} cells.")
 	renderer = FlowRenderer(handler, numCols=numCols, fillRows=False)
 	control = FlowController(source, renderer, numRows=numRows, live=live)
 	if not control.enterAtCursor():
+		result = control.lastResult
+		kind = getattr(getattr(result, "kind", None), "value", "no answer")
+		notes.append(f"The source could not give the block at the cursor: {kind} {getattr(result, 'message', '')}")
 		return None
 	return control
 
@@ -159,10 +191,15 @@ def dryRun(handler=None, obj: Optional["NVDAObject"] = None) -> list[str]:
 	:return: the lines written, so a caller can summarise them.
 	"""
 	numRows, numCols = bandSize(handler)
-	control = buildController(obj=obj, numRows=numRows, numCols=numCols, handler=handler)
+	notes: list[str] = []
+	control = buildController(obj=obj, numRows=numRows, numCols=numCols, handler=handler, notes=notes)
 	if control is None:
-		lines = ["Flow dry run: nothing here can be flowed."]
+		# Every step is reported, because "nothing here can be flowed" was one message for
+		# four different failures and said nothing about which had happened.
+		lines = ["Flow dry run: nothing here can be flowed. What happened:"]
+		lines.extend(f"  {note}" for note in notes)
 	else:
 		lines = report(control)
+		lines[1:1] = [f"  {note}" for note in notes]
 	log.info("\n".join(lines))
 	return lines

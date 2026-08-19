@@ -17,6 +17,7 @@ Call L{installStubs} before importing anything under `brlMultiline`. It is idemp
 every test module may call it.
 """
 
+import dataclasses
 import os
 import re
 import sys
@@ -452,6 +453,14 @@ POSITION_SELECTION = "selection"
 POSITION_FIRST = "first"
 
 
+@dataclasses.dataclass
+class FakeBookmark:
+	"""A mark for a position, shaped like NVDA's: comparable, and not hashable."""
+
+	story: int
+	index: int
+
+
 class FakeTextInfo:
 	"""A caret in a list of lines, moving by whole lines and stopping at the ends."""
 
@@ -468,8 +477,15 @@ class FakeTextInfo:
 
 	@property
 	def bookmark(self):
-		"""A comparable mark for this position, as NVDA's TextInfo carries."""
-		return (id(self.lines), self.index)
+		"""A comparable mark for this position, as NVDA's TextInfo carries.
+
+		Unhashable on purpose. NVDA's own bookmark for a virtual buffer is
+		`textInfos.offsets.Offsets`, a plain dataclass, so it defines `__eq__` and Python
+		sets its `__hash__` to None. Anything keying a dictionary by a bookmark works
+		against a tuple and raises against the real thing, which is a failure worth having
+		in the tests rather than on a display.
+		"""
+		return FakeBookmark(id(self.lines), self.index)
 
 	def collapse(self, end=False):
 		pass
@@ -497,7 +513,15 @@ class FakeDocument:
 		return FakeTextInfo(self.lines, self.caretIndex)
 
 
-class FakeTreeInterceptor:
+class CursorManager:
+	"""Stands in for NVDA's `CursorManager`, which browse mode documents are.
+
+	Only its identity matters here: it is what a flow checks to decide that an object reads
+	through a cursor of its own rather than through a caret.
+	"""
+
+
+class FakeTreeInterceptor(CursorManager):
 	"""A browse mode document, which reads through a cursor of its own rather than a caret."""
 
 	def __init__(self, lines, caretIndex=0, isReady=True, passThrough=False):
@@ -1219,6 +1243,7 @@ def _installPluginStubs() -> None:
 		CONTINUATION_SHAPE=0xC0,
 	)
 	_module("braille.regions.focus", getFocusRegions=fakeGetFocusRegions)
+	_module("cursorManager", CursorManager=CursorManager)
 	# The braille display driver package, as a path with no code, so that the settings panel's
 	# `from brailleDisplayDrivers.brlMultilineVirtual import vdConfig` resolves to the real
 	# module without running the driver's `__init__`, which wants `hwIo` and `inputCore`.
