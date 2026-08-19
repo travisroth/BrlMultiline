@@ -352,12 +352,23 @@ stated in `flowQuickNav.GROUNDING_TYPES`: headings at every level, tables, lists
 landmarks, frames, articles, groupings, block quotes, separators, figures and non-link
 blocks ground; list items, links, form fields, buttons and the paragraph moves do not.
 
-NVDA makes this cheap to hear. Every quick navigation script — around forty of them,
-generated at import time — funnels through `BrowseModeTreeInterceptor._quickNavScript`,
-which carries the item type, so one seam covers all of them. It is patched only while a
-flow is on the display and given back when the flow stops. A note of a grounding move is
-consumed by the caret move it causes, and expires after a second, so that a stale keypress
-cannot jump the display under an ordinary arrow key.
+NVDA makes this cheap to hear, through two seams rather than one. Every quick navigation
+script — around forty of them, generated at import time — funnels through
+`BrowseModeTreeInterceptor._quickNavScript`, which carries the item type; and a search that
+actually found something goes on to call `TextInfoQuickNavItem.moveTo`. Hearing only the
+first is not enough, because a search that finds nothing returns before moving anything, and
+the note it left would then ground the reader's next ordinary arrow key. So the item type is
+remembered while the script runs and the note is made at the move.
+
+Only browsers were ever going to be exact here, and that is enough: a virtual buffer's items
+are `TextInfoQuickNavItem`s, as are Word's. Excel's are not, so a quick navigation key there
+does not ground — the window tracks the cursor as it always has, which is a degradation and
+not a fault.
+
+Both seams are patched only while a flow is on the display and given back when the flow
+stops, by identity, so that a patch someone else installed on top is never taken for ours. A
+note of a grounding move is consumed by the caret move it causes, and expires after a second,
+so that a stale keypress cannot jump the display under an ordinary arrow key.
 
 The setting `flowGroundOnQuickNav` turns the whole behaviour off, per display, and
 defaults to on. Which moves count as structural is deliberately not a setting: it is a
@@ -703,6 +714,16 @@ and it needs three things before milestone 3:
    The band is no longer always a whole physical display. `flowRows` takes some of one
    display's rows from the top, leaving the rest to the segment layout, which is the same
    code with a smaller rectangle as this plan said it would be. Milestone 3 is complete.
+
+   Two things the persistent claim brought with it, both found in review. A claim carries the
+   rectangle it was activated with, and a rebuild re-composes that same claim — so changing
+   the rows or the display in the settings left the band exactly where it was. An enabled
+   band is now compared against what the settings ask for on every rebuild, and reclaimed
+   when the two differ. And a band that is claimed but not flowing still has to be told where
+   its focus changes go: `onRebuilt` used to return early when nothing was flowing, which
+   meant a band rebuilt while the reader was in a dialog never heard them come back to a
+   document. That path also must not clear the segment, since a rebuild has already drawn
+   NVDA's own focus content into the new one.
 4. **Following.** The in-window test, minimal scroll, entry context, and keeping the
    cursor's row visible inside a growing block. Includes what a flow does when the focus
    leaves it, which entering and leaving focus mode exercises directly.
