@@ -60,6 +60,7 @@ def controllerOver(
 	budget=None,
 	enter=True,
 	atObject=None,
+	interactive=False,
 ):
 	"""Build a controller over a browse mode document of the given lines."""
 	interceptor = FakeTreeInterceptor(lines, caretIndex=caretIndex)
@@ -68,6 +69,7 @@ def controllerOver(
 		regionFactoryFor(CursorManagerRegion(interceptor), live=live),
 		generation=1,
 		budget=budget,
+		interactive=interactive,
 	)
 	control = FlowController(source, renderer(numCols), numRows=numRows, live=live)
 	if enter:
@@ -810,6 +812,65 @@ class TestTheCursorWithinItsBlock(unittest.TestCase):
 		flow.source.obj.caretOffset = 3
 		flow.refreshActive()
 		self.assertIsNone(flow.activeRegion().brailleCursorPos)
+
+
+class TestWritingReadsTheWholeBandAgain(unittest.TestCase):
+	"""A block's position is an offset, and typing moves offsets.
+
+	Insert a line and every position after it has moved; delete a selection and most of what
+	the band was holding does not exist any more. Re-rendering only the block the caret is in
+	leaves the rest reading at offsets that have gone — on hardware, lines removed by
+	select-all and overtype stayed under the reader's fingers until the focus changed.
+	"""
+
+	def flow(self, lines, caretIndex=0, numRows=4):
+		return controllerOver(
+			lines,
+			caretIndex=caretIndex,
+			numRows=numRows,
+			live=True,
+			interactive=True,
+		)
+
+	def written(self, control):
+		""":return: the rows that hold something."""
+		return [row.strip() for row in rowTexts(control) if row.strip()]
+
+	def test_linesThatNoLongerExistLeaveTheDisplay(self):
+		control = self.flow(["one", "two", "three"])
+		self.assertEqual(self.written(control), ["one", "two", "three"])
+		# Select all, then overtype: one line where there were three.
+		control.source.obj.lines[:] = ["Hello"]
+		control.source.obj.caretIndex = 0
+		control.source.obj.caretOffset = 5
+		control.followCursor()
+		self.assertEqual(self.written(control), ["Hello"])
+
+	def test_aNewLineIsNotAlsoShownAbove(self):
+		control = self.flow(["one", "two"])
+		control.source.obj.lines[:] = ["one", "", "two"]
+		control.source.obj.caretIndex = 1
+		control.source.obj.caretOffset = 0
+		control.followCursor()
+		self.assertEqual(self.written(control), ["one", "two"])
+
+	def test_theCaretKeepsTheRowItWasOn(self):
+		# The band must not jump under the hands of somebody typing: what was above them
+		# stays above them.
+		control = self.flow(["one", "two", "three", "four"], caretIndex=0)
+		control.source.obj.caretIndex = 2
+		control.followCursor()
+		before = control.cursorCell() // control.renderer.numCols
+		control.source.obj.lines[2] = "three and more"
+		control.followCursor()
+		self.assertEqual(control.cursorCell() // control.renderer.numCols, before)
+
+	def test_readingRatherThanWritingStillRefreshesOneBlock(self):
+		"""The rebuild is for a document being typed into, and costs a band of reads."""
+		control = controllerOver(["one", "two", "three"], numRows=4, live=True)
+		control.source.obj.lines[:] = ["Hello"]
+		control.followCursor()
+		self.assertEqual(rowTexts(control)[1].strip(), "two")
 
 
 if __name__ == "__main__":

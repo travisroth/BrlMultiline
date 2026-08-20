@@ -592,8 +592,13 @@ class DocumentFlowSource:
 		self.unit = unit
 		self.generation = generation
 		self.interactive = interactive
-		self._ordinaryInteractive = interactive
-		"""Whether the document itself is interactive, apart from an embedded edit."""
+		self.writing = interactive
+		"""Whether the reader is typing into the document this source reads.
+
+		Different from `interactive` below, which is also turned on for a page holding an
+		edit the reader has entered. This one is about the document itself, and it is what
+		says that everything in the band can move on every keystroke: a line inserted or
+		deleted moves every position after it, and on a rich edit the ones before it too."""
 		self.budget = budget if budget is not None else FetchBudget()
 		self._positions = ByIdentity()
 		"""The position each block starts at, by bookmark.
@@ -645,7 +650,7 @@ class DocumentFlowSource:
 		self._interactiveBlock = None
 		# Blank lines in an edit are content. Restore the document's own policy when the
 		# focus leaves it rather than leaving every page permanently in editing mode.
-		self.interactive = self._ordinaryInteractive or obj is not None
+		self.interactive = self.writing or obj is not None
 		return True
 
 	# Reading.

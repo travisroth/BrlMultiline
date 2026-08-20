@@ -361,6 +361,24 @@ inside that page — because a focus that has gone somewhere else entirely is a 
 and NVDA reports those through regions that are a better account of where it went than the
 focus object is.
 
+**While the reader is writing, a caret update reads the whole band again.** Every other
+rule here assumes the document holds still while it is read, and an edit being typed into
+does not. A block's position is an offset: insert a line and every offset after it moves,
+delete a selection and most of what the band was holding does not exist any more.
+Re-rendering only the block the caret is in leaves the rest reading at offsets that have
+gone — on hardware, a line copied onto the row above it, and lines removed by select-all and
+overtype still under the reader's fingers until the focus changed and forced a rebuild.
+
+So the band is re-read from the caret and then put back where the reader had it, by the
+block that was on its top row. Typing must not scroll the display: what was above them stays
+above them, and adding a line moves the caret down a row rather than throwing the rest of
+the band upward. A top block the edit removed cannot be gone back to, and there the caret's
+own block is the anchor — which is what select-all and overtype leaves.
+
+It costs a band's worth of reads on every caret update, which is what the budget bounds and
+what the cost command measures. Nothing cheaper is honest: there is no way to know which of
+the other rows survived without reading them.
+
 **A block's position is the start of its reading unit**, not the offset the cursor happened
 to be at when the block was built. NVDA's bookmark for a virtual buffer is a pair of
 offsets rather than a line number, so a block built at the caret had a different identity

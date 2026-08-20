@@ -648,6 +648,8 @@ class FlowController(PanelOwner):
 
 		:return: whether the window moved, or None if there was nothing to read.
 		"""
+		if self._writing():
+			return self._readAgainWhileWriting(ground=ground)
 		result = self.source.blockAtCursor(atObject)
 		self.lastResult = result
 		if result.kind is not ResultKind.BLOCK or result.block is None:
@@ -664,6 +666,53 @@ class FlowController(PanelOwner):
 		self.refreshActive()
 		moved = self.groundAt(blockId) if ground else self.syncToCursor(forward=forward)
 		return moved
+
+	def _writing(self) -> bool:
+		""":return: whether the reader is typing into the document this flow reads."""
+		return bool(self.live and getattr(self.source, "writing", False))
+
+	def _readAgainWhileWriting(self, ground: bool = False) -> Optional[bool]:
+		"""Read the whole band again from the caret, keeping it on the row it was on.
+
+		A block's position is an offset into the document, and typing moves offsets. Insert a
+		line and every position after it has moved; delete a selection and most of what the
+		band was holding no longer exists. Re-rendering only the block the caret is in leaves
+		the others reading at offsets that have gone, which on hardware was a line copied
+		onto the row above it, and lines deleted by select-all and overtype still under the
+		reader's fingers until the focus changed and forced a rebuild.
+
+		So while the reader is writing, a caret update rebuilds the band rather than
+		refreshing one block of it. It costs a band's worth of reads on each one, which is
+		what the budget bounds and what the cost command measures; nothing cheaper is
+		honest, because there is no way to know which of the other rows survived.
+
+		The band is then put back where the reader had it, by the block that was on its top
+		row. Typing must not scroll the display: what was above them stays above them, and
+		adding a line moves the caret down a row rather than throwing the rest of the band
+		upward. A top block that the edit removed cannot be gone back to, and there the
+		caret's own block is the anchor — which is what select-all and overtype leaves.
+
+		:param ground: put the caret's block on the top row instead.
+		:return: whether anything is on the display, in the shape `_arrive` answers with.
+		"""
+		topId = self.window.topBlockId()
+		if not self._enterAtCursor():
+			return None
+		if ground or topId is None:
+			return True
+		for _ in range(self.window.numRows):
+			if self.window.hasBlock(topId):
+				break
+			if not self._fetchOne(Edge.BEFORE):
+				break
+		try:
+			self.window.enterAt(topId)
+		except LookupError:
+			# The row the reader was on does not exist any more. The caret is the anchor.
+			return True
+		self.fill()
+		self.syncToCursor(forward=True)
+		return True
 
 	def groundAt(self, blockId: "BlockId") -> bool:
 		"""Put a block at the top of the band and let the document run on from it.
