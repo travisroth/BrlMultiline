@@ -500,6 +500,11 @@ class TestASeparatorIsALineNotACommand(unittest.TestCase):
 	def test_aToolkitCallingItADisabledMenuItemIsRecognisedToo(self):
 		self.assertTrue(flowObjects.isDecoration(FakeNavigatorObject("------", role="MENUITEM")))
 
+	def test_howeverItDrawsItsLine(self):
+		for name in ("───", "——", "____", "~~~~"):
+			with self.subTest(name=name):
+				self.assertTrue(flowObjects.isDecoration(FakeNavigatorObject(name, role="MENUITEM")))
+
 	def test_aRealDisabledCommandIsNot(self):
 		self.assertFalse(flowObjects.isDecoration(FakeNavigatorObject("Paste", role="MENUITEM")))
 

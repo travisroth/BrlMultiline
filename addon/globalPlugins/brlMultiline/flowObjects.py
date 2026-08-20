@@ -116,8 +116,13 @@ worth, so failing to place the focus in a list longer than this costs the reader
 rather than costing them time.
 """
 
-LINE_CHARACTERS = frozenset("-_=~.*")
-"""What a separator is drawn out of, for the fallback in `isDecoration`."""
+LINE_CHARACTERS = frozenset("-_=~.*" + "‐‑‒–—―─━┄┅")
+"""What a separator is drawn out of, for the fallback in `isDecoration`.
+
+Hyphens and underscores because that is what a toolkit usually names its line, and the
+dashes and box drawing characters because some name it with the character they would draw.
+The role is still the test; this only decides what counts as "nothing but a line" once a
+toolkit has already claimed its separator is a disabled menu item."""
 
 
 def roleName(role) -> str:
