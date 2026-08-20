@@ -367,6 +367,75 @@ class TestControls(unittest.TestCase):
 		self.assertFalse(source.blockAfter(first.blockId).block.isControl)
 
 
+class TestWhatReadingCost(unittest.TestCase):
+	"""The measurement the budget is meant to be checked against.
+
+	A budget nobody compares with real reading is a number somebody guessed, and a guessed
+	number here has twice turned out to be the fault rather than the safety limit. What a
+	hardware run should be able to report is the slowest block, the slowest operation, and
+	how often the allowance ran out.
+	"""
+
+	def budget(self, step=0.001, **kwargs):
+		return FetchBudget(clock=FakeClock(step=step), **kwargs)
+
+	def test_nothingIsCountedBeforeAnythingHappens(self):
+		budget = self.budget()
+		self.assertEqual(budget.operations, 0)
+		self.assertEqual(budget.stops, 0)
+
+	def test_anOperationIsCountedWhenItFinishes(self):
+		budget = self.budget()
+		budget.start()
+		budget.finish()
+		self.assertEqual(budget.operations, 1)
+
+	def test_whatItCostIsKept(self):
+		budget = self.budget(step=0.01)
+		budget.start()
+		budget.spend()
+		budget.finish()
+		self.assertGreater(budget.lastSeconds, 0)
+		self.assertEqual(budget.lastBlocks, 1)
+
+	def test_theWorstIsKeptAcrossOperations(self):
+		budget = self.budget(step=0.01)
+		budget.start()
+		budget.spend()
+		budget.spend()
+		budget.finish()
+		worst = budget.worstBlocks
+		budget.start()
+		budget.finish()
+		self.assertEqual(budget.worstBlocks, worst)
+		self.assertEqual(budget.lastBlocks, 0)
+
+	def test_runningOutOfBlocksIsCounted(self):
+		# The number that says whether the budget is sized right: it means the reader was
+		# shown less than the band could hold.
+		budget = self.budget(maxBlocks=1)
+		budget.start()
+		budget.spend()
+		budget.finish()
+		self.assertEqual(budget.stops, 1)
+
+	def test_finishingWithRoomToSpareIsNot(self):
+		budget = self.budget(maxBlocks=4)
+		budget.start()
+		budget.spend()
+		budget.finish()
+		self.assertEqual(budget.stops, 0)
+
+	def test_theAccountReadsAsWords(self):
+		budget = self.budget()
+		budget.start()
+		budget.spend()
+		budget.finish()
+		account = " ".join(budget.describe())
+		self.assertIn("operations: 1", account)
+		self.assertIn("slowest", account)
+
+
 class TestTheBudgetFitsTheBand(unittest.TestCase):
 	"""The budget stops a heavy page being walked, not the display being filled."""
 

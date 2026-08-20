@@ -1063,6 +1063,48 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
+		description=_("Reports what the flow on the display has cost so far"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_flowCost(self, gesture):
+		"""Say what the flow has cost, and write the detail to the log.
+
+		The measurement the budget was always meant to be checked against. A budget nobody
+		compares with real reading is a number somebody guessed, and a guessed number here
+		has twice turned out to be the fault rather than the safety limit — so this is what
+		a reader on a heavy page can press to say something better than "it felt slow".
+		"""
+		band = self.flowBand
+		control = band.controller if band is not None else None
+		if control is None:
+			# Translators: reported when a command needs a flow on the display and there is none.
+			ui.message(_("No flow is showing"))
+			return
+		from .flowDryRun import describeCost
+
+		try:
+			lines = describeCost(control)
+		except Exception:
+			log.error("Could not report what the flow has cost", exc_info=True)
+			# Translators: reported when a diagnostic command fails.
+			ui.message(_("Could not report the flow cost, see the log"))
+			return
+		detail = "\n".join(f"  {line}" for line in lines)
+		log.info(f"BrlMultiline flow cost:\n{detail}")
+		budget = control.source.budget
+		ui.message(
+			# Translators: reported by a diagnostic command. Placeholders are, in order, the
+			# time in milliseconds the slowest single block took, the number of reading
+			# operations counted, and how many of those ran out of their allowance.
+			_("Slowest block {slowest} milliseconds, {operations} operations, {stops} ran out").format(
+				slowest=f"{budget.slowest * 1000:.1f}",
+				operations=budget.operations,
+				stops=budget.stops,
+			),
+		)
+
+	@script(
+		# Translators: input help message for a command.
 		description=_("Writes what a flowed reading of this object would show to the log"),
 		category=SCRIPT_CATEGORY,
 	)

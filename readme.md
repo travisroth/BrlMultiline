@@ -229,6 +229,12 @@ useful assigned to keys on the display itself.
 remembers the answer in the profile in force, so it is the same switch as the one in the
 settings. See "Reading as a flow" above.
 
+**Reports what the flow on the display has cost so far.** Says how long the slowest piece of
+reading took and how often the flow ran out of its allowance and showed you less than the
+display could hold. If a page feels slow, or you feel the marker meaning "there is more I
+have not read", press this and send the log: it is a great deal more use than "it felt
+slow".
+
 **Reports the BrlMultiline segment layout.** Says how many segments there are and
 which one is following the focus. Useful for confirming a layout took effect.
 

@@ -645,6 +645,29 @@ class TestFlowTargetSwitch(PluginTestCase):
 		self.assertEqual(self.plugin.flowBand.segment().rect, SegmentRect(8, 0, 1, 80))
 
 
+class TestFlowCostCommand(PluginTestCase):
+	"""What a reader on a heavy page can press instead of saying "it felt slow"."""
+
+	def test_itSaysSoWhenThereIsNoFlow(self):
+		self.plugin.script_flowCost(None)
+		self.assertIn("No flow is showing", spokenMessages)
+
+	def test_itReportsTheNumbersWhenThereIs(self):
+		CONFIG["flowEnabled"] = True
+		self.plugin.rebuildBuffer()
+		page = FakeNavigatorObject("a page", treeInterceptor=FakeTreeInterceptor(["a line"]))
+		import api
+
+		self.addCleanup(setattr, api, "getFocusObject", api.getFocusObject)
+		api.getFocusObject = lambda: page
+		self.plugin.flowBand.refresh(force=True)
+		self.plugin.script_flowCost(None)
+		self.assertTrue(
+			any("operations" in message for message in spokenMessages),
+			spokenMessages,
+		)
+
+
 class TestSegmentsSwitch(PluginTestCase):
 	"""Turning the configured layout off and on, from the command and from the settings.
 

@@ -841,8 +841,27 @@ and it needs three things before milestone 3:
 
    Off by default, unlike browse mode. The reading is new and turning the flow on should not
    change how a reader's dialogs behave until they ask for it.
-7. **Cost.** Measurement on heavy pages against the latency recorded since milestone 2, and
-   whatever the numbers say.
+7. **Cost.** INSTRUMENTED, AWAITING NUMBERS. Measurement on heavy pages against the latency
+   recorded since milestone 2, and whatever the numbers say.
+
+   The instrument landed rather than the answer, because the answer is a hardware question.
+   `FetchBudget` now keeps what each operation cost as well as what each block did: how many
+   operations have run, how long the worst was and over how many blocks, the average, and —
+   the number that matters most — how many ran out of blocks, since running out means the
+   reader was shown less than the band could hold. The "Reports what the flow on the display
+   has cost so far" command says the headline and writes the rest to the log.
+
+   That last number is the one to watch, and the reason this milestone exists at all. Twice
+   now a guessed constant has turned out to be the fault rather than the safety limit: fifty
+   milliseconds per operation, and twelve blocks on a band that needs eight to fill. Both
+   were reported by a reader as "the display shows dashes", which is a long way from the
+   cause. A reader who can press one key and say "nine operations in a hundred ran out"
+   closes that gap.
+
+   What the numbers should decide: whether `budgetForBand`'s twice-the-band is right, whether
+   the time limit is doing anything at all beyond the block count, and whether an object run
+   — where every step is a call into the application — wants a budget of its own rather than
+   the document's.
 
 ## Open questions
 

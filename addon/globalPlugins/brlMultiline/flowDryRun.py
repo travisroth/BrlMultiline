@@ -323,10 +323,30 @@ def report(control: FlowController) -> list[str]:
 	used, total = control.fillStats()
 	percent = (100 * used / total) if total else 0
 	lines.append(f"Band fill: {used} of {total} cells ({percent:.0f}%) on the last window shown.")
-	slowest = getattr(control.source.budget, "slowest", None)
-	if slowest:
-		lines.append(f"Slowest block: {slowest * 1000:.1f} ms")
 	lines.append(f"Blocks held: {len(control.window.blocks)}")
+	lines.extend(f"Cost, {line}" for line in describeCost(control))
+	return lines
+
+
+def describeCost(control: FlowController) -> list[str]:
+	"""What a flow has cost so far, in words.
+
+	The measurement milestone 7 is: a budget that is never compared with what reading
+	actually costs is a number somebody guessed, and this project has twice had a guessed
+	number turn out to be the fault. What is wanted back from a hardware run is not "it felt
+	slow" but the slowest block, the slowest operation, and how often the budget was reached.
+
+	:param control: the flow to ask.
+	:return: the lines of the account, empty if it has no budget to ask.
+	"""
+	budget = getattr(control.source, "budget", None)
+	if budget is None or not hasattr(budget, "describe"):
+		return []
+	lines = list(budget.describe())
+	used, total = control.fillStats()
+	if total:
+		lines.append(f"band fill now: {used} of {total} cells ({100 * used / total:.0f}%)")
+	lines.append(f"blocks held: {len(control.window.blocks)}")
 	return lines
 
 

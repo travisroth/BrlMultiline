@@ -337,6 +337,23 @@ class FetchBudget:
 		Kept across fetches rather than reset with each one, because the question it answers
 		is whether this document has slow blocks in it at all."""
 
+		self.operations = 0
+		"""How many operations have finished: arrivals, fills, pans, cursor moves."""
+
+		self.stops = 0
+		"""How many of them ran out of blocks, and so showed the reader less than the band
+		could hold. The number that says whether the budget is sized right."""
+
+		self.lastSeconds = 0.0
+		self.lastBlocks = 0
+		"""What the most recent operation cost, for a report taken straight after one."""
+
+		self.worstSeconds = 0.0
+		self.worstBlocks = 0
+		self.totalSeconds = 0.0
+		"""The worst and the sum, since a single slow arrival and a steadily slow document
+		are different problems with different answers."""
+
 	def start(self) -> None:
 		"""Begin an operation, whatever was under way before."""
 		self.blocks = 0
@@ -344,8 +361,27 @@ class FetchBudget:
 		self.active = True
 
 	def finish(self) -> None:
-		"""End the operation."""
+		"""End the operation, and keep what it cost.
+
+		The numbers kept here are the whole of the measurement this design promised itself
+		when it decided to bound work rather than to trust it. A budget that is never
+		compared with what reading actually costs is a number somebody guessed, and this
+		project has now twice had a guessed number turn out to be the fault — see
+		`budgetForBand`. What is wanted from a reader is not "it felt slow" but "the slowest
+		block was two milliseconds and nine operations in a hundred stopped early".
+		"""
 		self.active = False
+		elapsed = max(0.0, self.clock() - self.started)
+		self.operations += 1
+		self.lastSeconds = elapsed
+		self.lastBlocks = self.blocks
+		self.worstSeconds = max(self.worstSeconds, elapsed)
+		self.worstBlocks = max(self.worstBlocks, self.blocks)
+		self.totalSeconds += elapsed
+		if self.blocks >= self.maxBlocks:
+			# Stopped by the count rather than by the clock, which is the one worth
+			# separating: it means the reader was shown less than the band could hold.
+			self.stops += 1
 
 	def startUnlessActive(self) -> None:
 		"""Begin an operation only if the caller above has not already begun one."""
@@ -381,6 +417,27 @@ class FetchBudget:
 		self.blocks += 1
 		self.slowest = max(self.slowest, seconds)
 		return not self.exhausted
+
+	def describe(self) -> list[str]:
+		"""What this budget has seen, in words.
+
+		:return: one line per fact, for the log and for a command to read out.
+		"""
+		average = (self.totalSeconds / self.operations) if self.operations else 0.0
+		return [
+			f"operations: {self.operations}, of which {self.stops} ran out of blocks",
+			f"allowance: {self.maxBlocks} blocks or {self.maxSeconds * 1000:.0f} ms each",
+			f"slowest single block: {self.slowest * 1000:.2f} ms",
+			f"slowest operation: {self.worstSeconds * 1000:.2f} ms over {self.worstBlocks} blocks",
+			f"average operation: {average * 1000:.2f} ms",
+			f"most recent: {self.lastSeconds * 1000:.2f} ms over {self.lastBlocks} blocks",
+		]
+
+	def __repr__(self) -> str:
+		return (
+			f"<FetchBudget {self.maxBlocks} blocks, {self.operations} operations, "
+			f"{self.stops} stopped early, slowest block {self.slowest * 1000:.2f} ms>"
+		)
 
 
 class DocumentFlowSource:
