@@ -726,6 +726,22 @@ class TestFollowingTheFocus(unittest.TestCase):
 			["first", "second", "third"],
 		)
 
+	def test_aMultilineEditIsReadByParagraph(self):
+		# A paragraph is what the writer typed; a line is what the control's wrapping made of
+		# it. And this control answers the first dependably and the second only sometimes.
+		page, interceptor = self._document(["Notes", "a field", "After"])
+		self._start(page)
+		interceptor.passThrough = True
+		field = self._multiline(interceptor, ["first", "second"])
+		self._focusOn(field)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(field))
+		self.assertEqual(self.band.controller.source.unit, "paragraph")
+
+	def test_aPageIsStillReadTheReadersOwnWay(self):
+		page, _interceptor = self._document(["Name", "a field", "After"])
+		self._start(page)
+		self.assertEqual(self.band.controller.source.unit, "line")
+
 	def test_aSingleLineFieldStaysPartOfThePage(self):
 		"""It is one line of the page, and the page has its label and what follows it."""
 		page, interceptor = self._document(["Name", "a field", "After"])

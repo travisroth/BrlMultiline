@@ -961,5 +961,40 @@ class TestALineThatSwallowedTheNextOne(unittest.TestCase):
 		self.assertEqual(len(control.window.blocks), 2)
 
 
+class TestReadingByParagraph(unittest.TestCase):
+	"""A paragraph break is the row boundary, so it must not also be a row.
+
+	Reading a comment box by paragraph gave the right text for every unit where reading by
+	line sometimes did not — but the walk landed on the break between two paragraphs, so an
+	empty unit appeared between each pair and one return read as two rows.
+	"""
+
+	def written(self, control):
+		return [row.strip() for row in rowTexts(control) if row.strip()]
+
+	def test_theBreakBetweenTwoParagraphsIsNotARow(self):
+		control = controllerOver(["one", "", "two"], numRows=4, unit="paragraph", interactive=True)
+		self.assertEqual(rowTexts(control)[1].strip(), "two")
+		self.assertEqual(self.written(control), ["one", "two"])
+
+	def test_butAnEmptyParagraphTheReaderMadeKeepsItsRow(self):
+		# One return leaves one empty unit and it goes; two leave two, and the second is a
+		# paragraph they meant.
+		control = controllerOver(["one", "", "", "two"], numRows=4, unit="paragraph", interactive=True)
+		rows = rowTexts(control)
+		self.assertEqual(rows[0].strip(), "one")
+		self.assertEqual(rows[1].strip(), "")
+		self.assertEqual(rows[2].strip(), "two")
+
+	def test_readingByLineStillKeepsEveryBlankWhileWriting(self):
+		"""An empty line is a line. Decision 6 is about those, and is unchanged."""
+		control = controllerOver(["one", "", "two"], numRows=4, interactive=True)
+		self.assertEqual(rowTexts(control)[1].strip(), "")
+
+	def test_aBreakAtTheEndIsStillWhereTheReaderIs(self):
+		control = controllerOver(["one", ""], numRows=4, unit="paragraph", interactive=True)
+		self.assertEqual(rowTexts(control)[1].strip(), "")
+
+
 if __name__ == "__main__":
 	unittest.main()

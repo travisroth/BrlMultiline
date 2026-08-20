@@ -405,12 +405,19 @@ reader's next keystroke reads the document afresh, which the log shows it doing.
 Only for lines. A paragraph may hold soft breaks and asking the same of one would end every
 reading at the first of them.
 
-The same run measured the alternative. Read by paragraph, this control answers cleanly —
-every unit is one line, with no terminator and no merging, at every step including the ones
-where the line unit gives nonsense. But the paragraph *walk* lands on the separator between
-two paragraphs, so an empty unit appears between each pair and one return reads as two. So
-neither unit is right here yet: the line unit is sound to walk and sometimes wrong to read,
-and the paragraph unit is sound to read and wrong to walk.
+The same run measured the alternative, and it is the better one. Read by paragraph, this
+control answers cleanly — every unit is one line, with no terminator and no merging, at every
+step, including the ones where asking for the line returns a single character. Its only
+fault was the *walk*, which landed on the break between two paragraphs so that an empty unit
+appeared between each pair and one return read as two rows. A paragraph break is the row
+boundary; giving it a row as well says the reader pressed return twice. Exactly one empty
+unit is stepped over, which keeps the distinction: one return leaves one and it goes, two
+leave two and the second is a paragraph they meant.
+
+So **a multi line edit being written in is read by paragraph**, whatever the reader's own
+setting says, and a page is read their way. A paragraph is what a writer typed; a line is
+what the control's wrapping made of it. The evidence is stronger than the argument — a unit
+that is only sometimes a unit cannot be a block — but the argument stands on its own.
 
 **While the reader is writing, a caret update reads the whole band again.** Every other
 rule here assumes the document holds still while it is read, and an edit being typed into

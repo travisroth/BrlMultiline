@@ -168,6 +168,68 @@ def sendKey(name: str) -> None:
 	KeyboardInputGesture.fromName(name).send()
 
 
+# Listening.
+
+_spoken: list[str] = []
+"""What NVDA has said since the last step was recorded."""
+
+_originalSpeak = None
+"""NVDA's own `speech.speak`, while this module's listener is in front of it."""
+
+
+def listenToSpeech() -> None:
+	"""Record what NVDA says, so the report has speech beside braille.
+
+	A run that shows the display going wrong cannot say whether speech went wrong with it or
+	instead of it, and the two point at different halves of the system. The reader's report
+	that NVDA announces a growing stretch of text after each return is the case: if the same
+	run with the flow turned off says the same thing, it is NVDA's reading of the control and
+	not the band's doing.
+
+	In front of `speech.speak` rather than replacing it, so nothing is silenced.
+	"""
+	global _originalSpeak
+	if _originalSpeak is not None:
+		return
+	import speech
+
+	_originalSpeak = speech.speak
+
+	def speaking(sequence, *args, **kwargs):
+		try:
+			said = " ".join(part for part in sequence if isinstance(part, str)).strip()
+			if said:
+				_spoken.append(said)
+		except Exception:
+			log.debugWarning("The flow probe could not record what was said", exc_info=True)
+		return _originalSpeak(sequence, *args, **kwargs)
+
+	speech.speak = speaking
+
+
+def stopListening() -> None:
+	"""Put NVDA's own `speak` back, whatever happened in between."""
+	global _originalSpeak
+	if _originalSpeak is None:
+		return
+	try:
+		import speech
+
+		speech.speak = _originalSpeak
+	except Exception:
+		log.error("The flow probe could not give speech back", exc_info=True)
+	_originalSpeak = None
+
+
+def describeSpeech(lines: list) -> None:
+	"""Record everything said since the last step, and start counting again."""
+	if not _spoken:
+		lines.append("  NVDA said: nothing")
+	for said in _spoken:
+		lines.append(f"  NVDA said: {said!r}")
+	_spoken.clear()
+
+
 # Reading what happened.
 
 
@@ -330,6 +392,8 @@ class Probe:
 		self.index = 0
 
 	def start(self) -> None:
+		listenToSpeech()
+		_spoken.clear()
 		self.lines = ["BrlMultiline flow probe", ""]
 		self.record("before anything")
 		self.next()
@@ -338,6 +402,7 @@ class Probe:
 		"""Write down the whole state, under a heading saying what has just happened."""
 		self.lines.append(f"=== {what}")
 		try:
+			describeSpeech(self.lines)
 			describeFocus(self.lines)
 			describeUnits(self.lines)
 			describeWhatNVDAWouldShow(self.lines)
@@ -374,6 +439,7 @@ class Probe:
 		self.next()
 
 	def finish(self) -> None:
+		stopListening()
 		describeCost(self.lines)
 		report = "\n".join(self.lines)
 		log.info(f"BrlMultiline flow probe:\n{report}")

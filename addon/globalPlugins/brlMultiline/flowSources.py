@@ -868,10 +868,42 @@ class DocumentFlowSource:
 			return FetchResult.failed(f"could not move: {error!r}")
 		if moved is None:
 			return FetchResult.endOfStream()
+		moved = self._pastTheBreak(moved, forward)
 		if self.interactive or not self._isBlank(moved):
 			return self._blockAt(moved)
 		# A blank block while reading: the run costs one row rather than a display.
 		return self._walkBlanks(moved, moved, 1, forward, key)
+
+	def _pastTheBreak(self, info, forward: bool):
+		"""Step over the empty unit a paragraph walk lands on between two paragraphs.
+
+		A paragraph break is what separates one paragraph from the next, and in a rich editor
+		the walk lands *on* it rather than past it: reading by paragraph, one return read as
+		two rows, with a blank between every pair. That empty unit is the break, not a line
+		the reader made — in this unit the break is already the row boundary, so giving it a
+		row of its own says they pressed return twice.
+
+		Exactly one is stepped over, which is what keeps the distinction: a single return
+		leaves one empty unit and it goes, while two leave two and the second is a paragraph
+		the reader meant and keeps its row.
+
+		Only for paragraphs. An empty *line* is a line, and decision 6 — blank lines are the
+		document while somebody is writing — is about those.
+
+		:param info: where the walk landed.
+		:param forward: which way it was going.
+		:return: the position to read, which is the one given unless it was a break.
+		"""
+		if self.unit != textInfos.UNIT_PARAGRAPH or not self._isBlank(info):
+			return info
+		try:
+			beyond = self._move(info, forward)
+		except Exception:
+			log.debugWarning("Could not step over a paragraph break", exc_info=True)
+			return info
+		# Nothing beyond it means the document ends here, and the reader is standing on the
+		# break itself: that is a block, and the last one.
+		return info if beyond is None else beyond
 
 	def _walkBlanks(self, info, runStart, count: int, forward: bool, key) -> FetchResult:
 		"""Walk to the end of a run of blank blocks and produce the one block standing for it.

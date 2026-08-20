@@ -56,6 +56,28 @@ def readingUnit() -> str:
 	return textInfos.UNIT_PARAGRAPH if byParagraph else textInfos.UNIT_LINE
 
 
+def readingUnitFor(target) -> str:
+	"""What one block of a document is.
+
+	The reader's own setting, except in a multi line edit they are writing in. There a
+	paragraph is what they typed and a line is what the control's wrapping made of it, and
+	the writer thinks in the first.
+
+	The evidence is stronger than the argument. Asked what the line at the caret is, a rich
+	editor answers with a single character for a moment after each return, and with
+	everything from the start of the document up to the caret when it is asked through a
+	braille region — NVDA's own region shows that too. Asked what the *paragraph* is, the
+	same control at the same moment answers with exactly the line the reader is on, every
+	time. A unit that is only sometimes a unit cannot be a block.
+
+	:param target: the document being read.
+	:return: the reading unit to cut it into blocks by.
+	"""
+	if isBeingWrittenIn(target, target) and flowForms.isMultilineEditable(target):
+		return textInfos.UNIT_PARAGRAPH
+	return readingUnit()
+
+
 def bandSize(handler) -> tuple[int, int]:
 	""":return: the rows and columns to lay a dry run out in, from the display if there is one."""
 	dimensions = getattr(handler, "displayDimensions", None)
@@ -301,7 +323,7 @@ def buildController(
 	source = DocumentFlowSource(
 		target,
 		factory,
-		unit=readingUnit(),
+		unit=readingUnitFor(target),
 		generation=generation,
 		# The source's ordinary policy belongs to the document itself. An edit inside a
 		# browse-mode document turns it on only while that edit is active, through
