@@ -195,6 +195,10 @@ class FlowController(PanelOwner):
 		self.window.appendBlock(self.renderer.render(block))
 		self.window.enterAt(block.blockId)
 		self._setActive(result.block.blockId)
+		# The first rendering was made before this block was active, so it was made before
+		# its live caret was known. Re-render now that the region can read the caret. This is
+		# also what selects the right chunk of an edit taller than the rendering work set.
+		self.refreshActive()
 		if contextRows > 0:
 			self._reachBack(contextRows)
 		elif result.block.isControl:
@@ -408,8 +412,14 @@ class FlowController(PanelOwner):
 		:return: the block to use, which may be one already held.
 		"""
 		existing = self.blocks.get(block.blockId)
-		if existing is not None:
+		if existing is not None and self._sameRegionOwner(existing, block):
 			return existing
+		if existing is not None:
+			oldRegion = getattr(existing, "region", None)
+			if oldRegion is not None and hasattr(oldRegion, "onMoved"):
+				oldRegion.onMoved = None
+			if oldRegion is not None and hasattr(oldRegion, "onLine"):
+				oldRegion.onLine = None
 		self.blocks.set(block.blockId, block)
 		region = getattr(block, "region", None)
 		if region is not None and hasattr(region, "onMoved"):
@@ -424,6 +434,30 @@ class FlowController(PanelOwner):
 			# they are panning away from.
 			region.dirty = False
 		return block
+
+	def _sameRegionOwner(self, existing, incoming) -> bool:
+		"""Whether a freshly read block must keep the region already held for it.
+
+		Ordinary re-reads keep the same region object because NVDA may have queued it for an
+		update. Entering or leaving an edit in browse mode is different: the same document
+		block changes between a document-owned region and a control-owned one. Two edit
+		controls can also occupy the same document unit, so their actual objects are part of
+		the answer.
+		"""
+		if bool(getattr(existing, "isInteractive", False)) != bool(
+			getattr(incoming, "isInteractive", False)
+		):
+			return False
+		if not getattr(incoming, "isInteractive", False):
+			return True
+		oldObj = getattr(getattr(existing, "region", None), "obj", None)
+		newObj = getattr(getattr(incoming, "region", None), "obj", None)
+		if oldObj is newObj:
+			return True
+		try:
+			return bool(oldObj == newObj)
+		except Exception:
+			return False
 
 	def shiftWindow(self, forward: bool) -> bool:
 		"""Move the window by one block, taking nothing with it.
@@ -626,8 +660,11 @@ class FlowController(PanelOwner):
 			return True if self._enterAtCursor(atObject=atObject) else None
 		self._keep(result.block)
 		self._setActive(blockId)
-		moved = self.groundAt(blockId) if ground else self.syncToCursor(forward=forward)
+		# The active region may have followed a caret within an edit, or replaced the
+		# document-bound region with the edit's own. Lay that out before asking which cursor
+		# row is visible; otherwise a cached block answers with yesterday's cursor position.
 		self.refreshActive()
+		moved = self.groundAt(blockId) if ground else self.syncToCursor(forward=forward)
 		return moved
 
 	def groundAt(self, blockId: "BlockId") -> bool:
@@ -807,12 +844,16 @@ class FlowController(PanelOwner):
 			# This flow asked for the reading, so it is not news to be acted on again. See
 			# `_keep`, where the same rule is applied to a block a fetch has just built.
 			block.region.dirty = False
-		rendered = self.renderer.render(block)
 		try:
 			before = self.window.blocks[self.window.blockIndex(self.activeBlockId)]
 		except LookupError:
 			return False
-		if rendered.rows == before.rows:
+		rendered = self._renderActiveChunk(block, before)
+		if (
+			rendered.rows == before.rows
+			and rendered.positions == before.positions
+			and rendered.rowOffset == before.rowOffset
+		):
 			return False
 		self.window.replaceBlock(rendered)
 		# A multi line edit grows into the space as it is typed into, and what the reader
@@ -821,6 +862,24 @@ class FlowController(PanelOwner):
 		self.syncToCursor(forward=True)
 		self.fill()
 		return True
+
+	def _renderActiveChunk(self, block, before):
+		"""Render the chunk which contains the active caret.
+
+		A rendering is deliberately capped at 64 rows. That cap is a memory working set, not
+		a text-length limit, so an edit's caret beyond it must select a later chunk. Keep the
+		current chunk when it still contains the cursor; otherwise ask the renderer to locate
+		the cursor without imposing a text-length cap.
+		"""
+		at = getattr(block.region, "brailleCursorPos", None)
+		rendered = self.renderer.render(block, fromRow=before.rowOffset)
+		if at is None or any(at in row for row in rendered.positions):
+			return rendered
+		return self.renderer.renderAround(
+			block,
+			at,
+			contextRows=max(0, self.window.numRows - 1),
+		)
 
 	def cursorRow(self) -> Optional[int]:
 		"""Which row of the active block the cursor is on, counted within the whole block.
@@ -843,13 +902,11 @@ class FlowController(PanelOwner):
 		for index, positions in enumerate(rendered.positions):
 			if at in positions:
 				return rendered.rowOffset + index
-		if not rendered.rows:
-			return None
-		# A cursor outside the rendered cells. NVDA holds it inside the reading unit — the
-		# unit gains a trailing space so a caret at its end has somewhere to be — so this is
-		# reached only by a region that does not, and the last row is the honest guess: it is
-		# where a reader writing is.
-		return rendered.endRow - 1
+		# A cursor outside the chunk is not a row. `refreshActive` normally replaces this
+		# chunk with the one that contains it; keeping the failure explicit avoids confidently
+		# moving the window to the wrong end of an edit if a driver supplies an index the
+		# renderer cannot map.
+		return None
 
 	# Showing.
 

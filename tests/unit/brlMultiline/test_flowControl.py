@@ -727,6 +727,14 @@ class TestAGrowingEdit(unittest.TestCase):
 		control = controllerOver(["Notes", "abc"], caretIndex=1, live=False)
 		self.assertIsNone(control.cursorRow())
 
+	def test_aCaretPastTheFirstRenderingChunkIsStillShown(self):
+		# Sixty-four rows is the renderer's memory working set, not the longest field the
+		# reader may edit. At eight cells this caret is on row 74.
+		control = self.field("a" * 600, numRows=4, caretOffset=599)
+		self.assertEqual(control.cursorRow(), 74)
+		self.assertIsNotNone(control.cursorCell())
+		self.assertGreater(control.window.blocks[control.window.blockIndex(control.activeBlockId)].rowOffset, 0)
+
 
 class TestTheCursorWithinItsBlock(unittest.TestCase):
 	"""The block the reader is in is read from where they are; every other from its start.

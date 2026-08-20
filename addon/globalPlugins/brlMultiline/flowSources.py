@@ -67,11 +67,10 @@ def documentFor(obj):
 	`objectMonitor.resolveTarget`, and it is deliberate.
 
 	`resolveTarget` answers a different question — what to pin — and gives back the object
-	itself when browse mode has stood aside for a control the reader has entered. Reading a
-	flow that way builds it over one control's own text, so tabbing into a single line edit
-	produces a flow of one line, and an empty one produces a flow of nothing: the blank row
-	where a tabbed-to field should have been. A form field the reader has entered inside a
-	page is still that page, and the page is what has context to show.
+	itself when browse mode has stood aside for a control the reader has entered. A form
+	field the reader has entered is still placed in this document, because the page is what
+	has its label and neighbours. `setInteractiveObject` then reads only that active block
+	through the real edit object, because that is what owns its caret and value events.
 
 	:param obj: the object the reader is on.
 	:return: the document to read, or the object unchanged when there is none.
@@ -140,6 +139,15 @@ class FlowRegion:
 		reading unit, and routing moves it to a cell. In a live flow those move the browse
 		mode cursor, and the band has to follow. Set by the controller."""
 
+		self.tracksLiveCursorAcrossUnits = False
+		"""Whether the whole focused edit is one document block.
+
+		The surrounding browse-mode document places an edit as one block, while the control's
+		own caret can cross any number of its lines. Such a block follows the control's live
+		reading unit without pretending that each line has a different place in the surrounding
+		document. Ordinary document blocks keep the containment rule below.
+		"""
+
 	@property
 	def position(self):
 		""":return: this block's own position, or None if it has never been read."""
@@ -180,6 +188,11 @@ class FlowRegion:
 			return None
 		try:
 			live = super()._getSelection()
+			if self.tracksLiveCursorAcrossUnits:
+				# Remember where the reader last was in the edit. Panning away and back to the
+				# field should return there rather than to the line on which it was entered.
+				self._position = live.copy()
+				return live
 			start = live.copy()
 			start.collapse()
 			start.expand(self._getReadingUnit())
@@ -546,6 +559,8 @@ class DocumentFlowSource:
 		self.unit = unit
 		self.generation = generation
 		self.interactive = interactive
+		self._ordinaryInteractive = interactive
+		"""Whether the document itself is interactive, apart from an embedded edit."""
 		self.budget = budget if budget is not None else FetchBudget()
 		self._positions = ByIdentity()
 		"""The position each block starts at, by bookmark.
@@ -560,6 +575,45 @@ class DocumentFlowSource:
 
 		self._resume = ByIdentity()
 		"""Where a deferred walk through blank lines got to, by block and direction."""
+
+		self._interactiveObject = None
+		"""The focused edit whose caret owns the active block, or None."""
+
+		self._interactiveFactory = None
+		"""Builds a flow counterpart of that edit's own NVDA text region."""
+
+		self._interactiveBlock: Optional[SourceBlock] = None
+		"""The edit block, kept so NVDA can queue its region object for later updates."""
+
+	def setInteractiveObject(self, obj, regionFactory: Optional[Callable] = None) -> bool:
+		"""Read one document block through its focused editable object.
+
+		The block keeps its place in this document, so the surrounding label and following
+		content still come from the tree interceptor. Only the region which reads the active
+		block changes: its ``obj`` is the real edit control, which is the object NVDA names in
+		caret and value-change events.
+
+		:param obj: the focused edit, or None to return to ordinary document regions.
+		:param regionFactory: builds the edit's flow region, chosen from NVDA's own region.
+		:return: whether the active edit changed.
+		"""
+		same = obj is self._interactiveObject
+		if not same and obj is not None and self._interactiveObject is not None:
+			try:
+				same = bool(obj == self._interactiveObject)
+			except Exception:
+				same = False
+		if same:
+			if self._interactiveFactory is None and regionFactory is not None:
+				self._interactiveFactory = regionFactory
+			return False
+		self._interactiveObject = obj
+		self._interactiveFactory = regionFactory
+		self._interactiveBlock = None
+		# Blank lines in an edit are content. Restore the document's own policy when the
+		# focus leaves it rather than leaving every page permanently in editing mode.
+		self.interactive = self._ordinaryInteractive or obj is not None
+		return True
 
 	# Reading.
 
@@ -579,6 +633,10 @@ class DocumentFlowSource:
 		:return: the block, or an error if the document could not be read.
 		"""
 		self.budget.startUnlessActive()
+		if self._interactiveObject is not None and (
+			atObject is None or self._sameObject(atObject, self._interactiveObject)
+		):
+			return self._interactiveBlockAtCursor()
 		info = self._positionOf(atObject) if atObject is not None else None
 		# Where the reader arrived and what kind of thing it is are two questions. A block is
 		# a control's when it holds a control *and* was read at that control's own place: a
@@ -595,6 +653,48 @@ class DocumentFlowSource:
 		# A control asks for a blank row after it, so that a one row answer is separated from
 		# the next prompt. Declared by the block, never produced by packing.
 		return self._blockAt(info, isControl=isControl)
+
+	def _interactiveBlockAtCursor(self) -> FetchResult:
+		""":return: the document block read through the focused edit's own caret."""
+		if self._interactiveBlock is not None:
+			return FetchResult.found(self._interactiveBlock)
+		obj = self._interactiveObject
+		if obj is None:
+			return FetchResult.failed("there is no focused edit")
+		documentInfo = self._positionOf(obj)
+		if documentInfo is None:
+			return FetchResult.failed("the document cannot place its focused edit")
+		try:
+			editInfo = obj.makeTextInfo(textInfos.POSITION_SELECTION)
+			editStart = self._startOfUnit(editInfo)
+			factory = self._interactiveFactory or regionFactoryForObject(obj, live=True)
+			region = factory(obj, editStart)
+			region.tracksLiveCursorAcrossUnits = True
+			region.update()
+		except Exception as error:
+			log.debugWarning("Could not read the focused edit", exc_info=True)
+			return FetchResult.failed(f"could not read the focused edit: {error!r}")
+		start = self._startOfUnit(documentInfo)
+		blockId = BlockId(generation=self.generation, bookmark=self._bookmark(start), unit=self.unit)
+		self._positions.set(blockId.bookmark, start)
+		self._interactiveBlock = SourceBlock(
+			blockId=blockId,
+			region=region,
+			isBlank=not region.rawText.strip(),
+			isControl=True,
+			gapAfter=True,
+			isInteractive=True,
+		)
+		return FetchResult.found(self._interactiveBlock)
+
+	def _sameObject(self, first, second) -> bool:
+		""":return: whether two references name the same accessibility object."""
+		if first is second:
+			return True
+		try:
+			return bool(first == second)
+		except Exception:
+			return False
 
 	def _positionOf(self, obj):
 		"""Where an object starts in this document.
@@ -785,6 +885,7 @@ class DocumentFlowSource:
 		self._positions.clear()
 		self._exits.clear()
 		self._resume.clear()
+		self._interactiveBlock = None
 
 	def __repr__(self) -> str:
 		return f"<DocumentFlowSource {self.obj!r} by {self.unit} generation {self.generation}>"

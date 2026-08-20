@@ -550,12 +550,11 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self.assertTrue(self.segment.acceptFocusRegions(self._focusRegionsFor(field)))
 		self.assertTrue(self.segment.isFlowing)
 
-	def test_aFieldInFocusModeStillFlowsThePageAndNotTheField(self):
-		# Browse mode stands aside for a control the reader has entered, and NVDA's own
-		# resolution then answers with the control. Reading a flow that way builds it over
-		# one field's own text — one line for a single line edit, and nothing at all for an
-		# empty one, which is a blank band where a tabbed-to field should have been.
-		page, interceptor = self._document(["Name", "f: Ada", "Town"])
+	def test_aFieldInFocusModeUsesTheFieldsLiveRegionInsideThePage(self):
+		# Placement and neighbouring blocks still belong to browse mode, but NVDA reports
+		# caret and value events against the real edit. The active block has to use that same
+		# object or those events never queue it for refresh.
+		page, interceptor = self._document(["Name", "f: stale", "Town"])
 		self._start(page)
 		interceptor.passThrough = True
 		field = FakeNavigatorObject(
@@ -563,19 +562,101 @@ class TestFollowingTheFocus(unittest.TestCase):
 			role="EDITABLETEXT",
 			treeInterceptor=interceptor,
 			documentIndex=1,
-			lines=[""],
+			lines=["Ada"],
 		)
 		before = self.band.controller
 		self._focusOn(field)
 		self.segment.acceptFocusRegions(self._focusRegionsFor(field))
 		flow = self.band.controller
 		self.assertIs(flow.source.obj, interceptor)
-		self.assertEqual(flow.regionFor(flow.activeBlockId).rawText, "f: Ada")
+		self.assertIs(flow.activeRegion().obj, field)
+		self.assertEqual(flow.activeRegion().rawText, "Ada")
 		# The same reading, kept: entering a field is a move within the page, so the blocks
 		# already read and the positions they were read from are still good. Resolving to the
 		# field instead makes every tab look like arriving in a new document, which throws the
 		# cache away and takes a fresh generation each time.
 		self.assertIs(flow, before)
+
+	def test_aFocusModeCaretEventRefreshesTheLiveField(self):
+		page, interceptor = self._document(["Name", "f: stale", "Town"])
+		self._start(page)
+		interceptor.passThrough = True
+		field = FakeNavigatorObject(
+			"a search field",
+			role="EDITABLETEXT",
+			treeInterceptor=interceptor,
+			documentIndex=1,
+			lines=["abcdef"],
+		)
+		self._focusOn(field)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(field))
+		field.caretOffset = 4
+		self.handler.handleCaretMove(field)
+		self.assertEqual(self.handler._regionsPendingUpdate, {self.band.controller.activeRegion()})
+		self.handler._handlePendingUpdate()
+		self.assertEqual(self.band.controller.activeRegion().brailleCursorPos, 4)
+
+	def test_aMultilineFieldTracksItsOwnLineRatherThanTheBrowseCursor(self):
+		page, interceptor = self._document(["Notes", "f: stale", "After"])
+		self._start(page)
+		interceptor.passThrough = True
+		field = FakeNavigatorObject(
+			"notes",
+			role="EDITABLETEXT",
+			treeInterceptor=interceptor,
+			documentIndex=1,
+			lines=["first", "second line"],
+		)
+		self._focusOn(field)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(field))
+		field.caretIndex = 1
+		field.caretOffset = 3
+		self.handler.handleCaretMove(field)
+		self.handler._handlePendingUpdate()
+		self.assertEqual(self.band.controller.activeRegion().rawText, "second line")
+		self.assertEqual(self.band.controller.activeRegion().brailleCursorPos, 3)
+
+	def test_leavingAFieldRestoresTheDocumentRegionAtThatPlace(self):
+		page, interceptor = self._document(["Name", "field in page", "After"])
+		self._start(page)
+		interceptor.passThrough = True
+		field = FakeNavigatorObject(
+			"field",
+			role="EDITABLETEXT",
+			treeInterceptor=interceptor,
+			documentIndex=1,
+			lines=["live value"],
+		)
+		self._focusOn(field)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(field))
+		oldRegion = self.band.controller.activeRegion()
+		link = FakeNavigatorObject(
+			"link",
+			role="LINK",
+			treeInterceptor=interceptor,
+			documentIndex=1,
+		)
+		self._focusOn(link)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(link))
+		self.assertIs(self.band.controller.activeRegion().obj, interceptor)
+		self.assertEqual(self.band.controller.activeRegion().rawText, "field in page")
+		self.assertIsNone(oldRegion.onMoved)
+
+	def test_aStandaloneEditorFlowsWhenTheReaderEnablesEditableText(self):
+		from ._stubs import CONFIG
+
+		CONFIG["flowEditableText"] = True
+		editor = self._focusOn(
+			FakeNavigatorObject(
+				"Notepad",
+				role="EDITABLETEXT",
+				lines=["first line", "second line", "third line"],
+			)
+		)
+		self.assertTrue(self._start(editor))
+		self.assertIs(self.band.controller.source.obj, editor)
+		self.assertIs(self.band.controller.activeRegion().obj, editor)
+		self.assertEqual(self.band.controller.activeRegion().rawText, "first line")
 
 	def test_browseModeDoesNotFlowWhenTheReaderHasTurnedItOff(self):
 		# The setting is asked before anything else: a reader who wants NVDA's own reading

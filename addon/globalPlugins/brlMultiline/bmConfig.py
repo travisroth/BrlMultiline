@@ -34,7 +34,7 @@ MAX_UI_SEGMENTS = 8
 MAX_FLOW_ROWS = 64
 """Largest band height the settings dialog offers. A limit on the spin control only."""
 
-FLOW_MODES: tuple[str, ...] = ("browseMode", "objects")
+FLOW_MODES: tuple[str, ...] = ("browseMode", "objects", "editableText")
 """The kinds of content a flow may be used for, in the order the settings dialog offers them.
 
 A flow is turned on for a display and then for each kind of content separately, because
@@ -47,15 +47,15 @@ Adding a kind means adding its name here, its default below, and its label in
 `settingsPanel`. Everything that reads the setting works from this list.
 """
 
-FLOW_MODE_DEFAULTS: dict[str, bool] = {"browseMode": True, "objects": False}
+FLOW_MODE_DEFAULTS: dict[str, bool] = {"browseMode": True, "objects": False, "editableText": False}
 """Whether each kind of content flows when a flow is turned on at all.
 
 Browse mode is on by default because it is what turning a flow on has meant so far, and a
 reader upgrading should get what the command gave them.
 
-Objects — a list, a menu, the choices of a combo box — are off, because that reading is new
-and has not been used in anger. Turning the flow on should not change how a reader's
-dialogs behave until they ask for it.
+Objects — a list, a menu, the choices of a combo box — and standalone editable text are
+off, because those readings are new. Turning the flow on should not change how a reader's
+dialogs and editors behave until they ask for it.
 """
 
 

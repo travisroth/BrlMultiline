@@ -226,6 +226,15 @@ class SourceBlock:
 	there to go to. See `flowObjects.isDecoration`.
 	"""
 
+	isInteractive: bool = False
+	"""Whether this block is being read through the focused editable object.
+
+	A form inside browse mode belongs to the surrounding document for placement and context,
+	but its live caret belongs to the edit control. The flag lets the controller replace the
+	document-bound region with the control-bound one, and put the document region back when
+	the reader leaves the field, without changing the block's document identity.
+	"""
+
 	collapsed: int = 1
 	"""How many blank blocks this one stands for.
 

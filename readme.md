@@ -109,6 +109,11 @@ selection: the display shows the items around you and the arrow keys still decid
 are. A routing key on the item you are already on does what it always did; on any other item
 it moves you there rather than activating it.
 
+*Editable text* — editors and fields outside browse mode, including ordinary Notepad-style
+documents. The lines around the caret use the same spatial flow as a page, while the caret
+remains owned by the real edit control so typing, selection and routing continue through
+NVDA. Off by default, separately from lists and menus.
+
 Everything else goes on being presented by NVDA as it always has, in the same band, so
 nothing disappears when you leave a page.
 
@@ -139,14 +144,18 @@ Things worth knowing:
   would, and starts flowing again by itself when you reach a document.
 - Panning moves the browse mode cursor to what is now at the top of the band, so speech and
   braille stay together and your arrow keys carry on from what is under your hands.
-- A control you have entered inside a page still reads as part of that page.
-- On a form, the prompt is put above the field it belongs to rather than left behind, and a
-  field is separated from the next prompt by a blank row. A multi line edit grows into the
-  rows as you type, keeping what you have just written on the display. A field you tab to is
-  shown the way browse mode shows it, with its name, its role and its state, whether that
-  name comes from a visible label or from the page's markup.
+- A control you have entered inside a page still reads as part of that page. Its active row
+  comes from the real edit control, so the caret and newly typed value stay live while the
+  label and the content after it continue to come from the page.
+- On a form, the page context before the field is put above it rather than left behind, and
+  a field is separated from the next prompt by a blank row. The active row comes from the
+  edit itself and follows its real caret as you type, while the surrounding rows continue
+  to come from the page.
 - A list, a menu or a combo box's choices can be read the same way, showing the items
   around the one you are on. Turn "Lists and menus" on to try it.
+- An editor outside browse mode can be read as a flow too. Turn "Editable text" on to use
+  this in applications such as Notepad; it is separate so enabling page flows does not
+  unexpectedly change every editor.
 
 ## Using two displays at once
 

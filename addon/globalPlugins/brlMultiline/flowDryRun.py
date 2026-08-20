@@ -120,12 +120,7 @@ def isBeingWrittenIn(target, obj) -> bool:
 	:return: whether blank lines should be kept.
 	"""
 	interceptor = getattr(obj, "treeInterceptor", None)
-	try:
-		import controlTypes
-
-		editable = controlTypes.State.EDITABLE in obj.states
-	except Exception:
-		editable = False
+	editable = flowForms.isEditableObject(obj)
 	if interceptor is not None:
 		# The page is what is flowed either way — see `flowSources.documentFor` — so which
 		# it is cannot be read off the target any more. Browse mode standing aside for an
@@ -137,6 +132,32 @@ def isBeingWrittenIn(target, obj) -> bool:
 			log.debugWarning("Could not tell whether browse mode has stood aside", exc_info=True)
 			return False
 	return editable
+
+
+def interactiveRegionFactory(target, obj, live: bool, template=None, notes: Optional[list] = None):
+	"""Build the region factory for an edit inside a browse-mode document.
+
+	The document continues to own placement and neighbouring blocks. The focused edit owns
+	only the active block's text and cursor, which makes the region's ``obj`` match the object
+	NVDA names in caret and value-change events.
+
+	:param target: the surrounding document being flowed.
+	:param obj: the focused object.
+	:param live: whether the resulting region may move the real caret.
+	:param template: the text region NVDA already built for the edit, when available.
+	:param notes: diagnostic notes for the dry run.
+	:return: a flow-region factory, or None when this is not an active embedded edit.
+	"""
+	if obj is None or target is obj or not isBeingWrittenIn(target, obj):
+		return None
+	if template is None:
+		template = templateRegion(obj, notes)
+	try:
+		return regionFactoryFor(template, live=live) if template is not None else regionFactoryForObject(obj, live)
+	except TypeError as error:
+		if notes is not None:
+			notes.append(f"The focused edit has no text region: {error}")
+		return None
 
 
 def objectAdapterFor(obj, target=None):
@@ -215,6 +236,7 @@ def buildController(
 	generation: int = 0,
 	notes: Optional[list] = None,
 	atObject: Optional["NVDAObject"] = None,
+	atRegion=None,
 ) -> Optional[FlowController]:
 	"""Build a flow over an object, ready to be asked what it would show.
 
@@ -230,6 +252,8 @@ def buildController(
 	:param notes: a list to record each step in, so that a failure says which step failed.
 	:param atObject: a form control the reader has arrived at, read at its own place in the
 		document rather than at the cursor. See `flowForms`.
+	:param atRegion: the text region NVDA built for that object, used while editing so caret
+		events reach the active block.
 	:return: the controller, or None if this object has nothing to flow.
 	"""
 	if notes is None:
@@ -275,11 +299,24 @@ def buildController(
 		factory,
 		unit=readingUnit(),
 		generation=generation,
-		interactive=isBeingWrittenIn(target, obj),
+		# The source's ordinary policy belongs to the document itself. An edit inside a
+		# browse-mode document turns it on only while that edit is active, through
+		# `setInteractiveObject`; otherwise leaving the first field would make the whole page
+		# keep blank layout lines forever.
+		interactive=isBeingWrittenIn(target, target),
 		# Sized to the band: filling eight rows costs at least eight blocks, so a budget near
 		# the band's own height is one the reader meets on every arrival. See `budgetForBand`.
 		budget=budgetForBand(numRows),
 	)
+	interactiveFactory = interactiveRegionFactory(
+		target,
+		atObject,
+		live=live,
+		template=atRegion,
+		notes=notes,
+	)
+	if interactiveFactory is not None:
+		source.setInteractiveObject(atObject, interactiveFactory)
 	notes.append(
 		f"Reading by {source.unit}, band {numRows} rows of {numCols} cells, "
 		f"budget {source.budget.maxBlocks} blocks.",

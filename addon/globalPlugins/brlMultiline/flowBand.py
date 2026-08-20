@@ -30,13 +30,13 @@ from typing import TYPE_CHECKING, Any, Optional
 import api
 from logHandler import log
 
-from . import bmConfig, flowObjects, flowQuickNav
+from . import bmConfig, flowForms, flowObjects, flowQuickNav
 from .flowControl import FlowController
-from .flowDryRun import bandSize, buildController, objectAdapterFor
+from .flowDryRun import bandSize, buildController, interactiveRegionFactory, objectAdapterFor
 from .devices import DeviceInfo, deviceMap, preferredDevice
 from .flowSegment import FlowBufferSegment
 from .layout import SegmentRect, wholeDisplayRect
-from .flowSources import documentFor
+from .flowSources import DocumentFlowSource, documentFor
 from .panels import FlowPanel, PanelOwner
 
 if TYPE_CHECKING:
@@ -207,14 +207,21 @@ class FlowBand(PanelOwner):
 			what should happen when the focus has gone somewhere that cannot be read as a
 			flow — a button in a dialog then reads as it always has.
 		"""
+		regions = list(regions or ())
 		obj = self._objectOf(regions)
-		return self.showObject(obj if obj is not None else self._target(), force=True)
+		return self.showObject(
+			obj if obj is not None else self._target(),
+			force=True,
+			focusRegions=regions,
+		)
 
-	def showObject(self, obj: Any, force: bool = False) -> bool:
+	def showObject(self, obj: Any, force: bool = False, focusRegions=None) -> bool:
 		"""Show a flow over an object, keeping the current one if it is the same document.
 
 		:param obj: what the reader is now on.
 		:param force: rebuild even when the document has not changed.
+		:param focusRegions: the regions NVDA built for this focus, so an embedded edit can
+			keep its real text region and caret owner.
 		:return: whether a flow is showing afterwards.
 		"""
 		segment = self.segment()
@@ -243,7 +250,8 @@ class FlowBand(PanelOwner):
 			# The same document, so the reader has moved within it rather than left it. A
 			# focus change is a jump, so the window is placed afresh at the cursor, but the
 			# blocks already read and the positions they were read from are still good.
-			if not force and self.obj is obj:
+			changedEdit = self._setInteractiveObject(obj, target, focusRegions)
+			if not force and self.obj is obj and not changedEdit:
 				return True
 			self.obj = obj
 			# Taken whether or not it is acted on, so that a jump the reader made before the
@@ -268,6 +276,7 @@ class FlowBand(PanelOwner):
 			live=True,
 			generation=next(_generations),
 			atObject=self._arrival(obj, target),
+			atRegion=self._textRegionFor(obj, focusRegions),
 		)
 		if control is None:
 			# Nothing here reads as a flow. The band becomes an ordinary segment again and
@@ -282,6 +291,36 @@ class FlowBand(PanelOwner):
 		flowQuickNav.forget()
 		segment.attach(control, obj=control.source.obj)
 		return True
+
+	def _setInteractiveObject(self, obj: Any, target: Any, regions) -> bool:
+		"""Give an embedded edit's active block its real caret-owning region."""
+		source = getattr(self.controller, "source", None)
+		if not isinstance(source, DocumentFlowSource):
+			return False
+		factory = interactiveRegionFactory(
+			target,
+			obj,
+			live=True,
+			template=self._textRegionFor(obj, regions),
+		)
+		return source.setInteractiveObject(obj if factory is not None else None, factory)
+
+	def _textRegionFor(self, obj: Any, regions):
+		""":return: the text region NVDA built for an object, or None."""
+		if obj is None:
+			return None
+		try:
+			from braille.regions.textInfo import TextInfoRegion
+
+			for region in reversed(list(regions or ())):
+				if not isinstance(region, TextInfoRegion):
+					continue
+				regionObj = getattr(region, "obj", None)
+				if regionObj is obj or bool(regionObj == obj):
+					return region
+		except Exception:
+			log.debugWarning("Could not find the focused edit's text region", exc_info=True)
+		return None
 
 	def _arrival(self, obj: Any, target: Any) -> Any:
 		"""What the reader arrived at, to be read at its own place in the document.
@@ -362,6 +401,8 @@ class FlowBand(PanelOwner):
 		try:
 			if getattr(obj, "treeInterceptor", None) is not None or _isTreeInterceptor(obj):
 				return bmConfig.isFlowEnabledFor("browseMode")
+			if flowForms.isEditableObject(obj):
+				return bmConfig.isFlowEnabledFor("editableText")
 			if not bmConfig.isFlowEnabledFor("objects"):
 				return False
 			return objectAdapterFor(obj) is not None
