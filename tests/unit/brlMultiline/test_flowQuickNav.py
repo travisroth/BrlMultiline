@@ -102,26 +102,26 @@ class TestHearingTheKey(QuickNavTestCase):
 		FakeBrowseMode()._quickNavScript(None, "heading", "next", "", None)
 		self.assertEqual(FakeBrowseMode.calls, [("heading", "next")])
 		self.assertEqual(FakeQuickNavItem.moves, 1)
-		self.assertTrue(flowQuickNav.takeGrounding())
+		self.assertIs(flowQuickNav.take(), True)
 
 	def test_aSearchThatFindsNothingDoesNotGroundTheNextMove(self):
 		flowQuickNav.install()
 		FakeBrowseMode.findsItem = False
 		FakeBrowseMode()._quickNavScript(None, "heading", "next", "no more headings", None)
-		self.assertFalse(flowQuickNav.takeGrounding())
+		self.assertIsNone(flowQuickNav.take())
 
 	def test_aFailedSearchClearsAnOlderPendingJump(self):
 		flowQuickNav.note("heading")
 		flowQuickNav.install()
 		FakeBrowseMode.findsItem = False
 		FakeBrowseMode()._quickNavScript(None, "heading", "next", "no more headings", None)
-		self.assertFalse(flowQuickNav.takeGrounding())
+		self.assertIsNone(flowQuickNav.take())
 
 	def test_theSeamIsGivenBack(self):
 		flowQuickNav.install()
 		flowQuickNav.remove()
 		FakeBrowseMode()._quickNavScript(None, "heading", "next", "", None)
-		self.assertFalse(flowQuickNav.takeGrounding())
+		self.assertIsNone(flowQuickNav.take())
 		self.assertIs(FakeBrowseMode._quickNavScript, ORIGINAL_QUICK_NAV)
 		self.assertIs(FakeQuickNavItem.moveTo, ORIGINAL_MOVE_TO)
 
@@ -136,13 +136,19 @@ class TestHearingTheKey(QuickNavTestCase):
 		# One keypress causes one caret move. A note left in place would ground every
 		# arrow key after it.
 		flowQuickNav.note("heading")
-		self.assertTrue(flowQuickNav.takeGrounding())
-		self.assertFalse(flowQuickNav.takeGrounding())
+		self.assertIs(flowQuickNav.take(), True)
+		self.assertIsNone(flowQuickNav.take())
 
-	def test_aMoveWithinASectionClearsAnOlderNote(self):
+	def test_aMoveWithinASectionIsStillAMove(self):
+		# It does not ground, and the display still has to bring what the reader jumped to
+		# onto it: `e` for the next edit field moved speech and left braille where it was.
+		flowQuickNav.note("listItem")
+		self.assertIs(flowQuickNav.take(), False)
+
+	def test_aLaterNoteReplacesAnEarlierOne(self):
 		flowQuickNav.note("heading")
 		flowQuickNav.note("listItem")
-		self.assertFalse(flowQuickNav.takeGrounding())
+		self.assertIs(flowQuickNav.take(), False)
 
 	def test_aStaleNoteIsNotActedOn(self):
 		clock = [1000.0]
@@ -151,7 +157,7 @@ class TestHearingTheKey(QuickNavTestCase):
 		self.addCleanup(setattr, flowQuickNav.time, "monotonic", original)
 		flowQuickNav.note("heading")
 		clock[0] += flowQuickNav.GROUNDING_WINDOW + 1
-		self.assertFalse(flowQuickNav.takeGrounding())
+		self.assertIsNone(flowQuickNav.take())
 
 
 class TestGrounding(unittest.TestCase):

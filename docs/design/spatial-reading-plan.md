@@ -341,6 +341,26 @@ Two rules, and the second is an exception to everything else this design says ab
 positions. Both were wrong on hardware, and together they were "the cursor sits on the first
 cell of an edit field and stays there while you type".
 
+**A multi line edit being written in is its own document.** Everything else here is about
+a document and a block of it; a textarea is both at once, and the page cannot present it. A
+virtual buffer holds the field's text as its own buffer lines *and* answers "where is this
+field" with one of them, so a flow that placed the field among those lines showed the
+reader's line twice — once as the field, once as the page — and the buffer's caret does not
+move within the field at all, so neither copy followed what they typed. While browse mode
+has stood aside for a multi line edit, therefore, the edit is the document: its own lines
+are the blocks and its own caret is the reading position.
+
+A single line field is not, and the difference is the point. It *is* one line of the page,
+the page has its label and what follows it, and the only thing it needs from the control is
+the live caret — which is what the interactive region above gives it.
+
+Both toggles happen without a focus change: Escape gives browse mode back with the focus
+still on the field, and Enter takes it away again. So the band re-asks what it should be
+reading before each redraw, and acts only on that one disagreement — a page and something
+inside that page — because a focus that has gone somewhere else entirely is a focus change,
+and NVDA reports those through regions that are a better account of where it went than the
+focus object is.
+
 **A block's position is the start of its reading unit**, not the offset the cursor happened
 to be at when the block was built. NVDA's bookmark for a virtual buffer is a pair of
 offsets rather than a line number, so a block built at the caret had a different identity

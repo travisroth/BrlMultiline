@@ -687,6 +687,75 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self.band.controller.followCursor()
 		self.assertIs(self.band.controller.activeRegion().obj, field)
 
+	def _multiline(self, interceptor, lines):
+		""":return: a multi line edit inside a page, as a textarea is."""
+		field = FakeNavigatorObject(
+			"notes",
+			role="EDITABLETEXT",
+			treeInterceptor=interceptor,
+			documentIndex=1,
+			lines=lines,
+		)
+		field.states = {"MULTILINE"}
+		return field
+
+	def test_aMultilineEditBeingWrittenInIsTheDocument(self):
+		# A virtual buffer holds a textarea's text as its own lines *and* answers where the
+		# field is with one of them, so placing the field among those lines showed the
+		# reader's line twice — once as the field and once as the page.
+		page, interceptor = self._document(["Notes", "a field", "After"])
+		self._start(page)
+		interceptor.passThrough = True
+		field = self._multiline(interceptor, ["first", "second", "third"])
+		self._focusOn(field)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(field))
+		flow = self.band.controller
+		self.assertIs(flow.source.obj, field)
+		self.assertEqual(flow.regionFor(flow.window.topBlockId()).rawText, "first")
+
+	def test_soItsOwnLinesAreTheBlocks(self):
+		page, interceptor = self._document(["Notes", "a field", "After"])
+		self._start(page)
+		interceptor.passThrough = True
+		field = self._multiline(interceptor, ["first", "second", "third"])
+		self._focusOn(field)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(field))
+		flow = self.band.controller
+		self.assertEqual(
+			[flow.regionFor(row.blockId).rawText for row in flow.window.visibleRows() if row.blockId],
+			["first", "second", "third"],
+		)
+
+	def test_aSingleLineFieldStaysPartOfThePage(self):
+		"""It is one line of the page, and the page has its label and what follows it."""
+		page, interceptor = self._document(["Name", "a field", "After"])
+		self._start(page)
+		interceptor.passThrough = True
+		field = FakeNavigatorObject(
+			"name",
+			role="EDITABLETEXT",
+			treeInterceptor=interceptor,
+			documentIndex=1,
+			lines=["Ada"],
+		)
+		self._focusOn(field)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(field))
+		self.assertIs(self.band.controller.source.obj, interceptor)
+
+	def test_leavingAMultilineEditGivesThePageBackWithoutAFocusChange(self):
+		# Escape leaves the field with the focus still on it, so nothing tells the band by
+		# itself. It asked only on focus changes, and went on showing the field.
+		page, interceptor = self._document(["Notes", "a field", "After"])
+		self._start(page)
+		interceptor.passThrough = True
+		field = self._multiline(interceptor, ["first", "second", "third"])
+		self._focusOn(field)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(field))
+		self.assertIs(self.band.controller.source.obj, field)
+		interceptor.passThrough = False
+		self.segment.update()
+		self.assertIs(self.band.controller.source.obj, interceptor)
+
 	def test_aStandaloneEditorFlowsWhenTheReaderEnablesEditableText(self):
 		from ._stubs import CONFIG
 
@@ -805,6 +874,39 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self.segment.update()
 		self.assertEqual(flow.regionFor(flow.window.topBlockId()).rawText, "line 6")
 
+	def test_aJumpThatDoesNotGroundStillBringsItsTargetOn(self):
+		# `e` for the next edit field, `b` for the next button. They do not ground — the
+		# reader is moving within what they are reading — but braille still has to go where
+		# speech went. It did not: grounding was the one path that did not need our region to
+		# have been re-read, so `h` appeared to work and `e` and `b` did nothing at all.
+		from brlMultiline import flowQuickNav
+
+		page, interceptor = self._document(documentLines())
+		self._start(page)
+		flow = self.band.controller
+		region = flow.activeRegion()
+		if region is not None:
+			region.dirty = False
+		interceptor.caretIndex = 6
+		flowQuickNav.note("editText")
+		self.segment.update()
+		self.assertEqual(flow.regionFor(flow.activeBlockId).rawText, "line 6")
+
+	def test_andDoesNotPutItOnTheTopRow(self):
+		"""Which is the difference from a heading: the reader's window is nudged, not replaced."""
+		from brlMultiline import flowQuickNav
+
+		page, interceptor = self._document(documentLines())
+		self._start(page)
+		flow = self.band.controller
+		region = flow.activeRegion()
+		if region is not None:
+			region.dirty = False
+		interceptor.caretIndex = 6
+		flowQuickNav.note("editText")
+		self.segment.update()
+		self.assertNotEqual(flow.regionFor(flow.window.topBlockId()).rawText, "line 6")
+
 	def test_anArrivalSpendsAPendingJump(self):
 		# An arrival places the window afresh at what the reader came to, which is what
 		# grounding would have done. A note left behind would ground their next arrow key.
@@ -815,7 +917,7 @@ class TestFollowingTheFocus(unittest.TestCase):
 		flowQuickNav.note("heading")
 		self._focusOn(page)
 		self.segment.acceptFocusRegions(self._focusRegionsFor(page))
-		self.assertFalse(flowQuickNav.takeGrounding())
+		self.assertIsNone(flowQuickNav.take())
 
 	def test_aListOutsideADocumentFlowsAsObjects(self):
 		from ._stubs import CONFIG, fakeRun

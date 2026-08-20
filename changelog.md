@@ -37,8 +37,11 @@ Added:
   separated from the next prompt, and the real edit control owns the active row so its
   caret and typed value stay live without losing the page around it. Standalone editable
   documents such as Notepad can use the same flow through a separate opt-in setting. Long
-  edits keep the caret visible even beyond the renderer's 64-row working chunk. Off until
-  it is turned on, per display and per configuration profile. Experimental.
+  edits keep the caret visible even beyond the renderer's 64-row working chunk. A multi line
+  edit you are writing in is read as a document of its own, so the lines around the one you
+  are on are on the display; leaving it gives the page back. Quick navigation keys all move
+  the display: structural ones ground, and everything else brings what you jumped to into
+  view. Off until it is turned on, per display and per configuration profile. Experimental.
 - Reading a list, a menu, a tree or a combo box's choices the same way: the items around
   the one you are on, rather than that one alone. It never moves your selection — panning
   reads past where you are, and the cursor stays on the item the arrow keys will act on. A

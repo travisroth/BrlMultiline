@@ -146,6 +146,30 @@ def isEditableObject(obj) -> bool:
 		return False
 
 
+def isMultilineEditable(obj) -> bool:
+	"""Whether an object is an edit with lines of its own rather than a single field.
+
+	The difference decides what a flow reads while the reader is writing. A single line
+	field is one line of the page it sits in, and the page has its label and what follows
+	it. A multi line edit has a document's worth of its own, and the page cannot present it:
+	a virtual buffer holds the field's text as buffer lines *and* places the field at one of
+	them, so the line the reader was on appeared twice — once as the field and once as the
+	page — and the buffer's own caret does not move within the field at all.
+
+	:param obj: the object to test.
+	:return: whether it is an edit the reader can put more than one line into.
+	"""
+	if not isEditableObject(obj):
+		return False
+	try:
+		states = getattr(obj, "states", None) or ()
+		return any(roleName(state) == "MULTILINE" for state in states)
+	except Exception:
+		# Read the way every other judgement in this module is: an object that will not say
+		# is not one to take a chance on, and the page is the safe answer for it.
+		return False
+
+
 def contextRowsFor(previousRows: int, gapRows: int, bandRows: int) -> int:
 	"""How many rows above a control to put on the display, so that its prompt is there.
 

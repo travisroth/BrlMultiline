@@ -72,6 +72,10 @@ def documentFor(obj):
 	has its label and neighbours. `setInteractiveObject` then reads only that active block
 	through the real edit object, because that is what owns its caret and value events.
 
+	The one exception is a multi line edit the reader is writing in. There the edit is the
+	document: its own lines are the blocks and its own caret is the reading position, and
+	the page can give neither. See `_isBeingEditedInside`.
+
 	:param obj: the object the reader is on.
 	:return: the document to read, or the object unchanged when there is none.
 	"""
@@ -79,12 +83,41 @@ def documentFor(obj):
 	if interceptor is None:
 		return obj
 	try:
-		if interceptor.isReady:
-			return interceptor
+		if not interceptor.isReady:
+			return obj
 	except Exception:
 		# An interceptor part way through being torn down. The object itself still reads.
 		log.debugWarning("Could not consult a tree interceptor", exc_info=True)
-	return obj
+		return obj
+	if _isBeingEditedInside(obj, interceptor):
+		return obj
+	return interceptor
+
+
+def _isBeingEditedInside(obj, interceptor) -> bool:
+	"""Whether the reader is writing in a multi line edit inside a page.
+
+	Then the edit is the document rather than a block of the page. A virtual buffer holds a
+	textarea's text as its own lines *and* answers where the field is with one of them, so a
+	flow that placed the field among those lines showed the reader's line twice — once as
+	the field and once as the page — and the buffer's caret does not move within the field
+	at all, so neither line followed what they typed.
+
+	Only a multi line edit. A single line field is one line of the page, and the page has
+	its label and what follows it; that case is answered by `setInteractiveObject`, which
+	keeps the page and hands only the active block to the control.
+
+	:param obj: the object the reader is on.
+	:param interceptor: the document it belongs to.
+	:return: whether to read the edit rather than the page.
+	"""
+	try:
+		if not interceptor.passThrough:
+			return False
+	except Exception:
+		log.debugWarning("Could not tell whether browse mode has stood aside", exc_info=True)
+		return False
+	return flowForms.isMultilineEditable(obj)
 
 
 def budgetForBand(numRows: int) -> "FetchBudget":

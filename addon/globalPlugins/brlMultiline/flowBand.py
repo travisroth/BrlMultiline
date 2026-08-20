@@ -32,7 +32,13 @@ from logHandler import log
 
 from . import bmConfig, flowForms, flowObjects, flowQuickNav
 from .flowControl import FlowController
-from .flowDryRun import bandSize, buildController, interactiveRegionFactory, objectAdapterFor
+from .flowDryRun import (
+	bandSize,
+	buildController,
+	describeObject,
+	interactiveRegionFactory,
+	objectAdapterFor,
+)
 from .devices import DeviceInfo, deviceMap, preferredDevice
 from .flowSegment import FlowBufferSegment
 from .layout import SegmentRect, wholeDisplayRect
@@ -84,6 +90,9 @@ class FlowBand(PanelOwner):
 		self.controller: Optional[FlowController] = None
 		self.obj: Any = None
 		"""What the current controller is reading, so a focus change can be recognised."""
+
+		self._rechecking = False
+		"""Guards `recheck` against the redraw its own answer causes."""
 
 	# The claim.
 
@@ -151,6 +160,7 @@ class FlowBand(PanelOwner):
 		segment = self.segment()
 		if segment is not None:
 			segment.follow(self.handleFocusRegions)
+			segment.onUpdate = self.recheck
 
 	def stop(self) -> None:
 		"""Give the band back and forget the flow."""
@@ -194,6 +204,48 @@ class FlowBand(PanelOwner):
 			self.obj = None
 			return False
 		return self.showObject(obj, force=force)
+
+	def recheck(self) -> None:
+		"""Make sure the band is still reading what the reader is in.
+
+		Called before each redraw. Almost always the answer is yes and this costs a focus
+		object and an attribute, and the one time it is no is a change NVDA reports through
+		no event at all: browse mode gives itself back when the reader presses Escape in a
+		form field, and takes itself away again when they press Enter, and the focus does not
+		move for either. What should be read changes on both, so a band that asked only on a
+		focus change went on showing the field the reader had left.
+		"""
+		if self._rechecking or self.controller is None:
+			return
+		obj = self._target()
+		target = self._resolve(obj)
+		current = self.controller.source.obj
+		if target is None or target is current:
+			return
+		if not self._sameFamily(target, current):
+			# Not the toggle this is here for. A focus somewhere else entirely is a focus
+			# change, and NVDA reports those through regions that are a better account of
+			# where it went than the focus object is — answering one here would race it.
+			return
+		self._rechecking = True
+		try:
+			self.showObject(obj, force=True)
+		finally:
+			self._rechecking = False
+
+	def _sameFamily(self, first: Any, second: Any) -> bool:
+		""":return: whether two documents are a page and something inside that page.
+
+		Which is what the toggle above moves between, and the only disagreement `recheck` is
+		entitled to act on.
+		"""
+		try:
+			return getattr(first, "treeInterceptor", None) is second or (
+				getattr(second, "treeInterceptor", None) is first
+			)
+		except Exception:
+			log.debugWarning("Could not compare two documents", exc_info=True)
+			return False
 
 	def handleFocusRegions(self, regions) -> bool:
 		"""Answer a focus change, using the object NVDA built its regions for.
@@ -257,7 +309,8 @@ class FlowBand(PanelOwner):
 			# Taken whether or not it is acted on, so that a jump the reader made before the
 			# setting was turned off cannot ground a later move, and so that a note left by a
 			# quick navigation key cannot ground the ordinary Tab press after it.
-			ground = flowQuickNav.takeGrounding() and bmConfig.shouldGroundOnQuickNav()
+			jump = flowQuickNav.take()
+			ground = bool(jump) and bmConfig.shouldGroundOnQuickNav()
 			showing = bool(
 				self.controller
 				and self.controller.arriveAt(atObject=self._arrival(obj, target), ground=ground)
@@ -400,15 +453,34 @@ class FlowBand(PanelOwner):
 			return False
 		try:
 			if getattr(obj, "treeInterceptor", None) is not None or _isTreeInterceptor(obj):
-				return bmConfig.isFlowEnabledFor("browseMode")
+				return self._enabledFor("browseMode", obj)
 			if flowForms.isEditableObject(obj):
-				return bmConfig.isFlowEnabledFor("editableText")
-			if not bmConfig.isFlowEnabledFor("objects"):
+				return self._enabledFor("editableText", obj)
+			if not self._enabledFor("objects", obj):
 				return False
-			return objectAdapterFor(obj) is not None
+			if objectAdapterFor(obj) is not None:
+				return True
+			log.debug(f"BrlMultiline flow: no adapter reads {describeObject(obj)} as a run")
+			return False
 		except Exception:
 			log.debugWarning("Could not tell whether this can be flowed", exc_info=True)
 			return False
+
+	def _enabledFor(self, mode: str, obj: Any) -> bool:
+		"""Whether one kind of content flows, saying in the log when it does not.
+
+		Because "nothing happens" is the hardest report to act on, and the two answers behind
+		it — this reader has not turned that kind on, and this object is not that kind — look
+		identical from the outside.
+
+		:param mode: the kind of content, as `bmConfig.FLOW_MODES` names it.
+		:param obj: what was being judged, for the log.
+		:return: whether it flows.
+		"""
+		if bmConfig.isFlowEnabledFor(mode):
+			return True
+		log.debug(f"BrlMultiline flow: {mode} is off, so {describeObject(obj)} is left to NVDA")
+		return False
 
 	def _isCurrentRun(self, obj: Any) -> bool:
 		""":return: whether a flow of objects is showing the run this object belongs to."""
@@ -422,14 +494,29 @@ class FlowBand(PanelOwner):
 		return self.controller is not None and self.controller.source.obj is target
 
 	def _resolve(self, obj: Any) -> Any:
-		""":return: what would actually be read for an object, or None."""
+		""":return: what would actually be read for an object, or None.
+
+		The focus regions say which document, and for browse mode that is the page's tree
+		interceptor: the control the reader is inside is never among them. So a control that
+		would be read as a document of its own has to be asked for separately, from the
+		focus. A multi line edit being written in is that case — see `flowSources.documentFor`
+		— and without this the page would always win and the edit would never be reached.
+		"""
 		if obj is None:
 			return None
 		try:
-			return documentFor(obj)
+			target = documentFor(obj)
 		except Exception:
 			log.debugWarning("Could not resolve what to flow", exc_info=True)
 			return None
+		focus = self._focusObject()
+		if focus is None or focus is obj or getattr(focus, "treeInterceptor", None) is not target:
+			return target
+		try:
+			return focus if documentFor(focus) is focus else target
+		except Exception:
+			log.debugWarning("Could not resolve what the focus would flow", exc_info=True)
+			return target
 
 	def _objectOf(self, regions) -> Any:
 		"""Find what NVDA built a set of focus regions for.

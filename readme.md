@@ -153,6 +153,13 @@ Things worth knowing:
   from a visible label or from the page's markup. Once you are typing in it — once browse
   mode has stood aside — the active row comes from the edit itself and follows its real
   caret, while the label above it and the content after it still come from the page.
+- A multi line edit you are writing in — a comment box, a message, a post — is read as a
+  document of its own, so the lines around the one you are on are on the display and the
+  cursor follows what you type. Leaving it gives the page back.
+- Quick navigation keys all move the display. A heading, a table, a landmark or a list puts
+  what you jumped to on the top row with the document running on from it; everything else —
+  a field, a button, a link — brings it onto the display without disturbing the rest of what
+  is under your hands.
 - A list, a menu or a combo box's choices can be read the same way, showing the items
   around the one you are on. Turn "Lists and menus" on to try it.
 - An editor outside browse mode can be read as a flow too. Turn "Editable text" on to use

@@ -72,6 +72,15 @@ class FlowBufferSegment(BrailleBufferSegment):
 		because the focus may have gone to a different document, and choosing what to read
 		is the owner's business, not the display's."""
 
+		self.onUpdate = None
+		"""Called before each redraw, so the owner can check it is still reading the right
+		thing.
+
+		Browse mode can change what should be read without any focus change at all: Escape
+		leaves a form field with the focus still on it, and entering one is the same toggle
+		in reverse. A band that only ever asked on a focus event went on showing the field
+		the reader had left."""
+
 	# Lifetime.
 
 	def attach(self, controller: "FlowController", obj: Any = None) -> None:
@@ -118,11 +127,24 @@ class FlowBufferSegment(BrailleBufferSegment):
 	def update(self) -> None:
 		if self.controller is None:
 			return super().update()
+		self._checkWhatIsRead()
+		if self.controller is None:
+			# The owner found it was reading the wrong thing and gave the band back.
+			return super().update()
 		self._syncRegions()
 		self._followIfRead()
 		self.brailleCells = self.cells()
 		self.rawText = ""
 		self.cursorPos = self.controller.cursorCell()
+
+	def _checkWhatIsRead(self) -> None:
+		"""Let the owner confirm the flow is still over the right document."""
+		if self.onUpdate is None:
+			return
+		try:
+			self.onUpdate()
+		except Exception:
+			log.debugWarning("A flow could not check what it is reading", exc_info=True)
 
 	def _syncRegions(self) -> None:
 		"""Put the active block's region where NVDA looks for the last one, and nothing else."""
@@ -138,16 +160,20 @@ class FlowBufferSegment(BrailleBufferSegment):
 		is this. Re-reading is how a flow hears that the caret moved within the document, or
 		that braille input changed what the block says.
 
-		A jump by structure is answered whether or not the region was re-read. It used to be
-		answered only inside that condition, which made it depend on NVDA having queued our
-		region — and a quick navigation key whose note was never taken left the display
-		sitting where it was while speech announced the heading it had moved to.
+		A quick navigation key is answered whether or not the region was re-read. It used to
+		be answered only inside that condition, which made it depend on NVDA having queued
+		our region — and a key whose caret move never reached us left the display sitting
+		where it was while speech announced what it had moved to. That was true of every
+		quick navigation key, not only the grounding ones: `h` appeared to work because
+		grounding was the one path that did not need the region to be dirty, and `e` and `b`
+		did nothing at all.
 		"""
 		region = self.controller.activeRegion()
 		# Taken whether or not it is acted on, so that a jump the reader made before the
 		# setting was turned off cannot ground a later move.
-		ground = flowQuickNav.takeGrounding() and bmConfig.shouldGroundOnQuickNav()
-		if not ground and (region is None or not getattr(region, "dirty", False)):
+		jump = flowQuickNav.take()
+		ground = bool(jump) and bmConfig.shouldGroundOnQuickNav()
+		if jump is None and (region is None or not getattr(region, "dirty", False)):
 			return
 		try:
 			self.controller.followCursor(ground=ground)
