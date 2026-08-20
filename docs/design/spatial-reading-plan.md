@@ -839,6 +839,13 @@ and it needs three things before milestone 3:
    provider, so there is no protocol there to consume yet; when a component offers one, it
    is an adapter that returns regions rather than objects and the registry is where it goes.
 
+   One thing the last-region audit predicted and this milestone met: `script_braille_nextLine`
+   calls `regions[-1].nextLine()` with no check beyond the list being non-empty, and an
+   object region has no such method — so a display whose line command is bound would have
+   raised where the reader pressed a key. Object blocks answer it by moving the window one
+   item and taking nothing with them, which is what the line commands can mean where the
+   cursor is a selection.
+
    Off by default, unlike browse mode. The reading is new and turning the flow on should not
    change how a reader's dialogs behave until they ask for it.
 7. **Cost.** INSTRUMENTED, AWAITING NUMBERS. Measurement on heavy pages against the latency

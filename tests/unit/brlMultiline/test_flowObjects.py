@@ -264,6 +264,48 @@ class TestRoutingMovesNothingByAccident(unittest.TestCase):
 		self.assertFalse(there.region.acted)
 
 
+class TestTheLineCommands(unittest.TestCase):
+	"""They must reach something, and what they reach must not move the reader.
+
+	`script_braille_nextLine` calls `regions[-1].nextLine()` with no check beyond the list
+	being non-empty. A region without that method raises where the reader pressed a key, and
+	an object region has none of its own — which is a fault waiting on any display whose
+	line command is bound, and the reason these exist at all.
+	"""
+
+	def _region(self):
+		items = fakeRun(["Apple", "Banana"])
+		block = sourceOver(items).blockAtCursor().block
+		return block.region
+
+	def test_theyExistAtAll(self):
+		region = self._region()
+		self.assertTrue(callable(getattr(region, "nextLine", None)))
+		self.assertTrue(callable(getattr(region, "previousLine", None)))
+
+	def test_theyAskForTheWindowToMove(self):
+		region = self._region()
+		asked = []
+		region.onLine = asked.append
+		region.nextLine()
+		region.previousLine()
+		self.assertEqual(asked, [True, False])
+
+	def test_theyDoNothingWhenNobodyIsListening(self):
+		"""Which is a flow that has been detached, and is not a reason to raise."""
+		region = self._region()
+		region.nextLine()
+
+	def test_aListenerThatRaisesIsNotTheReadersProblem(self):
+		region = self._region()
+
+		def difficult(forward):
+			raise RuntimeError("no")
+
+		region.onLine = difficult
+		region.nextLine()
+
+
 class TestStayingInTheSameRun(unittest.TestCase):
 	"""In a list the focus changes on every arrow key, so this decides what gets rebuilt."""
 

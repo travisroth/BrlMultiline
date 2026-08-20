@@ -245,6 +245,35 @@ def regionFactory(live: bool = False) -> Callable:
 			"""Unused here, and present because the controller looks for it. Nothing in an
 			object flow moves the reader's place, so nothing ever calls it."""
 
+			self.onLine = None
+			"""Called with a direction when NVDA's line commands reach this region.
+
+			They must reach something. `script_braille_nextLine` calls `regions[-1].nextLine()`
+			with no check beyond the list being non-empty, and a region that has no such method
+			raises where the reader pressed a key. See the last-region audit."""
+
+		def nextLine(self) -> None:
+			"""Move on by one item, as the braille display's line command asks.
+
+			The window only. Everywhere else in a flow this command takes the cursor with it,
+			and here the cursor is a selection: stepping it would arrow through a list the
+			reader is reading, activating things in a menu. So the display moves and the
+			reader's place does not, which is the rule for the whole of this source.
+			"""
+			self._line(True)
+
+		def previousLine(self, start: bool = False) -> None:
+			"""Move back by one item. See `nextLine`."""
+			self._line(False)
+
+		def _line(self, forward: bool) -> None:
+			if self.onLine is None:
+				return
+			try:
+				self.onLine(forward)
+			except Exception:
+				log.debugWarning("Could not move a run by a line", exc_info=True)
+
 		def update(self) -> None:
 			# Before the base class, which is what turns a position into `brailleCursorPos`.
 			# The start of the block: what the cursor says here is "this is the one you are

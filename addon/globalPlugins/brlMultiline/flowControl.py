@@ -405,7 +405,42 @@ class FlowController(PanelOwner):
 		region = getattr(block, "region", None)
 		if region is not None and hasattr(region, "onMoved"):
 			region.onMoved = self._regionMoved
+		if region is not None and hasattr(region, "onLine"):
+			region.onLine = self.shiftWindow
 		return block
+
+	def shiftWindow(self, forward: bool) -> bool:
+		"""Move the window by one block, taking nothing with it.
+
+		What the line commands mean where the cursor must not move: a run of objects, whose
+		cursor is a selection. Everywhere else `stepBlock` is the answer, and it takes the
+		cursor because there the cursor is a reading position.
+
+		:param forward: True to move on, False to move back.
+		:return: whether the window moved.
+		"""
+		with self.operation():
+			edge = Edge.AFTER if forward else Edge.BEFORE
+			for _ in range(2):
+				top = self.window.topBlockId()
+				nextId = self.window.stepBlock(forward, fromBlockId=top) if top is not None else None
+				if nextId is not None:
+					self.window.enterAt(nextId)
+					self.fill()
+					self._redraw()
+					return True
+				if not self._fetchOne(edge):
+					return False
+			return False
+
+	def _redraw(self) -> None:
+		"""Tell whoever is showing this flow that it moved under them."""
+		if self.onChanged is None:
+			return
+		try:
+			self.onChanged()
+		except Exception:
+			log.debugWarning("A flow could not redraw after a move", exc_info=True)
 
 	def _regionMoved(self, region) -> None:
 		"""Answer a move that started in the region rather than here.

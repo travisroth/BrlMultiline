@@ -637,6 +637,43 @@ class TestReachingBackForContext(unittest.TestCase):
 		self.assertIs(control.window.edges[Edge.BEFORE], EdgeState.DEFERRED)
 
 
+class TestMovingTheWindowAlone(unittest.TestCase):
+	"""What the line commands mean where the cursor must not move: a run of objects."""
+
+	def test_itMovesTheWindowOnByABlock(self):
+		flow = controllerOver([str(number) for number in range(20)], numRows=4)
+		first = rowTexts(flow)[0]
+		self.assertTrue(flow.shiftWindow(True))
+		self.assertNotEqual(rowTexts(flow)[0], first)
+
+	def test_andBackAgain(self):
+		flow = controllerOver([str(number) for number in range(20)], caretIndex=8, numRows=4)
+		before = rowTexts(flow)
+		flow.shiftWindow(True)
+		flow.shiftWindow(False)
+		self.assertEqual(rowTexts(flow), before)
+
+	def test_theActiveBlockDoesNotMoveWithIt(self):
+		# The whole point: in a run of objects the active block is the reader's selection,
+		# and moving it would arrow through a list they are only reading.
+		flow = controllerOver([str(number) for number in range(20)], numRows=4)
+		active = flow.activeBlockId
+		flow.shiftWindow(True)
+		self.assertEqual(flow.activeBlockId, active)
+
+	def test_theEndOfTheDocumentStopsIt(self):
+		flow = controllerOver(["one", "two"], numRows=4)
+		flow.shiftWindow(True)
+		self.assertFalse(flow.shiftWindow(True))
+
+	def test_itTellsTheBandToRedraw(self):
+		flow = controllerOver([str(number) for number in range(20)], numRows=4)
+		drawn = []
+		flow.onChanged = lambda: drawn.append(True)
+		flow.shiftWindow(True)
+		self.assertEqual(drawn, [True])
+
+
 class TestAGrowingEdit(unittest.TestCase):
 	"""A multi line edit grows into the space and pushes the rest off.
 
