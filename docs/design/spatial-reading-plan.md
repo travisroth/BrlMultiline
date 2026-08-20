@@ -361,23 +361,31 @@ inside that page — because a focus that has gone somewhere else entirely is a 
 and NVDA reports those through regions that are a better account of where it went than the
 focus object is.
 
-**A block's identity cannot rest on `TextInfo.bookmark` alone.** Everything above assumes
-the flow can recognise a block it has already read: `hasBlock` decides whether the window is
-already showing the cursor's block, `refreshActive` finds the block to lay out again, and the
-anchor is a block identity that has to survive a re-read. All of that is comparison, and a
-bookmark is what makes a position comparable.
+**What NVDA queues for the next event is what the buffer is holding now.**
+`BrailleHandler.handleCaretMove` takes `mainBuffer.regions[-1]` and marks *that* region
+pending. A flow band puts the active block's region there — see the last-region audit — and
+it has to put the current one there, after following as well as before.
 
-Chromium's editable text does not offer one. `TextInfo.bookmark` raises, and the fallback
-was the position object itself — which has no `__eq__`, so it compares by identity, so every
-reading of one line was a different block. Nothing was ever recognised. The window rebuilt
-from the cursor on each keystroke, one block at a time; a rendering made a moment earlier
-could not be found to refresh, which is why a typed letter appeared only once the next one
-had been typed; and the anchor could not survive, so the band could not hold still. Half of
-what the hardware reported about writing in a comment box was this one fact.
+Left holding the block the reader had just left, the next caret move queued a region the
+band was no longer showing; the update that followed found nothing dirty and did nothing;
+and the update after that worked again. The band answered one keypress in two. Under the
+fingers that is a cursor which moves a press late and a letter which appears only once the
+next one has been typed, and both were reported from a comment box before the cause was
+visible.
 
-Where a document has no bookmarks, two positions are the same block when their reading units
-start in the same place — `compareEndPoints`, wrapped in something that answers `__eq__`
-with it. See `flowSources.PositionMark`.
+It only began to bite when writing started re-reading the whole band, because that replaces
+the active region on every keystroke. Before it, the same region object usually stayed
+active and the staleness could not be seen. A rule about ordering that is only sometimes
+observable is worth stating rather than leaving to be rediscovered: **sync the last region
+after every change to which block is active, not only before reading it.**
+
+**A block's identity rests on `TextInfo.bookmark`, and a document that will not give one
+needs an answer.** Nearly every document gives one, including those that hand back a copy of
+the position itself — those compare by where they are. A document whose `bookmark` raises
+leaves only the position object, which has no equality of its own, so every reading of one
+line would be a different block and nothing would ever be recognised. There, two positions
+are the same block when their reading units start in the same place: `compareEndPoints`,
+wrapped in something that answers `__eq__` with it. See `flowSources.PositionMark`.
 
 **While the reader is writing, a caret update reads the whole band again.** Every other
 rule here assumes the document holds still while it is read, and an edit being typed into

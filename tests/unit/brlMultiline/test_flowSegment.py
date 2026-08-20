@@ -756,6 +756,28 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self.segment.update()
 		self.assertIs(self.band.controller.source.obj, interceptor)
 
+	def test_everyCaretMoveReachesTheDisplay(self):
+		"""Not every other one, which is what a stale last region gave.
+
+		NVDA queues the region it finds in the buffer, so the buffer has to be holding the
+		block the band is showing *now*. Left holding the one the reader had just left, the
+		next caret move queued a region the band no longer showed and the update after it
+		found nothing dirty. Under the fingers: a cursor that moves a keypress late.
+		"""
+		page, interceptor = self._document(["Notes", "a field", "After"])
+		self._start(page)
+		interceptor.passThrough = True
+		field = self._multiline(interceptor, ["first", "second", "third"])
+		self._focusOn(field)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(field))
+		seen = []
+		for index in (1, 2, 0):
+			field.caretIndex = index
+			self.handler.handleCaretMove(field)
+			self.handler._handlePendingUpdate()
+			seen.append(self.band.controller.activeRegion().rawText)
+		self.assertEqual(seen, ["second", "third", "first"])
+
 	def test_aStandaloneEditorFlowsWhenTheReaderEnablesEditableText(self):
 		from ._stubs import CONFIG
 

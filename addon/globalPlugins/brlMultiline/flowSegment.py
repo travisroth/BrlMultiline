@@ -133,6 +133,14 @@ class FlowBufferSegment(BrailleBufferSegment):
 			return super().update()
 		self._syncRegions()
 		self._followIfRead()
+		# Again, because following may have made a different block active. NVDA queues the
+		# region it finds *here* — `handleCaretMove` takes `mainBuffer.regions[-1]` — so a
+		# list left holding the block the reader has just left means the next caret move
+		# queues a region the band no longer shows, and the update after it finds nothing
+		# dirty and does nothing. The display then answered one keypress in two, which under
+		# the fingers is a cursor that moves a press late and a letter that appears only once
+		# the next one has been typed.
+		self._syncRegions()
 		self.brailleCells = self.cells()
 		self.rawText = ""
 		self.cursorPos = self.controller.cursorCell()
@@ -147,10 +155,17 @@ class FlowBufferSegment(BrailleBufferSegment):
 			log.debugWarning("A flow could not check what it is reading", exc_info=True)
 
 	def _syncRegions(self) -> None:
-		"""Put the active block's region where NVDA looks for the last one, and nothing else."""
+		"""Put the active block's region where NVDA looks for the last one, and nothing else.
+
+		Cheap, and done twice per update on purpose: before reading it, because that is what
+		NVDA's commands act on, and after following, because that is what NVDA will queue
+		for the next event.
+		"""
 		if self.controller is None:
 			return
 		region = self.controller.activeRegion()
+		if self.regions[-1:] == [region]:
+			return
 		self.regions = [region] if region is not None else []
 
 	def _followIfRead(self) -> None:

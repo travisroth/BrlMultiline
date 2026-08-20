@@ -139,18 +139,19 @@ def budgetForBand(numRows: int) -> "FetchBudget":
 
 
 class PositionMark:
-	"""A block's identity where the document has no bookmarks of its own.
+	"""A block's identity where the document cannot mark a position.
 
-	`TextInfo.bookmark` is the proper answer and most documents give one. Chromium's editable
-	text — a comment box on a web page, in focus mode — raises instead, and a bare `TextInfo`
-	has no `__eq__`, so it compares by identity. Every reading of the same line was therefore
-	a different block: `hasBlock` was always false, nothing the flow had already read could
-	be recognised again, and the whole design above rests on recognising it.
+	Everything above rests on recognising a block already read: `hasBlock` decides whether
+	the window is showing the cursor's block, `refreshActive` finds the block to lay out
+	again, and the anchor is a block identity that has to survive a re-read. All three are
+	comparison, and a bookmark is what makes a position comparable.
 
-	What that looked like on a display: the window rebuilt from the cursor on every
-	keystroke, one block at a time; a rendering made a moment earlier could not be found to
-	refresh, so a letter appeared only once the next one had been typed; and the anchor could
-	not survive a re-read, so the band could not stay where the reader had put it.
+	`TextInfo.bookmark` is the proper answer and nearly every document gives one — including
+	the ones that hand back a copy of the position itself, since those define an `__eq__`
+	that compares where the position is. This is for a document whose `bookmark` raises. The
+	position object is then all there is, and a bare `TextInfo` has no equality of its own,
+	so every reading of one line would be a different block and nothing would ever be
+	recognised again.
 
 	Two positions are the same block when their reading units start in the same place, which
 	is what `compareEndPoints` answers and what a bookmark would have said. Unhashable, like
@@ -977,9 +978,9 @@ class DocumentFlowSource:
 	def _bookmark(self, info):
 		""":return: something comparable that finds this position again.
 
-		Falls back to comparing the positions themselves where the document has no bookmarks,
-		which is not a nicety: the position object *is* a bookmark that compares by identity,
-		so a flow given one recognises nothing it has read. See `PositionMark`.
+		Falls back to comparing the positions themselves where a document will not mark one.
+		A bare `TextInfo` compares by identity, so a flow given one as a bookmark recognises
+		nothing it has read. See `PositionMark`.
 		"""
 		try:
 			return info.bookmark
