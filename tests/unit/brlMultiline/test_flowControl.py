@@ -62,12 +62,14 @@ def controllerOver(
 	atObject=None,
 	interactive=False,
 	bookmarks=True,
+	unit="line",
 ):
 	"""Build a controller over a browse mode document of the given lines."""
 	interceptor = FakeTreeInterceptor(lines, caretIndex=caretIndex, bookmarks=bookmarks)
 	source = DocumentFlowSource(
 		interceptor,
 		regionFactoryFor(CursorManagerRegion(interceptor), live=live),
+		unit=unit,
 		generation=1,
 		budget=budget,
 		interactive=interactive,
@@ -929,6 +931,34 @@ class TestADocumentWithNoBookmarks(unittest.TestCase):
 		control.source.obj.lines[0] = "one more"
 		control.refreshActive()
 		self.assertEqual(rowTexts(control)[0], "one more")
+
+
+class TestALineThatSwallowedTheNextOne(unittest.TestCase):
+	"""A line holds one line, and a rich editor sometimes says otherwise.
+
+	For a moment after a return at the end of the text, Chromium answers "the line at the
+	caret" with everything from the start of the document up to it. NVDA's own region shows
+	the same, so the band is reading faithfully — but walking on from such a block fetches
+	the line it already contains, and the display showed it twice.
+	"""
+
+	def test_nothingIsFetchedAfterIt(self):
+		control = controllerOver(["one" + chr(10) + "two", "two", "three"], numRows=4)
+		self.assertEqual(len(control.window.blocks), 1)
+		self.assertEqual(control.window.edges[Edge.AFTER], EdgeState.END)
+
+	def test_soTheRowsBelowItAreBlankRatherThanARepeat(self):
+		control = controllerOver(["one" + chr(10) + "two", "two"], numRows=4)
+		self.assertEqual(control.window.visibleRows()[1].kind, RowKind.BLANK)
+
+	def test_anOrdinaryLineStillWalksOn(self):
+		control = controllerOver(["one", "two", "three"], numRows=4)
+		self.assertEqual(len(control.window.blocks), 3)
+
+	def test_aParagraphMayHoldOneWithoutBeingWrong(self):
+		"""Asking this of a paragraph would end every reading at its first soft break."""
+		control = controllerOver(["one" + chr(10) + "two", "three"], numRows=4, unit="paragraph")
+		self.assertEqual(len(control.window.blocks), 2)
 
 
 if __name__ == "__main__":

@@ -657,6 +657,15 @@ class DocumentFlowSource:
 		self._resume = ByIdentity()
 		"""Where a deferred walk through blank lines got to, by block and direction."""
 
+		self._swallowed = ByIdentity()
+		"""Blocks that came back holding more than their own reading unit.
+
+		A line is one line. Chromium's rich editor answers otherwise for a moment after a
+		return at the end of the text: the line at the caret comes back as everything from
+		the start of the document up to it. NVDA's own region shows the same, so the flow is
+		reading faithfully — but a band that then walks *on* from such a block fetches the
+		line it already contains, and shows it twice. See `_step`."""
+
 		self._interactiveObject = None
 		"""The focused edit whose caret owns the active block, or None."""
 
@@ -833,6 +842,12 @@ class DocumentFlowSource:
 	def _step(self, blockId: BlockId, forward: bool) -> FetchResult:
 		"""Walk one block in a direction, collapsing blanks and honouring the budget."""
 		self.budget.startUnlessActive()
+		if forward and self._swallowed.get(blockId.bookmark):
+			# This block already holds the line that would come next, so fetching it would
+			# put it on the display twice — which is what a comment box did for the moment
+			# after each return. Ending the stream here shows blank rows below rather than a
+			# repeat, and the reader's next keystroke reads the document afresh.
+			return FetchResult.endOfStream()
 		key = (blockId.bookmark, forward)
 		pending = self._resume.pop(key)
 		if pending is not None:
@@ -911,6 +926,27 @@ class DocumentFlowSource:
 			# slow page would be invisible in the numbers.
 			self.budget.observe(self.budget.clock() - began)
 
+	def _hasSwallowedWhatFollows(self, region) -> bool:
+		"""Whether a block came back holding more than the reading unit it was asked for.
+
+		A line holds one line. A region's text carries no line terminator — NVDA strips it
+		and puts a space there instead — so a break inside one means the document answered
+		with more than was asked of it, and what it swallowed is the block that would be
+		fetched next.
+
+		Only for lines. A paragraph may legitimately hold soft breaks, and asking this of one
+		would end every reading at the first of them.
+
+		:param region: the region the block was read through.
+		:return: whether this block already contains what follows it.
+		"""
+		if self.unit != textInfos.UNIT_LINE:
+			return False
+		text = getattr(region, "rawText", "") or ""
+		# Counted rather than searched for a character, so that whatever the document
+		# separates its lines with is one.
+		return len(text.splitlines()) > 1
+
 	def _buildBlock(self, info, isControl: bool = False) -> SourceBlock:
 		"""Build one block from a position, and remember where it starts."""
 		start = self._startOfUnit(info)
@@ -918,6 +954,8 @@ class DocumentFlowSource:
 		self._positions.set(blockId.bookmark, start)
 		region = self.regionFactory(self.obj, start)
 		region.update()
+		if self._hasSwallowedWhatFollows(region):
+			self._swallowed.set(blockId.bookmark, True)
 		return SourceBlock(
 			blockId=blockId,
 			region=region,
@@ -993,6 +1031,7 @@ class DocumentFlowSource:
 		self._positions.clear()
 		self._exits.clear()
 		self._resume.clear()
+		self._swallowed.clear()
 		self._interactiveBlock = None
 
 	def __repr__(self) -> str:

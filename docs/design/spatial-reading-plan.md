@@ -395,11 +395,22 @@ document up to the caret. Two returns in and the band showed lines one and two o
 row, and line two again below it as a block of its own, because the next block was walked
 from the over-reaching one.
 
-The flow renders that through NVDA's own `TextInfoRegion`, so it is showing faithfully what
-it was told, and the fix cannot be in the packing. It is either NVDA's reading of that
-control, or something the flow should refuse to trust: a block read by line that contains a
-line break is not a line. What decides between those is what NVDA puts on a display of its
-own for the same object at the same moment, which is why the probe now records it.
+The probe settled it: NVDA's own region shows the same merged text for the same object at
+the same moment, so the flow is faithful and the fix cannot be in the packing. What is ours
+is the *repeat* below it — a band that walks on from an over-reaching block fetches the line
+that block already contains. So a block read by line whose text holds a line break has
+nothing after it to fetch. The rows below go blank rather than showing it twice, and the
+reader's next keystroke reads the document afresh, which the log shows it doing.
+
+Only for lines. A paragraph may hold soft breaks and asking the same of one would end every
+reading at the first of them.
+
+The same run measured the alternative. Read by paragraph, this control answers cleanly —
+every unit is one line, with no terminator and no merging, at every step including the ones
+where the line unit gives nonsense. But the paragraph *walk* lands on the separator between
+two paragraphs, so an empty unit appears between each pair and one return reads as two. So
+neither unit is right here yet: the line unit is sound to walk and sometimes wrong to read,
+and the paragraph unit is sound to read and wrong to walk.
 
 **While the reader is writing, a caret update reads the whole band again.** Every other
 rule here assumes the document holds still while it is read, and an edit being typed into
