@@ -232,6 +232,45 @@ def describeFocus(lines: list) -> None:
 		lines.append(f"  text: unreadable ({error!r})")
 
 
+def describeUnits(lines: list) -> None:
+	"""Record what the control calls a line, and what it calls a paragraph, at the caret.
+
+	The question a row of merged lines raises and the flow cannot answer about itself. A
+	block is a reading unit, and if the control answers "the line here" with two lines then
+	the band is showing faithfully what it was told. Both units, because if one of them is
+	sound the setting that chooses between them is a fix without any code.
+	"""
+	try:
+		obj = api.getFocusObject()
+	except Exception:
+		return
+	for name, unit in (("line", textInfos.UNIT_LINE), ("paragraph", textInfos.UNIT_PARAGRAPH)):
+		try:
+			info = obj.makeTextInfo(textInfos.POSITION_CARET)
+			info.expand(unit)
+			lines.append(f"  the {name} at the caret: {info.text!r}")
+		except Exception as error:
+			lines.append(f"  the {name} at the caret: unreadable ({error!r})")
+
+
+def describeWhatNVDAWouldShow(lines: list) -> None:
+	"""Record what NVDA would put on a display of its own, for the same object.
+
+	The control against which every row of the band should be read. A band that shows
+	something odd is either presenting the control wrongly or presenting faithfully what the
+	control said, and those want opposite fixes.
+	"""
+	try:
+		from braille.regions.focus import getFocusRegions
+
+		obj = api.getFocusObject()
+		for region in getFocusRegions(obj, review=False):
+			region.update()
+			lines.append(f"  NVDA would show: {type(region).__name__} {region.rawText!r}")
+	except Exception as error:
+		lines.append(f"  NVDA would show: unreadable ({error!r})")
+
+
 def describeFlow(lines: list) -> None:
 	"""Record what the band is reading, and every row and block of it."""
 	band = flowBand()
@@ -300,6 +339,8 @@ class Probe:
 		self.lines.append(f"=== {what}")
 		try:
 			describeFocus(self.lines)
+			describeUnits(self.lines)
+			describeWhatNVDAWouldShow(self.lines)
 			describeFlow(self.lines)
 		except Exception:
 			log.error("The flow probe could not read the state", exc_info=True)

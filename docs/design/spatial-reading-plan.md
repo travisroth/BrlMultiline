@@ -387,6 +387,20 @@ line would be a different block and nothing would ever be recognised. There, two
 are the same block when their reading units start in the same place: `compareEndPoints`,
 wrapped in something that answers `__eq__` with it. See `flowSources.PositionMark`.
 
+**Where a reading unit is not one, the band cannot be either.** A block is a reading unit,
+and the whole packing rule — a block starts a new row — assumes a unit read by line holds one
+line. Chromium's rich editor does not always answer that way: at the position left by a
+return at the end of the text, expanding the line gave everything from the start of the
+document up to the caret. Two returns in and the band showed lines one and two on a single
+row, and line two again below it as a block of its own, because the next block was walked
+from the over-reaching one.
+
+The flow renders that through NVDA's own `TextInfoRegion`, so it is showing faithfully what
+it was told, and the fix cannot be in the packing. It is either NVDA's reading of that
+control, or something the flow should refuse to trust: a block read by line that contains a
+line break is not a line. What decides between those is what NVDA puts on a display of its
+own for the same object at the same moment, which is why the probe now records it.
+
 **While the reader is writing, a caret update reads the whole band again.** Every other
 rule here assumes the document holds still while it is read, and an edit being typed into
 does not. A block's position is an offset: insert a line and every offset after it moves,
