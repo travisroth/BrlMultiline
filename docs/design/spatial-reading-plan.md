@@ -893,6 +893,21 @@ and it needs three things before milestone 3:
    an offset within a line, and the three growing-edit tests written for milestone 4 fail
    against the old code — which is what they were for.
 
+   *What the next cursor run found.* The active browse-mode form block was still bound to
+   the tree interceptor. NVDA reports a focus-mode caret move against the real edit object
+   and queues a braille region only when that region's `obj` equals the event object, so the
+   flow never heard the move. The document now continues to own the block's identity,
+   placement, label and neighbours, while that one active block is rendered through the
+   focused edit's own `TextInfoRegion`. Entering and leaving the edit replaces the region
+   without changing the document bookmark. This is a hybrid deliberately: using only the
+   edit loses page context, while using only the tree interceptor loses live caret events.
+
+   The same document source now supports standalone editable objects behind their own
+   opt-in mode. There the edit is the document, so its lines naturally become spatial
+   blocks as they do in Notepad and multiline desktop editors. A long active block also
+   locates the caret's actual rendering chunk instead of clamping an unseen cursor to row
+   63; the 64-row value remains a memory working set rather than a maximum field length.
+
    Still owed: a second hardware run on a real form, and what a combo box does — its choices
    are an object question, which is milestone 6.
 6. **Adapters, viewer bands and objects.** FIRST HARDWARE RUN DONE, CORRECTED. The protocol

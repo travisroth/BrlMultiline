@@ -128,6 +128,7 @@ CONFIG = DisplaySection(
 		"flowEnabled": False,
 		"flowBrowseMode": True,
 		"flowObjects": False,
+		"flowEditableText": False,
 		"flowRows": 0,
 		"flowDisplay": "",
 		"flowGroundOnQuickNav": True,
@@ -167,6 +168,7 @@ def setBandConfig(displayKey: str, **values) -> None:
 			"flowEnabled": False,
 			"flowBrowseMode": True,
 			"flowObjects": False,
+			"flowEditableText": False,
 			"flowRows": 0,
 			"flowDisplay": "",
 			"flowGroundOnQuickNav": True,
@@ -753,6 +755,30 @@ class FakeHandler:
 		"""
 		self.gainedFocus.append(obj)
 
+	def handleCaretMove(self, obj):
+		"""Queue exactly the region NVDA queues for a caret event.
+
+		The object comparison is the important part: a focus-mode edit reports the control,
+		not its browse-mode tree interceptor. A test cannot prove that cursor tracking works
+		unless its handler enforces that same ownership rule.
+		"""
+		region = self.mainBuffer.regions[-1] if self.mainBuffer and self.mainBuffer.regions else None
+		if region is None or getattr(region, "obj", None) != obj:
+			return
+		region.pendingCaretUpdate = True
+		self._regionsPendingUpdate.add(region)
+
+	def _handlePendingUpdate(self):
+		"""Run the reduced pending-update cycle used by the caret tracking tests."""
+		try:
+			for region in self._regionsPendingUpdate:
+				region.update()
+				region.pendingCaretUpdate = False
+			if self.mainBuffer is not None:
+				self.mainBuffer.update()
+		finally:
+			self._regionsPendingUpdate.clear()
+
 	def _dismissMessage(self, shouldUpdate: bool = True):
 		"""Transcribed from `BrailleHandler._dismissMessage`, all four steps of it.
 
@@ -1249,6 +1275,7 @@ class FakeNavigatorObject:
 		self.role = role
 		self.lines = lines
 		self.caretIndex = 0
+		self.caretOffset = 0
 		self.treeInterceptor = treeInterceptor
 		self.isFocusable = False
 		self.hasFocus = False
@@ -1280,7 +1307,7 @@ class FakeNavigatorObject:
 		"""
 		if not self.lines:
 			raise NotImplementedError(f"{self.name!r} has no text")
-		return FakeTextInfo(self.lines, self.caretIndex)
+		return FakeTextInfo(self.lines, self.caretIndex, self.caretOffset)
 
 	def setFocus(self):
 		"""Take the system focus, as NVDA asks an object to."""
@@ -1632,6 +1659,7 @@ def resetConfig() -> None:
 		flowEnabled=False,
 		flowBrowseMode=True,
 		flowObjects=False,
+		flowEditableText=False,
 		flowRows=0,
 		flowDisplay="",
 		flowGroundOnQuickNav=True,

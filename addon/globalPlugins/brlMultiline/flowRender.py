@@ -150,6 +150,50 @@ class FlowRenderer:
 			isDecoration=block.isDecoration,
 		)
 
+	def renderAround(self, block: SourceBlock, position: int, contextRows: int = 0) -> RenderedBlock:
+		"""Lay out the chunk containing one braille position.
+
+		The 64-row chunk is a working-set bound, not a text-length limit. A caret can be well
+		past that first chunk in a large edit, so locating its row is a separate streaming
+		pass and does not guess that an unseen cursor belongs on the chunk's last row.
+
+		:param block: the block whose active region owns ``position``.
+		:param position: the region-relative braille cell holding the caret.
+		:param contextRows: how many rows before the caret to include where possible.
+		:return: the rendering beginning shortly before the caret, or the first chunk if the
+			position could not be mapped.
+		"""
+		row = self._rowContaining(block, position)
+		if row is None:
+			return self.render(block)
+		return self.render(block, fromRow=max(0, row - max(0, contextRows)))
+
+	def _rowContaining(self, block: SourceBlock, position: int) -> Optional[int]:
+		""":return: the whole-block row containing a braille position, or None."""
+		buffer = self._layoutBuffer(block)
+		if buffer is None:
+			return None
+		seen = 0
+		cells = buffer.brailleCells
+		while True:
+			try:
+				buffer._calculateWindowRowBufferOffsets(buffer.windowStartPos)
+			except Exception:
+				log.debugWarning("Could not locate a cursor in a laid out block", exc_info=True)
+				return None
+			offsets = list(buffer._windowRowBufferOffsets)
+			if not offsets:
+				return None
+			for rowPositions in offsets:
+				if rowPositions.start >= len(cells) and seen:
+					continue
+				end = min(rowPositions.end, len(cells))
+				if rowPositions.start <= position < end:
+					return seen
+				seen += 1
+			if buffer.windowEndPos >= len(cells) or not buffer._nextWindow():
+				return None
+
 	def _layoutBuffer(self, block: SourceBlock) -> Optional[BrailleBufferSegment]:
 		"""Build the buffer one block is laid out in.
 

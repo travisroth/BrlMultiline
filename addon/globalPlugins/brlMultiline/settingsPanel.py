@@ -470,6 +470,9 @@ FLOW_MODE_LABELS = {
 	# Translators: label of a checkbox in the flow settings, naming the kind of content the
 	# flow is used for.
 	"objects": _("&Lists and menus: the items around the one you are on"),
+	# Translators: label of a checkbox in the flow settings, naming the kind of content the
+	# flow is used for.
+	"editableText": _("&Editable text: editors and fields outside browse mode"),
 }
 """What to call each kind of content in the dialog, keyed as `bmConfig.FLOW_MODES` names them.
 

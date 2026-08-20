@@ -124,6 +124,28 @@ def isControlObject(obj) -> bool:
 		return False
 
 
+def isEditableObject(obj) -> bool:
+	"""Whether an object owns a text caret the reader may move.
+
+	The role is the dependable answer for ordinary edit controls, including Notepad. The
+	state covers document-like and custom controls which expose editable text under a more
+	general role. Named values keep this policy usable in the unit harness and across NVDA
+	versions, as the role helpers above do.
+
+	:param obj: the object to test.
+	:return: whether its text should be eligible for an editable spatial flow.
+	"""
+	if obj is None:
+		return False
+	try:
+		if roleName(getattr(obj, "role", None)) == "EDITABLETEXT":
+			return True
+		states = getattr(obj, "states", None) or ()
+		return any(roleName(state) == "EDITABLE" for state in states)
+	except Exception:
+		return False
+
+
 def contextRowsFor(previousRows: int, gapRows: int, bandRows: int) -> int:
 	"""How many rows above a control to put on the display, so that its prompt is there.
 

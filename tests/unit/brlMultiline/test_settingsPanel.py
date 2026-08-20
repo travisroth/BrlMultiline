@@ -82,6 +82,8 @@ def defaults():
 		"showDocumentLines": False,
 		"flowEnabled": False,
 		"flowBrowseMode": True,
+		"flowObjects": False,
+		"flowEditableText": False,
 		"flowRows": 0,
 		"flowDisplay": "",
 		"flowGroundOnQuickNav": True,
@@ -504,9 +506,13 @@ class TestFlowOnOneDisplay(FlowPanelTestCase):
 	def test_eachKindOfContentIsSavedSeparately(self):
 		self.panel.enabledCtrl.SetValue(True)
 		self.panel.modeCtrls["browseMode"].SetValue(False)
+		self.panel.modeCtrls["objects"].SetValue(False)
+		self.panel.modeCtrls["editableText"].SetValue(True)
 		self.panel.onSave()
 		self.assertTrue(self.sections[MONARCH_KEY]["flowEnabled"])
 		self.assertFalse(self.sections[MONARCH_KEY]["flowBrowseMode"])
+		self.assertFalse(self.sections[MONARCH_KEY]["flowObjects"])
+		self.assertTrue(self.sections[MONARCH_KEY]["flowEditableText"])
 
 	def test_groundingIsSaved(self):
 		self.panel.groundCtrl.SetValue(False)

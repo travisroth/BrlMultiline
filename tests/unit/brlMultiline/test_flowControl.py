@@ -723,9 +723,34 @@ class TestAGrowingEdit(unittest.TestCase):
 		control = self.field("a" * 16, caretOffset=16)
 		self.assertEqual(control.cursorRow(), 1)
 
+	def test_aCursorPastWhatIsRenderedIsWhereAWriterIs(self):
+		# The gap between the caret moving and the flow re-rendering to catch it. Past the
+		# end is where a reader writing always is, so the last row keeps what they have just
+		# typed on the display.
+		flow = controllerOver(["Name", "a" * 20], caretIndex=1, numCols=8, live=True)
+		flow.activeRegion().brailleCursorPos = 99
+		self.assertEqual(flow.cursorRow(), 2)
+
+	def test_aCursorBeforeWhatIsRenderedIsNotGuessedAt(self):
+		# The other direction has no such answer, and naming a row would move the window to
+		# the wrong end of a long edit on no evidence at all.
+		flow = controllerOver(["Name", "a" * 20], caretIndex=1, numCols=8, live=True)
+		block = flow.blocks.get(flow.activeBlockId)
+		flow.window.replaceBlock(flow.renderer.render(block, fromRow=2))
+		flow.activeRegion().brailleCursorPos = 0
+		self.assertIsNone(flow.cursorRow())
+
 	def test_aViewerHasNoCursorRow(self):
 		control = controllerOver(["Notes", "abc"], caretIndex=1, live=False)
 		self.assertIsNone(control.cursorRow())
+
+	def test_aCaretPastTheFirstRenderingChunkIsStillShown(self):
+		# Sixty-four rows is the renderer's memory working set, not the longest field the
+		# reader may edit. At eight cells this caret is on row 74.
+		control = self.field("a" * 600, numRows=4, caretOffset=599)
+		self.assertEqual(control.cursorRow(), 74)
+		self.assertIsNotNone(control.cursorCell())
+		self.assertGreater(control.window.blocks[control.window.blockIndex(control.activeBlockId)].rowOffset, 0)
 
 
 class TestTheCursorWithinItsBlock(unittest.TestCase):

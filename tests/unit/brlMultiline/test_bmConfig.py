@@ -254,6 +254,12 @@ class TestFlowSettings(ConfigTestCase):
 		CONFIG["flowBrowseMode"] = True
 		self.assertFalse(bmConfig.isFlowEnabledFor("browseMode", FOCUS))
 
+	def test_editableTextIsOptIn(self):
+		bmConfig.setFlowEnabled(True, FOCUS)
+		self.assertFalse(bmConfig.isFlowEnabledFor("editableText", FOCUS))
+		CONFIG["flowEditableText"] = True
+		self.assertTrue(bmConfig.isFlowEnabledFor("editableText", FOCUS))
+
 	def test_noBandIsClaimedWhenNothingIsSetToFlow(self):
 		"""A band with nothing to show would take rows the layout wanted and never fill them."""
 		bmConfig.setFlowEnabled(True, FOCUS)

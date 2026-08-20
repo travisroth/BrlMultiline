@@ -32,8 +32,9 @@ class FakeRole:
 class FakeObject:
 	"""An object with a role, which is all this policy asks of one."""
 
-	def __init__(self, role):
+	def __init__(self, role, states=()):
 		self.role = role
+		self.states = set(states)
 
 
 class TestWhatCountsAsAControl(unittest.TestCase):
@@ -64,6 +65,19 @@ class TestRecognisingWhatTheReaderArrivedAt(unittest.TestCase):
 
 	def test_anEditFieldIsAControl(self):
 		self.assertTrue(flowForms.isControlObject(FakeObject(FakeRole("EDITABLETEXT"))))
+
+	def test_anEditFieldOwnsEditableText(self):
+		self.assertTrue(flowForms.isEditableObject(FakeObject(FakeRole("EDITABLETEXT"))))
+
+	def test_aCustomEditableObjectOwnsEditableText(self):
+		self.assertTrue(
+			flowForms.isEditableObject(
+				FakeObject(FakeRole("DOCUMENT"), states={FakeRole("EDITABLE")}),
+			)
+		)
+
+	def test_aReadOnlyDocumentDoesNotOwnEditableText(self):
+		self.assertFalse(flowForms.isEditableObject(FakeObject(FakeRole("DOCUMENT"))))
 
 	def test_aComboBoxIsAControl(self):
 		# The two the hardware run found missing their prompt, because tabbing to either
