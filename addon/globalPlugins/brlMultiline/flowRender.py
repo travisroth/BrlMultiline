@@ -147,6 +147,7 @@ class FlowRenderer:
 			gapBefore=block.gapBefore,
 			gapAfter=block.gapAfter,
 			isBlank=block.isBlank,
+			isDecoration=block.isDecoration,
 		)
 
 	def _layoutBuffer(self, block: SourceBlock) -> Optional[BrailleBufferSegment]:

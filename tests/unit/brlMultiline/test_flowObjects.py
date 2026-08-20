@@ -532,6 +532,14 @@ class TestASeparatorIsALineNotACommand(unittest.TestCase):
 		control = controllerOver(items)
 		self.assertFalse(control.routeTo(NUM_COLS))
 
+	def test_itIsDrawnAsALineOfDotsSevenAndEight(self):
+		# The reader asked for the line rather than the blank row this started as: braille
+		# readers like decoration too, and the grouping is worth feeling rather than merely
+		# not being lied to about.
+		items, _line = self._menu()
+		control = controllerOver(items)
+		self.assertEqual(control.cells()[NUM_COLS : NUM_COLS * 2], [0xC0] * NUM_COLS)
+
 	def test_theMenuCarriesOnPastIt(self):
 		# The groups either side of a line are one menu. Ending the run at it would hide half
 		# of what the reader opened.
@@ -663,6 +671,21 @@ class TestRoutingThroughTheBand(unittest.TestCase):
 		control = controllerOver(items)
 		control.routeTo(0)
 		self.assertTrue(control.regionFor(control.activeBlockId).acted)
+
+	def test_aMenuItemIsInvokedRatherThanMerelyReached(self):
+		# A routing key is a click, and clicking a menu item runs it. Taking the focus
+		# instead put the menu highlight somewhere and did nothing the reader could see.
+		items = self._items(role="MENUITEM")
+		control = controllerOver(items)
+		control.routeTo(NUM_COLS)
+		self.assertTrue(control.regionFor(control.window.blocks[1].blockId).acted)
+
+	def test_aListItemIsStillOnlyReached(self):
+		"""Clicking a list item selects it and waits, which is the difference."""
+		items = self._items()
+		control = controllerOver(items)
+		control.routeTo(NUM_COLS)
+		self.assertFalse(control.regionFor(control.window.blocks[1].blockId).acted)
 
 	def test_aTabIsChosenRatherThanMerelyReached(self):
 		# Going to a tab is choosing it: one focused but not chosen shows nothing new, and a

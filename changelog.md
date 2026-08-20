@@ -40,10 +40,10 @@ Added:
 - Reading a list, a menu, a tree or a combo box's choices the same way: the items around
   the one you are on, rather than that one alone. It never moves your selection — panning
   reads past where you are, and the cursor stays on the item the arrow keys will act on. A
-  routing key on one of the others moves the focus rather than pressing it, except on a tab
-  strip, where going to a tab is choosing it. A menu's separators show as the blank rows
-  they stand for rather than as unavailable commands. Off until it is turned on, separately
-  from browse mode. Experimental.
+  routing key does what a click would: it invokes a menu item, chooses a tab, and moves the
+  focus to a list or tree item without selecting it. A menu's separators are drawn as a line
+  of dots 7 and 8 rather than read out as unavailable commands. Off until it is turned on,
+  separately from browse mode. Experimental.
 
 For add-on authors and component work:
 

@@ -728,5 +728,64 @@ class TestAGrowingEdit(unittest.TestCase):
 		self.assertIsNone(control.cursorRow())
 
 
+class TestTheCursorWithinItsBlock(unittest.TestCase):
+	"""The block the reader is in is read from where they are; every other from its start.
+
+	Both halves were wrong on hardware. A block was identified by the cursor's own offset, so
+	the flow could not recognise the block it was already showing once the reader moved
+	within it; and every block was read from its stored position, so the one they were in
+	showed a cursor on its first cell and left it there.
+	"""
+
+	def test_aBlockKeepsItsIdentityAsTheCaretMovesWithinIt(self):
+		flow = controllerOver(["Name", "a note"], caretIndex=1, live=True)
+		before = flow.activeBlockId
+		flow.source.obj.caretOffset = 4
+		flow.followCursor()
+		self.assertEqual(flow.activeBlockId, before)
+
+	def test_soAFieldKeepsItsPromptWhileItIsTypedInto(self):
+		# A rebuild puts the cursor's block on the top row, which throws away the label the
+		# window was placed to show above it.
+		flow = controllerOver(
+			["Name", "f: Ada", "Town"],
+			caretIndex=1,
+			numRows=3,
+			live=True,
+			atObject=control(1),
+		)
+		top = flow.window.topBlockId()
+		flow.source.obj.caretOffset = 5
+		flow.followCursor()
+		self.assertEqual(flow.window.topBlockId(), top)
+
+	def test_theCursorIsWhereTheCaretIs(self):
+		flow = controllerOver(["Name", "a note"], caretIndex=1, live=True)
+		flow.source.obj.caretOffset = 3
+		flow.refreshActive()
+		self.assertEqual(flow.activeRegion().brailleCursorPos, 3)
+
+	def test_andMovesWithIt(self):
+		flow = controllerOver(["Name", "a note"], caretIndex=1, live=True)
+		flow.source.obj.caretOffset = 5
+		flow.refreshActive()
+		self.assertEqual(flow.activeRegion().brailleCursorPos, 5)
+
+	def test_aBlockTheCursorHasLeftStillReadsItsOwnLine(self):
+		# The reader's cursor belongs to one block. Reading another from it would show that
+		# block's line under this block's identity, for as long as it took to notice.
+		flow = controllerOver(["Name", "a note"], caretIndex=0, live=True)
+		region = flow.activeRegion()
+		flow.source.obj.caretIndex = 1
+		region.update()
+		self.assertEqual(region.rawText, "Name")
+
+	def test_aViewerReadsEveryBlockFromItsOwnStart(self):
+		flow = controllerOver(["Name", "a note"], caretIndex=1, live=False)
+		flow.source.obj.caretOffset = 3
+		flow.refreshActive()
+		self.assertIsNone(flow.activeRegion().brailleCursorPos)
+
+
 if __name__ == "__main__":
 	unittest.main()

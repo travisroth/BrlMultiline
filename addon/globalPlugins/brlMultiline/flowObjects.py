@@ -96,13 +96,15 @@ and on one line the reader is told the one they are on and nothing about the res
 DECORATION_ROLES = frozenset({"SEPARATOR"})
 """Roles that draw something rather than say something. See `isDecoration`."""
 
-ACTIVATE_ROLES = frozenset({"TAB"})
+ACTIVATE_ROLES = frozenset({"TAB"}) | MENU_ITEM_ROLES
 """Roles a routing key acts on rather than merely goes to.
 
-Routing elsewhere in a run moves the focus, because a finger landing on an item the reader
-was reading past must not activate it. A tab strip is the exception: choosing a tab *is*
-going to it, a tab focused but not chosen shows nothing new, and a routing key is the
-braille equivalent of clicking on what is under your finger.
+A routing key is the braille equivalent of clicking on what is under your finger, so the
+rule is what a mouse click does to that kind of control. Clicking a menu item invokes it and
+clicking a tab chooses it; clicking a list item or a tree item selects it and waits. So a
+menu and a tab strip act, and everything else takes the focus — which is what "go there"
+means, and what stops a finger landing on a list item the reader was reading past from
+activating it.
 """
 
 MAX_CHILDREN = 500

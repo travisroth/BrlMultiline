@@ -146,9 +146,49 @@ class FlowRegion:
 		return self._position
 
 	def _getSelection(self):
+		"""Where this block is read from, which NVDA lays the whole block out around.
+
+		`TextInfoRegion.update` asks once and expands the answer to the reading unit, so this
+		decides both what the block says and where its cursor sits.
+		"""
 		if self._position is None:
 			self._position = super()._getSelection().copy()
-		return self._position.copy()
+			return self._position.copy()
+		live = self._liveCursorHere()
+		return live if live is not None else self._position.copy()
+
+	def _liveCursorHere(self):
+		"""The reader's real cursor, when it is inside this block.
+
+		A block's position is the start of its reading unit. That is what gives it an
+		identity that survives the reader moving within it, and it is what every block but
+		one has to be read from — a stock region over a document answers from the live
+		cursor, so a run of them would all render the cursor's block rather than the blocks
+		around it.
+
+		The exception is the block the reader is *in*. Read from its start it shows a cursor
+		on its first cell and leaves it there, which on hardware was an edit field whose
+		cursor never moved and a long field that never scrolled to what was being typed.
+
+		Only while the cursor is still inside this block. One that has left belongs to
+		another block, and rendering that block's line under this block's identity would put
+		content somewhere it does not belong for as long as it took the flow to notice.
+
+		:return: the live position, or None to read from this block's own start.
+		"""
+		if not (self.isActive and self.live):
+			return None
+		try:
+			live = super()._getSelection()
+			start = live.copy()
+			start.collapse()
+			start.expand(self._getReadingUnit())
+			start.collapse()
+			if start.compareEndPoints(self._position, "startToStart") == 0:
+				return live
+		except Exception:
+			log.debugWarning(f"Could not read the cursor within {self!r}", exc_info=True)
+		return None
 
 	def _setCursor(self, info) -> None:
 		self._position = info.copy()
@@ -666,8 +706,7 @@ class DocumentFlowSource:
 
 	def _buildBlock(self, info, isControl: bool = False) -> SourceBlock:
 		"""Build one block from a position, and remember where it starts."""
-		start = info.copy()
-		start.collapse()
+		start = self._startOfUnit(info)
 		blockId = BlockId(generation=self.generation, bookmark=self._bookmark(start), unit=self.unit)
 		self._positions.set(blockId.bookmark, start)
 		region = self.regionFactory(self.obj, start)
@@ -681,6 +720,34 @@ class DocumentFlowSource:
 		)
 
 	# Positions.
+
+	def _startOfUnit(self, info):
+		"""Where the block holding a position begins.
+
+		A block *is* a reading unit, so that is where it starts and what identifies it.
+		Collapsing the position given instead put the cursor's own offset into the block's
+		identity, and NVDA's bookmark for a virtual buffer is a pair of offsets rather than a
+		line number — so the block held by the window and the block found from the cursor
+		were different blocks for every character the reader passed. The window could not
+		find what it was already showing, so an arrow key within a line rebuilt it; in a
+		field being typed into, that is every keystroke.
+
+		:param info: any position within the block.
+		:return: a collapsed position at the start of its reading unit.
+		"""
+		start = info.copy()
+		start.collapse()
+		try:
+			start.expand(self.unit)
+			start.collapse()
+		except Exception:
+			# A position at an edge the document will not expand from. Its own offset still
+			# identifies a block, and one block having an identity of its own is better than
+			# no block at all.
+			log.debugWarning("Could not find the start of a reading unit", exc_info=True)
+			start = info.copy()
+			start.collapse()
+		return start
 
 	def _move(self, info, forward: bool):
 		"""Move one reading unit.

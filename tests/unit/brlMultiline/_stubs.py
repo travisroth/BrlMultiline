@@ -476,21 +476,41 @@ class FakeBookmark:
 
 	story: int
 	index: int
+	offset: int = 0
+	"""Where in the line, because NVDA's own bookmark is a pair of offsets and not a line
+	number. A block built at the caret therefore has a different identity for every character
+	the reader passes, which is a fault a bookmark that knew only about lines could hide."""
 
 
 class FakeTextInfo:
-	"""A caret in a list of lines, moving by whole lines and stopping at the ends."""
+	"""A caret in a list of lines: a line, and a place within it.
 
-	def __init__(self, lines, index):
+	`text` is the whole line whatever the offset, which is the one simplification kept from
+	the earlier version: everything above reads by the line, and giving a collapsed position
+	an empty text would mean modelling ranges rather than positions.
+	"""
+
+	def __init__(self, lines, index, offset=0):
 		self.lines = lines
 		self.index = index
+		self.offset = offset
+		self.expanded = False
+		"""Whether this range covers its whole line, as `expand` makes it."""
 
 	@property
 	def text(self):
 		return self.lines[self.index] if 0 <= self.index < len(self.lines) else ""
 
 	def copy(self):
-		return FakeTextInfo(self.lines, self.index)
+		copied = FakeTextInfo(self.lines, self.index, self.offset)
+		copied.expanded = self.expanded
+		return copied
+
+	def compareEndPoints(self, other, which="startToStart"):
+		"""Order two positions, as NVDA's TextInfo does. Only the starts are modelled."""
+		here = (self.index, 0 if self.expanded else self.offset)
+		there = (other.index, 0 if other.expanded else other.offset)
+		return (here > there) - (here < there)
 
 	@property
 	def bookmark(self):
@@ -502,13 +522,18 @@ class FakeTextInfo:
 		against a tuple and raises against the real thing, which is a failure worth having
 		in the tests rather than on a display.
 		"""
-		return FakeBookmark(id(self.lines), self.index)
+		return FakeBookmark(id(self.lines), self.index, 0 if self.expanded else self.offset)
 
 	def collapse(self, end=False):
-		pass
+		"""Reduce a range to one of its ends. A position is already one, and does not move."""
+		if self.expanded:
+			self.offset = len(self.text) if end else 0
+			self.expanded = False
 
 	def expand(self, unit):
-		"""Cover the whole unit, which this info already does: its text is a whole line."""
+		"""Cover the whole unit, whose start is the start of the line."""
+		self.offset = 0
+		self.expanded = True
 
 	def move(self, unit, count):
 		"""Move by whole lines, reporting how far it actually got, as NVDA's TextInfo does."""
@@ -516,6 +541,8 @@ class FakeTextInfo:
 		clamped = max(0, min(len(self.lines) - 1, target))
 		moved = clamped - self.index
 		self.index = clamped
+		self.offset = 0
+		self.expanded = False
 		return moved
 
 
@@ -525,9 +552,10 @@ class FakeDocument:
 	def __init__(self, lines, caretIndex=0):
 		self.lines = lines
 		self.caretIndex = caretIndex
+		self.caretOffset = 0
 
 	def makeTextInfo(self, position):
-		return FakeTextInfo(self.lines, self.caretIndex)
+		return FakeTextInfo(self.lines, self.caretIndex, self.caretOffset)
 
 
 class CursorManager:
@@ -561,16 +589,25 @@ class FakeTreeInterceptor(CursorManager):
 	def __init__(self, lines, caretIndex=0, isReady=True, passThrough=False):
 		self.lines = lines
 		self.caretIndex = caretIndex
+		self.caretOffset = 0
+		"""Where in its line the browse mode cursor sits.
+
+		A virtual buffer's cursor moves within a line as well as between them — by the
+		character arrows, and by every keystroke into a form field the reader has entered —
+		and a document that could only be on a line could not show a cursor that fails to
+		follow it."""
+
 		self.isReady = isReady
 		self.passThrough = passThrough
 
 	@property
 	def selection(self):
-		return FakeTextInfo(self.lines, self.caretIndex)
+		return FakeTextInfo(self.lines, self.caretIndex, self.caretOffset)
 
 	@selection.setter
 	def selection(self, info):
 		self.caretIndex = info.index
+		self.caretOffset = info.offset
 
 	def makeTextInfo(self, position):
 		"""Build a position, as a tree interceptor does.
@@ -581,7 +618,7 @@ class FakeTreeInterceptor(CursorManager):
 		object this document cannot place raises `LookupError`, as NVDA's own does.
 		"""
 		if isinstance(position, str):
-			return FakeTextInfo(self.lines, self.caretIndex)
+			return FakeTextInfo(self.lines, self.caretIndex, self.caretOffset)
 		index = getattr(position, "documentIndex", None)
 		if index is None:
 			raise LookupError(f"{position!r} is not in this document")
@@ -602,10 +639,14 @@ class TextInfoRegion(Region):
 		self._readingInfo = None
 
 	def _getSelection(self):
-		return FakeTextInfo(self.obj.lines, self.obj.caretIndex)
+		return FakeTextInfo(self.obj.lines, self.obj.caretIndex, getattr(self.obj, "caretOffset", 0))
 
 	def _setCursor(self, info):
 		self.obj.caretIndex = info.index
+		self.obj.caretOffset = info.offset
+
+	def _getReadingUnit(self):
+		return UNIT_LINE
 
 	def _getDefaultRegionLanguage(self):
 		return "en"
@@ -616,14 +657,19 @@ class TextInfoRegion(Region):
 		Region.update(self)
 		# A collapsed position is a cursor, as it is in NVDA. Regions that must not show one
 		# clear it after calling this, which is the behaviour worth being able to test.
-		# Where in the line it sits is the object's business: a caret at the end of what has
-		# just been typed is what makes a growing edit field testable, and the default of
-		# nought is where every other test leaves it.
+		#
+		# From the position this region reads, and not from the object's caret. NVDA's
+		# `TextInfoRegion.update` calls `_getSelection` once and lays the block out around
+		# what it returns — so a region answering that call with a position of its own shows
+		# a cursor at that position and nowhere else. Reading the caret directly here made
+		# every flow block track it, which is neither what a pinned block does nor what the
+		# hardware saw: an edit field whose cursor sat on the first cell and stayed there.
+		#
 		# Clamped to a cell that exists, as NVDA clamps it: there the reading unit gains a
 		# trailing space so that a caret at its end has somewhere to be, and the cursor is
 		# then held inside the text. A cursor past the last cell is not a state a region
 		# ever reaches, so it is not one a test should be able to produce.
-		self.cursorPos = min(getattr(self.obj, "caretOffset", 0), max(0, len(self.rawText) - 1))
+		self.cursorPos = min(info.offset, max(0, len(self.rawText) - 1))
 		self.brailleCursorPos = self.cursorPos
 
 	def routeTo(self, pos):

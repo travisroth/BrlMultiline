@@ -335,6 +335,31 @@ have to be kept apart, and collapsing any two of them has now caused a fault:
 Within the cursor's own block, the cursor's row must stay visible. That is what makes a
 long paragraph, or a multi line edit field being typed into, behave as described below.
 
+### A block starts where its reading unit starts, and one block is read from the cursor
+
+Two rules, and the second is an exception to everything else this design says about pinned
+positions. Both were wrong on hardware, and together they were "the cursor sits on the first
+cell of an edit field and stays there while you type".
+
+**A block's position is the start of its reading unit**, not the offset the cursor happened
+to be at when the block was built. NVDA's bookmark for a virtual buffer is a pair of
+offsets rather than a line number, so a block built at the caret had a different identity
+for every character the reader passed: the flow could not recognise the block it was already
+showing, and answered by rebuilding the window around the cursor. Within a line that is
+invisible; in a field being typed into it is every keystroke, and it takes the label above
+the field with it.
+
+**The active block of a live flow is read from the live cursor**, while the cursor is still
+inside it. Every other block must be read from its own position — a stock region over a
+document answers from the live cursor, so a run of them would all render the cursor's block
+rather than the blocks around it, which is why the pinning exists at all. But the active
+block *is* the cursor's block, so for it the live cursor is not a hazard but the answer:
+`TextInfoRegion.update` asks once and lays the whole block out around what it is given, so a
+region answering with its own start shows a cursor at its own start and nowhere else. The
+containment test is what keeps the exception narrow: a cursor that has left belongs to
+another block, and rendering that block's line under this block's identity would put content
+where it does not belong until the flow noticed.
+
 ## Controls, labels and edit fields
 
 A form is where spatial context pays best. Most of it follows from the packing rules, but
@@ -517,11 +542,13 @@ neither is a matter of taste.
 
 **The reading position is a selection, so the flow never moves it.** Panning moves the
 window and nothing else; the focused item keeps the cursor, so the reader can feel which of
-the eight the arrow keys will act on; and only a focus event may move that. A routing key
-elsewhere in the run moves the focus rather than acting, which is what "go there" means and
-is NVDA's own precedent in review mode — except where the adapter says otherwise. A tab
-strip says otherwise: choosing a tab *is* going to it, and there the focus is taken and the
-action follows.
+the eight the arrow keys will act on; and only a focus event may move that.
+
+A routing key is the braille equivalent of clicking on what is under your finger, so what it
+does is what a mouse click does to that kind of control. Clicking a menu item invokes it and
+clicking a tab chooses it, so those act — the focus is taken first and the action follows,
+which is NVDA's own `ReviewNVDAObjectRegion`. Clicking a list item or a tree item selects it
+and waits, so those only take the focus. Which way round is the adapter's to say.
 
 **Walking the siblings finds more than the run.** NVDA's own navigation of a list walks the
 items the reader can arrive at; this walks the accessibility siblings, which also holds the
@@ -530,13 +557,15 @@ is read:
 
 - *Content*, admitted by the adapter: same parent, and the same kind of role — with a menu's
   check items, radio items and plain commands counted as one kind, since they are one menu.
-- *Decoration*: a separator, shown as the blank row the grouping deserves and walked
+- *Decoration*: a separator, drawn as a line of dots 7 and 8 across the band and walked
   through, because the groups either side of a line are one menu. Handed to
   `NVDAObjectRegion` it read on hardware as "unavailable" and its dashes, which is true and
   useless. Disabled is never the test on its own: a command that is temporarily unavailable
   is content, and saying so is the whole point of the word. The role is the test, with a
   narrow fallback for a toolkit that exposes its line as an unfocusable, actionless menu
-  item named with nothing but dashes.
+  item named with nothing but dashes. It was a blank row first, and the reader asked for the
+  line: braille readers like decoration too, and the grouping is worth feeling rather than
+  merely not being lied to about. Nothing routes into it — there is nothing there to go to.
 - *Beside the run*: anything else ends it.
 
 The same admission test answers the band's question on every focus change — is this still
@@ -794,7 +823,7 @@ and it needs three things before milestone 3:
 4. **Following.** The in-window test, minimal scroll, entry context, and keeping the
    cursor's row visible inside a growing block. Includes what a flow does when the focus
    leaves it, which entering and leaving focus mode exercises directly.
-5. **Browse mode forms.** FIRST HARDWARE RUN DONE, CORRECTED, AWAITING A SECOND. Label
+5. **Browse mode forms.** SECOND HARDWARE RUN DONE, CORRECTED. Label
    above control, declared spacing after a short field, a multi line edit growing into the
    window.
 
@@ -849,6 +878,20 @@ and it needs three things before milestone 3:
 
    Also from that run: the prompt cost four fetches to use one, because it asked for half a
    band of *rows* before looking at what was above. It asks for one block now.
+
+   *What the second hardware run found.* One thing, and it is the other half of reading a
+   control at its own place: the cursor sat on the first cell of the field and stayed there
+   as the reader typed, and a field longer than the band never scrolled to what was being
+   written. Reading a block from a stored position is what a flow does, and the block the
+   reader is *in* is the one exception — see "a block starts where its reading unit starts"
+   above, which also fixes the block identity that made every keystroke rebuild the window
+   and take the label with it.
+
+   Worth recording why the unit tests did not catch it: the test harness's region took its
+   cursor from the object's caret rather than from the position the region actually reads,
+   so every block tracked the caret and the pinning was invisible. The harness now models
+   an offset within a line, and the three growing-edit tests written for milestone 4 fail
+   against the old code — which is what they were for.
 
    Still owed: a second hardware run on a real form, and what a combo box does — its choices
    are an object question, which is milestone 6.
@@ -931,7 +974,13 @@ and it needs three things before milestone 3:
    - *An open combo box lost its choices* once the focus moved onto one of them. What the
      run was found from is now fixed for the life of the source.
    - *A separator read as "unavailable"* followed by its dashes. Classified as decoration and
-     shown as a blank row; see the object source section above.
+     drawn as a line of dots 7 and 8 across the band; see the object source section above.
+
+   And what the second run found, all three of them decisions rather than defects: a menu
+   item should be invoked by a routing key rather than merely reached, which settles the
+   rule as "what would a click do"; a separator should be a line rather than a blank row,
+   because braille readers like decoration too; and the cursor in an edit field must follow
+   the caret, which is the block position and live cursor rules above.
 
    Two things the reviewer found that hardware would have found later: `MAX_CHILDREN` was
    applied after `obj.children` had already built the whole list, so it bounded the loop and

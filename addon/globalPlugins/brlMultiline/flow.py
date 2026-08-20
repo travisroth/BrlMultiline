@@ -56,6 +56,16 @@ word, which reads as "there is more of this" and is what is meant here too.
 PENDING_MARK_CELLS = 3
 """How many cells a pending or failed row spends on saying so."""
 
+SEPARATOR_CELL = 0xC0
+"""Dots 7 and 8, drawn the width of the band for a line between two groups.
+
+The same shape as `PENDING_CELL`, and told apart by how much of the row it covers: a pending
+row marks its first few cells and leaves the rest blank, and a separator is a line all the
+way across. Both mean "this row is not content", which is why they share a shape, and a
+reader asked for the line rather than the blank row it started as — a separator is
+decoration, and decoration is worth feeling.
+"""
+
 NO_POSITION = -1
 """Marks a cell that came from no position in a block: padding, a gap, a status row.
 
@@ -166,6 +176,9 @@ class RenderedBlock:
 	reader is reading the content or writing it. A collapsed run keeps the identity of its
 	first member, which is the one that owns the visible row.
 	"""
+
+	isDecoration: bool = False
+	"""Whether this block is drawn rather than read. See `SourceBlock.isDecoration`."""
 
 	@property
 	def numRows(self) -> int:
@@ -981,6 +994,8 @@ def cellSource(window: FlowWindow, numCols: int, position: int) -> tuple[BlockId
 
 def _rowCells(window: FlowWindow, row: StreamRow, numCols: int) -> list[int]:
 	""":return: one row's worth of cells, padded to the full width."""
+	if _isDecorationRow(window, row):
+		return [SEPARATOR_CELL] * numCols
 	if row.kind is RowKind.CONTENT and row.blockId is not None:
 		try:
 			block = window.blocks[window.blockIndex(row.blockId)]
@@ -994,3 +1009,13 @@ def _rowCells(window: FlowWindow, row: StreamRow, numCols: int) -> list[int]:
 		marks = min(PENDING_MARK_CELLS, numCols)
 		return [PENDING_CELL] * marks + [BLANK_CELL] * (numCols - marks)
 	return [BLANK_CELL] * numCols
+
+
+def _isDecorationRow(window: FlowWindow, row: StreamRow) -> bool:
+	""":return: whether a row belongs to a block that is drawn rather than read."""
+	if row.kind is not RowKind.CONTENT or row.blockId is None:
+		return False
+	try:
+		return bool(window.blocks[window.blockIndex(row.blockId)].isDecoration)
+	except LookupError:
+		return False
