@@ -410,12 +410,43 @@ class TestWhatReadingCost(unittest.TestCase):
 		self.assertEqual(budget.worstBlocks, worst)
 		self.assertEqual(budget.lastBlocks, 0)
 
-	def test_runningOutOfBlocksIsCounted(self):
+	def test_aRefusedFetchIsCounted(self):
 		# The number that says whether the budget is sized right: it means the reader was
 		# shown less than the band could hold.
 		budget = self.budget(maxBlocks=1)
 		budget.start()
 		budget.spend()
+		self.assertTrue(budget.refuseIfExhausted())
+		budget.finish()
+		self.assertEqual(budget.stops, 1)
+		self.assertEqual(budget.stopsBy["blocks"], 1)
+
+	def test_spendingTheLastBlockIsNotAStop(self):
+		# An operation whose last permitted block filled the last row of the band wanted
+		# nothing more and stopped nothing. Counting it would have the reader chasing an
+		# allowance that already fits.
+		budget = self.budget(maxBlocks=1)
+		budget.start()
+		budget.spend()
+		budget.finish()
+		self.assertEqual(budget.stops, 0)
+
+	def test_runningOutOfTimeIsCountedToo(self):
+		# Missed entirely before, and it is the reason a larger allowance would not help.
+		budget = self.budget(maxBlocks=99, maxSeconds=0.005, step=0.01)
+		budget.start()
+		budget.spend()
+		self.assertTrue(budget.refuseIfExhausted())
+		budget.finish()
+		self.assertEqual(budget.stops, 1)
+		self.assertEqual(budget.stopsBy["time"], 1)
+
+	def test_oneOperationCountsOnceHoweverOftenItIsRefused(self):
+		budget = self.budget(maxBlocks=1)
+		budget.start()
+		budget.spend()
+		budget.refuseIfExhausted()
+		budget.refuseIfExhausted()
 		budget.finish()
 		self.assertEqual(budget.stops, 1)
 
@@ -423,6 +454,7 @@ class TestWhatReadingCost(unittest.TestCase):
 		budget = self.budget(maxBlocks=4)
 		budget.start()
 		budget.spend()
+		self.assertFalse(budget.refuseIfExhausted())
 		budget.finish()
 		self.assertEqual(budget.stops, 0)
 

@@ -31,14 +31,19 @@ Added:
 
 - Reading a document as a flow, on a band of the display: a heading followed by what comes
   after it, a paragraph running on across the rows, panning that moves a whole display's
-  worth and is reversible, and a cursor move within what is shown moving nothing. Browse
-  mode only so far, including forms: a control's prompt is placed above it, a field is
-  separated from the next prompt, and a multi line edit grows into the rows as it is typed
-  into. Off until it is turned on, per display and per configuration profile, so it can be
-  on in one browser and off in another. Experimental.
+  worth and is reversible, and a cursor move within what is shown moving nothing. Tabbing
+  to something already on the display leaves the display where it is; only a jump by
+  structure rehomes it. Browse mode only so far, including forms: a control's prompt is
+  placed above it, a field is separated from the next prompt, and a multi line edit grows
+  into the rows as it is typed into. Off until it is turned on, per display and per
+  configuration profile, so it can be on in one browser and off in another. Experimental.
 - Reading a list, a menu, a tree or a combo box's choices the same way: the items around
-  the one you are on, rather than that one alone. It never moves your selection. Off until
-  it is turned on, separately from browse mode. Experimental.
+  the one you are on, rather than that one alone. It never moves your selection — panning
+  reads past where you are, and the cursor stays on the item the arrow keys will act on. A
+  routing key on one of the others moves the focus rather than pressing it, except on a tab
+  strip, where going to a tab is choosing it. A menu's separators show as the blank rows
+  they stand for rather than as unavailable commands. Off until it is turned on, separately
+  from browse mode. Experimental.
 
 For add-on authors and component work:
 

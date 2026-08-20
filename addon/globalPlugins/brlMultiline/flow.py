@@ -205,6 +205,14 @@ class SourceBlock:
 	than putting the control on the top row and filling downward.
 	"""
 
+	isDecoration: bool = False
+	"""Whether this block is something drawn between items rather than one of them.
+
+	A menu separator, in practice. It occupies its row as a blank one, because the grouping
+	it stands for is worth the space, and a routing key on it does nothing: there is nothing
+	there to go to. See `flowObjects.isDecoration`.
+	"""
+
 	collapsed: int = 1
 	"""How many blank blocks this one stands for.
 

@@ -102,17 +102,26 @@ class FlowController(PanelOwner):
 		renderer: "FlowRenderer",
 		numRows: int,
 		live: bool = False,
+		movesCursor: Optional[bool] = None,
 	) -> None:
 		"""
 		:param source: where the blocks come from.
 		:param renderer: how a block becomes rows.
 		:param numRows: the height of the band.
-		:param live: whether this flow is the focus segment, and so moves the real cursor.
+		:param live: whether this flow is the reader's own, and so shows them a cursor and
+			writes their place back to NVDA.
+		:param movesCursor: whether this flow's own reading position follows the window —
+			panning puts it on the top block, routing puts it where the finger landed. True
+			for a document, of either flavour. False for a run of objects, where the reading
+			position is a selection: it is the application's to say, it changes only when a
+			focus event says so, and panning past it is reading rather than moving. See
+			`flowObjects`.
 		"""
 		self.source = source
 		self.renderer = renderer
 		self.window = FlowWindow(numRows)
 		self.live = live
+		self.movesCursor = True if movesCursor is None else movesCursor
 		self._following = False
 		"""Guards against following a cursor move that this controller made itself."""
 
@@ -243,7 +252,7 @@ class FlowController(PanelOwner):
 		for _ in range(MAX_FETCHES):
 			if self.window.rowsAbove() >= rows:
 				return
-			if self.source.budget.exhausted:
+			if self.source.budget.refuseIfExhausted():
 				self.window.setEdge(Edge.BEFORE, EdgeState.DEFERRED)
 				return
 			if not self._fetchOne(Edge.BEFORE):
@@ -289,7 +298,7 @@ class FlowController(PanelOwner):
 		for _ in range(MAX_FETCHES):
 			if self.window.shortfall(edge) <= 0:
 				return True
-			if self.source.budget.exhausted:
+			if self.source.budget.refuseIfExhausted():
 				# Out of budget, not out of document. Said so on the display, so that the
 				# rows the reader cannot see yet do not read as the end of the page.
 				self.window.setEdge(edge, EdgeState.DEFERRED)
@@ -310,7 +319,7 @@ class FlowController(PanelOwner):
 		blocks = self.window.blocks
 		if not blocks:
 			return False
-		if self.source.budget.exhausted:
+		if self.source.budget.refuseIfExhausted():
 			# Every path that fetches — filling, panning, cursor reach and long-block
 			# continuation — comes through here. Keeping the gate at that shared boundary
 			# prevents a caller from accidentally turning a per-operation budget into a hint.
@@ -407,6 +416,13 @@ class FlowController(PanelOwner):
 			region.onMoved = self._regionMoved
 		if region is not None and hasattr(region, "onLine"):
 			region.onLine = self.shiftWindow
+		if region is not None and hasattr(region, "dirty"):
+			# Reading a block marks its region as read again, and this flow is the one that
+			# asked. `dirty` means NVDA re-read the region, which is how a caret move inside
+			# a document reaches a flow; a block the flow itself has just fetched would
+			# otherwise read as a move the reader made, and send the window to the cursor
+			# they are panning away from.
+			region.dirty = False
 		return block
 
 	def shiftWindow(self, forward: bool) -> bool:
@@ -453,9 +469,9 @@ class FlowController(PanelOwner):
 		"""
 		if self._following:
 			return
-		if self.live:
-			# The real cursor moved, so the window follows it. A viewer's regions move a
-			# position of their own, which the object's cursor knows nothing about: asking
+		if self.live and self.movesCursor:
+			# The real cursor moved, so the window follows it. Any other flow moved a
+			# position of its own, which the object's cursor knows nothing about: asking
 			# where the cursor is would send the band back to where the reader is not.
 			self._following = True
 			try:
@@ -571,21 +587,46 @@ class FlowController(PanelOwner):
 
 	def _followCursor(self, ground: bool = False) -> bool:
 		""":return: whether anything changed. See `followCursor`."""
-		result = self.source.blockAtCursor()
+		return bool(self._arrive(ground=ground))
+
+	def arriveAt(self, atObject=None, ground: bool = False) -> bool:
+		"""Answer the reader arriving somewhere in the document already being read.
+
+		Tab, the arrow keys and a quick navigation key all land here, and they do not mean
+		the same thing. Tab is a move within a page the reader has their hands on: a target
+		already on the display must not move it at all, and one just off it wants the least
+		movement that shows it. Only a jump by structure grounds — there the reader has left
+		a section behind and is being set down in the next one. Only a target the cache
+		cannot reach is entered afresh.
+
+		Placing the window afresh on every focus change was the earlier answer, and it moved
+		the display on a Tab press to something the reader could already feel.
+
+		:param atObject: what they arrived at, read at its own place in the document rather
+			than at the cursor: a form control, a link, anything the document can locate.
+			None reads at the cursor as ever.
+		:param ground: put what they arrived at on the top row. See `followCursor`.
+		:return: whether anything is on the display.
+		"""
+		with self.operation():
+			return self._arrive(atObject=atObject, ground=ground) is not None
+
+	def _arrive(self, atObject=None, ground: bool = False) -> Optional[bool]:
+		"""Find where the reader is now and bring the window to it.
+
+		:return: whether the window moved, or None if there was nothing to read.
+		"""
+		result = self.source.blockAtCursor(atObject)
 		self.lastResult = result
 		if result.kind is not ResultKind.BLOCK or result.block is None:
-			return False
+			return None
 		blockId = result.block.blockId
 		forward = self._isForward(blockId)
-		if not self.window.hasBlock(blockId):
-			if not self._reach(blockId, forward):
-				return self.enterAtCursor()
+		if not self.window.hasBlock(blockId) and not self._reach(blockId, forward):
+			return True if self._enterAtCursor(atObject=atObject) else None
 		self._keep(result.block)
 		self._setActive(blockId)
-		if ground:
-			moved = self.groundAt(blockId)
-		else:
-			moved = self.syncToCursor(forward=forward)
+		moved = self.groundAt(blockId) if ground else self.syncToCursor(forward=forward)
 		self.refreshActive()
 		return moved
 
@@ -681,7 +722,7 @@ class FlowController(PanelOwner):
 		:param blockId: the block to move to.
 		:return: whether the cursor was moved.
 		"""
-		if not self.live:
+		if not (self.live and self.movesCursor):
 			return False
 		region = self.regionFor(blockId)
 		takeCursor = getattr(region, "takeCursor", None)
@@ -693,9 +734,16 @@ class FlowController(PanelOwner):
 		"""Put the cursor on the top block of the window, after a pan.
 
 		Reading onward with the arrow keys then continues from the top of what is under the
-		reader's hands, in both directions. A viewer moves nothing, so it only records
-		which block is active.
+		reader's hands, in both directions.
+
+		Only where the flow owns the cursor. A run of objects does not: the reader's place
+		is the focused item and panning is reading past it, so making the new top row active
+		would claim they had moved. It did claim exactly that — and because the focus had of
+		course not moved, the next refresh followed the real focus and dragged the display
+		back to where the reader had panned away from.
 		"""
+		if not self.movesCursor:
+			return
 		topId = self.window.topBlockId()
 		if topId is None:
 			return
@@ -755,6 +803,10 @@ class FlowController(PanelOwner):
 		except Exception:
 			log.debugWarning(f"Could not refresh {self.activeBlockId}", exc_info=True)
 			return False
+		if hasattr(block.region, "dirty"):
+			# This flow asked for the reading, so it is not news to be acted on again. See
+			# `_keep`, where the same rule is applied to a block a fetch has just built.
+			block.region.dirty = False
 		rendered = self.renderer.render(block)
 		try:
 			before = self.window.blocks[self.window.blockIndex(self.activeBlockId)]
@@ -844,15 +896,25 @@ class FlowController(PanelOwner):
 		if source is None:
 			return False
 		blockId, at = source
+		block = self.blocks.get(blockId)
+		if block is not None and getattr(block, "isDecoration", False):
+			# The blank row a menu separator stands for. There is nothing there to go to.
+			return False
 		region = self.regionFor(blockId)
 		if region is None:
 			return False
-		self._setActive(blockId)
 		try:
+			# The region first, and the flow's own place afterwards. A region decides what a
+			# press means from whether the reader was already on that block — an object's
+			# does, because a press where they are acts and a press elsewhere goes — and
+			# making the block active first told it they had been there all along, so a
+			# routing key meant to reach a list item activated it.
 			region.routeTo(at)
 		except Exception:
 			log.debugWarning(f"Could not route into {blockId}", exc_info=True)
 			return False
+		if self.movesCursor:
+			self._setActive(blockId)
 		return True
 
 	def fillStats(self) -> tuple[int, int]:

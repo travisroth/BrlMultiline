@@ -6,11 +6,11 @@ display as one continuous piece, rather than showing the focused line and readin
 offset into every other segment.
 
 This is the design, the decisions taken so far, the order of work, and the questions
-still open. Every milestone is now built and unit tested. Milestones 0 to 3 have been run
-on hardware and corrected by what it found; 5 and 6 have not, and 7 is an instrument
-waiting for numbers only hardware can produce. The milestone list says precisely what each
-of those means, including what each hardware run got wrong — which has twice been a
-constant somebody guessed.
+still open. Every milestone is now built and unit tested. Milestones 0 to 3, 5 and 6 have
+been run on hardware and corrected by what it found; 7 is an instrument waiting for numbers
+only hardware can produce. The milestone list says precisely what each of those means,
+including what each hardware run got wrong — which has twice been a constant somebody
+guessed, and twice been two different things sharing one flag.
 
 ## The problem
 
@@ -287,6 +287,14 @@ under the reader's hands, in both directions, and what speech says matches where
 starts. Everything below the top block is on the display without having been spoken, which
 is the point of the extra rows.
 
+This holds wherever the reading position is the reader's to move. It does not hold for a
+run of objects, where the reading position is a *selection*: see the object source below.
+There the window moves and the reader's place does not, and the display shows no cursor
+until they pan back to it. Making the new top block active there claimed a move the reader
+had not made — and since the focus had of course not moved, the next refresh followed it
+and dragged the display back. On hardware that read as "the second pan bounces back to the
+top", and the second pan was simply the first one that had to fetch.
+
 Two consequences worth stating, both to be checked on hardware:
 
 - Panning forward across four short blocks speaks the first of them, not the last. That is
@@ -307,9 +315,22 @@ answered by asking the question in the right order rather than by a rule about h
 
 If the cursor's block is outside the window, scroll by the smallest amount that brings it
 in, in the direction of travel: moving forward, its block sits at the bottom of the window
-with what preceded it above; moving back, it sits at the top. A jump — a focus change, or a
-move of more than a window's worth — abandons the window and rebuilds it by the entry rule
-in decision 4.
+with what preceded it above; moving back, it sits at the top. A jump — a move of more than
+the cache can reach — abandons the window and rebuilds it by the entry rule in decision 4.
+
+**A focus change is not by itself a jump.** An earlier draft said it was, and the hardware
+disagreed: Tab moves within a page the reader has their hands on, and rebuilding the window
+around each target moved the display to something they could already feel. Three questions
+have to be kept apart, and collapsing any two of them has now caused a fault:
+
+- *Where they arrived.* Any focus target the document can place — a link as much as an edit
+  field — is read at its own place rather than at the cursor, because a focus event can
+  arrive before the browse mode cursor has caught up. Reading at the cursor then showed the
+  line they were on before they pressed Tab, which on hardware looked like a blank row.
+- *What kind of thing it is.* Only a form control brings the prompt and spacing rules
+  below. Deciding this from *whether an object had been passed at all* made a link into a
+  control the moment links began to be passed.
+- *Why they moved.* Only a jump by structure grounds. Tab and the arrow keys sync.
 
 Within the cursor's own block, the cursor's row must stay visible. That is what makes a
 long paragraph, or a multi line edit field being typed into, behave as described below.
@@ -487,6 +508,42 @@ independently of this work.
 The policy for viewers, to be implemented explicitly rather than inherited: a routing press
 moves the viewer's own reading position and never activates. Promoting a viewer to the
 focus flow, if that is ever wanted, is a separate deliberate command.
+
+### A run of objects is a third flavour, and the difference is what the cursor *is*
+
+A list, a menu, a tree, the choices of an open combo box: one object is one block, and its
+braille is NVDA's own `NVDAObjectRegion`. Two rules follow from what an object is, and
+neither is a matter of taste.
+
+**The reading position is a selection, so the flow never moves it.** Panning moves the
+window and nothing else; the focused item keeps the cursor, so the reader can feel which of
+the eight the arrow keys will act on; and only a focus event may move that. A routing key
+elsewhere in the run moves the focus rather than acting, which is what "go there" means and
+is NVDA's own precedent in review mode — except where the adapter says otherwise. A tab
+strip says otherwise: choosing a tab *is* going to it, and there the focus is taken and the
+action follows.
+
+**Walking the siblings finds more than the run.** NVDA's own navigation of a list walks the
+items the reader can arrive at; this walks the accessibility siblings, which also holds the
+button under a list box and the separators in a menu. So every step is classified before it
+is read:
+
+- *Content*, admitted by the adapter: same parent, and the same kind of role — with a menu's
+  check items, radio items and plain commands counted as one kind, since they are one menu.
+- *Decoration*: a separator, shown as the blank row the grouping deserves and walked
+  through, because the groups either side of a line are one menu. Handed to
+  `NVDAObjectRegion` it read on hardware as "unavailable" and its dashes, which is true and
+  useless. Disabled is never the test on its own: a command that is temporarily unavailable
+  is content, and saying so is the whole point of the word. The role is the test, with a
+  narrow fallback for a toolkit that exposes its line as an unfocusable, actionless menu
+  item named with nothing but dashes.
+- *Beside the run*: anything else ends it.
+
+The same admission test answers the band's question on every focus change — is this still
+the run we are showing? — so arrowing through a list keeps everything already walked. What
+the run was found from is fixed for the life of the source and is never replaced by where
+the reader has since moved: replacing it turned an open combo box into one of its own
+choices, whose children are nothing, and the display lost the list.
 
 ## Where `getBrailleRegions` fits
 
@@ -795,7 +852,7 @@ and it needs three things before milestone 3:
 
    Still owed: a second hardware run on a real form, and what a combo box does — its choices
    are an object question, which is milestone 6.
-6. **Adapters, viewer bands and objects.** CODE COMPLETE, AWAITING HARDWARE. The protocol
+6. **Adapters, viewer bands and objects.** FIRST HARDWARE RUN DONE, CORRECTED. The protocol
    and registry, `ObjectFlowSource` for lists and trees, and the decision in open question 1.
 
    What landed: `flowObjects.py`. One object is one block, and its braille is
@@ -850,6 +907,37 @@ and it needs three things before milestone 3:
 
    Off by default, unlike browse mode. The reading is new and turning the flow on should not
    change how a reader's dialogs behave until they ask for it.
+
+   *What the first hardware run found.* An NVDA settings list, the NVDA menu, the Add-on
+   Store's list and its tab strip, and a combo box on a real page all flowed, with no
+   responsiveness complaint. Five things were wrong, and four of them were one thing wearing
+   four hats: a distinction the code had collapsed into a flag that already meant something
+   else.
+
+   - *Panning bounced back to the focused item*, on the second pan — which was the first
+     that had to fetch. `live` meant both "show the reader a cursor" and "the flow may move
+     the reader's place", and a run needs the first without the second. Split into `live`
+     and `movesCursor`. A block the flow itself fetched or re-read is no longer marked as
+     news either: `dirty` means *NVDA* re-read the region, which is how a caret move inside
+     a document reaches a flow, and a block set down by our own fetch read as a move the
+     reader had made.
+   - *Routing to an item activated it.* The controller made the block active and then told
+     the region, so the region — whose whole rule is "a press where the reader already is
+     acts" — was told they had been there all along. The region is told first now, and the
+     flow's own place is set afterwards.
+   - *A tab strip should activate*, and does: see the adapter's `activates` above. This was
+     the reader's call, and it is the right one — a tab focused but not chosen shows nothing
+     new.
+   - *An open combo box lost its choices* once the focus moved onto one of them. What the
+     run was found from is now fixed for the life of the source.
+   - *A separator read as "unavailable"* followed by its dashes. Classified as decoration and
+     shown as a blank row; see the object source section above.
+
+   Two things the reviewer found that hardware would have found later: `MAX_CHILDREN` was
+   applied after `obj.children` had already built the whole list, so it bounded the loop and
+   not the work — the children are walked from `firstChild` now; and the source kept every
+   object it had ever read, for the life of the run. It keeps none: a block's bookmark *is*
+   its object, so there was never anything for the table to answer.
 7. **Cost.** INSTRUMENTED, AWAITING NUMBERS. Measurement on heavy pages against the latency
    recorded since milestone 2, and whatever the numbers say.
 
@@ -866,6 +954,13 @@ and it needs three things before milestone 3:
    were reported by a reader as "the display shows dashes", which is a long way from the
    cause. A reader who can press one key and say "nine operations in a hundred ran out"
    closes that gap.
+
+   The count itself was wrong on both sides at first, and an instrument that miscounts is
+   worse than none. It counted an operation that had *used* its allowance, so one whose last
+   permitted block filled the last row of the band — which stopped nothing and wanted
+   nothing more — counted as a stop; and it never counted a stop by the clock at all, which
+   is the one case where a larger allowance would only buy a longer wait. A stop is now
+   recorded where a fetch is actually refused, with the reason kept separately.
 
    What the numbers should decide: whether `budgetForBand`'s twice-the-band is right, whether
    the time limit is doing anything at all beyond the block count, and whether an object run

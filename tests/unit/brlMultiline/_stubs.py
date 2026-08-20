@@ -1209,6 +1209,16 @@ class FakeNavigatorObject:
 		self.focused = False
 		"""Set by L{setFocus}, so a test can see that something asked for the focus."""
 
+		self.parent = None
+		self.firstChild = None
+		self.next = None
+		self.previous = None
+		self.states = set()
+		self.actionCount = 0
+		"""The accessibility tree an object flow walks. Present on every object, because a
+		run is defined by what shares a parent and the walk goes through `firstChild` and
+		`next` rather than through a list of children built all at once."""
+
 		self.documentIndex = documentIndex
 		"""Which line of its document this object sits on, or None if it cannot be placed.
 
@@ -1265,21 +1275,46 @@ class NVDAObjectRegion(Region):
 def fakeRun(names, role="LISTITEM", parent=None, selected=0):
 	"""Build a run of sibling objects, as the items of a list box are.
 
+	A container is made for them when none is given. Every real object has a parent, and a
+	run is defined by what shares one: items with no parent at all belong to no run, which
+	is right and would make every test here a test of that one fact.
+
 	:param names: what each item is called.
 	:param role: the role every item has.
 	:param parent: the container to hang them under, which is what a combo box's choices need.
 	:param selected: which of them the reader is on.
 	:return: the items, in order.
 	"""
+	if parent is None:
+		parent = FakeNavigatorObject("a container", role="LIST")
 	items = [FakeNavigatorObject(name, role=role) for name in names]
 	for index, item in enumerate(items):
 		item.next = items[index + 1] if index + 1 < len(items) else None
 		item.previous = items[index - 1] if index else None
 		item.parent = parent
 		item.states = {"SELECTED"} if index == selected else set()
-	if parent is not None:
-		parent.children = items
+	parent.children = items
+	parent.firstChild = items[0] if items else None
 	return items
+
+
+def fakeSeparator(after, name="-----", role="SEPARATOR"):
+	"""Put a separator into a run, between an item and whatever followed it.
+
+	:param after: the item to place it after.
+	:param name: what the toolkit calls it, which for a line is usually its dashes.
+	:param role: its role, so that a toolkit exposing the line as a disabled menu item can
+		be tested too.
+	:return: the separator.
+	"""
+	separator = FakeNavigatorObject(name, role=role)
+	separator.parent = after.parent
+	separator.previous = after
+	separator.next = after.next
+	if after.next is not None:
+		after.next.previous = separator
+	after.next = separator
+	return separator
 
 
 def fakeGetFocusRegions(obj, review=False):

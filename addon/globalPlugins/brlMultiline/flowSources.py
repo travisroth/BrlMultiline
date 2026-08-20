@@ -36,6 +36,7 @@ import textInfos
 from braille.regions.textInfo import CursorManagerRegion, TextInfoRegion
 from logHandler import log
 
+from . import flowForms
 from .flow import BlockId, ByIdentity, FetchResult, SourceBlock
 
 DEFAULT_MAX_BLOCKS = 12
@@ -341,8 +342,22 @@ class FetchBudget:
 		"""How many operations have finished: arrivals, fills, pans, cursor moves."""
 
 		self.stops = 0
-		"""How many of them ran out of blocks, and so showed the reader less than the band
-		could hold. The number that says whether the budget is sized right."""
+		"""How many operations were cut short, and so showed the reader less than the band
+		could hold. The number that says whether the budget is sized right.
+
+		Counted from a fetch actually refused, never from the allowance being used up. An
+		operation whose last permitted block filled the display stopped nothing: there was
+		nothing more it wanted."""
+
+		self.stopsBy = {"blocks": 0, "time": 0}
+		"""How many fetches were refused for each reason.
+
+		Worth separating. Running out of blocks means the allowance is too small for the
+		band; running out of time means the document is slow, and a larger allowance would
+		only buy a longer wait."""
+
+		self.stopped = False
+		"""Whether the operation under way has had a fetch refused."""
 
 		self.lastSeconds = 0.0
 		self.lastBlocks = 0
@@ -359,6 +374,7 @@ class FetchBudget:
 		self.blocks = 0
 		self.started = self.clock()
 		self.active = True
+		self.stopped = False
 
 	def finish(self) -> None:
 		"""End the operation, and keep what it cost.
@@ -378,9 +394,7 @@ class FetchBudget:
 		self.worstSeconds = max(self.worstSeconds, elapsed)
 		self.worstBlocks = max(self.worstBlocks, self.blocks)
 		self.totalSeconds += elapsed
-		if self.blocks >= self.maxBlocks:
-			# Stopped by the count rather than by the clock, which is the one worth
-			# separating: it means the reader was shown less than the band could hold.
+		if self.stopped:
 			self.stops += 1
 
 	def startUnlessActive(self) -> None:
@@ -394,6 +408,23 @@ class FetchBudget:
 		if self.blocks >= self.maxBlocks:
 			return True
 		return (self.clock() - self.started) >= self.maxSeconds
+
+	def refuseIfExhausted(self) -> bool:
+		"""Turn a wanted fetch away, if there is nothing left to make it with.
+
+		Asked at the moment a fetch is wanted rather than at the end of the operation. The
+		difference is the whole worth of the count: an operation that spent its last block
+		filling the last row of the band wanted nothing more and stopped nothing, and
+		counting it as a stop would have the reader chasing an allowance that fits.
+
+		:return: whether the fetch is refused.
+		"""
+		if not self.exhausted:
+			return False
+		reason = "blocks" if self.blocks >= self.maxBlocks else "time"
+		self.stopsBy[reason] = self.stopsBy.get(reason, 0) + 1
+		self.stopped = True
+		return True
 
 	def observe(self, seconds: float) -> None:
 		"""Record how long a block took without spending any of the budget on it.
@@ -425,7 +456,9 @@ class FetchBudget:
 		"""
 		average = (self.totalSeconds / self.operations) if self.operations else 0.0
 		return [
-			f"operations: {self.operations}, of which {self.stops} ran out of blocks",
+			f"operations: {self.operations}, of which {self.stops} were cut short",
+			f"fetches refused: {self.stopsBy.get('blocks', 0)} out of blocks, "
+			f"{self.stopsBy.get('time', 0)} out of time",
 			f"allowance: {self.maxBlocks} blocks or {self.maxSeconds * 1000:.0f} ms each",
 			f"slowest single block: {self.slowest * 1000:.2f} ms",
 			f"slowest operation: {self.worstSeconds * 1000:.2f} ms over {self.worstBlocks} blocks",
@@ -491,23 +524,28 @@ class DocumentFlowSource:
 	# Reading.
 
 	def blockAtCursor(self, atObject=None) -> FetchResult:
-		"""The block the cursor is in, or the one a given control starts.
+		"""The block the cursor is in, or the one a given object starts.
 
-		:param atObject: a form control the reader has arrived at. Its own place in the
-			document is read rather than the cursor's, because tabbing into an edit field or
-			a combo box drops browse mode into focus mode and puts the cursor *inside* the
-			control — where the line is the value being edited, and the control's name, role
-			and state are an enclosing field rather than this line's own. Starting at the
-			control gives the line browse mode would show for it, which is the one carrying
-			the name.
+		:param atObject: what the reader arrived at. Its own place in the document is read
+			rather than the cursor's, because a focus event can land before the browse mode
+			cursor has caught up — and because tabbing into an edit field or a combo box
+			drops browse mode into focus mode and puts the cursor *inside* the control,
+			where the line is the value being edited and the control's name, role and state
+			are an enclosing field rather than this line's own. Starting at the object gives
+			the line browse mode would show for it, which is the one carrying the name.
+
+			Any focus target the document can place: a link is read at its own place for the
+			first of those reasons, though none of the second applies to it.
 		:return: the block, or an error if the document could not be read.
 		"""
 		self.budget.startUnlessActive()
 		info = self._positionOf(atObject) if atObject is not None else None
-		# Only a block actually read at the control's own place is one: a control this
-		# document cannot place falls back to the cursor, and what is there is whatever the
-		# reader was last on, which has no prompt of its own to show.
-		isControl = info is not None
+		# Where the reader arrived and what kind of thing it is are two questions. A block is
+		# a control's when it holds a control *and* was read at that control's own place: a
+		# link starts a block like any other line, and a control this document cannot place
+		# falls back to the cursor, where what is there is whatever the reader was last on
+		# and has no prompt of its own to show.
+		isControl = info is not None and flowForms.isControlObject(atObject)
 		if info is None:
 			try:
 				info = self.obj.makeTextInfo(textInfos.POSITION_SELECTION)

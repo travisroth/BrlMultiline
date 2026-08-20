@@ -185,7 +185,7 @@ def _objectController(
 	source = flowObjects.ObjectFlowSource(
 		obj,
 		adapter,
-		flowObjects.regionFactory(live=live),
+		flowObjects.regionFactory(live=live, adapter=adapter),
 		generation=generation,
 		budget=budgetForBand(numRows),
 	)
@@ -193,10 +193,11 @@ def _objectController(
 		f"Reading objects, band {numRows} rows of {numCols} cells, budget {source.budget.maxBlocks} blocks.",
 	)
 	renderer = FlowRenderer(handler, numCols=numCols, fillRows=False)
-	# Never live in the sense that matters: an object flow moves the window and nothing else,
-	# because the equivalent of a reading position here is a selection, and a selection is
-	# application state. `live` decides only whether the focused block shows a cursor.
-	control = FlowController(source, renderer, numRows=numRows, live=False)
+	# The reader's own flow, and still one that moves nothing: the equivalent of a reading
+	# position here is a selection, and a selection is application state. `live` says the
+	# focused block shows a cursor, so the reader can feel which of the eight the arrow keys
+	# will act on; `movesCursor` says that panning past it does not claim they have moved.
+	control = FlowController(source, renderer, numRows=numRows, live=live, movesCursor=False)
 	if not control.enterAtCursor():
 		result = control.lastResult
 		kind = getattr(getattr(result, "kind", None), "value", "no answer")

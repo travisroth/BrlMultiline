@@ -621,8 +621,13 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self.assertEqual(flow.window.topBlockId(), flow.window.blocks[0].blockId)
 		self.assertEqual(flow.regionFor(flow.window.topBlockId()).rawText, "Name")
 
-	def test_arrivingAtProseReadsFromTheCursor(self):
-		"""Only a control is read at its own place; everything else reads as it always has."""
+	def test_arrivingAtALinkReadsAtItsOwnPlace(self):
+		"""Tabbing lands on a thing, and the thing is the better account of where they are.
+
+		A focus event can arrive before the browse mode cursor has caught up. Reading at the
+		cursor then shows the line the reader was on before they pressed Tab, which is what
+		"tabbing shows a blank space" turned out to be on the hardware.
+		"""
 		page, interceptor = self._document(["Name", "f: Ada", "Town"])
 		self._start(page)
 		interceptor.caretIndex = 2
@@ -635,7 +640,26 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self._focusOn(link)
 		self.segment.acceptFocusRegions(self._focusRegionsFor(link))
 		flow = self.band.controller
-		self.assertEqual(flow.regionFor(flow.activeBlockId).rawText, "Town")
+		self.assertEqual(flow.regionFor(flow.activeBlockId).rawText, "Name")
+
+	def test_aLinkIsStillNotAFormControl(self):
+		"""Where they arrived and what kind of thing it is are two questions.
+
+		A link is read at its own place for the reason above, and none of the prompt and
+		spacing rules a form control brings apply to it.
+		"""
+		page, interceptor = self._document(["Name", "f: Ada", "Town"])
+		self._start(page)
+		link = FakeNavigatorObject(
+			"a link",
+			role="LINK",
+			treeInterceptor=interceptor,
+			documentIndex=2,
+		)
+		self._focusOn(link)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(link))
+		flow = self.band.controller
+		self.assertFalse(flow.blocks.get(flow.activeBlockId).isControl)
 
 	def test_aPendingJumpIsAnsweredWithoutTheRegionBeingReread(self):
 		# It used to be answered only when NVDA had queued our region for re-reading, which
@@ -726,6 +750,62 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self.assertFalse(self.segment.acceptFocusRegions(self._focusRegionsFor(button)))
 		self.assertFalse(self.segment.isFlowing)
 		self.assertIsNone(self.band.controller)
+
+	def test_panningARunDoesNotBringTheFocusBack(self):
+		"""Three displays' worth of items, and the reader's place stays on the first.
+
+		The hardware report: the first pan moved, the second bounced back to the top. The
+		second is the one that has to fetch, and the blocks it fetched came back marked as
+		freshly read — which is how a flow hears that the reader moved, so it followed the
+		focus back to where they had started.
+		"""
+		from ._stubs import CONFIG, fakeRun
+
+		CONFIG["flowObjects"] = True
+		self.band._follow()
+		items = fakeRun([str(number) for number in range(12)], role="TAB")
+		self._focusOn(items[0])
+		self.segment.acceptFocusRegions(self._focusRegionsFor(items[0]))
+		self.segment.scrollForward()
+		self.segment.scrollForward()
+		flow = self.band.controller
+		self.assertEqual(flow.regionFor(flow.window.topBlockId()).obj.name, "8")
+		self.assertEqual(flow.regionFor(flow.activeBlockId).obj.name, "0")
+
+	def test_arrowingIntoAnOpenComboBoxKeepsItsChoices(self):
+		# The focus moves to the choice itself the moment the reader arrows within an open
+		# box. Letting that replace what the run was found from left the run looking for the
+		# children of one choice, which is nothing, and the display lost the list.
+		from ._stubs import CONFIG, FakeNavigatorObject as Obj, fakeRun
+
+		CONFIG["flowObjects"] = True
+		self.band._follow()
+		box = Obj("Country", role="COMBOBOX")
+		items = fakeRun(["a", "b", "c"], parent=box, selected=0)
+		self._focusOn(box)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(box))
+		before = self.band.controller
+		self._focusOn(items[2])
+		self.assertTrue(self.segment.acceptFocusRegions(self._focusRegionsFor(items[2])))
+		self.assertIs(self.band.controller, before)
+		flow = self.band.controller
+		self.assertEqual(flow.regionFor(flow.activeBlockId).obj.name, "c")
+
+	def test_tabbingToSomethingAlreadyOnTheDisplayLeavesItWhereItIs(self):
+		# A window the reader has their hands on must not be thrown away for a target they
+		# can already feel. Only a jump by structure rehomes the display.
+		page, interceptor = self._document(["Name", "f: Ada", "Town", "more"])
+		self._start(page)
+		top = self.band.controller.window.topBlockId()
+		link = FakeNavigatorObject(
+			"a link",
+			role="LINK",
+			treeInterceptor=interceptor,
+			documentIndex=2,
+		)
+		self._focusOn(link)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(link))
+		self.assertEqual(self.band.controller.window.topBlockId(), top)
 
 	def test_comingBackToADocumentReadsItAgain(self):
 		page, interceptor = self._document(documentLines())

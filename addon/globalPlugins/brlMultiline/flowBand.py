@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import api
 from logHandler import log
 
-from . import bmConfig, flowForms, flowObjects, flowQuickNav
+from . import bmConfig, flowObjects, flowQuickNav
 from .flowControl import FlowController
 from .flowDryRun import bandSize, buildController, objectAdapterFor
 from .devices import DeviceInfo, deviceMap, preferredDevice
@@ -234,7 +234,7 @@ class FlowBand(PanelOwner):
 			# Walking again per keypress would be a call into the application for each item
 			# they pass.
 			self.obj = obj
-			self.controller.source.obj = obj
+			self.controller.source.setCurrent(obj)
 			self.controller.followCursor()
 			segment.refresh()
 			return True
@@ -246,13 +246,14 @@ class FlowBand(PanelOwner):
 			if not force and self.obj is obj:
 				return True
 			self.obj = obj
+			# Taken whether or not it is acted on, so that a jump the reader made before the
+			# setting was turned off cannot ground a later move, and so that a note left by a
+			# quick navigation key cannot ground the ordinary Tab press after it.
+			ground = flowQuickNav.takeGrounding() and bmConfig.shouldGroundOnQuickNav()
 			showing = bool(
-				self.controller and self.controller.enterAtCursor(atObject=self._control(obj, target))
+				self.controller
+				and self.controller.arriveAt(atObject=self._arrival(obj, target), ground=ground)
 			)
-			# An arrival places the window afresh at what the reader has come to, which is
-			# what grounding would have done. Any note a quick navigation key left is spent
-			# here, so that it cannot ground the reader's next ordinary arrow key as well.
-			flowQuickNav.forget()
 			segment.refresh()
 			return showing
 		control = buildController(
@@ -260,11 +261,13 @@ class FlowBand(PanelOwner):
 			numRows=segment.rect.numRows,
 			numCols=segment.rect.numCols,
 			handler=self._handler(),
-			# The band is the focus segment, so this is the reader's own place in the
-			# document: panning moves the browse mode cursor, and routing can activate.
+			# The band is the focus segment, so this is the reader's own place: the focused
+			# block shows a cursor, and in a document panning takes that cursor with it. A
+			# run of objects is live in the same sense and still moves nothing; see
+			# `FlowController.movesCursor`.
 			live=True,
 			generation=next(_generations),
-			atObject=self._control(obj, target),
+			atObject=self._arrival(obj, target),
 		)
 		if control is None:
 			# Nothing here reads as a flow. The band becomes an ordinary segment again and
@@ -280,33 +283,46 @@ class FlowBand(PanelOwner):
 		segment.attach(control, obj=control.source.obj)
 		return True
 
-	def _control(self, obj: Any, target: Any) -> Any:
-		"""The control the reader has arrived at, if that is what happened.
+	def _arrival(self, obj: Any, target: Any) -> Any:
+		"""What the reader arrived at, to be read at its own place in the document.
 
-		A control is read at its own place in the document rather than at the cursor, because
-		tabbing into an edit field or a combo box drops browse mode into focus mode and puts
-		the cursor inside the control — where the line is the value being edited, and for an
-		empty field is nothing at all.
+		Tabbing lands on a thing rather than on a position, and of the two the position is
+		the less reliable: the focus event can come before the browse mode cursor has caught
+		up, and reading at the cursor then shows where the reader was. A document can be
+		asked where an object is, so it is asked — for a link as much as for an edit field.
 
-		Which control cannot be taken from the focus regions. They say which document, and
-		for a control inside a page the document is what they are built over, so the control
-		itself is not among them. It is taken from the focus object instead, and a focus
-		object that has since moved on somewhere else is ignored — which is what makes
-		reading it here safe, since the regions remain the account of which document.
+		Whether what they arrived at is a *control*, which is what decides prompt and
+		spacing, is a separate question and `flowForms` answers it where the block is built.
+		Deciding it here, from whether an object had been passed at all, made a link into a
+		control the moment links began to be passed.
+
+		Which object cannot be taken from the focus regions. They say which document, and for
+		anything inside a page the document is what they are built over, so the thing itself
+		is not among them. It is taken from the focus object instead, and a focus object that
+		has since moved on somewhere else is ignored — which is what makes reading it here
+		safe, since the regions remain the account of which document.
 
 		:param obj: what the focus regions were built for.
 		:param target: the document being read.
-		:return: the control, or None to read from the cursor as ever.
+		:return: the object to read at, or None to read from the cursor as ever.
 		"""
-		if flowForms.isControlObject(obj):
+		if self._isIn(obj, target):
 			return obj
 		focus = self._focusObject()
-		if not flowForms.isControlObject(focus):
-			return None
-		if focus is target or getattr(focus, "treeInterceptor", None) is target:
+		if self._isIn(focus, target):
 			return focus
 		# Somewhere else by now. Reading at it would put the reader in another document.
 		return None
+
+	def _isIn(self, obj: Any, target: Any) -> bool:
+		""":return: whether an object is something inside the document being read."""
+		if obj is None or obj is target:
+			return False
+		try:
+			return getattr(obj, "treeInterceptor", None) is target
+		except Exception:
+			log.debugWarning("Could not tell which document an object is in", exc_info=True)
+			return False
 
 	def _focusObject(self) -> Any:
 		""":return: where the system focus is, or None if it cannot be read."""
