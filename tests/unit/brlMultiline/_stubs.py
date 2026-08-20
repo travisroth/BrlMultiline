@@ -127,6 +127,7 @@ CONFIG = DisplaySection(
 		"showDocumentLines": False,
 		"flowEnabled": False,
 		"flowBrowseMode": True,
+		"flowObjects": False,
 		"flowRows": 0,
 		"flowDisplay": "",
 		"flowGroundOnQuickNav": True,
@@ -165,6 +166,7 @@ def setBandConfig(displayKey: str, **values) -> None:
 			"showDocumentLines": False,
 			"flowEnabled": False,
 			"flowBrowseMode": True,
+			"flowObjects": False,
 			"flowRows": 0,
 			"flowDisplay": "",
 			"flowGroundOnQuickNav": True,
@@ -1202,6 +1204,11 @@ class FakeNavigatorObject:
 		self.lines = lines
 		self.caretIndex = 0
 		self.treeInterceptor = treeInterceptor
+		self.isFocusable = False
+		self.hasFocus = False
+		self.focused = False
+		"""Set by L{setFocus}, so a test can see that something asked for the focus."""
+
 		self.documentIndex = documentIndex
 		"""Which line of its document this object sits on, or None if it cannot be placed.
 
@@ -1218,6 +1225,61 @@ class FakeNavigatorObject:
 		if not self.lines:
 			raise NotImplementedError(f"{self.name!r} has no text")
 		return FakeTextInfo(self.lines, self.caretIndex)
+
+	def setFocus(self):
+		"""Take the system focus, as NVDA asks an object to."""
+		self.focused = True
+		self.hasFocus = True
+
+
+class NVDAObjectRegion(Region):
+	"""NVDA's presentation of one object as braille: its name and its role.
+
+	The real one assembles name, role, value, states and position information through
+	`getPropertiesBraille`. What matters to the tests above it is that a block of an object
+	flow says what NVDA says about that object and nothing of the add-on's own, so the stub
+	is that shape reduced to two properties.
+	"""
+
+	def __init__(self, obj, appendText=""):
+		super().__init__("")
+		self.obj = obj
+		self.appendText = appendText
+		self.cursorPos = None
+		self.brailleCursorPos = None
+		self.acted = False
+		"""Whether a routing press acted on the object, which is NVDA's own behaviour here."""
+
+	def update(self):
+		name = getattr(self.obj, "name", "") or ""
+		role = getattr(self.obj, "role", "") or ""
+		self.rawText = f"{name} {role}".strip() + self.appendText
+		super().update()
+		# One cell per character in this harness, so a text position is a braille position.
+		self.brailleCursorPos = self.cursorPos
+
+	def routeTo(self, pos):
+		self.acted = True
+
+
+def fakeRun(names, role="LISTITEM", parent=None, selected=0):
+	"""Build a run of sibling objects, as the items of a list box are.
+
+	:param names: what each item is called.
+	:param role: the role every item has.
+	:param parent: the container to hang them under, which is what a combo box's choices need.
+	:param selected: which of them the reader is on.
+	:return: the items, in order.
+	"""
+	items = [FakeNavigatorObject(name, role=role) for name in names]
+	for index, item in enumerate(items):
+		item.next = items[index + 1] if index + 1 < len(items) else None
+		item.previous = items[index - 1] if index else None
+		item.parent = parent
+		item.states = {"SELECTED"} if index == selected else set()
+	if parent is not None:
+		parent.children = items
+	return items
 
 
 def fakeGetFocusRegions(obj, review=False):
@@ -1321,6 +1383,7 @@ def _installPluginStubs() -> None:
 	)
 	_module("braille.regions.focus", getFocusRegions=fakeGetFocusRegions)
 	_module("cursorManager", CursorManager=CursorManager)
+	_module("braille.regions.NVDAObject", NVDAObjectRegion=NVDAObjectRegion)
 	# The braille display driver package, as a path with no code, so that the settings panel's
 	# `from brailleDisplayDrivers.brlMultilineVirtual import vdConfig` resolves to the real
 	# module without running the driver's `__init__`, which wants `hwIo` and `inputCore`.
@@ -1487,6 +1550,7 @@ def resetConfig() -> None:
 		showDocumentLines=False,
 		flowEnabled=False,
 		flowBrowseMode=True,
+		flowObjects=False,
 		flowRows=0,
 		flowDisplay="",
 		flowGroundOnQuickNav=True,

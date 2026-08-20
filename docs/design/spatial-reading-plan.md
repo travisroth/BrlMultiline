@@ -793,19 +793,66 @@ and it needs three things before milestone 3:
 
    Still owed: a second hardware run on a real form, and what a combo box does — its choices
    are an object question, which is milestone 6.
-6. **Adapters, viewer bands and objects.** The protocol and registry, consuming
-   `getBrailleRegions` where an object provides it, `ObjectFlowSource` for lists and trees,
-   focused control presentation, and the decision in open question 1.
+6. **Adapters, viewer bands and objects.** CODE COMPLETE, AWAITING HARDWARE. The protocol
+   and registry, `ObjectFlowSource` for lists and trees, and the decision in open question 1.
+
+   What landed: `flowObjects.py`. One object is one block, and its braille is
+   `NVDAObjectRegion` — NVDA's own presentation, with the name, role, value, states and
+   position information the reader already knows. Nothing there re-derives any of it, so a
+   block says exactly what a single line display would say about that object and the flow's
+   whole contribution is that seven of its neighbours are under the same fingers.
+
+   Three things differ from a document source, and all three follow from what an object is.
+
+   *Walking is expensive.* Stepping a line in a virtual buffer stays in NVDA's process;
+   stepping to the next object is a call into the application. So nothing reads ahead and
+   the operation budget bounds the walk. This is the case the budget was written for, and
+   the first where it earns its keep rather than getting in the way.
+
+   *Nothing moves.* Panning a document flow moves the browse mode cursor, which is a reading
+   position with no consequences. The equivalent for a list is moving the selection, and a
+   selection is application state: it fires events, it changes what is shown, and in a menu
+   it can act. An object flow moves the window and nothing else. That is the answer to open
+   question 1 for every run of objects, and it is a stronger answer than "a viewer band":
+   the band is still the focus segment, still shows where the reader is, and simply never
+   writes back.
+
+   *The focused object still shows the cursor*, so that the reader can feel which of the
+   eight items on the display the arrow keys will act on. Without it a list of eight reads
+   as eight equal things and they have lost the one fact they had before.
+
+   Routing follows NVDA's own precedent in `ReviewNVDAObjectRegion`: a press where the
+   reader already is does what it always did, and a press elsewhere moves the focus rather
+   than acting. A finger landing on an item they were reading past must not activate it.
+
+   Which objects read this way is a registry — `ObjectAdapter`, `register` — rather than a
+   list of roles inside a condition, because the answer is a judgement about a kind of
+   control and an add-on that owns one has a better judgement than this module does. Two
+   built-in adapters: a run of siblings for list, tree, menu and tab items, and the children
+   of a container the reader is choosing from, which is what a combo box's choices are.
+
+   A document wins wherever there is one. A list inside a web page is part of that page, and
+   the page has the more useful context: its heading, what came before the list, what
+   follows it.
+
+   Not done: `getBrailleRegions`. Nothing in NVDA implements it but a math presentation
+   provider, so there is no protocol there to consume yet; when a component offers one, it
+   is an adapter that returns regions rather than objects and the registry is where it goes.
+
+   Off by default, unlike browse mode. The reading is new and turning the flow on should not
+   change how a reader's dialogs behave until they ask for it.
 7. **Cost.** Measurement on heavy pages against the latency recorded since milestone 2, and
    whatever the numbers say.
 
 ## Open questions
 
-1. **Which components want a viewer band rather than the focus flow?** A list, or something
-   browse mode has dropped into focus mode for, may read better as a band beside the focus
-   segment than as the focus segment itself. The constraint is fixed — one cursor on the
-   display — but which side of it each component belongs on wants deciding against real
-   components rather than in the abstract.
+1. **Which components want a viewer band rather than the focus flow?** ANSWERED for runs of
+   objects, and the answer turned out not to be a viewer band at all. A list reads in the
+   focus band, showing where the reader is, and simply never writes back: the thing that
+   made a viewer seem necessary was the fear of moving something, and moving nothing is a
+   property of the source rather than of the band. What is still open is the other half —
+   whether anything wants a *second* band beside the focus, which is a question about
+   display geometry and wants asking of a reader with rows to spare.
 2. **What speech says on a multi row pan.** The cursor-on-pan rule speaks the top block of
    the new window. Whether that is right, or whether a pan should be silent and leave
    speech to the arrow keys, is a hardware question.

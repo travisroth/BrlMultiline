@@ -550,6 +550,33 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self.assertTrue(self.segment.acceptFocusRegions(self._focusRegionsFor(field)))
 		self.assertTrue(self.segment.isFlowing)
 
+	def test_aFieldInFocusModeStillFlowsThePageAndNotTheField(self):
+		# Browse mode stands aside for a control the reader has entered, and NVDA's own
+		# resolution then answers with the control. Reading a flow that way builds it over
+		# one field's own text — one line for a single line edit, and nothing at all for an
+		# empty one, which is a blank band where a tabbed-to field should have been.
+		page, interceptor = self._document(["Name", "f: Ada", "Town"])
+		self._start(page)
+		interceptor.passThrough = True
+		field = FakeNavigatorObject(
+			"a search field",
+			role="EDITABLETEXT",
+			treeInterceptor=interceptor,
+			documentIndex=1,
+			lines=[""],
+		)
+		before = self.band.controller
+		self._focusOn(field)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(field))
+		flow = self.band.controller
+		self.assertIs(flow.source.obj, interceptor)
+		self.assertEqual(flow.regionFor(flow.activeBlockId).rawText, "f: Ada")
+		# The same reading, kept: entering a field is a move within the page, so the blocks
+		# already read and the positions they were read from are still good. Resolving to the
+		# field instead makes every tab look like arriving in a new document, which throws the
+		# cache away and takes a fresh generation each time.
+		self.assertIs(flow, before)
+
 	def test_browseModeDoesNotFlowWhenTheReaderHasTurnedItOff(self):
 		# The setting is asked before anything else: a reader who wants NVDA's own reading
 		# of a web page gets it, and the band presents the focus as any segment would.
@@ -639,6 +666,56 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self._focusOn(page)
 		self.segment.acceptFocusRegions(self._focusRegionsFor(page))
 		self.assertFalse(flowQuickNav.takeGrounding())
+
+	def test_aListOutsideADocumentFlowsAsObjects(self):
+		from ._stubs import CONFIG, fakeRun
+
+		CONFIG["flowObjects"] = True
+		self.band._follow()
+		items = fakeRun(["Apple", "Banana", "Cherry"])
+		self._focusOn(items[1])
+		self.assertTrue(self.segment.acceptFocusRegions(self._focusRegionsFor(items[1])))
+		flow = self.band.controller
+		self.assertEqual(flow.regionFor(flow.activeBlockId).rawText, "Banana LISTITEM")
+
+	def test_arrowingThroughItKeepsTheSameReading(self):
+		# In a list the focus changes on every arrow key. Rebuilding each time would walk
+		# the run again, which is a call into the application per item passed.
+		from ._stubs import CONFIG, FakeNavigatorObject as Obj, fakeRun
+
+		CONFIG["flowObjects"] = True
+		self.band._follow()
+		box = Obj("Fruit", role="LISTBOX")
+		items = fakeRun(["Apple", "Banana", "Cherry"], parent=box)
+		self._focusOn(items[0])
+		self.segment.acceptFocusRegions(self._focusRegionsFor(items[0]))
+		before = self.band.controller
+		self._focusOn(items[1])
+		self.segment.acceptFocusRegions(self._focusRegionsFor(items[1]))
+		self.assertIs(self.band.controller, before)
+		flow = self.band.controller
+		self.assertEqual(flow.regionFor(flow.activeBlockId).rawText, "Banana LISTITEM")
+
+	def test_aListIsLeftToNVDAUntilTheReaderAsksForIt(self):
+		"""Objects are off until turned on: a new reading must not change how dialogs behave."""
+		from ._stubs import fakeRun
+
+		self.band._follow()
+		items = fakeRun(["Apple", "Banana"])
+		self._focusOn(items[0])
+		self.assertFalse(self.segment.acceptFocusRegions(self._focusRegionsFor(items[0])))
+		self.assertFalse(self.segment.isFlowing)
+
+	def test_aListInsideAPageIsReadAsThePage(self):
+		from ._stubs import CONFIG, FakeNavigatorObject as Obj
+
+		CONFIG["flowObjects"] = True
+		page, interceptor = self._document(["a heading", "Apple", "Banana"])
+		self._start(page)
+		item = Obj("Apple", role="LISTITEM", treeInterceptor=interceptor, documentIndex=1)
+		self._focusOn(item)
+		self.segment.acceptFocusRegions(self._focusRegionsFor(item))
+		self.assertIs(self.band.controller.source.obj, interceptor)
 
 	def test_focusOnSomethingWithNoTextIsGivenBackToNVDA(self):
 		# A button in a dialog has no lines to flow. The band becomes an ordinary segment

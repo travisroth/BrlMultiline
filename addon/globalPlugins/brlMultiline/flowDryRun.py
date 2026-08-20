@@ -29,16 +29,16 @@ from braille.regions.focus import getFocusRegions
 from braille.regions.textInfo import TextInfoRegion
 from logHandler import log
 
-from . import flowForms
+from . import flowForms, flowObjects
 from .flowControl import FlowController
 from .flowRender import FlowRenderer
 from .flowSources import (
 	DocumentFlowSource,
 	budgetForBand,
+	documentFor,
 	regionFactoryFor,
 	regionFactoryForObject,
 )
-from .objectMonitor import resolveTarget
 
 if TYPE_CHECKING:
 	from NVDAObjects import NVDAObject
@@ -120,15 +120,89 @@ def isBeingWrittenIn(target, obj) -> bool:
 	:return: whether blank lines should be kept.
 	"""
 	interceptor = getattr(obj, "treeInterceptor", None)
-	if interceptor is not None and target is interceptor:
-		# Browse mode is presenting this, so it is being read.
-		return False
 	try:
 		import controlTypes
 
-		return controlTypes.State.EDITABLE in obj.states
+		editable = controlTypes.State.EDITABLE in obj.states
 	except Exception:
-		return False
+		editable = False
+	if interceptor is not None:
+		# The page is what is flowed either way — see `flowSources.documentFor` — so which
+		# it is cannot be read off the target any more. Browse mode standing aside for an
+		# editable control is the reader writing in it, and browse mode presenting the page
+		# is the reader reading it.
+		try:
+			return bool(interceptor.passThrough) and editable
+		except Exception:
+			log.debugWarning("Could not tell whether browse mode has stood aside", exc_info=True)
+			return False
+	return editable
+
+
+def objectAdapterFor(obj, target=None):
+	"""Whether an object is read as a run of objects rather than as a document.
+
+	A document wins wherever there is one. A list item inside a web page is part of that
+	page, and the page has the more useful context: its heading, what came before the list,
+	what follows it. A run of objects is for what has no document behind it at all — a list
+	box in a dialog, a menu, the choices of a combo box the reader has opened.
+
+	:param obj: what the reader is on.
+	:param target: the document it resolved to, read here when not given.
+	:return: the adapter, or None to read a document or nothing.
+	"""
+	target = documentFor(obj) if target is None else target
+	if target is not obj:
+		return None
+	if _isTreeInterceptor(obj):
+		return None
+	return flowObjects.adapterFor(obj)
+
+
+def _isTreeInterceptor(obj) -> bool:
+	""":return: whether an object is a browse mode document rather than something in one."""
+	try:
+		from treeInterceptorHandler import TreeInterceptor
+
+		return isinstance(obj, TreeInterceptor)
+	except ImportError:
+		# Outside a running NVDA. A tree interceptor is the thing that can stand aside for the
+		# control the reader has entered, which is what `passThrough` says.
+		return hasattr(obj, "passThrough")
+
+
+def _objectController(
+	obj,
+	adapter,
+	numRows: int,
+	numCols: int,
+	handler,
+	live: bool,
+	generation: int,
+	notes: list,
+) -> Optional[FlowController]:
+	"""Build a flow over a run of objects. See `buildController`."""
+	source = flowObjects.ObjectFlowSource(
+		obj,
+		adapter,
+		flowObjects.regionFactory(live=live),
+		generation=generation,
+		budget=budgetForBand(numRows),
+	)
+	notes.append(
+		f"Reading objects, band {numRows} rows of {numCols} cells, budget {source.budget.maxBlocks} blocks.",
+	)
+	renderer = FlowRenderer(handler, numCols=numCols, fillRows=False)
+	# Never live in the sense that matters: an object flow moves the window and nothing else,
+	# because the equivalent of a reading position here is a selection, and a selection is
+	# application state. `live` decides only whether the focused block shows a cursor.
+	control = FlowController(source, renderer, numRows=numRows, live=False)
+	if not control.enterAtCursor():
+		result = control.lastResult
+		kind = getattr(getattr(result, "kind", None), "value", "no answer")
+		notes.append(f"The run gave nothing to read: {kind} {getattr(result, 'message', '')}")
+		return None
+	return control
 
 
 def buildController(
@@ -165,11 +239,24 @@ def buildController(
 	if obj is None:
 		notes.append("There is no navigator object.")
 		return None
-	target = resolveTarget(obj)
+	target = documentFor(obj)
 	if target is obj:
 		notes.append("No tree interceptor was substituted; reading the object itself.")
 	else:
 		notes.append(f"Reading through the tree interceptor: {describeObject(target)}")
+	adapter = objectAdapterFor(obj, target)
+	if adapter is not None:
+		notes.append(f"Reading a run of objects, by the {adapter.name} adapter.")
+		return _objectController(
+			obj=obj,
+			adapter=adapter,
+			numRows=numRows,
+			numCols=numCols,
+			handler=handler,
+			live=live,
+			generation=generation,
+			notes=notes,
+		)
 	template = templateRegion(target, notes)
 	try:
 		if template is not None:

@@ -467,6 +467,9 @@ FLOW_MODE_LABELS = {
 	# Translators: label of a checkbox in the flow settings, naming the kind of content the
 	# flow is used for. Browse mode is what NVDA calls its reading of a web page.
 	"browseMode": _("&Browse mode: web pages, and documents NVDA reads like one"),
+	# Translators: label of a checkbox in the flow settings, naming the kind of content the
+	# flow is used for.
+	"objects": _("&Lists and menus: the items around the one you are on"),
 }
 """What to call each kind of content in the dialog, keyed as `bmConfig.FLOW_MODES` names them.
 

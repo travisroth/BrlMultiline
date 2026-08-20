@@ -97,10 +97,20 @@ Set it up under NVDA menu, Preferences, Settings, BrlMultiline flow.
 **Read this display as a flowing document.** The switch. Off until you turn it on, so
 installing the add-on changes nothing.
 
-**Use it for.** Which kinds of content are read this way. Browse mode — web pages, and
-documents NVDA reads like one — is the only one so far; forms and other objects are being
-worked on. Everything else goes on being presented by NVDA as it always has, in the same
-band, so nothing disappears when you leave a page.
+**Use it for.** Which kinds of content are read this way.
+
+*Browse mode* — web pages, and documents NVDA reads like one. On by default once the flow
+is on.
+
+*Lists and menus* — a list box, a menu, a tree, the choices of a combo box you have opened:
+the items around the one you are on, instead of that one item alone. Off by default, because
+it is the newest part and it changes how dialogs read. Nothing in it ever moves your
+selection: the display shows the items around you and the arrow keys still decide where you
+are. A routing key on the item you are already on does what it always did; on any other item
+it moves you there rather than activating it.
+
+Everything else goes on being presented by NVDA as it always has, in the same band, so
+nothing disappears when you leave a page.
 
 **Display the flow appears on.** Only shown when several displays are driven as one. A flow
 must sit on one piece of hardware, so this says which. Left on the automatic setting it goes
@@ -135,7 +145,8 @@ Things worth knowing:
   rows as you type, keeping what you have just written on the display. A field you tab to is
   shown the way browse mode shows it, with its name, its role and its state, whether that
   name comes from a visible label or from the page's markup.
-- Known incomplete: a combo box does not show its choices.
+- A list, a menu or a combo box's choices can be read the same way, showing the items
+  around the one you are on. Turn "Lists and menus" on to try it.
 
 ## Using two displays at once
 

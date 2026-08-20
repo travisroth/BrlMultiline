@@ -30,13 +30,13 @@ from typing import TYPE_CHECKING, Any, Optional
 import api
 from logHandler import log
 
-from . import bmConfig, flowForms, flowQuickNav
+from . import bmConfig, flowForms, flowObjects, flowQuickNav
 from .flowControl import FlowController
-from .flowDryRun import bandSize, buildController
+from .flowDryRun import bandSize, buildController, objectAdapterFor
 from .devices import DeviceInfo, deviceMap, preferredDevice
 from .flowSegment import FlowBufferSegment
 from .layout import SegmentRect, wholeDisplayRect
-from .objectMonitor import resolveTarget
+from .flowSources import documentFor
 from .panels import FlowPanel, PanelOwner
 
 if TYPE_CHECKING:
@@ -227,6 +227,17 @@ class FlowBand(PanelOwner):
 			self.obj = None
 			segment.detach()
 			return False
+		if self._isCurrentRun(obj):
+			# The same run of objects. In a list the focus changes on every arrow key, so this
+			# is the ordinary move rather than a jump: the window tracks the reader by the
+			# smallest amount that keeps them on it, and everything already walked is kept.
+			# Walking again per keypress would be a call into the application for each item
+			# they pass.
+			self.obj = obj
+			self.controller.source.obj = obj
+			self.controller.followCursor()
+			segment.refresh()
+			return True
 		target = self._resolve(obj)
 		if target is not None and self._isCurrentDocument(target):
 			# The same document, so the reader has moved within it rather than left it. A
@@ -306,43 +317,48 @@ class FlowBand(PanelOwner):
 			return None
 
 	def isFlowable(self, obj: Any) -> bool:
-		"""Whether a flow is the right way to present this object yet.
+		"""Whether a flow is the right way to present this object.
 
-		Browse mode is what the flow has been designed and tested against, and what it
-		reads well: a document rendered as a run of blocks. So the test is whether the
-		object belongs to a browse mode document at all — it has a tree interceptor — and
-		not whether browse mode is presenting it at this moment. A form field the reader
-		has entered inside a page still belongs to that page, and reading it as a flow is
-		right; it is the same document, differently attended to.
+		Two readings, and each has a setting of its own, because they are different pieces of
+		work and a reader may want one and not the other.
 
-		An object with no tree interceptor is a different matter. Notepad's edit control
-		has none, and a flow over it followed the caret and grew a row at a time as the
-		reader typed, which is not a presentation anyone asked for. Until a flow knows how
-		to read objects — the adapters of milestone 6 — those are left to NVDA, which
-		already presents them well.
+		**A browse mode document.** The test is whether the object belongs to one at all — it
+		has a tree interceptor — and not whether browse mode is presenting it at this moment.
+		A form field the reader has entered inside a page still belongs to that page, and the
+		page is what has context to show; it is the same document, differently attended to.
+		The object asked about may be either side of that fact: an `NVDAObject` with a tree
+		interceptor, or the interceptor itself, since that is what NVDA puts on the regions it
+		builds for a browse mode document.
 
-		The object asked about may be either side of the same fact: an `NVDAObject` that has
-		a tree interceptor, or the tree interceptor itself, since that is what NVDA puts on
-		the regions it builds for a browse mode document.
+		**A run of objects.** A list, a menu, the choices of a combo box: things the reader
+		arrows through one of and wants the others of. Only where there is no document behind
+		them, since a list inside a page is part of that page. See `flowObjects`.
 
-		Whether browse mode is one of the kinds of content this reader wants flowed is a
-		setting, and is asked first: a reader who has turned it off gets NVDA's own
-		presentation of a web page while whatever else they turned on still flows.
+		Anything else is left to NVDA, which presents it well. Notepad's edit control is
+		neither, and a flow over it once followed the caret and grew a row at a time as the
+		reader typed — which is what the narrowness here is for.
 
 		:param obj: what the reader is on.
 		:return: whether to read it as a flow.
 		"""
 		if obj is None:
 			return False
-		if not bmConfig.isFlowEnabledFor("browseMode"):
-			return False
 		try:
-			if getattr(obj, "treeInterceptor", None) is not None:
-				return True
-			return _isTreeInterceptor(obj)
+			if getattr(obj, "treeInterceptor", None) is not None or _isTreeInterceptor(obj):
+				return bmConfig.isFlowEnabledFor("browseMode")
+			if not bmConfig.isFlowEnabledFor("objects"):
+				return False
+			return objectAdapterFor(obj) is not None
 		except Exception:
 			log.debugWarning("Could not tell whether this can be flowed", exc_info=True)
 			return False
+
+	def _isCurrentRun(self, obj: Any) -> bool:
+		""":return: whether a flow of objects is showing the run this object belongs to."""
+		source = getattr(self.controller, "source", None)
+		if not isinstance(source, flowObjects.ObjectFlowSource):
+			return False
+		return flowObjects.belongsTo(source, obj)
 
 	def _isCurrentDocument(self, target: Any) -> bool:
 		""":return: whether a resolved target is the one the current flow is reading."""
@@ -353,7 +369,7 @@ class FlowBand(PanelOwner):
 		if obj is None:
 			return None
 		try:
-			return resolveTarget(obj)
+			return documentFor(obj)
 		except Exception:
 			log.debugWarning("Could not resolve what to flow", exc_info=True)
 			return None
@@ -362,7 +378,7 @@ class FlowBand(PanelOwner):
 		"""Find what NVDA built a set of focus regions for.
 
 		The last region is the one over the text — a browse mode document's tree
-		interceptor, or the object itself — which is the same thing `resolveTarget` would
+		interceptor, or the object itself — which is the same thing `documentFor` would
 		arrive at from the focus.
 
 		:param regions: the regions NVDA built.

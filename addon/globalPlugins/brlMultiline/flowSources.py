@@ -58,6 +58,35 @@ trips over is not a safety limit, it is a fault.
 """
 
 
+def documentFor(obj):
+	"""Which object a flow reads a document from.
+
+	The tree interceptor when there is a ready one, whether or not browse mode is presenting
+	it at this moment. That last part is the whole difference from
+	`objectMonitor.resolveTarget`, and it is deliberate.
+
+	`resolveTarget` answers a different question — what to pin — and gives back the object
+	itself when browse mode has stood aside for a control the reader has entered. Reading a
+	flow that way builds it over one control's own text, so tabbing into a single line edit
+	produces a flow of one line, and an empty one produces a flow of nothing: the blank row
+	where a tabbed-to field should have been. A form field the reader has entered inside a
+	page is still that page, and the page is what has context to show.
+
+	:param obj: the object the reader is on.
+	:return: the document to read, or the object unchanged when there is none.
+	"""
+	interceptor = getattr(obj, "treeInterceptor", None)
+	if interceptor is None:
+		return obj
+	try:
+		if interceptor.isReady:
+			return interceptor
+	except Exception:
+		# An interceptor part way through being torn down. The object itself still reads.
+		log.debugWarning("Could not consult a tree interceptor", exc_info=True)
+	return obj
+
+
 def budgetForBand(numRows: int) -> "FetchBudget":
 	"""How much work one operation may do to fill a band of a given height.
 

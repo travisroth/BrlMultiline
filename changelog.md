@@ -36,6 +36,9 @@ Added:
   separated from the next prompt, and a multi line edit grows into the rows as it is typed
   into. Off until it is turned on, per display and per configuration profile, so it can be
   on in one browser and off in another. Experimental.
+- Reading a list, a menu, a tree or a combo box's choices the same way: the items around
+  the one you are on, rather than that one alone. It never moves your selection. Off until
+  it is turned on, separately from browse mode. Experimental.
 
 For add-on authors and component work:
 
