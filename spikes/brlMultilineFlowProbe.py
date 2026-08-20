@@ -96,8 +96,33 @@ class _KeyboardInput(ctypes.Structure):
 	]
 
 
+class _MouseInput(ctypes.Structure):
+	_fields_ = [
+		("dx", wintypes.LONG),
+		("dy", wintypes.LONG),
+		("mouseData", wintypes.DWORD),
+		("dwFlags", wintypes.DWORD),
+		("time", wintypes.DWORD),
+		("dwExtraInfo", ctypes.POINTER(wintypes.ULONG)),
+	]
+
+
+class _HardwareInput(ctypes.Structure):
+	_fields_ = [
+		("uMsg", wintypes.DWORD),
+		("wParamL", wintypes.WORD),
+		("wParamH", wintypes.WORD),
+	]
+
+
 class _InputUnion(ctypes.Union):
-	_fields_ = [("ki", _KeyboardInput)]
+	_fields_ = [("mi", _MouseInput), ("ki", _KeyboardInput), ("hi", _HardwareInput)]
+	"""All three members, though only the keyboard one is ever filled in.
+
+	`SendInput` is given the size of the structure and refuses anything that is not the size
+	it knows. A union holding only the keyboard member is smaller than the real one — a
+	mouse event is wider — so every call was rejected and the first run of this probe typed
+	nothing at all while its named keys went through a different path and worked."""
 
 
 class _Input(ctypes.Structure):
@@ -127,7 +152,11 @@ def sendCharacter(character: str) -> None:
 		event.union.ki = _KeyboardInput(0, ord(character), flags, 0, None)
 		events.append(event)
 	array = (_Input * len(events))(*events)
-	_sendInput(len(events), array, ctypes.sizeof(_Input))
+	sent = _sendInput(len(events), array, ctypes.sizeof(_Input))
+	if sent != len(events):
+		# Said out loud rather than left to be inferred from an empty field, which is how the
+		# first run of this probe spent itself.
+		log.error(f"The flow probe could not type {character!r}: {ctypes.WinError()}")
 
 
 def sendKey(name: str) -> None:
@@ -187,6 +216,13 @@ def describeFocus(lines: list) -> None:
 	try:
 		caret = obj.makeTextInfo(textInfos.POSITION_SELECTION)
 		lines.append(f"  caret: {describePosition(caret)} collapsed={caret.isCollapsed}")
+		try:
+			caret.bookmark
+			lines.append("  bookmarks: yes")
+		except Exception as error:
+			# Whether a position can be marked decides whether a block can be recognised
+			# again. A document without them made every reading of one line a new block.
+			lines.append(f"  bookmarks: no ({error!r})")
 	except Exception as error:
 		lines.append(f"  caret: unreadable ({error!r})")
 	try:

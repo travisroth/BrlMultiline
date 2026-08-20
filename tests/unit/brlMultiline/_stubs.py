@@ -504,7 +504,7 @@ class FakeTextInfo:
 		return self.lines[self.index] if 0 <= self.index < len(self.lines) else ""
 
 	def copy(self):
-		copied = FakeTextInfo(self.lines, self.index, self.offset)
+		copied = type(self)(self.lines, self.index, self.offset)
 		copied.expanded = self.expanded
 		return copied
 
@@ -548,6 +548,21 @@ class FakeTextInfo:
 		return moved
 
 
+class NoBookmarkTextInfo(FakeTextInfo):
+	"""A position in a document that cannot mark one, as Chromium's editable text is.
+
+	NVDA's `TextInfo.bookmark` raises where the underlying text API has nothing to mark a
+	position with, and a bare `TextInfo` defines no `__eq__` — so it compares by identity,
+	and every reading of one line is a different block. That is not a corner: it is what a
+	comment box on a web page does, and the flow above recognises nothing without an answer
+	for it.
+	"""
+
+	@property
+	def bookmark(self):
+		raise NotImplementedError("this document has no bookmarks")
+
+
 class FakeDocument:
 	"""An object whose caret sits on one line of a fixed list."""
 
@@ -588,8 +603,11 @@ class ControlField(dict):
 class FakeTreeInterceptor(CursorManager):
 	"""A browse mode document, which reads through a cursor of its own rather than a caret."""
 
-	def __init__(self, lines, caretIndex=0, isReady=True, passThrough=False):
+	def __init__(self, lines, caretIndex=0, isReady=True, passThrough=False, bookmarks=True):
 		self.lines = lines
+		self.positionType = FakeTextInfo if bookmarks else NoBookmarkTextInfo
+		"""Which kind of position this document hands out. See `NoBookmarkTextInfo`."""
+
 		self.caretIndex = caretIndex
 		self.caretOffset = 0
 		"""Where in its line the browse mode cursor sits.
@@ -604,7 +622,7 @@ class FakeTreeInterceptor(CursorManager):
 
 	@property
 	def selection(self):
-		return FakeTextInfo(self.lines, self.caretIndex, self.caretOffset)
+		return self.positionType(self.lines, self.caretIndex, self.caretOffset)
 
 	@selection.setter
 	def selection(self, info):
@@ -620,11 +638,11 @@ class FakeTreeInterceptor(CursorManager):
 		object this document cannot place raises `LookupError`, as NVDA's own does.
 		"""
 		if isinstance(position, str):
-			return FakeTextInfo(self.lines, self.caretIndex, self.caretOffset)
+			return self.positionType(self.lines, self.caretIndex, self.caretOffset)
 		index = getattr(position, "documentIndex", None)
 		if index is None:
 			raise LookupError(f"{position!r} is not in this document")
-		return FakeTextInfo(self.lines, index)
+		return self.positionType(self.lines, index)
 
 
 class TextInfoRegion(Region):

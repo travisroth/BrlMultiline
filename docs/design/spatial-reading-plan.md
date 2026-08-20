@@ -361,6 +361,24 @@ inside that page — because a focus that has gone somewhere else entirely is a 
 and NVDA reports those through regions that are a better account of where it went than the
 focus object is.
 
+**A block's identity cannot rest on `TextInfo.bookmark` alone.** Everything above assumes
+the flow can recognise a block it has already read: `hasBlock` decides whether the window is
+already showing the cursor's block, `refreshActive` finds the block to lay out again, and the
+anchor is a block identity that has to survive a re-read. All of that is comparison, and a
+bookmark is what makes a position comparable.
+
+Chromium's editable text does not offer one. `TextInfo.bookmark` raises, and the fallback
+was the position object itself — which has no `__eq__`, so it compares by identity, so every
+reading of one line was a different block. Nothing was ever recognised. The window rebuilt
+from the cursor on each keystroke, one block at a time; a rendering made a moment earlier
+could not be found to refresh, which is why a typed letter appeared only once the next one
+had been typed; and the anchor could not survive, so the band could not hold still. Half of
+what the hardware reported about writing in a comment box was this one fact.
+
+Where a document has no bookmarks, two positions are the same block when their reading units
+start in the same place — `compareEndPoints`, wrapped in something that answers `__eq__`
+with it. See `flowSources.PositionMark`.
+
 **While the reader is writing, a caret update reads the whole band again.** Every other
 rule here assumes the document holds still while it is read, and an edit being typed into
 does not. A block's position is an offset: insert a line and every offset after it moves,

@@ -138,6 +138,48 @@ def budgetForBand(numRows: int) -> "FetchBudget":
 	return FetchBudget(maxBlocks=max(DEFAULT_MAX_BLOCKS, numRows * 2 + 6))
 
 
+class PositionMark:
+	"""A block's identity where the document has no bookmarks of its own.
+
+	`TextInfo.bookmark` is the proper answer and most documents give one. Chromium's editable
+	text — a comment box on a web page, in focus mode — raises instead, and a bare `TextInfo`
+	has no `__eq__`, so it compares by identity. Every reading of the same line was therefore
+	a different block: `hasBlock` was always false, nothing the flow had already read could
+	be recognised again, and the whole design above rests on recognising it.
+
+	What that looked like on a display: the window rebuilt from the cursor on every
+	keystroke, one block at a time; a rendering made a moment earlier could not be found to
+	refresh, so a letter appeared only once the next one had been typed; and the anchor could
+	not survive a re-read, so the band could not stay where the reader had put it.
+
+	Two positions are the same block when their reading units start in the same place, which
+	is what `compareEndPoints` answers and what a bookmark would have said. Unhashable, like
+	NVDA's own bookmark, which is what `flow.ByIdentity` exists for.
+	"""
+
+	__slots__ = ("info",)
+
+	def __init__(self, info) -> None:
+		"""
+		:param info: the position to mark. Copied, because the caller goes on moving theirs.
+		"""
+		self.info = info.copy()
+
+	def __eq__(self, other) -> bool:
+		if not isinstance(other, PositionMark):
+			return NotImplemented
+		try:
+			return self.info.compareEndPoints(other.info, "startToStart") == 0
+		except Exception:
+			# A document that will not compare two of its own positions cannot be recognised
+			# at all, and saying so is better than saying two different lines are one.
+			log.debugWarning("Could not compare two positions", exc_info=True)
+			return self is other
+
+	def __repr__(self) -> str:
+		return f"<PositionMark {self.info!r}>"
+
+
 class FlowRegion:
 	"""Mixin giving a region a fixed position, and a cursor only when it is the active one.
 
@@ -935,14 +977,15 @@ class DocumentFlowSource:
 	def _bookmark(self, info):
 		""":return: something comparable that finds this position again.
 
-		Falls back to the position object itself where bookmarks are not implemented, which
-		still compares usefully within one document and simply makes recovery re-enter at
-		the cursor more often.
+		Falls back to comparing the positions themselves where the document has no bookmarks,
+		which is not a nicety: the position object *is* a bookmark that compares by identity,
+		so a flow given one recognises nothing it has read. See `PositionMark`.
 		"""
 		try:
 			return info.bookmark
-		except (AttributeError, NotImplementedError):
-			return info
+		except Exception:
+			log.debug("This document has no bookmarks; comparing positions instead")
+			return PositionMark(info)
 
 	def forget(self) -> None:
 		"""Drop every cached position, after the document has been replaced."""

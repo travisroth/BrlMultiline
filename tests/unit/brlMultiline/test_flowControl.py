@@ -61,9 +61,10 @@ def controllerOver(
 	enter=True,
 	atObject=None,
 	interactive=False,
+	bookmarks=True,
 ):
 	"""Build a controller over a browse mode document of the given lines."""
-	interceptor = FakeTreeInterceptor(lines, caretIndex=caretIndex)
+	interceptor = FakeTreeInterceptor(lines, caretIndex=caretIndex, bookmarks=bookmarks)
 	source = DocumentFlowSource(
 		interceptor,
 		regionFactoryFor(CursorManagerRegion(interceptor), live=live),
@@ -871,6 +872,63 @@ class TestWritingReadsTheWholeBandAgain(unittest.TestCase):
 		control.source.obj.lines[:] = ["Hello"]
 		control.followCursor()
 		self.assertEqual(rowTexts(control)[1].strip(), "two")
+
+
+class TestADocumentWithNoBookmarks(unittest.TestCase):
+	"""Chromium's editable text has none, and a bare position compares by identity.
+
+	Every reading of the same line was then a different block. Nothing the flow had already
+	read could be recognised: the window was rebuilt from the cursor on each keystroke, one
+	block at a time, and a rendering made a moment earlier could not be found to refresh —
+	which on hardware was a letter appearing only once the next one had been typed.
+	"""
+
+	def flow(self, lines, caretIndex=0, numRows=4):
+		return controllerOver(
+			lines,
+			caretIndex=caretIndex,
+			numRows=numRows,
+			live=True,
+			bookmarks=False,
+		)
+
+	def test_theSameLineReadTwiceIsTheSameBlock(self):
+		control = self.flow(["one", "two", "three"])
+		first = control.activeBlockId
+		control.followCursor()
+		self.assertEqual(control.activeBlockId, first)
+
+	def test_andADifferentLineIsNot(self):
+		control = self.flow(["one", "two", "three"])
+		first = control.activeBlockId
+		control.source.obj.caretIndex = 1
+		control.followCursor()
+		self.assertNotEqual(control.activeBlockId, first)
+
+	def test_theWindowKnowsWhatItIsAlreadyShowing(self):
+		control = self.flow(["one", "two", "three"])
+		control.source.obj.caretIndex = 2
+		control.followCursor()
+		self.assertTrue(control.window.hasBlock(control.activeBlockId))
+
+	def test_soMovingWithinTheBandMovesNothing(self):
+		control = self.flow(["one", "two", "three", "four"])
+		top = control.window.topBlockId()
+		control.source.obj.caretIndex = 2
+		control.followCursor()
+		self.assertEqual(control.window.topBlockId(), top)
+
+	def test_andTheBandStillFills(self):
+		control = self.flow([str(number) for number in range(8)])
+		self.assertEqual(rowTexts(control), ["0       ", "1       ", "2       ", "3       "])
+
+	def test_theBlockTheCursorIsInCanStillBeRefreshed(self):
+		# `refreshActive` finds the block by its identity. Without one it found nothing, so
+		# what the reader had just typed was never laid out again.
+		control = self.flow(["one", "two"])
+		control.source.obj.lines[0] = "one more"
+		control.refreshActive()
+		self.assertEqual(rowTexts(control)[0], "one more")
 
 
 if __name__ == "__main__":
