@@ -6,9 +6,11 @@ display as one continuous piece, rather than showing the focused line and readin
 offset into every other segment.
 
 This is the design, the decisions taken so far, the order of work, and the questions
-still open. Milestones 0 to 3 are built, unit tested and run on hardware; milestone 5 is
-built and unit tested and wants a hardware run on a real form. The milestone list says
-precisely what that means.
+still open. Every milestone is now built and unit tested. Milestones 0 to 3 have been run
+on hardware and corrected by what it found; 5 and 6 have not, and 7 is an instrument
+waiting for numbers only hardware can produce. The milestone list says precisely what each
+of those means, including what each hardware run got wrong — which has twice been a
+constant somebody guessed.
 
 ## The problem
 
