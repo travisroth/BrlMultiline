@@ -224,6 +224,20 @@ class FlowRegion:
 		document. Ordinary document blocks keep the containment rule below.
 		"""
 
+		self.flowReadingUnit: Optional[str] = None
+		"""The unit this source says the region represents, when it differs from NVDA's setting.
+
+		A source and its regions must agree about what one block is. Ordinarily both follow
+		NVDA's read-by-paragraph setting. An edit being written in may deliberately override
+		that setting, so the source assigns this before the region is first updated.
+		"""
+
+	def _getReadingUnit(self):
+		""":return: this flow's unit, or NVDA's unit where the source did not override it."""
+		if self.flowReadingUnit is not None:
+			return self.flowReadingUnit
+		return super()._getReadingUnit()
+
 	@property
 	def position(self):
 		""":return: this block's own position, or None if it has never been read."""
@@ -759,6 +773,7 @@ class DocumentFlowSource:
 			editStart = self._startOfUnit(editInfo)
 			factory = self._interactiveFactory or regionFactoryForObject(obj, live=True)
 			region = factory(obj, editStart)
+			region.flowReadingUnit = self.unit
 			region.tracksLiveCursorAcrossUnits = True
 			region.update()
 		except Exception as error:
@@ -1020,6 +1035,7 @@ class DocumentFlowSource:
 		blockId = BlockId(generation=self.generation, bookmark=self._bookmark(start), unit=self.unit)
 		self._positions.set(blockId.bookmark, start)
 		region = self.regionFactory(self.obj, start)
+		region.flowReadingUnit = self.unit
 		region.update()
 		if self._hasSwallowedWhatFollows(region):
 			self._swallowed.set(blockId.bookmark, True)

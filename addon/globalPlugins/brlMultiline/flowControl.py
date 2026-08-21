@@ -696,6 +696,11 @@ class FlowController(PanelOwner):
 		:return: whether anything is on the display, in the shape `_arrive` answers with.
 		"""
 		topId = self.window.topBlockId()
+		# Everything the source remembered is a position in the document before this edit.
+		# That includes ordinary block positions and transient recovery state such as a line
+		# which temporarily swallowed the one after it. Keeping either would make this a new
+		# rendering of the old reading rather than the promised fresh reading of the document.
+		self.source.forget()
 		if not self._enterAtCursor():
 			return None
 		if ground or topId is None:

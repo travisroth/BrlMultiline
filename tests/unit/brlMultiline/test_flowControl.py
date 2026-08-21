@@ -961,6 +961,21 @@ class TestALineThatSwallowedTheNextOne(unittest.TestCase):
 		control = controllerOver(["one", "two", "three"], numRows=4)
 		self.assertEqual(len(control.window.blocks), 3)
 
+	def test_theNextWritingRereadTriesTheCorrectedLineAgain(self):
+		"""The swallowed answer is transient, so it must not truncate every later reading."""
+		control = controllerOver(
+			["one" + chr(10) + "two", "two", "three"],
+			numRows=4,
+			live=True,
+			interactive=True,
+		)
+		control.source.obj.lines[0] = "one"
+		control.followCursor()
+		self.assertEqual(
+			[row.strip() for row in rowTexts(control) if row.strip()],
+			["one", "two", "three"],
+		)
+
 	def test_aParagraphMayHoldOneWithoutBeingWrong(self):
 		"""Asking this of a paragraph would end every reading at its first soft break."""
 		control = controllerOver(["one" + chr(10) + "two", "three"], numRows=4, unit="paragraph")

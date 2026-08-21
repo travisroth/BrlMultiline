@@ -736,6 +736,7 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self._focusOn(field)
 		self.segment.acceptFocusRegions(self._focusRegionsFor(field))
 		self.assertEqual(self.band.controller.source.unit, "paragraph")
+		self.assertEqual(self.band.controller.activeRegion()._getReadingUnit(), "paragraph")
 
 	def test_aPageIsStillReadTheReadersOwnWay(self):
 		page, _interceptor = self._document(["Name", "a field", "After"])
