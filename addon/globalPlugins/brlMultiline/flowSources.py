@@ -869,10 +869,40 @@ class DocumentFlowSource:
 		if moved is None:
 			return FetchResult.endOfStream()
 		moved = self._pastTheBreak(moved, forward)
+		startOfMoved = self._startOfUnit(moved)
+		if not self._advanced(start, startOfMoved, forward):
+			# The step went nowhere, or went back over the block it came from. A rich editor
+			# does this at a position just past a break: asked to expand the unit there it
+			# reaches back across it, so the block's start is the *previous* block's start
+			# and the display showed the same text twice. Blank rows are the honest answer,
+			# and the reader's next keystroke reads the document afresh.
+			return FetchResult.endOfStream()
 		if self.interactive or not self._isBlank(moved):
-			return self._blockAt(moved)
+			return self._blockAt(moved, start=startOfMoved)
 		# A blank block while reading: the run costs one row rather than a display.
 		return self._walkBlanks(moved, moved, 1, forward, key)
+
+	def _advanced(self, origin, start, forward: bool) -> bool:
+		"""Whether a walked block really is the next one along.
+
+		The invariant the whole stream rests on and had never been stated: walking forward
+		lands *after* where it started, and walking back lands before it. A document that
+		answers otherwise is not being disbelieved out of caution — a block that does not
+		advance is the block already on the display, and showing it again is the duplicate
+		row that reading a comment box produced after every return.
+
+		:param origin: where the block being walked from starts.
+		:param start: where the block found starts.
+		:param forward: which way the walk went.
+		:return: whether to accept it. A document that will not compare its own positions is
+			given the benefit of the doubt, since refusing every step would show nothing.
+		"""
+		try:
+			order = start.compareEndPoints(origin, "startToStart")
+		except Exception:
+			log.debugWarning("Could not tell whether a step advanced", exc_info=True)
+			return True
+		return order > 0 if forward else order < 0
 
 	def _pastTheBreak(self, info, forward: bool):
 		"""Step over the empty unit a paragraph walk lands on between two paragraphs.
@@ -945,11 +975,11 @@ class DocumentFlowSource:
 		self._exits.set((block.blockId.bookmark, False), earliest)
 		return FetchResult.found(block)
 
-	def _blockAt(self, info, isControl: bool = False) -> FetchResult:
+	def _blockAt(self, info, isControl: bool = False, start=None) -> FetchResult:
 		""":return: a result carrying the block at a position."""
 		began = self.budget.clock()
 		try:
-			return FetchResult.found(self._buildBlock(info, isControl=isControl))
+			return FetchResult.found(self._buildBlock(info, isControl=isControl, start=start))
 		except Exception as error:
 			log.debugWarning("Could not build a block", exc_info=True)
 			return FetchResult.failed(f"could not build a block: {error!r}")
@@ -979,9 +1009,14 @@ class DocumentFlowSource:
 		# separates its lines with is one.
 		return len(text.splitlines()) > 1
 
-	def _buildBlock(self, info, isControl: bool = False) -> SourceBlock:
-		"""Build one block from a position, and remember where it starts."""
-		start = self._startOfUnit(info)
+	def _buildBlock(self, info, isControl: bool = False, start=None) -> SourceBlock:
+		"""Build one block from a position, and remember where it starts.
+
+		:param start: where the block begins, when the caller has already worked it out.
+			Asking twice is not free and, worse, is not always the same answer: see
+			`_startOfUnit`.
+		"""
+		start = self._startOfUnit(info) if start is None else start
 		blockId = BlockId(generation=self.generation, bookmark=self._bookmark(start), unit=self.unit)
 		self._positions.set(blockId.bookmark, start)
 		region = self.regionFactory(self.obj, start)

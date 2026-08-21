@@ -492,19 +492,27 @@ class FakeTextInfo:
 	an empty text would mean modelling ranges rather than positions.
 	"""
 
-	def __init__(self, lines, index, offset=0):
+	def __init__(self, lines, index, offset=0, expandsBackAt=None):
 		self.lines = lines
 		self.index = index
 		self.offset = offset
 		self.expanded = False
 		"""Whether this range covers its whole line, as `expand` makes it."""
 
+		self.expandsBackAt = expandsBackAt
+		"""A unit whose expansion reaches back to the start of the document.
+
+		What a rich editor does at a position just past a break: asked to expand the unit
+		there it takes in everything before it, so the unit's start is an earlier unit's
+		start. Modelled because a flow that walks forward and lands on an earlier block shows
+		the same text twice, and that is the whole of the duplicate row a comment box gave."""
+
 	@property
 	def text(self):
 		return self.lines[self.index] if 0 <= self.index < len(self.lines) else ""
 
 	def copy(self):
-		copied = type(self)(self.lines, self.index, self.offset)
+		copied = type(self)(self.lines, self.index, self.offset, self.expandsBackAt)
 		copied.expanded = self.expanded
 		return copied
 
@@ -533,7 +541,13 @@ class FakeTextInfo:
 			self.expanded = False
 
 	def expand(self, unit):
-		"""Cover the whole unit, whose start is the start of the line."""
+		"""Cover the whole unit, whose start is the start of the line.
+
+		Unless this is the position that reaches back — see `expandsBackAt` — where the unit
+		begins at the start of the document instead.
+		"""
+		if self.expandsBackAt is not None and self.index == self.expandsBackAt:
+			self.index = 0
 		self.offset = 0
 		self.expanded = True
 
@@ -603,8 +617,19 @@ class ControlField(dict):
 class FakeTreeInterceptor(CursorManager):
 	"""A browse mode document, which reads through a cursor of its own rather than a caret."""
 
-	def __init__(self, lines, caretIndex=0, isReady=True, passThrough=False, bookmarks=True):
+	def __init__(
+		self,
+		lines,
+		caretIndex=0,
+		isReady=True,
+		passThrough=False,
+		bookmarks=True,
+		expandsBackAt=None,
+	):
 		self.lines = lines
+		self.expandsBackAt = expandsBackAt
+		"""Which unit of this document reaches back when expanded. See `FakeTextInfo`."""
+
 		self.positionType = FakeTextInfo if bookmarks else NoBookmarkTextInfo
 		"""Which kind of position this document hands out. See `NoBookmarkTextInfo`."""
 
@@ -622,7 +647,7 @@ class FakeTreeInterceptor(CursorManager):
 
 	@property
 	def selection(self):
-		return self.positionType(self.lines, self.caretIndex, self.caretOffset)
+		return self.positionType(self.lines, self.caretIndex, self.caretOffset, self.expandsBackAt)
 
 	@selection.setter
 	def selection(self, info):
@@ -638,11 +663,11 @@ class FakeTreeInterceptor(CursorManager):
 		object this document cannot place raises `LookupError`, as NVDA's own does.
 		"""
 		if isinstance(position, str):
-			return self.positionType(self.lines, self.caretIndex, self.caretOffset)
+			return self.positionType(self.lines, self.caretIndex, self.caretOffset, self.expandsBackAt)
 		index = getattr(position, "documentIndex", None)
 		if index is None:
 			raise LookupError(f"{position!r} is not in this document")
-		return self.positionType(self.lines, index)
+		return self.positionType(self.lines, index, 0, self.expandsBackAt)
 
 
 class TextInfoRegion(Region):

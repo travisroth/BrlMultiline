@@ -63,9 +63,15 @@ def controllerOver(
 	interactive=False,
 	bookmarks=True,
 	unit="line",
+	expandsBackAt=None,
 ):
 	"""Build a controller over a browse mode document of the given lines."""
-	interceptor = FakeTreeInterceptor(lines, caretIndex=caretIndex, bookmarks=bookmarks)
+	interceptor = FakeTreeInterceptor(
+		lines,
+		caretIndex=caretIndex,
+		bookmarks=bookmarks,
+		expandsBackAt=expandsBackAt,
+	)
 	source = DocumentFlowSource(
 		interceptor,
 		regionFactoryFor(CursorManagerRegion(interceptor), live=live),
@@ -994,6 +1000,38 @@ class TestReadingByParagraph(unittest.TestCase):
 	def test_aBreakAtTheEndIsStillWhereTheReaderIs(self):
 		control = controllerOver(["one", ""], numRows=4, unit="paragraph", interactive=True)
 		self.assertEqual(rowTexts(control)[1].strip(), "")
+
+
+class TestAStepThatGoesNowhere(unittest.TestCase):
+	"""Walking forward lands after where it started. The invariant, stated at last.
+
+	A rich editor answers otherwise at a position just past a break: asked to expand the
+	unit there it reaches back across it, so the block found starts where the block already
+	on the display starts. Reading a comment box showed the same text twice after every
+	return, and stepping over the break made it worse rather than better — the blank row it
+	removed was replaced by a copy of the line above.
+	"""
+
+	def test_aBlockThatDoesNotAdvanceIsNotFetched(self):
+		control = controllerOver(["one", "two", "three"], numRows=4, expandsBackAt=1)
+		self.assertEqual(len(control.window.blocks), 1)
+		self.assertEqual(control.window.edges[Edge.AFTER], EdgeState.END)
+
+	def test_soTheRowBelowIsBlankRatherThanARepeat(self):
+		control = controllerOver(["one", "two"], numRows=4, expandsBackAt=1)
+		self.assertEqual(rowTexts(control)[0].strip(), "one")
+		self.assertEqual(rowTexts(control)[1].strip(), "")
+
+	def test_aDocumentThatWalksProperlyIsUntouched(self):
+		control = controllerOver(["one", "two", "three"], numRows=4)
+		self.assertEqual(len(control.window.blocks), 3)
+
+	def test_walkingBackHasTheSameRule(self):
+		control = controllerOver(["one", "two", "three"], caretIndex=2, numRows=4, expandsBackAt=1)
+		self.assertEqual(
+			[row.strip() for row in rowTexts(control) if row.strip()],
+			["three"],
+		)
 
 
 if __name__ == "__main__":

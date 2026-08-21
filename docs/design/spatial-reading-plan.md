@@ -387,6 +387,21 @@ line would be a different block and nothing would ever be recognised. There, two
 are the same block when their reading units start in the same place: `compareEndPoints`,
 wrapped in something that answers `__eq__` with it. See `flowSources.PositionMark`.
 
+**A block walked forward starts after the one it was walked from.** The invariant the whole
+stream rests on, and it went unstated for six milestones because every document tested had
+honoured it. A rich editor does not: at a position just past a break, asked to expand the
+reading unit, it reaches back across the break — so the block found starts where the block
+already on the display starts, and the display shows the same text twice.
+
+That is the whole of the duplicate row, in both units. It also explains why stepping over
+the break made paragraph reading worse rather than better: the blank row that went was
+replaced by a copy of the line above it, because the position past the break normalised
+backwards onto the previous paragraph.
+
+A step that does not advance is refused and the stream ends there. Blank rows are the honest
+answer — the reader is at the end of what can be read reliably — and the next keystroke reads
+the document afresh, which the logs show it doing every time.
+
 **Where a reading unit is not one, the band cannot be either.** A block is a reading unit,
 and the whole packing rule — a block starts a new row — assumes a unit read by line holds one
 line. Chromium's rich editor does not always answer that way: at the position left by a
