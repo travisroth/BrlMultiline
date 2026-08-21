@@ -237,7 +237,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			focusLabel,
 			wx.SpinCtrl,
 			min=-1,
-			max=bmConfig.MAX_UI_SEGMENTS - 1,
+			max=self._highestSegmentNumber(),
 			initial=int(section["focusSegment"]),
 		)
 		if self.devices:
@@ -255,13 +255,28 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			messageLabel,
 			wx.SpinCtrl,
 			min=-1,
-			max=bmConfig.MAX_UI_SEGMENTS - 1,
+			max=self._highestSegmentNumber(),
 			initial=int(section["messageSegment"]),
 		)
 		# Translators: label of a checkbox in settings.
 		documentLinesLabel = _("Show the &document lines around the caret in the other segments")
 		self.documentLinesCtrl = sHelper.addItem(wx.CheckBox(self, label=documentLinesLabel))
 		self.documentLinesCtrl.SetValue(bool(section["showDocumentLines"]))
+
+	def _highestSegmentNumber(self) -> int:
+		""":return: the largest segment number the spin controls should offer.
+
+		Segments are numbered across the whole display, so on a composite the count to
+		bound by is the sum of what each display behind it may be divided into rather than
+		what one of them may. A control bounded by the latter cannot express the last
+		segment of a tall composite, which is a number the reader can perfectly well
+		reach — the display relative commands and the command that moves the focus from
+		one display to another both produce it.
+
+		This is a bound on what can be typed, not on what is right: L{isValid} checks the
+		number against the segments the configured layout actually has.
+		"""
+		return bmConfig.MAX_UI_SEGMENTS * max(1, len(self.devices)) - 1
 
 	# Choosing which display the segment settings apply to
 
@@ -566,6 +581,23 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		groundLabel = _("Start reading afresh from what a &quick navigation key found")
 		self.groundCtrl = sHelper.addItem(wx.CheckBox(self, label=groundLabel))
 		self.groundCtrl.SetValue(bool(section["flowGroundOnQuickNav"]))
+		# Translators: label of a checkbox in settings. It governs how the text of an edit box
+		# the user is typing in is divided up for the flow.
+		paragraphLabel = _("In a multi-line edit &you are typing in, read a paragraph at a time")
+		self.writeByParagraphCtrl = sHelper.addItem(wx.CheckBox(self, label=paragraphLabel))
+		self.writeByParagraphCtrl.SetValue(bool(section["flowWriteByParagraph"]))
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the checkbox above, explaining what it
+					# does. Read by paragraph is a setting of NVDA's own braille settings.
+					"On, a paragraph is what you typed rather than what the box's wrapping made "
+					"of it. Off, an edit is read the same way a page is, by NVDA's own read by "
+					"paragraph setting.",
+				),
+			),
+		)
 		self._updateRowsHint()
 
 	# Where the band goes.
@@ -677,6 +709,7 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowDisplay"] = self._chosenTarget().driverName
 		section["flowRows"] = self.rowsCtrl.Value
 		section["flowGroundOnQuickNav"] = self.groundCtrl.IsChecked()
+		section["flowWriteByParagraph"] = self.writeByParagraphCtrl.IsChecked()
 
 	def postSave(self):
 		# Claim or give back the band straight away, rather than at the next display event.

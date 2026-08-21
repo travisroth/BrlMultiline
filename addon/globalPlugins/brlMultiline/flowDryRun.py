@@ -29,7 +29,7 @@ from braille.regions.focus import getFocusRegions
 from braille.regions.textInfo import TextInfoRegion
 from logHandler import log
 
-from . import flowForms, flowObjects
+from . import bmConfig, flowForms, flowObjects
 from .flowControl import FlowController
 from .flowRender import FlowRenderer
 from .flowSources import (
@@ -59,9 +59,11 @@ def readingUnit() -> str:
 def readingUnitFor(target) -> str:
 	"""What one block of a document is.
 
-	The reader's own setting, except in a multi line edit they are writing in. There a
-	paragraph is what they typed and a line is what the control's wrapping made of it, and
-	the writer thinks in the first.
+	The reader's own setting, except in a multi line edit they are writing in, where the
+	add-on's own `flowWriteByParagraph` setting decides. On, which it is by default, such an
+	edit is cut into paragraphs whatever NVDA's read by paragraph setting says: a paragraph
+	is what the writer typed and a line is what the control's wrapping made of it, and the
+	writer thinks in the first.
 
 	The evidence is stronger than the argument. Asked what the line at the caret is, a rich
 	editor answers with a single character for a moment after each return, and with
@@ -70,10 +72,18 @@ def readingUnitFor(target) -> str:
 	same control at the same moment answers with exactly the line the reader is on, every
 	time. A unit that is only sometimes a unit cannot be a block.
 
+	That evidence comes from one editor, though, which is why it is a setting rather than a
+	rule: turning it off puts an edit back on the same footing as a page, so the difference
+	can be tried in a control the default was never chosen from.
+
 	:param target: the document being read.
 	:return: the reading unit to cut it into blocks by.
 	"""
-	if isBeingWrittenIn(target, target) and flowForms.isMultilineEditable(target):
+	if (
+		bmConfig.shouldWriteByParagraph()
+		and isBeingWrittenIn(target, target)
+		and flowForms.isMultilineEditable(target)
+	):
 		return textInfos.UNIT_PARAGRAPH
 	return readingUnit()
 

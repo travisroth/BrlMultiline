@@ -132,6 +132,7 @@ CONFIG = DisplaySection(
 		"flowRows": 0,
 		"flowDisplay": "",
 		"flowGroundOnQuickNav": True,
+		"flowWriteByParagraph": True,
 	},
 )
 """The stub configuration the fake `bmConfig` reads. Tests mutate this directly.
@@ -172,6 +173,7 @@ def setBandConfig(displayKey: str, **values) -> None:
 			"flowRows": 0,
 			"flowDisplay": "",
 			"flowGroundOnQuickNav": True,
+			"flowWriteByParagraph": True,
 		},
 	)
 	section.update(values)
@@ -1628,6 +1630,7 @@ def installStubs() -> None:
 				"getDisplayConfig",
 				"getLayout",
 				"getFocusSegment",
+				"setFocusSegment",
 				"shouldShowDocumentLines",
 				"shouldReverseScrollButtons",
 				"areSegmentsEnabled",
@@ -1644,8 +1647,12 @@ def installStubs() -> None:
 		section = _sectionFor(displayKey)
 		return section["segmentSizes"] or section["segmentCount"]
 
+	def setFocusSegment(number, displayKey=None):
+		_sectionFor(displayKey)["focusSegment"] = int(number)
+
 	bmConfig.getLayout = getLayout
 	bmConfig.getFocusSegment = lambda displayKey=None: _sectionFor(displayKey)["focusSegment"]
+	bmConfig.setFocusSegment = setFocusSegment
 	bmConfig.shouldShowDocumentLines = lambda displayKey=None: _sectionFor(displayKey)["showDocumentLines"]
 	bmConfig.shouldReverseScrollButtons = lambda displayKey=None: _sectionFor(displayKey)["reverseScrollBtns"]
 	bmConfig.areSegmentsEnabled = lambda displayKey=None: _sectionFor(displayKey)["segmentsEnabled"]
@@ -1706,6 +1713,7 @@ def resetConfig() -> None:
 		flowRows=0,
 		flowDisplay="",
 		flowGroundOnQuickNav=True,
+		flowWriteByParagraph=True,
 	)
 	BAND_CONFIG.clear()
 	# Both are filled in by the real `getDisplayConfig` as displays are met, so a test that

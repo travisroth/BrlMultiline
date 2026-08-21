@@ -434,6 +434,13 @@ setting says, and a page is read their way. A paragraph is what a writer typed; 
 what the control's wrapping made of it. The evidence is stronger than the argument — a unit
 that is only sometimes a unit cannot be a block — but the argument stands on its own.
 
+It is a setting rather than a rule, `flowWriteByParagraph`, on by default. The evidence
+above comes from one rich editor, and the whole point of having it is to find out whether
+it holds in a plain edit, in a code editor, in a terminal-like control. Turning it off puts
+an edit back on the same footing as a page, which is the comparison to make; leaving it on
+is the reading this run showed to be sound. A setting whose default was chosen from one
+control should be a setting.
+
 **While the reader is writing, a caret update reads the whole band again.** Every other
 rule here assumes the document holds still while it is read, and an edit being typed into
 does not. A block's position is an offset: insert a line and every offset after it moves,

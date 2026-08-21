@@ -131,6 +131,17 @@ the thing it found is put on the top row and the document runs on from there. Tu
 if you would rather the display always kept the window you had and simply followed the
 cursor.
 
+**In a multi-line edit you are typing in, read a paragraph at a time.** On by default. In an
+edit box you are writing in, a paragraph is what you typed and a line is what the box's own
+wrapping made of it, and while you are writing you are thinking about the first. Turn this
+off and an edit box is cut up the same way a page is, by NVDA's own read by paragraph
+setting in its braille settings.
+
+The default comes from one rich editor, where asking what the line at the caret is gives a
+single character for a moment after each Enter, and asking for the paragraph gives the line
+you are on every time. That is the right answer there and may not be everywhere, which is
+why it is a switch: if an editor reads oddly, try it off before reporting it.
+
 These settings are part of the configuration profile you are editing. That is the useful
 part: make a profile for the browser you want to read this way, turn the flow on in it, and
 leave the normal configuration alone. The flow then comes and goes as you switch between
@@ -252,6 +263,14 @@ reading took and how often the flow ran out of its allowance and showed you less
 display could hold. If a page feels slow, or you feel the marker meaning "there is more I
 have not read", press this and send the log: it is a great deal more use than "it felt
 slow".
+
+**Moves the focus onto another of the combined braille displays.** Only does anything when
+several displays are driven as one. With two, pressing it moves the segment that follows the
+system focus from the one to the other, so you can put the focus where your hands are without
+working out a segment number. With more than two, it opens a list to choose from. It keeps
+how far down its display the focus segment was, so on two displays divided alike pressing it
+twice puts you back where you started. The answer is stored in the profile in force, like
+every other setting here, so it survives a rebuild and a restart.
 
 **Reports the BrlMultiline segment layout.** Says how many segments there are and
 which one is following the focus. Useful for confirming a layout took effect.

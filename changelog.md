@@ -18,6 +18,9 @@ Added:
   the add-on, and objects cannot be pinned. A view or panel activated by code is unaffected,
   since that is a claim about what the display is being used for rather than a preference.
 - Reversed panning keys, stored per display. NVDA has no such setting of its own.
+- A command that moves the focus onto another of several displays driven as one: a toggle
+  when there are two, and a list to choose from when there are more. It keeps how far down
+  its display the focus segment was, and stores the answer in the profile in force.
 - Per segment panning commands, unbound by default.
 - Pinning the navigator object to a segment, so it stays visible while the focus moves. A
   pin survives a layout change as long as its segment does. A pinned segment can be panned
@@ -39,7 +42,9 @@ Added:
   documents such as Notepad can use the same flow through a separate opt-in setting. Long
   edits keep the caret visible even beyond the renderer's 64-row working chunk. A multi line
   edit you are writing in is read as a document of its own, so the lines around the one you
-  are on are on the display; leaving it gives the page back. Quick navigation keys all move
+  are on are on the display; leaving it gives the page back. Such an edit is cut into
+  paragraphs rather than into wrapped lines, which is now a setting of its own — on by
+  default, and worth turning off to try an editor that reads oddly. Quick navigation keys all move
   the display: structural ones ground, and everything else brings what you jumped to into
   view. Off until it is turned on, per display and per configuration profile. Experimental.
 - Reading a list, a menu, a tree or a combo box's choices the same way: the items around

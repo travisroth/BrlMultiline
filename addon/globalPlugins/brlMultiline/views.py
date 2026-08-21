@@ -457,6 +457,32 @@ def driverNameForSegmentKey(key: str) -> str | None:
 	return None
 
 
+def deviceSegmentKeys(devices: Sequence[DeviceInfo], numCols: int) -> list[str]:
+	""":return: the keys of a composite's segments, in the order the focus segment setting counts them.
+
+	`focusSegment` and `messageSegment` are single numbers over the whole display, and this
+	is what they index. It is the arrangement the configuration describes rather than the
+	one on the display: a claim laid over the display evicts the segments it covers, so
+	numbering read off the container would name a different segment while the claim was up
+	and change again when it was given back.
+
+	Split out of L{deviceView} so that a command working out a segment number to store, and
+	the view that later reads it, cannot come to different answers: `deviceView` names its
+	own segments from this list rather than composing the keys again.
+
+	:param devices: the physical displays, in stacking order, top first.
+	:param numCols: the composite's width, the widest display's.
+	:raises ValueError: if the bands do not tile a display of this width.
+	"""
+	keys: list[str] = []
+	for device, band in zip(devices, deviceBandRects([each.band for each in devices], numCols), strict=True):
+		keys.extend(
+			deviceSegmentKey(device.driverName, index)
+			for index in range(len(deviceBandSegmentRects(device, band.live)))
+		)
+	return keys
+
+
 def deviceBandSegmentRects(device: DeviceInfo, rect: SegmentRect) -> list[SegmentRect]:
 	"""Divide one physical display's rows using that display's own settings.
 
@@ -554,24 +580,26 @@ def deviceView(
 	if not devices:
 		raise ValueError("A composite display needs at least one physical display")
 	panels: list[BraillePanel] = []
-	keys: list[str] = []
+	# The one numbering, so that a command working out a segment number to store and this
+	# view reading it back cannot disagree about which segment a number means.
+	keys = deviceSegmentKeys(devices, numCols)
+	position = 0
 	for device, band in zip(devices, deviceBandRects([each.band for each in devices], numCols), strict=True):
-		for index, rect in enumerate(deviceBandSegmentRects(device, band.live)):
-			key = deviceSegmentKey(device.driverName, index)
+		for rect in deviceBandSegmentRects(device, band.live):
 			panels.append(
 				# One panel per segment, as the configured view does and for the same reason:
 				# a claim laid over the composite then evicts only the segments whose cells it
 				# actually wants, leaving those on the other display with their keys.
 				SinglePanel(
-					key,
+					keys[position],
 					rect,
 					reserve=False,
 					# Numbered across the whole composite, so that the document lines feature
 					# reads on from one display to the next rather than restarting.
-					documentContextIndex=len(keys),
+					documentContextIndex=position,
 				),
 			)
-			keys.append(key)
+			position += 1
 		if band.dead is not None:
 			panels.append(BlankPanel(band.dead, name=f"{DEVICE_PANEL_NAME}.{device.driverName}.dead"))
 	focusSegment = bmConfig.getFocusSegment(displayKey)

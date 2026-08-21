@@ -51,7 +51,11 @@ from brlMultiline.layout import SegmentRect  # noqa: E402
 from brlMultiline.messages import MessageBuffer  # noqa: E402
 from brlMultiline.panels import BlankPanel, GridPanel, SinglePanel  # noqa: E402
 from brlMultiline.devices import deviceMap  # noqa: E402
-from brlMultiline.views import SegmentView, validateAgainstHardware  # noqa: E402
+from brlMultiline.views import (  # noqa: E402
+	SegmentView,
+	driverNameForSegmentKey,
+	validateAgainstHardware,
+)
 
 MONARCH_ROWS = 8
 MONARCH_COLS = 32
@@ -1687,6 +1691,166 @@ class TestCompositeDisplay(PluginTestCase):
 		self.handler.displayDimensions.numCols = MONARCH_COLS
 		self.plugin.rebuildBuffer()
 		self.assertEqual(self.plugin.currentView.name, "configured")
+
+
+class FocusTrackingDisplayTestCase(PluginTestCase):
+	"""Moving the segment that follows the focus from one combined display to another.
+
+	The command exists because that is a setting with two answers on a display made of two,
+	and typing a segment number into the dialog to change it means working out which number
+	the other display's segments have this week.
+	"""
+
+	displays = (
+		("hidBrailleStandard", 0, 8, 32),
+		("freedomScientific", 8, 1, 80),
+	)
+	segmentCounts = {"hidBrailleStandard_8x32": 2, "freedomScientific_1x80": 1}
+	rows = 9
+	cols = 80
+
+	def makeHandler(self):
+		handler = FakeHandler(self.rows, self.cols)
+		handler.display = fakeVirtualDisplay(*self.displays)
+		return handler
+
+	def setUp(self):
+		super().setUp()
+		for displayKey, count in self.segmentCounts.items():
+			setBandConfig(displayKey, segmentCount=count)
+		self.plugin.rebuildBuffer()
+
+	def press(self):
+		self.plugin.script_changeFocusTrackingDisplay(None)
+
+	@property
+	def focusDriver(self):
+		""":return: the driver of the display the focus segment is actually on."""
+		return driverNameForSegmentKey(self.container.focusSegmentKey)
+
+
+class TestTwoDisplays(FocusTrackingDisplayTestCase):
+	def test_thereAreTwoToChooseBetween(self):
+		targets = self.plugin.focusDisplayTargets()
+		self.assertEqual(
+			[target.driverName for target in targets], ["hidBrailleStandard", "freedomScientific"]
+		)
+		self.assertEqual([target.segments for target in targets], [[0, 1], [2]])
+
+	def test_theFocusStartsOnTheLastSegment(self):
+		"""Which is the default, and is on the second display."""
+		targets = self.plugin.focusDisplayTargets()
+		self.assertEqual([target.holdsFocus for target in targets], [False, True])
+
+	def test_pressingItMovesTheFocusToTheOtherDisplay(self):
+		self.press()
+		self.assertEqual(self.focusDriver, "hidBrailleStandard")
+
+	def test_pressingItAgainBringsItBack(self):
+		self.press()
+		self.press()
+		self.assertEqual(self.focusDriver, "freedomScientific")
+
+	def test_theAnswerIsStored(self):
+		"""So it survives a rebuild, a profile switch, and the next session."""
+		self.press()
+		self.assertEqual(CONFIG["focusSegment"], 0)
+		self.plugin.rebuildBuffer()
+		self.assertEqual(self.focusDriver, "hidBrailleStandard")
+
+	def test_itIsAnnounced(self):
+		spokenMessages.clear()
+		self.press()
+		self.assertTrue(spokenMessages, "the command said nothing")
+
+	def test_aClaimOverTheDisplayDoesNotRenumberIt(self):
+		"""The trap the numbering exists for: a claim renumbers the display and not the setting.
+
+		A panel laid over the Monarch's rows evicts the segments it covers, so what the
+		container holds is no longer what the configuration counts. The number stored has to
+		be the configuration's, or giving the claim back would leave the focus somewhere
+		nobody asked for.
+		"""
+		self.plugin.activatePanel(
+			SinglePanel("reader", SegmentRect(row=0, col=0, numRows=8, numCols=32)),
+		)
+		self.press()
+		self.assertEqual(CONFIG["focusSegment"], 0)
+		self.plugin.deactivatePanel("reader")
+		self.assertEqual(self.focusDriver, "hidBrailleStandard")
+
+
+class TestTwoDisplaysDividedAlike(FocusTrackingDisplayTestCase):
+	"""Two eight row displays, each in two segments, so the position down one has a twin on the other."""
+
+	displays = (
+		("hidBrailleStandard", 0, 8, 32),
+		("brailleNote", 8, 8, 32),
+	)
+	segmentCounts = {"hidBrailleStandard_8x32": 2, "brailleNote_8x32": 2}
+	rows = 16
+	cols = 32
+
+	def test_thePositionDownTheDisplayIsKept(self):
+		"""Otherwise moving back and forth walks towards the bottom instead of returning."""
+		CONFIG["focusSegment"] = 3
+		self.plugin.rebuildBuffer()
+		self.press()
+		self.assertEqual(CONFIG["focusSegment"], 1)
+		self.press()
+		self.assertEqual(CONFIG["focusSegment"], 3)
+
+
+class TestMoreThanTwoDisplays(FocusTrackingDisplayTestCase):
+	"""Three displays, where a command that toggled would be a command that walked round a ring."""
+
+	displays = (
+		("hidBrailleStandard", 0, 8, 32),
+		("brailleNote", 8, 2, 32),
+		("freedomScientific", 10, 1, 32),
+	)
+	segmentCounts = {
+		"hidBrailleStandard_8x32": 2,
+		"brailleNote_2x32": 1,
+		"freedomScientific_1x32": 1,
+	}
+	rows = 11
+	cols = 32
+
+	def setUp(self):
+		super().setUp()
+		self.asked = []
+		self.plugin._chooseFocusDisplay = lambda targets, position: self.asked.append((targets, position))
+
+	def test_theUserIsAsked(self):
+		self.press()
+		self.assertEqual(len(self.asked), 1)
+		targets, _position = self.asked[0]
+		self.assertEqual(len(targets), 3)
+
+	def test_nothingMovesUntilTheyAnswer(self):
+		before = CONFIG["focusSegment"]
+		self.press()
+		self.assertEqual(CONFIG["focusSegment"], before)
+
+	def test_answeringMovesTheFocus(self):
+		self.press()
+		targets, position = self.asked[0]
+		self.plugin.moveFocusToDisplay(targets[0], position)
+		self.assertEqual(self.focusDriver, "hidBrailleStandard")
+
+
+class TestOneDisplay(PluginTestCase):
+	"""An ordinary display, where there is nowhere else for the focus to go."""
+
+	def test_thereIsNothingToChooseBetween(self):
+		self.assertEqual(self.plugin.focusDisplayTargets(), [])
+
+	def test_pressingItSaysSo(self):
+		spokenMessages.clear()
+		self.plugin.script_changeFocusTrackingDisplay(None)
+		self.assertTrue(spokenMessages, "the command said nothing")
+		self.assertEqual(CONFIG["focusSegment"], -1)
 
 
 if __name__ == "__main__":

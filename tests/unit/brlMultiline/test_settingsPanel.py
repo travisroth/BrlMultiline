@@ -485,6 +485,7 @@ class FlowPanelTestCase(SettingsPanelTestCase):
 		self.panel.rowsCtrl = FakeControl(0)
 		self.panel.rowsHintCtrl = FakeControl()
 		self.panel.groundCtrl = FakeControl(True)
+		self.panel.writeByParagraphCtrl = FakeControl(True)
 
 	def section(self, displayKey=None):
 		return self.sections.setdefault(displayKey, defaults())
@@ -518,6 +519,11 @@ class TestFlowOnOneDisplay(FlowPanelTestCase):
 		self.panel.groundCtrl.SetValue(False)
 		self.panel.onSave()
 		self.assertFalse(self.sections[MONARCH_KEY]["flowGroundOnQuickNav"])
+
+	def test_readingWritingByParagraphIsSaved(self):
+		self.panel.writeByParagraphCtrl.SetValue(False)
+		self.panel.onSave()
+		self.assertFalse(self.sections[MONARCH_KEY]["flowWriteByParagraph"])
 
 	def test_moreRowsThanTheDisplayHasIsRefused(self):
 		self.panel.enabledCtrl.SetValue(True)

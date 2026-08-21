@@ -75,8 +75,8 @@ configSpec = {
 			"segmentsEnabled": "boolean(default=True)",
 			"segmentCount": f"integer(default=1, min=1, max={MAX_UI_SEGMENTS})",
 			"segmentSizes": "int_list(default=list())",
-			"focusSegment": f"integer(default=-1, min=-1, max={MAX_UI_SEGMENTS - 1})",
-			"messageSegment": f"integer(default=-1, min=-1, max={MAX_UI_SEGMENTS - 1})",
+			"focusSegment": "integer(default=-1, min=-1)",
+			"messageSegment": "integer(default=-1, min=-1)",
 			"reverseScrollBtns": "boolean(default=False)",
 			"reverseScrollBtnsMigrated": "boolean(default=False)",
 			"showDocumentLines": "boolean(default=False)",
@@ -84,6 +84,7 @@ configSpec = {
 			"flowRows": f"integer(default=0, min=0, max={MAX_FLOW_ROWS})",
 			"flowDisplay": 'string(default="")',
 			"flowGroundOnQuickNav": "boolean(default=True)",
+			"flowWriteByParagraph": "boolean(default=True)",
 			**{
 				flowModeKey(mode): f"boolean(default={FLOW_MODE_DEFAULTS.get(mode, False)})"
 				for mode in FLOW_MODES
@@ -100,7 +101,12 @@ configSpec = {
 	`segmentSizes` is empty, which is the usual case.
 - `segmentSizes`: explicit segment sizes, in rows on a multi row display and in cells on
 	a single row display. Empty means divide evenly into `segmentCount`.
-- `focusSegment`: which segment tracks the system focus. -1 means the last.
+- `focusSegment`: which segment tracks the system focus. -1 means the last. Not bounded
+	above by `MAX_UI_SEGMENTS`, because on a display made of several these are numbered
+	across all of them and there can be more of them than any one display offers. Both
+	readers — `views.viewFromConfig` and `views.deviceView` — check the number against the
+	segments that actually exist and fall back to the last, so a bound here would only
+	truncate a legitimate number without making an illegitimate one safe.
 - `messageSegment`: which segment NVDA's flash messages appear in. -1 means whichever segment
 	is following the focus, which is where a message appears on an undivided display and is
 	therefore the familiar answer.
@@ -120,6 +126,8 @@ configSpec = {
 - `flowDisplay`: the driver name of the physical display to put the band on, when several
 	are driven as one. Empty, the default, means the tallest of them.
 - `flowGroundOnQuickNav`: whether a browse mode jump by structure re-grounds the band.
+- `flowWriteByParagraph`: whether a multi line edit being written in is cut into blocks by
+	paragraph rather than by the reader's own read by paragraph setting.
 
 Everything above is read through `config.conf`, which is profile aware, so all of it can
 differ per configuration profile. That matters most for the flow: a profile triggered by
@@ -212,6 +220,19 @@ def getLayout(displayKey: str | None = None) -> int | list[int]:
 def getFocusSegment(displayKey: str | None = None) -> int:
 	""":return: the configured focus segment number, -1 meaning the last segment."""
 	return int(getDisplayConfig(displayKey)["focusSegment"])
+
+
+def setFocusSegment(number: int, displayKey: str | None = None) -> None:
+	"""Store which segment follows the system focus.
+
+	Written through `config.conf`, so the answer belongs to the profile in force, as the
+	same setting typed into the dialog does.
+
+	:param number: the segment to follow the focus, counted across the whole display, or -1
+		for the last one.
+	:param displayKey: the display to store against, or None for the current one.
+	"""
+	getDisplayConfig(displayKey)["focusSegment"] = int(number)
 
 
 def getMessageSegment(displayKey: str | None = None) -> int:
@@ -397,6 +418,29 @@ def shouldGroundOnQuickNav(displayKey: str | None = None) -> bool:
 		return bool(getDisplayConfig(displayKey)["flowGroundOnQuickNav"])
 	except Exception:
 		log.debugWarning("Could not read flowGroundOnQuickNav", exc_info=True)
+		return True
+
+
+def shouldWriteByParagraph(displayKey: str | None = None) -> bool:
+	""":return: whether a multi line edit being written in is read a paragraph at a time.
+
+	On, which is the default, a block of such an edit is a paragraph whatever NVDA's read by
+	paragraph setting says. A paragraph is what the writer typed; a line is what the
+	control's wrapping made of it, and a writer thinking about their own text thinks in the
+	first. The evidence behind the default is in `flowDryRun.readingUnitFor`.
+
+	Off, an edit is cut up the same way a page is, by L{flowDryRun.readingUnit}, so the one
+	setting governs everything. That is the setting to reach for when a particular editor
+	answers better by line, and it is what makes the choice testable in more places than the
+	one editor the default was chosen from.
+
+	Reading, everywhere else, follows the reader's own setting either way. This says nothing
+	about a page, a list, or an editor being read rather than written in.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["flowWriteByParagraph"])
+	except Exception:
+		log.debugWarning("Could not read flowWriteByParagraph", exc_info=True)
 		return True
 
 

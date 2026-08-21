@@ -303,6 +303,13 @@ class TestFlowSettings(ConfigTestCase):
 		CONFIG["flowGroundOnQuickNav"] = False
 		self.assertFalse(bmConfig.shouldGroundOnQuickNav(FOCUS))
 
+	def test_writingIsReadByParagraphUntilItIsTurnedOff(self):
+		"""The default is the one editor's evidence; turning it off is how to test another."""
+		del CONFIG["flowWriteByParagraph"]
+		self.assertTrue(bmConfig.shouldWriteByParagraph(FOCUS))
+		CONFIG["flowWriteByParagraph"] = False
+		self.assertFalse(bmConfig.shouldWriteByParagraph(FOCUS))
+
 
 if __name__ == "__main__":
 	unittest.main()

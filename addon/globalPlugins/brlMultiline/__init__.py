@@ -15,6 +15,8 @@ lost when the user saves a setting. Pinned objects are held by segment key, so a
 that keeps their segment keeps the pin.
 """
 
+from typing import NamedTuple
+
 import addonHandler
 import api
 import braille
@@ -39,10 +41,12 @@ from .settingsPanel import (
 	BrailleMultilineSettingsPanel,
 	FlowSettingsPanel,
 	VirtualDisplaySettingsPanel,
+	displayDescriptions,
 )
 from .views import (
 	SegmentView,
 	deviceFallbackView,
+	deviceSegmentKeys,
 	deviceView,
 	driverNameForSegmentKey,
 	singleSegmentView,
@@ -56,6 +60,26 @@ addonHandler.initTranslation()
 SCRIPT_CATEGORY = _("BrlMultiline")
 
 _plugin = None
+
+
+class FocusDisplayTarget(NamedTuple):
+	"""One of the displays behind a composite, considered as somewhere to put the focus."""
+
+	driverName: str
+	"""The NVDA driver behind it, which is what names it in the configuration."""
+
+	label: str
+	"""What to call it when there is a choice to announce or to show in a list."""
+
+	segments: list[int]
+	"""The segments lying on it, numbered as the configuration numbers them, in display order.
+
+	Never empty: a display holding no segment of its own is not somewhere the focus can go,
+	and is left out of the list rather than offered and refused.
+	"""
+
+	holdsFocus: bool
+	"""Whether the segment following the focus is one of these."""
 
 
 def getPlugin() -> "GlobalPlugin | None":
@@ -995,6 +1019,138 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			)
 		return number
 
+	# Which of several displays follows the focus
+
+	def focusDisplayTargets(self) -> list[FocusDisplayTarget]:
+		""":return: the displays the focus could be made to follow, in stacking order.
+
+		Numbered by `views.deviceSegmentKeys` rather than off the display as it stands,
+		because the number this ends in is written to the configuration and that is the
+		numbering the configuration means. A claim laid over the display — the flow band is
+		one — evicts the segments it covers, so a number read off the container would name
+		a different segment while the claim was up and change again when it was given back.
+
+		Empty for an ordinary display, which has no such choice to make, and empty when
+		something has taken the whole layout over, since then the setting is not what
+		decides.
+		"""
+		handler = braille.handler
+		if handler is None or handler.displaySize == 0:
+			return []
+		devices = deviceMap()
+		if not devices:
+			return []
+		dimensions = handler.displayDimensions
+		try:
+			view = self._baseView(dimensions.numRows, dimensions.numCols, devices)
+		except Exception:
+			log.debugWarning("BrlMultiline: could not read the display's arrangement", exc_info=True)
+			return []
+		if view.name != "devices":
+			# An activated view is a claim about what the whole display is being used for, and
+			# it names its own focus segment. The setting is not read while it is up, so
+			# writing one would be a command that reported success and did nothing.
+			return []
+		try:
+			keys = deviceSegmentKeys(devices, dimensions.numCols)
+		except ValueError:
+			log.debugWarning("BrlMultiline: could not number the display's segments", exc_info=True)
+			return []
+		focusNumber = self._configuredFocusSegment(len(keys))
+		names = displayDescriptions()
+		targets = []
+		for device in devices:
+			numbers = [
+				number for number, key in enumerate(keys) if driverNameForSegmentKey(key) == device.driverName
+			]
+			if not numbers:
+				continue
+			targets.append(
+				FocusDisplayTarget(
+					driverName=device.driverName,
+					# Translators: names one of several combined braille displays, when choosing
+					# which of them follows the focus. Placeholders are its name and its height.
+					label=_("{display}, {rows} rows").format(
+						display=names.get(device.driverName, device.driverName),
+						rows=device.numRows,
+					),
+					segments=numbers,
+					holdsFocus=focusNumber in numbers,
+				),
+			)
+		return targets
+
+	def _configuredFocusSegment(self, numSegments: int) -> int:
+		""":return: the segment the configuration says follows the focus, as an index.
+
+		:param numSegments: how many segments the arrangement has, for resolving -1 and for
+			refusing a number left over from a larger display.
+		"""
+		number = bmConfig.getFocusSegment()
+		if number == -1 or not 0 <= number < numSegments:
+			return numSegments - 1
+		return number
+
+	def moveFocusToDisplay(self, target: FocusDisplayTarget, position: int = 0) -> None:
+		"""Make one of the combined displays the one that follows the system focus.
+
+		:param target: the display to move it to.
+		:param position: how far down its display the focus segment is now, kept if the new
+			display is divided finely enough and clamped to its last segment if it is not.
+			Keeping the position is what makes moving back and forth a round trip on two
+			displays divided alike, rather than a walk towards the bottom.
+		"""
+		number = target.segments[min(max(position, 0), len(target.segments) - 1)]
+		bmConfig.setFocusSegment(number)
+		self.rebuildBuffer()
+		ui.message(
+			# Translators: reported when the focus is moved onto one of several combined
+			# displays. Placeholders are the display's name and the segment number.
+			_("Focus on {display}, segment {number}").format(display=target.label, number=number),
+		)
+
+	def _chooseFocusDisplay(self, targets: list[FocusDisplayTarget], position: int) -> None:
+		"""Ask which display should follow the focus, then move it there.
+
+		Reached only when there are more than two to choose between, where a command that
+		toggled would be a command that walked round a ring. The one seam wx is behind, so
+		everything above can be tested without a running application.
+
+		:param targets: the displays to offer, in stacking order.
+		:param position: passed on to L{moveFocusToDisplay}.
+		"""
+		current = next((index for index, target in enumerate(targets) if target.holdsFocus), 0)
+
+		def ask():
+			# prePopup before the dialog is made and postPopup after it has gone, which is
+			# how NVDA opens one: it raises its own frame first so the dialog can take the
+			# focus, and puts things back afterwards.
+			gui.mainFrame.prePopup()
+			try:
+				dialog = wx.SingleChoiceDialog(
+					gui.mainFrame,
+					# Translators: the message of a dialog asking which of several combined
+					# braille displays should follow the system focus.
+					_("Which display should follow the focus?"),
+					# Translators: the title of a dialog asking which of several combined
+					# braille displays should follow the system focus.
+					_("Follow the focus"),
+					[target.label for target in targets],
+				)
+				try:
+					dialog.SetSelection(current)
+					if dialog.ShowModal() != wx.ID_OK:
+						return
+					chosen = dialog.GetSelection()
+				finally:
+					dialog.Destroy()
+			finally:
+				gui.mainFrame.postPopup()
+			if 0 <= chosen < len(targets):
+				self.moveFocusToDisplay(targets[chosen], position)
+
+		wx.CallAfter(ask)
+
 	# Scripts
 
 	@script(
@@ -1025,6 +1181,45 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		else:
 			# Translators: reported when the display stops being divided into segments.
 			ui.message(_("Segments off"))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Moves the focus onto another of the combined braille displays"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_changeFocusTrackingDisplay(self, gesture):
+		"""Put the segment that follows the system focus on another of the displays.
+
+		Which display the focus is on is a setting, and on a display made of two it is a
+		setting with two answers — so pressing this is the whole of it, and there is no
+		number to work out. With more than two, a choice has to be made rather than
+		guessed, and the list is the honest way to make it: a command that cycled would
+		leave a reader with four displays pressing it three times and counting.
+
+		The answer is stored, in the profile in force, so it survives a rebuild and a
+		restart and can differ per application, as every other setting here can.
+		"""
+		targets = self.focusDisplayTargets()
+		if len(targets) < 2:
+			ui.message(
+				# Translators: reported when a command that moves the focus from one braille
+				# display to another is pressed with only one display to put it on.
+				_("There is only one display for the focus to follow"),
+			)
+			return
+		here = next((target for target in targets if target.holdsFocus), None)
+		if here is None:
+			# The focus is on cells no display of its own owns, which a claim over the whole
+			# composite can do. Anywhere is as good as anywhere, so start at the top.
+			position = 0
+		else:
+			total = sum(len(target.segments) for target in targets)
+			position = here.segments.index(self._configuredFocusSegment(total))
+		if len(targets) > 2:
+			self._chooseFocusDisplay(targets, position)
+			return
+		other = next(target for target in targets if target is not here)
+		self.moveFocusToDisplay(other, position)
 
 	@script(
 		# Translators: input help message for a command.
