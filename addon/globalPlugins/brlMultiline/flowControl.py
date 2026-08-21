@@ -696,6 +696,14 @@ class FlowController(PanelOwner):
 		:return: whether anything is on the display, in the shape `_arrive` answers with.
 		"""
 		topId = self.window.topBlockId()
+		# Everything the source remembers about this document is an answer the edit may just
+		# have changed: cached positions are offsets that typing moves, the exits of a
+		# collapsed blank run point where the run was, and a block marked as having swallowed
+		# the next line keeps truncating the stream after the editor has recovered. The
+		# re-read exists because none of it can be trusted, so none of it is kept. The top
+		# block is found again by value — a block id compares by where it starts, not by
+		# which reading produced it — which is what the restore below has always relied on.
+		self.source.forget()
 		if not self._enterAtCursor():
 			return None
 		if ground or topId is None:

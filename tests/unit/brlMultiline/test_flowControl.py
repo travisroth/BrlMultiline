@@ -64,6 +64,7 @@ def controllerOver(
 	bookmarks=True,
 	unit="line",
 	expandsBackAt=None,
+	paragraphBreaks=None,
 ):
 	"""Build a controller over a browse mode document of the given lines."""
 	interceptor = FakeTreeInterceptor(
@@ -71,6 +72,7 @@ def controllerOver(
 		caretIndex=caretIndex,
 		bookmarks=bookmarks,
 		expandsBackAt=expandsBackAt,
+		paragraphBreaks=paragraphBreaks,
 	)
 	source = DocumentFlowSource(
 		interceptor,
@@ -966,6 +968,28 @@ class TestALineThatSwallowedTheNextOne(unittest.TestCase):
 		control = controllerOver(["one" + chr(10) + "two", "three"], numRows=4, unit="paragraph")
 		self.assertEqual(len(control.window.blocks), 2)
 
+	def test_theMarkDoesNotOutliveTheSwallowing(self):
+		"""The swallowing is transient, and the mark it left was not.
+
+		A moment after the return the editor answers properly again, but the mark was kept
+		by bookmark and the walk forward went on ending at it: on hardware, an edit that
+		read as its first line and nothing else until the focus changed. The re-read that
+		every keystroke performs while writing must read the document as it now is.
+		"""
+		control = controllerOver(
+			["one" + chr(10) + "two", "two", "three"],
+			numRows=4,
+			live=True,
+			interactive=True,
+		)
+		self.assertEqual(len(control.window.blocks), 1)
+		control.source.obj.lines[0] = "one"
+		control.followCursor()
+		self.assertEqual(
+			[row.strip() for row in rowTexts(control) if row.strip()],
+			["one", "two", "three"],
+		)
+
 
 class TestReadingByParagraph(unittest.TestCase):
 	"""A paragraph break is the row boundary, so it must not also be a row.
@@ -1000,6 +1024,52 @@ class TestReadingByParagraph(unittest.TestCase):
 	def test_aBreakAtTheEndIsStillWhereTheReaderIs(self):
 		control = controllerOver(["one", ""], numRows=4, unit="paragraph", interactive=True)
 		self.assertEqual(rowTexts(control)[1].strip(), "")
+
+
+class TestAWrappedParagraph(unittest.TestCase):
+	"""A paragraph is one block however many lines the control's wrapping made of it.
+
+	The source walked by paragraph and the regions rendered by NVDA's own reading unit,
+	which reads the reader's read by paragraph setting — a different answer. Every block of
+	a paragraph flow then showed only the line at its paragraph's start, the wrapped rest
+	was silently gone, and a caret on a wrapped line was ruled outside its own block.
+	"""
+
+	def flow(self, caretIndex=0, live=False):
+		# One paragraph wrapped over two lines, then a one line paragraph.
+		return controllerOver(
+			["first ", "half", "next"],
+			caretIndex=caretIndex,
+			numRows=4,
+			numCols=16,
+			live=live,
+			unit="paragraph",
+			paragraphBreaks={1, 2},
+		)
+
+	def test_theWholeParagraphIsRendered(self):
+		control = self.flow()
+		self.assertEqual(rowTexts(control)[0].strip(), "first half")
+
+	def test_everyRegionReadsTheUnitTheSourceWalksBy(self):
+		# The stub's own answer is the line, standing in for NVDA's setting saying line.
+		control = self.flow()
+		for block in control.window.blocks:
+			region = control.blocks.get(block.blockId).region
+			self.assertEqual(region._getReadingUnit(), "paragraph")
+
+	def test_walkingOnStartsAtTheNextParagraph(self):
+		control = self.flow()
+		self.assertEqual(
+			[row.strip() for row in rowTexts(control) if row.strip()],
+			["first half", "next"],
+		)
+
+	def test_theCaretOnAWrappedLineIsStillInItsBlock(self):
+		control = self.flow(live=True)
+		control.source.obj.caretIndex = 1
+		control.followCursor()
+		self.assertEqual(control.activeRegion().rawText, "first half")
 
 
 class TestAStepThatGoesNowhere(unittest.TestCase):

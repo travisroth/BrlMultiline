@@ -120,6 +120,19 @@ def _isBeingEditedInside(obj, interceptor) -> bool:
 	return flowForms.isMultilineEditable(obj)
 
 
+BAND_MAX_SECONDS = 0.25
+"""How long one operation over a band may take before showing what it has.
+
+Twice the default, because a band's operations are not all the cheap kind. The default was
+sized against a virtual buffer, whose text is already in NVDA's process; a multi line edit
+being written in is read through the real control, where every position crosses the
+process, and a caret update while writing re-reads the whole band — enter at the caret,
+walk back to the row the reader was on, fill. On hardware that combination met the limit
+routinely, and meeting it looks like rows of the marker meaning there is more we have not
+read. A limit the ordinary case trips over is not a safety limit, it is a fault.
+"""
+
+
 def budgetForBand(numRows: int) -> "FetchBudget":
 	"""How much work one operation may do to fill a band of a given height.
 
@@ -129,13 +142,17 @@ def budgetForBand(numRows: int) -> "FetchBudget":
 	control, so a limit near the band's own height is one the reader meets constantly — and
 	meeting it looks like a display of markers saying there is more we have not read.
 
-	Twice the band plus a margin. Reaching that means something is genuinely wrong with the
-	page rather than tall with the display.
+	Three passes over the band plus a margin, because that is what the dearest ordinary
+	operation costs: a caret update while writing enters at the caret, walks back up to a
+	band of rows to the one the reader was on, and fills. Twice the band was the earlier
+	answer, sized for an arrival before that operation existed, and the writing re-read met
+	it. Reaching this one means something is genuinely wrong with the page rather than tall
+	with the display.
 
 	:param numRows: the height of the band.
 	:return: a budget for it.
 	"""
-	return FetchBudget(maxBlocks=max(DEFAULT_MAX_BLOCKS, numRows * 2 + 6))
+	return FetchBudget(maxBlocks=max(DEFAULT_MAX_BLOCKS, numRows * 3 + 8), maxSeconds=BAND_MAX_SECONDS)
 
 
 class PositionMark:
@@ -224,10 +241,36 @@ class FlowRegion:
 		document. Ordinary document blocks keep the containment rule below.
 		"""
 
+		self.unit = None
+		"""The reading unit this block is, when the source has chosen one. None keeps NVDA's.
+
+		Set by the source that builds the block, because the block's identity and its text
+		must be the same unit or they are not about the same thing. NVDA's own answer reads
+		the reader's read by paragraph setting, and the source may have chosen differently —
+		a multi line edit being written in is read by paragraph whatever that setting says.
+		A block identified as a paragraph but rendered as a line showed only the line at the
+		paragraph's start, and in the very editor the paragraph choice exists for, the line
+		at that start is transiently everything before it. See L{_getReadingUnit}.
+		"""
+
 	@property
 	def position(self):
 		""":return: this block's own position, or None if it has never been read."""
 		return self._position
+
+	def _getReadingUnit(self):
+		"""What one block of this flow is, which is the source's choice rather than NVDA's.
+
+		Everything a region does by unit comes through here: `update` expands the block's
+		position by it, the line commands move by it, and L{_liveCursorHere} uses it to ask
+		whether the caret is still inside this block. Answering with a different unit from
+		the one the block was identified by split every one of those from the source — the
+		region rendered the line at a paragraph's start and called it the paragraph, and the
+		caret on a paragraph's second line was ruled outside its own block.
+		"""
+		if self.unit is not None:
+			return self.unit
+		return super()._getReadingUnit()
 
 	def _getSelection(self):
 		"""Where this block is read from, which NVDA lays the whole block out around.
@@ -760,6 +803,7 @@ class DocumentFlowSource:
 			factory = self._interactiveFactory or regionFactoryForObject(obj, live=True)
 			region = factory(obj, editStart)
 			region.tracksLiveCursorAcrossUnits = True
+			region.unit = self.unit
 			region.update()
 		except Exception as error:
 			log.debugWarning("Could not read the focused edit", exc_info=True)
@@ -1020,9 +1064,18 @@ class DocumentFlowSource:
 		blockId = BlockId(generation=self.generation, bookmark=self._bookmark(start), unit=self.unit)
 		self._positions.set(blockId.bookmark, start)
 		region = self.regionFactory(self.obj, start)
+		# Before the first update, which is what lays the block out by it. The region would
+		# otherwise render by NVDA's read by paragraph setting while this source walks by its
+		# own unit, and the two disagreeing showed a paragraph as its first line only.
+		region.unit = self.unit
 		region.update()
 		if self._hasSwallowedWhatFollows(region):
 			self._swallowed.set(blockId.bookmark, True)
+		else:
+			# The swallowing is transient — a moment after a return the editor answers
+			# properly again — so a mark that outlived the text it was made from truncated
+			# the document at this block forever. A clean read is the evidence it is over.
+			self._swallowed.pop(blockId.bookmark)
 		return SourceBlock(
 			blockId=blockId,
 			region=region,

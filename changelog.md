@@ -44,7 +44,11 @@ Added:
   edit you are writing in is read as a document of its own, so the lines around the one you
   are on are on the display; leaving it gives the page back. Such an edit is cut into
   paragraphs rather than into wrapped lines, which is now a setting of its own — on by
-  default, and worth turning off to try an editor that reads oddly. Quick navigation keys all move
+  default, and worth turning off to try an editor that reads oddly. Every block is rendered
+  by the same unit it was cut by, a wrapped paragraph whole rather than its first line; a
+  line that transiently swallowed its successor stops truncating the edit once it reads
+  cleanly again; and the reading allowance funds the full re-read a keystroke costs, so
+  typing no longer fills the band with the marker meaning there is more unread. Quick navigation keys all move
   the display: structural ones ground, and everything else brings what you jumped to into
   view. Off until it is turned on, per display and per configuration profile. Experimental.
 - Reading a list, a menu, a tree or a combo box's choices the same way: the items around

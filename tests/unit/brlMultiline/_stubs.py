@@ -494,12 +494,15 @@ class FakeTextInfo:
 	an empty text would mean modelling ranges rather than positions.
 	"""
 
-	def __init__(self, lines, index, offset=0, expandsBackAt=None):
+	def __init__(self, lines, index, offset=0, expandsBackAt=None, paragraphBreaks=None):
 		self.lines = lines
 		self.index = index
 		self.offset = offset
 		self.expanded = False
-		"""Whether this range covers its whole line, as `expand` makes it."""
+		"""Whether this range covers its whole unit, as `expand` makes it."""
+
+		self.expandedUnit = None
+		"""Which unit `expand` covered, because a line and a paragraph are different ranges."""
 
 		self.expandsBackAt = expandsBackAt
 		"""A unit whose expansion reaches back to the start of the document.
@@ -509,13 +512,42 @@ class FakeTextInfo:
 		start. Modelled because a flow that walks forward and lands on an earlier block shows
 		the same text twice, and that is the whole of the duplicate row a comment box gave."""
 
+		self.paragraphBreaks = paragraphBreaks
+		"""Which lines end a paragraph, or None for every line being its own paragraph.
+
+		A set of line indices, each the last line of its paragraph; the document's last line
+		always is. Where a line is *not* in the set, the next line is the same paragraph
+		wrapped on — which is the difference between the two units, and the difference the
+		flow lost when its source walked by one and its regions rendered by the other. None
+		keeps the old behaviour, where the two units agree, since a document of unwrapped
+		single-line paragraphs is the common case and most tests mean it."""
+
+	def _paragraphStart(self, index):
+		""":return: the first line of the paragraph a line is in."""
+		while index > 0 and (index - 1) not in self.paragraphBreaks:
+			index -= 1
+		return index
+
+	def _paragraphEnd(self, index):
+		""":return: the last line of the paragraph a line is in."""
+		while index < len(self.lines) - 1 and index not in self.paragraphBreaks:
+			index += 1
+		return index
+
 	@property
 	def text(self):
-		return self.lines[self.index] if 0 <= self.index < len(self.lines) else ""
+		if not 0 <= self.index < len(self.lines):
+			return ""
+		if self.expanded and self.expandedUnit == UNIT_PARAGRAPH and self.paragraphBreaks is not None:
+			# A paragraph's wrapped lines are continuous text: the wrap is presentation, and
+			# NVDA reading the paragraph gets it whole.
+			return "".join(self.lines[self.index : self._paragraphEnd(self.index) + 1])
+		return self.lines[self.index]
 
 	def copy(self):
-		copied = type(self)(self.lines, self.index, self.offset, self.expandsBackAt)
+		copied = type(self)(self.lines, self.index, self.offset, self.expandsBackAt, self.paragraphBreaks)
 		copied.expanded = self.expanded
+		copied.expandedUnit = self.expandedUnit
 		return copied
 
 	def compareEndPoints(self, other, which="startToStart"):
@@ -539,28 +571,57 @@ class FakeTextInfo:
 	def collapse(self, end=False):
 		"""Reduce a range to one of its ends. A position is already one, and does not move."""
 		if self.expanded:
-			self.offset = len(self.text) if end else 0
+			if end and self.expandedUnit == UNIT_PARAGRAPH and self.paragraphBreaks is not None:
+				self.index = self._paragraphEnd(self.index)
 			self.expanded = False
+			self.expandedUnit = None
+			self.offset = len(self.text) if end else 0
+			return
+		self.expandedUnit = None
 
 	def expand(self, unit):
-		"""Cover the whole unit, whose start is the start of the line.
+		"""Cover the whole unit, whose start is the start of its first line.
 
 		Unless this is the position that reaches back — see `expandsBackAt` — where the unit
 		begins at the start of the document instead.
 		"""
 		if self.expandsBackAt is not None and self.index == self.expandsBackAt:
 			self.index = 0
+		elif unit == UNIT_PARAGRAPH and self.paragraphBreaks is not None:
+			self.index = self._paragraphStart(self.index)
 		self.offset = 0
 		self.expanded = True
+		self.expandedUnit = unit
 
 	def move(self, unit, count):
-		"""Move by whole lines, reporting how far it actually got, as NVDA's TextInfo does."""
+		"""Move by whole units, reporting how far it actually got, as NVDA's TextInfo does.
+
+		Lines and paragraphs move differently only when the document declares its paragraph
+		breaks; without them every line is its own paragraph and the two units agree.
+		"""
+		self.expanded = False
+		self.expandedUnit = None
+		self.offset = 0
+		if unit == UNIT_PARAGRAPH and self.paragraphBreaks is not None:
+			moved = 0
+			while moved != count:
+				if count > 0:
+					end = self._paragraphEnd(self.index)
+					if end >= len(self.lines) - 1:
+						break
+					self.index = end + 1
+					moved += 1
+				else:
+					start = self._paragraphStart(self.index)
+					if start <= 0:
+						break
+					self.index = self._paragraphStart(start - 1)
+					moved -= 1
+			return moved
 		target = self.index + count
 		clamped = max(0, min(len(self.lines) - 1, target))
 		moved = clamped - self.index
 		self.index = clamped
-		self.offset = 0
-		self.expanded = False
 		return moved
 
 
@@ -627,10 +688,14 @@ class FakeTreeInterceptor(CursorManager):
 		passThrough=False,
 		bookmarks=True,
 		expandsBackAt=None,
+		paragraphBreaks=None,
 	):
 		self.lines = lines
 		self.expandsBackAt = expandsBackAt
 		"""Which unit of this document reaches back when expanded. See `FakeTextInfo`."""
+
+		self.paragraphBreaks = paragraphBreaks
+		"""Which lines end a paragraph, for a document whose paragraphs wrap. See `FakeTextInfo`."""
 
 		self.positionType = FakeTextInfo if bookmarks else NoBookmarkTextInfo
 		"""Which kind of position this document hands out. See `NoBookmarkTextInfo`."""
@@ -649,7 +714,16 @@ class FakeTreeInterceptor(CursorManager):
 
 	@property
 	def selection(self):
-		return self.positionType(self.lines, self.caretIndex, self.caretOffset, self.expandsBackAt)
+		return self._position(self.caretIndex, self.caretOffset)
+
+	def _position(self, index, offset=0):
+		return self.positionType(
+			self.lines,
+			index,
+			offset,
+			self.expandsBackAt,
+			paragraphBreaks=self.paragraphBreaks,
+		)
 
 	@selection.setter
 	def selection(self, info):
@@ -665,11 +739,11 @@ class FakeTreeInterceptor(CursorManager):
 		object this document cannot place raises `LookupError`, as NVDA's own does.
 		"""
 		if isinstance(position, str):
-			return self.positionType(self.lines, self.caretIndex, self.caretOffset, self.expandsBackAt)
+			return self._position(self.caretIndex, self.caretOffset)
 		index = getattr(position, "documentIndex", None)
 		if index is None:
 			raise LookupError(f"{position!r} is not in this document")
-		return self.positionType(self.lines, index, 0, self.expandsBackAt)
+		return self._position(index)
 
 
 class TextInfoRegion(Region):
@@ -700,7 +774,14 @@ class TextInfoRegion(Region):
 
 	def update(self):
 		info = self._readingInfo = self._getSelection()
-		self.rawText = info.text
+		# Expanded to the reading unit, as NVDA's `TextInfoRegion.update` expands it, so
+		# that a region asked to render a paragraph renders the paragraph and not the line
+		# at its start. The distinction only exists for a document that declares its
+		# paragraph breaks; everywhere else the two units are the same range and this is
+		# the line it always was.
+		reading = info.copy()
+		reading.expand(self._getReadingUnit())
+		self.rawText = reading.text
 		Region.update(self)
 		# A collapsed position is a cursor, as it is in NVDA. Regions that must not show one
 		# clear it after calling this, which is the behaviour worth being able to test.

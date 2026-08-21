@@ -26,6 +26,7 @@ installStubs()
 from brlMultiline.flow import ResultKind  # noqa: E402
 from brlMultiline.flowSources import (  # noqa: E402
 	DEFAULT_MAX_BLOCKS,
+	DEFAULT_MAX_SECONDS,
 	DocumentFlowSource,
 	FetchBudget,
 	FlowCursorManagerRegion,
@@ -479,6 +480,15 @@ class TestTheBudgetFitsTheBand(unittest.TestCase):
 
 	def test_itGrowsWithTheBand(self):
 		self.assertGreater(budgetForBand(16).maxBlocks, budgetForBand(8).maxBlocks)
+
+	def test_itFundsAWritingReRead(self):
+		"""A caret update while writing costs three passes over the band, not one.
+
+		Enter at the caret, walk back to the row the reader was on, fill. Twice the band
+		met that on hardware as rows of the marker meaning there is more we have not read.
+		"""
+		self.assertGreaterEqual(budgetForBand(8).maxBlocks, 8 * 3)
+		self.assertGreater(budgetForBand(8).maxSeconds, DEFAULT_MAX_SECONDS)
 
 
 if __name__ == "__main__":

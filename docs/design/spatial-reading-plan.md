@@ -434,6 +434,25 @@ setting says, and a page is read their way. A paragraph is what a writer typed; 
 what the control's wrapping made of it. The evidence is stronger than the argument — a unit
 that is only sometimes a unit cannot be a block — but the argument stands on its own.
 
+**One unit, told to everything.** The hardware run after the setting shipped found the flow
+split in two: the source identified and walked blocks by its chosen unit while every region
+still rendered by NVDA's own read-by-paragraph setting — `TextInfoRegion._getReadingUnit`
+reads the configuration, and nothing had told it otherwise. A block identified as a
+paragraph but rendered as a line showed only the line at the paragraph's start; the wrapped
+rest of it was silently gone; and the caret on a wrapped line was ruled outside its own
+block, because the containment test expanded by the wrong unit too. In the very editor the
+paragraph choice exists for, the line at a paragraph start is transiently everything before
+it, so paragraph mode reproduced the merged rows it was chosen to avoid. Now the source
+stamps its unit on every region it builds, and `FlowRegion._getReadingUnit` answers with it.
+
+**A swallowed mark is evidence with a shelf life.** The same run showed an edit reading as
+its first line and nothing else, surviving focus changes. The mark that ends the walk after
+a block which swallowed its successor was kept by bookmark and never taken back, so the
+truncation outlived the transient that justified it. Two repairs: a block whose re-read
+comes back clean clears its own mark, and the re-read while writing calls `forget()` first —
+everything the source remembers about a document being typed into is an answer the edit may
+just have changed, the cached exits and positions included, so none of it is kept.
+
 It is a setting rather than a rule, `flowWriteByParagraph`, on by default. The evidence
 above comes from one rich editor, and the whole point of having it is to find out whether
 it holds in a plain edit, in a code editor, in a terminal-like control. Turning it off puts
