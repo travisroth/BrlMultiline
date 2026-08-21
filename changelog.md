@@ -54,7 +54,11 @@ Added:
   context above the caret instead of pinning the typed line to the top row. Editors NVDA
   knows are editable but whose roles and states do not say so — Windows 11 Notepad — are
   recognised by NVDA's own behaviour class, and an editable document counts as multi line
-  without the state. Quick navigation keys all move
+  without the state. The band's top row is only trusted when it is not the caret's own
+  block, so a rich editor's transient merged answer at a return cannot become the window
+  the reader is put back to; and a keystroke into an edit earns a settle pass a moment
+  later, so a reader who pauses right after pressing return is not the one who has to
+  supply the re-read that heals the display. Quick navigation keys all move
   the display: structural ones ground, and everything else brings what you jumped to into
   view. Off until it is turned on, per display and per configuration profile. Experimental.
 - Reading a list, a menu, a tree or a combo box's choices the same way: the items around

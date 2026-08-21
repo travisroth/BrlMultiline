@@ -467,6 +467,25 @@ until the focus changed. The restore now falls back to reaching back for up to h
 of context above the caret, asked afresh on every re-read, so the band heals the moment the
 editor answers again.
 
+**The top row is only believed when it is not the caret's own block.** The probe over a
+plain textarea caught the mechanism behind the third-and-fourth-line failures: the moment
+return is pressed, the editor answers the paragraph at the caret as everything from an
+earlier point — sometimes the start of the document, sometimes partway — so the block built
+at the caret is merged and takes the top row under an identity that was never really a top.
+A restore that trusted the top row then anchored the band there on every later keystroke,
+and the reader's first lines scrolled off an eight row band with four lines in it. The
+controller now keeps the last top block that was *not* the caret's own, and restores to
+that whenever the top row is suspect; the claim survives a failed restore, because a
+restore refused this moment may succeed on the next keystroke.
+
+**A keystroke into an edit earns a second look.** Every transient state the probe caught
+heals on the next re-read — which used to arrive only with the next keystroke. A reader who
+pauses right after pressing return is reading the display, and that was exactly the moment
+the merged block and its duplicate sat under their fingers. The band now schedules a settle
+pass 150 ms after each writing re-read, restarted per keystroke so a steady typist pays for
+one pass per pause; it redraws only when the second reading differs from what is shown, so
+a settle that changes nothing ends the exchange rather than perpetuating it.
+
 **An editor is what NVDA says it is, not what its roles say.** Windows 11 Notepad's editor
 answers UIA with role DOCUMENT and neither an EDITABLE nor a MULTILINE state, so every
 role-and-state test refused it and the flow read classic. NVDA itself types into it,

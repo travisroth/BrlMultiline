@@ -143,6 +143,18 @@ class FlowController(PanelOwner):
 		Not a dictionary: a `BlockId` holds a bookmark, and a bookmark compares but does not
 		hash. See `flow.ByIdentity`."""
 
+		self._writingTop = None
+		"""The last top block the reader was shown that was not the caret's own. See L{_stableTop}."""
+
+		self.rereadWhileWriting = False
+		"""Whether the last cursor move re-read the band as an edit being typed into.
+
+		The segment consumes this to schedule a settle pass: a rich editor's answers at the
+		moment of a keystroke can be transiently wrong — the probe caught a textarea
+		answering the paragraph at the caret as everything before it — and every such state
+		heals on the next re-read. A reader who pauses right after pressing return, which is
+		exactly when they read the display, should not be the one to supply that re-read."""
+
 	@contextlib.contextmanager
 	def operation(self):
 		"""One thing the reader asked for, sharing one budget.
@@ -695,7 +707,7 @@ class FlowController(PanelOwner):
 		:param ground: put the caret's block on the top row instead.
 		:return: whether anything is on the display, in the shape `_arrive` answers with.
 		"""
-		topId = self.window.topBlockId()
+		topId = self._stableTop()
 		# Everything the source remembers about this document is an answer the edit may just
 		# have changed: cached positions are offsets that typing moves, the exits of a
 		# collapsed blank run point where the run was, and a block marked as having swallowed
@@ -705,14 +717,42 @@ class FlowController(PanelOwner):
 		# which reading produced it — which is what the restore below has always relied on.
 		self.source.forget()
 		if not self._enterAtCursor():
+			self._writingTop = None
 			return None
+		self.rereadWhileWriting = True
 		if ground:
+			self._writingTop = None
 			return True
-		if not self._restoreTop(topId):
+		if self._restoreTop(topId):
+			self._writingTop = topId
+		else:
+			# The claim is kept: a restore that failed this moment — a transient refusal, a
+			# top the edit removed — may succeed on the next keystroke, and dropping it here
+			# would hand the next restore whatever block the heal below leaves on the top
+			# row instead of the window the reader actually had.
 			self._contextAboveTheCaret()
 		self.fill()
 		self.syncToCursor(forward=True)
 		return True
+
+	def _stableTop(self):
+		"""The block the band's top row should be put back under, or None for no claim.
+
+		The top row is only believed when it is not the caret's own block. At the moment a
+		rich editor answers a return, the block built at the caret can be transiently merged
+		— the probe caught a textarea answering the paragraph at the caret as everything
+		before it — and that block takes the top row under an identity partway into the
+		document. A restore that trusted the top row then anchored the band there on the
+		next keystroke, and the reader's first lines were scrolled off the band by a block
+		that never really existed. When the top row is the caret's, the claim used instead
+		is the last top the reader was shown that was not — which after a transient is the
+		window they actually had.
+		"""
+		top = self.window.topBlockId()
+		if top is not None and (self.activeBlockId is None or top != self.activeBlockId):
+			self._writingTop = top
+			return top
+		return self._writingTop
 
 	def _restoreTop(self, topId) -> bool:
 		"""Put the band back under the row it was showing before a writing re-read.

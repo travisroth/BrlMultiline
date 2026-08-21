@@ -81,6 +81,15 @@ class FlowBufferSegment(BrailleBufferSegment):
 		in reverse. A band that only ever asked on a focus event went on showing the field
 		the reader had left."""
 
+		self.onSettle = None
+		"""Called after an update that re-read an edit being typed into, so the owner can
+		come back for a second look.
+
+		A rich editor's answers at the instant of a keystroke can be transiently wrong, and
+		every wrong state heals on the next re-read — which used to arrive only with the
+		next keystroke. A reader who pauses right after pressing return is reading the
+		display, and what is under their fingers at that moment must not wait on them."""
+
 	# Lifetime.
 
 	def attach(self, controller: "FlowController", obj: Any = None) -> None:
@@ -144,6 +153,13 @@ class FlowBufferSegment(BrailleBufferSegment):
 		self.brailleCells = self.cells()
 		self.rawText = ""
 		self.cursorPos = self.controller.cursorCell()
+		if self.controller.rereadWhileWriting:
+			self.controller.rereadWhileWriting = False
+			if self.onSettle is not None:
+				try:
+					self.onSettle()
+				except Exception:
+					log.debugWarning("A flow could not arrange its settle pass", exc_info=True)
 
 	def _checkWhatIsRead(self) -> None:
 		"""Let the owner confirm the flow is still over the right document."""

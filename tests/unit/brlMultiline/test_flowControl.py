@@ -907,6 +907,36 @@ class TestWritingReadsTheWholeBandAgain(unittest.TestCase):
 		# And the caret sits below its context rather than on the top row.
 		self.assertEqual(rowTexts(control)[2].strip(), "three")
 
+	def test_theRestoreDoesNotBelieveATransientTop(self):
+		"""A merged caret block must not become the window the reader is put back to.
+
+		The probe caught a textarea answering the paragraph at the caret, the moment return
+		was pressed, as a unit starting partway back into the document. That block took the
+		top row under an identity that was never really a top, and a restore that trusted
+		the top row then anchored the band there on every later keystroke — the reader's
+		first lines scrolled off an eight row band with four lines in it.
+		"""
+		lines = ["l1", "l2", "l3", "l4", "l5", "l6", "l7", ""]
+		control = controllerOver(
+			lines, caretIndex=0, numRows=8, numCols=8, live=True, interactive=True
+		)
+		# The reader has typed down to the seventh line; the band settles with l3 on top.
+		control.source.obj.caretIndex = 6
+		control.followCursor()
+		control.followCursor()
+		self.assertEqual(self.written(control)[0], "l3")
+		# Return: the caret lands on the empty last line while the editor transiently says
+		# the paragraph there starts back at l5, and refuses to expand cleanly behind it.
+		control.source.obj.caretIndex = 7
+		control.source.obj.expandsBackAt = {7: 4, 3: 0}
+		control.followCursor()
+		# The next keystroke reads cleanly, and the reader gets their window back — the one
+		# they had, not one re-derived from wherever the transient block sat.
+		control.source.obj.lines[7] = "l8"
+		control.source.obj.expandsBackAt = None
+		control.followCursor()
+		self.assertEqual(self.written(control), ["l3", "l4", "l5", "l6", "l7", "l8"])
+
 	def test_readingRatherThanWritingStillRefreshesOneBlock(self):
 		"""The rebuild is for a document being typed into, and costs a band of reads."""
 		control = controllerOver(["one", "two", "three"], numRows=4, live=True)

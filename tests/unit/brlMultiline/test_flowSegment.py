@@ -16,6 +16,7 @@ from ._stubs import (
 	FakeHandler,
 	FakeNavigatorObject,
 	FakeTreeInterceptor,
+	callLaterQueue,
 	installStubs,
 )
 
@@ -50,12 +51,15 @@ def containerWithBand(handler=None, numRows=ROWS, numCols=COLS) -> DisplayContai
 	return DisplayContainer(handler, bandView(numRows, numCols))
 
 
-def controllerOver(lines, caretIndex=0, numRows=ROWS, numCols=COLS, live=True, handler=None):
+def controllerOver(
+	lines, caretIndex=0, numRows=ROWS, numCols=COLS, live=True, handler=None, interactive=False
+):
 	interceptor = FakeTreeInterceptor(lines, caretIndex=caretIndex)
 	source = DocumentFlowSource(
 		interceptor,
 		regionFactoryFor(CursorManagerRegion(interceptor), live=live),
 		generation=1,
+		interactive=interactive,
 	)
 	renderer = FlowRenderer(handler or FakeHandler(ROWS, COLS), numCols=numCols, fillRows=True)
 	control = FlowController(source, renderer, numRows=numRows, live=live)
@@ -1081,6 +1085,107 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self._focusOn(page)
 		self.assertTrue(self.segment.acceptFocusRegions(self._focusRegionsFor(page)))
 		self.assertIs(self.band.controller.source.obj, interceptor)
+
+
+class TestTheSettlePass(unittest.TestCase):
+	"""A keystroke into an edit earns a second look a moment later.
+
+	A rich editor's answers at the instant of a keystroke can be transiently wrong, and
+	every wrong state heals on the next re-read — which used to arrive only with the next
+	keystroke. A reader who pauses right after pressing return is reading the display, and
+	that is exactly the moment the garbage sat under their fingers.
+	"""
+
+	def writingBand(self):
+		handler = FakeHandler(ROWS, COLS)
+		container = containerWithBand(handler)
+		handler.mainBuffer = handler.buffer = container
+		segment = container.segmentForKey("flow")
+		control = controllerOver(["one", "two", "three"], handler=handler, interactive=True)
+		segment.attach(control)
+		return segment, control
+
+	def settleRequests(self, segment):
+		requests = []
+		segment.onSettle = lambda: requests.append(True)
+		return requests
+
+	def caretMoved(self, control, index):
+		"""A caret move as NVDA delivers one: the queued region re-read, then the update."""
+		control.source.obj.caretIndex = index
+		region = control.activeRegion()
+		if region is not None:
+			region.dirty = True
+
+	def test_aWritingReReadAsksForASettle(self):
+		segment, control = self.writingBand()
+		requests = self.settleRequests(segment)
+		self.caretMoved(control, 1)
+		segment.update()
+		self.assertEqual(len(requests), 1)
+
+	def test_theRequestIsConsumed(self):
+		segment, control = self.writingBand()
+		requests = self.settleRequests(segment)
+		self.caretMoved(control, 1)
+		segment.update()
+		segment.update()
+		self.assertEqual(len(requests), 1)
+
+	def test_readingRatherThanWritingAsksForNone(self):
+		segment, control = self.writingBand()
+		control.source.writing = False
+		requests = self.settleRequests(segment)
+		self.caretMoved(control, 1)
+		segment.update()
+		self.assertEqual(requests, [])
+
+
+class TestTheBandSettleTimer(unittest.TestCase):
+	"""The band's half of the settle pass: one timer, restarted per keystroke."""
+
+	def band(self, lines=None):
+		from brlMultiline.flowBand import FlowBand
+
+		control = controllerOver(lines or ["one", "two", "three"], interactive=True)
+		band = object.__new__(FlowBand)
+		band._settleTimer = None
+		band.controller = control
+		self.refreshes = []
+		segment = type("FakeSegment", (), {"refresh": lambda inner: self.refreshes.append(True)})()
+		band.segment = lambda: segment
+		callLaterQueue.pending.clear()
+		return band, control
+
+	def test_aFreshKeystrokeRestartsTheTimer(self):
+		band, _control = self.band()
+		band._scheduleSettle()
+		first = band._settleTimer
+		band._scheduleSettle()
+		self.assertTrue(first.stopped)
+		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_aSettleThatChangesNothingRedrawsNothing(self):
+		band, _control = self.band()
+		band._scheduleSettle()
+		callLaterQueue.fire()
+		self.assertEqual(self.refreshes, [])
+
+	def test_aSettleThatHealsTheBandRedrawsIt(self):
+		band, control = self.band()
+		band._scheduleSettle()
+		# The editor finishes answering between the keystroke and the settle.
+		control.source.obj.lines[0] = "mended"
+		callLaterQueue.fire()
+		self.assertEqual(self.refreshes, [True])
+
+	def test_stoppingTheBandCancelsTheTimer(self):
+		band, _control = self.band()
+		band._scheduleSettle()
+		timer = band._settleTimer
+		band._cancelSettle()
+		self.assertTrue(timer.stopped)
+		self.assertIsNone(band._settleTimer)
 
 
 if __name__ == "__main__":

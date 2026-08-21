@@ -505,12 +505,17 @@ class FakeTextInfo:
 		"""Which unit `expand` covered, because a line and a paragraph are different ranges."""
 
 		self.expandsBackAt = expandsBackAt
-		"""A unit whose expansion reaches back to the start of the document.
+		"""Units whose expansion reaches back to an earlier one.
 
 		What a rich editor does at a position just past a break: asked to expand the unit
 		there it takes in everything before it, so the unit's start is an earlier unit's
 		start. Modelled because a flow that walks forward and lands on an earlier block shows
-		the same text twice, and that is the whole of the duplicate row a comment box gave."""
+		the same text twice, and that is the whole of the duplicate row a comment box gave.
+
+		An int means expansion at that line reaches the start of the document, which is the
+		shape the probe caught in a plain textarea. A dict maps each affected line to the
+		line its expansion reaches back to, for the partial reach a paragraph-structured
+		editor produces."""
 
 		self.paragraphBreaks = paragraphBreaks
 		"""Which lines end a paragraph, or None for every line being its own paragraph.
@@ -579,14 +584,23 @@ class FakeTextInfo:
 			return
 		self.expandedUnit = None
 
+	def _reachesBackTo(self):
+		""":return: where expansion at this position lands, or None for an honest answer."""
+		if self.expandsBackAt is None:
+			return None
+		if isinstance(self.expandsBackAt, dict):
+			return self.expandsBackAt.get(self.index)
+		return 0 if self.index == self.expandsBackAt else None
+
 	def expand(self, unit):
 		"""Cover the whole unit, whose start is the start of its first line.
 
-		Unless this is the position that reaches back — see `expandsBackAt` — where the unit
-		begins at the start of the document instead.
+		Unless this is a position that reaches back — see `expandsBackAt` — where the unit
+		begins at an earlier line instead.
 		"""
-		if self.expandsBackAt is not None and self.index == self.expandsBackAt:
-			self.index = 0
+		target = self._reachesBackTo()
+		if target is not None:
+			self.index = target
 		elif unit == UNIT_PARAGRAPH and self.paragraphBreaks is not None:
 			self.index = self._paragraphStart(self.index)
 		self.offset = 0

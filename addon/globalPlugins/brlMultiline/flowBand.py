@@ -45,6 +45,15 @@ from .layout import SegmentRect, wholeDisplayRect
 from .flowSources import DocumentFlowSource, documentFor
 from .panels import FlowPanel, PanelOwner
 
+SETTLE_MILLIS = 150
+"""How long after a keystroke into an edit the band comes back for a second look.
+
+Long enough for the editor to finish answering — the transients the probe caught were gone
+by the next keystroke, half a second later, and are an artefact of the instant itself — and
+short enough that a reader pausing to read the display never meets them. Restarted on every
+keystroke, so a steady typist pays for one settle pass per pause rather than one per key.
+"""
+
 if TYPE_CHECKING:
 	from .container import DisplayContainer
 
@@ -93,6 +102,9 @@ class FlowBand(PanelOwner):
 
 		self._rechecking = False
 		"""Guards `recheck` against the redraw its own answer causes."""
+
+		self._settleTimer = None
+		"""The pending settle pass, so a fresh keystroke can restart it. See L{_scheduleSettle}."""
 
 	# The claim.
 
@@ -161,9 +173,66 @@ class FlowBand(PanelOwner):
 		if segment is not None:
 			segment.follow(self.handleFocusRegions)
 			segment.onUpdate = self.recheck
+			segment.onSettle = self._scheduleSettle
+
+	def _scheduleSettle(self) -> None:
+		"""Come back for a second look shortly after a keystroke into an edit.
+
+		A rich editor's answers at the instant of a keystroke can be transiently wrong: the
+		probe caught a plain textarea answering the paragraph at the caret, the moment
+		return was pressed, as everything from the start of the document — so the band
+		showed a merged block and a duplicate under it. Every such state heals on the next
+		re-read, which used to arrive only with the next keystroke; a reader who pauses
+		right after pressing return is reading the display, and that is exactly the moment
+		the garbage sat under their fingers.
+
+		Restarted on every keystroke, so during steady typing it fires once, after the
+		burst. The pass itself redraws only when it changed something, and scheduling
+		happens only from a display update, so a settle that changes nothing ends the
+		exchange rather than perpetuating it.
+		"""
+		import wx
+
+		if self._settleTimer is not None:
+			try:
+				self._settleTimer.Stop()
+			except Exception:
+				pass
+		try:
+			self._settleTimer = wx.CallLater(SETTLE_MILLIS, self._settle)
+		except Exception:
+			log.debugWarning("Could not schedule a flow settle pass", exc_info=True)
+			self._settleTimer = None
+
+	def _settle(self) -> None:
+		"""Read the edit again now that it has had a moment, and redraw if that changed anything."""
+		self._settleTimer = None
+		control = self.controller
+		if control is None:
+			return
+		try:
+			before = control.cells()
+			control.followCursor()
+			if control.cells() == before:
+				return
+			segment = self.segment()
+			if segment is not None:
+				segment.refresh()
+		except Exception:
+			log.debugWarning("A flow settle pass failed", exc_info=True)
+
+	def _cancelSettle(self) -> None:
+		if self._settleTimer is None:
+			return
+		try:
+			self._settleTimer.Stop()
+		except Exception:
+			pass
+		self._settleTimer = None
 
 	def stop(self) -> None:
 		"""Give the band back and forget the flow."""
+		self._cancelSettle()
 		flowQuickNav.remove()
 		self.controller = None
 		self.obj = None
