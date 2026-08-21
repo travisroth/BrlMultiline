@@ -127,10 +127,15 @@ def isControlObject(obj) -> bool:
 def isEditableObject(obj) -> bool:
 	"""Whether an object owns a text caret the reader may move.
 
-	The role is the dependable answer for ordinary edit controls, including Notepad. The
-	state covers document-like and custom controls which expose editable text under a more
-	general role. Named values keep this policy usable in the unit harness and across NVDA
-	versions, as the role helpers above do.
+	Three answers are consulted, because no one of them covers the controls that exist. The
+	role answers for ordinary edit controls. The state covers document-like and custom
+	controls which expose editable text under a more general role. And NVDA's own judgement
+	— the `EditableText` behaviour it mixed into the object's class — covers the controls
+	that report neither: Windows 11 Notepad's editor answers UIA with role DOCUMENT and no
+	EDITABLE state at all, and NVDA still types into it, because NVDA decided what the
+	object *is* when it built it and recorded that decision in the class. Named values keep
+	the role and state halves usable in the unit harness across NVDA versions, as the role
+	helpers above do.
 
 	:param obj: the object to test.
 	:return: whether its text should be eligible for an editable spatial flow.
@@ -141,7 +146,32 @@ def isEditableObject(obj) -> bool:
 		if roleName(getattr(obj, "role", None)) == "EDITABLETEXT":
 			return True
 		states = getattr(obj, "states", None) or ()
-		return any(roleName(state) == "EDITABLE" for state in states)
+		if any(roleName(state) == "EDITABLE" for state in states):
+			return True
+		return _behavesAsEditableText(obj)
+	except Exception:
+		return False
+
+
+def _behavesAsEditableText(obj) -> bool:
+	"""Whether NVDA built this object with its editable text behaviour.
+
+	`editableText.EditableText` is the mixin NVDA gives everything it will treat as an
+	editable control — it is what makes typing echo and the caret events work — so an
+	instance of it is an editable control on NVDA's own authority, whatever the underlying
+	API failed to say about roles and states.
+
+	:param obj: the object to test.
+	:return: whether NVDA chose the editable text behaviour for it.
+	"""
+	try:
+		import editableText
+	except ImportError:
+		# The unit harness, unless it registered a stand-in. An answer of no leaves the
+		# role and state answers standing, which is all the harness usually needs.
+		return False
+	try:
+		return isinstance(obj, editableText.EditableText)
 	except Exception:
 		return False
 
@@ -156,6 +186,12 @@ def isMultilineEditable(obj) -> bool:
 	them, so the line the reader was on appeared twice — once as the field and once as the
 	page — and the buffer's own caret does not move within the field at all.
 
+	The MULTILINE state is the direct answer where a control gives one. An editable
+	DOCUMENT is taken as multi line without it: a document is lines by nature, and the
+	controls that report the role without the state — Windows 11 Notepad's editor, a Word
+	document — are exactly the ones a reader wants read as their own lines. A single line
+	field never calls itself a document.
+
 	:param obj: the object to test.
 	:return: whether it is an edit the reader can put more than one line into.
 	"""
@@ -163,7 +199,9 @@ def isMultilineEditable(obj) -> bool:
 		return False
 	try:
 		states = getattr(obj, "states", None) or ()
-		return any(roleName(state) == "MULTILINE" for state in states)
+		if any(roleName(state) == "MULTILINE" for state in states):
+			return True
+		return roleName(getattr(obj, "role", None)) == "DOCUMENT"
 	except Exception:
 		# Read the way every other judgement in this module is: an object that will not say
 		# is not one to take a chance on, and the page is the safe answer for it.

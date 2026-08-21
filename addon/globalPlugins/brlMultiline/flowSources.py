@@ -921,10 +921,43 @@ class DocumentFlowSource:
 			# and the display showed the same text twice. Blank rows are the honest answer,
 			# and the reader's next keystroke reads the document afresh.
 			return FetchResult.endOfStream()
+		if self.writing and not self._startsWhereItLanded(moved, startOfMoved):
+			return FetchResult.endOfStream()
 		if self.interactive or not self._isBlank(moved):
 			return self._blockAt(moved, start=startOfMoved)
 		# A blank block while reading: the run costs one row rather than a display.
 		return self._walkBlanks(moved, moved, 1, forward, key)
+
+	def _startsWhereItLanded(self, moved, start) -> bool:
+		"""Whether the unit at a walked-to position starts at that position.
+
+		A walk lands on unit boundaries, so the unit found at the landing must begin there.
+		A rich editor being typed into transiently says otherwise: asked to expand at a
+		fresh boundary it reaches back — sometimes to the start of the document — and a
+		block built from that answer renders everything it reached over. Walking forward
+		past the caret that is the reader's text repeated below the line they are on;
+		walking *back*, which is what restoring the band's top row does on every keystroke,
+		L{_advanced} cannot catch it, because the reach-back does land earlier and earlier
+		is what walking back means. On hardware the restore then either anchored the band
+		on a block holding the whole edit — the reader's first lines merged into one row —
+		or, where the editor refused the walk another way, pinned the line being typed to
+		the top row with everything above it gone.
+
+		Asked only while writing, where the transient lives: every keystroke re-reads the
+		band, so a step refused this moment is read properly the next. A document merely
+		being read holds still, and an implementation quirk there should not cost content.
+
+		:param moved: where the walk landed.
+		:param start: where the unit at that landing claims to begin.
+		:return: whether to trust the step.
+		"""
+		try:
+			landed = moved.copy()
+			landed.collapse()
+			return start.compareEndPoints(landed, "startToStart") == 0
+		except Exception:
+			log.debugWarning("Could not tell where a walked unit starts", exc_info=True)
+			return True
 
 	def _advanced(self, origin, start, forward: bool) -> bool:
 		"""Whether a walked block really is the next one along.

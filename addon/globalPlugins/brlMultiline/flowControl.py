@@ -706,8 +706,24 @@ class FlowController(PanelOwner):
 		self.source.forget()
 		if not self._enterAtCursor():
 			return None
-		if ground or topId is None:
+		if ground:
 			return True
+		if not self._restoreTop(topId):
+			self._contextAboveTheCaret()
+		self.fill()
+		self.syncToCursor(forward=True)
+		return True
+
+	def _restoreTop(self, topId) -> bool:
+		"""Put the band back under the row it was showing before a writing re-read.
+
+		:param topId: the block that was on the top row, or None for an empty band.
+		:return: whether the band is anchored there again. False when the old top was the
+			caret's own block, or reading back to it failed this moment — where the caller
+			has a better answer than leaving the line being typed pinned to the top row.
+		"""
+		if topId is None or topId == self.activeBlockId:
+			return False
 		for _ in range(self.window.numRows):
 			if self.window.hasBlock(topId):
 				break
@@ -716,11 +732,37 @@ class FlowController(PanelOwner):
 		try:
 			self.window.enterAt(topId)
 		except LookupError:
-			# The row the reader was on does not exist any more. The caret is the anchor.
-			return True
-		self.fill()
-		self.syncToCursor(forward=True)
+			return False
 		return True
+
+	def _contextAboveTheCaret(self) -> None:
+		"""Show the rows before the caret above it, as many as half the band.
+
+		Reached when a writing re-read cannot put the band back by its old top row: the top
+		was the caret's own block, or reading it back failed this moment. Anchoring the
+		caret's line to the top row was the old answer, and it was sticky: the next
+		keystroke found the caret's block already on the top row and kept it there, so one
+		transient refusal in a rich editor left the reader typing on the top row with their
+		earlier lines gone until the focus changed. Asking for the context afresh on every
+		re-read heals the band the moment the editor answers again.
+
+		Half the band, so the caret keeps rows below it for what follows. At the end of a
+		document, where most writing happens, the rows above are the document and the rows
+		below are blank either way, and a caret that has stopped moving row to row as lines
+		are added is the sign the reader is at the half-way mark rather than lost.
+		"""
+		active = self.activeBlockId
+		if active is None:
+			return
+		wanted = max(1, self.window.numRows // 2)
+		self._reachBack(wanted)
+		try:
+			self.window.enterAt(active)
+			rowsAbove = self.window.rowsAbove()
+			if rowsAbove > 0:
+				self.window.enterAt(active, contextRows=min(wanted, rowsAbove))
+		except LookupError:
+			log.debugWarning("Could not anchor the band at the caret", exc_info=True)
 
 	def groundAt(self, blockId: "BlockId") -> bool:
 		"""Put a block at the top of the band and let the document run on from it.

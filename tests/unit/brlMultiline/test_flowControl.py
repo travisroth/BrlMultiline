@@ -876,6 +876,37 @@ class TestWritingReadsTheWholeBandAgain(unittest.TestCase):
 		control.followCursor()
 		self.assertEqual(control.cursorCell() // control.renderer.numCols, before)
 
+	def test_aTransientRefusalHealsOnTheNextKeystroke(self):
+		"""The third-line failure two rich editors showed, in both of its shapes.
+
+		Typing a third line, the walk back that restores the band's top row landed on a
+		fresh boundary where the editor transiently expands back to the start — so the
+		restore either anchored on a block holding the reader's first lines merged into
+		one, or failed and pinned the line being typed to the top row, and stayed pinned,
+		because the next re-read found the caret's block on the top row and kept it.
+		"""
+		control = self.flow(["one", "two", "three"], caretIndex=0)
+		self.assertEqual(self.written(control), ["one", "two", "three"])
+		# The caret moves to the third line while the editor is answering transiently.
+		control.source.obj.caretIndex = 2
+		control.source.obj.expandsBackAt = 1
+		control.followCursor()
+		# The walk back is refused rather than trusted: nothing merged, nothing repeated.
+		self.assertEqual(self.written(control), ["three"])
+		# A keystroke later the editor answers properly, and the band heals.
+		control.source.obj.expandsBackAt = None
+		control.followCursor()
+		self.assertEqual(self.written(control), ["one", "two", "three"])
+
+	def test_theCaretDoesNotStickToTheTopRow(self):
+		"""A caret block on the top row reaches back for its context rather than keeping it."""
+		control = self.flow(["one", "two", "three"], caretIndex=2)
+		self.assertEqual(self.written(control), ["three"])
+		control.followCursor()
+		self.assertEqual(self.written(control), ["one", "two", "three"])
+		# And the caret sits below its context rather than on the top row.
+		self.assertEqual(rowTexts(control)[2].strip(), "three")
+
 	def test_readingRatherThanWritingStillRefreshesOneBlock(self):
 		"""The rebuild is for a document being typed into, and costs a band of reads."""
 		control = controllerOver(["one", "two", "three"], numRows=4, live=True)

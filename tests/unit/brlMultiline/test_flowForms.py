@@ -107,6 +107,44 @@ class TestRecognisingWhatTheReaderArrivedAt(unittest.TestCase):
 		self.assertFalse(flowForms.isControlObject(Difficult()))
 
 
+class TestNotepadShapedEditors(unittest.TestCase):
+	"""Windows 11 Notepad's editor: role DOCUMENT, no EDITABLE or MULTILINE state.
+
+	Nothing in its role or states says it can be typed into, and NVDA types into it all
+	day, because NVDA recorded its own judgement in the class it built — the editable text
+	behaviour. The hardware run found the flow refusing it and reading classic.
+	"""
+
+	def notepad(self):
+		import editableText
+
+		class NotepadEditor(editableText.EditableText):
+			role = FakeRole("DOCUMENT")
+			states = set()
+
+		return NotepadEditor()
+
+	def test_itIsEditableOnNVDAsOwnAuthority(self):
+		self.assertTrue(flowForms.isEditableObject(self.notepad()))
+
+	def test_itIsMultilineBecauseADocumentIsLines(self):
+		self.assertTrue(flowForms.isMultilineEditable(self.notepad()))
+
+	def test_aReadOnlyDocumentIsStillNeither(self):
+		document = FakeObject(FakeRole("DOCUMENT"))
+		self.assertFalse(flowForms.isEditableObject(document))
+		self.assertFalse(flowForms.isMultilineEditable(document))
+
+	def test_aSingleLineFieldIsStillSingleLine(self):
+		field = FakeObject(FakeRole("EDITABLETEXT"))
+		self.assertTrue(flowForms.isEditableObject(field))
+		self.assertFalse(flowForms.isMultilineEditable(field))
+
+	def test_theMultilineStateStillAnswersDirectly(self):
+		field = FakeObject(FakeRole("EDITABLETEXT"), states={FakeRole("MULTILINE")})
+		self.assertTrue(flowForms.isMultilineEditable(field))
+
+
 class TestHowMuchContext(unittest.TestCase):
 	"""A prompt goes above its control, and a prompt that filled the display would not help."""
 

@@ -453,6 +453,28 @@ comes back clean clears its own mark, and the re-read while writing calls `forge
 everything the source remembers about a document being typed into is an answer the edit may
 just have changed, the cached exits and positions included, so none of it is kept.
 
+**A walk lands where its unit starts, or it is not believed — in either direction.** The
+run after the unit fix found the third line of an edit breaking the band in two different
+ways: one editor showed the reader's first lines merged above the caret, another pinned the
+line being typed to the top row with everything above it gone. Both were the restore that
+follows every keystroke — put the band back by the block that was on its top row — walking
+*backward* over a freshly made boundary, where the transient expansion reaches back.
+`_advanced` cannot catch that direction: the reach-back does land earlier, and earlier is
+what walking back means. So while writing, a walked-to position whose unit does not start
+where the walk landed is refused, both ways. And the pinning was sticky by construction —
+the next re-read found the caret's block on the top row and kept it, so one refusal lasted
+until the focus changed. The restore now falls back to reaching back for up to half a band
+of context above the caret, asked afresh on every re-read, so the band heals the moment the
+editor answers again.
+
+**An editor is what NVDA says it is, not what its roles say.** Windows 11 Notepad's editor
+answers UIA with role DOCUMENT and neither an EDITABLE nor a MULTILINE state, so every
+role-and-state test refused it and the flow read classic. NVDA itself types into it,
+because NVDA recorded its judgement in the class it built — the `editableText.EditableText`
+behaviour. `flowForms.isEditableObject` now accepts that authority, and an editable
+DOCUMENT is taken as multi line without the state: a document is lines by nature, and a
+single line field never calls itself one.
+
 It is a setting rather than a rule, `flowWriteByParagraph`, on by default. The evidence
 above comes from one rich editor, and the whole point of having it is to find out whether
 it holds in a plain edit, in a code editor, in a terminal-like control. Turning it off puts

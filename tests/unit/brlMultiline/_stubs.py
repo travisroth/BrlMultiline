@@ -1617,6 +1617,16 @@ def _installPluginStubs() -> None:
 	)
 	_module("braille.regions.focus", getFocusRegions=fakeGetFocusRegions)
 	_module("cursorManager", CursorManager=CursorManager)
+
+	class EditableText:
+		"""NVDA's editable text behaviour, which `flowForms` recognises by isinstance.
+
+		Only its identity matters: it is how NVDA records "this object is typed into" on
+		controls whose role and states fail to say so, Windows 11 Notepad's editor being
+		the one the hardware found.
+		"""
+
+	_module("editableText", EditableText=EditableText)
 	_module("braille.regions.NVDAObject", NVDAObjectRegion=NVDAObjectRegion)
 	# The braille display driver package, as a path with no code, so that the settings panel's
 	# `from brailleDisplayDrivers.brlMultilineVirtual import vdConfig` resolves to the real

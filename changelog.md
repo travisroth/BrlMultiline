@@ -48,7 +48,13 @@ Added:
   by the same unit it was cut by, a wrapped paragraph whole rather than its first line; a
   line that transiently swallowed its successor stops truncating the edit once it reads
   cleanly again; and the reading allowance funds the full re-read a keystroke costs, so
-  typing no longer fills the band with the marker meaning there is more unread. Quick navigation keys all move
+  typing no longer fills the band with the marker meaning there is more unread. A walked
+  block whose unit does not start where the walk landed is refused in both directions while
+  writing, and a re-read that cannot restore the band's old top row reaches back for
+  context above the caret instead of pinning the typed line to the top row. Editors NVDA
+  knows are editable but whose roles and states do not say so — Windows 11 Notepad — are
+  recognised by NVDA's own behaviour class, and an editable document counts as multi line
+  without the state. Quick navigation keys all move
   the display: structural ones ground, and everything else brings what you jumped to into
   view. Off until it is turned on, per display and per configuration profile. Experimental.
 - Reading a list, a menu, a tree or a combo box's choices the same way: the items around
