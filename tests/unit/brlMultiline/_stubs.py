@@ -133,6 +133,7 @@ CONFIG = DisplaySection(
 		"flowDisplay": "",
 		"flowGroundOnQuickNav": True,
 		"flowWriteByParagraph": True,
+		"flowIndentStyle": "twoSpaces",
 	},
 )
 """The stub configuration the fake `bmConfig` reads. Tests mutate this directly.
@@ -174,6 +175,7 @@ def setBandConfig(displayKey: str, **values) -> None:
 			"flowDisplay": "",
 			"flowGroundOnQuickNav": True,
 			"flowWriteByParagraph": True,
+			"flowIndentStyle": "twoSpaces",
 		},
 	)
 	section.update(values)
@@ -1432,6 +1434,14 @@ class FakeNavigatorObject:
 		run is defined by what shares a parent and the walk goes through `firstChild` and
 		`next` rather than through a list of children built all at once."""
 
+		self.positionInfo = {}
+		"""Where this object sits among its peers, as NVDA reports it.
+
+		Empty by default, which is what an ordinary list item answers: a level is reported by
+		the controls that have a structure — a tree view, a nested list — and by nothing else.
+		A flat run must therefore keep reading flat, which is what an empty one tests.
+		"""
+
 		self.documentIndex = documentIndex
 		"""Which line of its document this object sits on, or None if it cannot be placed.
 
@@ -1485,7 +1495,7 @@ class NVDAObjectRegion(Region):
 		self.acted = True
 
 
-def fakeRun(names, role="LISTITEM", parent=None, selected=0):
+def fakeRun(names, role="LISTITEM", parent=None, selected=0, levels=None):
 	"""Build a run of sibling objects, as the items of a list box are.
 
 	A container is made for them when none is given. Every real object has a parent, and a
@@ -1496,6 +1506,9 @@ def fakeRun(names, role="LISTITEM", parent=None, selected=0):
 	:param role: the role every item has.
 	:param parent: the container to hang them under, which is what a combo box's choices need.
 	:param selected: which of them the reader is on.
+	:param levels: one-based depth per item, as `positionInfo["level"]` reports it, or None
+		for a flat run. A tree view read in visible order is a run of siblings whose levels
+		rise and fall, which is what this expresses without building a real tree.
 	:return: the items, in order.
 	"""
 	if parent is None:
@@ -1506,6 +1519,8 @@ def fakeRun(names, role="LISTITEM", parent=None, selected=0):
 		item.previous = items[index - 1] if index else None
 		item.parent = parent
 		item.states = {"SELECTED"} if index == selected else set()
+		if levels is not None and index < len(levels):
+			item.positionInfo = {"level": levels[index]}
 	parent.children = items
 	parent.firstChild = items[0] if items else None
 	return items
@@ -1819,6 +1834,7 @@ def resetConfig() -> None:
 		flowDisplay="",
 		flowGroundOnQuickNav=True,
 		flowWriteByParagraph=True,
+		flowIndentStyle="twoSpaces",
 	)
 	BAND_CONFIG.clear()
 	# Both are filled in by the real `getDisplayConfig` as displays are met, so a test that

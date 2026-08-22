@@ -21,7 +21,7 @@ installStubs()
 import braille  # noqa: E402
 import config  # noqa: E402
 
-from brlMultiline import bmConfig  # noqa: E402
+from brlMultiline import bmConfig, flowIndent  # noqa: E402
 
 FOCUS = "freedomScientific_1x80"
 MONARCH = "humanware_8x32"
@@ -309,6 +309,20 @@ class TestFlowSettings(ConfigTestCase):
 		self.assertTrue(bmConfig.shouldWriteByParagraph(FOCUS))
 		CONFIG["flowWriteByParagraph"] = False
 		self.assertFalse(bmConfig.shouldWriteByParagraph(FOCUS))
+
+	def test_theIndentStyleDefaultsToTwoSpaces(self):
+		del CONFIG["flowIndentStyle"]
+		self.assertEqual(bmConfig.flowIndentStyle(FOCUS), flowIndent.TWO_SPACES)
+
+	def test_theIndentStyleIsRead(self):
+		CONFIG["flowIndentStyle"] = flowIndent.DOTS_78
+		self.assertEqual(bmConfig.flowIndentStyle(FOCUS), flowIndent.DOTS_78)
+
+	def test_anIndentStyleThisVersionHasNotGotReadsAsTheDefault(self):
+		"""Written by a later version, or by hand. A setting nobody recognises must not stop
+		a display being drawn."""
+		CONFIG["flowIndentStyle"] = "engraved"
+		self.assertEqual(bmConfig.flowIndentStyle(FOCUS), flowIndent.DEFAULT_STYLE)
 
 
 if __name__ == "__main__":

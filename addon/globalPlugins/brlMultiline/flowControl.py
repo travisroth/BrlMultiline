@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Optional
 
 from logHandler import log
 
-from . import flowForms
+from . import flowForms, flowIndent
 from .flow import (
 	NO_POSITION,
 	ByIdentity,
@@ -103,6 +103,7 @@ class FlowController(PanelOwner):
 		numRows: int,
 		live: bool = False,
 		movesCursor: Optional[bool] = None,
+		indentStyle: str = flowIndent.DEFAULT_STYLE,
 	) -> None:
 		"""
 		:param source: where the blocks come from.
@@ -116,12 +117,18 @@ class FlowController(PanelOwner):
 			position is a selection: it is the application's to say, it changes only when a
 			focus event says so, and panning past it is reading rather than moving. See
 			`flowObjects`.
+		:param indentStyle: how one level of depth is drawn, for content that has depth. See
+			`flowIndent.INDENT_STYLES`.
 		"""
 		self.source = source
 		self.renderer = renderer
 		self.window = FlowWindow(numRows)
 		self.live = live
 		self.movesCursor = True if movesCursor is None else movesCursor
+		self.indentStyle = indentStyle
+		"""How one level of depth is drawn. Read once, since a setting changed mid reading
+		rebuilds the band anyway."""
+
 		self._following = False
 		"""Guards against following a cursor move that this controller made itself."""
 
@@ -171,7 +178,10 @@ class FlowController(PanelOwner):
 			yield budget
 		finally:
 			if not outer:
-				budget.finish()
+				try:
+					self._rebaseIndent()
+				finally:
+					budget.finish()
 
 	# Arriving.
 
@@ -287,6 +297,58 @@ class FlowController(PanelOwner):
 			if shortfall:
 				self._fill(edge, shortfall)
 		self._trim()
+
+	def _rebaseIndent(self) -> None:
+		"""Draw the band's depths again if the plan in force has stopped working.
+
+		At the end of every operation rather than at any one of them, because arriving,
+		filling, panning and following the cursor all change what is on the band, and the
+		indent depends on nothing else. One pass, never a loop: laying the band out again
+		changes how many rows each block takes, which can change which blocks are on the
+		band, which could ask for a different plan again — and a display that settles only
+		after several passes is a display that moves while the reader is reading it.
+
+		`flowIndent.shouldRebase` is what keeps this quiet. It answers no while the plan can
+		still draw what is there, so arrowing through a run of items at the same depth costs
+		one comparison and nothing else, and prose costs the same comparison over a band of
+		`None`.
+		"""
+		rendered = list(self.window.blocks)
+		if not rendered:
+			return
+		depths = [block.depth for block in rendered]
+		numCols = self.renderer.numCols
+		if not flowIndent.shouldRebase(
+			self.renderer.indentPlan,
+			depths,
+			numCols,
+			style=self.indentStyle,
+		):
+			return
+		plan = flowIndent.planFor(depths, numCols, style=self.indentStyle)
+		if plan == self.renderer.indentPlan:
+			return
+		self.renderer.indentPlan = plan
+		began = self.source.budget.clock()
+		fresh = []
+		for block in rendered:
+			source = self.blocks.get(block.blockId)
+			if source is None:
+				# Rendered but no longer held, which `_trim` does not do to a window block.
+				# Kept as it is rather than dropped: a row drawn at the old indent is wrong by
+				# a few cells, and a row missing is wrong by a row.
+				fresh.append(block)
+				continue
+			fresh.append(self.renderer.render(source, fromRow=block.rowOffset))
+		# Laying the band out again is charged for, as a fetch and a chunk are. It is the one
+		# piece of work here the reader did not ask for by name.
+		self.source.budget.spend(self.source.budget.clock() - began)
+		if not self.window.replaceBlocks(fresh):
+			log.debug("BrlMultiline flow: the anchor did not survive a rebased indent")
+			return
+		# A shallower baseline makes blocks shorter, which can leave the band short of rows.
+		# A deeper one only ever makes them taller, and the window trims its own surplus.
+		self._fillBothEnds()
 
 	def _trim(self) -> None:
 		"""Keep the cache to the window and a margin either side.

@@ -14,6 +14,7 @@ identifiable, and that the run is walked lazily — each step being a call into 
 application is the whole reason the budget exists.
 """
 
+import dataclasses
 import unittest
 
 from ._stubs import (
@@ -76,6 +77,115 @@ def controllerOver(items, at=0, numRows=4, adapter=None, budget=None) -> FlowCon
 def objectAt(control: FlowController, blockId):
 	""":return: the object a block of a run was built for."""
 	return getattr(control.regionFor(blockId), "obj", None)
+
+
+class TestHowDeepAnObjectSits(unittest.TestCase):
+	"""Depth is taken from NVDA and drawn where a control reports it, and nowhere else."""
+
+	def test_aFlatRunHasNoDepth(self):
+		"""An ordinary list box reports no level, and today's flat reading must not move."""
+		items = fakeRun(["Apple", "Banana"])
+		source = sourceOver(items)
+		self.assertIsNone(source.blockAtCursor().block.depth)
+
+	def test_aLevelIsReadFromPositionInfo(self):
+		items = fakeRun(["Inbox", "Archive"], role="TREEVIEWITEM", levels=[1, 2])
+		source = sourceOver(items, at=1)
+		self.assertEqual(source.blockAtCursor().block.depth, 2)
+
+	def test_aLevelOfZeroIsNotADepth(self):
+		"""Some providers use 0 for "no level" instead of leaving the key out. Drawing that
+		as a depth would push a whole run in for nothing."""
+		items = fakeRun(["Inbox"], role="TREEVIEWITEM", levels=[0])
+		self.assertIsNone(sourceOver(items).blockAtCursor().block.depth)
+
+	def test_anUnreadableLevelIsNoDepth(self):
+		items = fakeRun(["Inbox"], role="TREEVIEWITEM")
+		items[0].positionInfo = {"level": "deep"}
+		self.assertIsNone(sourceOver(items).blockAtCursor().block.depth)
+
+	def test_anObjectThatWillNotSayIsNoDepth(self):
+		items = fakeRun(["Inbox"], role="TREEVIEWITEM")
+
+		class Refuses:
+			def __get__(self, obj, kind):
+				raise RuntimeError("no")
+
+		type(items[0]).positionInfo = Refuses()
+		try:
+			self.assertIsNone(sourceOver(items).blockAtCursor().block.depth)
+		finally:
+			del type(items[0]).positionInfo
+
+	def test_anAdapterMaySayItselfHowDeepSomethingSits(self):
+		"""The reason `depthOf` is on the adapter: a control that knows its own shape better
+		than NVDA does is exactly what an add-on registers one for."""
+		adapter = dataclasses.replace(flowObjects.SIBLING_RUN, depthOf=lambda obj: 7)
+		items = fakeRun(["Inbox"], role="TREEVIEWITEM")
+		self.assertEqual(sourceOver(items, adapter=adapter).blockAtCursor().block.depth, 7)
+
+	def test_anAdapterThatRaisesCostsTheDepthAndNothingElse(self):
+		def explode(obj):
+			raise RuntimeError("no")
+
+		adapter = dataclasses.replace(flowObjects.SIBLING_RUN, depthOf=explode)
+		items = fakeRun(["Inbox"], role="TREEVIEWITEM", levels=[2])
+		block = sourceOver(items, adapter=adapter).blockAtCursor().block
+		self.assertIsNone(block.depth)
+		self.assertIn("Inbox", block.region.rawText)
+
+
+class TestDepthOnTheBand(unittest.TestCase):
+	"""What a tree actually feels like across eight rows."""
+
+	def _rows(self, control):
+		""":return: the band as text, one string per row, blanks as spaces."""
+		cells = control.cells()
+		return [
+			"".join(" " if cell == 0 else chr(cell) for cell in cells[start : start + NUM_COLS])
+			for start in range(0, len(cells), NUM_COLS)
+		]
+
+	def _indent(self, text):
+		return len(text) - len(text.lstrip())
+
+	def test_aTreeIsDrawnAtItsDepths(self):
+		items = fakeRun(["Inbox", "Sub", "Deeper"], role="TREEVIEWITEM", levels=[1, 2, 3])
+		rows = self._rows(controllerOver(items, numRows=3))
+		self.assertEqual([self._indent(row) for row in rows[:3]], [0, 2, 4])
+
+	def test_aFlatRunIsStillFlat(self):
+		"""The baseline this milestone must not move."""
+		rows = self._rows(controllerOver(fakeRun(["Apple", "Banana"]), numRows=2))
+		self.assertEqual([self._indent(row) for row in rows[:2]], [0, 0])
+
+	def test_aDeepTreeIsRebasedToWhatIsOnTheBand(self):
+		"""Nine levels of true indent would be most of a 20 cell row."""
+		items = fakeRun(["a", "b", "c"], role="TREEVIEWITEM", levels=[8, 9, 10])
+		rows = self._rows(controllerOver(items, numRows=3))
+		self.assertEqual([self._indent(row) for row in rows[:3]], [0, 2, 4])
+
+	def test_theBandSaysWhatItsMarginStandsFor(self):
+		items = fakeRun(["a", "b", "c"], role="TREEVIEWITEM", levels=[8, 9, 10])
+		control = controllerOver(items, numRows=3)
+		self.assertEqual(control.renderer.indentPlan.noteLevel, 8)
+
+	def test_aRunOfOneDepthDoesNotRebaseWhilePanning(self):
+		"""The margin must not twitch while the reader arrows through items that are all
+		at the same level."""
+		items = fakeRun([str(n) for n in range(12)], role="TREEVIEWITEM", levels=[3] * 12)
+		control = controllerOver(items, numRows=3)
+		before = control.renderer.indentPlan
+		control.panForward()
+		self.assertIs(control.renderer.indentPlan, before)
+
+	def test_comingBackOutOfASubtreeRebases(self):
+		"""Visible order leaves a subtree, so an item shallower than the margin arrives."""
+		items = fakeRun(["a", "b", "c", "d"], role="TREEVIEWITEM", levels=[9, 10, 11, 4])
+		control = controllerOver(items, numRows=2)
+		control.panForward()
+		control.panForward()
+		self.assertLessEqual(control.renderer.indentPlan.baseline or 0, 4)
 
 
 class TestWhichObjectsAreRead(unittest.TestCase):

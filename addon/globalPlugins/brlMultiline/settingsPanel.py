@@ -33,10 +33,31 @@ import wx
 from gui import guiHelper
 from logHandler import log
 
-from . import bmConfig, devices
+from . import bmConfig, devices, flowIndent
 from .layout import calculateSegmentRects
 
 addonHandler.initTranslation()
+
+
+def indentStyleChoices() -> tuple[tuple[str, str], ...]:
+	""":return: the indent styles and their labels, in the order the dialog offers them.
+
+	A function rather than a constant because the labels are translated, and a constant
+	built at import time is translated once into whatever language was current then. Ordered
+	by `flowIndent.INDENT_STYLES` so that the one definition of what a style is decides what
+	the dialog shows, and a style added there without a label here is offered by its name
+	rather than silently dropped.
+	"""
+	labels = {
+		# Translators: a choice of how the depth of a tree item is shown in braille.
+		flowIndent.TWO_SPACES: _("Two spaces for each level"),
+		# Translators: a choice of how the depth of a tree item is shown in braille.
+		flowIndent.ONE_SPACE: _("One space for each level"),
+		# Translators: a choice of how the depth of a tree item is shown in braille. Dots 7
+		# and 8 are the two lower dots of an eight dot braille cell.
+		flowIndent.DOTS_78: _("Dots 7 and 8 for each level"),
+	}
+	return tuple((style, labels.get(style, style)) for style in flowIndent.INDENT_STYLES)
 
 
 def parseSegmentSizes(text: str) -> list[int]:
@@ -598,6 +619,27 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Translators: label of a combo box in settings, choosing how the depth of an item in a
+		# tree or a nested list is shown on the display.
+		indentLabel = _("Show how deep an item &sits with:")
+		self.indentStyleCtrl = sHelper.addLabeledControl(
+			indentLabel,
+			wx.Choice,
+			choices=[label for _name, label in indentStyleChoices()],
+		)
+		self.indentStyleCtrl.SetSelection(self._indentStyleIndex(str(section["flowIndentStyle"] or "")))
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the combo box above, explaining what it
+					# does. Dots 7 and 8 are the two lower dots of an eight dot braille cell.
+					"Only where a control says how deep its items are, such as a tree view. The "
+					"display shows depth relative to the shallowest item on it, so a deep tree "
+					"still leaves cells for the item itself.",
+				),
+			),
+		)
 		self._updateRowsHint()
 
 	# Where the band goes.
@@ -642,6 +684,18 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			)
 		return targets
+
+	def _indentStyleIndex(self, style: str) -> int:
+		""":return: which entry of the chooser a stored style means, 0 for the default.
+
+		A style this version has not got reads as the default, which is what
+		`bmConfig.flowIndentStyle` will actually use for it. The dialog must agree with the
+		band, or saving without touching the control would quietly change the setting.
+		"""
+		for index, (name, _label) in enumerate(indentStyleChoices()):
+			if name == style:
+				return index
+		return 0
 
 	def _targetIndex(self, driverName: str) -> int:
 		""":return: which entry of the chooser a stored driver name means, 0 for automatic."""
@@ -710,6 +764,7 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowRows"] = self.rowsCtrl.Value
 		section["flowGroundOnQuickNav"] = self.groundCtrl.IsChecked()
 		section["flowWriteByParagraph"] = self.writeByParagraphCtrl.IsChecked()
+		section["flowIndentStyle"] = indentStyleChoices()[self.indentStyleCtrl.GetSelection()][0]
 
 	def postSave(self):
 		# Claim or give back the band straight away, rather than at the next display event.

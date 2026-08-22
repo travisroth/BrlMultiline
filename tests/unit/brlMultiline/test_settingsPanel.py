@@ -21,12 +21,13 @@ installStubs()
 from brailleDisplayDrivers.brlMultilineVirtual import vdConfig  # noqa: E402
 from brailleDisplayDrivers.brlMultilineVirtual.virtualLayout import DeviceSpec  # noqa: E402
 
-from brlMultiline import bmConfig  # noqa: E402
+from brlMultiline import bmConfig, flowIndent  # noqa: E402
 from brlMultiline.devices import DeviceInfo  # noqa: E402
 from brlMultiline.settingsPanel import (  # noqa: E402
 	BrailleMultilineSettingsPanel,
 	FlowSettingsPanel,
 	VirtualDisplaySettingsPanel,
+	indentStyleChoices,
 	parseSegmentSizes,
 )
 
@@ -486,6 +487,7 @@ class FlowPanelTestCase(SettingsPanelTestCase):
 		self.panel.rowsHintCtrl = FakeControl()
 		self.panel.groundCtrl = FakeControl(True)
 		self.panel.writeByParagraphCtrl = FakeControl(True)
+		self.panel.indentStyleCtrl = FakeControl(0)
 
 	def section(self, displayKey=None):
 		return self.sections.setdefault(displayKey, defaults())
@@ -519,6 +521,30 @@ class TestFlowOnOneDisplay(FlowPanelTestCase):
 		self.panel.groundCtrl.SetValue(False)
 		self.panel.onSave()
 		self.assertFalse(self.sections[MONARCH_KEY]["flowGroundOnQuickNav"])
+
+	def test_theIndentStyleIsSaved(self):
+		choices = indentStyleChoices()
+		self.panel.indentStyleCtrl.SetSelection(len(choices) - 1)
+		self.panel.onSave()
+		self.assertEqual(self.sections[MONARCH_KEY]["flowIndentStyle"], choices[-1][0])
+
+	def test_everyStyleTheModuleHasIsOffered(self):
+		"""The dialog is built from `flowIndent.INDENT_STYLES`, so a style added there cannot
+		become one the reader has no way to choose."""
+		self.assertEqual(
+			[style for style, _label in indentStyleChoices()],
+			list(flowIndent.INDENT_STYLES),
+		)
+
+	def test_everyStyleHasALabelOfItsOwn(self):
+		labels = [label for _style, label in indentStyleChoices()]
+		self.assertEqual(len(set(labels)), len(labels))
+
+	def test_aStyleThisVersionHasNotGotReadsAsTheDefault(self):
+		"""The dialog must agree with `bmConfig.flowIndentStyle`, or opening the settings and
+		saving them without touching this control would quietly change it."""
+		self.assertEqual(self.panel._indentStyleIndex("engraved"), 0)
+		self.assertEqual(indentStyleChoices()[0][0], flowIndent.DEFAULT_STYLE)
 
 	def test_readingWritingByParagraphIsSaved(self):
 		self.panel.writeByParagraphCtrl.SetValue(False)

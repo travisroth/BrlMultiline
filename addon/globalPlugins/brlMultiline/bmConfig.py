@@ -17,12 +17,24 @@ lives here because every place that has to consult it reads its configuration th
 module already.
 """
 
+from typing import Optional
+
 import braille
 import config
 from config.configFlags import BrailleMode
 from logHandler import log
 
+from .flowIndent import DEFAULT_STYLE as DEFAULT_INDENT_STYLE
+from .flowIndent import INDENT_STYLES
+
 CONFIG_SECTION = "BrlMultiline"
+
+INDENT_STYLE_OPTIONS = ", ".join(f'"{style}"' for style in INDENT_STYLES)
+"""The indent styles as `configobj` writes an option list, built from the one definition.
+
+Written from `flowIndent.INDENT_STYLES` rather than beside it, so that adding a style is one
+edit in the module that knows what a style is, and this specification cannot drift from it.
+"""
 
 #: Largest number of segments the settings dialog offers, and the largest that the per
 #: segment commands are generated for. This is a limit on the user interface only: there
@@ -85,6 +97,7 @@ configSpec = {
 			"flowDisplay": 'string(default="")',
 			"flowGroundOnQuickNav": "boolean(default=True)",
 			"flowWriteByParagraph": "boolean(default=True)",
+			"flowIndentStyle": f'option({INDENT_STYLE_OPTIONS}, default="{DEFAULT_INDENT_STYLE}")',
 			**{
 				flowModeKey(mode): f"boolean(default={FLOW_MODE_DEFAULTS.get(mode, False)})"
 				for mode in FLOW_MODES
@@ -128,12 +141,30 @@ configSpec = {
 - `flowGroundOnQuickNav`: whether a browse mode jump by structure re-grounds the band.
 - `flowWriteByParagraph`: whether a multi line edit being written in is cut into blocks by
 	paragraph rather than by the reader's own read by paragraph setting.
+- `flowIndentStyle`: how one level of depth is drawn, for content that has any. Per display
+	and per profile like everything else here, because the answer depends on how many cells
+	the row has: two spaces on a Monarch's 32 is a different proposition from two on 80.
 
 Everything above is read through `config.conf`, which is profile aware, so all of it can
 differ per configuration profile. That matters most for the flow: a profile triggered by
 one browser can flow while the normal configuration does not, which is how a reader keeps
 one application reading the way it always has.
 """
+
+
+def flowIndentStyle(displayKey: Optional[str] = None) -> str:
+	""":return: how one level of depth is drawn on this display.
+
+	See `flowIndent.INDENT_STYLES` for what the answers mean. An unreadable setting reads as
+	the default rather than raising, for the reason every accessor here does: a configuration
+	this version does not understand must not stop a display being drawn.
+	"""
+	try:
+		style = str(getDisplayConfig(displayKey)["flowIndentStyle"])
+	except Exception:
+		log.debugWarning("Could not read flowIndentStyle", exc_info=True)
+		return DEFAULT_INDENT_STYLE
+	return style if style in INDENT_STYLES else DEFAULT_INDENT_STYLE
 
 
 def initialize() -> None:

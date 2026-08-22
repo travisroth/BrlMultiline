@@ -247,7 +247,14 @@ def _objectController(
 	# position here is a selection, and a selection is application state. `live` says the
 	# focused block shows a cursor, so the reader can feel which of the eight the arrow keys
 	# will act on; `movesCursor` says that panning past it does not claim they have moved.
-	control = FlowController(source, renderer, numRows=numRows, live=live, movesCursor=False)
+	control = FlowController(
+		source,
+		renderer,
+		numRows=numRows,
+		live=live,
+		movesCursor=False,
+		indentStyle=bmConfig.flowIndentStyle(),
+	)
 	if not control.enterAtCursor():
 		result = control.lastResult
 		kind = getattr(getattr(result, "kind", None), "value", "no answer")
@@ -353,7 +360,13 @@ def buildController(
 	if atObject is not None:
 		notes.append(f"Arrived at a control: {describeObject(atObject)}")
 	renderer = FlowRenderer(handler, numCols=numCols, fillRows=False)
-	control = FlowController(source, renderer, numRows=numRows, live=live)
+	control = FlowController(
+		source,
+		renderer,
+		numRows=numRows,
+		live=live,
+		indentStyle=bmConfig.flowIndentStyle(),
+	)
 	if not control.enterAtCursor(atObject=atObject):
 		result = control.lastResult
 		kind = getattr(getattr(result, "kind", None), "value", "no answer")

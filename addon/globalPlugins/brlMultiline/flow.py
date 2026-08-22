@@ -39,7 +39,7 @@ rules in `replaceBlocks` instead.
 
 import dataclasses
 import enum
-from typing import Iterable, Sequence
+from typing import Iterable, Optional, Sequence
 
 BLANK_CELL = 0
 """The cell value of a blank cell, matching NVDA's own use of 0 for an empty cell."""
@@ -125,6 +125,15 @@ class RenderKey:
 	the configuration profile generation. A tuple so that adding one does not change this
 	class's shape."""
 
+	indent: int = 0
+	"""How many cells of indent this block was drawn with.
+
+	Part of the key rather than of the identity, because indent changes the cells and
+	changes nothing about which block this is. It has to be here: an indented block is laid
+	out in the cells the indent leaves, so the same block at two depths is two different
+	renderings and serving one for the other would cut its rows in the wrong places.
+	"""
+
 
 @dataclasses.dataclass(frozen=True)
 class RenderedBlock:
@@ -180,6 +189,13 @@ class RenderedBlock:
 	isDecoration: bool = False
 	"""Whether this block is drawn rather than read. See `SourceBlock.isDecoration`."""
 
+	depth: Optional[int] = None
+	"""How deep this block sits in a structure, carried through from `SourceBlock.depth`.
+
+	Here so that the band can find the depths of what it is showing without going back to
+	the source, which is what the indent baseline is computed from. See `flowIndent`.
+	"""
+
 	@property
 	def numRows(self) -> int:
 		""":return: how many rows this rendering holds, not counting its gaps."""
@@ -233,6 +249,16 @@ class SourceBlock:
 	but its live caret belongs to the edit control. The flag lets the controller replace the
 	document-bound region with the control-bound one, and put the document region back when
 	the reader leaves the field, without changing the block's document identity.
+	"""
+
+	depth: Optional[int] = None
+	"""How deep this block sits in the structure it belongs to, or None where it has none.
+
+	One-based where it is set, because that is what `positionInfo["level"]` means and
+	converting it here would make two conventions where there is now one. Prose has no
+	depth and never sets this; a list item has depth 1 whether or not anything nests inside
+	it. What it is drawn as is `flowIndent`'s decision and the renderer's doing — this is
+	the fact, not the presentation.
 	"""
 
 	collapsed: int = 1

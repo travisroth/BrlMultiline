@@ -73,8 +73,33 @@ def report(control: FlowController) -> list[str]:
 	percent = (100 * used / total) if total else 0
 	lines.append(f"Band fill: {used} of {total} cells ({percent:.0f}%) on the last window shown.")
 	lines.append(f"Blocks held: {len(control.window.blocks)}")
+	lines.append(f"Indent: {describeIndent(control)}")
 	lines.extend(f"Cost, {line}" for line in describeCost(control))
 	return lines
+
+
+def describeIndent(control: FlowController) -> str:
+	"""How the band is drawing the depth of what it holds, in words.
+
+	Worth a line of every report because indent is the first thing that is wrong when a tree
+	reads oddly, and the two ways it goes wrong look the same on the display: the content has
+	no depth to draw, and the band decided not to draw the depth it has. Naming both keeps a
+	report from having to be re-run to tell them apart.
+
+	:param control: the flow to ask.
+	:return: one line describing the plan in force.
+	"""
+	plan = getattr(control.renderer, "indentPlan", None)
+	if plan is None or plan.isFlat:
+		depths = [block.depth for block in control.window.blocks if block.depth is not None]
+		if not depths:
+			return "none drawn; nothing on the band reports a depth."
+		return f"none drawn, though depths {min(depths)} to {max(depths)} are on the band."
+	note = f", margin stands for level {plan.noteLevel}" if plan.noteLevel else ""
+	return (
+		f"{plan.style}, level {plan.baseline} at the margin, "
+		f"up to {plan.maxLevels} levels drawn{note}."
+	)
 
 
 def describeCost(control: FlowController) -> list[str]:

@@ -32,6 +32,7 @@ from braille.constants import CONTINUATION_SHAPE
 from logHandler import log
 
 from .flow import NO_POSITION, RenderedBlock, RenderKey, SourceBlock
+from .flowIndent import FLAT, IndentPlan
 from .layout import SegmentRect
 from .panels import SegmentSpec
 from .segments import BrailleBufferSegment
@@ -71,6 +72,7 @@ class FlowRenderer:
 		markCuts: bool = False,
 		layoutRows: int = LAYOUT_ROWS,
 		maxRows: int = CHUNK_ROWS,
+		indentPlan: IndentPlan = FLAT,
 	) -> None:
 		"""
 		:param handler: the real braille handler, which the layout buffer reads its
@@ -82,6 +84,8 @@ class FlowRenderer:
 		:param markCuts: spend a cell on a continuation mark where a row was cut mid word.
 		:param layoutRows: how many rows to lay out per pass.
 		:param maxRows: how many rows of one block to hold at a time.
+		:param indentPlan: how a block's depth is drawn. The default draws nothing, which is
+			what prose wants and what everything wanted before depth existed.
 		:raises ValueError: if the width is not positive.
 		"""
 		if numCols < 1:
@@ -92,6 +96,13 @@ class FlowRenderer:
 		self.markCuts = markCuts
 		self.layoutRows = layoutRows
 		self.maxRows = maxRows
+		self.indentPlan = indentPlan
+		"""How deep a block sits, turned into cells. See `flowIndent`.
+
+		Held rather than passed, so that none of the controller's six render calls has to
+		know about depth. Replaced wholesale when the band rebases, which is also what
+		invalidates the renderings drawn under the old one — see `flow.RenderKey.indent`.
+		"""
 
 	@property
 	def renderKey(self) -> RenderKey:
@@ -101,12 +112,17 @@ class FlowRenderer:
 		invalidates the cells while leaving block identity alone, and the reader keeps
 		their place across the change.
 		"""
+		return self._keyWith(0)
+
+	def _keyWith(self, indent: int) -> RenderKey:
+		""":return: the render key for a block drawn with a given indent."""
 		return RenderKey(
 			numCols=self.numCols,
 			table=self._setting("translationTable"),
 			fillRows=self.fillRows,
 			markCuts=self.markCuts,
 			settings=(self._setting("textWrap"), self._setting("expandAtCursor")),
+			indent=indent,
 		)
 
 	def _setting(self, name: str):
@@ -126,12 +142,9 @@ class FlowRenderer:
 			blank line in a document occupies the row it deserves.
 		"""
 		fromRow = max(0, fromRow)
-		rows: list[tuple[int, ...]] = []
-		positions: list[tuple[int, ...]] = []
-		more = False
-		buffer = self._layoutBuffer(block)
-		if buffer is not None:
-			rows, positions, more = self._layout(buffer, fromRow)
+		first = self.indentPlan.prefixFor(block.depth)
+		rest = self.indentPlan.continuationPrefixFor(block.depth)
+		rows, positions, more = self._indented(block, fromRow, first, rest)
 		if not rows:
 			rows = [()]
 			positions = [()]
@@ -140,7 +153,8 @@ class FlowRenderer:
 			blockId=block.blockId,
 			rows=tuple(rows),
 			positions=tuple(positions),
-			renderKey=self.renderKey,
+			renderKey=self._keyWith(len(first)),
+			depth=block.depth,
 			rowOffset=fromRow,
 			moreRows=more,
 			rawText=getattr(block.region, "rawText", ""),
@@ -169,8 +183,14 @@ class FlowRenderer:
 		return self.render(block, fromRow=max(0, row - max(0, contextRows)))
 
 	def _rowContaining(self, block: SourceBlock, position: int) -> Optional[int]:
-		""":return: the whole-block row containing a braille position, or None."""
-		buffer = self._layoutBuffer(block)
+		""":return: the whole-block row containing a braille position, or None.
+
+		Measured at the width a wrapped block is laid out in, since a position past the
+		first row belongs to a block that wraps by definition. Measuring at the wider width
+		would name a row the rendering does not have.
+		"""
+		rest = self.indentPlan.continuationPrefixFor(block.depth)
+		buffer = self._layoutBuffer(block, width=self.numCols - len(rest) if rest else None)
 		if buffer is None:
 			return None
 		seen = 0
@@ -194,14 +214,94 @@ class FlowRenderer:
 			if buffer.windowEndPos >= len(cells) or not buffer._nextWindow():
 				return None
 
-	def _layoutBuffer(self, block: SourceBlock) -> Optional[BrailleBufferSegment]:
+	def _indented(
+		self,
+		block: SourceBlock,
+		fromRow: int,
+		first: tuple[int, ...],
+		rest: tuple[int, ...],
+	) -> tuple[list, list, bool]:
+		"""Lay a block out in the cells its indent leaves, and put the indent in front.
+
+		Two widths, because a wrapped row is indented further than the first one is — see
+		`flowIndent.CONTINUATION_EXTRA` — and a buffer cuts every row of a block at one
+		width. An item that fits on a row is laid out in the wider of the two and never
+		pays for a continuation it does not have; only an item that actually wraps is laid
+		out again in the narrower one. The second pass costs a second translation of one
+		block, and it is spent only where the reader can see what it bought.
+
+		The indent cells map back to `NO_POSITION`, which is how the continuation mark and
+		the padding after a short row are already handled, and is what stops a routing key
+		in the margin aiming at the first character of the item.
+
+		:param block: the block to lay out.
+		:param fromRow: the first row of the block to keep.
+		:param first: the indent cells for the block's own first row.
+		:param rest: the indent cells for its wrapped rows.
+		:return: the rows, their position maps, and whether the block continues past them.
+		"""
+		if not first and not rest:
+			# No depth, or a band with no cells to spend on it. The path everything took
+			# before indent existed, and it must stay free.
+			buffer = self._layoutBuffer(block)
+			if buffer is None:
+				return [], [], False
+			return self._layout(buffer, fromRow)
+		if fromRow == 0:
+			buffer = self._layoutBuffer(block, width=self.numCols - len(first))
+			if buffer is None:
+				return [], [], False
+			rows, positions, more = self._layout(buffer, 0)
+			if len(rows) <= 1 and not more:
+				return self._withIndent(rows, positions, 0, first, rest) + (more,)
+		buffer = self._layoutBuffer(block, width=self.numCols - len(rest))
+		if buffer is None:
+			return [], [], False
+		rows, positions, more = self._layout(buffer, fromRow)
+		return self._withIndent(rows, positions, fromRow, first, rest) + (more,)
+
+	def _withIndent(
+		self,
+		rows: list,
+		positions: list,
+		fromRow: int,
+		first: tuple[int, ...],
+		rest: tuple[int, ...],
+	) -> tuple[list, list]:
+		"""Put the indent cells in front of each row.
+
+		The block's own first row gets `first` and every other row gets `rest`, counted by
+		the row's place in the whole block rather than in this chunk — a chunk starting part
+		way through a long block holds no first row at all.
+		"""
+		out: list[tuple[int, ...]] = []
+		where: list[tuple[int, ...]] = []
+		for index, (row, place) in enumerate(zip(rows, positions)):
+			prefix = first if fromRow + index == 0 else rest
+			out.append(prefix + tuple(row))
+			where.append((NO_POSITION,) * len(prefix) + tuple(place))
+		return out, where
+
+	def _layoutBuffer(
+		self,
+		block: SourceBlock,
+		width: Optional[int] = None,
+	) -> Optional[BrailleBufferSegment]:
 		"""Build the buffer one block is laid out in.
 
+		:param block: the block to lay out.
+		:param width: how many cells wide to cut its rows, defaulting to the whole band. An
+			indented block is laid out in what its indent leaves.
 		:return: the buffer, its window at the start of the block, or None if the block
 			could not be laid out at all.
 		"""
 		spec = SegmentSpec(
-			rect=SegmentRect(row=0, col=0, numRows=self.layoutRows, numCols=self.numCols),
+			rect=SegmentRect(
+				row=0,
+				col=0,
+				numRows=self.layoutRows,
+				numCols=max(1, self.numCols if width is None else width),
+			),
 			key="flowRender",
 			fillRows=self.fillRows,
 			markCuts=self.markCuts,

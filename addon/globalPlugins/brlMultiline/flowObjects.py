@@ -145,6 +145,39 @@ def _siblingPrevious(obj):
 	return getattr(obj, "previous", None)
 
 
+def _depthFromPositionInfo(obj) -> Optional[int]:
+	"""How deep an object sits, on NVDA's own account.
+
+	`positionInfo["level"]` is the answer wherever an object has one, and a surprising number
+	of them do: `sysTreeView32` computes it by walking to the root, UIA reads it from the
+	tree item pattern or the ARIA level, IA2 takes it from the object's attributes, and
+	Outlook's own app module sets it by hand for the folder list. Deriving it here by counting
+	parents would be a second, worse implementation of all of that, and would cost a call into
+	the application per ancestor per block.
+
+	An object with no level has no depth, and a flat run of list items is exactly that: the
+	items of an ordinary list box report `indexInGroup` and no level at all, so they draw flat
+	and today's reading is unchanged. That is the point — depth is drawn where a control says
+	it has some, and nowhere else.
+
+	:param obj: the object a block is being built for.
+	:return: its one-based level, or None where it has none.
+	"""
+	try:
+		info = getattr(obj, "positionInfo", None) or {}
+		level = info.get("level")
+	except Exception:
+		log.debugWarning("Could not read an object's level", exc_info=True)
+		return None
+	try:
+		level = int(level)
+	except (TypeError, ValueError):
+		return None
+	# Zero and below are not levels. Some providers use 0 for "no level" rather than omitting
+	# the key, and drawing that as a depth would put a whole run one level in for nothing.
+	return level if level > 0 else None
+
+
 def _startAtCurrent(root, current):
 	""":return: where the reader is in a run whose members they are on directly."""
 	return current if current is not None else root
@@ -281,6 +314,15 @@ class ObjectAdapter:
 	previousOf: Callable[[Any], Any] = _siblingPrevious
 	"""How to step through the run. Siblings, unless a control is stitched together some
 	other way."""
+
+	depthOf: Callable[[Any], Optional[int]] = _depthFromPositionInfo
+	"""How deep in its structure one of these sits, or None where the run is flat.
+
+	Here rather than in the layout for the reason the rest of this record is here: a control
+	that knows better than NVDA about its own shape is exactly the case an add-on registers an
+	adapter for, and depth is part of shape. What is drawn from the number is `flowIndent`'s
+	decision and no adapter's business.
+	"""
 
 
 def _isRunMember(obj) -> bool:
@@ -686,7 +728,21 @@ class ObjectFlowSource:
 			region=region,
 			isBlank=not (getattr(region, "rawText", "") or "").strip(),
 			isDecoration=decoration,
+			depth=self._depthOf(obj),
 		)
+
+	def _depthOf(self, obj) -> Optional[int]:
+		""":return: how deep an object sits, or None if the adapter will not say.
+
+		Asked once per block and never speculatively, like everything else in this source: it
+		can be a call into the application, and a run is walked one object at a time precisely
+		so that nothing is read that the reader will not see.
+		"""
+		try:
+			return self.adapter.depthOf(obj)
+		except Exception:
+			log.debugWarning(f"The {self.adapter.name} adapter could not say how deep an object sits", exc_info=True)
+			return None
 
 	def holds(self, obj) -> bool:
 		""":return: whether an object is part of the run this source is reading."""
