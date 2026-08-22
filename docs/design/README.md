@@ -24,7 +24,13 @@ Read the files in this order:
    repeating them here.
 6. [spatial-reading-plan.md](spatial-reading-plan.md) — the design for presenting a document
    across the rows as one flow rather than a line per segment, and the open questions it
-   still has. Nothing in it is built yet; read it before extending `documentLines.py`.
+   still has. Every milestone in it is built and unit tested, and milestones 0 to 3 and 5
+   to 7 have been confirmed on hardware; read it before touching the flow subsystem.
+7. [structured-presentation-plan.md](structured-presentation-plan.md) — the design for
+   showing content that has a shape: trees with depth, tables with columns, and the
+   recognition step that decides how a particular thing is presented rather than merely
+   whether it flows. Nothing in it is built yet; read it before extending `flowObjects.py`
+   or `flowRender.py`.
 
 ## Project background
 

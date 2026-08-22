@@ -6,9 +6,9 @@ display as one continuous piece, rather than showing the focused line and readin
 offset into every other segment.
 
 This is the design, the decisions taken so far, the order of work, and the questions
-still open. Every milestone is now built and unit tested. Milestones 0 to 3, 5 and 6 have
-been run on hardware and corrected by what it found; 7 is an instrument waiting for numbers
-only hardware can produce. The milestone list says precisely what each of those means,
+still open. Every milestone is now built and unit tested. Milestones 0 to 3 and 5 to 7 have
+been run on hardware and corrected by what it found, and milestone 7's numbers are in: the
+budget is settled and is no longer a factor. The milestone list says precisely what each of those means,
 including what each hardware run got wrong — which has twice been a constant somebody
 guessed, and twice been two different things sharing one flag.
 
@@ -478,6 +478,9 @@ controller now keeps the last top block that was *not* the caret's own, and rest
 that whenever the top row is suspect; the claim survives a failed restore, because a
 restore refused this moment may succeed on the next keystroke.
 
+Confirmed on hardware: the reader's first lines now stay put while further lines are
+typed under them.
+
 **A keystroke into an edit earns a second look.** Every transient state the probe caught
 heals on the next re-read — which used to arrive only with the next keystroke. A reader who
 pauses right after pressing return is reading the display, and that was exactly the moment
@@ -486,6 +489,9 @@ pass 150 ms after each writing re-read, restarted per keystroke so a steady typi
 one pass per pause; it redraws only when the second reading differs from what is shown, so
 a settle that changes nothing ends the exchange rather than perpetuating it.
 
+Confirmed on hardware, together with the stable-top rule above: a glitch after a return
+corrects itself within a beat rather than waiting for the next keystroke.
+
 **An editor is what NVDA says it is, not what its roles say.** Windows 11 Notepad's editor
 answers UIA with role DOCUMENT and neither an EDITABLE nor a MULTILINE state, so every
 role-and-state test refused it and the flow read classic. NVDA itself types into it,
@@ -493,6 +499,9 @@ because NVDA recorded its judgement in the class it built — the `editableText.
 behaviour. `flowForms.isEditableObject` now accepts that authority, and an editable
 DOCUMENT is taken as multi line without the state: a document is lines by nature, and a
 single line field never calls itself one.
+
+Confirmed on hardware: Notepad and the Outlook classic message pane are both recognised
+and both read as their own lines.
 
 It is a setting rather than a rule, `flowWriteByParagraph`, on by default. The evidence
 above comes from one rich editor, and the whole point of having it is to find out whether
@@ -1219,7 +1228,7 @@ and it needs three things before milestone 3:
    is the one case where a larger allowance would only buy a longer wait. A stop is now
    recorded where a fetch is actually refused, with the reason kept separately.
 
-   What the numbers should decide: whether `budgetForBand`'s twice-the-band is right, whether
+   What the numbers should decide: whether `budgetForBand`'s allowance is right, whether
    the time limit is doing anything at all beyond the block count, and whether an object run
    — where every step is a call into the application — wants a budget of its own rather than
    the document's.
