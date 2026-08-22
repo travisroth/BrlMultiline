@@ -188,6 +188,75 @@ class TestDepthOnTheBand(unittest.TestCase):
 		self.assertLessEqual(control.renderer.indentPlan.baseline or 0, 4)
 
 
+class TestMovingBackToSomethingOffTheBand(unittest.TestCase):
+	"""Moving the focus one item must not move the display a whole band.
+
+	From hardware, in Outlook's folder pane: moving from a folder up to the account above it
+	put the account on the *bottom* row and filled the rows above it with the folders that
+	came before — a whole display of movement for a reader who had asked for one item.
+
+	The cause is worth stating, because it is general and not about trees. `_arrive` asked
+	which way the cursor had gone before fetching the block it had gone to, so the block was
+	not in the window, there was nothing to compare it with, and the answer was the fallback:
+	forward. Forward is the right guess for deciding which end to fetch from, and the wrong
+	one for deciding where to put the window, because it places the block at the edge the
+	reader is travelling toward. Placing by a guessed direction is placing by a coin toss
+	whenever the cursor leaves the window.
+	"""
+
+	def _run(self, count=12, at=0, numRows=4):
+		items = fakeRun([f"item {n}" for n in range(count)])
+		return items, controllerOver(items, at=at, numRows=numRows)
+
+	def _topBlockText(self, control):
+		return control.window.blocks[control.window.blockIndex(control.window.anchor.blockId)].rawText
+
+	def _visibleTexts(self, control):
+		texts = []
+		for row in control.window.visibleRows():
+			if row.blockId is None:
+				continue
+			rendered = control.window.blocks[control.window.blockIndex(row.blockId)]
+			if rendered.rawText not in texts:
+				texts.append(rendered.rawText)
+		return texts
+
+	def test_movingBackPutsTheItemOnTheTopRow(self):
+		"""Two blocks above the top row: a step off the edge, not a jump. A cursor that has
+		gone further than a band is answered by placing the window afresh, which is a
+		different rule and hides this one."""
+		items, control = self._run(at=8)
+		control.source.setCurrent(items[6])
+		control.followCursor()
+		self.assertIn("item 6", self._visibleTexts(control)[0])
+
+	def test_movingBackDoesNotFillTheBandWithWhatCameBefore(self):
+		"""The symptom as the reader met it: the whole display had scrolled past them."""
+		items, control = self._run(at=8)
+		control.source.setCurrent(items[6])
+		control.followCursor()
+		shown = " ".join(self._visibleTexts(control))
+		self.assertNotIn("item 3", shown)
+		self.assertNotIn("item 4", shown)
+
+	def test_movingOnStillPutsTheItemOnTheBottomRow(self):
+		"""The other half of the rule, which must not be broken to fix the first: reading on
+		shows what was come from, so the new block arrives at the bottom."""
+		items, control = self._run(at=0)
+		control.source.setCurrent(items[5])
+		control.followCursor()
+		shown = self._visibleTexts(control)
+		self.assertIn("item 5", shown[-1])
+
+	def test_anItemAlreadyOnTheBandMovesNothing(self):
+		"""Landing on something already under the reader's fingers must not jerk the band."""
+		items, control = self._run(at=0)
+		before = list(control.cells())
+		control.source.setCurrent(items[1])
+		control.followCursor()
+		self.assertEqual(control.cells(), before)
+
+
 class TestWhichObjectsAreRead(unittest.TestCase):
 	"""A registry, because which controls read well this way is a judgement about controls."""
 

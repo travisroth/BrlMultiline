@@ -732,6 +732,17 @@ class FlowController(PanelOwner):
 		forward = self._isForward(blockId)
 		if not self.window.hasBlock(blockId) and not self._reach(blockId, forward):
 			return True if self._enterAtCursor(atObject=atObject) else None
+		# Asked again, now that it can be answered. The first call was a guess: the block was
+		# not in the window, so there was nothing to compare it with and `_isForward` says
+		# "forward" when it cannot tell — which is the right guess for `_reach`, since reading
+		# on is the commoner move, and the wrong one to place the window by. Fetching has
+		# since put the block in the window, so the comparison is now a real one.
+		#
+		# On hardware this was moving from a folder up to the account above it: the account
+		# was placed at the *bottom* of the band with its previous siblings filled in above,
+		# a whole display of movement for a reader who had asked to move one item. Placing by
+		# a guessed direction is placing by a coin toss whenever the cursor leaves the window.
+		forward = self._isForward(blockId)
 		self._keep(result.block)
 		self._setActive(blockId)
 		# The active region may have followed a caret within an edit, or replaced the
