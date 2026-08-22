@@ -369,17 +369,13 @@ def _isSameTree(root, candidate) -> bool:
 		return False
 
 
-def _treeDepth(obj) -> Optional[int]:
-	""":return: how deep a tree item sits, by its own account or by counting.
+def _countedTreeDepth(obj) -> Optional[int]:
+	""":return: how deep a tree item sits, by counting the tree items above it.
 
-	`positionInfo["level"]` first, as everywhere else. The count is the fallback, and it is
-	worth having only here: a tree is the one place where the walk already holds the
-	ancestors in its hand, and a tree that reports no level is precisely the one whose depth
-	the reader cannot otherwise learn. Bounded, like every other walk in this module.
+	One for an item whose parent is the tree control itself. Bounded like every other walk
+	here, and it stops at the first ancestor that is not a tree item, which is the same
+	boundary `_treeOf` and the walk use.
 	"""
-	told = _depthFromPositionInfo(obj)
-	if told is not None:
-		return told
 	if not _isTreeItem(obj):
 		return None
 	depth = 1
@@ -389,12 +385,48 @@ def _treeDepth(obj) -> Optional[int]:
 			parent = getattr(node, "parent", None)
 		except Exception:
 			log.debugWarning("Could not count how deep a tree item sits", exc_info=True)
-			return None
+			return depth
 		if not _isTreeItem(parent):
 			return depth
 		depth += 1
 		node = parent
 	return depth
+
+
+def _treeDepth(obj) -> Optional[int]:
+	""":return: how deep a tree item sits, from the structure the walk went through.
+
+	The counted depth wins wherever there is one to count, and that is the opposite of the
+	priority everywhere else in this module. The reason is a hardware report, and it is the
+	rule worth keeping rather than the case that produced it: **the depth drawn has to come
+	from the same structure the walk stepped through.** A walk that descends into a node's
+	child and then draws that child at its parent's indent is telling the reader two
+	different things about one tree.
+
+	Outlook's folder pane is where they part. Its account row and the Inbox beneath it both
+	report `positionInfo["level"]` of 1, while a folder inside a folder reports 2 — the
+	folders are numbered from one and the account row is not counted. The walk had already
+	descended into the account's `firstChild` to reach the Inbox, so the structure said one
+	deeper and the label said the same, and the whole account's contents drew flush with the
+	account. Counting says 2 and is right.
+
+	`positionInfo` is still the answer where there is no structure to count, and that is not
+	a rare case: an outline whose items are all direct children of the control, with the
+	level carried as an attribute, is a real shape and the only thing that knows its depth is
+	the attribute. So the count is consulted first and believed only when it found genuine
+	nesting; a count of one means "nothing above me", which is exactly when the label is
+	worth more than the structure.
+
+	It costs a `parent` read per level rather than one `positionInfo` read. That is the price
+	of agreeing with the walk, and the walk is doing the same reads a step later anyway.
+	"""
+	counted = _countedTreeDepth(obj)
+	if counted is not None and counted > 1:
+		return counted
+	told = _depthFromPositionInfo(obj)
+	if told is not None:
+		return told
+	return counted
 
 
 def _startAtCurrent(root, current):

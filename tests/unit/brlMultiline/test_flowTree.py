@@ -183,6 +183,46 @@ class TestHowDeepATreeItemSits(unittest.TestCase):
 		self.assertEqual(flowObjects.VISIBLE_TREE.depthOf(index["Urgent"]), 3)
 		self.assertEqual(flowObjects.VISIBLE_TREE.depthOf(index["Inbox"]), 1)
 
+	def test_theStructureBeatsALevelThatContradictsIt(self):
+		"""Outlook's folder pane, from a hardware report. Its account row and the Inbox
+		beneath it both report level 1, so the account's whole contents drew flush with the
+		account — while the walk had descended into the account's own first child to reach
+		them. A walk that steps into a child and draws it at its parent's indent is telling
+		the reader two different things about one tree."""
+		_control, index = tree()
+		for name in ("Inbox", "Work", "Personal"):
+			index[name].positionInfo = {"level": 1}
+		self.assertEqual(flowObjects.VISIBLE_TREE.depthOf(index["Inbox"]), 1)
+		self.assertEqual(flowObjects.VISIBLE_TREE.depthOf(index["Work"]), 2)
+		self.assertEqual(flowObjects.VISIBLE_TREE.depthOf(index["Personal"]), 2)
+
+	def test_aLevelIsBelievedWhereThereIsNoStructureToCount(self):
+		"""An outline whose items all hang directly off the control is a real shape, and the
+		attribute is the only thing that knows its depth."""
+		flat = FakeNavigatorObject("an outline", role="TREEVIEW")
+		item = FakeNavigatorObject("deep thing", role="TREEVIEWITEM")
+		item.parent = flat
+		item.positionInfo = {"level": 5}
+		self.assertEqual(flowObjects.VISIBLE_TREE.depthOf(item), 5)
+
+	def test_anItemWithNeitherReadsAsTheTop(self):
+		flat = FakeNavigatorObject("an outline", role="TREEVIEW")
+		item = FakeNavigatorObject("a thing", role="TREEVIEWITEM")
+		item.parent = flat
+		self.assertEqual(flowObjects.VISIBLE_TREE.depthOf(item), 1)
+
+	def test_theBandDrawsTheStructureRatherThanTheLabel(self):
+		"""The reported failure at the level the reader met it: an account row and its
+		folders all flush against the left margin."""
+		_control, index = tree()
+		for name in ("Inbox", "Work", "Personal"):
+			index[name].positionInfo = {"level": 1}
+		depths = [
+			flowObjects.VISIBLE_TREE.depthOf(index[name])
+			for name in ("Inbox", "Work", "Urgent", "Personal")
+		]
+		self.assertEqual(depths, [1, 2, 3, 2])
+
 
 class TestATreeOnTheBand(unittest.TestCase):
 	"""What the reader actually feels, which is the point of all of the above."""
