@@ -257,6 +257,87 @@ class TestMovingBackToSomethingOffTheBand(unittest.TestCase):
 		self.assertEqual(control.cells(), before)
 
 
+class TestWhenTheBlockLeftBehindIsGone(unittest.TestCase):
+	"""The cursor's last block is not guaranteed to still be in the window.
+
+	`_trim` keeps the window's list to the band and a margin either side. The block the
+	reader has just left can be outside that: it stays in the controller's own cache, which
+	is what the commands act through, but it leaves the window's list, which is what the
+	direction test reads. The test then had nothing to compare with and answered "forward",
+	and a cursor that had gone back was placed at the *bottom* of the band with everything
+	before it filled in above.
+
+	On hardware that was moving up to the account row in a folder tree and being given a
+	whole display of other accounts. A display's worth of movement for one keypress.
+	"""
+
+	def _run(self, count=40, at=0, numRows=4):
+		items = fakeRun([f"item {n}" for n in range(count)])
+		return items, controllerOver(items, at=at, numRows=numRows)
+
+	def _visibleTexts(self, control):
+		texts = []
+		for row in control.window.visibleRows():
+			if row.blockId is None:
+				continue
+			rendered = control.window.blocks[control.window.blockIndex(row.blockId)]
+			if rendered.rawText not in texts:
+				texts.append(rendered.rawText)
+		return texts
+
+	def _walkAwayFrom(self, control, items, start, stop):
+		"""Move the cursor block by block, so the window trims what is left far behind."""
+		for index in range(start, stop):
+			control.source.setCurrent(items[index])
+			control.followCursor()
+
+	def test_theDirectionIsStillKnownAfterTheOldBlockIsTrimmed(self):
+		items, control = self._run(at=0)
+		stale = control.activeBlockId
+		self._walkAwayFrom(control, items, 1, 20)
+		# What the reader started on is long out of the window's list by now, which is the
+		# state the direction test used to have no answer for.
+		self.assertIsNone(control._windowIndex(stale))
+		control.activeBlockId = stale
+		control.source.setCurrent(items[14])
+		control.followCursor()
+		self.assertIn("back", control.lastDirection)
+		self.assertIn("anchor", control.lastDirection)
+
+	def test_aTrimmedOldBlockNoLongerScrollsTheBandTheWrongWay(self):
+		"""The symptom, rather than the reasoning: the band must not fill with what came
+		before the block the reader asked for."""
+		items, control = self._run(at=0)
+		stale = control.activeBlockId
+		self._walkAwayFrom(control, items, 1, 20)
+		control.activeBlockId = stale
+		control.source.setCurrent(items[14])
+		control.followCursor()
+		self.assertIn("item 14", self._visibleTexts(control)[0])
+
+	def test_placementIsSaidOutLoudForTheDiagnostics(self):
+		"""Which end a block arrives at is invisible to the reader and has now turned two
+		hardware reports. It has to be something a report can say."""
+		items, control = self._run(at=8)
+		control.source.setCurrent(items[6])
+		control.followCursor()
+		self.assertIn("back", control.lastDirection)
+
+	def test_movingOnStillSaysForward(self):
+		items, control = self._run(at=0)
+		control.source.setCurrent(items[5])
+		control.followCursor()
+		self.assertIn("forward", control.lastDirection)
+
+	def test_theAnchorIsUsedWhenTheOldBlockHasGone(self):
+		"""The anchor cannot be trimmed away: it is where the window is."""
+		items, control = self._run(at=8)
+		control.activeBlockId = None
+		control.source.setCurrent(items[6])
+		control.followCursor()
+		self.assertIn("item 6", self._visibleTexts(control)[0])
+
+
 class TestWhichObjectsAreRead(unittest.TestCase):
 	"""A registry, because which controls read well this way is a judgement about controls."""
 

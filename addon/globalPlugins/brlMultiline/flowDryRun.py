@@ -76,6 +76,7 @@ def liveReport(band) -> list[str]:
 		entry = getattr(anchor.entry, "value", anchor.entry)
 		lines.append(f"Band anchor: entered from the {entry}, at row {anchor.rowIndex} of its block")
 	lines.append(f"Band indent: {describeIndent(control)}")
+	lines.append(f"Band placement: {getattr(control, 'lastDirection', 'unknown')}")
 	active = control.activeBlockId
 	lines.append(f"Band active block: {'none' if active is None else active.bookmark!r}")
 	try:

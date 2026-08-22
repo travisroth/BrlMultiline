@@ -138,6 +138,14 @@ class FlowController(PanelOwner):
 		self.lastResult = None
 		"""The source's last answer, so a caller can say why nothing appeared."""
 
+		self._lastDirection = "not yet asked"
+		"""Why the last placement went the way it did, for the diagnostics.
+
+		Which end a block is brought onto the display at is the difference between a one row
+		scroll and a whole display of movement, and it is decided by a comparison the reader
+		cannot see and cannot feel the inputs to. Two hardware reports have now turned on it.
+		"""
+
 		self.onChanged = None
 		"""Called when something moved the flow from underneath, so the band can redraw.
 
@@ -893,17 +901,58 @@ class FlowController(PanelOwner):
 	def _isForward(self, blockId: "BlockId") -> bool:
 		"""Which way the cursor went, so that a scroll shows what it came from.
 
+		Measured against the block the cursor was in, and against the anchor when that block
+		is no longer one the window holds. The fallback is the point.
+
+		The block the cursor was in is not guaranteed to survive: `_trim` keeps the cache to
+		the window and a margin either side, and the block the reader has just left can be
+		outside that — it stays in the controller's own cache, which is what the commands act
+		through, but it goes from the window's list, which is what `blockIndex` reads. The
+		comparison then raised, the answer was the fallback "forward", and a cursor that had
+		gone *back* was placed at the bottom of the band with everything before it filled in
+		above. On hardware that was moving up to the account row in a folder tree and getting
+		a whole display of other accounts, which is a display's worth of movement for one
+		keypress.
+
+		The anchor cannot go the same way: it is where the window is, so the window holds it
+		by definition. Comparing against it answers a slightly different question — is the
+		cursor before or after where the display is sitting — and that is the question
+		placement actually needs. Which is why it is the fallback and not the rule: while the
+		cursor's own last block is still there, where the reader came *from* is the better
+		account of which way they are travelling.
+
 		:param blockId: where the cursor is now.
 		:return: True when it moved on from what is shown, or when it cannot be told.
 		"""
-		if self.activeBlockId is None:
+		now = self._windowIndex(blockId)
+		if now is None:
+			self._lastDirection = "forward: the cursor's block is not in the window"
 			return True
+		was = self._windowIndex(self.activeBlockId)
+		if was is not None:
+			forward = now >= was
+			self._lastDirection = f"{'forward' if forward else 'back'}: measured from the block left behind"
+			return forward
+		anchor = getattr(self.window.anchor, "blockId", None)
+		was = self._windowIndex(anchor)
+		if was is None:
+			self._lastDirection = "forward: nothing in the window to measure against"
+			return True
+		forward = now >= was
+		self._lastDirection = (
+			f"{'forward' if forward else 'back'}: measured from the anchor, "
+			"the block left behind is no longer in the window"
+		)
+		return forward
+
+	def _windowIndex(self, blockId: "Optional[BlockId]") -> Optional[int]:
+		""":return: where a block sits in the window's list, or None if it is not in it."""
+		if blockId is None:
+			return None
 		try:
-			was = self.window.blockIndex(self.activeBlockId)
-			now = self.window.blockIndex(blockId)
+			return self.window.blockIndex(blockId)
 		except LookupError:
-			return True
-		return now >= was
+			return None
 
 	def _reach(self, blockId: "BlockId", forward: bool) -> bool:
 		"""Fetch towards a block the cache does not hold yet.
@@ -1218,6 +1267,11 @@ class FlowController(PanelOwner):
 			if 0 <= localRow < len(rendered.rows):
 				used += min(len(rendered.rows[localRow]), self.renderer.numCols)
 		return used, total
+
+	@property
+	def lastDirection(self) -> str:
+		""":return: why the last placement went the way it did. See `_lastDirection`."""
+		return self._lastDirection
 
 	def describeRows(self) -> list[str]:
 		"""What each row of the band holds, in words rather than cells.
