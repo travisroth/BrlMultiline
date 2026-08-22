@@ -1242,6 +1242,18 @@ class FlowController(PanelOwner):
 			# row at a time, and a form is exactly where knowing which rows are the control
 			# and which are its prompt is the thing being checked.
 			kind = " control" if block is not None and block.isControl else ""
+			# Said per row, because a block's first row and its wrapped rows are deliberately
+			# indented by different amounts, and one number for the whole block could not
+			# show that rule working.
+			depth = ""
+			if rendered.depth is not None:
+				plan = self.renderer.indentPlan
+				drawn = (
+					plan.cellsFor(rendered.depth)
+					if row.rowIndex == 0
+					else plan.continuationCellsFor(rendered.depth)
+				)
+				depth = f" depth {rendered.depth} indent {drawn}"
 			rowExtent = f"block row {row.rowIndex + 1}"
 			if not rendered.moreRows:
 				# The last chunk knows the complete extent. An earlier chunk does not, and
@@ -1249,7 +1261,7 @@ class FlowController(PanelOwner):
 				# "block row 13 of 8".
 				rowExtent += f" of {rendered.endRow}"
 			lines.append(
-				f"{index}:{active}[{len(cells)}/{numCols} cells]{kind} "
+				f"{index}:{active}[{len(cells)}/{numCols} cells]{kind}{depth} "
 				f"{rowExtent}: {rowText(region, rendered, row.rowIndex)!r}",
 			)
 		return lines

@@ -16,7 +16,12 @@ from ._stubs import Region, clipboard, installStubs
 installStubs()
 
 from brlMultiline.flow import BlockId, SourceBlock  # noqa: E402
-from brlMultiline.flowDryRun import CRLF, describeIndent, toClipboard  # noqa: E402
+from brlMultiline.flowDryRun import (  # noqa: E402
+	CRLF,
+	_bandGeometry,
+	describeIndent,
+	toClipboard,
+)
 from brlMultiline.flowIndent import DOTS_78, TWO_SPACES, planFor  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
 
@@ -79,6 +84,84 @@ class TestCopyingAReport(unittest.TestCase):
 			self.assertFalse(toClipboard("A report", ["one"]))
 		finally:
 			api.copyToClip = original
+
+
+class FakeRect:
+	def __init__(self, numRows, numCols):
+		self.numRows = numRows
+		self.numCols = numCols
+
+
+class FakeBand:
+	"""A band reduced to the two questions a diagnostic asks it how big it is."""
+
+	def __init__(self, claimed=None, wouldClaim=None, raises=False):
+		self._claimed = claimed
+		self._wouldClaim = wouldClaim
+		self._raises = raises
+
+	def segment(self):
+		if self._raises:
+			raise RuntimeError("no container")
+		return type("Segment", (), {"rect": self._claimed})() if self._claimed else None
+
+	def bandRect(self):
+		if self._wouldClaim is None:
+			raise RuntimeError("cannot say")
+		return self._wouldClaim
+
+
+class FakeDisplayHandler:
+	"""A handler whose display is a composite: nine rows of eighty."""
+
+	def __init__(self, numRows=9, numCols=80):
+		self.buffer = None
+		self.displayDimensions = FakeRect(numRows, numCols)
+
+
+class TestWhichBandIsMeasured(unittest.TestCase):
+	"""A report laid out at the wrong width answers a different question from the display.
+
+	On a composite — a Monarch with a Focus 80 under it — the whole display is nine rows of
+	eighty and the band is the Monarch's eight rows of thirty two, because a band must lie
+	inside one physical display's live cells. Every width-dependent answer differs between
+	the two, and indent most of all: seven levels of true depth cost twelve cells, which fit
+	within eighty's share and do not within thirty two's. Measured wrongly, the report says
+	the margin was not rebased about a display nobody has.
+	"""
+
+	def test_theClaimedBandWins(self):
+		band = FakeBand(claimed=FakeRect(8, 32))
+		rows, cols, said = _bandGeometry(FakeDisplayHandler(), band)
+		self.assertEqual((rows, cols), (8, 32))
+		self.assertIn("the band on the display", said)
+
+	def test_whatTheBandWouldClaimIsNextBest(self):
+		"""So that diagnosing with the flow turned off still uses the reader's geometry."""
+		band = FakeBand(claimed=None, wouldClaim=FakeRect(8, 32))
+		rows, cols, said = _bandGeometry(FakeDisplayHandler(), band)
+		self.assertEqual((rows, cols), (8, 32))
+		self.assertIn("would claim", said)
+
+	def test_theWholeDisplayIsTheLastResortAndSaysSo(self):
+		rows, cols, said = _bandGeometry(FakeDisplayHandler(), None)
+		self.assertEqual((rows, cols), (9, 80))
+		self.assertIn("no band to ask", said)
+
+	def test_aBandThatCannotAnswerFallsBackRatherThanFailing(self):
+		band = FakeBand(raises=True)
+		rows, cols, said = _bandGeometry(FakeDisplayHandler(), band)
+		self.assertEqual((rows, cols), (9, 80))
+		self.assertIn("no band to ask", said)
+
+	def test_theWidthActuallyChangesTheIndentAnswer(self):
+		"""The reason any of this matters, stated as the arithmetic it turns on."""
+		from brlMultiline.flowIndent import planFor
+
+		wide = planFor([5, 6, 7], 80, style=TWO_SPACES)
+		narrow = planFor([5, 6, 7], 32, style=TWO_SPACES)
+		self.assertIsNone(wide.noteLevel)
+		self.assertEqual(narrow.noteLevel, 5)
 
 
 class TestDescribingTheIndent(unittest.TestCase):

@@ -1324,7 +1324,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		from .flowDryRun import dryRun, toClipboard
 
 		try:
-			lines = dryRun(handler=braille.handler)
+			# The band is passed so the report is laid out at the geometry the reader is
+			# actually feeling. Measured at the whole display, which on a composite is a
+			# rectangle no band ever gets, every width-dependent answer in the report is
+			# about a display nobody has — indent most of all.
+			lines = dryRun(handler=braille.handler, band=self.flowBand)
 		except Exception:
 			log.error("The flow dry run failed", exc_info=True)
 			# Translators: reported when a diagnostic command fails.

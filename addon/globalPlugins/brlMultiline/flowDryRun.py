@@ -47,6 +47,46 @@ def _focusObject():
 		return None
 
 
+def _bandGeometry(handler, band) -> tuple[int, int, str]:
+	"""How big a band to lay out in, and where the answer came from.
+
+	Said out loud in the report because a diagnostic measured at the wrong width answers a
+	different question from the display, and there is nothing in its output to show that it
+	did. Indent is the case that made this worth fixing: the same tree reads as its true
+	depth on eighty cells and as a rebased margin on thirty two.
+
+	The claimed segment first, which is the band the reader is feeling. Then what the band
+	would claim if it were turned on, so that a reader diagnosing with the flow off still
+	gets their own geometry. Then the whole display, which is a guess and is labelled as one.
+
+	:param handler: the braille handler.
+	:param band: the live band, or None.
+	:return: the rows, the columns, and a phrase naming which of the three was used.
+	"""
+	segment = None
+	try:
+		segment = band.segment() if band is not None else None
+	except Exception:
+		log.debugWarning("Could not ask the band for its segment", exc_info=True)
+	rect = getattr(segment, "rect", None)
+	if rect is not None:
+		return rect.numRows, rect.numCols, f"{rect.numRows} rows of {rect.numCols}, the band on the display"
+	if band is not None:
+		try:
+			rect = band.bandRect()
+		except Exception:
+			log.debugWarning("Could not ask the band how big it would be", exc_info=True)
+			rect = None
+		if rect is not None:
+			return (
+				rect.numRows,
+				rect.numCols,
+				f"{rect.numRows} rows of {rect.numCols}, what the band would claim",
+			)
+	numRows, numCols = bandSize(handler)
+	return numRows, numCols, f"{numRows} rows of {numCols}, the whole display — no band to ask"
+
+
 def report(control: FlowController) -> list[str]:
 	"""Walk a flow forward and back, describing each window it rests in.
 
@@ -160,15 +200,17 @@ def describeCost(control: FlowController) -> list[str]:
 	return lines
 
 
-def dryRun(handler=None, obj: Optional["NVDAObject"] = None) -> list[str]:
-	"""Run a flow over what the reader is in and write the result to the log.
+def dryRun(handler=None, obj: Optional["NVDAObject"] = None, band=None) -> list[str]:
+	"""Run a flow over what the reader is in and report the result.
 
-	:param handler: the braille handler, for the band size and the layout settings.
+	:param handler: the braille handler, for the layout settings and the fallback size.
 	:param obj: what to read. Defaults to the navigator object.
+	:param band: the live band, asked how big it is. Without it the whole display is
+		measured, which on a composite is a rectangle no band ever gets.
 	:return: the lines written, so a caller can summarise them.
 	"""
-	numRows, numCols = bandSize(handler)
-	notes: list[str] = []
+	numRows, numCols, measured = _bandGeometry(handler, band)
+	notes: list[str] = [f"band: {measured}"]
 	# The same question the band asks on a focus change, so that running this while standing
 	# on a form field reports what the band would actually show there.
 	focus = _focusObject()

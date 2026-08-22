@@ -91,7 +91,20 @@ def readingUnitFor(target) -> str:
 
 
 def bandSize(handler) -> tuple[int, int]:
-	""":return: the rows and columns to lay a dry run out in, from the display if there is one."""
+	""":return: the rows and columns to lay a flow out in, from the whole display.
+
+	The last resort, and worth knowing as such. On a composite display this is the whole
+	rectangle — nine rows of eighty, for a Monarch with a Focus 80 under it — and a band
+	never gets that: it must lie inside one physical display's live cells, so it is the
+	Monarch's eight rows of thirty two. A diagnostic laid out at the whole rectangle is
+	measuring a display nobody has.
+
+	It matters most for indent, which is a function of the width from end to end: at eighty
+	cells seven levels of true depth cost twelve and are drawn, at thirty two they cost more
+	than the share allows and the band rebases. Reported at the wrong width, the diagnostic
+	answers a question the reader was not asking. So callers that can name the real band pass
+	it — see `flowDryRun.dryRun` — and this stands in only when there is no band to ask.
+	"""
 	dimensions = getattr(handler, "displayDimensions", None)
 	numRows = getattr(dimensions, "numRows", 0) or DEFAULT_ROWS
 	numCols = getattr(dimensions, "numCols", 0) or DEFAULT_COLS
