@@ -1188,5 +1188,102 @@ class TestTheBandSettleTimer(unittest.TestCase):
 		self.assertIsNone(band._settleTimer)
 
 
+class TestATreeOpeningUnderTheReader(unittest.TestCase):
+	"""Expanding a node is a change NVDA reports through no event the band can see.
+
+	The focus does not move, so no fresh focus regions are built, and the object the band is
+	reading is the one it was already reading. Every signal the band usually notices a change
+	by says nothing happened, and the reader is left feeling the folder they just opened
+	still shut.
+	"""
+
+	def setUp(self):
+		import api
+		import braille
+		from brlMultiline.flowBand import FlowBand
+
+		from ._stubs import CONFIG, resetConfig
+
+		resetConfig()
+		self.addCleanup(resetConfig)
+		CONFIG["flowEnabled"] = True
+		# Runs of objects are a setting of their own, and its default is off.
+		CONFIG["flowObjects"] = True
+		self.handler = FakeHandler(ROWS, COLS)
+		self.addCleanup(setattr, braille, "handler", braille.handler)
+		braille.handler = self.handler
+		self.container = containerWithBand(self.handler)
+		self.handler.mainBuffer = self.handler.buffer = self.container
+		self.plugin = FakePlugin(self.container)
+		self.band = FlowBand(self.plugin)
+		self.previousFocus = api.getFocusObject
+		self.addCleanup(setattr, api, "getFocusObject", self.previousFocus)
+		self.api = api
+
+	def _tree(self, at="Personal"):
+		from ._stubs import fakeTree
+
+		_control, index = fakeTree(
+			[
+				(
+					"Inbox",
+					True,
+					[
+						("Work", True, [("Urgent", False, [])]),
+						("Personal", False, [("Hidden", False, [])]),
+					],
+				),
+				("Archive", False, []),
+			],
+		)
+		self.api.getFocusObject = lambda: index[at]
+		self.band._follow()
+		self.band.refresh(force=True)
+		return index
+
+	def _texts(self):
+		return [block.rawText for block in self.band.controller.window.blocks]
+
+	def test_theBandReadsATreeAsATree(self):
+		self._tree()
+		from brlMultiline import flowObjects
+
+		self.assertIs(self.band.controller.source.adapter, flowObjects.VISIBLE_TREE)
+
+	def test_aClosedFoldersContentsAreNotShown(self):
+		self._tree()
+		self.assertNotIn("Hidden", " ".join(self._texts()))
+
+	def test_openingAFolderPutsItsContentsOnTheBand(self):
+		"""The change no event announces."""
+		index = self._tree()
+		index["Personal"].states = {"EXPANDED"}
+		self.band.recheck()
+		self.assertIn("Hidden", " ".join(self._texts()))
+
+	def test_closingAFolderTakesThemOffAgain(self):
+		index = self._tree(at="Work")
+		self.assertIn("Urgent", " ".join(self._texts()))
+		index["Work"].states = {"COLLAPSED"}
+		self.band.recheck()
+		self.assertNotIn("Urgent", " ".join(self._texts()))
+
+	def test_aRedrawWithNothingOpenedKeepsTheReading(self):
+		"""`recheck` runs before every redraw, so rebuilding when nothing changed would
+		throw away the blocks already read on each one."""
+		self._tree()
+		control = self.band.controller
+		self.band.recheck()
+		self.assertIs(self.band.controller, control)
+
+	def test_oneOpeningRebuildsOnceRatherThanForever(self):
+		index = self._tree()
+		index["Personal"].states = {"EXPANDED"}
+		self.band.recheck()
+		control = self.band.controller
+		self.band.recheck()
+		self.assertIs(self.band.controller, control)
+
+
 if __name__ == "__main__":
 	unittest.main()

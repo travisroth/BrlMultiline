@@ -275,6 +275,8 @@ class FlowBand(PanelOwner):
 		"""
 		if self._rechecking or self.controller is None:
 			return
+		if self._runHasChangedShape():
+			return
 		obj = self._target()
 		target = self._resolve(obj)
 		current = self.controller.source.obj
@@ -290,6 +292,49 @@ class FlowBand(PanelOwner):
 			self.showObject(obj, force=True)
 		finally:
 			self._rechecking = False
+
+	def _runHasChangedShape(self) -> bool:
+		"""Read a run of objects again if the reader has opened or closed something in it.
+
+		The second change NVDA reports through no event at all, and the twin of the one
+		`recheck` already exists for. Pressing right arrow on a folder in a tree expands it:
+		the rows below it become different rows, the focus does not move, no fresh focus
+		regions are built, and the object the band is reading is the one it was already
+		reading. Everything the band usually notices a change by says nothing happened.
+
+		Asked of the source rather than worked out here, because only the source knows what
+		kind of run it is holding and only the adapter knows what "open" means for it. A run
+		whose members cannot be opened answers no and costs an attribute.
+
+		:return: whether the band was rebuilt, so the caller stops rather than going on to
+			ask a second question about a controller that has just been replaced.
+		"""
+		source = getattr(self.controller, "source", None)
+		if not isinstance(source, flowObjects.ObjectFlowSource):
+			return False
+		try:
+			if not source.shapeChanged():
+				return False
+		except Exception:
+			log.debugWarning("Could not tell whether a run has changed shape", exc_info=True)
+			return False
+		obj = source.obj
+		self._rechecking = True
+		try:
+			# The controller is dropped rather than asked to rebuild, because `showObject`
+			# recognises this as the same run the band is already showing and takes the fast
+			# path for it: set the current object, follow the cursor, redraw. That path is
+			# right for the ordinary case it was written for — in a list the focus changes on
+			# every arrow key and walking the run again per keypress would be a call into the
+			# application for each item passed — and it is exactly wrong here, where the run
+			# is the thing that has changed. Without this the display kept the closed folder
+			# and merely moved its cursor about inside it.
+			self.controller = None
+			self.obj = None
+			self.showObject(obj, force=True)
+		finally:
+			self._rechecking = False
+		return True
 
 	def _sameFamily(self, first: Any, second: Any) -> bool:
 		""":return: whether two documents are a page and something inside that page.

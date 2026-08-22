@@ -368,11 +368,49 @@ already says when there is something to announce, and the dry run reports it; wh
 is drawing it. It is the least settled part of the design (see open question 2) and it is the
 only part that has to reach into assembled cells rather than a block's own rendering.
 
-**M2 — presentation registry and the visible-tree walk.** Recognition, the `Presentation`
-record, the registry with its four-step lookup, and the application module registration API.
-The indent policy from M1 moves into it, so the registry has two real consumers the day it
-is written rather than one speculative one. The visible-order traversal and the
-descendant-based `admits` land here, and Outlook's Go To Folder is the acceptance test.
+**M2a — the visible-tree walk.** BUILT, AWAITING HARDWARE. Split out of M2 and done first,
+because M1's indent could not be tested without it: a sibling walk only ever has one depth on
+the band, so there was nothing to indent relative to anything.
+
+`flowObjects.VISIBLE_TREE` is an `ObjectAdapter` registered ahead of `SIBLING_RUN` and
+matching tree items only, so a list and a menu read exactly as they did. Forward, a node is
+followed by its first visible child, else its next sibling, else the next sibling of the
+nearest ancestor with one. Backward is deliberately *not* the mirror: a node is preceded by
+the deepest last visible descendant of the sibling above it, because that is the row directly
+above it on the screen. Getting that wrong would show up as panning back landing several rows
+above where panning forward left, which is the reversibility property the anchor design rests
+on, so it has a test of its own over every row of the fixture tree.
+
+`admits` becomes a same-tree test rather than `_sameParent`, which is the change that stops
+an open folder's contents being discarded. The tree is found by climbing until something is
+not a tree item, rather than by looking for a container role: a tree whose container calls
+itself a LIST or nothing at all is common, and a membership test that only worked for well
+behaved controls would fall out of exactly the trees that need it.
+
+Depth gains a fallback here and only here. `positionInfo["level"]` first as everywhere else,
+but a tree that reports no level is the one whose depth the reader cannot otherwise learn,
+and a tree walk already holds the ancestors in its hand.
+
+**Opening a node had to be noticed without an event.** Pressing right arrow on a folder
+changes what the rows below it are, and NVDA reports it through nothing the band sees: the
+focus does not move, no fresh focus regions are built, and the object being read is the one
+already being read. `ObjectFlowSource.shapeChanged` answers it from one object — the one the
+reader is on, since that is the only one they can have opened — and `FlowBand.recheck` asks
+before each redraw, which is the same place and the same reason browse mode giving itself
+back is already noticed.
+
+That rebuild has to drop the controller first. `showObject` recognises the same run and takes
+a fast path for it — set the current object, follow the cursor, redraw — which is right for
+the case it was written for, where the focus changes on every arrow key, and exactly wrong
+when the run itself is what changed. Without dropping it the display kept the closed folder
+and moved its cursor about inside it.
+
+**M2b — presentation registry and recognition.** Not started. The `Presentation` record, the
+registry with its four-step lookup, identity-based recognition, and the application module
+registration API. Deferred behind M2a because the registry's value is in telling two things
+of the same role apart, which is a table problem before it is a tree problem — `ObjectAdapter`
+plus `register` already carries the tree case. Outlook's Go To Folder is M2a's acceptance
+test, not this one's.
 
 **M3 — table layout vocabulary, browse mode.** Column plans, per-column widths, hidden
 columns, wrap versus truncate, row height, reading by column. Reading order remains the

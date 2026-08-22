@@ -1546,6 +1546,50 @@ def fakeRun(names, role="LISTITEM", parent=None, selected=0, levels=None):
 	return items
 
 
+def fakeTree(spec, role="TREEVIEWITEM", containerRole="TREEVIEW"):
+	"""Build a nested tree of objects, wired the way a real tree control exposes one.
+
+	The point of the wiring is that it is honest about the thing the sibling walk got wrong:
+	a node's `next` is its next *sibling*, not the next row on the screen, and its children
+	hang off `firstChild` with a different parent. A walk that reads the screen has to put
+	those together itself, and a stub that flattened them would test nothing.
+
+	Children are hung off every node that has them, expanded or not, because that is what a
+	real tree control does — `sysTreeView32` builds them from the window's item handles,
+	which do not care what is on screen. Whether they are *rows* is the state's business.
+
+	:param spec: nested `(name, expanded, children)` triples.
+	:param role: the role each item has.
+	:param containerRole: what the tree control calls itself.
+	:return: the tree control and a dict of name to object.
+	"""
+	tree = FakeNavigatorObject("a tree", role=containerRole)
+	index = {}
+
+	def build(items, parent, level):
+		built = []
+		for name, expanded, children in items:
+			node = FakeNavigatorObject(name, role=role)
+			node.parent = parent
+			node.positionInfo = {"level": level}
+			if children:
+				node.states = {"EXPANDED"} if expanded else {"COLLAPSED"}
+			index[name] = node
+			built.append(node)
+			kids = build(children, node, level + 1)
+			node.firstChild = kids[0] if kids else None
+			node.children = kids
+		for position, node in enumerate(built):
+			node.next = built[position + 1] if position + 1 < len(built) else None
+			node.previous = built[position - 1] if position else None
+		return built
+
+	roots = build(spec, tree, 1)
+	tree.firstChild = roots[0] if roots else None
+	tree.children = roots
+	return tree, index
+
+
 def fakeSeparator(after, name="-----", role="SEPARATOR"):
 	"""Put a separator into a run, between an item and whatever followed it.
 

@@ -77,6 +77,25 @@ than imported for the reason `flowForms.CONTROL_ROLES` is: a role NVDA has not g
 nothing and matches nothing, and the policy can be read without a running screen reader.
 """
 
+TREE_ITEM_ROLES = frozenset({"TREEVIEWITEM"})
+"""Roles read in visible order rather than as a run of siblings. See `VISIBLE_TREE`."""
+
+TREE_ROLES = frozenset({"TREEVIEW", "TREE", "OUTLINE"})
+"""What a tree item's containing control calls itself, where it says so.
+
+Only used to stop a walk climbing out of the tree it started in. A control that names
+itself none of these still bounds the walk, because the climb stops at the first ancestor
+that is not itself a tree item.
+"""
+
+MAX_TREE_DEPTH = 64
+"""How far a walk may climb or descend before it decides the tree is lying to it.
+
+A folder tree sixty four deep does not exist; a tree whose `parent` eventually points back
+into itself does, because an accessibility bridge under load will answer anything. The walk
+is bounded rather than trusted, for the same reason `MAX_CHILDREN` is.
+"""
+
 MENU_ITEM_ROLES = frozenset({"MENUITEM", "CHECKMENUITEM", "RADIOMENUITEM"})
 """The roles one menu mixes freely.
 
@@ -176,6 +195,206 @@ def _depthFromPositionInfo(obj) -> Optional[int]:
 	# Zero and below are not levels. Some providers use 0 for "no level" rather than omitting
 	# the key, and drawing that as a depth would put a whole run one level in for nothing.
 	return level if level > 0 else None
+
+
+def _isTreeItem(obj) -> bool:
+	""":return: whether an object is an item of a tree rather than something else."""
+	return obj is not None and roleName(getattr(obj, "role", None)) in TREE_ITEM_ROLES
+
+
+def _isExpanded(obj) -> Optional[bool]:
+	""":return: whether a node is showing its children, or None if it has no such state.
+
+	Three answers rather than two, and the third is what stops a leaf being mistaken for a
+	collapsed node. A leaf reports neither state — it has nothing to expand — and a caller
+	that read that as "collapsed" would be right by accident here and wrong wherever the
+	distinction matters, such as deciding whether the run's shape has changed.
+	"""
+	try:
+		names = {roleName(state) for state in (getattr(obj, "states", None) or ())}
+	except Exception:
+		log.debugWarning("Could not read whether a node is expanded", exc_info=True)
+		return None
+	if "EXPANDED" in names:
+		return True
+	if "COLLAPSED" in names:
+		return False
+	return None
+
+
+def _firstVisibleChild(obj):
+	""":return: a node's first child if the reader can see it, else None.
+
+	Gated on the state rather than on there being a child, because a tree control will hand
+	back the children of a collapsed node perfectly happily — `sysTreeView32` builds them
+	from the window's own item handles, which do not care what is on screen. Walking into
+	them would put rows on the display that are not on the reader's screen, which is the one
+	thing reading in visible order is defined not to do.
+	"""
+	if not _isExpanded(obj):
+		return None
+	try:
+		return getattr(obj, "firstChild", None)
+	except Exception:
+		log.debugWarning("Could not read a node's first child", exc_info=True)
+		return None
+
+
+def _lastVisibleDescendant(obj):
+	""":return: the last row of a node's visible subtree, which is the row before its next
+	sibling.
+
+	Reading backward is not the mirror of reading forward. Forward, a node is followed by its
+	own first child; backward, a node is preceded by the *deepest last* thing under the
+	sibling above it, because that is the row directly above it on the screen. Getting this
+	wrong shows up as panning back landing several rows above where panning forward left,
+	which is the reversibility property the whole anchor design rests on.
+	"""
+	node = obj
+	for _ in range(MAX_TREE_DEPTH):
+		child = _firstVisibleChild(node)
+		if child is None:
+			return node
+		last = child
+		for _ in range(MAX_CHILDREN):
+			try:
+				following = getattr(last, "next", None)
+			except Exception:
+				log.debugWarning("Could not walk a node's children", exc_info=True)
+				break
+			if following is None:
+				break
+			last = following
+		node = last
+	return node
+
+
+def _treeNext(obj):
+	""":return: the row below this one on the reader's screen, or None at the end of the tree.
+
+	The child if there is a visible one, else the next sibling, else the next sibling of the
+	nearest ancestor that has one. That last part is what today's sibling walk cannot do and
+	what leaving a subtree requires.
+	"""
+	child = _firstVisibleChild(obj)
+	if child is not None:
+		return child
+	node = obj
+	for _ in range(MAX_TREE_DEPTH):
+		if node is None:
+			return None
+		try:
+			following = getattr(node, "next", None)
+		except Exception:
+			log.debugWarning("Could not walk on through a tree", exc_info=True)
+			return None
+		if following is not None:
+			return following
+		try:
+			node = getattr(node, "parent", None)
+		except Exception:
+			log.debugWarning("Could not climb out of a subtree", exc_info=True)
+			return None
+		if not _isTreeItem(node):
+			# Reached the tree control itself. There is no row after the last one.
+			return None
+	return None
+
+
+def _treePrevious(obj):
+	""":return: the row above this one on the reader's screen, or None at the top of the tree."""
+	try:
+		earlier = getattr(obj, "previous", None)
+	except Exception:
+		log.debugWarning("Could not walk back through a tree", exc_info=True)
+		return None
+	if earlier is not None:
+		return _lastVisibleDescendant(earlier)
+	try:
+		parent = getattr(obj, "parent", None)
+	except Exception:
+		log.debugWarning("Could not climb to a node's parent", exc_info=True)
+		return None
+	return parent if _isTreeItem(parent) else None
+
+
+def _treeOf(obj):
+	""":return: the control a tree item belongs to, or None.
+
+	Found by climbing until something is not a tree item, rather than by looking for a role
+	in `TREE_ROLES`: a tree whose container calls itself a LIST, a GROUPING or nothing at all
+	is common, and a membership test that only worked for well behaved controls would make
+	the walk fall out of exactly the trees that need it most. The role set is only used to
+	stop early where it does apply.
+	"""
+	node = obj
+	for _ in range(MAX_TREE_DEPTH):
+		try:
+			parent = getattr(node, "parent", None)
+		except Exception:
+			log.debugWarning("Could not find which tree an item belongs to", exc_info=True)
+			return None
+		if parent is None:
+			return None
+		if roleName(getattr(parent, "role", None)) in TREE_ROLES or not _isTreeItem(parent):
+			return parent
+		node = parent
+	return None
+
+
+def _isSameTree(root, candidate) -> bool:
+	""":return: whether a candidate is another visible row of the tree `root` is in.
+
+	Not `_sameParent`, which is the whole difference. A child of an expanded node has a
+	different parent from its own parent's siblings and is still the very next row on the
+	screen; the sibling test threw exactly those away, which is how an expanded folder's
+	contents were stepped over.
+	"""
+	if root is None or candidate is None:
+		return False
+	if not _isTreeItem(candidate) or not _isTreeItem(root):
+		return False
+	tree = _treeOf(root)
+	if tree is None:
+		# Nothing to compare against. Falling back to the sibling test keeps a malformed
+		# tree readable as the flat run it was before this adapter existed.
+		return _sameParent(root, candidate)
+	other = _treeOf(candidate)
+	if other is None:
+		return False
+	try:
+		return bool(tree == other)
+	except Exception:
+		log.debugWarning("Could not compare two trees", exc_info=True)
+		return False
+
+
+def _treeDepth(obj) -> Optional[int]:
+	""":return: how deep a tree item sits, by its own account or by counting.
+
+	`positionInfo["level"]` first, as everywhere else. The count is the fallback, and it is
+	worth having only here: a tree is the one place where the walk already holds the
+	ancestors in its hand, and a tree that reports no level is precisely the one whose depth
+	the reader cannot otherwise learn. Bounded, like every other walk in this module.
+	"""
+	told = _depthFromPositionInfo(obj)
+	if told is not None:
+		return told
+	if not _isTreeItem(obj):
+		return None
+	depth = 1
+	node = obj
+	for _ in range(MAX_TREE_DEPTH):
+		try:
+			parent = getattr(node, "parent", None)
+		except Exception:
+			log.debugWarning("Could not count how deep a tree item sits", exc_info=True)
+			return None
+		if not _isTreeItem(parent):
+			return depth
+		depth += 1
+		node = parent
+	return depth
 
 
 def _startAtCurrent(root, current):
@@ -324,6 +543,15 @@ class ObjectAdapter:
 	decision and no adapter's business.
 	"""
 
+	expandedOf: Callable[[Any], Optional[bool]] = lambda obj: None
+	"""Whether one of these is showing its children, or None where the idea does not apply.
+
+	A run whose members cannot be opened answers None to everything and pays nothing. Where
+	it does apply the answer is what tells the band that the run has changed shape under the
+	reader — expanding a node is not a focus change and NVDA reports it through no event the
+	band sees. See `ObjectFlowSource.shapeChanged`.
+	"""
+
 
 def _isRunMember(obj) -> bool:
 	""":return: whether an object is one of a run of siblings."""
@@ -391,13 +619,34 @@ def _isChosen(obj) -> bool:
 	return bool(names & {"SELECTED", "FOCUSED"})
 
 
+VISIBLE_TREE = ObjectAdapter(
+	name="visibleTree",
+	matches=_isTreeItem,
+	admits=_isSameTree,
+	nextOf=_treeNext,
+	previousOf=_treePrevious,
+	depthOf=_treeDepth,
+	expandedOf=_isExpanded,
+)
+"""A tree, read down the screen rather than along one generation of it.
+
+The reading the sibling walk could not give. A tree item's `next` is its next *sibling*, so
+a run built from it steps over everything inside an expanded node — in Outlook's Go To
+Folder dialog, an open folder's contents were simply absent — and `_sameParent` would have
+thrown those rows out even if the walk had reached them.
+
+Visible order, which is decision 1 of the structured presentation plan: what the arrow keys
+do, and what is on the screen. A collapsed node's children are not rows, and its expanding
+is a change the band has to notice without a focus event to tell it.
+"""
+
 SIBLING_RUN = ObjectAdapter(name="siblings", matches=_isRunMember)
 """A list item, a tree item, a menu item: the reader is in a run and the run is its siblings."""
 
 CHOICES = ObjectAdapter(name="choices", matches=_hasChoices, start=_chosenChild, admits=_isChild)
 """A container the reader is choosing from, whose run is its children."""
 
-_adapters: list[ObjectAdapter] = [SIBLING_RUN, CHOICES]
+_adapters: list[ObjectAdapter] = [VISIBLE_TREE, SIBLING_RUN, CHOICES]
 """The adapters, in the order they are asked. First match wins."""
 
 
@@ -633,12 +882,48 @@ class ObjectFlowSource:
 		self.unit = "object"
 		"""What a block is here, for the log and for the dry run's report."""
 
+		self._expanded: Optional[bool] = None
+		"""Whether the object the reader is on was showing its children when last looked at.
+
+		None until something has looked, which is what makes the first `shapeChanged` answer
+		no rather than reporting a change from nothing."""
+
 	def setCurrent(self, obj) -> None:
 		"""Say where in the run the reader has moved to.
 
 		:param obj: the object they are on now, which the run itself is unchanged by.
 		"""
 		self.obj = obj
+		# Forgotten rather than re-read, so that arriving somewhere already open does not
+		# read as something having just been opened. The next `shapeChanged` fills it in and
+		# answers no, which is the honest answer for a reader who has only just got here.
+		self._expanded = None
+
+	def shapeChanged(self) -> bool:
+		"""Whether the run has been opened or closed under the reader since it was last read.
+
+		Expanding a node in a tree changes what the rows below it are, and NVDA reports it
+		through no event the band sees: the focus does not move, so there are no fresh focus
+		regions, and the object is the same one the band was already reading. A band that
+		asked only on a focus change went on showing the closed folder.
+
+		One object is consulted, the one the reader is on, because that is the only one they
+		can have opened. Asking every object on the band would be eight calls into the
+		application on every redraw, to answer a question about one of them.
+
+		:return: whether to read the run again.
+		"""
+		obj = self.obj
+		if obj is None:
+			return False
+		try:
+			now = self.adapter.expandedOf(obj)
+		except Exception:
+			log.debugWarning("Could not tell whether a node has been opened", exc_info=True)
+			return False
+		was = self._expanded
+		self._expanded = now
+		return was is not None and now is not None and was != now
 
 	# Reading.
 
@@ -723,6 +1008,13 @@ class ObjectFlowSource:
 		blockId = BlockId(generation=self.generation, bookmark=obj, unit=self.unit)
 		region = self.regionFactory(obj)
 		region.update()
+		if obj is self.obj:
+			# Noted while it is in hand, so that a redraw can tell an opened node from one
+			# that was open when the reader arrived without a second call for it.
+			try:
+				self._expanded = self.adapter.expandedOf(obj)
+			except Exception:
+				log.debugWarning("Could not note whether a node is open", exc_info=True)
 		return SourceBlock(
 			blockId=blockId,
 			region=region,
