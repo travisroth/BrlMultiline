@@ -1398,6 +1398,26 @@ displayChanged = Action()
 displaySizeChanged = Action()
 post_configProfileSwitch = Action()
 
+clipboard = []
+"""What was copied to the clipboard, most recent last. Tests read and clear it.
+
+A list rather than a single value because a command may copy more than once, and a test
+that only ever sees the last one cannot tell one copy from three.
+"""
+
+
+def _copyToClip(text, notify=False):
+	"""Stand in for `api.copyToClip`, which needs a real window handle.
+
+	Answers the way NVDA's does — False for anything that is not a non-empty string — so
+	that a caller's handling of a refusal is testable without a clipboard to break.
+	"""
+	if not isinstance(text, str) or not text:
+		return False
+	clipboard.append(text)
+	return True
+
+
 spokenMessages: list[str] = []
 """Everything `ui.message` was given, so a test can assert what the user was told."""
 
@@ -1584,6 +1604,7 @@ def _installPluginStubs() -> None:
 		"api",
 		getFocusObject=lambda: FakeNavigatorObject("the focus"),
 		getNavigatorObject=lambda: FakeNavigatorObject("the navigator object"),
+		copyToClip=_copyToClip,
 	)
 	_module("ui", message=spokenMessages.append)
 	_module(

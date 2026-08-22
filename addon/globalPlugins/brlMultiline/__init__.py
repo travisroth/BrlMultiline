@@ -1258,7 +1258,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Reports what the flow on the display has cost so far"),
+		description=_("Reports what the flow on the display has cost, and copies the detail"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_flowCost(self, gesture):
@@ -1286,6 +1286,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return
 		detail = "\n".join(f"  {line}" for line in lines)
 		log.info(f"BrlMultiline flow cost:\n{detail}")
+		# The headline is spoken and the detail is copied, for the reason the dry run copies
+		# its report: the numbers that settle a budget question are the ones nobody wants to
+		# transcribe off a display by hand.
+		from .flowDryRun import toClipboard
+
+		toClipboard("BrlMultiline flow cost", lines)
 		budget = control.source.budget
 		ui.message(
 			# Translators: reported by a diagnostic command. Placeholders are, in order, the
@@ -1300,17 +1306,22 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Writes what a flowed reading of this object would show to the log"),
+		description=_("Copies what a flowed reading of this object would show to the clipboard"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_flowDryRun(self, gesture):
-		"""Read the object under the navigator as a flow, into the log.
+		"""Read the object under the navigator as a flow, onto the clipboard.
 
-		A diagnostic for the spatial reading work, which is not yet on the display. It
-		claims nothing and moves nothing: the flow it builds is a viewer, so the browse
-		mode cursor stays where the reader left it.
+		A diagnostic for the spatial reading work. It claims nothing and moves nothing: the
+		flow it builds is a viewer, so the browse mode cursor stays where the reader left it.
+
+		The clipboard rather than the log, because the log is where a report goes to be
+		fished for. A hardware run means reproducing something on a display and then reading
+		back what happened, and asking the reader to find their report among everything else
+		NVDA said while they were doing it is a tax on the slowest part of this project. The
+		log is still written, since it is what survives a session that crashed.
 		"""
-		from .flowDryRun import dryRun
+		from .flowDryRun import dryRun, toClipboard
 
 		try:
 			lines = dryRun(handler=braille.handler)
@@ -1320,9 +1331,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("Flow dry run failed, see the log"))
 			return
 		verdict = next((line for line in lines if line.startswith("Reversibility")), "")
-		# Translators: reported after a diagnostic has written its result to the log.
-		# The placeholder is the number of lines written.
-		ui.message(_("Flow dry run written to the log, {count} lines").format(count=len(lines)))
+		log.info("BrlMultiline flow dry run:\n" + "\n".join(f"  {line}" for line in lines))
+		if toClipboard("BrlMultiline flow dry run", lines):
+			# Translators: reported after a diagnostic has been copied to the clipboard.
+			# The placeholder is the number of lines copied.
+			ui.message(_("Flow dry run copied, {count} lines").format(count=len(lines)))
+		else:
+			# Translators: reported when a diagnostic could not reach the clipboard and is
+			# in the log instead. The placeholder is the number of lines written.
+			ui.message(_("Clipboard refused it; flow dry run in the log, {count} lines").format(count=len(lines)))
 		log.debug(verdict)
 
 	@script(

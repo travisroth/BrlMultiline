@@ -24,6 +24,7 @@ reported here is the same construction the reader gets, rather than a second one
 could drift from it.
 """
 
+import time
 from typing import TYPE_CHECKING, Optional
 
 import api
@@ -76,6 +77,41 @@ def report(control: FlowController) -> list[str]:
 	lines.append(f"Indent: {describeIndent(control)}")
 	lines.extend(f"Cost, {line}" for line in describeCost(control))
 	return lines
+
+
+CRLF = "\r\n"
+"""How a report's rows are joined for the clipboard.
+
+A carriage return and a line feed rather than a bare line feed, so that what is pasted
+into Notepad is the report rather than one very long line. Named because a bare escape
+in the middle of a join reads as a typo the next time somebody passes it.
+"""
+
+
+def toClipboard(title: str, lines: list[str]) -> bool:
+	"""Put a diagnostic where the reader can actually get at it.
+
+	A report that only reaches the log is a report somebody has to go fishing for, in a file
+	that is also holding everything else NVDA said while they were reproducing the problem.
+	The hardware runs this project depends on are slow enough already.
+
+	Rows are joined with a carriage return and a line feed rather than a bare line feed, so
+	that what is pasted into Notepad is the report rather than one very long line. A heading
+	and the time go on the front because a reader comparing two runs pastes them one after
+	the other, and two reports with nothing between them are one report.
+
+	:param title: what this report is, for its heading.
+	:param lines: the report.
+	:return: whether the clipboard took it. False means the log is all there is, which the
+		caller says out loud rather than leaving the reader to guess.
+	"""
+	stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+	text = CRLF.join([f"{title} — {stamp}", *lines, ""])
+	try:
+		return bool(api.copyToClip(text))
+	except Exception:
+		log.debugWarning("Could not copy a diagnostic to the clipboard", exc_info=True)
+		return False
 
 
 def describeIndent(control: FlowController) -> str:
