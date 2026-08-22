@@ -20,6 +20,7 @@ from brlMultiline.flowDryRun import (  # noqa: E402
 	CRLF,
 	_bandGeometry,
 	describeIndent,
+	liveReport,
 	toClipboard,
 )
 from brlMultiline.flowIndent import DOTS_78, TWO_SPACES, planFor  # noqa: E402
@@ -162,6 +163,79 @@ class TestWhichBandIsMeasured(unittest.TestCase):
 		narrow = planFor([5, 6, 7], 32, style=TWO_SPACES)
 		self.assertIsNone(wide.noteLevel)
 		self.assertEqual(narrow.noteLevel, 5)
+
+
+class FakeWindow:
+	def __init__(self, blocks, anchor=None):
+		self.blocks = blocks
+		self.anchor = anchor
+
+
+class FakeAnchor:
+	def __init__(self, entry="top", rowIndex=0):
+		self.entry = type("Entry", (), {"value": entry})()
+		self.rowIndex = rowIndex
+
+
+class FakeLiveControl(FakeControl):
+	"""A controller that can also say what its rows hold, as the live one can."""
+
+	def __init__(self, depths, rows=None, anchor=None, active=None, numCols=32, plan=None):
+		super().__init__(depths, numCols=numCols, plan=plan)
+		self.source = "a source"
+		self.window = FakeWindow(self.window.blocks, anchor=anchor)
+		self.activeBlockId = active
+		self._rows = rows if rows is not None else ["0: a row"]
+
+	def describeRows(self):
+		return self._rows
+
+
+class TestReportingTheLiveBand(unittest.TestCase):
+	"""A dry run builds its own flow, so it can say nothing about the reader's window.
+
+	That gap was found trying to diagnose a display which had scrolled the wrong way on a
+	focus move: the report described arrival and panning in a flow built fresh for the
+	report, and had no line in it about the window that had actually scrolled.
+	"""
+
+	def test_aBandWithNoFlowSaysSoPlainly(self):
+		self.assertIn("not showing a flow", liveReport(None)[0])
+
+	def test_aBandWhoseControllerIsGoneSaysSoToo(self):
+		band = type("Band", (), {"controller": None})()
+		self.assertIn("not showing a flow", liveReport(band)[0])
+
+	def test_theRowsAreReported(self):
+		control = FakeLiveControl([1, 2], rows=["0: Inbox", "1: Drafts"])
+		band = type("Band", (), {"controller": control})()
+		said = " ".join(liveReport(band))
+		self.assertIn("Inbox", said)
+		self.assertIn("Drafts", said)
+
+	def test_theEntryEdgeIsReported(self):
+		"""The line that settles a scrolling complaint: placed at the top and filled down,
+		or placed at the bottom with the rows above filled in behind."""
+		control = FakeLiveControl([1], anchor=FakeAnchor(entry="bottom"))
+		band = type("Band", (), {"controller": control})()
+		self.assertIn("entered from the bottom", " ".join(liveReport(band)))
+
+	def test_theIndentPlanIsReported(self):
+		control = FakeLiveControl([8, 9], plan=planFor([8, 9], 32, style=TWO_SPACES))
+		band = type("Band", (), {"controller": control})()
+		self.assertIn("margin stands for level 8", " ".join(liveReport(band)))
+
+	def test_aBandThatCannotDescribeItselfStillReports(self):
+		"""A diagnostic that raises tells the reader nothing at all, which is worse than a
+		diagnostic that says one of its questions could not be answered."""
+
+		class Broken(FakeLiveControl):
+			def describeRows(self):
+				raise RuntimeError("no anchor")
+
+		band = type("Band", (), {"controller": Broken([1])})()
+		said = liveReport(band)
+		self.assertTrue(any("could not be described" in line for line in said))
 
 
 class TestDescribingTheIndent(unittest.TestCase):

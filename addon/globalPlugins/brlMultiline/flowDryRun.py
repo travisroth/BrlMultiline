@@ -47,6 +47,45 @@ def _focusObject():
 		return None
 
 
+def liveReport(band) -> list[str]:
+	"""What the band is showing at this moment, as opposed to what a fresh flow would show.
+
+	The gap this fills was found by trying to diagnose a hardware report without it. A dry
+	run builds its own flow, arrives, pans forward and pans back — so it reports arrival and
+	panning, and it can say nothing whatever about what the band did when the reader moved
+	the focus, because the reader's own window is not the one it built. Asked to explain a
+	display that had scrolled the wrong way on a focus move, the report had no line in it
+	that was about the display that scrolled.
+
+	So the report now begins with the live band: its window, where its anchor sits and which
+	edge that anchor was entered from, and what each row is holding. The entry is the line
+	that matters most for a scrolling complaint — `top` means the anchored block was placed
+	at the top of the band and the rest filled downward, `bottom` means it was placed at the
+	bottom and the rows above it filled in behind, and which of those happened is exactly
+	what a reader cannot tell from feeling the result.
+
+	:param band: the live band, or None.
+	:return: the lines of the account.
+	"""
+	control = getattr(band, "controller", None) if band is not None else None
+	if control is None:
+		return ["The band is not showing a flow, so there is nothing it is holding."]
+	lines = [f"Band flow: {control!r}", f"Band source: {control.source!r}"]
+	anchor = getattr(control.window, "anchor", None)
+	if anchor is not None:
+		entry = getattr(anchor.entry, "value", anchor.entry)
+		lines.append(f"Band anchor: entered from the {entry}, at row {anchor.rowIndex} of its block")
+	lines.append(f"Band indent: {describeIndent(control)}")
+	active = control.activeBlockId
+	lines.append(f"Band active block: {'none' if active is None else active.bookmark!r}")
+	try:
+		lines.extend(f"  {line}" for line in control.describeRows())
+	except Exception as error:
+		log.debugWarning("Could not describe what the band is holding", exc_info=True)
+		lines.append(f"  could not be described: {error!r}")
+	return lines
+
+
 def _bandGeometry(handler, band) -> tuple[int, int, str]:
 	"""How big a band to lay out in, and where the answer came from.
 
@@ -210,6 +249,7 @@ def dryRun(handler=None, obj: Optional["NVDAObject"] = None, band=None) -> list[
 	:return: the lines written, so a caller can summarise them.
 	"""
 	numRows, numCols, measured = _bandGeometry(handler, band)
+	live = liveReport(band)
 	notes: list[str] = [f"band: {measured}"]
 	# The same question the band asks on a focus change, so that running this while standing
 	# on a form field reports what the band would actually show there.
@@ -232,5 +272,11 @@ def dryRun(handler=None, obj: Optional["NVDAObject"] = None, band=None) -> list[
 	else:
 		lines = report(control)
 		lines[1:1] = [f"  {note}" for note in notes]
+	# Straight after the title, ahead of every detail of the dry run's own flow. The band is
+	# what the reader is actually feeling and the dry run below it is a second flow built to
+	# compare against; a report that buried the first invited every question to be answered
+	# about the wrong window. The title keeps its place because it is what names the report
+	# and, when nothing could be flowed at all, what says so.
+	lines[1:1] = ["What the band is showing now:", *(f"  {line}" for line in live), ""]
 	log.info("\n".join(lines))
 	return lines
