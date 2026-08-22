@@ -32,11 +32,12 @@ from logHandler import log
 
 from . import bmConfig, flowForms, flowObjects, flowQuickNav
 from .flowControl import FlowController
-from .flowDryRun import (
+from .flowBuild import (
 	bandSize,
 	buildController,
 	describeObject,
 	interactiveRegionFactory,
+	isTreeInterceptor,
 	objectAdapterFor,
 )
 from .devices import DeviceInfo, deviceMap, preferredDevice
@@ -66,18 +67,6 @@ _generations = itertools.count(1)
 A bookmark is a position within one document and says nothing about which. Following the
 focus from one document to another with the same generation would let a stale anchor match
 a block in the new one, and the reader would be put somewhere arbitrary."""
-
-
-def _isTreeInterceptor(obj: Any) -> bool:
-	""":return: whether an object is a browse mode document rather than something in one."""
-	try:
-		from treeInterceptorHandler import TreeInterceptor
-
-		return isinstance(obj, TreeInterceptor)
-	except ImportError:
-		# Outside a running NVDA. A tree interceptor is the thing that can stand aside for
-		# the control the reader has entered, which is what `passThrough` says.
-		return hasattr(obj, "passThrough")
 
 
 class FlowBand(PanelOwner):
@@ -521,7 +510,7 @@ class FlowBand(PanelOwner):
 		if obj is None:
 			return False
 		try:
-			if getattr(obj, "treeInterceptor", None) is not None or _isTreeInterceptor(obj):
+			if getattr(obj, "treeInterceptor", None) is not None or isTreeInterceptor(obj):
 				return self._enabledFor("browseMode", obj)
 			if flowForms.isEditableObject(obj):
 				return self._enabledFor("editableText", obj)

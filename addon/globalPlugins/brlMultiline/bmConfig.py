@@ -427,9 +427,9 @@ def shouldWriteByParagraph(displayKey: str | None = None) -> bool:
 	On, which is the default, a block of such an edit is a paragraph whatever NVDA's read by
 	paragraph setting says. A paragraph is what the writer typed; a line is what the
 	control's wrapping made of it, and a writer thinking about their own text thinks in the
-	first. The evidence behind the default is in `flowDryRun.readingUnitFor`.
+	first. The evidence behind the default is in `flowBuild.readingUnitFor`.
 
-	Off, an edit is cut up the same way a page is, by L{flowDryRun.readingUnit}, so the one
+	Off, an edit is cut up the same way a page is, by L{flowBuild.readingUnit}, so the one
 	setting governs everything. That is the setting to reach for when a particular editor
 	answers better by line, and it is what makes the choice testable in more places than the
 	one editor the default was chosen from.

@@ -413,19 +413,19 @@ class TestADocumentWins(unittest.TestCase):
 	"""A list inside a web page is part of that page, and the page has the better context."""
 
 	def test_aListItemInsideAPageIsNotReadAsARun(self):
-		from brlMultiline.flowDryRun import objectAdapterFor
+		from brlMultiline.flowBuild import objectAdapterFor
 
 		interceptor = FakeTreeInterceptor(["a page"])
 		item = FakeNavigatorObject("Apple", role="LISTITEM", treeInterceptor=interceptor)
 		self.assertIsNone(objectAdapterFor(item))
 
 	def test_aListItemWithNoPageBehindItIs(self):
-		from brlMultiline.flowDryRun import objectAdapterFor
+		from brlMultiline.flowBuild import objectAdapterFor
 
 		self.assertIsNotNone(objectAdapterFor(fakeRun(["Apple"])[0]))
 
 	def test_aBrowseModeDocumentItselfIsNot(self):
-		from brlMultiline.flowDryRun import objectAdapterFor
+		from brlMultiline.flowBuild import objectAdapterFor
 
 		self.assertIsNone(objectAdapterFor(FakeTreeInterceptor(["a page"])))
 

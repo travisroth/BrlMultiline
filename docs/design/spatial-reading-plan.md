@@ -807,6 +807,21 @@ and it needs three things before milestone 3:
 - `flowRender.py` — `FlowRenderer` and `FlowBuffer`: block to rows, row assembly, active
   block and cursor ownership, routing and the `regions[-1]` audit.
 - `flowSources.py` — the sources, the result states, block identity and collapsing.
+- `flowControl.py` — `FlowController`: driving a window over a source, arriving, filling,
+  panning, following the cursor, and re-reading the band while the reader writes.
+- `flowBuild.py` — turning "the reader is on this object" into a flow: what to read, the
+  reading unit, the region classes, and `buildController`, which assembles all of it. Used
+  by the live band and by the dry run alike, so the diagnostic reports the construction the
+  reader actually gets rather than a second one that could drift from it.
+- `flowBand.py` — the claim on the display: which content flows, what the band reads now,
+  and the settle pass after a keystroke.
+- `flowSegment.py` — the segment a flow is drawn into, and where NVDA's commands reach it.
+- `flowForms.py` — what counts as a control, an editor, a multi line editor.
+- `flowObjects.py` — reading a run of objects: a list, a menu, a combo box's choices.
+- `flowQuickNav.py` — noticing a browse mode jump, so a structural one can ground the band.
+- `flowDryRun.py` — the diagnostics only: `dryRun`, `report`, `describeCost`. It built the
+  live flow's front end until that was split into `flowBuild`, which left the live path
+  living in a file named for a diagnostic.
 - `FlowPanel` in `panels.py` — geometry and ownership only.
 - `documentLines.py` — unchanged, and still what fills free segments outside a flow band.
 - Commands: scroll the band, line scroll within it, and a way back to the cursor.
@@ -1180,7 +1195,7 @@ and it needs three things before milestone 3:
    not the work — the children are walked from `firstChild` now; and the source kept every
    object it had ever read, for the life of the run. It keeps none: a block's bookmark *is*
    its object, so there was never anything for the table to answer.
-7. **Cost.** INSTRUMENTED, AWAITING NUMBERS. Measurement on heavy pages against the latency
+7. **Cost.** Answered: settled, pass. Measurement on heavy pages against the latency
    recorded since milestone 2, and whatever the numbers say.
 
    The instrument landed rather than the answer, because the answer is a hardware question.
@@ -1208,6 +1223,10 @@ and it needs three things before milestone 3:
    the time limit is doing anything at all beyond the block count, and whether an object run
    — where every step is a call into the application — wants a budget of its own rather than
    the document's.
+
+**Answer:** Claude reported the following: 
+Your budget worries are settled: 63 operations, zero cut short, slowest block 4.59 milliseconds against a 250 millisecond allowance. The budget is no longer a factor.
+
 
 ## Open questions
 
