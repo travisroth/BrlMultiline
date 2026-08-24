@@ -640,9 +640,9 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
-		# Translators: label of a checkbox in settings. Dots 5, 6, 7 and 8 are the four lower
+		# Translators: label of a checkbox in settings. Dots 3, 6, 7 and 8 are the bottom four
 		# dots of an eight dot braille cell, drawn in the two cells at the left of a row.
-		lineFocusLabel = _("&Mark the item you are on with dots 5678 at the left of its row")
+		lineFocusLabel = _("&Mark the item you are on with dots 3678 at the left of its row")
 		self.lineFocusCtrl = sHelper.addItem(wx.CheckBox(self, label=lineFocusLabel))
 		self.lineFocusCtrl.SetValue(bool(section["flowLineFocus"]))
 		sHelper.addItem(

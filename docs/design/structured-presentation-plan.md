@@ -157,8 +157,8 @@ are not re-argued.
     presentation asks for it. Everything already tested on hardware keeps behaving as it
     was tested.
 
-18. **The focused row is marked at the left, in indent that is already there.** Dots 5678 in
-    the leftmost two cells of every row of the focused block, on by default, and never where
+18. **The focused row is marked at the left, in indent that is already there.** Dots 3678 —
+    the bottom four dots of the cell — in the leftmost two cells of every row of the focused block, on by default, and never where
     the row has fewer than two cells of indent to give. The cursor is not enough across
     rows: by default it is dots 7 and 8 under the text, so finding it means reading the row
     it is under, and a hand running down eight rows of a folder tree to see where it is has

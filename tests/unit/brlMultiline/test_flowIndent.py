@@ -52,8 +52,11 @@ class TestTheFocusMark(unittest.TestCase):
 		self.assertEqual(focusMark(0), ())
 
 	def test_itCannotBeMistakenForALevelMarkOrABlank(self):
-		"""In the dots 78 style the mark sits directly beside level marks."""
+		"""In the dots 78 style the mark sits directly beside level marks, so it has to be
+		more than one: it contains dots 7 and 8 rather than resembling them, and a marked row
+		must not read as one level deeper."""
 		self.assertNotIn(FOCUS_CELL, (LEVEL_CELL, BLANK_CELL))
+		self.assertEqual(FOCUS_CELL & LEVEL_CELL, LEVEL_CELL)
 
 
 class TestCellsPerLevel(unittest.TestCase):

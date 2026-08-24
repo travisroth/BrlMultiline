@@ -59,12 +59,13 @@ for the same reason in all three: it is the mark that means "structure", not con
 never ambiguous with those here because it appears only in the indent, before any content.
 """
 
-FOCUS_CELL = 0xF0
-"""Dots 5, 6, 7 and 8: the mark on the left of the row the focus is on.
+FOCUS_CELL = 0xE4
+"""Dots 3, 6, 7 and 8: the mark on the left of the row the focus is on.
 
-A full lower half cell, which is the loudest thing on a row that is otherwise text, and
-distinct from the level mark above it — dots 7 and 8 — so that a marked row in the dots 78
-style is not read as one level deeper.
+The bottom four dots of the cell, drawn full width across two cells. A solid bar under the
+fingers, which is the loudest thing on a row that is otherwise text, and it contains the
+level mark — dots 7 and 8 — rather than resembling it, so a marked row in the dots 78 style
+cannot be read as one level deeper.
 
 The cursor already says where the focus is, and it is not enough. By default it is dots 7
 and 8 blinking *under* the text, which has to be found by reading the row it is under; a
