@@ -1276,9 +1276,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		as the way to say "not this one" and "this one too".
 		"""
 		band = self.flowBand
-		if band is None or not band.isShowing():
-			# Translators: reported when a command needs a flow on the display and there is none.
-			ui.message(_("No flow is showing"))
+		# Claimed, not showing. A band with no flow on it is exactly the case the reader wants
+		# this for: a table in a document whose kind of content the flow settings have turned
+		# off is still a table they can ask for by name, and `FlowBand.refresh` lets a named
+		# table through those settings for that reason. What the command genuinely needs is
+		# somewhere on the display to draw.
+		if band is None or not band.isClaimed:
+			# Translators: reported when a command needs the flow band and it is not on the
+			# display.
+			ui.message(_("The flow band is not on the display"))
 			return
 		if band.tableWanted is not None:
 			band.clearTable()

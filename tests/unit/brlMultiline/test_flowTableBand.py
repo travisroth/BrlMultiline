@@ -11,6 +11,7 @@ the same discipline in the same place.
 """
 
 import unittest
+from types import SimpleNamespace
 
 from ._stubs import (
 	CONFIG,
@@ -19,6 +20,7 @@ from ._stubs import (
 	NoTableDocument,
 	installStubs,
 	resetConfig,
+	spokenMessages,
 )
 
 installStubs()
@@ -79,6 +81,62 @@ class TableBandTestCase(unittest.TestCase):
 	def _readingATable(self):
 		source = getattr(self.band.controller, "source", None)
 		return isinstance(source, TableFlowSource)
+
+
+class TestTheCommandItself(TableBandTestCase):
+	"""The script, run rather than reasoned about.
+
+	Everything below this class tests the band. Nothing tested the twenty lines between the
+	reader's key press and the band, and those twenty lines shipped twice with a fault in
+	them: once with a decorator that belonged to the command below it, and once calling a
+	property as though it were a method. Both are the kind of mistake that reading the code
+	does not catch and running it does.
+	"""
+
+	def _press(self):
+		"""Run the command the way NVDA does, on a plugin that has this band."""
+		from brlMultiline import GlobalPlugin
+
+		spokenMessages.clear()
+		holder = SimpleNamespace(flowBand=self.band)
+		GlobalPlugin.script_flowTableColumns(holder, None)
+		return list(spokenMessages)
+
+	def test_pressingItInATableLaysItOut(self):
+		self._inTable()
+		said = self._press()
+		self.assertTrue(self._readingATable())
+		self.assertTrue(any("columns" in message for message in said))
+
+	def test_pressingItAgainTakesTheLayoutAway(self):
+		self._inTable()
+		self._press()
+		said = self._press()
+		self.assertFalse(self._readingATable())
+		self.assertTrue(any("off" in message for message in said))
+
+	def test_pressingItOutsideATableSaysSo(self):
+		self._elsewhere()
+		said = self._press()
+		self.assertIn("Not in a table", said)
+
+	def test_pressingItWithNoBandSaysSo(self):
+		from brlMultiline import GlobalPlugin
+
+		spokenMessages.clear()
+		GlobalPlugin.script_flowTableColumns(SimpleNamespace(flowBand=None), None)
+		self.assertTrue(spokenMessages)
+
+	def test_theBandNeedsSomewhereToDrawRatherThanAFlowAlreadyOnIt(self):
+		"""A band with no flow on it is the case the reader wants this for: a table in a
+		document whose kind of content the flow settings have turned off is still a table
+		they can ask for by name."""
+		self._inTable()
+		self.band.controller = None
+		self.assertFalse(self.band.isShowing)
+		self.assertTrue(self.band.isClaimed)
+		self._press()
+		self.assertTrue(self._readingATable())
 
 
 class TestTurningItOn(TableBandTestCase):
