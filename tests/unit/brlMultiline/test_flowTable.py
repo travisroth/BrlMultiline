@@ -27,10 +27,13 @@ from flowTable import (  # noqa: E402
 	MIN_COLUMN_CELLS,
 	READING_ORDER,
 	TRUNCATE,
+	WRAP,
 	Column,
 	ColumnPlan,
+	CELL_INDENT,
 	Measurement,
 	describe,
+	indentFor,
 	planFor,
 	shouldReplan,
 )
@@ -305,6 +308,32 @@ class TestKeepingThePlan(unittest.TestCase):
 		self.assertFalse(shouldReplan(READING_ORDER, watchlist(), MONARCH_COLS))
 
 
+class TestIndentingAWrappedCell(unittest.TestCase):
+	"""The column boundary says which column a continuation is in. What it cannot say is that
+	the row below is the same value still going rather than the next value down."""
+
+	def test_aRoomyColumnGetsTheFullIndent(self):
+		self.assertEqual(indentFor(12), CELL_INDENT)
+
+	def test_aNarrowColumnGetsLess(self):
+		"""Two of a four cell column is half of it. A third is the most it can spare."""
+		self.assertEqual(indentFor(4), 1)
+
+	def test_neverNothing(self):
+		"""A continuation drawn flush with the value above it reads as a second value."""
+		self.assertEqual(indentFor(MIN_COLUMN_CELLS), 1)
+		self.assertEqual(indentFor(1), 1)
+
+	def test_itIsLessThanAListSpends(self):
+		"""A column has far fewer cells to spend than a row does."""
+		from flowIndent import CONTINUATION_EXTRA
+
+		self.assertLessEqual(CELL_INDENT, 2 + CONTINUATION_EXTRA)
+
+	def test_aColumnKnowsItsOwn(self):
+		self.assertEqual(Column(index=1, width=12).indent, CELL_INDENT)
+
+
 class TestSayingWhatTheLayoutCost(unittest.TestCase):
 	"""A column narrower than its content cuts every cell at the same place, which is what
 	makes the shape readable and also what leaves the reader feeling clipped words with
@@ -327,6 +356,24 @@ class TestSayingWhatTheLayoutCost(unittest.TestCase):
 	def test_theProseSaysSo(self):
 		columns = [Measurement(index=n, width=20, label="") for n in (1, 2)]
 		self.assertIn("narrower than its content", describe(planFor(columns, MONARCH_COLS)))
+
+	def test_theProseSaysWrappedWhenNothingIsCut(self):
+		"""Narrow and wrapped is a different thing from narrow and cut, and the reader is
+		deciding what to do about it from this."""
+		columns = [Measurement(index=n, width=20, label="") for n in (1, 2)]
+		self.assertIn("wrapped", describe(planFor(columns, MONARCH_COLS)))
+
+	def test_theProseSaysCutWhenItIsCut(self):
+		columns = [Measurement(index=n, width=20, label="") for n in (1, 2)]
+		said = describe(planFor(columns, MONARCH_COLS, overflow=TRUNCATE))
+		self.assertIn("is cut", said)
+
+	def test_aPlanKnowsWhetherItCuts(self):
+		self.assertFalse(planFor(watchlist(), MONARCH_COLS).cuts)
+		self.assertTrue(planFor(watchlist(), MONARCH_COLS, overflow=TRUNCATE).cuts)
+
+	def test_readingOrderCutsNothing(self):
+		self.assertFalse(READING_ORDER.cuts)
 
 
 class TestSayingWhatThePlanIs(unittest.TestCase):
@@ -353,7 +400,13 @@ class TestThePlanIsAKey(unittest.TestCase):
 
 	def test_aColumnCarriesItsOverflowStyle(self):
 		plan = planFor(watchlist(), MONARCH_COLS)
-		self.assertEqual(plan.columns[0].overflow, TRUNCATE)
+		self.assertEqual(plan.columns[0].overflow, WRAP)
+
+	def test_cuttingIsAskedForRatherThanAssumed(self):
+		"""A display that silently drops data is not a display of the data. Cutting is what a
+		reader who knows the table asks for; it is not what a default may assume."""
+		plan = planFor(watchlist(), MONARCH_COLS, overflow=TRUNCATE)
+		self.assertEqual([column.overflow for column in plan.columns], [TRUNCATE] * 4)
 
 	def test_aPlanBuiltByHandIsUsableAsIs(self):
 		"""What an application module and a saved layout will hand over."""

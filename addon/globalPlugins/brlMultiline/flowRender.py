@@ -33,7 +33,14 @@ from logHandler import log
 
 from .flow import BLANK_CELL, NO_POSITION, RenderedBlock, RenderKey, SourceBlock
 from .flowIndent import FLAT, IndentPlan
-from .flowTable import READING_ORDER, ColumnPlan, cellPosition, rowCellsOf
+from .flowTable import (
+	MAX_TABLE_ROWS,
+	READING_ORDER,
+	TRUNCATE,
+	ColumnPlan,
+	cellPosition,
+	rowCellsOf,
+)
 from .layout import SegmentRect
 from .panels import SegmentSpec
 from .segments import BrailleBufferSegment
@@ -208,17 +215,27 @@ class FlowRenderer:
 		if cells is None or self.columnPlan.isEmpty:
 			return None
 		plan = self.columnPlan
-		rows = [[BLANK_CELL] * plan.numCols for _ in range(plan.numRows)]
-		where = [[NO_POSITION] * plan.numCols for _ in range(plan.numRows)]
 		row = block.region
+		drawn = []
+		height = plan.numRows
 		for place in plan.placements():
 			cell = row.cellFor(place.column.index)
 			if cell is None:
 				continue
-			drawn, positions = self._cellRows(cell, place.column.width)
-			for index, (line, marks) in enumerate(zip(drawn, positions)):
+			lines, positions = self._cellRows(cell, place.column)
+			drawn.append((place, lines, positions))
+			# The table row is as tall as its tallest cell needs, so a row of short values
+			# takes one band row and only the row with the long description grows. Fixing the
+			# height at the plan's would make every row as tall as the worst one, which spends
+			# the reader's band on blanks.
+			height = max(height, place.row + len(lines))
+		height = max(1, min(height, MAX_TABLE_ROWS))
+		rows = [[BLANK_CELL] * plan.numCols for _ in range(height)]
+		where = [[NO_POSITION] * plan.numCols for _ in range(height)]
+		for place, lines, positions in drawn:
+			for index, (line, marks) in enumerate(zip(lines, positions)):
 				target = place.row + index
-				if target >= plan.numRows:
+				if target >= height:
 					break
 				for offset, value in enumerate(line[: place.column.width]):
 					rows[target][place.offset + offset] = value
@@ -241,20 +258,60 @@ class FlowRenderer:
 			isDecoration=block.isDecoration,
 		)
 
-	def _cellRows(self, cell, width: int) -> tuple[list, list]:
-		"""Translate one cell of a table row and cut it to its column's width.
+	def _cellRows(self, cell, column) -> tuple[list, list]:
+		"""Translate one cell of a table row and cut it to its column.
+
+		Cut, not wrapped at word boundaries: a column six cells wide has no room to keep
+		words whole, and a reader comparing values down a column is reading positions rather
+		than prose. That is the renderer's fill mode, which a table always asks for.
+
+		A cell that fits is one row and this is one layout. A cell that does not is laid out
+		again at the column's width less its indent, because its continuation rows are
+		indented — see `flowTable.indentFor`. The first row is cut at the narrower width too,
+		which costs it the indent in blank cells at the right; the alternative is re-cutting
+		a remainder, which is a second way of cutting text to keep in step with the first.
 
 		:param cell: the cell to read.
-		:param width: how many cells of the band its column has.
-		:return: its rows and their position maps, at most as many rows as the column's
-			overflow style allows.
+		:param column: the column it goes in.
+		:return: its rows and their position maps.
 		"""
 		holder = SourceBlock(blockId=cell.index, region=cell.region)
-		buffer = self._layoutBuffer(holder, width=width)
+		buffer = self._layoutBuffer(holder, width=column.width)
 		if buffer is None:
 			return [], []
 		rows, positions, _more = self._layout(buffer, fromRow=0)
-		return rows, positions
+		if column.overflow == TRUNCATE:
+			# One row, and the rest of the value is not shown. The reader asked for that.
+			return rows[:1], positions[:1]
+		if len(rows) <= 1:
+			return rows, positions
+		indent = column.indent
+		buffer = self._layoutBuffer(holder, width=max(1, column.width - indent))
+		if buffer is None:
+			return rows, positions
+		rows, positions, _more = self._layout(buffer, fromRow=0)
+		return self._indentedCell(rows, positions, indent)
+
+	def _indentedCell(self, rows: list, positions: list, indent: int) -> tuple[list, list]:
+		"""Move a wrapped cell's continuation rows in, leaving its first row at the margin.
+
+		:param rows: the cell's rows.
+		:param positions: their position maps.
+		:param indent: how many cells to move the continuations by.
+		:return: the rows and maps, indented.
+		"""
+		pad = (BLANK_CELL,) * indent
+		padded = (NO_POSITION,) * indent
+		out: list = []
+		where: list = []
+		for index, (line, marks) in enumerate(zip(rows, positions)):
+			if index:
+				out.append(pad + tuple(line))
+				where.append(padded + tuple(marks))
+			else:
+				out.append(tuple(line))
+				where.append(tuple(marks))
+		return out, where
 
 	def renderAround(self, block: SourceBlock, position: int, contextRows: int = 0) -> RenderedBlock:
 		"""Lay out the chunk containing one braille position.

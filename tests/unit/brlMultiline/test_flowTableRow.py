@@ -22,7 +22,9 @@ from brlMultiline.flow import NO_POSITION, BlockId, SourceBlock  # noqa: E402
 from brlMultiline.flowIndent import planFor as indentPlanFor  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
 from brlMultiline.flowTable import (  # noqa: E402
+	MAX_TABLE_ROWS,
 	READING_ORDER,
+	TRUNCATE,
 	Column,
 	ColumnPlan,
 	Measurement,
@@ -53,14 +55,16 @@ def block(rowRegion, name="r") -> SourceBlock:
 	return SourceBlock(blockId=BlockId(generation=1, bookmark=name, unit="row"), region=rowRegion)
 
 
-def watchlistPlan(numCols=BAND, maxRows=1) -> ColumnPlan:
+def watchlistPlan(numCols=BAND, maxRows=1, overflow=None) -> ColumnPlan:
 	measured = [
 		Measurement(index=1, width=6, label="Symbol"),
 		Measurement(index=2, width=7, label="Last"),
 		Measurement(index=3, width=7, label="Change"),
 		Measurement(index=4, width=6, label="%Chg"),
 	]
-	return planFor(measured, numCols, maxRows=maxRows)
+	if overflow is None:
+		return planFor(measured, numCols, maxRows=maxRows)
+	return planFor(measured, numCols, maxRows=maxRows, overflow=overflow)
 
 
 def renderer(plan=None, numCols=BAND) -> FlowRenderer:
@@ -169,11 +173,45 @@ class TestDrawingARowInColumns(unittest.TestCase):
 		drawn = renderer().render(block(row("F", "9.10", "-0.05", "-0.5%")))
 		self.assertEqual(textOf(drawn.rows[0])[1:7], "      ")
 
-	def test_aLongCellIsCutAtItsColumn(self):
-		"""Truncated, not spilled: every row is cut at the same place, so the shape down the
-		display survives and the reader can widen the column."""
+	def test_aLongCellWrapsWithinItsColumn(self):
+		"""The default. The table row grows and the value is all there."""
 		drawn = renderer().render(block(row("BERKSHIRE", "1.00", "+0.01", "+0.1%")))
+		# Six cells of column, two of them the continuation indent, so four of ticker a row.
+		self.assertEqual(len(drawn.rows), 3)
+		self.assertEqual(textOf(drawn.rows[0])[0:6], "BERK  ")
+		self.assertEqual(textOf(drawn.rows[1])[0:6], "  SHIR")
+		self.assertEqual(textOf(drawn.rows[2])[0:3], "  E")
+
+	def test_aWrappedCellsContinuationIsIndented(self):
+		"""Or the row below reads as the next value down rather than the same one going on."""
+		drawn = renderer().render(block(row("BERKSHIRE", "1.00", "+0.01", "+0.1%")))
+		self.assertEqual(textOf(drawn.rows[1])[0:2], "  ")
+
+	def test_onlyTheRowThatNeedsItGrows(self):
+		"""A row of short values takes one band row. Fixing every row at the tallest would
+		spend the reader's band on blanks."""
+		render = renderer()
+		self.assertEqual(len(render.render(block(row("F", "9.10", "-0.05", "-0.5%"))).rows), 1)
+
+	def test_theOtherColumnsStayWhereTheyAre(self):
+		"""A cell growing must not move the columns beside it."""
+		drawn = renderer().render(block(row("BERKSHIRE", "1.00", "+0.01", "+0.1%")))
+		self.assertEqual(textOf(drawn.rows[0])[7:11], "1.00")
+
+	def test_aLongCellIsCutWhenTheReaderAsksForThat(self):
+		"""Truncation earns its place: an options watchlist has symbols long enough to push
+		every other column into uselessness, and a reader who knows the table would rather
+		have the whole of it on one row of the band."""
+		drawn = renderer(plan=watchlistPlan(overflow=TRUNCATE)).render(
+			block(row("BERKSHIRE", "1.00", "+0.01", "+0.1%")),
+		)
+		self.assertEqual(len(drawn.rows), 1)
 		self.assertEqual(textOf(drawn.rows[0])[0:7], "BERKSH ")
+
+	def test_aRowNeverGrowsPastTheCap(self):
+		"""A table read taller than this is not being read as a table."""
+		drawn = renderer().render(block(row("x" * 400, "1.00")))
+		self.assertLessEqual(len(drawn.rows), MAX_TABLE_ROWS)
 
 	def test_theRowIsTheFullWidthOfTheBand(self):
 		drawn = renderer().render(block(row("F", "9.10", "-0.05", "-0.5%")))
@@ -238,9 +276,17 @@ class TestSayingWhatARowDraws(unittest.TestCase):
 		"""The whole point. A column drawn six cells wide holding nine characters of ticker
 		is the reader's complaint, and a report that showed all nine could not check it."""
 		table = row("BERKSHIRE", "1.00")
-		drawn = renderer().render(block(table))
+		drawn = renderer(plan=watchlistPlan(overflow=TRUNCATE)).render(block(table))
 		positions = [where for where in drawn.positions[0] if where != NO_POSITION]
 		self.assertEqual(table.textForPositions(positions), "BERKSH  1.00")
+
+	def test_aWrappedColumnSaysWhatIsOnEachRow(self):
+		table = row("BERKSHIRE", "1.00")
+		drawn = renderer().render(block(table))
+		said = []
+		for line in drawn.positions:
+			said.append(table.textForPositions([where for where in line if where != NO_POSITION]))
+		self.assertEqual(said, ["BERK  1.00", "SHIR", "E"])
 
 	def test_aRowWithAHoleSaysWhatIsThere(self):
 		partial = TableRow(

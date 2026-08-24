@@ -101,6 +101,7 @@ configSpec = {
 			"flowIndentStyle": f'option({INDENT_STYLE_OPTIONS}, default="{DEFAULT_INDENT_STYLE}")',
 			"flowLineFocus": "boolean(default=True)",
 			"flowTableRowHeight": f"integer(default={flowTable.DEFAULT_MAX_ROWS}, min=1, max={flowTable.MAX_TABLE_ROWS})",
+			"flowTableTruncate": "boolean(default=False)",
 			**{
 				flowModeKey(mode): f"boolean(default={FLOW_MODE_DEFAULTS.get(mode, False)})"
 				for mode in FLOW_MODES
@@ -150,6 +151,7 @@ configSpec = {
 - `flowLineFocus`: whether the row the focus is on is marked at the left margin where its
 	indent has room for the mark.
 - `flowTableRowHeight`: how many rows of the band one row of a table may use.
+- `flowTableTruncate`: whether a cell too long for its column is cut rather than wrapped.
 
 Everything above is read through `config.conf`, which is profile aware, so all of it can
 differ per configuration profile. That matters most for the flow: a profile triggered by
@@ -521,6 +523,29 @@ def tableRowHeight(displayKey: str | None = None) -> int:
 		log.debugWarning("Could not read flowTableRowHeight", exc_info=True)
 		return flowTable.DEFAULT_MAX_ROWS
 	return max(1, min(wanted, flowTable.MAX_TABLE_ROWS))
+
+
+def shouldTruncateTableCells(displayKey: str | None = None) -> bool:
+	""":return: whether a cell too long for its column is cut rather than wrapped.
+
+	Off by default, because a display that silently drops data is not a display of the data.
+	Wrapped, a table row grows as tall as its longest cell needs and the value is all there;
+	the reader can tell a short cell from a cut one, which they cannot when everything is cut
+	to the same width.
+
+	On, a table row is always one row of the band and a long cell is cut at its column. That
+	is worth having and it is a judgement about a particular table: an options watchlist has
+	symbols long enough to push every other column into uselessness, and a reader who can
+	recognise a contract from its first few cells would rather have the whole table under
+	their hands than have every row grow to fit the one column they can already read.
+
+	See `flowTable.OVERFLOW_STYLES`.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["flowTableTruncate"])
+	except Exception:
+		log.debugWarning("Could not read flowTableTruncate", exc_info=True)
+		return False
 
 
 def isSpeechOutputMode() -> bool:

@@ -47,16 +47,24 @@ WRAP = "wrap"
 OVERFLOW_STYLES: tuple[str, ...] = (TRUNCATE, WRAP)
 """What becomes of a cell too long for its column.
 
-Truncate cuts it at the column's width. Wrap continues it on the next band row this table
-row is using, in the same column, which only exists where `maxRows` allows a second row.
+Wrap continues it on the next band row of the same table row, in the same column and
+indented, so the table row grows as tall as its longest cell needs. Truncate cuts it at the
+column's width and the table row stays one row tall.
 
-Truncate is the default because a truncated column is still a column: every row is cut at
-the same place, so the shape down the display survives and the reader can widen the column
-or read the cell on its own. A wrapped column is the one that destroys the shape, since one
-long cell pushes that row's other columns down and nothing lines up any more.
+**Wrap is the default, because a display that silently drops data is not a display of the
+data.** Truncation keeps a beautiful shape down the band and the reader cannot tell a cell
+that ended from a cell that was cut, which is the wrong way round: the shape is what they
+are reading the table *for*, and the values are what they are reading it *about*.
+
+Truncation is kept and it earns its place — it is what a reader who knows the table wants.
+An options watchlist has symbols long enough to push every other column into uselessness,
+and a reader who can recognise a contract from its first six cells would rather have the
+whole table on one row of the band than have every row grow to fit the one column they can
+already read. That is a judgement about a particular table by somebody who knows it, which
+is exactly what a setting is for and exactly what a default must not assume.
 """
 
-DEFAULT_OVERFLOW = TRUNCATE
+DEFAULT_OVERFLOW = WRAP
 
 COLUMN_GAP = 1
 """Cells between one column and the next.
@@ -64,6 +72,22 @@ COLUMN_GAP = 1
 One, and blank. Two is a cell a 32 cell display has not got to spare four times over, and
 none at all runs the columns together — a truncated cell ends mid word and the next column
 starts immediately, which reads as one word.
+"""
+
+CELL_INDENT = 2
+"""How far a wrapped cell's continuation is indented within its own column.
+
+Less than a list's or a tree's, which is what `flowIndent.CONTINUATION_EXTRA` spends, because
+a column has far fewer cells to spend than a row does: two of a six cell column is a third of
+it, where two of a thirty-two cell row is a sixteenth.
+
+It is still worth spending. The column boundary already says *which* column a continuation
+belongs to; what it cannot say is that the row below is the same value still going rather
+than the next value down, and in a column of numbers that is the difference between reading
+a price and reading two.
+
+Narrowed further on a narrow column — see `indentFor` — because a third of a column is a
+great deal and the alternative to indenting less is not indenting at all.
 """
 
 MIN_COLUMN_CELLS = 3
@@ -125,6 +149,24 @@ class Column:
 
 	overflow: str = DEFAULT_OVERFLOW
 	"""What becomes of a cell too long for `width`. See `OVERFLOW_STYLES`."""
+
+	@property
+	def indent(self) -> int:
+		""":return: how far a wrapped cell's continuation is indented in this column."""
+		return indentFor(self.width)
+
+
+def indentFor(width: int) -> int:
+	"""How far to indent a wrapped cell's continuation in a column of a given width.
+
+	`CELL_INDENT`, and less on a column too narrow to spare it: never more than a third of
+	the column, and never less than one cell, because a continuation drawn flush with the
+	value above it reads as a second value.
+
+	:param width: the column's width in cells.
+	:return: the indent, in cells.
+	"""
+	return max(1, min(CELL_INDENT, width // 3))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -188,6 +230,17 @@ class ColumnPlan:
 	def isEmpty(self) -> bool:
 		""":return: whether this plan draws nothing, which is what reading order gets."""
 		return not self.columns
+
+	@property
+	def cuts(self) -> bool:
+		""":return: whether a cell too long for its column is cut rather than wrapped.
+
+		Asked of the columns rather than kept beside them, because it is the columns that
+		carry it: an application module or a saved layout may one day cut one column and wrap
+		another, and a plan-wide flag would have to be kept in step with that or quietly
+		disagree with it.
+		"""
+		return any(column.overflow == TRUNCATE for column in self.columns)
 
 	def placements(self) -> tuple[Placement, ...]:
 		"""Where every column goes, packed greedily across the rows allowed.
@@ -279,6 +332,7 @@ def planFor(
 	gap: int = COLUMN_GAP,
 	minWidth: int = MIN_COLUMN_CELLS,
 	maxWidth: int = MAX_COLUMN_CELLS,
+	overflow: str = DEFAULT_OVERFLOW,
 ) -> ColumnPlan:
 	"""Work out where a table's columns go.
 
@@ -299,6 +353,7 @@ def planFor(
 	:param gap: cells between columns.
 	:param minWidth: the narrowest a column may be drawn.
 	:param maxWidth: the widest, however long the content.
+	:param overflow: what becomes of a cell too long for its column. See `OVERFLOW_STYLES`.
 	:return: the plan, or `READING_ORDER` when there is nothing to lay out.
 	"""
 	wanted = [item for item in measured if not item.hidden]
@@ -313,7 +368,15 @@ def planFor(
 		return READING_ORDER
 	wants = {item.index: max(item.width, len(item.label)) for item in wanted}
 	return ColumnPlan(
-		columns=tuple(Column(index=item.index, width=widths[item.index], label=item.label) for item in kept),
+		columns=tuple(
+			Column(
+				index=item.index,
+				width=widths[item.index],
+				label=item.label,
+				overflow=overflow if overflow in OVERFLOW_STYLES else DEFAULT_OVERFLOW,
+			)
+			for item in kept
+		),
 		numCols=numCols,
 		maxRows=maxRows,
 		gap=gap,
@@ -480,8 +543,9 @@ def describe(plan: ColumnPlan) -> str:
 	)
 	notes = []
 	if plan.narrowed:
-		cut = ", ".join(str(index) for index in plan.narrowed)
-		notes.append(f"Column {cut} is drawn narrower than its content and is cut.")
+		short = ", ".join(str(index) for index in plan.narrowed)
+		what = "cut" if plan.cuts else "wrapped over more rows"
+		notes.append(f"Column {short} is drawn narrower than its content and is {what}.")
 	if plan.dropped:
 		missing = ", ".join(str(index) for index in plan.dropped)
 		notes.append(f"No room for column {missing}.")

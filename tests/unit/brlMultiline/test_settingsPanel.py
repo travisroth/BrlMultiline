@@ -490,6 +490,7 @@ class FlowPanelTestCase(SettingsPanelTestCase):
 		self.panel.indentStyleCtrl = FakeControl(0)
 		self.panel.lineFocusCtrl = FakeControl(True)
 		self.panel.tableRowsCtrl = FakeControl(1)
+		self.panel.truncateCtrl = FakeControl(False)
 
 	def section(self, displayKey=None):
 		return self.sections.setdefault(displayKey, defaults())
@@ -557,6 +558,11 @@ class TestFlowOnOneDisplay(FlowPanelTestCase):
 		self.panel.tableRowsCtrl.SetValue(2)
 		self.panel.onSave()
 		self.assertEqual(self.sections[MONARCH_KEY]["flowTableRowHeight"], 2)
+
+	def test_cuttingLongTableCellsIsSaved(self):
+		self.panel.truncateCtrl.SetValue(True)
+		self.panel.onSave()
+		self.assertTrue(self.sections[MONARCH_KEY]["flowTableTruncate"])
 
 	def test_readingWritingByParagraphIsSaved(self):
 		self.panel.writeByParagraphCtrl.SetValue(False)

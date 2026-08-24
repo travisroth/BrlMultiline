@@ -571,10 +571,43 @@ column's width, because translating the joined text would make the widths charac
 and in a contracted table those are not where the columns are. Positions are packed — which
 column, and where in it — so routing lands in a cell of the table.
 
-**M3c — reading a browse mode table.** The source. `_getTableCellCoords` for recognition,
-`_getTableCellAt` for the cells, one block per row, and the command that turns it on and off.
-Reading order remains the default and nothing changes until the command is pressed. No
-persistence and no pinned headers yet.
+**M3c — reading a browse mode table.** BUILT, ON HARDWARE. The source, the command, and
+`flowTableSource`. `_getTableCellCoords` recognises, `_getTableCellAt` fetches, a block is a
+row, and reading order remains the default until the command is pressed.
+
+Five defects came out of the first hardware runs and every one was about the band's
+*ownership* of the reading rather than about tables:
+
+- A `TableRow` that carried the attributes this add-on asks a region for, rather than being
+  a `Region`. NVDA's buffer asked it for `hidePreviousRegions` and raised mid update.
+- A row with no `obj`, which `BrailleHandler.handleCaretMove` compares before it queues
+  anything — so every caret move was dropped and the band never redrew at all.
+- `_isCurrentDocument` answering yes to a table flow, because a table flow's source *is*
+  reading the document. The band kept the columns for the rest of the page.
+- `recheck` told to leave tables alone, when it is the only thing called often enough to
+  notice a caret leaving one.
+- `_isIn` calling the page a thing inside the page, so a rebuilt band read "at" the document
+  and landed on its first line.
+
+The pattern is worth keeping: **a table flow reads a document without being the document's
+own reading**, and every fast path that recognises "the same document" had to be taught the
+difference. Nothing in the list is about columns.
+
+**A long cell wraps within its column, and cutting is a setting.** The first cut of this had
+it the other way round and hardware said no: truncation keeps a beautiful shape down the band
+and the reader cannot tell a cell that ended from a cell that was cut. Wrapped, the table row
+grows as tall as its longest cell needs, the continuation is indented within the column — two
+cells, less on a narrow one, and less than a list spends because a column has fewer cells to
+give — and the cut is by cell rather than by word, because a six cell column has no room to
+keep words whole.
+
+Cutting stays, as `flowTableTruncate`, off by default. It is what a reader who knows the
+table wants: an options watchlist has symbols long enough to push every other column into
+uselessness, and somebody who can recognise a contract from its first few cells would rather
+have the whole table under their hands. That is a judgement about a particular table, which
+is what a setting is for and what a default must not assume.
+
+No persistence and no pinned headers yet.
 
 **M4 — pinned headers.** The band change. Behind a setting, and last of the display work,
 because it is the only part that disturbs window arithmetic the hardware has already

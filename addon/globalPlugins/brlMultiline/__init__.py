@@ -1311,11 +1311,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# how many columns are shown.
 			_("Table columns on, {shown} columns").format(shown=len(plan.columns)),
 		]
-		if plan.narrowed:
+		if plan.narrowed and plan.cuts:
 			said.append(
 				# Translators: reported after the above when some columns are too narrow for
-				# what they hold. The placeholder is how many columns are cut.
+				# what they hold and long values are being cut off. The placeholder is how
+				# many columns are affected.
 				_("{cut} cut to fit").format(cut=len(plan.narrowed)),
+			)
+		elif plan.narrowed:
+			said.append(
+				# Translators: reported after the above when some columns are too narrow for
+				# what they hold, so long values continue on the next row. The placeholder is
+				# how many columns are affected.
+				_("{wrapped} wrapping").format(wrapped=len(plan.narrowed)),
 			)
 		if plan.dropped:
 			said.append(

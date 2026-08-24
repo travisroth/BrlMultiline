@@ -680,6 +680,24 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Translators: label of a checkbox in settings, about what happens to a table cell too
+		# long for the column it is drawn in.
+		truncateLabel = _("&Cut table cells that are too long, instead of wrapping them")
+		self.truncateCtrl = sHelper.addItem(wx.CheckBox(self, label=truncateLabel))
+		self.truncateCtrl.SetValue(bool(section["flowTableTruncate"]))
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the checkbox above, explaining when
+					# a reader would want it.
+					"Off, a table row grows as tall as its longest cell needs and every value "
+					"is shown in full. On, each row stays one row of the display and long "
+					"values are cut. Worth turning on for a table you know well, where the "
+					"first few characters of a long value are enough to recognise it.",
+				),
+			),
+		)
 		self._updateRowsHint()
 
 	# Where the band goes.
@@ -807,6 +825,7 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowIndentStyle"] = indentStyleChoices()[self.indentStyleCtrl.GetSelection()][0]
 		section["flowLineFocus"] = self.lineFocusCtrl.IsChecked()
 		section["flowTableRowHeight"] = self.tableRowsCtrl.Value
+		section["flowTableTruncate"] = self.truncateCtrl.IsChecked()
 
 	def postSave(self):
 		# Claim or give back the band straight away, rather than at the next display event.
