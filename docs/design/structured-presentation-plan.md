@@ -14,7 +14,9 @@ So this plan adds a second axis. Alongside "what to read" there is now "how this
 thing is shown", and the second is chosen from what the reader is actually looking at
 rather than from a role alone.
 
-Nothing here is built. Read it before extending `flowObjects.py` or `flowRender.py`.
+**Status: M0, M1 and M2a are built; M2b onward is not.** The milestones below say which,
+and where the built shape differs from what was planned the decision records both. Read this
+before extending `flowObjects.py` or `flowRender.py`.
 
 ## The problem, in three failures
 
@@ -94,10 +96,20 @@ are not re-argued.
 3. **Collapsed and expanded are NVDA's business.** They already reach the display through
    the object's region, and they already work in the tree flow today. Nothing is added.
 
-4. **Indent is relative, and the item on the band's top row is the baseline.** Absolute
+4. **Indent is relative, and the shallowest depth on the band is the baseline.** Absolute
    indent from the root spends cells a 32-column display does not have once the reader is
-   six levels into a folder tree. The top row's depth is therefore drawn at zero and
-   everything below it is indented from that. An application module may override this.
+   six levels into a folder tree. The shallowest visible depth is therefore drawn at zero
+   and everything else is indented from it. An application module may override this.
+
+   *Built as the shallowest, not the top row's, which is what this decision first said.* In
+   the common case — panning down into a subtree — they are the same number. They part when
+   visible order comes back *out* of a subtree, which puts an item shallower than the top row
+   at the bottom of the band and leaves nothing to the left of the margin to draw it at.
+   Taking the minimum is the same single computation and cannot go negative.
+
+   **On the band means on the band.** The cache is wider than the display — `_trim` keeps a
+   window's worth either side — and planning from the cache kept a row's depth as the
+   baseline after it had scrolled off. See `FlowController._visibleDepths`.
 
 5. **The baseline is rebased whenever the top row changes, and items already on the display
    move with it.** Panning a whole display at a time rarely shows the same item twice, so
@@ -241,6 +253,14 @@ The new work. A layout answers, for one item:
 whether this block is a header. Optional and defaulting to nothing, so every existing
 construction is unchanged. The source fills it; the renderer reads it; the packing
 arithmetic in `flow.py` continues not to look inside blocks at all.
+
+*Built as `depth` directly, not as a record.* One optional field for the one thing M1 needed,
+because a record with a single member is a record in name only and every reader of it would
+have had to reach through the wrapper for a year before the second member arrived. The
+record is still the right shape for the table work, and the change when it comes is
+mechanical: `block.depth` becomes `block.shape.depth` at the four places that read it. What
+must not happen is a second loose field going in beside the first — the second member of the
+shape is where the record earns itself.
 
 **How indent is actually drawn.** `FlowRenderer.render` lays the block out at
 `self.numCols - indentCells` instead of `self.numCols`, then prefixes each row of the result
@@ -408,6 +428,24 @@ Depth gains a fallback here and only here. `positionInfo["level"]` first as ever
 but a tree that reports no level is the one whose depth the reader cannot otherwise learn,
 and a tree walk already holds the ancestors in its hand.
 
+**Two shapes the first cut of the walk could not read**, both found by review rather than by
+hardware, and both about a tree that is not laid out the way Outlook's and Explorer's are.
+
+A tree item's children are not always its *direct* children: UIA hangs them off a grouping in
+between, and so do some IA2 implementations. The walk read `firstChild`, got the grouping,
+offered it as the next row, and the run refused it as something outside itself — the reader
+saw a parent whose contents had vanished, which is the failure this walk exists to fix, in a
+different control. `TRANSPARENT_ROLES` names the wrappers to step over, in both directions
+and in the depth count. Named rather than "anything that is not a tree item", because the
+thing past a *real* boundary is also not a tree item and treating those as scenery walks
+straight out of the control.
+
+And a provider that fetches children on demand reports a node open before it has any. The
+state is settled from the first moment and the rows arrive later, so `shapeChanged` watching
+only the state went on showing an open folder with nothing in it. It now watches two things:
+the state, and whether an open node is showing anything. The second question is asked only of
+a node that says it is open, so a reader in a list, a menu, or on a leaf pays nothing.
+
 **Opening a node had to be noticed without an event.** Pressing right arrow on a folder
 changes what the rows below it are, and NVDA reports it through nothing the band sees: the
 focus does not move, no fresh focus regions are built, and the object being read is the one
@@ -452,10 +490,18 @@ with.
    answer, but it arrives for a great many things and the flow must not re-read on all of
    them.
 
-2. **How is "the cells still fit" decided, for decision 7?** The note is shown when drawing
-   the absolute depth would cost too much, and "too much" has to be measured against
-   something — the widest item on the band, or the active one, or a fixed share of the
-   width. Cheap to compute matters as much as right, since it is asked on every fill.
+2. **How is "the cells still fit" decided, for decision 7?** Answered by M1:
+   `MAX_INDENT_SHARE`, a fixed share of the row, decided once per plan rather than per fill.
+   `IndentPlan.noteLevel` says when there is something to announce.
+
+   **What remains open is what the note says.** Two candidates, and they are not the same
+   number once the plan is held across a move: the level the *margin* stands for, or the
+   level of the item on the *top row*. `noteLevel` currently holds the first. They agree
+   whenever the plan was just made, because the plan is made from the shallowest visible
+   depth — but `shouldRebase` keeps a plan while it still works, and a kept plan can have a
+   baseline that no visible row is at any more. That is the whole point of keeping it: the
+   margin stops twitching. So the note has to say which of the two it means, and say it in
+   the four cells it has. This must be settled before anything is drawn.
 
 3. **Does rebasing move items enough to be felt?** Decision 5 accepts that an item already
    on the display shifts when the band rebases. It is the right trade on paper and it is
