@@ -178,6 +178,25 @@ are not re-argued.
     same question is one pass. Costing the row no cell is what makes it safe to have on by
     default, and it is the reason it is drawn *into* the indent instead of in front of it.
 
+19. **A column layout is a per-table setting, and a command is how it is reached first.**
+    The end state is that a table the reader has laid out comes up laid out, remembered
+    against that table's identity, and nothing has to be pressed. The command is what exists
+    before that: it turns a column layout on for the table the reader is in and off again,
+    and it stays afterwards as the escape hatch for a table recognition cannot name and as
+    the way a layout gets attached to an identity in the first place — item 2 of *Saved
+    layouts*, arriving early.
+
+    Command first rather than automatic first, for a reason that has nothing to do with
+    effort: most tables on a web page are not tables of data, and laying those out in columns
+    would wreck pages that read perfectly well today. A command is also reversible in one
+    keystroke, so a layout that comes out wrong costs the reader nothing to undo.
+
+20. **A table's focus mark marks the cell, not the row.** In a run of objects the mark says
+    which item has the focus. In a table the reader already knows which row they are on —
+    they are reading along it — and the question they cannot answer by feel is *which
+    column*. So in a table the mark goes at the left of the column the caret is in. It is the
+    same mark, answering the question that is actually open.
+
 ## The four layers
 
 ### 1. Recognition — what is the reader looking at?
@@ -303,6 +322,49 @@ is expanded. The flow already re-reads on focus change and already has `source.f
 "every cached answer may be stale". An expand or collapse is not a focus change, so it will
 need the same treatment, triggered from the state change. Expect this to be where the
 hardware run finds something.
+
+## Easy Table Navigator, and what it settles
+
+The reader navigates their watchlist with **Easy Table Navigator** (Joseph Lee and Cyrille
+Bougot, GPL 2), so that add-on is not a competitor to design around but the other half of
+how this will be used. It is worth reading, and it is short.
+
+**What it does.** Nothing about tables. It binds the arrow keys to NVDA's own table
+navigation scripts and unbinds them when the focus leaves a table — `script_nextRow`,
+`script_nextColumn`, `script_firstRow`, `script_speakRow`, `script_speakColumn`,
+`script_sayAllRow`, `script_sayAllColumn`, all of them already on
+`documentBase.DocumentWithTableNavigation`. Reading a whole row or a whole column, from the
+current position or from the start, is NVDA's, not the add-on's. That is the lesson: the
+reading is already there and a table add-on is a *layer*.
+
+**What we take from it.**
+
+- The test for being in a table, exactly: a tree interceptor that is a
+  `DocumentWithTableNavigation`, `passThrough` false, and `_getTableCellCoords(selection)`
+  not raising. `WindowsError` has to be caught beside `LookupError`.
+- The dispatch: the tree interceptor's script where there is one, the focus object's where
+  there is not. That is what will make M5 — Excel, the message list — the same code.
+- The layer discipline. Its `event_gainFocus` rebinds or clears on every focus change, so
+  the layer cannot outlive the table it was turned on for. A column layout has to drop the
+  same way, or the reader carries a watchlist's columns into the next page.
+
+**What it saves us reinventing.** `_getTableCellCoords` gives the cell as
+`(tableID, row, col, rowSpan, colSpan)`. `_getTableDimensions` gives the table's height and
+width. `_getTableCellAt(tableID, startPos, row, column)` is random access to any cell and
+raises `LookupError` where there is no cell, which is exactly what a merged cell looks like
+and is what a row with a hole in it is built from. None of that has to be written.
+
+**And it answers the layout table worry for free.** `_getTableCellCoords` consults
+`_maybeGetLayoutTableIds`, so a table marked as layout raises `LookupError` unless the
+reader has turned NVDA's "include layout tables" on. The command cannot be pointed at a
+page's layout scaffolding by accident, because NVDA already declines to call it a table.
+
+**How the two compose.** Easy Table Navigator moves the caret cell by cell; this flow
+follows the caret. So a reader arrowing down their watchlist gets the caret moved by one
+add-on and the surrounding rows drawn in columns by the other, and the thing they cannot get
+from either alone — where this value sits among its neighbours — is on the display. That is
+also why decision 20 puts the focus mark on the *column*: with the arrow keys moving between
+cells, which column the caret is in is the one thing the reader cannot feel.
 
 ## Tables, in two milestones
 
@@ -488,9 +550,31 @@ of the same role apart, which is a table problem before it is a tree problem —
 plus `register` already carries the tree case. Outlook's Go To Folder is M2a's acceptance
 test, not this one's.
 
-**M3 — table layout vocabulary, browse mode.** Column plans, per-column widths, hidden
-columns, wrap versus truncate, row height, reading by column. Reading order remains the
-default. No persistence and no pinned headers yet.
+**M3a — the column vocabulary.** DONE, NOT YET ON HARDWARE. `flowTable.py`: `Column`,
+`ColumnPlan`, `Measurement`, `planFor`, `shouldReplan`, and the packing across band rows.
+Pure arithmetic, no NVDA, the way `flowIndent` is.
+
+Two things it decided that the plan had left open. Open question 4 — the default column
+width — is answered by measuring what is in the column and fitting from the widest down,
+rather than by dividing the band evenly, because even division is wrong for exactly the
+watchlist that motivated the milestone. And the plan is made once and **kept**, which is the
+opposite of what indent does: a margin two cells out is a small wrong, while a column that
+moves is a column the reader has to find again.
+
+A number worth knowing: shrinking runs all the way to `MIN_COLUMN_CELLS` before anything is
+dropped, so a 32 cell band holds eight columns before it loses one. Tables that overflow are
+tables with many columns, not tables with wide ones.
+
+**M3b — drawing a row in columns.** DONE, NOT YET ON HARDWARE. `TableRow`, `RowCell`, and
+`FlowRenderer._asColumns`. Each cell is translated in a buffer of its own at its own
+column's width, because translating the joined text would make the widths character counts,
+and in a contracted table those are not where the columns are. Positions are packed — which
+column, and where in it — so routing lands in a cell of the table.
+
+**M3c — reading a browse mode table.** The source. `_getTableCellCoords` for recognition,
+`_getTableCellAt` for the cells, one block per row, and the command that turns it on and off.
+Reading order remains the default and nothing changes until the command is pressed. No
+persistence and no pinned headers yet.
 
 **M4 — pinned headers.** The band change. Behind a setting, and last of the display work,
 because it is the only part that disturbs window arithmetic the hardware has already
