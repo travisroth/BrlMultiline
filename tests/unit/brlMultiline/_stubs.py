@@ -331,11 +331,27 @@ class WindowRowPositions:
 
 
 class Region:
-	"""A region whose braille is simply its text, one cell per character."""
+	"""A region whose braille is simply its text, one cell per character.
+
+	The attributes below are the ones NVDA's own `braille.regions.base.Region` declares, and
+	they are here in full rather than as the subset this add-on happens to read. A region
+	goes into NVDA's buffer, and the buffer asks for all of them.
+	"""
+
+	hidePreviousRegions = False
+	cursorPos = None
+	selectionStart = None
+	selectionEnd = None
+	rawTextTypeforms = None
+	brailleCursorPos = None
+	brailleSelectionStart = None
+	brailleSelectionEnd = None
 
 	def __init__(self, text=""):
 		self.rawText = text
 		self.brailleCells = [ord(character) & 0xFF for character in text]
+		self.rawToBraillePos = list(range(len(text)))
+		self.brailleToRawPos = list(range(len(text)))
 		self.hidden = False
 		self.obj = None
 		# NVDA's own Region carries this, and `_doNewObject` reads and writes it.
@@ -472,7 +488,17 @@ class BrailleBuffer(AutoPropertyObject):
 		self._savedWindow = None
 
 	def _get_visibleRegions(self):
-		return [region for region in self.regions if not region.hidden]
+		# `hidePreviousRegions` is read the way NVDA's own buffer reads it, off the *last*
+		# region and before anything else. That detail is not decoration: a stand-in region
+		# that carried the attributes this add-on happens to ask for and not the ones NVDA
+		# does passed every test here and then raised inside a display update, because this
+		# stub asked a different question from the real buffer. A stub that diverges from the
+		# thing it stands in for hides exactly the bugs it exists to catch.
+		if not self.regions:
+			return []
+		if self.regions[-1].hidePreviousRegions:
+			return [self.regions[-1]]
+		return [region for region in self.regions if not getattr(region, "hidden", False)]
 
 	def clear(self):
 		self.regions = []

@@ -39,12 +39,12 @@ import dataclasses
 from typing import Any, Optional
 
 import documentBase
-from braille.regions.base import TextRegion
+from braille.regions.base import Region, TextRegion
 from logHandler import log
 
 from .flow import BlockId, FetchResult, SourceBlock
 from .flowSources import FetchBudget
-from .flowTable import Measurement, RowCell, TableRow
+from .flowTable import SEPARATOR_CELL, Measurement, RowCell, positionParts
 
 UNIT = "row"
 """What a block is here, for the log and for the dry run's report."""
@@ -150,6 +150,121 @@ def tableAt(obj) -> Optional[TableHandle]:
 		row=cell.row,
 		col=cell.col,
 	)
+
+
+class TableRow(Region):
+	"""One row of a table, read as its cells rather than as a line of text.
+
+	**A real region, and that is the whole of the lesson here.** It began as a stand-in — an
+	object carrying the handful of attributes the code that draws a flow happens to ask for —
+	and that worked until the row reached NVDA's own buffer, which asked it for
+	`hidePreviousRegions` and got an `AttributeError` in the middle of a display update. The
+	list of things a region has is NVDA's to know and it is longer than any guess. Subclassing
+	means never guessing again, and it is why this class lives here rather than beside the
+	column arithmetic in `flowTable`, which imports nothing from NVDA on purpose.
+
+	What it adds to a region is the cells: `FlowRenderer._asColumns` asks for them and draws
+	each at its column's offset. Everything that has *not* been taught about columns — NVDA's
+	buffer, the dry run, a log line — reads `rawText` and `brailleCells` and gets the row run
+	together as one line, which is reading order and is the default a table gets.
+	"""
+
+	def __init__(self, cells, separator: str = "  ") -> None:
+		"""
+		:param cells: the row's cells, in the table's own column order.
+		:param separator: what goes between them in the flat reading. Two spaces, which is
+			what a reader expects between fields and what NVDA's own table reading uses.
+		"""
+		super().__init__()
+		self.cells = tuple(cells)
+		self.separator = separator
+		self.hidden = False
+		self.obj = None
+		self.update()
+
+	def cellFor(self, index: int):
+		""":return: the cell in one column of the table, or None if the row has not got it.
+
+		A row genuinely may not: a table with a merged cell, or one still being built, has
+		rows with fewer cells than the header promised. Drawing nothing in that column is the
+		honest answer, and it keeps every other column where the reader left it.
+		"""
+		for cell in self.cells:
+			if cell.index == index:
+				return cell
+		return None
+
+	def update(self) -> None:
+		"""Read every cell and run them together into this region's own text and braille.
+
+		Assembled from the cells rather than translated afresh. They have been translated
+		already by whatever read them, and translating the joined text a second time would be
+		a second answer that could disagree with the first about where a cell begins — which
+		is the same reason the columns are drawn from each cell's own translation.
+
+		The position maps are concatenated with them, because NVDA's buffer uses them to turn
+		a window of cells back into text and a routing press into a place. A row that carried
+		cells and no maps read as an empty window.
+		"""
+		rawText = ""
+		brailleCells: list[int] = []
+		rawToBraillePos: list[int] = []
+		brailleToRawPos: list[int] = []
+		for index, cell in enumerate(self.cells):
+			if index:
+				rawStart, cellStart = len(rawText), len(brailleCells)
+				for offset in range(len(self.separator)):
+					rawToBraillePos.append(cellStart + offset)
+					brailleToRawPos.append(rawStart + offset)
+				rawText += self.separator
+				brailleCells.extend([SEPARATOR_CELL] * len(self.separator))
+			rawStart, cellStart = len(rawText), len(brailleCells)
+			text, drawn, forward, back = _readCell(cell.region)
+			rawToBraillePos.extend(cellStart + position for position in forward)
+			brailleToRawPos.extend(rawStart + position for position in back)
+			rawText += text
+			brailleCells.extend(drawn)
+		self.rawText = rawText
+		self.brailleCells = brailleCells
+		self.rawToBraillePos = rawToBraillePos
+		self.brailleToRawPos = brailleToRawPos
+
+	def routeTo(self, braillePos: int) -> None:
+		"""Put the cursor where a finger landed.
+
+		:param braillePos: a packed position from a drawn row. See `flowTable.cellPosition`.
+		"""
+		ordinal, offset = positionParts(braillePos)
+		if not 0 <= ordinal < len(self.cells):
+			return
+		route = getattr(self.cells[ordinal].region, "routeTo", None)
+		if route is not None:
+			route(offset)
+
+	def __repr__(self) -> str:
+		return f"<TableRow {len(self.cells)} cells>"
+
+
+def _readCell(region) -> tuple:
+	"""What one cell contributes to its row's flat reading.
+
+	The maps are rebuilt as straight runs where a region does not offer usable ones, so that
+	their lengths always match the text and the cells they map. NVDA reads them by index and
+	guards against running off the end, but a map of the wrong length maps to the wrong place
+	rather than to nowhere, which is worse.
+
+	:param region: the cell's region.
+	:return: its text, its cells, its raw to braille map, and its braille to raw map.
+	"""
+	text = getattr(region, "rawText", "") or ""
+	drawn = list(getattr(region, "brailleCells", None) or ())
+	forward = list(getattr(region, "rawToBraillePos", None) or ())
+	back = list(getattr(region, "brailleToRawPos", None) or ())
+	if len(forward) != len(text):
+		forward = [min(position, max(0, len(drawn) - 1)) for position in range(len(text))]
+	if len(back) != len(drawn):
+		back = [min(position, max(0, len(text) - 1)) for position in range(len(drawn))]
+	return text, drawn, forward, back
 
 
 class TableCellRegion(TextRegion):

@@ -27,11 +27,11 @@ from brlMultiline.flowTable import (  # noqa: E402
 	ColumnPlan,
 	Measurement,
 	RowCell,
-	TableRow,
 	planFor,
 	positionParts,
 	rowCellsOf,
 )
+from brlMultiline.flowTableSource import TableRow  # noqa: E402
 
 BAND = 32
 
@@ -93,6 +93,57 @@ class TestARowIsRecognisedAsOne(unittest.TestCase):
 		"""The fallback that keeps a table readable by everything not taught about columns —
 		the dry run, a log line, and reading order itself."""
 		self.assertEqual(row("AAPL", "182.50").rawText, "AAPL  182.50")
+
+
+class TestARowIsARegion(unittest.TestCase):
+	"""A row does not only go to the code that draws columns. It goes into NVDA's own buffer.
+
+	It began as a stand-in carrying the handful of attributes this add-on happens to ask a
+	region for, which passed everything here and then raised inside a display update, on
+	`hidePreviousRegions` — an attribute nothing in this add-on reads and NVDA's buffer reads
+	first. The list of things a region has is NVDA's to know and it is longer than any guess,
+	so a row is a `Region` and the guessing is over.
+	"""
+
+	def test_aRowIsARegion(self):
+		from braille.regions.base import Region
+
+		self.assertIsInstance(row("AAPL", "182.50"), Region)
+
+	def test_aBufferCanHoldOne(self):
+		"""The crash, reproduced: the buffer asks its last region whether to hide the ones
+		before it, and a stand-in had no answer."""
+		from braille.buffers import BrailleBuffer
+
+		buffer = BrailleBuffer(FakeHandler())
+		buffer.regions = [row("AAPL", "182.50")]
+		self.assertEqual(len(list(buffer.visibleRegions)), 1)
+
+	def test_aBufferCanReadItsTextBack(self):
+		from braille.buffers import BrailleBuffer
+
+		buffer = BrailleBuffer(FakeHandler())
+		buffer.regions = [row("AAPL", "182.50")]
+		buffer.update()
+		self.assertEqual(buffer.rawText, "AAPL  182.50")
+
+	def test_theMapsAreAsLongAsWhatTheyMap(self):
+		"""NVDA turns a window of cells back into text through these, and reads them by
+		index. A map of the wrong length maps to the wrong place rather than to nowhere."""
+		table = row("AAPL", "182.50")
+		self.assertEqual(len(table.rawToBraillePos), len(table.rawText))
+		self.assertEqual(len(table.brailleToRawPos), len(table.brailleCells))
+
+	def test_theMapsPointIntoTheRowRatherThanIntoOneCell(self):
+		"""Concatenated with an offset, or every cell would map to the row's first few
+		characters."""
+		table = row("AAPL", "182.50")
+		self.assertEqual(table.brailleToRawPos[-1], len(table.rawText) - 1)
+
+	def test_readingItAgainKeepsItAsLongAsItShouldBe(self):
+		table = row("AAPL", "182.50")
+		table.update()
+		self.assertEqual(len(table.brailleToRawPos), len(table.brailleCells))
 
 
 class TestDrawingARowInColumns(unittest.TestCase):
