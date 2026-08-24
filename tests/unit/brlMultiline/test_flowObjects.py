@@ -29,6 +29,7 @@ installStubs()
 
 from brlMultiline import flowObjects  # noqa: E402
 from brlMultiline.flow import Edge, ResultKind  # noqa: E402
+from brlMultiline.flowIndent import FOCUS_CELL  # noqa: E402
 from brlMultiline.flowControl import FlowController  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
 from brlMultiline.flowSources import FetchBudget  # noqa: E402
@@ -56,7 +57,14 @@ class FakeHandler:
 		self.buffer = None
 
 
-def controllerOver(items, at=0, numRows=4, adapter=None, budget=None) -> FlowController:
+def controllerOver(
+	items,
+	at=0,
+	numRows=4,
+	adapter=None,
+	budget=None,
+	lineFocus=False,
+) -> FlowController:
 	"""Build a flow over a run of objects, wired the way the band wires one.
 
 	Live, so the focused item shows a cursor, and moving nothing: the reading position here
@@ -69,6 +77,7 @@ def controllerOver(items, at=0, numRows=4, adapter=None, budget=None) -> FlowCon
 		numRows=numRows,
 		live=True,
 		movesCursor=False,
+		lineFocus=lineFocus,
 	)
 	control.enterAtCursor()
 	return control
@@ -79,32 +88,29 @@ def objectAt(control: FlowController, blockId):
 	return getattr(control.regionFor(blockId), "obj", None)
 
 
-class TestHowDeepAnObjectSits(unittest.TestCase):
-	"""Depth is taken from NVDA and drawn where a control reports it, and nowhere else."""
-
-	def test_aFlatRunHasNoDepth(self):
-		"""An ordinary list box reports no level, and today's flat reading must not move."""
-		items = fakeRun(["Apple", "Banana"])
-		source = sourceOver(items)
-		self.assertIsNone(source.blockAtCursor().block.depth)
+class TestWhatNvdaSaysAboutDepth(unittest.TestCase):
+	"""What the adapter reads, which is `positionInfo["level"]` and nothing invented."""
 
 	def test_aLevelIsReadFromPositionInfo(self):
 		items = fakeRun(["Inbox", "Archive"], role="TREEVIEWITEM", levels=[1, 2])
-		source = sourceOver(items, at=1)
-		self.assertEqual(source.blockAtCursor().block.depth, 2)
+		self.assertEqual(flowObjects.SIBLING_RUN.depthOf(items[1]), 2)
 
-	def test_aLevelOfZeroIsNotADepth(self):
+	def test_aFlatRunIsToldNothing(self):
+		"""An ordinary list box reports `indexInGroup` and no level at all."""
+		self.assertIsNone(flowObjects.SIBLING_RUN.depthOf(fakeRun(["Apple"])[0]))
+
+	def test_aLevelOfZeroIsNotALevel(self):
 		"""Some providers use 0 for "no level" instead of leaving the key out. Drawing that
 		as a depth would push a whole run in for nothing."""
 		items = fakeRun(["Inbox"], role="TREEVIEWITEM", levels=[0])
-		self.assertIsNone(sourceOver(items).blockAtCursor().block.depth)
+		self.assertIsNone(flowObjects.SIBLING_RUN.depthOf(items[0]))
 
-	def test_anUnreadableLevelIsNoDepth(self):
+	def test_anUnreadableLevelIsNotALevel(self):
 		items = fakeRun(["Inbox"], role="TREEVIEWITEM")
 		items[0].positionInfo = {"level": "deep"}
-		self.assertIsNone(sourceOver(items).blockAtCursor().block.depth)
+		self.assertIsNone(flowObjects.SIBLING_RUN.depthOf(items[0]))
 
-	def test_anObjectThatWillNotSayIsNoDepth(self):
+	def test_anObjectThatWillNotSayIsNotALevel(self):
 		items = fakeRun(["Inbox"], role="TREEVIEWITEM")
 
 		class Refuses:
@@ -113,9 +119,34 @@ class TestHowDeepAnObjectSits(unittest.TestCase):
 
 		type(items[0]).positionInfo = Refuses()
 		try:
-			self.assertIsNone(sourceOver(items).blockAtCursor().block.depth)
+			self.assertIsNone(flowObjects.SIBLING_RUN.depthOf(items[0]))
 		finally:
 			del type(items[0]).positionInfo
+
+
+class TestHowDeepAnObjectSits(unittest.TestCase):
+	"""What a run makes of NVDA's answer.
+
+	An item is in a structure by being in a run, so where NVDA reports no level the run says
+	the first one rather than none. It costs the display nothing — level 1 is the baseline
+	and the baseline is the left margin — and it buys the hanging indent on a wrapped row,
+	which the plan can only offer where there is a depth to hang relative to.
+	"""
+
+	def test_aLevelIsCarriedThrough(self):
+		items = fakeRun(["Inbox", "Archive"], role="TREEVIEWITEM", levels=[1, 2])
+		self.assertEqual(sourceOver(items, at=1).blockAtCursor().block.depth, 2)
+
+	def test_aFlatRunSitsAtTheFirstLevel(self):
+		items = fakeRun(["Apple", "Banana"])
+		self.assertEqual(sourceOver(items).blockAtCursor().block.depth, flowObjects.FIRST_LEVEL)
+
+	def test_soDoesOneWhoseLevelCannotBeRead(self):
+		"""Whether a control answers must not decide how its items are laid out: in one
+		Outlook message list one message wrapped with the hanging indent and the next did
+		not, because one of them had a level and the other had none."""
+		items = fakeRun(["Inbox"], role="TREEVIEWITEM", levels=[0])
+		self.assertEqual(sourceOver(items).blockAtCursor().block.depth, flowObjects.FIRST_LEVEL)
 
 	def test_anAdapterMaySayItselfHowDeepSomethingSits(self):
 		"""The reason `depthOf` is on the adapter: a control that knows its own shape better
@@ -131,8 +162,44 @@ class TestHowDeepAnObjectSits(unittest.TestCase):
 		adapter = dataclasses.replace(flowObjects.SIBLING_RUN, depthOf=explode)
 		items = fakeRun(["Inbox"], role="TREEVIEWITEM", levels=[2])
 		block = sourceOver(items, adapter=adapter).blockAtCursor().block
-		self.assertIsNone(block.depth)
+		self.assertEqual(block.depth, flowObjects.FIRST_LEVEL)
 		self.assertIn("Inbox", block.region.rawText)
+
+
+LONG_ITEM = "an item with a name far too long to fit on one row of this narrow band"
+
+
+class TestAWrappedItemInAFlatRun(unittest.TestCase):
+	"""A long item in an ordinary list, which is most of what a reader meets.
+
+	Both halves of this were reported from hardware in Outlook's message list, and both come
+	back to the same thing: whether the control happened to report `positionInfo["level"]`.
+	"""
+
+	def _control(self, numRows=4, lineFocus=False):
+		return controllerOver(fakeRun([LONG_ITEM]), numRows=numRows, lineFocus=lineFocus)
+
+	def _row(self, control, index):
+		cells = control.cells()
+		return cells[index * NUM_COLS : (index + 1) * NUM_COLS]
+
+	def test_theItemItselfStartsAtTheMargin(self):
+		"""A flat list is drawn flush left, exactly as it was before it had a depth at all."""
+		self.assertNotEqual(self._row(self._control(), 0)[0], 0)
+
+	def test_aWrappedRowHangsFurtherIn(self):
+		"""What was lost: with no level reported there was no depth, with no depth there was
+		no plan, and with no plan a continuation was drawn flush against the item above it.
+		In one message list one message hung its wrapped rows and the next did not."""
+		row = self._row(self._control(), 1)
+		self.assertEqual(row[:3], [0, 0, 0])
+		self.assertNotEqual(row[3], 0)
+
+	def test_theFocusMarkStaysOffTheHangingRows(self):
+		"""An item at the margin carries no mark, and its wrapped rows are not a second
+		chance at one. On hardware that was seven rows of one message with six marked — the
+		six being exactly the rows that were not the message's own first row."""
+		self.assertNotIn(FOCUS_CELL, self._control(lineFocus=True).cells())
 
 
 class TestDepthOnTheBand(unittest.TestCase):

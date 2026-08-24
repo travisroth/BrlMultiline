@@ -1250,6 +1250,13 @@ class FlowController(PanelOwner):
 		rows of the same item, and a hand running down the left margin should feel the whole
 		of what has the focus rather than its first row and then a gap.
 
+		Whether there is room is asked of the *item*, once, and not of each row. A wrapped row
+		carries more indent than its item does — that is what says it is a continuation rather
+		than a child — so asking per row marked the hanging rows of an item that sits at the
+		margin and left its first row bare. On hardware that was a message in Outlook's list:
+		seven rows of one item, six of them marked, and the marked ones were the six that were
+		not the item's own first row.
+
 		Rows too near the left margin to carry it are left alone. See `flowIndent.focusMark`.
 
 		:param cells: the assembled band, modified in place.
@@ -1258,13 +1265,21 @@ class FlowController(PanelOwner):
 			return
 		try:
 			rows = self.window.visibleRows()
+			block = self.window.blocks[self.window.blockIndex(self.activeBlockId)]
 		except LookupError:
+			return
+		mark = flowIndent.focusMark(self.renderer.indentPlan.cellsFor(block.depth))
+		if not mark:
 			return
 		numCols = self.renderer.numCols
 		for index, row in enumerate(rows):
 			if row.kind is not RowKind.CONTENT or row.blockId != self.activeBlockId:
 				continue
-			mark = flowIndent.focusMark(self._indentOfRow(row))
+			if self._indentOfRow(row) < len(mark):
+				# Belt and braces rather than policy: the plan the mark was measured by is the
+				# one the block was rendered under, so this cannot fire — and if it ever did,
+				# the mark would be sitting on a cell of the reader's text.
+				continue
 			for offset, cell in enumerate(mark):
 				cells[index * numCols + offset] = cell
 

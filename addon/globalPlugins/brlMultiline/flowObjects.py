@@ -88,6 +88,9 @@ itself none of these still bounds the walk, because the climb stops at the first
 that is not itself a tree item.
 """
 
+FIRST_LEVEL = 1
+"""The level an item of a run sits at when nothing says otherwise. See `_depthOf`."""
+
 MAX_TREE_DEPTH = 64
 """How far a walk may climb or descend before it decides the tree is lying to it.
 
@@ -1056,17 +1059,39 @@ class ObjectFlowSource:
 		)
 
 	def _depthOf(self, obj) -> Optional[int]:
-		""":return: how deep an object sits, or None if the adapter will not say.
+		"""How deep an object sits.
+
+		The adapter's answer, and **the first level of the run when it has none**. An item in
+		a run is in a structure by being in a run: a flat list is one level deep, not no
+		levels deep, and saying so costs it nothing on the display — level 1 is the baseline
+		and the baseline is the left margin, so a flat list still draws flush left exactly as
+		it did.
+
+		What it does buy is the hanging indent on a wrapped row, which `IndentPlan` can only
+		offer where there is a depth to hang relative to. Without this, whether a long item
+		wrapped with its continuations tucked in depended on whether the control happened to
+		report `positionInfo["level"]` — and on hardware, in one Outlook message list, one
+		message wrapped with the indent and the next did not. A reader cannot be asked to
+		read a layout that changes between two items of the same list.
+
+		A document is untouched by this: its blocks do not come through here, and prose that
+		has no depth still has none.
 
 		Asked once per block and never speculatively, like everything else in this source: it
 		can be a call into the application, and a run is walked one object at a time precisely
 		so that nothing is read that the reader will not see.
+
+		:param obj: the object a block is being built for.
+		:return: its one-based level.
 		"""
 		try:
-			return self.adapter.depthOf(obj)
+			told = self.adapter.depthOf(obj)
 		except Exception:
-			log.debugWarning(f"The {self.adapter.name} adapter could not say how deep an object sits", exc_info=True)
-			return None
+			log.debugWarning(
+				f"The {self.adapter.name} adapter could not say how deep an object sits", exc_info=True
+			)
+			told = None
+		return FIRST_LEVEL if told is None else told
 
 	def holds(self, obj) -> bool:
 		""":return: whether an object is part of the run this source is reading."""
