@@ -237,6 +237,38 @@ class TestDepthOnTheBand(unittest.TestCase):
 		control = controllerOver(items, numRows=3)
 		self.assertEqual(control.renderer.indentPlan.noteLevel, 8)
 
+	def test_aShallowRowThatHasLeftTheDisplayIsNotTheBaseline(self):
+		"""The band is the unit the indent is relative to, and the cache is wider than the
+		band: `_trim` keeps a window's worth either side, so a level 1 row that has scrolled
+		off the top is still in the window's list. Planning from the list kept it as the
+		baseline after it was gone — a band of level 8 rows indented four cells from a margin
+		standing for a level nothing on it had, and no note saying so."""
+		levels = [1] + [8, 9, 10] * 6
+		items = fakeRun([str(n) for n in range(len(levels))], role="TREEVIEWITEM", levels=levels)
+		control = controllerOver(items, numRows=3)
+		self.assertEqual(control.renderer.indentPlan.baseline, 1)
+		# One pan, so the level 1 row is off the band and still inside the cache margin. Two
+		# pans and it leaves the cache as well, which is why this went unnoticed: the band
+		# corrected itself a display later, and the wrong display was the one in the hands.
+		control.panForward()
+		self.assertNotIn(1, control._visibleDepths(list(control.window.blocks)))
+		self.assertIn(1, [block.depth for block in control.window.blocks])
+		self.assertEqual(control.renderer.indentPlan.baseline, 8)
+		self.assertEqual(control.renderer.indentPlan.noteLevel, 8)
+
+	def test_theShallowRowStillCountsWhileItIsOnTheDisplay(self):
+		"""The other half: leaving the cache out of it must not leave the band out of it."""
+		levels = [1, 8, 9]
+		items = fakeRun([str(n) for n in range(3)], role="TREEVIEWITEM", levels=levels)
+		control = controllerOver(items, numRows=3)
+		self.assertEqual(control.renderer.indentPlan.baseline, 1)
+
+	def test_aBlockOverSeveralRowsCountsOnce(self):
+		"""A block that wraps is one item at one depth however many rows it takes."""
+		items = fakeRun([LONG_ITEM, "b"], role="TREEVIEWITEM", levels=[4, 5])
+		control = controllerOver(items, numRows=6)
+		self.assertEqual(control._visibleDepths(list(control.window.blocks)), [4, 5])
+
 	def test_aRunOfOneDepthDoesNotRebaseWhilePanning(self):
 		"""The margin must not twitch while the reader arrows through items that are all
 		at the same level."""

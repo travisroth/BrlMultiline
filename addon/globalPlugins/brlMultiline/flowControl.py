@@ -334,7 +334,12 @@ class FlowController(PanelOwner):
 		rendered = list(self.window.blocks)
 		if not rendered:
 			return
-		depths = [block.depth for block in rendered]
+		depths = self._visibleDepths(rendered)
+		if not depths:
+			# Nothing on the band to plan for. The plan in force is left alone rather than
+			# reset: a band with no content rows says nothing about how deep anything is, and
+			# answering "flat" to that would redraw the reader's indent on no evidence.
+			return
 		numCols = self.renderer.numCols
 		if not flowIndent.shouldRebase(
 			self.renderer.indentPlan,
@@ -367,6 +372,42 @@ class FlowController(PanelOwner):
 		# A shallower baseline makes blocks shorter, which can leave the band short of rows.
 		# A deeper one only ever makes them taller, and the window trims its own surplus.
 		self._fillBothEnds()
+
+	def _visibleDepths(self, rendered) -> list[Optional[int]]:
+		"""The depths the reader can actually feel, in the order they are on the band.
+
+		The band is the unit indent is relative to — `flowIndent` says so, and the whole
+		point of a relative indent is that the shallowest thing *on the display* sits at the
+		left margin. The cache is wider than the display: `_trim` keeps a window's worth
+		either side, so a level 1 row that has scrolled off the top is still a block in the
+		window's list. Planning from the list rather than from the rows kept that row's depth
+		as the baseline after it was gone, which left a band of level 8 rows indented four
+		cells from a margin standing for a level nothing on it had, and no note saying so.
+
+		Each block once, however many rows it has: a block that wraps over three rows is one
+		item at one depth, and counting it three times would say nothing different.
+
+		:param rendered: the window's blocks, in reading order.
+		:return: one depth per visible block, `None` for those with none.
+		"""
+		try:
+			rows = self.window.visibleRows()
+		except LookupError:
+			return []
+		depths: list[Optional[int]] = []
+		seen: set[int] = set()
+		for row in rows:
+			if row.kind is not RowKind.CONTENT or row.blockId is None:
+				continue
+			try:
+				index = self.window.blockIndex(row.blockId)
+			except LookupError:
+				continue
+			if index in seen:
+				continue
+			seen.add(index)
+			depths.append(rendered[index].depth)
+		return depths
 
 	def _trim(self) -> None:
 		"""Keep the cache to the window and a margin either side.
