@@ -790,6 +790,12 @@ class FakeTreeInterceptor(CursorManager):
 		"""
 		if isinstance(position, str):
 			return self._position(self.caretIndex, self.caretOffset)
+		if position is getattr(self, "rootNVDAObject", None):
+			# A virtual buffer can place the object it was built over, and places it at the
+			# start of itself. Refusing to would be the kinder answer and the wrong one: it
+			# is what let a band read "at" the page and land on its first line while the
+			# reader was halfway down it.
+			return self._position(0)
 		index = getattr(position, "documentIndex", None)
 		if index is None:
 			raise LookupError(f"{position!r} is not in this document")
@@ -1578,6 +1584,11 @@ class FakeNavigatorObject:
 		self.caretIndex = 0
 		self.caretOffset = 0
 		self.treeInterceptor = treeInterceptor
+		if treeInterceptor is not None and getattr(treeInterceptor, "rootNVDAObject", None) is None:
+			# What NVDA does: a tree interceptor is built *over* an object and keeps it. The
+			# difference between belonging to a document and being inside one rests on this,
+			# and a stand-in without it could not tell a page from something on the page.
+			treeInterceptor.rootNVDAObject = self
 		self.isFocusable = False
 		self.hasFocus = False
 		self.focused = False

@@ -685,8 +685,24 @@ class FlowBand(PanelOwner):
 		return None
 
 	def _isIn(self, obj: Any, target: Any) -> bool:
-		""":return: whether an object is something inside the document being read."""
+		""":return: whether an object is something *inside* the document being read.
+
+		Inside, not merely belonging to it, and the difference is the document's own object.
+		A tree interceptor is built over one — `rootNVDAObject` — and that object's tree
+		interceptor is the target, so a plain membership test calls the page a thing inside
+		the page. What it is used for is `_arrival`: read at this object's own place rather
+		than at the cursor. The page's own place is the start of the page, so the band was
+		put at offset zero whenever the focus object was the document itself.
+
+		In browse mode the focus object *is* the document for as long as the reader is not on
+		a control, which is most of the time, so this was every rebuild that did not follow a
+		real focus change. It showed up when a table gave its band back: the layout was
+		released correctly and the reading that replaced it started at the top of the page
+		rather than where the reader was standing, and the next arrow key put it right.
+		"""
 		if obj is None or obj is target:
+			return False
+		if obj is getattr(target, "rootNVDAObject", None):
 			return False
 		try:
 			return getattr(obj, "treeInterceptor", None) is target

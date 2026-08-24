@@ -61,13 +61,15 @@ class TableBandTestCase(unittest.TestCase):
 		self.api = api
 		self.addCleanup(setattr, api, "getFocusObject", api.getFocusObject)
 
-	def _inTable(self, rows=None, tableID=1, row=2, col=1):
+	def _inTable(self, rows=None, tableID=1, row=2, col=1, lines=None, caretIndex=0):
 		document = FakeTableDocument(
 			[list(line) for line in (rows or WATCHLIST)],
 			tableID=tableID,
 			row=row,
 			col=col,
+			lines=lines,
 		)
+		document.caretIndex = caretIndex
 		obj = FakeNavigatorObject("a page", treeInterceptor=document)
 		self.api.getFocusObject = lambda: obj
 		self.band._follow()
@@ -283,6 +285,48 @@ class TestLeavingTheTableWithoutLeavingThePage(TableBandTestCase):
 		document.inTable = True
 		self.band.showObject(obj)
 		self.assertFalse(self._readingATable())
+
+
+class TestWhereTheBandLandsWhenTheTableIsDone(TableBandTestCase):
+	"""At the reader, and it was landing at the top of the page.
+
+	`_arrival` reads at an object's own place in the document rather than at the cursor,
+	which is right for a link or a field the reader has tabbed to. In browse mode the focus
+	object *is* the document for as long as the reader is not on a control, which is most of
+	the time — and the document's own place in the document is offset zero. So the reading
+	that replaced the table began at the top of the page, and the next arrow key put it
+	right, which is what "the display falls behind" looks like from the outside.
+	"""
+
+	PAGE = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+
+	def test_theBandLandsWhereTheReaderIs(self):
+		obj, document = self._inTable(lines=self.PAGE, caretIndex=6)
+		self.band.layOutTable()
+		document.inTable = False
+		self.band.recheck()
+		self.assertEqual(self.band.controller.window.blocks[0].rawText, "seven")
+
+	def test_notAtTheTopOfThePage(self):
+		"""The symptom as the reader met it: the band showed the table above the one they
+		had just walked out of."""
+		obj, document = self._inTable(lines=self.PAGE, caretIndex=6)
+		self.band.layOutTable()
+		document.inTable = False
+		self.band.recheck()
+		shown = [block.rawText for block in self.band.controller.window.blocks]
+		self.assertNotIn("one", shown)
+
+	def test_thePageItselfIsNotSomethingOnThePage(self):
+		"""The rule underneath, stated once: a tree interceptor is built over an object, and
+		that object is the document rather than a thing inside it."""
+		obj, document = self._inTable()
+		self.assertFalse(self.band._isIn(obj, document))
+
+	def test_somethingActuallyOnThePageStillIs(self):
+		obj, document = self._inTable()
+		field = FakeNavigatorObject("an edit", treeInterceptor=document)
+		self.assertTrue(self.band._isIn(field, document))
 
 
 class TestWalkingOutOfTheTable(TableBandTestCase):
