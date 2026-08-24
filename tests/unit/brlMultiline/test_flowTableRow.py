@@ -300,6 +300,46 @@ class TestSayingWhatARowDraws(unittest.TestCase):
 		self.assertEqual(row("AAPL").textForPositions([1 << 20]), "")
 
 
+class TestTheRowsOwnCursor(unittest.TestCase):
+	"""In the row's own position space, which is the packed one — the same space its drawn
+	positions and its routing are in, because that is the only space anything can match."""
+
+	def test_noCaretMeansNoCursor(self):
+		self.assertIsNone(row("AAPL", "182.50").brailleCursorPos)
+
+	def test_theCursorIsPackedLikeAPosition(self):
+		table = TableRow(
+			[RowCell(index=1, region=Region("AAPL")), RowCell(index=2, region=Region("1.00"))],
+			caretColumn=lambda: 2,
+		)
+		self.assertEqual(positionParts(table.brailleCursorPos), (2, 0))
+
+	def test_aColumnTheRowHasNotGotHasNoCursor(self):
+		"""A merged cell leaves a hole, and the caret cannot be in a cell that is not there."""
+		table = TableRow([RowCell(index=1, region=Region("AAPL"))], caretColumn=lambda: 3)
+		self.assertIsNone(table.brailleCursorPos)
+
+	def test_itIsAskedAgainOnEveryUpdate(self):
+		"""A row is re-read by NVDA at moments the source does not choose, so a cursor set
+		once and remembered is a cursor left where the caret used to be."""
+		where = [1]
+		table = TableRow(
+			[RowCell(index=1, region=Region("AAPL")), RowCell(index=2, region=Region("1.00"))],
+			caretColumn=lambda: where[0],
+		)
+		self.assertEqual(positionParts(table.brailleCursorPos)[0], 1)
+		where[0] = 2
+		table.update()
+		self.assertEqual(positionParts(table.brailleCursorPos)[0], 2)
+
+	def test_aCaretThatCannotBeAskedIsNoCursor(self):
+		def explode():
+			raise RuntimeError("gone")
+
+		table = TableRow([RowCell(index=1, region=Region("AAPL"))], caretColumn=explode)
+		self.assertIsNone(table.brailleCursorPos)
+
+
 class TestRoutingIntoAColumn(unittest.TestCase):
 	"""A finger lands on the band and the answer has to be a cell of the table."""
 

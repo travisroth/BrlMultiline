@@ -36,6 +36,7 @@ blank, and every other column stays where the reader's finger left it.
 """
 
 import dataclasses
+import functools
 from typing import Any, Optional
 
 import documentBase
@@ -44,7 +45,7 @@ from logHandler import log
 
 from .flow import BlockId, FetchResult, SourceBlock
 from .flowSources import FetchBudget
-from .flowTable import SEPARATOR_CELL, Measurement, RowCell, positionParts
+from .flowTable import SEPARATOR_CELL, Measurement, RowCell, cellPosition, positionParts
 
 UNIT = "row"
 """What a block is here, for the log and for the dry run's report."""
@@ -169,7 +170,7 @@ class TableRow(Region):
 	together as one line, which is reading order and is the default a table gets.
 	"""
 
-	def __init__(self, cells, separator: str = "  ", obj=None) -> None:
+	def __init__(self, cells, separator: str = "  ", obj=None, caretColumn=None) -> None:
 		"""
 		:param cells: the row's cells, in the table's own column order.
 		:param separator: what goes between them in the flat reading. Two spaces, which is
@@ -182,12 +183,17 @@ class TableRow(Region):
 			no `recheck`, so the band could not notice the reader had walked out of the
 			table either. It sat on the first table it was given until NVDA redrew for some
 			other reason.
+		:param caretColumn: asked, on each update, which column of *this* row the caret is
+			in, or None for a row it is not on. Asked rather than told because a row is
+			re-read by NVDA at moments this source does not choose, and a cursor set once
+			and remembered is a cursor that stays where the caret used to be.
 		"""
 		super().__init__()
 		self.cells = tuple(cells)
 		self.separator = separator
 		self.hidden = False
 		self.obj = obj
+		self.caretColumn = caretColumn
 		self.update()
 
 	def cellFor(self, index: int):
@@ -236,6 +242,35 @@ class TableRow(Region):
 		self.brailleCells = brailleCells
 		self.rawToBraillePos = rawToBraillePos
 		self.brailleToRawPos = brailleToRawPos
+		self.brailleCursorPos = self._caretPosition()
+
+	def _caretPosition(self):
+		"""Where to draw the cursor in this row, in this region's own position space.
+
+		**Packed, not an index into `brailleCells`**, which is what `brailleCursorPos`
+		usually is. This region's positions are packed — which column, and where in it — and
+		the cursor has to be in the same space as them or nothing can find it: the flow looks
+		for the band cell whose position equals this one, and the flat reading's indices name
+		cells of a row nobody is looking at. Nothing hands this number to NVDA's own cursor
+		arithmetic, because the band computes its own cursor from the drawn rows.
+
+		At the start of the cell rather than at the character the caret is on. What the
+		reader lost and asked for is *which cell*, the offset inside it is not something
+		`_getTableCellCoords` reports, and working it out would mean measuring the caret
+		against the cell's own start on every redraw.
+
+		:return: the packed position, or None if the caret is not on this row.
+		"""
+		if self.caretColumn is None:
+			return None
+		try:
+			column = self.caretColumn()
+		except Exception:
+			log.debugWarning("Could not tell which cell the caret is in", exc_info=True)
+			return None
+		if column is None or self.cellFor(column) is None:
+			return None
+		return cellPosition(column, 0)
 
 	def textForPositions(self, positions) -> str:
 		"""What a run of drawn positions reads as, for the log and the dry run.
@@ -481,6 +516,11 @@ class TableFlowSource:
 		""":return: the row the reader is on, as this source last knew it."""
 		return self.handle.row
 
+	@property
+	def column(self) -> int:
+		""":return: the column the reader is on, as this source last knew it."""
+		return self.handle.col
+
 	def moveTo(self, handle: TableHandle) -> None:
 		"""Say where in the table the reader has moved to.
 
@@ -565,12 +605,24 @@ class TableFlowSource:
 			region = cellRegion(self.handle, row, column, live=self.live)
 			if region is not None:
 				cells.append(RowCell(index=column, region=region))
-		content = TableRow(cells, obj=self.handle.document)
+		content = TableRow(
+			cells,
+			obj=self.handle.document,
+			caretColumn=functools.partial(self._caretColumn, row),
+		)
 		return SourceBlock(
 			blockId=BlockId(generation=self.generation, bookmark=row, unit=self.unit),
 			region=content,
 			isBlank=not content.rawText.strip(),
 		)
+
+	def _caretColumn(self, row: int):
+		""":return: which column the caret is in on one row of the table, or None.
+
+		None for every row but the one it is on, which is what stops each of a bandful of
+		rows claiming the cursor.
+		"""
+		return self.handle.col if row == self.handle.row else None
 
 	def forget(self) -> None:
 		"""Kept for the shape of a source. There is nothing cached here to drop."""

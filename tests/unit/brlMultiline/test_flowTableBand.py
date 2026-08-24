@@ -287,6 +287,58 @@ class TestLeavingTheTableWithoutLeavingThePage(TableBandTestCase):
 		self.assertFalse(self._readingATable())
 
 
+class TestTheCursorSaysWhichCell(TableBandTestCase):
+	"""Speech says which cell the reader is in. Braille had stopped saying it at all.
+
+	The cursor is the whole of the answer here: the columns say where a value sits and the
+	cursor says which of them the reader is standing in. Without it a table read beautifully
+	and gave no way to tell, so every check of "where am I" went back to speech — which is
+	the thing reading spatially exists to make unnecessary.
+	"""
+
+	def test_theCursorIsOnTheCellTheCaretIsIn(self):
+		self._inTable(row=2, col=1)
+		self.band.layOutTable()
+		plan = self.band.controller.renderer.columnPlan
+		self.assertEqual(self.band.controller.cursorCell(), plan.placements()[0].offset)
+
+	def test_itMovesAlongTheRow(self):
+		"""What the arrow keys do inside a table, and what watching only the row missed."""
+		obj, document = self._inTable(row=2, col=1)
+		self.band.layOutTable()
+		document.col = 3
+		self.band.recheck()
+		plan = self.band.controller.renderer.columnPlan
+		self.assertEqual(self.band.controller.cursorCell(), plan.placements()[2].offset)
+
+	def test_itMovesDownTheColumn(self):
+		obj, document = self._inTable(row=2, col=2)
+		self.band.layOutTable()
+		before = self.band.controller.cursorCell()
+		document.row = 3
+		self.band.recheck()
+		after = self.band.controller.cursorCell()
+		self.assertIsNotNone(after)
+		self.assertNotEqual(after, before)
+
+	def test_itIsOnTheRowTheCaretIsOnAndNoOther(self):
+		"""Each row of a bandful would otherwise claim the cursor."""
+		obj, document = self._inTable(row=2, col=1)
+		self.band.layOutTable()
+		control = self.band.controller
+		cursors = []
+		for block in control.window.blocks:
+			region = control.regionFor(block.blockId)
+			cursors.append(region.brailleCursorPos)
+		self.assertEqual(len([at for at in cursors if at is not None]), 1)
+
+	def test_thereIsACursorAtAll(self):
+		"""The report, in one assertion: braille had no indicator of the cell."""
+		self._inTable()
+		self.band.layOutTable()
+		self.assertIsNotNone(self.band.controller.cursorCell())
+
+
 class TestWhereTheBandLandsWhenTheTableIsDone(TableBandTestCase):
 	"""At the reader, and it was landing at the top of the page.
 

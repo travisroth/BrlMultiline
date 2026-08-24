@@ -538,8 +538,12 @@ class FlowBand(PanelOwner):
 			self.tableWanted = None
 			self._rebuildTable()
 			return
-		if found.row == source.row:
+		if (found.row, found.col) == (source.row, source.column):
 			return
+		# The column as well as the row. Moving along a row is a move the reader makes
+		# constantly — it is what the arrow keys do inside a table — and it is what decides
+		# which cell shows the cursor. Watching only the row left the cursor on the cell they
+		# entered the row at for as long as they stayed in it.
 		source.moveTo(found)
 		self._rechecking = True
 		try:
