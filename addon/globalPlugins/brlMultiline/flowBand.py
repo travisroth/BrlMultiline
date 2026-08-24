@@ -30,9 +30,10 @@ from typing import TYPE_CHECKING, Any, Optional
 import api
 from logHandler import log
 
-from . import bmConfig, flowForms, flowObjects, flowQuickNav
+from . import bmConfig, flowForms, flowObjects, flowQuickNav, flowTableSource
 from .flowControl import FlowController
 from .flowBuild import (
+	buildTableController,
 	bandSize,
 	buildController,
 	describeObject,
@@ -94,6 +95,15 @@ class FlowBand(PanelOwner):
 
 		self._settleTimer = None
 		"""The pending settle pass, so a fresh keystroke can restart it. See L{_scheduleSettle}."""
+
+		self.tableWanted: Any = None
+		"""The table the reader has asked to see in columns, by its own identifier.
+
+		None means every table reads as the page around it does, which is reading order and is
+		the default. See `layOutTable`, and decision 19 of the structured presentation plan:
+		the end state is a layout remembered against a table, and this is the command that
+		exists before that and remains the escape hatch after it.
+		"""
 
 	# The claim.
 
@@ -250,7 +260,11 @@ class FlowBand(PanelOwner):
 		:return: whether a flow is showing afterwards.
 		"""
 		obj = self._target()
-		if not self.isFlowable(obj):
+		# A table the reader has asked to lay out goes through whatever the flow settings say
+		# about the document it is in. They asked for this table by name, which is more
+		# specific than any setting about browse mode in general, and `showObject` drops the
+		# request the moment they are somewhere else.
+		if self.tableWanted is None and not self.isFlowable(obj):
 			# `refresh` follows a rebuild. NVDA has already drawn the current focus into the
 			# new segment, and clearing it here would leave a claimed but inactive band blank.
 			# Forget a controller from the previous container while preserving that freshly
@@ -274,6 +288,15 @@ class FlowBand(PanelOwner):
 		focus change went on showing the field the reader had left.
 		"""
 		if self._rechecking or self.controller is None:
+			return
+		if self._readingATable():
+			# A table is followed by `_showTable`, which asks the source whether the reader is
+			# still in the table it was built for. The comparison below cannot answer that: it
+			# asks whether the object the reader is on resolves to the thing the source is
+			# reading, and for a table those are two different things by design — the source
+			# reads the document, and the reader is on a cell inside it. Left to itself this
+			# rebuilt the flow on every redraw, which remade the column plan on every redraw,
+			# which is the one thing a column layout must never do.
 			return
 		if self._runHasChangedShape():
 			return
@@ -382,6 +405,9 @@ class FlowBand(PanelOwner):
 		segment = self.segment()
 		if segment is None:
 			return False
+		shown = self._showTable(obj, segment, force=force)
+		if shown is not None:
+			return shown
 		if not self.isFlowable(obj):
 			# Not something this flow is built for. The band goes back to being an ordinary
 			# segment and NVDA presents the focus in it as it always has.
@@ -445,6 +471,88 @@ class FlowBand(PanelOwner):
 		self.controller = control
 		self.obj = obj
 		flowQuickNav.forget()
+		segment.attach(control, obj=control.source.obj)
+		return True
+
+	# Tables.
+
+	def layOutTable(self) -> bool:
+		"""Read the table the reader is in as columns, if they are in one.
+
+		:return: whether there was a table to lay out.
+		"""
+		handle = flowTableSource.tableAt(self._target())
+		if handle is None:
+			return False
+		self.tableWanted = handle.tableID
+		self.refresh(force=True)
+		return self.controller is not None and self._readingATable()
+
+	def clearTable(self) -> bool:
+		"""Go back to reading the table the way the page around it is read.
+
+		:return: whether anything was being laid out.
+		"""
+		if self.tableWanted is None:
+			return False
+		self.tableWanted = None
+		self.refresh(force=True)
+		return True
+
+	def _readingATable(self) -> bool:
+		""":return: whether the band is showing a table laid out in columns."""
+		source = getattr(self.controller, "source", None)
+		return isinstance(source, flowTableSource.TableFlowSource)
+
+	def _showTable(self, obj: Any, segment, force: bool = False) -> Optional[bool]:
+		"""Show the reader's table in columns, or say that this is not the moment to.
+
+		Answers None rather than False when there is no table to lay out, because None means
+		"not mine" and False would mean "mine, and there is nothing to show" — which would
+		leave the reader with a blank band on every page that is not a table.
+
+		**The layout is dropped the moment the reader leaves the table.** Easy Table Navigator
+		clears its key bindings on every focus change for the same reason. A watchlist's
+		columns carried onto the next page are worse than no columns, because they are a
+		layout of something that is not there, and the reader has no way to tell that is what
+		they are feeling.
+
+		:param obj: what the reader is now on.
+		:param segment: the band's segment.
+		:param force: rebuild even when the table has not changed.
+		:return: whether a flow is showing, or None if this is not a table to lay out.
+		"""
+		if self.tableWanted is None:
+			return None
+		handle = flowTableSource.tableAt(obj)
+		if handle is None or not flowTableSource._sameTable(handle.tableID, self.tableWanted):
+			self.tableWanted = None
+			return None
+		if not force and self._readingATable() and self.controller.source.isStillHere(obj):
+			# The same table. The caret has moved between its cells, which is a move within
+			# what is already being read rather than an arrival somewhere new.
+			self.obj = obj
+			self.controller.source.setCurrent(obj)
+			self.controller.followCursor()
+			segment.refresh()
+			return True
+		numRows, numCols = self._bandSize(segment)
+		control = buildTableController(
+			obj=obj,
+			numRows=numRows,
+			numCols=numCols,
+			handler=self._handler(),
+			live=True,
+			generation=next(_generations),
+		)
+		if control is None:
+			# Recognised a moment ago and not now, or no column layout fits this band. Reading
+			# order is a good answer to both, so the request is dropped rather than held on to
+			# in the hope that the next redraw goes better.
+			self.tableWanted = None
+			return None
+		self.controller = control
+		self.obj = obj
 		segment.attach(control, obj=control.source.obj)
 		return True
 

@@ -31,7 +31,7 @@ from braille.regions.focus import getFocusRegions
 from braille.regions.textInfo import TextInfoRegion
 from logHandler import log
 
-from . import bmConfig, flowForms, flowObjects
+from . import bmConfig, flowForms, flowObjects, flowTable, flowTableSource
 from .flowControl import FlowController
 from .flowRender import FlowRenderer
 from .flowSources import (
@@ -273,6 +273,84 @@ def _objectController(
 		result = control.lastResult
 		kind = getattr(getattr(result, "kind", None), "value", "no answer")
 		notes.append(f"The run gave nothing to read: {kind} {getattr(result, 'message', '')}")
+		return None
+	return control
+
+
+def buildTableController(
+	obj: Optional["NVDAObject"] = None,
+	numRows: int = DEFAULT_ROWS,
+	numCols: int = DEFAULT_COLS,
+	handler=None,
+	live: bool = False,
+	generation: int = 0,
+	maxRows: Optional[int] = None,
+	notes: Optional[list] = None,
+) -> Optional[FlowController]:
+	"""Build a flow that reads the table the reader is in, laid out in columns.
+
+	Separate from `buildController` rather than a branch inside it, because it answers a
+	different question. `buildController` asks "what is here and how is it read"; this is
+	asked only when the reader has said "read *this* in columns", and if they are not in a
+	table the answer is no rather than some other reading — the caller has an ordinary flow
+	to fall back to and does not want a second guess at it.
+
+	The order matters and is the whole of the arrangement: recognise the table, measure a
+	bandful of it, decide the columns from the measurements, and only then build a source
+	that fetches exactly those columns. Measuring after planning would need the plan it is
+	for, and fetching before planning would read columns the plan then dropped.
+
+	:param obj: what the reader is on. Defaults to the focus.
+	:param numRows: the height of the band.
+	:param numCols: its width, which is what the columns are fitted into.
+	:param handler: the braille handler the renderer lays out through.
+	:param live: whether the flow may move the real cursor.
+	:param generation: distinguishes this reading from an earlier one.
+	:param maxRows: how many band rows one table row may use. The reader's setting.
+	:param notes: a list to record each step in, so that a failure says which step failed.
+	:return: the controller, or None if the reader is not in a table this can lay out.
+	"""
+	if notes is None:
+		notes = []
+	if obj is None:
+		obj = api.getFocusObject()
+	handle = flowTableSource.tableAt(obj)
+	if handle is None:
+		notes.append("Not in a table, or the table is one NVDA presents as page layout.")
+		return None
+	notes.append(f"Reading a table: {handle!r}")
+	measured = flowTableSource.measure(handle, live=False)
+	plan = flowTable.planFor(
+		measured,
+		numCols,
+		maxRows=bmConfig.tableRowHeight() if maxRows is None else maxRows,
+	)
+	if plan.isEmpty:
+		notes.append("No column layout fits this table on this band.")
+		return None
+	notes.append(f"Columns: {flowTable.describe(plan)}")
+	source = flowTableSource.TableFlowSource(
+		handle,
+		columns=tuple(column.index for column in plan.columns),
+		generation=generation,
+		budget=budgetForBand(numRows),
+		live=live,
+	)
+	renderer = FlowRenderer(handler, numCols=numCols, fillRows=True, columnPlan=plan)
+	control = FlowController(
+		source,
+		renderer,
+		numRows=numRows,
+		live=live,
+		# A table row is a place, not a selection: the reader arrives at one by moving the
+		# caret, and panning past it is reading rather than moving. The same answer a run of
+		# objects gives, for the same reason.
+		movesCursor=False,
+		indentStyle=bmConfig.flowIndentStyle(),
+		lineFocus=bmConfig.shouldMarkLineFocus(),
+	)
+	if not control.enterAtCursor():
+		notes.append("The table was recognised but its first row could not be read.")
 		return None
 	return control
 

@@ -26,6 +26,7 @@ from logHandler import log
 
 from .flowIndent import DEFAULT_STYLE as DEFAULT_INDENT_STYLE
 from .flowIndent import INDENT_STYLES
+from . import flowTable
 
 CONFIG_SECTION = "BrlMultiline"
 
@@ -99,6 +100,7 @@ configSpec = {
 			"flowWriteByParagraph": "boolean(default=True)",
 			"flowIndentStyle": f'option({INDENT_STYLE_OPTIONS}, default="{DEFAULT_INDENT_STYLE}")',
 			"flowLineFocus": "boolean(default=True)",
+			"flowTableRowHeight": f"integer(default={flowTable.DEFAULT_MAX_ROWS}, min=1, max={flowTable.MAX_TABLE_ROWS})",
 			**{
 				flowModeKey(mode): f"boolean(default={FLOW_MODE_DEFAULTS.get(mode, False)})"
 				for mode in FLOW_MODES
@@ -147,6 +149,7 @@ configSpec = {
 	the row has: two spaces on a Monarch's 32 is a different proposition from two on 80.
 - `flowLineFocus`: whether the row the focus is on is marked at the left margin where its
 	indent has room for the mark.
+- `flowTableRowHeight`: how many rows of the band one row of a table may use.
 
 Everything above is read through `config.conf`, which is profile aware, so all of it can
 differ per configuration profile. That matters most for the flow: a profile triggered by
@@ -499,6 +502,25 @@ def shouldMarkLineFocus(displayKey: str | None = None) -> bool:
 	except Exception:
 		log.debugWarning("Could not read flowLineFocus", exc_info=True)
 		return True
+
+
+def tableRowHeight(displayKey: str | None = None) -> int:
+	""":return: how many rows of the band one row of a table may use.
+
+	One by default. The comparison a table is for is between rows, and rows the reader can
+	hold under one hand at once: eight one-row records beat two four-row ones for every
+	question a watchlist is asked. Raising it is what a reader does when a column they need
+	whole will not fit, and the alternative to raising it is hiding a column.
+
+	See `flowTable.planFor`, which does the fitting, and `flowTable.MAX_TABLE_ROWS`, which is
+	where this stops being a table and reading order becomes the better answer.
+	"""
+	try:
+		wanted = int(getDisplayConfig(displayKey)["flowTableRowHeight"])
+	except Exception:
+		log.debugWarning("Could not read flowTableRowHeight", exc_info=True)
+		return flowTable.DEFAULT_MAX_ROWS
+	return max(1, min(wanted, flowTable.MAX_TABLE_ROWS))
 
 
 def isSpeechOutputMode() -> bool:

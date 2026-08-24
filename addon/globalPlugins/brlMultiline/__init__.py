@@ -1261,6 +1261,59 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		description=_("Reports what the flow on the display has cost, and copies the detail"),
 		category=SCRIPT_CATEGORY,
 	)
+	@script(
+		# Translators: input help message for a command.
+		description=_("Lays the table you are in out in columns on the braille display"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_flowTableColumns(self, gesture):
+		"""Read the table the reader is in as columns, or stop.
+
+		A command rather than something that happens by itself, and the reason is not effort.
+		Most tables on a web page are not tables of data — they are how the page is laid out —
+		and turning those into columns would wreck pages that read perfectly well today. NVDA
+		declines to call a layout table a table at all unless the reader has said otherwise,
+		which is most of the protection, and a command the reader presses is the rest of it.
+
+		It is also one keystroke to undo, which is what makes a layout that comes out wrong
+		cost nothing. The end state is a layout remembered against the table so that a
+		watchlist comes up laid out; this is what exists before that, and it stays afterwards
+		as the way to say "not this one" and "this one too".
+		"""
+		band = self.flowBand
+		if band is None or not band.isShowing():
+			# Translators: reported when a command needs a flow on the display and there is none.
+			ui.message(_("No flow is showing"))
+			return
+		if band.tableWanted is not None:
+			band.clearTable()
+			# Translators: reported when a table stops being laid out in columns.
+			ui.message(_("Table columns off"))
+			return
+		if not band.layOutTable():
+			# Translators: reported when a command needs the cursor to be in a table.
+			ui.message(_("Not in a table"))
+			return
+		control = band.controller
+		plan = getattr(getattr(control, "renderer", None), "columnPlan", None)
+		columns = len(plan.columns) if plan is not None else 0
+		if plan is not None and plan.dropped:
+			ui.message(
+				# Translators: reported when a table is laid out in columns but some of them
+				# did not fit. Placeholders are, in order, how many columns are shown and how
+				# many there was no room for.
+				_("Table columns on, {shown} shown, no room for {missing}").format(
+					shown=columns,
+					missing=len(plan.dropped),
+				),
+			)
+			return
+		ui.message(
+			# Translators: reported when a table is laid out in columns. The placeholder is
+			# how many columns are shown.
+			_("Table columns on, {shown} columns").format(shown=columns),
+		)
+
 	def script_flowCost(self, gesture):
 		"""Say what the flow has cost, and write the detail to the log.
 
@@ -1343,7 +1396,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		else:
 			# Translators: reported when a diagnostic could not reach the clipboard and is
 			# in the log instead. The placeholder is the number of lines written.
-			ui.message(_("Clipboard refused it; flow dry run in the log, {count} lines").format(count=len(lines)))
+			ui.message(
+				_("Clipboard refused it; flow dry run in the log, {count} lines").format(count=len(lines))
+			)
 		log.debug(verdict)
 
 	@script(

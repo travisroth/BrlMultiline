@@ -114,9 +114,7 @@ def describeLineFocus(control) -> str:
 		log.debugWarning("Could not read the band to look for the focus mark", exc_info=True)
 		return "on, but the band could not be read."
 	wanted = [FOCUS_CELL] * FOCUS_WIDTH
-	marked = [
-		row for row in range(len(cells) // numCols) if cells[row * numCols :][:FOCUS_WIDTH] == wanted
-	]
+	marked = [row for row in range(len(cells) // numCols) if cells[row * numCols :][:FOCUS_WIDTH] == wanted]
 	if marked:
 		return f"on, marked on {'rows' if len(marked) > 1 else 'row'} {', '.join(map(str, marked))}."
 	return "on, but nothing is marked: the focused row is at the margin, with no room for it."
@@ -247,10 +245,7 @@ def describeIndent(control: FlowController) -> str:
 			return "none drawn; nothing on the band reports a depth."
 		return f"none drawn, though depths {min(depths)} to {max(depths)} are on the band."
 	note = f", margin stands for level {plan.noteLevel}" if plan.noteLevel else ""
-	return (
-		f"{plan.style}, level {plan.baseline} at the margin, "
-		f"up to {plan.maxLevels} levels drawn{note}."
-	)
+	return f"{plan.style}, level {plan.baseline} at the margin, up to {plan.maxLevels} levels drawn{note}."
 
 
 def describeCost(control: FlowController) -> list[str]:
