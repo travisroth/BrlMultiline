@@ -229,20 +229,66 @@ class TableRow(Region):
 		self.rawToBraillePos = rawToBraillePos
 		self.brailleToRawPos = brailleToRawPos
 
+	def textForPositions(self, positions) -> str:
+		"""What a run of drawn positions reads as, for the log and the dry run.
+
+		Column by column, and only as much of each column as was drawn — which is the point.
+		A truncated column is the reader's whole complaint about a table too wide for the
+		band, and a report that showed the text a column *holds* rather than the text it
+		*shows* could not be used to check the widths at all.
+
+		:param positions: the packed positions on one drawn row, padding already dropped.
+		:return: the row as it reads, cells separated as they are in the flat reading.
+		"""
+		runs: list[tuple[int, list[int]]] = []
+		for position in positions:
+			column, offset = positionParts(position)
+			if self.cellFor(column) is None:
+				continue
+			if not runs or runs[-1][0] != column:
+				runs.append((column, []))
+			runs[-1][1].append(offset)
+		return self.separator.join(
+			_sliceByBraille(self.cellFor(column).region, offsets) for column, offsets in runs
+		)
+
 	def routeTo(self, braillePos: int) -> None:
 		"""Put the cursor where a finger landed.
 
 		:param braillePos: a packed position from a drawn row. See `flowTable.cellPosition`.
 		"""
-		ordinal, offset = positionParts(braillePos)
-		if not 0 <= ordinal < len(self.cells):
+		column, offset = positionParts(braillePos)
+		cell = self.cellFor(column)
+		if cell is None:
 			return
-		route = getattr(self.cells[ordinal].region, "routeTo", None)
+		route = getattr(cell.region, "routeTo", None)
 		if route is not None:
 			route(offset)
 
 	def __repr__(self) -> str:
 		return f"<TableRow {len(self.cells)} cells>"
+
+
+def _sliceByBraille(region, positions) -> str:
+	""":return: the text a run of one region's braille positions stands for.
+
+	Through the region's own `brailleToRawPos`, which is where contraction is accounted for:
+	six cells of a contracted word are not six characters, and slicing the text by cell count
+	would report something the reader is not feeling.
+	"""
+	text = getattr(region, "rawText", "") or ""
+	if not text or not positions:
+		return ""
+	mapping = getattr(region, "brailleToRawPos", None)
+	if not mapping:
+		return text[positions[0] : positions[-1] + 1]
+	try:
+		start = mapping[positions[0]]
+		after = positions[-1] + 1
+		end = mapping[after] if after < len(mapping) else len(text)
+	except IndexError:
+		return text
+	return text[start:end]
 
 
 def _readCell(region) -> tuple:
@@ -426,6 +472,17 @@ class TableFlowSource:
 	def row(self) -> int:
 		""":return: the row the reader is on, as this source last knew it."""
 		return self.handle.row
+
+	def moveTo(self, handle: TableHandle) -> None:
+		"""Say where in the table the reader has moved to.
+
+		Takes the handle rather than looking it up, because the caller that notices the move
+		has just looked it up to notice it, and `_getTableCellCoords` is a read of the
+		document's fields — the kind of cost that is fine once per redraw and not fine twice.
+
+		:param handle: where they are now, in the same table.
+		"""
+		self.handle = handle
 
 	def setCurrent(self, obj) -> None:
 		"""Say where the reader has moved to.

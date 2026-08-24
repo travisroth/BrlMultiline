@@ -181,6 +181,53 @@ class TestTurningItOff(TableBandTestCase):
 		self.assertFalse(self.band.clearTable())
 
 
+class TestWalkingOutOfTheTable(TableBandTestCase):
+	"""In browse mode the caret moves without the focus moving.
+
+	The focus object stays the document, so no focus change is reported and `showObject` is
+	never called. On hardware the reader read a table, navigated up to a heading well above
+	it, and the band went on showing the table — because `recheck`, the one thing called
+	before every redraw, had been told to leave tables alone.
+
+	It was right that `recheck`'s own comparison cannot answer a question about a table. It
+	was wrong to stop there rather than ask the question a table *can* answer.
+	"""
+
+	def test_theCaretLeavingTheTableGivesTheLayoutBack(self):
+		obj, document = self._inTable()
+		self.band.layOutTable()
+		document.rows = []
+		self.band.recheck()
+		self.assertIsNone(self.band.tableWanted)
+		self.assertFalse(self._readingATable())
+
+	def test_theCaretMovingWithinTheTableIsFollowed(self):
+		"""And the other half: nothing else follows a caret through a table, so if `recheck`
+		does not, the band shows the row the reader entered on for as long as they stay."""
+		obj, document = self._inTable(row=2)
+		self.band.layOutTable()
+		document.row = 4
+		self.band.recheck()
+		self.assertEqual(self.band.controller.source.row, 4)
+
+	def test_stayingStillCostsNoRedraw(self):
+		"""`recheck` runs before every redraw. Following a caret that has not moved would
+		redraw the band on every one of them."""
+		obj, document = self._inTable(row=2)
+		self.band.layOutTable()
+		before = self.band.controller.window.anchor
+		self.band.recheck()
+		self.assertIs(self.band.controller.window.anchor, before)
+
+	def test_thePlanSurvivesTheCaretMoving(self):
+		obj, document = self._inTable(row=2)
+		self.band.layOutTable()
+		plan = self.band.controller.renderer.columnPlan
+		document.row = 3
+		self.band.recheck()
+		self.assertIs(self.band.controller.renderer.columnPlan, plan)
+
+
 class TestTheLayoutDoesNotOutliveTheTable(TableBandTestCase):
 	"""The state a reader cannot see, and the one that goes wrong."""
 

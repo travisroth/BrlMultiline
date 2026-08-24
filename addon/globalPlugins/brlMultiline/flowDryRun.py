@@ -33,6 +33,7 @@ from logHandler import log
 from . import flowForms
 from .flowBuild import bandSize, buildController, describeObject
 from .flowControl import FlowController
+from . import flowTable
 from .flowIndent import FOCUS_CELL, FOCUS_WIDTH
 
 if TYPE_CHECKING:
@@ -78,6 +79,9 @@ def liveReport(band) -> list[str]:
 		lines.append(f"Band anchor: entered from the {entry}, at row {anchor.rowIndex} of its block")
 	lines.append(f"Band indent: {describeIndent(control)}")
 	lines.append(f"Band line focus: {describeLineFocus(control)}")
+	plan = getattr(getattr(control, "renderer", None), "columnPlan", None)
+	if plan is not None and not plan.isEmpty:
+		lines.append(f"Band columns: {flowTable.describe(plan)}")
 	lines.append(f"Band direction: {getattr(control, 'lastDirection', 'unknown')}")
 	# Every move, in order, because the direction test's verdict on its own was misleading:
 	# on the report that located the last bug the verdict was right while the placement was

@@ -81,6 +81,16 @@ def rowText(region, rendered, rowIndex: int) -> str:
 	positions = [where for where in rendered.positions[localRow] if where != NO_POSITION]
 	if not positions:
 		return ""
+	own = getattr(region, "textForPositions", None)
+	if own is not None:
+		# A region whose positions are not offsets into one run of text answers for itself.
+		# A table row is the case: its cells come from different places, so its positions
+		# carry which column as well as where in it, and read as offsets they are enormous
+		# numbers that fall off the end of any map. This function then returned the row's
+		# whole flat text for every row of it — so the report showed a reader the full
+		# contents of columns their display was truncating, which is the opposite of what a
+		# report is for.
+		return own(positions)
 	mapping = getattr(region, "brailleToRawPos", None)
 	if not mapping:
 		return raw[positions[0] : positions[-1] + 1]

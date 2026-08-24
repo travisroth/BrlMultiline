@@ -1297,23 +1297,33 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return
 		control = band.controller
 		plan = getattr(getattr(control, "renderer", None), "columnPlan", None)
-		columns = len(plan.columns) if plan is not None else 0
-		if plan is not None and plan.dropped:
-			ui.message(
-				# Translators: reported when a table is laid out in columns but some of them
-				# did not fit. Placeholders are, in order, how many columns are shown and how
-				# many there was no room for.
-				_("Table columns on, {shown} shown, no room for {missing}").format(
-					shown=columns,
-					missing=len(plan.dropped),
-				),
-			)
+		if plan is None:
+			# Translators: reported when a table is laid out in columns.
+			ui.message(_("Table columns on"))
 			return
-		ui.message(
+		# What it cost is said, not only that it worked. A column narrower than its content
+		# cuts every one of its cells at the same place, which is what makes the shape down
+		# the display readable and also what leaves the reader feeling clipped words with
+		# nothing to say they are clipped. Three columns of real text on a thirty-two cell
+		# band is the ordinary case for it, not the extreme one.
+		said = [
 			# Translators: reported when a table is laid out in columns. The placeholder is
 			# how many columns are shown.
-			_("Table columns on, {shown} columns").format(shown=columns),
-		)
+			_("Table columns on, {shown} columns").format(shown=len(plan.columns)),
+		]
+		if plan.narrowed:
+			said.append(
+				# Translators: reported after the above when some columns are too narrow for
+				# what they hold. The placeholder is how many columns are cut.
+				_("{cut} cut to fit").format(cut=len(plan.narrowed)),
+			)
+		if plan.dropped:
+			said.append(
+				# Translators: reported after the above when some columns did not fit at all.
+				# The placeholder is how many columns there was no room for.
+				_("no room for {missing}").format(missing=len(plan.dropped)),
+			)
+		ui.message(", ".join(said))
 
 	@script(
 		# Translators: input help message for a command.

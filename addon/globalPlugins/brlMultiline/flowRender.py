@@ -211,7 +211,7 @@ class FlowRenderer:
 		rows = [[BLANK_CELL] * plan.numCols for _ in range(plan.numRows)]
 		where = [[NO_POSITION] * plan.numCols for _ in range(plan.numRows)]
 		row = block.region
-		for ordinal, place in enumerate(plan.placements()):
+		for place in plan.placements():
 			cell = row.cellFor(place.column.index)
 			if cell is None:
 				continue
@@ -222,7 +222,10 @@ class FlowRenderer:
 					break
 				for offset, value in enumerate(line[: place.column.width]):
 					rows[target][place.offset + offset] = value
-					where[target][place.offset + offset] = cellPosition(ordinal, marks[offset])
+					where[target][place.offset + offset] = cellPosition(
+						place.column.index,
+						marks[offset],
+					)
 		return RenderedBlock(
 			blockId=block.blockId,
 			rows=tuple(tuple(line) for line in rows),

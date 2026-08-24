@@ -173,6 +173,17 @@ class ColumnPlan:
 	deciding whether to widen the band or hide something else needs to know which.
 	"""
 
+	narrowed: tuple[int, ...] = ()
+	"""The table's numbers for columns drawn narrower than their content asked for.
+
+	The other half of `dropped`, and the half a reader meets far more often. Three columns of
+	real text on a thirty-two cell band leave ten cells each, and ten cells of "Software
+	Engineer" is "Software E" — the layout is working exactly as designed and the reader is
+	looking at cut words with nothing to say they are cut. What they do about it is a
+	decision — raise the row height, hide a column, live with it — and they cannot make it
+	from a display that looks like a table with short entries in it.
+	"""
+
 	@property
 	def isEmpty(self) -> bool:
 		""":return: whether this plan draws nothing, which is what reading order gets."""
@@ -300,12 +311,14 @@ def planFor(
 	kept, dropped = _dropWhatWillNotFit(wanted, widths, numCols, maxRows, gap, minWidth)
 	if not kept:
 		return READING_ORDER
+	wants = {item.index: max(item.width, len(item.label)) for item in wanted}
 	return ColumnPlan(
 		columns=tuple(Column(index=item.index, width=widths[item.index], label=item.label) for item in kept),
 		numCols=numCols,
 		maxRows=maxRows,
 		gap=gap,
 		dropped=tuple(item.index for item in dropped),
+		narrowed=tuple(item.index for item in kept if widths[item.index] < wants[item.index]),
 	)
 
 
@@ -465,10 +478,14 @@ def describe(plan: ColumnPlan) -> str:
 		f"column {place.column.index} at row {place.row} cell {place.offset} in {place.column.width}"
 		for place in plan.placements()
 	)
+	notes = []
+	if plan.narrowed:
+		cut = ", ".join(str(index) for index in plan.narrowed)
+		notes.append(f"Column {cut} is drawn narrower than its content and is cut.")
 	if plan.dropped:
 		missing = ", ".join(str(index) for index in plan.dropped)
-		return f"{drawn}. No room for column {missing}."
-	return f"{drawn}."
+		notes.append(f"No room for column {missing}.")
+	return " ".join([f"{drawn}.", *notes])
 
 
 SEPARATOR_CELL = 0
@@ -489,20 +506,28 @@ that is served from the cache with the wrong map routes the reader into the wron
 """
 
 
-def cellPosition(ordinal: int, offset: int) -> int:
+def cellPosition(column: int, offset: int) -> int:
 	"""Pack which column a cell came from, and where in it.
 
-	:param ordinal: the column's place in the plan's drawing order, zero based. Not the
-		table's own column number: a plan may draw columns 1, 3 and 4, and packing the
-		table's numbers would leave holes that mean nothing to anybody.
+	**The table's own column number, not the column's place in the drawing order.** They are
+	the same number only while every row holds every column the plan draws, and a row with a
+	merged cell in it does not: the plan draws columns 1, 2, 3 and 4, the row holds 1, 3 and
+	4, and the third thing drawn is the row's *second* cell. Packing the drawing order and
+	unpacking it as a cell index sent a routing press into the wrong column of exactly the
+	rows that are hardest to read, and reported the wrong text for them.
+
+	The table's number is the one thing both sides already agree on — it is what the plan
+	names its columns by and what the row names its cells by — so it is what travels.
+
+	:param column: the table's own column number, one based.
 	:param offset: the braille position within that column's own content.
 	:return: the packed position.
 	"""
-	return ordinal * POSITION_STRIDE + offset
+	return column * POSITION_STRIDE + offset
 
 
 def positionParts(position: int) -> tuple[int, int]:
-	""":return: the column ordinal and the position within it. The inverse of `cellPosition`."""
+	""":return: the column number and the position within it. The inverse of `cellPosition`."""
 	return divmod(position, POSITION_STRIDE)
 
 

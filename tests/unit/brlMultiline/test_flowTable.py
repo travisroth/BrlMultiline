@@ -305,6 +305,30 @@ class TestKeepingThePlan(unittest.TestCase):
 		self.assertFalse(shouldReplan(READING_ORDER, watchlist(), MONARCH_COLS))
 
 
+class TestSayingWhatTheLayoutCost(unittest.TestCase):
+	"""A column narrower than its content cuts every cell at the same place, which is what
+	makes the shape readable and also what leaves the reader feeling clipped words with
+	nothing to say they are clipped."""
+
+	def test_aColumnCutToFitIsRecorded(self):
+		columns = [
+			Measurement(index=1, width=20, label=""),
+			Measurement(index=2, width=20, label=""),
+		]
+		self.assertEqual(planFor(columns, MONARCH_COLS).narrowed, (1, 2))
+
+	def test_aColumnThatGotWhatItAskedForIsNot(self):
+		self.assertEqual(planFor(watchlist(), MONARCH_COLS).narrowed, ())
+
+	def test_aCappedColumnCountsAsCut(self):
+		"""Its content is cut, whatever the reason the cap exists."""
+		self.assertEqual(planFor([Measurement(index=1, width=900)], 200).narrowed, (1,))
+
+	def test_theProseSaysSo(self):
+		columns = [Measurement(index=n, width=20, label="") for n in (1, 2)]
+		self.assertIn("narrower than its content", describe(planFor(columns, MONARCH_COLS)))
+
+
 class TestSayingWhatThePlanIs(unittest.TestCase):
 	def test_readingOrderSaysSo(self):
 		self.assertIn("reading order", describe(READING_ORDER))

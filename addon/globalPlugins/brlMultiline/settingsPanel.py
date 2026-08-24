@@ -33,7 +33,7 @@ import wx
 from gui import guiHelper
 from logHandler import log
 
-from . import bmConfig, devices, flowIndent
+from . import bmConfig, devices, flowIndent, flowTable
 from .layout import calculateSegmentRects
 
 addonHandler.initTranslation()
@@ -658,6 +658,28 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Translators: label of a number box in settings, for how many rows of the braille
+		# display one row of a table may use when a table is laid out in columns.
+		tableRowsLabel = _("Rows of the display one &table row may use:")
+		self.tableRowsCtrl = sHelper.addLabeledControl(
+			tableRowsLabel,
+			wx.SpinCtrl,
+			min=1,
+			max=flowTable.MAX_TABLE_ROWS,
+			initial=int(section["flowTableRowHeight"]),
+		)
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the number box above, explaining
+					# the trade it makes.
+					"One row means more records on the display at once, which is what makes a "
+					"table worth reading spatially, and narrower columns. Raise it when a "
+					"column you need whole is being cut.",
+				),
+			),
+		)
 		self._updateRowsHint()
 
 	# Where the band goes.
@@ -784,6 +806,7 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowWriteByParagraph"] = self.writeByParagraphCtrl.IsChecked()
 		section["flowIndentStyle"] = indentStyleChoices()[self.indentStyleCtrl.GetSelection()][0]
 		section["flowLineFocus"] = self.lineFocusCtrl.IsChecked()
+		section["flowTableRowHeight"] = self.tableRowsCtrl.Value
 
 	def postSave(self):
 		# Claim or give back the band straight away, rather than at the next display event.

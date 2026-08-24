@@ -218,14 +218,61 @@ class TestARowWithNoPlan(unittest.TestCase):
 		self.assertEqual(textOf(renderer().render(plain).rows[0]).strip(), "a paragraph")
 
 
+class TestSayingWhatARowDraws(unittest.TestCase):
+	"""The report has to show what the display shows, and it showed the opposite.
+
+	A table row's positions carry which column as well as where in it, so read as offsets
+	into one run of text they are enormous numbers that fall off the end of any map. The
+	generic path then gave up and returned the row's whole flat text for every row of it —
+	so a reader checking why their columns looked clipped was shown the full contents of the
+	columns their display was clipping.
+	"""
+
+	def test_aRowSaysWhatItDraws(self):
+		table = row("AAPL", "182.50", "+1.25", "+0.7%")
+		drawn = renderer().render(block(table))
+		positions = [where for where in drawn.positions[0] if where != NO_POSITION]
+		self.assertEqual(table.textForPositions(positions), "AAPL  182.50  +1.25  +0.7%")
+
+	def test_aTruncatedColumnSaysOnlyWhatIsOnTheDisplay(self):
+		"""The whole point. A column drawn six cells wide holding nine characters of ticker
+		is the reader's complaint, and a report that showed all nine could not check it."""
+		table = row("BERKSHIRE", "1.00")
+		drawn = renderer().render(block(table))
+		positions = [where for where in drawn.positions[0] if where != NO_POSITION]
+		self.assertEqual(table.textForPositions(positions), "BERKSH  1.00")
+
+	def test_aRowWithAHoleSaysWhatIsThere(self):
+		partial = TableRow(
+			[RowCell(index=1, region=Region("AAPL")), RowCell(index=3, region=Region("+1.25"))],
+		)
+		drawn = renderer().render(block(partial))
+		positions = [where for where in drawn.positions[0] if where != NO_POSITION]
+		self.assertEqual(partial.textForPositions(positions), "AAPL  +1.25")
+
+	def test_aPositionForAColumnThatIsNotThereIsIgnored(self):
+		self.assertEqual(row("AAPL").textForPositions([1 << 20]), "")
+
+
 class TestRoutingIntoAColumn(unittest.TestCase):
 	"""A finger lands on the band and the answer has to be a cell of the table."""
 
 	def test_aCellsPositionSaysWhichColumnAndWhereInIt(self):
 		drawn = renderer().render(block(row("AAPL", "182.50", "+1.25", "+0.7%")))
-		ordinal, offset = positionParts(drawn.positions[0][8])
-		self.assertEqual(ordinal, 1)
+		column, offset = positionParts(drawn.positions[0][8])
+		self.assertEqual(column, 2)
 		self.assertEqual(offset, 1)
+
+	def test_aRowWithAHoleStillRoutesIntoTheRightColumn(self):
+		"""The table's column number travels, not the place in the drawing order. They part
+		on exactly this row: the plan draws four columns, the row holds three, and the third
+		thing drawn is the row's second cell."""
+		cells = [RowCell(index=1, region=Region("AAPL")), RowCell(index=3, region=Region("+1.25"))]
+		partial = TableRow(cells)
+		drawn = renderer().render(block(partial))
+		partial.routeTo(drawn.positions[0][15])
+		self.assertEqual(cells[1].region.routedTo, 0)
+		self.assertFalse(hasattr(cells[0].region, "routedTo"))
 
 	def test_aGapBelongsToNoPosition(self):
 		"""Routing into padding must do nothing, which is what `NO_POSITION` says."""

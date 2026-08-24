@@ -290,13 +290,7 @@ class FlowBand(PanelOwner):
 		if self._rechecking or self.controller is None:
 			return
 		if self._readingATable():
-			# A table is followed by `_showTable`, which asks the source whether the reader is
-			# still in the table it was built for. The comparison below cannot answer that: it
-			# asks whether the object the reader is on resolves to the thing the source is
-			# reading, and for a table those are two different things by design — the source
-			# reads the document, and the reader is on a cell inside it. Left to itself this
-			# rebuilt the flow on every redraw, which remade the column plan on every redraw,
-			# which is the one thing a column layout must never do.
+			self._recheckTable()
 			return
 		if self._runHasChangedShape():
 			return
@@ -498,6 +492,57 @@ class FlowBand(PanelOwner):
 		self.tableWanted = None
 		self.refresh(force=True)
 		return True
+
+	def _recheckTable(self) -> None:
+		"""Follow the caret through the table, and give the layout back when it leaves.
+
+		This is the only thing that can notice either. In browse mode the caret moves without
+		the focus moving — the focus object stays the document — so no focus change is
+		reported and `showObject` is not called. A table's blocks are rows read out of the
+		document rather than regions that own a caret, so nothing else is watching either.
+
+		The first cut of this returned immediately, on the grounds that the comparison
+		`recheck` does next cannot answer a question about a table: it asks whether the object
+		the reader is on resolves to the thing the source is reading, and for a table those
+		are two different things by design. That was right about the comparison and wrong to
+		stop there. On hardware the reader read a table, navigated up to a heading well above
+		it, and the band went on showing the table — because the one place that could have
+		noticed had been told not to look.
+
+		So it looks, and it costs one `_getTableCellCoords` per redraw, which is a read of the
+		document's own fields at the caret. That is the price of noticing, and nothing cheaper
+		says anything: `passThrough`, the focus object and the navigator object are all
+		unchanged when the caret walks out of a table.
+		"""
+		source = self.controller.source
+		found = flowTableSource.tableAt(self._target())
+		if found is None or not flowTableSource._sameTable(found.tableID, self.tableWanted):
+			# Out of the table. The request goes with it, so that walking into a different
+			# table later does not lay that one out uninvited.
+			self.tableWanted = None
+			self._rebuildTable()
+			return
+		if found.row == source.row:
+			return
+		source.moveTo(found)
+		self._rechecking = True
+		try:
+			self.controller.followCursor()
+			segment = self.segment()
+			if segment is not None:
+				segment.refresh()
+		finally:
+			self._rechecking = False
+
+	def _rebuildTable(self) -> None:
+		"""Read whatever is here now, the ordinary way. Guarded, since this runs in a redraw."""
+		self._rechecking = True
+		try:
+			self.refresh(force=True)
+		except Exception:
+			log.debugWarning("Could not give the table's band back", exc_info=True)
+		finally:
+			self._rechecking = False
 
 	def _readingATable(self) -> bool:
 		""":return: whether the band is showing a table laid out in columns."""
