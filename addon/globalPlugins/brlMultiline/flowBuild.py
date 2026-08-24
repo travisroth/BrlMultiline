@@ -267,6 +267,7 @@ def _objectController(
 		live=live,
 		movesCursor=False,
 		indentStyle=bmConfig.flowIndentStyle(),
+		lineFocus=bmConfig.shouldMarkLineFocus(),
 	)
 	if not control.enterAtCursor():
 		result = control.lastResult
@@ -379,6 +380,7 @@ def buildController(
 		numRows=numRows,
 		live=live,
 		indentStyle=bmConfig.flowIndentStyle(),
+		lineFocus=bmConfig.shouldMarkLineFocus(),
 	)
 	if not control.enterAtCursor(atObject=atObject):
 		result = control.lastResult

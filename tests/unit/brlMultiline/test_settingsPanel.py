@@ -488,6 +488,7 @@ class FlowPanelTestCase(SettingsPanelTestCase):
 		self.panel.groundCtrl = FakeControl(True)
 		self.panel.writeByParagraphCtrl = FakeControl(True)
 		self.panel.indentStyleCtrl = FakeControl(0)
+		self.panel.lineFocusCtrl = FakeControl(True)
 
 	def section(self, displayKey=None):
 		return self.sections.setdefault(displayKey, defaults())
@@ -545,6 +546,11 @@ class TestFlowOnOneDisplay(FlowPanelTestCase):
 		saving them without touching this control would quietly change it."""
 		self.assertEqual(self.panel._indentStyleIndex("engraved"), 0)
 		self.assertEqual(indentStyleChoices()[0][0], flowIndent.DEFAULT_STYLE)
+
+	def test_theLineFocusMarkIsSaved(self):
+		self.panel.lineFocusCtrl.SetValue(False)
+		self.panel.onSave()
+		self.assertFalse(self.sections[MONARCH_KEY]["flowLineFocus"])
 
 	def test_readingWritingByParagraphIsSaved(self):
 		self.panel.writeByParagraphCtrl.SetValue(False)

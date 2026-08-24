@@ -22,16 +22,38 @@ from flowIndent import (  # noqa: E402
 	BLANK_CELL,
 	DOTS_78,
 	FLAT,
+	FOCUS_CELL,
 	LEVEL_CELL,
 	ONE_SPACE,
 	TWO_SPACES,
 	IndentPlan,
 	cellsPerLevel,
+	focusMark,
 	planFor,
 	shouldRebase,
 )
 
 MONARCH_COLS = 32
+
+
+class TestTheFocusMark(unittest.TestCase):
+	"""Two cells at the left of the focused row, drawn into indent that is already there."""
+
+	def test_itIsTwoCellsWide(self):
+		self.assertEqual(focusMark(2), (FOCUS_CELL, FOCUS_CELL))
+
+	def test_aDeepRowStillGetsExactlyTwo(self):
+		"""It marks the row, not the depth. The indent past it still says how deep it is."""
+		self.assertEqual(focusMark(8), (FOCUS_CELL, FOCUS_CELL))
+
+	def test_aRowWithNoRoomGetsNone(self):
+		"""One cell of indent is one cell, and half a mark is not a mark."""
+		self.assertEqual(focusMark(1), ())
+		self.assertEqual(focusMark(0), ())
+
+	def test_itCannotBeMistakenForALevelMarkOrABlank(self):
+		"""In the dots 78 style the mark sits directly beside level marks."""
+		self.assertNotIn(FOCUS_CELL, (LEVEL_CELL, BLANK_CELL))
 
 
 class TestCellsPerLevel(unittest.TestCase):

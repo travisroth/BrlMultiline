@@ -29,6 +29,7 @@ from ._stubs import FakeNavigatorObject, fakeRun, fakeTree, installStubs
 installStubs()
 
 from brlMultiline import flowObjects  # noqa: E402
+from brlMultiline.flowIndent import FOCUS_CELL  # noqa: E402
 from brlMultiline.flowControl import FlowController  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
 
@@ -224,26 +225,36 @@ class TestHowDeepATreeItemSits(unittest.TestCase):
 		self.assertEqual(depths, [1, 2, 3, 2])
 
 
+def bandOver(index, at="Inbox", numRows=5, lineFocus=False):
+	""":return: a band reading a tree, with the reader on one of its items.
+
+	The focus mark is off unless a test asks for it, so that a test about indent or about
+	what is on the display is reading the cells the renderer produced and nothing else.
+	"""
+	adapter = flowObjects.VISIBLE_TREE
+	source = flowObjects.ObjectFlowSource(
+		index[at],
+		adapter,
+		flowObjects.regionFactory(live=True, adapter=adapter),
+		generation=1,
+	)
+	control = FlowController(
+		source,
+		FlowRenderer(FakeHandler(), numCols=NUM_COLS, fillRows=True),
+		numRows=numRows,
+		live=True,
+		movesCursor=False,
+		lineFocus=lineFocus,
+	)
+	control.enterAtCursor()
+	return control
+
+
 class TestATreeOnTheBand(unittest.TestCase):
 	"""What the reader actually feels, which is the point of all of the above."""
 
-	def _controller(self, index, at="Inbox", numRows=5):
-		adapter = flowObjects.VISIBLE_TREE
-		source = flowObjects.ObjectFlowSource(
-			index[at],
-			adapter,
-			flowObjects.regionFactory(live=True, adapter=adapter),
-			generation=1,
-		)
-		control = FlowController(
-			source,
-			FlowRenderer(FakeHandler(), numCols=NUM_COLS, fillRows=True),
-			numRows=numRows,
-			live=True,
-			movesCursor=False,
-		)
-		control.enterAtCursor()
-		return control
+	def _controller(self, index, at="Inbox", numRows=5, lineFocus=False):
+		return bandOver(index, at=at, numRows=numRows, lineFocus=lineFocus)
 
 	def _rows(self, control):
 		cells = control.cells()
@@ -273,6 +284,67 @@ class TestATreeOnTheBand(unittest.TestCase):
 		_control, index = tree()
 		rows = self._rows(self._controller(index))
 		self.assertNotIn("Hidden", "".join(rows))
+
+
+class TestMarkingTheRowTheFocusIsOn(unittest.TestCase):
+	"""Which of eight rows has the focus, answered by one pass of the hand.
+
+	The cursor already says it, and it is not enough across rows: by default it is dots 7 and
+	8 under the text, so it is found by reading the row it is under, and a reader running a
+	hand down a folder tree to see where they are has to read every row. The mark is in the
+	same column on every row.
+
+	It is drawn into the row's own indent, so it costs no cell of text and moves nothing.
+	That is also its limit: a row at the left margin has nowhere to put it.
+	"""
+
+	def _controller(self, index, at, numRows=5, lineFocus=True):
+		return bandOver(index, at=at, numRows=numRows, lineFocus=lineFocus)
+
+	def _rowCells(self, control, row):
+		cells = control.cells()
+		return cells[row * NUM_COLS : (row + 1) * NUM_COLS]
+
+	def test_theFocusedRowIsMarkedAtTheLeft(self):
+		_control, index = tree()
+		control = self._controller(index, at="Work")
+		marked = [row for row in range(5) if self._rowCells(control, row)[:2] == [FOCUS_CELL] * 2]
+		self.assertEqual(marked, [0])
+
+	def test_noOtherRowIsMarked(self):
+		"""Two marks would answer the question the mark exists to answer with "either"."""
+		_control, index = tree()
+		control = self._controller(index, at="Work")
+		for row in range(1, 5):
+			self.assertNotIn(FOCUS_CELL, self._rowCells(control, row)[:2])
+
+	def test_theMarkCostsTheRowNothing(self):
+		"""The whole reason it is drawn into the indent rather than in front of it."""
+		_control, index = tree()
+		marked = self._controller(index, at="Work").cells()
+		plain = self._controller(index, at="Work", lineFocus=False).cells()
+		self.assertEqual(marked[2:], plain[2:])
+
+	def test_anItemAtTheLeftMarginIsNotMarked(self):
+		"""There is nowhere to draw it that would not push the row's own content sideways."""
+		_control, index = tree()
+		control = self._controller(index, at="Inbox")
+		plain = self._controller(index, at="Inbox", lineFocus=False)
+		self.assertEqual(control.cells(), plain.cells())
+
+	def test_theMarkCanBeTurnedOff(self):
+		_control, index = tree()
+		control = self._controller(index, at="Work", lineFocus=False)
+		self.assertNotIn(FOCUS_CELL, control.cells())
+
+	def test_everyRowOfAWrappedItemIsMarked(self):
+		"""A hand running down the left margin should feel the whole of what has the focus,
+		not its first row and then a gap."""
+		_control, index = tree()
+		index["Work"].name = "Work in progress"
+		control = self._controller(index, at="Work")
+		marked = [row for row in range(5) if self._rowCells(control, row)[:2] == [FOCUS_CELL] * 2]
+		self.assertEqual(marked, [0, 1])
 
 
 class TestNoticingANodeBeingOpened(unittest.TestCase):

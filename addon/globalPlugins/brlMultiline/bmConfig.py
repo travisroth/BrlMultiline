@@ -98,6 +98,7 @@ configSpec = {
 			"flowGroundOnQuickNav": "boolean(default=True)",
 			"flowWriteByParagraph": "boolean(default=True)",
 			"flowIndentStyle": f'option({INDENT_STYLE_OPTIONS}, default="{DEFAULT_INDENT_STYLE}")',
+			"flowLineFocus": "boolean(default=True)",
 			**{
 				flowModeKey(mode): f"boolean(default={FLOW_MODE_DEFAULTS.get(mode, False)})"
 				for mode in FLOW_MODES
@@ -144,6 +145,8 @@ configSpec = {
 - `flowIndentStyle`: how one level of depth is drawn, for content that has any. Per display
 	and per profile like everything else here, because the answer depends on how many cells
 	the row has: two spaces on a Monarch's 32 is a different proposition from two on 80.
+- `flowLineFocus`: whether the row the focus is on is marked at the left margin where its
+	indent has room for the mark.
 
 Everything above is read through `config.conf`, which is profile aware, so all of it can
 differ per configuration profile. That matters most for the flow: a profile triggered by
@@ -472,6 +475,29 @@ def shouldWriteByParagraph(displayKey: str | None = None) -> bool:
 		return bool(getDisplayConfig(displayKey)["flowWriteByParagraph"])
 	except Exception:
 		log.debugWarning("Could not read flowWriteByParagraph", exc_info=True)
+		return True
+
+
+def shouldMarkLineFocus(displayKey: str | None = None) -> bool:
+	""":return: whether the row the focus is on is marked at the left margin.
+
+	On, which is the default. The cursor already says where the focus is and it is not
+	enough for reading across rows: it is dots 7 and 8 under the text, so it is found by
+	reading the row it is under, and a reader running a hand down eight rows of a folder
+	tree to see where they are has to read all eight. The mark is in the same column on
+	every row, so the same question is one pass of the hand.
+
+	Off for a reader who would rather have the two cells, or who finds a second mark beside
+	the cursor is one mark too many. Nothing is lost by turning it off: the cursor is still
+	where it always was, and the mark is never the only thing saying where the focus is.
+
+	It draws only where the row's indent already has room for it, so it is a setting about
+	indented content — trees, nested lists — and does nothing at all in flat prose.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["flowLineFocus"])
+	except Exception:
+		log.debugWarning("Could not read flowLineFocus", exc_info=True)
 		return True
 
 

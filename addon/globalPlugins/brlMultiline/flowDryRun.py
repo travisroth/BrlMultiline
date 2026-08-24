@@ -33,6 +33,7 @@ from logHandler import log
 from . import flowForms
 from .flowBuild import bandSize, buildController, describeObject
 from .flowControl import FlowController
+from .flowIndent import FOCUS_CELL, FOCUS_WIDTH
 
 if TYPE_CHECKING:
 	from NVDAObjects import NVDAObject
@@ -76,6 +77,7 @@ def liveReport(band) -> list[str]:
 		entry = getattr(anchor.entry, "value", anchor.entry)
 		lines.append(f"Band anchor: entered from the {entry}, at row {anchor.rowIndex} of its block")
 	lines.append(f"Band indent: {describeIndent(control)}")
+	lines.append(f"Band line focus: {describeLineFocus(control)}")
 	lines.append(f"Band direction: {getattr(control, 'lastDirection', 'unknown')}")
 	# Every move, in order, because the direction test's verdict on its own was misleading:
 	# on the report that located the last bug the verdict was right while the placement was
@@ -91,6 +93,33 @@ def liveReport(band) -> list[str]:
 		log.debugWarning("Could not describe what the band is holding", exc_info=True)
 		lines.append(f"  could not be described: {error!r}")
 	return lines
+
+
+def describeLineFocus(control) -> str:
+	"""Whether the row the focus is on is marked, and which row got the mark.
+
+	Three answers rather than two, for the same reason `describeIndent` gives three: a band
+	with no mark on it is either a band with the setting off or a band whose focused row had
+	no indent to draw the mark into, and under the fingers those are the same nothing.
+
+	:param control: the live controller.
+	:return: one sentence.
+	"""
+	if not getattr(control, "lineFocus", False):
+		return "off, so the cursor is the only thing saying which row has the focus."
+	try:
+		cells = control.cells()
+		numCols = control.renderer.numCols
+	except Exception:
+		log.debugWarning("Could not read the band to look for the focus mark", exc_info=True)
+		return "on, but the band could not be read."
+	wanted = [FOCUS_CELL] * FOCUS_WIDTH
+	marked = [
+		row for row in range(len(cells) // numCols) if cells[row * numCols :][:FOCUS_WIDTH] == wanted
+	]
+	if marked:
+		return f"on, marked on {'rows' if len(marked) > 1 else 'row'} {', '.join(map(str, marked))}."
+	return "on, but nothing is marked: the focused row is at the margin, with no room for it."
 
 
 def _bandGeometry(handler, band) -> tuple[int, int, str]:

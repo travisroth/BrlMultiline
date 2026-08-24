@@ -104,6 +104,7 @@ class FlowController(PanelOwner):
 		live: bool = False,
 		movesCursor: Optional[bool] = None,
 		indentStyle: str = flowIndent.DEFAULT_STYLE,
+		lineFocus: bool = True,
 	) -> None:
 		"""
 		:param source: where the blocks come from.
@@ -119,6 +120,8 @@ class FlowController(PanelOwner):
 			`flowObjects`.
 		:param indentStyle: how one level of depth is drawn, for content that has depth. See
 			`flowIndent.INDENT_STYLES`.
+		:param lineFocus: whether to mark the left of the focused row where it is indented
+			far enough to carry the mark. See `_markLineFocus`.
 		"""
 		self.source = source
 		self.renderer = renderer
@@ -128,6 +131,9 @@ class FlowController(PanelOwner):
 		self.indentStyle = indentStyle
 		"""How one level of depth is drawn. Read once, since a setting changed mid reading
 		rebuilds the band anyway."""
+
+		self.lineFocus = lineFocus
+		"""Whether the focused row is marked at the left. See `_markLineFocus`."""
 
 		self._following = False
 		"""Guards against following a cursor move that this controller made itself."""
@@ -1226,9 +1232,65 @@ class FlowController(PanelOwner):
 		row, which NVDA's own buffer cannot avoid.
 		"""
 		try:
-			return assembleCells(self.window, self.renderer.numCols)
+			cells = assembleCells(self.window, self.renderer.numCols)
 		except LookupError:
 			return [0] * (self.window.numRows * self.renderer.numCols)
+		self._markLineFocus(cells)
+		return cells
+
+	def _markLineFocus(self, cells: list[int]) -> None:
+		"""Mark the left of the rows the focus is on.
+
+		Drawn here rather than rendered into the block, for the same reason the cursor is:
+		the focus moves without the rows changing. Baking the mark in would mean re-rendering
+		the block the reader left as well as the one they arrived at, and the one they left
+		is often no longer in the window to re-render.
+
+		Every row of the focused block is marked, not only its first. A wrapped item is two
+		rows of the same item, and a hand running down the left margin should feel the whole
+		of what has the focus rather than its first row and then a gap.
+
+		Rows too near the left margin to carry it are left alone. See `flowIndent.focusMark`.
+
+		:param cells: the assembled band, modified in place.
+		"""
+		if not self.lineFocus or self.activeBlockId is None:
+			return
+		try:
+			rows = self.window.visibleRows()
+		except LookupError:
+			return
+		numCols = self.renderer.numCols
+		for index, row in enumerate(rows):
+			if row.kind is not RowKind.CONTENT or row.blockId != self.activeBlockId:
+				continue
+			mark = flowIndent.focusMark(self._indentOfRow(row))
+			for offset, cell in enumerate(mark):
+				cells[index * numCols + offset] = cell
+
+	def _indentOfRow(self, row) -> int:
+		"""How many cells of indent one row of the window was drawn with.
+
+		Read off the rendering rather than worked out again from the plan: a rendered row
+		says where each of its cells came from, and the indent is exactly the run at the
+		front that came from nowhere. Asking the plan a second time would be a second answer
+		to keep in step with the first.
+
+		:param row: a content row of the window.
+		:return: the number of indent cells, 0 if the row cannot be read.
+		"""
+		try:
+			block = self.window.blocks[self.window.blockIndex(row.blockId)]
+		except LookupError:
+			return 0
+		if not block.holdsRow(row.rowIndex):
+			return 0
+		indent = 0
+		for where in block.positions[row.rowIndex - block.rowOffset]:
+			if where != NO_POSITION:
+				break
+			indent += 1
+		return indent
 
 	def cursorCell(self) -> Optional[int]:
 		"""Where the cursor is within the band, as a flat row major position.

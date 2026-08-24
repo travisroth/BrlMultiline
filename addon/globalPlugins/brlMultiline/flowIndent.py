@@ -59,6 +59,28 @@ for the same reason in all three: it is the mark that means "structure", not con
 never ambiguous with those here because it appears only in the indent, before any content.
 """
 
+FOCUS_CELL = 0xF0
+"""Dots 5, 6, 7 and 8: the mark on the left of the row the focus is on.
+
+A full lower half cell, which is the loudest thing on a row that is otherwise text, and
+distinct from the level mark above it — dots 7 and 8 — so that a marked row in the dots 78
+style is not read as one level deeper.
+
+The cursor already says where the focus is, and it is not enough. By default it is dots 7
+and 8 blinking *under* the text, which has to be found by reading the row it is under; a
+reader running a finger down eight rows of a folder tree to see where they are has to read
+every row to find it. A mark at the left margin is in the same column on every row, so the
+answer is one pass of the hand rather than eight readings.
+"""
+
+FOCUS_WIDTH = 2
+"""How many cells the focus mark is drawn with.
+
+Two, so that it cannot be mistaken for the one cell of a level mark, and so that it is
+still there to feel when a hand is moving quickly. It is also exactly one level of the
+default style, which is what lets it be drawn without costing the row a cell of text.
+"""
+
 TWO_SPACES = "twoSpaces"
 ONE_SPACE = "oneSpace"
 DOTS_78 = "dots78"
@@ -101,6 +123,27 @@ distinguishable. At one cell a level there is no half cell to spend, so a contin
 where a grandchild would; the styles that mark their levels stay unambiguous anyway, because
 the extra cells are blank and a grandchild's are not.
 """
+
+
+def focusMark(indentCells: int) -> tuple[int, ...]:
+	"""The cells to draw over the left of a row to say the focus is on it.
+
+	Drawn *into* the row's indent, never in front of it: the mark is only offered where the
+	indent is already at least as wide, so it costs no cell of text and moves nothing. A row
+	at the left margin — a top level item, a flat list, a paragraph — gets no mark, because
+	there is nowhere to put one that would not push the row's own content sideways and make
+	the focused row the one that does not line up with the rest.
+
+	That is a real limit rather than a compromise: at one cell a level, an item one level in
+	has one cell of indent and cannot carry the mark. It is the reason the width is offered
+	as an answer here instead of assumed by the caller.
+
+	:param indentCells: how many cells of indent the row is drawn with.
+	:return: the cells to write at the left of the row, empty where there is no room.
+	"""
+	if indentCells < FOCUS_WIDTH:
+		return ()
+	return (FOCUS_CELL,) * FOCUS_WIDTH
 
 
 def cellsPerLevel(style: Optional[str]) -> int:

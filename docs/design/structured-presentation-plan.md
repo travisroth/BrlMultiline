@@ -157,6 +157,15 @@ are not re-argued.
     presentation asks for it. Everything already tested on hardware keeps behaving as it
     was tested.
 
+18. **The focused row is marked at the left, in indent that is already there.** Dots 5678 in
+    the leftmost two cells of every row of the focused block, on by default, and never where
+    the row has fewer than two cells of indent to give. The cursor is not enough across
+    rows: by default it is dots 7 and 8 under the text, so finding it means reading the row
+    it is under, and a hand running down eight rows of a folder tree to see where it is has
+    to read all eight. A mark at the left margin is in the same column on every row, so the
+    same question is one pass. Costing the row no cell is what makes it safe to have on by
+    default, and it is the reason it is drawn *into* the indent instead of in front of it.
+
 ## The four layers
 
 ### 1. Recognition — what is the reader looking at?
@@ -362,6 +371,14 @@ working — `flowIndent.shouldRebase`. Rebasing on every change would make the m
 while the reader arrows through items at one depth, which is a display moving when nothing
 moved. A plan is kept until it would need a negative indent, or has run out of levels, or is
 for a different style or band width.
+
+**M1's other half — the focus mark.** BUILT. `flowIndent.focusMark`, drawn by
+`FlowController._markLineFocus` and settable through `flowLineFocus`. It is drawn at
+assembly rather than rendered into the block, for the same reason the cursor is: the focus
+moves without the rows changing, and baking it in would mean re-rendering the block the
+reader left as well as the one they arrived at — and the one they left is often no longer in
+the window to re-render. Which cells are indent is read off the rendering's own position map
+rather than asked of the plan a second time.
 
 Still owed: the orientation note. It is deferred rather than dropped — `IndentPlan.noteLevel`
 already says when there is something to announce, and the dry run reports it; what is missing

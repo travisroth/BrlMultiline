@@ -640,6 +640,24 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Translators: label of a checkbox in settings. Dots 5, 6, 7 and 8 are the four lower
+		# dots of an eight dot braille cell, drawn in the two cells at the left of a row.
+		lineFocusLabel = _("&Mark the item you are on with dots 5678 at the left of its row")
+		self.lineFocusCtrl = sHelper.addItem(wx.CheckBox(self, label=lineFocusLabel))
+		self.lineFocusCtrl.SetValue(bool(section["flowLineFocus"]))
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the checkbox above, explaining what it
+					# does and where it does nothing.
+					"The mark is in the same place on every row, so which item you are on can be "
+					"found by running a hand down the left of the display rather than reading "
+					"each row. It is drawn in the item's own indent, so it costs no space, and "
+					"there is none to draw it in on an item at the left margin.",
+				),
+			),
+		)
 		self._updateRowsHint()
 
 	# Where the band goes.
@@ -765,6 +783,7 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowGroundOnQuickNav"] = self.groundCtrl.IsChecked()
 		section["flowWriteByParagraph"] = self.writeByParagraphCtrl.IsChecked()
 		section["flowIndentStyle"] = indentStyleChoices()[self.indentStyleCtrl.GetSelection()][0]
+		section["flowLineFocus"] = self.lineFocusCtrl.IsChecked()
 
 	def postSave(self):
 		# Claim or give back the band straight away, rather than at the next display event.

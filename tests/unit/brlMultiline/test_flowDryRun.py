@@ -20,10 +20,11 @@ from brlMultiline.flowDryRun import (  # noqa: E402
 	CRLF,
 	_bandGeometry,
 	describeIndent,
+	describeLineFocus,
 	liveReport,
 	toClipboard,
 )
-from brlMultiline.flowIndent import DOTS_78, TWO_SPACES, planFor  # noqa: E402
+from brlMultiline.flowIndent import DOTS_78, FOCUS_CELL, TWO_SPACES, planFor  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
 
 
@@ -265,6 +266,40 @@ class TestReportingTheLiveBand(unittest.TestCase):
 		band = type("Band", (), {"controller": Broken([1])})()
 		said = liveReport(band)
 		self.assertTrue(any("could not be described" in line for line in said))
+
+
+class TestDescribingTheLineFocus(unittest.TestCase):
+	"""Three answers, because two of them feel identical: a band with no mark on it is
+	either one with the setting off or one whose focused row had no indent to draw it in."""
+
+	class Marked:
+		def __init__(self, cells, lineFocus=True, numCols=4):
+			self._cells = cells
+			self.lineFocus = lineFocus
+			self.renderer = type("R", (), {"numCols": numCols})()
+
+		def cells(self):
+			return self._cells
+
+	def test_offSaysSo(self):
+		said = describeLineFocus(self.Marked([0] * 8, lineFocus=False))
+		self.assertIn("off", said)
+
+	def test_theMarkedRowIsNamed(self):
+		cells = [0, 0, 0, 0] + [FOCUS_CELL, FOCUS_CELL, 1, 2]
+		self.assertIn("row 1", describeLineFocus(self.Marked(cells)))
+
+	def test_onButUndrawnSaysWhy(self):
+		"""The case that would otherwise read as the setting having failed to take."""
+		said = describeLineFocus(self.Marked([1] * 8))
+		self.assertIn("no room", said)
+
+	def test_aBandThatCannotBeReadDoesNotRaise(self):
+		class Broken(TestDescribingTheLineFocus.Marked):
+			def cells(self):
+				raise RuntimeError("no anchor")
+
+		self.assertIn("could not be read", describeLineFocus(Broken([])))
 
 
 class TestDescribingTheIndent(unittest.TestCase):
