@@ -88,6 +88,29 @@ itself none of these still bounds the walk, because the climb stops at the first
 that is not itself a tree item.
 """
 
+TRANSPARENT_ROLES = frozenset({"GROUPING"})
+"""Roles that hold a tree's rows without being rows themselves.
+
+A tree item's children are not always its direct children. Several providers hang them off
+a grouping in between — UIA does it, and so do some IA2 implementations — and to a walk that
+reads `firstChild` and expects another tree item, that grouping is the end of the tree. On a
+control shaped that way the walk offered the grouping as the next row, the run refused it as
+something outside itself, and the reader was shown a parent whose contents had vanished.
+
+So a wrapper is stepped over in both directions rather than stopped at: it is scenery, not a
+row. Kept to a named set rather than "anything that is not a tree item", because the thing
+on the other side of a *real* boundary — the tree control, a toolbar beside it — is also not
+a tree item, and treating those as scenery would walk straight out of the tree.
+"""
+
+MAX_WRAPPERS = 4
+"""How many wrappers deep to look before giving up.
+
+Bounded like every other walk here. Nesting groupings four deep between one row and the next
+is not a tree shape anybody has; the bound is there so a malformed or cyclic hierarchy costs
+four reads rather than the display.
+"""
+
 FIRST_LEVEL = 1
 """The level an item of a run sits at when nothing says otherwise. See `_depthOf`."""
 
@@ -225,6 +248,56 @@ def _isExpanded(obj) -> Optional[bool]:
 	return None
 
 
+def _isTransparent(obj) -> bool:
+	""":return: whether an object holds rows without being one. See `TRANSPARENT_ROLES`."""
+	return obj is not None and roleName(getattr(obj, "role", None)) in TRANSPARENT_ROLES
+
+
+def _rowBelow(obj):
+	""":return: the first row inside an object, stepping through any wrapper in the way.
+
+	:param obj: the node whose contents are wanted.
+	:return: a tree item, or None if what is inside is neither a row nor a wrapper.
+	"""
+	node = obj
+	for _ in range(MAX_WRAPPERS):
+		try:
+			child = getattr(node, "firstChild", None)
+		except Exception:
+			log.debugWarning("Could not read a node's first child", exc_info=True)
+			return None
+		if child is None:
+			return None
+		if _isTreeItem(child):
+			return child
+		if not _isTransparent(child):
+			return None
+		node = child
+	return None
+
+
+def _rowAbove(obj):
+	""":return: the nearest ancestor that is not scenery, stepping through any wrapper.
+
+	Not "the nearest ancestor that is a row": the caller has to be able to tell a parent row
+	from the tree control itself, and both are things this stops at.
+
+	:param obj: the node whose parent is wanted.
+	:return: the ancestor, or None.
+	"""
+	node = obj
+	for _ in range(MAX_WRAPPERS):
+		try:
+			parent = getattr(node, "parent", None)
+		except Exception:
+			log.debugWarning("Could not climb to a node's parent", exc_info=True)
+			return None
+		if parent is None or not _isTransparent(parent):
+			return parent
+		node = parent
+	return None
+
+
 def _firstVisibleChild(obj):
 	""":return: a node's first child if the reader can see it, else None.
 
@@ -233,14 +306,12 @@ def _firstVisibleChild(obj):
 	from the window's own item handles, which do not care what is on screen. Walking into
 	them would put rows on the display that are not on the reader's screen, which is the one
 	thing reading in visible order is defined not to do.
+
+	The child may be a wrapper's child rather than this node's own. See `TRANSPARENT_ROLES`.
 	"""
 	if not _isExpanded(obj):
 		return None
-	try:
-		return getattr(obj, "firstChild", None)
-	except Exception:
-		log.debugWarning("Could not read a node's first child", exc_info=True)
-		return None
+	return _rowBelow(obj)
 
 
 def _lastVisibleDescendant(obj):
@@ -293,11 +364,7 @@ def _treeNext(obj):
 			return None
 		if following is not None:
 			return following
-		try:
-			node = getattr(node, "parent", None)
-		except Exception:
-			log.debugWarning("Could not climb out of a subtree", exc_info=True)
-			return None
+		node = _rowAbove(node)
 		if not _isTreeItem(node):
 			# Reached the tree control itself. There is no row after the last one.
 			return None
@@ -313,11 +380,7 @@ def _treePrevious(obj):
 		return None
 	if earlier is not None:
 		return _lastVisibleDescendant(earlier)
-	try:
-		parent = getattr(obj, "parent", None)
-	except Exception:
-		log.debugWarning("Could not climb to a node's parent", exc_info=True)
-		return None
+	parent = _rowAbove(obj)
 	return parent if _isTreeItem(parent) else None
 
 
@@ -332,11 +395,7 @@ def _treeOf(obj):
 	"""
 	node = obj
 	for _ in range(MAX_TREE_DEPTH):
-		try:
-			parent = getattr(node, "parent", None)
-		except Exception:
-			log.debugWarning("Could not find which tree an item belongs to", exc_info=True)
-			return None
+		parent = _rowAbove(node)
 		if parent is None:
 			return None
 		if roleName(getattr(parent, "role", None)) in TREE_ROLES or not _isTreeItem(parent):
@@ -384,13 +443,12 @@ def _countedTreeDepth(obj) -> Optional[int]:
 	depth = 1
 	node = obj
 	for _ in range(MAX_TREE_DEPTH):
-		try:
-			parent = getattr(node, "parent", None)
-		except Exception:
-			log.debugWarning("Could not count how deep a tree item sits", exc_info=True)
-			return depth
+		parent = _rowAbove(node)
 		if not _isTreeItem(parent):
 			return depth
+		# A wrapper between two rows is not a level. Counting it as one would draw a whole
+		# subtree a step further in than the tree it is in, which is the same wrong picture
+		# that made the counted depth worth preferring in the first place.
 		depth += 1
 		node = parent
 	return depth
@@ -578,6 +636,17 @@ class ObjectAdapter:
 	decision and no adapter's business.
 	"""
 
+	openChildOf: Callable[[Any], Any] = lambda obj: None
+	"""The first row inside one of these, or None where it is showing none.
+
+	Asked only of a node that says it is open, and only to tell "open and showing nothing"
+	from "open and showing something". A tree that fills a node in after reporting it open —
+	which is what a provider that fetches children on demand does — changes what is on the
+	reader's display without changing any state anybody can watch. See `shapeChanged`.
+
+	A run whose members cannot be opened answers None and is never asked.
+	"""
+
 	expandedOf: Callable[[Any], Optional[bool]] = lambda obj: None
 	"""Whether one of these is showing its children, or None where the idea does not apply.
 
@@ -662,6 +731,7 @@ VISIBLE_TREE = ObjectAdapter(
 	previousOf=_treePrevious,
 	depthOf=_treeDepth,
 	expandedOf=_isExpanded,
+	openChildOf=_firstVisibleChild,
 )
 """A tree, read down the screen rather than along one generation of it.
 
@@ -917,11 +987,12 @@ class ObjectFlowSource:
 		self.unit = "object"
 		"""What a block is here, for the log and for the dry run's report."""
 
-		self._expanded: Optional[bool] = None
-		"""Whether the object the reader is on was showing its children when last looked at.
+		self._shape: Optional[tuple] = None
+		"""What the run looked like under the object the reader is on, when last looked at.
 
-		None until something has looked, which is what makes the first `shapeChanged` answer
-		no rather than reporting a change from nothing."""
+		Whether it was open, and whether it was showing anything. None until something has
+		looked, which is what makes the first `shapeChanged` answer no rather than reporting
+		a change from nothing. See `shapeChanged`."""
 
 	def setCurrent(self, obj) -> None:
 		"""Say where in the run the reader has moved to.
@@ -932,7 +1003,7 @@ class ObjectFlowSource:
 		# Forgotten rather than re-read, so that arriving somewhere already open does not
 		# read as something having just been opened. The next `shapeChanged` fills it in and
 		# answers no, which is the honest answer for a reader who has only just got here.
-		self._expanded = None
+		self._shape = None
 
 	def shapeChanged(self) -> bool:
 		"""Whether the run has been opened or closed under the reader since it was last read.
@@ -946,19 +1017,48 @@ class ObjectFlowSource:
 		can have opened. Asking every object on the band would be eight calls into the
 		application on every redraw, to answer a question about one of them.
 
+		**Two things are watched, not one.** The state is the obvious half. The other is
+		whether an open node is actually showing anything, because a provider that fetches
+		children on demand reports the node open before it has any: the state is settled from
+		the first moment, the rows appear later, and a band watching only the state went on
+		showing an open folder with nothing in it. That second question is asked only of a
+		node that says it is open — a closed one cannot be showing children whatever it holds
+		— so a reader sitting in a flat list, a menu, or on a leaf pays nothing for it.
+
 		:return: whether to read the run again.
 		"""
 		obj = self.obj
 		if obj is None:
 			return False
+		was, hadChild = self._shape if self._shape is not None else (None, None)
+		now, hasChild = self._shapeUnder(obj)
+		self._shape = (now, hasChild)
+		if was is None or now is None:
+			# Nothing to compare with, or nothing that can be opened at all. A leaf reports
+			# neither state, and reading that as "closed" would make arriving on one look like
+			# something having just shut.
+			return False
+		if was != now:
+			return True
+		# Open before and open now, so the only change left that moves rows is the contents
+		# arriving or going away underneath it.
+		return now is True and hadChild is not None and hasChild != hadChild
+
+	def _shapeUnder(self, obj) -> tuple:
+		""":return: whether a node is open, and whether it is showing anything. See
+		`shapeChanged`."""
 		try:
-			now = self.adapter.expandedOf(obj)
+			expanded = self.adapter.expandedOf(obj)
 		except Exception:
 			log.debugWarning("Could not tell whether a node has been opened", exc_info=True)
-			return False
-		was = self._expanded
-		self._expanded = now
-		return was is not None and now is not None and was != now
+			return (None, None)
+		if expanded is not True:
+			return (expanded, None)
+		try:
+			return (True, self.adapter.openChildOf(obj) is not None)
+		except Exception:
+			log.debugWarning("Could not tell whether an open node is showing anything", exc_info=True)
+			return (True, None)
 
 	# Reading.
 
@@ -1046,10 +1146,7 @@ class ObjectFlowSource:
 		if obj is self.obj:
 			# Noted while it is in hand, so that a redraw can tell an opened node from one
 			# that was open when the reader arrived without a second call for it.
-			try:
-				self._expanded = self.adapter.expandedOf(obj)
-			except Exception:
-				log.debugWarning("Could not note whether a node is open", exc_info=True)
+			self._shape = self._shapeUnder(obj)
 		return SourceBlock(
 			blockId=blockId,
 			region=region,

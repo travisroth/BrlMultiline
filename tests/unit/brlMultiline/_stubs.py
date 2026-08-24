@@ -1590,6 +1590,29 @@ def fakeTree(spec, role="TREEVIEWITEM", containerRole="TREEVIEW"):
 	return tree, index
 
 
+def wrapChildren(node, role="GROUPING"):
+	"""Put a wrapper between a node and its children, the way some providers do.
+
+	A tree item's children are not always its direct children: UIA hangs them off a grouping
+	in between, and so do some IA2 implementations. To a walk that reads `firstChild` and
+	expects another tree item, that grouping is the end of the tree.
+
+	:param node: the node whose children to wrap.
+	:param role: what the wrapper calls itself.
+	:return: the wrapper.
+	"""
+	kids = list(node.children or ())
+	group = FakeNavigatorObject("a group", role=role)
+	group.parent = node
+	group.children = kids
+	group.firstChild = kids[0] if kids else None
+	for kid in kids:
+		kid.parent = group
+	node.children = [group]
+	node.firstChild = group
+	return group
+
+
 def fakeSeparator(after, name="-----", role="SEPARATOR"):
 	"""Put a separator into a run, between an item and whatever followed it.
 

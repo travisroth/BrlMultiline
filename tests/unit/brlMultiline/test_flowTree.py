@@ -22,9 +22,10 @@ from `Urgent` to `Personal` is a step the sibling walk cannot make in either dir
 getting from `Personal` to `Archive` needs a climb out of the subtree.
 """
 
+import dataclasses
 import unittest
 
-from ._stubs import FakeNavigatorObject, fakeRun, fakeTree, installStubs
+from ._stubs import FakeNavigatorObject, fakeRun, fakeTree, installStubs, wrapChildren
 
 installStubs()
 
@@ -345,6 +346,149 @@ class TestMarkingTheRowTheFocusIsOn(unittest.TestCase):
 		control = self._controller(index, at="Work")
 		marked = [row for row in range(5) if self._rowCells(control, row)[:2] == [FOCUS_CELL] * 2]
 		self.assertEqual(marked, [0, 1])
+
+
+def wrappedTree():
+	""":return: the same tree with a grouping between every node and its children."""
+	control, index = tree()
+	for name in ("Inbox", "Work", "Personal"):
+		wrapChildren(index[name])
+	return control, index
+
+
+class TestASubtreeBehindAWrapper(unittest.TestCase):
+	"""A tree item's children are not always its direct children.
+
+	UIA hangs them off a grouping in between, and so do some IA2 implementations. A walk that
+	read `firstChild` and expected another tree item offered the grouping as the next row,
+	the run refused it as something outside itself, and the reader was shown a parent whose
+	contents had vanished — the very failure the visible-tree walk exists to fix, in a
+	different control.
+
+	The wrapper is scenery: stepped over in both directions, and not a level of depth.
+	"""
+
+	def test_theWholeVisibleTreeIsStillReachedForward(self):
+		_control, index = wrappedTree()
+		self.assertEqual(walkFrom(index["Inbox"]), VISIBLE)
+
+	def test_theWholeVisibleTreeIsStillReachedBackward(self):
+		_control, index = wrappedTree()
+		self.assertEqual(walkFrom(index["Archive"], forward=False), list(reversed(VISIBLE)))
+
+	def test_anOpenNodeIsFollowedByItsChildThroughTheWrapper(self):
+		"""The reported failure: the grouping was offered as the next row."""
+		_control, index = wrappedTree()
+		self.assertEqual(flowObjects.VISIBLE_TREE.nextOf(index["Inbox"]).name, "Work")
+
+	def test_aFirstChildIsStillPrecededByItsParent(self):
+		_control, index = wrappedTree()
+		self.assertEqual(flowObjects.VISIBLE_TREE.previousOf(index["Work"]).name, "Inbox")
+
+	def test_leavingASubtreeStillClimbsPastTheWrapper(self):
+		_control, index = wrappedTree()
+		self.assertEqual(flowObjects.VISIBLE_TREE.nextOf(index["Urgent"]).name, "Personal")
+
+	def test_aWrappedChildIsStillPartOfTheRun(self):
+		"""Membership is what threw the rows away even where the walk reached them."""
+		_control, index = wrappedTree()
+		self.assertTrue(flowObjects.VISIBLE_TREE.admits(index["Inbox"], index["Urgent"]))
+
+	def test_aWrapperIsNotALevelOfDepth(self):
+		"""Counting it would draw the whole subtree a step further in than the tree it is
+		in, which is the wrong picture the counted depth exists to avoid."""
+		_control, index = wrappedTree()
+		# No levels reported, so counting is the only thing that can answer and the wrapper
+		# is squarely in its way. With the level left in, `positionInfo` covers for a count
+		# that stopped at the grouping and the mistake never shows.
+		for name in VISIBLE:
+			index[name].positionInfo = {}
+		depths = [flowObjects.VISIBLE_TREE.depthOf(index[name]) for name in VISIBLE]
+		self.assertEqual(depths, [1, 2, 3, 2, 1])
+
+	def test_aClosedNodeBehindAWrapperIsStillClosed(self):
+		_control, index = wrappedTree()
+		self.assertEqual(flowObjects.VISIBLE_TREE.nextOf(index["Personal"]).name, "Archive")
+
+	def test_somethingThatIsNotSceneryIsNotWalkedInto(self):
+		"""The bound on the idea. The thing past a *real* boundary — the tree control, a
+		toolbar beside it — is also not a tree item, and treating those as scenery would walk
+		the reader straight out of the control they are in. So only the named roles are
+		stepped through, and anything else ends the descent: the node reads as having no
+		visible children, and the next row is its sibling."""
+		_control, index = tree()
+		index["Inbox"].firstChild = FakeNavigatorObject("a toolbar", role="TOOLBAR")
+		self.assertEqual(flowObjects.VISIBLE_TREE.nextOf(index["Inbox"]).name, "Archive")
+
+
+class TestChildrenThatArriveLate(unittest.TestCase):
+	"""A provider that fetches children on demand reports a node open before it has any.
+
+	The state is settled from the first moment and the rows appear later, so a band watching
+	only the state went on showing an open folder with nothing in it.
+	"""
+
+	def _source(self, index, at):
+		adapter = flowObjects.VISIBLE_TREE
+		return flowObjects.ObjectFlowSource(
+			index[at],
+			adapter,
+			flowObjects.regionFactory(live=True, adapter=adapter),
+			generation=1,
+		)
+
+	def _emptied(self, index, name="Personal"):
+		"""Open, and showing nothing yet. What a lazily filled node looks like on arrival."""
+		node = index[name]
+		node.states = {"EXPANDED"}
+		node.firstChild = None
+		node.children = []
+		return node
+
+	def test_anOpenNodeThatIsStillEmptyIsNotAChange(self):
+		_control, index = tree()
+		self._emptied(index)
+		source = self._source(index, "Personal")
+		source.blockAtCursor()
+		self.assertFalse(source.shapeChanged())
+		self.assertFalse(source.shapeChanged())
+
+	def test_childrenArrivingUnderAnOpenNodeIsAChange(self):
+		_control, index = tree()
+		node = self._emptied(index)
+		source = self._source(index, "Personal")
+		source.blockAtCursor()
+		self.assertFalse(source.shapeChanged())
+		node.firstChild = index["Hidden"]
+		node.children = [index["Hidden"]]
+		self.assertTrue(source.shapeChanged())
+
+	def test_childrenGoingAwayUnderAnOpenNodeIsAChangeToo(self):
+		_control, index = tree()
+		source = self._source(index, "Work")
+		source.blockAtCursor()
+		index["Work"].firstChild = None
+		index["Work"].children = []
+		self.assertTrue(source.shapeChanged())
+
+	def test_aClosedNodeIsNotAskedWhatItIsHolding(self):
+		"""A closed node cannot be showing children whatever it holds, and asking would be a
+		call into the application on every redraw for every reader in a list or a menu."""
+		_control, index = tree()
+		asked = []
+		adapter = dataclasses.replace(
+			flowObjects.VISIBLE_TREE,
+			openChildOf=lambda obj: asked.append(obj),
+		)
+		source = flowObjects.ObjectFlowSource(
+			index["Personal"],
+			adapter,
+			flowObjects.regionFactory(live=True, adapter=adapter),
+			generation=1,
+		)
+		source.blockAtCursor()
+		source.shapeChanged()
+		self.assertEqual(asked, [])
 
 
 class TestNoticingANodeBeingOpened(unittest.TestCase):
