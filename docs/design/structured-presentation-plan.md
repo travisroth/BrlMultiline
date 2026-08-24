@@ -14,7 +14,7 @@ So this plan adds a second axis. Alongside "what to read" there is now "how this
 thing is shown", and the second is chosen from what the reader is actually looking at
 rather than from a role alone.
 
-**Status: M0, M1 and M2a are built; M2b onward is not.** The milestones below say which,
+**Status: M0, M1 and M2a are built and confirmed on hardware; M2b onward is not built.** The milestones below say which,
 and where the built shape differs from what was planned the decision records both. Read this
 before extending `flowObjects.py` or `flowRender.py`.
 
@@ -370,8 +370,10 @@ block, and on an eight row band it pushed the fetch budget over on arrival. Brow
 needs a cheaper mechanism than the obvious one, and it is a milestone of its own rather than
 a corner of this one.
 
-**M1 — depth and indent.** BUILT, AWAITING HARDWARE except the orientation note. What
-landed: `SourceBlock.depth` and `RenderedBlock.depth`, `RenderKey.indent`, `depthOf` on
+**M1 — depth and indent.** DONE, PASS, except the orientation note, which is not built.
+Confirmed on a Monarch 8x32: a folder tree draws its depths, the band rebases when the true
+depth will not fit, the margin does not twitch while arrowing through one level, and a
+wrapped row reads as a continuation rather than as a child. What landed: `SourceBlock.depth` and `RenderedBlock.depth`, `RenderKey.indent`, `depthOf` on
 `ObjectAdapter` reading `positionInfo["level"]`, the whole of `flowIndent.py`, indent drawn
 in `FlowRenderer`, `FlowController._rebaseIndent` at the end of every operation, the
 `flowIndentStyle` setting with its place in the dialog, and a line in the dry run report
@@ -392,7 +394,10 @@ while the reader arrows through items at one depth, which is a display moving wh
 moved. A plan is kept until it would need a negative indent, or has run out of levels, or is
 for a different style or band width.
 
-**M1's other half — the focus mark.** BUILT. `flowIndent.focusMark`, drawn by
+**M1's other half — the focus mark.** DONE, PASS. Dots 3678 across two cells, which is the
+pattern hardware asked for after the first one was tried: the bottom four dots read as a bar
+under a moving hand, and they contain the dots 78 of the level mark rather than resembling
+it. `flowIndent.focusMark`, drawn by
 `FlowController._markLineFocus` and settable through `flowLineFocus`. It is drawn at
 assembly rather than rendered into the block, for the same reason the cursor is: the focus
 moves without the rows changing, and baking it in would mean re-rendering the block the
@@ -405,7 +410,20 @@ already says when there is something to announce, and the dry run reports it; wh
 is drawing it. It is the least settled part of the design (see open question 2) and it is the
 only part that has to reach into assembled cells rather than a block's own rendering.
 
-**M2a — the visible-tree walk.** BUILT, AWAITING HARDWARE. Split out of M2 and done first,
+**M2a — the visible-tree walk.** DONE, PASS. Confirmed in Outlook's folder pane and in File
+Explorer: an open folder's contents are on the display, expanding and collapsing are noticed
+without an event, panning across a subtree boundary is reversible, and moving to a parent
+that was not previously on the band re-plans the indent to include it.
+
+Four defects were found on hardware after it was built, all of them about *where the band
+went* rather than about the walk, and all fixed: a dry run measuring the whole composite
+display instead of the band; Outlook labelling an account row and its children both level 1;
+the travel direction being decided before the block had been fetched; and — the one that
+took three attempts — `refreshActive` placing the window by a guessed direction before the
+considered answer was ever used. That last one is why `FlowWindow.ensureVisible` now decides
+the edge from where the row is rather than from what a caller passed.
+
+Split out of M2 and done first,
 because M1's indent could not be tested without it: a sibling walk only ever has one depth on
 the band, so there was nothing to indent relative to anything.
 
@@ -430,6 +448,9 @@ and a tree walk already holds the ancestors in its hand.
 
 **Two shapes the first cut of the walk could not read**, both found by review rather than by
 hardware, and both about a tree that is not laid out the way Outlook's and Explorer's are.
+Neither is confirmed on hardware, because neither has a control to hand that exhibits it —
+they are tested against fixtures and should be re-checked the first time a tree that is not
+Outlook's or Explorer's is read.
 
 A tree item's children are not always its *direct* children: UIA hangs them off a grouping in
 between, and so do some IA2 implementations. The walk read `firstChild`, got the grouping,
