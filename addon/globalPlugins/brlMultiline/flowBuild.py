@@ -332,7 +332,10 @@ def buildTableController(
 	notes.append(f"Columns: {flowTable.describe(plan)}")
 	source = flowTableSource.TableFlowSource(
 		handle,
-		columns=tuple(column.index for column in plan.columns),
+		# The first page only. Every cell is a search of the document, and the columns on the
+		# other pages are ones nobody is looking at yet; `FlowBand._useColumnPage` hands over
+		# the next page's when the reader gets there.
+		columns=tuple(place.column.index for place in plan.placements()),
 		generation=generation,
 		budget=budgetForBand(numRows),
 		live=live,

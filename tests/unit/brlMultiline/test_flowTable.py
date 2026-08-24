@@ -44,11 +44,13 @@ MONARCH_COLS = 32
 
 def watchlist(**changes):
 	""":return: the measurements of a stock watchlist, in cells."""
+	# The widths already cover the headers, which is what `flowTableSource.measure` produces:
+	# it reads the header row along with the rest and takes the widest, in cells.
 	columns = [
-		Measurement(index=1, width=5, label="Symbol"),
-		Measurement(index=2, width=8, label="Last"),
-		Measurement(index=3, width=7, label="Change"),
-		Measurement(index=4, width=6, label="%Chg"),
+		Measurement(index=1, width=6, label="Symbol", labelWidth=6),
+		Measurement(index=2, width=8, label="Last", labelWidth=4),
+		Measurement(index=3, width=7, label="Change", labelWidth=6),
+		Measurement(index=4, width=6, label="%Chg", labelWidth=4),
 	]
 	for index, width in changes.items():
 		position = int(index.lstrip("c")) - 1
@@ -106,8 +108,15 @@ class TestWidthsThatFit(unittest.TestCase):
 	def test_aColumnIsAtLeastAsWideAsItsHeader(self):
 		"""A column of one character flags under a header called "Watched" is a column whose
 		header cannot be read, and the header is what the reader is looking for."""
-		plan = planFor([Measurement(index=1, width=1, label="Watched")], MONARCH_COLS)
-		self.assertEqual(widthsOf(plan), [7])
+		measured = [Measurement(index=1, width=1, label="Watched", labelWidth=7)]
+		self.assertEqual(widthsOf(planFor(measured, MONARCH_COLS)), [7])
+
+	def test_theHeaderIsMeasuredInCellsRatherThanCharacters(self):
+		"""The arithmetic here is careful to work in cells everywhere else, and `len(label)`
+		quietly put character counts back into it: a header contracted to four cells was
+		given six because it has six characters."""
+		measured = [Measurement(index=1, width=3, label="Change", labelWidth=4)]
+		self.assertEqual(widthsOf(planFor(measured, MONARCH_COLS)), [4])
 
 	def test_aColumnIsNeverNarrowerThanTheMinimum(self):
 		plan = planFor([Measurement(index=1, width=1, label="")], MONARCH_COLS)

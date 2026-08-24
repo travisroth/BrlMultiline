@@ -364,21 +364,48 @@ class FlowController(PanelOwner):
 		self.renderer.indentPlan = plan
 		self._redrawBlocks(rendered, why="a rebased indent")
 
-	def setColumnPlan(self, plan) -> bool:
+	def setColumnPlan(self, plan, reread: bool = False) -> bool:
 		"""Draw the band's table again with a different column layout.
 
 		What moves the band across a table too wide for it: the plan holds every column and
 		says which page each is on, and this is how a different page reaches the display.
 
 		:param plan: the layout to draw with. See `flowTable.ColumnPlan`.
+		:param reread: read the rows again before drawing them. Wanted when the source has
+			been told to read different columns, since the rows it read before hold the cells
+			of the page that has just been left.
 		:return: whether anything changed.
 		"""
-		if plan == self.renderer.columnPlan:
+		if plan == self.renderer.columnPlan and not reread:
 			return False
 		with self.operation():
 			self.renderer.columnPlan = plan
+			if reread:
+				self._rereadBlocks()
 			self._redrawBlocks(list(self.window.blocks), why="a different page of columns")
 		return True
+
+	def _rereadBlocks(self) -> None:
+		"""Read every block the band is holding again, keeping its identity.
+
+		Only sources that can be asked for a block by its identity answer this — a table can,
+		because a row is named by its number — and the rest are left alone. It is not a
+		general re-read: the window keeps its place, the blocks keep their identities, and
+		what changes is what the source now says is in them.
+		"""
+		fetch = getattr(self.source, "blockAt", None)
+		if fetch is None:
+			return
+		# The window's blocks rather than the whole cache: they are what `_redrawBlocks` is
+		# about to draw, and the cache is keyed by a bookmark that cannot be hashed or walked.
+		for rendered in list(self.window.blocks):
+			try:
+				result = fetch(rendered.blockId)
+			except Exception:
+				log.debugWarning(f"Could not read {rendered.blockId} again", exc_info=True)
+				continue
+			if result.kind is ResultKind.BLOCK and result.block is not None:
+				self._keep(result.block, replace=True)
 
 	def _redrawBlocks(self, rendered, why: str) -> None:
 		"""Lay every block on the band out again, under whatever the renderer says now.
@@ -573,7 +600,7 @@ class FlowController(PanelOwner):
 			return False
 		return True
 
-	def _keep(self, block):
+	def _keep(self, block, replace: bool = False):
 		"""Remember a source block, so its region can be reached from its identity.
 
 		A block already held keeps the region it was first read with, and the newly built
@@ -583,10 +610,16 @@ class FlowController(PanelOwner):
 		reading position lives, which is what a viewer pans within.
 
 		:param block: the block just read.
+		:param replace: take the new reading even so. For a caller that read the block again
+			*on purpose* and knows the old one is wrong — a table changing page reads
+			different columns out of the same rows, so the region it kept is a region of the
+			page just left. The regions NVDA may be holding are re-pointed on the next
+			update by `flowSegment._syncRegions`, which is the same thing that happens when a
+			block is replaced for any other reason.
 		:return: the block to use, which may be one already held.
 		"""
 		existing = self.blocks.get(block.blockId)
-		if existing is not None and self._sameRegionOwner(existing, block):
+		if existing is not None and not replace and self._sameRegionOwner(existing, block):
 			return existing
 		if existing is not None:
 			oldRegion = getattr(existing, "region", None)

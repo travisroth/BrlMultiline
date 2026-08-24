@@ -14,7 +14,9 @@ So this plan adds a second axis. Alongside "what to read" there is now "how this
 thing is shown", and the second is chosen from what the reader is actually looking at
 rather than from a role alone.
 
-**Status: M0, M1 and M2a are built and confirmed on hardware; M2b onward is not built.** The milestones below say which,
+**Status: M0, M1, M2a, M3a, M3b and M3c are built. M0, M1 and M2a are confirmed on
+hardware; M3 has been through several hardware rounds and is being used. M2b, M4 (pinned
+headers), M5 (tables as objects), M6 (saved layouts) and M7 (the designer) are not built.** The milestones below say which,
 and where the built shape differs from what was planned the decision records both. Read this
 before extending `flowObjects.py` or `flowRender.py`.
 

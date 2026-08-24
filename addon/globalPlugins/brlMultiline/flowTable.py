@@ -381,6 +381,20 @@ class Measurement:
 	label: str = ""
 	"""Its header, where it has one."""
 
+	labelWidth: int = 0
+	"""How wide the header is in cells, where it was measured separately.
+
+	Zero where the caller's `width` already covers it, which is the ordinary case:
+	`flowTableSource.measure` reads the header row along with the rest and the widest content
+	it found includes the header. This exists for a caller that measured the body and knows
+	the header separately — an application module, a saved layout — and it exists in *cells*
+	because the obvious alternative is not.
+
+	The obvious alternative was `len(label)`, which is what this used, and it quietly put
+	character counts back into an arithmetic that is careful everywhere else to work in cells.
+	A header contracted to four cells was given six because it has six characters.
+	"""
+
 	hidden: bool = False
 	"""Whether the table itself is not showing this column.
 
@@ -429,7 +443,7 @@ def planFor(
 	maxRows = max(1, min(maxRows, MAX_TABLE_ROWS))
 	if not wanted or numCols < minWidth:
 		return READING_ORDER
-	wants = {item.index: max(item.width, len(item.label)) for item in wanted}
+	wants = {item.index: max(item.width, item.labelWidth) for item in wanted}
 	widths = {item.index: max(minWidth, min(maxWidth, numCols, wants[item.index])) for item in wanted}
 	_shrinkTowardsFitting(widths, _budgetFor(numCols, maxRows, len(wanted), gap), minWidth, wants)
 	return ColumnPlan(

@@ -374,6 +374,86 @@ class TestATableWiderThanTheBand(TableBandTestCase):
 		self.assertEqual(drawn, list(range(1, len(WIDE[0]) + 1)))
 
 
+class TestWhatAWideTableCostsToRead(TableBandTestCase):
+	"""Every cell is a search of the document. A twenty-nine column table read four columns
+	to a page was searching for twenty-five columns nobody was looking at, per row, forever."""
+
+	def _wideTable(self, columns=29, rows=10):
+		headers = [f"Col{n}" for n in range(1, columns + 1)]
+		body = [[f"r{r}c{c}" for c in range(1, columns + 1)] for r in range(1, rows + 1)]
+		return self._inTable(rows=[headers, *body], row=2, col=1)
+
+	def test_onlyThePagesColumnsAreReadForAFreshRow(self):
+		obj, document = self._wideTable()
+		self.band.layOutTable()
+		onPage = {place.column.index for place in self.band.columnPlan().placements()}
+		document.reads.clear()
+		self.band.controller.source.blockAtCursor()
+		self.assertEqual({column for _row, column in document.reads}, onPage)
+
+	def test_turningThePageReadsTheNewPagesColumns(self):
+		obj, document = self._wideTable()
+		self.band.layOutTable()
+		document.reads.clear()
+		self.band.turnColumnPage(1)
+		onPage = {place.column.index for place in self.band.columnPlan().placements()}
+		self.assertEqual({column for _row, column in document.reads}, onPage)
+
+	def test_turningThePageShowsTheNewPagesValues(self):
+		"""The rows read for the old page hold the wrong cells, so they are read again. Drawn
+		as they were, the old page's values would appear at the new page's offsets."""
+		obj, document = self._wideTable()
+		self.band.layOutTable()
+		self.band.turnColumnPage(1)
+		first = self.band.columnPlan().placements()[0].column.index
+		control = self.band.controller
+		rendered = control.window.blocks[0]
+		region = control.regionFor(rendered.blockId)
+		self.assertIn(first, [cell.index for cell in region.cells])
+
+
+class TestATableThatChangesShape(TableBandTestCase):
+	"""A plan is of a table. When the table is not that table any more the plan is of nothing:
+	its widths were measured from columns that have gone, and it has no page for one that has
+	arrived, so the band cannot follow the caret there."""
+
+	def test_aColumnAppearingIsNoticed(self):
+		obj, document = self._inTable()
+		self.band.layOutTable()
+		before = len(self.band.columnPlan().columns)
+		for line in document.rows:
+			line.append("new")
+		self.band.recheck()
+		self.assertEqual(len(self.band.columnPlan().columns), before + 1)
+
+	def test_theCaretCanFollowIntoTheNewColumn(self):
+		obj, document = self._inTable()
+		self.band.layOutTable()
+		for line in document.rows:
+			line.append("new")
+		document.col = len(document.rows[0])
+		self.band.recheck()
+		plan = self.band.columnPlan()
+		self.assertIsNotNone(plan.pageOf(document.col))
+
+	def test_aColumnGoingAwayIsNoticedToo(self):
+		obj, document = self._inTable()
+		self.band.layOutTable()
+		before = len(self.band.columnPlan().columns)
+		for line in document.rows:
+			line.pop()
+		self.band.recheck()
+		self.assertEqual(len(self.band.columnPlan().columns), before - 1)
+
+	def test_aTableThatHasNotChangedIsNotRebuilt(self):
+		"""This is asked on every redraw, so it must be cheap and it must be quiet."""
+		self._inTable()
+		self.band.layOutTable()
+		plan = self.band.columnPlan()
+		self.band.recheck()
+		self.assertIs(self.band.columnPlan(), plan)
+
+
 class TestTheCursorSaysWhichCell(TableBandTestCase):
 	"""Speech says which cell the reader is in. Braille had stopped saying it at all.
 

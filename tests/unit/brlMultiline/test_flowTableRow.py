@@ -240,6 +240,80 @@ class TestDrawingARowInColumns(unittest.TestCase):
 		self.assertGreater(plan.numRows, 1)
 
 
+class TestLanesStackRatherThanOverlap(unittest.TestCase):
+	"""A packing row is a lane, and a lane is as tall as the tallest cell in it.
+
+	The plan may put columns on more than one row of the band. A cell in the first of those
+	that wraps needs the rows underneath it, and those rows are not the second lane's to take
+	— but adding the wrapped line's index to the lane number gave both of them the same row,
+	and the later column won. A wrapped value came out with the next column written through
+	the middle of it.
+	"""
+
+	def _twoLanes(self):
+		"""Four columns on a sixteen cell band over two rows, so lanes 0 and 1 are both used."""
+		measured = [Measurement(index=n, width=7, label="") for n in range(1, 5)]
+		return planFor(measured, 16, maxRows=2)
+
+	def test_theSecondLaneStartsBelowTheFirstOnesTallestCell(self):
+		plan = self._twoLanes()
+		self.assertEqual(sorted({place.row for place in plan.placements()}), [0, 1])
+		drawn = renderer(plan=plan, numCols=16).render(
+			block(row("FIRSTLONGVALUE", "b", "c", "d")),
+		)
+		# The first cell wraps over three rows, so the second lane starts on the fourth.
+		self.assertGreaterEqual(len(drawn.rows), 4)
+
+	def test_theSecondLaneDoesNotWriteThroughTheFirstOnesWrapping(self):
+		"""The symptom: a wrapped value with the next column's cells inside it."""
+		plan = self._twoLanes()
+		drawn = renderer(plan=plan, numCols=16).render(
+			block(row("FIRSTLONGVALUE", "b", "c", "d")),
+		)
+		# The first column wraps over three rows, so those three are lane zero's and the
+		# whole of the value is in them, unbroken.
+		lane = "".join(textOf(line)[0:7] for line in drawn.rows[:3]).replace(" ", "")
+		self.assertEqual(lane, "FIRSTLONGVALUE")
+
+	def test_theSecondLaneBeginsAfterTheFirstOneEnds(self):
+		plan = self._twoLanes()
+		drawn = renderer(plan=plan, numCols=16).render(
+			block(row("FIRSTLONGVALUE", "b", "c", "d")),
+		)
+		self.assertEqual(len(drawn.rows), 4)
+		self.assertEqual(textOf(drawn.rows[3])[0:1], "c")
+
+	def test_aShortFirstLaneStillPutsTheSecondRightUnderIt(self):
+		plan = self._twoLanes()
+		drawn = renderer(plan=plan, numCols=16).render(block(row("a", "b", "c", "d")))
+		self.assertEqual(len(drawn.rows), 2)
+		self.assertEqual(textOf(drawn.rows[1])[0:1], "c")
+
+
+class TestATableRowTallerThanTheBand(unittest.TestCase):
+	"""Every value is promised. A row too tall is a block with more rows, which is what a
+	paragraph longer than the band already is — not content quietly thrown away."""
+
+	def _tall(self):
+		return renderer().render(block(row("x" * 200, "1.00")))
+
+	def test_itSaysThereIsMore(self):
+		"""Saying there is not, while dropping the rest, is the one thing that must not
+		happen: the reader is promised every value and cannot tell they are not getting one."""
+		self.assertTrue(self._tall().moreRows)
+
+	def test_theBandShowsWhatItCanHold(self):
+		self.assertEqual(len(self._tall().rows), MAX_TABLE_ROWS)
+
+	def test_theRestCanBeReached(self):
+		later = renderer().render(block(row("x" * 200, "1.00")), fromRow=MAX_TABLE_ROWS)
+		self.assertEqual(later.rowOffset, MAX_TABLE_ROWS)
+		self.assertTrue(later.rows)
+
+	def test_aRowThatFitsSaysThereIsNoMore(self):
+		self.assertFalse(renderer().render(block(row("AAPL", "1.00"))).moreRows)
+
+
 class TestARowWithNoPlan(unittest.TestCase):
 	"""Reading order must survive, and it is what a table gets by default."""
 

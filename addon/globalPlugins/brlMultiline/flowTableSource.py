@@ -105,6 +105,21 @@ class TableHandle:
 	col: int
 	"""The column the caret is in, one based."""
 
+	@property
+	def key(self) -> tuple:
+		"""What names this table, and names it apart from every other one.
+
+		The document **and** the identifier, because NVDA's table identifier is only
+		documented as unique within a document: a virtual buffer numbers its tables from one,
+		so the first table of every page is table 1. Comparing identifiers alone said the
+		watchlist on one page and the layout table on the next were the same table, and a
+		focus change straight from one into the other carried the reader's column layout with
+		it.
+
+		:return: a key to compare with `sameTable`, which knows how to compare each half.
+		"""
+		return (self.document, self.tableID)
+
 	def __repr__(self) -> str:
 		return f"<TableHandle {self.numRows}x{self.numCols} at row {self.row} column {self.col}>"
 
@@ -452,20 +467,36 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 	:param sample: how many rows to read.
 	:return: one measurement per column of the table.
 	"""
-	widths: dict[int, int] = {column: 0 for column in range(1, handle.numCols + 1)}
-	labels: dict[int, str] = {column: "" for column in range(1, handle.numCols + 1)}
-	rows = _sampleRows(handle, sample)
-	for row in rows:
-		for column in range(1, handle.numCols + 1):
+	columns = range(1, handle.numCols + 1)
+	widths: dict[int, int] = {column: 0 for column in columns}
+	labels: dict[int, str] = {column: "" for column in columns}
+	headers: dict[int, int] = {column: 0 for column in columns}
+	found: set[int] = set()
+	for row in _sampleRows(handle, sample):
+		for column in columns:
 			region = cellRegion(handle, row, column, live=live)
 			if region is None:
 				continue
+			found.add(column)
 			widths[column] = max(widths[column], len(region.brailleCells))
 			if row == 1 and not labels[column]:
 				labels[column] = region.rawText
+				headers[column] = len(region.brailleCells)
 	return [
-		Measurement(index=column, width=widths[column], label=labels[column])
-		for column in range(1, handle.numCols + 1)
+		Measurement(
+			index=column,
+			width=widths[column],
+			label=labels[column],
+			labelWidth=headers[column],
+			# A column no sampled row had a cell in, the header row included, is not a column
+			# this table is showing. Given a width it became a phantom: three cells of blank
+			# between two real columns, on every row, for something that is not there. The
+			# caveat is a spanning cell, which looks the same from outside — see the module
+			# docstring on missing cells — so the header row is always sampled, because a
+			# real column has a header even where its body is merged away.
+			hidden=column not in found,
+		)
+		for column in columns
 	]
 
 
@@ -521,6 +552,35 @@ class TableFlowSource:
 		""":return: the column the reader is on, as this source last knew it."""
 		return self.handle.col
 
+	def setColumns(self, columns) -> bool:
+		"""Say which columns to read from now on.
+
+		The page being drawn, and only it. Every cell is a search of the document, so reading
+		a column that is on another page is a search for something nobody will feel — and a
+		twenty-nine column table read at four columns a page was doing that twenty-five times
+		per row, on every row, forever.
+
+		The rows already read are stale afterwards: they hold the cells of the old page. The
+		caller re-reads them — see `FlowController.setColumnPlan`.
+
+		:param columns: the table's own numbers for the columns to read, in drawing order.
+		:return: whether they changed.
+		"""
+		columns = tuple(columns)
+		if columns == self.columns:
+			return False
+		self.columns = columns
+		return True
+
+	def blockAt(self, blockId: BlockId) -> FetchResult:
+		""":return: one row again, by the identity it already has.
+
+		What re-reading the band needs: the window knows which rows it is holding and wants
+		those same rows read again, which for a table is the whole of what changing page
+		means.
+		"""
+		return self._rowAt(blockId.bookmark)
+
 	def moveTo(self, handle: TableHandle) -> None:
 		"""Say where in the table the reader has moved to.
 
@@ -540,7 +600,7 @@ class TableFlowSource:
 		where its selection is now is the only thing that answers.
 		"""
 		found = tableAt(obj if obj is not None else self.obj)
-		if found is not None and _sameTable(found.tableID, self.handle.tableID):
+		if found is not None and sameTable(found.key, self.handle.key):
 			self.handle = found
 
 	def isStillHere(self, obj) -> bool:
@@ -552,7 +612,7 @@ class TableFlowSource:
 		layout of something that is not there.
 		"""
 		found = tableAt(obj)
-		return found is not None and _sameTable(found.tableID, self.handle.tableID)
+		return found is not None and sameTable(found.key, self.handle.key)
 
 	# Reading.
 
@@ -631,15 +691,22 @@ class TableFlowSource:
 		return f"<TableFlowSource {self.handle!r} generation {self.generation}>"
 
 
-def _sameTable(first, second) -> bool:
-	""":return: whether two table identifiers name the same table.
+def sameTable(first, second) -> bool:
+	""":return: whether two table keys name the same table. See `TableHandle.key`.
 
-	Compared rather than tested for identity: NVDA's table identifier is an integer for a
-	virtual buffer and a tuple for UIA, and neither survives being the same object across two
-	reads.
+	The two halves are compared differently and deliberately. The **document** is compared by
+	identity, because a tree interceptor is one object for as long as its page is loaded and
+	because being wrong in the safe direction here means giving a layout back rather than
+	carrying it into a page it was not made for. The **identifier** is compared by value,
+	because it is an integer for a virtual buffer and a tuple for UIA and neither survives
+	being the same object across two reads.
 	"""
+	if first is None or second is None:
+		return False
 	try:
-		return bool(first == second)
+		if first[0] is not second[0]:
+			return False
+		return bool(first[1] == second[1])
 	except Exception:
 		log.debugWarning("Could not compare two tables", exc_info=True)
 		return False
@@ -651,6 +718,7 @@ __all__ = [
 	"TableFlowSource",
 	"TableHandle",
 	"cellRegion",
+	"sameTable",
 	"measure",
 	"tableAt",
 	"tableDocumentFor",

@@ -97,7 +97,10 @@ class FlowBand(PanelOwner):
 		"""The pending settle pass, so a fresh keystroke can restart it. See L{_scheduleSettle}."""
 
 		self.tableWanted: Any = None
-		"""The table the reader has asked to see in columns, by its own identifier.
+		"""The table the reader has asked to see in columns, as a document and an identifier.
+
+		Both halves, because NVDA's table identifier is only unique within a document — see
+		`flowTableSource.TableHandle.key`.
 
 		None means every table reads as the page around it does, which is reading order and is
 		the default. See `layOutTable`, and decision 19 of the structured presentation plan:
@@ -494,7 +497,7 @@ class FlowBand(PanelOwner):
 		handle = flowTableSource.tableAt(self._target())
 		if handle is None:
 			return False
-		self.tableWanted = handle.tableID
+		self.tableWanted = handle.key
 		self.refresh(force=True)
 		return self.controller is not None and self._readingATable()
 
@@ -532,10 +535,17 @@ class FlowBand(PanelOwner):
 		"""
 		source = self.controller.source
 		found = flowTableSource.tableAt(self._target())
-		if found is None or not flowTableSource._sameTable(found.tableID, self.tableWanted):
+		if found is None or not flowTableSource.sameTable(found.key, self.tableWanted):
 			# Out of the table. The request goes with it, so that walking into a different
 			# table later does not lay that one out uninvited.
 			self.tableWanted = None
+			self._rebuildTable()
+			return
+		if self._tableChangedShape(found, source):
+			# A column appeared or went away. The plan is of a table that no longer exists —
+			# it has no page for a column it never measured, so the band cannot follow the
+			# caret there — and the widths were measured from what was in the old one. Read
+			# the whole thing again.
 			self._rebuildTable()
 			return
 		if (found.row, found.col) == (source.row, source.column):
@@ -565,6 +575,29 @@ class FlowBand(PanelOwner):
 		finally:
 			self._rechecking = False
 
+	def _tableChangedShape(self, found, source) -> bool:
+		"""Whether the table is no longer the shape the layout was made for.
+
+		Two cheap questions, asked on each redraw beside the ones already being asked. How
+		many columns it has now, which `_getTableDimensions` has just answered anyway; and
+		whether the caret's column is one the plan knows, which is proof of a change the
+		count cannot see — a column removed and another added leaves the count alone.
+
+		What this cannot catch is a table whose columns are renamed or reordered without
+		changing in number, with the caret staying where it is. Nothing cheap can, and the
+		command is the way out: turning the layout off and on measures the table again.
+
+		:param found: the table as it is now.
+		:param source: the source reading it.
+		:return: whether to build the layout again.
+		"""
+		if found.numCols != source.handle.numCols:
+			return True
+		plan = getattr(self.controller.renderer, "columnPlan", None)
+		if plan is None or plan.isEmpty:
+			return False
+		return plan.pageOf(found.col) is None
+
 	def _showColumn(self, column: int) -> bool:
 		"""Bring the page holding a column onto the band.
 
@@ -582,7 +615,7 @@ class FlowBand(PanelOwner):
 		page = plan.pageOf(column)
 		if page is None or page == plan.page:
 			return False
-		return self.controller.setColumnPlan(plan.onPage(page))
+		return self._useColumnPage(plan.onPage(page))
 
 	def turnColumnPage(self, by: int) -> bool:
 		"""Move the band across the table by pages of columns, without moving the caret.
@@ -599,12 +632,30 @@ class FlowBand(PanelOwner):
 		plan = getattr(self.controller.renderer, "columnPlan", None)
 		if plan is None or plan.isEmpty:
 			return False
-		moved = self.controller.setColumnPlan(plan.onPage(plan.page + by))
+		moved = self._useColumnPage(plan.onPage(plan.page + by))
 		if moved:
 			segment = self.segment()
 			if segment is not None:
 				segment.refresh()
 		return moved
+
+	def _useColumnPage(self, plan) -> bool:
+		"""Show a page of columns, and read the rows again for it.
+
+		The two halves have to happen together and in this order. The source reads only the
+		page's columns — every cell is a search of the document, and reading a column on
+		another page is a search for something nobody will feel — so the rows it read for the
+		old page hold the wrong cells, and drawing them under the new plan would draw the old
+		page's values at the new page's offsets.
+
+		:param plan: the layout, on the page wanted.
+		:return: whether the page changed.
+		"""
+		if plan.page == self.controller.renderer.columnPlan.page:
+			return False
+		source = self.controller.source
+		source.setColumns(tuple(place.column.index for place in plan.placements()))
+		return self.controller.setColumnPlan(plan, reread=True)
 
 	def columnPlan(self):
 		""":return: the table layout on the band, or None if it is not showing a table."""
@@ -644,7 +695,7 @@ class FlowBand(PanelOwner):
 		if self.tableWanted is None:
 			return None
 		handle = flowTableSource.tableAt(obj)
-		if handle is None or not flowTableSource._sameTable(handle.tableID, self.tableWanted):
+		if handle is None or not flowTableSource.sameTable(handle.key, self.tableWanted):
 			self.tableWanted = None
 			return None
 		if not force and self._readingATable() and self.controller.source.isStillHere(obj):

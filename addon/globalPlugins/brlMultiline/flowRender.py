@@ -169,7 +169,7 @@ class FlowRenderer:
 			blank line in a document occupies the row it deserves.
 		"""
 		fromRow = max(0, fromRow)
-		columns = self._asColumns(block)
+		columns = self._asColumns(block, fromRow)
 		if columns is not None:
 			return columns
 		first = self.indentPlan.prefixFor(block.depth)
@@ -194,7 +194,7 @@ class FlowRenderer:
 			isDecoration=block.isDecoration,
 		)
 
-	def _asColumns(self, block: SourceBlock) -> Optional[RenderedBlock]:
+	def _asColumns(self, block: SourceBlock, fromRow: int = 0) -> Optional[RenderedBlock]:
 		"""Lay a table row out at its plan's offsets, if it is one and there is a plan.
 
 		The one thing in this file that does not go through a braille buffer holding the
@@ -203,59 +203,111 @@ class FlowRenderer:
 		columns do not line up. So each cell is laid out in a buffer of its own at its own
 		column's width — the same machinery, several times — and the results are placed.
 
-		Every row of the result is the full width of the band, padding included, which is the
-		one place a rendering here is padded. `assembleCells` pads a short row at its right
-		hand end; a table row needs padding *between* its columns as well, and that padding
-		is what puts the next column where the reader's finger expects it.
+		**A packing row is a lane, and a lane is as tall as the tallest cell in it.** The
+		plan may put columns on more than one row of the band; a cell in the first of those
+		that wraps needs the rows underneath it, and those rows are not the second lane's to
+		take. Adding the wrapped line's index to the lane number gave both of them the same
+		row and the later column won — a wrapped value with the next column written through
+		the middle of it. Lanes are stacked by their own heights instead.
+
+		Every drawn row is the full width of the band, padding included, which is the one
+		place a rendering here is padded. `assembleCells` pads a short row at its right hand
+		end; a table row needs padding *between* its columns as well, and that padding is
+		what puts the next column where the reader's finger expects it.
 
 		:param block: the block being rendered.
+		:param fromRow: which row of the table row to start at, for a row taller than the
+			band will show at once.
 		:return: the rendering, or None if this is not a table row being drawn as one.
 		"""
 		cells = rowCellsOf(block.region)
 		if cells is None or self.columnPlan.isEmpty:
 			return None
 		plan = self.columnPlan
-		row = block.region
-		drawn = []
-		height = plan.numRows
+		lanes = self._lanes(block.region, plan)
+		rows, where = self._laidOut(lanes, plan)
+		return self._chunkOf(block, rows, where, fromRow)
+
+	def _lanes(self, row, plan) -> dict:
+		""":return: the drawn lines of every placed cell, gathered by the lane they go in."""
+		lanes: dict = {}
 		for place in plan.placements():
 			cell = row.cellFor(place.column.index)
 			if cell is None:
 				continue
 			lines, positions = self._cellRows(cell, place.column)
-			drawn.append((place, lines, positions))
-			# The table row is as tall as its tallest cell needs, so a row of short values
-			# takes one band row and only the row with the long description grows. Fixing the
-			# height at the plan's would make every row as tall as the worst one, which spends
-			# the reader's band on blanks.
-			height = max(height, place.row + len(lines))
-		height = max(1, min(height, MAX_TABLE_ROWS))
-		rows = [[BLANK_CELL] * plan.numCols for _ in range(height)]
-		where = [[NO_POSITION] * plan.numCols for _ in range(height)]
-		for place, lines, positions in drawn:
-			for index, (line, marks) in enumerate(zip(lines, positions)):
-				target = place.row + index
-				if target >= height:
-					break
-				for offset, value in enumerate(line[: place.column.width]):
-					rows[target][place.offset + offset] = value
-					# A cell that came from nowhere stays from nowhere. Packing `NO_POSITION`
-					# was packing a negative number, which came back out of `positionParts` as
-					# a real column one lower with an enormous offset — so the continuation
-					# indent of one column claimed to be content of the column before it, and
-					# a routing key over it would have gone there.
-					mark = marks[offset]
-					where[target][place.offset + offset] = (
-						NO_POSITION if mark == NO_POSITION else cellPosition(place.column.index, mark)
-					)
+			lanes.setdefault(place.row, []).append((place, lines, positions))
+		return lanes
+
+	def _laidOut(self, lanes: dict, plan) -> tuple[list, list]:
+		"""Draw every lane, one under the last, and give back the whole table row.
+
+		The whole of it, however tall: what the band shows is decided afterwards, by
+		`_chunkOf`. Deciding it here is what let content be dropped without anything saying
+		so.
+
+		:param lanes: the drawn cells, by lane.
+		:param plan: the layout.
+		:return: the rows and their position maps.
+		"""
+		heights = {lane: 1 for lane in range(max(1, plan.numRows))}
+		for lane, items in lanes.items():
+			heights[lane] = max([len(lines) for _place, lines, _marks in items] or [1])
+		starts: dict = {}
+		total = 0
+		for lane in sorted(heights):
+			starts[lane] = total
+			total += heights[lane]
+		total = max(1, total)
+		rows = [[BLANK_CELL] * plan.numCols for _ in range(total)]
+		where = [[NO_POSITION] * plan.numCols for _ in range(total)]
+		for lane, items in lanes.items():
+			for place, lines, positions in items:
+				for index, (line, marks) in enumerate(zip(lines, positions)):
+					target = starts.get(lane, 0) + index
+					if target >= total:
+						break
+					for offset, value in enumerate(line[: place.column.width]):
+						rows[target][place.offset + offset] = value
+						# A cell that came from nowhere stays from nowhere. Packing
+						# `NO_POSITION` was packing a negative number, which came back out of
+						# `positionParts` as a real column one lower with an enormous offset —
+						# so the continuation indent of one column claimed to be content of
+						# the column before it, and a routing key over it would have gone
+						# there.
+						mark = marks[offset]
+						where[target][place.offset + offset] = (
+							NO_POSITION if mark == NO_POSITION else cellPosition(place.column.index, mark)
+						)
+		return rows, where
+
+	def _chunkOf(self, block: SourceBlock, rows: list, where: list, fromRow: int) -> RenderedBlock:
+		"""Take the part of a table row the band will show, and say whether there is more.
+
+		A table row taller than `flowTable.MAX_TABLE_ROWS` is not refused and is not silently
+		cut: it is a block with more rows, which is the same thing a paragraph longer than the
+		band is, and the window pans through it by the machinery that already exists. Saying
+		`moreRows` is false while dropping the rest was the alternative and it is the one
+		thing that must not happen — the reader is promised every value and has no way to
+		tell they are not getting one.
+
+		:param block: the block being rendered.
+		:param rows: every row of the table row.
+		:param where: their position maps.
+		:param fromRow: the first row to show.
+		:return: the rendering.
+		"""
+		total = len(rows)
+		fromRow = max(0, min(fromRow, max(0, total - 1)))
+		end = min(total, fromRow + max(1, MAX_TABLE_ROWS))
 		return RenderedBlock(
 			blockId=block.blockId,
-			rows=tuple(tuple(line) for line in rows),
-			positions=tuple(tuple(line) for line in where),
+			rows=tuple(tuple(line) for line in rows[fromRow:end]),
+			positions=tuple(tuple(line) for line in where[fromRow:end]),
 			renderKey=self._keyWith(0),
 			depth=block.depth,
-			rowOffset=0,
-			moreRows=False,
+			rowOffset=fromRow,
+			moreRows=end < total,
 			rawText=getattr(block.region, "rawText", ""),
 			gapBefore=block.gapBefore,
 			gapAfter=block.gapAfter,

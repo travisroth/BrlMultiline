@@ -25,6 +25,7 @@ from brlMultiline.flowTable import rowCellsOf  # noqa: E402
 from brlMultiline.flowTableSource import (  # noqa: E402
 	TableFlowSource,
 	measure,
+	sameTable,
 	tableAt,
 	tableDocumentFor,
 )
@@ -89,6 +90,37 @@ class TestFindingATable(unittest.TestCase):
 
 	def test_anEmptyTableIsNotATable(self):
 		self.assertIsNone(tableAt(FakeFocus(FakeTableDocument([]))))
+
+
+class TestWhichTableThisIs(unittest.TestCase):
+	"""NVDA's table identifier is only unique within a document. A virtual buffer numbers its
+	tables from one, so the first table of every page is table 1."""
+
+	def test_atableIsItselfAcrossTwoReads(self):
+		document = watchlist()
+		self.assertTrue(sameTable(tableAt(FakeFocus(document)).key, tableAt(FakeFocus(document)).key))
+
+	def test_thesameIdentifierInAnotherDocumentIsAnotherTable(self):
+		"""The reported failure: a focus change straight from one page's table into another
+		page's table carried the reader's layout with it."""
+		here = tableAt(FakeFocus(watchlist()))
+		there = tableAt(FakeFocus(watchlist()))
+		self.assertEqual(here.tableID, there.tableID)
+		self.assertFalse(sameTable(here.key, there.key))
+
+	def test_anotherTableInTheSameDocumentIsAnotherTable(self):
+		document = watchlist()
+		first = tableAt(FakeFocus(document)).key
+		document.tableID = 2
+		self.assertFalse(sameTable(first, tableAt(FakeFocus(document)).key))
+
+	def test_theSourceKnowsWhenItIsSomewhereElse(self):
+		source = sourceOver(watchlist())
+		self.assertFalse(source.isStillHere(FakeFocus(watchlist())))
+
+	def test_nothingIsNotATable(self):
+		self.assertFalse(sameTable(None, None))
+		self.assertFalse(sameTable(tableAt(FakeFocus(watchlist())).key, None))
 
 
 class TestReadingRows(unittest.TestCase):
@@ -219,6 +251,26 @@ class TestMeasuringTheColumns(unittest.TestCase):
 		document.reads.clear()
 		measure(tableAt(FakeFocus(document)), sample=8)
 		self.assertLessEqual(len({row for row, _column in document.reads}), 8)
+
+	def test_aColumnNothingWasFoundInIsNotAColumn(self):
+		"""Given a width it became a phantom: three cells of blank between two real columns,
+		on every row, for something the table is not showing."""
+		rows = [[line[0], None, line[2]] for line in WATCHLIST]
+		measured = measure(tableAt(FakeFocus(FakeTableDocument(rows, row=1))))
+		self.assertTrue(measured[1].hidden)
+		self.assertFalse(measured[0].hidden)
+		self.assertFalse(measured[2].hidden)
+
+	def test_aColumnWithAHeaderAndNoBodyIsStillAColumn(self):
+		"""A spanning cell looks like a missing one from outside, so the header row is always
+		read: a real column has a header even where its body is merged away."""
+		rows = [list(WATCHLIST[0])] + [[line[0], None, line[2]] for line in WATCHLIST[1:]]
+		measured = measure(tableAt(FakeFocus(FakeTableDocument(rows, row=1))))
+		self.assertFalse(measured[1].hidden)
+
+	def test_theHeaderIsMeasuredInCellsOfItsOwn(self):
+		measured = measure(tableAt(FakeFocus(watchlist())))
+		self.assertEqual(measured[0].labelWidth, len("Symbol"))
 
 	def test_aHoleDoesNotCountAsAWidth(self):
 		rows = [list(line) for line in WATCHLIST]
