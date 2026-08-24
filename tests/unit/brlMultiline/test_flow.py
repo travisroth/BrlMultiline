@@ -115,7 +115,16 @@ class TestPacking(unittest.TestCase):
 		window = windowWith(MONARCH_ROWS, [block("heading"), block("paragraph", numRows=5)])
 		self.assertEqual(
 			visibleNames(window),
-			["heading0", "paragraph0", "paragraph1", "paragraph2", "paragraph3", "paragraph4", "blank", "blank"],
+			[
+				"heading0",
+				"paragraph0",
+				"paragraph1",
+				"paragraph2",
+				"paragraph3",
+				"paragraph4",
+				"blank",
+				"blank",
+			],
 		)
 
 	def test_blocksPackContinuouslyAcrossTheWindowBoundary(self):

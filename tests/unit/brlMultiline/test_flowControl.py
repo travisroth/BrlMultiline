@@ -763,7 +763,9 @@ class TestAGrowingEdit(unittest.TestCase):
 		control = self.field("a" * 600, numRows=4, caretOffset=599)
 		self.assertEqual(control.cursorRow(), 74)
 		self.assertIsNotNone(control.cursorCell())
-		self.assertGreater(control.window.blocks[control.window.blockIndex(control.activeBlockId)].rowOffset, 0)
+		self.assertGreater(
+			control.window.blocks[control.window.blockIndex(control.activeBlockId)].rowOffset, 0
+		)
 
 
 class TestTheCursorWithinItsBlock(unittest.TestCase):
@@ -917,9 +919,7 @@ class TestWritingReadsTheWholeBandAgain(unittest.TestCase):
 		first lines scrolled off an eight row band with four lines in it.
 		"""
 		lines = ["l1", "l2", "l3", "l4", "l5", "l6", "l7", ""]
-		control = controllerOver(
-			lines, caretIndex=0, numRows=8, numCols=8, live=True, interactive=True
-		)
+		control = controllerOver(lines, caretIndex=0, numRows=8, numCols=8, live=True, interactive=True)
 		# The reader has typed down to the seventh line; the band settles with l3 on top.
 		control.source.obj.caretIndex = 6
 		control.followCursor()

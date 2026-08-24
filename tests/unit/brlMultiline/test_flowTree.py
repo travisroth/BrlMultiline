@@ -220,8 +220,7 @@ class TestHowDeepATreeItemSits(unittest.TestCase):
 		for name in ("Inbox", "Work", "Personal"):
 			index[name].positionInfo = {"level": 1}
 		depths = [
-			flowObjects.VISIBLE_TREE.depthOf(index[name])
-			for name in ("Inbox", "Work", "Urgent", "Personal")
+			flowObjects.VISIBLE_TREE.depthOf(index[name]) for name in ("Inbox", "Work", "Urgent", "Personal")
 		]
 		self.assertEqual(depths, [1, 2, 3, 2])
 
