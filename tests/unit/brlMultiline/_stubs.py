@@ -1821,7 +1821,7 @@ def _installPluginStubs() -> None:
 		guiHelper=types.SimpleNamespace(BoxSizerHelper=object),
 	)
 	_module("gui.guiHelper", BoxSizerHelper=object)
-	_module("scriptHandler", script=lambda **kwargs: (lambda function: function))
+	_module("scriptHandler", script=scriptDecorator)
 	_module("keyboardHandler", keyCounter=0)
 	_module("controlTypes", Role=lambda role: types.SimpleNamespace(displayString=str(role)))
 	_module("braille.extensions", displayChanged=displayChanged, displaySizeChanged=displaySizeChanged)
@@ -1861,6 +1861,25 @@ def _installPluginStubs() -> None:
 		BrailleMode=types.SimpleNamespace(SPEECH_OUTPUT=types.SimpleNamespace(value="speechOutput")),
 		TetherTo=types.SimpleNamespace(FOCUS=types.SimpleNamespace(value="focus")),
 	)
+
+
+def scriptDecorator(**kwargs):
+	"""NVDA's `scriptHandler.script`, in what it leaves behind.
+
+	A passthrough would be simpler and would hide the mistake this exists to catch: a script
+	whose decorator has gone astray still runs perfectly and simply never appears in Input
+	Gestures, so there is nothing to notice until a reader goes looking for the command and
+	cannot find it. NVDA records the description as the function's docstring and the category
+	beside it, so that is what this records.
+	"""
+
+	def decorate(function):
+		function.__doc__ = kwargs.get("description")
+		function.category = kwargs.get("category")
+		function.gestures = list(kwargs.get("gestures") or ())
+		return function
+
+	return decorate
 
 
 def installStubs() -> None:

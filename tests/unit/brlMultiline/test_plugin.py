@@ -61,6 +61,46 @@ MONARCH_ROWS = 8
 MONARCH_COLS = 32
 
 
+class TestEveryCommandCanBeAssignedAKey(unittest.TestCase):
+	"""A command NVDA has not been told about is a command with no way to reach it.
+
+	It is not a runtime failure and nothing logs it: the method is there, it works, and it
+	simply never appears in Input Gestures, so the first sign is a reader going to assign the
+	key and finding nothing. This has happened once already — an edit anchored on a `def`
+	line landed between the command below it and its own decorator, which took the decorator
+	off one command and gave a second one to another.
+	"""
+
+	def _scripts(self):
+		return {
+			name: getattr(GlobalPlugin, name)
+			for name in dir(GlobalPlugin)
+			if name.startswith("script_") and callable(getattr(GlobalPlugin, name, None))
+		}
+
+	def test_thereAreSomeToCheck(self):
+		self.assertGreater(len(self._scripts()), 4)
+
+	def test_everyCommandIsInACategory(self):
+		"""Which is what puts it in the list under a heading the reader can find."""
+		for name, script in self._scripts().items():
+			with self.subTest(script=name):
+				self.assertEqual(getattr(script, "category", None), plugin.SCRIPT_CATEGORY)
+
+	def test_everyCommandSaysWhatItDoes(self):
+		"""NVDA shows the description as the command's name in Input Gestures, so a command
+		without one is an unlabelled row."""
+		for name, script in self._scripts().items():
+			with self.subTest(script=name):
+				self.assertTrue((script.__doc__ or "").strip(), f"{name} has no description")
+
+	def test_noTwoCommandsShareADescription(self):
+		"""Two rows with the same name in the list is the shape the lost decorator made, and
+		it is indistinguishable from a duplicate command."""
+		described = [(script.__doc__ or "").strip() for script in self._scripts().values()]
+		self.assertEqual(len(set(described)), len(described))
+
+
 class PluginTestCase(unittest.TestCase):
 	segmentCount = 4
 

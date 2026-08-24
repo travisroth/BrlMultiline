@@ -1258,11 +1258,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Reports what the flow on the display has cost, and copies the detail"),
-		category=SCRIPT_CATEGORY,
-	)
-	@script(
-		# Translators: input help message for a command.
 		description=_("Lays the table you are in out in columns on the braille display"),
 		category=SCRIPT_CATEGORY,
 	)
@@ -1314,6 +1309,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			_("Table columns on, {shown} columns").format(shown=columns),
 		)
 
+	@script(
+		# Translators: input help message for a command.
+		description=_("Reports what the flow on the display has cost, and copies the detail"),
+		category=SCRIPT_CATEGORY,
+	)
 	def script_flowCost(self, gesture):
 		"""Say what the flow has cost, and write the detail to the log.
 
