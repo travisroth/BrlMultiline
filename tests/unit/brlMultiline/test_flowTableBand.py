@@ -74,9 +74,15 @@ class TableBandTestCase(unittest.TestCase):
 		return obj, document
 
 	def _elsewhere(self):
-		obj = FakeNavigatorObject("a page", treeInterceptor=NoTableDocument([["a"]]))
+		"""A different page altogether, which is the easy case."""
+		obj = FakeNavigatorObject("a page", treeInterceptor=NoTableDocument())
 		self.api.getFocusObject = lambda: obj
 		return obj
+
+	def _readingADocument(self):
+		from brlMultiline.flowSources import DocumentFlowSource
+
+		return isinstance(getattr(self.band.controller, "source", None), DocumentFlowSource)
 
 	def _readingATable(self):
 		source = getattr(self.band.controller, "source", None)
@@ -219,6 +225,66 @@ class TestNvdaCanTellWhoTheRowBelongsTo(TableBandTestCase):
 			self.assertIs(region.obj, document)
 
 
+class TestLeavingTheTableWithoutLeavingThePage(TableBandTestCase):
+	"""The case that actually happens, and the one the fixtures could not express.
+
+	A table is part of a page, not a place the reader goes instead of one. The caret walks
+	out of it and the document does not change — so every "is this the same document" test
+	the band has says yes, because a table flow's source *is* reading that document. The band
+	took the same-document path, called `arriveAt` on the table controller, and kept the
+	columns for the rest of the page.
+
+	On hardware that was a band stuck on the first table it was given and a toggle that
+	appeared to do nothing. Every test written before this one modelled leaving a table as
+	arriving at a different document, which is the one thing that never happens, so they all
+	passed.
+	"""
+
+	def test_theCaretLeavingGivesTheOrdinaryReadingBack(self):
+		obj, document = self._inTable()
+		self.band.layOutTable()
+		document.inTable = False
+		self.band.recheck()
+		self.assertFalse(self._readingATable())
+		self.assertTrue(self._readingADocument())
+
+	def test_theRequestGoesWithIt(self):
+		obj, document = self._inTable()
+		self.band.layOutTable()
+		document.inTable = False
+		self.band.recheck()
+		self.assertIsNone(self.band.tableWanted)
+
+	def test_turningItOffGivesTheOrdinaryReadingBack(self):
+		"""The reader is still in the table and has asked for it to stop, which is the same
+		problem seen from the other side."""
+		self._inTable()
+		self.band.layOutTable()
+		self.band.clearTable()
+		self.assertFalse(self._readingATable())
+		self.assertTrue(self._readingADocument())
+
+	def test_theCommandTurnsItOffToo(self):
+		self._inTable()
+		self.band.layOutTable()
+		self.band.controller.renderer.columnPlan
+		self.assertTrue(self.band.tableWanted is not None)
+		self.band.clearTable()
+		self.assertIsNone(self.band.tableWanted)
+		self.assertTrue(self._readingADocument())
+
+	def test_walkingBackInLaysItOutAgainOnlyWhenAsked(self):
+		"""The request went with the caret, so returning to the table reads it as the page
+		does until the reader says otherwise."""
+		obj, document = self._inTable()
+		self.band.layOutTable()
+		document.inTable = False
+		self.band.recheck()
+		document.inTable = True
+		self.band.showObject(obj)
+		self.assertFalse(self._readingATable())
+
+
 class TestWalkingOutOfTheTable(TableBandTestCase):
 	"""In browse mode the caret moves without the focus moving.
 
@@ -234,7 +300,7 @@ class TestWalkingOutOfTheTable(TableBandTestCase):
 	def test_theCaretLeavingTheTableGivesTheLayoutBack(self):
 		obj, document = self._inTable()
 		self.band.layOutTable()
-		document.rows = []
+		document.inTable = False
 		self.band.recheck()
 		self.assertIsNone(self.band.tableWanted)
 		self.assertFalse(self._readingATable())

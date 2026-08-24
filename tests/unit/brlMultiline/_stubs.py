@@ -375,97 +375,6 @@ class TextRegion(Region):
 	"""
 
 
-class FakeCellInfo:
-	"""A `TextInfo` over one cell of a fake table."""
-
-	def __init__(self, text, cell=None):
-		self.text = text
-		self.cell = cell
-		self.isCollapsed = False
-		self.caretAt = None
-
-	def copy(self):
-		other = FakeCellInfo(self.text, self.cell)
-		other.caretAt = self.caretAt
-		return other
-
-	def collapse(self, end=False):
-		self.isCollapsed = True
-
-	def updateCaret(self):
-		if self.cell is not None:
-			self.cell["caret"] = True
-
-
-class FakeTableCell:
-	"""What `_getTableCellCoords` answers with. NVDA's own is a dataclass of these fields."""
-
-	def __init__(self, tableID, row, col, rowSpan=1, colSpan=1):
-		self.tableID = tableID
-		self.row = row
-		self.col = col
-		self.rowSpan = rowSpan
-		self.colSpan = colSpan
-
-
-class FakeTableDocument:
-	"""A document that navigates a table, with the three methods this add-on asks of one.
-
-	The holes matter as much as the content: a coordinate whose text is None is a cell the
-	table has not got, which is what a merged cell looks like from the outside and what
-	`_getTableCellAt` says by raising.
-	"""
-
-	def __init__(self, rows, tableID=1, row=1, col=1):
-		"""
-		:param rows: a list of rows, each a list of cell texts. None for a missing cell.
-		"""
-		self.rows = rows
-		self.tableID = tableID
-		self.row = row
-		self.col = col
-		self.passThrough = False
-		self.selection = FakeCellInfo("")
-		self.reads = []
-		self.carets = []
-
-	@property
-	def numRows(self):
-		return len(self.rows)
-
-	@property
-	def numCols(self):
-		return max((len(row) for row in self.rows), default=0)
-
-	def _getTableCellCoords(self, info):
-		if not self.rows:
-			raise LookupError("Not in a table cell")
-		return FakeTableCell(self.tableID, self.row, self.col)
-
-	def _getTableDimensions(self, info):
-		return (self.numRows, self.numCols)
-
-	def _getTableCellAt(self, tableID, startPos, row, column):
-		if tableID != self.tableID:
-			raise LookupError("Wrong table")
-		self.reads.append((row, column))
-		if not 1 <= row <= self.numRows:
-			raise LookupError("No such row")
-		cells = self.rows[row - 1]
-		if not 1 <= column <= len(cells) or cells[column - 1] is None:
-			raise LookupError("No such cell")
-		holder = {"caret": False}
-		self.carets.append(((row, column), holder))
-		return FakeCellInfo(cells[column - 1], holder)
-
-
-class NoTableDocument(FakeTableDocument):
-	"""A document that navigates tables but is not in one, which is most of a web page."""
-
-	def _getTableCellCoords(self, info):
-		raise LookupError("Not in a table cell")
-
-
 class BrailleBuffer(AutoPropertyObject):
 	"""The smallest buffer that answers everything the container asks of a segment.
 
@@ -885,6 +794,111 @@ class FakeTreeInterceptor(CursorManager):
 		if index is None:
 			raise LookupError(f"{position!r} is not in this document")
 		return self._position(index)
+
+
+class FakeCellInfo:
+	"""A `TextInfo` over one cell of a fake table."""
+
+	def __init__(self, text, cell=None):
+		self.text = text
+		self.cell = cell
+		self.isCollapsed = False
+		self.caretAt = None
+
+	def copy(self):
+		other = FakeCellInfo(self.text, self.cell)
+		other.caretAt = self.caretAt
+		return other
+
+	def collapse(self, end=False):
+		self.isCollapsed = True
+
+	def updateCaret(self):
+		if self.cell is not None:
+			self.cell["caret"] = True
+
+
+class FakeTableCell:
+	"""What `_getTableCellCoords` answers with. NVDA's own is a dataclass of these fields."""
+
+	def __init__(self, tableID, row, col, rowSpan=1, colSpan=1):
+		self.tableID = tableID
+		self.row = row
+		self.col = col
+		self.rowSpan = rowSpan
+		self.colSpan = colSpan
+
+
+class FakeTableDocument(FakeTreeInterceptor):
+	"""A browse mode document with a table in it, and the three methods a table needs.
+
+	**A document first.** A table is not a thing the reader is in *instead of* a page; it is
+	part of one, and the caret walks in and out of it without the document changing. A
+	stand-in that was only a table modelled leaving one as arriving at a different document,
+	which is the one thing that never happens — and a band that could not tell a finished
+	table from the page around it passed every test written against it.
+
+	`inTable` is what the caret walking out looks like from here: the same document, still
+	perfectly readable, answering no when asked which cell the caret is in.
+
+	The holes matter as much as the content: a coordinate whose text is None is a cell the
+	table has not got, which is what a merged cell looks like from the outside and what
+	`_getTableCellAt` says by raising.
+	"""
+
+	def __init__(self, rows, tableID=1, row=1, col=1, lines=None, inTable=True):
+		"""
+		:param rows: a list of rows, each a list of cell texts. None for a missing cell.
+		:param lines: the document's own lines, for reading it as a page.
+		:param inTable: whether the caret is in the table.
+		"""
+		super().__init__(lines or ["a heading", "some prose", "more prose"])
+		self.rows = rows
+		self.tableID = tableID
+		self.row = row
+		self.col = col
+		self.inTable = inTable
+		self.reads = []
+		self.carets = []
+
+	@property
+	def numRows(self):
+		return len(self.rows)
+
+	@property
+	def numCols(self):
+		return max((len(row) for row in self.rows), default=0)
+
+	def _getTableCellCoords(self, info):
+		if not self.rows or not self.inTable:
+			raise LookupError("Not in a table cell")
+		return FakeTableCell(self.tableID, self.row, self.col)
+
+	def _getTableDimensions(self, info):
+		return (self.numRows, self.numCols)
+
+	def _getTableCellAt(self, tableID, startPos, row, column):
+		if tableID != self.tableID:
+			raise LookupError("Wrong table")
+		self.reads.append((row, column))
+		if not 1 <= row <= self.numRows:
+			raise LookupError("No such row")
+		cells = self.rows[row - 1]
+		if not 1 <= column <= len(cells) or cells[column - 1] is None:
+			raise LookupError("No such cell")
+		holder = {"caret": False}
+		self.carets.append(((row, column), holder))
+		return FakeCellInfo(cells[column - 1], holder)
+
+
+class NoTableDocument(FakeTableDocument):
+	"""A document that navigates tables but is not in one, which is most of a web page."""
+
+	def __init__(self, rows=None, **kwargs):
+		super().__init__(rows or [], **kwargs)
+
+	def _getTableCellCoords(self, info):
+		raise LookupError("Not in a table cell")
 
 
 class TextInfoRegion(Region):

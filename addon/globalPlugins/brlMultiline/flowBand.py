@@ -402,6 +402,22 @@ class FlowBand(PanelOwner):
 		shown = self._showTable(obj, segment, force=force)
 		if shown is not None:
 			return shown
+		if self._readingATable():
+			# The table is finished with — the reader left it, or asked for the columns to
+			# stop — and the ordinary reading has to be built afresh. It will not be unless
+			# the table flow is dropped first, because a table flow's source reads *the
+			# document*: `_isCurrentDocument` compares the source's object with what the
+			# focus resolves to, both of them the page's tree interceptor, and answers yes.
+			# The band then took the "same document" path, called `arriveAt` on the table
+			# controller, and kept the columns for the rest of the page — which on hardware
+			# looked like a toggle that did nothing and a band stuck on the first table it
+			# was given.
+			#
+			# The same shape as `_runHasChangedShape`, which drops the controller for the
+			# same reason: a fast path that recognises the reading it is trying to replace.
+			self.controller = None
+			self.obj = None
+			force = True
 		if not self.isFlowable(obj):
 			# Not something this flow is built for. The band goes back to being an ordinary
 			# segment and NVDA presents the focus in it as it always has.
@@ -545,7 +561,13 @@ class FlowBand(PanelOwner):
 			self._rechecking = False
 
 	def _readingATable(self) -> bool:
-		""":return: whether the band is showing a table laid out in columns."""
+		""":return: whether the band is showing a table laid out in columns.
+
+		Asked of the source rather than of `tableWanted`, and the two part company exactly
+		when it matters: the request is dropped the moment the reader leaves the table, and
+		the controller built from it is still the one on the display until something replaces
+		it.
+		"""
 		source = getattr(self.controller, "source", None)
 		return isinstance(source, flowTableSource.TableFlowSource)
 
