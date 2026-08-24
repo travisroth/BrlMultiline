@@ -360,6 +360,23 @@ class TestRoutingIntoAColumn(unittest.TestCase):
 		self.assertEqual(cells[1].region.routedTo, 0)
 		self.assertFalse(hasattr(cells[0].region, "routedTo"))
 
+	def test_aWrappedCellsIndentBelongsToNoPosition(self):
+		"""It came from nowhere and has to stay from nowhere. Packing `NO_POSITION` packs a
+		negative number, which comes back out as a real column one lower with an enormous
+		offset — so one column's indent claimed to be the content of the column before it,
+		and a routing key over it would have gone there."""
+		drawn = renderer().render(block(row("BERKSHIRE", "1.00", "+0.01", "+0.1%")))
+		self.assertEqual(drawn.positions[1][0], NO_POSITION)
+		self.assertEqual(drawn.positions[1][1], NO_POSITION)
+
+	def test_onlyRealColumnsAppearInARowsPositions(self):
+		drawn = renderer().render(block(row("BERKSHIRE", "1.00", "+0.01", "+0.1%")))
+		for line in drawn.positions:
+			for mark in line:
+				if mark != NO_POSITION:
+					self.assertGreaterEqual(positionParts(mark)[0], 1)
+					self.assertLessEqual(positionParts(mark)[0], 4)
+
 	def test_aGapBelongsToNoPosition(self):
 		"""Routing into padding must do nothing, which is what `NO_POSITION` says."""
 		drawn = renderer().render(block(row("F", "9.10", "-0.05", "-0.5%")))

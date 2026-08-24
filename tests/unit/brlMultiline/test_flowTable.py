@@ -25,6 +25,7 @@ from flowTable import (  # noqa: E402
 	COLUMN_GAP,
 	MAX_TABLE_ROWS,
 	MIN_COLUMN_CELLS,
+	READABLE_CELLS,
 	READING_ORDER,
 	TRUNCATE,
 	WRAP,
@@ -154,35 +155,6 @@ class TestWidthsThatDoNotFit(unittest.TestCase):
 		for width in widthsOf(plan):
 			self.assertGreaterEqual(width, MIN_COLUMN_CELLS)
 
-	def test_shrinkingIsTriedBeforeAnythingIsDropped(self):
-		"""Three columns at ten cells beat two at fourteen: the reader asked for the table,
-		and a column that is there but short can still be read."""
-		columns = [Measurement(index=n, width=14, label="") for n in range(1, 4)]
-		plan = planFor(columns, MONARCH_COLS)
-		self.assertEqual(indexesOf(plan), [1, 2, 3])
-		self.assertFalse(plan.dropped)
-
-	def test_whatWillNotFitIsDroppedFromTheRight(self):
-		"""Tables' least important columns are on the right, and a reader who disagrees can
-		hide one by hand."""
-		plan = planFor(tooMany(), MONARCH_COLS)
-		self.assertEqual(indexesOf(plan) + list(plan.dropped), list(range(1, 13)))
-		self.assertTrue(plan.dropped)
-		self.assertEqual(indexesOf(plan)[0], 1)
-
-	def test_aDroppedColumnIsRecordedRatherThanForgotten(self):
-		"""A column absent from a display is indistinguishable from one the table has not
-		got, and a reader deciding what to hide needs to know which."""
-		self.assertIn("No room for column", describe(planFor(tooMany(), MONARCH_COLS)))
-
-	def test_theRoomADroppedColumnFreesGoesBackToTheRest(self):
-		"""Otherwise the band ends short by the cells the dropped column was going to use,
-		with every column that is left drawn at the bare minimum for no reason."""
-		plan = planFor(tooMany(), MONARCH_COLS)
-		self.assertGreater(max(widthsOf(plan)), MIN_COLUMN_CELLS)
-		used = sum(widthsOf(plan)) + COLUMN_GAP * (len(plan.columns) - 1)
-		self.assertGreater(used, MONARCH_COLS - MIN_COLUMN_CELLS)
-
 	def test_aColumnIsNotWidenedPastWhatItAskedFor(self):
 		"""A column wider than its own longest cell is blank cells with a name."""
 		columns = [
@@ -192,6 +164,90 @@ class TestWidthsThatDoNotFit(unittest.TestCase):
 		]
 		plan = planFor(columns, MONARCH_COLS)
 		self.assertEqual(widthsOf(plan)[0], 4)
+
+	def test_nothingIsShrunkPastReading(self):
+		"""A price of "310.34" in three cells is a digit at a time, and a reader running down
+		a column of those is assembling prices rather than comparing them."""
+		plan = planFor(tooMany(), MONARCH_COLS)
+		for width in widthsOf(plan):
+			self.assertGreaterEqual(width, READABLE_CELLS)
+
+	def test_aColumnAlreadyShorterKeepsItsOwnWidth(self):
+		"""The floor is a floor on shrinking, not a size. A column of one-character flags is
+		not widened to six for the sake of a rule about wide columns."""
+		columns = [Measurement(index=1, width=2, label="")] + [
+			Measurement(index=n, width=20, label="") for n in range(2, 6)
+		]
+		plan = planFor(columns, MONARCH_COLS)
+		self.assertEqual(widthsOf(plan)[0], MIN_COLUMN_CELLS)
+
+	def test_aColumnWiderThanTheBandIsCutToIt(self):
+		"""It cannot be drawn otherwise, and a column that can never be placed would be a
+		page with nothing on it."""
+		plan = planFor([Measurement(index=1, width=400, label="")], MONARCH_COLS)
+		self.assertEqual(widthsOf(plan), [MONARCH_COLS])
+
+
+class TestPagingAcrossTheTable(unittest.TestCase):
+	"""Twenty-nine columns is an ordinary watchlist and thirty-two cells is an ordinary
+	display, and no arithmetic reconciles those.
+
+	The first attempt squeezed what it could into one band and dropped the rest: three cells
+	of each of eight columns, and eleven columns that did not exist. The columns are dealt
+	into pages now, and the reader moves between them exactly as the window moves between
+	rows."""
+
+	def test_aTableThatFitsIsOnePage(self):
+		self.assertEqual(planFor(watchlist(), MONARCH_COLS).numPages, 1)
+
+	def test_aTableThatDoesNotFitIsSeveral(self):
+		self.assertGreater(planFor(tooMany(), MONARCH_COLS).numPages, 1)
+
+	def test_everyColumnIsOnSomePage(self):
+		"""Nothing is dropped, which is the whole change."""
+		plan = planFor(tooMany(), MONARCH_COLS)
+		drawn = [place.column.index for page in plan.pages() for place in page]
+		self.assertEqual(drawn, [item.index for item in tooMany()])
+
+	def test_thePageBeingDrawnIsTheOneAskedFor(self):
+		plan = planFor(tooMany(), MONARCH_COLS)
+		first = [place.column.index for place in plan.placements()]
+		second = [place.column.index for place in plan.onPage(1).placements()]
+		self.assertNotEqual(first, second)
+		self.assertEqual(second, [place.column.index for place in plan.pages()[1]])
+
+	def test_aPageBeyondTheLastIsTheLast(self):
+		plan = planFor(tooMany(), MONARCH_COLS)
+		self.assertEqual(plan.onPage(99).page, plan.numPages - 1)
+
+	def test_aPageBeforeTheFirstIsTheFirst(self):
+		self.assertEqual(planFor(tooMany(), MONARCH_COLS).onPage(-4).page, 0)
+
+	def test_aColumnSaysWhichPageItIsOn(self):
+		"""What the band needs to follow the caret across the table."""
+		plan = planFor(tooMany(), MONARCH_COLS)
+		last = plan.columns[-1].index
+		self.assertEqual(plan.pageOf(last), plan.numPages - 1)
+		self.assertEqual(plan.pageOf(1), 0)
+
+	def test_aColumnTheTableHasNotGotIsOnNoPage(self):
+		self.assertIsNone(planFor(watchlist(), MONARCH_COLS).pageOf(99))
+
+	def test_everyPageStartsAtTheLeftOfTheBand(self):
+		plan = planFor(tooMany(), MONARCH_COLS)
+		for page in plan.pages():
+			self.assertEqual(page[0].offset, 0)
+
+	def test_aColumnIsAlwaysAtTheSameOffsetOnItsOwnPage(self):
+		"""Which is what makes it findable, and is the whole point of a fixed layout."""
+		plan = planFor(tooMany(), MONARCH_COLS)
+		once = {place.column.index: place.offset for place in plan.onPage(1).placements()}
+		again = {place.column.index: place.offset for place in plan.onPage(1).placements()}
+		self.assertEqual(once, again)
+
+	def test_readingOrderHasNoPages(self):
+		self.assertEqual(READING_ORDER.pages(), ())
+		self.assertEqual(READING_ORDER.numPages, 1)
 
 
 class TestPackingAcrossRows(unittest.TestCase):
@@ -296,11 +352,11 @@ class TestKeepingThePlan(unittest.TestCase):
 		columns[1] = Measurement(index=2, width=8, label="Last", hidden=True)
 		self.assertTrue(shouldReplan(plan, columns, MONARCH_COLS))
 
-	def test_aDroppedColumnStillCountsAsPartOfTheTable(self):
-		"""It is not drawn, but it is still a column of the table the plan was made for, and
-		a plan that forgot it would replan every time it was measured again."""
+	def test_aTableTooWideForTheBandIsStillTheSameTable(self):
+		"""Its columns are on several pages. None of them has gone anywhere, so measuring it
+		again must not decide it is a different table."""
 		plan = planFor(tooMany(), MONARCH_COLS)
-		self.assertTrue(plan.dropped)
+		self.assertGreater(plan.numPages, 1)
 		self.assertFalse(shouldReplan(plan, tooMany(), MONARCH_COLS))
 
 	def test_readingOrderIsNeverReplanned(self):

@@ -33,9 +33,15 @@ makes it wrong — see `shouldReplan`, which answers no to almost everything.
 do not fit on thirty-two, and there are only two honest answers: give every column less, or
 let the row run onto a second band row. Which one is `maxRows`, a setting, because a reader
 comparing four numbers wants them side by side at any cost and a reader reading addresses
-wants them legible. Columns are packed greedily across the rows allowed, and what will not
-fit in them is dropped rather than squeezed past legibility — a column at two cells says
-nothing that its absence does not.
+wants them legible.
+
+**And a table may have more columns than any band can hold.** Twenty-nine of them is an
+ordinary watchlist and thirty-two cells is an ordinary display, and no arithmetic reconciles
+those. So the columns are dealt into *pages* — as many as fit at readable widths, then the
+next page — and the reader moves between them, exactly as the window moves between rows. The
+first attempt at this squeezed what it could into one band and dropped the rest, which gave
+three cells of each of eight columns and eleven columns that did not exist. Nothing is
+dropped now.
 """
 
 import dataclasses
@@ -88,6 +94,23 @@ a price and reading two.
 
 Narrowed further on a narrow column — see `indentFor` — because a third of a column is a
 great deal and the alternative to indenting less is not indenting at all.
+"""
+
+READABLE_CELLS = 6
+"""The narrowest a column is shrunk to in order to make room for another.
+
+Six, because below it a column stops being a value and becomes a fragment of one. A price of
+"310.34" in three cells is "310" on one row and ".34" on the next, or with the continuation
+indent a digit at a time — and a reader running down a column of those is not comparing
+prices, they are assembling them.
+
+It is a floor on *shrinking*, not a size. A column of one-character flags keeps its own
+width; what this stops is a wide column being cut down past reading to make room for a
+neighbour. What will not fit goes on the next page instead, which costs a keypress and
+costs nothing else.
+
+`MIN_COLUMN_CELLS` is the harder floor below it, for a column whose content is genuinely
+that short.
 """
 
 MIN_COLUMN_CELLS = 3
@@ -207,18 +230,21 @@ class ColumnPlan:
 	gap: int = COLUMN_GAP
 	"""Cells between one column and the next."""
 
-	dropped: tuple[int, ...] = ()
-	"""The table's numbers for columns that did not fit, in the order they were asked for.
+	page: int = 0
+	"""Which page of columns is being drawn, zero based.
 
-	Recorded rather than discarded, so that something can say so. A column silently absent
-	from a display is indistinguishable from a column the table does not have, and a reader
-	deciding whether to widen the band or hide something else needs to know which.
+	A table of twenty-nine columns cannot be shown on thirty-two cells and never could. The
+	first cut of this squeezed what it could into the band and dropped the rest, which gave a
+	reader three cells of every column and eleven columns that did not exist — a table you
+	could not read and could not reach the rest of. Nothing is dropped now: the columns are
+	dealt into pages, the band shows one, and the reader moves between them. Which is what
+	the window does for rows, one axis over.
 	"""
 
 	narrowed: tuple[int, ...] = ()
 	"""The table's numbers for columns drawn narrower than their content asked for.
 
-	The other half of `dropped`, and the half a reader meets far more often. Three columns of
+	The half a reader meets most often. Three columns of
 	real text on a thirty-two cell band leave ten cells each, and ten cells of "Software
 	Engineer" is "Software E" — the layout is working exactly as designed and the reader is
 	looking at cut words with nothing to say they are cut. What they do about it is a
@@ -242,28 +268,66 @@ class ColumnPlan:
 		"""
 		return any(column.overflow == TRUNCATE for column in self.columns)
 
-	def placements(self) -> tuple[Placement, ...]:
-		"""Where every column goes, packed greedily across the rows allowed.
+	def pages(self) -> tuple[tuple[Placement, ...], ...]:
+		"""Every column, dealt into pages of what the band can hold at once.
 
-		Greedy rather than balanced: the reader's eye and hand both go left to right and then
-		down, so the first row of a record should hold as much of it as it can. Balancing the
-		rows would put the second column on the second row of a two row record for the sake of
-		an even shape nobody is reading.
+		Packed greedily across the rows allowed and then greedily across pages: the reader's
+		eye and hand both go left to right and then down, so the first row of a record holds
+		as much of it as it can and the first page holds as many columns as it can. Balancing
+		would move a column to the next row or the next page for the sake of an even shape
+		nobody is reading.
 
-		:return: one placement per column, in drawing order.
+		Columns keep their order, so a column is always on the same page and always at the
+		same offset on it, which is the whole of what makes a column findable.
+
+		:return: the placements for each page, in order.
 		"""
-		placed: list[Placement] = []
+		if not self.columns or self.numCols < 1:
+			return ()
+		pages: list[tuple[Placement, ...]] = []
+		current: list[Placement] = []
 		row = 0
 		offset = 0
 		for column in self.columns:
+			nextRow, nextOffset = row, offset
 			if offset and offset + self.gap + column.width > self.numCols:
-				row += 1
-				offset = 0
+				nextRow, nextOffset = row + 1, 0
 			elif offset:
-				offset += self.gap
-			placed.append(Placement(column=column, row=row, offset=offset))
-			offset += column.width
-		return tuple(placed)
+				nextOffset = offset + self.gap
+			if nextRow >= self.maxRows or nextOffset + column.width > self.numCols:
+				# Out of band. Not out of table: this column starts the next page.
+				if current:
+					pages.append(tuple(current))
+				current = []
+				nextRow, nextOffset = 0, 0
+			current.append(Placement(column=column, row=nextRow, offset=nextOffset))
+			row, offset = nextRow, nextOffset + column.width
+		if current:
+			pages.append(tuple(current))
+		return tuple(pages)
+
+	@property
+	def numPages(self) -> int:
+		""":return: how many pages of columns this table has."""
+		return max(1, len(self.pages()))
+
+	def onPage(self, page: int) -> "ColumnPlan":
+		""":return: this plan showing a different page, clamped to the ones there are."""
+		return dataclasses.replace(self, page=max(0, min(page, self.numPages - 1)))
+
+	def pageOf(self, column: int) -> Optional[int]:
+		""":return: which page a table column is drawn on, or None if it is not drawn."""
+		for number, page in enumerate(self.pages()):
+			if any(place.column.index == column for place in page):
+				return number
+		return None
+
+	def placements(self) -> tuple[Placement, ...]:
+		""":return: where each column of the page being drawn goes."""
+		pages = self.pages()
+		if not pages:
+			return ()
+		return pages[max(0, min(self.page, len(pages) - 1))]
 
 	@property
 	def numRows(self) -> int:
@@ -290,8 +354,9 @@ class ColumnPlan:
 	def __repr__(self) -> str:
 		if self.isEmpty:
 			return "<ColumnPlan reading order>"
-		widths = ", ".join(f"{column.index}:{column.width}" for column in self.columns)
-		return f"<ColumnPlan {widths} in {self.numCols} over {self.numRows} rows>"
+		widths = ", ".join(f"{place.column.index}:{place.column.width}" for place in self.placements())
+		pages = f", page {self.page + 1} of {self.numPages}" if self.numPages > 1 else ""
+		return f"<ColumnPlan {widths} in {self.numCols} over {self.numRows} rows{pages}>"
 
 
 READING_ORDER = ColumnPlan()
@@ -334,24 +399,28 @@ def planFor(
 	maxWidth: int = MAX_COLUMN_CELLS,
 	overflow: str = DEFAULT_OVERFLOW,
 ) -> ColumnPlan:
-	"""Work out where a table's columns go.
+	"""Work out how wide each of a table's columns is drawn.
 
-	Each column asks for what its widest content needs, and then everything is fitted into
-	what the band has. Fitting is done by taking from the widest columns first, one cell at a
-	time, down to `minWidth`: the column with forty cells of description can spare ten before
-	the column with six cells of ticker can spare one, and a proportional cut would take from
-	both.
+	Where they *go* is `ColumnPlan.pages`, and the two are deliberately separate. This decides
+	only how many cells each column deserves; nothing here asks whether they all fit, because
+	the answer for a real table is often no and dealing with that by making every column
+	narrower is how a display ends up with three cells of each and nothing readable in any.
 
-	If the columns still do not fit in `numCols` times `maxRows`, the ones that will not fit
-	are dropped from the right. Dropped rather than squeezed, because a column below
-	`minWidth` is not a narrow column, it is a column that says nothing — and `dropped`
-	records them so that something can tell the reader.
+	**Nothing is shrunk below what can be read.** A column gives up cells to the band while it
+	has more than `READABLE_CELLS` to give, widest first — the column with forty cells of
+	description can spare ten before the column with six cells of ticker can spare one, and a
+	proportional cut takes from both. Below that it stops. A price cut to three cells is not a
+	narrow price, it is a digit, and on hardware a table of twenty-nine columns came out as
+	one digit of each and eleven columns that were not there at all.
+
+	A column whose content is already shorter than that keeps its own width: the floor is a
+	floor on *shrinking*, not a minimum size for a column of one-character flags.
 
 	:param measured: what was found in each column. Hidden ones are ignored.
 	:param numCols: the width of the band.
 	:param maxRows: how many band rows one table row may use.
 	:param gap: cells between columns.
-	:param minWidth: the narrowest a column may be drawn.
+	:param minWidth: the narrowest a column may be drawn at all.
 	:param maxWidth: the widest, however long the content.
 	:param overflow: what becomes of a cell too long for its column. See `OVERFLOW_STYLES`.
 	:return: the plan, or `READING_ORDER` when there is nothing to lay out.
@@ -360,13 +429,9 @@ def planFor(
 	maxRows = max(1, min(maxRows, MAX_TABLE_ROWS))
 	if not wanted or numCols < minWidth:
 		return READING_ORDER
-	widths = {item.index: max(minWidth, min(maxWidth, max(item.width, len(item.label)))) for item in wanted}
-	budget = _budgetFor(numCols, maxRows, len(wanted), gap)
-	_shrinkToFit(widths, budget, minWidth)
-	kept, dropped = _dropWhatWillNotFit(wanted, widths, numCols, maxRows, gap, minWidth)
-	if not kept:
-		return READING_ORDER
 	wants = {item.index: max(item.width, len(item.label)) for item in wanted}
+	widths = {item.index: max(minWidth, min(maxWidth, numCols, wants[item.index])) for item in wanted}
+	_shrinkTowardsFitting(widths, _budgetFor(numCols, maxRows, len(wanted), gap), minWidth, wants)
 	return ColumnPlan(
 		columns=tuple(
 			Column(
@@ -375,119 +440,52 @@ def planFor(
 				label=item.label,
 				overflow=overflow if overflow in OVERFLOW_STYLES else DEFAULT_OVERFLOW,
 			)
-			for item in kept
+			for item in wanted
 		),
 		numCols=numCols,
 		maxRows=maxRows,
 		gap=gap,
-		dropped=tuple(item.index for item in dropped),
-		narrowed=tuple(item.index for item in kept if widths[item.index] < wants[item.index]),
+		narrowed=tuple(item.index for item in wanted if widths[item.index] < wants[item.index]),
 	)
 
 
 def _budgetFor(numCols: int, maxRows: int, count: int, gap: int) -> int:
-	""":return: how many cells of content the band has room for, gaps already taken out.
+	""":return: how many cells of content one page of the band has room for.
 
 	An upper bound rather than an exact answer: the gaps are counted as though every column
 	sat on one row, which over-counts by one gap for each row after the first. Over-counting
-	makes the first fit attempt slightly pessimistic and never optimistic, and being
-	pessimistic here costs a cell where being optimistic costs a column that does not fit.
+	makes the shrinking slightly less eager and never more, and being less eager here costs a
+	page where being more eager costs legibility.
 	"""
 	return max(0, numCols * maxRows - gap * max(0, count - 1))
 
 
-def _shrinkToFit(widths: dict, budget: int, minWidth: int) -> None:
-	"""Take cells from the widest columns until the total fits.
+def _shrinkTowardsFitting(widths: dict, budget: int, minWidth: int, wants: dict) -> None:
+	"""Take cells from the widest columns while they have any to spare.
 
-	From the widest first, one at a time, which is what keeps a short column short and a long
-	one merely shorter. A proportional cut takes a cell from the ticker for every four it
-	takes from the description, and the ticker is the column that cannot spare one.
+	*Towards* fitting, not until it fits. Whether every column fits on one page is not this
+	function's business and often cannot be arranged: it stops when nothing has more than
+	`READABLE_CELLS` left, and what is still over goes on the next page.
+
+	From the widest first, one cell at a time, which is what keeps a short column whole and a
+	long one merely shorter.
 
 	:param widths: column number to width, narrowed in place.
-	:param budget: how many cells of content there is room for.
-	:param minWidth: the narrowest a column may be drawn.
+	:param budget: how many cells of content one page has room for.
+	:param minWidth: the narrowest a column may be drawn at all.
+	:param wants: what each column asked for, so a column already short is left alone.
 	"""
+	floors = {index: min(wants[index], max(minWidth, READABLE_CELLS)) for index in widths}
 	for _ in range(sum(widths.values())):
 		if sum(widths.values()) <= budget:
 			return
-		widest = max(widths, key=lambda index: (widths[index], -index))
-		if widths[widest] <= minWidth:
-			# Everything is as narrow as it may be drawn. What is left over is a column too
-			# many, not a column too wide, and dropping is the next step rather than this one.
+		spare = [index for index in widths if widths[index] > floors[index]]
+		if not spare:
+			# Everything is as narrow as it can be read at. What is left over is more columns
+			# than a page holds, which is what pages are for.
 			return
+		widest = max(spare, key=lambda index: (widths[index], -index))
 		widths[widest] -= 1
-
-
-def _dropWhatWillNotFit(
-	wanted: Sequence[Measurement],
-	widths: dict,
-	numCols: int,
-	maxRows: int,
-	gap: int,
-	minWidth: int,
-) -> tuple[list, list]:
-	"""Take columns off the right until the rest can be packed into the rows allowed.
-
-	From the right because that is the order tables put their least important columns in, and
-	because a reader who disagrees can hide a column by hand. Packed with the same greedy walk
-	`ColumnPlan.placements` uses, so what this decides and what that draws cannot disagree.
-
-	:return: the columns kept, and the columns dropped.
-	"""
-	kept = list(wanted)
-	while kept:
-		if _packs([widths[item.index] for item in kept], numCols, maxRows, gap):
-			break
-		kept.pop()
-	dropped = list(wanted[len(kept) :])
-	if kept and len(kept) < len(wanted):
-		# Room was made by dropping, so give it back to what is left: a two column plan on a
-		# 32 cell band should not leave fourteen cells blank because the widths were narrowed
-		# to make three columns fit that then did not.
-		_growIntoTheRoom(kept, widths, numCols, maxRows, gap, minWidth)
-	return kept, dropped
-
-
-def _packs(widths: Sequence[int], numCols: int, maxRows: int, gap: int) -> bool:
-	""":return: whether these widths fit in the rows allowed, packed greedily."""
-	if any(width > numCols for width in widths):
-		return False
-	rows = 1
-	offset = 0
-	for width in widths:
-		if offset and offset + gap + width > numCols:
-			rows += 1
-			offset = 0
-		elif offset:
-			offset += gap
-		offset += width
-	return rows <= maxRows
-
-
-def _growIntoTheRoom(
-	kept: Sequence[Measurement],
-	widths: dict,
-	numCols: int,
-	maxRows: int,
-	gap: int,
-	minWidth: int,
-) -> None:
-	"""Give the cells freed by a dropped column back to the columns that are left.
-
-	To the narrowest first, and never past what its content asked for: a column widened past
-	its own longest cell is blank cells with a name. The mirror of `_shrinkToFit`, and bounded
-	the same way.
-	"""
-	asked = {item.index: max(minWidth, max(item.width, len(item.label))) for item in kept}
-	for _ in range(numCols * maxRows):
-		candidates = [item.index for item in kept if widths[item.index] < asked[item.index]]
-		if not candidates:
-			return
-		narrowest = min(candidates, key=lambda index: (widths[index], index))
-		widths[narrowest] += 1
-		if not _packs([widths[item.index] for item in kept], numCols, maxRows, gap):
-			widths[narrowest] -= 1
-			return
 
 
 def shouldReplan(
@@ -524,16 +522,15 @@ def shouldReplan(
 	if plan.maxRows != max(1, min(maxRows, MAX_TABLE_ROWS)):
 		return True
 	shown = tuple(item.index for item in measured if not item.hidden)
-	drawn = tuple(column.index for column in plan.columns) + plan.dropped
-	return shown != drawn
+	return shown != tuple(column.index for column in plan.columns)
 
 
 def describe(plan: ColumnPlan) -> str:
 	""":return: the plan in one line, for the dry run's report.
 
-	Says what was dropped as well as what was drawn, because those are the two questions a
-	reader asks of a table that looks wrong and only one of them can be answered by feeling
-	the display.
+	Says which page and how many, as well as what is on this one, because those are the two
+	questions a reader asks of a table that looks wrong and only one of them can be answered
+	by feeling the display.
 	"""
 	if plan.isEmpty:
 		return "reading order; no columns are laid out."
@@ -546,9 +543,8 @@ def describe(plan: ColumnPlan) -> str:
 		short = ", ".join(str(index) for index in plan.narrowed)
 		what = "cut" if plan.cuts else "wrapped over more rows"
 		notes.append(f"Column {short} is drawn narrower than its content and is {what}.")
-	if plan.dropped:
-		missing = ", ".join(str(index) for index in plan.dropped)
-		notes.append(f"No room for column {missing}.")
+	if plan.numPages > 1:
+		notes.append(f"Page {plan.page + 1} of {plan.numPages}.")
 	return " ".join([f"{drawn}.", *notes])
 
 

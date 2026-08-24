@@ -547,6 +547,7 @@ class FlowBand(PanelOwner):
 		source.moveTo(found)
 		self._rechecking = True
 		try:
+			self._showColumn(found.col)
 			self.controller.followCursor()
 			segment = self.segment()
 			if segment is not None:
@@ -563,6 +564,53 @@ class FlowBand(PanelOwner):
 			log.debugWarning("Could not give the table's band back", exc_info=True)
 		finally:
 			self._rechecking = False
+
+	def _showColumn(self, column: int) -> bool:
+		"""Bring the page holding a column onto the band.
+
+		The column axis of what the window does for rows: the reader moves to a cell and the
+		display follows, rather than the reader having to find it. A table wide enough to
+		need pages is a table where the caret goes somewhere the band is not showing on
+		nearly every keystroke.
+
+		:param column: the table's own number for the column to show.
+		:return: whether the page changed.
+		"""
+		plan = getattr(self.controller.renderer, "columnPlan", None)
+		if plan is None or plan.isEmpty:
+			return False
+		page = plan.pageOf(column)
+		if page is None or page == plan.page:
+			return False
+		return self.controller.setColumnPlan(plan.onPage(page))
+
+	def turnColumnPage(self, by: int) -> bool:
+		"""Move the band across the table by pages of columns, without moving the caret.
+
+		Looking around rather than going somewhere, which is why it leaves the caret where it
+		is — and why the next caret move brings the page back to wherever that is. The same
+		relationship panning has with the cursor one axis over.
+
+		:param by: how many pages to move, negative for back towards the first column.
+		:return: whether the page changed.
+		"""
+		if not self._readingATable():
+			return False
+		plan = getattr(self.controller.renderer, "columnPlan", None)
+		if plan is None or plan.isEmpty:
+			return False
+		moved = self.controller.setColumnPlan(plan.onPage(plan.page + by))
+		if moved:
+			segment = self.segment()
+			if segment is not None:
+				segment.refresh()
+		return moved
+
+	def columnPlan(self):
+		""":return: the table layout on the band, or None if it is not showing a table."""
+		if not self._readingATable():
+			return None
+		return getattr(self.controller.renderer, "columnPlan", None)
 
 	def _readingATable(self) -> bool:
 		""":return: whether the band is showing a table laid out in columns.

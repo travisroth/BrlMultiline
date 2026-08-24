@@ -239,9 +239,14 @@ class FlowRenderer:
 					break
 				for offset, value in enumerate(line[: place.column.width]):
 					rows[target][place.offset + offset] = value
-					where[target][place.offset + offset] = cellPosition(
-						place.column.index,
-						marks[offset],
+					# A cell that came from nowhere stays from nowhere. Packing `NO_POSITION`
+					# was packing a negative number, which came back out of `positionParts` as
+					# a real column one lower with an enormous offset — so the continuation
+					# indent of one column claimed to be content of the column before it, and
+					# a routing key over it would have gone there.
+					mark = marks[offset]
+					where[target][place.offset + offset] = (
+						NO_POSITION if mark == NO_POSITION else cellPosition(place.column.index, mark)
 					)
 		return RenderedBlock(
 			blockId=block.blockId,

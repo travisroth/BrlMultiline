@@ -1325,13 +1325,73 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				# how many columns are affected.
 				_("{wrapped} wrapping").format(wrapped=len(plan.narrowed)),
 			)
-		if plan.dropped:
+		if plan.numPages > 1:
 			said.append(
-				# Translators: reported after the above when some columns did not fit at all.
-				# The placeholder is how many columns there was no room for.
-				_("no room for {missing}").format(missing=len(plan.dropped)),
+				# Translators: reported after the above when a table has more columns than the
+				# display can show at once. Placeholders are which page of columns is shown
+				# and how many pages there are.
+				_("page {page} of {pages}").format(page=plan.page + 1, pages=plan.numPages),
 			)
 		ui.message(", ".join(said))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Shows the next columns of the table on the braille display"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_flowNextColumns(self, gesture):
+		"""Move the band on across a table too wide to show at once."""
+		self._turnColumnPage(1)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Shows the previous columns of the table on the braille display"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_flowPreviousColumns(self, gesture):
+		"""Move the band back across a table too wide to show at once."""
+		self._turnColumnPage(-1)
+
+	def _turnColumnPage(self, by: int) -> None:
+		"""Move the band by pages of columns, and say where it landed.
+
+		Said rather than left to the fingers, because which page of a twenty-nine column table
+		is on the display is exactly what the display cannot tell you: every page looks like a
+		table, and the headers are on the first row of the table rather than on the band.
+
+		:param by: how many pages to move, negative for back.
+		"""
+		band = self.flowBand
+		plan = band.columnPlan() if band is not None else None
+		if plan is None:
+			# Translators: reported when a command needs a table laid out in columns and there
+			# is none on the display.
+			ui.message(_("No table columns are showing"))
+			return
+		if plan.numPages <= 1:
+			# Translators: reported when a table's columns all fit on the display already, so
+			# there is nowhere to move to.
+			ui.message(_("The whole table is showing"))
+			return
+		if not band.turnColumnPage(by):
+			ui.message(
+				# Translators: reported when a command would move past the first or last
+				# columns of a table. The placeholder is which page of columns is showing.
+				_("Page {page}, no further").format(page=plan.page + 1),
+			)
+			return
+		now = band.columnPlan()
+		labels = ", ".join(place.column.label or str(place.column.index) for place in now.placements())
+		ui.message(
+			# Translators: reported after moving across a table's columns. Placeholders are,
+			# in order, which page of columns is now showing, how many there are, and the
+			# names of the columns on it.
+			_("Page {page} of {pages}: {columns}").format(
+				page=now.page + 1,
+				pages=now.numPages,
+				columns=labels,
+			),
+		)
 
 	@script(
 		# Translators: input help message for a command.

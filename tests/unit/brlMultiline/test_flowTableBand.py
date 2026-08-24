@@ -287,6 +287,93 @@ class TestLeavingTheTableWithoutLeavingThePage(TableBandTestCase):
 		self.assertFalse(self._readingATable())
 
 
+WIDE = [
+	["Symbol", "Latest", "Change", "%Change", "Open", "High", "Low", "Volume", "Bid", "Ask"],
+	["AAPL", "310.34", "+0.99", "+0.32%", "311.47", "313.36", "309.97", "1,234,567", "310.30", "310.40"],
+	["MSFT", "412.10", "-1.02", "-0.25%", "413.00", "414.20", "410.80", "987,654", "412.05", "412.15"],
+]
+
+
+class TestATableWiderThanTheBand(TableBandTestCase):
+	"""Twenty-nine columns is an ordinary watchlist and thirty-two cells is an ordinary
+	display. The columns are dealt into pages and the reader moves between them, which is
+	what the window does for rows one axis over."""
+
+	def _wide(self, row=2, col=1):
+		return self._inTable(rows=WIDE, row=row, col=col)
+
+	def test_theValuesAreReadableRatherThanComplete(self):
+		"""The first attempt fitted every column and gave three cells of each. A price of
+		"310.34" in three cells is a digit at a time."""
+		self._wide()
+		self.band.layOutTable()
+		for column in self.band.columnPlan().columns:
+			self.assertGreaterEqual(column.width, 6)
+
+	def test_theTableIsSeveralPages(self):
+		self._wide()
+		self.band.layOutTable()
+		self.assertGreater(self.band.columnPlan().numPages, 1)
+
+	def test_turningThePageMovesTheBand(self):
+		self._wide()
+		self.band.layOutTable()
+		before = [place.column.index for place in self.band.columnPlan().placements()]
+		self.assertTrue(self.band.turnColumnPage(1))
+		after = [place.column.index for place in self.band.columnPlan().placements()]
+		self.assertNotEqual(before, after)
+
+	def test_turningPastTheEndDoesNothing(self):
+		self._wide()
+		self.band.layOutTable()
+		while self.band.turnColumnPage(1):
+			pass
+		self.assertFalse(self.band.turnColumnPage(1))
+
+	def test_turningThePageLeavesTheCaretWhereItIs(self):
+		"""Looking around rather than going somewhere."""
+		obj, document = self._wide(col=1)
+		self.band.layOutTable()
+		self.band.turnColumnPage(1)
+		self.assertEqual(document.col, 1)
+
+	def test_theCaretMovingBringsItsColumnOntoTheBand(self):
+		"""The column axis of what the window does for rows. A table wide enough to need
+		pages is one where the caret goes off the band on nearly every keystroke."""
+		obj, document = self._wide(col=1)
+		self.band.layOutTable()
+		self.assertEqual(self.band.columnPlan().page, 0)
+		document.col = 8
+		self.band.recheck()
+		plan = self.band.columnPlan()
+		self.assertEqual(plan.page, plan.pageOf(8))
+		self.assertNotEqual(plan.page, 0)
+
+	def test_theCursorGoesWithIt(self):
+		obj, document = self._wide(col=1)
+		self.band.layOutTable()
+		document.col = 8
+		self.band.recheck()
+		self.assertIsNotNone(self.band.controller.cursorCell())
+
+	def test_aCaretMoveUndoesAPageTurn(self):
+		"""Which is the right way round: the page follows the reader, and turning it by hand
+		is a look rather than a move."""
+		obj, document = self._wide(col=1)
+		self.band.layOutTable()
+		self.band.turnColumnPage(1)
+		document.row = 3
+		self.band.recheck()
+		self.assertEqual(self.band.columnPlan().page, 0)
+
+	def test_nothingIsLost(self):
+		self._wide()
+		self.band.layOutTable()
+		plan = self.band.columnPlan()
+		drawn = [place.column.index for page in plan.pages() for place in page]
+		self.assertEqual(drawn, list(range(1, len(WIDE[0]) + 1)))
+
+
 class TestTheCursorSaysWhichCell(TableBandTestCase):
 	"""Speech says which cell the reader is in. Braille had stopped saying it at all.
 

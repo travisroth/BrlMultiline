@@ -362,6 +362,37 @@ class FlowController(PanelOwner):
 		if plan == self.renderer.indentPlan:
 			return
 		self.renderer.indentPlan = plan
+		self._redrawBlocks(rendered, why="a rebased indent")
+
+	def setColumnPlan(self, plan) -> bool:
+		"""Draw the band's table again with a different column layout.
+
+		What moves the band across a table too wide for it: the plan holds every column and
+		says which page each is on, and this is how a different page reaches the display.
+
+		:param plan: the layout to draw with. See `flowTable.ColumnPlan`.
+		:return: whether anything changed.
+		"""
+		if plan == self.renderer.columnPlan:
+			return False
+		with self.operation():
+			self.renderer.columnPlan = plan
+			self._redrawBlocks(list(self.window.blocks), why="a different page of columns")
+		return True
+
+	def _redrawBlocks(self, rendered, why: str) -> None:
+		"""Lay every block on the band out again, under whatever the renderer says now.
+
+		Shared by the two things that change how the band is drawn without changing what it
+		is reading — the indent rebasing and the column page. Both replace the whole window
+		rather than the visible part of it, because a block in the margin drawn under the old
+		layout is a block that is wrong the moment the reader scrolls to it.
+
+		:param rendered: the blocks to draw again.
+		:param why: what asked, for the log.
+		"""
+		if not rendered:
+			return
 		began = self.source.budget.clock()
 		fresh = []
 		for block in rendered:
@@ -377,7 +408,7 @@ class FlowController(PanelOwner):
 		# piece of work here the reader did not ask for by name.
 		self.source.budget.spend(self.source.budget.clock() - began)
 		if not self.window.replaceBlocks(fresh):
-			log.debug("BrlMultiline flow: the anchor did not survive a rebased indent")
+			log.debug(f"BrlMultiline flow: the anchor did not survive {why}")
 			return
 		# A shallower baseline makes blocks shorter, which can leave the band short of rows.
 		# A deeper one only ever makes them taller, and the window trims its own surplus.
