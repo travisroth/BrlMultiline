@@ -181,6 +181,44 @@ class TestTurningItOff(TableBandTestCase):
 		self.assertFalse(self.band.clearTable())
 
 
+class TestNvdaCanTellWhoTheRowBelongsTo(TableBandTestCase):
+	"""`BrailleHandler.handleCaretMove` looks at the last region in the buffer and does
+	nothing at all unless its `obj` equals the object whose caret moved.
+
+	That one comparison is the whole of how a flow hears about a caret. A row that did not
+	know its document was a row NVDA never queued: the caret moved, no redraw followed, and
+	with no redraw there was no `recheck` either — so the band could not notice the reader
+	had walked out of the table, and sat on the first table it was given.
+
+	Two faults made it invisible. Nothing asserted the region's `obj`, and `attach` took the
+	object being read as a parameter, documented as being for exactly this, and did nothing
+	with it. Reading the code, the question looked answered.
+	"""
+
+	def test_theRowKnowsWhichDocumentItCameFrom(self):
+		obj, document = self._inTable()
+		self.band.layOutTable()
+		self.assertIs(self.band.controller.activeRegion().obj, document)
+
+	def test_aCaretMoveInThatDocumentWouldReachTheRow(self):
+		"""NVDA's condition, written out."""
+		obj, document = self._inTable()
+		self.band.layOutTable()
+		segment = self.band.segment()
+		segment.update()
+		self.assertTrue(segment.regions)
+		self.assertEqual(segment.regions[-1].obj, document)
+
+	def test_everyRowOfTheTableKnowsIt(self):
+		"""Not only the one the reader arrived on: any of them can become the active block
+		by panning, and the active block is the one NVDA is shown."""
+		obj, document = self._inTable()
+		self.band.layOutTable()
+		for block in self.band.controller.window.blocks:
+			region = self.band.controller.regionFor(block.blockId)
+			self.assertIs(region.obj, document)
+
+
 class TestWalkingOutOfTheTable(TableBandTestCase):
 	"""In browse mode the caret moves without the focus moving.
 

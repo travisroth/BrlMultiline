@@ -465,7 +465,7 @@ class FlowBand(PanelOwner):
 		self.controller = control
 		self.obj = obj
 		flowQuickNav.forget()
-		segment.attach(control, obj=control.source.obj)
+		segment.attach(control)
 		return True
 
 	# Tables.
@@ -598,7 +598,7 @@ class FlowBand(PanelOwner):
 			return None
 		self.controller = control
 		self.obj = obj
-		segment.attach(control, obj=control.source.obj)
+		segment.attach(control)
 		return True
 
 	def _setInteractiveObject(self, obj: Any, target: Any, regions) -> bool:

@@ -169,17 +169,25 @@ class TableRow(Region):
 	together as one line, which is reading order and is the default a table gets.
 	"""
 
-	def __init__(self, cells, separator: str = "  ") -> None:
+	def __init__(self, cells, separator: str = "  ", obj=None) -> None:
 		"""
 		:param cells: the row's cells, in the table's own column order.
 		:param separator: what goes between them in the flat reading. Two spaces, which is
 			what a reader expects between fields and what NVDA's own table reading uses.
+		:param obj: the document this row was read out of. **Load bearing**, and the least
+			obvious thing in this file: `BrailleHandler.handleCaretMove` looks at the last
+			region in the buffer and does nothing at all unless its `obj` equals the object
+			whose caret moved. A row that did not know its document was a row NVDA never
+			queued, so the caret moved and no redraw followed — and with no redraw there was
+			no `recheck`, so the band could not notice the reader had walked out of the
+			table either. It sat on the first table it was given until NVDA redrew for some
+			other reason.
 		"""
 		super().__init__()
 		self.cells = tuple(cells)
 		self.separator = separator
 		self.hidden = False
-		self.obj = None
+		self.obj = obj
 		self.update()
 
 	def cellFor(self, index: int):
@@ -557,7 +565,7 @@ class TableFlowSource:
 			region = cellRegion(self.handle, row, column, live=self.live)
 			if region is not None:
 				cells.append(RowCell(index=column, region=region))
-		content = TableRow(cells)
+		content = TableRow(cells, obj=self.handle.document)
 		return SourceBlock(
 			blockId=BlockId(generation=self.generation, bookmark=row, unit=self.unit),
 			region=content,

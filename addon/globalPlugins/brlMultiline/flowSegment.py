@@ -34,7 +34,7 @@ anyone, so a live region calls back when its position changes, and the band foll
 one call that must not reach the band is the window moving, and that is refused above.
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from logHandler import log
 
@@ -92,11 +92,17 @@ class FlowBufferSegment(BrailleBufferSegment):
 
 	# Lifetime.
 
-	def attach(self, controller: "FlowController", obj: Any = None) -> None:
+	def attach(self, controller: "FlowController") -> None:
 		"""Show a flow in this band.
 
+		This used to take the object being read as well, documented as being for NVDA's caret
+		handling to recognise, and did nothing whatever with it. The parameter is gone rather
+		than wired up, because the region is where NVDA looks — `handleCaretMove` reads `obj`
+		off the last region in the buffer — so the region is where it has to be set, and a
+		parameter here that claimed to do it is worse than none at all. It read as the place
+		that question was already answered.
+
 		:param controller: the flow to show.
-		:param obj: the object being read, for NVDA's caret handling to recognise.
 		"""
 		self.controller = controller
 		controller.onChanged = self.refresh
