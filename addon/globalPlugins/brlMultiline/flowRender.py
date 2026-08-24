@@ -31,8 +31,9 @@ import config
 from braille.constants import CONTINUATION_SHAPE
 from logHandler import log
 
-from .flow import NO_POSITION, RenderedBlock, RenderKey, SourceBlock
+from .flow import BLANK_CELL, NO_POSITION, RenderedBlock, RenderKey, SourceBlock
 from .flowIndent import FLAT, IndentPlan
+from .flowTable import READING_ORDER, ColumnPlan, cellPosition, rowCellsOf
 from .layout import SegmentRect
 from .panels import SegmentSpec
 from .segments import BrailleBufferSegment
@@ -73,6 +74,7 @@ class FlowRenderer:
 		layoutRows: int = LAYOUT_ROWS,
 		maxRows: int = CHUNK_ROWS,
 		indentPlan: IndentPlan = FLAT,
+		columnPlan: ColumnPlan = READING_ORDER,
 	) -> None:
 		"""
 		:param handler: the real braille handler, which the layout buffer reads its
@@ -86,6 +88,8 @@ class FlowRenderer:
 		:param maxRows: how many rows of one block to hold at a time.
 		:param indentPlan: how a block's depth is drawn. The default draws nothing, which is
 			what prose wants and what everything wanted before depth existed.
+		:param columnPlan: where a table row's columns go. The default draws nothing, which
+			is reading order and is what every block that is not a table row gets.
 		:raises ValueError: if the width is not positive.
 		"""
 		if numCols < 1:
@@ -102,6 +106,14 @@ class FlowRenderer:
 		Held rather than passed, so that none of the controller's six render calls has to
 		know about depth. Replaced wholesale when the band rebases, which is also what
 		invalidates the renderings drawn under the old one — see `flow.RenderKey.indent`.
+		"""
+
+		self.columnPlan = columnPlan
+		"""Where a table row's columns go. See `flowTable`.
+
+		Held for the same reason `indentPlan` is, and part of the rendering key for the same
+		reason: a row drawn under one set of column widths must never be served for a row
+		drawn under another, or the reader's finger finds the previous layout's columns.
 		"""
 
 	@property
@@ -121,7 +133,15 @@ class FlowRenderer:
 			table=self._setting("translationTable"),
 			fillRows=self.fillRows,
 			markCuts=self.markCuts,
-			settings=(self._setting("textWrap"), self._setting("expandAtCursor")),
+			settings=(
+				self._setting("textWrap"),
+				self._setting("expandAtCursor"),
+				# The column plan, so that a row drawn under one set of widths is never served
+				# for a row drawn under another. It goes in `settings` rather than beside
+				# `indent` because that is what `settings` is for: one more thing the cells
+				# depend on, added without changing the key's shape.
+				self.columnPlan,
+			),
 			indent=indent,
 		)
 
@@ -142,6 +162,9 @@ class FlowRenderer:
 			blank line in a document occupies the row it deserves.
 		"""
 		fromRow = max(0, fromRow)
+		columns = self._asColumns(block)
+		if columns is not None:
+			return columns
 		first = self.indentPlan.prefixFor(block.depth)
 		rest = self.indentPlan.continuationPrefixFor(block.depth)
 		rows, positions, more = self._indented(block, fromRow, first, rest)
@@ -163,6 +186,72 @@ class FlowRenderer:
 			isBlank=block.isBlank,
 			isDecoration=block.isDecoration,
 		)
+
+	def _asColumns(self, block: SourceBlock) -> Optional[RenderedBlock]:
+		"""Lay a table row out at its plan's offsets, if it is one and there is a plan.
+
+		The one thing in this file that does not go through a braille buffer holding the
+		whole block. It cannot: the row's cells come from different places in the document
+		and each has to be translated on its own, or the widths are character counts and the
+		columns do not line up. So each cell is laid out in a buffer of its own at its own
+		column's width — the same machinery, several times — and the results are placed.
+
+		Every row of the result is the full width of the band, padding included, which is the
+		one place a rendering here is padded. `assembleCells` pads a short row at its right
+		hand end; a table row needs padding *between* its columns as well, and that padding
+		is what puts the next column where the reader's finger expects it.
+
+		:param block: the block being rendered.
+		:return: the rendering, or None if this is not a table row being drawn as one.
+		"""
+		cells = rowCellsOf(block.region)
+		if cells is None or self.columnPlan.isEmpty:
+			return None
+		plan = self.columnPlan
+		rows = [[BLANK_CELL] * plan.numCols for _ in range(plan.numRows)]
+		where = [[NO_POSITION] * plan.numCols for _ in range(plan.numRows)]
+		row = block.region
+		for ordinal, place in enumerate(plan.placements()):
+			cell = row.cellFor(place.column.index)
+			if cell is None:
+				continue
+			drawn, positions = self._cellRows(cell, place.column.width)
+			for index, (line, marks) in enumerate(zip(drawn, positions)):
+				target = place.row + index
+				if target >= plan.numRows:
+					break
+				for offset, value in enumerate(line[: place.column.width]):
+					rows[target][place.offset + offset] = value
+					where[target][place.offset + offset] = cellPosition(ordinal, marks[offset])
+		return RenderedBlock(
+			blockId=block.blockId,
+			rows=tuple(tuple(line) for line in rows),
+			positions=tuple(tuple(line) for line in where),
+			renderKey=self._keyWith(0),
+			depth=block.depth,
+			rowOffset=0,
+			moreRows=False,
+			rawText=getattr(block.region, "rawText", ""),
+			gapBefore=block.gapBefore,
+			gapAfter=block.gapAfter,
+			isBlank=block.isBlank,
+			isDecoration=block.isDecoration,
+		)
+
+	def _cellRows(self, cell, width: int) -> tuple[list, list]:
+		"""Translate one cell of a table row and cut it to its column's width.
+
+		:param cell: the cell to read.
+		:param width: how many cells of the band its column has.
+		:return: its rows and their position maps, at most as many rows as the column's
+			overflow style allows.
+		"""
+		holder = SourceBlock(blockId=cell.index, region=cell.region)
+		buffer = self._layoutBuffer(holder, width=width)
+		if buffer is None:
+			return [], []
+		rows, positions, _more = self._layout(buffer, fromRow=0)
+		return rows, positions
 
 	def renderAround(self, block: SourceBlock, position: int, contextRows: int = 0) -> RenderedBlock:
 		"""Lay out the chunk containing one braille position.

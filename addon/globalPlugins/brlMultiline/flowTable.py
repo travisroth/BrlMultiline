@@ -469,3 +469,152 @@ def describe(plan: ColumnPlan) -> str:
 		missing = ", ".join(str(index) for index in plan.dropped)
 		return f"{drawn}. No room for column {missing}."
 	return f"{drawn}."
+
+
+SEPARATOR_CELL = 0
+"""A blank cell, matching `flow.BLANK_CELL` and NVDA's own use of 0 for an empty cell."""
+
+POSITION_STRIDE = 1 << 16
+"""How far apart two columns' positions are in a drawn row's position map.
+
+A rendered row maps each of its cells back to a position, and everything that reads that
+map — routing a finger press, finding the cursor's row — treats a position as one number.
+A table row's cells come from several places, so a position has to carry both which column
+it is in and where in that column it is, and this is the base it is packed in.
+
+Sixty-five thousand cells for one table cell, which no cell of any table reaches, and the
+whole row is still a small number. Packed rather than kept as a table of its own, because a
+map that lived beside the rendering would have to be kept in step with it, and a rendering
+that is served from the cache with the wrong map routes the reader into the wrong column.
+"""
+
+
+def cellPosition(ordinal: int, offset: int) -> int:
+	"""Pack which column a cell came from, and where in it.
+
+	:param ordinal: the column's place in the plan's drawing order, zero based. Not the
+		table's own column number: a plan may draw columns 1, 3 and 4, and packing the
+		table's numbers would leave holes that mean nothing to anybody.
+	:param offset: the braille position within that column's own content.
+	:return: the packed position.
+	"""
+	return ordinal * POSITION_STRIDE + offset
+
+
+def positionParts(position: int) -> tuple[int, int]:
+	""":return: the column ordinal and the position within it. The inverse of `cellPosition`."""
+	return divmod(position, POSITION_STRIDE)
+
+
+@dataclasses.dataclass(frozen=True)
+class RowCell:
+	"""One cell of a table row, as the source read it."""
+
+	index: int
+	"""The table's own column number, one based, matching `Column.index`."""
+
+	region: object
+	"""Whatever reads that cell: a braille region, and nothing here looks inside it."""
+
+
+class TableRow:
+	"""One row of a table, read as its cells rather than as a line of text.
+
+	A block's region is normally one thing that can be laid out as text. A table row is
+	several, and they are drawn at fixed offsets rather than run together, so this stands
+	where a region would and says plainly that it is not one: `cells` is what the renderer
+	asks for, and a renderer that does not know about tables never sees it because it asks
+	for `rawText` and gets a perfectly ordinary line.
+
+	That fallback is deliberate. A table row must still be readable by anything that has not
+	been taught about columns — the dry run, `isBlank`, a log line — and the reading order a
+	table gets by default is exactly what `rawText` gives.
+	"""
+
+	def __init__(self, cells: Sequence[RowCell], separator: str = "  ") -> None:
+		"""
+		:param cells: the row's cells, in the table's own column order.
+		:param separator: what goes between them in the flat reading. Two spaces, which is
+			what a reader expects between fields and what NVDA's own table reading uses.
+		"""
+		self.cells = tuple(cells)
+		self.separator = separator
+
+		# What any region carries, so that a buffer can hold this one without knowing what it
+		# is. The flat reading is not a courtesy: a table with no column plan is a table being
+		# read in reading order, which is the default and has to work, and a row that could
+		# only be drawn by the code that knows about columns would fail the moment a plan was
+		# not in force.
+		self.hidden = False
+		self.obj = None
+		self.brailleCursorPos = None
+		self.focusToHardLeft = False
+
+	def cellFor(self, index: int) -> Optional[RowCell]:
+		""":return: the cell in one column of the table, or None if the row has not got it.
+
+		A row genuinely may not: a table with a merged cell, or one still being built, has
+		rows with fewer cells than the header promised. Drawing nothing in that column is the
+		honest answer, and it keeps every other column where the reader left it.
+		"""
+		for cell in self.cells:
+			if cell.index == index:
+				return cell
+		return None
+
+	@property
+	def rawText(self) -> str:
+		""":return: the row as one line, which is what reading order reads."""
+		return self.separator.join((getattr(cell.region, "rawText", "") or "") for cell in self.cells)
+
+	@property
+	def brailleCells(self) -> list:
+		""":return: the row's cells run together, which is the flat reading in braille.
+
+		Each cell's own translation, in order, with the separator between them as blanks.
+		Assembled rather than translated afresh: the cells have been translated already by
+		whatever read them, and translating the joined text again would be a second answer
+		that could disagree with the first about where a cell begins.
+		"""
+		out: list = []
+		gap = [SEPARATOR_CELL] * len(self.separator)
+		for index, cell in enumerate(self.cells):
+			if index:
+				out.extend(gap)
+			out.extend(getattr(cell.region, "brailleCells", None) or ())
+		return out
+
+	def update(self) -> None:
+		"""Re-read every cell. What a region does, done to each of them."""
+		for cell in self.cells:
+			update = getattr(cell.region, "update", None)
+			if update is not None:
+				update()
+
+	def routeTo(self, position: int) -> None:
+		"""Put the cursor where a finger landed.
+
+		:param position: a packed position from a drawn row. See `cellPosition`.
+		"""
+		ordinal, offset = positionParts(position)
+		if not 0 <= ordinal < len(self.cells):
+			return
+		route = getattr(self.cells[ordinal].region, "routeTo", None)
+		if route is not None:
+			route(offset)
+
+	def __repr__(self) -> str:
+		return f"<TableRow {len(self.cells)} cells>"
+
+
+def rowCellsOf(region) -> Optional[Sequence[RowCell]]:
+	""":return: a region's table cells, or None if it is not a table row.
+
+	Asked of the region rather than recorded on the block, so that nothing in `flow.py` or
+	`flowControl.py` has to learn what a table is. A row knows it is a row; everything else
+	asks and gets None.
+	"""
+	cells = getattr(region, "cells", None)
+	if not cells:
+		return None
+	return cells if all(isinstance(cell, RowCell) for cell in cells) else None
