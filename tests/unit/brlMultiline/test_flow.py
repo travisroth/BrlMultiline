@@ -290,6 +290,29 @@ class TestFollowingTheCursor(unittest.TestCase):
 		self.assertTrue(window.ensureVisible(blockId("a"), rowIndex=3, forward=False))
 		self.assertEqual(visibleNames(window)[0], "a3")
 
+	def test_aRowAboveTheWindowComesOnAtTheTopEvenWhenToldForward(self):
+		"""The direction is a caller's guess, and a wrong guess used to move a display.
+
+		`refreshActive` re-renders the block the cursor is in and then asks for it to be
+		shown, always forward, because the case it was written for is an edit growing
+		downward as it is typed into. On a focus move it runs first, and on hardware it put
+		a row the reader had just arrowed *up* to on the bottom of the band with a whole
+		display of what precedes it filled in above.
+		"""
+		blocks = [block("a", numRows=4), block("b", numRows=4), block("c", numRows=4)]
+		window = windowWith(4, blocks)
+		window.panForward()
+		window.panForward()
+		self.assertTrue(window.ensureVisible(blockId("a"), rowIndex=3, forward=True))
+		self.assertEqual(visibleNames(window)[0], "a3")
+
+	def test_aRowBelowTheWindowComesOnAtTheBottomEvenWhenToldBack(self):
+		"""The other half of the same rule, which the fix must not break."""
+		blocks = [block("a", numRows=4), block("b", numRows=4), block("c", numRows=4)]
+		window = windowWith(4, blocks)
+		self.assertTrue(window.ensureVisible(blockId("c"), rowIndex=0, forward=False))
+		self.assertEqual(visibleNames(window)[-1], "c0")
+
 	def test_isVisibleAnswersForOneRowOfABlock(self):
 		window = windowWith(2, [block("long", numRows=6)])
 		self.assertTrue(window.isVisible(blockId("long"), rowIndex=1))

@@ -856,23 +856,89 @@ class FlowWindow:
 	def ensureVisible(self, blockId: BlockId, rowIndex: int = 0, forward: bool = True) -> bool:
 		"""Bring a row onto the display by the smallest movement that does so.
 
-		If it is already there, nothing moves at all. Otherwise it is placed at the edge
-		the reader is travelling toward: at the bottom when moving forward, with what
-		preceded it above; at the top when moving back.
+		If it is already there, nothing moves at all. Otherwise it is brought on at the edge
+		it is nearest: a row above the window becomes the top row, one below it becomes the
+		bottom row. Either way the display moves by the distance to it and no further.
 
 		:param blockId: the block to show.
 		:param rowIndex: which of its rows must be visible.
-		:param forward: the direction the reader is moving.
+		:param forward: the direction the reader is moving. A tiebreak only, for a row the
+			stream cannot place.
 		:return: whether the window moved.
 		:raises LookupError: if the block is not cached.
 		"""
 		self.blockIndex(blockId)
 		if self.isVisible(blockId, rowIndex):
 			return False
-		entry = Entry.BOTTOM if forward else Entry.TOP
+		entry = self._entryFor(blockId, rowIndex, forward)
 		self.anchor = Anchor(blockId=blockId, rowIndex=rowIndex, entry=entry)
 		self._clampAnchor()
 		return True
+
+	def _entryFor(self, blockId: BlockId, rowIndex: int, forward: bool) -> Entry:
+		"""Which edge of the display to bring a row on at.
+
+		Answered from where the row is, not from which way the reader is thought to be
+		going. The two agree whenever the guess is right, and the guess is the thing that
+		has gone wrong twice on hardware: a caller with no way of knowing passes `forward`
+		and gets a row that was *above* the window planted on the bottom row with a whole
+		display of what precedes it filled in behind — a display's worth of movement for a
+		reader who pressed the up arrow once.
+
+		`refreshActive` was the last such caller. It re-renders the block the cursor is in
+		and then asks for it to be shown, always forward, because the case it was written
+		for is an edit growing downward as it is typed into. On a focus move in a tree it
+		runs first and places the window, and the considered answer that follows it finds
+		the row already visible and lets the guess stand.
+
+		There is nothing to guess. A row the window has not reached yet is either before it
+		or after it, the stream says which, and the nearer edge is the smallest movement
+		that shows it — which is what this is for.
+
+		:param blockId: the block being shown.
+		:param rowIndex: which of its rows must be visible.
+		:param forward: the direction the reader is moving, used only when the row cannot
+			be found in the stream at all.
+		:return: the edge to anchor at.
+		"""
+		guess = Entry.BOTTOM if forward else Entry.TOP
+		rows = self.streamRows()
+		try:
+			position = self._positionOfRow(rows, blockId, rowIndex)
+			start, end = self._bounds(rows)
+		except LookupError:
+			return guess
+		if position < start:
+			return Entry.TOP
+		if position >= end:
+			return Entry.BOTTOM
+		# Neither before the window nor after it, and `isVisible` has already said it is not
+		# on it: a gap row, or a row the two accounts of the window disagree about. Nothing
+		# has been established, so the caller's guess stands.
+		return guess
+
+	def _positionOfRow(self, rows: Sequence[StreamRow], blockId: BlockId, rowIndex: int) -> int:
+		"""Where one row of one block sits in the stream.
+
+		:param rows: the stream, from `streamRows`.
+		:param blockId: the block wanted.
+		:param rowIndex: which of its rows, counted within the whole block. A block held as
+			chunks may not be holding that row, so its first row answers instead: which side
+			of the window the block is on is the same either way.
+		:return: the position in `rows`.
+		:raises LookupError: if the block has no content row in the stream.
+		"""
+		first = None
+		for position, row in enumerate(rows):
+			if row.kind is not RowKind.CONTENT or row.blockId != blockId:
+				continue
+			if row.rowIndex == rowIndex:
+				return position
+			if first is None:
+				first = position
+		if first is None:
+			raise LookupError(f"Row {rowIndex} of {blockId} is not in the stream")
+		return first
 
 	def stepBlock(self, forward: bool, fromBlockId: BlockId | None = None) -> BlockId | None:
 		"""The block one step from the one the cursor is in, for the line commands.

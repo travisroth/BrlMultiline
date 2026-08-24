@@ -76,7 +76,13 @@ def liveReport(band) -> list[str]:
 		entry = getattr(anchor.entry, "value", anchor.entry)
 		lines.append(f"Band anchor: entered from the {entry}, at row {anchor.rowIndex} of its block")
 	lines.append(f"Band indent: {describeIndent(control)}")
-	lines.append(f"Band placement: {getattr(control, 'lastDirection', 'unknown')}")
+	lines.append(f"Band direction: {getattr(control, 'lastDirection', 'unknown')}")
+	# Every move, in order, because the direction test's verdict on its own was misleading:
+	# on the report that located the last bug the verdict was right while the placement was
+	# wrong, because something else had moved the window before the verdict was used.
+	moves = getattr(control, "placements", None) or ["nothing has moved the band yet"]
+	lines.append("Band moves, oldest first:")
+	lines.extend(f"  {move}" for move in moves)
 	active = control.activeBlockId
 	lines.append(f"Band active block: {'none' if active is None else active.bookmark!r}")
 	try:

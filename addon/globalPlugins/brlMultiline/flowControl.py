@@ -139,12 +139,16 @@ class FlowController(PanelOwner):
 		"""The source's last answer, so a caller can say why nothing appeared."""
 
 		self._lastDirection = "not yet asked"
-		"""Why the last placement went the way it did, for the diagnostics.
+		"""What the direction test last concluded, for the diagnostics.
 
 		Which end a block is brought onto the display at is the difference between a one row
 		scroll and a whole display of movement, and it is decided by a comparison the reader
-		cannot see and cannot feel the inputs to. Two hardware reports have now turned on it.
+		cannot see and cannot feel the inputs to. Three hardware reports have now turned on
+		it.
 		"""
+
+		self._placements: list[str] = []
+		"""What has actually moved the band, most recent last. See `_note`."""
 
 		self.onChanged = None
 		"""Called when something moved the flow from underneath, so the band can redraw.
@@ -667,7 +671,7 @@ class FlowController(PanelOwner):
 				return False
 		self._setActive(nextId)
 		self._takeCursor(nextId)
-		self.syncToCursor(forward=forward)
+		self.syncToCursor(forward=forward, why="a line command")
 		return True
 
 	def activeRegion(self):
@@ -757,7 +761,11 @@ class FlowController(PanelOwner):
 		# document-bound region with the edit's own. Lay that out before asking which cursor
 		# row is visible; otherwise a cached block answers with yesterday's cursor position.
 		self.refreshActive()
-		moved = self.groundAt(blockId) if ground else self.syncToCursor(forward=forward)
+		moved = (
+			self.groundAt(blockId)
+			if ground
+			else self.syncToCursor(forward=forward, why="the reader arriving")
+		)
 		return moved
 
 	def _writing(self) -> bool:
@@ -813,7 +821,7 @@ class FlowController(PanelOwner):
 			# row instead of the window the reader actually had.
 			self._contextAboveTheCaret()
 		self.fill()
-		self.syncToCursor(forward=True)
+		self.syncToCursor(forward=True, why="a keystroke while writing")
 		return True
 
 	def _stableTop(self):
@@ -945,6 +953,24 @@ class FlowController(PanelOwner):
 		)
 		return forward
 
+	def _note(self, text: str) -> None:
+		"""Record something that moved the band, for a report to be able to say what did.
+
+		Kept as a short history rather than one line, because the line was misleading: the
+		display's placement was read off the direction test's verdict, and on the report
+		that finally located this bug the verdict was *correct* while the placement was
+		wrong. Something else had moved the window first — `refreshActive`, re-rendering the
+		row the reader had just arrived on — and then a second, no-op call had overwritten
+		the note with a reading of a decision that changed nothing.
+
+		A history says which call moved the band and which found there was nothing to do,
+		in the order they happened, so neither can be mistaken for the other again.
+
+		:param text: what happened, as one line.
+		"""
+		self._placements.append(text)
+		del self._placements[:-8]
+
 	def _windowIndex(self, blockId: "Optional[BlockId]") -> Optional[int]:
 		""":return: where a block sits in the window's list, or None if it is not in it."""
 		if blockId is None:
@@ -980,13 +1006,18 @@ class FlowController(PanelOwner):
 		""":return: the ends to look for a block at, the likelier one first."""
 		return (Edge.AFTER, Edge.BEFORE) if forward else (Edge.BEFORE, Edge.AFTER)
 
-	def syncToCursor(self, forward: bool = True) -> bool:
+	def syncToCursor(self, forward: bool = True, why: str = "asked to") -> bool:
 		"""Bring the active block onto the display, moving as little as possible.
 
 		If it is already there, nothing moves at all: landing on a heading that is already
 		under the reader's fingers must not jerk the display.
 
-		:param forward: the direction the reader is travelling.
+		:param forward: the direction the reader is travelling. `FlowWindow.ensureVisible`
+			uses it only as a tiebreak: which edge a row comes on at is decided by which
+			side of the window it is on, so a caller with no way of knowing may pass either.
+		:param why: what is asking, for the report. Four things call this and they do not
+			all know which way the reader went; when one of them moves the band unexpectedly
+			the report has to be able to name it.
 		:return: whether the window moved.
 		"""
 		if self.activeBlockId is None:
@@ -1003,7 +1034,13 @@ class FlowController(PanelOwner):
 				forward=forward,
 			)
 		except LookupError:
+			self._note(f"{why}: the block is not in the window, so the band was entered afresh")
 			return self.enterAtCursor()
+		entry = getattr(getattr(self.window.anchor, "entry", None), "value", "?")
+		self._note(
+			f"{why}: {'forward' if forward else 'back'}, "
+			+ (f"brought on at the {entry}" if moved else "already on the band, nothing moved"),
+		)
 		if moved:
 			self.fill()
 		return moved
@@ -1118,7 +1155,12 @@ class FlowController(PanelOwner):
 		# A multi line edit grows into the space as it is typed into, and what the reader
 		# wants on the display is what they have just written rather than the top of the
 		# field. The window follows the growing end down.
-		self.syncToCursor(forward=True)
+		#
+		# Forward is this caller's case and not always the reader's: this runs on arrival
+		# too, before anything has worked out which way they went. It is safe because
+		# `FlowWindow.ensureVisible` decides the edge from where the row is; it was not
+		# before, and a row the reader had arrowed up to arrived at the bottom of the band.
+		self.syncToCursor(forward=True, why="a re-render of the cursor's block")
 		self.fill()
 		return True
 
@@ -1270,8 +1312,13 @@ class FlowController(PanelOwner):
 
 	@property
 	def lastDirection(self) -> str:
-		""":return: why the last placement went the way it did. See `_lastDirection`."""
+		""":return: what the direction test last concluded. See `_lastDirection`."""
 		return self._lastDirection
+
+	@property
+	def placements(self) -> list[str]:
+		""":return: what has moved the band lately, oldest first. See `_note`."""
+		return list(self._placements)
 
 	def describeRows(self) -> list[str]:
 		"""What each row of the band holds, in words rather than cells.

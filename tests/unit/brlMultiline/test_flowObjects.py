@@ -28,7 +28,7 @@ from ._stubs import (
 installStubs()
 
 from brlMultiline import flowObjects  # noqa: E402
-from brlMultiline.flow import ResultKind  # noqa: E402
+from brlMultiline.flow import Edge, ResultKind  # noqa: E402
 from brlMultiline.flowControl import FlowController  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
 from brlMultiline.flowSources import FetchBudget  # noqa: E402
@@ -255,6 +255,87 @@ class TestMovingBackToSomethingOffTheBand(unittest.TestCase):
 		control.source.setCurrent(items[1])
 		control.followCursor()
 		self.assertEqual(control.cells(), before)
+
+
+class TestWhenTheRowChangesAsTheReaderArrivesOnIt(unittest.TestCase):
+	"""Arriving on a row changes it, and re-rendering it used to move the whole band.
+
+	From hardware, in Outlook's folder pane: after jumping into an account's folders,
+	pressing the up arrow to reach the account put it on the *bottom* row with six other
+	accounts filled in above it. A display's worth of movement for one keypress, and it
+	survived two fixes to the direction test because the direction test was not what placed
+	the window.
+
+	`_arrive` re-renders the block the cursor is in before deciding anything, because a
+	cached block can be holding yesterday's cursor position. A run of objects re-renders to
+	something *different* on arrival, since an unfocused row carries "not selected" and the
+	focused one does not — so `refreshActive` acts, and it ends by asking for the cursor to
+	be shown, always forward, for the case it was written for: an edit growing downward as
+	it is typed into. It ran first, planted the row at the bottom, and the considered answer
+	that followed found the row already visible and let the guess stand.
+
+	The fix is in `FlowWindow.ensureVisible`, which now brings a row on at the edge it is
+	nearest rather than the edge a caller guessed at. See `_entryFor`.
+	"""
+
+	def _run(self, count=40, at=8, numRows=4):
+		items = fakeRun([f"item {n}" for n in range(count)])
+		return items, controllerOver(items, at=at, numRows=numRows)
+
+	def _visibleTexts(self, control):
+		texts = []
+		for row in control.window.visibleRows():
+			if row.blockId is None:
+				continue
+			rendered = control.window.blocks[control.window.blockIndex(row.blockId)]
+			if rendered.rawText not in texts:
+				texts.append(rendered.rawText)
+		return texts
+
+	def _cacheAbove(self, control, rows=4):
+		"""Read what is above the window without showing it, as reaching for a block does."""
+		for _ in range(rows):
+			control._fetchOne(Edge.BEFORE)
+
+	def _arriveAt(self, control, item):
+		"""Move to an item whose row reads differently now that the reader is on it."""
+		item.name = f"{item.name} arrived"
+		control.source.setCurrent(item)
+		control.followCursor()
+
+	def test_arrivingOnARowAboveTheBandPutsItOnTheTopRow(self):
+		items, control = self._run()
+		self._cacheAbove(control)
+		self._arriveAt(control, items[5])
+		self.assertIn("item 5", self._visibleTexts(control)[0])
+
+	def test_theBandIsNotFilledWithWhatCameBeforeIt(self):
+		"""The symptom as the reader met it, rather than the reasoning."""
+		items, control = self._run()
+		self._cacheAbove(control)
+		self._arriveAt(control, items[5])
+		shown = " ".join(self._visibleTexts(control))
+		self.assertNotIn("item 2", shown)
+		self.assertNotIn("item 3", shown)
+
+	def test_theReportNamesTheCallThatMovedTheBand(self):
+		"""Three hardware reports have turned on which edge a row arrived at, and the first
+		two were read off the direction test — which was answering correctly about a
+		placement it had not made. The report has to name the call that made it."""
+		items, control = self._run()
+		self._cacheAbove(control)
+		self._arriveAt(control, items[5])
+		self.assertIn("re-render", control.placements[0])
+		self.assertIn("brought on at the top", control.placements[0])
+		self.assertIn("nothing moved", control.placements[-1])
+
+	def test_arrivingOnARowBelowTheBandStillPutsItOnTheBottomRow(self):
+		"""Reading on shows what was come from, and the fix must not cost that."""
+		items, control = self._run(at=0)
+		for _ in range(4):
+			control._fetchOne(Edge.AFTER)
+		self._arriveAt(control, items[6])
+		self.assertIn("item 6", self._visibleTexts(control)[-1])
 
 
 class TestWhenTheBlockLeftBehindIsGone(unittest.TestCase):

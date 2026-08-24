@@ -186,9 +186,15 @@ class FakeLiveControl(FakeControl):
 		self.window = FakeWindow(self.window.blocks, anchor=anchor)
 		self.activeBlockId = active
 		self._rows = rows if rows is not None else ["0: a row"]
+		self.placements = []
 
 	def describeRows(self):
 		return self._rows
+
+
+def Band(control):
+	""":return: enough of a band for the report to read a controller off."""
+	return type("Band", (), {"controller": control})()
 
 
 class TestReportingTheLiveBand(unittest.TestCase):
@@ -224,6 +230,29 @@ class TestReportingTheLiveBand(unittest.TestCase):
 		control = FakeLiveControl([8, 9], plan=planFor([8, 9], 32, style=TWO_SPACES))
 		band = type("Band", (), {"controller": control})()
 		self.assertIn("margin stands for level 8", " ".join(liveReport(band)))
+
+	def test_everyMoveOfTheBandIsReportedInOrder(self):
+		"""One reading of one decision was not enough, and said the wrong thing.
+
+		On the report that located the last bug the direction test's verdict was correct —
+		"back" — while the band had been placed forward, because a re-render of the row the
+		reader arrived on had moved the window before the verdict was used, and a later
+		no-op call had overwritten the note. A history cannot hide either of those.
+		"""
+		control = FakeLiveControl([1])
+		control.placements = [
+			"a re-render of the cursor's block: forward, brought on at the bottom",
+			"the reader arriving: back, already on the band, nothing moved",
+		]
+		band = type("Band", (), {"controller": control})()
+		said = liveReport(band)
+		where = [line for line in said if "re-render" in line or "reader arriving" in line]
+		self.assertEqual(len(where), 2)
+		self.assertIn("re-render", where[0])
+
+	def test_aBandThatHasNotMovedSaysSo(self):
+		control = FakeLiveControl([1])
+		self.assertIn("nothing has moved the band yet", " ".join(liveReport(band=Band(control))))
 
 	def test_aBandThatCannotDescribeItselfStillReports(self):
 		"""A diagnostic that raises tells the reader nothing at all, which is worse than a
