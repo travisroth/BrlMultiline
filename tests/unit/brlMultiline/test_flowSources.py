@@ -125,6 +125,66 @@ class TestReadingBlocks(unittest.TestCase):
 		self.assertEqual(back.blockId, first.blockId)
 
 
+class TestReadingABlockAgain(unittest.TestCase):
+	"""A page whose values change under the reader has to be re-read without the band moving,
+	and the band does not move because every block keeps the identity it already had.
+
+	The reader's own finding on a watchlist: read as a table the prices moved and read as
+	ordinary browse mode they sat still. NVDA refreshes the caret's line because the caret's
+	line is all it is showing; a band showing eight is showing seven that nobody refreshes.
+	"""
+
+	def test_aBlockComesBackWithTheSameIdentity(self):
+		source = sourceOver(["first", "second", "third"], caretIndex=1)
+		block = source.blockAtCursor().block
+		again = source.blockAt(block.blockId).block
+		self.assertEqual(again.blockId, block.blockId)
+
+	def test_itComesBackWithWhatTheLineSaysNow(self):
+		lines = ["309.48", "second"]
+		source = sourceOver(lines, caretIndex=0)
+		block = source.blockAtCursor().block
+		lines[0] = "309.46"
+		self.assertEqual(source.blockAt(block.blockId).block.region.rawText, "309.46")
+
+	def test_aBlockTheBandNeverReadIsNotKnown(self):
+		"""Only the positions this source handed out can be read again; there is nothing to
+		expand at a bookmark it has never seen."""
+		source = sourceOver(["a", "b"], caretIndex=0)
+		block = source.blockAtCursor().block
+		source.forget()
+		self.assertEqual(source.blockAt(block.blockId).kind, ResultKind.ERROR)
+
+	def test_aBlockThatNoLongerBeginsWhereItDidIsRefused(self):
+		"""The bookmark is an offset, so text growing earlier in the document moves every
+		block after it. Expanding at the old position would hand back a neighbour under this
+		block's name — a line drawn twice on the band, which is worse than one out of date."""
+		lines = ["first", "second", "third"]
+		source = sourceOver(lines, caretIndex=1)
+		block = source.blockAtCursor().block
+		self.assertEqual(block.region.rawText, "second")
+		lines[0] = "a much longer first line"
+		self.assertEqual(source.blockAt(block.blockId).kind, ResultKind.ERROR)
+
+	def test_aChangeWithinTheBlockDoesNotMoveIt(self):
+		"""Which is the ordinary case this exists for: a price going from 309.48 to 309.46
+		leaves every position alone."""
+		lines = ["first", "309.48", "third"]
+		source = sourceOver(lines, caretIndex=1)
+		block = source.blockAtCursor().block
+		lines[1] = "309.46"
+		self.assertEqual(source.blockAt(block.blockId).block.region.rawText, "309.46")
+
+	def test_theBlockAfterOneIsStillTheOneAfterIt(self):
+		"""Re-reading must not disturb the walk: the cached positions are what the window
+		pans by, and a re-read that moved them would move the band."""
+		lines = ["first", "second", "third"]
+		source = sourceOver(lines, caretIndex=0)
+		first = source.blockAtCursor().block
+		source.blockAt(first.blockId)
+		self.assertEqual(source.blockAfter(first.blockId).block.region.rawText, "second")
+
+
 class TestEndOfStream(unittest.TestCase):
 	def test_theEndOfTheDocumentIsReportedAsSuch(self):
 		source = sourceOver(["only"], caretIndex=0)

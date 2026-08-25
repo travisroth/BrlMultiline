@@ -1167,3 +1167,58 @@ class TestAStepThatGoesNowhere(unittest.TestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestReadingTheBandAgain(unittest.TestCase):
+	"""A page whose values change under the reader is re-read in place: the window keeps its
+	position, every block keeps its identity, and what changes is what the document now says
+	is in them. NVDA refreshes the line the caret is on because that is all it shows."""
+
+	def test_theBandShowsWhatTheDocumentSaysNow(self):
+		lines = ["309.48", "second", "third"]
+		flow = controllerOver(lines, caretIndex=0, numRows=3)
+		lines[1] = "999.99"
+		self.assertTrue(flow.rereadContent())
+		self.assertIn("999.99", " ".join(flow.describeRows()))
+
+	def test_theReaderKeepsTheirPlace(self):
+		lines = ["first", "second", "third", "fourth"]
+		flow = controllerOver(lines, caretIndex=1, numRows=2)
+		before = flow.window.anchor
+		lines[1] = "changed"
+		flow.rereadContent()
+		self.assertEqual(flow.window.anchor.blockId, before.blockId)
+
+	def test_nothingIsReadWhileTheReaderIsTyping(self):
+		"""Everything moves on every keystroke and the block they are in is the one being
+		edited; re-reading under them would fight the editor rather than follow it."""
+		lines = ["first", "second"]
+		flow = controllerOver(lines, caretIndex=0, numRows=2, interactive=True)
+		self.assertTrue(flow.source.writing)
+		lines[1] = "changed"
+		flow.rereadContent()
+		self.assertNotIn("changed", " ".join(flow.describeRows()))
+
+	def test_aControlIsLeftAsItWas(self):
+		"""A control's block carries what it is as well as what it says — that it is a
+		control, and that a gap follows it — and a plain re-read of the position gives back
+		neither."""
+		lines = ["before", "a field", "after"]
+		flow = controllerOver(lines, caretIndex=0, numRows=4, atObject=control(1))
+		held = [flow.blocks.get(block.blockId) for block in flow.window.blocks]
+		self.assertTrue(
+			any(block is not None and block.isControl for block in held),
+			"the fixture must put a control on the band",
+		)
+		flow.rereadContent()
+		after = [flow.blocks.get(block.blockId) for block in flow.window.blocks]
+		self.assertTrue(any(block is not None and block.isControl for block in after))
+
+	def test_aSourceThatCannotBeAskedIsLeftAlone(self):
+		flow = controllerOver(["a", "b"], caretIndex=0, numRows=2)
+
+		class NoReReads:
+			writing = False
+
+		flow.source = NoReReads()
+		self.assertFalse(flow.rereadContent())

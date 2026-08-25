@@ -875,6 +875,42 @@ class DocumentFlowSource:
 		info.collapse()
 		return info
 
+	def blockAt(self, blockId: BlockId) -> FetchResult:
+		""":return: one block again, read afresh from the position it was read from.
+
+		What live updating needs, and the reason a document can have it at all: a page whose
+		values change under the reader has to be re-read without the band moving, and the band
+		does not move because every block keeps the identity it already had.
+
+		**A block is only given back when it still begins where it did.** The bookmark is an
+		offset into the buffer, so text growing or shrinking *earlier* in the document moves
+		every block after it: the cached position then lands inside some other unit, and
+		expanding it would hand back a neighbour under this block's name — a line drawn twice
+		on the band, which is worse than a line that is out of date. So the unit at the cached
+		position is asked where it begins, and a block whose answer has moved is refused. The
+		reader's next keystroke reads the document afresh, which is the repair.
+
+		Text changing *within* a block does not move it, and that is the ordinary case this
+		exists for: a price going from 309.48 to 309.46 leaves every position alone.
+		"""
+		self.budget.startUnlessActive()
+		start = self._positions.get(blockId.bookmark)
+		if start is None:
+			return FetchResult.failed(f"no cached position for {blockId}")
+		began = self.budget.clock()
+		try:
+			here = start.copy()
+			here.expand(self.unit)
+			found = self._startOfUnit(here)
+		except Exception as error:
+			log.debugWarning("Could not read a block again", exc_info=True)
+			return FetchResult.failed(f"could not read a block again: {error!r}")
+		finally:
+			self.budget.observe(self.budget.clock() - began)
+		if self._bookmark(found) != blockId.bookmark:
+			return FetchResult.failed("the document moved under this block")
+		return self._blockAt(here, start=found)
+
 	def blockAfter(self, blockId: BlockId) -> FetchResult:
 		"""The block following one already fetched."""
 		return self._step(blockId, forward=True)

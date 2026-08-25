@@ -103,7 +103,8 @@ configSpec = {
 			"flowTableRowHeight": f"integer(default={flowTable.DEFAULT_MAX_ROWS}, min=1, max={flowTable.MAX_TABLE_ROWS})",
 			"flowTableTruncate": "boolean(default=False)",
 			"flowTablePinKey": "boolean(default=True)",
-			"flowTableLiveSeconds": "integer(default=0, min=0, max=60)",
+			"flowLiveSeconds": "integer(default=0, min=0, max=60)",
+			"flowLiveUpdates": "boolean(default=True)",
 			"flowTableHeaders": "boolean(default=True)",
 			**{
 				flowModeKey(mode): f"boolean(default={FLOW_MODE_DEFAULTS.get(mode, False)})"
@@ -157,8 +158,9 @@ configSpec = {
 - `flowTableTruncate`: whether a cell too long for its column is cut rather than wrapped.
 - `flowTablePinKey`: whether the first column is repeated at the left of every page after
 	the first, so that a reader six columns across a watchlist still knows whose row it is.
-- `flowTableLiveSeconds`: how often a table laid out in columns reads itself again on a
-	timer, over and above reading it when the page says it changed. Zero waits to be told.
+- `flowLiveSeconds`: how often the band reads its content again on a timer, over and above
+	reading it when the page says it changed. Zero waits to be told.
+- `flowLiveUpdates`: whether the band follows a page that changes under it at all.
 - `flowTableHeaders`: whether a table's header row is held on the top row of the band,
 	whatever the rest of it is showing.
 
@@ -578,7 +580,26 @@ def shouldPinKeyColumn(displayKey: str | None = None) -> bool:
 		return True
 
 
-def liveTableSeconds(displayKey: str | None = None) -> int:
+def shouldFollowLiveContent(displayKey: str | None = None) -> bool:
+	""":return: whether the band re-reads its content when the page changes under it.
+
+	On by default. NVDA refreshes the line the browse mode caret is in and nothing else,
+	which is right when the line the caret is in is all that is showing; a band showing eight
+	lines is showing seven that nobody is refreshing, and on a watchlist that means seven
+	prices that were true when the reader arrived.
+
+	The escape hatch, not the feature's main knob — see `liveReadSeconds` for how often, and
+	`FlowBand.documentChanged` for what triggers a read. Worth turning off on a page whose
+	churn is not worth following, or if following it ever fights the reader.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["flowLiveUpdates"])
+	except Exception:
+		log.debugWarning("Could not read flowLiveUpdates", exc_info=True)
+		return True
+
+
+def liveReadSeconds(displayKey: str | None = None) -> int:
 	""":return: how often a table laid out in columns is read again on a timer, in seconds.
 
 	Zero by default, which does not mean never: it means wait to be told. NVDA's virtual
@@ -598,9 +619,9 @@ def liveTableSeconds(displayKey: str | None = None) -> int:
 	See `FlowBand.documentChanged` and `patches._handleUpdateTellingTheBand`.
 	"""
 	try:
-		wanted = int(getDisplayConfig(displayKey)["flowTableLiveSeconds"])
+		wanted = int(getDisplayConfig(displayKey)["flowLiveSeconds"])
 	except Exception:
-		log.debugWarning("Could not read flowTableLiveSeconds", exc_info=True)
+		log.debugWarning("Could not read flowLiveSeconds", exc_info=True)
 		return 0
 	return max(0, min(wanted, 60))
 

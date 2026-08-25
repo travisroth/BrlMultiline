@@ -47,7 +47,7 @@ from .layout import SegmentRect, wholeDisplayRect
 from .flowSources import DocumentFlowSource, documentFor
 from .panels import FlowPanel, PanelOwner
 
-LIVE_TABLE_SETTLE_MILLIS = 250
+LIVE_SETTLE_MILLIS = 250
 """How long the band waits after a document change before reading the table again.
 
 Not a poll. Nothing happens until NVDA says the browse mode document changed — see
@@ -59,11 +59,11 @@ thirty rows would otherwise be thirty reads of the same band.
 A quarter of a second, which is under what a hand notices and far over what a burst takes.
 """
 
-LIVE_TABLE_POLL_MILLIS = 2000
+LIVE_POLL_MILLIS = 2000
 """How often a table is read again when nothing is going to tell the band it changed.
 
 The fallback, and only that: it is used when the document-change patch is not installed. See
-`bmConfig.liveTableSeconds` for the reader's own number, which overrides it either way.
+`bmConfig.liveReadSeconds` for the reader's own number, which overrides it either way.
 """
 
 SETTLE_MILLIS = 150
@@ -115,13 +115,13 @@ class FlowBand(PanelOwner):
 		self._settleTimer = None
 		"""The pending settle pass, so a fresh keystroke can restart it. See L{_scheduleSettle}."""
 
-		self._liveTableTimer = None
-		"""The pending live-table pass. See L{_scheduleLiveTable}."""
+		self._liveTimer = None
+		"""The pending live-table pass. See L{_scheduleLiveRead}."""
 
-		self._liveTableDelay = 0
+		self._liveDelay = 0
 		"""How far off the pending pass is, so that sooner news can bring it forward."""
 
-		self.liveTableCounts = [0, 0, 0]
+		self.liveCounts = [0, 0, 0]
 		"""Changes heard, passes run, passes that redrew. For the dry run, and it earns its
 		place: whether the event reaches us at all is the one thing about this that cannot be
 		felt, and a reader whose prices sit still needs to know which half is not working."""
@@ -261,20 +261,39 @@ class FlowBand(PanelOwner):
 		state, a reorder — so a page that says nothing costs nothing at all, and a repricing
 		watchlist is heard within a settle delay rather than within two seconds.
 
-		Bounded twice over. Only a document the band is reading a table out of is answered at
-		all, and the pass that answers it reads only the rows on the band and only the columns
-		of the page being drawn. A change three screens down the page costs the same read as a
-		change under the reader's finger, which is the read of what they are touching.
+		**Any document the band is reading, in columns or not.** The reader found the reason
+		on the same watchlist: read as a table the prices moved and read as ordinary browse
+		mode they sat still, and there is nothing about a table that makes it the dynamic one.
+		NVDA refreshes the caret's line and nothing else because the caret's line is all it is
+		showing; a band showing eight is showing seven that nobody is refreshing.
+
+		Bounded twice over regardless. Only the document this band is reading is answered at
+		all, and the pass that answers it reads only the blocks on the band — for a table, only
+		at the columns of the page being drawn. A change three screens down the page costs the
+		read of what the reader is touching, which is the read that was happening anyway.
 
 		:param document: the virtual buffer that changed.
 		"""
-		if not self._readingATable():
+		if not bmConfig.shouldFollowLiveContent():
 			return
-		handle = getattr(self.controller.source, "handle", None)
-		if getattr(handle, "document", None) is not document:
+		source = getattr(self.controller, "source", None)
+		if source is None or getattr(source, "obj", None) is not document:
+			# Not this band's document. A browser holds a buffer per document and the reader
+			# has other tabs open; an object flow's `obj` is an NVDAObject and matches nothing.
 			return
-		self.liveTableCounts[0] += 1
-		self._scheduleLiveTable(LIVE_TABLE_SETTLE_MILLIS)
+		self.liveCounts[0] += 1
+		self._scheduleLiveRead(LIVE_SETTLE_MILLIS)
+
+	def _canReadAgain(self) -> bool:
+		""":return: whether this band is showing something that can be read again in place.
+
+		A source that answers `blockAt` — a table by its row number, a document by the
+		position each block was read from. An object flow answers nothing, because an object
+		run has no such thing as "the same block, read again": the objects themselves are the
+		identity, and NVDA's own events are what say when one of them changed.
+		"""
+		source = getattr(self.controller, "source", None)
+		return source is not None and getattr(source, "blockAt", None) is not None
 
 	def _pollMillis(self) -> int:
 		""":return: how long to wait for a pass nothing has asked for, or zero for none.
@@ -283,12 +302,14 @@ class FlowBand(PanelOwner):
 		whole exercise: a table nobody is changing should cost nothing between the reader's
 		own keystrokes. The reader's own number wins over both.
 		"""
-		wanted = bmConfig.liveTableSeconds()
+		wanted = bmConfig.liveReadSeconds()
 		if wanted > 0:
 			return wanted * 1000
-		return 0 if patches.liveUpdatesInstalled() else LIVE_TABLE_POLL_MILLIS
+		if not bmConfig.shouldFollowLiveContent():
+			return 0
+		return 0 if patches.liveUpdatesInstalled() else LIVE_POLL_MILLIS
 
-	def _scheduleLiveTable(self, millis: Optional[int] = None) -> None:
+	def _scheduleLiveRead(self, millis: Optional[int] = None) -> None:
 		"""Arrange to read a table laid out in columns again.
 
 		:param millis: how long to wait, or None for the fallback poll — which is nothing at
@@ -296,26 +317,26 @@ class FlowBand(PanelOwner):
 		"""
 		import wx
 
-		if not self._readingATable():
+		if not self._canReadAgain():
 			return
 		delay = self._pollMillis() if millis is None else millis
 		if delay <= 0:
 			return
-		if self._liveTableTimer is not None:
-			if self._liveTableDelay <= delay:
+		if self._liveTimer is not None:
+			if self._liveDelay <= delay:
 				# Something at least as soon is already coming. News arriving during a settle
 				# must not keep pushing the pass further out, which is what restarting it
 				# unconditionally would do on a page that never stops changing.
 				return
-			self._cancelLiveTable()
+			self._cancelLiveRead()
 		try:
-			self._liveTableTimer = wx.CallLater(delay, self._refreshLiveTable)
-			self._liveTableDelay = delay
+			self._liveTimer = wx.CallLater(delay, self._refreshLiveContent)
+			self._liveDelay = delay
 		except Exception:
 			log.debugWarning("Could not schedule a live table pass", exc_info=True)
-			self._liveTableTimer = None
+			self._liveTimer = None
 
-	def _refreshLiveTable(self) -> None:
+	def _refreshLiveContent(self) -> None:
 		"""Read the table's rows again, and redraw if the values moved.
 
 		Modelled on `_settle`, and for the same reason: what decides whether the display is
@@ -323,33 +344,33 @@ class FlowBand(PanelOwner):
 		display rewritten with identical content under a reading hand is a display that
 		flickers for nothing.
 		"""
-		self._liveTableTimer = None
-		self._liveTableDelay = 0
+		self._liveTimer = None
+		self._liveDelay = 0
 		control = self.controller
-		if control is None or not self._readingATable():
+		if control is None or not self._canReadAgain():
 			return
-		self.liveTableCounts[1] += 1
+		self.liveCounts[1] += 1
 		try:
 			before = control.cells()
 			control.rereadContent()
 			if control.cells() != before:
-				self.liveTableCounts[2] += 1
+				self.liveCounts[2] += 1
 				segment = self.segment()
 				if segment is not None:
 					segment.refresh()
 		except Exception:
 			log.debugWarning("A live table pass failed", exc_info=True)
-		self._scheduleLiveTable()
+		self._scheduleLiveRead()
 
-	def _cancelLiveTable(self) -> None:
-		self._liveTableDelay = 0
-		if self._liveTableTimer is None:
+	def _cancelLiveRead(self) -> None:
+		self._liveDelay = 0
+		if self._liveTimer is None:
 			return
 		try:
-			self._liveTableTimer.Stop()
+			self._liveTimer.Stop()
 		except Exception:
 			pass
-		self._liveTableTimer = None
+		self._liveTimer = None
 
 	def _cancelSettle(self) -> None:
 		if self._settleTimer is None:
@@ -363,7 +384,7 @@ class FlowBand(PanelOwner):
 	def stop(self) -> None:
 		"""Give the band back and forget the flow."""
 		self._cancelSettle()
-		self._cancelLiveTable()
+		self._cancelLiveRead()
 		flowQuickNav.remove()
 		self.controller = None
 		self.obj = None
@@ -638,7 +659,7 @@ class FlowBand(PanelOwner):
 		if self.tableWanted is None:
 			return False
 		self.tableWanted = None
-		self._cancelLiveTable()
+		self._cancelLiveRead()
 		self.refresh(force=True)
 		return True
 
@@ -863,7 +884,7 @@ class FlowBand(PanelOwner):
 		self.controller = control
 		self.obj = obj
 		segment.attach(control)
-		self._scheduleLiveTable()
+		self._scheduleLiveRead()
 		return True
 
 	def _setInteractiveObject(self, obj: Any, target: Any, regions) -> bool:

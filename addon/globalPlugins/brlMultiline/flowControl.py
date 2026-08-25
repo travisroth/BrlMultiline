@@ -415,7 +415,7 @@ class FlowController(PanelOwner):
 		because a row is named by its number — and everything else is left exactly as it was.
 
 		:return: whether anything was re-read at all. Whether it *changed* is the caller's to
-			decide, by looking at the cells before and after; see `FlowBand._refreshLiveTable`.
+			decide, by looking at the cells before and after; see `FlowBand._refreshLiveContent`.
 		"""
 		if getattr(self.source, "blockAt", None) is None:
 			return False
@@ -427,17 +427,35 @@ class FlowController(PanelOwner):
 	def _rereadBlocks(self) -> None:
 		"""Read every block the band is holding again, keeping its identity.
 
-		Only sources that can be asked for a block by its identity answer this — a table can,
-		because a row is named by its number — and the rest are left alone. It is not a
-		general re-read: the window keeps its place, the blocks keep their identities, and
-		what changes is what the source now says is in them.
+		Only sources that can be asked for a block by its identity answer this — a table by its
+		row number, a document by the position the block was read from — and the rest are left
+		alone. It is not a general re-read: the window keeps its place, the blocks keep their
+		identities, and what changes is what the source now says is in them.
+
+		A block the source will not vouch for is left as it was rather than dropped. A page
+		that grew or shrank earlier in the document has moved every position after it, and the
+		honest answer to "is this still the same block" is then no; showing yesterday's text
+		is better than showing a neighbour's under this block's name, and the reader's next
+		keystroke reads the document afresh either way.
 		"""
 		fetch = getattr(self.source, "blockAt", None)
 		if fetch is None:
 			return
+		if getattr(self.source, "writing", False):
+			# The reader is typing into this content. Everything moves on every keystroke and
+			# the block they are in is the one being edited; re-reading under them would
+			# fight the editor rather than follow it.
+			return
 		# The window's blocks rather than the whole cache: they are what `_redrawBlocks` is
 		# about to draw, and the cache is keyed by a bookmark that cannot be hashed or walked.
 		for rendered in list(self.window.blocks):
+			held = self.blocks.get(rendered.blockId)
+			if held is not None and getattr(held, "isControl", False):
+				# A control's block carries what it is as well as what it says — that it is a
+				# control, and that a gap follows it — and a plain re-read of the position
+				# would give back neither. Its text is also the one thing on the band NVDA
+				# keeps fresh on its own account.
+				continue
 			try:
 				result = fetch(rendered.blockId)
 			except Exception:

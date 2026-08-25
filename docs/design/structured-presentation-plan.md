@@ -768,14 +768,41 @@ would starve it entirely.
 That wrapper is the first patch this add-on installs on a class other than `BrailleHandler`,
 which is why `patches` now remembers an owner per name.
 
-`flowTableLiveSeconds` is zero by default, and zero means wait to be told rather than never:
+`flowLiveSeconds` is zero by default, and zero means wait to be told rather than never:
 `FlowBand._pollMillis` falls back to a timer when the wrapper is not installed, so a build
 where it cannot go in loses nothing silently. A number set by hand polls as well, for a page
-that changes without saying so.
+that changes without saying so. `flowLiveUpdates` turns the whole thing off.
 
 The dry run reports whether the notices are arriving, how many have, how many passes ran and
 how many redrew — because whether the event reaches the band at all is the one thing about
 this a reader cannot feel.
+
+**And it is not a table feature.** The reader proved that on one page: read as a table the
+prices moved, read as ordinary browse mode they sat still, and there is nothing about a table
+that makes it the dynamic one. NVDA refreshes the caret's line because the caret's line is all
+it shows; a band showing eight lines is showing seven that nobody refreshes. So
+`DocumentFlowSource.blockAt` exists too, and the band answers a change in whatever document it
+is reading.
+
+Three rules keep that honest, and each is a decision:
+
+- **A block is only given back when it still begins where it did.** A document bookmark is an
+  offset, so text growing or shrinking *earlier* in the page moves every block after it: the
+  cached position then lands inside some other unit, and expanding it would hand back a
+  neighbour under this block's name. One line of the page drawn twice is worse than one line
+  out of date, so the block is refused and the reader's next keystroke is the repair. Text
+  changing *within* a block moves nothing, and that is the case this exists for.
+- **A control's block is left alone.** It carries what it is as well as what it says — that it
+  is a control, and that a gap follows it — and a plain re-read of the position gives back
+  neither. Its text is also the one thing on the band NVDA keeps fresh on its own account.
+- **Nothing is re-read while the reader is typing.** Everything moves on every keystroke and
+  the block they are in is the one being edited; following that would fight the editor rather
+  than follow it. `DocumentFlowSource.writing` already knew.
+
+An object run answers none of this and should not: an object has no such thing as "the same
+block, read again" — the objects themselves are the identity, and NVDA's own events say when
+one of them changed. That is `FlowBand._canReadAgain`, which asks the source rather than
+asking what kind of thing is being read.
 
 **M4 — pinned headers.** BUILT FOR BROWSE MODE TABLES, NOT YET ON HARDWARE. Brought
 forward from last because the reader met the hole it fills: a column layout turned on from

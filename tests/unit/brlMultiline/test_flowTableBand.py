@@ -26,7 +26,7 @@ from ._stubs import (
 
 installStubs()
 
-from brlMultiline.flowBand import LIVE_TABLE_SETTLE_MILLIS  # noqa: E402
+from brlMultiline.flowBand import LIVE_SETTLE_MILLIS  # noqa: E402
 from brlMultiline.flowTableSource import TableFlowSource  # noqa: E402
 
 from .test_flowSegment import FakeHandler, FakePlugin, containerWithBand  # noqa: E402
@@ -545,13 +545,13 @@ class TestATableWhoseValuesChange(TableBandTestCase):
 		document = self._watching()
 		before = self.band.controller.cells()
 		document.rows[1][1] = "999.99"
-		self.band._refreshLiveTable()
+		self.band._refreshLiveContent()
 		self.assertNotEqual(self.band.controller.cells(), before)
 
 	def test_itIsTheNewPriceThatIsThere(self):
 		document = self._watching()
 		document.rows[1][1] = "999.99"
-		self.band._refreshLiveTable()
+		self.band._refreshLiveContent()
 		self.assertIn("999.99", " ".join(self.band.controller.describeRows()))
 
 	def test_theReaderKeepsTheirPlace(self):
@@ -560,7 +560,7 @@ class TestATableWhoseValuesChange(TableBandTestCase):
 		document = self._watching()
 		before = self.band.controller.window.anchor
 		document.rows[1][1] = "999.99"
-		self.band._refreshLiveTable()
+		self.band._refreshLiveContent()
 		self.assertEqual(self.band.controller.window.anchor.blockId, before.blockId)
 
 	def test_aTableThatDidNotChangeIsNotWritten(self):
@@ -568,37 +568,45 @@ class TestATableWhoseValuesChange(TableBandTestCase):
 		flickers for nothing."""
 		self._watching()
 		written = self._counted()
-		self.band._refreshLiveTable()
+		self.band._refreshLiveContent()
 		self.assertEqual(written, [])
 
 	def test_aTableThatDidChangeIsWritten(self):
 		document = self._watching()
 		written = self._counted()
 		document.rows[1][1] = "999.99"
-		self.band._refreshLiveTable()
+		self.band._refreshLiveContent()
 		self.assertEqual(len(written), 1)
 
 	def test_eachPassAsksForTheNext(self):
 		self._watching()
-		self.band._refreshLiveTable()
+		self.band._refreshLiveContent()
 		self.assertEqual(len(callLaterQueue.pending), 1)
 
-	def test_leavingTheTableEndsTheChain(self):
-		"""The chain ends by itself rather than being stopped from somewhere: nothing else
-		knows when the reader walked out of the table."""
+	def test_theChainEndsWhenThereIsNothingToReadAgain(self):
+		"""It ends by itself rather than being stopped from somewhere, because nothing else
+		knows when the band stopped showing something that can be re-read."""
+		self._watching()
+		self.band.controller = None
+		callLaterQueue.pending.clear()
+		self.band._refreshLiveContent()
+		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_leavingTheTableDoesNotEndIt(self):
+		"""The page around a table changes too, and the band is still reading the page."""
 		self._watching()
 		self.band.clearTable()
 		callLaterQueue.pending.clear()
-		self.band._refreshLiveTable()
-		self.assertEqual(callLaterQueue.pending, [])
+		self.band._refreshLiveContent()
+		self.assertEqual(len(callLaterQueue.pending), 1)
 
 	def test_nothingIsReadOnAClockWhenSomethingWillSaySo(self):
 		"""The point of the whole exercise: a table nobody is changing costs nothing between
 		the reader's own keystrokes."""
 		self._watching()
 		self._toldAboutChanges(True)
-		CONFIG["flowTableLiveSeconds"] = 0
-		self.band._refreshLiveTable()
+		CONFIG["flowLiveSeconds"] = 0
+		self.band._refreshLiveContent()
 		self.assertEqual(callLaterQueue.pending, [])
 
 	def test_aClockIsUsedWhenNothingWill(self):
@@ -606,15 +614,15 @@ class TestATableWhoseValuesChange(TableBandTestCase):
 		not silently lose the updates they had."""
 		self._watching()
 		self._toldAboutChanges(False)
-		CONFIG["flowTableLiveSeconds"] = 0
-		self.band._refreshLiveTable()
+		CONFIG["flowLiveSeconds"] = 0
+		self.band._refreshLiveContent()
 		self.assertEqual(len(callLaterQueue.pending), 1)
 
 	def test_theReadersOwnIntervalWinsEitherWay(self):
 		self._watching()
 		self._toldAboutChanges(True)
-		CONFIG["flowTableLiveSeconds"] = 5
-		self.band._refreshLiveTable()
+		CONFIG["flowLiveSeconds"] = 5
+		self.band._refreshLiveContent()
 		self.assertEqual([timer.milliseconds for timer in callLaterQueue.pending], [5000])
 
 	def test_layingATableOutStartsTheChain(self):
@@ -626,10 +634,10 @@ class TestATableWhoseValuesChange(TableBandTestCase):
 	def test_onlyOnePassIsEverPending(self):
 		"""Scheduling from two places at once would double the reading for nothing."""
 		self._watching()
-		self.band._cancelLiveTable()
+		self.band._cancelLiveRead()
 		callLaterQueue.pending.clear()
-		self.band._scheduleLiveTable()
-		self.band._scheduleLiveTable()
+		self.band._scheduleLiveRead()
+		self.band._scheduleLiveRead()
 		self.assertEqual(len(callLaterQueue.pending), 1)
 
 
@@ -642,7 +650,7 @@ class TestBeingToldThatTheDocumentChanged(TableBandTestCase):
 		obj, document = self._inTable()
 		self.band.layOutTable()
 		callLaterQueue.pending.clear()
-		self.band._cancelLiveTable()
+		self.band._cancelLiveRead()
 		return document
 
 	def test_aChangeInThisDocumentAsksForAPass(self):
@@ -653,7 +661,7 @@ class TestBeingToldThatTheDocumentChanged(TableBandTestCase):
 	def test_itIsAskedForSoonerThanAPollWouldBe(self):
 		document = self._watching()
 		self.band.documentChanged(document)
-		self.assertEqual(callLaterQueue.pending[0].milliseconds, LIVE_TABLE_SETTLE_MILLIS)
+		self.assertEqual(callLaterQueue.pending[0].milliseconds, LIVE_SETTLE_MILLIS)
 
 	def test_aChangeInAnotherDocumentIsNotOurs(self):
 		"""A browser holds a buffer per document, and the reader has other tabs open."""
@@ -661,10 +669,27 @@ class TestBeingToldThatTheDocumentChanged(TableBandTestCase):
 		self.band.documentChanged(FakeTableDocument([["a"], ["b"]]))
 		self.assertEqual(callLaterQueue.pending, [])
 
-	def test_aBandNotReadingATableIgnoresIt(self):
+	def test_aBandReadingThePageAnswersItToo(self):
+		"""The reader's own finding: read as a table the prices moved and read as ordinary
+		browse mode they sat still, and there is nothing about a table that makes it the
+		dynamic one."""
 		document = self._watching()
 		self.band.clearTable()
+		self.band._cancelLiveRead()
 		callLaterQueue.pending.clear()
+		self.band.documentChanged(document)
+		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_aBandWithNoFlowIgnoresIt(self):
+		document = self._watching()
+		self.band.controller = None
+		callLaterQueue.pending.clear()
+		self.band.documentChanged(document)
+		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_theReaderCanTurnFollowingOff(self):
+		document = self._watching()
+		CONFIG["flowLiveUpdates"] = False
 		self.band.documentChanged(document)
 		self.assertEqual(callLaterQueue.pending, [])
 
@@ -687,13 +712,13 @@ class TestBeingToldThatTheDocumentChanged(TableBandTestCase):
 	def test_newsBringsAPendingPollForward(self):
 		"""A pass two seconds away must not keep a quarter second one waiting behind it."""
 		document = self._watching()
-		CONFIG["flowTableLiveSeconds"] = 5
-		self.band._scheduleLiveTable()
+		CONFIG["flowLiveSeconds"] = 5
+		self.band._scheduleLiveRead()
 		self.band.documentChanged(document)
 		self.assertEqual(
 			[timer.milliseconds for timer in callLaterQueue.pending],
 			[
-				LIVE_TABLE_SETTLE_MILLIS,
+				LIVE_SETTLE_MILLIS,
 			],
 		)
 
@@ -711,7 +736,7 @@ class TestBeingToldThatTheDocumentChanged(TableBandTestCase):
 		document.rows[1][1] = "999.99"
 		self.band.documentChanged(document)
 		callLaterQueue.pending[0].run()
-		self.assertEqual(self.band.liveTableCounts, [1, 1, 1])
+		self.assertEqual(self.band.liveCounts, [1, 1, 1])
 
 
 class TestWhatAWideTableCostsToRead(TableBandTestCase):

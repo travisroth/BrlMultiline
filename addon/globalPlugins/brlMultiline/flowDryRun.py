@@ -109,12 +109,12 @@ def describeLiveUpdates(band) -> str:
 	"""
 	from . import patches
 
-	counts = getattr(band, "liveTableCounts", None)
+	counts = getattr(band, "liveCounts", None)
 	if counts is None:
 		return "not reading a table."
 	told = "on" if patches.liveUpdatesInstalled() else "OFF, falling back to a timer"
 	heard, passes, redrawn = counts
-	timer = bmConfig.liveTableSeconds()
+	timer = bmConfig.liveReadSeconds()
 	clock = f"every {timer}s as well" if timer else "no timer"
 	return f"document change notices {told}, {clock}; {heard} heard, {passes} read, {redrawn} redrew."
 

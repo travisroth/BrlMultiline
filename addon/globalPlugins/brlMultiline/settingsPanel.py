@@ -734,15 +734,32 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
-		# Translators: label of a number box in settings, for how often a table laid out in
-		# columns is read again so that changing values reach the display.
-		liveLabel = _("Re-read a table in co&lumns every (seconds, 0 to wait to be told):")
-		self.liveTableCtrl = sHelper.addLabeledControl(
+		# Translators: label of a checkbox in settings, about keeping the display up to date
+		# when the page it is showing changes on its own.
+		followLabel = _("&Follow a page that changes while you are reading it")
+		self.liveUpdatesCtrl = sHelper.addItem(wx.CheckBox(self, label=followLabel))
+		self.liveUpdatesCtrl.SetValue(bool(section["flowLiveUpdates"]))
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the checkbox above.
+					"NVDA refreshes the line the cursor is on and nothing else, which is all "
+					"it shows. This display shows several lines at once, so the rest are read "
+					"again when the page says something changed — a price on a watchlist, a "
+					"score, a status. Only what is on the display is read.",
+				),
+			),
+		)
+		# Translators: label of a number box in settings, for how often the display's content
+		# is read again so that changing values reach it.
+		liveLabel = _("A&lso re-read every (seconds, 0 to wait to be told):")
+		self.liveSecondsCtrl = sHelper.addLabeledControl(
 			liveLabel,
 			wx.SpinCtrl,
 			min=0,
 			max=60,
-			initial=int(section["flowTableLiveSeconds"]),
+			initial=int(section["flowLiveSeconds"]),
 		)
 		sHelper.addItem(
 			wx.StaticText(
@@ -750,12 +767,10 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				label=_(
 					# Translators: shown in settings under the number box above, explaining why
 					# a table needs re-reading at all.
-					"A table whose values change, such as a watchlist during market hours, is "
-					"only reported by NVDA for the cell the cursor is in. The rows on the "
-					"display are read again so the rest keep up. At zero this happens when the "
-					"page says something changed, which costs nothing while it does not; set a "
-					"number to read on a timer as well. The display is only rewritten when "
-					"something actually changed.",
+					"At zero, the display is read again when the page says something changed, "
+					"which costs nothing while it does not. Set a number for a page that "
+					"changes without saying so. Either way the display is only rewritten when "
+					"something actually did change.",
 				),
 			),
 		)
@@ -888,7 +903,8 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowTableRowHeight"] = self.tableRowsCtrl.Value
 		section["flowTableTruncate"] = self.truncateCtrl.IsChecked()
 		section["flowTablePinKey"] = self.pinKeyCtrl.IsChecked()
-		section["flowTableLiveSeconds"] = self.liveTableCtrl.Value
+		section["flowLiveSeconds"] = self.liveSecondsCtrl.Value
+		section["flowLiveUpdates"] = self.liveUpdatesCtrl.IsChecked()
 		section["flowTableHeaders"] = self.tableHeadersCtrl.IsChecked()
 
 	def postSave(self):

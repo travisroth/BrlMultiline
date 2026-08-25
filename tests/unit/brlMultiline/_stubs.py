@@ -521,6 +521,16 @@ class FakeBookmark:
 	number. A block built at the caret therefore has a different identity for every character
 	the reader passes, which is a fault a bookmark that knew only about lines could hide."""
 
+	before: int = 0
+	"""How many characters of the document come before this line.
+
+	NVDA's bookmark is an offset into the buffer and nothing else, so a line's identity moves
+	when text *earlier in the document* grows or shrinks. A stub that knew only about line
+	numbers could not show that happening, and it is what `DocumentFlowSource.blockAt` refuses
+	to hand a block back through: expanding at a position that has moved gives a neighbour
+	under this block's name, which draws one line of the page twice.
+	"""
+
 
 class FakeTextInfo:
 	"""A caret in a list of lines: a line, and a place within it.
@@ -607,7 +617,12 @@ class FakeTextInfo:
 		against a tuple and raises against the real thing, which is a failure worth having
 		in the tests rather than on a display.
 		"""
-		return FakeBookmark(id(self.lines), self.index, 0 if self.expanded else self.offset)
+		return FakeBookmark(
+			id(self.lines),
+			self.index,
+			0 if self.expanded else self.offset,
+			sum(len(line) for line in self.lines[: self.index]),
+		)
 
 	def collapse(self, end=False):
 		"""Reduce a range to one of its ends. A position is already one, and does not move."""
