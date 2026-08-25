@@ -712,6 +712,13 @@ was drawn at `MIN_COLUMN_CELLS` anyway, and cost four cells of a thirty-two cell
 every row. Worse, being the *first* column it was what decision 22 pinned to every page, so
 the thing repeated to say which row the reader was on was a blank.
 
+**Not drawn is not the same as not known.** Quick navigation to a table lands the caret in its
+first cell, which on this watchlist is one of those icons, and `_tableChangedShape` asked
+`pageOf` — where a column is *drawn*. An undrawn column read as a table that had changed under
+the band, so the layout was rebuilt on every redraw and panning did nothing at all: each pan
+was undone by the rebuild that followed it. `ColumnPlan.knows` is the honest question, and it
+counts a column this plan measured and deliberately left out.
+
 A column whose widest sampled cell is empty is now not drawn, in the measuring and again in
 the arithmetic — the two agree on purpose, since `Measurement.hidden` is what a measurer says
 about a table it can see and the second is `planFor` refusing to spend cells on a column with

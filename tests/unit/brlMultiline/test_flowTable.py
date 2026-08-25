@@ -736,6 +736,21 @@ class TestAColumnThatIsNotThere(unittest.TestCase):
 		self.assertEqual(plan.omitted, (1,))
 		self.assertIn("Column 1 holds nothing", describe(plan))
 
+	def test_thePlanStillKnowsAboutIt(self):
+		"""Knowing a column is not the same as drawing it, and the difference is what tells a
+		table that changed shape from a caret sitting somewhere ordinary."""
+		plan = planFor(self._withAnEmptyFirstColumn(), MONARCH_COLS)
+		self.assertIsNone(plan.pageOf(1))
+		self.assertTrue(plan.knows(1))
+
+	def test_aColumnItNeverMeasuredIsNotKnown(self):
+		plan = planFor(self._withAnEmptyFirstColumn(), MONARCH_COLS)
+		self.assertFalse(plan.knows(99))
+
+	def test_aColumnItDrawsIsKnown(self):
+		plan = planFor(self._withAnEmptyFirstColumn(), MONARCH_COLS)
+		self.assertTrue(plan.knows(2))
+
 	def test_aTableWithNothingInItIsNotLaidOut(self):
 		nothing = [Measurement(index=n, width=0, label="") for n in range(1, 4)]
 		self.assertIs(planFor(nothing, MONARCH_COLS), READING_ORDER)

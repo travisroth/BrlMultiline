@@ -483,6 +483,25 @@ class ColumnPlan:
 			columns=tuple(dataclasses.replace(column, overflow=TRUNCATE) for column in self.columns),
 		)
 
+	def knows(self, column: int) -> bool:
+		""":return: whether this plan was made from a table that had this column.
+
+		Two ways of knowing it, and the second is the one that was missed. A column is known
+		if it is drawn on some page — `pageOf` answers that — and it is *also* known if it was
+		measured and deliberately left out, because a column holding nothing the reader can
+		read is a decision this plan made rather than a column it has never heard of.
+
+		The distinction is what tells a table that changed shape from a caret sitting
+		somewhere ordinary. Quick navigation to a table lands the caret in the first cell, and
+		on the reader's own watchlist the first cell is an unreadable icon: the band read that
+		as "a column the plan has no page for", rebuilt the whole layout, and did it again on
+		every redraw. Panning did nothing at all until the caret was moved off that column,
+		because every pan was undone by the rebuild that followed it.
+
+		:param column: the table's own column number.
+		"""
+		return self.pageOf(column) is not None or column in self.omitted
+
 	def placements(self) -> tuple[Placement, ...]:
 		""":return: where each column of the page being drawn goes."""
 		pages = self.pages()

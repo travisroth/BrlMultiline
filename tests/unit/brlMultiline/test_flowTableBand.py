@@ -777,6 +777,54 @@ class TestWhatAWideTableCostsToRead(TableBandTestCase):
 		self.assertIn(first, [cell.index for cell in region.cells])
 
 
+class TestTheCaretInAColumnThatIsNotDrawn(TableBandTestCase):
+	"""Quick navigation to a table lands the caret in its first cell, and on the reader's own
+	watchlist the first cell is an unreadable icon. The band read that as a table that had
+	changed under it, rebuilt the layout on every redraw, and panning did nothing at all: each
+	pan was undone by the rebuild that followed it."""
+
+	def _withAnIconColumn(self, col=1, rows=20):
+		"""A table of more rows than the band holds, whose first column is unreadable icons."""
+		body = [["", f"{n}.00", f"+{n}", f"+{n}%"] for n in range(1, rows + 1)]
+		return self._inTable(rows=[["", "Last", "Change", "%Chg"], *body], row=1, col=col)
+
+	def test_theLayoutIsNotRebuiltOnEveryRedraw(self):
+		self._withAnIconColumn()
+		self.band.layOutTable()
+		plan = self.band.columnPlan()
+		self.band.recheck()
+		self.band.recheck()
+		self.assertIs(self.band.columnPlan(), plan)
+
+	def test_theBandCanStillPan(self):
+		"""The symptom the reader met: stuck until the caret was moved with the arrow keys."""
+		self._withAnIconColumn()
+		self.band.layOutTable()
+		before = self.band.controller.describeRows()
+		self.band.controller.panForward()
+		self.band.recheck()
+		self.assertNotEqual(self.band.controller.describeRows(), before)
+
+	def test_theReadingIsNotStartedAgain(self):
+		"""A rebuild is a fresh generation and a fresh measurement of every column, which is
+		the expensive half of what the pan was losing."""
+		self._withAnIconColumn()
+		self.band.layOutTable()
+		generation = self.band.controller.source.generation
+		self.band.recheck()
+		self.assertEqual(self.band.controller.source.generation, generation)
+
+	def test_aColumnTheTableNeverHadStillCountsAsAChange(self):
+		"""The check must still do its job: a caret in a column the plan never measured is
+		proof of a change the column count cannot see."""
+		obj, document = self._withAnIconColumn()
+		self.band.layOutTable()
+		plan = self.band.columnPlan()
+		document.col = document.numCols + 1
+		self.band.recheck()
+		self.assertIsNot(self.band.columnPlan(), plan)
+
+
 class TestATableThatChangesShape(TableBandTestCase):
 	"""A plan is of a table. When the table is not that table any more the plan is of nothing:
 	its widths were measured from columns that have gone, and it has no page for one that has

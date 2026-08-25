@@ -734,6 +734,14 @@ class FlowBand(PanelOwner):
 		whether the caret's column is one the plan knows, which is proof of a change the
 		count cannot see — a column removed and another added leaves the count alone.
 
+		**Knowing a column is not the same as drawing it.** A column measured and left out —
+		one holding nothing the reader can read — is one this plan knows perfectly well. The
+		first cut asked `pageOf`, which says where a column is *drawn*, so a caret sitting in
+		an undrawn column read as a table that had changed under the band. Quick navigation
+		lands the caret in the first cell of a table and on the reader's own watchlist that
+		cell is an unreadable icon, so the layout was rebuilt on every redraw and panning did
+		nothing: each pan was undone by the rebuild that followed it. See `ColumnPlan.knows`.
+
 		What this cannot catch is a table whose columns are renamed or reordered without
 		changing in number, with the caret staying where it is. Nothing cheap can, and the
 		command is the way out: turning the layout off and on measures the table again.
@@ -747,7 +755,7 @@ class FlowBand(PanelOwner):
 		plan = getattr(self.controller.renderer, "columnPlan", None)
 		if plan is None or plan.isEmpty:
 			return False
-		return plan.pageOf(found.col) is None
+		return not plan.knows(found.col)
 
 	def _showColumn(self, column: int) -> bool:
 		"""Bring the page holding a column onto the band.
