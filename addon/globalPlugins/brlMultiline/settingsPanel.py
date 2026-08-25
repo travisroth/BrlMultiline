@@ -698,6 +698,24 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Translators: label of a checkbox in settings, about repeating a table's first column
+		# on each page of columns when the table is wider than the display.
+		pinLabel = _("&Repeat the first column on every page of a wide table")
+		self.pinKeyCtrl = sHelper.addItem(wx.CheckBox(self, label=pinLabel))
+		self.pinKeyCtrl.SetValue(bool(section["flowTablePinKey"]))
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the checkbox above, explaining what
+					# the repeated column is for.
+					"A table too wide for the display is shown a page of columns at a time. "
+					"Several pages in, the column that says which row you are on is no longer "
+					"showing. On, it is repeated at the left of every page, shortened to fit. "
+					"Tables that fit on one page are not affected.",
+				),
+			),
+		)
 		self._updateRowsHint()
 
 	# Where the band goes.
@@ -826,6 +844,7 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowLineFocus"] = self.lineFocusCtrl.IsChecked()
 		section["flowTableRowHeight"] = self.tableRowsCtrl.Value
 		section["flowTableTruncate"] = self.truncateCtrl.IsChecked()
+		section["flowTablePinKey"] = self.pinKeyCtrl.IsChecked()
 
 	def postSave(self):
 		# Claim or give back the band straight away, rather than at the next display event.

@@ -12,6 +12,7 @@ is the case the reader named. Its shape is what makes the arithmetic matter: one
 column that cannot give up a cell, and one wide one that can give up ten.
 """
 
+import dataclasses
 import os
 import sys
 import unittest
@@ -23,6 +24,8 @@ sys.path.insert(
 
 from flowTable import (  # noqa: E402
 	COLUMN_GAP,
+	DEFAULT_TARGET_HEIGHT,
+	KEY_SHARE,
 	MAX_TABLE_ROWS,
 	MIN_COLUMN_CELLS,
 	READABLE_CELLS,
@@ -36,10 +39,51 @@ from flowTable import (  # noqa: E402
 	describe,
 	indentFor,
 	planFor,
+	predictedHeight,
+	rowsNeeded,
 	shouldReplan,
+	targetHeightFor,
 )
 
 MONARCH_COLS = 32
+MONARCH_ROWS = 8
+
+
+def statement():
+	""":return: the table that showed the widths were being chosen on the wrong axis.
+
+	A bank statement, from the reader's own hardware log. Four columns of 10, 8, 24 and 6
+	cells: they were laid out at 7, 7, 7 and 8, which is exactly thirty-two with the gaps —
+	a flawless horizontal fit in which every cell wrapped to four rows underneath, and two
+	records reached an eight row display.
+	"""
+	return [
+		Measurement(index=1, width=10, typicalWidth=10, label="Date", labelWidth=4),
+		Measurement(index=2, width=8, typicalWidth=7, label="Activity", labelWidth=8),
+		Measurement(index=3, width=24, typicalWidth=22, label="Description", labelWidth=11),
+		Measurement(index=4, width=6, typicalWidth=5, label="Amount", labelWidth=6),
+	]
+
+
+def vpat():
+	""":return: a conformance report: two short columns and a column of prose.
+
+	The reader works with these constantly and named the shape: "a super long remarks
+	column". No arrangement puts it beside anything at a readable width.
+	"""
+	return [
+		Measurement(index=1, width=22, typicalWidth=18, label="Criteria", labelWidth=8),
+		Measurement(index=2, width=12, typicalWidth=8, label="Level", labelWidth=5),
+		Measurement(index=3, width=200, typicalWidth=60, label="Remarks", labelWidth=7),
+	]
+
+
+def bigWatchlist(columns=29):
+	""":return: the reader's own watchlist: far more columns than any band can hold."""
+	return [
+		Measurement(index=n, width=7, typicalWidth=6, label=f"C{n}", labelWidth=3)
+		for n in range(1, columns + 1)
+	]
 
 
 def watchlist(**changes):
@@ -134,6 +178,16 @@ class TestWidthsThatFit(unittest.TestCase):
 		self.assertEqual(indexesOf(planFor(columns, MONARCH_COLS)), [1, 3, 4])
 
 
+SHARING = dict(targetHeight=MAX_TABLE_ROWS * 8, pinKey=False)
+"""Plan for columns sharing a page, whatever it costs in height.
+
+How many columns share a page is a separate rule with tests of its own — see
+L{TestHeightDecidesHowManyColumnsShareAPage}. These tests are about the cells being shared
+once that is settled, and a target that pages them apart would leave them measuring one
+column at a time and passing for the wrong reason.
+"""
+
+
 class TestWidthsThatDoNotFit(unittest.TestCase):
 	"""Taken from the widest first, which is what keeps a short column readable."""
 
@@ -143,7 +197,7 @@ class TestWidthsThatDoNotFit(unittest.TestCase):
 			Measurement(index=1, width=5, label=""),
 			Measurement(index=2, width=40, label=""),
 		]
-		plan = planFor(columns, 20)
+		plan = planFor(columns, 20, **SHARING)
 		self.assertEqual(widthsOf(plan)[0], 5)
 		self.assertEqual(sum(widthsOf(plan)) + COLUMN_GAP, 20)
 
@@ -155,12 +209,12 @@ class TestWidthsThatDoNotFit(unittest.TestCase):
 			Measurement(index=2, width=4, label=""),
 			Measurement(index=3, width=30, label=""),
 		]
-		plan = planFor(columns, MONARCH_COLS)
+		plan = planFor(columns, MONARCH_COLS, **SHARING)
 		self.assertEqual(widthsOf(plan)[:2], [4, 4])
 
 	def test_nothingIsDrawnBelowTheMinimum(self):
 		columns = [Measurement(index=n, width=9, label="") for n in range(1, 6)]
-		plan = planFor(columns, 20)
+		plan = planFor(columns, 20, **SHARING)
 		for width in widthsOf(plan):
 			self.assertGreaterEqual(width, MIN_COLUMN_CELLS)
 
@@ -171,13 +225,13 @@ class TestWidthsThatDoNotFit(unittest.TestCase):
 			Measurement(index=2, width=40, label=""),
 			Measurement(index=3, width=40, label=""),
 		]
-		plan = planFor(columns, MONARCH_COLS)
+		plan = planFor(columns, MONARCH_COLS, **SHARING)
 		self.assertEqual(widthsOf(plan)[0], 4)
 
 	def test_nothingIsShrunkPastReading(self):
 		"""A price of "310.34" in three cells is a digit at a time, and a reader running down
 		a column of those is assembling prices rather than comparing them."""
-		plan = planFor(tooMany(), MONARCH_COLS)
+		plan = planFor(tooMany(), MONARCH_COLS, **SHARING)
 		for width in widthsOf(plan):
 			self.assertGreaterEqual(width, READABLE_CELLS)
 
@@ -187,7 +241,7 @@ class TestWidthsThatDoNotFit(unittest.TestCase):
 		columns = [Measurement(index=1, width=2, label="")] + [
 			Measurement(index=n, width=20, label="") for n in range(2, 6)
 		]
-		plan = planFor(columns, MONARCH_COLS)
+		plan = planFor(columns, MONARCH_COLS, **SHARING)
 		self.assertEqual(widthsOf(plan)[0], MIN_COLUMN_CELLS)
 
 	def test_aColumnWiderThanTheBandIsCutToIt(self):
@@ -215,8 +269,15 @@ class TestPagingAcrossTheTable(unittest.TestCase):
 	def test_everyColumnIsOnSomePage(self):
 		"""Nothing is dropped, which is the whole change."""
 		plan = planFor(tooMany(), MONARCH_COLS)
-		drawn = [place.column.index for page in plan.pages() for place in page]
+		drawn = [place.column.index for page in plan.pages() for place in page if not place.column.pinned]
 		self.assertEqual(drawn, [item.index for item in tooMany()])
+
+	def test_theColumnsKeepTheTablesOrder(self):
+		"""A column is findable because it is always on the same page at the same offset, and
+		that holds only while the pages are dealt in the table's own order."""
+		plan = planFor(tooMany(), MONARCH_COLS)
+		flat = [index for page in plan.assignment for index in page]
+		self.assertEqual(flat, sorted(flat))
 
 	def test_thePageBeingDrawnIsTheOneAskedFor(self):
 		plan = planFor(tooMany(), MONARCH_COLS)
@@ -480,3 +541,270 @@ class TestThePlanIsAKey(unittest.TestCase):
 			numCols=MONARCH_COLS,
 		)
 		self.assertEqual([place.offset for place in plan.placements()], [0, 7])
+
+
+class TestHowTallARowWillBe(unittest.TestCase):
+	"""The arithmetic the width decision was missing. A column is chosen by how many cells it
+	gets; what the reader feels is how many rows that costs."""
+
+	def test_aCellThatFitsIsOneRow(self):
+		self.assertEqual(rowsNeeded(6, 6), 1)
+		self.assertEqual(rowsNeeded(1, 6), 1)
+
+	def test_aCellThatDoesNotFitTakesMore(self):
+		self.assertEqual(rowsNeeded(7, 6), 2)
+
+	def test_theContinuationsAreNarrowerByTheIndent(self):
+		"""Not a plain division: every row after the first pays the column's indent."""
+		width = 10
+		self.assertEqual(indentFor(width), 2)
+		# Ten cells, then eight on each row after it.
+		self.assertEqual(rowsNeeded(10, width), 1)
+		self.assertEqual(rowsNeeded(18, width), 2)
+		self.assertEqual(rowsNeeded(19, width), 3)
+
+	def test_theStatementsDescriptionAtSevenCells(self):
+		"""The number from the hardware log, which is what a perfect horizontal fit cost."""
+		self.assertEqual(rowsNeeded(22, 7), 4)
+
+	def test_theSameDescriptionWithFiveMoreCells(self):
+		"""And why giving one column up is worth more than it costs: five more cells to the
+		column that needed them takes the row from four band rows to two."""
+		self.assertEqual(rowsNeeded(22, 12), 2)
+
+	def test_aColumnWithNoCellsIsStillOneRow(self):
+		self.assertEqual(rowsNeeded(10, 0), 1)
+
+
+class TestTheTargetComesFromTheBand(unittest.TestCase):
+	"""How tall a row may be is only meaningful beside how many rows there is room for."""
+
+	def test_aMonarchGetsTwo(self):
+		self.assertEqual(targetHeightFor(MONARCH_ROWS), DEFAULT_TARGET_HEIGHT)
+
+	def test_aTallerBandAllowsTallerRows(self):
+		self.assertGreater(targetHeightFor(40), targetHeightFor(MONARCH_ROWS))
+
+	def test_aShortBandDoesNotCollapseToOne(self):
+		"""One would mean a page per column on any table with prose in it."""
+		self.assertGreaterEqual(targetHeightFor(2), DEFAULT_TARGET_HEIGHT)
+
+
+class TestHeightDecidesHowManyColumnsShareAPage(unittest.TestCase):
+	"""The rule that replaces "as many columns as fit across the band". Four columns at seven
+	cells add up to exactly thirty-two and every one of them wraps to four rows underneath;
+	the fit is perfect on the axis nobody reads on."""
+
+	def test_theStatementGivesUpAColumn(self):
+		plan = planFor(statement(), MONARCH_COLS, targetHeight=DEFAULT_TARGET_HEIGHT)
+		self.assertEqual(len(plan.placements()), 3)
+		self.assertEqual(plan.numPages, 2)
+
+	def test_andTheRowIsWithinTheTarget(self):
+		plan = planFor(statement(), MONARCH_COLS, targetHeight=DEFAULT_TARGET_HEIGHT)
+		self.assertLessEqual(predictedHeight(plan, statement()), DEFAULT_TARGET_HEIGHT)
+
+	def test_theColumnThatNeededTheCellsGotThem(self):
+		"""Description at seven cells is four rows. The point of dropping a column is the
+		cells it frees, and they have to reach the column that was wrapping."""
+		plan = planFor(statement(), MONARCH_COLS, targetHeight=DEFAULT_TARGET_HEIGHT)
+		description = next(place for place in plan.placements() if place.column.index == 3)
+		self.assertGreater(description.column.width, 7)
+
+	def test_aTableThatFitsIsUntouched(self):
+		"""The rule must not cost anything on a table that was already right."""
+		plan = planFor(watchlist(), MONARCH_COLS)
+		self.assertEqual(plan.numPages, 1)
+		self.assertEqual(len(plan.placements()), 4)
+
+	def test_aGenerousTargetKeepsMoreColumnsTogether(self):
+		"""The reader who wants the columns side by side at any cost, which is what the
+		row-height setting is for one axis over."""
+		tight = planFor(statement(), MONARCH_COLS, targetHeight=2)
+		loose = planFor(statement(), MONARCH_COLS, targetHeight=4)
+		self.assertGreater(len(loose.placements()), len(tight.placements()))
+
+
+class TestAColumnOfProse(unittest.TestCase):
+	"""A VPAT remarks column: no arrangement puts it beside anything at a readable width. The
+	reader asked for one column at a time in that case, and the search reaching one is it."""
+
+	def test_itGetsAPageToItself(self):
+		plan = planFor(vpat(), MONARCH_COLS, targetHeight=DEFAULT_TARGET_HEIGHT, pinKey=False)
+		last = plan.onPage(plan.numPages - 1)
+		self.assertEqual([place.column.index for place in last.placements()], [3])
+
+	def test_itIsNotDroppedForBeingImpossible(self):
+		plan = planFor(vpat(), MONARCH_COLS, targetHeight=DEFAULT_TARGET_HEIGHT)
+		drawn = {place.column.index for page in plan.pages() for place in page}
+		self.assertEqual(drawn, {1, 2, 3})
+
+	def test_theShortColumnsStillShareAPage(self):
+		"""One prose column must not drag the readable columns into pages of their own."""
+		plan = planFor(vpat(), MONARCH_COLS, targetHeight=DEFAULT_TARGET_HEIGHT, pinKey=False)
+		self.assertEqual([place.column.index for place in plan.placements()], [1, 2])
+
+	def test_itIsGivenTheWholeBand(self):
+		plan = planFor(vpat(), MONARCH_COLS, targetHeight=DEFAULT_TARGET_HEIGHT, pinKey=False)
+		last = plan.onPage(plan.numPages - 1)
+		self.assertEqual(last.placements()[0].column.width, MONARCH_COLS)
+
+
+class TestAPageIsFilled(unittest.TestCase):
+	"""Every column starts at what its widest cell asked for, capped at the band, and the
+	widest give cells back until the page holds them. Nothing is left unspent by that, which
+	is why the step written to hand spare cells out afterwards turned out to be unreachable."""
+
+	def _page(self):
+		wanted = [
+			Measurement(index=1, width=4, typicalWidth=4, label=""),
+			Measurement(index=2, width=60, typicalWidth=40, label=""),
+		]
+		return planFor(wanted, MONARCH_COLS, targetHeight=4, pinKey=False)
+
+	def test_thePageIsFilled(self):
+		plan = self._page()
+		used = sum(place.column.width for place in plan.placements())
+		gaps = COLUMN_GAP * (len(plan.placements()) - 1)
+		self.assertEqual(used + gaps, MONARCH_COLS)
+
+	def test_theCellsWentToTheColumnThatWouldWrap(self):
+		plan = self._page()
+		widths = {place.column.index: place.column.width for place in plan.placements()}
+		self.assertEqual(widths[1], 4)
+		self.assertGreater(widths[2], READABLE_CELLS)
+
+	def test_aColumnIsNotWidenedPastItsOwnContent(self):
+		"""Cells after the end of a value are not readability, they are blank cells."""
+		wanted = [Measurement(index=1, width=4, typicalWidth=4, label="")]
+		plan = planFor(wanted, MONARCH_COLS, pinKey=False)
+		self.assertEqual(plan.placements()[0].column.width, 4)
+
+
+class TestTheWidthIsChosenForATypicalCell(unittest.TestCase):
+	"""Nine rows in ten hold a few words and the tenth holds a paragraph. Planned from the
+	widest, all ten are laid out for the paragraph."""
+
+	def _oneLongCellIn(self, typical):
+		return [
+			Measurement(index=1, width=6, typicalWidth=6, label=""),
+			Measurement(index=2, width=200, typicalWidth=typical, label=""),
+			Measurement(index=3, width=6, typicalWidth=6, label=""),
+		]
+
+	def test_theOutlierDoesNotDecideTheLayout(self):
+		plan = planFor(self._oneLongCellIn(8), MONARCH_COLS, pinKey=False)
+		self.assertEqual(len(plan.placements()), 3)
+
+	def test_aColumnThatIsUsuallyLongDoes(self):
+		plan = planFor(self._oneLongCellIn(80), MONARCH_COLS, pinKey=False)
+		self.assertLess(len(plan.placements()), 3)
+
+	def test_anUnmeasuredTypicalFallsBackToTheWidest(self):
+		"""A caller that measured only the widest gets what it always got."""
+		wanted = [Measurement(index=1, width=12, label="")]
+		self.assertEqual(wanted[0].typical, 12)
+
+
+class TestTheKeyColumnIsRepeated(unittest.TestCase):
+	"""Six columns into a watchlist the reader is feeling four numbers with nothing to say
+	whose numbers they are, and the symbol that would say so is two page turns back."""
+
+	def _wide(self, **kwargs):
+		return planFor(bigWatchlist(), MONARCH_COLS, **kwargs)
+
+	def test_itIsTheFirstColumnDrawn(self):
+		self.assertEqual(self._wide().keyColumn, 1)
+
+	def test_itIsAtTheLeftOfEveryLaterPage(self):
+		plan = self._wide()
+		for page in range(1, plan.numPages):
+			first = plan.onPage(page).placements()[0]
+			self.assertEqual(first.column.index, 1)
+			self.assertEqual((first.row, first.offset), (0, 0))
+
+	def test_itIsTheSameWidthOnEveryPageItIsRepeatedOn(self):
+		"""A column that moves is a column the reader has to find again."""
+		plan = self._wide()
+		widths = {plan.onPage(page).placements()[0].column.width for page in range(1, plan.numPages)}
+		self.assertEqual(widths, {plan.keyWidth})
+
+	def test_itIsNotRepeatedOnItsOwnPage(self):
+		plan = self._wide()
+		first = [place.column.index for place in plan.onPage(0).placements()]
+		self.assertEqual(first.count(1), 1)
+
+	def test_theCopyIsCutRatherThanWrapped(self):
+		"""On its own page it is a column and the reader is reading it. On a later page it is
+		a label, and a label that grew the row would cost more than it says."""
+		plan = self._wide()
+		self.assertEqual(plan.onPage(1).placements()[0].column.overflow, TRUNCATE)
+		self.assertTrue(plan.onPage(1).placements()[0].column.pinned)
+
+	def test_theCopyCarriesTheTablesOwnColumnNumber(self):
+		"""It is a copy in the plan and not in the table: a finger press over it has to route
+		into the real cell."""
+		pin = self._wide().onPage(1).placements()[0].column
+		self.assertEqual(pin.index, 1)
+
+	def test_theColumnItselfIsNotPinned(self):
+		plan = self._wide()
+		self.assertFalse(plan.onPage(0).placements()[0].column.pinned)
+
+	def test_aTableThatFitsOnOnePageRepeatsNothing(self):
+		"""The cost is paid only where the problem exists."""
+		self.assertIsNone(planFor(watchlist(), MONARCH_COLS).keyColumn)
+
+	def test_theReaderCanTurnItOff(self):
+		self.assertIsNone(self._wide(pinKey=False).keyColumn)
+
+	def test_itCostsPagesAndSaysSo(self):
+		"""Honest arithmetic: the repeated column takes cells from every later page, so there
+		are more pages with it than without."""
+		self.assertGreater(self._wide().numPages, self._wide(pinKey=False).numPages)
+
+	def test_itNeverTakesMoreThanItsShare(self):
+		"""A pin wide enough to hold the longest criterion in full would be spending on the
+		label what the columns being labelled need."""
+		plan = planFor(
+			[Measurement(index=n, width=40, typicalWidth=40, label="") for n in range(1, 8)],
+			MONARCH_COLS,
+		)
+		self.assertLessEqual(plan.keyWidth, MONARCH_COLS // KEY_SHARE)
+
+	def test_aBandWithNoRoomBesideItPinsNothing(self):
+		"""A pin that left no room to read anything beside it would not be orientation."""
+		self.assertIsNone(planFor(bigWatchlist(), 8).keyColumn)
+		self.assertIsNotNone(planFor(bigWatchlist(), 12).keyColumn)
+
+	def test_theCaretGoesBackToTheColumnsOwnPageForIt(self):
+		"""`pageOf` answers where a column lives, not the pages it is repeated on: the caret
+		being in a column means the reader is reading it, and the copy is cut."""
+		self.assertEqual(self._wide().pageOf(1), 0)
+
+
+class TestThePageAssignmentIsAField(unittest.TestCase):
+	"""It is about to be a reader's choice — "show these columns together and those apart" is
+	exactly this tuple with different contents."""
+
+	def test_aPlanSaysWhichColumnsAreOnWhichPage(self):
+		plan = planFor(bigWatchlist(), MONARCH_COLS, pinKey=False)
+		self.assertEqual(len(plan.assignment), plan.numPages)
+		self.assertEqual(
+			[index for page in plan.assignment for index in page],
+			[item.index for item in bigWatchlist()],
+		)
+
+	def test_anAssignmentIsHonoured(self):
+		"""The grouping the reader will ask for, given by hand."""
+		plan = planFor(watchlist(), MONARCH_COLS)
+		grouped = dataclasses.replace(plan, assignment=((1, 2), (3, 4)))
+		self.assertEqual(grouped.numPages, 2)
+		self.assertEqual([place.column.index for place in grouped.placements()], [1, 2])
+
+	def test_aPlanWithoutOneStillPacksItself(self):
+		"""A plan built by hand, which is what most of these tests build."""
+		columns = tuple(Column(index=n, width=6) for n in range(1, 9))
+		plan = ColumnPlan(columns=columns, numCols=MONARCH_COLS)
+		self.assertGreater(plan.numPages, 1)
+		self.assertEqual([place.column.index for place in plan.placements()], [1, 2, 3, 4])

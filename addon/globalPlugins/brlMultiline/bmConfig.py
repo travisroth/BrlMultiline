@@ -102,6 +102,7 @@ configSpec = {
 			"flowLineFocus": "boolean(default=True)",
 			"flowTableRowHeight": f"integer(default={flowTable.DEFAULT_MAX_ROWS}, min=1, max={flowTable.MAX_TABLE_ROWS})",
 			"flowTableTruncate": "boolean(default=False)",
+			"flowTablePinKey": "boolean(default=True)",
 			**{
 				flowModeKey(mode): f"boolean(default={FLOW_MODE_DEFAULTS.get(mode, False)})"
 				for mode in FLOW_MODES
@@ -152,6 +153,8 @@ configSpec = {
 	indent has room for the mark.
 - `flowTableRowHeight`: how many rows of the band one row of a table may use.
 - `flowTableTruncate`: whether a cell too long for its column is cut rather than wrapped.
+- `flowTablePinKey`: whether the first column is repeated at the left of every page after
+	the first, so that a reader six columns across a watchlist still knows whose row it is.
 
 Everything above is read through `config.conf`, which is profile aware, so all of it can
 differ per configuration profile. That matters most for the flow: a profile triggered by
@@ -546,6 +549,27 @@ def shouldTruncateTableCells(displayKey: str | None = None) -> bool:
 	except Exception:
 		log.debugWarning("Could not read flowTableTruncate", exc_info=True)
 		return False
+
+
+def shouldPinKeyColumn(displayKey: str | None = None) -> bool:
+	""":return: whether the first column is repeated at the left of every later page.
+
+	On by default. A table wider than the band is read a page of columns at a time, and six
+	columns across a watchlist the reader is feeling four numbers with nothing to say whose
+	numbers they are — the symbol that would say so is two page turns back. The repeated
+	column costs its width on every page after the first and buys back the one thing that
+	makes the rest of the page mean anything.
+
+	Nothing is repeated when the table fits on one page, which is most tables: the cost is
+	paid only where the problem exists.
+
+	See `flowTable.ColumnPlan.keyColumn`.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["flowTablePinKey"])
+	except Exception:
+		log.debugWarning("Could not read flowTablePinKey", exc_info=True)
+		return True
 
 
 def isSpeechOutputMode() -> bool:

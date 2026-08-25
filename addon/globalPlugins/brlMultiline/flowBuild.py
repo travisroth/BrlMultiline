@@ -325,6 +325,10 @@ def buildTableController(
 		numCols,
 		maxRows=bmConfig.tableRowHeight() if maxRows is None else maxRows,
 		overflow=flowTable.TRUNCATE if bmConfig.shouldTruncateTableCells() else flowTable.WRAP,
+		# From the band's height, because what a row costs is only meaningful beside how many
+		# of them there is room for. See `flowTable.targetHeightFor`.
+		targetHeight=flowTable.targetHeightFor(numRows),
+		pinKey=bmConfig.shouldPinKeyColumn(),
 	)
 	if plan.isEmpty:
 		notes.append("No column layout fits this table on this band.")

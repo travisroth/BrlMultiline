@@ -268,6 +268,27 @@ class TestMeasuringTheColumns(unittest.TestCase):
 		measured = measure(tableAt(FakeFocus(FakeTableDocument(rows, row=1))))
 		self.assertFalse(measured[1].hidden)
 
+	def test_aTypicalCellIsMeasuredAsWellAsTheWidest(self):
+		"""Planned from the widest, nine rows are laid out for the one that has a paragraph
+		in it. The width is chosen for the typical cell and the outlier wraps taller."""
+		rows = [["Remarks"], ["ok"], ["ok"], ["ok"], ["ok"], ["a very much longer remark indeed"]]
+		measured = measure(tableAt(FakeFocus(FakeTableDocument(rows, row=1))))
+		self.assertEqual(measured[0].width, len("a very much longer remark indeed"))
+		self.assertLess(measured[0].typicalWidth, measured[0].width)
+
+	def test_theHeaderIsNotCountedAsATypicalCell(self):
+		"""It is often the widest thing in a column of numbers and it is drawn once, where the
+		body is drawn on every row."""
+		rows = [["An extremely long header"], ["1"], ["2"], ["3"], ["4"]]
+		measured = measure(tableAt(FakeFocus(FakeTableDocument(rows, row=1))))
+		self.assertEqual(measured[0].typicalWidth, 1)
+		self.assertEqual(measured[0].labelWidth, len("An extremely long header"))
+
+	def test_aColumnWithNoBodyRowsFallsBackToTheWidest(self):
+		rows = [["Header"]]
+		measured = measure(tableAt(FakeFocus(FakeTableDocument(rows, row=1))))
+		self.assertEqual(measured[0].typical, measured[0].width)
+
 	def test_theHeaderIsMeasuredInCellsOfItsOwn(self):
 		measured = measure(tableAt(FakeFocus(watchlist())))
 		self.assertEqual(measured[0].labelWidth, len("Symbol"))

@@ -145,6 +145,70 @@ hand at once. Eight one-row records beat two four-row ones for every question a 
 asked, and a reader who needs the fourth column legible can raise this or hide a column.
 """
 
+DEFAULT_TARGET_HEIGHT = 2
+"""How tall one table row may be, in band rows, before a page gives up a column.
+
+Not the same number as `maxRows`, and the two are easy to confuse. `maxRows` is how many
+band rows the *columns* are packed into — a shape decision, and the reader's setting.
+This is how tall the drawn row is allowed to become once its cells have wrapped, and it is
+what decides how many columns go on a page.
+
+Two, so that four records are under the hand at once on an eight row band. The first cut of
+this counted only the horizontal fit, and on a real table it produced four columns at seven
+cells that added up to exactly thirty-two — a flawless fit on the axis nobody reads on, with
+every cell wrapping to four rows underneath it. Two records on the display, and the reason
+to lay a table out in columns is gone.
+"""
+
+TARGET_SHARE = 4
+"""What fraction of the band one table row may fill, which is where the target comes from.
+
+A quarter. See `targetHeightFor`: on an eight row band that is the two of
+`DEFAULT_TARGET_HEIGHT`, and on a taller display it is more, because what matters is how
+many records are under the hand rather than how many rows one of them takes.
+"""
+
+KEY_SHARE = 3
+"""The most of the band a pinned key column may take, as a fraction of it.
+
+A third. The pin is an orientation aid rather than the data — see `ColumnPlan.keyColumn` —
+and a pin that took half the band would be paying for orientation with the columns being
+oriented.
+"""
+
+
+def targetHeightFor(bandRows: int) -> int:
+	"""How tall a table row may be on a band of a given height.
+
+	:param bandRows: how many rows the band has.
+	:return: the target, in band rows, never less than `DEFAULT_TARGET_HEIGHT`.
+	"""
+	return max(DEFAULT_TARGET_HEIGHT, bandRows // TARGET_SHARE)
+
+
+def rowsNeeded(content: int, width: int) -> int:
+	"""How many band rows a cell of a given length takes in a column of a given width.
+
+	The arithmetic the width decision was missing. A column is chosen by how many cells it
+	is given, and what the reader feels is how many rows that costs — those are not the same
+	question, and a plan that answers only the first fits four columns into thirty-two cells
+	perfectly and puts two records on an eight row band.
+
+	The continuation rows are narrower than the first by the column's indent, so this is not
+	a plain division. Wrapping is assumed: a truncated column is always one row and callers
+	that know they are cutting do not ask.
+
+	:param content: how many cells the value translates to.
+	:param width: how many cells the column is drawn in.
+	:return: the number of band rows, at least one.
+	"""
+	if width < 1:
+		return 1
+	if content <= width:
+		return 1
+	usable = max(1, width - indentFor(width))
+	return 1 + -(-(content - width) // usable)
+
 
 @dataclasses.dataclass(frozen=True)
 class Column:
@@ -172,6 +236,14 @@ class Column:
 
 	overflow: str = DEFAULT_OVERFLOW
 	"""What becomes of a cell too long for `width`. See `OVERFLOW_STYLES`."""
+
+	pinned: bool = False
+	"""Whether this is the repeated copy of the key column rather than the column itself.
+
+	The same table column, drawn again at the left of a later page so that the reader knows
+	whose row they are reading. It is a copy in the plan and not in the table: it carries the
+	table's own column number, so routing a finger press over it goes to the real cell.
+	"""
 
 	@property
 	def indent(self) -> int:
@@ -241,6 +313,38 @@ class ColumnPlan:
 	the window does for rows, one axis over.
 	"""
 
+	assignment: tuple[tuple[int, ...], ...] = ()
+	"""Which columns are on which page, by the table's own column numbers.
+
+	Empty in a plan built by hand, and then the pages are worked out by packing greedily —
+	see `_packedPages`, which is what this did before and is still what a plan with no
+	assignment means.
+
+	It is a field rather than a calculation because it is about to be a reader's choice. The
+	custom layout is "show these columns together and those apart", and that is exactly this
+	tuple with different contents; deriving it every time would mean the reader's grouping
+	had nowhere to live. Making it a field now is small. Making it one later, under a
+	shipped feature, is not.
+	"""
+
+	keyColumn: Optional[int] = None
+	"""The column repeated at the left of every page after the first, if any.
+
+	Six columns into a watchlist the reader is feeling four numbers with nothing to say whose
+	numbers they are, and the symbol that would say so is two pages back. So the first column
+	is drawn again at the left of each later page: the same table column, at the same offset
+	every time, cut to `keyWidth` rather than wrapped.
+
+	Cut, and only on the later pages, because it is doing a different job there. On its own
+	page it is a column and the reader is reading it, so it is drawn whole like any other.
+	On a later page it is a label — the answer to "whose row is this" — and the first few
+	cells of an identifier answer that. Nothing is lost by cutting the copy: the column
+	itself is one page turn away, drawn in full.
+	"""
+
+	keyWidth: int = 0
+	"""How wide the repeated copy of `keyColumn` is drawn."""
+
 	narrowed: tuple[int, ...] = ()
 	"""The table's numbers for columns drawn narrower than their content asked for.
 
@@ -284,6 +388,41 @@ class ColumnPlan:
 		"""
 		if not self.columns or self.numCols < 1:
 			return ()
+		if self.assignment:
+			return tuple(self._placePage(number, page) for number, page in enumerate(self.assignment))
+		return self._packedPages()
+
+	def _placePage(self, number: int, indexes: tuple[int, ...]) -> tuple[Placement, ...]:
+		"""Lay out one page of an assignment, pinning the key column where it belongs.
+
+		:param number: which page this is, zero based.
+		:param indexes: the table's numbers for the columns on it, in drawing order.
+		:return: where each of them goes.
+		"""
+		byIndex = {column.index: column for column in self.columns}
+		placed: list[Placement] = []
+		row = 0
+		offset = 0
+		if number and self.keyColumn is not None and self.keyColumn not in indexes:
+			key = byIndex.get(self.keyColumn)
+			if key is not None and self.keyWidth:
+				pin = dataclasses.replace(key, width=self.keyWidth, overflow=TRUNCATE, pinned=True)
+				placed.append(Placement(column=pin, row=0, offset=0))
+				offset = self.keyWidth + self.gap
+		for index in indexes:
+			column = byIndex.get(index)
+			if column is None:
+				continue
+			if offset and offset + column.width > self.numCols:
+				row, offset = row + 1, 0
+			if row >= self.maxRows or offset + column.width > self.numCols:
+				break
+			placed.append(Placement(column=column, row=row, offset=offset))
+			offset += column.width + self.gap
+		return tuple(placed)
+
+	def _packedPages(self) -> tuple[tuple[Placement, ...], ...]:
+		""":return: the pages of a plan that carries no assignment, packed greedily."""
 		pages: list[tuple[Placement, ...]] = []
 		current: list[Placement] = []
 		row = 0
@@ -378,6 +517,22 @@ class Measurement:
 	width: int
 	"""The widest content found in it, in cells. See the module docstring on measuring."""
 
+	typicalWidth: int = 0
+	"""What a cell of it usually holds, in cells. Zero where the caller did not measure it.
+
+	The widest is the wrong number to plan a width from and it took a real document to see
+	why. A VPAT has a remarks column where nine rows in ten hold a few words and the tenth
+	holds a paragraph; planned from the widest, every row of the table is laid out for the
+	paragraph, and the reader pays for it on the nine rows that do not have one.
+
+	So the width is chosen for the typical cell and the occasional long one wraps taller than
+	the target. That is honest — since a tall row became a block with more rows, nothing is
+	lost by it and it costs a keypress on the rows that earn it.
+
+	Zero means the caller measured only the widest, and `typical` then answers with that,
+	which is the old behaviour and is right for a caller that knows its table.
+	"""
+
 	label: str = ""
 	"""Its header, where it has one."""
 
@@ -403,6 +558,16 @@ class Measurement:
 	column the braille reader is missing.
 	"""
 
+	@property
+	def typical(self) -> int:
+		""":return: what a cell of this column usually holds, falling back to the widest."""
+		return self.typicalWidth or self.width
+
+	@property
+	def wants(self) -> int:
+		""":return: the width that would draw every cell of it on one row."""
+		return max(self.width, self.labelWidth)
+
 
 def planFor(
 	measured: Iterable[Measurement],
@@ -412,40 +577,68 @@ def planFor(
 	minWidth: int = MIN_COLUMN_CELLS,
 	maxWidth: int = MAX_COLUMN_CELLS,
 	overflow: str = DEFAULT_OVERFLOW,
+	targetHeight: int = DEFAULT_TARGET_HEIGHT,
+	pinKey: bool = True,
 ) -> ColumnPlan:
-	"""Work out how wide each of a table's columns is drawn.
+	"""Work out how wide each of a table's columns is drawn, and which of them share a page.
 
-	Where they *go* is `ColumnPlan.pages`, and the two are deliberately separate. This decides
-	only how many cells each column deserves; nothing here asks whether they all fit, because
-	the answer for a real table is often no and dealing with that by making every column
-	narrower is how a display ends up with three cells of each and nothing readable in any.
+	**A page holds as many columns as it can without the row growing taller than
+	`targetHeight`.** That is the whole rule and it is worth stating plainly, because the
+	rule it replaces was "as many columns as fit across the band", which is a different
+	question with a much worse answer. Four columns at seven cells each add up to exactly
+	thirty-two and every one of them wraps to four rows underneath; the fit is perfect on the
+	axis nobody is reading on, and two records reach an eight row display.
 
-	**Nothing is shrunk below what can be read.** A column gives up cells to the band while it
-	has more than `READABLE_CELLS` to give, widest first — the column with forty cells of
-	description can spare ten before the column with six cells of ticker can spare one, and a
-	proportional cut takes from both. Below that it stops. A price cut to three cells is not a
-	narrow price, it is a digit, and on hardware a table of twenty-nine columns came out as
-	one digit of each and eleven columns that were not there at all.
+	So the page size is searched downwards. Try every remaining column, work out the widths,
+	predict the height; if it is over the target, try one column fewer, which gives the ones
+	that remain more cells each and drops the height faster than linearly. One column is the
+	floor, and a column that cannot meet the target even with the whole band to itself gets
+	the whole band to itself. That is the right answer for a VPAT remarks column and it is
+	not a special case — it falls out of the search reaching one.
 
-	A column whose content is already shorter than that keeps its own width: the floor is a
-	floor on *shrinking*, not a minimum size for a column of one-character flags.
+	**Spare cells are given away rather than left.** A column gives up cells while it has
+	more than `READABLE_CELLS` to spare, widest first; and when the page has cells nobody
+	claimed, they go one at a time to whichever column is predicted tallest. On a page of a
+	criterion, a level and a remark, that hands the remark everything the other two do not
+	need, which is the single change that does most of the work here.
+
+	**Nothing is shrunk below what can be read.** Below `READABLE_CELLS` a column stops being
+	a value and becomes a fragment of one; on hardware a table of twenty-nine columns came
+	out as one digit of each. What will not fit at a readable width goes on the next page.
 
 	:param measured: what was found in each column. Hidden ones are ignored.
 	:param numCols: the width of the band.
-	:param maxRows: how many band rows one table row may use.
+	:param maxRows: how many band rows one table row may use. See `DEFAULT_TARGET_HEIGHT`
+		for how this differs from `targetHeight`, which is easy to confuse it with.
 	:param gap: cells between columns.
 	:param minWidth: the narrowest a column may be drawn at all.
 	:param maxWidth: the widest, however long the content.
 	:param overflow: what becomes of a cell too long for its column. See `OVERFLOW_STYLES`.
+	:param targetHeight: how tall a table row may be before a page gives up a column.
+	:param pinKey: whether to repeat the first column at the left of every later page.
 	:return: the plan, or `READING_ORDER` when there is nothing to lay out.
 	"""
 	wanted = [item for item in measured if not item.hidden]
 	maxRows = max(1, min(maxRows, MAX_TABLE_ROWS))
 	if not wanted or numCols < minWidth:
 		return READING_ORDER
-	wants = {item.index: max(item.width, item.labelWidth) for item in wanted}
-	widths = {item.index: max(minWidth, min(maxWidth, numCols, wants[item.index])) for item in wanted}
-	_shrinkTowardsFitting(widths, _budgetFor(numCols, maxRows, len(wanted), gap), minWidth, wants)
+	targetHeight = max(1, targetHeight)
+	maxWidth = max(minWidth, min(maxWidth, numCols))
+	shape = dict(
+		numCols=numCols,
+		maxRows=maxRows,
+		gap=gap,
+		minWidth=minWidth,
+		maxWidth=maxWidth,
+		targetHeight=targetHeight,
+	)
+	widths, assignment = _dealIntoPages(wanted, reserve=0, **shape)
+	keyColumn, keyWidth = _keyFor(wanted, numCols, gap, minWidth, pinKey and len(assignment) > 1)
+	if keyColumn is not None:
+		# Deal again with the pin's cells taken out of every page after the first. Only ever
+		# twice: the pin costs room, so a table that needed more than one page without it
+		# still needs more than one page with it, and the answer cannot flip back.
+		widths, assignment = _dealIntoPages(wanted, reserve=keyWidth + gap, **shape)
 	return ColumnPlan(
 		columns=tuple(
 			Column(
@@ -459,19 +652,188 @@ def planFor(
 		numCols=numCols,
 		maxRows=maxRows,
 		gap=gap,
-		narrowed=tuple(item.index for item in wanted if widths[item.index] < wants[item.index]),
+		assignment=assignment,
+		keyColumn=keyColumn,
+		keyWidth=keyWidth,
+		narrowed=tuple(item.index for item in wanted if widths[item.index] < item.wants),
 	)
 
 
-def _budgetFor(numCols: int, maxRows: int, count: int, gap: int) -> int:
+def _keyFor(
+	wanted: Sequence[Measurement], numCols: int, gap: int, minWidth: int, pinKey: bool
+) -> tuple[Optional[int], int]:
+	"""Which column is repeated at the left of every later page, and how wide.
+
+	The first column that is drawn, which is the row's own label in every table that has one:
+	the symbol in a watchlist, the criterion in a VPAT, the date in a statement. Asked of the
+	plan's own order rather than of the table, so a hidden first column does not pin a column
+	nobody can see.
+
+	Its width is what a typical cell of it holds, capped at `KEY_SHARE` of the band. The cap
+	is what keeps this an orientation aid: a pin wide enough to hold the longest criterion in
+	full would be spending on the label what the columns being labelled need.
+
+	:param wanted: the columns being drawn, in order.
+	:param numCols: the width of the band.
+	:param gap: cells between columns.
+	:param minWidth: the narrowest a column may be drawn.
+	:param pinKey: whether the reader wants this at all.
+	:return: the column's number and its pinned width, or None and zero.
+	"""
+	if not pinKey or len(wanted) < 2:
+		return None, 0
+	key = wanted[0]
+	width = max(minWidth, min(numCols // KEY_SHARE, max(key.typical, key.labelWidth)))
+	if numCols - (width + gap) < max(minWidth, READABLE_CELLS):
+		# The pin would leave no room to read anything beside it, which is not orientation.
+		return None, 0
+	return key.index, width
+
+
+def _dealIntoPages(
+	wanted: Sequence[Measurement],
+	reserve: int,
+	numCols: int,
+	maxRows: int,
+	gap: int,
+	minWidth: int,
+	maxWidth: int,
+	targetHeight: int,
+) -> tuple[dict, tuple[tuple[int, ...], ...]]:
+	"""Walk the columns left to right, filling one page at a time.
+
+	Left to right and greedily, because a column that moves is a column the reader has to
+	find again: the order is the table's, and which page a column lands on must not depend on
+	anything but the columns before it.
+
+	:param wanted: the columns being drawn, in order.
+	:param reserve: cells taken out of every page after the first, for a pinned key column.
+	:param numCols: the width of the band.
+	:param maxRows: how many band rows one table row may use.
+	:param gap: cells between columns.
+	:param minWidth: the narrowest a column may be drawn.
+	:param maxWidth: the widest.
+	:param targetHeight: how tall a table row may be before a page gives up a column.
+	:return: every column's width, and which columns are on which page.
+	"""
+	widths: dict = {}
+	assignment: list[tuple[int, ...]] = []
+	rest = list(wanted)
+	while rest:
+		room = numCols if not assignment else max(minWidth, numCols - reserve)
+		take, chosen = _howManyFit(rest, room, numCols, maxRows, gap, minWidth, maxWidth, targetHeight)
+		widths.update(chosen)
+		assignment.append(tuple(item.index for item in rest[:take]))
+		rest = rest[take:]
+	return widths, tuple(assignment)
+
+
+def _howManyFit(
+	rest: Sequence[Measurement],
+	room: int,
+	numCols: int,
+	maxRows: int,
+	gap: int,
+	minWidth: int,
+	maxWidth: int,
+	targetHeight: int,
+) -> tuple[int, dict]:
+	"""How many of the columns still to place go on this page.
+
+	The search: most first, one fewer each time, stopping at the first count whose predicted
+	height is within the target. Downwards rather than upwards because the answer wanted is
+	the largest that works, and a search that grows would have to keep going after it found
+	one to know it was the largest.
+
+	One is the floor and it is returned without asking about height. A column that cannot
+	meet the target with the whole band to itself exists — a remarks column in a VPAT is
+	exactly that — and the answer for it is a page of its own, which is what the reader asked
+	for when they said to go one column at a time.
+
+	:param rest: the columns still to place, in order.
+	:param room: cells available on the first band row of this page.
+	:param numCols: the width of the band, which the later rows have all of.
+	:param maxRows: how many band rows one table row may use.
+	:param gap: cells between columns.
+	:param minWidth: the narrowest a column may be drawn.
+	:param maxWidth: the widest.
+	:param targetHeight: how tall a table row may be before a page gives up a column.
+	:return: how many columns to take, and the widths for them.
+	"""
+	widths: dict = {}
+	for take in range(len(rest), 0, -1):
+		items = rest[:take]
+		widths = _fitWidths(items, _budgetFor(room, numCols, maxRows, take, gap), minWidth, maxWidth)
+		if not _placeable([widths[item.index] for item in items], room, numCols, maxRows, gap):
+			continue
+		if take == 1:
+			return 1, widths
+		if max(rowsNeeded(item.typical, widths[item.index]) for item in items) <= targetHeight:
+			return take, widths
+	# Nothing was placeable, not even one column: it is wider than the band. Draw it at the
+	# band's width and let it wrap, which is what a column wider than the display has to do.
+	item = rest[0]
+	return 1, {item.index: max(minWidth, min(maxWidth, room))}
+
+
+def _budgetFor(room: int, numCols: int, maxRows: int, count: int, gap: int) -> int:
 	""":return: how many cells of content one page of the band has room for.
 
 	An upper bound rather than an exact answer: the gaps are counted as though every column
 	sat on one row, which over-counts by one gap for each row after the first. Over-counting
 	makes the shrinking slightly less eager and never more, and being less eager here costs a
 	page where being more eager costs legibility.
+
+	:param room: cells on the first band row, which a pinned key column has taken from.
+	:param numCols: cells on the rest, which it has not.
+	:param maxRows: how many band rows one table row may use.
+	:param count: how many columns are being fitted.
+	:param gap: cells between columns.
 	"""
-	return max(0, numCols * maxRows - gap * max(0, count - 1))
+	return max(0, room + numCols * max(0, maxRows - 1) - gap * max(0, count - 1))
+
+
+def _placeable(sizes: Sequence[int], room: int, numCols: int, maxRows: int, gap: int) -> bool:
+	"""Whether columns of these widths actually go on the band, in this order.
+
+	The budget is an upper bound and a sum that fits can still fail to pack — three columns
+	of eleven cells on a thirty-two cell row is thirty-three with the gaps. So the packing is
+	walked, exactly as `ColumnPlan._placePage` walks it.
+
+	:param sizes: the widths, in drawing order.
+	:param room: cells on the first band row.
+	:param numCols: cells on the rest.
+	:param maxRows: how many band rows one table row may use.
+	:param gap: cells between columns.
+	:return: whether they all fit.
+	"""
+	row, offset, limit = 0, 0, room
+	for width in sizes:
+		if offset and offset + width > limit:
+			row, offset, limit = row + 1, 0, numCols
+		if row >= maxRows or offset + width > limit:
+			return False
+		offset += width + gap
+	return True
+
+
+def _fitWidths(items: Sequence[Measurement], budget: int, minWidth: int, maxWidth: int) -> dict:
+	"""Decide a width for each column of one page.
+
+	Both directions. What was here shrank the widest columns towards fitting and stopped; it
+	never gave anything back, so a page whose columns all happened to be short left cells
+	unspent while a column beside them wrapped.
+
+	:param items: the columns on this page.
+	:param budget: how many cells of content the page holds.
+	:param minWidth: the narrowest a column may be drawn.
+	:param maxWidth: the widest.
+	:return: column number to width.
+	"""
+	wants = {item.index: item.wants for item in items}
+	widths = {item.index: max(minWidth, min(maxWidth, wants[item.index])) for item in items}
+	_shrinkTowardsFitting(widths, budget, minWidth, wants)
+	return widths
 
 
 def _shrinkTowardsFitting(widths: dict, budget: int, minWidth: int, wants: dict) -> None:
@@ -539,6 +901,26 @@ def shouldReplan(
 	return shown != tuple(column.index for column in plan.columns)
 
 
+def predictedHeight(plan: ColumnPlan, measured: Iterable[Measurement]) -> int:
+	"""How tall the page being drawn is expected to make a typical row.
+
+	For the report, and for a test that wants the number the search was aiming at rather than
+	a rendering to count the rows of. A truncated column is one row whatever it holds.
+
+	:param plan: the layout, on the page being asked about.
+	:param measured: what was found in the table.
+	:return: the height in band rows, at least one.
+	"""
+	typical = {item.index: item.typical for item in measured}
+	heights = [
+		1
+		if place.column.overflow == TRUNCATE
+		else rowsNeeded(typical.get(place.column.index, 0), place.column.width)
+		for place in plan.placements()
+	]
+	return max(heights or [1])
+
+
 def describe(plan: ColumnPlan) -> str:
 	""":return: the plan in one line, for the dry run's report.
 
@@ -549,10 +931,16 @@ def describe(plan: ColumnPlan) -> str:
 	if plan.isEmpty:
 		return "reading order; no columns are laid out."
 	drawn = ", ".join(
-		f"column {place.column.index} at row {place.row} cell {place.offset} in {place.column.width}"
+		f"column {place.column.index}{' pinned' if place.column.pinned else ''} at row "
+		f"{place.row} cell {place.offset} in {place.column.width}"
 		for place in plan.placements()
 	)
 	notes = []
+	if plan.keyColumn is not None:
+		notes.append(
+			f"Column {plan.keyColumn} is repeated at the left of every page after the first, "
+			f"cut to {plan.keyWidth} cells."
+		)
 	if plan.narrowed:
 		short = ", ".join(str(index) for index in plan.narrowed)
 		what = "cut" if plan.cuts else "wrapped over more rows"

@@ -612,6 +612,9 @@ class FlowBand(PanelOwner):
 		plan = getattr(self.controller.renderer, "columnPlan", None)
 		if plan is None or plan.isEmpty:
 			return False
+		# `pageOf` answers where the column lives, which for the pinned key column is its own
+		# page and not the several it is repeated on. That is deliberate: the caret being in a
+		# column means the reader is reading it, and the copy is cut where the column is whole.
 		page = plan.pageOf(column)
 		if page is None or page == plan.page:
 			return False

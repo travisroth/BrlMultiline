@@ -471,6 +471,7 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 	widths: dict[int, int] = {column: 0 for column in columns}
 	labels: dict[int, str] = {column: "" for column in columns}
 	headers: dict[int, int] = {column: 0 for column in columns}
+	seen: dict[int, list[int]] = {column: [] for column in columns}
 	found: set[int] = set()
 	for row in _sampleRows(handle, sample):
 		for column in columns:
@@ -478,14 +479,18 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 			if region is None:
 				continue
 			found.add(column)
-			widths[column] = max(widths[column], len(region.brailleCells))
+			size = len(region.brailleCells)
+			widths[column] = max(widths[column], size)
 			if row == 1 and not labels[column]:
 				labels[column] = region.rawText
-				headers[column] = len(region.brailleCells)
+				headers[column] = size
+			else:
+				seen[column].append(size)
 	return [
 		Measurement(
 			index=column,
 			width=widths[column],
+			typicalWidth=_typicalOf(seen[column]) or widths[column],
 			label=labels[column],
 			labelWidth=headers[column],
 			# A column no sampled row had a cell in, the header row included, is not a column
@@ -498,6 +503,28 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 		)
 		for column in columns
 	]
+
+
+def _typicalOf(sizes: list[int]) -> int:
+	"""What a cell of a column usually holds, from the body rows that were read.
+
+	The three-quarter point of the sample rather than the widest or the middle. The widest is
+	what the widths used to be planned from and one long cell in ten then decided the layout
+	for all ten — a VPAT remarks column where nine rows hold a few words and the tenth holds
+	a paragraph laid the whole table out for the paragraph. The middle goes too far the other
+	way and leaves half the rows wrapping.
+
+	The header is not in this. It is often the widest thing in a column of numbers and it is
+	drawn once, where the body is drawn on every row; it is carried separately as
+	`Measurement.labelWidth`.
+
+	:param sizes: what was found in the body rows sampled, in cells.
+	:return: the typical width, or zero if no body row was read.
+	"""
+	if not sizes:
+		return 0
+	ordered = sorted(sizes)
+	return ordered[min(len(ordered) - 1, (len(ordered) * 3) // 4)]
 
 
 def _sampleRows(handle: TableHandle, sample: int) -> list[int]:

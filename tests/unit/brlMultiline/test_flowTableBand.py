@@ -370,8 +370,49 @@ class TestATableWiderThanTheBand(TableBandTestCase):
 		self._wide()
 		self.band.layOutTable()
 		plan = self.band.columnPlan()
-		drawn = [place.column.index for page in plan.pages() for place in page]
+		drawn = [place.column.index for page in plan.pages() for place in page if not place.column.pinned]
 		self.assertEqual(drawn, list(range(1, len(WIDE[0]) + 1)))
+
+
+class TestTheSymbolStaysUnderTheHand(TableBandTestCase):
+	"""Six columns into a watchlist the reader is feeling four numbers with nothing to say
+	whose numbers they are. The first column is repeated at the left of every later page."""
+
+	def _wide(self, row=2, col=1):
+		return self._inTable(rows=WIDE, row=row, col=col)
+
+	def test_theRepeatedColumnIsReadForALaterPage(self):
+		"""It is a copy in the plan and not in the table: its cells have to be fetched like
+		any other, or the pin is blank."""
+		obj, document = self._wide()
+		self.band.layOutTable()
+		document.reads.clear()
+		self.band.turnColumnPage(1)
+		self.assertIn(1, {column for _row, column in document.reads})
+
+	def test_theSymbolIsOnTheBandOnALaterPage(self):
+		"""What the reader actually feels, read back off the band."""
+		self._wide()
+		self.band.layOutTable()
+		self.band.turnColumnPage(1)
+		drawn = " ".join(self.band.controller.describeRows())
+		self.assertIn("AAPL", drawn)
+
+	def test_itIsAtTheLeftOfTheRow(self):
+		self._wide()
+		self.band.layOutTable()
+		self.band.turnColumnPage(1)
+		first = self.band.columnPlan().placements()[0]
+		self.assertEqual((first.column.index, first.row, first.offset), (1, 0, 0))
+
+	def test_aFingerPressOverItGoesToTheRealCell(self):
+		"""The copy carries the table's own column number, so routing is not confused by it."""
+		obj, document = self._wide()
+		self.band.layOutTable()
+		self.band.turnColumnPage(1)
+		plan = self.band.columnPlan()
+		self.assertIsNotNone(plan.columnAt(0, 0))
+		self.assertEqual(plan.columnAt(0, 0).index, 1)
 
 
 class TestWhatAWideTableCostsToRead(TableBandTestCase):

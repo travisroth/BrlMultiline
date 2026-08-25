@@ -14,7 +14,7 @@ So this plan adds a second axis. Alongside "what to read" there is now "how this
 thing is shown", and the second is chosen from what the reader is actually looking at
 rather than from a role alone.
 
-**Status: M0, M1, M2a, M3a, M3b and M3c are built. M0, M1 and M2a are confirmed on
+**Status: M0, M1, M2a, M3a, M3b, M3c and M3d are built. M0, M1 and M2a are confirmed on
 hardware; M3 has been through several hardware rounds and is being used. M2b, M4 (pinned
 headers), M5 (tables as objects), M6 (saved layouts) and M7 (the designer) are not built.** The milestones below say which,
 and where the built shape differs from what was planned the decision records both. Read this
@@ -198,6 +198,61 @@ are not re-argued.
     they are reading along it — and the question they cannot answer by feel is *which
     column*. So in a table the mark goes at the left of the column the caret is in. It is the
     same mark, answering the question that is actually open.
+
+21. **How many columns share a page is decided by how tall the row becomes, not by how many
+    fit across the band.** These are different questions and the second has a much worse
+    answer. A bank statement of four columns wanting 10, 8, 24 and 6 cells was laid out at
+    7, 7, 7 and 8, which is exactly thirty-two with the gaps: a flawless fit on the axis
+    nobody reads on, in which every cell wrapped to four rows underneath and two records
+    reached an eight row display. The reason to lay a table out in columns at all is to run
+    a finger *down* one, and a layout that leaves two rows on the band has spent the feature
+    to buy nothing.
+
+    So a page takes as many columns as it can without the row growing past `targetHeight`,
+    which is a quarter of the band — two rows on an eight row display, four records under
+    the hand. The page size is searched downwards: try every column left, work out the
+    widths, predict the height, and on a miss try one column fewer, which gives the survivors
+    more cells each and drops the height faster than linearly. **One column is the floor and
+    it is returned without asking about the height**, which is the reader's own rule for the
+    case they named: a VPAT remarks column cannot be read beside anything, so it gets a page
+    to itself and the row pans. That is not a special case in the code — it is the search
+    reaching one.
+
+    Two supporting rules. The width is chosen for a **typical** cell rather than the widest,
+    because nine remarks in ten are a few words and the tenth is a paragraph, and planning
+    from the widest lays all ten out for the paragraph; the outlier then wraps taller than
+    the target, which costs a keypress on the rows that earn it and nothing on the rest.
+    And nothing is shrunk below `READABLE_CELLS`, which is what sends columns onto another
+    page instead of onto the same page unreadably.
+
+    The reader's own words for what this is for: "we need an algorithm that addresses
+    readability", and "if a cell is still at 4+ after it is half the display, we should just
+    go one column at a time".
+
+22. **The first column is repeated at the left of every page after the first.** Six columns
+    into a watchlist the reader is feeling four numbers with nothing to say whose numbers
+    they are, and the symbol that would say so is two page turns back. The column that heads
+    the row — the symbol, the criterion, the date — is drawn again at offset zero on each
+    later page, always at the same width, so that every page answers "which row is this" on
+    its own.
+
+    **Cut rather than wrapped, and only on the later pages**, because it is doing a different
+    job there. On its own page it is a column and the reader is reading it, so it is drawn
+    whole like anything else; on a later page it is a label, and the first few cells of an
+    identifier are a label. Nothing is lost by cutting the copy — the column itself is a page
+    turn away, in full. It is capped at a third of the band for the same reason: a pin wide
+    enough to hold the longest criterion would be spending on the label what the columns
+    being labelled need.
+
+    A table that fits on one page repeats nothing, so the cost is paid only where the problem
+    exists. The caret entering the key column still turns back to the page the column lives
+    on, because the caret being in a column means the reader is reading it and the copy is
+    cut.
+
+    On by default, as `flowTablePinKey`. In the end this is a per-table choice like the rest
+    of decision 19 — which column heads the row is something the reader knows and recognition
+    does not — and the same field the automatic answer is written into is the one a saved
+    layout will write a chosen answer into.
 
 ## The four layers
 
@@ -610,6 +665,43 @@ have the whole table under their hands. That is a judgement about a particular t
 is what a setting is for and what a default must not assume.
 
 No persistence and no pinned headers yet.
+
+**M3d — readability, paging and the repeated column.** BUILT, NOT YET ON HARDWARE.
+Decisions 21 and 22, and the answer to what the reader saw on a 29 column watchlist: eight
+columns of three cells where "310.34" came out as "3".
+
+`rowsNeeded` is the arithmetic that was missing — how many band rows a cell of a given length
+takes in a column of a given width, the continuation indent included, which is why it is not
+a division. `planFor` searches the page size downwards against it, `Measurement.typicalWidth`
+carries what a cell usually holds so that one long cell does not lay out the other nine, and
+`ColumnPlan.assignment` records which columns landed on which page.
+
+**The assignment is a field rather than a calculation, on purpose.** The custom layout of
+decision 19 is "show these columns together and those apart", which is exactly this tuple
+with different contents. Deriving it on every call would leave the reader's grouping nowhere
+to live; making it a field now is small, and making it one later under a shipped feature is
+not.
+
+Two things this found that reasoning had not:
+
+- A step written to hand a page's unclaimed cells to the column that would wrap turned out to
+  be **unreachable**, and reverting it changed nothing across the whole suite. Every column
+  already starts at what its widest cell asked for, capped at the band, so a set of columns
+  whose wants fit has no column below what it asked for and there is nothing to hand out. The
+  cap plus the shrink already fill the page. The code is gone and the reason is recorded where
+  it was, because it is the kind of thing that gets written twice.
+- The measured numbers for the reader's own tables, which is what the rule has to be judged
+  by. The statement goes from four columns wrapping to four rows each, to three columns with
+  the description at twelve cells and a row two band rows tall. The 29 column watchlist goes
+  from eight columns of three cells to ten pages of the symbol plus three columns at seven,
+  every row one band row tall.
+
+What is not settled, and is for hardware: whether ten page turns is a worse trade than a
+narrower symbol would be, and whether plain down-arrow in browse mode lands the caret in
+column one often enough that the band snaps back to page one while the reader is trying to
+read page four. The second is not new — the page has followed the caret since M3c — but the
+repeated column makes it more visible, because now there is something on page four worth
+staying for.
 
 **M4 — pinned headers.** The band change. Behind a setting, and last of the display work,
 because it is the only part that disturbs window arithmetic the hardware has already
