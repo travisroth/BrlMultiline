@@ -44,6 +44,7 @@ from .flowBuild import (
 from .devices import DeviceInfo, deviceMap, preferredDevice
 from .flowSegment import FlowBufferSegment
 from .layout import SegmentRect, wholeDisplayRect
+from .views import focusDisplayDriver
 from .flowSources import DocumentFlowSource, documentFor
 from .panels import FlowPanel, PanelOwner
 
@@ -177,8 +178,20 @@ class FlowBand(PanelOwner):
 
 		A flow band must lie inside one physical display's live cells. On an ordinary
 		display that is the whole thing. On a composite it is one member's band — the one
-		the reader named, or else the tallest, since rows are what a flow has to spend —
-		because a claim across both would reach the dead columns beside the narrower one.
+		the reader named, or else **the one the focus is on** — because a claim across both
+		would reach the dead columns beside the narrower one.
+
+		Following the focus rather than taking the tallest, and the reader named the reason:
+		with the flow on one display and the focus moved to the other, the flow's display
+		could not be used for anything else. Nothing could be pinned to it, because the band
+		owned it; and the band was not showing what the reader was working in, because the
+		focus had left. Two displays and neither of them useful. Where the focus is, is where
+		the reading is, so that is where the band goes, and moving the focus moves it — the
+		command that moves the focus rebuilds the display, and the rebuild compares this
+		rectangle against the claim in force.
+
+		Naming a display is still the escape hatch, and it now means what it says: pin the
+		flow here whatever the focus does.
 
 		The band is as many rows of that display as the reader asked for, counted from its
 		top, so that the rows below it keep whatever the segment layout puts there. Asking
@@ -192,12 +205,31 @@ class FlowBand(PanelOwner):
 		"""
 		numRows, numCols = self._displaySize()
 		devices = deviceMap() if devices is None else devices
-		device = preferredDevice(bmConfig.getFlowDisplay(), devices)
+		device = preferredDevice(self._displayName(devices, numCols), devices)
 		whole = device.liveRect if device is not None else wholeDisplayRect(numRows, numCols)
 		rows = bmConfig.getFlowRows()
 		if rows and rows < whole.numRows:
 			return SegmentRect(row=whole.row, col=whole.col, numRows=rows, numCols=whole.numCols)
 		return whole
+
+	def _displayName(self, devices: "list[DeviceInfo]", numCols: int) -> str:
+		""":return: the driver name of the display this band belongs on.
+
+		The reader's own answer first. Failing that the display the focus is on, and failing
+		that nothing, which leaves `preferredDevice` to take the tallest — the right fallback
+		for a display whose segments cannot be numbered, since rows are what a flow spends.
+
+		:param devices: the physical displays.
+		:param numCols: the composite's width.
+		"""
+		named = bmConfig.getFlowDisplay()
+		if named:
+			return named
+		try:
+			return focusDisplayDriver(devices, numCols, bmConfig.getFocusSegment()) or ""
+		except Exception:
+			log.debugWarning("Could not tell which display the focus is on", exc_info=True)
+			return ""
 
 	def _follow(self) -> None:
 		"""Make the band bring its focus changes here, rather than answering them itself."""

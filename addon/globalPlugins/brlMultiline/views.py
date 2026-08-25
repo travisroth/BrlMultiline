@@ -483,6 +483,34 @@ def deviceSegmentKeys(devices: Sequence[DeviceInfo], numCols: int) -> list[str]:
 	return keys
 
 
+def focusDisplayDriver(
+	devices: Sequence[DeviceInfo],
+	numCols: int,
+	focusSegment: int,
+) -> str | None:
+	""":return: which physical display holds the segment that follows the system focus.
+
+	The same numbering `deviceSegmentKeys` hands the settings dialog and the command that
+	moves the focus between displays, so all three agree about which display a stored number
+	means.
+
+	:param devices: the physical displays, in stacking order, top first.
+	:param numCols: the composite's width.
+	:param focusSegment: the stored setting, where -1 means the last segment.
+	:return: the driver name, or None where there is nothing to choose between.
+	"""
+	try:
+		keys = deviceSegmentKeys(devices, numCols)
+	except ValueError:
+		return None
+	if not keys:
+		return None
+	number = focusSegment
+	if number == -1 or not 0 <= number < len(keys):
+		number = len(keys) - 1
+	return driverNameForSegmentKey(keys[number])
+
+
 def deviceBandSegmentRects(device: DeviceInfo, rect: SegmentRect) -> list[SegmentRect]:
 	"""Divide one physical display's rows using that display's own settings.
 

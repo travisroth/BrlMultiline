@@ -357,28 +357,62 @@ class TestChoosingTheBand(unittest.TestCase):
 		rect = self.band.bandRect(devices=[])
 		self.assertEqual((rect.numRows, rect.numCols), (9, 80))
 
-	def test_aCompositeGivesOneMembersBandNotTheWholeRectangle(self):
-		# A Monarch and a Focus 80 driven as one display are nine rows of eighty cells, of
-		# which the Monarch's eight have only thirty-two. Claiming the whole rectangle
-		# reaches forty-eight columns that no hardware has, and is refused outright.
+	def composite(self):
+		""":return: a Monarch above a Focus 80, driven as one nine row display.
+
+		Nine rows of eighty cells, of which the Monarch's eight have only thirty-two.
+		Claiming the whole rectangle reaches forty-eight columns no hardware has.
+		"""
 		from brlMultiline.devices import DeviceInfo
 
-		devices = [
+		return [
 			DeviceInfo(driverName="monarch", rowStart=0, numRows=8, numCols=32),
 			DeviceInfo(driverName="focus", rowStart=8, numRows=1, numCols=80),
 		]
+
+	def focusOn(self, devices, driverName):
+		"""Put the focus segment on one of the displays.
+
+		The index is worked out from the same numbering the settings and the move-the-focus
+		command use, rather than assumed: how many segments each display contributes depends
+		on that display's own settings.
+		"""
+		from brlMultiline.views import deviceSegmentKeys, driverNameForSegmentKey
+
+		keys = deviceSegmentKeys(devices, 80)
+		self.config["focusSegment"] = next(
+			index for index, key in enumerate(keys) if driverNameForSegmentKey(key) == driverName
+		)
+
+	def test_aCompositeGivesOneMembersBandNotTheWholeRectangle(self):
+		devices = self.composite()
+		self.focusOn(devices, "monarch")
 		rect = self.band.bandRect(devices=devices)
 		self.assertEqual((rect.row, rect.col, rect.numRows, rect.numCols), (0, 0, 8, 32))
 
-	def test_theTallestBandWinsBecauseAFlowSpendsRows(self):
-		from brlMultiline.devices import DeviceInfo
-
-		devices = [
-			DeviceInfo(driverName="focus", rowStart=0, numRows=1, numCols=80),
-			DeviceInfo(driverName="monarch", rowStart=1, numRows=8, numCols=32),
-		]
+	def test_itGoesWhereTheFocusIs(self):
+		"""The reader's own finding: with the flow on one display and the focus moved to the
+		other, neither display was any use. The flow's own display could hold nothing else,
+		because the band owned it, and it was not showing what the reader was working in."""
+		devices = self.composite()
+		self.focusOn(devices, "focus")
 		rect = self.band.bandRect(devices=devices)
-		self.assertEqual((rect.row, rect.numRows, rect.numCols), (1, 8, 32))
+		self.assertEqual((rect.row, rect.numRows, rect.numCols), (8, 1, 80))
+
+	def test_movingTheFocusMovesIt(self):
+		devices = self.composite()
+		self.focusOn(devices, "monarch")
+		before = self.band.bandRect(devices=devices)
+		self.focusOn(devices, "focus")
+		self.assertNotEqual(self.band.bandRect(devices=devices), before)
+
+	def test_aNamedDisplayOutranksTheFocus(self):
+		"""Which is what naming one is for: pin the flow here whatever the focus does."""
+		devices = self.composite()
+		self.focusOn(devices, "focus")
+		self.config["flowDisplay"] = "monarch"
+		rect = self.band.bandRect(devices=devices)
+		self.assertEqual((rect.row, rect.numRows, rect.numCols), (0, 8, 32))
 
 	def test_theChosenBandIsAcceptedByTheHardwareCheck(self):
 		# The check that refused the whole display claim on real hardware.
@@ -413,12 +447,14 @@ class TestChoosingTheBand(unittest.TestCase):
 
 	def test_theBandCanBeGivenSomeOfTheRows(self):
 		"""The rows below it keep whatever the segment layout puts there."""
+		self.focusOn([self.MONARCH, self.FOCUS80], "monarch")
 		self.config["flowRows"] = 4
 		rect = self.band.bandRect(devices=[self.MONARCH, self.FOCUS80])
 		self.assertEqual((rect.row, rect.col, rect.numRows, rect.numCols), (0, 0, 4, 32))
 
 	def test_askingForMoreRowsThanTheDisplayHasTakesThemAll(self):
 		"""A setting outliving the hardware it was typed for is ordinary, not an error."""
+		self.focusOn([self.MONARCH, self.FOCUS80], "monarch")
 		self.config["flowRows"] = 20
 		rect = self.band.bandRect(devices=[self.MONARCH, self.FOCUS80])
 		self.assertEqual(rect.numRows, 8)
