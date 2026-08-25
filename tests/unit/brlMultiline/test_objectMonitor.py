@@ -18,6 +18,7 @@ their own bookkeeping.
 """
 
 import unittest
+from types import SimpleNamespace
 
 from ._stubs import (
 	CONFIG,
@@ -44,6 +45,13 @@ from brlMultiline.pinnedRegions import (  # noqa: E402
 	PinnedTextInfoRegion,
 	pinnedCounterpart,
 )
+
+TABLE = [
+	["Symbol", "Last", "Change"],
+	["AAPL", "182.50", "+1.25"],
+	["F", "9.10", "-0.05"],
+	["BRK.B", "402.15", "+3.40"],
+]
 
 MONARCH_ROWS = 8
 MONARCH_COLS = 32
@@ -427,3 +435,93 @@ class TestAPinWithNoRoomToFlow(MonitorTestCase):
 		self.pinDocument()
 		self.assertTrue(self.segment.regions)
 		self.assertIsNone(self.segment.controller)
+
+
+class TestAPinnedTableInColumns(MonitorTestCase):
+	"""A pinned table read in reading order is a pinned table read the way NVDA already reads
+	it. What the reader pinned it for is the shape, and the shape is the columns."""
+
+	segmentCount = 2
+
+	def setUp(self):
+		super().setUp()
+		CONFIG["focusSegment"] = 0
+		self.plugin.rebuildBuffer()
+
+	def pinTable(self, wantsColumns=True):
+		""":return: the monitor on a table, laid out in columns or not."""
+		import api
+
+		from ._stubs import FakeTableDocument
+
+		document = FakeTableDocument(
+			[list(line) for line in TABLE],
+			row=2,
+			col=1,
+			lines=[" ".join(line) for line in TABLE],
+		)
+		api.getNavigatorObject = lambda: FakeNavigatorObject("a page", treeInterceptor=document)
+		self.plugin.startMonitoring(PINNED_SEGMENT)
+		monitor = self.plugin._monitors[PINNED_KEY]
+		monitor.wantsColumns = wantsColumns
+		monitor.refresh()
+		return monitor, document
+
+	def test_aPinnedTableCanBeReadInColumns(self):
+		monitor, _document = self.pinTable()
+		plan = getattr(monitor.controller.renderer, "columnPlan", None)
+		self.assertIsNotNone(plan)
+		self.assertFalse(plan.isEmpty)
+
+	def test_withoutAskingItReadsInOrder(self):
+		"""Which is what the reader met: the table flowed down the row rather than across."""
+		monitor, _document = self.pinTable(wantsColumns=False)
+		plan = getattr(monitor.controller.renderer, "columnPlan", None)
+		self.assertTrue(plan is None or plan.isEmpty)
+
+	def test_changingYourMindRebuildsIt(self):
+		monitor, _document = self.pinTable(wantsColumns=False)
+		monitor.wantsColumns = True
+		monitor.refresh()
+		self.assertFalse(monitor.controller.renderer.columnPlan.isEmpty)
+
+	def test_aRowIsOneBlock(self):
+		"""The difference the reader can feel: a row of the table is a row of the band, not
+		one cell per line down the display."""
+		monitor, _document = self.pinTable()
+		block = monitor.controller.window.blocks[0]
+		held = monitor.controller.blocks.get(block.blockId)
+		self.assertGreater(len(held.region.cells), 1)
+
+	def test_somethingThatIsNotATableFallsBackToReadingOrder(self):
+		"""What the reader asked for was this table in columns, and a table that will not lay
+		out is still worth reading in order."""
+		self.pinDocument()
+		monitor = self.plugin._monitors[PINNED_KEY]
+		monitor.wantsColumns = True
+		monitor.refresh()
+		self.assertIsNotNone(monitor.controller)
+
+	def test_pinningATableAlreadyInColumnsPinsItInColumns(self):
+		"""The reader turned it on and then pinned, and the layout was lost."""
+		import api
+
+		from ._stubs import FakeTableDocument
+
+		document = FakeTableDocument([list(line) for line in TABLE], row=2, col=1)
+		obj = FakeNavigatorObject("a page", treeInterceptor=document)
+		api.getNavigatorObject = lambda: obj
+		self.plugin.flowBand = SimpleNamespace(wantsColumnsFor=lambda pinned: pinned is obj)
+		self.plugin.startMonitoring(PINNED_SEGMENT)
+		self.assertTrue(self.plugin._monitors[PINNED_KEY].wantsColumns)
+
+	def test_pinningOneThatIsNotPinsItInOrder(self):
+		import api
+
+		from ._stubs import FakeTableDocument
+
+		document = FakeTableDocument([list(line) for line in TABLE], row=2, col=1)
+		api.getNavigatorObject = lambda: FakeNavigatorObject("a page", treeInterceptor=document)
+		self.plugin.flowBand = SimpleNamespace(wantsColumnsFor=lambda pinned: False)
+		self.plugin.startMonitoring(PINNED_SEGMENT)
+		self.assertFalse(self.plugin._monitors[PINNED_KEY].wantsColumns)

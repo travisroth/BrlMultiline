@@ -906,6 +906,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("No object to monitor"))
 			return
 		monitor = ObjectMonitor(obj, segment.key)
+		# Pinning a table the reader is already reading in columns pins it in columns. Read
+		# here rather than by the monitor, because the band's request is the band's and is
+		# dropped the moment the reader walks out of the table — which pinning it is often
+		# the prelude to.
+		monitor.wantsColumns = self.flowBand is not None and self.flowBand.wantsColumnsFor(obj)
 		self._monitors[segment.key] = monitor
 		# Through `refreshMonitors` rather than straight to the monitor, so that pinning
 		# while the display is showing speech registers the pin without drawing it.
@@ -952,6 +957,39 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			del self._monitors[key]
 			if container is not None and container.hasKey(key):
 				container.clear(key)
+
+	def layOutPinnedTables(self, wanted: bool, obj) -> int:
+		"""Show or stop showing the pins on one table in columns.
+
+		So that changing your mind reaches the pins as well as the band, without unpinning and
+		pinning again. Only the pins on *this* table: another pin showing another table is not
+		what the reader was talking about.
+
+		:param wanted: whether that table should be read in columns.
+		:param obj: an object in the table, as the reader's own position gives it.
+		:return: how many pins changed.
+		"""
+		from .flowTableSource import sameTable, tableAt
+
+		here = tableAt(obj)
+		if here is None:
+			return 0
+		changed = 0
+		for monitor in list(self._monitors.values()):
+			try:
+				theirs = tableAt(monitor.pinned)
+			except Exception:
+				log.debugWarning("Could not tell what a pin is showing", exc_info=True)
+				continue
+			if theirs is None or not sameTable(theirs.key, here.key):
+				continue
+			if monitor.wantsColumns == wanted:
+				continue
+			monitor.wantsColumns = wanted
+			changed += 1
+		if changed:
+			self.refreshMonitors()
+		return changed
 
 	def refreshMonitors(self, reveal: str | None = None) -> None:
 		"""Redraw every pinned object. Called when a monitored object may have changed.
@@ -1292,7 +1330,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("The flow band is not on the display"))
 			return
 		if band.tableWanted is not None:
+			target = api.getNavigatorObject()
 			band.clearTable()
+			self.layOutPinnedTables(False, target)
 			# Translators: reported when a table stops being laid out in columns.
 			ui.message(_("Table columns off"))
 			return
@@ -1300,6 +1340,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when a command needs the cursor to be in a table.
 			ui.message(_("Not in a table"))
 			return
+		self.layOutPinnedTables(True, api.getNavigatorObject())
 		control = band.controller
 		plan = getattr(getattr(control, "renderer", None), "columnPlan", None)
 		if plan is None:

@@ -241,6 +241,19 @@ are not re-argued.
     The pin drives its flow with `rereadContent`, the same in-place re-read live updating
     uses, so a pinned watchlist keeps up and the reader's panning survives it.
 
+    **A pinned table is read in columns if that is what the reader was already doing with
+    it.** Reading order was what a pin got, which is what NVDA already gives; the shape is
+    what the table was pinned for. The request is a flag of the pin's own rather than a
+    reading of the band's, because the band drops its request the moment the reader leaves
+    the table and pinning it is often the prelude to leaving. It is seeded from the band as
+    the pin is made — `FlowBand.wantsColumnsFor` — and the command carries a change of mind to
+    the pins on the same table, so nothing has to be unpinned to alter it.
+
+    The column layout is tried and falls back rather than failing. What was asked for was
+    *this table* in columns, and a table that will not lay out is still worth reading in
+    order; the same fallback covers a pin outliving its table, where insisting on columns
+    would leave the segment blank instead of showing what is there now.
+
 23. **How many columns share a page is decided by how tall the row becomes, not by how many
     fit across the band.** These are different questions and the second has a much worse
     answer. A bank statement of four columns wanting 10, 8, 24 and 6 cells was laid out at

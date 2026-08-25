@@ -108,7 +108,14 @@ class TestTheCommandItself(TableBandTestCase):
 		from brlMultiline import GlobalPlugin
 
 		spokenMessages.clear()
-		holder = SimpleNamespace(flowBand=self.band)
+		# The pins as well as the band: the command carries a change of mind to the pins on
+		# the same table, and a stand-in without them would not notice if it stopped.
+		holder = SimpleNamespace(
+			flowBand=self.band,
+			_monitors={},
+			refreshMonitors=lambda reveal=None: None,
+		)
+		holder.layOutPinnedTables = GlobalPlugin.layOutPinnedTables.__get__(holder)
 		GlobalPlugin.script_flowTableColumns(holder, None)
 		return list(spokenMessages)
 
@@ -964,6 +971,44 @@ class TestAColumnThatIsEmptyOnlyInTheSample(TableBandTestCase):
 		self.band.recheck()
 		self.band.recheck()
 		self.assertEqual(document.reads, [])
+
+
+class TestWhichTableTheBandIsLayingOut(TableBandTestCase):
+	"""What a pin asks as it is made, so that pinning a table the reader is already reading in
+	columns pins it in columns. The band's own request is dropped the moment they leave the
+	table, and pinning it is often the prelude to leaving."""
+
+	def test_itSaysSoForTheTableItIsLayingOut(self):
+		obj, _document = self._inTable()
+		self.band.layOutTable()
+		self.assertTrue(self.band.wantsColumnsFor(obj))
+
+	def test_notForATableItIsNot(self):
+		obj, _document = self._inTable()
+		self.assertFalse(self.band.wantsColumnsFor(obj))
+
+	def test_notForADifferentTable(self):
+		obj, _document = self._inTable()
+		self.band.layOutTable()
+		other = FakeNavigatorObject(
+			"another page",
+			treeInterceptor=FakeTableDocument(
+				[list(line) for line in WATCHLIST],
+				row=2,
+			),
+		)
+		self.assertFalse(self.band.wantsColumnsFor(other))
+
+	def test_notForSomethingThatIsNotATable(self):
+		self._inTable()
+		self.band.layOutTable()
+		self.assertFalse(self.band.wantsColumnsFor(FakeNavigatorObject("a heading")))
+
+	def test_turningItOffTakesTheAnswerWithIt(self):
+		obj, _document = self._inTable()
+		self.band.layOutTable()
+		self.band.clearTable()
+		self.assertFalse(self.band.wantsColumnsFor(obj))
 
 
 class TestATableThatChangesShape(TableBandTestCase):

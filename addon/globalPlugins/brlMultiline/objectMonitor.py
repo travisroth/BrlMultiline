@@ -113,8 +113,20 @@ class ObjectMonitor:
 		self.controller = None
 		"""The flow reading this pin, when its segment has room for one. See `_asAFlow`."""
 
+		self.wantsColumns = False
+		"""Whether this pin's table is read in columns.
+
+		Set when the pin is made, from whether the reader was already reading that table in
+		columns — see `FlowBand.wantsColumnsFor`. It is a flag of this pin's own rather than a
+		reading of the band's, because the band drops its request the moment the reader leaves
+		the table and a pin is precisely a layout that outlives their being there.
+		"""
+
 		self._builtFor: Optional[tuple[int, int]] = None
 		"""The segment size the controller was built for, since a rebuild may change it."""
+
+		self._builtInColumns = False
+		"""Whether the controller in hand was built in columns, so a change of mind rebuilds."""
 
 		self._lastCells: Optional[list[int]] = None
 		"""What was last written, so an unchanged refresh can leave the display alone."""
@@ -257,29 +269,56 @@ class ObjectMonitor:
 		if size[0] < MIN_FLOW_ROWS or not hasattr(segment, "attach"):
 			self._dropFlow(segment)
 			return False
-		if self.controller is not None and self._builtFor == size:
+		if (
+			self.controller is not None
+			and self._builtFor == size
+			and self._builtInColumns == self.wantsColumns
+		):
 			return True
 		self._dropFlow(segment)
-		from .flowBuild import buildController
-
-		try:
-			control = buildController(
-				obj=self.pinned,
-				numRows=size[0],
-				numCols=size[1],
-				handler=braille.handler,
-				live=False,
-				generation=next(_generations),
-			)
-		except Exception:
-			log.debugWarning(f"Could not read {self.name!r} as a flow", exc_info=True)
-			return False
+		control = self._build(size)
 		if control is None:
 			return False
 		self.controller = control
 		self._builtFor = size
+		self._builtInColumns = self.wantsColumns
 		log.debug(f"Reading the pin on {self.name!r} as a flow in {size[0]} by {size[1]}")
 		return True
+
+	def _build(self, size: tuple):
+		"""Build the flow for this pin, in columns if that is what was asked for.
+
+		The column layout is tried first and falls back rather than failing: what the reader
+		asked for was this table in columns, and a table that will not lay out is still a
+		table worth reading in order. Falling back also covers the pin outliving the table —
+		a page that reloaded under it — where insisting on columns would leave the segment
+		blank rather than showing whatever is there now.
+
+		:param size: the segment's rows and columns.
+		:return: the controller, or None if there is nothing here to read.
+		"""
+		from .flowBuild import buildController, buildTableController
+
+		shape = dict(
+			numRows=size[0],
+			numCols=size[1],
+			handler=braille.handler,
+			live=False,
+			generation=next(_generations),
+		)
+		if self.wantsColumns:
+			try:
+				control = buildTableController(obj=self.pinned, **shape)
+			except Exception:
+				log.debugWarning(f"Could not read {self.name!r} in columns", exc_info=True)
+				control = None
+			if control is not None:
+				return control
+		try:
+			return buildController(obj=self.pinned, **shape)
+		except Exception:
+			log.debugWarning(f"Could not read {self.name!r} as a flow", exc_info=True)
+			return None
 
 	def _refreshFlow(self, container: DisplayContainer, segment, reveal: bool) -> None:
 		"""Read the flow again and draw it, if what it would show has changed.
@@ -321,6 +360,7 @@ class ObjectMonitor:
 			return
 		self.controller = None
 		self._builtFor = None
+		self._builtInColumns = False
 		self._lastCells = None
 		detach = getattr(segment, "detach", None)
 		if detach is not None and getattr(segment, "controller", None) is not None:

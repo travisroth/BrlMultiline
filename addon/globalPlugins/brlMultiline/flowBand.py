@@ -756,6 +756,22 @@ class FlowBand(PanelOwner):
 		self.refresh(force=True)
 		return self.controller is not None and self._readingATable()
 
+	def wantsColumnsFor(self, obj: Any) -> bool:
+		""":return: whether the reader has asked for the table this object is in as columns.
+
+		Asked by a pin as it is made, so that pinning a table the reader is already reading in
+		columns pins it in columns. The band's own request is dropped the moment the reader
+		leaves the table — a layout must not outlive its table — and a pin is exactly a layout
+		that outlives their being there, so the two cannot be one flag. This is how the second
+		is seeded from the first.
+
+		:param obj: the object being pinned.
+		"""
+		if self.tableWanted is None:
+			return False
+		handle = flowTableSource.tableAt(obj)
+		return handle is not None and flowTableSource.sameTable(handle.key, self.tableWanted)
+
 	def clearTable(self) -> bool:
 		"""Go back to reading the table the way the page around it is read.
 
