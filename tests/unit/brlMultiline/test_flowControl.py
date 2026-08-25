@@ -1222,3 +1222,83 @@ class TestReadingTheBandAgain(unittest.TestCase):
 
 		flow.source = NoReReads()
 		self.assertFalse(flow.rereadContent())
+
+
+class TestPanningABandOneRowTall(unittest.TestCase):
+	"""The reader's report: on a one row band, panning "sticks — it tries to scroll forward,
+	but falls back", and the display flickers.
+
+	One row is the case the band was never in until it began following the focus onto a
+	single line display, and it is where panning and following the cursor first disagree: a
+	block two rows tall has a second row the reader can pan to and the cursor never leaves the
+	first."""
+
+	def band(self):
+		""":return: a live one row flow over a document whose first line wraps to two rows."""
+		return controllerOver(
+			["a line long enough to need two rows of this band", "second", "third"],
+			caretIndex=0,
+			numRows=1,
+			numCols=24,
+			live=True,
+		)
+
+	def test_theBlockIsTallerThanTheBand(self):
+		control = self.band()
+		self.assertTrue(control.window.blocks[0].moreRows or len(control.window.blocks[0].rows) > 1)
+
+	def test_panningReachesTheSecondRow(self):
+		control = self.band()
+		before = control.describeRows()
+		self.assertTrue(control.panForward())
+		self.assertNotEqual(control.describeRows(), before)
+
+	def test_followingTheCursorAfterwardsDoesNotUndoIt(self):
+		"""What panning caused must not be what undoes it. Panning a live flow moves the
+		reading position, NVDA reports it back, and the band is asked to show the cursor —
+		whose row is the one that was panned away from."""
+		control = self.band()
+		control.panForward()
+		panned = control.describeRows()
+		control.followCursor()
+		self.assertEqual(control.describeRows(), panned)
+
+	def test_movingTheCaretAfterwardsBringsItBack(self):
+		"""The rule this suspends is right for a caret move: a caret at the bottom of a long
+		paragraph must not be shown by the paragraph's top. It is only wrong when the caret
+		did not move at all, so a caret that does move must find the band waiting."""
+		control = self.band()
+		control.panForward()
+		self.assertTrue(control._panIsTheReadersChoice())
+		control.source.obj.caretOffset = 30
+		control.followCursor()
+		self.assertFalse(control._panIsTheReadersChoice())
+		control.source.obj.caretOffset = 0
+		control.followCursor()
+		self.assertIn("row 1 of 2", control.describeRows()[0])
+
+	def test_leavingTheBlockLetsTheOrdinaryRuleBack(self):
+		"""Once the block is off the band there is nothing of the reader's to protect, and
+		refusing to follow the cursor would be a display stuck showing something else."""
+		control = controllerOver(
+			["first", "second", "third", "fourth"],
+			caretIndex=0,
+			numRows=1,
+			numCols=24,
+			live=True,
+		)
+		# A flow whose reading position does not follow the window, as a table's does not:
+		# there the active block can leave the band while the caret stays where it was.
+		control.movesCursor = False
+		active = control.activeBlockId
+		control.panForward()
+		control.panForward()
+		self.assertFalse(control.window.isVisible(active))
+		self.assertTrue(control.followCursor())
+
+	def test_theHistorySaysWhatHappened(self):
+		"""The instrument the diagnosis needed: pans were not recorded, so a history of six
+		arrivals could not say whether the pans had happened at all."""
+		control = self.band()
+		control.panForward()
+		self.assertTrue(any("panning" in note for note in control.placements))

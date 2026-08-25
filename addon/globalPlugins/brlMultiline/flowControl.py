@@ -196,6 +196,17 @@ class FlowController(PanelOwner):
 		Not a dictionary: a `BlockId` holds a bookmark, and a bookmark compares but does not
 		hash. See `flow.ByIdentity`."""
 
+		self._pannedAt = None
+		"""Where the caret was when the reader last panned, or None if they have not.
+
+		What stops panning being undone by the cursor move panning itself caused. A live flow
+		writes its reading position back as it pans, NVDA reports that position, and the band
+		is asked to show the caret — whose row is the one that was just panned away from. On a
+		band several rows tall the caret's row is usually still on it and nothing happens; on
+		a band one row tall it is never on it, so every pan snapped straight back and the
+		display flickered between the two. See `_panIsTheReadersChoice`.
+		"""
+
 		self._writingTop = None
 		"""The last top block the reader was shown that was not the caret's own. See L{_stableTop}."""
 
@@ -798,11 +809,26 @@ class FlowController(PanelOwner):
 	def _pan(self, forward: bool) -> bool:
 		"""Pan, answering `ContentNeeded` by fetching and trying again.
 
+		Recorded in the move history like everything else that moves the band. It was not,
+		and the omission cost a diagnosis: a reader reported panning that "falls back", the
+		history showed six arrivals and no pans, and there was no way to tell whether the
+		pans had never happened or had happened and been undone. A history that records only
+		half of what moves the band cannot answer the question it exists for.
+
 		:param forward: the direction to pan.
 		:return: whether the window moved.
 		"""
 		with self.operation():
-			return self._panWithin(forward)
+			moved = self._panWithin(forward)
+		if moved:
+			# After the pan, so that the caret this remembers is the one the pan left behind.
+			self._pannedAt = self._caretMark()
+		entry = getattr(getattr(self.window.anchor, "entry", None), "value", "?")
+		self._note(
+			f"the reader panning: {'forward' if forward else 'back'}, "
+			+ (f"moved, now anchored at the {entry}" if moved else "refused, nothing to pan to"),
+		)
+		return moved
 
 	def _panWithin(self, forward: bool) -> bool:
 		""":return: whether the window moved. See `_pan`."""
@@ -1200,6 +1226,9 @@ class FlowController(PanelOwner):
 		"""
 		if self.activeBlockId is None:
 			return False
+		if self._panIsTheReadersChoice():
+			self._note(f"{why}: the reader panned here and has not moved, so nothing moved")
+			return False
 		# The cursor's own row, not the block's first: a paragraph or an edit field taller
 		# than the band would otherwise be brought on by its top while the reader is at the
 		# bottom of it, which is the whole of what "the cursor's row must stay visible" is
@@ -1222,6 +1251,45 @@ class FlowController(PanelOwner):
 		if moved:
 			self.fill()
 		return moved
+
+	def _caretMark(self):
+		""":return: where the caret is, as something two calls can compare.
+
+		The active block and the position within it. Not the row, because the row is what the
+		question is about: a caret that has not moved may be on a row the band no longer
+		shows, and that is exactly the state panning leaves behind.
+		"""
+		if self.activeBlockId is None:
+			return None
+		region = self.regionFor(self.activeBlockId)
+		return (self.activeBlockId, getattr(region, "brailleCursorPos", None))
+
+	def _panIsTheReadersChoice(self) -> bool:
+		"""Whether the window is where the reader panned it and the caret has not moved since.
+
+		Panning within the block the caret is in is the reader deliberately looking at another
+		part of what they are standing in — the rest of a long line, the tail of a paragraph —
+		and following the cursor afterwards would take it back from them. The rule it suspends
+		is right for a *caret move*: a caret at the bottom of a long paragraph must not be
+		shown by the paragraph's top. It is wrong when the caret did not move at all.
+
+		Only while the block is still on the band. Once the reader has left it there is
+		nothing of theirs to protect and the ordinary rule applies again.
+
+		:return: whether to leave the window where it is.
+		"""
+		if self._pannedAt is None:
+			return False
+		try:
+			held = self._pannedAt == self._caretMark() and self.window.isVisible(self.activeBlockId)
+		except LookupError:
+			held = False
+		if not held:
+			# Forgotten rather than merely not matching. A reader who moves away and comes
+			# back to the same place has not re-panned, and a rule that re-engaged on the
+			# way back would leave the band stuck where it was minutes ago.
+			self._pannedAt = None
+		return held
 
 	def _takeCursor(self, blockId: "BlockId") -> bool:
 		"""Move the real cursor to a block, for a live flow.

@@ -321,7 +321,12 @@ class FlowBufferSegment(BrailleBufferSegment):
 			except Exception:
 				log.debugWarning("A flow could not answer a focus change", exc_info=True)
 				return False
-		if self.controller is None:
+		if self.controller is None or not self.spec.hostsSystemFocus:
+			# A flow that is not where the focus belongs must not take it. Every segment is a
+			# flow segment now, so every segment is offered the focus, and a pinned object's
+			# flow answering yes would both swallow NVDA's regions and jump the pin to
+			# wherever the reader happens to be — which is the one place a pin exists not to
+			# follow.
 			return False
 		try:
 			self.controller.enterAtCursor()

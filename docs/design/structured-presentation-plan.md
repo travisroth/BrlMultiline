@@ -216,7 +216,28 @@ are not re-argued.
     flow here whatever the focus does. Failing both, the tallest, because rows are what a flow
     spends.
 
-22. **A pinned object is read as a flow where its segment has room for one.** The other half
+22. **Panning stands until the reader moves.** A live flow writes its reading position back
+    as it pans, NVDA reports that position, and the band is asked to show the caret — whose
+    row is the one that was just panned away from. On a band several rows tall the caret's row
+    is usually still on it and nothing happens. On a band **one row** tall it never is, so
+    every pan snapped straight back and the display flickered between the two. That case
+    arrived with decision 21: the band had never been on a single line display before.
+
+    So a pan is remembered, and following the cursor leaves the window alone while the caret
+    has not moved and the block is still on the band. The rule it suspends is right for a
+    *caret move* — a caret at the bottom of a long paragraph must not be shown by the
+    paragraph's top — and wrong only when the caret did not move at all.
+
+    The memory is **forgotten** rather than merely compared, on the first caret move or the
+    block leaving the band. A reader who moves away and comes back to the same place has not
+    re-panned, and a rule that re-engaged on the way back would leave the band stuck where it
+    was minutes ago.
+
+    Panning is also in the move history now. It was not, and the omission cost a diagnosis:
+    the report showed six arrivals and no pans, and there was no way to tell whether the pans
+    had never happened or had happened and been undone.
+
+23. **A pinned object is read as a flow where its segment has room for one.** The other half
     of decision 21, and the reason the freed display is worth having. A pin is a document, a
     run of objects or a table just as much as the focus is, and it was being shown through
     NVDA's own regions — which for a browse mode document means the one element the cursor
@@ -254,7 +275,7 @@ are not re-argued.
     order; the same fallback covers a pin outliving its table, where insisting on columns
     would leave the segment blank instead of showing what is there now.
 
-23. **How many columns share a page is decided by how tall the row becomes, not by how many
+24. **How many columns share a page is decided by how tall the row becomes, not by how many
     fit across the band.** These are different questions and the second has a much worse
     answer. A bank statement of four columns wanting 10, 8, 24 and 6 cells was laid out at
     7, 7, 7 and 8, which is exactly thirty-two with the gaps: a flawless fit on the axis
@@ -296,7 +317,7 @@ are not re-argued.
     readability", and "if a cell is still at 4+ after it is half the display, we should just
     go one column at a time".
 
-24. **The first column is repeated at the left of every page after the first.** Six columns
+25. **The first column is repeated at the left of every page after the first.** Six columns
     into a watchlist the reader is feeling four numbers with nothing to say whose numbers
     they are, and the symbol that would say so is two page turns back. The column that heads
     the row — the symbol, the criterion, the date — is drawn again at offset zero on each
@@ -734,7 +755,7 @@ is what a setting is for and what a default must not assume.
 No persistence and no pinned headers yet.
 
 **M3d — readability, paging and the repeated column.** BUILT, NOT YET ON HARDWARE.
-Decisions 23 and 24, and the answer to what the reader saw on a 29 column watchlist: eight
+Decisions 24 and 25, and the answer to what the reader saw on a 29 column watchlist: eight
 columns of three cells where "310.34" came out as "3".
 
 `rowsNeeded` is the arithmetic that was missing — how many band rows a cell of a given length
@@ -776,7 +797,7 @@ coordinate, which catches a merged cell — the coordinate raises — and misses
 turned up on the reader's own watchlist. Its leftmost column is icons NVDA cannot read: there
 is a cell, it is simply empty, in the header and in every row. Measured it came to nothing,
 was drawn at `MIN_COLUMN_CELLS` anyway, and cost four cells of a thirty-two cell band on
-every row. Worse, being the *first* column it was what decision 24 pinned to every page, so
+every row. Worse, being the *first* column it was what decision 25 pinned to every page, so
 the thing repeated to say which row the reader was on was a blank.
 
 **And empty in the sample is not the same as empty.** `measure` reads a bounded eight rows,
