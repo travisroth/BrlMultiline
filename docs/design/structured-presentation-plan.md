@@ -212,6 +212,21 @@ are not re-argued.
     rebuilds the display, and the rebuild compares the band's rectangle against the claim in
     force.
 
+    **And a display of one row is left to NVDA.** Everything a flow is for needs a second row
+    to exist at all, and on one row it takes a display NVDA was already doing the same job on
+    and adds two things that are wrong there: a focus mark at the left of the focused item,
+    which on a single line is every line, and an indent spent on depth whose shape cannot be
+    seen. The reader had this by accident until the band began following the focus — it used
+    to take the tallest display and never landed on one row — and reported the focus mark
+    appearing in a tree view the moment it did. `MIN_BAND_ROWS` is the floor, checked before
+    the claim is made so that nothing is taken and given back.
+
+    That moved the request to see a table in columns off the band and onto the plugin. With no
+    band there is nothing to lay out, and the reader still wants to say "this table, in
+    columns" so that pinning it to a display with room carries the layout — which is the whole
+    arrangement they described. A request that lived on the band could not be made when there
+    was no band, and refusing there was refusing the only route they had.
+
     Naming a display in the flow settings still wins, and now means what it says: keep the
     flow here whatever the focus does. Failing both, the tallest, because rows are what a flow
     spends.

@@ -336,6 +336,8 @@ class FakePlugin:
 	def __init__(self, container):
 		self.container = container
 		self.claimed = []
+		self.tableWanted = None
+		"""The request to see a table in columns, which the band reads off its plugin."""
 
 	def activatePanel(self, panel):
 		self.claimed.append(panel.name)

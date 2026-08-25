@@ -11,7 +11,6 @@ the same discipline in the same place.
 """
 
 import unittest
-from types import SimpleNamespace
 
 from ._stubs import (
 	CONFIG,
@@ -40,6 +39,35 @@ WATCHLIST = [
 	["F", "9.10", "-0.05", "-0.5%"],
 	["BRK.B", "402.15", "+3.40", "+0.9%"],
 ]
+
+
+class CommandHolder:
+	"""Enough of the plugin for the table command to be run against a band.
+
+	The request to see a table in columns is the plugin's, not the band's, so this shares the
+	band's own — two stores would let the command and the band disagree about what was asked
+	for, which is the state the command exists to change.
+	"""
+
+	def __init__(self, band, withBand=True):
+		from brlMultiline import GlobalPlugin
+
+		self.band = band
+		self.flowBand = band if withBand else None
+		self._monitors = {}
+		self.layOutPinnedTables = GlobalPlugin.layOutPinnedTables.__get__(self)
+		self._wantTableHere = GlobalPlugin._wantTableHere.__get__(self)
+
+	@property
+	def tableWanted(self):
+		return self.band.plugin.tableWanted
+
+	@tableWanted.setter
+	def tableWanted(self, key):
+		self.band.plugin.tableWanted = key
+
+	def refreshMonitors(self, reveal=None):
+		pass
 
 
 class TableBandTestCase(unittest.TestCase):
@@ -74,6 +102,10 @@ class TableBandTestCase(unittest.TestCase):
 		document.caretIndex = caretIndex
 		obj = FakeNavigatorObject("a page", treeInterceptor=document)
 		self.api.getFocusObject = lambda: obj
+		# And the navigator object, which follows the focus in browse mode. A stub that set
+		# only the focus was less faithful than NVDA and hid a command reading the other one.
+		self.api.getNavigatorObject = lambda: obj
+		self.addCleanup(setattr, self.api, "getNavigatorObject", self.api.getNavigatorObject)
 		self.band._follow()
 		return obj, document
 
@@ -110,13 +142,7 @@ class TestTheCommandItself(TableBandTestCase):
 		spokenMessages.clear()
 		# The pins as well as the band: the command carries a change of mind to the pins on
 		# the same table, and a stand-in without them would not notice if it stopped.
-		holder = SimpleNamespace(
-			flowBand=self.band,
-			_monitors={},
-			refreshMonitors=lambda reveal=None: None,
-		)
-		holder.layOutPinnedTables = GlobalPlugin.layOutPinnedTables.__get__(holder)
-		GlobalPlugin.script_flowTableColumns(holder, None)
+		GlobalPlugin.script_flowTableColumns(CommandHolder(self.band), None)
 		return list(spokenMessages)
 
 	def test_pressingItInATableLaysItOut(self):
@@ -137,12 +163,29 @@ class TestTheCommandItself(TableBandTestCase):
 		said = self._press()
 		self.assertIn("Not in a table", said)
 
-	def test_pressingItWithNoBandSaysSo(self):
+	def test_pressingItWithNoBandStillRecordsTheRequest(self):
+		"""On a one row display there is no band to claim and the reader still wants to say
+		"this table, in columns", so that pinning it to a display with room shows it that
+		way. Refusing here was refusing the only route they have."""
 		from brlMultiline import GlobalPlugin
 
+		obj, _document = self._inTable()
+		holder = CommandHolder(self.band, withBand=False)
 		spokenMessages.clear()
-		GlobalPlugin.script_flowTableColumns(SimpleNamespace(flowBand=None), None)
-		self.assertTrue(spokenMessages)
+		GlobalPlugin.script_flowTableColumns(holder, None)
+		self.assertIsNotNone(holder.tableWanted)
+		self.assertTrue(any("columns on" in message for message in spokenMessages))
+
+	def test_pressingItWithNoBandAndNoTableSaysSo(self):
+		from brlMultiline import GlobalPlugin
+
+		obj = FakeNavigatorObject("a page", treeInterceptor=NoTableDocument())
+		self.api.getFocusObject = lambda: obj
+		self.api.getNavigatorObject = lambda: obj
+		holder = CommandHolder(self.band, withBand=False)
+		spokenMessages.clear()
+		GlobalPlugin.script_flowTableColumns(holder, None)
+		self.assertIn("Not in a table", spokenMessages)
 
 	def test_theBandNeedsSomewhereToDrawRatherThanAFlowAlreadyOnIt(self):
 		"""A band with no flow on it is the case the reader wants this for: a table in a

@@ -48,6 +48,23 @@ from .views import focusDisplayDriver
 from .flowSources import DocumentFlowSource, documentFor
 from .panels import FlowPanel, PanelOwner
 
+MIN_BAND_ROWS = 2
+"""The fewest rows a display must have before a flow is worth claiming it.
+
+Two. Everything a flow is for needs a second row to exist at all — the shape of a document
+under the hand, a table's columns lining up, a run of items to scan down — and on one row it
+takes a display where NVDA was already doing the same job and adds two things that are wrong
+there. The focus mark is drawn at the left of the focused item, which on a single line is
+every line. And the indent is spent on depth the reader cannot see the shape of.
+
+The reader had this by accident until the band began following the focus: the band took the
+tallest display, so it never landed on a single line one. It does now, and a one row display
+is a display NVDA should be left to.
+
+The same number as `objectMonitor.MIN_FLOW_ROWS`, and for the same reason, kept apart because
+a band and a pin are claimed by different code and either could reasonably change.
+"""
+
 LIVE_SETTLE_MILLIS = 250
 """How long the band waits after a document change before reading the table again.
 
@@ -127,16 +144,17 @@ class FlowBand(PanelOwner):
 		place: whether the event reaches us at all is the one thing about this that cannot be
 		felt, and a reader whose prices sit still needs to know which half is not working."""
 
-		self.tableWanted: Any = None
-		"""The table the reader has asked to see in columns, as a document and an identifier.
+		"""The table the reader has asked to see in columns lives on the plugin.
 
-		Both halves, because NVDA's table identifier is only unique within a document — see
-		`flowTableSource.TableHandle.key`.
+		It was this band's, and a one row display moved it: there the band is not claimed at
+		all — see `MIN_BAND_ROWS` — and the reader still wants to be able to say "this table,
+		in columns" so that pinning it to a display with room carries the layout. A request
+		that lived on the band could not be made when there was no band, which is exactly the
+		arrangement the reader described wanting.
 
 		None means every table reads as the page around it does, which is reading order and is
 		the default. See `layOutTable`, and decision 19 of the structured presentation plan:
-		the end state is a layout remembered against a table, and this is the command that
-		exists before that and remains the escape hatch after it.
+		the end state is a layout remembered against a table, and this is one step nearer it.
 		"""
 
 	# The claim.
@@ -158,8 +176,14 @@ class FlowBand(PanelOwner):
 			band that could not be claimed apart from one that has nothing to read yet.
 		"""
 		self.lastError = None
+		rect = self.bandRect()
+		if rect.numRows < MIN_BAND_ROWS:
+			# Before claiming, so that nothing is taken and given back. A one row display is
+			# one NVDA should be left to — see `MIN_BAND_ROWS`.
+			self.lastError = f"a flow needs {MIN_BAND_ROWS} rows and this display has {rect.numRows}"
+			return False
 		try:
-			panel = FlowPanel(BAND_NAME, self.bandRect())
+			panel = FlowPanel(BAND_NAME, rect)
 			self.plugin.activatePanel(panel)
 		except Exception as error:
 			log.error("Could not claim a band for the flow", exc_info=True)
@@ -755,6 +779,15 @@ class FlowBand(PanelOwner):
 		self.tableWanted = handle.key
 		self.refresh(force=True)
 		return self.controller is not None and self._readingATable()
+
+	@property
+	def tableWanted(self) -> Any:
+		""":return: the table the reader asked for in columns, from the plugin that holds it."""
+		return getattr(self.plugin, "tableWanted", None)
+
+	@tableWanted.setter
+	def tableWanted(self, key: Any) -> None:
+		self.plugin.tableWanted = key
 
 	def wantsColumnsFor(self, obj: Any) -> bool:
 		""":return: whether the reader has asked for the table this object is in as columns.

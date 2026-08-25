@@ -124,6 +124,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self.flowBand = None
 		"""The flow claiming part of the display, or None. See L{_applyFlow}."""
 
+		self.tableWanted = None
+		"""The table the reader has asked to see in columns, as a document and an identifier.
+
+		Held here rather than on the band because a one row display has no band and the reader
+		still wants to ask — see `flowBand.MIN_BAND_ROWS`. `FlowBand.tableWanted` reads and
+		writes this, so there is one answer whether or not a band is showing it.
+		"""
+
 		self._applyingFlow = False
 		"""Guards L{_applyFlow} against itself: claiming the band rebuilds the display."""
 
@@ -958,6 +966,27 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			if container is not None and container.hasKey(key):
 				container.clear(key)
 
+	def _wantTableHere(self, obj) -> bool:
+		"""Record that the table an object is in should be read in columns.
+
+		What `FlowBand.layOutTable` does without the half that shows it, for the case where
+		there is nothing to show it in.
+
+		:param obj: the object the reader is on.
+		:return: whether they were in a table.
+		"""
+		from .flowTableSource import tableAt
+
+		try:
+			handle = tableAt(obj)
+		except Exception:
+			log.debugWarning("Could not look for a table to lay out", exc_info=True)
+			return False
+		if handle is None:
+			return False
+		self.tableWanted = handle.key
+		return True
+
 	def layOutPinnedTables(self, wanted: bool, obj) -> int:
 		"""Show or stop showing the pins on one table in columns.
 
@@ -1319,28 +1348,40 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		as the way to say "not this one" and "this one too".
 		"""
 		band = self.flowBand
-		# Claimed, not showing. A band with no flow on it is exactly the case the reader wants
-		# this for: a table in a document whose kind of content the flow settings have turned
-		# off is still a table they can ask for by name, and `FlowBand.refresh` lets a named
-		# table through those settings for that reason. What the command genuinely needs is
-		# somewhere on the display to draw.
-		if band is None or not band.isClaimed:
-			# Translators: reported when a command needs the flow band and it is not on the
-			# display.
-			ui.message(_("The flow band is not on the display"))
-			return
-		if band.tableWanted is not None:
-			target = api.getNavigatorObject()
-			band.clearTable()
+		target = api.getNavigatorObject()
+		if self.tableWanted is not None:
+			if band is not None:
+				band.clearTable()
+			else:
+				self.tableWanted = None
 			self.layOutPinnedTables(False, target)
 			# Translators: reported when a table stops being laid out in columns.
 			ui.message(_("Table columns off"))
+			return
+		# A band with no flow on it is not a reason to refuse: a table in a document whose kind
+		# of content the flow settings have turned off is still a table the reader can ask for
+		# by name, and `FlowBand.refresh` lets a named table through those settings for that
+		# reason. **No band at all is not a reason either.** On a one row display there is no
+		# band to claim, and the reader still wants to say "this table, in columns" so that
+		# pinning it to a display with room carries the layout.
+		if band is None or not band.isClaimed:
+			if not self._wantTableHere(target):
+				# Translators: reported when a command needs the cursor to be in a table.
+				ui.message(_("Not in a table"))
+				return
+			self.layOutPinnedTables(True, target)
+			ui.message(
+				# Translators: reported when a table is asked for in columns while there is no
+				# room on the display to show it, so that pinning it elsewhere shows it that
+				# way.
+				_("Table columns on, for a pinned copy; there is no band to show it here"),
+			)
 			return
 		if not band.layOutTable():
 			# Translators: reported when a command needs the cursor to be in a table.
 			ui.message(_("Not in a table"))
 			return
-		self.layOutPinnedTables(True, api.getNavigatorObject())
+		self.layOutPinnedTables(True, target)
 		control = band.controller
 		plan = getattr(getattr(control, "renderer", None), "columnPlan", None)
 		if plan is None:

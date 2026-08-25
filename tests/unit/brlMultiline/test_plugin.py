@@ -670,10 +670,10 @@ class TestFlowTargetSwitch(PluginTestCase):
 	"""An enabled flow moves when its chosen physical display changes."""
 
 	def makeHandler(self):
-		handler = FakeHandler(9, 80)
+		handler = FakeHandler(12, 80)
 		handler.display = fakeVirtualDisplay(
 			("hidBrailleStandard", 0, 8, 32),
-			("freedomScientific", 8, 1, 80),
+			("freedomScientific", 8, 4, 80),
 		)
 		return handler
 
@@ -686,7 +686,34 @@ class TestFlowTargetSwitch(PluginTestCase):
 		CONFIG["flowDisplay"] = "freedomScientific"
 		self.plugin.rebuildBuffer()
 		self.assertIsNot(self.plugin.flowBand, first)
-		self.assertEqual(self.plugin.flowBand.segment().rect, SegmentRect(8, 0, 1, 80))
+		self.assertEqual(self.plugin.flowBand.segment().rect, SegmentRect(8, 0, 4, 80))
+
+
+class TestASingleRowDisplayIsLeftToNVDA(PluginTestCase):
+	"""Everything a flow is for needs a second row to exist at all, and on one row it takes a
+	display NVDA was already doing the same job on — and adds a focus mark on every line and
+	an indent whose shape cannot be seen. The reader had this by accident until the band began
+	following the focus: it used to take the tallest display and never landed on one row."""
+
+	def makeHandler(self):
+		handler = FakeHandler(9, 80)
+		handler.display = fakeVirtualDisplay(
+			("hidBrailleStandard", 0, 8, 32),
+			("freedomScientific", 8, 1, 80),
+		)
+		return handler
+
+	def test_theBandIsNotClaimedThere(self):
+		CONFIG["flowEnabled"] = True
+		CONFIG["flowDisplay"] = "freedomScientific"
+		self.plugin.rebuildBuffer()
+		self.assertIsNone(self.plugin.flowBand)
+
+	def test_aTallerDisplayStillGetsOne(self):
+		CONFIG["flowEnabled"] = True
+		CONFIG["flowDisplay"] = "hidBrailleStandard"
+		self.plugin.rebuildBuffer()
+		self.assertIsNotNone(self.plugin.flowBand)
 
 
 class TestFlowCostCommand(PluginTestCase):
