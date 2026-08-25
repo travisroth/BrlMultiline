@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from ._stubs import (
 	CONFIG,
 	FakeNavigatorObject,
+	callLaterQueue,
 	FakeTableDocument,
 	NoTableDocument,
 	installStubs,
@@ -413,6 +414,100 @@ class TestTheSymbolStaysUnderTheHand(TableBandTestCase):
 		plan = self.band.columnPlan()
 		self.assertIsNotNone(plan.columnAt(0, 0))
 		self.assertEqual(plan.columnAt(0, 0).index, 1)
+
+
+class TestATableWhoseValuesChange(TableBandTestCase):
+	"""A watchlist during market hours changes under the reader's hand and nothing tells the
+	band. NVDA reports a cell's new value only while the browse mode caret is in that cell,
+	which is the right answer for speech and for a display showing one cell at a time, and no
+	answer at all for a display showing a page of a table at once."""
+
+	def _watching(self):
+		obj, document = self._inTable()
+		self.band.layOutTable()
+		callLaterQueue.pending.clear()
+		return document
+
+	def _counted(self):
+		""":return: a list that grows each time the display is written."""
+		segment = self.band.segment()
+		written = []
+		original = segment.refresh
+		segment.refresh = lambda *args, **kwargs: (written.append(1), original(*args, **kwargs))[1]
+		self.addCleanup(setattr, segment, "refresh", original)
+		return written
+
+	def test_aNewPriceReachesTheBand(self):
+		document = self._watching()
+		before = self.band.controller.cells()
+		document.rows[1][1] = "999.99"
+		self.band._refreshLiveTable()
+		self.assertNotEqual(self.band.controller.cells(), before)
+
+	def test_itIsTheNewPriceThatIsThere(self):
+		document = self._watching()
+		document.rows[1][1] = "999.99"
+		self.band._refreshLiveTable()
+		self.assertIn("999.99", " ".join(self.band.controller.describeRows()))
+
+	def test_theReaderKeepsTheirPlace(self):
+		"""The difference between this and rebuilding. A reader whose hand is on a row wants
+		that row to hold this second's price, not to be moved while the band starts again."""
+		document = self._watching()
+		before = self.band.controller.window.anchor
+		document.rows[1][1] = "999.99"
+		self.band._refreshLiveTable()
+		self.assertEqual(self.band.controller.window.anchor.blockId, before.blockId)
+
+	def test_aTableThatDidNotChangeIsNotWritten(self):
+		"""A display rewritten with identical content under a reading hand is a display that
+		flickers for nothing."""
+		self._watching()
+		written = self._counted()
+		self.band._refreshLiveTable()
+		self.assertEqual(written, [])
+
+	def test_aTableThatDidChangeIsWritten(self):
+		document = self._watching()
+		written = self._counted()
+		document.rows[1][1] = "999.99"
+		self.band._refreshLiveTable()
+		self.assertEqual(len(written), 1)
+
+	def test_eachPassAsksForTheNext(self):
+		self._watching()
+		self.band._refreshLiveTable()
+		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_leavingTheTableEndsTheChain(self):
+		"""The chain ends by itself rather than being stopped from somewhere: nothing else
+		knows when the reader walked out of the table."""
+		self._watching()
+		self.band.clearTable()
+		callLaterQueue.pending.clear()
+		self.band._refreshLiveTable()
+		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_theReaderCanTurnItOff(self):
+		self._watching()
+		CONFIG["flowTableLiveSeconds"] = 0
+		self.band._refreshLiveTable()
+		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_layingATableOutStartsTheChain(self):
+		callLaterQueue.pending.clear()
+		self._inTable()
+		self.band.layOutTable()
+		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_onlyOnePassIsEverPending(self):
+		"""Scheduling from two places at once would double the reading for nothing."""
+		self._watching()
+		self.band._cancelLiveTable()
+		callLaterQueue.pending.clear()
+		self.band._scheduleLiveTable()
+		self.band._scheduleLiveTable()
+		self.assertEqual(len(callLaterQueue.pending), 1)
 
 
 class TestWhatAWideTableCostsToRead(TableBandTestCase):

@@ -493,13 +493,23 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 			typicalWidth=_typicalOf(seen[column]) or widths[column],
 			label=labels[column],
 			labelWidth=headers[column],
-			# A column no sampled row had a cell in, the header row included, is not a column
-			# this table is showing. Given a width it became a phantom: three cells of blank
-			# between two real columns, on every row, for something that is not there. The
-			# caveat is a spanning cell, which looks the same from outside — see the module
-			# docstring on missing cells — so the header row is always sampled, because a
-			# real column has a header even where its body is merged away.
-			hidden=column not in found,
+			# Not a column this table is showing, in either of the two ways that happens.
+			#
+			# The first is a coordinate nothing answers to: a merged cell occupies one and
+			# leaves the others raising, so no sampled row had a cell there at all.
+			#
+			# The second is a column that answers and holds nothing, and it took the reader's
+			# own watchlist to find it. Its leftmost column is icons that NVDA cannot read —
+			# there is a cell, it is simply empty, in the header and in every row. Measured it
+			# came to nothing, was drawn at `MIN_COLUMN_CELLS` anyway, and cost four cells of a
+			# thirty-two cell band on every row for a column with nothing in it. Worse, it is
+			# the *first* column, so it was also what the key column pinned to every page: the
+			# thing repeated to say which row the reader was on was a blank.
+			#
+			# The header row is always sampled, which is what keeps the first test honest: a
+			# spanning cell looks the same from outside, and a real column has a header even
+			# where its body is merged away.
+			hidden=column not in found or widths[column] == 0,
 		)
 		for column in columns
 	]

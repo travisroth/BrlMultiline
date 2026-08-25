@@ -385,6 +385,27 @@ class FlowController(PanelOwner):
 			self._redrawBlocks(list(self.window.blocks), why="a different page of columns")
 		return True
 
+	def rereadContent(self) -> bool:
+		"""Read the blocks on the band again, in place, and draw what comes back.
+
+		The window keeps its place, the blocks keep their identities, and what changes is what
+		the source now says is in them. That is the difference between this and rebuilding:
+		a reader whose hand is on row four wants row four to hold this second's price, not to
+		be moved somewhere while the band starts again.
+
+		Only a source that can be asked for a block by its identity answers — a table can,
+		because a row is named by its number — and everything else is left exactly as it was.
+
+		:return: whether anything was re-read at all. Whether it *changed* is the caller's to
+			decide, by looking at the cells before and after; see `FlowBand._refreshLiveTable`.
+		"""
+		if getattr(self.source, "blockAt", None) is None:
+			return False
+		with self.operation():
+			self._rereadBlocks()
+			self._redrawBlocks(list(self.window.blocks), why="the content changed under the band")
+		return True
+
 	def _rereadBlocks(self) -> None:
 		"""Read every block the band is holding again, keeping its identity.
 

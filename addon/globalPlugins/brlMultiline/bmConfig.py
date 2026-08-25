@@ -103,6 +103,7 @@ configSpec = {
 			"flowTableRowHeight": f"integer(default={flowTable.DEFAULT_MAX_ROWS}, min=1, max={flowTable.MAX_TABLE_ROWS})",
 			"flowTableTruncate": "boolean(default=False)",
 			"flowTablePinKey": "boolean(default=True)",
+			"flowTableLiveSeconds": "integer(default=2, min=0, max=60)",
 			**{
 				flowModeKey(mode): f"boolean(default={FLOW_MODE_DEFAULTS.get(mode, False)})"
 				for mode in FLOW_MODES
@@ -155,6 +156,8 @@ configSpec = {
 - `flowTableTruncate`: whether a cell too long for its column is cut rather than wrapped.
 - `flowTablePinKey`: whether the first column is repeated at the left of every page after
 	the first, so that a reader six columns across a watchlist still knows whose row it is.
+- `flowTableLiveSeconds`: how often a table laid out in columns reads itself again, so that
+	values changing under the reader's hand reach the display. Zero turns it off.
 
 Everything above is read through `config.conf`, which is profile aware, so all of it can
 differ per configuration profile. That matters most for the flow: a profile triggered by
@@ -570,6 +573,32 @@ def shouldPinKeyColumn(displayKey: str | None = None) -> bool:
 	except Exception:
 		log.debugWarning("Could not read flowTablePinKey", exc_info=True)
 		return True
+
+
+def liveTableSeconds(displayKey: str | None = None) -> int:
+	""":return: how often a table laid out in columns reads itself again, in seconds.
+
+	Two by default; zero turns it off.
+
+	A watchlist during market hours changes under the reader's hand and nothing tells the
+	band. NVDA reports a cell's new value only while the browse mode caret is in that cell —
+	the right answer for speech and for a display showing one cell at a time, and no answer at
+	all for a display showing a page of a table at once, where the reader feels a price that
+	was true when they arrived and has no way to know it is not true now.
+
+	Off is worth having for a table that cannot change, and for a document where reading a
+	page of cells every two seconds is more than the reader wants spent. On a table that is
+	not live the pass costs the read and nothing else: the display is only written when the
+	cells came out different.
+
+	See `FlowBand._refreshLiveTable`.
+	"""
+	try:
+		wanted = int(getDisplayConfig(displayKey)["flowTableLiveSeconds"])
+	except Exception:
+		log.debugWarning("Could not read flowTableLiveSeconds", exc_info=True)
+		return 2
+	return max(0, min(wanted, 60))
 
 
 def isSpeechOutputMode() -> bool:

@@ -716,6 +716,29 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Translators: label of a number box in settings, for how often a table laid out in
+		# columns is read again so that changing values reach the display.
+		liveLabel = _("Re-read a table in co&lumns every (seconds, 0 for never):")
+		self.liveTableCtrl = sHelper.addLabeledControl(
+			liveLabel,
+			wx.SpinCtrl,
+			min=0,
+			max=60,
+			initial=int(section["flowTableLiveSeconds"]),
+		)
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the number box above, explaining why
+					# a table needs re-reading at all.
+					"A table whose values change, such as a watchlist during market hours, is "
+					"only reported by NVDA for the cell the cursor is in. This reads the rows "
+					"on the display again so the rest keep up. The display is only rewritten "
+					"when something actually changed.",
+				),
+			),
+		)
 		self._updateRowsHint()
 
 	# Where the band goes.
@@ -845,6 +868,7 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowTableRowHeight"] = self.tableRowsCtrl.Value
 		section["flowTableTruncate"] = self.truncateCtrl.IsChecked()
 		section["flowTablePinKey"] = self.pinKeyCtrl.IsChecked()
+		section["flowTableLiveSeconds"] = self.liveTableCtrl.Value
 
 	def postSave(self):
 		# Claim or give back the band straight away, rather than at the next display event.

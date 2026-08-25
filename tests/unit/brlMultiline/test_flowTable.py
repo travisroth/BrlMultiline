@@ -706,6 +706,41 @@ class TestTheWidthIsChosenForATypicalCell(unittest.TestCase):
 		self.assertEqual(wanted[0].typical, 12)
 
 
+class TestAColumnThatIsNotThere(unittest.TestCase):
+	"""A column of icons NVDA cannot read costs four cells of a thirty-two cell band on every
+	row, and being the first column it was also what the key column pinned to every page."""
+
+	def _withAnEmptyFirstColumn(self):
+		return [Measurement(index=1, width=0, typicalWidth=0, label="", labelWidth=0)] + [
+			Measurement(index=n, width=7, typicalWidth=6, label=f"C{n}", labelWidth=3) for n in range(2, 8)
+		]
+
+	def test_itIsNotDrawn(self):
+		plan = planFor(self._withAnEmptyFirstColumn(), MONARCH_COLS)
+		self.assertNotIn(1, [column.index for column in plan.columns])
+
+	def test_itsCellsGoToTheColumnsThatHaveSomethingInThem(self):
+		empty = planFor(self._withAnEmptyFirstColumn(), MONARCH_COLS)
+		self.assertGreater(len(empty.placements()), 1)
+		self.assertNotIn(1, [place.column.index for place in empty.placements()])
+
+	def test_theKeyColumnIsTheFirstOneWithSomethingInIt(self):
+		"""The thing repeated on every page to say which row this is was a blank."""
+		plan = planFor(self._withAnEmptyFirstColumn(), MONARCH_COLS)
+		self.assertEqual(plan.keyColumn, 2)
+
+	def test_theReportSaysWhichColumnsWereLeftOut(self):
+		"""The one kind of wrongness a reader cannot see: the band looks like a table with
+		fewer columns in it, and nothing says whether that is the table or the layout."""
+		plan = planFor(self._withAnEmptyFirstColumn(), MONARCH_COLS)
+		self.assertEqual(plan.omitted, (1,))
+		self.assertIn("Column 1 holds nothing", describe(plan))
+
+	def test_aTableWithNothingInItIsNotLaidOut(self):
+		nothing = [Measurement(index=n, width=0, label="") for n in range(1, 4)]
+		self.assertIs(planFor(nothing, MONARCH_COLS), READING_ORDER)
+
+
 class TestTheKeyColumnIsRepeated(unittest.TestCase):
 	"""Six columns into a watchlist the reader is feeling four numbers with nothing to say
 	whose numbers they are, and the symbol that would say so is two page turns back."""

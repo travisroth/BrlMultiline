@@ -261,6 +261,22 @@ class TestMeasuringTheColumns(unittest.TestCase):
 		self.assertFalse(measured[0].hidden)
 		self.assertFalse(measured[2].hidden)
 
+	def test_aColumnOfIconsIsNotAColumn(self):
+		"""From the reader's own watchlist: the leftmost column is icons NVDA cannot read.
+		There is a cell, it is simply empty, in the header and in every row — so it answers
+		where a merged cell raises, and it was drawn at the minimum width anyway."""
+		rows = [["", *line[1:]] for line in WATCHLIST]
+		measured = measure(tableAt(FakeFocus(FakeTableDocument(rows, row=1))))
+		self.assertTrue(measured[0].hidden)
+		self.assertFalse(measured[1].hidden)
+
+	def test_aColumnWithOneValueInItIsStillAColumn(self):
+		"""Empty is not the same as mostly empty. A column of flags is blank on most rows."""
+		rows = [["", *line[1:]] for line in WATCHLIST]
+		rows[2][0] = "*"
+		measured = measure(tableAt(FakeFocus(FakeTableDocument(rows, row=1))))
+		self.assertFalse(measured[0].hidden)
+
 	def test_aColumnWithAHeaderAndNoBodyIsStillAColumn(self):
 		"""A spanning cell looks like a missing one from outside, so the header row is always
 		read: a real column has a header even where its body is merged away."""

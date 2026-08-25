@@ -703,6 +703,45 @@ read page four. The second is not new — the page has followed the caret since 
 repeated column makes it more visible, because now there is something on page four worth
 staying for.
 
+**A column can answer and hold nothing, and that is not the same as not being there.** The
+first cut of the phantom-column test asked whether any sampled row had a cell at a
+coordinate, which catches a merged cell — the coordinate raises — and misses the case that
+turned up on the reader's own watchlist. Its leftmost column is icons NVDA cannot read: there
+is a cell, it is simply empty, in the header and in every row. Measured it came to nothing,
+was drawn at `MIN_COLUMN_CELLS` anyway, and cost four cells of a thirty-two cell band on
+every row. Worse, being the *first* column it was what decision 22 pinned to every page, so
+the thing repeated to say which row the reader was on was a blank.
+
+A column whose widest sampled cell is empty is now not drawn, in the measuring and again in
+the arithmetic — the two agree on purpose, since `Measurement.hidden` is what a measurer says
+about a table it can see and the second is `planFor` refusing to spend cells on a column with
+nothing to put in them, whoever measured it. `ColumnPlan.omitted` carries the ones left out
+and the report names them, because a missing column is the one kind of wrongness a reader
+cannot feel: the band looks like a table with fewer columns in it and nothing says whether
+that is the table or the layout.
+
+**A table laid out in columns reads itself again while the reader watches it.** A watchlist
+during market hours changes under the reader's hand and nothing tells the band, so a price
+felt on arrival stayed felt. Half of that is NVDA's and is the right answer to a different
+question: it reports a cell's new value only while the browse mode caret is in that cell,
+which is correct for speech and for a display showing one cell at a time, and no answer at
+all for a display showing a page of a table at once. Half is this add-on's, which held rows
+it had read and had nothing that would read them again.
+
+`FlowController.rereadContent` is the second half, and it is the page-turn machinery under a
+different name: the window keeps its place, the blocks keep their identities, and what
+changes is what the source now says is in them. A reader whose hand is on row four wants row
+four to hold this second's price, not to be moved somewhere while the band starts again.
+`FlowBand._refreshLiveTable` drives it on a timer that reschedules itself, so the chain ends
+by itself when the reader leaves the table, and it writes the display only when the cells
+came out different — the `_settle` pattern, for the same reason.
+
+`flowTableLiveSeconds`, two by default, zero to turn it off. **What is not proven is whether
+re-reading is enough**: it assumes NVDA's virtual buffer holds the new value even where NVDA
+has not reported it, which is what its update handling implies and not what has been watched
+happen. If a re-read comes back with the old price, the buffer itself is stale and the answer
+is a larger one.
+
 **M4 — pinned headers.** The band change. Behind a setting, and last of the display work,
 because it is the only part that disturbs window arithmetic the hardware has already
 signed off.

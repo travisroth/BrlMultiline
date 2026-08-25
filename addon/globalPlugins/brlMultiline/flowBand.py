@@ -47,6 +47,24 @@ from .layout import SegmentRect, wholeDisplayRect
 from .flowSources import DocumentFlowSource, documentFor
 from .panels import FlowPanel, PanelOwner
 
+LIVE_TABLE_MILLIS = 2000
+"""How often a table laid out in columns reads itself again.
+
+A watchlist during market hours changes under the reader's hand and nothing tells the band.
+NVDA reports a cell's new value only while the browse mode caret is in that cell, which is
+the right answer for speech and for a display showing one cell at a time, and no answer at
+all for a display showing thirty-two rows of a table at once: the reader feels a price that
+was true when they arrived.
+
+Two seconds, because that is roughly how often a quote is worth re-reading and it is far
+longer than the read costs — one page of columns across the rows on the band, which is the
+same work as filling the band once. The pass redraws only when the cells actually changed,
+so a table that is not live costs the read and nothing else.
+
+See `bmConfig.liveTableSeconds`, which is the reader's own number and where zero turns this
+off.
+"""
+
 SETTLE_MILLIS = 150
 """How long after a keystroke into an edit the band comes back for a second look.
 
@@ -95,6 +113,9 @@ class FlowBand(PanelOwner):
 
 		self._settleTimer = None
 		"""The pending settle pass, so a fresh keystroke can restart it. See L{_scheduleSettle}."""
+
+		self._liveTableTimer = None
+		"""The pending live-table pass. See L{_scheduleLiveTable}."""
 
 		self.tableWanted: Any = None
 		"""The table the reader has asked to see in columns, as a document and an identifier.
@@ -223,6 +244,57 @@ class FlowBand(PanelOwner):
 		except Exception:
 			log.debugWarning("A flow settle pass failed", exc_info=True)
 
+	def _scheduleLiveTable(self) -> None:
+		"""Arrange to read a table laid out in columns again shortly.
+
+		Only while one is showing, and only one pass is ever pending: the pass itself asks for
+		the next, so the chain ends by itself the moment the reader leaves the table.
+		"""
+		import wx
+
+		if self._liveTableTimer is not None or not self._readingATable():
+			return
+		delay = bmConfig.liveTableSeconds() * 1000
+		if delay <= 0:
+			return
+		try:
+			self._liveTableTimer = wx.CallLater(delay, self._refreshLiveTable)
+		except Exception:
+			log.debugWarning("Could not schedule a live table pass", exc_info=True)
+			self._liveTableTimer = None
+
+	def _refreshLiveTable(self) -> None:
+		"""Read the table's rows again, and redraw if the values moved.
+
+		Modelled on `_settle`, and for the same reason: what decides whether the display is
+		written is whether the cells came out different, not whether the read happened. A
+		display rewritten with identical content under a reading hand is a display that
+		flickers for nothing.
+		"""
+		self._liveTableTimer = None
+		control = self.controller
+		if control is None or not self._readingATable():
+			return
+		try:
+			before = control.cells()
+			control.rereadContent()
+			if control.cells() != before:
+				segment = self.segment()
+				if segment is not None:
+					segment.refresh()
+		except Exception:
+			log.debugWarning("A live table pass failed", exc_info=True)
+		self._scheduleLiveTable()
+
+	def _cancelLiveTable(self) -> None:
+		if self._liveTableTimer is None:
+			return
+		try:
+			self._liveTableTimer.Stop()
+		except Exception:
+			pass
+		self._liveTableTimer = None
+
 	def _cancelSettle(self) -> None:
 		if self._settleTimer is None:
 			return
@@ -235,6 +307,7 @@ class FlowBand(PanelOwner):
 	def stop(self) -> None:
 		"""Give the band back and forget the flow."""
 		self._cancelSettle()
+		self._cancelLiveTable()
 		flowQuickNav.remove()
 		self.controller = None
 		self.obj = None
@@ -509,6 +582,7 @@ class FlowBand(PanelOwner):
 		if self.tableWanted is None:
 			return False
 		self.tableWanted = None
+		self._cancelLiveTable()
 		self.refresh(force=True)
 		return True
 
@@ -727,6 +801,7 @@ class FlowBand(PanelOwner):
 		self.controller = control
 		self.obj = obj
 		segment.attach(control)
+		self._scheduleLiveTable()
 		return True
 
 	def _setInteractiveObject(self, obj: Any, target: Any, regions) -> bool:

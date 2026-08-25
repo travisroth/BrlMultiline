@@ -345,6 +345,15 @@ class ColumnPlan:
 	keyWidth: int = 0
 	"""How wide the repeated copy of `keyColumn` is drawn."""
 
+	omitted: tuple[int, ...] = ()
+	"""The table's numbers for columns that were measured and are not drawn.
+
+	Reported rather than merely skipped, because a missing column is the one kind of wrongness
+	a reader cannot see: the band looks like a table with fewer columns in it, and there is
+	nothing to say whether that is the table or the layout. See `Measurement.hidden` for what
+	puts a column here.
+	"""
+
 	narrowed: tuple[int, ...] = ()
 	"""The table's numbers for columns drawn narrower than their content asked for.
 
@@ -618,12 +627,18 @@ def planFor(
 	:param pinKey: whether to repeat the first column at the left of every later page.
 	:return: the plan, or `READING_ORDER` when there is nothing to lay out.
 	"""
-	wanted = [item for item in measured if not item.hidden]
+	measured = list(measured)
+	# A column asking for no cells is refused here as well as in the measuring, and the two
+	# agree on purpose. `Measurement.hidden` is what a measurer says about a table it can see
+	# — a merged cell, a column of unreadable icons — and this is the arithmetic refusing to
+	# give `MIN_COLUMN_CELLS` to a column with nothing to put in them, whoever measured it.
+	wanted = [item for item in measured if not item.hidden and item.wants > 0]
 	maxRows = max(1, min(maxRows, MAX_TABLE_ROWS))
 	if not wanted or numCols < minWidth:
 		return READING_ORDER
 	targetHeight = max(1, targetHeight)
 	maxWidth = max(minWidth, min(maxWidth, numCols))
+	drawn = {item.index for item in wanted}
 	shape = dict(
 		numCols=numCols,
 		maxRows=maxRows,
@@ -655,6 +670,7 @@ def planFor(
 		assignment=assignment,
 		keyColumn=keyColumn,
 		keyWidth=keyWidth,
+		omitted=tuple(sorted(drawn.symmetric_difference(item.index for item in measured))),
 		narrowed=tuple(item.index for item in wanted if widths[item.index] < item.wants),
 	)
 
@@ -936,13 +952,24 @@ def describe(plan: ColumnPlan) -> str:
 		for place in plan.placements()
 	)
 	notes = []
+	if plan.omitted:
+		short = ", ".join(str(index) for index in plan.omitted)
+		notes.append(f"Column {short} holds nothing the reader can read and is not drawn.")
 	if plan.keyColumn is not None:
 		notes.append(
 			f"Column {plan.keyColumn} is repeated at the left of every page after the first, "
 			f"cut to {plan.keyWidth} cells."
 		)
-	if plan.narrowed:
-		short = ", ".join(str(index) for index in plan.narrowed)
+	# The columns on this page, not every column of the table: a note about column
+	# seventeen, on a page the reader is not looking at, is not a note about what is under
+	# their hands.
+	here = [
+		place.column.index
+		for place in plan.placements()
+		if place.column.index in plan.narrowed and not place.column.pinned
+	]
+	if here:
+		short = ", ".join(str(index) for index in here)
 		what = "cut" if plan.cuts else "wrapped over more rows"
 		notes.append(f"Column {short} is drawn narrower than its content and is {what}.")
 	if plan.numPages > 1:
