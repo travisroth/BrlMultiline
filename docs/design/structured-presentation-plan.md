@@ -218,6 +218,18 @@ are not re-argued.
     to itself and the row pans. That is not a special case in the code — it is the search
     reaching one.
 
+    **Height is counted the way the renderer stacks it.** A plan may pack its columns across
+    more than one row of the band, and each of those lanes is as tall as the tallest cell in it —
+    `flowRender._laidOut` stacks them by their own heights. Taking the tallest column overall
+    under-counts by exactly the lanes it ignores: two lanes of two rows each is four rows on the
+    band, reported as two, and the search then accepted a page it should have refused. `flowTable`
+    walks the packing and sums the lanes, in `_stackedHeight` on the way in and `predictedHeight`
+    on the way out, and the two are deliberately the same arithmetic.
+
+    That also settles what `flowTableRowHeight` is. It is the number of *lanes*, not the height,
+    and the settings label now says so; the height is `targetHeight`, derived from the band. Two
+    numbers that sounded like one is how the miscount survived being read.
+
     Two supporting rules. The width is chosen for a **typical** cell rather than the widest,
     because nine remarks in ten are a few words and the tenth is a paragraph, and planning
     from the widest lays all ten out for the paragraph; the outlier then wraps taller than
@@ -712,6 +724,19 @@ was drawn at `MIN_COLUMN_CELLS` anyway, and cost four cells of a thirty-two cell
 every row. Worse, being the *first* column it was what decision 22 pinned to every page, so
 the thing repeated to say which row the reader was on was a blank.
 
+**And empty in the sample is not the same as empty.** `measure` reads a bounded eight rows,
+so a column blank throughout them is only *tentatively* empty: right for the column of
+unreadable icons, wrong for a column that happens to be blank in the rows that were looked at
+and holds a value further down. Left as a decision that value could never be reached — the
+column is not drawn, arriving at it changes nothing, and the cursor vanishes because the row
+on the band has no cell there.
+
+Proving a column empty needs reading all of it, which a wide table cannot afford. So the band
+asks about the one cell the reader has just arrived at, once, when the caret enters an omitted
+column: a single search, and it answers the only case that matters, because a column nobody
+visits does not need to be drawn. Asked once and not per redraw, which is what made the
+identical-looking bug below so expensive.
+
 **Not drawn is not the same as not known.** Quick navigation to a table lands the caret in its
 first cell, which on this watchlist is one of those icons, and `_tableChangedShape` asked
 `pageOf` — where a column is *drawn*. An undrawn column read as a table that had changed under
@@ -805,6 +830,25 @@ Three rules keep that honest, and each is a decision:
 - **Nothing is re-read while the reader is typing.** Everything moves on every keystroke and
   the block they are in is the one being edited; following that would fight the editor rather
   than follow it. `DocumentFlowSource.writing` already knew.
+
+Four narrower things the same review found, each worth its own line because each is a
+promise that was made and not kept:
+
+- **Every path that shows something starts the chain.** The table path called
+  `_scheduleLiveRead` and the ordinary document path did not, so a reader with a refresh
+  interval set got one on a watchlist laid out in columns and none on the same page read by
+  line. `FlowBand._attach` is now the single door, and it also drops the pass belonging to
+  whatever was being read before.
+- **`liveUpdatesInstalled` answers about a document, not about a dictionary.** The band polls
+  only when the answer is no, so a yes it cannot back up costs the reader their updates
+  silently. It now checks that the method in place is still the one this module installed, and
+  that the document is of the class that was patched — a UIA browse mode document is not.
+- **The pinned header row is read again on a live pass.** It is outside the window on purpose,
+  so the re-read that walks the window's blocks never touched it and a renamed header went on
+  saying what it used to.
+- **The shape check runs on every live pass.** A column appended beyond the page being drawn
+  changes none of the drawn cells, so the pass wrote nothing and the table that grew stayed
+  invisible until something else caused a redraw.
 
 An object run answers none of this and should not: an object has no such thing as "the same
 block, read again" — the objects themselves are the identity, and NVDA's own events say when

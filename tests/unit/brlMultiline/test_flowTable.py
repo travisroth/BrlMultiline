@@ -625,6 +625,46 @@ class TestHeightDecidesHowManyColumnsShareAPage(unittest.TestCase):
 		self.assertGreater(len(loose.placements()), len(tight.placements()))
 
 
+class TestHowTallARowActuallyComesOut(unittest.TestCase):
+	"""A plan may pack its columns across more than one row of the band, and each of those
+	lanes is as tall as the tallest cell in it. Taking the tallest column overall under-counts
+	by exactly the lanes it ignores: two lanes of two rows each is four rows on the band,
+	reported as two, and the search then accepted a page it should have refused."""
+
+	def _twoLanes(self):
+		"""Four columns wanting more cells than one row of the band has."""
+		return [Measurement(index=n, width=20, typicalWidth=20, label="") for n in range(1, 5)]
+
+	def test_theHeightIsTheLanesAddedUp(self):
+		plan = planFor(self._twoLanes(), MONARCH_COLS, maxRows=2, targetHeight=99, pinKey=False)
+		lanes = {place.row for place in plan.placements()}
+		self.assertEqual(len(lanes), 2)
+		self.assertEqual(
+			predictedHeight(plan, self._twoLanes()),
+			sum(
+				max(rowsNeeded(20, place.column.width) for place in plan.placements() if place.row == lane)
+				for lane in lanes
+			),
+		)
+
+	def test_aPlanIsNotAcceptedTallerThanTheTarget(self):
+		"""The reviewer's case: configured for two rows, predicted two, rendered four."""
+		wanted = self._twoLanes()
+		plan = planFor(wanted, MONARCH_COLS, maxRows=2, targetHeight=2, pinKey=False)
+		self.assertLessEqual(predictedHeight(plan, wanted), 2)
+
+	def test_oneLaneIsStillItsOwnHeight(self):
+		wanted = [Measurement(index=1, width=40, typicalWidth=40, label="")]
+		plan = planFor(wanted, MONARCH_COLS, targetHeight=99, pinKey=False)
+		self.assertEqual(predictedHeight(plan, wanted), rowsNeeded(40, MONARCH_COLS))
+
+	def test_cutColumnsAreOneRowPerLane(self):
+		wanted = self._twoLanes()
+		plan = planFor(wanted, MONARCH_COLS, maxRows=2, targetHeight=99, overflow=TRUNCATE, pinKey=False)
+		lanes = len({place.row for place in plan.placements()})
+		self.assertEqual(predictedHeight(plan, wanted), lanes)
+
+
 class TestAColumnOfProse(unittest.TestCase):
 	"""A VPAT remarks column: no arrangement puts it beside anything at a readable width. The
 	reader asked for one column at a time in that case, and the search reaching one is it."""

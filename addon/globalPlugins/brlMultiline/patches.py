@@ -374,13 +374,29 @@ def _replacements() -> dict[str, tuple]:
 	return entries
 
 
-def liveUpdatesInstalled() -> bool:
-	""":return: whether the band is being told when a browse mode document changes.
+def liveUpdatesInstalled(document=None) -> bool:
+	""":return: whether a change to a document would be passed on to the band.
 
-	Asked by the band, which polls only when the answer is no. See
-	`FlowBand.documentChanged`.
+	Asked by the band, which polls only when the answer is no, so answering yes too readily
+	costs the reader their updates and says nothing about it. Two ways it used to:
+
+	- **The method is no longer ours.** Another add-on may have replaced it since, and one
+		that replaced rather than wrapped it does not delegate. Being in `_originals` only
+		says this module once put something there.
+	- **The document is not of the patched class.** Only `VirtualBuffer` is patched, and it
+		is not the only kind of browse mode there is: UIA documents have their own path, and
+		nothing on it reaches here.
+
+	:param document: the document being read, or None to ask only whether the patch is in.
 	"""
-	return "_handleUpdate" in _originals
+	if getattr(_owners.get("_handleUpdate"), "_handleUpdate", None) is not _installedMethods.get(
+		"_handleUpdate",
+	):
+		return False
+	if document is None:
+		return True
+	buffers = _virtualBufferClass()
+	return buffers is not None and isinstance(document, buffers)
 
 
 def install() -> None:

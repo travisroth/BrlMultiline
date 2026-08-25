@@ -307,7 +307,25 @@ class FlowBand(PanelOwner):
 			return wanted * 1000
 		if not bmConfig.shouldFollowLiveContent():
 			return 0
-		return 0 if patches.liveUpdatesInstalled() else LIVE_POLL_MILLIS
+		document = getattr(getattr(self.controller, "source", None), "obj", None)
+		return 0 if patches.liveUpdatesInstalled(document) else LIVE_POLL_MILLIS
+
+	def _attach(self, segment, control) -> None:
+		"""Put a controller on the band and start it being kept up to date.
+
+		Every path that shows something goes through here, which is the point: the table path
+		started the chain and the ordinary document path did not, so a reader with a refresh
+		interval set got one on a watchlist laid out in columns and none on the same page read
+		by line. The promised fallback for a build without the change patch went the same way.
+
+		:param segment: the band's segment.
+		:param control: the controller to show.
+		"""
+		segment.attach(control)
+		# The pending pass belongs to whatever was being read before this. Its delay was
+		# chosen for that content and its first act would be to read this instead.
+		self._cancelLiveRead()
+		self._scheduleLiveRead()
 
 	def _scheduleLiveRead(self, millis: Optional[int] = None) -> None:
 		"""Arrange to read a table laid out in columns again.
@@ -349,9 +367,16 @@ class FlowBand(PanelOwner):
 		control = self.controller
 		if control is None or not self._canReadAgain():
 			return
+		if not self._tableStillFits():
+			# The table changed shape, so the layout is being made again and there is nothing
+			# to compare against. Asked before the re-read rather than after it, because a
+			# re-read of a plan that is about to be thrown away is work for nothing.
+			self._scheduleLiveRead()
+			return
 		self.liveCounts[1] += 1
 		try:
 			before = control.cells()
+			self._rereadPinnedRow()
 			control.rereadContent()
 			if control.cells() != before:
 				self.liveCounts[2] += 1
@@ -361,6 +386,54 @@ class FlowBand(PanelOwner):
 		except Exception:
 			log.debugWarning("A live table pass failed", exc_info=True)
 		self._scheduleLiveRead()
+
+	def _rereadPinnedRow(self) -> None:
+		"""Read the pinned header row again, since it is outside the window.
+
+		`rereadContent` walks the window's blocks and the pinned row is deliberately not one
+		of them, so a header renamed while the reader watched went on saying what it used to.
+		`FlowController.refreshPinned` is not enough on its own: it re-translates the block it
+		is holding, and what is wanted here is a fresh read of the row.
+		"""
+		control = self.controller
+		if control is None or control.pinnedBlock is None:
+			return
+		header = getattr(control.source, "headerBlock", None)
+		if header is None:
+			return
+		try:
+			control.setPinned(header())
+		except Exception:
+			log.debugWarning("Could not read the pinned header row again", exc_info=True)
+
+	def _tableStillFits(self) -> bool:
+		"""Notice a table that changed shape, on a pass that may write nothing.
+
+		The live pass writes the display only when the cells came out different, and a column
+		appended beyond the page being drawn changes none of them — so a table that grew was
+		invisible until something else caused a redraw. The shape questions are the two cheap
+		ones `_tableChangedShape` already asks, and asking them here costs one read of the
+		document's own fields per pass.
+
+		Leaving the table is not this pass's business: `recheck` owns that, and it runs on
+		every redraw.
+
+		:return: whether the layout in force is still a layout of this table.
+		"""
+		if not self._readingATable():
+			return True
+		source = self.controller.source
+		try:
+			found = flowTableSource.tableAt(self._target())
+		except Exception:
+			log.debugWarning("Could not look at the table during a live pass", exc_info=True)
+			return True
+		if found is None or not flowTableSource.sameTable(found.key, self.tableWanted):
+			return True
+		if not self._tableChangedShape(found, source):
+			return True
+		self._rebuildTable()
+		return False
 
 	def _cancelLiveRead(self) -> None:
 		self._liveDelay = 0
@@ -634,7 +707,7 @@ class FlowBand(PanelOwner):
 		self.controller = control
 		self.obj = obj
 		flowQuickNav.forget()
-		segment.attach(control)
+		self._attach(segment, control)
 		return True
 
 	# Tables.
@@ -755,7 +828,41 @@ class FlowBand(PanelOwner):
 		plan = getattr(self.controller.renderer, "columnPlan", None)
 		if plan is None or plan.isEmpty:
 			return False
-		return not plan.knows(found.col)
+		if plan.pageOf(found.col) is not None:
+			return False
+		if found.col not in plan.omitted:
+			# A column the plan never measured. That is a table this layout is not of.
+			return True
+		if (found.row, found.col) == (source.row, source.column):
+			# This cell was asked about when the caret arrived at it, and the answer has not
+			# been made stale by anything the reader did. Asking again on every redraw would
+			# be a search of the document per draw for a column nobody can read.
+			return False
+		return self._omittedColumnHasContent(found)
+
+	def _omittedColumnHasContent(self, found) -> bool:
+		"""Whether a column the layout left out turns out to hold something after all.
+
+		`measure` reads a bounded sample, so a column empty throughout it is only
+		*tentatively* empty — right for the column of unreadable icons the reader met, wrong
+		for a column that happens to be blank in the eight rows that were looked at and holds
+		a value further down. Left as it was, that value could never be reached: the column is
+		not drawn, arriving at it changes nothing, and the cursor vanishes because the row on
+		the band has no cell there.
+
+		Proving a column empty needs reading all of it, which a wide table cannot afford.
+		Asking about the one cell the reader has just arrived at costs a single search and
+		answers the only case that matters, because a column nobody visits does not need to be
+		drawn.
+
+		:param found: the table, at the cell the caret has moved to.
+		:return: whether the layout should be made again.
+		"""
+		try:
+			return flowTableSource.cellHasContent(found, found.row, found.col)
+		except Exception:
+			log.debugWarning("Could not look into a column the layout left out", exc_info=True)
+			return False
 
 	def _showColumn(self, column: int) -> bool:
 		"""Bring the page holding a column onto the band.
@@ -891,8 +998,7 @@ class FlowBand(PanelOwner):
 			return None
 		self.controller = control
 		self.obj = obj
-		segment.attach(control)
-		self._scheduleLiveRead()
+		self._attach(segment, control)
 		return True
 
 	def _setInteractiveObject(self, obj: Any, target: Any, regions) -> bool:

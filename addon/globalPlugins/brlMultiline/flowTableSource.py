@@ -459,6 +459,27 @@ def cellRegion(handle: TableHandle, row: int, column: int, live: bool = False):
 	return region
 
 
+def cellHasContent(handle: TableHandle, row: int, column: int, live: bool = False) -> bool:
+	""":return: whether one cell of a table holds anything the reader could read.
+
+	One cell, deliberately. `measure` reads a bounded sample and a column empty throughout it
+	is left out of the layout, which is right for a column of icons and wrong for a column
+	that happens to be blank in the eight rows that were looked at. Proving the difference
+	needs reading the whole column, which a wide table cannot afford; asking about the one
+	cell the reader has just arrived at costs a single search and answers the only case that
+	matters, because a column nobody visits does not need to be drawn.
+
+	:param handle: the table.
+	:param row: the row to look at.
+	:param column: the column to look at.
+	:param live: whether the region built here may move the reader's cursor. It does not.
+	"""
+	region = cellRegion(handle, row, column, live=live)
+	if region is None:
+		return False
+	return bool((region.rawText or "").strip())
+
+
 def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS) -> list[Measurement]:
 	"""Read a bandful of rows and find out how wide each column needs to be.
 
@@ -474,6 +495,10 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 		from reading.
 	:param sample: how many rows to read.
 	:return: one measurement per column of the table.
+
+	A column found empty here is *tentatively* empty: the sample is bounded, so this cannot
+	prove a column holds nothing anywhere. See `cellHasContent`, which is how the band asks
+	again about the one cell that turns out to matter.
 	"""
 	columns = range(1, handle.numCols + 1)
 	widths: dict[int, int] = {column: 0 for column in columns}

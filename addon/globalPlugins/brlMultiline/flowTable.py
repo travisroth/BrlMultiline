@@ -671,6 +671,7 @@ def planFor(
 	targetHeight = max(1, targetHeight)
 	maxWidth = max(minWidth, min(maxWidth, numCols))
 	drawn = {item.index for item in wanted}
+	overflow = overflow if overflow in OVERFLOW_STYLES else DEFAULT_OVERFLOW
 	shape = dict(
 		numCols=numCols,
 		maxRows=maxRows,
@@ -678,6 +679,7 @@ def planFor(
 		minWidth=minWidth,
 		maxWidth=maxWidth,
 		targetHeight=targetHeight,
+		overflow=overflow,
 	)
 	widths, assignment = _dealIntoPages(wanted, reserve=0, **shape)
 	keyColumn, keyWidth = _keyFor(wanted, numCols, gap, minWidth, pinKey and len(assignment) > 1)
@@ -692,7 +694,7 @@ def planFor(
 				index=item.index,
 				width=widths[item.index],
 				label=item.label,
-				overflow=overflow if overflow in OVERFLOW_STYLES else DEFAULT_OVERFLOW,
+				overflow=overflow,
 			)
 			for item in wanted
 		),
@@ -747,6 +749,7 @@ def _dealIntoPages(
 	minWidth: int,
 	maxWidth: int,
 	targetHeight: int,
+	overflow: str,
 ) -> tuple[dict, tuple[tuple[int, ...], ...]]:
 	"""Walk the columns left to right, filling one page at a time.
 
@@ -762,6 +765,7 @@ def _dealIntoPages(
 	:param minWidth: the narrowest a column may be drawn.
 	:param maxWidth: the widest.
 	:param targetHeight: how tall a table row may be before a page gives up a column.
+	:param overflow: what becomes of a cell too long for its column.
 	:return: every column's width, and which columns are on which page.
 	"""
 	widths: dict = {}
@@ -769,7 +773,9 @@ def _dealIntoPages(
 	rest = list(wanted)
 	while rest:
 		room = numCols if not assignment else max(minWidth, numCols - reserve)
-		take, chosen = _howManyFit(rest, room, numCols, maxRows, gap, minWidth, maxWidth, targetHeight)
+		take, chosen = _howManyFit(
+			rest, room, numCols, maxRows, gap, minWidth, maxWidth, targetHeight, overflow
+		)
 		widths.update(chosen)
 		assignment.append(tuple(item.index for item in rest[:take]))
 		rest = rest[take:]
@@ -785,6 +791,7 @@ def _howManyFit(
 	minWidth: int,
 	maxWidth: int,
 	targetHeight: int,
+	overflow: str,
 ) -> tuple[int, dict]:
 	"""How many of the columns still to place go on this page.
 
@@ -806,17 +813,19 @@ def _howManyFit(
 	:param minWidth: the narrowest a column may be drawn.
 	:param maxWidth: the widest.
 	:param targetHeight: how tall a table row may be before a page gives up a column.
+	:param overflow: what becomes of a cell too long for its column.
 	:return: how many columns to take, and the widths for them.
 	"""
 	widths: dict = {}
 	for take in range(len(rest), 0, -1):
 		items = rest[:take]
 		widths = _fitWidths(items, _budgetFor(room, numCols, maxRows, take, gap), minWidth, maxWidth)
-		if not _placeable([widths[item.index] for item in items], room, numCols, maxRows, gap):
+		height = _stackedHeight(items, widths, room, numCols, maxRows, gap, overflow)
+		if height is None:
 			continue
 		if take == 1:
 			return 1, widths
-		if max(rowsNeeded(item.typical, widths[item.index]) for item in items) <= targetHeight:
+		if height <= targetHeight:
 			return take, widths
 	# Nothing was placeable, not even one column: it is wider than the band. Draw it at the
 	# band's width and let it wrap, which is what a column wider than the display has to do.
@@ -841,28 +850,52 @@ def _budgetFor(room: int, numCols: int, maxRows: int, count: int, gap: int) -> i
 	return max(0, room + numCols * max(0, maxRows - 1) - gap * max(0, count - 1))
 
 
-def _placeable(sizes: Sequence[int], room: int, numCols: int, maxRows: int, gap: int) -> bool:
-	"""Whether columns of these widths actually go on the band, in this order.
+def _stackedHeight(
+	items: Sequence[Measurement],
+	widths: dict,
+	room: int,
+	numCols: int,
+	maxRows: int,
+	gap: int,
+	overflow: str,
+) -> Optional[int]:
+	"""How tall a row of these columns actually comes out, or None if they do not fit.
 
-	The budget is an upper bound and a sum that fits can still fail to pack — three columns
-	of eleven cells on a thirty-two cell row is thirty-three with the gaps. So the packing is
-	walked, exactly as `ColumnPlan._placePage` walks it.
+	**Lane by lane, and summed.** A plan may pack its columns across more than one row of the
+	band, and each of those lanes is as tall as the tallest cell in it — `flowRender._laidOut`
+	stacks them by their own heights, which is what stops a wrapped cell being written through
+	by the lane below. Taking the tallest column overall was the first cut of this and it
+	under-counts by exactly the lanes it ignores: two lanes of two rows each is four rows on
+	the band, reported as two.
 
-	:param sizes: the widths, in drawing order.
-	:param room: cells on the first band row.
+	The packing is walked rather than derived from a sum, for the same reason
+	`ColumnPlan._placePage` walks it: a total that fits can still fail to pack, since three
+	columns of eleven cells on a thirty-two cell row is thirty-three with the gaps.
+
+	:param items: the columns, in drawing order.
+	:param widths: column number to width.
+	:param room: cells on the first band row, which a pinned key column has taken from.
 	:param numCols: cells on the rest.
-	:param maxRows: how many band rows one table row may use.
+	:param maxRows: how many lanes the columns may be packed into.
 	:param gap: cells between columns.
-	:return: whether they all fit.
+	:param overflow: what becomes of a cell too long for its column. A cut one is always one
+		row, however much it holds.
+	:return: the height in band rows, or None if these columns do not fit.
 	"""
+	lanes: list[int] = []
 	row, offset, limit = 0, 0, room
-	for width in sizes:
+	for item in items:
+		width = widths[item.index]
 		if offset and offset + width > limit:
 			row, offset, limit = row + 1, 0, numCols
 		if row >= maxRows or offset + width > limit:
-			return False
+			return None
+		while len(lanes) <= row:
+			lanes.append(1)
+		tall = 1 if overflow == TRUNCATE else rowsNeeded(item.typical, width)
+		lanes[row] = max(lanes[row], tall)
 		offset += width + gap
-	return True
+	return sum(lanes) if lanes else 1
 
 
 def _fitWidths(items: Sequence[Measurement], budget: int, minWidth: int, maxWidth: int) -> dict:
@@ -955,18 +988,23 @@ def predictedHeight(plan: ColumnPlan, measured: Iterable[Measurement]) -> int:
 	For the report, and for a test that wants the number the search was aiming at rather than
 	a rendering to count the rows of. A truncated column is one row whatever it holds.
 
+	Lane by lane and summed, because that is how the rows actually stack — see
+	`_stackedHeight`, which is the same arithmetic on the way in.
+
 	:param plan: the layout, on the page being asked about.
 	:param measured: what was found in the table.
 	:return: the height in band rows, at least one.
 	"""
 	typical = {item.index: item.typical for item in measured}
-	heights = [
-		1
-		if place.column.overflow == TRUNCATE
-		else rowsNeeded(typical.get(place.column.index, 0), place.column.width)
-		for place in plan.placements()
-	]
-	return max(heights or [1])
+	lanes: dict[int, int] = {}
+	for place in plan.placements():
+		tall = (
+			1
+			if place.column.overflow == TRUNCATE
+			else rowsNeeded(typical.get(place.column.index, 0), place.column.width)
+		)
+		lanes[place.row] = max(lanes.get(place.row, 1), tall)
+	return sum(lanes.values()) if lanes else 1
 
 
 def describe(plan: ColumnPlan) -> str:

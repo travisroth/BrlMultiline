@@ -1012,8 +1012,9 @@ class TestPatchOwnership(PluginTestCase):
 		def theirs(handler, *args, **kwargs):
 			pass
 
+		owner = patches._owners.get(name, BrailleHandler)
 		self.addCleanup(self.restore, name, patches._originals[name])
-		setattr(BrailleHandler, name, theirs)
+		setattr(owner, name, theirs)
 		return theirs
 
 	def test_theDocumentChangePatchTellsTheBand(self):
@@ -1045,6 +1046,24 @@ class TestPatchOwnership(PluginTestCase):
 
 	def test_liveUpdatesReportThemselvesAsInstalled(self):
 		self.assertTrue(patches.liveUpdatesInstalled())
+
+	def test_aDocumentOfThePatchedKindIsCovered(self):
+		import virtualBuffers
+
+		self.assertTrue(patches.liveUpdatesInstalled(virtualBuffers.VirtualBuffer()))
+
+	def test_aDocumentOfAnotherKindIsNot(self):
+		"""Only `VirtualBuffer` is patched, and it is not the only kind of browse mode there
+		is. Saying yes for a UIA document would cost that reader their updates and say nothing
+		about it, because the band polls only when the answer is no."""
+		self.assertFalse(patches.liveUpdatesInstalled(object()))
+
+	def test_aMethodThatIsNoLongerOursIsNotCovered(self):
+		"""Another add-on may have replaced it since, and one that replaced rather than
+		wrapped it does not delegate. Being in `_originals` only says this module once put
+		something there."""
+		self.somebodyElseTakesOver("_handleUpdate")
+		self.assertFalse(patches.liveUpdatesInstalled())
 
 	def test_everyPatchIsInstalled(self):
 		for name, (owner, replacement) in patches._replacements().items():

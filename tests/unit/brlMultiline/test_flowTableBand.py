@@ -529,7 +529,7 @@ class TestATableWhoseValuesChange(TableBandTestCase):
 		import brlMultiline.patches as patches
 
 		original = patches.liveUpdatesInstalled
-		patches.liveUpdatesInstalled = lambda: installed
+		patches.liveUpdatesInstalled = lambda document=None: installed
 		self.addCleanup(setattr, patches, "liveUpdatesInstalled", original)
 
 	def _counted(self):
@@ -739,6 +739,83 @@ class TestBeingToldThatTheDocumentChanged(TableBandTestCase):
 		self.assertEqual(self.band.liveCounts, [1, 1, 1])
 
 
+class TestKeepingUpWithoutATable(TableBandTestCase):
+	"""Every path that shows something starts the chain, not only the table path. A reader
+	with a refresh interval set got one on a watchlist laid out in columns and none on the
+	same page read by line, and the promised fallback went the same way."""
+
+	def _readingThePage(self):
+		"""Show the page the ordinary way, by line, with no column layout on it."""
+		self._inTable()
+		callLaterQueue.pending.clear()
+		self.assertTrue(self.band.refresh(force=True))
+
+	def test_anOrdinaryDocumentGetsItsTimer(self):
+		CONFIG["flowLiveSeconds"] = 5
+		self._readingThePage()
+		self.assertEqual([timer.milliseconds for timer in callLaterQueue.pending], [5000])
+
+	def test_theFallbackStartsForOneToo(self):
+		"""Zero means wait to be told, and the fallback is what makes that safe."""
+		CONFIG["flowLiveSeconds"] = 0
+		self._readingThePage()
+		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_showingSomethingElseDoesNotLeaveTheOldPassPending(self):
+		"""Its delay was chosen for what was being read before, and its first act would be to
+		read this instead."""
+		self._readingThePage()
+		self.assertEqual(len(callLaterQueue.pending), 1)
+		self.band.layOutTable()
+		self.assertEqual(len(callLaterQueue.pending), 1)
+
+
+class TestNoticingAChangeThatWritesNothing(TableBandTestCase):
+	"""The live pass writes the display only when the cells came out different, and a column
+	appended beyond the page being drawn changes none of them — so a table that grew was
+	invisible until something else caused a redraw."""
+
+	def test_aColumnAppearingIsNoticedByALivePass(self):
+		obj, document = self._inTable()
+		self.band.layOutTable()
+		before = len(self.band.columnPlan().columns)
+		for line in document.rows:
+			line.append("new")
+		self.band._refreshLiveContent()
+		self.assertEqual(len(self.band.columnPlan().columns), before + 1)
+
+	def test_aTableThatDidNotChangeIsNotRebuiltByOne(self):
+		self._inTable()
+		self.band.layOutTable()
+		plan = self.band.columnPlan()
+		self.band._refreshLiveContent()
+		self.assertIs(self.band.columnPlan(), plan)
+
+
+class TestThePinnedHeaderKeepsUpToo(TableBandTestCase):
+	"""It is outside the window, so the re-read that walks the window's blocks never touched
+	it: a header renamed while the reader watched went on saying what it used to."""
+
+	def test_aRenamedHeaderReachesThePinnedRow(self):
+		obj, document = self._inTable()
+		self.band.layOutTable()
+		self.assertIn("Symbol", self.band.controller.describeRows()[0])
+		document.rows[0][0] = "Ticker"
+		self.band._refreshLiveContent()
+		self.assertIn("Ticker", self.band.controller.describeRows()[0])
+
+	def test_anUnchangedHeaderIsNotWritten(self):
+		self._inTable()
+		self.band.layOutTable()
+		segment = self.band.segment()
+		written = []
+		original = segment.refresh
+		segment.refresh = lambda *args, **kwargs: (written.append(1), original(*args, **kwargs))[1]
+		self.addCleanup(setattr, segment, "refresh", original)
+		self.band._refreshLiveContent()
+		self.assertEqual(written, [])
+
+
 class TestWhatAWideTableCostsToRead(TableBandTestCase):
 	"""Every cell is a search of the document. A twenty-nine column table read four columns
 	to a page was searching for twenty-five columns nobody was looking at, per row, forever."""
@@ -823,6 +900,70 @@ class TestTheCaretInAColumnThatIsNotDrawn(TableBandTestCase):
 		document.col = document.numCols + 1
 		self.band.recheck()
 		self.assertIsNot(self.band.columnPlan(), plan)
+
+
+class TestAColumnThatIsEmptyOnlyInTheSample(TableBandTestCase):
+	"""Measuring reads a bounded sample, so a column empty throughout it is only tentatively
+	empty. Left as a decision, a value further down the column could never be reached: the
+	column is not drawn, arriving at it changed nothing, and the cursor vanished because the
+	row on the band had no cell there."""
+
+	def _sparse(self, valueRow=11, col=1):
+		"""A column blank in the header and in every sampled row, with a value further down."""
+		header = ["", "Last", "Change", "%Chg"]
+		body = [["", f"{n}.00", f"+{n}", f"+{n}%"] for n in range(1, 20)]
+		body[valueRow - 2][0] = "IMPORTANT"
+		return self._inTable(rows=[header, *body], row=1, col=col)
+
+	def test_theSampleLeavesItOut(self):
+		"""Which is right for what the sample saw, and is where the trouble starts."""
+		self._sparse()
+		self.band.layOutTable()
+		self.assertIn(1, self.band.columnPlan().omitted)
+
+	def test_reachingTheValueBringsTheColumnBack(self):
+		obj, document = self._sparse()
+		self.band.layOutTable()
+		document.row, document.col = 11, 1
+		self.band.recheck()
+		self.assertIsNotNone(self.band.columnPlan().pageOf(1))
+
+	def test_theValueIsThenOnTheBand(self):
+		obj, document = self._sparse()
+		self.band.layOutTable()
+		document.row, document.col = 11, 1
+		self.band.recheck()
+		self.assertIn("IMPORTANT", " ".join(self.band.controller.describeRows()))
+
+	def test_theCursorComesBackWithIt(self):
+		"""The symptom that would have been felt: no cell there, so no cursor."""
+		obj, document = self._sparse()
+		self.band.layOutTable()
+		document.row, document.col = 11, 1
+		self.band.recheck()
+		self.assertIsNotNone(self.band.controller.cursorCell())
+
+	def test_anEmptyCellStillLeavesTheLayoutAlone(self):
+		"""The column of unreadable icons the reader actually has. Rebuilding for it is what
+		left the band unable to pan."""
+		obj, document = self._sparse()
+		self.band.layOutTable()
+		plan = self.band.columnPlan()
+		document.row, document.col = 4, 1
+		self.band.recheck()
+		self.assertIs(self.band.columnPlan(), plan)
+
+	def test_sittingInAnEmptyCellIsAskedAboutOnce(self):
+		"""Asking again on every redraw would be a search of the document per draw for a
+		column nobody can read."""
+		obj, document = self._sparse()
+		self.band.layOutTable()
+		document.row, document.col = 4, 1
+		self.band.recheck()
+		document.reads.clear()
+		self.band.recheck()
+		self.band.recheck()
+		self.assertEqual(document.reads, [])
 
 
 class TestATableThatChangesShape(TableBandTestCase):

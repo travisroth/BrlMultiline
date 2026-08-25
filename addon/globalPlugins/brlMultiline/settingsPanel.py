@@ -659,8 +659,8 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			),
 		)
 		# Translators: label of a number box in settings, for how many rows of the braille
-		# display one row of a table may use when a table is laid out in columns.
-		tableRowsLabel = _("Rows of the display one &table row may use:")
+		# display a table's columns may be spread across when a table is laid out in columns.
+		tableRowsLabel = _("Rows of the display to spread a &table's columns across:")
 		self.tableRowsCtrl = sHelper.addLabeledControl(
 			tableRowsLabel,
 			wx.SpinCtrl,
@@ -675,8 +675,9 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 					# Translators: shown in settings under the number box above, explaining
 					# the trade it makes.
 					"One row means more records on the display at once, which is what makes a "
-					"table worth reading spatially, and narrower columns. Raise it when a "
-					"column you need whole is being cut.",
+					"table worth reading spatially, and narrower columns. Raise it to fit more "
+					"columns onto a page at readable widths, at the cost of fewer records "
+					"under your hands.",
 				),
 			),
 		)
