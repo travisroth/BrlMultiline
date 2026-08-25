@@ -269,6 +269,11 @@ class ObjectMonitor:
 		if size[0] < MIN_FLOW_ROWS or not hasattr(segment, "attach"):
 			self._dropFlow(segment)
 			return False
+		if self.controller is not None and self._tableHasGrown():
+			# The plan is of a table that no longer exists: its widths were measured from the
+			# columns that were there and it has no page for one that has arrived. Read the
+			# whole thing again, which for a pin means building it again.
+			self._dropFlow(segment)
 		if (
 			self.controller is not None
 			and self._builtFor == size
@@ -320,6 +325,40 @@ class ObjectMonitor:
 			log.debugWarning(f"Could not read {self.name!r} as a flow", exc_info=True)
 			return None
 
+	def _tableHasGrown(self) -> bool:
+		""":return: whether the table this pin is showing has gained a column.
+
+		Asked of the source's own handle rather than of the reader's position, because the
+		reader has gone somewhere else — which is what the pin is for. The band's shape check
+		cannot be used here for exactly that reason.
+		"""
+		grown = getattr(getattr(self.controller, "source", None), "hasGrown", None)
+		if grown is None:
+			return False
+		try:
+			return bool(grown())
+		except Exception:
+			log.debugWarning(f"Could not check the shape of the table on {self.name!r}", exc_info=True)
+			return False
+
+	def _rereadPinnedRow(self) -> None:
+		"""Read this pin's header row again, since it is outside the window.
+
+		`rereadContent` walks the window's blocks and the pinned row is deliberately not one
+		of them, so a header renamed under the pin went on saying what it used to. The band
+		learnt this a few commits ago and the pin did not.
+		"""
+		control = self.controller
+		if control is None or getattr(control, "pinnedBlock", None) is None:
+			return
+		header = getattr(control.source, "headerBlock", None)
+		if header is None:
+			return
+		try:
+			control.setPinned(header())
+		except Exception:
+			log.debugWarning(f"Could not read the header row on {self.name!r} again", exc_info=True)
+
 	def _refreshFlow(self, container: DisplayContainer, segment, reveal: bool) -> None:
 		"""Read the flow again and draw it, if what it would show has changed.
 
@@ -336,6 +375,12 @@ class ObjectMonitor:
 		control = self.controller
 		try:
 			before = control.cells()
+			self._rereadPinnedRow()
+			if control.hasMoreToFetch:
+				# The pin ran out of budget last time. Its refresh tick is the continuation
+				# pass the band gets from a timer of its own — the same bargain, on a clock
+				# that is already ticking.
+				control.fill()
 			control.rereadContent()
 			cells = control.cells()
 		except Exception:

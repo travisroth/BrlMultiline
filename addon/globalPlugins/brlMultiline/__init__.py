@@ -31,6 +31,7 @@ from scriptHandler import script
 
 from . import bmConfig, panning, patches
 from .container import DisplayContainer
+from .flowTableSource import wantsColumns
 from . import devices as devicesModule
 from .devices import DeviceInfo, configuredMembers, deviceMap, resolveDisplaySegment
 from .layout import SegmentRect
@@ -914,11 +915,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("No object to monitor"))
 			return
 		monitor = ObjectMonitor(obj, segment.key)
-		# Pinning a table the reader is already reading in columns pins it in columns. Read
-		# here rather than by the monitor, because the band's request is the band's and is
-		# dropped the moment the reader walks out of the table — which pinning it is often
-		# the prelude to.
-		monitor.wantsColumns = self.flowBand is not None and self.flowBand.wantsColumnsFor(obj)
+		# Pinning a table the reader is already reading in columns pins it in columns. Asked
+		# of the request rather than of the band, because a one row display has no band and
+		# that is exactly the arrangement this exists for: ask for columns on the Focus, pin
+		# the table to the Monarch, read it there. Going through the band meant the answer
+		# was always no in the one case it was built for.
+		monitor.wantsColumns = wantsColumns(self.tableWanted, obj)
 		self._monitors[segment.key] = monitor
 		# Through `refreshMonitors` rather than straight to the monitor, so that pinning
 		# while the display is showing speech registers the pin without drawing it.
@@ -965,6 +967,24 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			del self._monitors[key]
 			if container is not None and container.hasKey(key):
 				container.clear(key)
+
+	def _inAnotherTable(self, obj) -> bool:
+		""":return: whether the reader is in a table other than the one already asked for.
+
+		False when they are in the one asked for, and false when they are in no table at all,
+		which is what makes pressing the command outside a table the way to clear a request
+		left behind.
+
+		:param obj: the object the reader is on.
+		"""
+		from .flowTableSource import tableAt
+
+		try:
+			handle = tableAt(obj)
+		except Exception:
+			log.debugWarning("Could not look for the table the reader is in", exc_info=True)
+			return False
+		return handle is not None and not wantsColumns(self.tableWanted, obj)
 
 	def _wantTableHere(self, obj) -> bool:
 		"""Record that the table an object is in should be read in columns.
@@ -1349,7 +1369,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""
 		band = self.flowBand
 		target = api.getNavigatorObject()
-		if self.tableWanted is not None:
+		# Off only when the request is about where the reader is standing, or when they are
+		# not in a table at all — pressing it outside one is how a request left behind is
+		# cleared. Pressing it in a *different* table means that table, not this one off: with
+		# no band nothing drops the old request, so the press that should have laid out the
+		# second table was turning the first one off instead.
+		if self.tableWanted is not None and not self._inAnotherTable(target):
 			if band is not None:
 				band.clearTable()
 			else:

@@ -18,7 +18,6 @@ their own bookkeeping.
 """
 
 import unittest
-from types import SimpleNamespace
 
 from ._stubs import (
 	CONFIG,
@@ -502,8 +501,8 @@ class TestAPinnedTableInColumns(MonitorTestCase):
 		monitor.refresh()
 		self.assertIsNotNone(monitor.controller)
 
-	def test_pinningATableAlreadyInColumnsPinsItInColumns(self):
-		"""The reader turned it on and then pinned, and the layout was lost."""
+	def _atATable(self):
+		""":return: an object standing in a table, as the navigator object."""
 		import api
 
 		from ._stubs import FakeTableDocument
@@ -511,17 +510,86 @@ class TestAPinnedTableInColumns(MonitorTestCase):
 		document = FakeTableDocument([list(line) for line in TABLE], row=2, col=1)
 		obj = FakeNavigatorObject("a page", treeInterceptor=document)
 		api.getNavigatorObject = lambda: obj
-		self.plugin.flowBand = SimpleNamespace(wantsColumnsFor=lambda pinned: pinned is obj)
+		return obj
+
+	def test_pinningATableAlreadyInColumnsPinsItInColumns(self):
+		"""The reader turned it on and then pinned, and the layout was lost."""
+		from brlMultiline.flowTableSource import tableAt
+
+		obj = self._atATable()
+		self.plugin.tableWanted = tableAt(obj).key
+		self.plugin.startMonitoring(PINNED_SEGMENT)
+		self.assertTrue(self.plugin._monitors[PINNED_KEY].wantsColumns)
+
+	def test_itDoesNotGoThroughTheBand(self):
+		"""The band is where this used to be asked, and a one row display has none — which is
+		the one arrangement the whole thing was built for: ask on the Focus, pin on the
+		Monarch, read it there."""
+		from brlMultiline.flowTableSource import tableAt
+
+		obj = self._atATable()
+		self.plugin.flowBand = None
+		self.plugin.tableWanted = tableAt(obj).key
 		self.plugin.startMonitoring(PINNED_SEGMENT)
 		self.assertTrue(self.plugin._monitors[PINNED_KEY].wantsColumns)
 
 	def test_pinningOneThatIsNotPinsItInOrder(self):
+		self._atATable()
+		self.plugin.tableWanted = None
+		self.plugin.startMonitoring(PINNED_SEGMENT)
+		self.assertFalse(self.plugin._monitors[PINNED_KEY].wantsColumns)
+
+	def test_aRequestAboutAnotherTableIsNotThisOne(self):
+		self._atATable()
+		self.plugin.tableWanted = ("some other document", 7)
+		self.plugin.startMonitoring(PINNED_SEGMENT)
+		self.assertFalse(self.plugin._monitors[PINNED_KEY].wantsColumns)
+
+
+class TestAPinnedTableKeepingUp(MonitorTestCase):
+	"""The pin re-reads the rows in its window. Its header is outside that window, and its
+	shape is a question the band asks of the reader's position — which for a pin is somewhere
+	else entirely, because being somewhere else is what a pin is for."""
+
+	segmentCount = 2
+
+	def setUp(self):
+		super().setUp()
+		CONFIG["focusSegment"] = 0
+		self.plugin.rebuildBuffer()
+
+	def pinTable(self, rows=None):
 		import api
 
 		from ._stubs import FakeTableDocument
 
-		document = FakeTableDocument([list(line) for line in TABLE], row=2, col=1)
+		document = FakeTableDocument([list(line) for line in (rows or TABLE)], row=2, col=1)
 		api.getNavigatorObject = lambda: FakeNavigatorObject("a page", treeInterceptor=document)
-		self.plugin.flowBand = SimpleNamespace(wantsColumnsFor=lambda pinned: False)
 		self.plugin.startMonitoring(PINNED_SEGMENT)
-		self.assertFalse(self.plugin._monitors[PINNED_KEY].wantsColumns)
+		monitor = self.plugin._monitors[PINNED_KEY]
+		monitor.wantsColumns = True
+		monitor.refresh()
+		return monitor, document
+
+	def test_aRenamedHeaderReachesThePinnedRow(self):
+		monitor, document = self.pinTable()
+		self.assertIn("Symbol", monitor.controller.describeRows()[0])
+		document.rows[0][0] = "Asset"
+		monitor.refresh()
+		self.assertIn("Asset", monitor.controller.describeRows()[0])
+
+	def test_aTableThatGainsAColumnIsBuiltAgain(self):
+		monitor, document = self.pinTable()
+		before = monitor.controller.renderer.columnPlan
+		for line in document.rows:
+			line.append("new")
+		monitor.refresh()
+		self.assertIsNot(monitor.controller.renderer.columnPlan, before)
+		self.assertEqual(len(monitor.controller.renderer.columnPlan.columns), len(before.columns) + 1)
+
+	def test_aTableThatDidNotChangeIsNotBuiltAgain(self):
+		"""Asked on every refresh tick, so it must be cheap and it must be quiet."""
+		monitor, _document = self.pinTable()
+		plan = monitor.controller.renderer.columnPlan
+		monitor.refresh()
+		self.assertIs(monitor.controller.renderer.columnPlan, plan)

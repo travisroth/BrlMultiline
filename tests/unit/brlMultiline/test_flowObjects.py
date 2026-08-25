@@ -1139,3 +1139,42 @@ class TestRoutingThroughTheBand(unittest.TestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestReadingAnObjectAgain(unittest.TestCase):
+	"""A pin is re-read on a timer, and the re-read leaves alone any source that cannot be
+	asked for a block by its identity. A run of objects could not be, so a message list whose
+	subjects changed under a pin went on showing what it said when it was pinned — and the
+	counters reported reads that had read nothing."""
+
+	def items(self):
+		return [FakeNavigatorObject(name, role="LISTITEM") for name in ("Apple", "Banana", "Cherry")]
+
+	def test_anObjectIsItsOwnBookmark(self):
+		"""Which is why this is trivial: the identity a block was given is the thing to read
+		again, and there is no position to have gone stale."""
+		items = self.items()
+		source = sourceOver(items, at=1)
+		block = source.blockAtCursor().block
+		self.assertIs(block.blockId.bookmark, items[1])
+
+	def test_itComesBackWithTheSameIdentity(self):
+		items = self.items()
+		source = sourceOver(items, at=1)
+		block = source.blockAtCursor().block
+		self.assertEqual(source.blockAt(block.blockId).block.blockId, block.blockId)
+
+	def test_itComesBackWithWhatTheObjectSaysNow(self):
+		items = self.items()
+		source = sourceOver(items, at=1)
+		block = source.blockAtCursor().block
+		self.assertIn("Banana", block.region.rawText)
+		items[1].name = "Blueberry"
+		self.assertIn("Blueberry", source.blockAt(block.blockId).block.region.rawText)
+
+	def test_aBlockIdWithNothingBehindItIsRefused(self):
+		items = self.items()
+		source = sourceOver(items)
+		block = source.blockAtCursor().block
+		empty = dataclasses.replace(block.blockId, bookmark=None)
+		self.assertEqual(source.blockAt(empty).kind, ResultKind.ERROR)

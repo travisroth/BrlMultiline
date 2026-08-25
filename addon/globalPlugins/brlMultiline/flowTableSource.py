@@ -646,6 +646,23 @@ class TableFlowSource:
 		self.columns = columns
 		return True
 
+	def hasGrown(self) -> bool:
+		""":return: whether this table has a column beyond the ones it was measured with.
+
+		One cell read, on the header row, at the column after the last one known. A table that
+		gained a column answers it and a table that did not raises, which is the same test
+		`cellRegion` already makes for every cell it fetches.
+
+		Asked by a pin, which cannot use the band's check: that one compares the caret's
+		position against the plan, and the caret is somewhere else entirely — being somewhere
+		else is what a pin is for. This asks the table rather than the reader.
+		"""
+		try:
+			return cellRegion(self.handle, HEADER_ROW, self.handle.numCols + 1, live=False) is not None
+		except Exception:
+			log.debugWarning("Could not look for a column past the end of the table", exc_info=True)
+			return False
+
 	def blockAt(self, blockId: BlockId) -> FetchResult:
 		""":return: one row again, by the identity it already has.
 
@@ -782,6 +799,28 @@ class TableFlowSource:
 
 	def __repr__(self) -> str:
 		return f"<TableFlowSource {self.handle!r} generation {self.generation}>"
+
+
+def wantsColumns(request, obj) -> bool:
+	""":return: whether a request to see a table in columns is about the table an object is in.
+
+	One place, because three callers ask it and they must not disagree: the band as it decides
+	what to draw, the plugin as it pins an object, and the command as it decides whether a
+	press means "on" or "off". It used to live on the band, which meant it could not be asked
+	at all on a one row display — where there is no band and the reader still wants to say
+	"this table, in columns" so that pinning it elsewhere carries the layout.
+
+	:param request: the key of the table asked for, or None for no request.
+	:param obj: the object the reader is on.
+	"""
+	if request is None:
+		return False
+	try:
+		handle = tableAt(obj)
+	except Exception:
+		log.debugWarning("Could not look for the table an object is in", exc_info=True)
+		return False
+	return handle is not None and sameTable(handle.key, request)
 
 
 def sameTable(first, second) -> bool:

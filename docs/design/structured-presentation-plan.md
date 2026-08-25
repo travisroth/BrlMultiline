@@ -846,6 +846,11 @@ column: a single search, and it answers the only case that matters, because a co
 visits does not need to be drawn. Asked once and not per redraw, which is what made the
 identical-looking bug below so expensive.
 
+Once, **and again on a live pass**. Standing still is what makes the check go quiet, so a page
+that fills the cell the reader is standing in would otherwise never be noticed — the one place
+where the value they are waiting for is the one they cannot see. A live pass is not every
+redraw, which is what makes that affordable.
+
 **Not drawn is not the same as not known.** Quick navigation to a table lands the caret in its
 first cell, which on this watchlist is one of those icons, and `_tableChangedShape` asked
 `pageOf` — where a column is *drawn*. An undrawn column read as a table that had changed under

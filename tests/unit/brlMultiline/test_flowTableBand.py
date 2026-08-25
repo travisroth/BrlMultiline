@@ -58,6 +58,7 @@ class CommandHolder:
 		self._monitors = {}
 		self.layOutPinnedTables = GlobalPlugin.layOutPinnedTables.__get__(self)
 		self._wantTableHere = GlobalPlugin._wantTableHere.__get__(self)
+		self._inAnotherTable = GlobalPlugin._inAnotherTable.__get__(self)
 
 	@property
 	def tableWanted(self):
@@ -176,6 +177,33 @@ class TestTheCommandItself(TableBandTestCase):
 		GlobalPlugin.script_flowTableColumns(holder, None)
 		self.assertIsNotNone(holder.tableWanted)
 		self.assertTrue(any("columns on" in message for message in spokenMessages))
+
+	def test_pressingItInADifferentTableLaysThatOneOut(self):
+		"""With no band nothing drops the old request, so the press that should have laid out
+		the second table was turning the first one off instead."""
+		from brlMultiline import GlobalPlugin
+
+		self._inTable()
+		holder = CommandHolder(self.band, withBand=False)
+		holder.tableWanted = ("another document", 9)
+		spokenMessages.clear()
+		GlobalPlugin.script_flowTableColumns(holder, None)
+		self.assertTrue(any("columns on" in message for message in spokenMessages))
+		self.assertNotEqual(holder.tableWanted, ("another document", 9))
+
+	def test_pressingItOutsideAnyTableClearsAStaleRequest(self):
+		"""Which is how a request left behind is got rid of, with no band to drop it."""
+		from brlMultiline import GlobalPlugin
+
+		obj = FakeNavigatorObject("a page", treeInterceptor=NoTableDocument())
+		self.api.getFocusObject = lambda: obj
+		self.api.getNavigatorObject = lambda: obj
+		holder = CommandHolder(self.band, withBand=False)
+		holder.tableWanted = ("another document", 9)
+		spokenMessages.clear()
+		GlobalPlugin.script_flowTableColumns(holder, None)
+		self.assertIsNone(holder.tableWanted)
+		self.assertIn("Table columns off", spokenMessages)
 
 	def test_pressingItWithNoBandAndNoTableSaysSo(self):
 		from brlMultiline import GlobalPlugin
@@ -1064,6 +1092,18 @@ class TestAColumnThatIsEmptyOnlyInTheSample(TableBandTestCase):
 		document.row, document.col = 4, 1
 		self.band.recheck()
 		self.assertIs(self.band.columnPlan(), plan)
+
+	def test_aValueAppearingInTheCellTheReaderIsInIsSeen(self):
+		"""Standing still is what makes the once-only check go quiet, so a page that fills the
+		cell under the reader would never be noticed. A live pass is not every redraw."""
+		obj, document = self._sparse()
+		self.band.layOutTable()
+		document.row, document.col = 4, 1
+		self.band.recheck()
+		self.assertIsNone(self.band.columnPlan().pageOf(1))
+		document.rows[3][0] = "NOW LIVE"
+		self.band._refreshLiveContent()
+		self.assertIsNotNone(self.band.columnPlan().pageOf(1))
 
 	def test_sittingInAnEmptyCellIsAskedAboutOnce(self):
 		"""Asking again on every redraw would be a search of the document per draw for a

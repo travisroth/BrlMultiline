@@ -159,6 +159,15 @@ class FlowBand(PanelOwner):
 		self._fillTimer = None
 		"""The pending pass to finish a fill the budget cut short. See L{_scheduleFill}."""
 
+		self._askingAgain = False
+		"""Whether the shape check may look into the caret's cell again.
+
+		Set for the length of a live pass. The check is otherwise asked once per cell, because
+		it is a search of the document and it runs on every redraw; a page that fills the cell
+		the reader is standing in would then never be noticed, since standing still is what
+		makes the check go quiet.
+		"""
+
 		self.liveCounts = [0, 0, 0]
 		"""Changes heard, passes run, passes that redrew. For the dry run, and it earns its
 		place: whether the event reaches us at all is the one thing about this that cannot be
@@ -445,7 +454,12 @@ class FlowBand(PanelOwner):
 		control = self.controller
 		if control is None or not self._canReadAgain():
 			return
-		if not self._tableStillFits():
+		self._askingAgain = True
+		try:
+			fits = self._tableStillFits()
+		finally:
+			self._askingAgain = False
+		if not fits:
 			# The table changed shape, so the layout is being made again and there is nothing
 			# to compare against. Asked before the re-read rather than after it, because a
 			# re-read of a plan that is about to be thrown away is work for nothing.
@@ -874,10 +888,7 @@ class FlowBand(PanelOwner):
 
 		:param obj: the object being pinned.
 		"""
-		if self.tableWanted is None:
-			return False
-		handle = flowTableSource.tableAt(obj)
-		return handle is not None and flowTableSource.sameTable(handle.key, self.tableWanted)
+		return flowTableSource.wantsColumns(self.tableWanted, obj)
 
 	def clearTable(self) -> bool:
 		"""Go back to reading the table the way the page around it is read.
@@ -988,10 +999,12 @@ class FlowBand(PanelOwner):
 		if found.col not in plan.omitted:
 			# A column the plan never measured. That is a table this layout is not of.
 			return True
-		if (found.row, found.col) == (source.row, source.column):
+		if (found.row, found.col) == (source.row, source.column) and not self._askingAgain:
 			# This cell was asked about when the caret arrived at it, and the answer has not
 			# been made stale by anything the reader did. Asking again on every redraw would
-			# be a search of the document per draw for a column nobody can read.
+			# be a search of the document per draw for a column nobody can read — but a live
+			# pass is not every redraw, and a value appearing in the cell the reader is
+			# standing in is exactly the case they would never otherwise see.
 			return False
 		return self._omittedColumnHasContent(found)
 

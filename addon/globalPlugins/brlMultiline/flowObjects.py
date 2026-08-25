@@ -1121,6 +1121,29 @@ class ObjectFlowSource:
 			return FetchResult.endOfStream("the next object is beside this run rather than in it")
 		return self._blockAt(found)
 
+	def blockAt(self, blockId: BlockId) -> FetchResult:
+		""":return: one block again, read afresh from the object it was built for.
+
+		Trivial here, and it is worth saying why: an object *is* its own bookmark, so the
+		identity a block was given is the thing to read again. There is no position to have
+		gone stale and nothing to look up.
+
+		What it buys is a pinned list or tree that keeps up. A pin is re-read on a timer and
+		the re-read went through `FlowController.rereadContent`, which leaves alone any source
+		that cannot be asked for a block by its identity — and this could not be. A message
+		list whose subjects changed under the pin went on showing what it said when it was
+		pinned, and the counters reported reads that had read nothing.
+
+		Structural change is a different question and is not this: an item appearing or a node
+		opening changes which objects the run holds, which `shapeChanged` and the band's
+		`_runHasChangedShape` are for.
+		"""
+		obj = blockId.bookmark
+		if obj is None:
+			return FetchResult.failed(f"no object behind {blockId}")
+		self.budget.startUnlessActive()
+		return self._blockAt(obj, decoration=isDecoration(obj))
+
 	def _blockAt(self, obj, decoration: bool = False) -> FetchResult:
 		""":return: a result carrying the block for one object."""
 		began = self.budget.clock()
