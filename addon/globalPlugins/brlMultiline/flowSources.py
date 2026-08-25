@@ -645,6 +645,20 @@ class FetchBudget:
 		)
 
 
+LINE_BREAKS = "\n\r\v\f\x85\u2028\u2029"
+"""The characters that genuinely end a line of a document.
+
+Carriage return and line feed; the vertical tab and form feed, which is what Word puts in for
+a manual line break and a page break; the Unicode next-line, line and paragraph separators.
+
+What is deliberately *not* here is the rest of what `str.splitlines` splits on — the file,
+group and record separators, `0x1C` to `0x1E`. No document uses those to end a line, and Word
+uses two of them for hyphens: `0x1E` is a non-breaking hyphen and `0x1F` an optional one. See
+`DocumentFlowSource._hasSwallowedWhatFollows`, which ended a reader's Outlook message at the
+word "trade-in".
+"""
+
+
 class DocumentFlowSource:
 	"""Blocks read out of a document, by reading unit.
 
@@ -1112,15 +1126,25 @@ class DocumentFlowSource:
 		Only for lines. A paragraph may legitimately hold soft breaks, and asking this of one
 		would end every reading at the first of them.
 
+		**The break characters are named rather than left to `str.splitlines`.** That was how
+		this was written, on the reasoning that whatever a document separates its lines with
+		should count — and `splitlines` also splits on the file, group and record separators,
+		which no document uses as a line break and Word uses for something else entirely.
+		`0x1E` there is a *non-breaking hyphen*, so an Outlook message reading "trade-in" made
+		this say the block had swallowed the next line, the walk ended the stream, and the
+		reader could pan no further into a message NVDA read to the end. Found by the reason
+		this now gives for stopping.
+
 		:param region: the region the block was read through.
 		:return: whether this block already contains what follows it.
 		"""
 		if self.unit != textInfos.UNIT_LINE:
 			return False
 		text = getattr(region, "rawText", "") or ""
-		# Counted rather than searched for a character, so that whatever the document
-		# separates its lines with is one.
-		return len(text.splitlines()) > 1
+		# A break at the very end separates this block from the next rather than sitting
+		# inside it, which is what the old count of lines got right and a plain search would
+		# not: "one line and a terminator" is one line.
+		return any(character in LINE_BREAKS for character in text.rstrip(LINE_BREAKS))
 
 	def _buildBlock(self, info, isControl: bool = False, start=None) -> SourceBlock:
 		"""Build one block from a position, and remember where it starts.

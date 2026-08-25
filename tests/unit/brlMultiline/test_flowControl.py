@@ -1024,6 +1024,32 @@ class TestALineThatSwallowedTheNextOne(unittest.TestCase):
 		control = controllerOver(["one", "two", "three"], numRows=4)
 		self.assertEqual(len(control.window.blocks), 3)
 
+	def test_aNonBreakingHyphenIsNotABreak(self):
+		"""Word writes one as 0x1E, `str.splitlines` splits on it, and a reader's Outlook
+		message ended at the word "trade-in": the walk decided the block had swallowed the
+		line after it and stopped, three pans in, on a message NVDA read to the end."""
+		control = controllerOver(["trade" + chr(0x1E) + "in", "two", "three"], numRows=4)
+		self.assertEqual(len(control.window.blocks), 3)
+
+	def test_norAreTheOtherSeparatorsNoDocumentUses(self):
+		"""The file and group separators go the same way, and for the same reason: they are
+		what `splitlines` splits on rather than what a document ends a line with."""
+		for code in (0x1C, 0x1D, 0x1E):
+			with self.subTest(code=code):
+				control = controllerOver(["a" + chr(code) + "b", "two"], numRows=4)
+				self.assertEqual(len(control.window.blocks), 2)
+
+	def test_aManualLineBreakStillCounts(self):
+		"""Word puts a vertical tab in for one, and it does end a line."""
+		control = controllerOver(["one" + chr(0x0B) + "two", "two"], numRows=4)
+		self.assertEqual(control.window.visibleRows()[1].kind, RowKind.BLANK)
+
+	def test_aTerminatorAtTheEndIsNotSwallowing(self):
+		"""One line and a terminator is one line, which is what counting them got right and
+		a plain search for a break character would not."""
+		control = controllerOver(["one" + chr(10), "two", "three"], numRows=4)
+		self.assertEqual(len(control.window.blocks), 3)
+
 	def test_aParagraphMayHoldOneWithoutBeingWrong(self):
 		"""Asking this of a paragraph would end every reading at its first soft break."""
 		control = controllerOver(["one" + chr(10) + "two", "three"], numRows=4, unit="paragraph")

@@ -12,3 +12,9 @@ manifest.ini
 *.egg-info
 /bm.log
 *.log
+
+# Saved mail, which is a reader's own correspondence. Kept out of the repository for the
+# same reason the diagnostic log is: a file that comes here to be looked at once must not
+# become part of a history that may one day be public.
+*.msg
+*.eml
