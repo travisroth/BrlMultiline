@@ -293,7 +293,37 @@ are not re-argued.
     same frustration in a new place.
 
     The pin drives its flow with `rereadContent`, the same in-place re-read live updating
-    uses, so a pinned watchlist keeps up and the reader's panning survives it.
+    uses, so a pinned watchlist keeps up and the reader's panning survives it. Three things
+    the band learnt first and the pin had to learn separately, each because a pin is *not*
+    where the reader is:
+
+    - **A run of objects can be read again.** `rereadContent` leaves alone any source that
+      cannot be asked for a block by its identity, and `ObjectFlowSource` could not be — so a
+      pinned message list went on showing the subjects it had when it was pinned, and the
+      counters reported reads that had read nothing. An object is its own bookmark, so this
+      turned out to be four lines.
+    - **The pinned header row is read again.** It is outside the window on purpose, so the
+      re-read that walks the window's blocks never touched it.
+    - **A pinned table that gains a column is built again.** The band's shape check compares
+      the *caret's* position against the plan, and the caret is somewhere else entirely —
+      being somewhere else is what a pin is for. So the pin asks the table instead: one cell
+      read on the header row, at the column after the last one known.
+
+    A pin that ran out of budget finishes on its own refresh tick, which is the band's
+    continuation pass on a clock that was already ticking.
+
+    **A command that moves a table means the one on the display it was pressed on.** Turning a
+    page of columns belonged to the band, which was the only thing that could hold a table;
+    now a pin can too, and "the table in front of you" is the wrong answer for a pin — the
+    reader put it on the other display precisely so that it is not where they are working. So
+    the answer is the table under the hand that pressed, which is the rule the panning keys
+    already follow. Failing that, the first table in display order, which on a display showing
+    one is the only one there is.
+
+    `FlowController.useColumnPage` is what made that possible: the three things a page turn has
+    to do together — tell the source which columns to read, read the rows again, rebuild the
+    pinned header — moved off the band and onto the flow, because a pin is a flow like any
+    other and pages like one. What the band adds is only which flow the reader meant.
 
     **A pinned table is read in columns if that is what the reader was already doing with
     it.** Reading order was what a pin got, which is what NVDA already gives; the shape is

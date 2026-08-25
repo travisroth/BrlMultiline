@@ -593,3 +593,72 @@ class TestAPinnedTableKeepingUp(MonitorTestCase):
 		plan = monitor.controller.renderer.columnPlan
 		monitor.refresh()
 		self.assertIs(monitor.controller.renderer.columnPlan, plan)
+
+
+class TestPagingAPinnedTable(MonitorTestCase):
+	"""A pin is put on the other display precisely so that it is not where the reader is
+	working, so "the table in front of you" is the wrong answer for it. The answer is the
+	table under the hand that pressed, which is the rule the panning keys already follow."""
+
+	segmentCount = 2
+
+	def setUp(self):
+		super().setUp()
+		CONFIG["focusSegment"] = 0
+		self.plugin.rebuildBuffer()
+
+	def pinWideTable(self):
+		""":return: the monitor on a table too wide for its segment."""
+		import api
+
+		from ._stubs import FakeTableDocument
+
+		header = [f"Col{n}" for n in range(1, 13)]
+		body = [[f"r{r}c{c}" for c in range(1, 13)] for r in range(1, 5)]
+		document = FakeTableDocument([header, *body], row=2, col=1)
+		api.getNavigatorObject = lambda: FakeNavigatorObject("a page", treeInterceptor=document)
+		self.plugin.startMonitoring(PINNED_SEGMENT)
+		monitor = self.plugin._monitors[PINNED_KEY]
+		monitor.wantsColumns = True
+		monitor.refresh()
+		return monitor
+
+	def test_aPinnedTableIsOneOfTheTablesShowing(self):
+		monitor = self.pinWideTable()
+		self.assertIn(PINNED_KEY, self.plugin.tablesInColumns())
+		self.assertIs(self.plugin.tablesInColumns()[PINNED_KEY], monitor)
+
+	def test_itHasMoreThanOnePageToTurn(self):
+		monitor = self.pinWideTable()
+		self.assertGreater(monitor.columnPlan().numPages, 1)
+
+	def test_theCommandFindsItWithNoBandAtAll(self):
+		monitor = self.pinWideTable()
+		self.assertIs(self.plugin._tableToPage(None), monitor)
+
+	def test_turningThePageMovesIt(self):
+		monitor = self.pinWideTable()
+		before = monitor.columnPlan().page
+		self.assertTrue(monitor.turnColumnPage(1))
+		self.assertNotEqual(monitor.columnPlan().page, before)
+
+	def test_theNewPagesColumnsAreTheOnesRead(self):
+		"""Every cell is a search of the document, and the rows read for the old page hold the
+		wrong cells — which is what `useColumnPage` exists to keep together."""
+		monitor = self.pinWideTable()
+		monitor.turnColumnPage(1)
+		shown = [place.column.index for place in monitor.columnPlan().placements()]
+		block = monitor.controller.window.blocks[0]
+		held = [cell.index for cell in monitor.controller.blocks.get(block.blockId).region.cells]
+		self.assertTrue(set(shown) & set(held))
+
+	def test_pastTheLastPageItRefuses(self):
+		monitor = self.pinWideTable()
+		for _ in range(monitor.columnPlan().numPages):
+			monitor.turnColumnPage(1)
+		self.assertFalse(monitor.turnColumnPage(1))
+
+	def test_aPinNotShowingATableIsNotOffered(self):
+		self.pinDocument()
+		self.assertEqual(self.plugin.tablesInColumns(), {})
+		self.assertIsNone(self.plugin._tableToPage(None))

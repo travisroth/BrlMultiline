@@ -411,6 +411,39 @@ class FlowController(PanelOwner):
 		self.renderer.indentPlan = plan
 		self._redrawBlocks(rendered, why="a rebased indent")
 
+	def useColumnPage(self, plan) -> bool:
+		"""Show a page of columns, and read what the page needs.
+
+		Three things that have to happen together and in this order, which is why they are
+		one method rather than a caller's job. The source is told which columns to read,
+		because every cell is a search of the document and a column on another page is a
+		search for something nobody will feel. The rows are read again, because the ones read
+		for the old page hold the wrong cells and drawing them under the new plan would put
+		the old page's values at the new page's offsets. And the pinned header is rebuilt,
+		for the same reason and because it is outside the window that the re-read walks.
+
+		It lived on the band until a pinned table could be laid out in columns too. A pin is
+		a flow like any other and pages like one; what the band adds is only which flow the
+		reader meant.
+
+		:param plan: the layout, on the page wanted.
+		:return: whether the page changed.
+		"""
+		if plan.page == self.renderer.columnPlan.page:
+			return False
+		setColumns = getattr(self.source, "setColumns", None)
+		if setColumns is not None:
+			setColumns(tuple(place.column.index for place in plan.placements()))
+		changed = self.setColumnPlan(plan, reread=True)
+		if self.pinnedBlock is not None:
+			header = getattr(self.source, "headerBlock", None)
+			if header is not None:
+				try:
+					self.setPinned(header())
+				except Exception:
+					log.debugWarning("Could not read the header for a new page", exc_info=True)
+		return changed
+
 	def setColumnPlan(self, plan, reread: bool = False) -> bool:
 		"""Draw the band's table again with a different column layout.
 

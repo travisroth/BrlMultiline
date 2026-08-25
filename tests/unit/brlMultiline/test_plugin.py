@@ -1995,3 +1995,47 @@ class TestOneDisplay(PluginTestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestWhichTableAPagingCommandMoves(PluginTestCase):
+	"""A pinned table is put on the other display precisely so that it is not where the reader
+	is working, so "the table in front of you" is the wrong answer for it. The answer is the
+	table under the hand that pressed, which is the rule the panning keys already follow."""
+
+	def keys(self):
+		CONFIG["segmentCount"] = 3
+		self.plugin.rebuildBuffer()
+		return [segment.key for segment in self.plugin.container.segments]
+
+	def showing(self, keys):
+		"""Two tables laid out, in two segments, standing in for a band and a pin.
+
+		Built in the reverse of display order on purpose: the fallback is meant to be the
+		first *on the display*, not the first this dictionary happens to hold.
+		"""
+		return {keys[2]: "the third", keys[0]: "the first"}
+
+	def test_thePressedDisplaysTableWins(self):
+		keys = self.keys()
+		self.plugin.tablesInColumns = lambda: self.showing(keys)
+		self.plugin._segmentKeysOn = lambda driver: [keys[2]]
+		self.assertEqual(self.plugin._tableToPage(None), "the third")
+
+	def test_withNoKeyBehindItTheFirstInDisplayOrderWins(self):
+		"""An ordinary display, or a command run from the keyboard: there is nothing to
+		choose between, and the first is the only one on a display showing one."""
+		keys = self.keys()
+		self.plugin.tablesInColumns = lambda: self.showing(keys)
+		self.plugin._segmentKeysOn = lambda driver: []
+		self.assertEqual(self.plugin._tableToPage(None), "the first")
+
+	def test_aDisplayWithNothingLaidOutFallsBackToDisplayOrder(self):
+		keys = self.keys()
+		self.plugin.tablesInColumns = lambda: self.showing(keys)
+		self.plugin._segmentKeysOn = lambda driver: [keys[1]]
+		self.assertEqual(self.plugin._tableToPage(None), "the first")
+
+	def test_nothingLaidOutAnywhereIsNothingToMove(self):
+		self.keys()
+		self.plugin.tablesInColumns = lambda: {}
+		self.assertIsNone(self.plugin._tableToPage(None))

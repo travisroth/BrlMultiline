@@ -325,6 +325,29 @@ class ObjectMonitor:
 			log.debugWarning(f"Could not read {self.name!r} as a flow", exc_info=True)
 			return None
 
+	def columnPlan(self):
+		""":return: the table layout this pin is showing, or None if it is not showing one.
+
+		The same question the band answers, asked the same way, so that a command looking for
+		a table on the display does not have to know which of the two it found.
+		"""
+		plan = getattr(getattr(self.controller, "renderer", None), "columnPlan", None)
+		return None if plan is None or plan.isEmpty else plan
+
+	def turnColumnPage(self, by: int) -> bool:
+		"""Move this pin across a table too wide to show at once.
+
+		:param by: how many pages to move, negative for back towards the first column.
+		:return: whether the page changed.
+		"""
+		plan = self.columnPlan()
+		if plan is None:
+			return False
+		if not self.controller.useColumnPage(plan.onPage(plan.page + by)):
+			return False
+		self.refresh()
+		return True
+
 	def _tableHasGrown(self) -> bool:
 		""":return: whether the table this pin is showing has gained a column.
 

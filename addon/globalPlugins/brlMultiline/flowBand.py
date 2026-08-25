@@ -1088,17 +1088,7 @@ class FlowBand(PanelOwner):
 		:param plan: the layout, on the page wanted.
 		:return: whether the page changed.
 		"""
-		if plan.page == self.controller.renderer.columnPlan.page:
-			return False
-		source = self.controller.source
-		source.setColumns(tuple(place.column.index for place in plan.placements()))
-		changed = self.controller.setColumnPlan(plan, reread=True)
-		if self.controller.pinnedBlock is not None:
-			# The pinned header holds the old page's cells at the old page's offsets, exactly
-			# as the rows did. It is built from the page rather than remembered, so it is
-			# built again.
-			self.controller.setPinned(source.headerBlock())
-		return changed
+		return self.controller.useColumnPage(plan)
 
 	def columnPlan(self):
 		""":return: the table layout on the band, or None if it is not showing a table."""

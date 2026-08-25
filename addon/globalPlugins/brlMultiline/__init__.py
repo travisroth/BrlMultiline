@@ -33,7 +33,13 @@ from . import bmConfig, panning, patches
 from .container import DisplayContainer
 from .flowTableSource import wantsColumns
 from . import devices as devicesModule
-from .devices import DeviceInfo, configuredMembers, deviceMap, resolveDisplaySegment
+from .devices import (
+	DeviceInfo,
+	configuredMembers,
+	deviceMap,
+	resolveDisplaySegment,
+	segmentsForDevice,
+)
 from .layout import SegmentRect
 from .messages import MessageBuffer
 from .objectMonitor import ObjectMonitor
@@ -1452,8 +1458,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		category=SCRIPT_CATEGORY,
 	)
 	def script_flowNextColumns(self, gesture):
-		"""Move the band on across a table too wide to show at once."""
-		self._turnColumnPage(1)
+		"""Move a table too wide to show at once, on the display the key was pressed on."""
+		self._turnColumnPage(1, gesture)
 
 	@script(
 		# Translators: input help message for a command.
@@ -1461,19 +1467,79 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		category=SCRIPT_CATEGORY,
 	)
 	def script_flowPreviousColumns(self, gesture):
-		"""Move the band back across a table too wide to show at once."""
-		self._turnColumnPage(-1)
+		"""Move a table back, on the display the key was pressed on."""
+		self._turnColumnPage(-1, gesture)
 
-	def _turnColumnPage(self, by: int) -> None:
-		"""Move the band by pages of columns, and say where it landed.
+	def tablesInColumns(self) -> dict:
+		""":return: every table laid out in columns, by the key of the segment showing it.
+
+		The band and the pins together, and answering the same two questions — `columnPlan`
+		and `turnColumnPage` — so that a command which found one does not have to know which
+		it found.
+		"""
+		showing = {}
+		band = self.flowBand
+		if band is not None and band.columnPlan() is not None:
+			segment = band.segment()
+			if segment is not None:
+				showing[segment.key] = band
+		for key, monitor in self._monitors.items():
+			if monitor.columnPlan() is not None:
+				showing[key] = monitor
+		return showing
+
+	def _segmentKeysOn(self, driverName: str | None) -> list[str]:
+		""":return: the keys of the segments lying on one physical display, in display order.
+
+		Empty for an unknown display, and for an ordinary one where there is nothing to
+		choose between.
+		"""
+		container = self.container
+		if driverName is None or container is None:
+			return []
+		for device in deviceMap():
+			if device.driverName != driverName:
+				continue
+			return [container.segments[index].key for index in segmentsForDevice(container.rects, device)]
+		return []
+
+	def _tableToPage(self, gesture) -> object:
+		""":return: which table a paging command should move, or None if there is none.
+
+		**The display whose key was pressed, first.** The reader put a table on the Monarch
+		precisely so that it is not where they are working, so "the table in front of you" is
+		the wrong answer for it: the answer is the table under the hand that pressed. That is
+		the same rule the panning keys already follow, and it is what the reader asked for.
+
+		Failing that — no key behind the command, an ordinary display, or nothing laid out on
+		the pressed one — the first table in display order, which on a display showing one is
+		the only one there is.
+
+		:param gesture: the gesture that ran the command, if there was one.
+		"""
+		showing = self.tablesInColumns()
+		if not showing:
+			return None
+		container = self.container
+		order = [segment.key for segment in container.segments] if container is not None else []
+		pressed = self._segmentKeysOn(getattr(gesture, "source", None))
+		for key in [*pressed, *order]:
+			if key in showing:
+				return showing[key]
+		return next(iter(showing.values()))
+
+	def _turnColumnPage(self, by: int, gesture=None) -> None:
+		"""Move a table by pages of columns, and say where it landed.
 
 		Said rather than left to the fingers, because which page of a twenty-nine column table
 		is on the display is exactly what the display cannot tell you: every page looks like a
 		table, and the headers are on the first row of the table rather than on the band.
 
 		:param by: how many pages to move, negative for back.
+		:param gesture: the gesture that ran the command, which says which display's table is
+			meant. See `_tableToPage`.
 		"""
-		band = self.flowBand
+		band = self._tableToPage(gesture)
 		plan = band.columnPlan() if band is not None else None
 		if plan is None:
 			# Translators: reported when a command needs a table laid out in columns and there
