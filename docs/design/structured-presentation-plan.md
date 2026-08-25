@@ -14,9 +14,9 @@ So this plan adds a second axis. Alongside "what to read" there is now "how this
 thing is shown", and the second is chosen from what the reader is actually looking at
 rather than from a role alone.
 
-**Status: M0, M1, M2a, M3a, M3b, M3c and M3d are built. M0, M1 and M2a are confirmed on
-hardware; M3 has been through several hardware rounds and is being used. M2b, M4 (pinned
-headers), M5 (tables as objects), M6 (saved layouts) and M7 (the designer) are not built.** The milestones below say which,
+**Status: M0, M1, M2a, M3a, M3b, M3c, M3d and M4 (for browse mode) are built. M0, M1 and M2a are confirmed on
+hardware; M3 has been through several hardware rounds and is being used. M2b, M5 (tables as
+objects), M6 (saved layouts) and M7 (the designer) are not built.** The milestones below say which,
 and where the built shape differs from what was planned the decision records both. Read this
 before extending `flowObjects.py` or `flowRender.py`.
 
@@ -742,9 +742,42 @@ has not reported it, which is what its update handling implies and not what has 
 happen. If a re-read comes back with the old price, the buffer itself is stale and the answer
 is a larger one.
 
-**M4 — pinned headers.** The band change. Behind a setting, and last of the display work,
-because it is the only part that disturbs window arithmetic the hardware has already
-signed off.
+**M4 — pinned headers.** BUILT FOR BROWSE MODE TABLES, NOT YET ON HARDWARE. Brought
+forward from last because the reader met the hole it fills: a column layout turned on from
+the middle of a table showed the columns and never said what any of them was. The window
+starts where the reader is, so the header row was on the band only if they happened to have
+entered at the top, and scrolling back up to look is not an answer — the answer is wanted
+while reading somewhere else.
+
+**A pinned row is outside the window.** `FlowController.pinnedBlock` holds one block, drawn
+on the band's top row, and the window is built one row shorter to make room. That is the
+whole of the band change and it is why it turned out not to disturb the window arithmetic
+after all: the window is simply smaller, decided once when the controller is built, so
+nothing under the pinned row ever moves because of it. Everything the window answers about
+rows — the focus mark, the cursor, routing — is worked out in the window's own coordinates
+and then moved down by a row.
+
+Three details that are decisions rather than mechanics:
+
+- **The pinned header is cut, never wrapped, and is always one row.** A pinned row that
+  changed height would move every row under it, which is the one thing a pinned row exists
+  not to do. `ColumnPlan.cutting` is what it is drawn with. The same argument as the repeated
+  key column: a header is orientation and not the data.
+- **The source stops serving the header row.** With `firstRow` at two, row one is the pinned
+  copy and nothing else, so it is not drawn twice at the top of the table and missing
+  everywhere else. A reader whose caret is in the header row is looking at the pinned copy,
+  and the cursor shows there — `_pinnedCursor` asks the pinned block's own region, because a
+  pinned row is never the active block.
+- **It is rebuilt when the page of columns turns**, for the same reason the rows are: it
+  holds the old page's cells at the old page's offsets.
+
+`flowTableHeaders`, on by default. Off is worth having on a short band, where a row is a
+large share of what there is, and for a table whose first row is not headers — `HEADER_ROW`
+is one, which is what NVDA's own table navigation assumes and what this does not try to
+guess at.
+
+Not done here: the same row for **object** tables, which is M5's source, and any notion of a
+header that is not row one.
 
 **M5 — tables as objects.** Excel, list views, the message list. Same vocabulary, second
 source.

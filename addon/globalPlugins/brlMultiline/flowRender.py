@@ -25,6 +25,7 @@ the padded row, in `_rowFrom`, and that is because NVDA's version
 positions beside them or routing has nothing to aim at.
 """
 
+import dataclasses
 from typing import TYPE_CHECKING, Optional
 
 import config
@@ -192,6 +193,35 @@ class FlowRenderer:
 			gapAfter=block.gapAfter,
 			isBlank=block.isBlank,
 			isDecoration=block.isDecoration,
+		)
+
+	def renderPinned(self, block: SourceBlock) -> RenderedBlock:
+		"""Lay a block out as the one row that stays above the window.
+
+		Cut rather than wrapped, and one row whatever it holds. A pinned row that changed
+		height would move every row under it, which is the one thing a pinned row exists not
+		to do: the reader finds a column by its offset, and they can only do that while the
+		offsets stay where they were.
+
+		The plan is swapped for its cutting form for the duration rather than the rows being
+		trimmed afterwards, because trimming would keep the *wrapped* first line — a header
+		laid out for two rows shows only `width - indent` cells on the first, so "%Change" in
+		an eight cell column would come out as "%Chang" with two cells of nothing beside it.
+
+		:param block: the block to draw.
+		:return: its rendering, one row tall.
+		"""
+		plan = self.columnPlan
+		self.columnPlan = plan.cutting()
+		try:
+			rendered = self.render(block)
+		finally:
+			self.columnPlan = plan
+		return dataclasses.replace(
+			rendered,
+			rows=rendered.rows[:1],
+			positions=rendered.positions[:1],
+			moreRows=False,
 		)
 
 	def _asColumns(self, block: SourceBlock, fromRow: int = 0) -> Optional[RenderedBlock]:

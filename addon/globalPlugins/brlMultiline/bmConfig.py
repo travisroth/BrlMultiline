@@ -104,6 +104,7 @@ configSpec = {
 			"flowTableTruncate": "boolean(default=False)",
 			"flowTablePinKey": "boolean(default=True)",
 			"flowTableLiveSeconds": "integer(default=2, min=0, max=60)",
+			"flowTableHeaders": "boolean(default=True)",
 			**{
 				flowModeKey(mode): f"boolean(default={FLOW_MODE_DEFAULTS.get(mode, False)})"
 				for mode in FLOW_MODES
@@ -158,6 +159,8 @@ configSpec = {
 	the first, so that a reader six columns across a watchlist still knows whose row it is.
 - `flowTableLiveSeconds`: how often a table laid out in columns reads itself again, so that
 	values changing under the reader's hand reach the display. Zero turns it off.
+- `flowTableHeaders`: whether a table's header row is held on the top row of the band,
+	whatever the rest of it is showing.
 
 Everything above is read through `config.conf`, which is profile aware, so all of it can
 differ per configuration profile. That matters most for the flow: a profile triggered by
@@ -599,6 +602,24 @@ def liveTableSeconds(displayKey: str | None = None) -> int:
 		log.debugWarning("Could not read flowTableLiveSeconds", exc_info=True)
 		return 2
 	return max(0, min(wanted, 60))
+
+
+def shouldPinTableHeaders(displayKey: str | None = None) -> bool:
+	""":return: whether a table's header row stays on the top row of the band.
+
+	On by default, and it costs the band a row. What it buys is that the headers are there at
+	all: the window starts where the reader is, so a layout turned on from the middle of a
+	table showed the columns and never said what any of them was. Scrolling back up to look
+	is not an answer either, because the answer is wanted while reading somewhere else.
+
+	Off is worth having on a short band, where a row is a quarter of what there is, and on a
+	table whose first row is not headers.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["flowTableHeaders"])
+	except Exception:
+		log.debugWarning("Could not read flowTableHeaders", exc_info=True)
+		return True
 
 
 def isSpeechOutputMode() -> bool:

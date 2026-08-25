@@ -34,6 +34,7 @@ from logHandler import log
 
 from . import flowForms, flowIndent
 from .flow import (
+	BLANK_CELL,
 	NO_POSITION,
 	ByIdentity,
 	ContentNeeded,
@@ -48,7 +49,7 @@ from .flow import (
 from .panels import PanelOwner
 
 if TYPE_CHECKING:
-	from .flow import BlockId
+	from .flow import BlockId, RenderedBlock, SourceBlock
 	from .flowRender import FlowRenderer
 	from .flowSources import DocumentFlowSource
 
@@ -171,6 +172,23 @@ class FlowController(PanelOwner):
 
 		Set by the segment showing this flow. NVDA's commands reach the active region
 		directly, so a move can start below the controller rather than above it."""
+
+		self.pinnedBlock: Optional["SourceBlock"] = None
+		"""A block held above the window and drawn on the band's top row, or None.
+
+		A table's header row is the case it exists for, and the reason it is not simply the
+		first block of the stream is what the reader found: a layout turned on from the middle
+		of a table never showed the headers at all, because the window starts where the reader
+		is. A pinned row is outside the window, so where the reader is does not decide whether
+		they can see what the columns are.
+
+		The window is one row shorter when there is one. That is decided when the controller
+		is built and does not change while it lives, so nothing under the pinned row ever
+		moves because of it.
+		"""
+
+		self.pinned: Optional["RenderedBlock"] = None
+		"""The pinned block as it is drawn. Redrawn on each `cells`; see `refreshPinned`."""
 
 		self.blocks = ByIdentity()
 		"""The source block behind each rendering, by identity, for its region.
@@ -1361,18 +1379,69 @@ class FlowController(PanelOwner):
 
 	# Showing.
 
+	def setPinned(self, block: Optional["SourceBlock"]) -> None:
+		"""Hold one block above the window, on the band's top row.
+
+		:param block: the block to pin, or None to stop pinning one.
+		"""
+		self.pinnedBlock = block
+		self.refreshPinned()
+
+	def refreshPinned(self) -> None:
+		"""Draw the pinned block again from what its region says now.
+
+		Done on every `cells`, which is once per write to the display and is where it has to
+		be: the row itself does not change, but whether the cursor is in it does, and a
+		region works its cursor out when it is asked to update rather than when it was made.
+		Nothing here reads the document — the cells were read when the block was built, and
+		this re-translates them.
+		"""
+		if self.pinnedBlock is None:
+			self.pinned = None
+			return
+		update = getattr(self.pinnedBlock.region, "update", None)
+		if update is not None:
+			try:
+				update()
+			except Exception:
+				log.debugWarning("Could not update the pinned row", exc_info=True)
+		try:
+			self.pinned = self.renderer.renderPinned(self.pinnedBlock)
+		except Exception:
+			log.debugWarning("Could not draw the pinned row", exc_info=True)
+			self.pinned = None
+
+	@property
+	def pinnedCells(self) -> int:
+		""":return: how many cells of the band the pinned row takes, zero if there is none."""
+		return self.renderer.numCols if self.pinned is not None else 0
+
+	def _pinnedRow(self) -> list[int]:
+		""":return: the pinned row's cells, padded to the band's width."""
+		if self.pinned is None or not self.pinned.rows:
+			return []
+		numCols = self.renderer.numCols
+		row = list(self.pinned.rows[0])[:numCols]
+		return row + [BLANK_CELL] * (numCols - len(row))
+
 	def cells(self) -> list[int]:
 		"""The band's cells, row major, padded to the full width.
 
 		The padding is the point: it is what stops the block after a short one sharing its
 		row, which NVDA's own buffer cannot avoid.
+
+		The pinned row goes on top and is not part of the window, so everything the window
+		says about rows — the focus mark, the cursor, routing — is worked out first and then
+		moved down by a row. See `pinnedBlock`.
 		"""
+		self.refreshPinned()
 		try:
 			cells = assembleCells(self.window, self.renderer.numCols)
 		except LookupError:
-			return [0] * (self.window.numRows * self.renderer.numCols)
-		self._markLineFocus(cells)
-		return cells
+			cells = [0] * (self.window.numRows * self.renderer.numCols)
+		else:
+			self._markLineFocus(cells)
+		return self._pinnedRow() + cells
 
 	def _markLineFocus(self, cells: list[int]) -> None:
 		"""Mark the left of the rows the focus is on.
@@ -1449,6 +1518,9 @@ class FlowController(PanelOwner):
 		:return: the position, or None if the active block is not on the display or has no
 			cursor in it.
 		"""
+		found = self._pinnedCursor()
+		if found is not None:
+			return found
 		if self.activeBlockId is None:
 			return None
 		region = self.regionFor(self.activeBlockId)
@@ -1459,8 +1531,47 @@ class FlowController(PanelOwner):
 		for position in range(self.window.numRows * numCols):
 			source = cellSource(self.window, numCols, position)
 			if source is not None and source[0] == self.activeBlockId and source[1] == at:
-				return position
+				return position + self.pinnedCells
 		return None
+
+	def _pinnedCursor(self) -> Optional[int]:
+		""":return: where the cursor is within the pinned row, or None if it is not in it.
+
+		Asked of the pinned block's own region rather than of `activeBlockId`, because a
+		pinned row is not in the window and so is never the active block. A table row says it
+		holds the cursor when the caret is in one of its cells and says nothing on every other
+		row, which is exactly the question here.
+		"""
+		if self.pinned is None or self.pinnedBlock is None or not self.pinned.positions:
+			return None
+		at = getattr(self.pinnedBlock.region, "brailleCursorPos", None)
+		if at is None:
+			return None
+		for column, where in enumerate(self.pinned.positions[0]):
+			if where != NO_POSITION and where == at:
+				return column
+		return None
+
+	def _routePinned(self, position: int) -> bool:
+		"""Act on a routing key press within the pinned row.
+
+		:param position: which cell of it.
+		:return: whether the press reached content.
+		"""
+		if self.pinned is None or self.pinnedBlock is None or not self.pinned.positions:
+			return False
+		marks = self.pinned.positions[0]
+		if not 0 <= position < len(marks) or marks[position] == NO_POSITION:
+			return False
+		route = getattr(self.pinnedBlock.region, "routeTo", None)
+		if route is None:
+			return False
+		try:
+			route(marks[position])
+		except Exception:
+			log.debugWarning("Could not route into the pinned row", exc_info=True)
+			return False
+		return True
 
 	def routeTo(self, position: int) -> bool:
 		"""Act on a routing key press within the band.
@@ -1471,7 +1582,9 @@ class FlowController(PanelOwner):
 			back to the last content cell would otherwise activate the end of a short field
 			when the reader pressed a key in the space after it.
 		"""
-		source = cellSource(self.window, self.renderer.numCols, position)
+		if position < self.pinnedCells:
+			return self._routePinned(position)
+		source = cellSource(self.window, self.renderer.numCols, position - self.pinnedCells)
 		if source is None:
 			return False
 		blockId, at = source
@@ -1543,10 +1656,13 @@ class FlowController(PanelOwner):
 		"""
 		numCols = self.renderer.numCols
 		lines: list[str] = []
+		if self.pinned is not None:
+			held = rowText(self.pinnedBlock.region, self.pinned, 0) if self.pinnedBlock else ""
+			lines.append(f"pinned: {held!r}")
 		try:
 			visible = self.window.visibleRows()
 		except LookupError:
-			return ["(no anchor)"]
+			return lines + ["(no anchor)"]
 		for index, row in enumerate(visible):
 			if row.kind is RowKind.BLANK:
 				lines.append(f"{index}: (end of content)")

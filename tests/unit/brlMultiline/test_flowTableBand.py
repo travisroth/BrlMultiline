@@ -416,6 +416,100 @@ class TestTheSymbolStaysUnderTheHand(TableBandTestCase):
 		self.assertEqual(plan.columnAt(0, 0).index, 1)
 
 
+class TestTheHeaderRowStaysOnTheDisplay(TableBandTestCase):
+	"""The window starts where the reader is, so a layout turned on from the middle of a table
+	showed the columns and never said what any of them was. Scrolling back up to look is not
+	an answer either, because the answer is wanted while reading somewhere else."""
+
+	def _midTable(self, row=3):
+		obj, document = self._inTable(row=row)
+		self.band.layOutTable()
+		return document
+
+	def _drawn(self):
+		return self.band.controller.describeRows()
+
+	def _routed(self, document):
+		""":return: the cells a routing press actually moved the caret into."""
+		return [where for where, holder in document.carets if holder["caret"]]
+
+	def test_theHeadersAreThereFromTheMiddleOfATable(self):
+		self._midTable()
+		self.assertIn("Symbol", self._drawn()[0])
+
+	def test_theyAreOnTheTopRow(self):
+		self._midTable()
+		cells = self.band.controller.cells()
+		row = cells[: self.band.controller.renderer.numCols]
+		self.assertEqual(bytes(row).decode("latin-1").rstrip("\0")[:6], "Symbol")
+
+	def test_theBandIsStillItsFullHeight(self):
+		"""The pinned row is part of the band, not something added to it."""
+		self._midTable()
+		self.assertEqual(len(self.band.controller.cells()), ROWS * COLS)
+
+	def test_theWindowGivesUpTheRow(self):
+		self._midTable()
+		self.assertEqual(self.band.controller.window.numRows, ROWS - 1)
+
+	def test_theHeaderIsNotAlsoDrawnAsContent(self):
+		"""Serving it as content as well would draw it twice at the top of the table and not
+		at all anywhere else. The reader standing in the header row is where that shows."""
+		self._inTable(row=1)
+		self.band.layOutTable()
+		content = " ".join(self._drawn()[1:])
+		self.assertNotIn("Symbol", content)
+
+	def test_theReaderInTheHeaderRowStillSeesTheRowsBelow(self):
+		"""Keeping row one back must not leave the band with nothing when the caret is in it."""
+		self._inTable(row=1)
+		self.band.layOutTable()
+		self.assertIn("AAPL", " ".join(self._drawn()[1:]))
+
+	def test_turningThePageRedrawsIt(self):
+		"""It holds the old page's cells at the old page's offsets, exactly as the rows did."""
+		self._inTable(rows=WIDE, row=2)
+		self.band.layOutTable()
+		before = self._drawn()[0]
+		self.band.turnColumnPage(1)
+		self.assertNotEqual(self._drawn()[0], before)
+
+	def test_theNewPagesHeadersAreTheOnesShown(self):
+		self._inTable(rows=WIDE, row=2)
+		self.band.layOutTable()
+		self.band.turnColumnPage(1)
+		drawn = self._drawn()[0]
+		shown = [place.column.index for place in self.band.columnPlan().placements()]
+		self.assertIn(WIDE[0][shown[-1] - 1][:4], drawn)
+
+	def test_aFingerPressOnItReachesTheHeaderCell(self):
+		"""A pinned row is not in the window, so routing had to learn about it separately."""
+		document = self._midTable()
+		self.assertTrue(self.band.controller.routeTo(0))
+		self.assertEqual(self._routed(document)[-1], (1, 1))
+
+	def test_aFingerPressPastItStillReachesTheRowUnderIt(self):
+		"""Everything the window says about rows is worked out first and moved down by one.
+		Off by that row, every routing press in the table went one row too high."""
+		document = self._midTable()
+		topRow = self.band.controller.window.visibleRows()[0].blockId.bookmark
+		self.assertTrue(self.band.controller.routeTo(COLS))
+		self.assertEqual(self._routed(document)[-1], (topRow, 1))
+
+	def test_theReaderCanTurnItOff(self):
+		CONFIG["flowTableHeaders"] = False
+		self._midTable()
+		self.assertIsNone(self.band.controller.pinned)
+		self.assertEqual(self.band.controller.window.numRows, ROWS)
+
+	def test_aTableOfNothingButAHeaderPinsNothing(self):
+		"""There would be no content left to read under it, so the header is content."""
+		self._inTable(rows=[WATCHLIST[0]], row=1)
+		self.band.layOutTable()
+		self.assertIsNone(self.band.controller.pinned)
+		self.assertIn("Symbol", " ".join(self.band.controller.describeRows()))
+
+
 class TestATableWhoseValuesChange(TableBandTestCase):
 	"""A watchlist during market hours changes under the reader's hand and nothing tells the
 	band. NVDA reports a cell's new value only while the browse mode caret is in that cell,
@@ -600,10 +694,13 @@ class TestTheCursorSaysWhichCell(TableBandTestCase):
 	"""
 
 	def test_theCursorIsOnTheCellTheCaretIsIn(self):
+		"""Counted from the top of the band, so the pinned header row is part of the answer:
+		the window's own rows start under it."""
 		self._inTable(row=2, col=1)
 		self.band.layOutTable()
-		plan = self.band.controller.renderer.columnPlan
-		self.assertEqual(self.band.controller.cursorCell(), plan.placements()[0].offset)
+		control = self.band.controller
+		plan = control.renderer.columnPlan
+		self.assertEqual(control.cursorCell(), control.pinnedCells + plan.placements()[0].offset)
 
 	def test_itMovesAlongTheRow(self):
 		"""What the arrow keys do inside a table, and what watching only the row missed."""
@@ -611,8 +708,9 @@ class TestTheCursorSaysWhichCell(TableBandTestCase):
 		self.band.layOutTable()
 		document.col = 3
 		self.band.recheck()
-		plan = self.band.controller.renderer.columnPlan
-		self.assertEqual(self.band.controller.cursorCell(), plan.placements()[2].offset)
+		control = self.band.controller
+		plan = control.renderer.columnPlan
+		self.assertEqual(control.cursorCell(), control.pinnedCells + plan.placements()[2].offset)
 
 	def test_itMovesDownTheColumn(self):
 		obj, document = self._inTable(row=2, col=2)

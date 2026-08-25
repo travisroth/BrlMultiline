@@ -493,6 +493,7 @@ class FlowPanelTestCase(SettingsPanelTestCase):
 		self.panel.truncateCtrl = FakeControl(False)
 		self.panel.pinKeyCtrl = FakeControl(True)
 		self.panel.liveTableCtrl = FakeControl(2)
+		self.panel.tableHeadersCtrl = FakeControl(True)
 
 	def section(self, displayKey=None):
 		return self.sections.setdefault(displayKey, defaults())

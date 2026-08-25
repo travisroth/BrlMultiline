@@ -50,6 +50,14 @@ from .flowTable import SEPARATOR_CELL, Measurement, RowCell, cellPosition, posit
 UNIT = "row"
 """What a block is here, for the log and for the dry run's report."""
 
+HEADER_ROW = 1
+"""Which row of a table holds its column headers.
+
+The first, which is what NVDA's own table navigation assumes and what `measure` already reads
+whatever row the reader is on. A table whose headers are somewhere else is a table this does
+not lay out correctly, and that is worth knowing rather than worth guessing at.
+"""
+
 MEASURE_ROWS = 8
 """How many rows are read to decide the column widths.
 
@@ -560,6 +568,7 @@ class TableFlowSource:
 		generation: int = 0,
 		budget: Optional[FetchBudget] = None,
 		live: bool = False,
+		firstRow: int = 1,
 	) -> None:
 		"""
 		:param handle: the table, and where in it the reader was when it was recognised.
@@ -570,9 +579,12 @@ class TableFlowSource:
 			number from one table can never match one from another.
 		:param budget: how much work a fetch may do. One is made if none is given.
 		:param live: whether this flow is the reader's own.
+		:param firstRow: the lowest row this source serves. Two when the header row is pinned
+			above the window, so that it is not also drawn inside it; one otherwise.
 		"""
 		self.handle = handle
 		self.columns = tuple(columns)
+		self.firstRow = max(1, firstRow)
 		self.generation = generation
 		self.budget = budget if budget is not None else FetchBudget()
 		self.live = live
@@ -653,10 +665,29 @@ class TableFlowSource:
 
 	# Reading.
 
+	def headerBlock(self) -> Optional[SourceBlock]:
+		""":return: the table's header row, built for the page being drawn, or None.
+
+		Asked for separately because it is not part of the stream: when it is pinned it is
+		held above the window and this source does not serve it as content — see `firstRow`.
+		Built rather than remembered, because the page decides which columns are in it.
+		"""
+		if self.handle.numRows < 1:
+			return None
+		try:
+			return self._buildRow(HEADER_ROW)
+		except Exception:
+			log.debugWarning("Could not read the table's header row", exc_info=True)
+			return None
+
 	def blockAtCursor(self, atObject=None) -> FetchResult:
-		""":return: the row the reader is on."""
+		""":return: the row the reader is on.
+
+		Clamped to the first row this source serves. With the header pinned that is row two,
+		and a reader whose caret is in the header row is looking at the pinned copy of it.
+		"""
 		self.budget.startUnlessActive()
-		return self._rowAt(self.handle.row)
+		return self._rowAt(max(self.firstRow, self.handle.row))
 
 	def blockAfter(self, blockId: BlockId) -> FetchResult:
 		""":return: the row below one already fetched."""
@@ -675,7 +706,7 @@ class TableFlowSource:
 		"""
 		self.budget.startUnlessActive()
 		row = blockId.bookmark + by
-		if not 1 <= row <= self.handle.numRows:
+		if not self.firstRow <= row <= self.handle.numRows:
 			return FetchResult.endOfStream()
 		return self._rowAt(row)
 

@@ -732,7 +732,13 @@ class FlowBand(PanelOwner):
 			return False
 		source = self.controller.source
 		source.setColumns(tuple(place.column.index for place in plan.placements()))
-		return self.controller.setColumnPlan(plan, reread=True)
+		changed = self.controller.setColumnPlan(plan, reread=True)
+		if self.controller.pinnedBlock is not None:
+			# The pinned header holds the old page's cells at the old page's offsets, exactly
+			# as the rows did. It is built from the page rather than remembered, so it is
+			# built again.
+			self.controller.setPinned(source.headerBlock())
+		return changed
 
 	def columnPlan(self):
 		""":return: the table layout on the band, or None if it is not showing a table."""

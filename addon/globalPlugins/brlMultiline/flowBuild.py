@@ -319,6 +319,11 @@ def buildTableController(
 		notes.append("Not in a table, or the table is one NVDA presents as page layout.")
 		return None
 	notes.append(f"Reading a table: {handle!r}")
+	# The header row is held above the window, so the window is one row shorter. Decided here
+	# and not later: it is the height everything below is planned against, and a band whose
+	# height changed while it was being read would move every row the reader had found.
+	headers = bmConfig.shouldPinTableHeaders() and handle.numRows > 1 and numRows > 2
+	bandRows = numRows - 1 if headers else numRows
 	measured = flowTableSource.measure(handle, live=False)
 	plan = flowTable.planFor(
 		measured,
@@ -327,7 +332,7 @@ def buildTableController(
 		overflow=flowTable.TRUNCATE if bmConfig.shouldTruncateTableCells() else flowTable.WRAP,
 		# From the band's height, because what a row costs is only meaningful beside how many
 		# of them there is room for. See `flowTable.targetHeightFor`.
-		targetHeight=flowTable.targetHeightFor(numRows),
+		targetHeight=flowTable.targetHeightFor(bandRows),
 		pinKey=bmConfig.shouldPinKeyColumn(),
 	)
 	if plan.isEmpty:
@@ -341,14 +346,18 @@ def buildTableController(
 		# the next page's when the reader gets there.
 		columns=tuple(place.column.index for place in plan.placements()),
 		generation=generation,
-		budget=budgetForBand(numRows),
+		budget=budgetForBand(bandRows),
 		live=live,
+		# The header is drawn above the window when it is pinned, so the stream starts below
+		# it. Serving it as content as well would draw it twice at the top of the table and
+		# not at all anywhere else.
+		firstRow=flowTableSource.HEADER_ROW + 1 if headers else flowTableSource.HEADER_ROW,
 	)
 	renderer = FlowRenderer(handler, numCols=numCols, fillRows=True, columnPlan=plan)
 	control = FlowController(
 		source,
 		renderer,
-		numRows=numRows,
+		numRows=bandRows,
 		live=live,
 		# A table row is a place, not a selection: the reader arrives at one by moving the
 		# caret, and panning past it is reading rather than moving. The same answer a run of
@@ -357,6 +366,9 @@ def buildTableController(
 		indentStyle=bmConfig.flowIndentStyle(),
 		lineFocus=bmConfig.shouldMarkLineFocus(),
 	)
+	if headers:
+		control.setPinned(source.headerBlock())
+		notes.append("The header row is pinned above the band.")
 	if not control.enterAtCursor():
 		notes.append("The table was recognised but its first row could not be read.")
 		return None

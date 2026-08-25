@@ -470,6 +470,19 @@ class ColumnPlan:
 				return number
 		return None
 
+	def cutting(self) -> "ColumnPlan":
+		""":return: this layout with every column cut rather than wrapped.
+
+		What a pinned header row is drawn with. A header is orientation and not the data —
+		the same argument the repeated key column is made of — and one that wrapped would
+		take two of the band's rows away from the table to say "%Change" instead of "%Chang".
+		One row, always, so that the rows below it never move.
+		"""
+		return dataclasses.replace(
+			self,
+			columns=tuple(dataclasses.replace(column, overflow=TRUNCATE) for column in self.columns),
+		)
+
 	def placements(self) -> tuple[Placement, ...]:
 		""":return: where each column of the page being drawn goes."""
 		pages = self.pages()

@@ -716,6 +716,24 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Translators: label of a checkbox in settings, about keeping a table's header row on
+		# the top row of the display.
+		headerLabel = _("&Keep a table's header row on the display")
+		self.tableHeadersCtrl = sHelper.addItem(wx.CheckBox(self, label=headerLabel))
+		self.tableHeadersCtrl.SetValue(bool(section["flowTableHeaders"]))
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the checkbox above, explaining what
+					# the row costs and what it buys.
+					"On, the top row of the display holds the table's headers wherever you are "
+					"in the table, so you can always tell what a column is. It costs one row "
+					"of the display. Turn it off on a short display, or for a table whose "
+					"first row is not headers.",
+				),
+			),
+		)
 		# Translators: label of a number box in settings, for how often a table laid out in
 		# columns is read again so that changing values reach the display.
 		liveLabel = _("Re-read a table in co&lumns every (seconds, 0 for never):")
@@ -869,6 +887,7 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowTableTruncate"] = self.truncateCtrl.IsChecked()
 		section["flowTablePinKey"] = self.pinKeyCtrl.IsChecked()
 		section["flowTableLiveSeconds"] = self.liveTableCtrl.Value
+		section["flowTableHeaders"] = self.tableHeadersCtrl.IsChecked()
 
 	def postSave(self):
 		# Claim or give back the band straight away, rather than at the next display event.
