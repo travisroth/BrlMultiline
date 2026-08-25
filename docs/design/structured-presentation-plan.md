@@ -216,7 +216,32 @@ are not re-argued.
     flow here whatever the focus does. Failing both, the tallest, because rows are what a flow
     spends.
 
-22. **How many columns share a page is decided by how tall the row becomes, not by how many
+22. **A pinned object is read as a flow where its segment has room for one.** The other half
+    of decision 21, and the reason the freed display is worth having. A pin is a document, a
+    run of objects or a table just as much as the focus is, and it was being shown through
+    NVDA's own regions — which for a browse mode document means the one element the cursor
+    was in, one line, with the rest of the segment blank.
+
+    Every segment is now a `FlowBufferSegment`, because until a controller is attached one
+    behaves exactly as an ordinary segment does. The class used to be chosen from
+    `ownerDrawsFocus`, which is a fact about the *band* — it hosts the focus and draws it —
+    and had nothing to do with whether a flow could be shown. A pin hosts no focus and was
+    excluded by a question it was never being asked.
+
+    Two conditions and no more. The segment needs `MIN_FLOW_ROWS`, because a flow in one row
+    is a row. And `buildController` has to find something to read, which is the same
+    question, asked the same way, that decides whether the band lights up.
+
+    **Not gated on the flow settings**, deliberately. The reader's own account is the
+    argument: they turned the flow off in order to pin something at all. Those settings say
+    what the band does with the focus; a pin is not the focus and is not automatic, and
+    refusing to read it well because the band is reading something else badly would be the
+    same frustration in a new place.
+
+    The pin drives its flow with `rereadContent`, the same in-place re-read live updating
+    uses, so a pinned watchlist keeps up and the reader's panning survives it.
+
+23. **How many columns share a page is decided by how tall the row becomes, not by how many
     fit across the band.** These are different questions and the second has a much worse
     answer. A bank statement of four columns wanting 10, 8, 24 and 6 cells was laid out at
     7, 7, 7 and 8, which is exactly thirty-two with the gaps: a flawless fit on the axis
@@ -258,7 +283,7 @@ are not re-argued.
     readability", and "if a cell is still at 4+ after it is half the display, we should just
     go one column at a time".
 
-23. **The first column is repeated at the left of every page after the first.** Six columns
+24. **The first column is repeated at the left of every page after the first.** Six columns
     into a watchlist the reader is feeling four numbers with nothing to say whose numbers
     they are, and the symbol that would say so is two page turns back. The column that heads
     the row — the symbol, the criterion, the date — is drawn again at offset zero on each
@@ -696,7 +721,7 @@ is what a setting is for and what a default must not assume.
 No persistence and no pinned headers yet.
 
 **M3d — readability, paging and the repeated column.** BUILT, NOT YET ON HARDWARE.
-Decisions 22 and 23, and the answer to what the reader saw on a 29 column watchlist: eight
+Decisions 23 and 24, and the answer to what the reader saw on a 29 column watchlist: eight
 columns of three cells where "310.34" came out as "3".
 
 `rowsNeeded` is the arithmetic that was missing — how many band rows a cell of a given length
@@ -738,7 +763,7 @@ coordinate, which catches a merged cell — the coordinate raises — and misses
 turned up on the reader's own watchlist. Its leftmost column is icons NVDA cannot read: there
 is a cell, it is simply empty, in the header and in every row. Measured it came to nothing,
 was drawn at `MIN_COLUMN_CELLS` anyway, and cost four cells of a thirty-two cell band on
-every row. Worse, being the *first* column it was what decision 23 pinned to every page, so
+every row. Worse, being the *first* column it was what decision 24 pinned to every page, so
 the thing repeated to say which row the reader was on was a blank.
 
 **And empty in the sample is not the same as empty.** `measure` reads a bounded eight rows,

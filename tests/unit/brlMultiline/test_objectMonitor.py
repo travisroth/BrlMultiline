@@ -314,3 +314,116 @@ class TestRefreshTimer(MonitorTestCase):
 	def test_nothingIsReadWhenNothingIsPinned(self):
 		patches._refreshPinnedObjects()
 		self.assertEqual(self.refreshes, 0)
+
+
+class TestAPinTallEnoughToFlow(MonitorTestCase):
+	"""A pin is a document, a run of objects or a table just as much as the focus is, and the
+	display the focus is not on is now where pins live — so there is room to mean it.
+
+	Two segments of four rows, rather than the eight of one row the tests above use, because
+	one row is the case that cannot show a flow at all."""
+
+	segmentCount = 2
+
+	def setUp(self):
+		# Two segments, so the last of them is the one the focus follows by default and a pin
+		# there would be refused. The focus goes to the first and the pin to the second.
+		super().setUp()
+		CONFIG["focusSegment"] = 0
+		self.plugin.rebuildBuffer()
+
+	def test_itIsReadAsAFlow(self):
+		self.pinDocument()
+		self.assertIsNotNone(self.plugin._monitors[PINNED_KEY].controller)
+
+	def test_theSegmentDrawsFromIt(self):
+		self.pinDocument()
+		self.assertIs(self.segment.controller, self.plugin._monitors[PINNED_KEY].controller)
+
+	def held(self, monitor):
+		""":return: what the pin's flow is holding, line by line.
+
+		Read off the blocks rather than off `describeRows`, because a document flow lays out
+		with `fillRows` off and the stub buffer cannot wrap at word boundaries: it returns no
+		row offsets, so every drawn row comes back empty. That is a gap in the fixture and not
+		in the renderer — hardware wraps these rows correctly — but it means the *drawn* text
+		of a document flow cannot be asserted here.
+		"""
+		return [
+			monitor.controller.blocks.get(block.blockId).region.rawText
+			for block in monitor.controller.window.blocks
+		]
+
+	def test_itShowsMoreThanOneLineOfTheDocument(self):
+		"""Which is the whole of what a flow buys here: the region path shows the line the pin
+		was made on and nothing else."""
+		self.pinDocument(caretIndex=0)
+		held = self.held(self.plugin._monitors[PINNED_KEY])
+		self.assertIn("line 0", held)
+		self.assertIn("line 1", held)
+
+	def test_itKeepsUpWithTheDocument(self):
+		self.pinDocument(caretIndex=0)
+		monitor = self.plugin._monitors[PINNED_KEY]
+		self.lines[1] = "changed"
+		monitor.refresh()
+		self.assertIn("changed", self.held(monitor))
+
+	def test_anUnchangedPinIsNotWritten(self):
+		"""The same bargain the region path makes: a pin that is not changing costs a read
+		and no display traffic."""
+		self.pinDocument()
+		monitor = self.plugin._monitors[PINNED_KEY]
+		written = []
+		original = self.segment.refresh
+		self.segment.refresh = lambda *a, **k: (written.append(1), original(*a, **k))[1]
+		self.addCleanup(setattr, self.segment, "refresh", original)
+		monitor.refresh()
+		self.assertEqual(written, [])
+
+	def test_theReadingPositionSurvivesARead(self):
+		"""Panning is the reader's, and a re-read must not undo it."""
+		self.pinDocument(caretIndex=0)
+		monitor = self.plugin._monitors[PINNED_KEY]
+		monitor.controller.panForward()
+		anchor = monitor.controller.window.anchor
+		self.lines[1] = "changed"
+		monitor.refresh()
+		self.assertEqual(monitor.controller.window.anchor.blockId, anchor.blockId)
+
+	def test_itIsCountedLikeAnyOtherPin(self):
+		self.pinDocument()
+		monitor = self.plugin._monitors[PINNED_KEY]
+		monitor.refresh()
+		self.assertGreater(monitor.counts[0], 0)
+
+	def test_unpinningLetsTheSegmentGo(self):
+		"""A segment left drawing from a flow nothing owns any more would keep showing it."""
+		self.pinDocument()
+		self.plugin.stopMonitoring(PINNED_SEGMENT)
+		self.assertIsNone(self.segment.controller)
+
+	def test_theReadersCursorIsNotMoved(self):
+		"""A pin shows something the reader is not working in, so nothing it does may move
+		them: the flow is built without permission to write a position back."""
+		interceptor = self.pinDocument(caretIndex=2)
+		before = interceptor.caretIndex
+		monitor = self.plugin._monitors[PINNED_KEY]
+		monitor.controller.panForward()
+		monitor.refresh()
+		self.assertEqual(interceptor.caretIndex, before)
+
+
+class TestAPinWithNoRoomToFlow(MonitorTestCase):
+	"""One row is a row. Everything a flow is for needs a second one to exist at all."""
+
+	segmentCount = 8
+
+	def test_itReadsThroughRegionsAsItAlwaysHas(self):
+		self.pinDocument()
+		self.assertIsNone(self.plugin._monitors[PINNED_KEY].controller)
+
+	def test_andTheSegmentHoldsRegions(self):
+		self.pinDocument()
+		self.assertTrue(self.segment.regions)
+		self.assertIsNone(self.segment.controller)

@@ -91,14 +91,30 @@ class TestTheBandIsAFlowSegment(unittest.TestCase):
 		container = containerWithBand()
 		self.assertIsInstance(container.segmentForKey("flow"), FlowBufferSegment)
 
-	def test_anOrdinarySpecStillBuildsAnOrdinarySegment(self):
+	def test_anOrdinarySpecCanHoldOneToo(self):
+		"""Every segment is one that can hold a flow, because a pinned object wants one and
+		hosting the focus has nothing to do with whether a flow can be shown."""
 		view = SegmentView(
 			name="plain",
 			panels=[SinglePanel("plain", SegmentRect(row=0, col=0, numRows=ROWS, numCols=COLS))],
 			focusSegmentKey="plain",
 		)
 		container = DisplayContainer(FakeHandler(ROWS, COLS), view)
-		self.assertNotIsInstance(container.segmentForKey("plain"), FlowBufferSegment)
+		self.assertIsInstance(container.segmentForKey("plain"), FlowBufferSegment)
+
+	def test_andBehavesAsAnOrdinaryOneUntilSomethingIsAttached(self):
+		"""Which is what makes it reasonable to build them all this way: every override falls
+		back to its parent while there is nothing attached."""
+		view = SegmentView(
+			name="plain",
+			panels=[SinglePanel("plain", SegmentRect(row=0, col=0, numRows=ROWS, numCols=COLS))],
+			focusSegmentKey="plain",
+		)
+		container = DisplayContainer(FakeHandler(ROWS, COLS), view)
+		segment = container.segmentForKey("plain")
+		self.assertFalse(segment.isFlowing)
+		container.update()
+		self.assertEqual(len(container.windowBrailleCells), ROWS * COLS)
 
 	def test_anUnattachedBandIsBlankRatherThanBroken(self):
 		container = containerWithBand()

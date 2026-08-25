@@ -32,6 +32,7 @@ the segment it names does. That is what lets a panel be laid over part of the di
 without disturbing an object pinned outside the claim.
 """
 
+import itertools
 from typing import TYPE_CHECKING, Optional
 
 import braille
@@ -47,6 +48,18 @@ if TYPE_CHECKING:
 	from braille.regions.base import Region
 
 	from .segments import BrailleBufferSegment
+
+
+_generations = itertools.count(1)
+"""Numbers each reading a pin makes, so that a bookmark from one cannot match another's."""
+
+MIN_FLOW_ROWS = 2
+"""The fewest rows a segment can show a pinned object as a flow in.
+
+Two. A flow in one row is a row, and everything a flow is for — the shape of a document under
+the hand, a table's columns lining up, a run of items to scan down — needs a second one to
+exist at all. Below this the pin reads as it always has, through NVDA's own regions.
+"""
 
 
 def resolveTarget(obj: "NVDAObject"):
@@ -90,6 +103,19 @@ class ObjectMonitor:
 		self.segmentKey = segmentKey
 		self.regions: Optional[list["Region"]] = None
 		"""The regions being shown, built on first refresh and kept thereafter."""
+		self.pinned = obj
+		"""The object the reader chose, before the tree interceptor was substituted for it.
+
+		Kept because a flow does its own substituting: `flowBuild.buildController` asks
+		`documentFor` the same question `resolveTarget` asks, and handing it the answer
+		instead of the question loses the object the answer was about."""
+
+		self.controller = None
+		"""The flow reading this pin, when its segment has room for one. See `_asAFlow`."""
+
+		self._builtFor: Optional[tuple[int, int]] = None
+		"""The segment size the controller was built for, since a rebuild may change it."""
+
 		self._lastCells: Optional[list[int]] = None
 		"""What was last written, so an unchanged refresh can leave the display alone."""
 
@@ -125,6 +151,7 @@ class ObjectMonitor:
 		if segmentKey == self.segmentKey:
 			return
 		log.debug(f"Moving the pin on {self.name!r} from {self.segmentKey!r} to {segmentKey!r}")
+		self._dropFlow(self._segment())
 		self.segmentKey = segmentKey
 		for region in self.regions or ():
 			region.targetSegment = segmentKey
@@ -176,6 +203,9 @@ class ObjectMonitor:
 		except LookupError:
 			log.debugWarning(f"Segment {self.segmentKey!r} no longer exists")
 			return
+		if self._asAFlow(segment):
+			self._refreshFlow(container, segment, reveal)
+			return
 		try:
 			if self.regions is None:
 				self.regions = self.buildRegions()
@@ -197,6 +227,118 @@ class ObjectMonitor:
 			return
 		self._lastCells = cells
 		self._install(container, segment, reveal)
+
+	# Reading a pin as a flow.
+
+	def _asAFlow(self, segment) -> bool:
+		"""Whether this pin is being read as a flow, building one if it can be.
+
+		A pin is a document, a run of objects or a table just as much as the focus is, and
+		everything the band does for those it can do here — the reader said so, and the
+		display the focus is not on is now where pins live, so there is room to mean it.
+
+		Two things have to hold. The segment must have `MIN_FLOW_ROWS` to show one in, and
+		`buildController` must find something to read — the same question, asked the same way,
+		that decides whether the band lights up.
+
+		**Not gated on the flow settings**, deliberately, and the reader's own account is the
+		argument: they turned the flow off in order to pin something at all. Those settings say
+		what the band does with the focus. A pin is not the focus and is not automatic — it is
+		one thing the reader asked to see in one place — and refusing to read it well because
+		the band is reading something else badly would be the same frustration in a new place.
+
+		Rebuilt when the segment's size changes, because a controller is laid out for a band
+		of a particular shape and a display swap or a claim can change it.
+
+		:param segment: the segment this pin is in.
+		:return: whether there is a flow to draw.
+		"""
+		size = (segment.rect.numRows, segment.rect.numCols)
+		if size[0] < MIN_FLOW_ROWS or not hasattr(segment, "attach"):
+			self._dropFlow(segment)
+			return False
+		if self.controller is not None and self._builtFor == size:
+			return True
+		self._dropFlow(segment)
+		from .flowBuild import buildController
+
+		try:
+			control = buildController(
+				obj=self.pinned,
+				numRows=size[0],
+				numCols=size[1],
+				handler=braille.handler,
+				live=False,
+				generation=next(_generations),
+			)
+		except Exception:
+			log.debugWarning(f"Could not read {self.name!r} as a flow", exc_info=True)
+			return False
+		if control is None:
+			return False
+		self.controller = control
+		self._builtFor = size
+		log.debug(f"Reading the pin on {self.name!r} as a flow in {size[0]} by {size[1]}")
+		return True
+
+	def _refreshFlow(self, container: DisplayContainer, segment, reveal: bool) -> None:
+		"""Read the flow again and draw it, if what it would show has changed.
+
+		The same bargain the region path makes and for the same reason: the display is
+		written only when the cells came out different, so a pin that is not changing costs a
+		read and no display traffic. Panning is the reader's and is not undone here — the
+		window keeps its place across a re-read, which is the whole of what `rereadContent`
+		is for.
+
+		:param container: the display.
+		:param segment: the segment this pin is in.
+		:param reveal: show it from the start, as when the pin is first made.
+		"""
+		control = self.controller
+		try:
+			before = control.cells()
+			control.rereadContent()
+			cells = control.cells()
+		except Exception:
+			log.debugWarning(f"Could not read the flow on {self.name!r}", exc_info=True)
+			return
+		self.counts[0] += 1
+		if cells != self._lastCells:
+			self.counts[1] += 1
+		attached = getattr(segment, "controller", None) is control
+		if attached and not reveal and cells == before and cells == self._lastCells:
+			return
+		self._lastCells = cells
+		if not attached:
+			segment.attach(control)
+		else:
+			segment.refresh()
+		container.updateDisplay()
+
+	def _dropFlow(self, segment=None) -> None:
+		"""Stop reading this pin as a flow, leaving the segment for the region path."""
+		if self.controller is None:
+			return
+		self.controller = None
+		self._builtFor = None
+		self._lastCells = None
+		detach = getattr(segment, "detach", None)
+		if detach is not None and getattr(segment, "controller", None) is not None:
+			detach()
+
+	def stop(self) -> None:
+		"""Give up whatever this pin is holding, before it is forgotten."""
+		self._dropFlow(self._segment())
+
+	def _segment(self):
+		""":return: the segment this pin is in, or None if it has gone."""
+		container = braille.handler.mainBuffer if braille.handler else None
+		if not isinstance(container, DisplayContainer):
+			return None
+		try:
+			return container.segmentForKey(self.segmentKey)
+		except LookupError:
+			return None
 
 	def _install(
 		self,

@@ -352,20 +352,26 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 	def _buildSegment(self, handler, spec) -> BrailleBufferSegment:
 		"""Build the segment one specification asks for.
 
-		A segment whose owner draws the focus content itself is a flow band, and draws from
-		a controller rather than from regions. Everything else is an ordinary segment.
+		Every segment is one that *can* hold a flow, and until a controller is attached it
+		behaves exactly as an ordinary segment does — every override in `FlowBufferSegment`
+		falls back to its parent while there is nothing attached. That is what makes it
+		reasonable to build them all this way, and what it buys is that a flow is no longer
+		something only the band can have: a pinned object gets one in its own segment.
+
+		The alternative was to decide the class from `ownerDrawsFocus`, which is a fact about
+		the *band* — it hosts the focus and draws it — and had nothing to do with whether a
+		flow could be shown. A pin hosts no focus and draws no focus, and was excluded by a
+		question it was never being asked.
 
 		:param handler: the real braille handler.
 		:param spec: the specification to build.
 		:return: the segment.
 		"""
-		if spec.ownerDrawsFocus:
-			# Imported here rather than at the top: `flowSegment` imports this module for
-			# its type hints, and the flow is only reached by a display that asked for one.
-			from .flowSegment import FlowBufferSegment
+		# Imported here rather than at the top: `flowSegment` imports this module for its
+		# type hints.
+		from .flowSegment import FlowBufferSegment
 
-			return FlowBufferSegment(handler, self, spec)
-		return BrailleBufferSegment(handler, self, spec)
+		return FlowBufferSegment(handler, self, spec)
 
 	def update(self) -> None:
 		"""Update every segment, then recombine their state."""

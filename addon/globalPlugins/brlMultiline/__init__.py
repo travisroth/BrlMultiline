@@ -932,6 +932,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# The placeholder is replaced with the segment number.
 			ui.message(_("Segment {number} is not monitoring anything").format(number=resolved))
 			return
+		# Before it is forgotten: a pin read as a flow has a controller attached to the
+		# segment, and dropping the monitor without detaching it would leave the segment
+		# drawing from a flow nothing owns any more.
+		self._monitors[key].stop()
 		del self._monitors[key]
 		container.clear(key)
 		container.update()
@@ -944,6 +948,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""Release every monitored segment, without announcing anything."""
 		container = self.container
 		for key in list(self._monitors):
+			self._monitors[key].stop()
 			del self._monitors[key]
 			if container is not None and container.hasKey(key):
 				container.clear(key)
