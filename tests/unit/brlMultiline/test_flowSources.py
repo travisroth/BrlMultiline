@@ -58,9 +58,16 @@ class FakeClock:
 		return self.now
 
 
-def sourceOver(lines, caretIndex=0, live=False, interactive=False, budget=None) -> DocumentFlowSource:
+def sourceOver(
+	lines,
+	caretIndex=0,
+	live=False,
+	interactive=False,
+	budget=None,
+	expandsBackAt=None,
+) -> DocumentFlowSource:
 	"""Build a source over a browse mode document of the given lines."""
-	interceptor = FakeTreeInterceptor(lines, caretIndex=caretIndex)
+	interceptor = FakeTreeInterceptor(lines, caretIndex=caretIndex, expandsBackAt=expandsBackAt)
 	factory = regionFactoryFor(CursorManagerRegion(interceptor), live=live)
 	return DocumentFlowSource(
 		interceptor,
@@ -202,6 +209,32 @@ class TestEndOfStream(unittest.TestCase):
 		source = sourceOver(["a", "b"], caretIndex=1)
 		block = source.blockAtCursor().block
 		self.assertEqual(source.blockAfter(block.blockId).kind, ResultKind.END_OF_STREAM)
+
+
+class TestWhyAWalkStopped(unittest.TestCase):
+	"""'There is no more this way' is the one answer a reader disputes: they can see the
+	document goes on and NVDA pans through it. A walk has several ways of concluding it has
+	finished, they are different faults with different fixes, and the report used to say only
+	"(end of content)" — which is the claim rather than the reason for it."""
+
+	def test_theEndOfTheDocumentSaysSo(self):
+		source = sourceOver(["only"], caretIndex=0)
+		result = source.blockAfter(source.blockAtCursor().block.blockId)
+		self.assertEqual(result.kind, ResultKind.END_OF_STREAM)
+		self.assertIn("move on", result.message)
+
+	def test_theStartOfItSaysSoTheOtherWay(self):
+		source = sourceOver(["only"], caretIndex=0)
+		result = source.blockBefore(source.blockAtCursor().block.blockId)
+		self.assertIn("move back", result.message)
+
+	def test_aUnitThatReachesBackSaysThat(self):
+		"""What a rich editor does at a position just past a break, and what an Outlook
+		message appeared to do three pans down."""
+		source = sourceOver(["first", "second", "third"], caretIndex=0, expandsBackAt=1)
+		result = source.blockAfter(source.blockAtCursor().block.blockId)
+		self.assertEqual(result.kind, ResultKind.END_OF_STREAM)
+		self.assertIn("went nowhere", result.message)
 
 
 class TestBlankLines(unittest.TestCase):

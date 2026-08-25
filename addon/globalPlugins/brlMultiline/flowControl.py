@@ -164,6 +164,14 @@ class FlowController(PanelOwner):
 		it.
 		"""
 
+		self.edgeReasons: dict = {}
+		"""Why each end of the stream was declared, by edge, for the report.
+
+		"There is no more this way" is the one answer a reader disputes: they can see the
+		document goes on and NVDA pans through it. A walk has several ways of concluding it
+		has finished and they are different faults, so the report has to name which.
+		"""
+
 		self._placements: list[str] = []
 		"""What has actually moved the band, most recent last. See `_note`."""
 
@@ -611,6 +619,7 @@ class FlowController(PanelOwner):
 			# of the stream reads as blank rows, the other two as rows that say there is
 			# more we have not got.
 			self.window.setEdge(edge, result.edgeState)
+			self.edgeReasons[edge] = result.message or result.kind.value
 			return False
 		block = self._keep(result.block)
 		began = self.source.budget.clock()

@@ -82,6 +82,7 @@ def liveReport(band) -> list[str]:
 	lines.append(f"Band indent: {describeIndent(control)}")
 	lines.append(f"Band line focus: {describeLineFocus(control)}")
 	lines.append(f"Band live updates: {describeLiveUpdates(band)}")
+	lines.append(f"Band edges: {describeEdges(control)}")
 	lines.extend(describePins())
 	plan = getattr(getattr(control, "renderer", None), "columnPlan", None)
 	if plan is not None and not plan.isEmpty:
@@ -101,6 +102,32 @@ def liveReport(band) -> list[str]:
 		log.debugWarning("Could not describe what the band is holding", exc_info=True)
 		lines.append(f"  could not be described: {error!r}")
 	return lines
+
+
+def describeEdges(control) -> str:
+	""":return: what the source said about each end of what it is reading, and why.
+
+	The reader's question when the band stops short: NVDA pans on through the document and
+	the band says there is no more. Which of the several ways a walk has of concluding it has
+	finished was taken is the whole of the answer, and "(end of content)" on a row is the
+	claim rather than the reason for it.
+	"""
+	from .flow import Edge, EdgeState
+
+	reasons = getattr(control, "edgeReasons", None) or {}
+	edges = getattr(getattr(control, "window", None), "edges", None)
+	if edges is None:
+		return "not known."
+	said = []
+	for edge in (Edge.BEFORE, Edge.AFTER):
+		state = edges.get(edge, EdgeState.OPEN)
+		where = "before" if edge is Edge.BEFORE else "after"
+		if state is EdgeState.OPEN:
+			said.append(f"more {where}")
+			continue
+		why = reasons.get(edge)
+		said.append(f"{state.value} {where}" + (f" — {why}" if why else ""))
+	return "; ".join(said) + "."
 
 
 def describeLiveUpdates(band) -> str:

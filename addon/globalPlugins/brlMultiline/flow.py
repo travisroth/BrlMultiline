@@ -301,7 +301,15 @@ class FetchResult:
 	"""Where to carry on from, for a deferred result."""
 
 	message: str = ""
-	"""Why, for an error."""
+	"""Why, for an error, and which end was found for an end of stream.
+
+	Carried for an end of stream as well because "there is no more this way" is the one
+	answer a reader disputes: they can see the document goes on and NVDA pans through it. A
+	walk has several ways of concluding it has finished — the document said no, the step went
+	nowhere, the unit reached back over itself — and they are different faults with different
+	fixes. Without this the report said only "(end of content)", which is the claim rather
+	than the reason for it.
+	"""
 
 	@classmethod
 	def found(cls, block: SourceBlock) -> "FetchResult":
@@ -309,9 +317,12 @@ class FetchResult:
 		return cls(kind=ResultKind.BLOCK, block=block)
 
 	@classmethod
-	def endOfStream(cls) -> "FetchResult":
-		""":return: a result saying there is no more this way."""
-		return cls(kind=ResultKind.END_OF_STREAM)
+	def endOfStream(cls, why: str = "") -> "FetchResult":
+		""":return: a result saying there is no more this way.
+
+		:param why: which of the ways of concluding that was taken. See `message`.
+		"""
+		return cls(kind=ResultKind.END_OF_STREAM, message=why)
 
 	@classmethod
 	def deferred(cls, resume: object = None) -> "FetchResult":

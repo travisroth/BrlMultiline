@@ -732,7 +732,7 @@ class TableFlowSource:
 		self.budget.startUnlessActive()
 		row = blockId.bookmark + by
 		if not self.firstRow <= row <= self.handle.numRows:
-			return FetchResult.endOfStream()
+			return FetchResult.endOfStream(f"row {row} is outside this table")
 		return self._rowAt(row)
 
 	def _rowAt(self, row: int) -> FetchResult:

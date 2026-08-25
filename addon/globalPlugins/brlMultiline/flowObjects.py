@@ -1108,7 +1108,7 @@ class ObjectFlowSource:
 		finally:
 			self.budget.observe(self.budget.clock() - began)
 		if found is None:
-			return FetchResult.endOfStream()
+			return FetchResult.endOfStream(f"nothing {'after' if forward else 'before'} this in the run")
 		if isDecoration(found):
 			# A blank row, and walked through rather than stopped at: the groups either side
 			# of a separator are one menu, and ending the run at the line would hide half of
@@ -1118,7 +1118,7 @@ class ObjectFlowSource:
 			# Beside the run rather than in it — the button under a list box, the toolbar
 			# after a menu. The run ends here, and NVDA presents that object as it always has
 			# if the reader goes to it.
-			return FetchResult.endOfStream()
+			return FetchResult.endOfStream("the next object is beside this run rather than in it")
 		return self._blockAt(found)
 
 	def _blockAt(self, obj, decoration: bool = False) -> FetchResult:

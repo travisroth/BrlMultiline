@@ -927,7 +927,7 @@ class DocumentFlowSource:
 			# put it on the display twice — which is what a comment box did for the moment
 			# after each return. Ending the stream here shows blank rows below rather than a
 			# repeat, and the reader's next keystroke reads the document afresh.
-			return FetchResult.endOfStream()
+			return FetchResult.endOfStream("this block already holds the line that follows it")
 		key = (blockId.bookmark, forward)
 		pending = self._resume.pop(key)
 		if pending is not None:
@@ -947,7 +947,7 @@ class DocumentFlowSource:
 			log.debugWarning(f"Could not move {'forward' if forward else 'back'} a block", exc_info=True)
 			return FetchResult.failed(f"could not move: {error!r}")
 		if moved is None:
-			return FetchResult.endOfStream()
+			return FetchResult.endOfStream(f"the document would not move {'on' if forward else 'back'}")
 		moved = self._pastTheBreak(moved, forward)
 		startOfMoved = self._startOfUnit(moved)
 		if not self._advanced(start, startOfMoved, forward):
@@ -956,9 +956,9 @@ class DocumentFlowSource:
 			# reaches back across it, so the block's start is the *previous* block's start
 			# and the display showed the same text twice. Blank rows are the honest answer,
 			# and the reader's next keystroke reads the document afresh.
-			return FetchResult.endOfStream()
+			return FetchResult.endOfStream("the step went nowhere, or back over the block it came from")
 		if self.writing and not self._startsWhereItLanded(moved, startOfMoved):
-			return FetchResult.endOfStream()
+			return FetchResult.endOfStream("the unit found does not begin where the walk landed")
 		if self.interactive or not self._isBlank(moved):
 			return self._blockAt(moved, start=startOfMoved)
 		# A blank block while reading: the run costs one row rather than a display.
