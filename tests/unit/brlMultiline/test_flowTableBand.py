@@ -25,6 +25,7 @@ from ._stubs import (
 
 installStubs()
 
+from brlMultiline.flow import Edge, EdgeState  # noqa: E402
 from brlMultiline.flowBand import LIVE_SETTLE_MILLIS  # noqa: E402
 from brlMultiline.flowTableSource import TableFlowSource  # noqa: E402
 
@@ -787,6 +788,67 @@ class TestBeingToldThatTheDocumentChanged(TableBandTestCase):
 		self.band.documentChanged(document)
 		callLaterQueue.pending[0].run()
 		self.assertEqual(self.band.liveCounts, [1, 1, 1])
+
+
+class TestFinishingAFillTheBudgetCutShort(TableBandTestCase):
+	"""The budget exists so one keypress cannot block the reader for a second on a heavy page.
+	A quarter second of Outlook's Word view buys about five blocks where the band wants eight,
+	and the band showed two rows saying "more, not fetched" and kept showing them: the reader
+	was told the content existed and given no way to reach it.
+
+	So the answer to running out is to come back, not to raise the ceiling."""
+
+	def _short(self):
+		""":return: a band whose window is short of content the source still has."""
+		self._inTable()
+		self.band.layOutTable()
+		control = self.band.controller
+		control.window.setEdge(Edge.AFTER, EdgeState.DEFERRED)
+		callLaterQueue.pending.clear()
+		self.band._cancelFill()
+		return control
+
+	def test_aBandLeftShortAsksToTryAgain(self):
+		self._short()
+		self.band.recheck()
+		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_aBandThatIsNotShortDoesNot(self):
+		"""Asked on every redraw, so it has to cost one attribute and stay quiet."""
+		self._inTable()
+		self.band.layOutTable()
+		self.band._cancelFill()
+		callLaterQueue.pending.clear()
+		self.band.recheck()
+		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_theEndOfTheDocumentIsNotShort(self):
+		"""The two look the same to a reader — rows with nothing in them — and are opposites:
+		one is the document finishing, the other is this add-on giving up part way."""
+		self._inTable()
+		self.band.layOutTable()
+		self.band.controller.window.setEdge(Edge.AFTER, EdgeState.END)
+		self.assertFalse(self.band.controller.hasMoreToFetch)
+
+	def test_onlyOnePassIsEverPending(self):
+		self._short()
+		self.band._scheduleFill()
+		self.band._scheduleFill()
+		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_aPassThatAddsNothingEndsTheChain(self):
+		"""A document that will not answer is asked twice and then left alone."""
+		control = self._short()
+		control.fill = lambda: None
+		self.band._fillMore()
+		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_aPassThatAddsSomethingAsksForAnother(self):
+		control = self._short()
+		control.fill = lambda: control.window.setEdge(Edge.AFTER, EdgeState.DEFERRED)
+		control.cells = iter([[1], [2], [2]]).__next__
+		self.band._fillMore()
+		self.assertEqual(len(callLaterQueue.pending), 1)
 
 
 class TestKeepingUpWithoutATable(TableBandTestCase):

@@ -48,6 +48,23 @@ from .views import focusDisplayDriver
 from .flowSources import DocumentFlowSource, documentFor
 from .panels import FlowPanel, PanelOwner
 
+FILL_AGAIN_MILLIS = 120
+"""How long after a fill that ran out of budget the band tries again.
+
+The budget exists so that one keypress cannot block the reader for a second on a heavy page,
+and 250 milliseconds of Word buys about five blocks where the band wants eight. Left there,
+the band showed two rows saying "more, not fetched" and kept showing them: the reader was
+told the content existed and given no way to reach it.
+
+So the answer to running out is to come back, not to raise the ceiling. Each pass gets a fresh
+allowance, the display is written only when a pass added something, and the chain stops the
+moment one adds nothing — which is what keeps a document that genuinely will not answer from
+being asked forever.
+
+Short enough that the rows fill in while the hand is still moving, long enough to leave the
+reader's own keystrokes ahead of it in the queue.
+"""
+
 MIN_BAND_ROWS = 2
 """The fewest rows a display must have before a flow is worth claiming it.
 
@@ -138,6 +155,9 @@ class FlowBand(PanelOwner):
 
 		self._liveDelay = 0
 		"""How far off the pending pass is, so that sooner news can bring it forward."""
+
+		self._fillTimer = None
+		"""The pending pass to finish a fill the budget cut short. See L{_scheduleFill}."""
 
 		self.liveCounts = [0, 0, 0]
 		"""Changes heard, passes run, passes that redrew. For the dry run, and it earns its
@@ -381,7 +401,9 @@ class FlowBand(PanelOwner):
 		# The pending pass belongs to whatever was being read before this. Its delay was
 		# chosen for that content and its first act would be to read this instead.
 		self._cancelLiveRead()
+		self._cancelFill()
 		self._scheduleLiveRead()
+		self._scheduleFill()
 
 	def _scheduleLiveRead(self, millis: Optional[int] = None) -> None:
 		"""Arrange to read a table laid out in columns again.
@@ -491,6 +513,54 @@ class FlowBand(PanelOwner):
 		self._rebuildTable()
 		return False
 
+	def _scheduleFill(self) -> None:
+		"""Arrange to finish a fill the budget cut short, if one was.
+
+		Only one pass is ever pending, and only while there is something to finish.
+		"""
+		import wx
+
+		control = self.controller
+		if self._fillTimer is not None or control is None or not control.hasMoreToFetch:
+			return
+		try:
+			self._fillTimer = wx.CallLater(FILL_AGAIN_MILLIS, self._fillMore)
+		except Exception:
+			log.debugWarning("Could not schedule a second fill", exc_info=True)
+			self._fillTimer = None
+
+	def _fillMore(self) -> None:
+		"""Fetch what the band is still short of, with a fresh allowance.
+
+		Chained rather than looped: each pass asks for the next only if this one added
+		something, so a document that will not answer is asked twice and left alone.
+		"""
+		self._fillTimer = None
+		control = self.controller
+		if control is None or not control.hasMoreToFetch:
+			return
+		try:
+			before = control.cells()
+			control.fill()
+			if control.cells() == before:
+				return
+			segment = self.segment()
+			if segment is not None:
+				segment.refresh()
+		except Exception:
+			log.debugWarning("Could not finish filling the band", exc_info=True)
+			return
+		self._scheduleFill()
+
+	def _cancelFill(self) -> None:
+		if self._fillTimer is None:
+			return
+		try:
+			self._fillTimer.Stop()
+		except Exception:
+			pass
+		self._fillTimer = None
+
 	def _cancelLiveRead(self) -> None:
 		self._liveDelay = 0
 		if self._liveTimer is None:
@@ -514,6 +584,7 @@ class FlowBand(PanelOwner):
 		"""Give the band back and forget the flow."""
 		self._cancelSettle()
 		self._cancelLiveRead()
+		self._cancelFill()
 		flowQuickNav.remove()
 		self.controller = None
 		self.obj = None
@@ -571,6 +642,9 @@ class FlowBand(PanelOwner):
 		"""
 		if self._rechecking or self.controller is None:
 			return
+		# Before the questions below, and cheap: one attribute. A band left short by the
+		# budget must be finished whatever else this redraw concludes.
+		self._scheduleFill()
 		if self._readingATable():
 			self._recheckTable()
 			return

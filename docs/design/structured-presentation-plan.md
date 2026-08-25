@@ -231,7 +231,25 @@ are not re-argued.
     flow here whatever the focus does. Failing both, the tallest, because rows are what a flow
     spends.
 
-22. **Panning stands until the reader moves.** A live flow writes its reading position back
+22. **Running out of budget means come back, not stay short.** The budget exists so that one
+    keypress cannot block the reader for a second on a heavy page, and that is worth keeping:
+    a quarter second is already a long time to hold a hand still. But Outlook's Word view
+    costs about fifty milliseconds a block eight pans into a long message, so a quarter second
+    buys five blocks where the band wants eight — and the band showed two rows saying "more,
+    not fetched" and went on showing them. The reader was told the content existed and given
+    no way to reach it.
+
+    So a band left short asks to be finished. Each pass gets a fresh allowance, the display is
+    written only when a pass added something, and the chain ends the moment one adds nothing,
+    which is what stops a document that will not answer being asked forever. Raising the
+    ceiling was the alternative and it is the wrong trade: it buys the same rows at the price
+    of a longer wait on every keystroke.
+
+    The two kinds of empty row are opposites and must not be confused: `END` is the document
+    finishing and `DEFERRED` is this add-on giving up part way. They read identically under
+    the hand, which is why the report names which.
+
+23. **Panning stands until the reader moves.** A live flow writes its reading position back
     as it pans, NVDA reports that position, and the band is asked to show the caret — whose
     row is the one that was just panned away from. On a band several rows tall the caret's row
     is usually still on it and nothing happens. On a band **one row** tall it never is, so
@@ -252,7 +270,7 @@ are not re-argued.
     the report showed six arrivals and no pans, and there was no way to tell whether the pans
     had never happened or had happened and been undone.
 
-23. **A pinned object is read as a flow where its segment has room for one.** The other half
+24. **A pinned object is read as a flow where its segment has room for one.** The other half
     of decision 21, and the reason the freed display is worth having. A pin is a document, a
     run of objects or a table just as much as the focus is, and it was being shown through
     NVDA's own regions — which for a browse mode document means the one element the cursor
@@ -290,7 +308,7 @@ are not re-argued.
     order; the same fallback covers a pin outliving its table, where insisting on columns
     would leave the segment blank instead of showing what is there now.
 
-24. **How many columns share a page is decided by how tall the row becomes, not by how many
+25. **How many columns share a page is decided by how tall the row becomes, not by how many
     fit across the band.** These are different questions and the second has a much worse
     answer. A bank statement of four columns wanting 10, 8, 24 and 6 cells was laid out at
     7, 7, 7 and 8, which is exactly thirty-two with the gaps: a flawless fit on the axis
@@ -332,7 +350,7 @@ are not re-argued.
     readability", and "if a cell is still at 4+ after it is half the display, we should just
     go one column at a time".
 
-25. **The first column is repeated at the left of every page after the first.** Six columns
+26. **The first column is repeated at the left of every page after the first.** Six columns
     into a watchlist the reader is feeling four numbers with nothing to say whose numbers
     they are, and the symbol that would say so is two page turns back. The column that heads
     the row — the symbol, the criterion, the date — is drawn again at offset zero on each
@@ -770,7 +788,7 @@ is what a setting is for and what a default must not assume.
 No persistence and no pinned headers yet.
 
 **M3d — readability, paging and the repeated column.** BUILT, NOT YET ON HARDWARE.
-Decisions 24 and 25, and the answer to what the reader saw on a 29 column watchlist: eight
+Decisions 25 and 26, and the answer to what the reader saw on a 29 column watchlist: eight
 columns of three cells where "310.34" came out as "3".
 
 `rowsNeeded` is the arithmetic that was missing — how many band rows a cell of a given length
@@ -812,7 +830,7 @@ coordinate, which catches a merged cell — the coordinate raises — and misses
 turned up on the reader's own watchlist. Its leftmost column is icons NVDA cannot read: there
 is a cell, it is simply empty, in the header and in every row. Measured it came to nothing,
 was drawn at `MIN_COLUMN_CELLS` anyway, and cost four cells of a thirty-two cell band on
-every row. Worse, being the *first* column it was what decision 25 pinned to every page, so
+every row. Worse, being the *first* column it was what decision 26 pinned to every page, so
 the thing repeated to say which row the reader was on was a blank.
 
 **And empty in the sample is not the same as empty.** `measure` reads a bounded eight rows,

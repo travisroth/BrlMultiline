@@ -351,6 +351,16 @@ class FlowController(PanelOwner):
 
 	# Filling.
 
+	@property
+	def hasMoreToFetch(self) -> bool:
+		""":return: whether an end of the band is short of content the source still has.
+
+		Deferred, which is the budget having run out rather than the document having ended.
+		The two look the same to a reader — rows with nothing in them — and are opposites:
+		one is the document finishing and the other is this add-on giving up part way.
+		"""
+		return any(state is EdgeState.DEFERRED for state in self.window.edges.values())
+
 	def fill(self) -> None:
 		"""Fetch whatever the window is short of, at both ends, and drop what is far away."""
 		with self.operation():

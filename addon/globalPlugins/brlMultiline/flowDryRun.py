@@ -83,6 +83,11 @@ def liveReport(band) -> list[str]:
 	lines.append(f"Band line focus: {describeLineFocus(control)}")
 	lines.append(f"Band live updates: {describeLiveUpdates(band)}")
 	lines.append(f"Band edges: {describeEdges(control)}")
+	# The band's own numbers. Everything under `Cost` below belongs to the controller this
+	# command builds to answer with, which reads the same document and has a budget of its
+	# own — so a reader diagnosing a band that keeps saying "more, not fetched" was being
+	# shown the cost of something else entirely.
+	lines.extend(f"  Band cost, {line}" for line in describeCost(control))
 	lines.extend(describePins())
 	plan = getattr(getattr(control, "renderer", None), "columnPlan", None)
 	if plan is not None and not plan.isEmpty:
