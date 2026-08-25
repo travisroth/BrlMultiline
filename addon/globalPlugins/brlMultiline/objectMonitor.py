@@ -92,6 +92,17 @@ class ObjectMonitor:
 		"""The regions being shown, built on first refresh and kept thereafter."""
 		self._lastCells: Optional[list[int]] = None
 		"""What was last written, so an unchanged refresh can leave the display alone."""
+
+		self.counts = [0, 0]
+		"""How many times this pin was read, and how many of those read something different.
+
+		For the dry run, and it answers a question nothing else can. A pin that stops moving
+		has stopped somewhere, and there are three candidates: this add-on stopped asking, the
+		page stopped changing, or something between the two stopped delivering. The first is
+		the only one that is ours, and these two numbers separate it from the others — reads
+		climbing with changes at zero means the asking is fine and the answer is always the
+		same, which is the page.
+		"""
 		log.debug(f"Monitoring {self.name!r} ({self.obj!r}) in segment {segmentKey!r}")
 
 	def moveTo(self, segmentKey: str) -> None:
@@ -177,6 +188,9 @@ class ObjectMonitor:
 			log.debugWarning(f"Could not generate regions for {self.name!r}", exc_info=True)
 			return
 		cells = [cell for region in self.regions for cell in region.brailleCells]
+		self.counts[0] += 1
+		if cells != self._lastCells:
+			self.counts[1] += 1
 		if not reveal and cells == self._lastCells and segment.regions == self.regions:
 			# Nothing has changed and the segment still holds what this monitor put there.
 			# Rewriting it would cost a display update and lose the user's window position.

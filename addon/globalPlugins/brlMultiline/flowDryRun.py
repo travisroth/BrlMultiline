@@ -71,7 +71,9 @@ def liveReport(band) -> list[str]:
 	"""
 	control = getattr(band, "controller", None) if band is not None else None
 	if control is None:
-		return ["The band is not showing a flow, so there is nothing it is holding."]
+		# The pins still matter here, and this is the case a reader most often asks about:
+		# a pin is set from a display with no flow on it.
+		return ["The band is not showing a flow, so there is nothing it is holding.", *describePins()]
 	lines = [f"Band flow: {control!r}", f"Band source: {control.source!r}"]
 	anchor = getattr(control.window, "anchor", None)
 	if anchor is not None:
@@ -80,6 +82,7 @@ def liveReport(band) -> list[str]:
 	lines.append(f"Band indent: {describeIndent(control)}")
 	lines.append(f"Band line focus: {describeLineFocus(control)}")
 	lines.append(f"Band live updates: {describeLiveUpdates(band)}")
+	lines.extend(describePins())
 	plan = getattr(getattr(control, "renderer", None), "columnPlan", None)
 	if plan is not None and not plan.isEmpty:
 		lines.append(f"Band columns: {flowTable.describe(plan)}")
@@ -117,6 +120,30 @@ def describeLiveUpdates(band) -> str:
 	timer = bmConfig.liveReadSeconds()
 	clock = f"every {timer}s as well" if timer else "no timer"
 	return f"document change notices {told}, {clock}; {heard} heard, {passes} read, {redrawn} redrew."
+
+
+def describePins() -> list[str]:
+	"""What each pinned object has been doing, for the log.
+
+	A pin that stops moving has stopped somewhere, and there are three candidates: this
+	add-on stopped asking, the page stopped changing, or something between them stopped
+	delivering. Only the first is ours, and only these numbers tell them apart — reads
+	climbing while changes sit still means the asking is fine and the answer is always the
+	same, which is the page and not the pin.
+
+	:return: one line per pin, or a line saying there are none.
+	"""
+	from . import getPlugin
+
+	plugin = getPlugin()
+	monitors = dict(getattr(plugin, "_monitors", {}) or {}) if plugin is not None else {}
+	if not monitors:
+		return ["Pinned objects: none."]
+	lines = ["Pinned objects:"]
+	for key, monitor in monitors.items():
+		reads, changes = getattr(monitor, "counts", (0, 0))
+		lines.append(f"  {monitor.name!r} in {key}: {reads} reads, {changes} of them different.")
+	return lines
 
 
 def describeLineFocus(control) -> str:
