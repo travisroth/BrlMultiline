@@ -26,6 +26,7 @@ from ._stubs import (
 
 installStubs()
 
+from brlMultiline.flowBand import LIVE_TABLE_SETTLE_MILLIS  # noqa: E402
 from brlMultiline.flowTableSource import TableFlowSource  # noqa: E402
 
 from .test_flowSegment import FakeHandler, FakePlugin, containerWithBand  # noqa: E402
@@ -522,6 +523,15 @@ class TestATableWhoseValuesChange(TableBandTestCase):
 		callLaterQueue.pending.clear()
 		return document
 
+	def _toldAboutChanges(self, installed):
+		"""Say whether the document-change patch is in place, which decides whether the band
+		falls back to a clock."""
+		import brlMultiline.patches as patches
+
+		original = patches.liveUpdatesInstalled
+		patches.liveUpdatesInstalled = lambda: installed
+		self.addCleanup(setattr, patches, "liveUpdatesInstalled", original)
+
 	def _counted(self):
 		""":return: a list that grows each time the display is written."""
 		segment = self.band.segment()
@@ -582,11 +592,30 @@ class TestATableWhoseValuesChange(TableBandTestCase):
 		self.band._refreshLiveTable()
 		self.assertEqual(callLaterQueue.pending, [])
 
-	def test_theReaderCanTurnItOff(self):
+	def test_nothingIsReadOnAClockWhenSomethingWillSaySo(self):
+		"""The point of the whole exercise: a table nobody is changing costs nothing between
+		the reader's own keystrokes."""
 		self._watching()
+		self._toldAboutChanges(True)
 		CONFIG["flowTableLiveSeconds"] = 0
 		self.band._refreshLiveTable()
 		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_aClockIsUsedWhenNothingWill(self):
+		"""Zero means "you decide", not "never": a reader whose NVDA cannot be patched must
+		not silently lose the updates they had."""
+		self._watching()
+		self._toldAboutChanges(False)
+		CONFIG["flowTableLiveSeconds"] = 0
+		self.band._refreshLiveTable()
+		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_theReadersOwnIntervalWinsEitherWay(self):
+		self._watching()
+		self._toldAboutChanges(True)
+		CONFIG["flowTableLiveSeconds"] = 5
+		self.band._refreshLiveTable()
+		self.assertEqual([timer.milliseconds for timer in callLaterQueue.pending], [5000])
 
 	def test_layingATableOutStartsTheChain(self):
 		callLaterQueue.pending.clear()
@@ -602,6 +631,87 @@ class TestATableWhoseValuesChange(TableBandTestCase):
 		self.band._scheduleLiveTable()
 		self.band._scheduleLiveTable()
 		self.assertEqual(len(callLaterQueue.pending), 1)
+
+
+class TestBeingToldThatTheDocumentChanged(TableBandTestCase):
+	"""NVDA's virtual buffer says when its content moved, for any accessibility event the
+	backend acted on and not only for a live region. That is a far better signal than a clock:
+	a page that says nothing costs nothing at all."""
+
+	def _watching(self):
+		obj, document = self._inTable()
+		self.band.layOutTable()
+		callLaterQueue.pending.clear()
+		self.band._cancelLiveTable()
+		return document
+
+	def test_aChangeInThisDocumentAsksForAPass(self):
+		document = self._watching()
+		self.band.documentChanged(document)
+		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_itIsAskedForSoonerThanAPollWouldBe(self):
+		document = self._watching()
+		self.band.documentChanged(document)
+		self.assertEqual(callLaterQueue.pending[0].milliseconds, LIVE_TABLE_SETTLE_MILLIS)
+
+	def test_aChangeInAnotherDocumentIsNotOurs(self):
+		"""A browser holds a buffer per document, and the reader has other tabs open."""
+		self._watching()
+		self.band.documentChanged(FakeTableDocument([["a"], ["b"]]))
+		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_aBandNotReadingATableIgnoresIt(self):
+		document = self._watching()
+		self.band.clearTable()
+		callLaterQueue.pending.clear()
+		self.band.documentChanged(document)
+		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_aBurstIsOnePass(self):
+		"""A page repricing thirty rows sends an event per region it touched, and that must
+		not become thirty reads of the same band."""
+		document = self._watching()
+		for _ in range(30):
+			self.band.documentChanged(document)
+		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_aBurstDoesNotPushThePassFurtherOut(self):
+		"""Restarting the wait on every event would starve a page that never stops changing."""
+		document = self._watching()
+		self.band.documentChanged(document)
+		first = callLaterQueue.pending[0]
+		self.band.documentChanged(document)
+		self.assertIs(callLaterQueue.pending[0], first)
+
+	def test_newsBringsAPendingPollForward(self):
+		"""A pass two seconds away must not keep a quarter second one waiting behind it."""
+		document = self._watching()
+		CONFIG["flowTableLiveSeconds"] = 5
+		self.band._scheduleLiveTable()
+		self.band.documentChanged(document)
+		self.assertEqual(
+			[timer.milliseconds for timer in callLaterQueue.pending],
+			[
+				LIVE_TABLE_SETTLE_MILLIS,
+			],
+		)
+
+	def test_thePassItAsksForShowsTheNewValue(self):
+		document = self._watching()
+		document.rows[1][1] = "999.99"
+		self.band.documentChanged(document)
+		callLaterQueue.pending[0].run()
+		self.assertIn("999.99", " ".join(self.band.controller.describeRows()))
+
+	def test_whatArrivedIsCounted(self):
+		"""Whether the event reaches us at all is the one thing about this that cannot be
+		felt, and a reader whose prices sit still needs to know which half is not working."""
+		document = self._watching()
+		document.rows[1][1] = "999.99"
+		self.band.documentChanged(document)
+		callLaterQueue.pending[0].run()
+		self.assertEqual(self.band.liveTableCounts, [1, 1, 1])
 
 
 class TestWhatAWideTableCostsToRead(TableBandTestCase):

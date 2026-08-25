@@ -731,16 +731,51 @@ it had read and had nothing that would read them again.
 `FlowController.rereadContent` is the second half, and it is the page-turn machinery under a
 different name: the window keeps its place, the blocks keep their identities, and what
 changes is what the source now says is in them. A reader whose hand is on row four wants row
-four to hold this second's price, not to be moved somewhere while the band starts again.
-`FlowBand._refreshLiveTable` drives it on a timer that reschedules itself, so the chain ends
-by itself when the reader leaves the table, and it writes the display only when the cells
-came out different — the `_settle` pattern, for the same reason.
+four to hold this second's price, not to be moved somewhere while the band starts again. It
+writes the display only when the cells came out different — the `_settle` pattern, for the
+same reason.
 
-`flowTableLiveSeconds`, two by default, zero to turn it off. **What is not proven is whether
-re-reading is enough**: it assumes NVDA's virtual buffer holds the new value even where NVDA
-has not reported it, which is what its update handling implies and not what has been watched
-happen. If a re-read comes back with the old price, the buffer itself is stale and the answer
-is a larger one.
+**What drives it is NVDA telling us, not a clock.** The first cut used a two second timer and
+the reader asked the right question of it: how does NVDA know, and is it only ARIA? Reading
+NVDA's own source settled it, and the answer is better than the assumption behind the timer.
+
+- `nvdaHelper/vbufBackends/gecko_ia2/gecko_ia2.cpp` invalidates a subtree on
+  `IA2_EVENT_TEXT_UPDATED`, `TEXT_INSERTED`, `TEXT_REMOVED`, `EVENT_OBJECT_REORDER`,
+  `NAMECHANGE`, `VALUECHANGE`, `DESCRIPTIONCHANGE`, `STATECHANGE`, the selection events and
+  more. **No live region test anywhere in that path.** `VBufBackend_t::update` re-renders the
+  invalidated subtrees and splices them in, so the buffer is fresh whether or not the page
+  uses ARIA correctly — which is why the timer worked at all.
+- That splice calls `nvdaControllerInternal_vbufChangeNotify`, which reaches
+  `VirtualBuffer.changeNotify` and then `braille.handler.handleUpdate`. So **NVDA already
+  raises exactly the signal wanted**, per document and coalesced by the render thread.
+- NVDA's own use of it is to mark the caret's region for update, and
+  `TextInfoRegion.update` re-reads the reading unit *at the caret*. That is the whole of why
+  a watchlist read in columns went stale while NVDA looked right: there was never anything on
+  NVDA's display but the one line it was already refreshing.
+
+So `patches` wraps `VirtualBuffer._handleUpdate`, tells the band, and lets NVDA have its
+update. `FlowBand.documentChanged` answers it, and the answer is bounded twice: only a
+document the band is reading a table out of, and only the rows on the band at the columns of
+the page being drawn. A change three screens down the page costs the read of what the reader
+is touching, which is the read that was happening anyway.
+
+`LIVE_TABLE_SETTLE_MILLIS` is a quarter of a second and it is not a poll — it is how long the
+news is allowed to settle, because a page repricing thirty rows sends an event per region it
+touched and that must not become thirty reads of the same band. News arriving during a settle
+does *not* push the pass further out; on a page that never stops changing, restarting the wait
+would starve it entirely.
+
+That wrapper is the first patch this add-on installs on a class other than `BrailleHandler`,
+which is why `patches` now remembers an owner per name.
+
+`flowTableLiveSeconds` is zero by default, and zero means wait to be told rather than never:
+`FlowBand._pollMillis` falls back to a timer when the wrapper is not installed, so a build
+where it cannot go in loses nothing silently. A number set by hand polls as well, for a page
+that changes without saying so.
+
+The dry run reports whether the notices are arriving, how many have, how many passes ran and
+how many redrew — because whether the event reaches the band at all is the one thing about
+this a reader cannot feel.
 
 **M4 — pinned headers.** BUILT FOR BROWSE MODE TABLES, NOT YET ON HARDWARE. Brought
 forward from last because the reader met the hole it fills: a column layout turned on from

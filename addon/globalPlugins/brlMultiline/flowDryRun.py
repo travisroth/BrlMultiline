@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Optional
 import api
 from logHandler import log
 
-from . import flowForms
+from . import bmConfig, flowForms
 from .flowBuild import bandSize, buildController, describeObject
 from .flowControl import FlowController
 from . import flowTable
@@ -79,6 +79,7 @@ def liveReport(band) -> list[str]:
 		lines.append(f"Band anchor: entered from the {entry}, at row {anchor.rowIndex} of its block")
 	lines.append(f"Band indent: {describeIndent(control)}")
 	lines.append(f"Band line focus: {describeLineFocus(control)}")
+	lines.append(f"Band live updates: {describeLiveUpdates(band)}")
 	plan = getattr(getattr(control, "renderer", None), "columnPlan", None)
 	if plan is not None and not plan.isEmpty:
 		lines.append(f"Band columns: {flowTable.describe(plan)}")
@@ -97,6 +98,25 @@ def liveReport(band) -> list[str]:
 		log.debugWarning("Could not describe what the band is holding", exc_info=True)
 		lines.append(f"  could not be described: {error!r}")
 	return lines
+
+
+def describeLiveUpdates(band) -> str:
+	""":return: whether the band is being told about changes, and what has arrived.
+
+	The one thing about live updating that cannot be felt. A reader whose prices sit still
+	needs to know which half is not working: whether the news is reaching the band at all,
+	whether it is reading when it does, and whether what it reads is any different.
+	"""
+	from . import patches
+
+	counts = getattr(band, "liveTableCounts", None)
+	if counts is None:
+		return "not reading a table."
+	told = "on" if patches.liveUpdatesInstalled() else "OFF, falling back to a timer"
+	heard, passes, redrawn = counts
+	timer = bmConfig.liveTableSeconds()
+	clock = f"every {timer}s as well" if timer else "no timer"
+	return f"document change notices {told}, {clock}; {heard} heard, {passes} read, {redrawn} redrew."
 
 
 def describeLineFocus(control) -> str:

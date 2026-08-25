@@ -1798,6 +1798,21 @@ def fakeGetFocusRegions(obj, review=False):
 	return regions
 
 
+class FakeVirtualBufferClass:
+	"""NVDA's `VirtualBuffer`, as far as the patches touch it.
+
+	Only `_handleUpdate` matters: it is where NVDA learns that a browse mode document changed,
+	and the add-on wraps it to hear the same news. A class rather than a stand-in object because
+	the patch is installed on the class, which is the thing being tested.
+	"""
+
+	def __init__(self):
+		self.updates = 0
+
+	def _handleUpdate(self):
+		self.updates += 1
+
+
 def _module(name, **attributes):
 	module = types.ModuleType(name)
 	for key, value in attributes.items():
@@ -1824,6 +1839,7 @@ def _installPluginStubs() -> None:
 		copyToClip=_copyToClip,
 	)
 	_module("ui", message=spokenMessages.append)
+	_module("virtualBuffers", VirtualBuffer=FakeVirtualBufferClass)
 	_module(
 		"wx",
 		CallAfter=callAfterQueue.callAfter,

@@ -103,7 +103,7 @@ configSpec = {
 			"flowTableRowHeight": f"integer(default={flowTable.DEFAULT_MAX_ROWS}, min=1, max={flowTable.MAX_TABLE_ROWS})",
 			"flowTableTruncate": "boolean(default=False)",
 			"flowTablePinKey": "boolean(default=True)",
-			"flowTableLiveSeconds": "integer(default=2, min=0, max=60)",
+			"flowTableLiveSeconds": "integer(default=0, min=0, max=60)",
 			"flowTableHeaders": "boolean(default=True)",
 			**{
 				flowModeKey(mode): f"boolean(default={FLOW_MODE_DEFAULTS.get(mode, False)})"
@@ -157,8 +157,8 @@ configSpec = {
 - `flowTableTruncate`: whether a cell too long for its column is cut rather than wrapped.
 - `flowTablePinKey`: whether the first column is repeated at the left of every page after
 	the first, so that a reader six columns across a watchlist still knows whose row it is.
-- `flowTableLiveSeconds`: how often a table laid out in columns reads itself again, so that
-	values changing under the reader's hand reach the display. Zero turns it off.
+- `flowTableLiveSeconds`: how often a table laid out in columns reads itself again on a
+	timer, over and above reading it when the page says it changed. Zero waits to be told.
 - `flowTableHeaders`: whether a table's header row is held on the top row of the band,
 	whatever the rest of it is showing.
 
@@ -579,28 +579,29 @@ def shouldPinKeyColumn(displayKey: str | None = None) -> bool:
 
 
 def liveTableSeconds(displayKey: str | None = None) -> int:
-	""":return: how often a table laid out in columns reads itself again, in seconds.
+	""":return: how often a table laid out in columns is read again on a timer, in seconds.
 
-	Two by default; zero turns it off.
+	Zero by default, which does not mean never: it means wait to be told. NVDA's virtual
+	buffer says when a browse mode document changed under it — for any accessibility event
+	its backend acted on, not only for a live region — and the band answers that instead of
+	a clock. A page that says nothing then costs nothing at all, and a repricing watchlist is
+	heard in a quarter of a second rather than in two.
 
-	A watchlist during market hours changes under the reader's hand and nothing tells the
-	band. NVDA reports a cell's new value only while the browse mode caret is in that cell —
-	the right answer for speech and for a display showing one cell at a time, and no answer at
-	all for a display showing a page of a table at once, where the reader feels a price that
-	was true when they arrived and has no way to know it is not true now.
+	A number here reads on a timer as well, which is what a reader sets when a page changes
+	without saying so. `FlowBand._pollMillis` also falls back to a timer when the patch that
+	carries the news is not installed, so zero never means silently losing the updates.
 
-	Off is worth having for a table that cannot change, and for a document where reading a
-	page of cells every two seconds is more than the reader wants spent. On a table that is
-	not live the pass costs the read and nothing else: the display is only written when the
-	cells came out different.
+	The band is what NVDA's own answer cannot be. NVDA reports a cell's new value only while
+	the browse mode caret is in that cell, which is right for speech and for a display showing
+	one cell at a time, and no answer at all for a display showing a page of a table at once.
 
-	See `FlowBand._refreshLiveTable`.
+	See `FlowBand.documentChanged` and `patches._handleUpdateTellingTheBand`.
 	"""
 	try:
 		wanted = int(getDisplayConfig(displayKey)["flowTableLiveSeconds"])
 	except Exception:
 		log.debugWarning("Could not read flowTableLiveSeconds", exc_info=True)
-		return 2
+		return 0
 	return max(0, min(wanted, 60))
 
 

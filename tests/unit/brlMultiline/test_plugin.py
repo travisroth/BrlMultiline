@@ -984,9 +984,27 @@ class TestPatchOwnership(PluginTestCase):
 	"""
 
 	def restore(self, name, original):
-		setattr(BrailleHandler, name, original)
+		setattr(patches._owners.get(name, BrailleHandler), name, original)
 		patches._originals.pop(name, None)
 		patches._installedMethods.pop(name, None)
+		patches._owners.pop(name, None)
+
+	def withBand(self, onChange):
+		"""Put a stand-in band on the plugin, so the patch has somewhere to deliver to."""
+		import brlMultiline
+
+		class Band:
+			def documentChanged(self, document):
+				onChange(document)
+
+		plugin = brlMultiline.getPlugin()
+		if plugin is None:
+			plugin = types.SimpleNamespace(flowBand=None)
+			brlMultiline._plugin = plugin
+			self.addCleanup(setattr, brlMultiline, "_plugin", None)
+		previous = getattr(plugin, "flowBand", None)
+		plugin.flowBand = Band()
+		self.addCleanup(setattr, plugin, "flowBand", previous)
 
 	def somebodyElseTakesOver(self, name):
 		"""Another add-on replaces one of the patched methods after this one did."""
@@ -998,15 +1016,51 @@ class TestPatchOwnership(PluginTestCase):
 		setattr(BrailleHandler, name, theirs)
 		return theirs
 
+	def test_theDocumentChangePatchTellsTheBand(self):
+		"""The signal that replaced a clock: NVDA's virtual buffer says when its content moved,
+		for any accessibility event its backend acted on and not only for a live region."""
+		import virtualBuffers
+
+		told = []
+		buffer = virtualBuffers.VirtualBuffer()
+		self.withBand(lambda document: told.append(document))
+		buffer._handleUpdate()
+		self.assertEqual(told, [buffer])
+
+	def test_nvdaStillGetsItsOwnUpdate(self):
+		"""A failure of ours must not cost NVDA the update it was told about."""
+		import virtualBuffers
+
+		buffer = virtualBuffers.VirtualBuffer()
+		self.withBand(lambda document: (_ for _ in ()).throw(RuntimeError("no")))
+		buffer._handleUpdate()
+		self.assertEqual(buffer.updates, 1)
+
+	def test_noBandIsNotAnError(self):
+		import virtualBuffers
+
+		buffer = virtualBuffers.VirtualBuffer()
+		buffer._handleUpdate()
+		self.assertEqual(buffer.updates, 1)
+
+	def test_liveUpdatesReportThemselvesAsInstalled(self):
+		self.assertTrue(patches.liveUpdatesInstalled())
+
 	def test_everyPatchIsInstalled(self):
-		for name, replacement in patches._replacements().items():
-			self.assertIs(getattr(BrailleHandler, name), replacement)
+		for name, (owner, replacement) in patches._replacements().items():
+			self.assertIs(getattr(owner, name), replacement)
+
+	def test_theyAreNotAllOnTheSameClass(self):
+		"""The document change patch is on NVDA's virtual buffer, not on its braille handler,
+		which is what made the owner part of what is remembered."""
+		owners = {owner for owner, _replacement in patches._replacements().values()}
+		self.assertGreater(len(owners), 1)
 
 	def test_removingPutsNVDAsOwnMethodsBack(self):
 		originals = dict(patches._originals)
 		patches.remove()
 		for name, original in originals.items():
-			self.assertIs(getattr(BrailleHandler, name), original)
+			self.assertIs(getattr(patches._replacements()[name][0], name), original)
 
 	def test_removingLeavesAnotherAddOnsMethodAlone(self):
 		theirs = self.somebodyElseTakesOver("scrollForward")

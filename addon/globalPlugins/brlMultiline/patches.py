@@ -12,6 +12,8 @@
 	direction that display is configured for.
 3. `_handlePendingUpdate` refreshes the document line regions and the pinned objects, neither
 	of which NVDA has any reason to mark as needing an update.
+4. `VirtualBuffer._handleUpdate` is where NVDA learns that a browse mode document changed
+	under it. The band wants to know as well, and nothing else says so.
 
 All are installed and removed symmetrically, so that disabling the add-on restores NVDA's own
 behaviour without a restart. Symmetrically, but not unconditionally: these are attributes of a
@@ -30,6 +32,9 @@ from logHandler import log
 
 from . import bmConfig, documentLines, panning
 from .container import DisplayContainer
+
+_owners: dict[str, object] = {}
+"""The class each patched name belongs to, since they are no longer all on one class."""
 
 _originals: dict[str, object] = {}
 """NVDA's own methods, by the name each one is patched under.
@@ -213,6 +218,47 @@ def _refreshPinnedObjects() -> None:
 		log.debugWarning("Could not refresh pinned objects", exc_info=True)
 
 
+def _handleUpdateTellingTheBand(self) -> None:
+	"""Tell the band that a browse mode document changed, then let NVDA have the news.
+
+	This is the one place NVDA learns that a virtual buffer's content moved under it, and it
+	is a far better signal than a clock. The chain behind it, worth knowing because none of it
+	is about ARIA: the buffer backend invalidates the subtree an accessibility event touched —
+	text inserted, removed or updated, a name, a value, a state, a reorder — re-renders it, and
+	calls `nvdaControllerInternal_vbufChangeNotify`, which arrives here. A page that says
+	nothing costs nothing.
+
+	NVDA's own answer to it is to mark the caret's region for update, and the caret's region
+	is the caret's line. That is the whole of why a watchlist read in columns went stale while
+	NVDA itself looked right: the buffer was fresh the entire time and there was nothing on
+	NVDA's display but the one line it was already refreshing.
+
+	The band is told first and NVDA second, because what the band does with it is schedule
+	work rather than do any, and because a failure here must not cost NVDA its own update.
+	"""
+	try:
+		_tellTheBand(self)
+	except Exception:
+		log.debugWarning("Could not pass on a document change", exc_info=True)
+	original = _originals.get("_handleUpdate")
+	if original is not None:
+		original(self)
+
+
+def _tellTheBand(document) -> None:
+	"""Pass one document change on to the flow band, if there is one.
+
+	:param document: the virtual buffer that changed.
+	"""
+	from . import getPlugin
+
+	plugin = getPlugin()
+	band = getattr(plugin, "flowBand", None) if plugin is not None else None
+	if band is None:
+		return
+	band.documentChanged(document)
+
+
 def _handlePendingUpdateWithDocumentLines(self: BrailleHandler) -> None:
 	"""Refresh the document line regions after NVDA has handled its own pending updates.
 
@@ -293,22 +339,53 @@ def _scrollBackMaybeReversed(self: BrailleHandler) -> None:
 	return _nativeScroll(self, forward=False)
 
 
-def _replacements() -> dict[str, object]:
-	""":return: the methods this module installs, by the name each one replaces.
+def _virtualBufferClass():
+	""":return: NVDA's `VirtualBuffer`, or None where there is none to patch.
 
-	The same function objects every call, since identity is what L{remove} asks about.
+	Imported here rather than at the top because it is the only import in this module that
+	can reasonably fail — a build without virtual buffers, or one that has moved them — and
+	the rest of the patches must still go in when it does.
 	"""
-	return {
-		"_doNewObject": _doNewObjectMultiSegment,
-		"scrollForward": _scrollForwardMaybeReversed,
-		"scrollBack": _scrollBackMaybeReversed,
-		"_handlePendingUpdate": _handlePendingUpdateWithDocumentLines,
+	try:
+		import virtualBuffers
+
+		return virtualBuffers.VirtualBuffer
+	except Exception:
+		log.debugWarning("No virtual buffer class to patch", exc_info=True)
+		return None
+
+
+def _replacements() -> dict[str, tuple]:
+	""":return: what this module installs, by the name each one replaces.
+
+	Each entry carries the class it belongs to as well, because they are no longer all on
+	`BrailleHandler`. The same function objects every call, since identity is what L{remove}
+	asks about.
+	"""
+	entries = {
+		"_doNewObject": (BrailleHandler, _doNewObjectMultiSegment),
+		"scrollForward": (BrailleHandler, _scrollForwardMaybeReversed),
+		"scrollBack": (BrailleHandler, _scrollBackMaybeReversed),
+		"_handlePendingUpdate": (BrailleHandler, _handlePendingUpdateWithDocumentLines),
 	}
+	buffers = _virtualBufferClass()
+	if buffers is not None:
+		entries["_handleUpdate"] = (buffers, _handleUpdateTellingTheBand)
+	return entries
+
+
+def liveUpdatesInstalled() -> bool:
+	""":return: whether the band is being told when a browse mode document changes.
+
+	Asked by the band, which polls only when the answer is no. See
+	`FlowBand.documentChanged`.
+	"""
+	return "_handleUpdate" in _originals
 
 
 def install() -> None:
 	"""Install the patches. Safe to call when they are already installed."""
-	for name, replacement in _replacements().items():
+	for name, (owner, replacement) in _replacements().items():
 		if name in _originals:
 			# Already installed, or left in place by a removal that found something else on
 			# top. Installing over that would either undo the other add-on or, if it wrapped
@@ -316,9 +393,10 @@ def install() -> None:
 			# that calls it — a loop with no end.
 			log.debug(f"BrlMultiline: {name} is already patched")
 			continue
-		_originals[name] = getattr(BrailleHandler, name)
+		_owners[name] = owner
+		_originals[name] = getattr(owner, name)
 		_installedMethods[name] = replacement
-		setattr(BrailleHandler, name, replacement)
+		setattr(owner, name, replacement)
 	log.debug("BrlMultiline patches installed")
 
 
@@ -334,12 +412,14 @@ def remove() -> None:
 	putting a second copy on top.
 	"""
 	for name in list(_originals):
-		if getattr(BrailleHandler, name, None) is not _installedMethods.get(name):
+		owner = _owners.get(name, BrailleHandler)
+		if getattr(owner, name, None) is not _installedMethods.get(name):
 			log.debugWarning(
 				f"BrlMultiline: {name} has been replaced since it was patched; "
 				"leaving it as it is rather than undoing whatever replaced it",
 			)
 			continue
-		setattr(BrailleHandler, name, _originals.pop(name))
+		setattr(owner, name, _originals.pop(name))
 		_installedMethods.pop(name, None)
+		_owners.pop(name, None)
 	log.debug("BrlMultiline patches removed")
