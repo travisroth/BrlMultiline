@@ -909,6 +909,28 @@ class TestKeepingUpWithoutATable(TableBandTestCase):
 		self.band.layOutTable()
 		self.assertEqual(len(callLaterQueue.pending), 1)
 
+	def test_aDocumentBeingWrittenInIsNotAskedAgain(self):
+		"""The one thing a live pass can never answer. Every position in a document being
+		typed into moves on every keystroke, which is why `_rereadBlocks` refuses one
+		outright — but the pass was still being scheduled, so a markdown file open in VSCode
+		took the fallback poll and ran it a hundred and eighteen times in one sitting, each
+		pass re-rendering the whole band to arrive at the same cells."""
+		CONFIG["flowLiveSeconds"] = 0
+		self._readingThePage()
+		self.band._cancelLiveRead()
+		self.band.controller.source.writing = True
+		self.band._scheduleLiveRead()
+		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_notEvenForAReaderWhoAskedForAnInterval(self):
+		"""Their number decides how often, not whether there is anything to read."""
+		CONFIG["flowLiveSeconds"] = 5
+		self._readingThePage()
+		self.band._cancelLiveRead()
+		self.band.controller.source.writing = True
+		self.band._scheduleLiveRead()
+		self.assertEqual(callLaterQueue.pending, [])
+
 
 class TestNoticingAChangeThatWritesNothing(TableBandTestCase):
 	"""The live pass writes the display only when the cells came out different, and a column

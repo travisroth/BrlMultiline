@@ -801,6 +801,20 @@ class DocumentFlowSource:
 		# the next prompt. Declared by the block, never produced by packing.
 		return self._blockAt(info, isControl=isControl)
 
+	def caretPosition(self):
+		""":return: a mark for where this document's caret is, or None if it cannot be read.
+
+		Compared by value between two readings, and nothing more. What it is worth is that it
+		comes from the document rather than from anything the flow rendered, so it can say
+		whether the reader typed while the band was looking somewhere else. See
+		`FlowController._backToWhereTheyPanned`.
+		"""
+		try:
+			return self.obj.makeTextInfo(textInfos.POSITION_SELECTION).bookmark
+		except Exception:
+			log.debugWarning("Could not read the caret position", exc_info=True)
+			return None
+
 	def _interactiveBlockAtCursor(self) -> FetchResult:
 		""":return: the document block read through the focused edit's own caret."""
 		if self._interactiveBlock is not None:

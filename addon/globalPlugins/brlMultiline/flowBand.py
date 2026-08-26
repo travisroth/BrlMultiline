@@ -376,9 +376,18 @@ class FlowBand(PanelOwner):
 		position each block was read from. An object flow answers nothing, because an object
 		run has no such thing as "the same block, read again": the objects themselves are the
 		identity, and NVDA's own events are what say when one of them changed.
+
+		Not a document being written in either, and for the same reason `_rereadBlocks`
+		refuses one: every position moves on every keystroke, so the pass can never bring
+		anything back. It was still being scheduled — a markdown file open in VSCode is a
+		plain editable text with no change notices behind it, so it took the fallback poll
+		and ran a hundred and eighteen times in one sitting, each of them re-rendering the
+		whole band to arrive at the same cells.
 		"""
 		source = getattr(self.controller, "source", None)
-		return source is not None and getattr(source, "blockAt", None) is not None
+		if source is None or getattr(source, "blockAt", None) is None:
+			return False
+		return not getattr(source, "writing", False)
 
 	def _pollMillis(self) -> int:
 		""":return: how long to wait for a pass nothing has asked for, or zero for none.

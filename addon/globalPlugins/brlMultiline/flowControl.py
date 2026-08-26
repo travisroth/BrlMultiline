@@ -218,6 +218,14 @@ class FlowController(PanelOwner):
 		self._writingTop = None
 		"""The last top block the reader was shown that was not the caret's own. See L{_stableTop}."""
 
+		self._pannedCaret = None
+		"""Where the document's own caret was when the reader last panned, or None.
+
+		The claim a written-in document's re-read has to respect. Not `_pannedAt`, which is
+		the *active block* and the cursor within it: panning moves the active block itself —
+		see `_cursorToTop` — so it answers "has the band moved", and what a re-read needs to
+		know before it throws the band away is "has anything been typed"."""
+
 		self.rereadWhileWriting = False
 		"""Whether the last cursor move re-read the band as an edit being typed into.
 
@@ -875,6 +883,11 @@ class FlowController(PanelOwner):
 		if moved:
 			# After the pan, so that the caret this remembers is the one the pan left behind.
 			self._pannedAt = self._caretMark()
+			self._pannedCaret = self._caretPosition()
+			# The window the reader had is the one they have just panned to, so the claim a
+			# writing re-read would go back to is out of date. Kept, it drags the band back
+			# to a window the reader left deliberately, the moment they type.
+			self._writingTop = None
 		entry = getattr(getattr(self.window.anchor, "entry", None), "value", "?")
 		self._note(
 			f"the reader panning: {'forward' if forward else 'back'}, "
@@ -1049,9 +1062,16 @@ class FlowController(PanelOwner):
 		upward. A top block that the edit removed cannot be gone back to, and there the
 		caret's own block is the anchor — which is what select-all and overtype leaves.
 
+		**Unless the reader panned and nothing was typed.** Then no keystroke happened, there
+		is nothing to re-read, and the band stays where they put it. See
+		`_nothingWasTypedSinceThePan` for what asking this too late cost on hardware.
+
 		:param ground: put the caret's block on the top row instead.
 		:return: whether anything is on the display, in the shape `_arrive` answers with.
 		"""
+		if not ground and self._nothingWasTypedSinceThePan():
+			self._note("a keystroke while writing: nothing was typed, so the band stayed where it was panned")
+			return True
 		topId = self._stableTop()
 		# Everything the source remembers about this document is an answer the edit may just
 		# have changed: cached positions are offsets that typing moves, the exits of a
@@ -1067,17 +1087,25 @@ class FlowController(PanelOwner):
 		self.rereadWhileWriting = True
 		if ground:
 			self._writingTop = None
+			self._pannedCaret = None
 			return True
 		if self._restoreTop(topId):
 			self._writingTop = topId
+			why = "a keystroke while writing, put back under the row the band had"
 		else:
 			# The claim is kept: a restore that failed this moment — a transient refusal, a
 			# top the edit removed — may succeed on the next keystroke, and dropping it here
 			# would hand the next restore whatever block the heal below leaves on the top
 			# row instead of the window the reader actually had.
 			self._contextAboveTheCaret()
+			why = "a keystroke while writing, no old top to go back to so the caret leads"
 		self.fill()
-		self.syncToCursor(forward=True, why="a keystroke while writing")
+		# Which of the two branches ran, because the history could not say. It recorded
+		# "nothing moved" — the verdict of the `syncToCursor` at the end — on a pass that had
+		# already thrown the reader's window away and rebuilt it somewhere else, and a
+		# history that names only the last of the things that moved the band cannot answer
+		# the question it exists for.
+		self.syncToCursor(forward=True, why=why)
 		return True
 
 	def _stableTop(self):
@@ -1342,6 +1370,65 @@ class FlowController(PanelOwner):
 			# way back would leave the band stuck where it was minutes ago.
 			self._pannedAt = None
 		return held
+
+	def _caretPosition(self):
+		""":return: where the document's own caret is, or None if it cannot be asked.
+
+		A position the document hands out, compared by value, and nothing more. What it is
+		worth is that it comes from the document rather than from anything the flow has
+		rendered — and the rendering is what a re-read is about to replace.
+		"""
+		where = getattr(self.source, "caretPosition", None)
+		if where is None:
+			return None
+		try:
+			return where()
+		except Exception:
+			log.debugWarning("Could not ask a source where its caret is", exc_info=True)
+			return None
+
+	def _nothingWasTypedSinceThePan(self) -> bool:
+		"""Whether the reader panned the band somewhere and has not typed since.
+
+		The question a written-in document's re-read has to ask before it does anything at
+		all, because a pan cannot survive that re-read deciding where the band goes.
+
+		Finding the caret is not the problem: panning a live document takes the cursor with
+		it — see `_cursorToTop` — so entering at the caret does land on the row the reader
+		panned to. What loses the pan is the anchoring afterwards, and both of its branches
+		lose it. `_stableTop` can never accept the row the band is actually showing, because
+		`_cursorToTop` has just made that block the caret's own and the top row is only
+		believed when it is not; so the restore target is always a top row from before the
+		pan. Reach that row and the band goes back to the window the pan left — the pan did
+		nothing. Fail to reach it and `_contextAboveTheCaret` runs instead, which puts the
+		caret half a band down from the top: the band lands half a display behind where the
+		pan put it.
+
+		On hardware this was a markdown file open in VSCode, a plain editable text with no
+		browse mode behind it and so written in for as long as the reader is in it, where
+		every display update brings a settle pass a quarter of a second later. The reader
+		got both branches and named both: it "was panning by one line instead of whole
+		display" — a pan of eight rows with four given back — "and at the point of this log
+		it would not pan forward at all" — the stale top row within reach. They also said
+		"pan back seems better", and it was: half a display of drift *backwards* adds to a
+		backward pan and subtracts from a forward one.
+
+		Answered from the document's own caret rather than from anything the flow rendered,
+		which is what lets it be asked before the re-read rather than after it. Typing moves
+		the caret, so a caret still where the pan left it is a caret nobody has touched — and
+		then there is nothing to re-read at all, which is also the whole cost of the pass
+		saved for as long as the reader is reading rather than writing.
+
+		:return: whether to leave the band exactly where the reader panned it.
+		"""
+		if self._pannedCaret is None:
+			return False
+		if self._caretPosition() != self._pannedCaret:
+			# Forgotten rather than merely not matching, as `_panIsTheReadersChoice` forgets:
+			# a reader who types and then puts the caret back has not re-panned.
+			self._pannedCaret = None
+			return False
+		return True
 
 	def _takeCursor(self, blockId: "BlockId") -> bool:
 		"""Move the real cursor to a block, for a live flow.

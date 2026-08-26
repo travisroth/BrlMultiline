@@ -999,6 +999,51 @@ block, read again" — the objects themselves are the identity, and NVDA's own e
 one of them changed. That is `FlowBand._canReadAgain`, which asks the source rather than
 asking what kind of thing is being read.
 
+**A document being written in answers none of it either**, and the pass was still being
+scheduled for one. `_rereadBlocks` refuses a written-in source outright — every position moves
+on every keystroke — so each pass re-rendered the whole band to arrive at the same cells. A
+markdown file open in VSCode has no change notices behind it, so it fell to the two second
+fallback and ran a hundred and eighteen times in one sitting. `_canReadAgain` now asks the
+same question `_rereadBlocks` does, before the timer rather than after it.
+
+### A pan is not a keystroke
+
+The same report, and the same root: **what a band is showing and where the reader is are two
+questions, and a fast path keeps asking the nearer one.** VSCode's editor is a plain editable
+text with no browse mode behind it, so a flow over it counts as written in for as long as the
+reader is in it — and a written-in document re-reads the whole band from the caret on every
+display update, through the settle pass. The reader's report: it "was panning by one line
+instead of whole display and at the point of this log it would not pan forward at all. pan
+back seems better."
+
+Finding the caret was never the problem. Panning a live document takes the cursor with it, so
+entering at the caret lands on the row the reader panned to. What lost the pan was the
+anchoring afterwards, and **both of its branches lose it**:
+
+- `_stableTop` can never accept the row the band is actually showing, because `_cursorToTop`
+  has just made that block the caret's own and the top row is only believed when it is not. So
+  the restore target is always a top row from *before* the pan. Reach it and the band goes back
+  to the window the pan left: the pan did nothing at all.
+- Fail to reach it — `_restoreTop` only ever fetches backwards — and `_contextAboveTheCaret`
+  runs instead, putting the caret half a band down from the top. The band lands half a display
+  behind where the pan put it: eight rows forward, four given back.
+
+Which is both symptoms, and the asymmetry too: half a display of drift backwards adds to a
+backward pan and subtracts from a forward one, so "pan back seems better" was the same bug
+seen from the other side.
+
+The decision: **a pan the reader has not typed over is not a keystroke, and costs no reading
+at all.** `FlowController._nothingWasTypedSinceThePan` is asked first, before the re-read that
+would decide where the band goes, and it is answered from the document's own caret —
+`DocumentFlowSource.caretPosition` — rather than from anything the flow rendered, which is
+what lets it be asked that early. Typing moves the caret; a caret still where the pan left it
+is a caret nobody has touched. Two smaller things fall out of it: a pan forgets `_writingTop`,
+because the window a re-read would restore is one the reader has just left deliberately, and
+the move history now names *which* branch of a writing re-read ran. It recorded "nothing
+moved" — the verdict of the `syncToCursor` at the end — on a pass that had already thrown the
+reader's window away and rebuilt it somewhere else, which is why four hardware reports were
+needed to find this.
+
 **M4 — pinned headers.** BUILT FOR BROWSE MODE TABLES, NOT YET ON HARDWARE. Brought
 forward from last because the reader met the hole it fills: a column layout turned on from
 the middle of a table showed the columns and never said what any of them was. The window

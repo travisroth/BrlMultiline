@@ -1328,3 +1328,178 @@ class TestPanningABandOneRowTall(unittest.TestCase):
 		control = self.band()
 		control.panForward()
 		self.assertTrue(any("panning" in note for note in control.placements))
+
+
+class TestPanningADocumentBeingWrittenIn(unittest.TestCase):
+	"""The reader's report, from a markdown file open in VSCode: the band "was panning by one
+	line instead of whole display and at the point of this log it would not pan forward at
+	all. pan back seems better."
+
+	VSCode's editor is a plain editable text with no browse mode behind it, so a flow over it
+	counts as written in for as long as the reader is in it — and every display update brings
+	a settle pass, which for a written-in document re-reads the whole band from the caret and
+	then decides where the band goes. Both of the ways it can decide lose a pan: back to a top
+	row from before it, or half a band behind the caret. See `_nothingWasTypedSinceThePan`."""
+
+	def band(self, numRows=2):
+		""":return: a live flow over a document being typed into, two rows of a dozen."""
+		return controllerOver(
+			[f"line {number}" for number in range(1, 13)],
+			caretIndex=0,
+			numRows=numRows,
+			numCols=12,
+			live=True,
+			interactive=True,
+		)
+
+	def test_theDocumentIsOneBeingWrittenIn(self):
+		"""The whole case rests on this: a settle in a written-in document is not a redraw, it
+		is a full re-read of the band from the caret."""
+		control = self.band()
+		self.assertTrue(control._writing())
+
+	def test_panningForwardMovesTheBand(self):
+		control = self.band()
+		before = control.describeRows()
+		self.assertTrue(control.panForward())
+		self.assertNotEqual(control.describeRows(), before)
+
+	def test_theSettleAfterwardsLeavesItThere(self):
+		"""What the reader felt as "it would not pan forward at all": the pan moved the band,
+		and the pass a quarter of a second later moved it back."""
+		control = self.band()
+		control.panForward()
+		panned = control.describeRows()
+		control.followCursor()
+		self.assertEqual(control.describeRows(), panned)
+
+	def test_panningAgainGoesOnGoingForward(self):
+		"""One pan surviving is not enough. Every pan has a settle after it, so the claim has
+		to be renewed by each pan rather than spent by the first."""
+		control = self.band()
+		seen = []
+		for _ in range(4):
+			control.panForward()
+			control.followCursor()
+			seen.append(tuple(control.describeRows()))
+		self.assertEqual(len(seen), len(set(seen)))
+
+	def test_nothingIsReadAgainAtAll(self):
+		"""Not merely put back afterwards. A reader panning through a long file is reading,
+		not writing, and a band's worth of reads on every display update is what the cost
+		lines were full of — a hundred and forty-one operations at twenty-seven milliseconds
+		each, on the report that found this."""
+		control = self.band()
+		control.panForward()
+		control.followCursor()
+		self.assertEqual(control.source.budget.lastBlocks, 0)
+
+	def test_typingStillCostsTheReadItIsFor(self):
+		"""The saving must come from the case where there is nothing to read, never from the
+		case the re-read exists for."""
+		control = self.band()
+		control.panForward()
+		control.source.obj.caretOffset = 3
+		control.followCursor()
+		self.assertGreater(control.source.budget.lastBlocks, 0)
+
+	def test_theHistorySaysWhyTheBandStayed(self):
+		control = self.band()
+		control.panForward()
+		control.followCursor()
+		self.assertIn("nothing was typed", control.placements[-1])
+
+	def test_typingHasTheBandReadAgain(self):
+		"""A caret that moved is a reader writing again, and then the re-read is the whole
+		point: every position in the document has moved and none of what the band holds can
+		be trusted. Panning a live document takes the caret with it, so what says the reader
+		typed is the caret moving *within* the line the pan left it on."""
+		control = self.band()
+		control.panForward()
+		before = control.source.budget.operations
+		control.source.obj.caretOffset = 3
+		control.followCursor()
+		self.assertGreater(control.source.budget.operations, before)
+		self.assertIn("a keystroke while writing", control.placements[-1])
+
+	def test_movingToAnotherLineBringsTheBandBack(self):
+		control = self.band()
+		control.panForward()
+		control.source.obj.caretIndex = 0
+		control.source.obj.caretOffset = 0
+		control.followCursor()
+		self.assertIn("line 1", " ".join(control.describeRows()))
+
+	def test_typingAndPuttingTheCaretBackIsNotAPanAgain(self):
+		"""Forgotten rather than merely not matching, which is the rule `_panIsTheReadersChoice`
+		already follows: a claim that re-engaged on the way back would leave the band stuck
+		where it was minutes ago."""
+		control = self.band()
+		control.panForward()
+		where = control._caretPosition()
+		control.source.obj.caretOffset = 3
+		control.followCursor()
+		control.source.obj.caretOffset = 0
+		self.assertEqual(control._caretPosition(), where)
+		self.assertFalse(control._nothingWasTypedSinceThePan())
+
+	def test_panningTakesTheCaretWithIt(self):
+		"""What makes the claim answerable at all, and what the earlier reading of this got
+		backwards. A live document flow moves the reader's place as it pans, so the caret
+		after a pan is at the top of what they are now feeling — and "has anything been
+		typed" is then a question about the caret moving away from *there*."""
+		control = self.band()
+		before = control._caretPosition()
+		control.panForward()
+		self.assertNotEqual(control._caretPosition(), before)
+		self.assertEqual(control._caretPosition(), control._pannedCaret)
+
+	def test_typingAfterAPanDoesNotGoBackToTheWindowBeforeIt(self):
+		"""The re-read puts the band back under the row it had, from a claim made the last time
+		the reader typed. Once they pan, that claim names a window they left deliberately —
+		and kept, it drags them back to it the moment they touch a key, with the line they
+		are typing pushed onto the bottom rows and no room left under it."""
+		control = controllerOver(
+			[f"paragraph {number} runs on for three rows here" for number in range(1, 12)],
+			caretIndex=0,
+			numRows=6,
+			numCols=12,
+			live=True,
+			interactive=True,
+		)
+		# Two keystrokes, because the claim on a top row is only made when the top row is not
+		# the caret's own block, and the first of these is what moves the caret off it.
+		control.source.obj.caretIndex = 1
+		control.followCursor()
+		control.source.obj.caretOffset = 1
+		control.followCursor()
+		self.assertIsNotNone(control._writingTop)
+		control.panForward()
+		control.source.obj.caretOffset = 2
+		control.followCursor()
+		self.assertNotIn("paragraph 1 ", control.describeRows()[0])
+
+	def test_aGroundedArrivalIsNotAPan(self):
+		"""A jump by structure is the reader asking to be set down somewhere else. No claim on
+		the window they panned to outlives that."""
+		control = self.band()
+		control.panForward()
+		control.followCursor(ground=True)
+		self.assertFalse(control._nothingWasTypedSinceThePan())
+
+	def test_theCaretMarkComesFromTheDocument(self):
+		"""Not from anything the flow rendered, which is what lets the question be asked
+		*before* the re-read that would replace the rendering."""
+		control = self.band()
+		before = control._caretPosition()
+		self.assertIsNotNone(before)
+		control.source.obj.caretOffset = 4
+		self.assertNotEqual(control._caretPosition(), before)
+
+	def test_aSourceThatCannotBeAskedKeepsTheOldBehaviour(self):
+		"""A flow whose source has no caret to compare makes no claim, rather than making one
+		it cannot check."""
+		control = self.band()
+		control.source.caretPosition = lambda: None
+		control.panForward()
+		self.assertFalse(control._nothingWasTypedSinceThePan())
