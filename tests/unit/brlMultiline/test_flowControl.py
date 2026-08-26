@@ -1339,7 +1339,7 @@ class TestPanningADocumentBeingWrittenIn(unittest.TestCase):
 	counts as written in for as long as the reader is in it — and every display update brings
 	a settle pass, which for a written-in document re-reads the whole band from the caret and
 	then decides where the band goes. Both of the ways it can decide lose a pan: back to a top
-	row from before it, or half a band behind the caret. See `_nothingWasTypedSinceThePan`."""
+	row from before it, or half a band behind the caret. See `_caretIsWhereThePanLeftIt`."""
 
 	def band(self, numRows=2):
 		""":return: a live flow over a document being typed into, two rows of a dozen."""
@@ -1384,11 +1384,12 @@ class TestPanningADocumentBeingWrittenIn(unittest.TestCase):
 			seen.append(tuple(control.describeRows()))
 		self.assertEqual(len(seen), len(set(seen)))
 
-	def test_nothingIsReadAgainAtAll(self):
-		"""Not merely put back afterwards. A reader panning through a long file is reading,
-		not writing, and a band's worth of reads on every display update is what the cost
-		lines were full of — a hundred and forty-one operations at twenty-seven milliseconds
-		each, on the report that found this."""
+	def test_theBandIsNotReadAgainFromTheCaret(self):
+		"""One row, not eight. A reader panning through a long file is reading rather than
+		writing, and a band's worth of reads on every display update is what the cost lines
+		were full of — a hundred and forty-one operations at twenty-seven milliseconds each,
+		on the report that found this. The row they are standing on is read through its own
+		region and costs the source no fetch at all."""
 		control = self.band()
 		control.panForward()
 		control.followCursor()
@@ -1407,7 +1408,7 @@ class TestPanningADocumentBeingWrittenIn(unittest.TestCase):
 		control = self.band()
 		control.panForward()
 		control.followCursor()
-		self.assertIn("nothing was typed", control.placements[-1])
+		self.assertIn("the caret is where the pan left it", control.placements[-1])
 
 	def test_typingHasTheBandReadAgain(self):
 		"""A caret that moved is a reader writing again, and then the re-read is the whole
@@ -1441,7 +1442,7 @@ class TestPanningADocumentBeingWrittenIn(unittest.TestCase):
 		control.followCursor()
 		control.source.obj.caretOffset = 0
 		self.assertEqual(control._caretPosition(), where)
-		self.assertFalse(control._nothingWasTypedSinceThePan())
+		self.assertFalse(control._caretIsWhereThePanLeftIt())
 
 	def test_panningTakesTheCaretWithIt(self):
 		"""What makes the claim answerable at all, and what the earlier reading of this got
@@ -1477,7 +1478,7 @@ class TestPanningADocumentBeingWrittenIn(unittest.TestCase):
 		control.panForward()
 		del control.source.caretPosition
 		self.assertNotEqual(control._caretPosition(), stale)
-		self.assertTrue(control._nothingWasTypedSinceThePan())
+		self.assertTrue(control._caretIsWhereThePanLeftIt())
 
 	def test_aFlowThatMovesNoCursorStillClaimsWhereTheCaretIs(self):
 		"""The other half of the pair, and the one that carries a flow whose panning moves
@@ -1523,13 +1524,48 @@ class TestPanningADocumentBeingWrittenIn(unittest.TestCase):
 		# start's. Reverting the collapse therefore fails nothing, which is worth knowing
 		# before trusting that it does nothing.
 
+	def test_anEditThatMovesNoCaretIsStillSeen(self):
+		"""Forward Delete takes out the character *after* the caret and leaves it exactly where
+		it was, so "the reader has not typed" was never a safe reading of "the caret has not
+		moved". The row they are standing on is read again rather than trusted."""
+		control = self.band()
+		control.panForward()
+		control.source.obj.lines[control.source.obj.caretIndex] = "line 3 cut"
+		control.followCursor()
+		self.assertIn("line 3 cut", " ".join(control.describeRows()))
+
+	def test_andTheBandStaysWhereItWasPannedWhileThatHappens(self):
+		"""Reading the row is not a reason to move: the block is on the band by construction,
+		being the one the pan put the cursor on."""
+		control = self.band()
+		control.panForward()
+		top = control.window.topBlockId()
+		control.source.obj.lines[control.source.obj.caretIndex] = "line 3 cut"
+		control.followCursor()
+		self.assertEqual(control.window.topBlockId(), top)
+
+	def test_theCaretItWasCatchingUpFromStopsCountingOnceItArrives(self):
+		"""Both answers are trusted only while the application is between them. Once the caret
+		is seen where the pan asked for it, going back to where it came from is the reader
+		moving — control+home, or a routing key onto the line they panned away from."""
+		control = self.band()
+		wasAt = control._caretPosition()
+		control.source.caretPosition = lambda: wasAt
+		control.panForward()
+		del control.source.caretPosition
+		self.assertTrue(control._caretIsWhereThePanLeftIt())
+		control.source.obj.caretIndex = 0
+		control.source.obj.caretOffset = 0
+		self.assertEqual(control._caretPosition(), wasAt)
+		self.assertFalse(control._caretIsWhereThePanLeftIt())
+
 	def test_typingLandsOnNeitherOfThem(self):
 		"""Which is what makes taking both safe: typing moves the caret away from where it was
 		*and* away from where the pan put it."""
 		control = self.band()
 		control.panForward()
 		control.source.obj.caretOffset = 2
-		self.assertFalse(control._nothingWasTypedSinceThePan())
+		self.assertFalse(control._caretIsWhereThePanLeftIt())
 
 	def test_typingAfterAPanDoesNotGoBackToTheWindowBeforeIt(self):
 		"""The re-read puts the band back under the row it had, from a claim made the last time
@@ -1562,7 +1598,7 @@ class TestPanningADocumentBeingWrittenIn(unittest.TestCase):
 		control = self.band()
 		control.panForward()
 		control.followCursor(ground=True)
-		self.assertFalse(control._nothingWasTypedSinceThePan())
+		self.assertFalse(control._caretIsWhereThePanLeftIt())
 
 	def test_theCaretMarkComesFromTheDocument(self):
 		"""Not from anything the flow rendered, which is what lets the question be asked
@@ -1579,4 +1615,4 @@ class TestPanningADocumentBeingWrittenIn(unittest.TestCase):
 		control = self.band()
 		control.source.caretPosition = lambda: None
 		control.panForward()
-		self.assertFalse(control._nothingWasTypedSinceThePan())
+		self.assertFalse(control._caretIsWhereThePanLeftIt())

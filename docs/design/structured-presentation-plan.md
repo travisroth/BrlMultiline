@@ -1043,19 +1043,33 @@ nothing they could see.
 
 So the claim is a pair: where the document says the caret is, and where the pan *asked* it to
 go, which is taken from the block rather than from the document because that half is knowable
-without waiting. Typing lands on neither. `FlowController._caretsAfterAPan`.
+without waiting. A caret move lands on neither. `FlowController._caretsAfterAPan`.
 
-The decision: **a pan the reader has not typed over is not a keystroke, and costs no reading
-at all.** `FlowController._nothingWasTypedSinceThePan` is asked first, before the re-read that
-would decide where the band goes, and it is answered from the document's own caret —
-`DocumentFlowSource.caretPosition` — rather than from anything the flow rendered, which is
-what lets it be asked that early. Typing moves the caret; a caret still where the pan left it
-is a caret nobody has touched. Two smaller things fall out of it: a pan forgets `_writingTop`,
-because the window a re-read would restore is one the reader has just left deliberately, and
-the move history now names *which* branch of a writing re-read ran. It recorded "nothing
-moved" — the verdict of the `syncToCursor` at the end — on a pass that had already thrown the
-reader's window away and rebuilt it somewhere else, which is why four hardware reports were
-needed to find this.
+The pair is trusted only while the application is between the two. A review found that both
+stayed trusted for ever, so a reader who panned and then went straight back to where they came
+from — control+home, a routing key onto the line they left — was still counted as not having
+moved, and the band stayed panned. Seeing the caret at the settled answer now drops the one it
+was catching up from.
+
+The decision: **a pan the reader has not moved away from is not a keystroke, and costs the band
+no reading at all.** `FlowController._caretIsWhereThePanLeftIt` is asked first, before the
+re-read that would decide where the band goes, and it is answered from the document's own caret
+— `DocumentFlowSource.caretPosition` — rather than from anything the flow rendered, which is
+what lets it be asked that early.
+
+**Not "has anything been typed", which is a different question.** The first cut of this said
+typing moves the caret, and the same review named the counter-example: forward Delete takes out
+the character *after* the caret and leaves it exactly where it was, as does an editor rewriting
+the line under it. A caret that has not moved says the window is still the reader's; it says
+nothing about the row they are standing on. So that row is read again — through its own region,
+costing the source no fetch — and it is the only one that can be: after an edit every position
+later in the document has moved, which is why `_rereadBlocks` refuses the rest.
+
+Two smaller things fall out of it: a pan forgets `_writingTop`, because the window a re-read
+would restore is one the reader has just left deliberately, and the move history now names
+*which* branch of a writing re-read ran. It recorded "nothing moved" — the verdict of the
+`syncToCursor` at the end — on a pass that had already thrown the reader's window away and
+rebuilt it somewhere else, which is why four hardware reports were needed to find this.
 
 **M4 — pinned headers.** BUILT FOR BROWSE MODE TABLES, NOT YET ON HARDWARE. Brought
 forward from last because the reader met the hole it fills: a column layout turned on from

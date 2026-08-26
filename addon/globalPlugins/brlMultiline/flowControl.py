@@ -1065,15 +1065,26 @@ class FlowController(PanelOwner):
 		upward. A top block that the edit removed cannot be gone back to, and there the
 		caret's own block is the anchor — which is what select-all and overtype leaves.
 
-		**Unless the reader panned and nothing was typed.** Then no keystroke happened, there
-		is nothing to re-read, and the band stays where they put it. See
-		`_nothingWasTypedSinceThePan` for what asking this too late cost on hardware.
+		**Unless the reader panned and the caret has not moved.** Then the band stays where
+		they put it and only the row they are standing on is read again. See
+		`_caretIsWhereThePanLeftIt` for what asking this too late cost on hardware.
 
 		:param ground: put the caret's block on the top row instead.
 		:return: whether anything is on the display, in the shape `_arrive` answers with.
 		"""
-		if not ground and self._nothingWasTypedSinceThePan():
-			self._note("a keystroke while writing: nothing was typed, so the band stayed where it was panned")
+		if not ground and self._caretIsWhereThePanLeftIt():
+			# Not nothing. Forward Delete changes the line without moving the caret off it,
+			# and so does an editor rewriting it, so the caret's own block is read again — the
+			# one block that can have changed under a caret that has not moved, and the only
+			# one a written-in document can be asked about at all, since every position after
+			# an edit has moved and `_rereadBlocks` refuses the rest for that reason. The
+			# window is not touched: the block is on the band by construction, being the one
+			# `_cursorToTop` put the cursor on.
+			self.refreshActive()
+			self._note(
+				"a keystroke while writing: the caret is where the pan left it, "
+				"so only its own row was read again"
+			)
 			return True
 		topId = self._stableTop()
 		# Everything the source remembers about this document is an answer the edit may just
@@ -1390,8 +1401,15 @@ class FlowController(PanelOwner):
 			log.debugWarning("Could not ask a source where its caret is", exc_info=True)
 			return None
 
-	def _nothingWasTypedSinceThePan(self) -> bool:
-		"""Whether the reader panned the band somewhere and has not typed since.
+	def _caretIsWhereThePanLeftIt(self) -> bool:
+		"""Whether the reader panned the band somewhere and the caret has not moved since.
+
+		Not "has anything been typed", which was the first claim made here and is not the
+		same question: forward Delete takes out the character *after* the caret and leaves it
+		exactly where it was, and an editor rewriting the line under it moves nothing at all.
+		What this answers is only that the reader has not gone anywhere — which is what makes
+		the window theirs. What is on the row they are standing on is a separate question,
+		and the caller reads that row again rather than trusting it.
 
 		The question a written-in document's re-read has to ask before it does anything at
 		all, because a pan cannot survive that re-read deciding where the band goes.
@@ -1426,11 +1444,17 @@ class FlowController(PanelOwner):
 		"""
 		if not self._pannedCaret:
 			return False
-		if self._caretPosition() not in self._pannedCaret:
+		here = self._caretPosition()
+		if here not in self._pannedCaret:
 			# Forgotten rather than merely not matching, as `_panIsTheReadersChoice` forgets:
-			# a reader who types and then puts the caret back has not re-panned.
+			# a reader who moves away and comes back has not re-panned.
 			self._pannedCaret = ()
 			return False
+		# The answers this was waiting to move *past* stop counting once it has. They are
+		# ordered oldest first, so seeing the settled one drops the stale read-back with it,
+		# and a reader who then goes back to where they panned from — control+home, a routing
+		# key onto the line they came from — is a reader who moved.
+		self._pannedCaret = self._pannedCaret[self._pannedCaret.index(here) :]
 		return True
 
 	def _caretsAfterAPan(self) -> tuple:
@@ -1450,8 +1474,9 @@ class FlowController(PanelOwner):
 		display back — a reader panning through a file got "the full display, to moving just
 		a couple lines" depending on nothing they could see.
 
-		Typing lands on neither: it moves the caret away from where it was *and* away from
-		where the pan put it.
+		A caret move lands on neither: it goes away from where the caret was *and* away from
+		where the pan put it. An edit that moves no caret lands on one of them, and is caught
+		by the caller reading that row again rather than by this.
 
 		:return: the marks that mean the reader has not typed, newest first, possibly empty.
 		"""
