@@ -16,7 +16,14 @@ show that the code above really is unchanged.
 
 import unittest
 
-from ._stubs import FakeGrid, FakeGridCell, FakeListView, FakeNavigatorObject, installStubs
+from ._stubs import (
+	FakeGrid,
+	FakeGridCell,
+	FakeListView,
+	FakeNavigatorObject,
+	FakeTableDocument,
+	installStubs,
+)
 
 installStubs()
 
@@ -633,3 +640,126 @@ class TestWhatItSaysAboutItself(unittest.TestCase):
 		_view, table = self.table()
 		table.focused = None
 		self.assertIn("no row in hand", "\n".join(table.describe()))
+
+
+class TestATableWhoseOwnCountIsWrong(unittest.TestCase):
+	"""The reader's file list answered **fourteen** to `rowCount` and seventeen to `childCount`
+	while they stood on item fifty-two of seventy-nine. `rowCount` was tried first before that
+	report, and it is what the report disproved: for a list the platform builds a few items at
+	a time, the only count of the whole thing is the one the row carries."""
+
+	FILES = [[f"file{number}.py", ("Status", "Available")] for number in range(1, 80)]
+
+	def grid(self, said=14, focused=52):
+		view = FakeGrid(self.FILES, headers=["Name", "Status"], realized=17)
+		view.rowCountSays = said
+		return view, view.item(focused)
+
+	def test_theRowsAnswerWinsOverTheTables(self):
+		view, item = self.grid()
+		table = flowObjectTable.tableFor(item)
+		self.assertEqual(view.rowCount, 14)
+		self.assertEqual(table.numRows, 79)
+
+	def test_aTableWithNoRowToAskIsStillCounted(self):
+		"""Nothing is lost for a table that is all there: its own count is next in line."""
+		view, item = self.grid()
+		table = flowObjectTable.tableFor(item)
+		table.focused.positionInfo = {}
+		self.assertEqual(table.numRows, 14)
+
+	def test_neverFewerThanTheRowTheReaderIsIn(self):
+		"""A table cannot have fewer rows than the row somebody is standing in, and a count
+		that says otherwise is counting something else."""
+		view, item = self.grid()
+		table = flowObjectTable.tableFor(item)
+		table.focused.positionInfo = {"indexInGroup": 52, "similarItemsInGroup": None}
+		self.assertEqual(table.numRows, 52)
+
+
+class TestAListHasNoHeaderRow(unittest.TestCase):
+	"""A web page's table puts its headings in a row of itself, and `HEADER_ROW` falls back to
+	reading them there. A list view's first item is a file: pinning it would draw one of the
+	reader's own rows above the rest and call it a heading."""
+
+	def source(self, headers=None):
+		view = FakeGrid(
+			[["report.docx", "Word document"], ["notes.md", "Markdown"]],
+			headers=headers,
+		)
+		handle = flowTableSource.tableAt(view.item(1))
+		return view, flowTableSource.TableFlowSource(handle, (1, 2), pinHeaders=True)
+
+	def test_aListThatDeclaresHeadersPinsThem(self):
+		_view, source = self.source(headers=["Name", "Type"])
+		self.assertIn("Name", source.headerBlock().region.rawText)
+
+	def test_aListThatDeclaresNonePinsNothing(self):
+		_view, source = self.source(headers=[])
+		self.assertIsNone(source.headerBlock())
+
+	def test_andNoItemOfItIsSkipped(self):
+		_view, source = self.source(headers=[])
+		self.assertEqual(source.firstRow, flowTableSource.HEADER_ROW)
+		self.assertIn("report.docx", source.blockAtCursor().block.region.rawText)
+
+	def test_aDocumentStillFallsBackToRowOne(self):
+		"""Which is what NVDA's own table navigation assumes, and what the fallback is for."""
+		document = FakeTableDocument([["Symbol", "Last"], ["AAPL", "182.50"]], row=2, col=1)
+		handle = flowTableSource.tableAt(FakeNavigatorObject("a page", treeInterceptor=document))
+		source = flowTableSource.TableFlowSource(handle, (1, 2), pinHeaders=True)
+		self.assertIn("Symbol", source.headerBlock().region.rawText)
+
+	def test_theReportSaysWhereThePinnedRowCameFrom(self):
+		"""The line the last report needed and did not have: it showed a header reading "Column
+		left  Position" over columns the same report said were headed "Name" and "Status"."""
+		_view, declared = self.source(headers=["Name", "Type"])
+		self.assertIn("declared by the table's own cells", declared.describeHeader())
+		_other, bare = self.source(headers=[])
+		self.assertIn("first row is not headings", bare.describeHeader())
+
+
+class TestARowWhoseCellsCarryNothing(unittest.TestCase):
+	"""Outlook's message list. Its rows are `outlook.UIAGridRow` — a `RowWithFakeNavigation`,
+	whose contract says outright that "the cells must be exposed as children" — and the row
+	itself carries `GridItemPattern`, but its children are plain text elements that carry
+	nothing. Asking only the children said "not a table" about a table whose own row had just
+	said it was one."""
+
+	def messages(self, columnCount=3):
+		view = FakeGrid(
+			[
+				["Sharon Rosenblatt", "SOW for Itemize", "4:12 PM"],
+				["A teammate", "Re: the watchlist", "9:41 AM"],
+			],
+			headers=[],
+			columnCount=columnCount,
+		)
+		for row in view.items:
+			for cell in row.cellObjects:
+				cell.columnNumber = None
+		return view
+
+	def test_theTableSayingHowWideItIsIsEnough(self):
+		view = self.messages()
+		table = flowObjectTable.tableFor(view.item(1))
+		self.assertIsInstance(table, flowObjectTable.CellObjectTable)
+		self.assertEqual(table.numCols, 3)
+
+	def test_theCellsAreThenReadInOrder(self):
+		view = self.messages()
+		table = flowObjectTable.tableFor(view.item(1))
+		cell = table._getTableCellAt(flowObjectTable.TABLE_ID, None, 1, 2)
+		self.assertEqual(cell.text, "SOW for Itemize")
+
+	def test_aListWhoseTableSaysNothingIsStillLeftAlone(self):
+		"""The guard that stops this claiming ordinary lists: a run of items whose parent has no
+		column count is a list, and NVDA reads a list well already."""
+		view = self.messages(columnCount=None)
+		self.assertIsNone(flowObjectTable.tableFor(view.item(1)))
+
+	def test_aRowWithTooFewChildrenIsNotATableEither(self):
+		view = self.messages()
+		row = view.item(1)
+		row.cellObjects = row.cellObjects[:1]
+		self.assertIsNone(flowObjectTable.tableFor(row))

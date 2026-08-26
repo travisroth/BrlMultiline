@@ -1210,6 +1210,26 @@ answers is not always the number the reader is standing in**:
   carries both has also *named its own column*, and that first-hand answer is now preferred
   over resolving whatever elements the platform points at as headers.
 
+The next report settled the rest of it in one reading, which is what the diagnostic was for:
+
+- **`rowCount` is not safe either.** The file list answered *fourteen* to `rowCount` and
+  seventeen to `childCount` while the reader stood on item fifty-two of seventy-nine. Trying
+  it first was the previous fix, and this report disproved it. The row's own "one of N" comes
+  first now, and the shape is never smaller than the row the reader is standing in — a table
+  cannot have fewer rows than that, and a count saying otherwise is counting something else.
+- **A list has no header row, so its first item is never pinned as one.** With the headers
+  read correctly from the cells this no longer bit, but the fallback was still there waiting:
+  a table that declared nothing would have had one of the reader's own files drawn above the
+  rest and called a heading, and the item under it dropped from the stream. Whether row one
+  may be read as headings is now asked of whatever is navigating the table — a document says
+  nothing and gets the assumption `HEADER_ROW` is named for, a list view says no.
+- **A row's children are its cells when the table says how wide it is.** Outlook's message
+  list rows are `outlook.UIAGridRow`, a `RowWithFakeNavigation` whose contract says outright
+  that "the cells must be exposed as children" — and the row carries `GridItemPattern` while
+  its children carry nothing. Asking only the children said "not a table" about a table whose
+  own row had just said it was one. Either answer will now do, and an ordinary list is still
+  left alone because its parent has no column count.
+
 And the diagnostic that should have existed first: `ObjectTable.describe` writes what it
 found — the shape and which of the three places it came from, the table and row objects, and
 each column's text and header. The report before it took a guess at which of four answers was

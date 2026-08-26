@@ -119,15 +119,23 @@ def describeObjectTable(control) -> list:
 	three places to ask — which is exactly what a report has to be able to settle. See
 	`flowObjectTable.ObjectTable.describe`.
 	"""
-	document = getattr(getattr(control, "source", None), "handle", None)
+	source = getattr(control, "source", None)
+	document = getattr(source, "handle", None)
 	describe = getattr(getattr(document, "document", None), "describe", None)
 	if not callable(describe):
 		return []
 	try:
-		return ["Band object table:", *describe()]
+		lines = ["Band object table:", *describe()]
 	except Exception as error:
 		log.debugWarning("Could not describe an object table", exc_info=True)
-		return [f"Band object table: could not be described: {error!r}"]
+		lines = [f"Band object table: could not be described: {error!r}"]
+	header = getattr(source, "describeHeader", None)
+	if callable(header):
+		try:
+			lines.append(f"  pinned header: {header()}")
+		except Exception as error:
+			lines.append(f"  pinned header: could not be described: {error!r}")
+	return lines
 
 
 def describeEdges(control) -> str:

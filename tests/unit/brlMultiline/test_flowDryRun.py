@@ -352,6 +352,16 @@ class TestWhatAnObjectTableAddsToTheReport(unittest.TestCase):
 		self.assertIn("Band object table:", said)
 		self.assertIn("what it found", said)
 
+	def test_thePinnedHeaderSaysWhereItCameFrom(self):
+		"""The line the report needed and did not have: it showed a header reading "Column left
+		Position" over columns the same report said were headed "Name" and "Status"."""
+		band = self.band(_SaysSomething())
+		band.controller.source.describeHeader = lambda: "declared by the table's own cells"
+		self.assertIn("pinned header: declared", " ".join(liveReport(band)))
+
+	def test_aSourceWithNothingToSayAboutItAddsNoLine(self):
+		self.assertNotIn("pinned header", " ".join(liveReport(self.band(_SaysSomething()))))
+
 	def test_aDocumentTableAddsNothing(self):
 		said = " ".join(liveReport(self.band(object())))
 		self.assertNotIn("Band object table", said)

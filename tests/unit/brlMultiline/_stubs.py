@@ -1883,10 +1883,17 @@ class FakeGrid(FakeNavigatorObject):
 			item.next = self.items[index + 1] if index + 1 < len(self.items) else None
 		self.builds = 0
 
+	rowCountSays = None
+	"""What this grid answers for `rowCount`, when that is not simply how many rows it has.
+
+	File Explorer's file list answered fourteen while the reader stood on item fifty-two of
+	seventy-nine: it counts what it has drawn. A test sets this to model a count that is
+	wrong rather than absent, which is the harder of the two to notice."""
+
 	@property
 	def rowCount(self):
-		"""What a grid that carries a row count says. None models one that does not, which is
-		what File Explorer's file list turned out to be."""
+		if self.rowCountSays is not None:
+			return self.rowCountSays
 		return None if self.realized is not None else len(self.items)
 
 	@property

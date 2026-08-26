@@ -730,7 +730,9 @@ class TableFlowSource:
 		# headers may have them two rows deep, in a column rather than a row, or nowhere near
 		# the top at all — and then row one is data, and dropping it would lose a row of the
 		# table to a guess the document had already contradicted.
-		self.firstRow = HEADER_ROW + 1 if pinHeaders and not self._declared else HEADER_ROW
+		self.firstRow = (
+			HEADER_ROW + 1 if pinHeaders and not self._declared and self._firstRowIsHeadings() else HEADER_ROW
+		)
 		self.generation = generation
 		self.budget = budget if budget is not None else FetchBudget()
 		self.live = live
@@ -844,10 +846,26 @@ class TableFlowSource:
 			return None
 		try:
 			said = self._headersForThisPage()
-			return self._declaredRow(said) if said else self._buildRow(HEADER_ROW)
+			if said:
+				return self._declaredRow(said)
+			if not self._firstRowIsHeadings():
+				# A list view's first item is a file, not a heading. Pinning it would draw one
+				# of the reader's own rows above the rest and claim it said what the columns
+				# were, which is worse than saying nothing.
+				return None
+			return self._buildRow(HEADER_ROW)
 		except Exception:
 			log.debugWarning("Could not read the table's header row", exc_info=True)
 			return None
+
+	def _firstRowIsHeadings(self) -> bool:
+		""":return: whether row one of this table may be read as its headings.
+
+		Asked of whatever is navigating the table rather than assumed. A document says nothing
+		and gets the assumption `HEADER_ROW` is named for, which is what NVDA's own table
+		navigation assumes too. A list view says no.
+		"""
+		return bool(getattr(self.handle.document, "hasHeaderRow", True))
 
 	def _headersForThisPage(self) -> dict:
 		""":return: the declared header of each column being drawn, leaving out those without one.
@@ -886,6 +904,26 @@ class TableFlowSource:
 			region=content,
 			isBlank=not content.rawText.strip(),
 		)
+
+	def describeHeader(self) -> str:
+		""":return: where the pinned row came from, for the log.
+
+		The line the last report needed and did not have. It showed a header row reading
+		"Column left  Position" over columns the same report said were headed "Name" and
+		"Status", and there was no way to tell which of the two ways a header can be built had
+		produced it.
+		"""
+		if self.handle.numRows < 1:
+			return "nothing: the table has no rows"
+		try:
+			said = self._headersForThisPage()
+		except Exception as error:
+			return f"could not be worked out: {error!r}"
+		if said:
+			return f"declared by the table's own cells: {said}"
+		if not self._firstRowIsHeadings():
+			return "nothing: this table declares no headers and its first row is not headings"
+		return f"row {HEADER_ROW}, since this table declares none"
 
 	def blockAtCursor(self, atObject=None) -> FetchResult:
 		""":return: the row the reader is on.

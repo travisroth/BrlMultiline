@@ -120,9 +120,19 @@ def cellsRow(obj) -> Optional[Any]:
 def cellsOfARow(obj) -> list:
 	""":return: the cell objects of a row, or an empty list if this object is not such a row.
 
-	A row whose cells are objects is one whose children say which column they are in.
-	Counting how many say so rather than trusting the first is deliberate: a row of a tree
-	view has children too, and they are items rather than cells.
+	Two ways to be sure, and a row needs one of them. **Its children say which column they are
+	in**, which is `GridItemPattern` for UIA and the table cell interface for IAccessible2.
+	Or **the table it is in says how many columns it has**, and the row has that many children
+	to fill them.
+
+	The second was added for Outlook's message list. Its rows are `outlook.UIAGridRow` — a
+	`RowWithFakeNavigation`, whose contract says outright that "the cells must be exposed as
+	children" — and the row itself carries `GridItemPattern`, but its children are plain text
+	elements that carry nothing. Asking only the children said "not a table" about a table
+	whose own row had just said it was one.
+
+	Counting rather than trusting the first child either way: a tree view item has children
+	too, and they are items rather than cells.
 
 	:param obj: the object the reader is on.
 	"""
@@ -133,8 +143,22 @@ def cellsOfARow(obj) -> list:
 	except Exception:
 		log.debugWarning("Could not read an object's children", exc_info=True)
 		return []
+	if len(children) < MIN_COLUMNS:
+		return []
 	numbered = [child for child in children if columnNumberOf(child) is not None]
-	return children if len(numbered) >= MIN_COLUMNS else []
+	if len(numbered) >= MIN_COLUMNS:
+		return children
+	return children if _columnsOfTheTableAbove(obj) >= MIN_COLUMNS else []
+
+
+def _columnsOfTheTableAbove(row) -> int:
+	""":return: how many columns the table holding a row says it has, or zero if it does not say."""
+	try:
+		table = row.parent
+		return int(getattr(table, "columnCount", 0) or 0) if table is not None else 0
+	except Exception:
+		log.debugWarning("Could not ask a table how many columns it has", exc_info=True)
+		return 0
 
 
 def _ask(thing, name: str):
@@ -244,6 +268,16 @@ class ObjectTable:
 	about. See the module docstring.
 	"""
 
+	hasHeaderRow = False
+	"""Whether the first row of this table is its headings.
+
+	False, and that is the difference between a list and a table written down as text. A web
+	page's table puts its headings in a row of itself and `flowTableSource.HEADER_ROW` falls
+	back to reading them there. A list view's first item is a file: pinning it would draw one
+	of the reader's own rows above the rest and call it a heading. Where a list has headings
+	they are the ones its cells declare, and where it declares none there is nothing to pin.
+	"""
+
 	def __init__(self, table, row=None, column: int = 1) -> None:
 		"""
 		:param table: the object holding the rows. It answers `rowCount` and `columnCount`.
@@ -322,30 +356,38 @@ class ObjectTable:
 	def numRows(self) -> int:
 		""":return: how many rows the table has.
 
-		Three answers, in the order they can be trusted. The table's own `rowCount` first.
-		Then how many items the *row* says it is one of, which is `positionInfo` and is what
-		NVDA speaks as "fifty of seventy-nine" — the answer that matters for a list the
-		platform builds a few items at a time, because the children that exist are only the
-		ones on screen. File Explorer's file list answered fourteen to `childCount` while the
-		reader stood on item fifty of seventy-nine, so the band showed one row and said the
-		table ended.
+		Three answers, and **the row's own comes first**. How many items it says it is one of
+		is `positionInfo` and is what NVDA speaks as "fifty-two of seventy-nine"; NVDA fills it
+		in from the selection container, which is the whole list rather than the part of it
+		that has been built.
 
-		`childCount` last, for a table that is all there and says nothing else.
+		The table's `rowCount` after that, and its `childCount` last. Neither is safe on its
+		own for a list the platform builds a few items at a time: File Explorer's file list
+		answered **fourteen** to `rowCount` and seventeen to `childCount` while the reader
+		stood on item fifty-two of seventy-nine, and the band showed one row and said the table
+		had ended. `rowCount` was tried first before that report and it is what the report
+		disproved.
+
+		Never fewer than the row the reader is standing on, whichever answered. A table cannot
+		have fewer rows than the row somebody is in, and a count that says otherwise is
+		counting something else.
 		"""
-		try:
-			count = getattr(self.table, "rowCount", None)
-			if count:
-				return int(count)
-		except Exception:
-			log.debugWarning("Could not read a table's rowCount", exc_info=True)
+		return max(self._counted(), self.rowNumberOf(self.focused) or 0)
+
+	def _counted(self) -> int:
+		""":return: how many rows something says there are, by the first that says. See `numRows`."""
 		among = self.itemsAmong(self.focused)
 		if among:
 			return among
-		try:
-			return int(getattr(self.table, "childCount", 0) or 0)
-		except Exception:
-			log.debugWarning("Could not read a table's childCount", exc_info=True)
-			return 0
+		for name in ("rowCount", "childCount"):
+			try:
+				count = getattr(self.table, name, None)
+			except Exception:
+				log.debugWarning(f"Could not read a table's {name}", exc_info=True)
+				continue
+			if count:
+				return int(count)
+		return 0
 
 	def itemsAmong(self, item) -> int:
 		""":return: how many rows the row in hand says it is one of, or zero if it does not say.
