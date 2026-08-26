@@ -1452,7 +1452,84 @@ class TestPanningADocumentBeingWrittenIn(unittest.TestCase):
 		before = control._caretPosition()
 		control.panForward()
 		self.assertNotEqual(control._caretPosition(), before)
-		self.assertEqual(control._caretPosition(), control._pannedCaret)
+		self.assertIn(control._caretPosition(), control._pannedCaret)
+
+	def test_theCaretThePanAskedForCountsToo(self):
+		"""Moving the caret is a request to the application and reading it back is a question
+		to it, and the two need not agree in the same breath. The position the pan *asked*
+		for is taken from the block rather than from the document, which is the half of the
+		answer a read cannot give until the application has caught up."""
+		control = self.band()
+		control.panForward()
+		self.assertIn(control._cursorMark(control.window.topBlockId()), control._pannedCaret)
+
+	def test_anApplicationThatHasNotCaughtUpStillHoldsThePan(self):
+		"""The reader's second report: panning forward was "inconsistent, from moving the full
+		display, to moving just a couple lines". Where the new top row continued the block
+		the caret was already in, the cursor was asked to go where it already was and the
+		read-back agreed. Where it began a new block the read-back was stale, the claim was
+		made against a caret nobody was at, and the next caret event dragged the band half a
+		display back."""
+		control = self.band()
+		stale = control._caretPosition()
+		# The application answering with the caret the pan moved away from.
+		control.source.caretPosition = lambda: stale
+		control.panForward()
+		del control.source.caretPosition
+		self.assertNotEqual(control._caretPosition(), stale)
+		self.assertTrue(control._nothingWasTypedSinceThePan())
+
+	def test_aFlowThatMovesNoCursorStillClaimsWhereTheCaretIs(self):
+		"""The other half of the pair, and the one that carries a flow whose panning moves
+		nothing: a table row is a place rather than a selection, and an application that
+		declines to move its caret leaves it where it was. Then where it was is the only
+		right answer there is."""
+		control = self.band()
+		control.movesCursor = False
+		control.panForward()
+		self.assertEqual(control._pannedCaret, (control._caretPosition(),))
+
+	def test_aViewerClaimsTheSame(self):
+		"""A viewer moves nothing at all, so the position a block would put the cursor at is
+		not a position anything is going to."""
+		control = controllerOver(
+			[f"line {number}" for number in range(1, 13)],
+			caretIndex=0,
+			numRows=2,
+			numCols=12,
+			live=False,
+			interactive=True,
+		)
+		control.panForward()
+		self.assertEqual(control._pannedCaret, (control._caretPosition(),))
+
+	def test_theMarkIsCollapsedLikeTheCaretItIsComparedWith(self):
+		"""A block's position is normally its collapsed start, and then this costs nothing. It
+		is not always: a focused edit inside a page keeps the reader's live selection there —
+		see `tracksLiveCursorAcrossUnits` — and a range's bookmark is not a caret's, so the
+		two would never match and the pan would never hold in the one place a document is
+		most certainly being written in."""
+		control = self.band()
+		control.panForward()
+		top = control.window.topBlockId()
+		region = control.regionFor(top)
+		region._position.expanded = True
+		collapsed = region._position.copy()
+		collapsed.collapse()
+		self.assertEqual(control._cursorMark(top), collapsed.bookmark)
+		# Only half of this can be shown here. `FakeTextInfo.bookmark` already reports an
+		# expanded range as though it were collapsed, so the stub cannot produce the case
+		# NVDA does: an offsets bookmark is the start *and the end*, and a range's is not its
+		# start's. Reverting the collapse therefore fails nothing, which is worth knowing
+		# before trusting that it does nothing.
+
+	def test_typingLandsOnNeitherOfThem(self):
+		"""Which is what makes taking both safe: typing moves the caret away from where it was
+		*and* away from where the pan put it."""
+		control = self.band()
+		control.panForward()
+		control.source.obj.caretOffset = 2
+		self.assertFalse(control._nothingWasTypedSinceThePan())
 
 	def test_typingAfterAPanDoesNotGoBackToTheWindowBeforeIt(self):
 		"""The re-read puts the band back under the row it had, from a claim made the last time

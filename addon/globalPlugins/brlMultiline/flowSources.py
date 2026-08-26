@@ -369,6 +369,28 @@ class FlowRegion:
 			return False
 		return True
 
+	@property
+	def cursorMark(self):
+		""":return: a mark for where `takeCursor` would put the cursor, or None.
+
+		Collapsed, because that is what the caret becomes once it is moved there, and the
+		two are compared against each other: `takeCursor` moves the caret to this position,
+		and moving it to a *range* leaves the caret at that range's start with nothing
+		selected. See `FlowController._caretsAfterAPan`.
+
+		Whether the cursor is one this flow would move at all is the caller's question, not
+		this one's — see `FlowController._cursorMark`.
+		"""
+		if self._position is None:
+			return None
+		try:
+			here = self._position.copy()
+			here.collapse()
+			return here.bookmark
+		except Exception:
+			log.debugWarning(f"Could not mark the cursor position of {self!r}", exc_info=True)
+			return None
+
 	def routeTo(self, braillePos: int) -> None:
 		if self.live:
 			super().routeTo(braillePos)

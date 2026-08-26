@@ -1032,6 +1032,19 @@ Which is both symptoms, and the asymmetry too: half a display of drift backwards
 backward pan and subtracts from a forward one, so "pan back seems better" was the same bug
 seen from the other side.
 
+**A caret moved by panning has two right answers.** The first cut of this asked the document
+where its caret was in the same breath as telling it where to put it, and those are a question
+and a request: the read-back can still be the caret the pan moved *from*, and the settled
+answer arrives with the caret event a moment later. Which meant the claim held only when the
+pan happened not to move the caret at all — when the new top row continued the block the caret
+was already in — and missed whenever the top row began a new block. The reader felt it as
+panning that went "from moving the full display, to moving just a couple lines", varying on
+nothing they could see.
+
+So the claim is a pair: where the document says the caret is, and where the pan *asked* it to
+go, which is taken from the block rather than from the document because that half is knowable
+without waiting. Typing lands on neither. `FlowController._caretsAfterAPan`.
+
 The decision: **a pan the reader has not typed over is not a keystroke, and costs no reading
 at all.** `FlowController._nothingWasTypedSinceThePan` is asked first, before the re-read that
 would decide where the band goes, and it is answered from the document's own caret —

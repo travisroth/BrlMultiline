@@ -218,13 +218,16 @@ class FlowController(PanelOwner):
 		self._writingTop = None
 		"""The last top block the reader was shown that was not the caret's own. See L{_stableTop}."""
 
-		self._pannedCaret = None
-		"""Where the document's own caret was when the reader last panned, or None.
+		self._pannedCaret: tuple = ()
+		"""Where the caret counts as being if nothing has been typed since the reader panned.
 
 		The claim a written-in document's re-read has to respect. Not `_pannedAt`, which is
 		the *active block* and the cursor within it: panning moves the active block itself —
 		see `_cursorToTop` — so it answers "has the band moved", and what a re-read needs to
-		know before it throws the band away is "has anything been typed"."""
+		know before it throws the band away is "has anything been typed".
+
+		More than one position, because a caret moved by panning has two right answers while
+		the application catches up. See `_caretsAfterAPan`."""
 
 		self.rereadWhileWriting = False
 		"""Whether the last cursor move re-read the band as an edit being typed into.
@@ -883,7 +886,7 @@ class FlowController(PanelOwner):
 		if moved:
 			# After the pan, so that the caret this remembers is the one the pan left behind.
 			self._pannedAt = self._caretMark()
-			self._pannedCaret = self._caretPosition()
+			self._pannedCaret = self._caretsAfterAPan()
 			# The window the reader had is the one they have just panned to, so the claim a
 			# writing re-read would go back to is out of date. Kept, it drags the band back
 			# to a window the reader left deliberately, the moment they type.
@@ -1087,7 +1090,7 @@ class FlowController(PanelOwner):
 		self.rereadWhileWriting = True
 		if ground:
 			self._writingTop = None
-			self._pannedCaret = None
+			self._pannedCaret = ()
 			return True
 		if self._restoreTop(topId):
 			self._writingTop = topId
@@ -1421,14 +1424,53 @@ class FlowController(PanelOwner):
 
 		:return: whether to leave the band exactly where the reader panned it.
 		"""
-		if self._pannedCaret is None:
+		if not self._pannedCaret:
 			return False
-		if self._caretPosition() != self._pannedCaret:
+		if self._caretPosition() not in self._pannedCaret:
 			# Forgotten rather than merely not matching, as `_panIsTheReadersChoice` forgets:
 			# a reader who types and then puts the caret back has not re-panned.
-			self._pannedCaret = None
+			self._pannedCaret = ()
 			return False
 		return True
+
+	def _caretsAfterAPan(self) -> tuple:
+		"""Where the caret may be found after a pan without the reader having typed.
+
+		Two answers, because moving the caret is a request to the application and reading it
+		back is a question to the application, and between one keystroke and the next those
+		do not have to agree. Panning tells the editor to put its caret at the top of what
+		is now shown; a read taken in the same breath can still be the caret the pan moved
+		*from*, and the settled answer arrives with the caret event a moment later.
+
+		Both count as "nothing was typed", and the pair is what made the difference between
+		a pan that stuck and one that did not. Where the new top row continued the block the
+		caret was already in, the cursor was asked to go where it already was, the read-back
+		agreed, and the pan held. Where it began a new block the caret really moved, the
+		read-back was stale, and the next caret event re-read the band and dragged it half a
+		display back — a reader panning through a file got "the full display, to moving just
+		a couple lines" depending on nothing they could see.
+
+		Typing lands on neither: it moves the caret away from where it was *and* away from
+		where the pan put it.
+
+		:return: the marks that mean the reader has not typed, newest first, possibly empty.
+		"""
+		marks = []
+		for mark in (self._caretPosition(), self._cursorMark(self.window.topBlockId())):
+			if mark is not None and mark not in marks:
+				marks.append(mark)
+		return tuple(marks)
+
+	def _cursorMark(self, blockId):
+		""":return: the mark for where this flow put the cursor in a block, or None.
+
+		The position the flow *asked* for, taken from the block rather than from the
+		document, which is the half of the answer a read of the document cannot give until
+		the application has caught up.
+		"""
+		if blockId is None or not (self.live and self.movesCursor):
+			return None
+		return getattr(self.regionFor(blockId), "cursorMark", None)
 
 	def _takeCursor(self, blockId: "BlockId") -> bool:
 		"""Move the real cursor to a block, for a live flow.
