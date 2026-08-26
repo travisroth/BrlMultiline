@@ -43,6 +43,7 @@ import documentBase
 from braille.regions.base import Region, TextRegion
 from logHandler import log
 
+from . import flowObjectTable
 from .flow import BlockId, FetchResult, SourceBlock
 from .flowSources import FetchBudget
 from .flowTable import SEPARATOR_CELL, Measurement, RowCell, cellPosition, positionParts
@@ -78,13 +79,19 @@ wrong by a cell or two and truncation covers it, which is what truncation is for
 def tableDocumentFor(obj) -> Optional[Any]:
 	"""What can navigate the table this object is in.
 
-	The tree interceptor where there is one and browse mode is presenting the page, and the
-	object itself otherwise. Taken from Easy Table Navigator, which uses the same dispatch for
-	the same reason: it is what makes Excel and a list view the same code as a web page when
-	that milestone comes, because both are `DocumentWithTableNavigation` too.
+	The tree interceptor where there is one and browse mode is presenting the page, the object
+	itself where it navigates its own tables, and otherwise a list view presented as though it
+	did. Taken from Easy Table Navigator, which uses the same dispatch for the same reason:
+	it is what makes a list view the same code as a web page, and the bet it was making turned
+	out to be worth making — everything above this line is unchanged by the message list
+	arriving.
+
+	The order matters. A list view inside a browse mode document is part of the page, and the
+	page is what the reader is reading; a list view is asked about only where nothing else
+	claims the object.
 
 	:param obj: the object the reader is on.
-	:return: the document, or None if nothing here navigates tables.
+	:return: something answering `DocumentWithTableNavigation`'s three questions, or None.
 	"""
 	if obj is None:
 		return None
@@ -99,7 +106,8 @@ def tableDocumentFor(obj) -> Optional[Any]:
 			return obj
 	except Exception:
 		log.debugWarning("Could not tell whether this document navigates tables", exc_info=True)
-	return None
+		return None
+	return flowObjectTable.tableFor(obj)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -727,7 +735,12 @@ class TableFlowSource:
 		self.budget = budget if budget is not None else FetchBudget()
 		self.live = live
 		self.unit = UNIT
-		self.obj = handle.document
+		self.obj = getattr(handle.document, "obj", handle.document)
+		"""The object this table lives in, which is what NVDA compares a region against.
+
+		The document itself for a page, and the list for a list view — where the thing
+		answering the table questions is a stand-in presenting one, and the stand-in is not
+		anything NVDA has ever heard of. See `TableRow`."""
 
 	@property
 	def row(self) -> int:
@@ -867,7 +880,7 @@ class TableFlowSource:
 			region = TextRegion(said.get(column, ""))
 			region.update()
 			cells.append(RowCell(index=column, region=region))
-		content = TableRow(cells, obj=self.handle.document)
+		content = TableRow(cells, obj=self.obj)
 		return SourceBlock(
 			blockId=BlockId(generation=self.generation, bookmark=HEADER_ROW, unit=self.unit),
 			region=content,
@@ -929,7 +942,7 @@ class TableFlowSource:
 				cells.append(RowCell(index=column, region=region))
 		content = TableRow(
 			cells,
-			obj=self.handle.document,
+			obj=self.obj,
 			caretColumn=functools.partial(self._caretColumn, row),
 		)
 		return SourceBlock(
@@ -984,16 +997,33 @@ def sameTable(first, second) -> bool:
 	carrying it into a page it was not made for. The **identifier** is compared by value,
 	because it is an integer for a virtual buffer and a tuple for UIA and neither survives
 	being the same object across two reads.
+
+	Identity is not everybody's answer, and a thing that has a better one says so by offering
+	`sameAs`. A list view is presented by a stand-in built afresh each time it is looked at,
+	over an `NVDAObject` that NVDA also builds afresh each time it is asked — so identity says
+	"a different table" every time the reader moves to the next message, and the layout would
+	be given back on every arrow key.
 	"""
 	if first is None or second is None:
 		return False
 	try:
-		if first[0] is not second[0]:
+		if not _sameContainer(first[0], second[0]):
 			return False
 		return bool(first[1] == second[1])
 	except Exception:
 		log.debugWarning("Could not compare two tables", exc_info=True)
 		return False
+
+
+def _sameContainer(first, second) -> bool:
+	""":return: whether two table keys name the same document, page or control.
+
+	Identity, unless the thing being compared knows better and says so. See `sameTable`.
+	"""
+	if first is second:
+		return True
+	sameAs = getattr(first, "sameAs", None)
+	return bool(sameAs(second)) if callable(sameAs) else False
 
 
 __all__ = [

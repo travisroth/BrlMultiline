@@ -1109,7 +1109,53 @@ Not done here: the same row for **object** tables, which is M5's source, and any
 header that is not row one.
 
 **M5 — tables as objects.** Excel, list views, the message list. Same vocabulary, second
-source.
+source. **List views built, not yet on hardware.**
+
+The seam turned out to be one that was already there. `flowTableSource` walks
+`documentBase.DocumentWithTableNavigation` — which cell is the cursor in, how big is the
+table, give me the cell at these coordinates — and that is the whole of what reading a table
+needs. A list view is not one of those, so `flowObjectTable` presents one as one, and
+everything above the line is unchanged: the measurement, the column plan, the pinned header,
+the key column, the page turns, the window, the band. `tableDocumentFor` said this was what it
+was betting on before there was anything to bet, and the bet paid.
+
+What the stand-in answers, and where each answer comes from:
+
+- **The rows are the list's own children, and its shape is its own answer.** `rowCount` and
+  `columnCount`, which NVDA's list view gets from one window message each; counting children
+  would build every item to learn a number the control already knows.
+- **A cell is `_getColumnContent`.** `NVDAObjects.behaviors.RowWithoutCellObjects` is the
+  contract — a row whose cells are not objects — and `sysListView32` implements it through
+  NVDA's own in-process helper. The contract is asked for rather than tested with `isinstance`,
+  so an application module answering it on a class of its own works too.
+- **A header is `_getColumnHeader`**, handed on as the same `table-columnheadertext` control
+  field attribute a browse mode document carries, so `declaredHeader` needs to know nothing
+  about where the table came from. A list view has no header *row*, so no item of the list is
+  spent on one: `firstRow` stays at one and every item is content.
+- **A hidden column is one whose rectangle has no width.** `_getColumnLocation`, which is the
+  test `sysListView32` itself uses. Better than the browse mode source's, where a hidden column
+  has to be *inferred* from every cell in a sample coming back empty.
+- **Which row the reader is on is `rowNumber` or `positionInSet`**, never counting. On a
+  mailbox of ten thousand messages that is the difference between a keypress and a pause.
+- **Routing into a cell focuses the row.** A document cell can be pointed at; a list view cell
+  cannot, because a column is a rectangle on the screen and not a place the keyboard can be
+  put. The item is the only thing there is to go to, and going to it is what the reader means.
+
+Two things the seam forced, both worth writing down:
+
+- **A stand-in is not the object.** `TableRow` carries the object NVDA compares a region
+  against, and the stand-in is not anything NVDA has heard of. The source now keeps the real
+  object — the document for a page, the list for a list view — and hands that to the row.
+- **Identity is not everybody's answer to "the same table".** A stand-in is built afresh each
+  time the reader is asked where they are, over an `NVDAObject` that NVDA also builds afresh
+  whenever it is asked. Comparing by identity said "a different table" on every arrow key, so
+  the layout would have been given back each time the reader moved to the next message. A
+  thing with a better answer says so by offering `sameAs`; `sameTable` asks. NVDA's own answer
+  for two objects is equality, so that is what a list view's stand-in uses.
+
+Still to come in M5: rows whose cells *are* objects — `RowWithFakeNavigation` — and Excel,
+where a cell is reached as `excelWorksheetObject.cells(row, column)` wrapped in NVDA's own
+`ExcelCell`, exactly as `ExcelWorksheet._get_firstChild` does it.
 
 ### Following NVDA's own Document Formatting settings
 

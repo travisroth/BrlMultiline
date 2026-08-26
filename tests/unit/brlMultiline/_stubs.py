@@ -1715,6 +1715,90 @@ class FakeNavigatorObject:
 		self.hasFocus = True
 
 
+class FakeColumnRect:
+	"""Where a column of a list view sits on the screen, in what NVDA's own reading reads.
+
+	The width is the whole of it here: a column the reader has hidden keeps its place in the
+	list's column count and has no width, and that is how `sysListView32` tells the two apart.
+	"""
+
+	def __init__(self, width=100):
+		self.left = 0
+		self.right = width
+		self.width = width
+
+
+class FakeListItem(FakeNavigatorObject):
+	"""A row of a list view, in the shape `NVDAObjects.behaviors.RowWithoutCellObjects` gives.
+
+	Its cells are not objects: they are answered a column at a time by the row itself, which
+	is what a list view can do and why NVDA wrote that class. `positionInSet` is how a list
+	item says which row it is, since the platform numbers items rather than table rows.
+	"""
+
+	def __init__(self, cells, position, table=None):
+		super().__init__(name="; ".join(text for text in cells if text), role="LISTITEM")
+		self.cells = list(cells)
+		self.positionInSet = position
+		self.parent = table
+		self.reads = []
+		"""Which columns were asked for, so a test can say what was *not* read."""
+
+	def _getColumnContent(self, column):
+		self.reads.append(column)
+		if not 1 <= column <= len(self.cells):
+			return None
+		return self.cells[column - 1]
+
+	def _getColumnHeader(self, column):
+		table = self.parent
+		headers = getattr(table, "headers", None) or []
+		if not 1 <= column <= len(headers):
+			return None
+		return headers[column - 1]
+
+	def _getColumnLocation(self, column):
+		table = self.parent
+		widths = getattr(table, "columnWidths", None)
+		if widths is None:
+			return None
+		if not 1 <= column <= len(widths):
+			return None
+		return FakeColumnRect(widths[column - 1])
+
+
+class FakeListView(FakeNavigatorObject):
+	"""A list view in report mode: rows of cells, and a header control saying what they are.
+
+	`rowCount` and `columnCount` are what NVDA's own list view answers with, each from one
+	window message, which is why they are asked for rather than the children being counted.
+	"""
+
+	def __init__(self, rows, headers=None, columnWidths=None, name="a list"):
+		super().__init__(name=name, role="LIST")
+		self.headers = list(headers or [])
+		self.columnWidths = columnWidths
+		self.items = [FakeListItem(cells, index + 1, table=self) for index, cells in enumerate(rows)]
+		self.builds = 0
+		"""How many times a row was fetched by number, so a test can see the caching work."""
+
+	@property
+	def rowCount(self):
+		return len(self.items)
+
+	@property
+	def columnCount(self):
+		return len(self.headers) or max((len(item.cells) for item in self.items), default=0)
+
+	def getChild(self, index):
+		self.builds += 1
+		return self.items[index]
+
+	def item(self, row):
+		""":return: one row of the list, by its one based number."""
+		return self.items[row - 1]
+
+
 class NVDAObjectRegion(Region):
 	"""NVDA's presentation of one object as braille: its name and its role.
 
