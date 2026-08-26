@@ -54,6 +54,14 @@ to tell apart. What tells one list from another is the object, which is the othe
 `flowTableSource.TableHandle.key` and the half that was already doing the work.
 """
 
+WALK_LIMIT = 64
+"""How far this will step through a list to reach a row it has not got.
+
+Far enough for the window to reach past what it is holding, and not so far that a jump to the
+other end of a mailbox walks it item by item. Past this the table is asked to hand the row
+over by number instead, which works for a list that has built all its items.
+"""
+
 MIN_COLUMNS = 2
 """How many columns a list needs before it is worth laying out as a table.
 
@@ -127,6 +135,27 @@ def cellsOfARow(obj) -> list:
 		return []
 	numbered = [child for child in children if columnNumberOf(child) is not None]
 	return children if len(numbered) >= MIN_COLUMNS else []
+
+
+def _ask(thing, name: str):
+	""":return: what an object answers for one property, or why it did not, for the log.
+
+	Every one of these raises `NotImplementedError` on an object whose platform has no answer,
+	which is an answer and is worth writing down as one.
+	"""
+	try:
+		return getattr(thing, name, None)
+	except Exception as error:
+		return f"refused ({type(error).__name__})"
+
+
+def describeThing(obj) -> str:
+	""":return: an object in the few words that tell one apart from another, for the log."""
+	if obj is None:
+		return "none"
+	role = _ask(obj, "role")
+	role = getattr(role, "name", role)
+	return f"{type(obj).__name__} role={role} name={_ask(obj, 'name')!r}"
 
 
 class ObjectCellInfo:
@@ -291,15 +320,48 @@ class ObjectTable:
 
 	@property
 	def numRows(self) -> int:
-		""":return: how many rows the table has."""
-		for name in ("rowCount", "childCount"):
-			try:
-				count = getattr(self.table, name, None)
-				if count:
-					return int(count)
-			except Exception:
-				log.debugWarning(f"Could not read a table's {name}", exc_info=True)
-		return 0
+		""":return: how many rows the table has.
+
+		Three answers, in the order they can be trusted. The table's own `rowCount` first.
+		Then how many items the *row* says it is one of, which is `positionInfo` and is what
+		NVDA speaks as "fifty of seventy-nine" — the answer that matters for a list the
+		platform builds a few items at a time, because the children that exist are only the
+		ones on screen. File Explorer's file list answered fourteen to `childCount` while the
+		reader stood on item fifty of seventy-nine, so the band showed one row and said the
+		table ended.
+
+		`childCount` last, for a table that is all there and says nothing else.
+		"""
+		try:
+			count = getattr(self.table, "rowCount", None)
+			if count:
+				return int(count)
+		except Exception:
+			log.debugWarning("Could not read a table's rowCount", exc_info=True)
+		among = self.itemsAmong(self.focused)
+		if among:
+			return among
+		try:
+			return int(getattr(self.table, "childCount", 0) or 0)
+		except Exception:
+			log.debugWarning("Could not read a table's childCount", exc_info=True)
+			return 0
+
+	def itemsAmong(self, item) -> int:
+		""":return: how many rows the row in hand says it is one of, or zero if it does not say.
+
+		`positionInfo["similarItemsInGroup"]`, which for a UIA list item NVDA fills in from the
+		selection container's item count — the whole list, not the part of it that has been
+		built.
+		"""
+		if item is None:
+			return 0
+		try:
+			where = getattr(item, "positionInfo", None) or {}
+			return int(where.get("similarItemsInGroup") or 0)
+		except Exception:
+			log.debugWarning("Could not read how many items a row is one of", exc_info=True)
+			return 0
 
 	@property
 	def numCols(self) -> int:
@@ -361,13 +423,97 @@ class ObjectTable:
 			# back at the object the focus event just handed over.
 			found = self.focused
 		elif 1 <= row <= self.numRows:
-			try:
-				found = self.table.getChild(row - 1)
-			except Exception:
-				log.debugWarning(f"Could not reach row {row} of a table", exc_info=True)
-				found = None
+			found = self.walkTo(row)
+			if found is None:
+				try:
+					found = self.table.getChild(row - 1)
+				except Exception:
+					log.debugWarning(f"Could not reach row {row} of a table", exc_info=True)
+					found = None
 		self._rows[row] = found
 		return found
+
+	def walkTo(self, row: int):
+		""":return: a row reached by stepping from one already in hand, or None.
+
+		**Stepping rather than indexing, because a list may not have built its items yet.**
+		File Explorer's file list has seventy-nine files and fourteen children: the platform
+		makes the ones on screen and no more, so asking for the sixtieth child of it answers
+		nothing at all. Stepping is what NVDA's own object navigation does and what this
+		add-on's run-of-objects flow already does successfully in the very same list.
+
+		Cheap in the case that happens: the window asks for the row after the last one it
+		holds, so the walk is one step from something remembered.
+
+		:param row: which row to reach, one based.
+		"""
+		known = [number for number in self._rows if self._rows[number] is not None]
+		if self.focused is not None:
+			here = self.rowNumberOf(self.focused)
+			if here:
+				known.append(here)
+				self._rows.setdefault(here, self.focused)
+		if not known:
+			return None
+		from_ = min(known, key=lambda number: abs(number - row))
+		steps = abs(row - from_)
+		if steps > WALK_LIMIT:
+			# Further than stepping is worth. A jump that long is not a reader reading on.
+			return None
+		item = self._rows.get(from_)
+		forward = row > from_
+		for number in range(steps):
+			try:
+				item = item.next if forward else item.previous
+			except Exception:
+				log.debugWarning("Could not step to the next row of a table", exc_info=True)
+				return None
+			if item is None:
+				return None
+			# Remembered on the way past, so a walk of five rows is five steps rather than
+			# five walks. The window asks for them in order, which is what makes this pay.
+			self._rows[from_ + (number + 1 if forward else -(number + 1))] = item
+		return item
+
+	def describe(self) -> list:
+		"""What this stand-in found, for the log.
+
+		Written because a report could not be read without it. A file list came back as
+		fourteen rows by five columns with "Column left" pinned over a column whose every row
+		said "Name", and settling *why* took a guess at which of four answers was the wrong
+		one. The answers are all cheap to ask for, so they are asked for and written down.
+
+		:return: one line per thing worth knowing, no line of it needed to draw anything.
+		"""
+		lines = [
+			f"  shape: {self.numRows} rows by {self.numCols} columns, as {self!r}",
+			f"  table object: {describeThing(self.table)}",
+			f"  row in hand: {describeThing(self.focused)} at row {self.rowNumberOf(self.focused)}",
+			f"  the row says it is one of {self.itemsAmong(self.focused) or 'it does not say'}",
+			f"  the table's own rowCount: {_ask(self.table, 'rowCount')}"
+			f", childCount: {_ask(self.table, 'childCount')}"
+			f", columnCount: {_ask(self.table, 'columnCount')}",
+		]
+		lines.extend(self.describeCells())
+		return lines
+
+	def describeCells(self) -> list:
+		""":return: what each column of the row in hand holds, and where it came from."""
+		item = self.focused
+		if item is None:
+			return ["  no row in hand, so there are no cells to describe"]
+		found = []
+		for column in range(1, min(self.numCols, 12) + 1):
+			try:
+				cell = self.cellOf(item, column, self.rowNumberOf(item) or 0)
+			except LookupError as error:
+				found.append(f"  column {column}: nothing — {error}")
+				continue
+			except Exception as error:
+				found.append(f"  column {column}: could not be read — {error!r}")
+				continue
+			found.append(f"  column {column}: text {cell.text!r} under header {cell.header!r}")
+		return found or ["  the row in hand has no columns"]
 
 	def sameAs(self, other) -> bool:
 		""":return: whether another stand-in is presenting the same control as this one.
@@ -399,7 +545,9 @@ class ObjectTable:
 		self._rows.clear()
 
 	def __repr__(self) -> str:
-		return f"<ObjectTable {self.numRows}x{self.numCols} over {self.table!r}>"
+		# The class name rather than a fixed one: which of the two shapes a table was read
+		# as is the first thing a report about it has to settle.
+		return f"<{type(self).__name__} {self.numRows}x{self.numCols} over {self.table!r}>"
 
 
 class RowCellTable(ObjectTable):
@@ -563,11 +711,23 @@ def columnNumberOf(cell) -> Optional[int]:
 def headerTextOf(cell) -> str:
 	""":return: what a cell says its column's header is, or "" if it says nothing.
 
-	`columnHeaderText` is NVDA's, and for UIA it resolves `TableItemColumnHeaderItemsPropertyId`
-	to the header elements' text — the same work `appModules/outlook.py` does by hand when it
-	builds a row's name for speech. Written as one line, since several header cells come back
-	joined and a pinned header row is one row.
+	**A cell that carries both a name and a value has named its own column**, and that is a
+	first-hand answer: the name is the label and the value is the data, which is what File
+	Explorer's Details view cells are. Preferred over `columnHeaderText`, which is a
+	*resolution* of whatever elements the platform points at as headers and can come back as
+	something nobody would call a heading — the reader's log pinned "Column left" and
+	"Position" over the Name and Status columns of a file list.
+
+	`columnHeaderText` otherwise, which is NVDA's and for UIA resolves
+	`TableItemColumnHeaderItemsPropertyId` to the header elements' text — the same work
+	`appModules/outlook.py` does by hand when it builds a row's name for speech.
+
+	Written as one line either way, since several header cells come back joined and a pinned
+	header row is one row.
 	"""
+	name, value = nameAndValueOf(cell)
+	if name and value and value != name:
+		return name
 	try:
 		said = getattr(cell, "columnHeaderText", None)
 	except Exception:
@@ -576,30 +736,42 @@ def headerTextOf(cell) -> str:
 	return " ".join(said.split()) if said else ""
 
 
+def nameAndValueOf(cell) -> tuple:
+	""":return: a cell's name and value, each stripped, each "" where it has none."""
+	found = []
+	for what in ("name", "value"):
+		try:
+			said = getattr(cell, what, None)
+		except Exception:
+			log.debugWarning(f"Could not read a cell's {what}", exc_info=True)
+			said = None
+		found.append((said or "").strip())
+	return tuple(found)
+
+
 def cellText(cell, header: str = "") -> str:
 	""":return: what one cell of an object table says.
 
-	The name, which is what NVDA speaks for such a cell and what `outlook.UIAGridRow` joins
-	together to name a whole row.
+	**The value where there is one, and the name otherwise.** A table cell's name is its
+	label and its value is its data, in every one of the APIs underneath: File Explorer's
+	Details view cells are `explorer.UIProperty`, whose docstring says outright that they are
+	"used for columns in Windows Explorer Details view", and one of them is named "Status"
+	with the value "Always available on this device". NVDA speaks both, because on one line
+	the label is what tells you what you are hearing. A column has already said that — it is
+	the whole argument for laying a table out spatially — so the label is the half to drop.
 
-	**Unless the name is the column's header**, which is how File Explorer presents a
-	property cell: its name is "Status" and its value is "Always available on this device".
-	A column already says what it is — that is the whole argument for laying a table out
-	spatially — so a name that only repeats the header is a label, and the value is the
-	content. The two are told apart by asking, not by knowing about File Explorer.
+	Where a cell has no value the name is all there is, which is Outlook's message list:
+	`outlook.UIAGridRow`'s children are text elements and it is their names that it joins
+	together to speak a whole message.
+
+	:param header: unused, and kept because the two used to be told apart by comparing them.
+		They are not: the reader's log had a header of "Column left" against a cell named
+		"Name", so the comparison said "not a label" about a label and drew the column's own
+		heading as its content on every row.
 	"""
-	try:
-		name = (getattr(cell, "name", None) or "").strip()
-	except Exception:
-		log.debugWarning("Could not read a cell's name", exc_info=True)
-		name = ""
-	try:
-		value = (getattr(cell, "value", None) or "").strip()
-	except Exception:
-		log.debugWarning("Could not read a cell's value", exc_info=True)
-		value = ""
-	if name and header and name == header:
-		return value or name
+	name, value = nameAndValueOf(cell)
+	if value and value != name:
+		return value
 	return name or value
 
 

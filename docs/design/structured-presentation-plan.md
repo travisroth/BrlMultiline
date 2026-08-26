@@ -1189,6 +1189,33 @@ Two decisions inside it are worth keeping:
   spatially — so a name that only repeats the header says nothing. The two are told apart by
   asking, not by knowing about File Explorer.
 
+Three more things the file list taught, all of them the same lesson — **the number a control
+answers is not always the number the reader is standing in**:
+
+- **How many rows there are is what the row says it is one of.** File Explorer answered
+  fourteen to `childCount` while the reader stood on item fifty of seventy-nine: the platform
+  builds the items on screen and no more. `positionInfo["similarItemsInGroup"]` is the whole
+  list, and it is what NVDA speaks. The band had shown one row and said the table ended.
+- **A row is reached by stepping, not by indexing.** Asking for the sixtieth child of a list
+  that has built fourteen answers nothing at all. Stepping is what NVDA's own object
+  navigation does — and what this add-on's run-of-objects flow was already doing successfully
+  in the very same list, in the very same report. Rows stepped past are remembered, so reading
+  on costs one step; a jump too long to walk is handed back to the table by number.
+- **A cell's value is its content and its name is its label.** `explorer.UIProperty` is
+  documented as "used for columns in Windows Explorer Details view", and one of them is named
+  "Status" with the value "Always available on this device". NVDA speaks both, because on one
+  line the label says what you are hearing; a column has already said that. The first attempt
+  told the two apart by comparing the name against `columnHeaderText` — which came back as
+  "Column left" — so it drew the column's own heading as its content on every row. A cell that
+  carries both has also *named its own column*, and that first-hand answer is now preferred
+  over resolving whatever elements the platform points at as headers.
+
+And the diagnostic that should have existed first: `ObjectTable.describe` writes what it
+found — the shape and which of the three places it came from, the table and row objects, and
+each column's text and header. The report before it took a guess at which of four answers was
+the wrong one. This is the sixth time this project has been told that when reasoning cannot
+settle a question, the thing to improve is the diagnostic.
+
 Still to come in M5: Excel, where a cell is reached as
 `excelWorksheetObject.cells(row, column)` wrapped in NVDA's own `ExcelCell`, exactly as
 `ExcelWorksheet._get_firstChild` does it.

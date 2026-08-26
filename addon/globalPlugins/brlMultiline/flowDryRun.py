@@ -92,6 +92,7 @@ def liveReport(band) -> list[str]:
 	plan = getattr(getattr(control, "renderer", None), "columnPlan", None)
 	if plan is not None and not plan.isEmpty:
 		lines.append(f"Band columns: {flowTable.describe(plan)}")
+	lines.extend(describeObjectTable(control))
 	lines.append(f"Band direction: {getattr(control, 'lastDirection', 'unknown')}")
 	# Every move, in order, because the direction test's verdict on its own was misleading:
 	# on the report that located the last bug the verdict was right while the placement was
@@ -107,6 +108,26 @@ def liveReport(band) -> list[str]:
 		log.debugWarning("Could not describe what the band is holding", exc_info=True)
 		lines.append(f"  could not be described: {error!r}")
 	return lines
+
+
+def describeObjectTable(control) -> list:
+	""":return: what a table made of objects found, or nothing if this is not one.
+
+	A table read out of a document is NVDA's own answer throughout and there is nothing to
+	report about how it was arrived at. A table made of objects is this add-on presenting one
+	as though it were a document, and every one of its answers is a choice between two or
+	three places to ask — which is exactly what a report has to be able to settle. See
+	`flowObjectTable.ObjectTable.describe`.
+	"""
+	document = getattr(getattr(control, "source", None), "handle", None)
+	describe = getattr(getattr(document, "document", None), "describe", None)
+	if not callable(describe):
+		return []
+	try:
+		return ["Band object table:", *describe()]
+	except Exception as error:
+		log.debugWarning("Could not describe an object table", exc_info=True)
+		return [f"Band object table: could not be described: {error!r}"]
 
 
 def describeEdges(control) -> str:

@@ -456,3 +456,180 @@ class TestReadingAGridThroughTheBand(unittest.TestCase):
 		first = flowTableSource.tableAt(grid.item(1))
 		second = flowTableSource.tableAt(grid.item(2).cellObjects[0])
 		self.assertTrue(flowTableSource.sameTable(first.key, second.key))
+
+
+class TestAListThePlatformBuildsAFewItemsAtATime(unittest.TestCase):
+	"""File Explorer's file list, which is what the reader's second report was. It has seventy
+	nine files and fourteen children: the platform makes the ones on screen and no more. The
+	band showed one row and said the table had ended, because the shape was taken from what had
+	been built rather than from what is there."""
+
+	FILES = [[f"file{number}.py", ("Status", f"state {number}")] for number in range(1, 80)]
+
+	def grid(self, realized=14, focused=50):
+		view = FakeGrid(self.FILES, headers=["Name", "Status"], realized=realized)
+		return view, view.item(focused)
+
+	def test_theShapeIsWhatTheRowSaysItIsOneOf(self):
+		""" "Fifty of seventy-nine", which is what NVDA speaks and what `positionInfo` carries.
+		Not `childCount`, which counts only the items that exist."""
+		view, item = self.grid()
+		table = flowObjectTable.tableFor(item)
+		self.assertEqual(view.childCount, 14)
+		self.assertEqual(table.numRows, 79)
+
+	def test_aListThatIsAllThereIsStillCounted(self):
+		view, item = self.grid(realized=None)
+		self.assertEqual(flowObjectTable.tableFor(item).numRows, 79)
+
+	def test_aRowIsReachedBySteppingRatherThanIndexing(self):
+		"""Asking for the sixtieth child of a list that has built fourteen answers nothing at
+		all. Stepping is what NVDA's own object navigation does, and what this add-on's
+		run-of-objects flow already did successfully in the very same list."""
+		view, item = self.grid()
+		table = flowObjectTable.tableFor(item)
+		view.builds = 0
+		cell = table._getTableCellAt(flowObjectTable.TABLE_ID, None, 53, 1)
+		self.assertEqual(cell.text, "file53.py")
+		self.assertEqual(view.builds, 0)
+
+	def test_theRowsSteppedPastAreRemembered(self):
+		"""A walk of five rows is five steps rather than five walks. The window asks for them in
+		order, which is what makes stepping pay."""
+		view, item = self.grid()
+		table = flowObjectTable.tableFor(item)
+		table._getTableCellAt(flowObjectTable.TABLE_ID, None, 55, 1)
+		self.assertEqual(
+			sorted(number for number, found in table._rows.items() if found is not None),
+			[50, 51, 52, 53, 54, 55],
+		)
+
+	def test_steppingGoesBackwardsToo(self):
+		view, item = self.grid()
+		table = flowObjectTable.tableFor(item)
+		cell = table._getTableCellAt(flowObjectTable.TABLE_ID, None, 47, 1)
+		self.assertEqual(cell.text, "file47.py")
+
+	def test_aJumpTooFarToStepIsNotStepped(self):
+		"""A jump the length of a mailbox is not a reader reading on, and walking it item by
+		item would be a walk of the mailbox. The table is asked to hand the row over instead,
+		which works for a list that has built all its items."""
+		view, item = self.grid(realized=None, focused=1)
+		table = flowObjectTable.tableFor(item)
+		view.builds = 0
+		cell = table._getTableCellAt(flowObjectTable.TABLE_ID, None, 79, 1)
+		self.assertEqual(cell.text, "file79.py")
+		self.assertEqual(view.builds, 1)
+
+	def test_readingOnThroughTheBandWorks(self):
+		"""What the reader saw instead: one row, and "end after — row 51 is outside this
+		table"."""
+		view, item = self.grid()
+		source = flowTableSource.TableFlowSource(flowTableSource.tableAt(item), (1, 2))
+		first = source.blockAtCursor().block
+		self.assertIn("file50.py", first.region.rawText)
+		second = source.blockAfter(first.blockId).block
+		self.assertIn("file51.py", second.region.rawText)
+
+
+class TestWhichHalfOfACellIsTheContent(unittest.TestCase):
+	"""The reader's log drew "Name" as the content of the Name column on every row, and pinned
+	"Column left" over it. Both halves were the wrong way round."""
+
+	def test_theValueIsTheContentAndTheNameIsTheLabel(self):
+		"""`explorer.UIProperty` is documented as "used for columns in Windows Explorer Details
+		view", and one of them is named "Status" with the value "Always available on this
+		device". NVDA speaks both because on one line the label says what you are hearing; a
+		column has already said that."""
+		cell = FakeGridCell("Status", 4, header="Column left", value="Always available")
+		self.assertEqual(flowObjectTable.cellText(cell), "Always available")
+
+	def test_andSuchACellHasNamedItsOwnColumn(self):
+		"""A first-hand answer, and better than `columnHeaderText` — which is a resolution of
+		whatever the platform points at as headers, and came back as "Column left" over the
+		Name column of a file list."""
+		cell = FakeGridCell("Status", 4, header="Column left", value="Always available")
+		self.assertEqual(flowObjectTable.headerTextOf(cell), "Status")
+
+	def test_aCellWithNoValueKeepsBothAnswersWhereTheyWere(self):
+		"""Outlook's message list: `outlook.UIAGridRow`'s children are text elements, and it is
+		their names that it joins together to speak a whole message."""
+		cell = FakeGridCell("Re: the watchlist", 2, header="Subject")
+		self.assertEqual(flowObjectTable.cellText(cell), "Re: the watchlist")
+		self.assertEqual(flowObjectTable.headerTextOf(cell), "Subject")
+
+	def test_aNameThatIsAlsoTheValueIsNotALabel(self):
+		"""Some cells repeat themselves. Nothing is learnt from that, so nothing changes."""
+		cell = FakeGridCell("report.docx", 1, header="Name", value="report.docx")
+		self.assertEqual(flowObjectTable.cellText(cell), "report.docx")
+		self.assertEqual(flowObjectTable.headerTextOf(cell), "Name")
+
+	def test_aWholeRowReadsAsItsValues(self):
+		view = FakeGrid(
+			[["report.docx", ("Status", "Always available")]],
+			headers=["Column left", "Position"],
+		)
+		table = flowObjectTable.tableFor(view.item(1))
+		row = [table._getTableCellAt(flowObjectTable.TABLE_ID, None, 1, column) for column in (1, 2)]
+		self.assertEqual([cell.text for cell in row], ["report.docx", "Always available"])
+		self.assertEqual([cell.header for cell in row], ["Column left", "Status"])
+
+
+class TestWhatItSaysAboutItself(unittest.TestCase):
+	"""Written because a report could not be read without it. A file list came back as fourteen
+	rows by five columns with "Column left" pinned over a column whose every row said "Name",
+	and settling which of four answers was the wrong one took a guess. The answers are all
+	cheap to ask for, so they are asked for and written down."""
+
+	def table(self):
+		view = FakeGrid(
+			[["report.docx", ("Status", "Always available")], ["notes.md", ("Status", "Offline")]],
+			headers=["Name", "Status"],
+			realized=1,
+		)
+		return view, flowObjectTable.tableFor(view.item(1))
+
+	def said(self):
+		_view, table = self.table()
+		return "\n".join(table.describe())
+
+	def test_itSaysTheShapeAndWhereItCameFrom(self):
+		said = self.said()
+		self.assertIn("2 rows by 2 columns", said)
+		self.assertIn("CellObjectTable", said)
+		self.assertIn("the row says it is one of 2", said)
+		self.assertIn("childCount: 1", said)
+
+	def test_itSaysWhatEachColumnHoldsAndUnderWhatHeader(self):
+		said = self.said()
+		self.assertIn("column 1: text 'report.docx'", said)
+		self.assertIn("column 2: text 'Always available' under header 'Status'", said)
+
+	def test_aPropertyTheObjectRefusesIsSaidToHaveBeenRefused(self):
+		"""Every one of these raises `NotImplementedError` on an object whose platform has no
+		answer, which is an answer and is worth writing down as one."""
+
+		class Refuses(FakeNavigatorObject):
+			@property
+			def rowCount(self):
+				raise NotImplementedError
+
+		view, table = self.table()
+		table.table = Refuses("a grid")
+		self.assertIn("rowCount: refused (NotImplementedError)", "\n".join(table.describe()))
+
+	def test_aColumnThatCannotBeReadSaysWhyRatherThanFailing(self):
+		view = FakeGrid(
+			[["report.docx", "Word document", ("Status", "Always available")]],
+			headers=["Name", "Type", "Status"],
+			columnCount=3,
+		)
+		row = view.item(1)
+		row.cellObjects = [cell for cell in row.cellObjects if cell.columnNumber != 2]
+		table = flowObjectTable.tableFor(row)
+		self.assertIn("column 2: nothing", "\n".join(table.describe()))
+
+	def test_withNoRowInHandItSaysSo(self):
+		_view, table = self.table()
+		table.focused = None
+		self.assertIn("no row in hand", "\n".join(table.describe()))

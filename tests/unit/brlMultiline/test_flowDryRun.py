@@ -334,3 +334,40 @@ class TestDescribingTheIndent(unittest.TestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestWhatAnObjectTableAddsToTheReport(unittest.TestCase):
+	"""A table read out of a document is NVDA's own answer throughout, and there is nothing to
+	report about how it was arrived at. A table made of objects is this add-on presenting one
+	as though it were a document, and every one of its answers is a choice between two or three
+	places to ask — which is exactly what a report has to be able to settle, and could not."""
+
+	def band(self, document):
+		control = FakeLiveControl([1])
+		control.source = type("Source", (), {"handle": type("Handle", (), {"document": document})()})()
+		return type("Band", (), {"controller": control})()
+
+	def test_anObjectTablesAccountIsInTheReport(self):
+		said = " ".join(liveReport(self.band(_SaysSomething())))
+		self.assertIn("Band object table:", said)
+		self.assertIn("what it found", said)
+
+	def test_aDocumentTableAddsNothing(self):
+		said = " ".join(liveReport(self.band(object())))
+		self.assertNotIn("Band object table", said)
+
+	def test_anAccountThatFailsDoesNotTakeTheReportWithIt(self):
+		"""Everything in a report is asked of something that may be gone by the time it is
+		asked. A diagnostic that raises is a diagnostic nobody gets."""
+		said = " ".join(liveReport(self.band(_Refuses())))
+		self.assertIn("could not be described", said)
+
+
+class _SaysSomething:
+	def describe(self):
+		return ["  what it found"]
+
+
+class _Refuses:
+	def describe(self):
+		raise RuntimeError("gone")

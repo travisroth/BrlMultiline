@@ -1824,12 +1824,16 @@ class FakeGridRow(FakeNavigatorObject):
 	cells are the children and they carry the table cell properties.
 	"""
 
-	def __init__(self, cells, position, table=None):
+	def __init__(self, cells, position, table=None, among=None):
 		super().__init__(name="; ".join(cell.name for cell in cells if cell.name), role="LISTITEM")
 		self.cellObjects = list(cells)
 		for cell in self.cellObjects:
 			cell.parent = self
-		self.positionInfo = {"indexInGroup": position, "similarItemsInGroup": None}
+		self.positionInfo = {"indexInGroup": position, "similarItemsInGroup": among}
+		"""Where NVDA puts "fifty of seventy-nine". The second half is the whole list rather
+		than the part of it that has been built, which is the number a virtualised list has to
+		be measured by."""
+
 		self.parent = table
 		self.builds = 0
 		"""How many times this row's cells were walked, so a test can see the caching work."""
@@ -1847,7 +1851,7 @@ class FakeGridRow(FakeNavigatorObject):
 class FakeGrid(FakeNavigatorObject):
 	"""A grid whose cells are objects: File Explorer's file list, Outlook's message list."""
 
-	def __init__(self, rows, headers=None, name="a grid", columnCount=None):
+	def __init__(self, rows, headers=None, name="a grid", columnCount=None, realized=None):
 		"""
 		:param rows: a list of rows, each a list of cell texts, or of (name, value) pairs for
 			a cell whose name is its column's header — which is how File Explorer presents a
@@ -1855,10 +1859,15 @@ class FakeGrid(FakeNavigatorObject):
 		:param headers: what each column's header is, as its cells report it.
 		:param columnCount: what the grid says its width is. None is a grid that will not say,
 			which is the case the row has to be counted for.
+		:param realized: how many of the items the platform has actually built. None is a list
+			that is all there. A number models File Explorer's, which builds the ones on
+			screen and no more: `childCount` answers that number while each item still says
+			it is one of the whole list, and asking for an item beyond it answers nothing.
 		"""
 		super().__init__(name=name, role="LIST")
 		self.headers = list(headers or [])
 		self.said = columnCount
+		self.realized = realized
 		self.items = []
 		for index, cells in enumerate(rows):
 			built = []
@@ -1868,12 +1877,21 @@ class FakeGrid(FakeNavigatorObject):
 					built.append(FakeGridCell(cell[0], column, header=header, value=cell[1]))
 				else:
 					built.append(FakeGridCell(cell, column, header=header))
-			self.items.append(FakeGridRow(built, index + 1, table=self))
+			self.items.append(FakeGridRow(built, index + 1, table=self, among=len(rows)))
+		for index, item in enumerate(self.items):
+			item.previous = self.items[index - 1] if index else None
+			item.next = self.items[index + 1] if index + 1 < len(self.items) else None
 		self.builds = 0
 
 	@property
 	def rowCount(self):
-		return len(self.items)
+		"""What a grid that carries a row count says. None models one that does not, which is
+		what File Explorer's file list turned out to be."""
+		return None if self.realized is not None else len(self.items)
+
+	@property
+	def childCount(self):
+		return len(self.items) if self.realized is None else self.realized
 
 	@property
 	def columnCount(self):
@@ -1881,6 +1899,8 @@ class FakeGrid(FakeNavigatorObject):
 
 	def getChild(self, index):
 		self.builds += 1
+		if index >= self.childCount:
+			raise LookupError("That item has not been built")
 		return self.items[index]
 
 	def item(self, row):
