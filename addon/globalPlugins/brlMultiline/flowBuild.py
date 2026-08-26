@@ -348,10 +348,10 @@ def buildTableController(
 		generation=generation,
 		budget=budgetForBand(bandRows),
 		live=live,
-		# The header is drawn above the window when it is pinned, so the stream starts below
-		# it. Serving it as content as well would draw it twice at the top of the table and
-		# not at all anywhere else.
-		firstRow=flowTableSource.HEADER_ROW + 1 if headers else flowTableSource.HEADER_ROW,
+		# The header is drawn above the window when it is pinned, and the source decides what
+		# that costs the stream: row one is skipped only where row one is what was pinned. A
+		# table that declares its headers has not necessarily put them there.
+		pinHeaders=headers,
 	)
 	renderer = FlowRenderer(handler, numCols=numCols, fillRows=True, columnPlan=plan)
 	control = FlowController(

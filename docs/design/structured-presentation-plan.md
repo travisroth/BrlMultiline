@@ -1181,9 +1181,8 @@ Three things this turns up that are better than what the browse mode source does
   cost a hardware report to get right; where the row can be asked, ask it, and keep the sample
   for sources that cannot.
 - **The header is whatever the object says it is, not row one.** `columnHeaderText` and
-  `rowHeaderText` are answers; `flowTableSource.HEADER_ROW = 1` is an assumption, and this
-  plan already listed "a header that is not row one" as not done. For an object table it is
-  done by asking.
+  `rowHeaderText` are answers; `flowTableSource.HEADER_ROW = 1` was an assumption. See below:
+  browse mode answers the same question, and the assumption is now gone from both.
 
 For Excel, NVDA's own `ExcelWorksheet` reaches a cell as
 `excelWorksheetObject.cells(row, column)` wrapped in `ExcelCell` — see its `_get_firstChild` —
@@ -1193,6 +1192,39 @@ and the only Office-specific code M5 should contain.
 The one thing NVDA does not offer generically is *the cell at (row, column)*:
 `DocumentWithTableNavigation._getTableCellAt` is for text documents and has no object-side
 equivalent. Supplying that, per implementation, is what an object table adapter *is*.
+
+### Browse mode declares its headers too, and row one was always a guess
+
+The reader asked the obvious question of the section above — *"isn't NVDA able to get that
+when the table is designed right?"* — and the answer is yes, in browse mode as much as for
+objects. It had simply never been looked for.
+
+The chain: a virtual buffer backend asks IAccessible2 for a cell's header cells —
+`gecko_ia2.cpp` calls `IAccessibleTableCell::get_columnHeaderCells`, which is what `<th>`,
+`scope=` and `headers=` come out as — and records their node identifiers on the cell as
+`table-columnheadercells`. `VirtualBuffer._normalizeControlField` then resolves those to text
+and hands them out as `table-columnheadertext` on the cell's own control field. Speech has
+been reading it all along; `speech.py` gates it on `reportTableHeaders` exactly as this add-on
+now does. The same attribute arrives from UIA and from Word by other routes, so a page, a
+document and a spreadsheet all answer the same question the same way.
+
+So `flowTableSource.declaredHeader` asks the cell, and `HEADER_ROW = 1` is demoted from the
+answer to the fallback — what is left for a table that declares nothing.
+
+Three things fall out of it, and the third is the one that would have been a bug for ever:
+
+- **The measurement plans the column for the header it will actually show.** A declared header
+  is a string rather than a cell, so it is measured by translating it, which is the same
+  honest measurement every cell gets.
+- **A column that declares nothing is left blank rather than filled in from row one.** Mixing
+  the two would put a guess beside an answer and give the reader no way to tell which was
+  which.
+- **Row one is skipped from the stream only where row one is what was pinned.** A table that
+  declares its headers may have them two rows deep, in a column rather than a row, or nowhere
+  near the top — and then row one is data. Dropping it would lose a row of the table to a guess
+  the document had already contradicted, and it would have been silent. `TableFlowSource` now
+  decides its own `firstRow` for that reason: it is the only thing that knows where the pinned
+  row came from.
 
 **M6 — saved layouts.** The profile record, automatic matching by identity, applying a
 favourite by command.

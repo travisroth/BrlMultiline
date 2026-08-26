@@ -16,11 +16,18 @@ was.
 
 import unittest
 
-from ._stubs import FakeTableDocument, NoTableDocument, installStubs
+from ._stubs import (
+	FakeFieldCommand,
+	FakeNavigatorObject,
+	FakeTableDocument,
+	NoTableDocument,
+	installStubs,
+)
 
 installStubs()
 
-from brlMultiline.flow import ResultKind  # noqa: E402
+from brlMultiline import flowTableSource  # noqa: E402
+from brlMultiline.flow import BlockId, ResultKind  # noqa: E402
 from brlMultiline.flowTable import rowCellsOf  # noqa: E402
 from brlMultiline.flowTableSource import (  # noqa: E402
 	TableFlowSource,
@@ -363,3 +370,158 @@ class TestRoutingIntoTheDocument(unittest.TestCase):
 		cells = rowCellsOf(source.blockAtCursor().block.region)
 		cells[1].region.routeTo(0)
 		self.assertEqual([where for where, holder in document.carets if holder["caret"]], [])
+
+
+class TestTheHeaderTheDocumentDeclares(unittest.TestCase):
+	"""Row one was always a guess, and browse mode never needed it guessed at. The virtual
+	buffer backend asks IAccessible2 for a cell's header cells — which is what `<th>`,
+	`scope=` and `headers=` produce — and `VirtualBuffer._normalizeControlField` resolves them
+	to `table-columnheadertext` on the cell's own control field. The same attribute arrives
+	from UIA and from Word by other routes."""
+
+	MARKED = {1: "Ticker", 2: "Price", 3: "Move"}
+
+	def document(self, headers=None, rows=None, row=2):
+		document = FakeTableDocument(
+			rows or [["Sym", "Last", "Chg"], ["AAPL", "182.50", "+1.25"], ["F", "9.10", "-0.05"]],
+			row=row,
+			col=1,
+			columnHeaders=headers,
+		)
+		return document, flowTableSource.tableAt(FakeNavigatorObject("a page", treeInterceptor=document))
+
+	def test_aCellSaysWhatItsColumnsHeaderIs(self):
+		document, handle = self.document(self.MARKED)
+		region = flowTableSource.cellRegion(handle, 2, 2)
+		self.assertEqual(flowTableSource.declaredHeader(region.info), "Price")
+
+	def test_aTableThatMarksNothingUpSaysNothing(self):
+		document, handle = self.document()
+		region = flowTableSource.cellRegion(handle, 2, 2)
+		self.assertEqual(flowTableSource.declaredHeader(region.info), "")
+
+	def test_theInnermostFieldWins(self):
+		"""A cell sits inside a row and a table, and only the cell carries the attribute — but
+		taking the last one asked is the rule that stays right if that ever stops being true."""
+		document, handle = self.document(self.MARKED)
+		region = flowTableSource.cellRegion(handle, 2, 1)
+		outer = FakeFieldCommand("controlStart", {"table-columnheadertext": "the table's"})
+		inner = FakeFieldCommand("controlStart", {"table-columnheadertext": "the cell's"})
+		region.info.getTextWithFields = lambda formatConfig=None: [outer, inner, "AAPL"]
+		self.assertEqual(flowTableSource.declaredHeader(region.info), "the cell's")
+
+	def test_severalHeaderCellsBecomeOneRow(self):
+		"""NVDA joins a cell's header cells with newlines, and a pinned header row is one row."""
+		document, handle = self.document({1: "Quarter\nEnding"})
+		region = flowTableSource.cellRegion(handle, 2, 1)
+		self.assertEqual(flowTableSource.declaredHeader(region.info), "Quarter Ending")
+
+	def test_everyColumnIsAskedOnce(self):
+		document, handle = self.document(self.MARKED)
+		self.assertEqual(flowTableSource.declaredHeaders(handle, (1, 2, 3)), self.MARKED)
+
+	def test_aColumnThatDeclaresNothingIsLeftOut(self):
+		document, handle = self.document({2: "Price"})
+		self.assertEqual(flowTableSource.declaredHeaders(handle, (1, 2, 3)), {2: "Price"})
+
+	def test_theMeasurementTakesTheDeclaredHeaderOverRowOne(self):
+		document, handle = self.document(self.MARKED)
+		measured = {item.index: item.label for item in flowTableSource.measure(handle)}
+		self.assertEqual(measured[1], "Ticker")
+		self.assertEqual(measured[2], "Price")
+
+	def test_andFallsBackToRowOneWithoutOne(self):
+		document, handle = self.document()
+		measured = {item.index: item.label for item in flowTableSource.measure(handle)}
+		self.assertEqual(measured[1], "Sym")
+
+	def test_rowOneCountsAsDataWhenTheHeaderWasDeclared(self):
+		"""The typical width a column is planned for is measured from its data. Row one is data
+		wherever the header came from somewhere else, and leaving it out would plan the column
+		short by one row of the table."""
+		document, handle = self.document(
+			self.MARKED,
+			rows=[["aVeryLongFirstCell", "x"], ["b", "y"], ["c", "z"]],
+		)
+		measured = {item.index: item for item in flowTableSource.measure(handle)}
+		self.assertGreater(measured[1].typicalWidth, len("b"))
+		_plain, plainHandle = self.document(rows=[["aVeryLongFirstCell", "x"], ["b", "y"], ["c", "z"]])
+		borrowed = {item.index: item for item in flowTableSource.measure(plainHandle)}
+		self.assertLess(borrowed[1].typicalWidth, measured[1].typicalWidth)
+
+	def test_aDeclaredHeaderIsMeasuredByTranslatingIt(self):
+		"""The only honest measurement, and the same one a cell gets. A declared header is a
+		string rather than a cell of the table, so there is no region to ask."""
+		document, handle = self.document(self.MARKED)
+		measured = {item.index: item for item in flowTableSource.measure(handle)}
+		self.assertEqual(measured[1].labelWidth, flowTableSource.headerWidth("Ticker"))
+		self.assertGreater(measured[1].labelWidth, 0)
+
+
+class TestPinningTheDeclaredHeader(unittest.TestCase):
+	"""What the reader gets on the top row of the band, and what it costs the stream. Row one
+	is skipped only where row one is what was pinned: a table that declares its headers may
+	have them two rows deep, in a column rather than a row, or nowhere near the top — and then
+	row one is data, and dropping it would lose a row to a guess the document contradicted."""
+
+	ROWS = [["Sym", "Last"], ["AAPL", "182.50"], ["F", "9.10"]]
+
+	def source(self, headers=None, pinHeaders=True, columns=(1, 2)):
+		document = FakeTableDocument(self.ROWS, row=2, col=1, columnHeaders=headers)
+		handle = flowTableSource.tableAt(FakeNavigatorObject("a page", treeInterceptor=document))
+		return document, flowTableSource.TableFlowSource(handle, columns, pinHeaders=pinHeaders)
+
+	def test_theDeclaredHeaderIsWhatIsPinned(self):
+		_document, source = self.source({1: "Ticker", 2: "Price"})
+		block = source.headerBlock()
+		self.assertIn("Ticker", block.region.rawText)
+		self.assertIn("Price", block.region.rawText)
+
+	def test_rowOneIsStillReadAsContent(self):
+		"""Because it is content: the headers are declared, so row one is a row of the table
+		like any other."""
+		_document, source = self.source({1: "Ticker", 2: "Price"})
+		self.assertEqual(source.firstRow, flowTableSource.HEADER_ROW)
+		result = source.blockAt(BlockId(generation=0, bookmark=1, unit="row"))
+		self.assertIn("Sym", result.block.region.rawText)
+
+	def test_withoutADeclarationRowOneIsPinnedAndSkipped(self):
+		_document, source = self.source()
+		block = source.headerBlock()
+		self.assertIn("Sym", block.region.rawText)
+		self.assertEqual(source.firstRow, flowTableSource.HEADER_ROW + 1)
+
+	def test_nothingIsPinnedWhenNothingIsAsking(self):
+		"""A source with no pinned row does not look the headers up at all, and serves every
+		row of the table."""
+		document, source = self.source({1: "Ticker"}, pinHeaders=False)
+		document.reads.clear()
+		self.assertEqual(source.firstRow, flowTableSource.HEADER_ROW)
+		self.assertEqual(source._declared, {})
+
+	def test_aColumnThatDeclaresNothingIsBlankRatherThanGuessedAt(self):
+		"""Mixing the two would put a guess beside an answer and give the reader no way to tell
+		them apart."""
+		_document, source = self.source({2: "Price"})
+		block = source.headerBlock()
+		self.assertIn("Price", block.region.rawText)
+		self.assertNotIn("Sym", block.region.rawText)
+
+	def test_turningThePageLooksUpTheNewColumns(self):
+		"""The columns change and a header belongs to its column, so the new ones have to be
+		asked about — and the old ones must not be asked about twice."""
+		document, source = self.source({1: "Ticker", 2: "Price"}, columns=(1,))
+		self.assertEqual(source.headerBlock().region.rawText.strip(), "Ticker")
+		document.reads.clear()
+		source.setColumns((2,))
+		self.assertIn("Price", source.headerBlock().region.rawText)
+		self.assertEqual([column for _row, column in document.reads], [2])
+
+	def test_aTableDeclaringNothingLooksNothingUpOnAPageTurn(self):
+		document, source = self.source(columns=(1,))
+		source.headerBlock()
+		document.reads.clear()
+		source.setColumns((2,))
+		source.headerBlock()
+		# Row one, read as the fallback header. Nothing was looked up for the column itself.
+		self.assertEqual(document.reads, [(1, 2)])

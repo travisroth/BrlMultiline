@@ -51,12 +51,19 @@ UNIT = "row"
 """What a block is here, for the log and for the dry run's report."""
 
 HEADER_ROW = 1
-"""Which row of a table holds its column headers.
+"""Which row of a table to fall back to for its column headers.
 
-The first, which is what NVDA's own table navigation assumes and what `measure` already reads
-whatever row the reader is on. A table whose headers are somewhere else is a table this does
-not lay out correctly, and that is worth knowing rather than worth guessing at.
+**The fallback, not the answer.** The answer is L{declaredHeader}: a document that marks its
+headers up says what each column's header is, per cell, and NVDA has already worked it out —
+see that function for where from. Row one is what is left for a table that declares nothing,
+which is a table whose headers this cannot know and can only guess at.
+
+Still row one for the other two questions that need *a* row rather than a header: the sample
+`measure` reads, and the probe `hasGrown` makes past the last known column.
 """
+
+HEADER_ATTRIBUTES = {"column": "table-columnheadertext", "row": "table-rowheadertext"}
+"""What NVDA calls a cell's header text, per axis, on the control field it hands out."""
 
 MEASURE_ROWS = 8
 """How many rows are read to decide the column widths.
@@ -425,6 +432,49 @@ class TableCellRegion(TextRegion):
 		return f"<TableCellRegion {self.rawText!r}>"
 
 
+def declaredHeader(info, axis: str = "column") -> str:
+	""":return: the header a document declares for a cell's column or row, or "" if it declares none.
+
+	**Browse mode knows this, and it is better than anything that can be worked out from the
+	table's shape.** The virtual buffer backend asks IAccessible2 for a cell's header cells —
+	`IAccessibleTableCell::get_columnHeaderCells`, which is what `<th>`, `scope=` and
+	`headers=` produce — and records their identifiers on the cell's node;
+	`VirtualBuffer._normalizeControlField` then resolves those to text as
+	`table-columnheadertext`. The same attribute arrives from UIA and from Word by other
+	routes, so a document, a spreadsheet and a page all answer the same question the same way.
+
+	What that buys over reading row one is every case row one gets wrong: headers two rows
+	deep, a header column rather than a header row, a `headers=` attribute pointing somewhere
+	else entirely, and a table whose first row is data. None of those can be guessed at from
+	the outside, and all of them are already answered here.
+
+	:param info: a cell's position, as `_getTableCellAt` returned it.
+	:param axis: "column" for the header above the cell, "row" for the one beside it.
+	:return: the header text, or "" where the document declares none.
+	"""
+	attribute = HEADER_ATTRIBUTES.get(axis)
+	if attribute is None or info is None:
+		return ""
+	try:
+		fields = info.getTextWithFields()
+	except Exception:
+		log.debugWarning("Could not read a table cell's fields", exc_info=True)
+		return ""
+	found = ""
+	for item in fields:
+		# The innermost wins. A cell sits inside a row and a table and the attribute is only
+		# ever put on the cell, but taking the last one asked and letting the loop run is the
+		# rule that stays right if that ever stops being true.
+		if getattr(item, "command", None) != "controlStart":
+			continue
+		text = (getattr(item, "field", None) or {}).get(attribute)
+		if text:
+			found = text
+	# Written as one line whatever the document did with it. A cell with two header cells
+	# above it comes back separated by newlines, and a pinned header row is one row.
+	return " ".join(found.split())
+
+
 def _textOf(info) -> str:
 	""":return: a cell's text, stripped of the whitespace the document pads it with.
 
@@ -437,6 +487,47 @@ def _textOf(info) -> str:
 	except Exception:
 		log.debugWarning("Could not read a table cell", exc_info=True)
 		return ""
+
+
+def declaredHeaders(handle: TableHandle, columns, row: Optional[int] = None) -> dict:
+	""":return: the header each column declares, by column number, leaving out those that do not.
+
+	One cell read per column, at whichever row is handy, because a declared header belongs to
+	the column and any cell of it answers. See L{declaredHeader}.
+
+	:param handle: the table.
+	:param columns: the table's own numbers for the columns to ask about.
+	:param row: which row to ask through. The reader's own by default, which is a row that
+		certainly exists.
+	"""
+	at = handle.row if row is None else row
+	found = {}
+	for column in columns:
+		region = cellRegion(handle, at, column, live=False)
+		if region is None:
+			continue
+		said = declaredHeader(region.info)
+		if said:
+			found[column] = said
+	return found
+
+
+def headerWidth(text: str) -> int:
+	""":return: how wide a header is in braille cells, by translating it.
+
+	The only honest measurement, and the same one `measure` makes of a cell — see the module
+	docstring. A declared header is a string rather than a cell of the table, so there is no
+	region to ask; one is made and thrown away.
+	"""
+	if not text:
+		return 0
+	try:
+		region = TextRegion(text)
+		region.update()
+		return len(region.brailleCells)
+	except Exception:
+		log.debugWarning("Could not measure a table header", exc_info=True)
+		return len(text)
 
 
 def cellRegion(handle: TableHandle, row: int, column: int, live: bool = False):
@@ -506,6 +597,7 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 	headers: dict[int, int] = {column: 0 for column in columns}
 	seen: dict[int, list[int]] = {column: [] for column in columns}
 	found: set[int] = set()
+	declared: set[int] = set()
 	for row in _sampleRows(handle, sample):
 		for column in columns:
 			region = cellRegion(handle, row, column, live=live)
@@ -514,10 +606,23 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 			found.add(column)
 			size = len(region.brailleCells)
 			widths[column] = max(widths[column], size)
-			if row == 1 and not labels[column]:
+			if column not in declared:
+				# Asked once per column, of whichever cell of it was read first. A cell's
+				# declared header is a property of its column, so any cell answers, and one
+				# read of the fields per column is what this costs.
+				declared.add(column)
+				said = declaredHeader(region.info)
+				if said:
+					labels[column] = said
+					headers[column] = headerWidth(said)
+			if row == HEADER_ROW and not labels[column]:
+				# Nothing declared, so the guess. See `HEADER_ROW`.
 				labels[column] = region.rawText
 				headers[column] = size
 			else:
+				# Row one included, where the header was declared rather than borrowed from
+				# it: the row is data then, and a width planned as though it were a heading
+				# would be a width short by one row of the table.
 				seen[column].append(size)
 	return [
 		Measurement(
@@ -593,7 +698,7 @@ class TableFlowSource:
 		generation: int = 0,
 		budget: Optional[FetchBudget] = None,
 		live: bool = False,
-		firstRow: int = 1,
+		pinHeaders: bool = False,
 	) -> None:
 		"""
 		:param handle: the table, and where in it the reader was when it was recognised.
@@ -604,12 +709,20 @@ class TableFlowSource:
 			number from one table can never match one from another.
 		:param budget: how much work a fetch may do. One is made if none is given.
 		:param live: whether this flow is the reader's own.
-		:param firstRow: the lowest row this source serves. Two when the header row is pinned
-			above the window, so that it is not also drawn inside it; one otherwise.
+		:param pinHeaders: whether a header row is held above the window. It decides
+			L{firstRow}, and only this source can decide that, because only this source
+			knows whether the pinned row is row one or something the table declared.
 		"""
 		self.handle = handle
 		self.columns = tuple(columns)
-		self.firstRow = max(1, firstRow)
+		self._declared = declaredHeaders(handle, self.columns) if pinHeaders else {}
+		"""The header each drawn column declares. Empty where the table declares none."""
+
+		# Row one is skipped only when row one is what is pinned. A table that declares its
+		# headers may have them two rows deep, in a column rather than a row, or nowhere near
+		# the top at all — and then row one is data, and dropping it would lose a row of the
+		# table to a guess the document had already contradicted.
+		self.firstRow = HEADER_ROW + 1 if pinHeaders and not self._declared else HEADER_ROW
 		self.generation = generation
 		self.budget = budget if budget is not None else FetchBudget()
 		self.live = live
@@ -717,10 +830,49 @@ class TableFlowSource:
 		if self.handle.numRows < 1:
 			return None
 		try:
-			return self._buildRow(HEADER_ROW)
+			said = self._headersForThisPage()
+			return self._declaredRow(said) if said else self._buildRow(HEADER_ROW)
 		except Exception:
 			log.debugWarning("Could not read the table's header row", exc_info=True)
 			return None
+
+	def _headersForThisPage(self) -> dict:
+		""":return: the declared header of each column being drawn, leaving out those without one.
+
+		Asked again for a column this source has not seen, which is what turning the page
+		brings: the columns change and their headers are a property of the columns. Nothing
+		is asked twice, and nothing is asked at all for a table that declares nothing, since
+		then there is nothing to look up and row one is what will be pinned.
+		"""
+		if not self._declared:
+			return {}
+		missing = [column for column in self.columns if column not in self._declared]
+		if missing:
+			self._declared.update(declaredHeaders(self.handle, missing))
+		return {column: self._declared[column] for column in self.columns if column in self._declared}
+
+	def _declaredRow(self, said: dict) -> SourceBlock:
+		"""Build the pinned row out of what the table says its headers are.
+
+		Text rather than cells, because that is what a declared header is: NVDA resolved it
+		from the header cells the markup points at, and those may be anywhere in the table or
+		may be several cells run together. A column that declares nothing is left blank rather
+		than filled in from row one, since mixing the two would put a guess beside an answer
+		and give the reader no way to tell them apart.
+
+		:param said: the declared header of each column, by column number.
+		"""
+		cells = []
+		for column in self.columns:
+			region = TextRegion(said.get(column, ""))
+			region.update()
+			cells.append(RowCell(index=column, region=region))
+		content = TableRow(cells, obj=self.handle.document)
+		return SourceBlock(
+			blockId=BlockId(generation=self.generation, bookmark=HEADER_ROW, unit=self.unit),
+			region=content,
+			isBlank=not content.rawText.strip(),
+		)
 
 	def blockAtCursor(self, atObject=None) -> FetchResult:
 		""":return: the row the reader is on.

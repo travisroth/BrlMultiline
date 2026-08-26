@@ -843,17 +843,45 @@ class FakeTreeInterceptor(CursorManager):
 		return self._position(index)
 
 
+class FakeFieldCommand:
+	"""NVDA's `textInfos.FieldCommand`, in the two attributes anything here reads."""
+
+	def __init__(self, command, field):
+		self.command = command
+		self.field = field
+
+
 class FakeCellInfo:
 	"""A `TextInfo` over one cell of a fake table."""
 
-	def __init__(self, text, cell=None):
+	def __init__(self, text, cell=None, fields=None):
+		"""
+		:param fields: the cell's control field, as a document that marks its table up hands
+			one out. None is a table that declares nothing, which is most tables and is the
+			case row one exists for.
+		"""
 		self.text = text
 		self.cell = cell
+		self.fields = fields
 		self.isCollapsed = False
 		self.caretAt = None
 
+	def getTextWithFields(self, formatConfig=None):
+		"""What NVDA returns for a range: the fields that enclose it, then its text.
+
+		The cell's own field is innermost and comes last, after the table's, because that is
+		the order a real one arrives in and the code under test takes the innermost.
+		"""
+		if self.fields is None:
+			return [self.text]
+		return [
+			FakeFieldCommand("controlStart", {"role": "table"}),
+			FakeFieldCommand("controlStart", dict(self.fields)),
+			self.text,
+		]
+
 	def copy(self):
-		other = FakeCellInfo(self.text, self.cell)
+		other = FakeCellInfo(self.text, self.cell, self.fields)
 		other.caretAt = self.caretAt
 		return other
 
@@ -893,11 +921,15 @@ class FakeTableDocument(FakeTreeInterceptor):
 	`_getTableCellAt` says by raising.
 	"""
 
-	def __init__(self, rows, tableID=1, row=1, col=1, lines=None, inTable=True):
+	def __init__(self, rows, tableID=1, row=1, col=1, lines=None, inTable=True, columnHeaders=None):
 		"""
 		:param rows: a list of rows, each a list of cell texts. None for a missing cell.
 		:param lines: the document's own lines, for reading it as a page.
 		:param inTable: whether the caret is in the table.
+		:param columnHeaders: what each column declares as its header, by column number. This
+			is what `<th>`, `scope=` and `headers=` come out as by the time NVDA has resolved
+			them, and it is a property of the column rather than of any row. None is a table
+			that marks nothing up.
 		"""
 		super().__init__(lines or ["a heading", "some prose", "more prose"])
 		self.rows = rows
@@ -905,6 +937,7 @@ class FakeTableDocument(FakeTreeInterceptor):
 		self.row = row
 		self.col = col
 		self.inTable = inTable
+		self.columnHeaders = dict(columnHeaders or {})
 		self.reads = []
 		self.carets = []
 
@@ -935,7 +968,13 @@ class FakeTableDocument(FakeTreeInterceptor):
 			raise LookupError("No such cell")
 		holder = {"caret": False}
 		self.carets.append(((row, column), holder))
-		return FakeCellInfo(cells[column - 1], holder)
+		fields = None
+		if self.columnHeaders:
+			fields = {"table-id": self.tableID, "table-columnnumber": column}
+			said = self.columnHeaders.get(column)
+			if said:
+				fields["table-columnheadertext"] = said
+		return FakeCellInfo(cells[column - 1], holder, fields)
 
 
 class NoTableDocument(FakeTableDocument):
