@@ -1732,14 +1732,17 @@ class FakeListItem(FakeNavigatorObject):
 	"""A row of a list view, in the shape `NVDAObjects.behaviors.RowWithoutCellObjects` gives.
 
 	Its cells are not objects: they are answered a column at a time by the row itself, which
-	is what a list view can do and why NVDA wrote that class. `positionInSet` is how a list
-	item says which row it is, since the platform numbers items rather than table rows.
+	is what a list view can do and why NVDA wrote that class. Which row it is comes from
+	`positionInfo`, since the platform numbers items rather than table rows.
 	"""
 
 	def __init__(self, cells, position, table=None):
 		super().__init__(name="; ".join(text for text in cells if text), role="LISTITEM")
 		self.cells = list(cells)
-		self.positionInSet = position
+		self.positionInfo = {"indexInGroup": position, "similarItemsInGroup": None}
+		"""Where NVDA puts an item's number. Not `rowNumber`, which a list view has no answer
+		for: the platform numbers items rather than table rows."""
+
 		self.parent = table
 		self.reads = []
 		"""Which columns were asked for, so a test can say what was *not* read."""
@@ -1796,6 +1799,92 @@ class FakeListView(FakeNavigatorObject):
 
 	def item(self, row):
 		""":return: one row of the list, by its one based number."""
+		return self.items[row - 1]
+
+
+class FakeGridCell(FakeNavigatorObject):
+	"""One cell of a grid whose cells are objects, in what NVDA fills in for such a thing.
+
+	`columnNumber` comes from UIA's `GridItemPattern` and `columnHeaderText` from its
+	`TableItemPattern`; an IAccessible2 grid fills in the same two from its table cell
+	interface. Both are NVDA properties by the time anything here sees them.
+	"""
+
+	def __init__(self, text, column, header=None, value=None):
+		super().__init__(name=text, role="TABLECELL")
+		self.columnNumber = column
+		self.columnHeaderText = header
+		self.value = value
+
+
+class FakeGridRow(FakeNavigatorObject):
+	"""A row whose cells are objects, which is `NVDAObjects.behaviors.RowWithFakeNavigation`.
+
+	Outlook's message list rows are this, and so is a row of File Explorer's file list. The
+	cells are the children and they carry the table cell properties.
+	"""
+
+	def __init__(self, cells, position, table=None):
+		super().__init__(name="; ".join(cell.name for cell in cells if cell.name), role="LISTITEM")
+		self.cellObjects = list(cells)
+		for cell in self.cellObjects:
+			cell.parent = self
+		self.positionInfo = {"indexInGroup": position, "similarItemsInGroup": None}
+		self.parent = table
+		self.builds = 0
+		"""How many times this row's cells were walked, so a test can see the caching work."""
+
+	@property
+	def children(self):
+		self.builds += 1
+		return list(self.cellObjects)
+
+	@property
+	def childCount(self):
+		return len(self.cellObjects)
+
+
+class FakeGrid(FakeNavigatorObject):
+	"""A grid whose cells are objects: File Explorer's file list, Outlook's message list."""
+
+	def __init__(self, rows, headers=None, name="a grid", columnCount=None):
+		"""
+		:param rows: a list of rows, each a list of cell texts, or of (name, value) pairs for
+			a cell whose name is its column's header — which is how File Explorer presents a
+			property of a file.
+		:param headers: what each column's header is, as its cells report it.
+		:param columnCount: what the grid says its width is. None is a grid that will not say,
+			which is the case the row has to be counted for.
+		"""
+		super().__init__(name=name, role="LIST")
+		self.headers = list(headers or [])
+		self.said = columnCount
+		self.items = []
+		for index, cells in enumerate(rows):
+			built = []
+			for column, cell in enumerate(cells, start=1):
+				header = self.headers[column - 1] if column <= len(self.headers) else None
+				if isinstance(cell, tuple):
+					built.append(FakeGridCell(cell[0], column, header=header, value=cell[1]))
+				else:
+					built.append(FakeGridCell(cell, column, header=header))
+			self.items.append(FakeGridRow(built, index + 1, table=self))
+		self.builds = 0
+
+	@property
+	def rowCount(self):
+		return len(self.items)
+
+	@property
+	def columnCount(self):
+		return self.said
+
+	def getChild(self, index):
+		self.builds += 1
+		return self.items[index]
+
+	def item(self, row):
+		""":return: one row of the grid, by its one based number."""
 		return self.items[row - 1]
 
 

@@ -16,7 +16,7 @@ show that the code above really is unchanged.
 
 import unittest
 
-from ._stubs import FakeListView, FakeNavigatorObject, installStubs
+from ._stubs import FakeGrid, FakeGridCell, FakeListView, FakeNavigatorObject, installStubs
 
 installStubs()
 
@@ -94,7 +94,7 @@ class TestTheThreeQuestions(unittest.TestCase):
 	def test_anObjectThatCannotSayWhichRowItIsRefuses(self):
 		"""Which is how `tableAt` hears no. Neither answer is worked out by counting, so a list
 		of ten thousand messages costs the same as a list of three."""
-		self.item.positionInSet = 0
+		self.item.positionInfo = {}
 		with self.assertRaises(LookupError):
 			self.table._getTableCellCoords(self.table.selection)
 
@@ -270,3 +270,189 @@ class TestReadingAWholeBandOfIt(unittest.TestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestATableWhoseCellsAreObjects(unittest.TestCase):
+	"""The shape the reader found. Both places they tried said "not in a table", and both are
+	`NVDAObjects.behaviors.RowWithFakeNavigation`: Outlook's message list rows are
+	`outlook.UIAGridRow`, whose children are the fields, and File Explorer's file list is a UIA
+	grid whose cells carry `GridItemPattern` and `TableItemPattern`.
+
+	Where the focus lands differs between the two and there is no arranging that — Outlook
+	focuses the row, Explorer focuses one property of the file — so both are tested from the
+	object the reader is actually on."""
+
+	FILES = [
+		["report.docx", "26/08/2026 09:14", "Word document", ("Status", "Always available")],
+		["notes.md", "26/08/2026 11:02", "Markdown", ("Status", "Available offline")],
+	]
+
+	COLUMNS = ["Name", "Date modified", "Type", "Status"]
+
+	def grid(self, rows=None, headers=None, columnCount=None):
+		return FakeGrid(rows or self.FILES, headers=headers or self.COLUMNS, columnCount=columnCount)
+
+	def test_aRowWhoseChildrenAreCellsIsATable(self):
+		"""Outlook, where the focus is on the message rather than on one of its fields."""
+		grid = self.grid()
+		table = flowObjectTable.tableFor(grid.item(1))
+		self.assertIsInstance(table, flowObjectTable.CellObjectTable)
+		self.assertEqual(table._getTableDimensions(None), (2, 4))
+
+	def test_aCellIsATableToo(self):
+		"""File Explorer, where the focus lands on a property of the file. A test that only
+		knew how to recognise rows said "not in a table" while standing in one."""
+		grid = self.grid()
+		cell = grid.item(2).cellObjects[2]
+		table = flowObjectTable.tableFor(cell)
+		self.assertIsInstance(table, flowObjectTable.CellObjectTable)
+		where = table._getTableCellCoords(table.selection)
+		self.assertEqual((where.row, where.col), (2, 3))
+
+	def test_aRowInHandSaysNothingAboutTheColumn(self):
+		"""Outlook focuses the message rather than one of its fields, and then the cursor goes
+		on the first column of it."""
+		grid = self.grid()
+		table = flowObjectTable.tableFor(grid.item(1))
+		self.assertEqual(table._getTableCellCoords(table.selection).col, 1)
+
+	def test_aRunOfOrdinaryChildrenIsNotATable(self):
+		"""A tree view item has children too, and they are items rather than cells. What tells
+		them apart is that a cell says which column it is in."""
+		plain = FakeNavigatorObject("a tree item")
+		plain.children = [FakeNavigatorObject("a child"), FakeNavigatorObject("another")]
+		self.assertIsNone(flowObjectTable.tableFor(plain))
+
+	def test_aCellIsFoundByItsOwnColumnNumber(self):
+		"""Rather than by position, which is the only answer that survives a row with a missing
+		cell in it."""
+		grid = self.grid()
+		table = flowObjectTable.tableFor(grid.item(1))
+		cell = table._getTableCellAt(flowObjectTable.TABLE_ID, None, 1, 3)
+		self.assertEqual(cell.text, "Word document")
+
+	def test_aMissingColumnIsMissingRatherThanItsNeighbour(self):
+		grid = self.grid()
+		row = grid.item(1)
+		row.cellObjects = [cell for cell in row.cellObjects if cell.columnNumber != 2]
+		table = flowObjectTable.tableFor(row)
+		with self.assertRaises(LookupError):
+			table._getTableCellAt(flowObjectTable.TABLE_ID, None, 1, 2)
+
+	def test_aRowThatNumbersNothingIsReadByPosition(self):
+		"""A row of plain children amounts to a row read left to right."""
+		grid = self.grid()
+		row = grid.item(1)
+		for cell in row.cellObjects:
+			cell.columnNumber = None
+		table = flowObjectTable.CellObjectTable(grid, row=row)
+		self.assertEqual(table.cellObject(row, 3).name, "Word document")
+
+	def test_theHeaderComesFromTheCell(self):
+		grid = self.grid()
+		table = flowObjectTable.tableFor(grid.item(1))
+		cell = table._getTableCellAt(flowObjectTable.TABLE_ID, None, 1, 2)
+		self.assertEqual(flowTableSource.declaredHeader(cell), "Date modified")
+
+	def test_aWidthTheGridWillNotSayIsCountedFromARow(self):
+		"""A grid that does not carry a column count still has a row whose cells can be
+		counted, and a row of a table is the width of the table by definition."""
+		grid = self.grid(columnCount=None)
+		table = flowObjectTable.tableFor(grid.item(1))
+		self.assertEqual(table.numCols, 4)
+
+	def test_theGridsOwnAnswerIsPreferred(self):
+		grid = self.grid(columnCount=9)
+		table = flowObjectTable.tableFor(grid.item(1))
+		self.assertEqual(table.numCols, 9)
+
+	def test_aRowsCellsAreWalkedOnce(self):
+		"""A page of four columns would otherwise walk the row four times, and NVDA builds an
+		object for every child each time it is asked."""
+		grid = self.grid()
+		row = grid.item(1)
+		table = flowObjectTable.tableFor(row)
+		row.builds = 0
+		for column in (1, 2, 3, 4):
+			table._getTableCellAt(flowObjectTable.TABLE_ID, None, 1, column)
+		self.assertEqual(row.builds, 1)
+
+	def test_routingIntoACellGoesToTheCell(self):
+		"""Where the cells are objects there is something to go to, which is what arrowing
+		across a grid does."""
+		grid = self.grid()
+		table = flowObjectTable.tableFor(grid.item(1))
+		table._getTableCellAt(flowObjectTable.TABLE_ID, None, 2, 2).updateCaret()
+		self.assertTrue(grid.item(2).cellObjects[1].focused)
+
+
+class TestWhatACellSays(unittest.TestCase):
+	"""The name, which is what NVDA speaks for such a cell and what `outlook.UIAGridRow` joins
+	together to name a whole row — unless the name is only the column's header."""
+
+	def test_theNameIsTheContent(self):
+		cell = FakeGridCell("report.docx", 1, header="Name")
+		self.assertEqual(flowObjectTable.cellText(cell, "Name"), "report.docx")
+
+	def test_aNameThatIsOnlyTheHeaderIsALabel(self):
+		"""File Explorer's property cells: the name is "Status" and the value is "Always
+		available on this device". A column already says what it is — that is the whole
+		argument for laying a table out spatially — so the value is the content."""
+		cell = FakeGridCell("Status", 4, header="Status", value="Always available on this device")
+		self.assertEqual(
+			flowObjectTable.cellText(cell, "Status"),
+			"Always available on this device",
+		)
+
+	def test_aLabelWithNothingBehindItKeepsItsName(self):
+		cell = FakeGridCell("Status", 4, header="Status", value=None)
+		self.assertEqual(flowObjectTable.cellText(cell, "Status"), "Status")
+
+	def test_aCellWithNoNameFallsBackToItsValue(self):
+		cell = FakeGridCell("", 2, header="Size", value="4 KB")
+		self.assertEqual(flowObjectTable.cellText(cell, "Size"), "4 KB")
+
+	def test_theHeaderIsWrittenAsOneLine(self):
+		"""Several header cells come back joined, and a pinned header row is one row."""
+		cell = FakeGridCell("x", 1, header="Quarter\nEnding")
+		self.assertEqual(flowObjectTable.headerTextOf(cell), "Quarter Ending")
+
+
+class TestReadingAGridThroughTheBand(unittest.TestCase):
+	"""The same proof the list view got: everything above the seam is the code a web page's
+	table goes through, and none of it was told that a grid exists."""
+
+	FILES = [
+		["report.docx", "Word document", ("Status", "Always available")],
+		["notes.md", "Markdown", ("Status", "Available offline")],
+		["budget.xlsx", "Workbook", ("Status", "Available offline")],
+	]
+
+	def source(self, columns=(1, 2, 3)):
+		grid = FakeGrid(self.FILES, headers=["Name", "Type", "Status"])
+		handle = flowTableSource.tableAt(grid.item(1))
+		self.assertIsNotNone(handle)
+		return grid, flowTableSource.TableFlowSource(handle, columns)
+
+	def test_aRowIsABlockOfCells(self):
+		_grid, source = self.source()
+		block = source.blockAtCursor().block
+		self.assertEqual(block.region.cellFor(1).region.rawText, "report.docx")
+		self.assertEqual(block.region.cellFor(3).region.rawText, "Always available")
+
+	def test_theHeadersReachTheMeasurement(self):
+		grid = FakeGrid(self.FILES, headers=["Name", "Type", "Status"])
+		handle = flowTableSource.tableAt(grid.item(1))
+		measured = {found.index: found.label for found in flowTableSource.measure(handle)}
+		self.assertEqual(measured, {1: "Name", 2: "Type", 3: "Status"})
+
+	def test_walkingDownReadsTheNextRow(self):
+		_grid, source = self.source()
+		first = source.blockAtCursor().block
+		self.assertIn("notes.md", source.blockAfter(first.blockId).block.region.rawText)
+
+	def test_twoReadsOfTheSameGridAreTheSameTable(self):
+		grid = FakeGrid(self.FILES, headers=["Name", "Type", "Status"])
+		first = flowTableSource.tableAt(grid.item(1))
+		second = flowTableSource.tableAt(grid.item(2).cellObjects[0])
+		self.assertTrue(flowTableSource.sameTable(first.key, second.key))

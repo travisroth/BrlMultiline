@@ -1153,9 +1153,45 @@ Two things the seam forced, both worth writing down:
   thing with a better answer says so by offering `sameAs`; `sameTable` asks. NVDA's own answer
   for two objects is equality, so that is what a list view's stand-in uses.
 
-Still to come in M5: rows whose cells *are* objects — `RowWithFakeNavigation` — and Excel,
-where a cell is reached as `excelWorksheetObject.cells(row, column)` wrapped in NVDA's own
-`ExcelCell`, exactly as `ExcelWorksheet._get_firstChild` does it.
+### There are two shapes of table object, and Windows 11 has the other one
+
+The first version of this knew only `RowWithoutCellObjects`, and the reader tried it in the
+two places it was written for. Both said *"not in a table."*
+
+`NVDAObjects.behaviors.RowWithFakeNavigation` is the other shape — "the cells must be exposed
+as children and they must support the table cell properties" — and it is what both of those
+places actually are. Outlook's message list rows are `outlook.UIAGridRow`, whose children are
+the fields; File Explorer's file list is a UIA grid whose cells carry `GridItemPattern` and
+`TableItemPattern`. `RowWithoutCellObjects` is the classic Win32 list view, which is still
+there and still worth reading, but it is no longer the common case.
+
+**Where the focus lands differs and there is no arranging that.** Outlook focuses the row;
+File Explorer focuses one *property* of the file — `appModules.explorer.UIProperty`. So
+`tableFor` asks three questions in turn — is this a row that answers for its own cells, is it
+a cell, is it a row whose cells are objects — and the first yes decides both the row and the
+shape. A recognition that only knew how to spot rows said "not in a table" while the reader
+was standing in one.
+
+Everything the second shape needs is an NVDA property already: `columnNumber` from
+`GridItemPattern`, `columnHeaderText` from `TableItemPattern`, resolved to the header
+elements' text by NVDA — the same work `appModules/outlook.py` does by hand when it names a
+row for speech.
+
+Two decisions inside it are worth keeping:
+
+- **A cell is found by its own `columnNumber`, not by position.** Position is what is left for
+  a row that numbers nothing, and where a row *does* number its cells and none of them is the
+  one asked for, the cell is genuinely missing — falling through to position there would hand
+  back a neighbour under this column's name.
+- **A name that is only the column's header is a label, and the value is the content.** File
+  Explorer's property cells are named "Status" and valued "Always available on this device". A
+  column already says what it is — that is the whole argument for laying a table out
+  spatially — so a name that only repeats the header says nothing. The two are told apart by
+  asking, not by knowing about File Explorer.
+
+Still to come in M5: Excel, where a cell is reached as
+`excelWorksheetObject.cells(row, column)` wrapped in NVDA's own `ExcelCell`, exactly as
+`ExcelWorksheet._get_firstChild` does it.
 
 ### Following NVDA's own Document Formatting settings
 
