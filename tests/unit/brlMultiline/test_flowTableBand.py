@@ -14,7 +14,9 @@ import unittest
 
 from ._stubs import (
 	CONFIG,
+	FORMAT_CONFIG,
 	FakeNavigatorObject,
+	ReportTableHeaders,
 	callLaterQueue,
 	FakeTableDocument,
 	NoTableDocument,
@@ -25,6 +27,7 @@ from ._stubs import (
 
 installStubs()
 
+from brlMultiline import bmConfig  # noqa: E402
 from brlMultiline.flow import Edge, EdgeState  # noqa: E402
 from brlMultiline.flowBand import LIVE_SETTLE_MILLIS  # noqa: E402
 from brlMultiline.flowTableSource import TableFlowSource  # noqa: E402
@@ -577,10 +580,25 @@ class TestTheHeaderRowStaysOnTheDisplay(TableBandTestCase):
 		self.assertEqual(self._routed(document)[-1], (topRow, 1))
 
 	def test_theReaderCanTurnItOff(self):
-		CONFIG["flowTableHeaders"] = False
+		CONFIG["flowTableHeaders"] = bmConfig.NEVER
 		self._midTable()
 		self.assertIsNone(self.band.controller.pinned)
 		self.assertEqual(self.band.controller.window.numRows, ROWS)
+
+	def test_nvdaBeingToldNotToReportColumnHeadersTurnsItOffToo(self):
+		"""The reader has already said what they want from a table's headers, in NVDA's own
+		Document Formatting settings, and those apply outside browse mode as well."""
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS.value
+		self._midTable()
+		self.assertIsNone(self.band.controller.pinned)
+
+	def test_andTheReaderCanStillAskForItInBraille(self):
+		"""What is turned off for speech is usually the repetition — "From, Received" before
+		every message — and a row drawn once at the top of the display costs none of that."""
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
+		CONFIG["flowTableHeaders"] = bmConfig.ALWAYS
+		self._midTable()
+		self.assertIsNotNone(self.band.controller.pinned)
 
 	def test_aTableOfNothingButAHeaderPinsNothing(self):
 		"""There would be no content left to read under it, so the header is content."""

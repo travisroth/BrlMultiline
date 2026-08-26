@@ -14,7 +14,15 @@ ones are reached here through L{realBmConfig}.
 
 import unittest
 
-from ._stubs import CONFIG, FakeHandler, installStubs, realBmConfig, resetConfig
+from ._stubs import (
+	CONFIG,
+	FORMAT_CONFIG,
+	FakeHandler,
+	ReportTableHeaders,
+	installStubs,
+	realBmConfig,
+	resetConfig,
+)
 
 installStubs()
 
@@ -327,3 +335,105 @@ class TestFlowSettings(ConfigTestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestWhatNvdaWasToldAboutTables(unittest.TestCase):
+	"""NVDA's Document Formatting settings are not only about browse mode: an application
+	module reads them for its own objects too, which is how turning table reporting off in
+	Outlook stops "From" and "Received" being announced before every message in the list.
+	They are the reader's answer to a question this add-on asks again in a different shape,
+	so where the question is the same the answer is taken rather than asked for twice."""
+
+	def setUp(self):
+		resetConfig()
+		self.addCleanup(resetConfig)
+
+	def test_oneSettingHasTwoAxesAndThisAddOnHasOneFeatureForEach(self):
+		"""`reportTableHeaders` says rows, columns, both or neither. The pinned header row is
+		the column axis and the repeated key column is the row axis, which is what a row
+		header is once a table is laid out spatially."""
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS.value
+		self.assertTrue(bmConfig.wantsRowHeaders())
+		self.assertFalse(bmConfig.wantsColumnHeaders())
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.COLUMNS.value
+		self.assertFalse(bmConfig.wantsRowHeaders())
+		self.assertTrue(bmConfig.wantsColumnHeaders())
+
+	def test_bothAndNeither(self):
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS_AND_COLUMNS.value
+		self.assertTrue(bmConfig.wantsRowHeaders())
+		self.assertTrue(bmConfig.wantsColumnHeaders())
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
+		self.assertFalse(bmConfig.wantsRowHeaders())
+		self.assertFalse(bmConfig.wantsColumnHeaders())
+
+	def test_theOtherThreeAreRead(self):
+		FORMAT_CONFIG["reportTables"] = False
+		FORMAT_CONFIG["reportTableCellCoords"] = False
+		FORMAT_CONFIG["includeLayoutTables"] = True
+		self.assertFalse(bmConfig.wantsTables())
+		self.assertFalse(bmConfig.wantsCellCoordinates())
+		self.assertTrue(bmConfig.wantsLayoutTables())
+
+	def test_aSettingThatCannotBeReadTakesNvdasOwnDefault(self):
+		"""An NVDA that has not got the setting, or a configuration part way through being
+		replaced. Answering "no headers" there would silently take away a feature."""
+		del FORMAT_CONFIG["reportTableHeaders"]
+		self.assertTrue(bmConfig.wantsColumnHeaders())
+		self.assertTrue(bmConfig.wantsRowHeaders())
+
+	def test_itIsReadOnEveryCallRatherThanRemembered(self):
+		"""NVDA has commands that cycle these while the reader is in the table — see
+		`globalCommands.script_toggleReportTableHeaders` — so a value read once at start-up
+		would be the wrong one by the time it mattered."""
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
+		self.assertFalse(bmConfig.wantsColumnHeaders())
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.COLUMNS.value
+		self.assertTrue(bmConfig.wantsColumnHeaders())
+
+
+class TestFollowingOrOverridingNvda(unittest.TestCase):
+	"""Three states, and the third is the default. The other two exist because braille has
+	room speech does not: what a reader turns off for speech is usually the *repetition*, and
+	a header drawn once at the top of the display costs none of that."""
+
+	def setUp(self):
+		import braille
+
+		resetConfig()
+		self.addCleanup(resetConfig)
+		self.addCleanup(setattr, braille, "handler", braille.handler)
+		# These settings are stored per display, so there has to be one to read them for.
+		braille.handler = FakeHandler(numRows=8, numCols=32)
+
+	def test_followingIsTheDefault(self):
+		self.assertEqual(CONFIG["flowTableHeaders"], bmConfig.FOLLOW_NVDA)
+		self.assertEqual(CONFIG["flowTablePinKey"], bmConfig.FOLLOW_NVDA)
+
+	def test_followingTakesNvdasAnswer(self):
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
+		self.assertFalse(bmConfig.shouldPinTableHeaders())
+		self.assertFalse(bmConfig.shouldPinKeyColumn())
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS_AND_COLUMNS.value
+		self.assertTrue(bmConfig.shouldPinTableHeaders())
+		self.assertTrue(bmConfig.shouldPinKeyColumn())
+
+	def test_alwaysAndNeverDoNotAsk(self):
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
+		CONFIG["flowTableHeaders"] = bmConfig.ALWAYS
+		CONFIG["flowTablePinKey"] = bmConfig.ALWAYS
+		self.assertTrue(bmConfig.shouldPinTableHeaders())
+		self.assertTrue(bmConfig.shouldPinKeyColumn())
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS_AND_COLUMNS.value
+		CONFIG["flowTableHeaders"] = bmConfig.NEVER
+		CONFIG["flowTablePinKey"] = bmConfig.NEVER
+		self.assertFalse(bmConfig.shouldPinTableHeaders())
+		self.assertFalse(bmConfig.shouldPinKeyColumn())
+
+	def test_theTwoFollowDifferentHalvesOfTheSameSetting(self):
+		"""The whole point of the mapping: a reader who wants to know which row they are on
+		but not what each column is has said so, and gets the key column without the header
+		row."""
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS.value
+		self.assertTrue(bmConfig.shouldPinKeyColumn())
+		self.assertFalse(bmConfig.shouldPinTableHeaders())

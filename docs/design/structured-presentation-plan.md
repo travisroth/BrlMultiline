@@ -1111,6 +1111,89 @@ header that is not row one.
 **M5 — tables as objects.** Excel, list views, the message list. Same vocabulary, second
 source.
 
+### Following NVDA's own Document Formatting settings
+
+A requirement the original plan did not have, and it applies to what is already built as
+well as to M5. **NVDA's Document Formatting settings are not only about browse mode.** An
+application module reads them for its own objects too: `appModules/outlook.py` asks
+`reportTableHeaders` before it fetches a message's column headers, and
+`NVDAObjects/IAccessible/sysListView32.py` asks the same before it builds a list item's name.
+That is how the reader turns off "From" and "Received" being announced before every message
+in a list they already know the shape of.
+
+Those settings are the reader's answer to a question this add-on asks again in a different
+shape. Where the question is the same, the answer is taken rather than asked for twice.
+
+**The shape is not the same, and that is why it is following rather than obeying.** NVDA's
+settings decide what is *said with each thing you touch*, and repetition is most of what a
+reader turns off. A spatial layout does not repeat: a header row is drawn once at the top and
+a key column once at the left, however many rows are under them. So each setting is read as
+"does the reader want this kind of header at all", and a reader who wants it in braille having
+turned it off for speech says so per display. Three states — follow, always, never —
+defaulting to follow. `bmConfig.FOLLOWING`.
+
+The mapping is exact, and finding that it was exact is what settled the design:
+
+- **`reportTableHeaders` is one setting with two axes, and this add-on has one feature for
+  each of them.** Columns means the pinned header row (`flowTableHeaders`); rows means the
+  repeated key column (`flowTablePinKey`), because a row header is the thing that says which
+  row you are on, and in a spatial layout that is the column pinned at the left. A reader who
+  asks NVDA for row headers and not column headers gets the key column and no header row.
+- **`reportTables`** decides whether a table is offered as a table — a layout this add-on
+  proposes on its own account, and anything it says about being in one. It does not decide
+  whether the reader's own command to lay a table out in columns works. NVDA draws the same
+  line in code: `documentBase._tableMovementScriptHelper` copies the format configuration and
+  forces `reportTables` on before speaking a cell, because a reader pressing a table
+  navigation key has asked.
+- **`reportTableCellCoords`** decides the coordinates a page turn *reports* — "columns five
+  to nine of twenty-nine". What is drawn is not a coordinate: a column under the reader's
+  finger is its own answer to where it is, which is the whole argument for laying a table out
+  spatially, and this does not suppress it.
+- **`includeLayoutTables`** decides whether a table used to arrange a page is offered at all.
+  Its cells are a banner, a sidebar and an article; there are no columns there worth having.
+
+Read on every call rather than cached, because NVDA has commands that cycle them while the
+reader is in the table — `globalCommands.script_toggleReportTableHeaders` — and a value read
+once at start-up would be the wrong one by the time it mattered. A setting that cannot be read
+takes NVDA's own default, so that an NVDA without it behaves as one that has it unset.
+
+### Ask NVDA's object, never the API underneath it
+
+The reader's instruction, and it decides M5's shape: *"use NVDA API wherever possible
+especially in Office, they've tried optimizing UIAutomation, MSAA and IAccessible2 already and
+I doubt we can do it better."*
+
+The whole table vocabulary already exists on `NVDAObject`, implemented once per accessibility
+API and tuned per application: `rowNumber`, `columnNumber`, `rowSpan`, `columnSpan`,
+`rowCount`, `columnCount`, `rowHeaderText`, `columnHeaderText`, `table`, `tableID`. M5's
+source asks those. An adapter may reach for a UIA pattern or an IA2 interface only where NVDA
+has no answer at all, and then it belongs in that adapter and nowhere else.
+
+Three things this turns up that are better than what the browse mode source does today:
+
+- **`NVDAObjects.behaviors.RowWithoutCellObjects` is the abstraction M5 needs**, already
+  written. A row whose cells are not objects — a list view, the message list — answers
+  `_getColumnContent(column)`, `_getColumnHeader(column)` and `_getColumnLocation(column)`,
+  and makes a real cell object on demand. Row-major, which is what a page of columns wants: a
+  page for one row is a few calls on a row object the flow already holds.
+- **A hidden column is one whose location has no width.** `sysListView32` skips exactly that.
+  The browse mode source works it out by sampling cells for content, which is a guess that
+  cost a hardware report to get right; where the row can be asked, ask it, and keep the sample
+  for sources that cannot.
+- **The header is whatever the object says it is, not row one.** `columnHeaderText` and
+  `rowHeaderText` are answers; `flowTableSource.HEADER_ROW = 1` is an assumption, and this
+  plan already listed "a header that is not row one" as not done. For an object table it is
+  done by asking.
+
+For Excel, NVDA's own `ExcelWorksheet` reaches a cell as
+`excelWorksheetObject.cells(row, column)` wrapped in `ExcelCell` — see its `_get_firstChild` —
+and `ExcelCell` then answers the whole vocabulary above. That wrapping is the adapter's job
+and the only Office-specific code M5 should contain.
+
+The one thing NVDA does not offer generically is *the cell at (row, column)*:
+`DocumentWithTableNavigation._getTableCellAt` is for text documents and has no object-side
+equivalent. Supplying that, per implementation, is what an object table adapter *is*.
+
 **M6 — saved layouts.** The profile record, automatic matching by identity, applying a
 favourite by command.
 

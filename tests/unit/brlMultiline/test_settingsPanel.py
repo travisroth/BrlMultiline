@@ -27,6 +27,8 @@ from brlMultiline.settingsPanel import (  # noqa: E402
 	BrailleMultilineSettingsPanel,
 	FlowSettingsPanel,
 	VirtualDisplaySettingsPanel,
+	followingChoices,
+	followingIndex,
 	indentStyleChoices,
 	parseSegmentSizes,
 )
@@ -491,10 +493,10 @@ class FlowPanelTestCase(SettingsPanelTestCase):
 		self.panel.lineFocusCtrl = FakeControl(True)
 		self.panel.tableRowsCtrl = FakeControl(1)
 		self.panel.truncateCtrl = FakeControl(False)
-		self.panel.pinKeyCtrl = FakeControl(True)
+		self.panel.pinKeyCtrl = FakeControl(0)
 		self.panel.liveSecondsCtrl = FakeControl(2)
 		self.panel.liveUpdatesCtrl = FakeControl(True)
-		self.panel.tableHeadersCtrl = FakeControl(True)
+		self.panel.tableHeadersCtrl = FakeControl(0)
 
 	def section(self, displayKey=None):
 		return self.sections.setdefault(displayKey, defaults())
@@ -534,6 +536,30 @@ class TestFlowOnOneDisplay(FlowPanelTestCase):
 		self.panel.indentStyleCtrl.SetSelection(len(choices) - 1)
 		self.panel.onSave()
 		self.assertEqual(self.sections[MONARCH_KEY]["flowIndentStyle"], choices[-1][0])
+
+	def test_theTableHeaderStatesAreSaved(self):
+		"""Three states rather than two: the reader may follow NVDA's own Document Formatting
+		settings, which is the default, or override them for braille either way."""
+		states = followingChoices()
+		self.panel.tableHeadersCtrl.SetSelection(len(states) - 1)
+		self.panel.pinKeyCtrl.SetSelection(1)
+		self.panel.onSave()
+		self.assertEqual(self.sections[MONARCH_KEY]["flowTableHeaders"], states[-1][0])
+		self.assertEqual(self.sections[MONARCH_KEY]["flowTablePinKey"], states[1][0])
+
+	def test_everyFollowingStateIsOffered(self):
+		"""Built from `bmConfig.FOLLOWING`, so a state added there cannot become one the reader
+		has no way to choose."""
+		self.assertEqual(
+			[state for state, _label in followingChoices()],
+			list(bmConfig.FOLLOWING),
+		)
+
+	def test_aStateThisVersionHasNotGotReadsAsFollowing(self):
+		"""Which is what `bmConfig` will do with it. The dialog must agree with the band, or
+		saving without touching the control would quietly change the setting."""
+		self.assertEqual(followingIndex("somethingElse"), 0)
+		self.assertEqual(followingChoices()[0][0], bmConfig.FOLLOW_NVDA)
 
 	def test_everyStyleTheModuleHasIsOffered(self):
 		"""The dialog is built from `flowIndent.INDENT_STYLES`, so a style added there cannot

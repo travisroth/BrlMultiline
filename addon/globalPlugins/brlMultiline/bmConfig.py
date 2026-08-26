@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Travis Roth <travis@travisroth.com>
 # This file is covered by the GNU General Public License version 2.
 
-"""Per display configuration, and the one setting of NVDA's own the add-on has to obey.
+"""Per display configuration, and the settings of NVDA's own the add-on has to obey.
 
 Settings are stored per display rather than globally, because the useful layout differs
 sharply between displays: an 8 row Monarch and an 80 cell single row Focus want different
@@ -12,16 +12,16 @@ segment counts, and reversed panning keys are wanted on one and not the other.
 Displays are keyed on driver name plus geometry, since the same driver can present
 different sized displays.
 
-L{isSpeechOutputMode} is the exception: it is NVDA's setting rather than this add-on's, and
-lives here because every place that has to consult it reads its configuration through this
-module already.
+L{isSpeechOutputMode} and the readers under "What NVDA itself was told" are the exception:
+they are NVDA's settings rather than this add-on's, and live here because every place that
+has to consult them reads its configuration through this module already.
 """
 
 from typing import Optional
 
 import braille
 import config
-from config.configFlags import BrailleMode
+from config.configFlags import BrailleMode, ReportTableHeaders
 from logHandler import log
 
 from .flowIndent import DEFAULT_STYLE as DEFAULT_INDENT_STYLE
@@ -36,6 +36,26 @@ INDENT_STYLE_OPTIONS = ", ".join(f'"{style}"' for style in INDENT_STYLES)
 Written from `flowIndent.INDENT_STYLES` rather than beside it, so that adding a style is one
 edit in the module that knows what a style is, and this specification cannot drift from it.
 """
+
+FOLLOW_NVDA = "follow"
+ALWAYS = "always"
+NEVER = "never"
+
+FOLLOWING = (FOLLOW_NVDA, ALWAYS, NEVER)
+"""What a setting that can defer to NVDA may say.
+
+Three states rather than two, and the third is the default. NVDA's Document Formatting
+settings apply outside browse mode as well, and a reader who has told NVDA what they want
+from a table has said it once and should not have to say it again here.
+
+The other two exist because braille has room speech does not. Turning table headers off for
+speech is usually about *repetition* — "From, Received" before every message in a list, which
+the reader already knows — and a header shown once on its own row costs none of that. So a
+reader may well want the row in braille having turned the announcement off, and the reverse
+on a short display where a row is a quarter of everything there is."""
+
+FOLLOWING_OPTIONS = ", ".join(f'"{state}"' for state in FOLLOWING)
+"""The three states as `configobj` writes an option list, built from the one definition."""
 
 #: Largest number of segments the settings dialog offers, and the largest that the per
 #: segment commands are generated for. This is a limit on the user interface only: there
@@ -102,10 +122,10 @@ configSpec = {
 			"flowLineFocus": "boolean(default=True)",
 			"flowTableRowHeight": f"integer(default={flowTable.DEFAULT_MAX_ROWS}, min=1, max={flowTable.MAX_TABLE_ROWS})",
 			"flowTableTruncate": "boolean(default=False)",
-			"flowTablePinKey": "boolean(default=True)",
+			"flowTablePinKey": f'option({FOLLOWING_OPTIONS}, default="{FOLLOW_NVDA}")',
 			"flowLiveSeconds": "integer(default=0, min=0, max=60)",
 			"flowLiveUpdates": "boolean(default=True)",
-			"flowTableHeaders": "boolean(default=True)",
+			"flowTableHeaders": f'option({FOLLOWING_OPTIONS}, default="{FOLLOW_NVDA}")',
 			**{
 				flowModeKey(mode): f"boolean(default={FLOW_MODE_DEFAULTS.get(mode, False)})"
 				for mode in FLOW_MODES
@@ -158,11 +178,14 @@ configSpec = {
 - `flowTableTruncate`: whether a cell too long for its column is cut rather than wrapped.
 - `flowTablePinKey`: whether the first column is repeated at the left of every page after
 	the first, so that a reader six columns across a watchlist still knows whose row it is.
+	One of `FOLLOWING`; following means NVDA's own `reportTableHeaders` asking for row
+	headers.
 - `flowLiveSeconds`: how often the band reads its content again on a timer, over and above
 	reading it when the page says it changed. Zero waits to be told.
 - `flowLiveUpdates`: whether the band follows a page that changes under it at all.
 - `flowTableHeaders`: whether a table's header row is held on the top row of the band,
-	whatever the rest of it is showing.
+	whatever the rest of it is showing. One of `FOLLOWING`; following means NVDA's own
+	`reportTableHeaders` asking for column headers.
 
 Everything above is read through `config.conf`, which is profile aware, so all of it can
 differ per configuration profile. That matters most for the flow: a profile triggered by
@@ -562,22 +585,26 @@ def shouldTruncateTableCells(displayKey: str | None = None) -> bool:
 def shouldPinKeyColumn(displayKey: str | None = None) -> bool:
 	""":return: whether the first column is repeated at the left of every later page.
 
-	On by default. A table wider than the band is read a page of columns at a time, and six
-	columns across a watchlist the reader is feeling four numbers with nothing to say whose
-	numbers they are — the symbol that would say so is two page turns back. The repeated
-	column costs its width on every page after the first and buys back the one thing that
-	makes the rest of the page mean anything.
+	A table wider than the band is read a page of columns at a time, and six columns across a
+	watchlist the reader is feeling four numbers with nothing to say whose numbers they are —
+	the symbol that would say so is two page turns back. The repeated column costs its width
+	on every page after the first and buys back the one thing that makes the rest of the page
+	mean anything.
 
 	Nothing is repeated when the table fits on one page, which is most tables: the cost is
 	paid only where the problem exists.
 
-	See `flowTable.ColumnPlan.keyColumn`.
+	Follows NVDA by default, and the setting it follows is `reportTableHeaders` asking for
+	*row* headers. A row header is the thing that says which row you are on, which is what
+	this column is; NVDA says it before every cell, and a spatial layout says it once at the
+	left of the page. See L{wantsRowHeaders} and `flowTable.ColumnPlan.keyColumn`.
 	"""
 	try:
-		return bool(getDisplayConfig(displayKey)["flowTablePinKey"])
+		return _following(getDisplayConfig(displayKey)["flowTablePinKey"], wantsRowHeaders)
 	except Exception:
 		log.debugWarning("Could not read flowTablePinKey", exc_info=True)
-		return True
+		# The default, so a setting that cannot be read behaves as one that was never set.
+		return wantsRowHeaders()
 
 
 def shouldFollowLiveContent(displayKey: str | None = None) -> bool:
@@ -629,19 +656,124 @@ def liveReadSeconds(displayKey: str | None = None) -> int:
 def shouldPinTableHeaders(displayKey: str | None = None) -> bool:
 	""":return: whether a table's header row stays on the top row of the band.
 
-	On by default, and it costs the band a row. What it buys is that the headers are there at
-	all: the window starts where the reader is, so a layout turned on from the middle of a
-	table showed the columns and never said what any of them was. Scrolling back up to look
-	is not an answer either, because the answer is wanted while reading somewhere else.
+	It costs the band a row. What it buys is that the headers are there at all: the window
+	starts where the reader is, so a layout turned on from the middle of a table showed the
+	columns and never said what any of them was. Scrolling back up to look is not an answer
+	either, because the answer is wanted while reading somewhere else.
 
 	Off is worth having on a short band, where a row is a quarter of what there is, and on a
 	table whose first row is not headers.
+
+	Follows NVDA by default, and the setting it follows is `reportTableHeaders` asking for
+	*column* headers. See L{wantsColumnHeaders}.
 	"""
 	try:
-		return bool(getDisplayConfig(displayKey)["flowTableHeaders"])
+		return _following(getDisplayConfig(displayKey)["flowTableHeaders"], wantsColumnHeaders)
 	except Exception:
 		log.debugWarning("Could not read flowTableHeaders", exc_info=True)
+		# The default, so a setting that cannot be read behaves as one that was never set.
+		return wantsColumnHeaders()
+
+
+def _following(setting, whatNvdaWasTold) -> bool:
+	""":return: what a three state setting comes to, asking NVDA only where it defers.
+
+	:param setting: the stored value, one of L{FOLLOWING}.
+	:param whatNvdaWasTold: called for the answer when the setting defers.
+	"""
+	if setting == ALWAYS:
 		return True
+	if setting == NEVER:
+		return False
+	return whatNvdaWasTold()
+
+
+# What NVDA itself was told.
+#
+# NVDA's Document Formatting settings are not only about browse mode: an application module
+# reads them for its own objects too, which is how turning table reporting off in Outlook
+# stops "From" and "Received" being announced before every message in the list. They are the
+# reader's answer to a question this add-on asks again in a different shape, so where the
+# question is the same the answer is taken rather than asked for twice.
+#
+# The shape is not the same, and that is the point of following rather than obeying. NVDA's
+# settings decide what is *said with each thing you touch*, and repetition is most of what a
+# reader turns off. A spatial layout does not repeat: a header row is drawn once at the top
+# and a key column once at the left, however many rows are under them. So each of these is
+# read as "does the reader want this kind of header at all", and a reader who wants it in
+# braille having turned it off for speech says so per display. See L{FOLLOWING}.
+
+
+def _formatting(name: str, default):
+	""":return: one of NVDA's document formatting settings, or a default if it cannot be read.
+
+	Read on each call rather than cached. It is a dictionary lookup, the reader can change it
+	from the Document Formatting dialog or from NVDA's own cycling commands at any moment,
+	and a table already laid out is asked again on its next build.
+	"""
+	try:
+		return config.conf["documentFormatting"][name]
+	except Exception:
+		log.debugWarning(f"Could not read NVDA's {name} setting", exc_info=True)
+		return default
+
+
+def wantsColumnHeaders() -> bool:
+	""":return: whether NVDA was told to report the headers of a table's columns.
+
+	`reportTableHeaders` is one setting with two axes, and this add-on has one feature for
+	each of them: the pinned header row is the column axis, the repeated key column is the
+	row axis. See L{shouldPinTableHeaders}.
+	"""
+	return _formatting("reportTableHeaders", ReportTableHeaders.ROWS_AND_COLUMNS.value) in (
+		ReportTableHeaders.ROWS_AND_COLUMNS.value,
+		ReportTableHeaders.COLUMNS.value,
+	)
+
+
+def wantsRowHeaders() -> bool:
+	""":return: whether NVDA was told to report the headers of a table's rows.
+
+	See L{shouldPinKeyColumn}, which is what a row header is in a spatial layout.
+	"""
+	return _formatting("reportTableHeaders", ReportTableHeaders.ROWS_AND_COLUMNS.value) in (
+		ReportTableHeaders.ROWS_AND_COLUMNS.value,
+		ReportTableHeaders.ROWS.value,
+	)
+
+
+def wantsTables() -> bool:
+	""":return: whether NVDA was told to report tables at all.
+
+	What it decides here is whether a table is *offered* as a table — a layout this add-on
+	proposes on its own account, and anything it says about being in one. It does not decide
+	whether the reader's own command to lay a table out in columns works: NVDA draws the same
+	line, and `documentBase._tableMovementScriptHelper` draws it in code by copying the
+	format configuration and forcing `reportTables` on before it speaks a cell, because the
+	reader pressing a table navigation key has asked.
+	"""
+	return bool(_formatting("reportTables", True))
+
+
+def wantsCellCoordinates() -> bool:
+	""":return: whether NVDA was told to report which cell of a table the reader is in.
+
+	The coordinates a page turn reports — "columns five to nine of twenty-nine" — and any
+	cell position said rather than shown. What is *drawn* is not a coordinate: a column under
+	the reader's finger is its own answer to where it is, which is the whole argument for
+	laying a table out spatially, and it is not suppressed by this.
+	"""
+	return bool(_formatting("reportTableCellCoords", True))
+
+
+def wantsLayoutTables() -> bool:
+	""":return: whether NVDA was told to treat tables used for layout as tables.
+
+	Off by default in NVDA, and a table used to arrange a page has no columns worth laying
+	out: its cells are a banner, a sidebar and an article. A reader who has told NVDA to
+	ignore them has said what they want here too.
+	"""
+	return bool(_formatting("includeLayoutTables", False))
 
 
 def isSpeechOutputMode() -> bool:

@@ -39,6 +39,37 @@ from .layout import calculateSegmentRects
 addonHandler.initTranslation()
 
 
+def followingChoices() -> tuple[tuple[str, str], ...]:
+	""":return: the states of a setting that can defer to NVDA, and their labels.
+
+	A function rather than a constant so the labels are translated when the dialog is built
+	rather than when the module is imported. Ordered by `bmConfig.FOLLOWING`.
+	"""
+	labels = {
+		# Translators: a choice in settings, for a setting that takes its answer from NVDA's
+		# own Document Formatting settings rather than being set separately here.
+		bmConfig.FOLLOW_NVDA: _("As set in NVDA's Document Formatting"),
+		# Translators: a choice in settings, for a setting turned on whatever NVDA is set to.
+		bmConfig.ALWAYS: _("Always"),
+		# Translators: a choice in settings, for a setting turned off whatever NVDA is set to.
+		bmConfig.NEVER: _("Never"),
+	}
+	return tuple((state, labels.get(state, state)) for state in bmConfig.FOLLOWING)
+
+
+def followingIndex(stored: str) -> int:
+	""":return: which entry of a chooser a stored state means, 0 — following — for anything else.
+
+	The same rule `_indentStyleIndex` follows, and for the same reason: a value this version
+	has not got must read here as what `bmConfig` will actually do with it, or saving without
+	touching the control would quietly change the setting.
+	"""
+	for index, (state, _label) in enumerate(followingChoices()):
+		if state == stored:
+			return index
+	return 0
+
+
 def indentStyleChoices() -> tuple[tuple[str, str], ...]:
 	""":return: the indent styles and their labels, in the order the dialog offers them.
 
@@ -699,29 +730,38 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
-		# Translators: label of a checkbox in settings, about repeating a table's first column
+		# Translators: label of a combo box in settings, about repeating a table's first column
 		# on each page of columns when the table is wider than the display.
-		pinLabel = _("&Repeat the first column on every page of a wide table")
-		self.pinKeyCtrl = sHelper.addItem(wx.CheckBox(self, label=pinLabel))
-		self.pinKeyCtrl.SetValue(bool(section["flowTablePinKey"]))
+		pinLabel = _("&Repeat the first column on every page of a wide table:")
+		self.pinKeyCtrl = sHelper.addLabeledControl(
+			pinLabel,
+			wx.Choice,
+			choices=[label for _state, label in followingChoices()],
+		)
+		self.pinKeyCtrl.SetSelection(followingIndex(str(section["flowTablePinKey"] or "")))
 		sHelper.addItem(
 			wx.StaticText(
 				self,
 				label=_(
-					# Translators: shown in settings under the checkbox above, explaining what
-					# the repeated column is for.
+					# Translators: shown in settings under the combo box above, explaining what
+					# the repeated column is for and which NVDA setting it follows.
 					"A table too wide for the display is shown a page of columns at a time. "
 					"Several pages in, the column that says which row you are on is no longer "
 					"showing. On, it is repeated at the left of every page, shortened to fit. "
-					"Tables that fit on one page are not affected.",
+					"Tables that fit on one page are not affected. Following NVDA means "
+					"whether NVDA is set to report row headers.",
 				),
 			),
 		)
-		# Translators: label of a checkbox in settings, about keeping a table's header row on
+		# Translators: label of a combo box in settings, about keeping a table's header row on
 		# the top row of the display.
-		headerLabel = _("&Keep a table's header row on the display")
-		self.tableHeadersCtrl = sHelper.addItem(wx.CheckBox(self, label=headerLabel))
-		self.tableHeadersCtrl.SetValue(bool(section["flowTableHeaders"]))
+		headerLabel = _("&Keep a table's header row on the display:")
+		self.tableHeadersCtrl = sHelper.addLabeledControl(
+			headerLabel,
+			wx.Choice,
+			choices=[label for _state, label in followingChoices()],
+		)
+		self.tableHeadersCtrl.SetSelection(followingIndex(str(section["flowTableHeaders"] or "")))
 		sHelper.addItem(
 			wx.StaticText(
 				self,
@@ -903,10 +943,10 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowLineFocus"] = self.lineFocusCtrl.IsChecked()
 		section["flowTableRowHeight"] = self.tableRowsCtrl.Value
 		section["flowTableTruncate"] = self.truncateCtrl.IsChecked()
-		section["flowTablePinKey"] = self.pinKeyCtrl.IsChecked()
+		section["flowTablePinKey"] = followingChoices()[self.pinKeyCtrl.GetSelection()][0]
 		section["flowLiveSeconds"] = self.liveSecondsCtrl.Value
 		section["flowLiveUpdates"] = self.liveUpdatesCtrl.IsChecked()
-		section["flowTableHeaders"] = self.tableHeadersCtrl.IsChecked()
+		section["flowTableHeaders"] = followingChoices()[self.tableHeadersCtrl.GetSelection()][0]
 
 	def postSave(self):
 		# Claim or give back the band straight away, rather than at the next display event.

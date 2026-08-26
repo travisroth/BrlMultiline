@@ -211,6 +211,32 @@ Unlike L{CONFIG} these are not redirected, so a test changing the mode here chan
 """
 
 
+FORMAT_CONFIG = {
+	"reportTables": True,
+	"includeLayoutTables": False,
+	"reportTableHeaders": 1,
+	"reportTableCellCoords": True,
+}
+"""NVDA's own document formatting settings, as much of them as the add-on reads.
+
+The defaults are NVDA's own, from its `configSpec`, and `reportTableHeaders` is the integer
+`ReportTableHeaders.ROWS_AND_COLUMNS`. Like L{BRAILLE_CONFIG} these are not redirected: a
+test writing here changes what `bmConfig.wantsColumnHeaders` and its neighbours answer.
+"""
+
+ReportTableHeaders = types.SimpleNamespace(
+	OFF=types.SimpleNamespace(value=0),
+	ROWS_AND_COLUMNS=types.SimpleNamespace(value=1),
+	ROWS=types.SimpleNamespace(value=2),
+	COLUMNS=types.SimpleNamespace(value=3),
+)
+"""NVDA's `config.configFlags.ReportTableHeaders`, in what the add-on uses of it.
+
+The values are NVDA's own and are what the configuration stores, so a test may write the
+integer or the member's value and mean the same thing.
+"""
+
+
 def setSpeechOutputMode(enabled: bool) -> None:
 	"""Put NVDA into or out of speech output braille mode, as the user's toggle does.
 
@@ -1942,6 +1968,7 @@ def _installPluginStubs() -> None:
 		"config.configFlags",
 		BrailleMode=types.SimpleNamespace(SPEECH_OUTPUT=types.SimpleNamespace(value="speechOutput")),
 		TetherTo=types.SimpleNamespace(FOCUS=types.SimpleNamespace(value="focus")),
+		ReportTableHeaders=ReportTableHeaders,
 	)
 
 
@@ -1984,6 +2011,7 @@ def installStubs() -> None:
 				"BrlMultiline": {"displays": DisplaysSection()},
 				"BrlMultilineVirtualDisplay": {"devices": []},
 				"braille": BRAILLE_CONFIG,
+				"documentFormatting": FORMAT_CONFIG,
 			},
 		),
 		post_configProfileSwitch=post_configProfileSwitch,
@@ -2124,6 +2152,10 @@ def resetConfig() -> None:
 		flowGroundOnQuickNav=True,
 		flowWriteByParagraph=True,
 		flowIndentStyle="twoSpaces",
+		# The two that may defer to NVDA. Spelled out rather than left missing, because
+		# missing reads as "could not be read" and that is a different path.
+		flowTableHeaders="follow",
+		flowTablePinKey="follow",
 	)
 	BAND_CONFIG.clear()
 	# Both are filled in by the real `getDisplayConfig` as displays are met, so a test that
@@ -2142,6 +2174,12 @@ def resetConfig() -> None:
 		conf.profiles[0].setdefault("BrlMultilineVirtualDisplay", {})["devices"] = []
 		dict.__getitem__(conf, "BrlMultilineVirtualDisplay")["devices"] = []
 	setSpeechOutputMode(False)
+	FORMAT_CONFIG.update(
+		reportTables=True,
+		includeLayoutTables=False,
+		reportTableHeaders=ReportTableHeaders.ROWS_AND_COLUMNS.value,
+		reportTableCellCoords=True,
+	)
 
 
 def resetPluginState() -> None:
