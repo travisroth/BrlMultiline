@@ -544,6 +544,23 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 			else:
 				buffer.scrollBack()
 			return
+		if getattr(buffer, "controller", None) is not None:
+			# A flow reading in a segment of its own — a pinned document, list or table. Its
+			# rows come from its controller rather than from this buffer's window, so moving
+			# the window moves nothing the reader can feel: the cells are recomposed from the
+			# controller on the next draw and come out exactly as they were. Panning belongs
+			# to the controller, and asking the segment is how to reach it.
+			#
+			# Safe here for the same reason the fall-through below is not. A pinned flow is a
+			# viewer: `FlowController.movesCursor` is false for a run of objects and the
+			# source is built with `live=False` for a document, so panning it moves the
+			# window and nothing else. What must never happen is the fall-through in NVDA's
+			# own `scrollForward`, and that only happens when there is no controller.
+			if forward:
+				buffer.scrollForward()
+			else:
+				buffer.scrollBack()
+			return
 		# A segment that does not hold focus is panned within its own content only.
 		# Falling through to NVDA's nextLine or previousLine would move the caret in an
 		# object the user is not working in, which drags the system focus with it.

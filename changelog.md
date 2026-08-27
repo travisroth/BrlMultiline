@@ -82,7 +82,9 @@ For add-on authors and component work:
   BrlMultiline is absent or disabled. A container holding such a run declares itself with
   `brlMultilineFlowRunContainer` and says where to begin with `brlMultilineFlowRunStart`,
   which is what lets an object pinned to a segment be the list rather than one of its
-  members. For controls an author does not own,
+  members. A pinned flow is panned by the command for its segment: its rows come from its
+  controller rather than from the buffer's window, so moving the window moved nothing and
+  a pinned document, list or table would not scroll. For controls an author does not own,
   `flowObjects.register` still takes a whole adapter.
 - Wrapping and cursor routing behaviour are per segment, so a claimed area can behave
   differently from the display around it. Neither is exposed in the settings dialog.

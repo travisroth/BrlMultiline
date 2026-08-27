@@ -1339,5 +1339,80 @@ class TestATreeOpeningUnderTheReader(unittest.TestCase):
 		self.assertIs(self.band.controller, control)
 
 
+class TestPanningAFlowThatIsNotTheFocus(unittest.TestCase):
+	"""A pinned flow, panned by the command for its own segment.
+
+	A segment that does not hold the focus is panned within its own content, because falling
+	through to NVDA's next and previous line would move the caret in something the reader is
+	not working in. That is right for a pinned *region* and was applied to a pinned *flow*
+	too — whose rows come from its controller rather than from the buffer's window, so moving
+	the window moved nothing the reader could feel and the cells came back exactly as they
+	were. Pinning anything readable as a flow produced a segment that would not pan.
+	"""
+
+	TALL = 8
+	"""Rows enough for a pin and a focus segment beside it, which ROWS alone is not."""
+
+	def pinnedFlow(self, lines=None, numRows=4):
+		handler = FakeHandler(self.TALL, COLS)
+		view = SegmentView(
+			name="pinned",
+			panels=[
+				FlowPanel("pin", SegmentRect(row=0, col=0, numRows=numRows, numCols=COLS)),
+				SinglePanel(
+					"focus",
+					SegmentRect(row=numRows, col=0, numRows=self.TALL - numRows, numCols=COLS),
+				),
+			],
+			focusSegmentKey="focus",
+		)
+		container = DisplayContainer(handler, view)
+		handler.mainBuffer = handler.buffer = container
+		control = controllerOver(lines or documentLines(), numRows=numRows, live=False, handler=handler)
+		segment = container.segmentForKey("pin")
+		segment.attach(control)
+		return container, segment, control
+
+	def topRow(self, control):
+		cells = control.cells()
+		return "".join(chr(cell) if cell else " " for cell in cells[:COLS]).strip()
+
+	def test_thePinIsNotTheFocusSegment(self):
+		container, _segment, _control = self.pinnedFlow()
+		self.assertNotEqual(container.numberForKey("pin"), container.focusSegmentNumber)
+
+	def test_panningItForwardMovesTheFlow(self):
+		container, _segment, control = self.pinnedFlow()
+		before = self.topRow(control)
+		container.scrollForward(container.numberForKey("pin"))
+		self.assertNotEqual(self.topRow(control), before)
+
+	def test_andPanningItBackReturns(self):
+		container, _segment, control = self.pinnedFlow()
+		before = self.topRow(control)
+		index = container.numberForKey("pin")
+		container.scrollForward(index)
+		container.scrollBack(index)
+		self.assertEqual(self.topRow(control), before)
+
+	def test_aPinWithNoFlowStillPansItsOwnContent(self):
+		"""The rule this sits beside: a pinned region must not reach NVDA's line commands."""
+		handler = FakeHandler(self.TALL, COLS)
+		view = SegmentView(
+			name="plainPin",
+			panels=[
+				SinglePanel("pin", SegmentRect(row=0, col=0, numRows=4, numCols=COLS)),
+				SinglePanel("focus", SegmentRect(row=4, col=0, numRows=4, numCols=COLS)),
+			],
+			focusSegmentKey="focus",
+		)
+		container = DisplayContainer(handler, view)
+		handler.mainBuffer = handler.buffer = container
+		segment = container.segmentForKey("pin")
+		self.assertIsNone(getattr(segment, "controller", None))
+		# Panning it must not raise, and must not reach the focus segment's machinery.
+		container.scrollForward(container.numberForKey("pin"))
+
+
 if __name__ == "__main__":
 	unittest.main()
