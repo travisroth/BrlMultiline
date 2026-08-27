@@ -544,8 +544,8 @@ class TestFlowOnOneDisplay(FlowPanelTestCase):
 		self.panel.tableHeadersCtrl.SetSelection(len(states) - 1)
 		self.panel.pinKeyCtrl.SetSelection(1)
 		self.panel.onSave()
-		self.assertEqual(self.sections[MONARCH_KEY]["flowTableHeaders"], states[-1][0])
-		self.assertEqual(self.sections[MONARCH_KEY]["flowTablePinKey"], states[1][0])
+		self.assertEqual(self.sections[MONARCH_KEY]["flowTableHeadersMode"], states[-1][0])
+		self.assertEqual(self.sections[MONARCH_KEY]["flowTablePinKeyMode"], states[1][0])
 
 	def test_everyFollowingStateIsOffered(self):
 		"""Built from `bmConfig.FOLLOWING`, so a state added there cannot become one the reader

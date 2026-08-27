@@ -15,6 +15,7 @@ import unittest
 from ._stubs import (
 	CONFIG,
 	FORMAT_CONFIG,
+	FakeGrid,
 	FakeNavigatorObject,
 	ReportTableHeaders,
 	callLaterQueue,
@@ -580,7 +581,7 @@ class TestTheHeaderRowStaysOnTheDisplay(TableBandTestCase):
 		self.assertEqual(self._routed(document)[-1], (topRow, 1))
 
 	def test_theReaderCanTurnItOff(self):
-		CONFIG["flowTableHeaders"] = bmConfig.NEVER
+		CONFIG["flowTableHeadersMode"] = bmConfig.NEVER
 		self._midTable()
 		self.assertIsNone(self.band.controller.pinned)
 		self.assertEqual(self.band.controller.window.numRows, ROWS)
@@ -596,7 +597,7 @@ class TestTheHeaderRowStaysOnTheDisplay(TableBandTestCase):
 		"""What is turned off for speech is usually the repetition — "From, Received" before
 		every message — and a row drawn once at the top of the display costs none of that."""
 		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
-		CONFIG["flowTableHeaders"] = bmConfig.ALWAYS
+		CONFIG["flowTableHeadersMode"] = bmConfig.ALWAYS
 		self._midTable()
 		self.assertIsNotNone(self.band.controller.pinned)
 
@@ -1426,3 +1427,44 @@ class TestTheLayoutDoesNotOutliveTheTable(TableBandTestCase):
 		self.band.showObject(other)
 		self.assertIsNone(self.band.tableWanted)
 		self.assertFalse(self._readingATable())
+
+
+class TestABandThatWouldPinNothing(TableBandTestCase):
+	"""A list view declares no header row and its first item is a file rather than a heading,
+	so there is nothing to pin. The row the header would have cost was being taken anyway: the
+	band's height is decided before the header is asked for, because the height is what
+	everything below is planned against.
+	"""
+
+	FILES = [
+		["report.docx", "Word document", "12 KB"],
+		["notes.md", "Markdown", "3 KB"],
+		["powerpnt.py", "Python Source File", "59 KB"],
+	]
+
+	def _inList(self, headers=None, row=1):
+		""":return: the file list, with the reader on one of its items."""
+		view = FakeGrid(self.FILES, headers=headers or [])
+		item = view.item(row)
+		self.api.getFocusObject = lambda: item
+		self.api.getNavigatorObject = lambda: item
+		self.addCleanup(setattr, self.api, "getNavigatorObject", self.api.getNavigatorObject)
+		self.band._follow()
+		self.band.layOutTable()
+		return view
+
+	def test_theBandKeepsTheRowTheHeaderWouldHaveCost(self):
+		self._inList(row=2)
+		self.assertIsNone(self.band.controller.pinned)
+		self.assertEqual(self.band.controller.window.numRows, ROWS)
+
+	def test_andEveryRowOfTheListIsStillInTheStream(self):
+		"""The other half of the same mistake: row one is skipped only where row one is what was
+		pinned, so a list whose first item is a file would have lost that file."""
+		self._inList()
+		self.assertIn("report.docx", " ".join(self.band.controller.describeRows()))
+
+	def test_aTableWithHeadersStillSpendsTheRow(self):
+		self._inList(headers=["Name", "Type", "Size"])
+		self.assertIsNotNone(self.band.controller.pinned)
+		self.assertEqual(self.band.controller.window.numRows, ROWS - 1)

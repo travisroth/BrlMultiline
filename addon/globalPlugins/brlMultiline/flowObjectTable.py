@@ -161,6 +161,50 @@ def _columnsOfTheTableAbove(row) -> int:
 		return 0
 
 
+def _canTakeFocus(obj) -> bool:
+	""":return: whether an object is one the keyboard can be put on.
+
+	`isFocusable`, which is NVDA's own property and is the `FOCUSABLE` state read for it. A
+	cell that has it is one focusing will move; a cell without it is a text element that a
+	`setFocus` would leave exactly where it was. See `ObjectCellInfo.updateCaret`.
+
+	An object that will not answer is treated as focusable, because the alternative is to
+	route every one of them to its row and that is the worse mistake: the reader would lose
+	the column they had their finger on with nothing having gone wrong.
+	"""
+	try:
+		said = getattr(obj, "isFocusable", None)
+	except Exception:
+		log.debugWarning("Could not ask whether a cell can take the focus", exc_info=True)
+		return True
+	return True if said is None else bool(said)
+
+
+def _positionOf(obj) -> dict:
+	""":return: an object's `positionInfo`, with the three numbers read as numbers.
+
+	One reader for it because three questions ask it — which row this is, how many rows there
+	are, and whether either means what it says — and a `positionInfo` that raises or holds
+	something unreadable has to answer all three the same way, which is "it does not say".
+	"""
+	try:
+		where = getattr(obj, "positionInfo", None) or {}
+	except Exception:
+		log.debugWarning("Could not read an object's position", exc_info=True)
+		return {}
+	found = {}
+	for name in ("indexInGroup", "similarItemsInGroup", "level"):
+		try:
+			said = where.get(name)
+		except Exception:
+			return {}
+		try:
+			found[name] = int(said) if said else 0
+		except (TypeError, ValueError):
+			found[name] = 0
+	return found
+
+
 def _ask(thing, name: str):
 	""":return: what an object answers for one property, or why it did not, for the log.
 
@@ -190,40 +234,64 @@ class ObjectCellInfo:
 	claims to be nothing else.
 	"""
 
-	def __init__(self, text: str, target=None, header: str = "") -> None:
+	def __init__(self, text: str, target=None, header: str = "", row=None) -> None:
 		"""
 		:param text: the cell's content.
-		:param target: the object to go to when the reader routes into this cell. The cell
+		:param target: the object the reader means when they route into this cell. The cell
 			itself where cells are objects, and the row where they are not — see
 			L{updateCaret}.
 		:param header: what the table says this column's header is, or "" if it says nothing.
+		:param row: the row the cell is in, which is the thing that can take the focus when
+			the cell cannot. The target itself when there is nothing else.
 		"""
 		self.text = text
 		self.target = target
 		self.header = header
+		self.row = row if row is not None else target
 		self.isCollapsed = True
 
 	def copy(self) -> "ObjectCellInfo":
-		return ObjectCellInfo(self.text, self.target, self.header)
+		return ObjectCellInfo(self.text, self.target, self.header, self.row)
 
 	def collapse(self, end: bool = False) -> None:
 		"""A cell is already a place rather than a range. Kept for the shape of a position."""
 
 	def updateCaret(self) -> None:
-		"""Go to this cell, by focusing whatever of it can be focused.
+		"""Go to this cell, the way NVDA itself goes to one.
 
-		Where the cells are objects that is the cell, which is what arrowing across a grid
-		does. Where they are not there is nothing but the row: a column of a classic list view
-		is a rectangle on the screen and not a place the keyboard can be put, and focusing the
-		row is what clicking one does. Either way it is what the reader means by routing into
-		a value.
+		        **Focus what can be focused, and take the navigator object the rest of the way.** That
+		        is `RowWithFakeNavigation._moveToColumn` exactly: it focuses the row and calls
+		        `api.setNavigatorObject` on the cell, because in Outlook's message list the row is the
+		        focusable thing and its cells are text elements that are not. Focusing one of those
+		        does nothing at all, so a routing key over a subject line would have moved nothing and
+		said nothing.
+
+		        Where the cell *can* take the focus it is focused directly, which is File Explorer's
+		        Details view — its cells are `explorer.UIProperty` and the focus lands on one of them
+		        when the reader arrows across a file. Going to the row there would move the reader off
+		        the column they had their finger on.
+
+		        Where the cells are not objects at all there is only ever the row: a column of a
+		        classic list view is a rectangle on the screen rather than a place the keyboard can be
+		        put, and focusing the row is what clicking one does.
 		"""
-		if self.target is None:
+		target = self.target if self.target is not None else self.row
+		if target is None:
 			return
+		focus = target if _canTakeFocus(target) else self.row
 		try:
-			self.target.setFocus()
+			if focus is not None:
+				focus.setFocus()
 		except Exception:
 			log.debugWarning("Could not go to a table cell", exc_info=True)
+		if focus is target:
+			return
+		try:
+			import api
+
+			api.setNavigatorObject(target)
+		except Exception:
+			log.debugWarning("Could not take the navigator object to a table cell", exc_info=True)
 
 	def getTextWithFields(self, formatConfig=None) -> list:
 		""":return: this cell's control field, carrying the header its column declares.
@@ -395,15 +463,70 @@ class ObjectTable:
 		`positionInfo["similarItemsInGroup"]`, which for a UIA list item NVDA fills in from the
 		selection container's item count — the whole list, not the part of it that has been
 		built.
+
+		Zero for a table whose rows are counted a group at a time, because then the number is
+		the size of one group. See L{positionNumbersTheTable}.
 		"""
-		if item is None:
+		if item is None or not self.positionNumbersTheTable():
 			return 0
-		try:
-			where = getattr(item, "positionInfo", None) or {}
-			return int(where.get("similarItemsInGroup") or 0)
-		except Exception:
-			log.debugWarning("Could not read how many items a row is one of", exc_info=True)
-			return 0
+		return _positionOf(item).get("similarItemsInGroup") or 0
+
+	def positionNumbersTheTable(self) -> bool:
+		""":return: whether `positionInfo` numbers this table's rows, rather than a group of them.
+
+		**NVDA's `indexInGroup` is an index within a group**, and the whole table is only one
+		of the things a group can be. It is the count for a flat list — a UIA list item's is
+		filled in from the selection container, which is the list — and it is what NVDA speaks
+		as "fifty-two of seventy-nine". In a list arranged in groups, which is File Explorer
+		grouped by type and Outlook grouped by date, it restarts at one in every group. Read
+		as a row number it would name two different rows the same, and read as a count it
+		would end the table at the bottom of the group the reader happens to be in.
+
+		Two things say so, and either is enough to refuse:
+
+		**A level below the first.** NVDA reports a level for the controls that have a
+		structure and for no others, so a row that says it is at level two is a row of a
+		branch rather than of the table.
+
+		**A table holding more than the group does.** A group inside a table is smaller than
+		the table, so a table admitting to more children than the row says its group holds has
+		more than one group in it. The test is one sided on purpose: a virtualised list admits
+		to *fewer* children than it holds — File Explorer's answered fourteen while the reader
+		stood on item fifty-two of seventy-nine — and that is the case this module was built
+		for. Fewer is a list that has not been built; more is a list that has been grouped.
+
+		Refusing means `rowNumberOf` has no answer, which is `_getTableCellCoords` raising and
+		`tableAt` saying the reader is not in a table. That is the right outcome: they keep
+		NVDA's ordinary reading of the control instead of a layout confidently drawn from
+		numbers that mean something else.
+		"""
+		where = _positionOf(self.focused)
+		if not where.get("indexInGroup"):
+			return False
+		if (where.get("level") or 0) > 1:
+			return False
+		among = where.get("similarItemsInGroup") or 0
+		return not (among and self.childrenAdmittedTo() > among)
+
+	def childrenAdmittedTo(self) -> int:
+		""":return: the most rows this table admits to holding, or zero if it will not say.
+
+		The larger of the two answers, because either may be the one that has been counted and
+		neither is ever an overstatement. See L{positionNumbersTheTable}, which is the only
+		caller and which reads it as a floor rather than as a measurement.
+		"""
+		found = 0
+		for name in ("rowCount", "childCount"):
+			try:
+				count = getattr(self.table, name, None)
+			except Exception:
+				log.debugWarning(f"Could not read a table's {name}", exc_info=True)
+				continue
+			try:
+				found = max(found, int(count or 0))
+			except Exception:
+				continue
+		return found
 
 	@property
 	def numCols(self) -> int:
@@ -429,10 +552,13 @@ class ObjectTable:
 		""":return: which row of the table an object is, one based, or None.
 
 		NVDA's own answer where the object has one. `rowNumber` is the table property and is
-		what an implementation with real coordinates fills in; `positionInSet` is what a list
+		what an implementation with real coordinates fills in; `indexInGroup` is what a list
 		item has when the platform numbers items rather than rows. Neither is worked out by
 		counting, which on a list of ten thousand messages is the difference between a
 		keypress and a pause.
+
+		`indexInGroup` only where the group is the table, since otherwise it numbers the rows
+		of one group and every group has a row one. See L{positionNumbersTheTable}.
 		"""
 		if item is None:
 			return None
@@ -442,13 +568,9 @@ class ObjectTable:
 				return int(found)
 		except Exception:
 			log.debugWarning("Could not read an object's rowNumber", exc_info=True)
-		try:
-			where = getattr(item, "positionInfo", None) or {}
-			index = where.get("indexInGroup")
-		except Exception:
-			log.debugWarning("Could not read an object's position", exc_info=True)
+		if not self.positionNumbersTheTable():
 			return None
-		return int(index) if index else None
+		return _positionOf(item).get("indexInGroup") or None
 
 	def rowObject(self, row: int):
 		""":return: the object for one row of the table, or None if it has not got that row.
@@ -532,6 +654,8 @@ class ObjectTable:
 			f"  table object: {describeThing(self.table)}",
 			f"  row in hand: {describeThing(self.focused)} at row {self.rowNumberOf(self.focused)}",
 			f"  the row says it is one of {self.itemsAmong(self.focused) or 'it does not say'}",
+			f"  its position numbers {'the table' if self.positionNumbersTheTable() else 'a group of it'}"
+			f", from {_positionOf(self.focused)}",
 			f"  the table's own rowCount: {_ask(self.table, 'rowCount')}"
 			f", childCount: {_ask(self.table, 'childCount')}"
 			f", columnCount: {_ask(self.table, 'columnCount')}",
@@ -602,16 +726,41 @@ class RowCellTable(ObjectTable):
 
 	def cellOf(self, item, column: int, row: int) -> ObjectCellInfo:
 		""":return: one cell, read out of its row. See `ObjectTable.cellOf`."""
-		if not self._isShowing(item, column):
+		cell = self.cellObject(item, column)
+		if not self._isShowing(item, column, cell):
 			raise LookupError(f"Column {column} is not showing")
-		try:
-			text = item._getColumnContent(column)
-		except Exception:
-			log.debugWarning(f"Could not read column {column} of row {row}", exc_info=True)
+		text = self.contentOf(item, column, cell)
+		if text is None:
 			raise LookupError(f"Column {column} of row {row} could not be read")
 		# The row rather than the cell: a column of a classic list view is a rectangle on the
-		# screen, and the item is the only thing the keyboard can be put on.
-		return ObjectCellInfo(text or "", target=item, header=self.headerOf(item, column))
+		# screen, and the item is the only thing the keyboard can be put on. NVDA's own cell
+		# object for it is not focusable and says so, so `updateCaret` reaches the same answer
+		# on its own; naming the row here says it rather than leaving it to be worked out.
+		return ObjectCellInfo(text, target=item, header=self.headerOf(item, column, cell), row=item)
+
+	def cellObject(self, item, column: int):
+		""":return: NVDA's own cell object for one column of a row, or None where there is none.
+
+		**`getChild` is the public way in.** `RowWithoutCellObjects` makes a `_FakeTableCell`
+		for each column, and that object answers `name`, `columnHeaderText` and `location` —
+		the three questions this class asks — by calling the underscored methods itself. Asking
+		it rather than calling those methods keeps this add-on off NVDA's private API, which
+		the developer guide says outright is not one to depend on.
+
+		The three are still called directly where a row makes no such cell, which is an
+		application module implementing the contract on a class of its own rather than by
+		inheriting `RowWithoutCellObjects` — the case `rowsTable` is deliberately written to
+		accept. See L{contentOf}.
+
+		The column number is checked rather than assumed, since `getChild` is a question every
+		object answers and only this kind of row answers it with a cell.
+		"""
+		try:
+			cell = item.getChild(column - 1)
+		except Exception:
+			log.debugWarning(f"Could not reach the cell at column {column}", exc_info=True)
+			return None
+		return cell if cell is not None and columnNumberOf(cell) == column else None
 
 	def columnsOfARow(self) -> int:
 		""":return: how wide one row is, which such a row already answers as its child count."""
@@ -621,20 +770,36 @@ class RowCellTable(ObjectTable):
 			log.debugWarning("Could not count a row's columns", exc_info=True)
 			return 0
 
-	def headerOf(self, item, column: int) -> str:
-		""":return: what the table says a column's header is, or "" if it says nothing.
+	def contentOf(self, item, column: int, cell) -> Optional[str]:
+		""":return: what one column of a row says, or None if it could not be read.
 
-		Asked of the row, because that is where NVDA put the question:
-		`RowWithoutCellObjects._getColumnHeader` is answered by `sysListView32` out of the
-		list's own header control. It is a property of the column, so any row answers.
+		The cell's `name`, which is where `RowWithoutCellObjects` puts a column's content.
+		Failing that the row's own answer, for a row that makes no cells. See L{cellObject}.
 		"""
 		try:
-			return (item._getColumnHeader(column) or "").strip()
+			if cell is not None:
+				return getattr(cell, "name", None) or ""
+			return item._getColumnContent(column) or ""
+		except Exception:
+			log.debugWarning(f"Could not read column {column}", exc_info=True)
+			return None
+
+	def headerOf(self, item, column: int, cell=None) -> str:
+		""":return: what the table says a column's header is, or "" if it says nothing.
+
+		`columnHeaderText` on the cell, which `sysListView32` answers out of the list's own
+		header control. It is a property of the column, so any row's cell answers.
+		"""
+		try:
+			said = getattr(cell, "columnHeaderText", None) if cell is not None else None
+			if said is None:
+				said = item._getColumnHeader(column)
+			return (said or "").strip()
 		except Exception:
 			log.debugWarning(f"Could not read the header of column {column}", exc_info=True)
 			return ""
 
-	def _isShowing(self, item, column: int) -> bool:
+	def _isShowing(self, item, column: int, cell=None) -> bool:
 		""":return: whether a column is one the table is actually showing.
 
 		A list view keeps columns the reader has hidden, and reports them in its column count;
@@ -643,11 +808,14 @@ class RowCellTable(ObjectTable):
 		the same place — which is better than the browse mode source's, where a column with no
 		width has to be *inferred* from every cell in a sample being empty.
 
+		The cell's own `location` where there is a cell, which is NVDA's `_FakeTableCell`
+		asking the row the same question and swallowing a row that has no answer.
+
 		A row that cannot answer is believed rather than doubted: a column is showing unless
 		something says otherwise.
 		"""
 		try:
-			where = item._getColumnLocation(column)
+			where = cell.location if cell is not None else item._getColumnLocation(column)
 		except Exception:
 			log.debugWarning(f"Could not locate column {column}", exc_info=True)
 			return True
@@ -678,7 +846,9 @@ class CellObjectTable(ObjectTable):
 		if cell is None:
 			raise LookupError(f"Row {row} has no column {column}")
 		header = headerTextOf(cell)
-		return ObjectCellInfo(cellText(cell, header), target=cell, header=header)
+		# The row as well as the cell: which of the two a routing key can put the focus on
+		# differs between the two applications this was built for. See `updateCaret`.
+		return ObjectCellInfo(cellText(cell, header), target=cell, header=header, row=item)
 
 	def columnsOfARow(self) -> int:
 		""":return: how wide one row is, counted from the cells of the row in hand."""

@@ -172,6 +172,18 @@ worth, so failing to place the focus in a list longer than this costs the reader
 rather than costing them time.
 """
 
+MAX_RUN_SEARCH = 500
+"""How many objects the search for a declared run may look at, all told.
+
+One budget for the whole walk rather than a limit at each node, which is the difference
+between five hundred objects and five hundred to the power of the depth. Every one of them is
+a call into the application, so the worst case has to be a number and not a shape.
+
+The same five hundred as `MAX_CHILDREN` because it is the same judgement: far enough to find
+a run that is really there, and a container that declared one by mistake costs the reader the
+run rather than costing them the display while its tree is walked to the bottom.
+"""
+
 RUN_DECLARATION = "brlMultilineFlowRun"
 """The attribute an application sets to say its objects read as a run.
 
@@ -822,35 +834,65 @@ def _matchesDeclared(obj) -> bool:
 	return _isDeclaredRun(obj) or _declaresRunInside(obj)
 
 
-def _firstDeclaredWithin(root, depth: int = MAX_RUN_DEPTH):
+def _firstDeclaredWithin(root, depth: int = MAX_RUN_DEPTH, budget: int = MAX_RUN_SEARCH):
 	"""Search a container for a member of the run it says it holds.
 
-	The fallback for a container that supplies no L{RUN_START}. Bounded in both directions —
-	how many children are looked at and how far down — because every step is a call into the
-	application and a container that declared a run it does not hold would otherwise be
-	walked to the bottom of its tree.
+	The fallback for a container that supplies no L{RUN_START}. Bounded by **one budget for
+	the whole search** rather than by a limit at each node: every step is a call into the
+	application, and a limit per node multiplies by itself once per generation, so a container
+	that declared a run it does not hold could be read hundreds of thousands of times while
+	each individual bound was being respected.
 
-	Depth rather than children alone, because the members need not be children: Teams' are
-	grandchildren, one wrapper each.
+	Depth as well, because the members need not be children: Teams' are grandchildren, one
+	wrapper each.
+
+	Shallowest first — every child of a container is looked at before any grandchild — which
+	is a change from the recursion this replaced and is the better order anyway: a run
+	declared one generation down is the one the container meant.
 
 	:param root: the container to search.
 	:param depth: how many generations below it to look.
-	:return: the first declared member found in tree order, or None.
+	:param budget: how many objects may be looked at, over the whole search.
+	:return: the first declared member found, or None.
 	"""
 	if root is None or depth <= 0:
 		return None
-	child = getattr(root, "firstChild", None)
-	for _ in range(MAX_CHILDREN):
-		if child is None:
-			return None
-		if _isDeclaredRun(child):
-			return child
-		found = _firstDeclaredWithin(child, depth - 1)
-		if found is not None:
-			return found
-		child = getattr(child, "next", None)
-	log.debugWarning(f"Gave up looking for a declared run inside {root!r}")
+	looked = 0
+	generation = [(root, depth)]
+	while generation:
+		below = []
+		for node, left in generation:
+			child = _firstChildOf(node)
+			while child is not None:
+				if looked >= budget:
+					log.debugWarning(f"Gave up looking for a declared run inside {root!r}")
+					return None
+				looked += 1
+				if _isDeclaredRun(child):
+					return child
+				if left > 1:
+					below.append((child, left - 1))
+				child = _nextOf(child)
+		generation = below
 	return None
+
+
+def _firstChildOf(obj):
+	""":return: an object's first child, or None where it has none or will not say."""
+	try:
+		return getattr(obj, "firstChild", None)
+	except Exception:
+		log.debugWarning("Could not read an object's first child", exc_info=True)
+		return None
+
+
+def _nextOf(obj):
+	""":return: the object after this one, or None where there is none or it will not say."""
+	try:
+		return getattr(obj, "next", None)
+	except Exception:
+		log.debugWarning("Could not read the object after one", exc_info=True)
+		return None
 
 
 def _declaredStart(root, current):

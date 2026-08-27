@@ -738,7 +738,9 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			wx.Choice,
 			choices=[label for _state, label in followingChoices()],
 		)
-		self.pinKeyCtrl.SetSelection(followingIndex(str(section["flowTablePinKey"] or "")))
+		self.pinKeyCtrl.SetSelection(
+			followingIndex(bmConfig.storedFollowing(self.displayKey, "flowTablePinKeyMode")),
+		)
 		sHelper.addItem(
 			wx.StaticText(
 				self,
@@ -761,7 +763,9 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			wx.Choice,
 			choices=[label for _state, label in followingChoices()],
 		)
-		self.tableHeadersCtrl.SetSelection(followingIndex(str(section["flowTableHeaders"] or "")))
+		self.tableHeadersCtrl.SetSelection(
+			followingIndex(bmConfig.storedFollowing(self.displayKey, "flowTableHeadersMode")),
+		)
 		sHelper.addItem(
 			wx.StaticText(
 				self,
@@ -943,10 +947,10 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowLineFocus"] = self.lineFocusCtrl.IsChecked()
 		section["flowTableRowHeight"] = self.tableRowsCtrl.Value
 		section["flowTableTruncate"] = self.truncateCtrl.IsChecked()
-		section["flowTablePinKey"] = followingChoices()[self.pinKeyCtrl.GetSelection()][0]
+		section["flowTablePinKeyMode"] = followingChoices()[self.pinKeyCtrl.GetSelection()][0]
 		section["flowLiveSeconds"] = self.liveSecondsCtrl.Value
 		section["flowLiveUpdates"] = self.liveUpdatesCtrl.IsChecked()
-		section["flowTableHeaders"] = followingChoices()[self.tableHeadersCtrl.GetSelection()][0]
+		section["flowTableHeadersMode"] = followingChoices()[self.tableHeadersCtrl.GetSelection()][0]
 
 	def postSave(self):
 		# Claim or give back the band straight away, rather than at the next display event.

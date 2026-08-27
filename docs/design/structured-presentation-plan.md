@@ -1355,6 +1355,62 @@ Three things fall out of it, and the third is the one that would have been a bug
   decides its own `firstRow` for that reason: it is the only thing that knows where the pinned
   row came from.
 
+### A number is only a coordinate if you know what it counts
+
+A review of M5 found one mistake wearing two faces: **the numbers NVDA hands over are answers
+to NVDA's questions, not to this add-on's.**
+
+`positionInfo["indexInGroup"]` is what NVDA speaks as "fifty-two of seventy-nine", and this
+add-on read it as a row number because for a flat list it is one — a UIA list item's is filled
+in from the selection container, which is the whole list, and it is the only count that
+survives virtualisation. But it is an index **within a group**, and the table is only one of
+the things a group can be. File Explorer grouped by type, Outlook grouped by date: the
+numbering restarts at one in every group. Read as a row number it names two rows the same;
+read as a count it ends the table at the bottom of whichever group the reader is standing in.
+
+Two things say the group is not the table, and either is enough to refuse:
+
+- **A level below the first.** NVDA reports a level for controls with a structure and for no
+  others, so a row at level two is a row of a branch.
+- **A table admitting to more children than the group holds.** A group inside a table is
+  smaller than the table. The test is one sided on purpose: a virtualised list admits to
+  *fewer* children than it holds — File Explorer's answered fourteen while the reader stood on
+  item fifty-two of seventy-nine — and that is the case this whole module was built for.
+  **Fewer is a list that has not been built; more is a list that has been grouped.**
+
+Refusing means there is no row number, which is `tableAt` saying the reader is not in a table,
+which leaves them NVDA's ordinary reading of the control. That is the right outcome: an honest
+"no" beats a layout drawn confidently from numbers that mean something else. The report says
+which of the two it read, because nothing else in it distinguishes them — both answer a row
+number and both answer a count.
+
+### A stand-in is not the object, and NVDA's own cell is not private
+
+Three more from the same review, each an instance of preferring NVDA's public answer to a
+guess of ours:
+
+- **`RowWithFakeNavigation` focuses the row and moves the navigator object to the cell**, and
+  says so in its own code. Routing into a cell called `setFocus` on the cell, which in
+  Outlook's message list is a text element that cannot take the focus — so a routing key over
+  a subject line would have moved nothing and said nothing. The answer is NVDA's: focus what
+  `isFocusable` says can be focused, and take `api.setNavigatorObject` the rest of the way.
+  File Explorer's Details view cells *can* be focused, and are.
+- **`RowWithoutCellObjects.getChild` is the public way to a column.** It makes a cell object
+  that answers `name`, `columnHeaderText` and `location` by calling the underscored methods
+  itself. Calling those from here was depending on API the NVDA developer guide says is
+  private; asking the cell is the same work through the front door, and the underscored calls
+  remain only for a row that makes no cell.
+- **A bound per node is not a bound.** The search for a declared run allowed five hundred
+  children at each of four levels, which is five hundred to the fourth and not five hundred.
+  One budget for the whole walk, and `firstChild` and `next` are calls into an application
+  that may fail like any other.
+
+And one that is not about NVDA at all: **a row reserved for a header is spent whether or not
+there is a header to put on it.** The band's height has to be decided before the columns are
+planned, and whether a table has headings cannot be known until they are asked for — so the
+row is reserved, the header asked for, and the whole arrangement made again at full height
+when the answer is that this table has none. A list view is exactly that case.
+
 **M6 — saved layouts.** The profile record, automatic matching by identity, applying a
 favourite by command.
 

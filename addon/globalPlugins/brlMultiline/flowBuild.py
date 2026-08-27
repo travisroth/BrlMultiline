@@ -323,36 +323,48 @@ def buildTableController(
 	# and not later: it is the height everything below is planned against, and a band whose
 	# height changed while it was being read would move every row the reader had found.
 	headers = bmConfig.shouldPinTableHeaders() and handle.numRows > 1 and numRows > 2
-	bandRows = numRows - 1 if headers else numRows
 	measured = flowTableSource.measure(handle, live=False)
-	plan = flowTable.planFor(
-		measured,
-		numCols,
-		maxRows=bmConfig.tableRowHeight() if maxRows is None else maxRows,
-		overflow=flowTable.TRUNCATE if bmConfig.shouldTruncateTableCells() else flowTable.WRAP,
-		# From the band's height, because what a row costs is only meaningful beside how many
-		# of them there is room for. See `flowTable.targetHeightFor`.
-		targetHeight=flowTable.targetHeightFor(bandRows),
-		pinKey=bmConfig.shouldPinKeyColumn(),
-	)
-	if plan.isEmpty:
-		notes.append("No column layout fits this table on this band.")
-		return None
+	# Twice at most, and the second time only to give a row back. Whether there is a header to
+	# pin cannot be known before the columns are chosen — a table's headers are declared by its
+	# cells, and which cells are read is what the plan decides — so the row is reserved, the
+	# header asked for, and the whole arrangement made again at full height if the answer is
+	# that this table has no headings. A list view is the case: it declares none and its first
+	# row is a file rather than a heading, so the band was a row shorter for nothing.
+	for spendARowOnHeaders in (True, False) if headers else (False,):
+		bandRows = numRows - 1 if spendARowOnHeaders else numRows
+		plan = flowTable.planFor(
+			measured,
+			numCols,
+			maxRows=bmConfig.tableRowHeight() if maxRows is None else maxRows,
+			overflow=flowTable.TRUNCATE if bmConfig.shouldTruncateTableCells() else flowTable.WRAP,
+			# From the band's height, because what a row costs is only meaningful beside how
+			# many of them there is room for. See `flowTable.targetHeightFor`.
+			targetHeight=flowTable.targetHeightFor(bandRows),
+			pinKey=bmConfig.shouldPinKeyColumn(),
+		)
+		if plan.isEmpty:
+			notes.append("No column layout fits this table on this band.")
+			return None
+		source = flowTableSource.TableFlowSource(
+			handle,
+			# The first page only. Every cell is a search of the document, and the columns on
+			# the other pages are ones nobody is looking at yet; `FlowBand._useColumnPage`
+			# hands over the next page's when the reader gets there.
+			columns=tuple(place.column.index for place in plan.placements()),
+			generation=generation,
+			budget=budgetForBand(bandRows),
+			live=live,
+			# The header is drawn above the window when it is pinned, and the source decides
+			# what that costs the stream: row one is skipped only where row one is what was
+			# pinned. A table that declares its headers has not necessarily put them there.
+			pinHeaders=spendARowOnHeaders,
+		)
+		pinned = source.headerBlock() if spendARowOnHeaders else None
+		headers = pinned is not None
+		if headers or not spendARowOnHeaders:
+			break
+		notes.append("This table has no header row, so the band keeps the row one would cost.")
 	notes.append(f"Columns: {flowTable.describe(plan)}")
-	source = flowTableSource.TableFlowSource(
-		handle,
-		# The first page only. Every cell is a search of the document, and the columns on the
-		# other pages are ones nobody is looking at yet; `FlowBand._useColumnPage` hands over
-		# the next page's when the reader gets there.
-		columns=tuple(place.column.index for place in plan.placements()),
-		generation=generation,
-		budget=budgetForBand(bandRows),
-		live=live,
-		# The header is drawn above the window when it is pinned, and the source decides what
-		# that costs the stream: row one is skipped only where row one is what was pinned. A
-		# table that declares its headers has not necessarily put them there.
-		pinHeaders=headers,
-	)
 	renderer = FlowRenderer(handler, numCols=numCols, fillRows=True, columnPlan=plan)
 	control = FlowController(
 		source,
@@ -367,7 +379,8 @@ def buildTableController(
 		lineFocus=bmConfig.shouldMarkLineFocus(),
 	)
 	if headers:
-		control.setPinned(source.headerBlock())
+		# Already built, above, since whether it exists is what decided the band's height.
+		control.setPinned(pinned)
 		notes.append("The header row is pinned above the band.")
 	if not control.enterAtCursor():
 		notes.append("The table was recognised but its first row could not be read.")

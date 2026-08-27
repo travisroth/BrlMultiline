@@ -407,8 +407,8 @@ class TestFollowingOrOverridingNvda(unittest.TestCase):
 		braille.handler = FakeHandler(numRows=8, numCols=32)
 
 	def test_followingIsTheDefault(self):
-		self.assertEqual(CONFIG["flowTableHeaders"], bmConfig.FOLLOW_NVDA)
-		self.assertEqual(CONFIG["flowTablePinKey"], bmConfig.FOLLOW_NVDA)
+		self.assertEqual(CONFIG["flowTableHeadersMode"], bmConfig.FOLLOW_NVDA)
+		self.assertEqual(CONFIG["flowTablePinKeyMode"], bmConfig.FOLLOW_NVDA)
 
 	def test_followingTakesNvdasAnswer(self):
 		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
@@ -420,13 +420,13 @@ class TestFollowingOrOverridingNvda(unittest.TestCase):
 
 	def test_alwaysAndNeverDoNotAsk(self):
 		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
-		CONFIG["flowTableHeaders"] = bmConfig.ALWAYS
-		CONFIG["flowTablePinKey"] = bmConfig.ALWAYS
+		CONFIG["flowTableHeadersMode"] = bmConfig.ALWAYS
+		CONFIG["flowTablePinKeyMode"] = bmConfig.ALWAYS
 		self.assertTrue(bmConfig.shouldPinTableHeaders())
 		self.assertTrue(bmConfig.shouldPinKeyColumn())
 		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS_AND_COLUMNS.value
-		CONFIG["flowTableHeaders"] = bmConfig.NEVER
-		CONFIG["flowTablePinKey"] = bmConfig.NEVER
+		CONFIG["flowTableHeadersMode"] = bmConfig.NEVER
+		CONFIG["flowTablePinKeyMode"] = bmConfig.NEVER
 		self.assertFalse(bmConfig.shouldPinTableHeaders())
 		self.assertFalse(bmConfig.shouldPinKeyColumn())
 
@@ -437,3 +437,67 @@ class TestFollowingOrOverridingNvda(unittest.TestCase):
 		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS.value
 		self.assertTrue(bmConfig.shouldPinKeyColumn())
 		self.assertFalse(bmConfig.shouldPinTableHeaders())
+
+
+class TestASettingThatUsedToBeACheckbox(unittest.TestCase):
+	"""Both header settings were `boolean(default=True)` before they learned to defer to NVDA.
+	A stored `False` is not a value the new specification allows, and `configobj` replaces a
+	value that fails validation with the default before any code of this add-on is reached —
+	so a reader who had turned the header row off would have been given it back, and told
+	nothing about it, because the new default is to follow NVDA and NVDA reports table headers
+	by default.
+
+	The section is written to directly rather than through L{CONFIG}, because what is being
+	tested is `isSet`: upstream it reports whether the key is stored in any profile, which is
+	how an answer somebody gave is told from a default nobody ever saw.
+	"""
+
+	def setUp(self):
+		import braille
+
+		resetConfig()
+		self.addCleanup(resetConfig)
+		self.addCleanup(setattr, braille, "handler", braille.handler)
+		# These settings are stored per display, so there has to be one to read them for.
+		braille.handler = FakeHandler(numRows=8, numCols=32)
+		self.section = bmConfig.getDisplayConfig()
+
+	def test_aClearedCheckboxStaysCleared(self):
+		self.section["flowTableHeaders"] = False
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS_AND_COLUMNS.value
+		self.assertFalse(bmConfig.shouldPinTableHeaders())
+
+	def test_aTickedCheckboxStaysTicked(self):
+		self.section["flowTableHeaders"] = True
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
+		self.assertTrue(bmConfig.shouldPinTableHeaders())
+
+	def test_theSameForTheRepeatedColumn(self):
+		self.section["flowTablePinKey"] = False
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS_AND_COLUMNS.value
+		self.assertFalse(bmConfig.shouldPinKeyColumn())
+
+	def test_answeringTheNewSettingOverridesTheOldOne(self):
+		"""Once the reader has answered the question in the shape it is asked now, the checkbox
+		they ticked under an older version has been superseded rather than contradicted."""
+		self.section["flowTableHeaders"] = False
+		self.section["flowTableHeadersMode"] = bmConfig.ALWAYS
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
+		self.assertTrue(bmConfig.shouldPinTableHeaders())
+
+	def test_aCheckboxNobodyTouchedFollowsNvda(self):
+		"""Which is the new default, and the whole reason it is the new default: a reader who
+		has told NVDA what they want from a table has said it once already."""
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
+		self.assertFalse(bmConfig.shouldPinTableHeaders())
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS_AND_COLUMNS.value
+		self.assertTrue(bmConfig.shouldPinTableHeaders())
+
+	def test_nothingIsWrittenBack(self):
+		"""An answer given in a profile triggered by one application is an answer about that
+		application. Reading through the aggregated section asks the question in whichever
+		profile is active, which is where the answer was given; rewriting it would have to
+		choose a profile, and any choice would be wrong for somebody."""
+		self.section["flowTableHeaders"] = False
+		bmConfig.shouldPinTableHeaders()
+		self.assertFalse(self.section.isSet("flowTableHeadersMode"))

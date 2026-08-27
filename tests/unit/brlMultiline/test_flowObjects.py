@@ -1534,3 +1534,85 @@ class TestAContainerHoldingADeclaredRun(unittest.TestCase):
 		"""Once they are on a member, that is where reading starts, whatever the start says."""
 		messages, container, _compose = self.history(start=0)
 		self.assertIs(flowObjects.DECLARED_RUN.start(container, messages[2]), messages[2])
+
+
+class CountingBranch:
+	"""A tree that branches, counting every property read taken out of it.
+
+	Built rather than fetched, because what is being measured is how many objects the search
+	*asks for*: every one of them is a call into the application, and the whole point of a
+	budget is that the worst case is a number rather than a shape.
+	"""
+
+	def __init__(self, counter, depth: int, width: int, name="a node"):
+		self.counter = counter
+		self.depth = depth
+		self.width = width
+		self.name = name
+		self.brlMultilineFlowRunContainer = True
+		self._children = None
+
+	@property
+	def firstChild(self):
+		self.counter[0] += 1
+		if self.depth <= 0:
+			return None
+		if self._children is None:
+			self._children = [
+				CountingBranch(self.counter, self.depth - 1, self.width, f"{self.name}.{number}")
+				for number in range(self.width)
+			]
+			for index, child in enumerate(self._children):
+				child._nextSibling = self._children[index + 1] if index + 1 < len(self._children) else None
+		return self._children[0]
+
+	@property
+	def next(self):
+		self.counter[0] += 1
+		return getattr(self, "_nextSibling", None)
+
+
+class TestLookingForARunThatIsNotThere(unittest.TestCase):
+	"""A container may declare that it holds a run and be wrong, and then the search is for
+	something that does not exist. Every step of it is a call into the application, and a limit
+	applied at each node multiplies by itself once per generation: five hundred children over
+	four levels is not five hundred reads, it is five hundred to the fourth.
+	"""
+
+	def test_theWholeSearchIsBounded(self):
+		counter = [0]
+		root = CountingBranch(counter, depth=6, width=8)
+		self.assertIsNone(flowObjects._firstDeclaredWithin(root, budget=50))
+		self.assertLessEqual(counter[0], 50 * 2)
+
+	def test_andTheBoundIsOneNumberRatherThanOnePerNode(self):
+		"""The distinction the recursion this replaced could not make: a bound per node is
+		respected all the way down while the total is unbounded."""
+		counter = [0]
+		root = CountingBranch(counter, depth=6, width=8)
+		flowObjects._firstDeclaredWithin(root, depth=4, budget=flowObjects.MAX_RUN_SEARCH)
+		self.assertLess(counter[0], flowObjects.MAX_CHILDREN**2)
+
+	def test_aRunThatIsThereIsStillFound(self):
+		counter = [0]
+		root = CountingBranch(counter, depth=3, width=3)
+		member = root.firstChild.firstChild
+		member.brlMultilineFlowRun = True
+		self.assertIs(flowObjects._firstDeclaredWithin(root), member)
+
+	def test_aChildThatRefusesToBeReadEndsThatBranchAndNoMore(self):
+		"""`firstChild` and `next` are calls into an application and either may fail. An
+		unhandled failure in one of them was a failure of the whole read."""
+
+		class Refuses:
+			brlMultilineFlowRunContainer = True
+
+			@property
+			def firstChild(self):
+				raise RuntimeError("no")
+
+			@property
+			def next(self):
+				raise RuntimeError("no")
+
+		self.assertIsNone(flowObjects._firstDeclaredWithin(Refuses()))

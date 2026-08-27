@@ -726,6 +726,14 @@ class TableFlowSource:
 		self._declared = declaredHeaders(handle, self.columns) if pinHeaders else {}
 		"""The header each drawn column declares. Empty where the table declares none."""
 
+		self._headersAsked = set(self.columns) if pinHeaders else set()
+		"""Which columns have been asked what their header is, answer or no answer.
+
+		Separate from the answers because a column with no header leaves no trace in them, so
+		reading the two off one dictionary asked such a column again on every refresh — a
+		search of the document apiece, for a question already answered "nothing".
+		"""
+
 		# Row one is skipped only when row one is what is pinned. A table that declares its
 		# headers may have them two rows deep, in a column rather than a row, or nowhere near
 		# the top at all — and then row one is data, and dropping it would lose a row of the
@@ -872,13 +880,15 @@ class TableFlowSource:
 
 		Asked again for a column this source has not seen, which is what turning the page
 		brings: the columns change and their headers are a property of the columns. Nothing
-		is asked twice, and nothing is asked at all for a table that declares nothing, since
-		then there is nothing to look up and row one is what will be pinned.
+		is asked twice — including a column whose answer was that it has no header, which is
+		what L{_headersAsked} is for — and nothing is asked at all for a table that declares
+		nothing, since then there is nothing to look up and row one is what will be pinned.
 		"""
 		if not self._declared:
 			return {}
-		missing = [column for column in self.columns if column not in self._declared]
+		missing = [column for column in self.columns if column not in self._headersAsked]
 		if missing:
+			self._headersAsked.update(missing)
 			self._declared.update(declaredHeaders(self.handle, missing))
 		return {column: self._declared[column] for column in self.columns if column in self._declared}
 

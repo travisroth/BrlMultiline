@@ -525,3 +525,37 @@ class TestPinningTheDeclaredHeader(unittest.TestCase):
 		source.headerBlock()
 		# Row one, read as the fallback header. Nothing was looked up for the column itself.
 		self.assertEqual(document.reads, [(1, 2)])
+
+
+class TestAColumnThatDeclaresNoHeader(unittest.TestCase):
+	"""A column with no header leaves no trace in the answers, so reading the record of what
+	has been asked off the answers asked such a column again on every refresh — a search of the
+	document apiece, for a question already answered "nothing".
+	"""
+
+	def source(self, columns=(1, 2, 3)):
+		document = FakeTableDocument(
+			[["Symbol", "Last", ""], ["AAPL", "182.50", ""]],
+			row=2,
+			col=1,
+			columnHeaders={1: "Symbol", 2: "Last"},
+		)
+		handle = flowTableSource.tableAt(FakeNavigatorObject("a page", treeInterceptor=document))
+		return document, flowTableSource.TableFlowSource(handle, columns, pinHeaders=True)
+
+	def test_aColumnWithNoHeaderIsNotAskedTwice(self):
+		document, source = self.source()
+		source.headerBlock()
+		document.reads.clear()
+		source.headerBlock()
+		self.assertEqual(document.reads, [])
+
+	def test_aColumnTheNextPageBringsIsStillAsked(self):
+		"""Which is what the record is for: the columns change when the page turns, and their
+		headers are a property of the columns."""
+		document, source = self.source(columns=(1,))
+		source.headerBlock()
+		document.reads.clear()
+		source.setColumns((2,))
+		self.assertIn("Last", source.headerBlock().region.rawText)
+		self.assertTrue(document.reads)

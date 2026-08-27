@@ -54,6 +54,23 @@ the reader already knows — and a header shown once on its own row costs none o
 reader may well want the row in braille having turned the announcement off, and the reverse
 on a short display where a row is a quarter of everything there is."""
 
+LEGACY_FOLLOWING = {
+	"flowTableHeadersMode": "flowTableHeaders",
+	"flowTablePinKeyMode": "flowTablePinKey",
+}
+"""The three state settings that used to be checkboxes, and the key each was stored under.
+
+Both of these were `boolean(default=True)` before they learned to defer to NVDA. A stored
+`False` is not a value the new specification allows, and `configobj` replaces a value that
+fails validation with the default before any code of this add-on is reached — so a reader who
+had turned the header row off would have been given it back, and told nothing about it,
+because the new default is to follow NVDA and NVDA reports table headers by default.
+
+Hence a new key beside the old one rather than the old one reused. The old key stays in the
+specification, because a key with no specification is a key `configobj` throws away, and it
+is read only where the reader answered it and has not answered its replacement.
+"""
+
 FOLLOWING_OPTIONS = ", ".join(f'"{state}"' for state in FOLLOWING)
 """The three states as `configobj` writes an option list, built from the one definition."""
 
@@ -122,10 +139,12 @@ configSpec = {
 			"flowLineFocus": "boolean(default=True)",
 			"flowTableRowHeight": f"integer(default={flowTable.DEFAULT_MAX_ROWS}, min=1, max={flowTable.MAX_TABLE_ROWS})",
 			"flowTableTruncate": "boolean(default=False)",
-			"flowTablePinKey": f'option({FOLLOWING_OPTIONS}, default="{FOLLOW_NVDA}")',
+			"flowTablePinKeyMode": f'option({FOLLOWING_OPTIONS}, default="{FOLLOW_NVDA}")',
+			"flowTablePinKey": "boolean(default=True)",
 			"flowLiveSeconds": "integer(default=0, min=0, max=60)",
 			"flowLiveUpdates": "boolean(default=True)",
-			"flowTableHeaders": f'option({FOLLOWING_OPTIONS}, default="{FOLLOW_NVDA}")',
+			"flowTableHeadersMode": f'option({FOLLOWING_OPTIONS}, default="{FOLLOW_NVDA}")',
+			"flowTableHeaders": "boolean(default=True)",
 			**{
 				flowModeKey(mode): f"boolean(default={FLOW_MODE_DEFAULTS.get(mode, False)})"
 				for mode in FLOW_MODES
@@ -176,16 +195,20 @@ configSpec = {
 	indent has room for the mark.
 - `flowTableRowHeight`: how many rows of the band one row of a table may use.
 - `flowTableTruncate`: whether a cell too long for its column is cut rather than wrapped.
-- `flowTablePinKey`: whether the first column is repeated at the left of every page after
+- `flowTablePinKeyMode`: whether the first column is repeated at the left of every page after
 	the first, so that a reader six columns across a watchlist still knows whose row it is.
 	One of `FOLLOWING`; following means NVDA's own `reportTableHeaders` asking for row
 	headers.
+- `flowTablePinKey`: what the setting above used to be, when it was a checkbox. Kept and read
+	where the reader answered it and has not answered the new one. See L{LEGACY_FOLLOWING}.
 - `flowLiveSeconds`: how often the band reads its content again on a timer, over and above
 	reading it when the page says it changed. Zero waits to be told.
 - `flowLiveUpdates`: whether the band follows a page that changes under it at all.
-- `flowTableHeaders`: whether a table's header row is held on the top row of the band,
+- `flowTableHeadersMode`: whether a table's header row is held on the top row of the band,
 	whatever the rest of it is showing. One of `FOLLOWING`; following means NVDA's own
 	`reportTableHeaders` asking for column headers.
+- `flowTableHeaders`: what the setting above used to be, when it was a checkbox. Kept and read
+	where the reader answered it and has not answered the new one. See L{LEGACY_FOLLOWING}.
 
 Everything above is read through `config.conf`, which is profile aware, so all of it can
 differ per configuration profile. That matters most for the flow: a profile triggered by
@@ -600,9 +623,9 @@ def shouldPinKeyColumn(displayKey: str | None = None) -> bool:
 	left of the page. See L{wantsRowHeaders} and `flowTable.ColumnPlan.keyColumn`.
 	"""
 	try:
-		return _following(getDisplayConfig(displayKey)["flowTablePinKey"], wantsRowHeaders)
+		return _following(storedFollowing(displayKey, "flowTablePinKeyMode"), wantsRowHeaders)
 	except Exception:
-		log.debugWarning("Could not read flowTablePinKey", exc_info=True)
+		log.debugWarning("Could not read flowTablePinKeyMode", exc_info=True)
 		# The default, so a setting that cannot be read behaves as one that was never set.
 		return wantsRowHeaders()
 
@@ -668,11 +691,43 @@ def shouldPinTableHeaders(displayKey: str | None = None) -> bool:
 	*column* headers. See L{wantsColumnHeaders}.
 	"""
 	try:
-		return _following(getDisplayConfig(displayKey)["flowTableHeaders"], wantsColumnHeaders)
+		return _following(storedFollowing(displayKey, "flowTableHeadersMode"), wantsColumnHeaders)
 	except Exception:
-		log.debugWarning("Could not read flowTableHeaders", exc_info=True)
+		log.debugWarning("Could not read flowTableHeadersMode", exc_info=True)
 		# The default, so a setting that cannot be read behaves as one that was never set.
 		return wantsColumnHeaders()
+
+
+def storedFollowing(displayKey, key: str) -> str:
+	""":return: what a display was told about one three state setting, one of L{FOLLOWING}.
+
+	The setting's own value where the reader has answered it. The checkbox it replaced where
+	they have not, read as the two answers a checkbox could give: ticked is L{ALWAYS} and
+	cleared is L{NEVER}, because both were answers about this add-on rather than about NVDA
+	and neither meant "do whatever NVDA does". Failing both, the default, which is to follow.
+
+	`isSet` is what tells a stored answer from a default: it reports whether the key is stored
+	in any profile, so the checkbox is read only where somebody actually ticked or cleared it.
+	The same distinction `migrateReverseScrollButtons` turns on, and for the same reason — a
+	value the user set by hand is never the thing to ignore.
+
+	Nothing is written back. A migration that rewrites the configuration has to choose a
+	profile to write to, and an answer given in a profile triggered by one application is an
+	answer about that application; reading through the aggregated section asks the question in
+	whichever profile is active, which is where the answer was given.
+
+	:param displayKey: the display to read, or None for the current one.
+	:param key: the new key, which must be one of L{LEGACY_FOLLOWING}.
+	"""
+	section = getDisplayConfig(displayKey)
+	legacy = LEGACY_FOLLOWING[key]
+	try:
+		if not section.isSet(key) and section.isSet(legacy):
+			return ALWAYS if section[legacy] else NEVER
+	except Exception:
+		# A section that cannot say what was stored in it is one to read plainly.
+		log.debugWarning(f"Could not ask whether {legacy} was set", exc_info=True)
+	return str(section[key] or FOLLOW_NVDA)
 
 
 def _following(setting, whatNvdaWasTold) -> bool:

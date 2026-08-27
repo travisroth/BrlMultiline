@@ -1892,6 +1892,64 @@ class FakeListItem(FakeNavigatorObject):
 			return None
 		return FakeColumnRect(widths[column - 1])
 
+	def getChild(self, index):
+		""":return: the cell object for one column, as `RowWithoutCellObjects.getChild` does.
+
+		None outside the row, which is what NVDA's `_makeCell` answers for a column the row
+		has not got.
+		"""
+		column = index + 1
+		if not 1 <= column <= self.childCount:
+			return None
+		return FakeRowCell(self, column)
+
+	@property
+	def childCount(self):
+		""":return: how many columns the table has, which is what such a row answers.
+
+		`RowWithoutCellObjects._get_childCount` is `self.parent.columnCount` exactly.
+		"""
+		table = self.parent
+		return int(getattr(table, "columnCount", 0) or 0) if table is not None else 0
+
+
+class FakeRowCell(FakeNavigatorObject):
+	"""The cell object a row makes for one of its columns: NVDA's `behaviors._FakeTableCell`.
+
+	Not a control the platform has: `RowWithoutCellObjects.getChild` makes one on demand and
+	it answers `name`, `columnHeaderText` and `location` by asking the row the underscored
+	questions itself. That indirection is the whole point of it — it is the public way to a
+	column of a classic list view — so the stub has it too, and a test that counts what was
+	read through the row still sees the reads.
+
+	Not focusable, as NVDA's is not: a column of a list view is a rectangle on the screen
+	rather than somewhere the keyboard can be put.
+	"""
+
+	def __init__(self, row, column):
+		super().__init__(name="", role="TABLECELL")
+		self.row = row
+		self.columnNumber = column
+		self.parent = row
+		self.isFocusable = False
+
+	@property
+	def name(self):
+		return self.row._getColumnContent(self.columnNumber)
+
+	@name.setter
+	def name(self, value):
+		"""Ignored. `FakeNavigatorObject` sets a name in its constructor and this one is
+		answered by the row, which is exactly what NVDA's does."""
+
+	@property
+	def columnHeaderText(self):
+		return self.row._getColumnHeader(self.columnNumber)
+
+	@property
+	def location(self):
+		return self.row._getColumnLocation(self.columnNumber)
+
 
 class FakeListView(FakeNavigatorObject):
 	"""A list view in report mode: rows of cells, and a header control saying what they are.
@@ -1933,11 +1991,16 @@ class FakeGridCell(FakeNavigatorObject):
 	interface. Both are NVDA properties by the time anything here sees them.
 	"""
 
-	def __init__(self, text, column, header=None, value=None):
+	def __init__(self, text, column, header=None, value=None, focusable=True):
 		super().__init__(name=text, role="TABLECELL")
 		self.columnNumber = column
 		self.columnHeaderText = header
 		self.value = value
+		self.isFocusable = focusable
+		"""Whether the keyboard can be put on this cell, which the two shapes of grid differ
+		on. File Explorer's Details view cells are `explorer.UIProperty` and the focus lands
+		on one of them when the reader arrows across a file; Outlook's message list rows are
+		the focusable thing and their children are text elements that are not."""
 
 
 class FakeGridRow(FakeNavigatorObject):
@@ -2224,6 +2287,20 @@ def _module(name, **attributes):
 	return module
 
 
+navigatedTo = []
+"""What `api.setNavigatorObject` was called with, newest last.
+
+NVDA's own way of taking the reader to a cell that cannot be focused: `RowWithFakeNavigation`
+focuses the row and moves the navigator object the rest of the way. See
+`flowObjectTable.ObjectCellInfo.updateCaret`.
+"""
+
+
+def _setNavigatorObject(obj, *args, **kwargs) -> bool:
+	navigatedTo.append(obj)
+	return True
+
+
 def _installPluginStubs() -> None:
 	"""Register the modules the global plugin and its settings panel reach for.
 
@@ -2239,6 +2316,7 @@ def _installPluginStubs() -> None:
 		"api",
 		getFocusObject=lambda: FakeNavigatorObject("the focus"),
 		getNavigatorObject=lambda: FakeNavigatorObject("the navigator object"),
+		setNavigatorObject=_setNavigatorObject,
 		copyToClip=_copyToClip,
 	)
 	_module("ui", message=spokenMessages.append)
@@ -2516,8 +2594,8 @@ def resetConfig() -> None:
 		flowIndentStyle="twoSpaces",
 		# The two that may defer to NVDA. Spelled out rather than left missing, because
 		# missing reads as "could not be read" and that is a different path.
-		flowTableHeaders="follow",
-		flowTablePinKey="follow",
+		flowTableHeadersMode="follow",
+		flowTablePinKeyMode="follow",
 	)
 	BAND_CONFIG.clear()
 	# Both are filled in by the real `getDisplayConfig` as displays are met, so a test that

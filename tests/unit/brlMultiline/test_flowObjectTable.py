@@ -23,6 +23,7 @@ from ._stubs import (
 	FakeNavigatorObject,
 	FakeTableDocument,
 	installStubs,
+	navigatedTo,
 )
 
 installStubs()
@@ -763,3 +764,150 @@ class TestARowWhoseCellsCarryNothing(unittest.TestCase):
 		row = view.item(1)
 		row.cellObjects = row.cellObjects[:1]
 		self.assertIsNone(flowObjectTable.tableFor(row))
+
+
+class TestAListArrangedInGroups(unittest.TestCase):
+	"""File Explorer grouped by type, Outlook grouped by date. NVDA's `indexInGroup` is an
+	index **within a group**, and the whole table is only one of the things a group can be:
+	in a grouped list it restarts at one in every group. Read as a row number it names two
+	rows the same, and read as a count it ends the table at the bottom of whichever group the
+	reader happens to be standing in.
+	"""
+
+	ROWS = [["one", "first"], ["two", "second"], ["three", "third"], ["four", "fourth"]]
+
+	def grouped(self, focused=3, index=1, among=2, level=0):
+		""":return: a four row list whose rows are numbered two at a time."""
+		view = FakeGrid(self.ROWS, headers=["Name", "Rank"])
+		for number, row in enumerate(view.items, start=1):
+			row.positionInfo = {
+				"indexInGroup": (number - 1) % 2 + 1,
+				"similarItemsInGroup": 2,
+				"level": level,
+			}
+		item = view.item(focused)
+		item.positionInfo = {"indexInGroup": index, "similarItemsInGroup": among, "level": level}
+		return view, item
+
+	def test_aTableHoldingMoreThanTheGroupIsNotOneGroup(self):
+		view, item = self.grouped()
+		table = flowObjectTable.CellObjectTable(view, row=item)
+		self.assertEqual(view.childCount, 4)
+		self.assertFalse(table.positionNumbersTheTable())
+
+	def test_soTheReaderIsNotToldTheyAreInATable(self):
+		"""Which leaves them NVDA's ordinary reading of the control. Better than a layout drawn
+		confidently from numbers that mean something else."""
+		_view, item = self.grouped()
+		self.assertIsNotNone(flowObjectTable.tableFor(item))
+		self.assertIsNone(flowTableSource.tableAt(item))
+
+	def test_norIsTheTableTwoRowsLong(self):
+		view, item = self.grouped()
+		table = flowObjectTable.CellObjectTable(view, row=item)
+		self.assertEqual(table.itemsAmong(item), 0)
+		self.assertNotEqual(table.numRows, 2)
+
+	def test_aRowAtALevelBelowTheFirstIsInABranch(self):
+		"""NVDA reports a level for the controls that have a structure and for no others."""
+		view, item = self.grouped(among=4, level=2)
+		table = flowObjectTable.CellObjectTable(view, row=item)
+		self.assertFalse(table.positionNumbersTheTable())
+
+	def test_aRealRowNumberIsStillBelieved(self):
+		"""A grouped table with true coordinates is still a table. `rowNumber` is the table
+		property and says which row of the *table* this is, groups or no groups."""
+		view, item = self.grouped()
+		item.rowNumber = 3
+		table = flowObjectTable.CellObjectTable(view, row=item)
+		self.assertEqual(table.rowNumberOf(item), 3)
+
+	def test_aVirtualisedListIsStillMeasuredByWhatTheRowSays(self):
+		"""The one sided test, and the case this module was built for: File Explorer's file
+		list admitted to fourteen children while the reader stood on item fifty-two of
+		seventy-nine. Fewer is a list that has not been built; more is a list that has been
+		grouped."""
+		view = FakeGrid([[f"file{number}.py", "Available"] for number in range(1, 80)], realized=17)
+		table = flowObjectTable.tableFor(view.item(52))
+		self.assertTrue(table.positionNumbersTheTable())
+		self.assertEqual(table.numRows, 79)
+
+	def test_theReportSaysWhichItRead(self):
+		"""Because the difference between the two is invisible in everything else the report
+		holds: both answer a row number and both answer a count."""
+		view, item = self.grouped()
+		grouped = flowObjectTable.CellObjectTable(view, row=item)
+		self.assertIn("numbers a group of it", " ".join(grouped.describe()))
+		flat = flowObjectTable.tableFor(FakeGrid(self.ROWS, headers=["Name", "Rank"]).item(1))
+		self.assertIn("numbers the table", " ".join(flat.describe()))
+
+
+class TestGoingToACellNobodyCanFocus(unittest.TestCase):
+	"""Outlook's message list. `RowWithFakeNavigation` keeps the focus on the row and moves
+	the navigator object to the cell, because the row is the focusable thing and its children
+	are text elements that are not. Focusing one of those does nothing at all, so a routing
+	key over a subject line would have moved nothing and said nothing.
+	"""
+
+	def setUp(self):
+		navigatedTo.clear()
+
+	def messages(self, focusable=False):
+		view = FakeGrid([["A teammate", "Re: the watchlist"], ["Someone else", "Lunch"]])
+		for row in view.items:
+			row.isFocusable = True
+			for cell in row.cellObjects:
+				cell.isFocusable = focusable
+		return view
+
+	def test_theRowTakesTheFocus(self):
+		view = self.messages()
+		table = flowObjectTable.tableFor(view.item(1))
+		table._getTableCellAt(flowObjectTable.TABLE_ID, None, 2, 2).updateCaret()
+		self.assertTrue(view.item(2).focused)
+
+	def test_andTheNavigatorObjectGoesTheRestOfTheWay(self):
+		view = self.messages()
+		table = flowObjectTable.tableFor(view.item(1))
+		table._getTableCellAt(flowObjectTable.TABLE_ID, None, 2, 2).updateCaret()
+		self.assertIs(navigatedTo[-1], view.item(2).cellObjects[1])
+
+	def test_aCellThatCanBeFocusedStillIsFocused(self):
+		"""File Explorer's Details view, where the focus lands on the property itself. Going to
+		the row there would move the reader off the column they had their finger on."""
+		view = self.messages(focusable=True)
+		table = flowObjectTable.tableFor(view.item(1))
+		table._getTableCellAt(flowObjectTable.TABLE_ID, None, 2, 2).updateCaret()
+		self.assertTrue(view.item(2).cellObjects[1].focused)
+		self.assertFalse(view.item(2).focused)
+		self.assertEqual(navigatedTo, [])
+
+
+class TestReadingAListViewThroughItsOwnCells(unittest.TestCase):
+	"""`RowWithoutCellObjects.getChild` makes a cell object per column, and that object answers
+	`name`, `columnHeaderText` and `location` by asking the row the underscored questions
+	itself. Asking it is the public way to a column of a classic list view; calling those
+	methods from here is depending on API the NVDA developer guide says is private.
+	"""
+
+	def test_theCellIsWhereTheContentIsRead(self):
+		view, item = listView()
+		table = flowObjectTable.tableFor(item)
+		cell = table.cellObject(item, 2)
+		self.assertEqual(cell.columnNumber, 2)
+		self.assertEqual(table.cellOf(item, 2, 1).text, cell.name)
+
+	def test_andWhereTheHeaderIs(self):
+		view, item = listView()
+		table = flowObjectTable.tableFor(item)
+		self.assertEqual(table.cellOf(item, 1, 1).header, "From")
+
+	def test_aRowThatMakesNoCellIsStillRead(self):
+		"""An application module may implement the contract on a class of its own rather than
+		by inheriting NVDA's behaviour, which is what `rowsTable` is written to accept."""
+		view, item = listView()
+		for row in view.items:
+			row.getChild = lambda index: None
+		table = flowObjectTable.tableFor(item)
+		self.assertEqual(table.cellOf(item, 1, 1).text, "Travis Roth")
+		self.assertEqual(table.cellOf(item, 1, 1).header, "From")
