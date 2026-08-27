@@ -1351,3 +1351,93 @@ class TestARunAnApplicationDeclares(unittest.TestCase):
 			"".join(chr(cell) if cell else " " for cell in cells[index * numCols : (index + 1) * numCols])
 			for index in range(control.window.numRows)
 		]
+
+
+class TestAContainerHoldingADeclaredRun(unittest.TestCase):
+	"""What a pin points at, which is the list rather than one of its members.
+
+	The band arrives on a message and reads outward, so the members declaring themselves is
+	all it needs. A pin hands this add-on the chat list, and nothing about a list says its
+	grandchildren are a run — so pinning the history read the one focused message and could
+	not be panned, because there was no flow behind it at all.
+	"""
+
+	def history(self, count=4, start=None, declareContainer=True):
+		messages, container, compose = teamsHistory([f"message {n}" for n in range(count)])
+		declareRun(messages)
+		if declareContainer:
+			setattr(container, flowObjects.RUN_CONTAINER, True)
+		if start is not None:
+			setattr(container, flowObjects.RUN_START, lambda: messages[start])
+		return messages, container, compose
+
+	def test_anUndeclaredContainerIsStillNotARun(self):
+		"""A pin on any old container must not start walking it looking for one."""
+		_messages, container, _compose = self.history(declareContainer=False)
+		self.assertIsNone(flowObjects.adapterFor(container))
+
+	def test_aDeclaredContainerIsRead(self):
+		_messages, container, _compose = self.history()
+		self.assertIs(flowObjects.adapterFor(container), flowObjects.DECLARED_RUN)
+
+	def test_itBeginsWhereTheContainerSays(self):
+		"""A chat history wants its newest message, which only the application knows."""
+		messages, container, _compose = self.history(start=-1)
+		self.assertIs(flowObjects.DECLARED_RUN.start(container, container), messages[-1])
+
+	def test_andIsSearchedWhenItSaysNothing(self):
+		messages, container, _compose = self.history()
+		self.assertIs(flowObjects.DECLARED_RUN.start(container, container), messages[0])
+
+	def test_theSearchReachesAMemberThatIsNotAChild(self):
+		"""Teams wraps each message, so its run is two generations down."""
+		messages, container, _compose = self.history()
+		self.assertIsNot(messages[0].parent, container)
+		self.assertIs(flowObjects._firstDeclaredWithin(container), messages[0])
+
+	def test_theSearchGivesUpRatherThanWalkingForever(self):
+		"""A container that declared a run it does not hold must cost a bounded walk."""
+		empty = FakeNavigatorObject("nothing in here", role="SECTION")
+		setattr(empty, flowObjects.RUN_CONTAINER, True)
+		self.assertIsNone(flowObjects.DECLARED_RUN.start(empty, empty))
+
+	def test_aContainerThatCannotSayWhereToStartFallsBackToTheSearch(self):
+		messages, container, _compose = self.history()
+
+		def broken():
+			raise RuntimeError("UIA is having a day")
+
+		setattr(container, flowObjects.RUN_START, broken)
+		self.assertIs(flowObjects.DECLARED_RUN.start(container, container), messages[0])
+
+	def test_theWholeRunReadsFromTheContainer(self):
+		messages, container, _compose = self.history(count=4)
+		source = sourceOver([container], adapter=flowObjects.DECLARED_RUN)
+		block = source.blockAtCursor().block
+		seen = [block.region.rawText.strip()]
+		while True:
+			result = source.blockAfter(block.blockId)
+			if result.block is None:
+				break
+			block = result.block
+			seen.append(block.region.rawText.strip())
+		self.assertEqual(len(seen), 4)
+		for index, text in enumerate(seen):
+			self.assertTrue(text.startswith(f"message {index}"), text)
+
+	def test_andStopsAtTheComposeBox(self):
+		messages, container, _compose = self.history(count=2)
+		source = sourceOver([container], adapter=flowObjects.DECLARED_RUN)
+		block = source.blockAtCursor().block
+		block = source.blockAfter(block.blockId).block
+		self.assertEqual(source.blockAfter(block.blockId).kind, ResultKind.END_OF_STREAM)
+
+	def test_theMembersStillReadFromAMemberAsBefore(self):
+		"""The band's path is unchanged: the reader is on a message and reads outward."""
+		messages, _container, _compose = self.history()
+		self.assertIs(flowObjects.DECLARED_RUN.start(messages[2], messages[2]), messages[2])
+
+	def test_theReaderWinsOverTheContainersOpinion(self):
+		"""Once they are on a member, that is where reading starts, whatever the start says."""
+		messages, container, _compose = self.history(start=0)
+		self.assertIs(flowObjects.DECLARED_RUN.start(container, messages[2]), messages[2])

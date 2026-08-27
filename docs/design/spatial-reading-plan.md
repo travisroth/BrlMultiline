@@ -777,6 +777,22 @@ call. A declaration is inert data that only this add-on reads, so the app module
 identically whether or not BrlMultiline is installed. `register` stays for code that wants to
 supply a whole adapter for controls it does not own.
 
+**A pin points at the container, not at a member.** The band arrives on a message and reads
+outward, so members declaring themselves is all it needs. A pin is the other way round: the
+reader puts the navigator object on the chat list and pins *that*, and nothing about a list
+says its grandchildren are a run — so the pin fell through to the document path, read the one
+focused message, and could not be panned because there was no flow behind it at all. A
+container therefore has a declaration of its own, `brlMultilineFlowRunContainer`, and says
+where to begin with `brlMultilineFlowRunStart`. Where to begin is genuinely the
+application's: the first member is right for a list and wrong for a chat history, where the
+reader wants the newest. Failing that method the container is searched, bounded in breadth
+and depth, because the members need not be children — Teams' are grandchildren, one wrapper
+each.
+
+Reading always starts at the reader when they are on a member, whatever a container says.
+The container's opinion is for the case where nothing else knows: a pin, made while the
+reader is somewhere else entirely.
+
 An application that declares a run and supplies no walk is saying its members are siblings.
 If they are not, the step lands outside the run and the admission test above ends the reading
 there — a short run, never wrong content. A walk that raises ends the run for the same

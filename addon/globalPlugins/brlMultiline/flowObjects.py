@@ -152,6 +152,15 @@ means, and what stops a finger landing on a list item the reader was reading pas
 activating it.
 """
 
+MAX_RUN_DEPTH = 4
+"""How far inside a container a declared run is looked for. See `_firstDeclaredWithin`.
+
+Four because the members may be wrapped: Teams puts each message in a wrapper of its own,
+so its run is two generations down, and a control that wraps twice is not hard to imagine.
+Deep enough to find a run that is really there, shallow enough that a container which
+declared one by mistake is not walked to the bottom of its tree.
+"""
+
 MAX_CHILDREN = 500
 """How many children of a container will be walked when finding where the focus sits.
 
@@ -189,6 +198,31 @@ RUN_NEXT = "brlMultilineFlowNext"
 
 RUN_PREVIOUS = "brlMultilineFlowPrevious"
 """A method an application may supply to step back through its run, returning None at the start."""
+
+RUN_CONTAINER = "brlMultilineFlowRunContainer"
+"""The attribute a container sets to say the run is somewhere inside it.
+
+The members declare themselves with L{RUN_DECLARATION}, which is what the *band* needs: the
+reader is on a message, and the run is read outward from there. A container needs its own
+declaration because of what else can be pointed at a run — a pin. Pinning the chat list
+hands this add-on the list, not a message, and nothing about a list says its grandchildren
+are a run.
+
+Teams again is the case. Its history is a SECTION holding one wrapper per message, so the
+members are grandchildren; an adapter looking at a container's own children would find
+wrappers and stop. What to read first is therefore the container's to answer, through
+L{RUN_START}, since only the application knows which message it wants shown — the newest,
+for a chat.
+"""
+
+RUN_START = "brlMultilineFlowRunStart"
+"""A method a container may supply, returning the member to begin reading at.
+
+Wanted rather than optional in practice: without it a container is searched for a declared
+descendant, which is a walk into the application and answers with whichever comes first in
+its tree. That is the right first message for a list and the wrong one for a chat history,
+where the reader wants the newest.
+"""
 
 RUN_ADMITS = "brlMultilineFlowAdmits"
 """A method an application may supply to say whether another object is in the same run.
@@ -774,6 +808,80 @@ def _isDeclaredRun(obj) -> bool:
 		return False
 
 
+def _declaresRunInside(obj) -> bool:
+	""":return: whether a container has declared that a run of its own lies inside it."""
+	try:
+		return bool(getattr(obj, RUN_CONTAINER, False))
+	except Exception:
+		log.debugWarning("Could not read a run container declaration", exc_info=True)
+		return False
+
+
+def _matchesDeclared(obj) -> bool:
+	""":return: whether this adapter reads an object, as a member of a run or as its container."""
+	return _isDeclaredRun(obj) or _declaresRunInside(obj)
+
+
+def _firstDeclaredWithin(root, depth: int = MAX_RUN_DEPTH):
+	"""Search a container for a member of the run it says it holds.
+
+	The fallback for a container that supplies no L{RUN_START}. Bounded in both directions —
+	how many children are looked at and how far down — because every step is a call into the
+	application and a container that declared a run it does not hold would otherwise be
+	walked to the bottom of its tree.
+
+	Depth rather than children alone, because the members need not be children: Teams' are
+	grandchildren, one wrapper each.
+
+	:param root: the container to search.
+	:param depth: how many generations below it to look.
+	:return: the first declared member found in tree order, or None.
+	"""
+	if root is None or depth <= 0:
+		return None
+	child = getattr(root, "firstChild", None)
+	for _ in range(MAX_CHILDREN):
+		if child is None:
+			return None
+		if _isDeclaredRun(child):
+			return child
+		found = _firstDeclaredWithin(child, depth - 1)
+		if found is not None:
+			return found
+		child = getattr(child, "next", None)
+	log.debugWarning(f"Gave up looking for a declared run inside {root!r}")
+	return None
+
+
+def _declaredStart(root, current):
+	"""Which member of a declared run to begin reading at.
+
+	Three answers in order. Where the reader is, when they are on a member — which is the
+	band's case, and the common one. What the container says, when one was pointed at
+	instead — a pin. And failing both, the first member found inside it.
+
+	:param root: what the run was found from: a member, or a container holding one.
+	:param current: where the reader is now, which may be the container itself.
+	:return: the member to read at, or None if the run has nothing in it.
+	"""
+	if _isDeclaredRun(current):
+		return current
+	if root is None:
+		return current
+	starter = getattr(root, RUN_START, None)
+	if starter is not None:
+		try:
+			found = starter()
+		except Exception:
+			log.debugWarning("A container could not say where its run starts", exc_info=True)
+			found = None
+		if found is not None:
+			return found
+	if _isDeclaredRun(root):
+		return root
+	return _firstDeclaredWithin(root)
+
+
 def _admitsDeclared(root, candidate) -> bool:
 	""":return: whether a candidate belongs to a declared run.
 
@@ -861,7 +969,8 @@ CHOICES = ObjectAdapter(name="choices", matches=_hasChoices, start=_chosenChild,
 
 DECLARED_RUN = ObjectAdapter(
 	name="declared",
-	matches=_isDeclaredRun,
+	matches=_matchesDeclared,
+	start=_declaredStart,
 	admits=_admitsDeclared,
 	nextOf=_declaredNext,
 	previousOf=_declaredPrevious,

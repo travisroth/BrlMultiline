@@ -79,7 +79,10 @@ For add-on authors and component work:
   and optionally `brlMultilineFlowNext`, `brlMultilineFlowPrevious` and
   `brlMultilineFlowAdmits` where the run is not a plain row of siblings. No import of this
   add-on and no dependency on it: an app module that sets them behaves identically when
-  BrlMultiline is absent or disabled. For controls an author does not own,
+  BrlMultiline is absent or disabled. A container holding such a run declares itself with
+  `brlMultilineFlowRunContainer` and says where to begin with `brlMultilineFlowRunStart`,
+  which is what lets an object pinned to a segment be the list rather than one of its
+  members. For controls an author does not own,
   `flowObjects.register` still takes a whole adapter.
 - Wrapping and cursor routing behaviour are per segment, so a claimed area can behave
   differently from the display around it. Neither is exposed in the settings dialog.
