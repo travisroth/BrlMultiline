@@ -15,6 +15,7 @@ import unittest
 
 from ._stubs import (
 	CursorManagerRegion,
+	OffsetDocument,
 	FakeNavigatorObject,
 	FakeTreeInterceptor,
 	installStubs,
@@ -1616,3 +1617,122 @@ class TestPanningADocumentBeingWrittenIn(unittest.TestCase):
 		control.source.caretPosition = lambda: None
 		control.panForward()
 		self.assertFalse(control._caretIsWhereThePanLeftIt())
+
+
+class TestAnEditUnderACaretThatHasNotMoved(unittest.TestCase):
+	"""Forward Delete after a pan, where nothing moves but everything shifts.
+
+	A caret that has not moved since the reader panned keeps the band where they put it, and
+	only the row they are standing on is read again — the cheap path a caret settling after a
+	pan deserves. But a block's position is an *offset*, and forward Delete changes the
+	length of that row without moving the caret off it, so every position after it moves and
+	the rest of the band is left reading at offsets that have gone. Panning again then walked
+	from a stale position: a line shown twice, or one skipped.
+
+	Told against `OffsetDocument`, whose positions are real offsets. The line-indexed stand-in
+	the rest of this file uses cannot express the bug at all, because its positions follow
+	their line wherever it goes.
+	"""
+
+	COLS = 24
+	ROWS = 4
+
+	def flow(self, count=20):
+		doc = OffsetDocument([f"line {n} aaaaaaaa" for n in range(count)])
+		source = DocumentFlowSource(
+			doc,
+			regionFactoryFor(CursorManagerRegion(doc), live=True),
+			generation=1,
+			interactive=True,
+		)
+		control = FlowController(
+			source,
+			renderer(self.COLS),
+			numRows=self.ROWS,
+			live=True,
+		)
+		control.enterAtCursor()
+		return doc, control
+
+	def rows(self, control):
+		cells = control.cells()
+		return [
+			"".join(chr(cell) if cell else " " for cell in cells[i * self.COLS : (i + 1) * self.COLS]).strip()
+			for i in range(self.ROWS)
+		]
+
+	def written(self, control):
+		return [row for row in self.rows(control) if row]
+
+	def pannedTo(self, doc, control, needle):
+		"""Pan until the band starts at a chosen line, as a reader reading onward does."""
+		for _ in range(10):
+			if self.rows(control)[0].startswith(needle):
+				return
+			if not control.panForward():
+				break
+		raise AssertionError(f"never reached {needle}: {self.rows(control)}")
+
+	def test_thePanIsWhereItStarts(self):
+		doc, control = self.flow()
+		self.pannedTo(doc, control, "line 4")
+		self.assertEqual(self.written(control)[0], "line 4 aaaaaaaa")
+
+	def test_forwardDeleteLeavesEveryLaterLineReadable(self):
+		doc, control = self.flow()
+		self.pannedTo(doc, control, "line 4")
+		doc.caret = doc.offsetOf("line 4")
+		for _ in range(5):
+			doc.edit(doc.caret, 1)
+		control.followCursor()
+		control.panForward()
+		truth = doc.lines
+		for row in self.written(control):
+			self.assertTrue(any(row in line for line in truth), f"{row!r} is in no line of the document")
+
+	def test_andSkipsNothingAndRepeatsNothing(self):
+		doc, control = self.flow()
+		self.pannedTo(doc, control, "line 4")
+		doc.caret = doc.offsetOf("line 4")
+		doc.edit(doc.caret, 1)
+		control.followCursor()
+		control.panForward()
+		self.assertEqual(self.written(control), [f"line {n} aaaaaaaa" for n in (8, 9, 10, 11)])
+
+	def test_deletingTheLineBreakMergesAndStillWalksOn(self):
+		"""Forward Delete at the end of a line takes the break out and moves no caret."""
+		doc, control = self.flow()
+		self.pannedTo(doc, control, "line 4")
+		doc.caret = doc.offsetOf("line 4")
+		doc.edit(doc.lineEndFrom(doc.caret), 1)
+		control.followCursor()
+		self.assertTrue(self.written(control)[0].startswith("line 4 aaaaaaaaline 5"))
+		control.panForward()
+		self.assertEqual(self.written(control), [f"line {n} aaaaaaaa" for n in (8, 9, 10, 11)])
+
+	def test_anExternalRewriteOfTheRowIsFollowed(self):
+		"""An editor rewriting the line under a caret that never moved."""
+		doc, control = self.flow()
+		self.pannedTo(doc, control, "line 4")
+		doc.caret = doc.offsetOf("line 4")
+		doc.edit(doc.caret, doc.lineEndFrom(doc.caret) - doc.caret, "line 4 " + "X" * 60)
+		control.followCursor()
+		self.assertTrue(self.written(control)[0].startswith("line 4 XXXX"))
+
+	def test_theBandStaysWhereTheReaderPannedIt(self):
+		"""The whole point of the cheap path, which the rebuild must not cost them."""
+		doc, control = self.flow()
+		self.pannedTo(doc, control, "line 4")
+		doc.caret = doc.offsetOf("line 4")
+		doc.edit(doc.caret, 1)
+		control.followCursor()
+		# The top row is still the line the reader panned to, one character shorter.
+		self.assertEqual(self.written(control)[0], "ine 4 aaaaaaaa")
+
+	def test_aCaretSettlingWithNoEditStillCostsOneBlock(self):
+		"""The case the cheap path was written for is untouched."""
+		doc, control = self.flow()
+		self.pannedTo(doc, control, "line 4")
+		before = self.written(control)
+		control.followCursor()
+		self.assertEqual(self.written(control), before)

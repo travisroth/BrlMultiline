@@ -1099,6 +1099,29 @@ class FlowController(PanelOwner):
 		)
 		return moved
 
+	def _activeLength(self) -> Optional[int]:
+		""":return: how many characters the block under the caret holds, or None if unreadable.
+
+		The signal that an edit has moved everything after it. A block's position is an
+		offset, so the positions of the blocks below shift exactly when this block's length
+		changes — a rewrite of the same length leaves them all where they were, and a
+		character added or taken away moves every one of them.
+
+		Length rather than the text itself, because that is the invariant: comparing the text
+		would also rebuild for a same-length rewrite, which has moved nothing and cost the
+		reader their cheap path for no reason.
+
+		This sees the caret's own row and no other. An application rewriting a *different*
+		line while the caret sits still would shift offsets without changing this, and is not
+		something a caret update can be asked about — it is what the band's ordinary re-read
+		and a pin's refresh tick are for.
+		"""
+		region = self.activeRegion()
+		if region is None:
+			return None
+		text = getattr(region, "rawText", None)
+		return None if text is None else len(text)
+
 	def _writing(self) -> bool:
 		""":return: whether the reader is typing into the document this flow reads."""
 		return bool(self.live and getattr(self.source, "writing", False))
@@ -1134,18 +1157,45 @@ class FlowController(PanelOwner):
 		if not ground and self._caretIsWhereThePanLeftIt():
 			# Not nothing. Forward Delete changes the line without moving the caret off it,
 			# and so does an editor rewriting it, so the caret's own block is read again — the
-			# one block that can have changed under a caret that has not moved, and the only
-			# one a written-in document can be asked about at all, since every position after
-			# an edit has moved and `_rereadBlocks` refuses the rest for that reason. The
-			# window is not touched: the block is on the band by construction, being the one
+			# one block that can have changed under a caret that has not moved. The window is
+			# not touched: the block is on the band by construction, being the one
 			# `_cursorToTop` put the cursor on.
+			was = self._activeLength()
 			self.refreshActive()
+			if was == self._activeLength():
+				self._note(
+					"a keystroke while writing: the caret is where the pan left it, "
+					"so only its own row was read again"
+				)
+				return True
+			# The row under the caret changed length, so every position after it has moved
+			# and the rest of the band is reading at offsets that have gone. Falling through
+			# is the whole re-read, which forgets those positions and puts the band back
+			# under the row the reader had. It costs what a keystroke costs everywhere else,
+			# and only where something actually changed: a caret settling after a pan, which
+			# is what this branch was written for, still costs one block.
+			#
+			# The top row is the reader's own: they panned to it, which is what got us into
+			# this branch at all. So it is recorded as the trustworthy top before falling
+			# through, because `_stableTop` otherwise refuses a top that is the caret's own
+			# block — a rule written against a *transient* merged block appearing at the top
+			# while typing, which is not this. Without it the band jumped backwards by half
+			# its height on the first forward Delete after a pan.
 			self._note(
-				"a keystroke while writing: the caret is where the pan left it, "
-				"so only its own row was read again"
+				"a keystroke while writing: the caret stayed put but its row changed length, "
+				"so the band was read again"
 			)
-			return True
-		topId = self._stableTop()
+			return self._readAgainKeeping(self.window.topBlockId(), trusted=True)
+		return self._readAgainKeeping(self._stableTop(), ground=ground)
+
+	def _readAgainKeeping(self, topId, ground: bool = False, trusted: bool = False) -> Optional[bool]:
+		"""Read the band again from the caret, and put it back under a chosen top row.
+
+		:param topId: the block to anchor the band under again, or None to let the caret lead.
+		:param ground: put the caret's block on the top row instead.
+		:param trusted: whether that top may be the caret's own block. See `_restoreTop`.
+		:return: whether anything is on the display, in the shape `_arrive` answers with.
+		"""
 		# Everything the source remembers about this document is an answer the edit may just
 		# have changed: cached positions are offsets that typing moves, the exits of a
 		# collapsed blank run point where the run was, and a block marked as having swallowed
@@ -1162,7 +1212,7 @@ class FlowController(PanelOwner):
 			self._writingTop = None
 			self._pannedCaret = ()
 			return True
-		if self._restoreTop(topId):
+		if self._restoreTop(topId, trusted=trusted):
 			self._writingTop = topId
 			why = "a keystroke while writing, put back under the row the band had"
 		else:
@@ -1200,15 +1250,20 @@ class FlowController(PanelOwner):
 			return top
 		return self._writingTop
 
-	def _restoreTop(self, topId) -> bool:
+	def _restoreTop(self, topId, trusted: bool = False) -> bool:
 		"""Put the band back under the row it was showing before a writing re-read.
 
 		:param topId: the block that was on the top row, or None for an empty band.
-		:return: whether the band is anchored there again. False when the old top was the
-			caret's own block, or reading back to it failed this moment — where the caller
-			has a better answer than leaving the line being typed pinned to the top row.
+		:param trusted: whether the reader put the band there themselves. A top that is the
+			caret's own block is otherwise refused, because a rich editor answering a return
+			with a transiently merged block puts that block on the top row and a band anchored
+			to it never recovers — but a reader who *panned* to their caret's row chose it,
+			and refusing it throws their window away on the next forward Delete.
+		:return: whether the band is anchored there again. False when reading back to it
+			failed this moment — where the caller has a better answer than leaving the line
+			being typed pinned to the top row.
 		"""
-		if topId is None or topId == self.activeBlockId:
+		if topId is None or (not trusted and topId == self.activeBlockId):
 			return False
 		for _ in range(self.window.numRows):
 			if self.window.hasBlock(topId):

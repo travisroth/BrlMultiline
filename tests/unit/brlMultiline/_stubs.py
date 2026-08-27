@@ -532,6 +532,8 @@ class BrailleBuffer(AutoPropertyObject):
 
 UNIT_LINE = "line"
 UNIT_PARAGRAPH = "paragraph"
+NEWLINE = chr(10)
+"""What L{OffsetDocument} separates its lines with, spelled without an escape."""
 POSITION_SELECTION = "selection"
 POSITION_FIRST = "first"
 
@@ -749,6 +751,127 @@ class CursorManager:
 	Only its identity matters here: it is what a flow checks to decide that an object reads
 	through a cursor of its own rather than through a caret.
 	"""
+
+
+class OffsetTextInfo:
+	"""A position that is an absolute offset into one string, as NVDA's really are.
+
+	L{FakeTextInfo} holds a line index into a live list, so an edit that shifts every offset
+	after it is invisible to a position taken before it — which makes a whole class of bug
+	untestable: the flow caches positions, and after an edit those caches are stale in
+	exactly the way an index cannot express. This is the faithful model. A position taken
+	before an edit goes on meaning the offset it meant, which is what makes it wrong
+	afterwards, and that is the point of it.
+	"""
+
+	def __init__(self, doc, start, end=None):
+		self.doc = doc
+		self.start = start
+		self.end = start if end is None else end
+		self.expanded = end is not None
+
+	def copy(self):
+		copied = OffsetTextInfo(self.doc, self.start, self.end)
+		copied.expanded = self.expanded
+		return copied
+
+	@property
+	def text(self):
+		return self.doc.text[self.start : self.end]
+
+	@property
+	def offset(self):
+		""":return: how far into its own line this position sits, which is what a cursor is."""
+		return self.start - self._lineBounds(self.start)[0]
+
+	def _lineBounds(self, offset):
+		text = self.doc.text
+		offset = max(0, min(offset, len(text)))
+		begin = text.rfind(NEWLINE, 0, offset) + 1
+		stop = text.find(NEWLINE, offset)
+		return begin, (len(text) if stop < 0 else stop)
+
+	def collapse(self, end=False):
+		self.start = self.end if end else self.start
+		self.end = self.start
+		self.expanded = False
+
+	def expand(self, unit):
+		self.start, self.end = self._lineBounds(self.start)
+		self.expanded = True
+
+	def move(self, unit, count):
+		moved = 0
+		while moved != count:
+			begin, stop = self._lineBounds(self.start)
+			if count > 0:
+				if stop >= len(self.doc.text):
+					break
+				self.start = self.end = stop + 1
+				moved += 1
+			else:
+				if begin <= 0:
+					break
+				self.start = self.end = self._lineBounds(begin - 1)[0]
+				moved -= 1
+		self.expanded = False
+		return moved
+
+	def compareEndPoints(self, other, which="startToStart"):
+		return (self.start > other.start) - (self.start < other.start)
+
+	@property
+	def bookmark(self):
+		return ("offset", self.start)
+
+
+class OffsetDocument(CursorManager):
+	"""A document holding one string and a caret at an offset into it.
+
+	Edited through L{edit}, which is what a real edit does to a real buffer: the text changes
+	and every offset after the change moves. Positions handed out before it keep the numbers
+	they were given, and are therefore wrong afterwards — which no index-based stand-in can
+	express, and which is exactly what the flow's cached positions have to survive.
+	"""
+
+	def __init__(self, lines, caret=0):
+		self.text = NEWLINE.join(lines)
+		self.caret = caret
+		self.isReady = True
+		self.passThrough = False
+
+	@property
+	def lines(self):
+		return self.text.split(NEWLINE)
+
+	@property
+	def selection(self):
+		return OffsetTextInfo(self, self.caret)
+
+	@selection.setter
+	def selection(self, info):
+		self.caret = info.start
+
+	def makeTextInfo(self, position):
+		return OffsetTextInfo(self, self.caret)
+
+	def offsetOf(self, needle):
+		""":return: where a piece of text starts, for a test putting the caret there."""
+		return self.text.index(needle)
+
+	def lineEndFrom(self, offset):
+		""":return: where the line holding an offset ends, which is where its break sits."""
+		stop = self.text.find(NEWLINE, offset)
+		return len(self.text) if stop < 0 else stop
+
+	def edit(self, at, removeChars=0, insert=""):
+		"""Change the text, shifting every offset after the change, as an edit does.
+
+		:param at: where the change begins.
+		:param removeChars: how many characters go.
+		:param insert: what takes their place.
+		"""
+		self.text = self.text[:at] + insert + self.text[at + removeChars :]
 
 
 class FieldCommand:

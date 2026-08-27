@@ -87,7 +87,10 @@ For add-on authors and component work:
   a pinned document, list or table would not scroll. Content that arrives after a run has
   been read to its end — a message in a pinned chat history — is now found: panning forward
   asks the source once more before refusing, and a pin whose reader is looking at the end
-  asks on its own refresh tick. For controls an author does not own,
+  asks on its own refresh tick. Editing the row under a caret that has not moved since a
+  pan — forward Delete, or an editor rewriting the line — reads the band again when that
+  row changed length, since every position below it has shifted; the band stays on the row
+  the reader panned to. For controls an author does not own,
   `flowObjects.register` still takes a whole adapter.
 - Wrapping and cursor routing behaviour are per segment, so a claimed area can behave
   differently from the display around it. Neither is exposed in the settings dialog.

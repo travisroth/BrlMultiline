@@ -777,6 +777,32 @@ call. A declaration is inert data that only this add-on reads, so the app module
 identically whether or not BrlMultiline is installed. `register` stays for code that wants to
 supply a whole adapter for controls it does not own.
 
+**A row that changed length has moved everything under it.** A caret that has not moved
+since the reader panned keeps the band where they put it, and only the row they are standing
+on is read again — the cheap path a caret settling after a pan deserves. But a block's
+position is an offset, and forward Delete changes the length of that row without moving the
+caret off it, so every position after it shifts while the cheap path keeps them all. Panning
+again then walked from a stale position.
+
+The signal is the length of the block under the caret, measured across its re-read. Length
+rather than text, because that is the invariant: an editor rewriting a row to the same
+length has moved nothing below it, and comparing text would spend the reader's cheap path on
+a rebuild that changes nothing. Unchanged, the cheap path stands. Changed, the whole re-read
+runs, which forgets the cached positions and puts the band back.
+
+Put back under the row the reader panned to, and this is the one place a top row that *is*
+the caret's own block is trusted. The rule refusing that top was written against a transient
+merged block appearing at the top while typing; a reader who panned to their caret's row
+chose it, and refusing it threw their window away on the first forward Delete.
+
+Only three of these shifts actually corrupted anything when measured, which is worth
+recording: a few characters deleted inside a row self-heals, because a stale offset still
+falls inside its own line and the walk collapses to that line's start. Deleting the line
+*break* is the one that does not, because the line the stale offset named has stopped
+existing. That distinction was invisible until the tests grew a document whose positions are
+real offsets — the line-indexed stand-in follows its line wherever it goes and can express
+no staleness at all.
+
 **A stream that ended may not have finished.** `_fetchOne` records `EdgeState.END` from the
 source's own answer, `shortfall` then reports nothing missing at that edge, and `panForward`
 refuses without consulting anybody again. That is right for a page and cheap. It is wrong
