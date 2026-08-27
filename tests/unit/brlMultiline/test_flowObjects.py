@@ -1178,3 +1178,176 @@ class TestReadingAnObjectAgain(unittest.TestCase):
 		block = source.blockAtCursor().block
 		empty = dataclasses.replace(block.blockId, bookmark=None)
 		self.assertEqual(source.blockAt(empty).kind, ResultKind.ERROR)
+
+
+def teamsHistory(names, at=0):
+	"""A chat history shaped like Microsoft Teams', which no built-in walk can read.
+
+	Every message sits in a wrapper of its own, so no two messages are siblings and each has
+	a different parent. Beside each message in its wrapper is a timestamp, and after the last
+	wrapper comes the compose box — which is what NVDA's `simpleNext` lands on when asked for
+	the next thing after a message, having left the history altogether.
+
+	:param names: the text of each message.
+	:param at: which message the reader is on.
+	:return: the messages, the list container, and the compose box.
+	"""
+	history = FakeNavigatorObject("history", role="SECTION")
+	compose = FakeNavigatorObject("Type a message", role="EDITABLETEXT")
+	wrappers = []
+	messages = []
+	for name in names:
+		wrapper = FakeNavigatorObject("", role="SECTION")
+		stamp = FakeNavigatorObject("4:28 PM", role="STATICTEXT")
+		message = FakeNavigatorObject(name, role="LISTITEM")
+		message.parent = wrapper
+		stamp.parent = wrapper
+		# The message is last in its wrapper, so its own `next` is None and its `previous`
+		# is the timestamp — exactly what the hardware reported.
+		message.next = None
+		message.previous = stamp
+		stamp.next = message
+		wrapper.children = [stamp, message]
+		wrapper.firstChild = stamp
+		wrapper.parent = history
+		wrappers.append(wrapper)
+		messages.append(message)
+	for index, wrapper in enumerate(wrappers):
+		wrapper.next = wrappers[index + 1] if index + 1 < len(wrappers) else compose
+		wrapper.previous = wrappers[index - 1] if index else None
+	history.children = wrappers
+	history.firstChild = wrappers[0] if wrappers else None
+	compose.parent = history
+	compose.previous = wrappers[-1] if wrappers else None
+	return messages, history, compose
+
+
+def declareRun(messages, walk=True):
+	"""Declare a run the way an app module does: attributes on the objects, no import.
+
+	:param messages: the objects to declare.
+	:param walk: whether to supply the stepping methods as well.
+	"""
+	for index, message in enumerate(messages):
+		setattr(message, flowObjects.RUN_DECLARATION, True)
+		if not walk:
+			continue
+		# Bound with a default argument, since these stand in for methods of a class.
+		setattr(
+			message,
+			flowObjects.RUN_NEXT,
+			lambda index=index: messages[index + 1] if index + 1 < len(messages) else None,
+		)
+		setattr(
+			message,
+			flowObjects.RUN_PREVIOUS,
+			lambda index=index: messages[index - 1] if index else None,
+		)
+	return messages
+
+
+class TestARunAnApplicationDeclares(unittest.TestCase):
+	"""A run declared by an app module, which supplies its own walk.
+
+	The worked case is Microsoft Teams. Its messages report the role GROUPING, sit one to a
+	wrapper so that no two are siblings, and are followed by the compose box — so the
+	sibling walk finds nothing and NVDA's own `simpleNext` leaves the history entirely.
+	Only the app module knows how to step it, and it says so without importing anything.
+	"""
+
+	def messages(self, count=3, at=0, walk=True):
+		messages, _history, _compose = teamsHistory([f"message {n}" for n in range(count)], at=at)
+		return declareRun(messages, walk=walk)
+
+	def test_theDeclarationIsWhatMatches(self):
+		messages = self.messages()
+		self.assertIs(flowObjects.adapterFor(messages[0]), flowObjects.DECLARED_RUN)
+
+	def test_anObjectWithoutItIsLeftAlone(self):
+		messages, _history, compose = teamsHistory(["one", "two"])
+		self.assertIsNone(flowObjects.adapterFor(compose))
+
+	def test_itIsAskedBeforeTheBuiltInAdapters(self):
+		"""The application's answer is about this control; the built-in one is a guess."""
+		messages = self.messages()
+		# These carry the LISTITEM role too, so SIBLING_RUN would also match them.
+		self.assertTrue(flowObjects.SIBLING_RUN.matches(messages[0]))
+		self.assertIs(flowObjects.adapterFor(messages[0]), flowObjects.DECLARED_RUN)
+
+	def test_theWholeHistoryFillsTheBand(self):
+		messages = self.messages(count=4)
+		control = controllerOver(messages, adapter=flowObjects.DECLARED_RUN, numRows=4)
+		rows = [row.strip() for row in self._rows(control) if row.strip()]
+		self.assertEqual(len(rows), 4)
+		for index, row in enumerate(rows):
+			# The stub's region appends the role; NVDA's own suppresses it for a list item,
+			# which is `controlTypes.silentRolesOnFocus` and not this add-on's business.
+			self.assertTrue(row.startswith(f"message {index}"), row)
+
+	def test_membersAreAdmittedThoughTheyShareNoParent(self):
+		"""The rule this adapter exists for: a shared-parent test would admit none of them."""
+		messages = self.messages()
+		self.assertIsNot(messages[0].parent, messages[1].parent)
+		self.assertTrue(flowObjects.DECLARED_RUN.admits(messages[0], messages[1]))
+
+	def test_theComposeBoxIsNotOneOfThem(self):
+		messages, _history, compose = teamsHistory(["one", "two"])
+		declareRun(messages)
+		self.assertFalse(flowObjects.DECLARED_RUN.admits(messages[0], compose))
+
+	def test_anApplicationMayJudgeMembershipItself(self):
+		messages = self.messages()
+		setattr(messages[0], flowObjects.RUN_ADMITS, lambda other: False)
+		self.assertFalse(flowObjects.DECLARED_RUN.admits(messages[0], messages[1]))
+
+	def test_aWalkThatFailsEndsTheRunRatherThanGuessing(self):
+		"""Falling back to siblings would step where the application has said not to."""
+
+		def broken():
+			raise RuntimeError("UIA is having a day")
+
+		messages = self.messages()
+		setattr(messages[0], flowObjects.RUN_NEXT, broken)
+		self.assertIsNone(flowObjects.DECLARED_RUN.nextOf(messages[0]))
+
+	def test_aDeclarationWithNoWalkFallsBackToSiblings(self):
+		"""An application declaring a run and no walk is saying its members are siblings."""
+		items = fakeRun(["Apple", "Banana"])
+		declareRun(items, walk=False)
+		self.assertIs(flowObjects.DECLARED_RUN.nextOf(items[0]), items[1])
+		self.assertIs(flowObjects.DECLARED_RUN.previousOf(items[1]), items[0])
+
+	def test_andThatFallbackCannotShowSomethingOutsideTheRun(self):
+		"""In Teams the sibling walk reaches a timestamp; the run must end, not read it."""
+		messages = self.messages(walk=False)
+		source = sourceOver(messages, adapter=flowObjects.DECLARED_RUN)
+		first = source.blockAtCursor().block
+		self.assertEqual(source.blockAfter(first.blockId).kind, ResultKind.END_OF_STREAM)
+
+	def test_theRunEndsAtTheEndOfTheHistory(self):
+		messages = self.messages(count=2)
+		source = sourceOver(messages, at=1, adapter=flowObjects.DECLARED_RUN)
+		last = source.blockAtCursor().block
+		self.assertEqual(source.blockAfter(last.blockId).kind, ResultKind.END_OF_STREAM)
+
+	def test_andAtItsStart(self):
+		messages = self.messages(count=2)
+		source = sourceOver(messages, at=0, adapter=flowObjects.DECLARED_RUN)
+		first = source.blockAtCursor().block
+		self.assertEqual(source.blockBefore(first.blockId).kind, ResultKind.END_OF_STREAM)
+
+	def test_anObjectThatRaisesOnTheAttributeIsNotARun(self):
+		class Difficult:
+			@property
+			def brlMultilineFlowRun(self):
+				raise RuntimeError("cannot say")
+
+		self.assertFalse(flowObjects.DECLARED_RUN.matches(Difficult()))
+
+	def _rows(self, control):
+		numCols = control.renderer.numCols
+		cells = control.cells()
+		return [
+			"".join(chr(cell) if cell else " " for cell in cells[index * numCols : (index + 1) * numCols])
+			for index in range(control.window.numRows)
+		]

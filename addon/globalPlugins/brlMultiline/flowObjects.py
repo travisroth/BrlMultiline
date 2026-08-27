@@ -163,6 +163,40 @@ worth, so failing to place the focus in a list longer than this costs the reader
 rather than costing them time.
 """
 
+RUN_DECLARATION = "brlMultilineFlowRun"
+"""The attribute an application sets to say its objects read as a run.
+
+This name and the three below are a public contract with application code, so they are
+spelled out here rather than assembled anywhere. An app module sets them on its overlay
+class and needs no import of this add-on, no registration call, and no dependency: they
+are inert data that only this module reads, so the module behaves identically when
+BrlMultiline is absent, disabled, or a version that has never heard of it.
+
+That is the difference from L{register}, which is still there for code that wants to
+supply a whole adapter. Registration means importing a global plugin from another add-on,
+which is a load-order problem and a hard failure when the add-on is not installed. A
+declaration is neither.
+
+The worked case is Microsoft Teams. Its chat history is a run of messages that reports the
+role GROUPING, holds each message in a wrapper of its own so that no two messages are
+siblings, and puts a timestamp and an unnamed element beside each one — so neither the
+sibling walk nor NVDA's `simpleNext` reaches the next message, and `simpleNext` leaves the
+history entirely and lands on the compose box. Only the app module knows how to step it.
+"""
+
+RUN_NEXT = "brlMultilineFlowNext"
+"""A method an application may supply to step forward through its run, returning None at the end."""
+
+RUN_PREVIOUS = "brlMultilineFlowPrevious"
+"""A method an application may supply to step back through its run, returning None at the start."""
+
+RUN_ADMITS = "brlMultilineFlowAdmits"
+"""A method an application may supply to say whether another object is in the same run.
+
+Rarely wanted: the default admits anything else carrying L{RUN_DECLARATION}, which is right
+unless two different declared runs can sit next to each other.
+"""
+
 LINE_CHARACTERS = frozenset("-_=~.*" + "‐‑‒–—―─━┄┅")
 """What a separator is drawn out of, for the fallback in `isDecoration`.
 
@@ -723,6 +757,80 @@ def _isChosen(obj) -> bool:
 	return bool(names & {"SELECTED", "FOCUSED"})
 
 
+def _isDeclaredRun(obj) -> bool:
+	""":return: whether an application has declared that its object reads as a run.
+
+	Read off the object rather than taken through L{register}, so that the application
+	needs no import of this add-on and no dependency on it. An app module setting a class
+	attribute keeps working when the add-on is absent, disabled or a different version,
+	which an import cannot promise — and NVDA app modules load before global plugins are
+	certain to be there at all.
+	"""
+	try:
+		return bool(getattr(obj, RUN_DECLARATION, False))
+	except Exception:
+		# An object that raises on an attribute read is one to leave to NVDA.
+		log.debugWarning("Could not read a run declaration", exc_info=True)
+		return False
+
+
+def _admitsDeclared(root, candidate) -> bool:
+	""":return: whether a candidate belongs to a declared run.
+
+	The application's own answer where it gives one, and otherwise any other object bearing
+	the same declaration. Deliberately not `_sameParent`: the case this exists for is a run
+	whose members are *not* siblings — Teams' chat history holds each message in a wrapper
+	of its own, so every message has a different parent and a shared-parent rule would
+	admit none of them.
+	"""
+	if root is None or candidate is None:
+		return False
+	own = getattr(root, RUN_ADMITS, None)
+	if own is not None:
+		try:
+			return bool(own(candidate))
+		except Exception:
+			log.debugWarning("An application could not judge its own run's membership", exc_info=True)
+			return False
+	return _isDeclaredRun(candidate)
+
+
+def _declaredStep(obj, attribute: str, fallback):
+	"""Step through a declared run, by the application's own walk where it has one.
+
+	The fallback matters less than it looks. An application that declares a run and supplies
+	no walk is saying its objects are ordinary siblings, and if they are not, the step lands
+	on something outside the run and `ObjectFlowSource._step` ends the run there — a short
+	reading rather than a wrong one.
+
+	:param obj: where the walk is now.
+	:param attribute: the method an application may supply for this direction.
+	:param fallback: how to step when it supplies none.
+	:return: the next object of the run, or None at its end.
+	"""
+	walk = getattr(obj, attribute, None)
+	if walk is None:
+		return fallback(obj)
+	try:
+		return walk()
+	except Exception:
+		# The application's own walk failed. Ending the run is the honest answer: falling
+		# back to siblings here would step somewhere the application has already said is not
+		# how its run is joined together.
+		log.debugWarning(f"An application's {attribute} failed", exc_info=True)
+		return None
+
+
+def _declaredNext(obj):
+	""":return: the object after this one in a declared run, or None."""
+	return _declaredStep(obj, RUN_NEXT, _siblingNext)
+
+
+def _declaredPrevious(obj):
+	""":return: the object before this one in a declared run, or None."""
+	return _declaredStep(obj, RUN_PREVIOUS, _siblingPrevious)
+
+
 VISIBLE_TREE = ObjectAdapter(
 	name="visibleTree",
 	matches=_isTreeItem,
@@ -751,7 +859,20 @@ SIBLING_RUN = ObjectAdapter(name="siblings", matches=_isRunMember)
 CHOICES = ObjectAdapter(name="choices", matches=_hasChoices, start=_chosenChild, admits=_isChild)
 """A container the reader is choosing from, whose run is its children."""
 
-_adapters: list[ObjectAdapter] = [VISIBLE_TREE, SIBLING_RUN, CHOICES]
+DECLARED_RUN = ObjectAdapter(
+	name="declared",
+	matches=_isDeclaredRun,
+	admits=_admitsDeclared,
+	nextOf=_declaredNext,
+	previousOf=_declaredPrevious,
+)
+"""A run an application's own code has declared, and usually stepped through itself.
+
+Asked before the built-in adapters, because the built-in answer for a kind of control is a
+guess about every control of that kind and the application's is about this one.
+"""
+
+_adapters: list[ObjectAdapter] = [DECLARED_RUN, VISIBLE_TREE, SIBLING_RUN, CHOICES]
 """The adapters, in the order they are asked. First match wins."""
 
 

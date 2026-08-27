@@ -74,6 +74,13 @@ For add-on authors and component work:
 - Panels. Code can claim part of the display, subdivide it as it likes, and hand it back,
   without disturbing the segments it did not claim. `plugin.activatePanel(panel)` and
   `plugin.deactivatePanel(name)`.
+- An application can declare that its objects read as a run, so they fill the display the
+  way a list does, by setting attributes on its NVDA overlay class: `brlMultilineFlowRun`,
+  and optionally `brlMultilineFlowNext`, `brlMultilineFlowPrevious` and
+  `brlMultilineFlowAdmits` where the run is not a plain row of siblings. No import of this
+  add-on and no dependency on it: an app module that sets them behaves identically when
+  BrlMultiline is absent or disabled. For controls an author does not own,
+  `flowObjects.register` still takes a whole adapter.
 - Wrapping and cursor routing behaviour are per segment, so a claimed area can behave
   differently from the display around it. Neither is exposed in the settings dialog.
 

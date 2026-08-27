@@ -755,6 +755,34 @@ is read:
   merely not being lied to about. Nothing routes into it — there is nothing there to go to.
 - *Beside the run*: anything else ends it.
 
+**An application may declare its own run, without importing anything.** The sibling walk and
+the visible-order tree walk are guesses about a kind of control, and some controls are not
+shaped like any guess. Microsoft Teams' chat history is the worked case: its messages report
+the role GROUPING, each sits in a wrapper of its own so that no two messages are siblings,
+and beside each is a timestamp and an unnamed element — so `next` is None, `previous` is the
+timestamp, and NVDA's own `simpleNext` leaves the history altogether and lands on the compose
+box. Only the app module knows how to step it.
+
+So the adapter protocol is looked up on the object before the registry, which is what this
+plan said it should be from the start. An app module sets attributes on its overlay class:
+`brlMultilineFlowRun = True` to declare the run, and optionally `brlMultilineFlowNext`,
+`brlMultilineFlowPrevious` and `brlMultilineFlowAdmits` to supply the walk and the membership
+test. Membership defaults to "anything else bearing the declaration" rather than to a shared
+parent, because in the case it exists for no two members share one.
+
+Attributes rather than a `register` call, and the difference is not style. Registration means
+an app module importing a global plugin from another add-on: a load-order dependency, and a
+hard failure when the add-on is absent, disabled, or a version that has never heard of the
+call. A declaration is inert data that only this add-on reads, so the app module behaves
+identically whether or not BrlMultiline is installed. `register` stays for code that wants to
+supply a whole adapter for controls it does not own.
+
+An application that declares a run and supplies no walk is saying its members are siblings.
+If they are not, the step lands outside the run and the admission test above ends the reading
+there — a short run, never wrong content. A walk that raises ends the run for the same
+reason: falling back to siblings would step somewhere the application has already said its
+run is not joined together.
+
 The same admission test answers the band's question on every focus change — is this still
 the run we are showing? — so arrowing through a list keeps everything already walked. What
 the run was found from is fixed for the life of the source and is never replaced by where
