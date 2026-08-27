@@ -404,6 +404,15 @@ class ObjectMonitor:
 				# pass the band gets from a timer of its own — the same bargain, on a clock
 				# that is already ticking.
 				control.fill()
+			if control.isShowingTheEnd:
+				# A pin is a thing the reader asked to watch, and some of what is worth
+				# watching is still being written: a chat history, a log, a build. The run was
+				# read to its end when the pin was made and nothing asked again, so a pinned
+				# conversation stopped at the message that was newest that minute. Asked only
+				# while the reader is looking at the end, so panning back into the history
+				# costs nothing, and only one fetch, which the source refuses again the moment
+				# there is really nothing more.
+				control.reconsiderEnd()
 			control.rereadContent()
 			cells = control.cells()
 		except Exception:

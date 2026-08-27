@@ -777,6 +777,29 @@ call. A declaration is inert data that only this add-on reads, so the app module
 identically whether or not BrlMultiline is installed. `register` stays for code that wants to
 supply a whole adapter for controls it does not own.
 
+**A stream that ended may not have finished.** `_fetchOne` records `EdgeState.END` from the
+source's own answer, `shortfall` then reports nothing missing at that edge, and `panForward`
+refuses without consulting anybody again. That is right for a page and cheap. It is wrong
+for content still being written, and the case is a pinned chat history: messages arrive at
+the tail after the run has been read to its end, a held tail object's walk offers them
+perfectly well, and nothing asks — so the pin stopped at whatever was newest the minute it
+was made, and could not be panned to anything after it.
+
+So the far edge is reconsidered in two places. Panning forward that found nothing asks once
+more before refusing, which is free until the reader asks for it and is exactly the moment
+they are saying they want what is past what they can feel. And a pin's refresh tick asks
+while the reader is looking at the end, which is what makes a pinned conversation a monitor
+rather than a snapshot. Both are self-correcting: the edge is opened, one fetch is made, and
+a stream that really has ended records itself ended again.
+
+Only the far end. Content arriving before the start is a different thing — a virtualized
+list materialising older rows as the reader travels — and re-asking there on a timer would
+churn a cache that `trim` is already bounding.
+
+Whether the reader is at the end is measured in rows rather than against the last cached
+block, because `trim` drops what is far from the window: a reader who had panned back would
+find the cache ending just below them and look, wrongly, as though they were at the tail.
+
 **A pin points at the container, not at a member.** The band arrives on a message and reads
 outward, so members declaring themselves is all it needs. A pin is the other way round: the
 reader puts the navigator object on the chat list and pins *that*, and nothing about a list

@@ -726,6 +726,23 @@ class FlowWindow:
 			return 0
 		return max(0, start)
 
+	def rowsBelow(self) -> int:
+		"""How many stream rows sit below the bottom row of the window.
+
+		The mirror of L{rowsAbove}, and asked for the same kind of reason: whether there is
+		anything past what the reader can feel. A caller cannot work it out from the
+		shortfall, which reports only whether the window is full.
+
+		:return: the number of cached rows below the window, zero when its bottom row is the
+			last one read.
+		"""
+		rows = self.streamRows()
+		try:
+			_start, end = self._bounds(rows)
+		except LookupError:
+			return 0
+		return max(0, len(rows) - end)
+
 	def visibleRows(self) -> list[StreamRow]:
 		"""The rows the display should show.
 

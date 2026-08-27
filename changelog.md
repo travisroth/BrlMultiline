@@ -84,7 +84,10 @@ For add-on authors and component work:
   which is what lets an object pinned to a segment be the list rather than one of its
   members. A pinned flow is panned by the command for its segment: its rows come from its
   controller rather than from the buffer's window, so moving the window moved nothing and
-  a pinned document, list or table would not scroll. For controls an author does not own,
+  a pinned document, list or table would not scroll. Content that arrives after a run has
+  been read to its end — a message in a pinned chat history — is now found: panning forward
+  asks the source once more before refusing, and a pin whose reader is looking at the end
+  asks on its own refresh tick. For controls an author does not own,
   `flowObjects.register` still takes a whole adapter.
 - Wrapping and cursor routing behaviour are per segment, so a claimed area can behave
   differently from the display around it. Neither is exposed in the settings dialog.

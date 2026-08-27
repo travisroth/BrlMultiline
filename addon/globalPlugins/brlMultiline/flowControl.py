@@ -869,6 +869,59 @@ class FlowController(PanelOwner):
 		"""Move the window back by a whole display, fetching if it has to."""
 		return self._pan(forward=False)
 
+	@property
+	def isShowingTheEnd(self) -> bool:
+		""":return: whether the band's last content row is the last block the source gave.
+
+		What decides whether a live run is worth asking to grow. A reader who has panned back
+		into the history is not waiting on what has just arrived at its end, and asking on
+		their behalf would be a call into the application on every refresh tick to fetch
+		something nobody is looking at.
+		"""
+		if self.window.edges[Edge.AFTER] is not EdgeState.END:
+			# There is more the source has already promised. Nothing to reconsider.
+			return False
+		# Measured in rows rather than against the last cached block, because `_trim` drops
+		# what is far from the window: a reader who panned back would find the cache ending
+		# just below them and look, wrongly, as though they were at the end of the run.
+		return self.window.rowsBelow() == 0
+
+	def reconsiderEnd(self) -> bool:
+		"""Ask the source again at an end it once said it had reached.
+
+		A stream that has ended stays ended: `_fetchOne` records `EdgeState.END` from the
+		source's own answer, `shortfall` then reports nothing missing at that edge, and
+		`panForward` refuses without consulting anybody. For a document that is right and
+		cheap — the end of a page is the end of a page.
+
+		For content that is still being written it is wrong, and the case is a pinned chat
+		history. Messages arrive at the tail after the run has been read to its end, the
+		walk offers them perfectly well — a held tail object's `brlMultilineFlowNext` returns
+		the new message — but nothing ever asks again, so a pinned monitor stopped at
+		whatever was there when it was pinned and could not be panned to anything newer.
+
+		Self-correcting rather than optimistic: the edge is opened, one fetch is made, and if
+		the stream really has ended `_fetchOne` records it as ended again. So a document that
+		is not growing costs one refused fetch and returns to exactly the state it was in.
+
+		Only the far end. Content arriving *before* the start is a different thing — a
+		virtualized list materialising older rows as the reader travels — and re-asking there
+		on a timer would churn a cache that `_trim` is already bounding. Panning back reaches
+		it, because the edge before the start is only END once the walk has genuinely refused.
+
+		:return: whether anything new was found.
+		"""
+		if self.window.edges[Edge.AFTER] is not EdgeState.END:
+			return False
+		with self.operation():
+			self.window.setEdge(Edge.AFTER, EdgeState.OPEN)
+			if not self._fetchOne(Edge.AFTER):
+				return False
+			# More than one may have arrived between two ticks, and the rows below the reader
+			# may have been blank and waiting for them.
+			self._fillBothEnds()
+		return True
+
 	def _pan(self, forward: bool) -> bool:
 		"""Pan, answering `ContentNeeded` by fetching and trying again.
 
@@ -883,6 +936,12 @@ class FlowController(PanelOwner):
 		"""
 		with self.operation():
 			moved = self._panWithin(forward)
+		if not moved and forward and self.reconsiderEnd():
+			# The stream had ended when it was last asked, and has since grown. Panning is
+			# the reader saying they want what is past the end of what they can feel, so it
+			# is the right moment to ask again, and it costs nothing until they do.
+			with self.operation():
+				moved = self._panWithin(forward)
 		if moved:
 			# After the pan, so that the caret this remembers is the one the pan left behind.
 			self._pannedAt = self._caretMark()

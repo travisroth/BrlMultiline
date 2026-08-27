@@ -28,7 +28,7 @@ from ._stubs import (
 installStubs()
 
 from brlMultiline import flowObjects  # noqa: E402
-from brlMultiline.flow import Edge, ResultKind  # noqa: E402
+from brlMultiline.flow import Edge, EdgeState, ResultKind  # noqa: E402
 from brlMultiline.flowIndent import FOCUS_CELL  # noqa: E402
 from brlMultiline.flowControl import FlowController  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
@@ -1351,6 +1351,99 @@ class TestARunAnApplicationDeclares(unittest.TestCase):
 			"".join(chr(cell) if cell else " " for cell in cells[index * numCols : (index + 1) * numCols])
 			for index in range(control.window.numRows)
 		]
+
+
+class TestARunThatGrowsAtItsTail(unittest.TestCase):
+	"""A pinned chat history, which is still being written after it has been read.
+
+	`_fetchOne` records `EdgeState.END` from the source's own answer, `shortfall` then
+	reports nothing missing at that edge, and `panForward` refuses without consulting
+	anybody. Right for a page, wrong for a conversation: messages arrived at the tail, the
+	walk offered them perfectly well, and nothing ever asked — so a pinned monitor stopped
+	at whatever was newest when it was pinned and could not be panned to anything after it.
+	"""
+
+	def setUp(self):
+		self.messages = []
+		for index in range(3):
+			self.add(f"message {index}")
+		self.control = controllerOver(self.messages, adapter=flowObjects.DECLARED_RUN, numRows=4)
+
+	def add(self, name):
+		"""A message arrives, wired into the walk as the app module wires one."""
+		message = FakeNavigatorObject(name, role="LISTITEM")
+		index = len(self.messages)
+		self.messages.append(message)
+		setattr(message, flowObjects.RUN_DECLARATION, True)
+		setattr(
+			message,
+			flowObjects.RUN_NEXT,
+			lambda index=index: self.messages[index + 1] if index + 1 < len(self.messages) else None,
+		)
+		setattr(
+			message,
+			flowObjects.RUN_PREVIOUS,
+			lambda index=index: self.messages[index - 1] if index else None,
+		)
+		return message
+
+	def written(self):
+		numCols = self.control.renderer.numCols
+		cells = self.control.cells()
+		rows = [
+			"".join(chr(cell) if cell else " " for cell in cells[i * numCols : (i + 1) * numCols])
+			for i in range(self.control.window.numRows)
+		]
+		return [row.strip() for row in rows if row.strip()]
+
+	def test_theRunIsReadToItsEndFirst(self):
+		self.assertEqual(len(self.written()), 3)
+		self.assertIs(self.control.window.edges[Edge.AFTER], EdgeState.END)
+
+	def test_theBandIsShowingThatEnd(self):
+		self.assertTrue(self.control.isShowingTheEnd)
+
+	def test_aNewMessageIsFoundWhenTheEndIsReconsidered(self):
+		self.add("newest")
+		self.assertTrue(self.control.reconsiderEnd())
+		self.assertTrue(self.written()[-1].startswith("newest"))
+
+	def test_reconsideringAStreamThatReallyEndedChangesNothing(self):
+		self.assertFalse(self.control.reconsiderEnd())
+		self.assertIs(self.control.window.edges[Edge.AFTER], EdgeState.END)
+		self.assertEqual(len(self.written()), 3)
+
+	def test_panningForwardAsksAgainRatherThanRefusing(self):
+		"""Panning is the reader saying they want what is past what they can feel."""
+		for extra in range(4):
+			self.add(f"later {extra}")
+		self.assertTrue(self.control.panForward())
+
+	def test_andStillRefusesWhenThereIsGenuinelyNothingMore(self):
+		self.assertFalse(self.control.panForward())
+
+	def test_severalArrivalsBetweenTwoLooksAreAllReachable(self):
+		"""The band tops up to what it can show; the rest are panned to, as ever."""
+		for extra in range(3):
+			self.add(f"burst {extra}")
+		self.assertTrue(self.control.reconsiderEnd())
+		self.assertTrue(self.written()[-1].startswith("burst 0"))
+		seen = set()
+		for _ in range(4):
+			seen.update(row.split(" LISTITEM")[0] for row in self.written())
+			if not self.control.panForward():
+				break
+		seen.update(row.split(" LISTITEM")[0] for row in self.written())
+		for extra in range(3):
+			self.assertIn(f"burst {extra}", seen)
+
+	def test_areaderPannedBackIsNotShowingTheEnd(self):
+		"""So the refresh tick spends no call into the application on their behalf."""
+		for extra in range(8):
+			self.add(f"later {extra}")
+		self.control.reconsiderEnd()
+		self.control.panBack()
+		self.assertFalse(self.control.isShowingTheEnd)
 
 
 class TestAContainerHoldingADeclaredRun(unittest.TestCase):
