@@ -66,6 +66,9 @@ addonHandler.initTranslation()
 # Translators: the name of the input gestures category for this add-on's commands.
 SCRIPT_CATEGORY = _("BrlMultiline")
 
+BREAK = chr(10)
+"""A line break in a dialog's text, spelled so no escape has to survive a shell."""
+
 _plugin = None
 
 
@@ -1189,7 +1192,95 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return numSegments - 1
 		return number
 
-	def moveFocusToDisplay(self, target: FocusDisplayTarget, position: int = 0) -> None:
+	def focusSegmentFor(self, target: FocusDisplayTarget, position: int = 0) -> int:
+		""":return: the segment the focus would take on a display, in the configuration's numbering.
+
+		:param target: the display it would move to.
+		:param position: how far down its display the focus segment is now, kept if the new
+			display is divided finely enough and clamped to its last segment if it is not.
+		"""
+		return target.segments[min(max(position, 0), len(target.segments) - 1)]
+
+	def pinsDisplacedBy(self, number: int) -> list[str]:
+		"""Which pinned objects the focus would evict by landing where it is going.
+
+		A pin and the focus cannot share a segment: `refreshMonitors` would draw the pinned
+		object over the focus content that was just written there, and the two would fight
+		for the cells on every redraw. `startMonitoring` refuses the focus segment for that
+		reason and `_carryOverMonitors` releases a pin the focus has moved onto.
+
+		Released quietly, which is what made this worth asking first. Rearranging the layout
+		in the settings is a decision made while looking at the layout; pressing a key to move
+		the focus is a decision about the focus, and the pin is not in the reader's head at
+		that moment. Losing it is then a surprise rather than a choice.
+
+		:param number: the segment the focus is going to, in the configuration's numbering.
+		:return: the keys of the segments whose pins would go, in display order.
+		"""
+		container = self.container
+		if container is None or not self._monitors:
+			return []
+		try:
+			key = self.segmentKeyFor(number)
+		except LookupError:
+			return []
+		if key is None:
+			return []
+		return [spec.key for spec in container.specs if spec.key == key and spec.key in self._monitors]
+
+	def segmentKeyFor(self, number: int) -> str | None:
+		""":return: the segment a configured number names, or None if it names none.
+
+		The configuration's numbering rather than the container's, for the reason
+		`focusDisplayTargets` gives: a claim renumbers what the container holds and this
+		number is going into the configuration.
+		"""
+		handler = braille.handler
+		devices = deviceMap()
+		if handler is None or not devices:
+			return None
+		try:
+			keys = deviceSegmentKeys(devices, handler.displayDimensions.numCols)
+		except ValueError:
+			log.debugWarning("BrlMultiline: could not number the display's segments", exc_info=True)
+			return None
+		if number == -1:
+			number = len(keys) - 1
+		return keys[number] if 0 <= number < len(keys) else None
+
+	def homesForDisplacedPins(self, number: int) -> list[str]:
+		"""Where a pin evicted by the focus could go instead, best first.
+
+		The segment the focus is *leaving* comes first, because that is the swap the reader
+		is really asking for: the two things trade places, and moving the focus back trades
+		them back. After it, the rest of the display in order, so that a reader who has
+		divided a single row display into several — which this add-on allows on purpose, and
+		which gets crowded fast but is theirs to decide — has those segments offered too.
+
+		:param number: the segment the focus is going to.
+		:return: the keys of segments that could hold a pin, best first.
+		"""
+		container = self.container
+		if container is None:
+			return []
+		going = self.segmentKeyFor(number)
+		taken = set(self._monitors)
+		homes: list[str] = []
+		ordered = [container.focusSegmentKey] + [spec.key for spec in container.specs]
+		for key in ordered:
+			if key in homes or key == going or key in taken or not container.hasKey(key):
+				continue
+			if container.segmentForKey(key).isReserved:
+				continue
+			homes.append(key)
+		return homes
+
+	def moveFocusToDisplay(
+		self,
+		target: FocusDisplayTarget,
+		position: int = 0,
+		keep: "dict[str, str] | None" = None,
+	) -> None:
 		"""Make one of the combined displays the one that follows the system focus.
 
 		:param target: the display to move it to.
@@ -1197,8 +1288,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			display is divided finely enough and clamped to its last segment if it is not.
 			Keeping the position is what makes moving back and forth a round trip on two
 			displays divided alike, rather than a walk towards the bottom.
+		:param keep: pins to carry somewhere else rather than let go, as the key they are on
+			now to the key they should move to. Anything not named here is released by
+			`_carryOverMonitors` as it always was.
 		"""
-		number = target.segments[min(max(position, 0), len(target.segments) - 1)]
+		number = self.focusSegmentFor(target, position)
+		moved = self._carryPinsClearOfTheFocus(keep or {})
 		bmConfig.setFocusSegment(number)
 		self.rebuildBuffer()
 		ui.message(
@@ -1206,6 +1301,133 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# displays. Placeholders are the display's name and the segment number.
 			_("Focus on {display}, segment {number}").format(display=target.label, number=number),
 		)
+		if moved:
+			ui.message(
+				# Translators: reported when moving the focus moves a pinned object out of its
+				# way. The placeholder is how many objects moved.
+				_("{count} pinned objects moved").format(count=moved)
+				if moved > 1
+				# Translators: reported when moving the focus moves one pinned object out of
+				# its way, so that it is not lost.
+				else _("The pinned object moved with it"),
+			)
+
+	def _carryPinsClearOfTheFocus(self, keep: "dict[str, str]") -> int:
+		"""Move pins to their new homes before the display is rebuilt.
+
+		Before, deliberately. `_carryOverMonitors` decides what survives by looking at where
+		each pin *is* when the new container arrives, so a pin already moved is simply a pin
+		whose segment survived — the carry-over needs to know nothing about why it moved.
+
+		:param keep: the key each pin is on now, to the key it should move to.
+		:return: how many pins moved.
+		"""
+		moved = 0
+		for key, home in keep.items():
+			monitor = self._monitors.get(key)
+			if monitor is None or home == key:
+				continue
+			try:
+				monitor.moveTo(home)
+			except Exception:
+				log.debugWarning(f"Could not move the pin on segment {key!r}", exc_info=True)
+				continue
+			del self._monitors[key]
+			self._monitors[home] = monitor
+			moved += 1
+		return moved
+
+	def _askAboutDisplacedPins(
+		self,
+		target: FocusDisplayTarget,
+		position: int,
+		displaced: list[str],
+		homes: list[str],
+	) -> None:
+		"""Ask which pinned objects to keep before moving the focus over them.
+
+		The reader may keep as many as there are free segments and no more. Which ones is
+		theirs to say, and so is not moving at all: forgetting a pin is exactly how this
+		command loses one, and cancelling is the answer to that.
+
+		The one seam wx is behind on this path, so the decision above can be tested without a
+		running application.
+
+		:param target: the display the focus would move to.
+		:param position: how far down it the focus would sit.
+		:param displaced: the keys of the pins in the way, in display order.
+		:param homes: where they could go instead, best first.
+		"""
+		names = [self._pinDescription(key) for key in displaced]
+		room = len(homes)
+
+		def ask():
+			gui.mainFrame.prePopup()
+			try:
+				if not room:
+					answer = gui.messageBox(
+						# Translators: a dialog shown when moving the focus would release
+						# pinned objects and there is nowhere else to put them. The
+						# placeholder is a list of what is pinned.
+						_(
+							"Moving the focus here would release these pinned objects, "
+							"and there is nowhere else on the display to put them:{objects}"
+							"{gap}Move the focus anyway?"
+						).format(
+							objects=BREAK + BREAK.join(names),
+							gap=BREAK + BREAK,
+						),
+						# Translators: the title of that dialog.
+						_("Moving the focus"),
+						wx.YES_NO | wx.ICON_WARNING,
+					)
+					if answer == wx.YES:
+						self.moveFocusToDisplay(target, position)
+					return
+				dialog = wx.MultiChoiceDialog(
+					gui.mainFrame,
+					# Translators: a dialog asking which pinned objects to keep when moving
+					# the focus would release them. Placeholders are how many objects are in
+					# the way and how many there is room to keep.
+					_(
+						"Moving the focus here would release {count} pinned objects. "
+						"There is room to keep {room}. Choose which to keep; the rest are released."
+					).format(count=len(displaced), room=room),
+					# Translators: the title of that dialog.
+					_("Moving the focus"),
+					names,
+				)
+				try:
+					dialog.SetSelections(list(range(min(room, len(names)))))
+					if dialog.ShowModal() != wx.ID_OK:
+						return
+					chosen = list(dialog.GetSelections())
+				finally:
+					dialog.Destroy()
+			finally:
+				gui.mainFrame.postPopup()
+			keep = {}
+			for index in chosen[:room]:
+				if 0 <= index < len(displaced):
+					keep[displaced[index]] = homes[len(keep)]
+			self.moveFocusToDisplay(target, position, keep=keep)
+
+		wx.CallAfter(ask)
+
+	def _pinDescription(self, key: str) -> str:
+		""":return: what to call a pinned object in a dialog."""
+		monitor = self._monitors.get(key)
+		name = getattr(monitor, "name", None) or key
+		container = self.container
+		try:
+			number = container.numberForKey(key) if container is not None else None
+		except LookupError:
+			number = None
+		if number is None:
+			return str(name)
+		# Translators: names a pinned object and the segment it is in, in a dialog listing
+		# them. Placeholders are the object's name and the segment number.
+		return _("{name}, segment {number}").format(name=name, number=number)
 
 	def _chooseFocusDisplay(self, targets: list[FocusDisplayTarget], position: int) -> None:
 		"""Ask which display should follow the focus, then move it there.
@@ -1317,7 +1539,41 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._chooseFocusDisplay(targets, position)
 			return
 		other = next(target for target in targets if target is not here)
-		self.moveFocusToDisplay(other, position)
+		self.moveFocusWithItsPins(other, position)
+
+	def moveFocusWithItsPins(self, target: FocusDisplayTarget, position: int = 0) -> None:
+		"""Move the focus to a display, taking any pin it would evict with it.
+
+		Three cases, and the reader is only asked about the third.
+
+		**Nothing in the way.** The focus moves.
+
+		**One pin, and somewhere to put it.** They trade places: the pin goes to the segment
+		the focus is leaving, which is free by definition, and moving the focus back trades
+		them back. No question, because there is nothing to decide — this is what the reader
+		meant, and asking would turn a one-key toggle into a two-step operation, which is the
+		thing the command exists to avoid.
+
+		**Anything else.** More than one pin is in the way, or there is nowhere to put what
+		is. Then it is a decision: which to keep, or not to move at all — a reader who had
+		forgotten the pin was there wants the chance to leave things as they were, and one
+		who wants to keep more than there is room for can divide a segment further and try
+		again. Even a single row display can be divided, which gets crowded fast and is
+		theirs to judge.
+
+		:param target: the display to move the focus to.
+		:param position: how far down its display the focus segment is now.
+		"""
+		number = self.focusSegmentFor(target, position)
+		displaced = self.pinsDisplacedBy(number)
+		homes = self.homesForDisplacedPins(number)
+		if not displaced:
+			self.moveFocusToDisplay(target, position)
+			return
+		if len(displaced) == 1 and homes:
+			self.moveFocusToDisplay(target, position, keep={displaced[0]: homes[0]})
+			return
+		self._askAboutDisplacedPins(target, position, displaced, homes)
 
 	@script(
 		# Translators: input help message for a command.

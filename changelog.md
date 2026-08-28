@@ -20,7 +20,11 @@ Added:
 - Reversed panning keys, stored per display. NVDA has no such setting of its own.
 - A command that moves the focus onto another of several displays driven as one: a toggle
   when there are two, and a list to choose from when there are more. It keeps how far down
-  its display the focus segment was, and stores the answer in the profile in force.
+  its display the focus segment was, and stores the answer in the profile in force. A pinned
+  object sitting where the focus is going trades places with it rather than being released,
+  since pressing a key to move the focus is a decision about the focus and not about the
+  pin. Where there is nowhere to put what is displaced, or more than one thing is, the
+  reader chooses what to keep or cancels the move.
 - Per segment panning commands, unbound by default.
 - Pinning the navigator object to a segment, so it stays visible while the focus moves. A
   pin survives a layout change as long as its segment does. A pinned segment can be panned

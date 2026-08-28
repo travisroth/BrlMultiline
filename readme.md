@@ -264,7 +264,14 @@ display could hold. If a page feels slow, or you feel the marker meaning "there 
 have not read", press this and send the log: it is a great deal more use than "it felt
 slow".
 
-**Moves the focus onto another of the combined braille displays.** Only does anything when
+**Moves the focus onto another of the combined braille displays.** If a pinned object is
+sitting where the focus is going, the two trade places: the object moves to the segment the
+focus is leaving, and moving the focus back trades them back. You are told it happened, and
+nothing asks you anything, because that is what you meant. If there is nowhere to put what
+is in the way, or more than one thing is, you are asked which to keep — and you can cancel,
+which is the answer when you had forgotten the pin was there. Keeping more than there is
+room for is a matter of dividing a segment further first; even a single row display can be
+divided, which gets crowded fast and is your call. Only does anything when
 several displays are driven as one. With two, pressing it moves the segment that follows the
 system focus from the one to the other, so you can put the focus where your hands are without
 working out a segment number. With more than two, it opens a list to choose from. It keeps

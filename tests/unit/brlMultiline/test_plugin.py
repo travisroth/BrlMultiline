@@ -1920,6 +1920,129 @@ class TestTwoDisplays(FocusTrackingDisplayTestCase):
 		self.assertEqual(self.focusDriver, "hidBrailleStandard")
 
 
+class TestMovingTheFocusOverAPin(FocusTrackingDisplayTestCase):
+	"""A pin and the focus cannot share a segment, so moving the focus can evict one.
+
+	Released quietly until now, and the reader's account is why that was wrong: rearranging
+	the layout in the settings is a decision made while looking at the layout, and pressing a
+	key to move the focus is a decision about the focus. The pin is not in their head at that
+	moment, so losing it is a surprise rather than a choice.
+	"""
+
+	segmentCounts = {"hidBrailleStandard_8x32": 2, "freedomScientific_1x80": 1}
+
+	def setUp(self):
+		super().setUp()
+		self.asked = []
+		self.plugin._askAboutDisplacedPins = lambda *args: self.asked.append(args)
+
+	def moveToTheMonarch(self):
+		"""Move the focus from the Focus 80 onto the Monarch, where the pins are."""
+		targets = self.plugin.focusDisplayTargets()
+		monarch = next(t for t in targets if t.driverName == "hidBrailleStandard")
+		self.plugin.moveFocusWithItsPins(monarch, position=0)
+
+	def test_aFocusMoveWithNothingInItsWayJustMoves(self):
+		self.moveToTheMonarch()
+		self.assertEqual(self.focusDriver, "hidBrailleStandard")
+		self.assertEqual(self.asked, [])
+
+	def test_thePinInTheWayIsSeen(self):
+		self.pin(0)
+		self.assertEqual(self.plugin.pinsDisplacedBy(0), ["device.hidBrailleStandard.0"])
+
+	def test_aPinElsewhereIsNotInTheWay(self):
+		self.pin(1)
+		self.assertEqual(self.plugin.pinsDisplacedBy(0), [])
+
+	def test_theSwapNeedsNoDialog(self):
+		"""One pin and somewhere to put it is what the reader meant; asking would be noise."""
+		self.pin(0)
+		self.moveToTheMonarch()
+		self.assertEqual(self.asked, [])
+		self.assertEqual(self.focusDriver, "hidBrailleStandard")
+
+	def test_andThePinSurvivesIt(self):
+		self.pin(0)
+		self.moveToTheMonarch()
+		self.assertEqual(len(self.plugin._monitors), 1)
+
+	def test_thePinGoesWhereTheFocusCameFrom(self):
+		"""They trade places, so moving the focus back trades them back."""
+		self.pin(0)
+		self.moveToTheMonarch()
+		self.assertIn("device.freedomScientific.0", self.plugin._monitors)
+
+	def test_theSegmentTheFocusIsLeavingIsOfferedFirst(self):
+		self.pin(0)
+		self.assertEqual(self.plugin.homesForDisplacedPins(0)[0], "device.freedomScientific.0")
+
+	def test_aSegmentAlreadyPinnedIsNotOfferedAsAHome(self):
+		self.pin(0)
+		self.pin(1)
+		self.assertNotIn("device.hidBrailleStandard.1", self.plugin.homesForDisplacedPins(0))
+
+	def test_aPinBesideItDoesNotCostItItsHome(self):
+		"""The segment the focus vacates is free whatever else is pinned, so the swap holds."""
+		self.pin(0)
+		self.pin(1)
+		self.moveToTheMonarch()
+		self.assertEqual(self.asked, [])
+		self.assertIn("device.freedomScientific.0", self.plugin._monitors)
+		self.assertIn("device.hidBrailleStandard.1", self.plugin._monitors)
+
+	def noRoomAnywhere(self):
+		"""Leave the move with nowhere to put what it displaces.
+
+		Every free segment reserved by a claim is the real way this happens, and building one
+		here would be building a claim to test a rule about pins. The rule is "no home means
+		ask", so it is told no home.
+		"""
+		self.plugin.homesForDisplacedPins = lambda number: []
+
+	def test_withNowhereToPutItTheReaderIsAsked(self):
+		"""Rather than losing it: forgetting a pin is exactly how this command lost one."""
+		self.pin(0)
+		self.noRoomAnywhere()
+		self.moveToTheMonarch()
+		self.assertEqual(len(self.asked), 1)
+		_target, _position, displaced, homes = self.asked[0]
+		self.assertEqual(displaced, ["device.hidBrailleStandard.0"])
+		self.assertEqual(homes, [])
+
+	def test_nothingMovesUntilTheyAnswer(self):
+		self.pin(0)
+		self.noRoomAnywhere()
+		before = self.focusDriver
+		self.moveToTheMonarch()
+		self.assertEqual(self.focusDriver, before)
+		self.assertEqual(len(self.plugin._monitors), 1)
+
+	def test_answeringToKeepItMovesItAndTheFocus(self):
+		self.pin(0)
+		self.noRoomAnywhere()
+		self.moveToTheMonarch()
+		target, position, displaced, _homes = self.asked[0]
+		# The reader divides something further, and there is room after all.
+		self.plugin.moveFocusToDisplay(target, position, keep={displaced[0]: "device.freedomScientific.0"})
+		self.assertEqual(self.focusDriver, "hidBrailleStandard")
+		self.assertIn("device.freedomScientific.0", self.plugin._monitors)
+
+	def test_answeringToLetItGoMovesTheFocusAlone(self):
+		self.pin(0)
+		self.noRoomAnywhere()
+		self.moveToTheMonarch()
+		target, position, _displaced, _homes = self.asked[0]
+		self.plugin.moveFocusToDisplay(target, position)
+		self.assertEqual(self.focusDriver, "hidBrailleStandard")
+		self.assertNotIn("device.hidBrailleStandard.0", self.plugin._monitors)
+
+	def test_aPinNotInTheWayIsUndisturbed(self):
+		self.pin(1)
+		self.moveToTheMonarch()
+		self.assertIn("device.hidBrailleStandard.1", self.plugin._monitors)
+
+
 class TestTwoDisplaysDividedAlike(FocusTrackingDisplayTestCase):
 	"""Two eight row displays, each in two segments, so the position down one has a twin on the other."""
 
