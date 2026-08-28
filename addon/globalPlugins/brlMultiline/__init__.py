@@ -202,6 +202,29 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			_plugin = None
 			super().terminate()
 
+	# Events
+
+	def event_gainFocus(self, obj, nextHandler):
+		"""Let the focus through, then finish anything that was waiting for it.
+
+		The one event this add-on handles, and it is here for one thing: routing into a
+		column of a list view. The cell cannot take the focus, so the row is focused and the
+		navigator object is taken the rest of the way — and NVDA moves the navigator object
+		to whatever takes the focus, after the focus has arrived, which is after the routing
+		key has finished. The column asked for was set and then quietly undone.
+
+		After `nextHandler` rather than before, so that everything NVDA does with a new focus
+		has been done before the column is put back. Costs a `None` test on every focus
+		change and nothing else. See `flowObjectTable.columnWantedAfterFocus`.
+		"""
+		nextHandler()
+		try:
+			from . import flowObjectTable
+
+			flowObjectTable.columnWantedAfterFocus(obj)
+		except Exception:
+			log.debugWarning("Could not finish going to a table column", exc_info=True)
+
 	# Buffer lifetime
 
 	@property

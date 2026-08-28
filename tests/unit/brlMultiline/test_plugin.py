@@ -30,6 +30,7 @@ from ._stubs import (
 	installStubs,
 	log,
 	loadPlugin,
+	navigatedTo,
 	post_configProfileSwitch,
 	resetPluginState,
 	setBandConfig,
@@ -2103,6 +2104,54 @@ class TestMoreThanTwoDisplays(FocusTrackingDisplayTestCase):
 		self.assertEqual(self.focusDriver, "hidBrailleStandard")
 
 
+class TestTheFocusEvent(PluginTestCase):
+	"""The one event this add-on handles, and it is here for the routing key over a column.
+
+	A list view cell cannot take the focus, so its row is focused and the navigator object is
+	taken the rest of the way — and NVDA moves the navigator object to whatever has just taken
+	the focus, which happens after the routing key has finished. The column has to be asked
+	for again once the focus has actually arrived.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		from brlMultiline import flowObjectTable
+
+		self.tables = flowObjectTable
+		navigatedTo.clear()
+		self.addCleanup(setattr, flowObjectTable, "_pendingColumn", None)
+
+	def test_theEventIsPassedOn(self):
+		"""Before anything else is done with it: this handler is a bystander."""
+		passedOn = []
+		self.plugin.event_gainFocus(FakeNavigatorObject("something"), lambda: passedOn.append(True))
+		self.assertEqual(passedOn, [True])
+
+	def test_aColumnWaitingForTheFocusIsPutBack(self):
+		row = FakeNavigatorObject("a message")
+		cell = FakeNavigatorObject("a subject")
+		self.tables.askForColumnAfterFocus(row, cell)
+		self.plugin.event_gainFocus(row, lambda: None)
+		self.assertIs(navigatedTo[-1], cell)
+
+	def test_anOrdinaryFocusChangeMovesNothing(self):
+		self.plugin.event_gainFocus(FakeNavigatorObject("a button"), lambda: None)
+		self.assertEqual(navigatedTo, [])
+
+	def test_aFailureHereDoesNotStopTheFocus(self):
+		"""It runs on every focus change, so it must not be able to break one."""
+
+		def explode(obj):
+			raise RuntimeError("no")
+
+		original = self.tables.columnWantedAfterFocus
+		self.addCleanup(setattr, self.tables, "columnWantedAfterFocus", original)
+		self.tables.columnWantedAfterFocus = explode
+		passedOn = []
+		self.plugin.event_gainFocus(FakeNavigatorObject("something"), lambda: passedOn.append(True))
+		self.assertEqual(passedOn, [True])
+
+
 class TestOneDisplay(PluginTestCase):
 	"""An ordinary display, where there is nowhere else for the focus to go."""
 
@@ -2114,10 +2163,6 @@ class TestOneDisplay(PluginTestCase):
 		self.plugin.script_changeFocusTrackingDisplay(None)
 		self.assertTrue(spokenMessages, "the command said nothing")
 		self.assertEqual(CONFIG["focusSegment"], -1)
-
-
-if __name__ == "__main__":
-	unittest.main()
 
 
 class TestWhichTableAPagingCommandMoves(PluginTestCase):
@@ -2162,3 +2207,7 @@ class TestWhichTableAPagingCommandMoves(PluginTestCase):
 		self.keys()
 		self.plugin.tablesInColumns = lambda: {}
 		self.assertIsNone(self.plugin._tableToPage(None))
+
+
+if __name__ == "__main__":
+	unittest.main()

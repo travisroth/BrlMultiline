@@ -883,6 +883,88 @@ class TestGoingToACellNobodyCanFocus(unittest.TestCase):
 		self.assertEqual(navigatedTo, [])
 
 
+class TestTheColumnSurvivingTheFocusEvent(unittest.TestCase):
+	"""`setFocus` is a request, and the answer comes back as an event.
+
+	NVDA moves the navigator object to whatever has just taken the focus, whenever the review
+	cursor follows the focus — and that happens when the event arrives, which is after the
+	routing key has finished. So the column asked for was set and then quietly undone, and the
+	reader who routed onto a subject line was left on the row.
+
+	The tests above cannot see it, because the focus in them is instantaneous. Here the event
+	is separate, which is the only way this is visible at all.
+	"""
+
+	def setUp(self):
+		navigatedTo.clear()
+		flowObjectTable._pendingColumn = None
+		self.addCleanup(setattr, flowObjectTable, "_pendingColumn", None)
+
+	def messages(self, focusable=False):
+		view = FakeGrid([["A teammate", "Re: the watchlist"], ["Someone else", "Lunch"]])
+		for row in view.items:
+			row.isFocusable = True
+			for cell in row.cellObjects:
+				cell.isFocusable = focusable
+		return view
+
+	def routeInto(self, view, row, column):
+		table = flowObjectTable.tableFor(view.item(1))
+		table._getTableCellAt(flowObjectTable.TABLE_ID, None, row, column).updateCaret()
+
+	def focusArrives(self, obj) -> bool:
+		"""NVDA processes the focus event, review following the focus as it does by default.
+
+		:param obj: what took the focus.
+		:return: whether the add-on had a column waiting for it.
+		"""
+		import api
+
+		api.setNavigatorObject(obj)
+		return flowObjectTable.columnWantedAfterFocus(obj)
+
+	def test_theEventUndoesTheColumnOnItsOwn(self):
+		"""The defect itself, so that the fix below is measured against something."""
+		view = self.messages()
+		self.routeInto(view, 2, 2)
+		import api
+
+		api.setNavigatorObject(view.item(2))
+		self.assertIs(navigatedTo[-1], view.item(2))
+
+	def test_soTheColumnIsAskedForAgainAfterwards(self):
+		view = self.messages()
+		self.routeInto(view, 2, 2)
+		self.assertTrue(self.focusArrives(view.item(2)))
+		self.assertIs(navigatedTo[-1], view.item(2).cellObjects[1])
+
+	def test_theRequestIsUsedOnce(self):
+		"""A later focus on the same row is the reader arrowing, not the routing key."""
+		view = self.messages()
+		self.routeInto(view, 2, 2)
+		self.focusArrives(view.item(2))
+		self.assertFalse(self.focusArrives(view.item(2)))
+		self.assertIs(navigatedTo[-1], view.item(2))
+
+	def test_someOtherFocusDropsIt(self):
+		"""A request the focus never answered must not fire against whatever comes next."""
+		view = self.messages()
+		self.routeInto(view, 2, 2)
+		self.assertFalse(self.focusArrives(view.item(1)))
+		self.assertIs(navigatedTo[-1], view.item(1))
+		self.assertFalse(self.focusArrives(view.item(2)))
+
+	def test_aCellThatCanTakeTheFocusAsksForNothing(self):
+		"""File Explorer's Details view: the focus lands on the column itself."""
+		view = self.messages(focusable=True)
+		self.routeInto(view, 2, 2)
+		self.assertIsNone(flowObjectTable._pendingColumn)
+
+	def test_aFocusChangeWithNothingPendingCostsNothing(self):
+		view = self.messages()
+		self.assertFalse(flowObjectTable.columnWantedAfterFocus(view.item(1)))
+
+
 class TestReadingAListViewThroughItsOwnCells(unittest.TestCase):
 	"""`RowWithoutCellObjects.getChild` makes a cell object per column, and that object answers
 	`name`, `columnHeaderText` and `location` by asking the row the underscored questions

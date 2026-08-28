@@ -226,6 +226,76 @@ def describeThing(obj) -> str:
 	return f"{type(obj).__name__} role={role} name={_ask(obj, 'name')!r}"
 
 
+_pendingColumn = None
+"""The cell a routing key asked for, waiting for the row it is in to take the focus.
+
+`setFocus` is a request rather than a move: the focus arrives later, through an event, and
+NVDA sets the navigator object to whatever has just taken it whenever the review cursor is
+following the focus. So a column asked for and set immediately was set and then undone, and
+the reader who routed onto a subject line landed on the row.
+
+NVDA's own `RowWithFakeNavigation` has the same problem and answers it the same way: it
+remembers the column, asks for the row, and puts the column back once the focus has actually
+arrived. One request at a time, consumed by the next focus event whatever that event is,
+which means a request the focus never answers cannot fire later against something else.
+"""
+
+
+def askForColumnAfterFocus(row, cell) -> None:
+	"""Remember the cell to go to once the row taking the focus has taken it.
+
+	:param row: the object being focused.
+	:param cell: where the navigator object belongs once it has.
+	"""
+	global _pendingColumn
+	_pendingColumn = (row, cell)
+
+
+def columnWantedAfterFocus(obj) -> bool:
+	"""Put the navigator object on the cell a routing key asked for, the focus having arrived.
+
+	Called for every focus change, so it does nothing at all in the ordinary case: a module
+	level `None` and a return.
+
+	:param obj: what has just taken the focus.
+	:return: whether a request was fulfilled by it.
+	"""
+	global _pendingColumn
+	pending, _pendingColumn = _pendingColumn, None
+	if pending is None:
+		return False
+	row, cell = pending
+	if not _isTheSame(obj, row):
+		# Some other focus change got there first, so the request was about a move that did
+		# not happen. Dropped rather than held: a stale request is one that fires against
+		# whatever the reader does next.
+		return False
+	try:
+		import api
+
+		api.setNavigatorObject(cell)
+	except Exception:
+		log.debugWarning("Could not take the navigator object to a table cell", exc_info=True)
+		return False
+	return True
+
+
+def _isTheSame(obj, other) -> bool:
+	""":return: whether two objects are the same one, asking NVDA before trusting identity.
+
+	Identity is not enough: NVDA makes a new wrapper for an object every time it is fetched,
+	so the row that takes the focus is rarely the very object the routing key had. `__eq__`
+	is what knows they are the same underlying element, and it can raise on an object that
+	has gone away between the request and the event.
+	"""
+	if obj is other:
+		return True
+	try:
+		return bool(obj == other)
+	except Exception:
+		return False
+
+
 class ObjectCellInfo:
 	"""One cell of an object table, in the shape the rest of the add-on already reads.
 
@@ -279,6 +349,10 @@ class ObjectCellInfo:
 		if target is None:
 			return
 		focus = target if _canTakeFocus(target) else self.row
+		if focus is not target:
+			# Before asking for the focus rather than after, so that an event which arrives
+			# while `setFocus` is still running finds the request already made.
+			askForColumnAfterFocus(focus, target)
 		try:
 			if focus is not None:
 				focus.setFocus()
@@ -289,6 +363,10 @@ class ObjectCellInfo:
 		try:
 			import api
 
+			# Set now as well as after the focus event. The row may have the focus already,
+			# in which case asking for it changes nothing and no event follows; the request
+			# above is then consumed by whatever the reader focuses next, and does nothing
+			# because that is not this row.
 			api.setNavigatorObject(target)
 		except Exception:
 			log.debugWarning("Could not take the navigator object to a table cell", exc_info=True)
