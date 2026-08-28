@@ -1466,6 +1466,58 @@ class TestARunThatGrowsAtItsTail(unittest.TestCase):
 		self.control.panForward()
 		self.assertTrue(self.control.isShowingTheTail)
 
+	def test_arrivalsScrollOntoAFullBandWhenAskedTo(self):
+		"""Following the tail: the newest message comes on and the oldest row moves up.
+
+		The reader is at the end, which is the whole condition. Without this the message is
+		fetched and waits below the display, which is right for a document and wrong for a
+		chat somebody pinned in order to watch it.
+		"""
+		self.add("msg 3")
+		self.control.reconsiderEnd(scrollIntoView=True)
+		self.add("msg 4")
+		self.assertTrue(self.control.reconsiderEnd(scrollIntoView=True))
+		shown = self.written()
+		self.assertTrue(shown[-1].startswith("msg 4"))
+		self.assertNotIn("message 0", " ".join(shown))
+
+	def test_andTheWatchGoesOnFollowing(self):
+		"""Which is the point: the band scrolled, so the reader is at the tail again."""
+		for index in range(3, 7):
+			self.add(f"msg {index}")
+			self.control.reconsiderEnd(scrollIntoView=True)
+		self.assertTrue(self.control.isShowingTheTail)
+		self.assertTrue(self.written()[-1].startswith("msg 6"))
+
+	def test_aBandWithRoomDoesNotMoveAtAll(self):
+		"""Nothing to scroll: the arrival lands in a blank row and the rest stays put."""
+		top = self.control.window.topBlockId()
+		self.add("msg 3")
+		self.control.reconsiderEnd(scrollIntoView=True)
+		self.assertEqual(self.control.window.topBlockId(), top)
+		self.assertEqual(len(self.written()), 4)
+
+	def test_withoutTheSettingItWaitsBelowTheDisplay(self):
+		"""The other answer, for a page that rewrites itself for reasons of its own."""
+		self.add("msg 3")
+		self.control.reconsiderEnd()
+		self.add("msg 4")
+		self.control.reconsiderEnd()
+		self.assertNotIn("msg 4", " ".join(self.written()))
+		self.assertEqual(self.control.window.rowsBelow(), 1)
+
+	def test_nothingScrollsUnderAReaderWhoPannedBack(self):
+		"""Even asked to follow. What arrives is cached where they will meet it."""
+		for extra in range(8):
+			self.add(f"later {extra}")
+		while self.control.panForward():
+			pass
+		self.control.panBack()
+		before = self.written()
+		self.add("brand new")
+		self.control.reconsiderEnd(scrollIntoView=True)
+		self.assertEqual(self.written(), before)
+
 	def test_aBandStoppedForBudgetIsNotAsked(self):
 		"""`hasMoreToFetch` and `fill` carry that case, on the same tick."""
 		self.control.window.setEdge(Edge.AFTER, EdgeState.DEFERRED)
@@ -1487,6 +1539,54 @@ class TestARunThatGrowsAtItsTail(unittest.TestCase):
 		self.assertTrue(self.control.isShowingTheTail)
 		self.assertTrue(self.control.panBack())
 		self.assertFalse(self.control.isShowingTheTail)
+
+
+class TestSomethingLongerThanTheBandIsNotFollowed(unittest.TestCase):
+	"""The other half of following the tail, and the half that is easy to get wrong.
+
+	A run longer than the band has content below it from the moment it is read, and its far
+	edge is open for that reason alone — the same open edge a chat has a moment after a
+	message arrives. Following one is what a reader pinned it for; following the other walks
+	the display through the document a block at a time on a timer, without anybody touching
+	anything.
+
+	What tells them apart is whether the end has ever been reached. Having been to the end of
+	a thing is what makes what turns up after it new.
+	"""
+
+	def setUp(self):
+		self.messages = []
+		for index in range(20):
+			self.add(f"item {index}")
+		self.control = controllerOver(self.messages, adapter=flowObjects.DECLARED_RUN, numRows=4)
+
+	add = TestARunThatGrowsAtItsTail.add
+	written = TestARunThatGrowsAtItsTail.written
+
+	def tick(self) -> bool:
+		"""One refresh of a pin, gated exactly as `ObjectMonitor._refreshFlow` gates it."""
+		if not self.control.isShowingTheTail:
+			return False
+		return self.control.reconsiderEnd(scrollIntoView=True)
+
+	def test_theEndHasNotBeenReached(self):
+		self.assertFalse(self.control.hasBeenToTheEnd)
+
+	def test_soNothingScrollsOnItsOwn(self):
+		top = self.control.window.topBlockId()
+		for _tick in range(6):
+			self.tick()
+		self.assertEqual(self.control.window.topBlockId(), top)
+		self.assertTrue(self.written()[0].startswith("item 0"))
+
+	def test_readingToTheEndIsWhatTurnsItOn(self):
+		while self.control.panForward():
+			pass
+		self.assertTrue(self.control.hasBeenToTheEnd)
+		self.assertTrue(self.control.isShowingTheTail)
+		self.add("just arrived")
+		self.assertTrue(self.tick())
+		self.assertIn("just arrived", " ".join(self.written()))
 
 
 class TestAContainerHoldingADeclaredRun(unittest.TestCase):

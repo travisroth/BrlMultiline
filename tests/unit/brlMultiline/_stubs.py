@@ -149,6 +149,7 @@ CONFIG = DisplaySection(
 		"flowRows": 0,
 		"flowDisplay": "",
 		"flowGroundOnQuickNav": True,
+		"flowScrollToNewContent": True,
 		"flowWriteByParagraph": True,
 		"flowIndentStyle": "twoSpaces",
 	},
@@ -191,6 +192,7 @@ def setBandConfig(displayKey: str, **values) -> None:
 			"flowRows": 0,
 			"flowDisplay": "",
 			"flowGroundOnQuickNav": True,
+			"flowScrollToNewContent": True,
 			"flowWriteByParagraph": True,
 			"flowIndentStyle": "twoSpaces",
 		},
@@ -2738,6 +2740,7 @@ def resetConfig() -> None:
 		flowDisplay="",
 		flowGroundOnQuickNav=True,
 		flowWriteByParagraph=True,
+		flowScrollToNewContent=True,
 		flowIndentStyle="twoSpaces",
 		# The two that may defer to NVDA. Spelled out rather than left missing, because
 		# missing reads as "could not be read" and that is a different path.

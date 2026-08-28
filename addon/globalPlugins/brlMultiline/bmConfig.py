@@ -143,6 +143,7 @@ configSpec = {
 			"flowTablePinKey": "boolean(default=True)",
 			"flowLiveSeconds": "integer(default=0, min=0, max=60)",
 			"flowLiveUpdates": "boolean(default=True)",
+			"flowScrollToNewContent": "boolean(default=True)",
 			"flowTableHeadersMode": f'option({FOLLOWING_OPTIONS}, default="{FOLLOW_NVDA}")',
 			"flowTableHeaders": "boolean(default=True)",
 			**{
@@ -204,6 +205,8 @@ configSpec = {
 - `flowLiveSeconds`: how often the band reads its content again on a timer, over and above
 	reading it when the page says it changed. Zero waits to be told.
 - `flowLiveUpdates`: whether the band follows a page that changes under it at all.
+- `flowScrollToNewContent`: whether content arriving at the end of a pinned object scrolls
+	onto the display, while the reader is at that end.
 - `flowTableHeadersMode`: whether a table's header row is held on the top row of the band,
 	whatever the rest of it is showing. One of `FOLLOWING`; following means NVDA's own
 	`reportTableHeaders` asking for column headers.
@@ -537,6 +540,32 @@ def shouldWriteByParagraph(displayKey: str | None = None) -> bool:
 		return bool(getDisplayConfig(displayKey)["flowWriteByParagraph"])
 	except Exception:
 		log.debugWarning("Could not read flowWriteByParagraph", exc_info=True)
+		return True
+
+
+def shouldScrollToNewContent(displayKey: str | None = None) -> bool:
+	""":return: whether new content at the end of a pinned object scrolls onto the display.
+
+	The setting behind following a chat. A pinned run that is still being written is asked
+	for what has arrived while the reader can feel its last row; this says what happens to
+	what comes back when the display is already full. On, which is the default, it scrolls
+	on and the oldest rows move up, the way a terminal follows a log. Off, it waits below the
+	display until the reader pans forward to it, which is what everything else in a flow
+	does: the window is the reader's and nothing moves it.
+
+	On by default because a pin is a thing somebody asked to watch, and a monitor showing
+	content that stopped arriving twenty messages ago is worse than one that moves. Off is
+	for a page that changes for reasons of its own — an advertisement, a clock, a table
+	rewriting itself — where following the end would mean the display never sits still.
+
+	Per display and per profile, so a chat application's profile can follow while the same
+	display in a browser does not. The rest of the rule is not a setting: nothing scrolls
+	while the reader has panned back into the history, and reaching the end again resumes it.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["flowScrollToNewContent"])
+	except Exception:
+		log.debugWarning("Could not read flowScrollToNewContent", exc_info=True)
 		return True
 
 

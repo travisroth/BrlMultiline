@@ -388,6 +388,34 @@ class TestAPinTallEnoughToFlow(MonitorTestCase):
 		monitor.refresh()
 		self.assertEqual(written, [])
 
+	def asked(self):
+		"""Record what the tick asks the flow for, instead of letting it ask the document.
+
+		Panned to the end of the document first, because the tail watch is gated on the
+		reader being able to feel the last row that has been read, and a pin made in the
+		middle of a page is not.
+		"""
+		monitor = self.plugin._monitors[PINNED_KEY]
+		while monitor.controller.panForward():
+			pass
+		calls = []
+		monitor.controller.reconsiderEnd = lambda **kwargs: calls.append(kwargs) or False
+		return monitor, calls
+
+	def test_theTickAsksWhetherToScrollNewContentIn(self):
+		"""The reader's setting, per display and per profile, reaches the flow through here."""
+		self.pinDocument(caretIndex=0)
+		monitor, calls = self.asked()
+		monitor.refresh()
+		self.assertEqual(calls, [{"scrollIntoView": True}])
+
+	def test_andCarriesTheAnswerWhenItIsOff(self):
+		CONFIG["flowScrollToNewContent"] = False
+		self.pinDocument(caretIndex=0)
+		monitor, calls = self.asked()
+		monitor.refresh()
+		self.assertEqual(calls, [{"scrollIntoView": False}])
+
 	def test_theReadingPositionSurvivesARead(self):
 		"""Panning is the reader's, and a re-read must not undo it."""
 		self.pinDocument(caretIndex=0)

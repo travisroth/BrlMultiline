@@ -318,6 +318,14 @@ class TestFlowSettings(ConfigTestCase):
 		CONFIG["flowWriteByParagraph"] = False
 		self.assertFalse(bmConfig.shouldWriteByParagraph(FOCUS))
 
+	def test_newContentScrollsIntoViewUntilItIsTurnedOff(self):
+		"""On by default: a pin is a thing somebody asked to watch, and a monitor showing what
+		stopped arriving twenty messages ago is worse than one that moves."""
+		del CONFIG["flowScrollToNewContent"]
+		self.assertTrue(bmConfig.shouldScrollToNewContent(FOCUS))
+		CONFIG["flowScrollToNewContent"] = False
+		self.assertFalse(bmConfig.shouldScrollToNewContent(FOCUS))
+
 	def test_theIndentStyleDefaultsToTwoSpaces(self):
 		del CONFIG["flowIndentStyle"]
 		self.assertEqual(bmConfig.flowIndentStyle(FOCUS), flowIndent.TWO_SPACES)

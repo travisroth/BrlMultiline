@@ -40,6 +40,7 @@ import controlTypes
 from braille.regions.focus import getFocusRegions
 from logHandler import log
 
+from . import bmConfig
 from .container import DisplayContainer
 from .pinnedRegions import pinnedCounterpart
 
@@ -412,7 +413,11 @@ class ObjectMonitor:
 				# while the reader can feel the last row that has been read, so panning back
 				# into the history costs nothing, and only one fetch, which the source refuses
 				# again the moment there is really nothing more.
-				control.reconsiderEnd()
+				#
+				# Whether what comes back scrolls onto a full display is the reader's, per
+				# display and per profile: a chat is worth following and a page that rewrites
+				# itself for reasons of its own is not.
+				control.reconsiderEnd(scrollIntoView=bmConfig.shouldScrollToNewContent())
 			control.rereadContent()
 			cells = control.cells()
 		except Exception:

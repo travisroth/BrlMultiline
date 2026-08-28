@@ -496,6 +496,7 @@ class FlowPanelTestCase(SettingsPanelTestCase):
 		self.panel.pinKeyCtrl = FakeControl(0)
 		self.panel.liveSecondsCtrl = FakeControl(2)
 		self.panel.liveUpdatesCtrl = FakeControl(True)
+		self.panel.newContentCtrl = FakeControl(True)
 		self.panel.tableHeadersCtrl = FakeControl(0)
 
 	def section(self, displayKey=None):
@@ -530,6 +531,12 @@ class TestFlowOnOneDisplay(FlowPanelTestCase):
 		self.panel.groundCtrl.SetValue(False)
 		self.panel.onSave()
 		self.assertFalse(self.sections[MONARCH_KEY]["flowGroundOnQuickNav"])
+
+	def test_followingNewContentIsSaved(self):
+		"""Per display and per profile, so a chat's profile can follow where a browser's does not."""
+		self.panel.newContentCtrl.SetValue(False)
+		self.panel.onSave()
+		self.assertFalse(self.sections[MONARCH_KEY]["flowScrollToNewContent"])
 
 	def test_theIndentStyleIsSaved(self):
 		choices = indentStyleChoices()

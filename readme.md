@@ -142,6 +142,17 @@ single character for a moment after each Enter, and asking for the paragraph giv
 you are on every time. That is the right answer there and may not be everywhere, which is
 why it is a switch: if an editor reads oddly, try it off before reporting it.
 
+**Scroll new content into view while you are at the end.** On by default. For something
+pinned to a segment that is still being written — a chat, a log, a build — a new message
+scrolls onto a full display and the oldest row moves off, the way a terminal follows a log.
+Turn it off and what arrives waits below the display until you pan to it, which is what
+everything else in a flow does: the window is yours and nothing moves it.
+
+Two things are not settings, because they are what make this bearable. Nothing moves while
+you have panned back into the history, and reaching the end again resumes it. And nothing
+follows something that is merely longer than the display: the end has to have been reached
+once, so a pinned page never walks itself through a document while your hands are on it.
+
 These settings are part of the configuration profile you are editing. That is the useful
 part: make a profile for the browser you want to read this way, turn the flow on in it, and
 leave the normal configuration alone. The flow then comes and goes as you switch between

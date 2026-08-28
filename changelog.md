@@ -93,7 +93,13 @@ For add-on authors and component work:
   asks the source once more before refusing, and a pin whose reader can feel the last row
   that has been read asks on its own refresh tick. The tail of what has been read rather
   than a declared end, since a band that has just taken an arrival is full and open rather
-  than ended, and watching for the end alone stopped watching after the first message. Editing the row under a caret that has not moved since a
+  than ended, and watching for the end alone stopped watching after the first message. What
+  arrives scrolls onto a full display, the oldest row moving off, while the reader is at the
+  end of something whose end they have reached before — a setting per display and per
+  profile, on by default, so a chat can be followed where a page that rewrites itself is
+  not. Panning back into the history stops it and reaching the end again resumes it, and
+  content that is merely longer than the band is never followed, so a pinned page cannot
+  walk itself through a document on a timer. Editing the row under a caret that has not moved since a
   pan — forward Delete, or an editor rewriting the line — reads the band again when that
   row changed length, since every position below it has shifted; the band stays on the row
   the reader panned to. For controls an author does not own,

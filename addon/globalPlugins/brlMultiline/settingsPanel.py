@@ -819,6 +819,25 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Translators: label of a checkbox in settings, about content arriving at the end of
+		# something pinned to a segment, such as a new message in a chat.
+		newContentLabel = _("Scroll &new content into view while you are at the end")
+		self.newContentCtrl = sHelper.addItem(wx.CheckBox(self, label=newContentLabel))
+		self.newContentCtrl.SetValue(bool(section["flowScrollToNewContent"]))
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the checkbox above, explaining when
+					# the display moves and when it does not.
+					"For something pinned to a segment that is still being written, such as a "
+					"chat. On, a new message scrolls onto a full display and the oldest row "
+					"moves off, the way a terminal follows a log. Off, it waits below the "
+					"display until you pan to it. Either way, nothing moves while you have "
+					"panned back into the history, and reaching the end again resumes it.",
+				),
+			),
+		)
 		self._updateRowsHint()
 
 	# Where the band goes.
@@ -943,6 +962,7 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowRows"] = self.rowsCtrl.Value
 		section["flowGroundOnQuickNav"] = self.groundCtrl.IsChecked()
 		section["flowWriteByParagraph"] = self.writeByParagraphCtrl.IsChecked()
+		section["flowScrollToNewContent"] = self.newContentCtrl.IsChecked()
 		section["flowIndentStyle"] = indentStyleChoices()[self.indentStyleCtrl.GetSelection()][0]
 		section["flowLineFocus"] = self.lineFocusCtrl.IsChecked()
 		section["flowTableRowHeight"] = self.tableRowsCtrl.Value

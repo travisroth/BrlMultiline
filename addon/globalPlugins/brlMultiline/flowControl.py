@@ -164,6 +164,22 @@ class FlowController(PanelOwner):
 		it.
 		"""
 
+		self.hasBeenToTheEnd = False
+		"""Whether the source has ever said there is no more after the last block read.
+
+		What tells content that is *growing* from content that is merely longer than the
+		band, and the difference decides whether anything is allowed to scroll on its own.
+		A pinned page has more below it from the moment it is pinned, and following that
+		would walk the display through the document a block at a time on a timer. A chat
+		read to its end and then written in has the same open edge a moment later — the
+		difference is that somebody once reached the end of it.
+
+		Never unset. A reader who has been to the end of a thing has been there, and panning
+		back into its history does not make what arrives afterwards new content of a
+		different kind. What stops the display moving while they read back is that it only
+		ever moves at the tail.
+		"""
+
 		self.edgeReasons: dict = {}
 		"""Why each end of the stream was declared, by edge, for the report.
 
@@ -674,6 +690,11 @@ class FlowController(PanelOwner):
 			# more we have not got.
 			self.window.setEdge(edge, result.edgeState)
 			self.edgeReasons[edge] = result.message or result.kind.value
+			if edge is Edge.AFTER and result.edgeState is EdgeState.END:
+				# Recorded here rather than at any one caller, because reaching the end is
+				# something panning, filling and the tail watch all do. See
+				# L{hasBeenToTheEnd}.
+				self.hasBeenToTheEnd = True
 			return False
 		block = self._keep(result.block)
 		began = self.source.budget.clock()
@@ -896,7 +917,7 @@ class FlowController(PanelOwner):
 		# just below them and look, wrongly, as though they were at the end of the run.
 		return self.window.rowsBelow() == 0
 
-	def reconsiderEnd(self) -> bool:
+	def reconsiderEnd(self, scrollIntoView: bool = False) -> bool:
 		"""Ask the source again for whatever may have arrived past the tail.
 
 		A stream that has ended stays ended: `_fetchOne` records `EdgeState.END` from the
@@ -924,11 +945,22 @@ class FlowController(PanelOwner):
 		and a run that grows into that band would otherwise sit unasked behind a gate that
 		was watching for the wrong thing.
 
+		:param scrollIntoView: bring what arrives onto the display, moving the window on. The
+			caller's setting to make — see `bmConfig.shouldScrollToNewContent` — and it
+			applies only where the reader was at the tail of something whose end has been
+			reached before. A page that is simply longer than the band has more below it from
+			the moment it is pinned, and following *that* would walk the display through the
+			document a block at a time on a timer. See L{hasBeenToTheEnd}.
 		:return: whether anything new was found.
 		"""
 		if self.window.edges[Edge.AFTER] not in (EdgeState.END, EdgeState.OPEN):
 			# DEFERRED or ERROR. The budget and the failure paths own those.
 			return False
+		# Asked before the fetch, because fetching is what stops them being true: a message
+		# added below a full band puts a row under the reader that they have not seen, and
+		# the edge that said the stream had ended is about to be opened.
+		wasAtTheTail = self.isShowingTheTail
+		wasEnded = self.hasBeenToTheEnd
 		with self.operation():
 			self.window.setEdge(Edge.AFTER, EdgeState.OPEN)
 			if not self._fetchOne(Edge.AFTER):
@@ -936,7 +968,32 @@ class FlowController(PanelOwner):
 			# More than one may have arrived between two ticks, and the rows below the reader
 			# may have been blank and waiting for them.
 			self._fillBothEnds()
+			if scrollIntoView and wasAtTheTail and wasEnded:
+				self._showWhatArrived()
 		return True
+
+	def _showWhatArrived(self) -> None:
+		"""Move the window on so that what has just arrived is on the display.
+
+		By the smallest movement that shows it, which is what `ensureVisible` is: the newest
+		row becomes the bottom row and the rest move up one, rather than the display jumping
+		a page the way panning does. A band that had blank rows does not move at all, because
+		what arrived is already visible in them.
+
+		Its *first* row, not its last. A message longer than the band would otherwise be
+		shown from its end, which is the one part of it the reader has no way to make sense
+		of. Landing on its first row leaves the rest below, so the tail watch goes quiet —
+		`isShowingTheTail` is false while anything read is unseen — until the reader has
+		panned through what arrived. A long arrival therefore waits for them, and a chat's
+		one line messages, which is what this is for, do not.
+		"""
+		blocks = self.window.blocks
+		if not blocks:
+			return
+		try:
+			self.window.ensureVisible(blocks[-1].blockId, rowIndex=0, forward=True)
+		except LookupError:
+			log.debugWarning("Could not show what arrived at the end of a flow", exc_info=True)
 
 	def _pan(self, forward: bool) -> bool:
 		"""Pan, answering `ContentNeeded` by fetching and trying again.
