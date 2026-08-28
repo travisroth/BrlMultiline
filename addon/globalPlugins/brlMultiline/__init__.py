@@ -1460,7 +1460,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		everything above can be tested without a running application.
 
 		:param targets: the displays to offer, in stacking order.
-		:param position: passed on to L{moveFocusToDisplay}.
+		:param position: passed on to L{moveFocusWithItsPins}.
 		"""
 		current = next((index for index, target in enumerate(targets) if target.holdsFocus), 0)
 
@@ -1490,7 +1490,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			finally:
 				gui.mainFrame.postPopup()
 			if 0 <= chosen < len(targets):
-				self.moveFocusToDisplay(targets[chosen], position)
+				# Through the pin-preserving move, exactly as the two-display toggle goes:
+				# choosing a display from a list is the same request as toggling to it, and a
+				# pin on the one chosen was silently released while this called the plain move
+				# directly.
+				self.moveFocusWithItsPins(targets[chosen], position)
 
 		wx.CallAfter(ask)
 

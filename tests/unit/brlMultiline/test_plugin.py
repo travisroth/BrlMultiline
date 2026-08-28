@@ -17,12 +17,18 @@ import unittest
 
 from ._stubs import (
 	CONFIG,
+	ID_CANCEL,
+	ID_OK,
+	NO,
+	YES,
 	FakeCallLater,
 	FakeHandler,
 	FakeNavigatorObject,
 	FakeTreeInterceptor,
 	Region,
 	callAfterQueue,
+	dialogAnswers,
+	mainFrame,
 	displayChanged,
 	displaySizeChanged,
 	fakeGetFocusRegions,
@@ -2044,6 +2050,90 @@ class TestMovingTheFocusOverAPin(FocusTrackingDisplayTestCase):
 		self.assertIn("device.hidBrailleStandard.1", self.plugin._monitors)
 
 
+class TestTheDialogAboutDisplacedPins(FocusTrackingDisplayTestCase):
+	"""The other dialog on this path, driven rather than stood in for.
+
+	The decision above it is tested with the dialog replaced, which is the right way round:
+	the interesting rules are which pins are in the way and where they could go. What is left
+	is the wiring — that answering yes moves the focus, that answering no moves nothing, and
+	that a choice of which to keep becomes the mapping the move is given — and that wiring
+	was written and never run.
+	"""
+
+	segmentCounts = {"hidBrailleStandard_8x32": 2, "freedomScientific_1x80": 1}
+
+	def monarch(self):
+		targets = self.plugin.focusDisplayTargets()
+		return next(target for target in targets if target.driverName == "hidBrailleStandard")
+
+	def moveWithNoRoom(self, answer):
+		"""Move the focus onto a pin with nowhere to put it, and answer the question."""
+		self.plugin.homesForDisplacedPins = lambda number: []
+		dialogAnswers.messageAnswer = answer
+		self.plugin.moveFocusWithItsPins(self.monarch(), position=0)
+		callAfterQueue.flush()
+
+	def test_theQuestionNamesWhatIsInTheWay(self):
+		self.pin(0, name="the build log")
+		self.moveWithNoRoom(NO)
+		self.assertEqual(len(dialogAnswers.shown), 1)
+		self.assertIn("the build log", dialogAnswers.shown[0].message)
+
+	def test_sayingNoLeavesEverythingWhereItWas(self):
+		self.pin(0)
+		before = self.focusDriver
+		self.moveWithNoRoom(NO)
+		self.assertEqual(self.focusDriver, before)
+		self.assertIn("device.hidBrailleStandard.0", self.plugin._monitors)
+
+	def test_sayingYesMovesTheFocusAndLetsThePinGo(self):
+		"""Which is the old behaviour, now as an answer the reader gave rather than a surprise."""
+		self.pin(0)
+		self.moveWithNoRoom(YES)
+		self.assertEqual(self.focusDriver, "hidBrailleStandard")
+		self.assertNotIn("device.hidBrailleStandard.0", self.plugin._monitors)
+
+	def test_nvdaGetsItsWindowBack(self):
+		self.pin(0)
+		self.moveWithNoRoom(NO)
+		self.assertEqual(mainFrame.prePopups, 1)
+		self.assertEqual(mainFrame.postPopups, 1)
+
+	def test_theOneChosenIsTheOneKept(self):
+		"""Several pins in the way and room for one, which is a list rather than a question.
+
+		Handed the pins directly. `pinsDisplacedBy` answers for one segment and so names one
+		pin today, and the layout that would displace two is not one this display can be put
+		into — but the reader asked for the general rule, and a rule nothing exercises is a
+		rule nobody knows is broken.
+		"""
+		self.pin(0, name="first")
+		self.pin(1, name="second")
+		displaced = ["device.hidBrailleStandard.0", "device.hidBrailleStandard.1"]
+		dialogAnswers.answer = ID_OK
+		dialogAnswers.select = [1]
+		self.plugin._askAboutDisplacedPins(self.monarch(), 0, displaced, ["device.freedomScientific.0"])
+		callAfterQueue.flush()
+		self.assertEqual(dialogAnswers.shown[0].kind, "multi")
+		self.assertIn("device.freedomScientific.0", self.plugin._monitors)
+		self.assertEqual(self.plugin._monitors["device.freedomScientific.0"].name, "second")
+
+	def test_cancellingTheListMovesNothing(self):
+		self.pin(0)
+		self.pin(1)
+		before = self.focusDriver
+		dialogAnswers.answer = ID_CANCEL
+		self.plugin._askAboutDisplacedPins(
+			self.monarch(),
+			0,
+			["device.hidBrailleStandard.0", "device.hidBrailleStandard.1"],
+			["device.freedomScientific.0"],
+		)
+		callAfterQueue.flush()
+		self.assertEqual(self.focusDriver, before)
+		self.assertIn("device.hidBrailleStandard.0", self.plugin._monitors)
+
+
 class TestTwoDisplaysDividedAlike(FocusTrackingDisplayTestCase):
 	"""Two eight row displays, each in two segments, so the position down one has a twin on the other."""
 
@@ -2102,6 +2192,74 @@ class TestMoreThanTwoDisplays(FocusTrackingDisplayTestCase):
 		targets, position = self.asked[0]
 		self.plugin.moveFocusToDisplay(targets[0], position)
 		self.assertEqual(self.focusDriver, "hidBrailleStandard")
+
+
+class TestTheListOfDisplays(FocusTrackingDisplayTestCase):
+	"""The dialog itself, driven rather than stood in for.
+
+	Worth running for real, because the bug it is here for lived in the stub's shadow: the
+	toggle went through the pin-preserving move and the list did not, so choosing a display
+	from it released a pin on that display without a word. Every test above this one
+	replaced the chooser with a recorder and so could not see it.
+	"""
+
+	displays = (
+		("hidBrailleStandard", 0, 8, 32),
+		("brailleNote", 8, 2, 32),
+		("freedomScientific", 10, 1, 32),
+	)
+	segmentCounts = {
+		"hidBrailleStandard_8x32": 2,
+		"brailleNote_2x32": 1,
+		"freedomScientific_1x32": 1,
+	}
+	rows = 11
+	cols = 32
+
+	def choose(self, index, agree=True):
+		"""Press the command and answer the list it puts up."""
+		dialogAnswers.answer = ID_OK if agree else ID_CANCEL
+		dialogAnswers.select = index
+		self.press()
+		callAfterQueue.flush()
+
+	def test_theListNamesEveryDisplay(self):
+		self.choose(0)
+		self.assertEqual(len(dialogAnswers.shown), 1)
+		self.assertEqual(dialogAnswers.shown[0].kind, "single")
+		self.assertEqual(len(dialogAnswers.shown[0].choices), 3)
+
+	def test_answeringMovesTheFocus(self):
+		self.choose(0)
+		self.assertEqual(self.focusDriver, "hidBrailleStandard")
+
+	def test_cancellingMovesNothing(self):
+		before = self.focusDriver
+		self.choose(0, agree=False)
+		self.assertEqual(self.focusDriver, before)
+
+	def test_aPinOnTheChosenDisplayIsKept(self):
+		"""The finding: this went through the plain move and lost it."""
+		self.pin(0)
+		self.choose(0)
+		self.assertEqual(self.focusDriver, "hidBrailleStandard")
+		self.assertEqual(len(self.plugin._monitors), 1)
+
+	def test_andItTradesPlacesWithTheFocus(self):
+		self.pin(0)
+		self.choose(0)
+		self.assertIn("device.freedomScientific.0", self.plugin._monitors)
+
+	def test_aPinSomewhereElseIsUndisturbed(self):
+		self.pin(1)
+		self.choose(0)
+		self.assertIn("device.hidBrailleStandard.1", self.plugin._monitors)
+
+	def test_nvdaGetsItsWindowBack(self):
+		"""Both halves of the popup, since the first without the second leaves it raised."""
+		self.choose(0)
+		self.assertEqual(mainFrame.prePopups, 1)
+		self.assertEqual(mainFrame.postPopups, 1)
 
 
 class TestTheFocusEvent(PluginTestCase):

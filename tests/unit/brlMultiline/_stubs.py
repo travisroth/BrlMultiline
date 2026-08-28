@@ -1739,6 +1739,126 @@ class CallAfterQueue:
 callAfterQueue = CallAfterQueue()
 """The queue `wx.CallAfter` writes into. Tests flush it to run a deferred rebuild."""
 
+
+ID_OK = 5100
+ID_CANCEL = 5101
+YES = 5103
+NO = 5104
+YES_NO = 0x0A
+ICON_WARNING = 0x100
+ICON_QUESTION = 0x200
+"""wx's answers and flags, as numbers, since the tests compare them and nothing else."""
+
+
+class DialogAnswers:
+	"""What the reader will answer a dialog, and what they were shown.
+
+	wx has nowhere to open a window in a test, so the dialogs the plugin puts up are stubs.
+	A test says what will be answered before pressing the command and reads `shown`
+	afterwards, which keeps the decision behind the dialog testable without the dialog
+	itself being the thing under test.
+
+	Nothing is agreed to by default: an unset answer cancels, so a test that forgets to say
+	what the reader did gets the reading where they backed out rather than the one where
+	they consented to everything.
+	"""
+
+	def __init__(self):
+		self.reset()
+
+	def reset(self):
+		self.shown = []
+		self.answer = ID_CANCEL
+		self.select = None
+		self.messageAnswer = NO
+
+	def record(self, kind, message, caption, choices):
+		self.shown.append(
+			types.SimpleNamespace(kind=kind, message=message, caption=caption, choices=list(choices))
+		)
+
+
+dialogAnswers = DialogAnswers()
+"""The one place a test says what a dialog was answered. Reset between tests."""
+
+
+class FakeChoiceDialog:
+	"""The shape wx's choice dialogs present: made, selected in, shown, destroyed."""
+
+	kind = "choice"
+
+	def __init__(self, parent, message, caption, choices):
+		self.parent = parent
+		self.choices = list(choices)
+		self.destroyed = False
+		dialogAnswers.record(self.kind, message, caption, choices)
+
+	def ShowModal(self):
+		return dialogAnswers.answer
+
+	def Destroy(self):
+		self.destroyed = True
+
+
+class FakeSingleChoiceDialog(FakeChoiceDialog):
+	kind = "single"
+
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self.selection = 0
+
+	def SetSelection(self, index):
+		self.selection = index
+
+	def GetSelection(self):
+		return self.selection if dialogAnswers.select is None else dialogAnswers.select
+
+
+class FakeMultiChoiceDialog(FakeChoiceDialog):
+	kind = "multi"
+
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self.selections = []
+
+	def SetSelections(self, indexes):
+		self.selections = list(indexes)
+
+	def GetSelections(self):
+		return self.selections if dialogAnswers.select is None else list(dialogAnswers.select)
+
+
+class FakeMainFrame:
+	"""NVDA's main window, which dialogs are raised in front of.
+
+	`prePopup` and `postPopup` are counted rather than ignored: a dialog that forgets the
+	second one leaves NVDA's window in the state it was put in for the first.
+	"""
+
+	def __init__(self):
+		self.prePopups = 0
+		self.postPopups = 0
+		self.settingsDialogs = []
+
+	def prePopup(self):
+		self.prePopups += 1
+
+	def postPopup(self):
+		self.postPopups += 1
+
+	def popupSettingsDialog(self, dialogClass, panel=None):
+		self.settingsDialogs.append((dialogClass, panel))
+
+
+mainFrame = FakeMainFrame()
+"""Stands in for `gui.mainFrame`, so the dialog paths can be driven."""
+
+
+def _messageBox(message, caption="", flags=0, *args, **kwargs):
+	dialogAnswers.record("message", message, caption, [])
+	return dialogAnswers.messageAnswer
+
+
 callLaterQueue = CallLaterQueue()
 """The timers `wx.CallLater` creates. Tests fire them to run the display's reconnect poll."""
 
@@ -2330,8 +2450,17 @@ def _installPluginStubs() -> None:
 		CheckBox=object,
 		StaticText=object,
 		Window=object,
+		SingleChoiceDialog=FakeSingleChoiceDialog,
+		MultiChoiceDialog=FakeMultiChoiceDialog,
 		OK=1,
 		ICON_ERROR=2,
+		ID_OK=ID_OK,
+		ID_CANCEL=ID_CANCEL,
+		YES=YES,
+		NO=NO,
+		YES_NO=YES_NO,
+		ICON_WARNING=ICON_WARNING,
+		ICON_QUESTION=ICON_QUESTION,
 	)
 
 	class GlobalPlugin:
@@ -2364,8 +2493,8 @@ def _installPluginStubs() -> None:
 		"gui",
 		settingsDialogs=settingsDialogs,
 		blockAction=BlockAction(),
-		mainFrame=None,
-		messageBox=lambda *args, **kwargs: None,
+		mainFrame=mainFrame,
+		messageBox=_messageBox,
 		guiHelper=types.SimpleNamespace(BoxSizerHelper=object),
 	)
 	_module("gui.guiHelper", BoxSizerHelper=object)
@@ -2627,6 +2756,9 @@ def resetPluginState() -> None:
 	resetConfig()
 	callAfterQueue.discard()
 	callLaterQueue.pending.clear()
+	dialogAnswers.reset()
+	mainFrame.prePopups = mainFrame.postPopups = 0
+	mainFrame.settingsDialogs.clear()
 	spokenMessages.clear()
 	log.messages.clear()
 	displayChanged.handlers.clear()
