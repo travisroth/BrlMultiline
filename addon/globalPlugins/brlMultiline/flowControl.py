@@ -870,16 +870,26 @@ class FlowController(PanelOwner):
 		return self._pan(forward=False)
 
 	@property
-	def isShowingTheEnd(self) -> bool:
-		""":return: whether the band's last content row is the last block the source gave.
+	def isShowingTheTail(self) -> bool:
+		""":return: whether the band's last content row is the last row that has been read.
 
-		What decides whether a live run is worth asking to grow. A reader who has panned back
-		into the history is not waiting on what has just arrived at its end, and asking on
-		their behalf would be a call into the application on every refresh tick to fetch
-		something nobody is looking at.
+		What decides whether a live run is worth asking to grow. A reader who has panned
+		back into the history, or who has not panned onto something that arrived while they
+		were reading, is not waiting on what lies past it, and asking on their behalf would
+		be a call into the application on every refresh tick to fetch something nobody is
+		looking at.
+
+		The tail of what has been read, not the end of the stream, and the difference is
+		worth recording because the first version of this asked for the second. It required
+		the edge to be END — but a fetch that finds something leaves the edge OPEN, so the
+		first message ever to arrive turned this gate off and the pin watched nothing again.
+		A band that is exactly full stops with the edge open as well, which the ordinary
+		`fill` leaves behind every time. Whether the reader can feel everything that has been
+		read is the question; the edge answers a different one.
 		"""
-		if self.window.edges[Edge.AFTER] is not EdgeState.END:
-			# There is more the source has already promised. Nothing to reconsider.
+		if self.window.edges[Edge.AFTER] in (EdgeState.DEFERRED, EdgeState.ERROR):
+			# Out of budget, or a source that failed. Another fetch here is not the answer to
+			# either: `hasMoreToFetch` and `fill` carry the deferred case on the same tick.
 			return False
 		# Measured in rows rather than against the last cached block, because `_trim` drops
 		# what is far from the window: a reader who panned back would find the cache ending
@@ -887,7 +897,7 @@ class FlowController(PanelOwner):
 		return self.window.rowsBelow() == 0
 
 	def reconsiderEnd(self) -> bool:
-		"""Ask the source again at an end it once said it had reached.
+		"""Ask the source again for whatever may have arrived past the tail.
 
 		A stream that has ended stays ended: `_fetchOne` records `EdgeState.END` from the
 		source's own answer, `shortfall` then reports nothing missing at that edge, and
@@ -909,9 +919,15 @@ class FlowController(PanelOwner):
 		on a timer would churn a cache that `_trim` is already bounding. Panning back reaches
 		it, because the edge before the start is only END once the walk has genuinely refused.
 
+		Asked at an open edge as well as an ended one. A band that is exactly full stops
+		fetching with its edge still open — `fill` asks only for the rows it is short of —
+		and a run that grows into that band would otherwise sit unasked behind a gate that
+		was watching for the wrong thing.
+
 		:return: whether anything new was found.
 		"""
-		if self.window.edges[Edge.AFTER] is not EdgeState.END:
+		if self.window.edges[Edge.AFTER] not in (EdgeState.END, EdgeState.OPEN):
+			# DEFERRED or ERROR. The budget and the failure paths own those.
 			return False
 		with self.operation():
 			self.window.setEdge(Edge.AFTER, EdgeState.OPEN)

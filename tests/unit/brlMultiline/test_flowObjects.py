@@ -1401,7 +1401,7 @@ class TestARunThatGrowsAtItsTail(unittest.TestCase):
 		self.assertIs(self.control.window.edges[Edge.AFTER], EdgeState.END)
 
 	def test_theBandIsShowingThatEnd(self):
-		self.assertTrue(self.control.isShowingTheEnd)
+		self.assertTrue(self.control.isShowingTheTail)
 
 	def test_aNewMessageIsFoundWhenTheEndIsReconsidered(self):
 		self.add("newest")
@@ -1437,13 +1437,56 @@ class TestARunThatGrowsAtItsTail(unittest.TestCase):
 		for extra in range(3):
 			self.assertIn(f"burst {extra}", seen)
 
-	def test_areaderPannedBackIsNotShowingTheEnd(self):
-		"""So the refresh tick spends no call into the application on their behalf."""
+	def test_anArrivalThatFillsTheBandDoesNotEndTheWatch(self):
+		"""The gate used to be the edge state, and a fetch that finds something opens it.
+
+		So the very first message to arrive turned the watch off: the band went full, the
+		edge stayed open because something had been found, and the pin never asked again.
+		"""
+		self.add("msg 3")
+		self.assertTrue(self.control.reconsiderEnd())
+		self.assertEqual(len(self.written()), 4)
+		self.assertTrue(self.control.isShowingTheTail)
+
+	def test_andTheOneAfterThatIsFoundToo(self):
+		self.add("msg 3")
+		self.control.reconsiderEnd()
+		self.add("msg 4")
+		self.assertTrue(self.control.reconsiderEnd())
+		self.assertTrue(self.control.panForward())
+		self.assertIn("msg 4", " ".join(self.written()))
+
+	def test_theWatchReadsOneAheadAndThenWaitsForTheReader(self):
+		"""Bounded: what has arrived unread is below the band, so nothing asks past it."""
+		self.add("msg 3")
+		self.control.reconsiderEnd()
+		self.add("msg 4")
+		self.control.reconsiderEnd()
+		self.assertFalse(self.control.isShowingTheTail)
+		self.control.panForward()
+		self.assertTrue(self.control.isShowingTheTail)
+
+	def test_aBandStoppedForBudgetIsNotAsked(self):
+		"""`hasMoreToFetch` and `fill` carry that case, on the same tick."""
+		self.control.window.setEdge(Edge.AFTER, EdgeState.DEFERRED)
+		self.assertFalse(self.control.isShowingTheTail)
+		self.assertFalse(self.control.reconsiderEnd())
+
+	def test_aReaderPannedBackIsNotShowingTheTail(self):
+		"""So the refresh tick spends no call into the application on their behalf.
+
+		Panned forward to the end of the run first, because the band starts at the run's
+		first message and there is nothing above it to pan back to. The test this replaces
+		asked for a pan back that could not happen and passed on the edge state instead,
+		which is the very thing that was wrong.
+		"""
 		for extra in range(8):
 			self.add(f"later {extra}")
-		self.control.reconsiderEnd()
-		self.control.panBack()
-		self.assertFalse(self.control.isShowingTheEnd)
+		while self.control.panForward():
+			pass
+		self.assertTrue(self.control.isShowingTheTail)
+		self.assertTrue(self.control.panBack())
+		self.assertFalse(self.control.isShowingTheTail)
 
 
 class TestAContainerHoldingADeclaredRun(unittest.TestCase):

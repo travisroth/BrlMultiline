@@ -90,8 +90,10 @@ For add-on authors and component work:
   controller rather than from the buffer's window, so moving the window moved nothing and
   a pinned document, list or table would not scroll. Content that arrives after a run has
   been read to its end — a message in a pinned chat history — is now found: panning forward
-  asks the source once more before refusing, and a pin whose reader is looking at the end
-  asks on its own refresh tick. Editing the row under a caret that has not moved since a
+  asks the source once more before refusing, and a pin whose reader can feel the last row
+  that has been read asks on its own refresh tick. The tail of what has been read rather
+  than a declared end, since a band that has just taken an arrival is full and open rather
+  than ended, and watching for the end alone stopped watching after the first message. Editing the row under a caret that has not moved since a
   pan — forward Delete, or an editor rewriting the line — reads the band again when that
   row changed length, since every position below it has shifted; the band stays on the row
   the reader panned to. For controls an author does not own,
