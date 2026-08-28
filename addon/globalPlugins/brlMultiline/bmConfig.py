@@ -706,15 +706,20 @@ def storedFollowing(displayKey, key: str) -> str:
 	cleared is L{NEVER}, because both were answers about this add-on rather than about NVDA
 	and neither meant "do whatever NVDA does". Failing both, the default, which is to follow.
 
-	`isSet` is what tells a stored answer from a default: it reports whether the key is stored
-	in any profile, so the checkbox is read only where somebody actually ticked or cleared it.
-	The same distinction `migrateReverseScrollButtons` turns on, and for the same reason — a
-	value the user set by hand is never the thing to ignore.
+	Asked one profile at a time, most specific first, and that is the whole subtlety here.
+	The obvious version asked `isSet`, which reports whether a key is stored in *any* active
+	profile rather than in the one whose answer counts. Two keys carry one question, so that
+	is not a detail: a reader with the new setting answered in their base configuration and
+	the old checkbox answered in a profile triggered by one application got the base answer in
+	that application, where the whole point of an application profile is that its answer wins.
+	Walking the profiles restores the ordinary rule — the most specific profile that answered
+	either form of the question decides — and it keeps the distinction the old code was
+	reaching for, since a profile that never stored either key does not answer.
 
 	Nothing is written back. A migration that rewrites the configuration has to choose a
 	profile to write to, and an answer given in a profile triggered by one application is an
-	answer about that application; reading through the aggregated section asks the question in
-	whichever profile is active, which is where the answer was given.
+	answer about that application; reading down the profiles asks the question where the
+	answer was given.
 
 	:param displayKey: the display to read, or None for the current one.
 	:param key: the new key, which must be one of L{LEGACY_FOLLOWING}.
@@ -722,12 +727,30 @@ def storedFollowing(displayKey, key: str) -> str:
 	section = getDisplayConfig(displayKey)
 	legacy = LEGACY_FOLLOWING[key]
 	try:
-		if not section.isSet(key) and section.isSet(legacy):
-			return ALWAYS if section[legacy] else NEVER
+		for profile in reversed(_profilesBehind(section)):
+			if profile is None:
+				continue
+			if key in profile:
+				return str(profile[key] or FOLLOW_NVDA)
+			if legacy in profile:
+				return ALWAYS if profile[legacy] else NEVER
 	except Exception:
 		# A section that cannot say what was stored in it is one to read plainly.
-		log.debugWarning(f"Could not ask whether {legacy} was set", exc_info=True)
+		log.debugWarning(f"Could not ask which profile answered {key}", exc_info=True)
 	return str(section[key] or FOLLOW_NVDA)
+
+
+def _profilesBehind(section) -> list:
+	""":return: the profiles an aggregated section is made of, least specific first.
+
+	`AggregatedSection.profiles` is how NVDA holds them, and how its own reads resolve: the
+	value comes from the last profile that has the key. A section with no such list stands for
+	itself, which is what a settings dialog hands about and what a test builds.
+	"""
+	profiles = getattr(section, "profiles", None)
+	if not profiles:
+		return [section]
+	return list(profiles)
 
 
 def _following(setting, whatNvdaWasTold) -> bool:

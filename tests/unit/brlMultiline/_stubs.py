@@ -77,8 +77,21 @@ class DisplaySection(dict):
 		self.spec = {}
 		self.fallback = fallback
 		"""Where a setting this display has none of its own comes from. See L{DisplaysSection}."""
+		self.profiles = None
+		"""The configuration profiles behind this section, least specific first.
+
+		What `AggregatedSection.profiles` is upstream, and None here for the ordinary test,
+		which is not about profiles and wants one dictionary. A test that sets it gets the
+		upstream reading rules: the last profile holding a key answers for it, and `isSet`
+		says whether any of them stored it at all — the two being different is the whole of
+		what a setting read through two keys can get wrong.
+		"""
 
 	def __missing__(self, key):
+		if self.profiles is not None:
+			for profile in reversed(self.profiles):
+				if profile is not None and key in profile:
+					return profile[key]
 		if self.fallback is not None and key in self.fallback:
 			return self.fallback[key]
 		return _specDefault(self.spec[key])
@@ -91,6 +104,10 @@ class DisplaySection(dict):
 		deliberately does not count: it stands in for what a display reports before anything
 		asked it, which upstream is the specification's default.
 		"""
+		if self.profiles is not None:
+			return key in self or any(
+				profile is not None and key in profile for profile in self.profiles
+			)
 		return key in self
 
 
@@ -2705,6 +2722,7 @@ def loadPlugin():
 def resetConfig() -> None:
 	"""Put the stub configuration back to its defaults, for a test that changed it."""
 	CONFIG.clear()
+	CONFIG.profiles = None
 	CONFIG.update(
 		segmentsEnabled=True,
 		segmentCount=4,

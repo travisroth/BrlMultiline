@@ -501,3 +501,48 @@ class TestASettingThatUsedToBeACheckbox(unittest.TestCase):
 		self.section["flowTableHeaders"] = False
 		bmConfig.shouldPinTableHeaders()
 		self.assertFalse(self.section.isSet("flowTableHeadersMode"))
+
+	def stack(self, base, application):
+		"""Two profiles in force: the base configuration and one an application triggered."""
+		self.section.profiles = [base, application]
+
+	def test_theApplicationProfileAnswersEvenInTheOlderForm(self):
+		"""One question stored under two keys, which is what made this go wrong.
+
+		`isSet` reports whether a key is stored in *any* active profile, so a new answer in
+		the base configuration looked like an answer everywhere — including inside an
+		application profile whose whole purpose is that its answer wins there.
+		"""
+		self.stack({"flowTableHeadersMode": bmConfig.ALWAYS}, {"flowTableHeaders": False})
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS_AND_COLUMNS.value
+		self.assertFalse(bmConfig.shouldPinTableHeaders())
+
+	def test_andTheOtherWayRound(self):
+		"""The application profile answered in the new form, so the base checkbox is history."""
+		self.stack({"flowTableHeaders": False}, {"flowTableHeadersMode": bmConfig.ALWAYS})
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
+		self.assertTrue(bmConfig.shouldPinTableHeaders())
+
+	def test_aProfileThatAnsweredNeitherDefersToTheOneBelow(self):
+		"""Most profiles say nothing about most settings, which is why they can be stacked."""
+		self.stack({"flowTableHeaders": False}, {"segmentCount": 2})
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS_AND_COLUMNS.value
+		self.assertFalse(bmConfig.shouldPinTableHeaders())
+
+	def test_withinOneProfileTheNewAnswerStillSupersedesTheOld(self):
+		"""The reader answered the question in the shape it is asked now, in that profile."""
+		self.stack({}, {"flowTableHeaders": False, "flowTableHeadersMode": bmConfig.ALWAYS})
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
+		self.assertTrue(bmConfig.shouldPinTableHeaders())
+
+	def test_nobodyAnsweringAnywhereStillFollowsNvda(self):
+		self.stack({"segmentCount": 4}, {"segmentCount": 2})
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
+		self.assertFalse(bmConfig.shouldPinTableHeaders())
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS_AND_COLUMNS.value
+		self.assertTrue(bmConfig.shouldPinTableHeaders())
+
+	def test_theRepeatedColumnReadsThemTheSameWay(self):
+		self.stack({"flowTablePinKeyMode": bmConfig.ALWAYS}, {"flowTablePinKey": False})
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS_AND_COLUMNS.value
+		self.assertFalse(bmConfig.shouldPinKeyColumn())
