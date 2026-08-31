@@ -22,6 +22,7 @@ from ._stubs import (
 	NO,
 	YES,
 	FakeCallLater,
+	FakeGridCell,
 	FakeHandler,
 	FakeNavigatorObject,
 	FakeTreeInterceptor,
@@ -2433,6 +2434,38 @@ class TestTheListOfDisplays(FocusTrackingDisplayTestCase):
 		self.assertEqual(mainFrame.postPopups, 1)
 
 
+class TwinRow(FakeNavigatorObject):
+	"""A row NVDA may hand out twice, as two objects for one message.
+
+	Equal by what it is about rather than by identity, which is what NVDA's own objects do and
+	what makes "is this the row I asked for" a question worth asking. Its cells are its
+	children and carry their column numbers, as a grid row's do.
+	"""
+
+	def __init__(self, key, columns=2):
+		super().__init__(name=key, role="LISTITEM")
+		self.key = key
+		self.cellObjects = [
+			FakeGridCell(f"{key} column {number}", number) for number in range(1, columns + 1)
+		]
+		for cell in self.cellObjects:
+			cell.parent = self
+
+	@property
+	def children(self):
+		return list(self.cellObjects)
+
+	@property
+	def childCount(self):
+		return len(self.cellObjects)
+
+	def __eq__(self, other):
+		return getattr(other, "key", None) == self.key
+
+	def __hash__(self):
+		return hash(self.key)
+
+
 class TestTheFocusEvent(PluginTestCase):
 	"""The one event this add-on handles, and it is here for the routing key over a column.
 
@@ -2456,12 +2489,36 @@ class TestTheFocusEvent(PluginTestCase):
 		self.plugin.event_gainFocus(FakeNavigatorObject("something"), lambda: passedOn.append(True))
 		self.assertEqual(passedOn, [True])
 
+	def twins(self):
+		""":return: two objects for one message, as NVDA hands them out.
+
+		A fresh wrapper for the row arrives with the focus event, and its cells are fresh
+		objects too. The one the routing key was holding belongs to the row as it was before
+		the move.
+		"""
+		return TwinRow("a message"), TwinRow("a message")
+
 	def test_aColumnWaitingForTheFocusIsPutBack(self):
-		row = FakeNavigatorObject("a message")
-		cell = FakeNavigatorObject("a subject")
-		self.tables.askForColumnAfterFocus(row, cell)
-		self.plugin.event_gainFocus(row, lambda: None)
-		self.assertIs(navigatedTo[-1], cell)
+		asked, arrived = self.twins()
+		self.tables.askForColumnAfterFocus(asked, asked.cellObjects[1])
+		self.plugin.event_gainFocus(arrived, lambda: None)
+		self.assertIs(navigatedTo[-1], arrived.cellObjects[1])
+
+	def test_theCellIsTheFocusedRowsOwn(self):
+		"""A review's case: the cell the routing key held belongs to the row NVDA has already
+		replaced, so the reader was put on an object that is no longer in the tree."""
+		asked, arrived = self.twins()
+		self.tables.askForColumnAfterFocus(asked, asked.cellObjects[1])
+		self.plugin.event_gainFocus(arrived, lambda: None)
+		self.assertIsNot(navigatedTo[-1], asked.cellObjects[1])
+		self.assertEqual(navigatedTo[-1].columnNumber, 2)
+
+	def test_aRowWithoutThatColumnMovesNothing(self):
+		asked, arrived = self.twins()
+		arrived.cellObjects = arrived.cellObjects[:1]
+		self.tables.askForColumnAfterFocus(asked, asked.cellObjects[1])
+		self.plugin.event_gainFocus(arrived, lambda: None)
+		self.assertEqual(navigatedTo, [])
 
 	def test_anOrdinaryFocusChangeMovesNothing(self):
 		self.plugin.event_gainFocus(FakeNavigatorObject("a button"), lambda: None)

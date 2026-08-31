@@ -303,6 +303,11 @@ class ObjectMonitor:
 		control = self._build(size)
 		if control is None:
 			return False
+		# Asked once, here, while the pin is being made: a band that filled exactly never
+		# probed past its last block, so nothing had established that this run ends where the
+		# display does — and what arrives next would then have arrived below a display that
+		# would not follow it. See `FlowController.lookPastTheEnd`.
+		control.lookPastTheEnd()
 		self.controller = control
 		self._builtFor = size
 		self._builtInColumns = self.wantsColumns

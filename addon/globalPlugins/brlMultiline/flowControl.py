@@ -513,6 +513,47 @@ class FlowController(PanelOwner):
 			self._redrawBlocks(list(self.window.blocks), why="the content changed under the band")
 		return True
 
+	def rereadArrival(self) -> bool:
+		"""Read the block for the object the reader has just arrived on again.
+
+		**The one moment an application answers about an object with certainty is while the
+		reader is on it.** Outlook names a message row after the selection, so a row that was
+		walked onto the band while a different message was selected carries that message's
+		flags — and the reader arriving on an unread message was shown it as read, because that
+		is what the row had said when it was walked.
+
+		The live pass would ask again a tick later, and only for a reader who has live updates
+		on. This asks now, and costs one call into the application for the one block the reader
+		is about to put their hand on.
+
+		Only for a run of objects: `ObjectFlowSource.isCurrentObject` is what says which block
+		the arrival is, and it is the only source that can say.
+
+		:return: whether anything was read again.
+		"""
+		matches = getattr(self.source, "isCurrentObject", None)
+		fetch = getattr(self.source, "blockAt", None)
+		if matches is None or fetch is None:
+			return False
+		try:
+			wanted = [held for held in self.window.blocks if matches(held.blockId.bookmark)]
+		except Exception:
+			log.debugWarning("Could not find the block the reader arrived on", exc_info=True)
+			return False
+		if not wanted:
+			return False
+		with self.operation():
+			for rendered in wanted:
+				try:
+					result = fetch(rendered.blockId)
+				except Exception:
+					log.debugWarning("Could not read the arrival again", exc_info=True)
+					continue
+				if result.kind is ResultKind.BLOCK and result.block is not None:
+					self._keep(result.block, replace=True)
+			self._redrawBlocks(wanted, why="the reader arrived on this object")
+		return True
+
 	def _rereadBlocks(self) -> None:
 		"""Read every block the band is holding again, keeping its identity.
 
@@ -971,6 +1012,45 @@ class FlowController(PanelOwner):
 			if scrollIntoView and wasAtTheTail and wasEnded:
 				self._showWhatArrived()
 		return True
+
+	def lookPastTheEnd(self) -> bool:
+		""":return: whether the stream ends after the last block on the band, having asked.
+
+		**A band that filled exactly has never asked.** Filling stops when the rows run out,
+		so four messages on a four row band leave the edge open with nothing having been told
+		that the run ends there — and `hasBeenToTheEnd`, which is what tells content that is
+		*growing* from content that is merely longer than the band, stays false. A review found
+		what that costs: the fifth message arrived below the display, nothing brought it on,
+		and the tail watch then went quiet because a row it had not shown sat under the reader.
+
+		One call, made when a pin is built, and what it fetches is thrown away. This is a
+		question about the edge rather than a fetch for the window: a block that comes back
+		says the run goes on, which is the answer, and the window will read it again when it
+		has somewhere to put it.
+		"""
+		blocks = self.window.blocks
+		if self.hasBeenToTheEnd:
+			return True
+		if not blocks:
+			return False
+		if self.window.edges[Edge.AFTER] is EdgeState.END:
+			# Something already reached it — a run shorter than the band, most often.
+			self.hasBeenToTheEnd = True
+			return True
+		if self.window.edges[Edge.AFTER] is not EdgeState.OPEN:
+			# DEFERRED or ERROR: the budget and the failure paths own those, and a probe now
+			# would ask the question they are already answering.
+			return False
+		try:
+			result = self.source.blockAfter(blocks[-1].blockId)
+		except Exception:
+			log.debugWarning("Could not look past the end of the stream", exc_info=True)
+			return False
+		if result.kind is not ResultKind.BLOCK and result.edgeState is EdgeState.END:
+			self.window.setEdge(Edge.AFTER, EdgeState.END)
+			self.edgeReasons[Edge.AFTER] = result.message or result.kind.value
+			self.hasBeenToTheEnd = True
+		return self.hasBeenToTheEnd
 
 	def _showWhatArrived(self) -> None:
 		"""Move the window on so that what has just arrived is on the display.

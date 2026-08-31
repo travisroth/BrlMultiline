@@ -1541,6 +1541,62 @@ class TestARunThatGrowsAtItsTail(unittest.TestCase):
 		self.assertFalse(self.control.isShowingTheTail)
 
 
+class TestAPinThatFillsTheBandExactly(unittest.TestCase):
+	"""Four messages on a four row band, and a fifth arriving.
+
+	A review's case. Filling stops when the rows run out, so a run that fills the band exactly
+	is never asked what comes after its last message — and `hasBeenToTheEnd`, which is what
+	tells a chat that is growing from a document that is merely long, stayed false. The fifth
+	message was then fetched below the display, nothing brought it on, and the tail watch went
+	quiet because a row that had been read sat under the reader unseen.
+
+	So a pin asks once, when it is built. One call, and what it fetches is thrown away.
+	"""
+
+	def setUp(self):
+		self.messages = []
+		for index in range(4):
+			self.add(f"item {index}")
+		self.control = controllerOver(self.messages, adapter=flowObjects.DECLARED_RUN, numRows=4)
+
+	add = TestARunThatGrowsAtItsTail.add
+	written = TestARunThatGrowsAtItsTail.written
+
+	def test_theBandIsExactlyFull(self):
+		self.assertEqual(len(self.written()), 4)
+
+	def test_andHasNotBeenToldWhereItEnds(self):
+		"""Which is the fault, before the probe: the rows ran out before the question."""
+		self.assertFalse(self.control.hasBeenToTheEnd)
+
+	def test_theProbeSettlesIt(self):
+		self.assertTrue(self.control.lookPastTheEnd())
+		self.assertTrue(self.control.hasBeenToTheEnd)
+		self.assertTrue(self.control.isShowingTheTail)
+
+	def test_soWhatArrivesNextIsFollowed(self):
+		self.control.lookPastTheEnd()
+		self.add("just arrived")
+		self.assertTrue(self.control.reconsiderEnd(scrollIntoView=True))
+		self.assertIn("just arrived", " ".join(self.written()))
+
+	def test_theProbeKeepsNothingItFetched(self):
+		"""It is a question about the edge, not a fetch for the window: a run that goes on
+		says so by handing over a block, and the block is thrown away."""
+		self.add("item 4")
+		held = len(self.control.window.blocks)
+		self.assertFalse(self.control.lookPastTheEnd())
+		self.assertEqual(len(self.control.window.blocks), held)
+		self.assertEqual(len(self.written()), 4)
+
+	def test_andIsNotAskedTwice(self):
+		self.control.lookPastTheEnd()
+		asked = []
+		self.control.source.blockAfter = lambda blockId: asked.append(blockId)
+		self.assertTrue(self.control.lookPastTheEnd())
+		self.assertEqual(asked, [])
+
+
 class TestSomethingLongerThanTheBandIsNotFollowed(unittest.TestCase):
 	"""The other half of following the tail, and the half that is easy to get wrong.
 
@@ -1761,20 +1817,31 @@ class TestLookingForARunThatIsNotThere(unittest.TestCase):
 		self.assertIsNone(flowObjects._firstDeclaredWithin(Refuses()))
 
 
-class OutlookLikeItem(FakeNavigatorObject):
+class UIAGridRow:
+	"""Stands for `appModules.outlook.UIAGridRow`, which is what NVDA calls the class whose
+	`_get_name` reads `activeExplorer().selection`. An overlay class is assembled per object,
+	so what is recognised is the name in the `mro` — which is what this puts there."""
+
+
+class OutlookAppModule:
+	appName = "outlook"
+
+
+class OutlookLikeItem(UIAGridRow, FakeNavigatorObject):
 	"""A message row named the way NVDA names Outlook's.
 
-	`appModules.outlook.UIAGridRow._get_name` builds the name from
-	`activeExplorer().selection`, so the unread flag, the attachment flag and the importance
-	come from whatever is *selected* rather than from the row being asked. Ask it about a row
-	the reader has moved off and it answers about the row they moved to.
+	The unread flag, the attachment flag and the importance come from whatever is *selected*
+	rather than from the row being asked. Ask it about a row the reader has moved off and it
+	answers about the row they moved to.
 	"""
+
+	appModule = OutlookAppModule()
 
 	def __init__(self, subject, inbox, unread=False):
 		self.subject = subject
 		self.inbox = inbox
 		self.unread = unread
-		super().__init__(name=subject, role="LISTITEM")
+		FakeNavigatorObject.__init__(self, name=subject, role="LISTITEM")
 
 	@property
 	def name(self):
@@ -1789,6 +1856,32 @@ class OutlookLikeItem(FakeNavigatorObject):
 		self.inbox["selected"] = self
 
 
+class ChangingItem(FakeNavigatorObject):
+	"""An ordinary list item that changes while the reader is somewhere else, which is what
+	the re-reading pass exists for: a status list, a pinned chat, a build log."""
+
+	def becomes(self, text):
+		self.name = text
+
+
+def hangUnder(items, role="LISTITEM"):
+	"""Make a run out of objects a test built itself, the way `fakeRun` makes one.
+
+	A run is what shares a parent and is walked by `next`, so items built by hand are not one
+	until they are linked. See `fakeRun`, which does this for the ordinary case; this is for
+	the cases that need a class of their own.
+	"""
+	parent = FakeNavigatorObject("a container", role="LIST")
+	for index, item in enumerate(items):
+		item.role = role
+		item.parent = parent
+		item.next = items[index + 1] if index + 1 < len(items) else None
+		item.previous = items[index - 1] if index else None
+	parent.children = list(items)
+	parent.firstChild = items[0] if items else None
+	return items
+
+
 class TestARowReadOutOfContext(unittest.TestCase):
 	"""Reported from hardware, in Outlook's inbox: arrowing onto an unread message put
 	"unread" on the message above it as well, which was read and not flagged. Nothing on the
@@ -1798,26 +1891,45 @@ class TestARowReadOutOfContext(unittest.TestCase):
 	again — a run of objects learnt to answer `blockAt` so that a pinned list could keep up —
 	and Outlook answers that question about the selection rather than about the row.
 
-	Every block was read while its object was the one in hand, which is the moment the
-	application answers about it. A re-read of any other object can only ask out of context.
+	**The first answer to it was worse than the fault.** Refusing to re-read anything but the
+	object in hand froze every other row on the band: a deleted message stayed, a row that
+	changed did not, and a reader watching a list they were not standing in watched nothing.
+	What is refused now is one kind of object — one whose text is about the selection — and
+	everything else is read again as it always was.
 	"""
 
+	def textFor(self, control, item):
+		""":return: what the band is holding for one message, before it is wrapped into rows."""
+		for held in control.window.blocks:
+			if held.blockId.bookmark is item:
+				return getattr(control.regionFor(held.blockId), "rawText", "")
+		return ""
+
 	def inbox(self):
-		""":return: two messages, the second unread, with the first selected."""
+		""":return: two Outlook messages, the second unread, with the first selected."""
 		shared = {}
 		items = [
 			OutlookLikeItem("about the workflow", shared),
 			OutlookLikeItem("about mixed case", shared, unread=True),
 		]
+		hangUnder(items, role="LISTITEM")
 		items[0].select()
 		return items
+
+	def test_anOrdinaryRowIsStillReadAgainWhereverTheReaderIs(self):
+		"""The case the first fix broke, and the reason the pass exists at all."""
+		items = hangUnder([ChangingItem("Apple"), ChangingItem("Banana")])
+		source = sourceOver(items, at=0)
+		block = source.blockAtCursor(atObject=items[1]).block
+		items[1].becomes("Banana, ripe")
+		self.assertIn("ripe", source.blockAt(block.blockId).block.region.rawText)
 
 	def test_aRowIsReadWhileTheReaderIsOnIt(self):
 		items = self.inbox()
 		block = sourceOver(items, at=0).blockAtCursor().block
 		self.assertNotIn("unread", block.region.rawText)
 
-	def test_andIsNotReadAgainOnceTheyHaveMovedOff(self):
+	def test_andAnOutlookRowIsNotReadAgainOnceTheyHaveMovedOff(self):
 		items = self.inbox()
 		source = sourceOver(items, at=0)
 		block = source.blockAtCursor().block
@@ -1841,8 +1953,53 @@ class TestARowReadOutOfContext(unittest.TestCase):
 		items[1].select()
 		control.source.setCurrent(items[1])
 		control.rereadContent()
-		rows = " | ".join(control.describeRows())
-		self.assertEqual(rows.count("unread"), 0)
+		self.assertNotIn("unread", self.textFor(control, items[0]))
+		self.assertIn("unread", self.textFor(control, items[1]))
+
+	def test_theRowTheyArriveOnIsReadAgainThere(self):
+		"""The other half, and the second thing the reader felt: a message that *is* unread was
+		shown as read, because the band had walked it onto the display while a read message was
+		selected. Arriving on it is the moment Outlook answers about it, so that is when it is
+		asked."""
+		items = self.inbox()
+		control = controllerOver(items, at=0, numRows=4)
+		self.assertNotIn("unread", self.textFor(control, items[1]))
+		items[1].select()
+		control.source.setCurrent(items[1])
+		self.assertTrue(control.rereadArrival())
+		self.assertIn("unread", self.textFor(control, items[1]))
+
+	def test_andNothingElseIsReadAgainWithIt(self):
+		"""One call into the application, for the one block the reader has their hand on."""
+		items = self.inbox()
+		control = controllerOver(items, at=0, numRows=4)
+		items[1].select()
+		control.source.setCurrent(items[1])
+		control.rereadArrival()
+		self.assertNotIn("unread", self.textFor(control, items[0]))
+
+	def test_aDocumentHasNoArrivalToReadAgain(self):
+		"""Only a run of objects: a document's blocks are positions, and which of them the
+		reader is on is not a question the source can answer."""
+		items = self.inbox()
+		control = controllerOver(items, at=0, numRows=4)
+		control.source.isCurrentObject = None
+		self.assertFalse(control.rereadArrival())
+
+	def test_anApplicationCanSayThisOfItsOwnObjects(self):
+		"""The same contract as the run declarations: an attribute on an overlay class, no
+		import of this add-on, and inert where it has never heard of one."""
+		items = hangUnder([ChangingItem("Apple"), ChangingItem("Banana")])
+		for item in items:
+			setattr(item, flowObjects.SELECTION_NAMED, True)
+		source = sourceOver(items, at=0)
+		block = source.blockAtCursor(atObject=items[1]).block
+		self.assertEqual(source.blockAt(block.blockId).kind, ResultKind.ERROR)
+
+	def test_outlooksRowsAreRecognisedByNvdasOwnNameForThem(self):
+		items = self.inbox()
+		self.assertTrue(flowObjects.namedFromTheSelection(items[0]))
+		self.assertFalse(flowObjects.namedFromTheSelection(ChangingItem("Apple")))
 
 	def test_whichRowItIsIsAskedOfNvdaRatherThanOfIdentity(self):
 		"""NVDA builds a fresh wrapper for a row every time it is fetched, so the row the focus

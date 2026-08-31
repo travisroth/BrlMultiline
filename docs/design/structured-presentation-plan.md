@@ -1506,15 +1506,71 @@ on the poll. And `appModules.outlook.UIAGridRow._get_name` builds a row's name f
 whatever is *selected*, not to the row being named. Asked about a row the reader has left, it
 answers about the row they moved to.
 
-**An object's text is not always a property of the object.** Every block was read while its
-object was the one in hand, which is the moment its application answers about it; re-reading it
-later can only ask out of context, and where the answer is context-free the block comes back
-identical anyway. So `ObjectFlowSource.blockAt` now answers for the current object only, and a
-block it will not vouch for is kept as it was — which `FlowController._rereadBlocks` already
-did for the document case, for its own reasons. The pass still keeps the row under the cursor
-fresh, which is a status line and the tail of a chat; what it gives up is noticing an edit to a
-row the reader is not on. New content is a different path and is unaffected: a message arriving
-in a chat is a new block past the end, not a re-read of an old one.
+**An object's text is not always a property of the object**, and the first answer to that was
+worse than the fault. `ObjectFlowSource.blockAt` was made to answer for the current object
+only — which froze every other row on the band: a deleted message stayed on the display, a row
+that changed did not, and a reader watching a list they were not standing in watched nothing.
+A quirk of one application had been turned into a rule about every list in Windows. It was
+reverted within the day, on the reader's report and a reviewer's, and it is worth writing down
+as the shape of that mistake: **the narrowest true statement was "Outlook names a row after the
+selection", and what was written was "an object cannot be read twice".**
+
+What stands now is two things, each the size of the fault:
+
+- **`namedFromTheSelection` refuses the out-of-context re-read for that kind of object alone.**
+  An application declares it with `brlMultilineFlowNamedFromSelection`, in the same inert way it
+  declares a run; Outlook's rows do not declare it, so they are recognised here by NVDA's own
+  name for the class — `appName` "outlook" and `UIAGridRow` in the object's `mro`. If NVDA
+  renames that class the old fault comes back in Outlook alone, which is a better failure than
+  a rule that freezes every list. Everything else is read again exactly as before.
+- **`FlowController.rereadArrival` reads the block the reader has just arrived on.** The one
+  moment an application answers about an object with certainty is while the reader is on it, so
+  that is when it is asked — one call, for the one block their hand is about to land on. This
+  is what fixes the other half of the same report: a message that *was* unread had been walked
+  onto the band while a read message was selected, and so arrived saying nothing.
+
+New content was never part of this: a message arriving in a chat is a new block past the end,
+not a re-read of an old one.
+
+### Five from the review of that work
+
+Each of these was reproduced by the reviewer before it was reported, and each is the same
+shape of mistake: an answer that was right about the case in front of it and wrong about the
+next one.
+
+**A count that disagrees is ambiguous, and ambiguity is refused.** The grouping test had been
+relaxed to twice the group size; a list of ten in groups of six and four then read as a flat
+table of six, with four of the reader's rows behind an end that was not there. It is strict
+again — see the section above, which is where the decorations that made it look wrong are
+taken off the count instead.
+
+**A walk counts rows, and steps over what is not one.** `walkTo` treated every sibling as
+another row, so a heading between two groups was handed back as the row after them, and the
+check that `childAt` had learnt was bypassed whenever the walk succeeded. Non-rows are stepped
+over without counting now, with the physical steps bounded separately — `MAX_STEPS_PER_ROW` —
+so a stretch of things that are not rows cannot turn a walk of five into a walk of a mailbox.
+
+**A column is remembered, not a cell.** Routing into a cell that cannot take the focus focuses
+the row and puts the navigator object back on the cell once the focus has arrived — but NVDA
+hands out a fresh wrapper for the row, and its cells are fresh objects too, so what was being
+restored was a cell of the row as it was *before* the move. The column number is remembered now
+and the cell is resolved against the row that arrived, which is what NVDA's own
+`RowWithFakeNavigation` does with `_savedColumnNumber`.
+
+**One reading of the headers, not two.** The measurement asks up to `HEADER_TRIES` cells per
+column; `TableFlowSource` asked one cell at the caret's row and took its silence for the
+column's answer. A table whose first row was half built therefore had headers in its layout and
+no header row above them. The measurement now says which labels the table *declared*, as
+against which it read off row one — `flowTable.Measurement.declared` — and `buildTableController`
+hands those to the source, so the pinned row comes from the same reading the columns were named
+from.
+
+**A band that fills exactly has never asked what follows.** Filling stops when the rows run
+out, so a pin whose run fills its band was never told the run ends there, and `hasBeenToTheEnd`
+— what tells content that is growing from content that is merely long — stayed false. The fifth
+message then arrived below the display and nothing brought it on. A pin asks once as it is
+built: `FlowController.lookPastTheEnd`, one call, and what it fetches is thrown away, because
+this is a question about the edge rather than a fetch for the window.
 
 ### A message about the display must not be written to the display
 

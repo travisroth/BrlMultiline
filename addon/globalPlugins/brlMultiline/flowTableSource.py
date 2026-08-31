@@ -715,6 +715,12 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 	headers: dict[int, int] = {column: 0 for column in columns}
 	seen: dict[int, list[int]] = {column: [] for column in columns}
 	found: set[int] = set()
+	declared: set[int] = set()
+	"""Which columns the table said its header for, as against which were read off row one.
+
+	Kept because the difference matters to the source that pins a header row: what a table
+	declares is drawn above the band, and what was borrowed from row one is already on it."""
+
 	asked: dict[int, int] = {column: 0 for column in columns}
 	# Asked once, before anything is read. A table that says row one is not its headings has
 	# none to borrow, and borrowing them anyway names every column after the reader's own
@@ -728,7 +734,7 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 			found.add(column)
 			size = len(region.brailleCells)
 			widths[column] = max(widths[column], size)
-			if not labels[column] and asked[column] < HEADER_TRIES:
+			if not labels[column] and asked[column] < HEADER_TRIES and column not in declared:
 				# **Asked of more than one cell**, and that is the difference from asking
 				# once. A declared header is a property of the column, so any cell of it
 				# answers — but only if the cell that was asked is one that answers at all,
@@ -745,6 +751,7 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 				if said:
 					labels[column] = said
 					headers[column] = headerWidth(said)
+					declared.add(column)
 			if row == HEADER_ROW and borrowRowOne and not labels[column]:
 				# Nothing declared, so the guess. See `HEADER_ROW`.
 				labels[column] = region.rawText
@@ -760,6 +767,7 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 			width=widths[column],
 			typicalWidth=_typicalOf(seen[column]) or widths[column],
 			label=labels[column],
+			declared=column in declared,
 			labelWidth=headers[column],
 			# Not a column this table is showing, in either of the two ways that happens.
 			#
@@ -825,6 +833,7 @@ class TableFlowSource:
 		self,
 		handle: TableHandle,
 		columns: tuple,
+		declared: Optional[dict] = None,
 		generation: int = 0,
 		budget: Optional[FetchBudget] = None,
 		live: bool = False,
@@ -835,6 +844,9 @@ class TableFlowSource:
 		:param columns: the table's own numbers for the columns to read, in drawing order.
 			Only these are fetched: reading a column the plan has dropped is a call into the
 			document for something nobody will feel.
+		:param declared: what each column's header is, as the measurement found it, leaving
+			out the ones the table did not declare. None for a caller with no measurement to
+			hand, which asks the table here instead.
 		:param generation: bumped by the caller when the run is replaced, so that a row
 			number from one table can never match one from another.
 		:param budget: how much work a fetch may do. One is made if none is given.
@@ -845,16 +857,29 @@ class TableFlowSource:
 		"""
 		self.handle = handle
 		self.columns = tuple(columns)
-		self._declared = declaredHeaders(handle, self.columns) if pinHeaders else {}
+		self._declared = {}
 		"""The header each drawn column declares. Empty where the table declares none."""
 
-		self._headersAsked = set(self.columns) if pinHeaders else set()
+		self._headersAsked = set()
 		"""Which columns have been asked what their header is, answer or no answer.
 
 		Separate from the answers because a column with no header leaves no trace in them, so
 		reading the two off one dictionary asked such a column again on every refresh — a
 		search of the document apiece, for a question already answered "nothing".
 		"""
+
+		if pinHeaders and declared is not None:
+			# **Measured a moment ago, over a bandful of rows.** Asking here instead read one
+			# cell per column, at the caret's row, and took its silence for the column's
+			# answer — so a table whose first row was half built had headers everywhere in the
+			# layout and no header row over them. The measurement already asks several rows
+			# and already knows which answers the table *declared*, as against which it read
+			# off row one; those are what arrive here. See `measure` and `flowTable.Measurement`.
+			self._declared = {column: said for column, said in declared.items() if said}
+			self._headersAsked = set(declared)
+		elif pinHeaders:
+			self._declared = declaredHeaders(handle, self.columns)
+			self._headersAsked = set(self.columns)
 
 		# Row one is skipped only when row one is what is pinned. A table that declares its
 		# headers may have them two rows deep, in a column rather than a row, or nowhere near

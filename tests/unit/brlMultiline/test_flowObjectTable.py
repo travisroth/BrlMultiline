@@ -342,6 +342,22 @@ class TestTheHeaderReachingTheCodeThatReadsIt(unittest.TestCase):
 		self.assertIn("Date modified", pinned.region.rawText)
 
 
+def putAfter(first, *inserted):
+	"""Put objects into the sibling chain, straight after one that is already in it.
+
+	For a group's heading between two rows, which is what a grouped list holds and what a walk
+	has to step over without counting it as a row.
+	"""
+	after = first.next
+	chain = [first, *inserted]
+	for index, item in enumerate(chain[:-1]):
+		item.next = chain[index + 1]
+		chain[index + 1].previous = item
+	chain[-1].next = after
+	if after is not None:
+		after.previous = chain[-1]
+
+
 class TestAListWhoseChildrenAreNotAllRows(unittest.TestCase):
 	"""File Explorer's file list holds a pane, a horizontal scrollbar and the column header
 	before its first file; Outlook's message list holds a pane called "Vertical". Reaching for
@@ -387,6 +403,31 @@ class TestAListWhoseChildrenAreNotAllRows(unittest.TestCase):
 		self.assertEqual(table.childrenAdmittedTo(), 2)
 		self.assertTrue(table.positionNumbersTheTable())
 		self.assertIsNotNone(flowTableSource.tableAt(view.item(1)))
+
+	def test_aWalkStepsOverWhatIsNotARow(self):
+		"""A review's case: a heading between two rows was handed back as row two, because the
+		walk counted every sibling as another row. The rows number the rows."""
+		view = FakeGrid(self.FILES, decorations=self.CLUTTER)
+		heading = FakeNavigatorObject(name="Yesterday", role="GROUPING")
+		heading.parent = view
+		putAfter(view.item(1), heading)
+		table = flowObjectTable.tableFor(view.item(1))
+		self.assertIs(table.walkTo(2), view.item(2))
+		self.assertIs(table.rowObject(3), view.item(3))
+
+	def test_andGivesUpRatherThanWalkingAListOfThem(self):
+		"""The physical steps are bounded on their own, so a stretch of things that are not
+		rows cannot turn a walk of one row into a walk of the list."""
+		view = FakeGrid(self.FILES, decorations=self.CLUTTER)
+		fillers = [FakeNavigatorObject(name=f"filler {number}", role="GROUPING") for number in range(12)]
+		for filler in fillers:
+			filler.parent = view
+		putAfter(view.item(1), *fillers)
+		table = flowObjectTable.tableFor(view.item(1))
+		self.assertIsNone(table.walkTo(2))
+		# And the row is still reached, by the one call a list that has built its items can
+		# answer. What the bound refuses is the walk, not the row.
+		self.assertIs(table.rowObject(2), view.item(2))
 
 	def test_aChildThatIsNoRowIsNotReadAsOne(self):
 		"""The check that catches a list whose clutter is not all at the front."""
@@ -965,8 +1006,8 @@ class TestAListArrangedInGroups(unittest.TestCase):
 		plainly one, so the numbers behind it are the whole of what a report has to carry."""
 		view, item = self.grouped()
 		grouped = flowObjectTable.CellObjectTable(view, row=item)
-		self.assertIn("another whole group", grouped.whyItNumbersAGroup())
-		self.assertIn("another whole group", " ".join(grouped.describe()))
+		self.assertIn("its group holds", grouped.whyItNumbersAGroup())
+		self.assertIn("its group holds", " ".join(grouped.describe()))
 		self.assertIn("at level 2", self.branch().whyItNumbersAGroup())
 
 	def branch(self):
@@ -975,15 +1016,20 @@ class TestAListArrangedInGroups(unittest.TestCase):
 		return flowObjectTable.CellObjectTable(view, row=item)
 
 
-class TestAListThatCountsSomethingElse(unittest.TestCase):
-	"""A control that admits to a few more rows than the row says its group holds is not a
-	grouped list. It is a control whose counts disagree with each other, which is the ordinary
-	condition of the counts here: File Explorer's file list answers `rowCount` fourteen,
-	`childCount` seventeen and "one of seventy-nine" about the same list at the same moment.
+class TestAListThatCountsMoreThanTheGroup(unittest.TestCase):
+	"""A table admitting to more rows than the row says its group holds is refused, and the
+	strictness has a history worth keeping.
 
-	Reported from hardware. Read as grouping, one such row took the whole feature away in
-	Details view: the column command said "not in a table" while every cell of that table read
-	perfectly, and the reader had no way to see which of the four steps had refused them.
+	It was relaxed once — to twice the group, on the argument that an off-by-one is a control
+	miscounting rather than a shape — because File Explorer's file list counts a pane, a
+	scrollbar and its column header among its children, so a folder of two files admitted to
+	five and the whole feature vanished in small folders. That fix belonged where the miscount
+	was, and `childrenAdmittedTo` takes the decorations off now.
+
+	Relaxing it here cost the test its meaning instead: a review found a list of ten arranged
+	in groups of six and four read as a flat table of six, so four of the reader's own rows sat
+	behind an end that was not there. A count that disagrees is ambiguous, and an ambiguous
+	table is refused rather than half drawn.
 	"""
 
 	ROWS = [[f"file{number}.py", "Available"] for number in range(1, 11)]
@@ -994,25 +1040,32 @@ class TestAListThatCountsSomethingElse(unittest.TestCase):
 		view.rowCountSays = says
 		return view
 
-	def test_oneRowMoreIsStillATable(self):
+	def test_oneRowMoreIsAmbiguousAndRefused(self):
 		view = self.listCounting(len(self.ROWS) + 1)
-		table = flowObjectTable.tableFor(view.item(3))
-		self.assertTrue(table.positionNumbersTheTable())
-		self.assertIsNotNone(flowTableSource.tableAt(view.item(3)))
-
-	def test_andIsMeasuredByWhatTheRowSays(self):
-		"""The row's own count, which is the answer this module trusts first."""
-		view = self.listCounting(len(self.ROWS) + 1)
-		table = flowObjectTable.tableFor(view.item(3))
-		self.assertEqual(table.numRows, len(self.ROWS))
-
-	def test_roomForAnotherWholeGroupIsStillGrouping(self):
-		"""What the test is for has not been given away. Twice the group is a table with a
-		second group in it, which is what a grouped list looks like."""
-		view = self.listCounting(len(self.ROWS) * 2)
 		table = flowObjectTable.tableFor(view.item(3))
 		self.assertFalse(table.positionNumbersTheTable())
 		self.assertIsNone(flowTableSource.tableAt(view.item(3)))
+
+	def test_groupsOfSixAndFourAreNotAFlatTableOfSix(self):
+		"""The review's own case. Six rows drawn out of ten, with the other four behind an end
+		that is not there, is the outcome the refusal exists to avoid."""
+		view = FakeGrid(self.ROWS)
+		for number, item in enumerate(view.items, start=1):
+			group = 6 if number <= 6 else 4
+			item.positionInfo = {
+				"indexInGroup": number if number <= 6 else number - 6,
+				"similarItemsInGroup": group,
+				"level": 0,
+			}
+		table = flowObjectTable.tableFor(view.item(3))
+		self.assertFalse(table.positionNumbersTheTable())
+		self.assertIsNone(flowTableSource.tableAt(view.item(3)))
+
+	def test_aCountThatAgreesIsStillATable(self):
+		view = self.listCounting(len(self.ROWS))
+		table = flowObjectTable.tableFor(view.item(3))
+		self.assertTrue(table.positionNumbersTheTable())
+		self.assertEqual(table.numRows, len(self.ROWS))
 
 
 class TestGoingToACellNobodyCanFocus(unittest.TestCase):
@@ -1189,7 +1242,7 @@ class TestSayingWhyThereIsNoTable(unittest.TestCase):
 		said = " ".join(flowTableSource.explain(view.item(3)))
 		self.assertIn("the cursor is not in a cell of it", said)
 		self.assertIn("numbers a group of it", said)
-		self.assertIn("another whole group", said)
+		self.assertIn("its group holds", said)
 
 	def test_somethingThatIsNoTableAtAllSaysSo(self):
 		"""And says what was asked of it, since "not a table" about an ordinary list item is
@@ -1359,6 +1412,31 @@ class TestAskingMoreThanOneCellForAHeader(unittest.TestCase):
 
 	def test_norDoTwoOfThem(self):
 		self.assertEqual(self.labels(self.explorer(silentRows=(1, 2))), ["Name", "Date modified"])
+
+	def test_theHeaderRowIsPinnedFromTheSameReading(self):
+		"""A review's case, and the other half of asking once: the measurement asked three
+		rows and found "Name" and "Date modified", while the source asked the caret's row
+		alone, got nothing, and pinned no header row at all. The columns were named and the
+		names were nowhere above them."""
+		view = self.explorer(silentRows=(1,))
+		handle = flowTableSource.tableAt(view.item(1))
+		measured = flowTableSource.measure(handle)
+		source = flowTableSource.TableFlowSource(
+			handle,
+			(1, 2),
+			declared={item.index: item.label for item in measured if item.declared},
+			pinHeaders=True,
+		)
+		pinned = source.headerBlock()
+		self.assertIsNotNone(pinned)
+		self.assertIn("Date modified", pinned.region.rawText)
+
+	def test_aTableThatDeclaresNothingPinsNothing(self):
+		"""And the source is not sent looking for what the measurement already found absent."""
+		view = FakeGrid([["a", "b"], ["c", "d"]])
+		handle = flowTableSource.tableAt(view.item(1))
+		source = flowTableSource.TableFlowSource(handle, (1, 2), declared={}, pinHeaders=True)
+		self.assertIsNone(source.headerBlock())
 
 	def test_aTableThatDeclaresNothingIsNotAskedForever(self):
 		"""The bound is what keeps a table that declares nothing from paying a read of the

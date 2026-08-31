@@ -465,6 +465,30 @@ class TestAPinWithNoRoomToFlow(MonitorTestCase):
 		self.assertIsNone(self.segment.controller)
 
 
+def declaredRun(count):
+	""":return: a run of objects that declares itself, the way an application module does.
+
+	`brlMultilineFlowRun` and the two walks beside it, which is the contract an app sets on
+	its own overlay class — see `flowObjects.RUN_DECLARATION`.
+	"""
+	messages = []
+	for index in range(count):
+		message = FakeNavigatorObject(f"message {index}", role="LISTITEM")
+		setattr(message, flowObjects.RUN_DECLARATION, True)
+		setattr(
+			message,
+			flowObjects.RUN_NEXT,
+			lambda index=index: messages[index + 1] if index + 1 < len(messages) else None,
+		)
+		setattr(
+			message,
+			flowObjects.RUN_PREVIOUS,
+			lambda index=index: messages[index - 1] if index else None,
+		)
+		messages.append(message)
+	return messages
+
+
 class TestARunOnOneRow(MonitorTestCase):
 	"""A run has no shape to spread out, so one row of it is one item, and panning is the
 	next item. That is a chat monitor on a single row display.
@@ -481,21 +505,7 @@ class TestARunOnOneRow(MonitorTestCase):
 		"""Pin a run of objects, declared the way an application module declares one."""
 		import api
 
-		messages = []
-		for index in range(count):
-			message = FakeNavigatorObject(f"message {index}", role="LISTITEM")
-			setattr(message, flowObjects.RUN_DECLARATION, True)
-			setattr(
-				message,
-				flowObjects.RUN_NEXT,
-				lambda index=index: messages[index + 1] if index + 1 < len(messages) else None,
-			)
-			setattr(
-				message,
-				flowObjects.RUN_PREVIOUS,
-				lambda index=index: messages[index - 1] if index else None,
-			)
-			messages.append(message)
+		messages = declaredRun(count)
 		api.getNavigatorObject = lambda: messages[0]
 		self.plugin.startMonitoring(PINNED_SEGMENT)
 		return messages
@@ -534,6 +544,66 @@ class TestARunOnOneRow(MonitorTestCase):
 		"""The rule that changed is about runs. A document keeps the old one."""
 		self.pinDocument()
 		self.assertIsNone(self.plugin._monitors[PINNED_KEY].controller)
+
+
+
+
+class TestAPinnedRunThatFillsItsBand(MonitorTestCase):
+	"""Four messages on a four row segment, which is the case a review found.
+
+	Filling stops when the rows run out, so a run that fills its band exactly is never asked
+	what follows its last message. Nothing had then been to the end of it — and following what
+	arrives afterwards turns on having been there, because that is what tells a chat that is
+	growing from a document that is merely longer than the display. The fifth message arrived
+	below the band and stayed there.
+
+	So the pin asks once, as it is made: one call, and what it fetches is thrown away.
+	"""
+
+	segmentCount = 2
+	segment = 0
+	"""The one that does not follow the focus, which with two segments is the first."""
+
+	key = "display.0"
+
+	def pinRun(self, count=4):
+		"""Pin a run of the given length, on a segment four rows tall."""
+		import api
+
+		messages = declaredRun(count)
+		api.getNavigatorObject = lambda: messages[0]
+		self.plugin.startMonitoring(self.segment)
+		return messages
+
+	def control(self):
+		return self.plugin._monitors[self.key].controller
+
+	def test_theBandIsFilledExactly(self):
+		self.pinRun(count=4)
+		self.assertEqual(len(self.control().window.blocks), 4)
+
+	def test_andTheEndIsSettledWhenThePinIsMade(self):
+		self.pinRun(count=4)
+		self.assertTrue(self.control().hasBeenToTheEnd)
+		self.assertTrue(self.control().isShowingTheTail)
+
+	def test_andWhatArrivesAfterwardsReachesTheBand(self):
+		"""The review's scenario end to end: four messages, then a fifth."""
+		messages = self.pinRun(count=4)
+		extra = FakeNavigatorObject("message 4", role="LISTITEM")
+		setattr(extra, flowObjects.RUN_DECLARATION, True)
+		setattr(extra, flowObjects.RUN_NEXT, lambda: None)
+		setattr(extra, flowObjects.RUN_PREVIOUS, lambda: messages[-1])
+		setattr(messages[-1], flowObjects.RUN_NEXT, lambda: extra)
+		self.plugin._monitors[self.key].refresh()
+		held = [block.blockId.bookmark.name for block in self.control().window.blocks]
+		self.assertIn("message 4", held)
+
+	def test_aRunLongerThanTheBandIsNotSaidToHaveEnded(self):
+		"""The probe asks; it does not assume. A run that goes on says so by handing over a
+		block, and following it is exactly what must not happen on a timer."""
+		self.pinRun(count=9)
+		self.assertFalse(self.control().hasBeenToTheEnd)
 
 
 class TestAPinnedTableInColumns(MonitorTestCase):

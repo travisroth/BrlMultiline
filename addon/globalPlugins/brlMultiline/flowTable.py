@@ -577,6 +577,16 @@ class Measurement:
 	label: str = ""
 	"""Its header, where it has one."""
 
+	declared: bool = False
+	"""Whether the table *said* that is its header, rather than it being read off row one.
+
+	The two are not interchangeable and one caller needs to know which it has: a header row
+	is pinned above the band from what a table declares, and a label borrowed from row one is
+	already on the band as row one. See `flowTableSource.measure`, which is where the
+	difference is known, and `TableFlowSource`, which is given the declared ones so that it
+	does not have to go and ask again.
+	"""
+
 	labelWidth: int = 0
 	"""How wide the header is in cells, where it was measured separately.
 

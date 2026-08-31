@@ -831,6 +831,10 @@ class FlowBand(PanelOwner):
 			# they pass.
 			self.obj = obj
 			self.controller.source.setCurrent(obj)
+			# Before the window is placed, because it is the text of the block being placed:
+			# an object is answered for reliably while the reader is on it, and this is that
+			# moment. See `FlowController.rereadArrival`.
+			self.controller.rereadArrival()
 			self.controller.followCursor()
 			segment.refresh()
 			return True

@@ -184,6 +184,26 @@ a run that is really there, and a container that declared one by mistake costs t
 run rather than costing them the display while its tree is walked to the bottom.
 """
 
+SELECTION_NAMED = "brlMultilineFlowNamedFromSelection"
+"""The attribute an application sets to say its objects are named after the selection.
+
+Set on an overlay class by an application that knows its objects describe what is selected
+rather than what they are, and read only by L{namedFromTheSelection}. The same contract as
+`RUN_DECLARATION` below and inert in the same way. What it buys is that such an object is
+read while the reader is on it and not re-read afterwards, since a re-read would be a
+question about something else.
+"""
+
+OUTLOOK = "outlook"
+"""The application whose message rows are named from the selection. See `namedFromTheSelection`."""
+
+OUTLOOK_ROW = "UIAGridRow"
+"""NVDA's own name for the Outlook class whose `_get_name` reads `activeExplorer().selection`.
+
+Matched against the names in an object's `mro`, because an overlay class is assembled per
+object and is not this class by identity.
+"""
+
 RUN_DECLARATION = "brlMultilineFlowRun"
 """The attribute an application sets to say its objects read as a run.
 
@@ -803,6 +823,50 @@ def _isChosen(obj) -> bool:
 	return bool(names & {"SELECTED", "FOCUSED"})
 
 
+def namedFromTheSelection(obj) -> bool:
+	""":return: whether an object's text describes what is selected rather than what it is.
+
+	**The one thing that cannot be read again out of context.** NVDA's Outlook module builds a
+	message row's name from `activeExplorer().selection` — the unread flag, the attachment
+	flag, the executed verb and the importance all come from whatever is selected rather than
+	from the row being named. Ask it about a row the reader has moved off and it answers about
+	the row they moved to, so a message they had read came back saying "unread" and nothing on
+	the display said which of the two rows the flag belonged to.
+
+	Declared by the application where it knows, in the same spirit as `RUN_DECLARATION`: an
+	attribute on an overlay class, inert to everything else. Known here for the one class that
+	does not declare it, and narrowly — Outlook's grid rows, asked for by NVDA's own name for
+	them. If NVDA renames that class this stops applying and the old fault comes back in
+	Outlook alone, which is a better failure than a rule that freezes every list in Windows.
+
+	:param obj: the object about to be read again.
+	"""
+	try:
+		if bool(getattr(obj, SELECTION_NAMED, False)):
+			return True
+	except Exception:
+		log.debugWarning("Could not ask an object how it is named", exc_info=True)
+		return False
+	return _isAnOutlookMessageRow(obj)
+
+
+def _isAnOutlookMessageRow(obj) -> bool:
+	""":return: whether an object is one of Outlook's message rows.
+
+	Two questions, both of NVDA rather than of the platform: which application this object
+	belongs to, and which of NVDA's classes it was built from. `UIAGridRow` is the class in
+	`appModules/outlook.py` whose `_get_name` reads the selection, and `mro` is where an
+	overlay class keeps the classes it was assembled from.
+	"""
+	try:
+		if getattr(getattr(obj, "appModule", None), "appName", None) != OUTLOOK:
+			return False
+		return any(cls.__name__.startswith(OUTLOOK_ROW) for cls in type(obj).__mro__)
+	except Exception:
+		log.debugWarning("Could not ask what an object is", exc_info=True)
+		return False
+
+
 def _isDeclaredRun(obj) -> bool:
 	""":return: whether an application has declared that its object reads as a run.
 
@@ -1410,26 +1474,25 @@ class ObjectFlowSource:
 		opening changes which objects the run holds, which `shapeChanged` and the band's
 		`_runHasChangedShape` are for.
 
-		**Only the object the reader is on.** An object's text is not always a property of the
-		object: NVDA's Outlook module builds a message row's name from
-		`activeExplorer().selection`, so the unread flag, the attachment flag and the
-		importance belong to whatever is *selected* rather than to the row being named. Asked
-		about a row the reader has moved off, it answers about the row they moved to — and the
-		reader felt "unread" appear on a message they had read, with nothing to say it was not
-		that message's own.
+		**One object is refused, and only one kind**: an object whose text describes what is
+		*selected* rather than what it is. See L{namedFromTheSelection}, which is Outlook's
+		message rows and whatever an application says the same about itself. Asked about such a
+		row while the reader is somewhere else, the application answers about somewhere else,
+		and the reader felt "unread" appear on a message they had read.
 
-		Every block was read while it was the object in hand, which is the moment its
-		application answers about it. Re-reading it later can only ask a question out of
-		context, and where the answer is context-free the block comes back the same anyway. So
-		the pass keeps the row under the cursor fresh — a status line, the tail of a chat — and
-		leaves the rest as they were read. A block this refuses is kept rather than dropped;
-		see `FlowController._rereadBlocks`.
+		Everything else is read again as it always was, which is what this method is for: a
+		list whose items change under a pin, a chat message still being written, a status line.
+		Refusing those was a cure worse than the disease — it froze the rows a reader was not
+		on, so a deleted message stayed on the display and a row that changed did not.
+
+		A block this refuses is kept as it was rather than dropped; see
+		`FlowController._rereadBlocks`.
 		"""
 		obj = blockId.bookmark
 		if obj is None:
 			return FetchResult.failed(f"no object behind {blockId}")
-		if not self.isCurrentObject(obj):
-			return FetchResult.failed("an object is only read again while the reader is on it")
+		if not self.isCurrentObject(obj) and namedFromTheSelection(obj):
+			return FetchResult.failed("this object is named from the selection, not from itself")
 		self.budget.startUnlessActive()
 		return self._blockAt(obj, decoration=isDecoration(obj))
 
@@ -1439,7 +1502,7 @@ class ObjectFlowSource:
 		Equality, not identity, because NVDA builds a fresh wrapper for an object every time
 		it is fetched: the row the focus handed over and the row a block was built from are
 		two objects for one message. A run with nowhere in it answers no to everything, which
-		is the safe direction — see `blockAt`, the only caller.
+		is the safe direction.
 
 		:param obj: the object to compare with the current one.
 		"""

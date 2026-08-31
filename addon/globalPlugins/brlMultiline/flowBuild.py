@@ -351,6 +351,11 @@ def buildTableController(
 			# the other pages are ones nobody is looking at yet; `FlowBand._useColumnPage`
 			# hands over the next page's when the reader gets there.
 			columns=tuple(place.column.index for place in plan.placements()),
+			# What the measurement already found, so that the header row is pinned from the
+			# same reading the columns were named from. Asking again here read one cell per
+			# column at the caret's row, and a table whose first row was half built came out
+			# with headers in the layout and no header row above them.
+			declared={item.index: item.label for item in measured if item.declared},
 			generation=generation,
 			budget=budgetForBand(bandRows),
 			live=live,

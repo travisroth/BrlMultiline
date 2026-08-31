@@ -62,6 +62,15 @@ other end of a mailbox walks it item by item. Past this the table is asked to ha
 over by number instead, which works for a list that has built all its items.
 """
 
+MAX_STEPS_PER_ROW = 4
+"""How many siblings may be stepped over for each row a walk is asked to cover.
+
+A walk counts rows and steps over everything else — a group's heading, a scrollbar that sits
+between them — so the two numbers are not the same and the physical one has to be bounded on
+its own. Four to one is room for a heading before every row and a little more, and it keeps a
+walk of five rows from becoming a walk of a mailbox where nothing that follows is a row at all.
+"""
+
 MAX_DECORATIONS = 8
 """How many children at the front of a list are looked at before its rows are assumed to start.
 
@@ -107,15 +116,6 @@ is not a row of anything. See `tableFor`.
 
 By name rather than by importing `controlTypes`, so that nothing here depends on the numbers
 NVDA gives its roles, and so a role this add-on has never heard of is simply not one of these.
-"""
-
-GROUPS_TO_BE_GROUPED = 2
-"""How many groups a table must have room for before its counts are read as a group's.
-
-Two, because one group is the whole table and there is nothing to be wrong about. A table
-admitting to at least twice what the row says its group holds is a table with another group
-in it; a table admitting to a few more rows than that is a control whose counts disagree with
-each other, which every control here does. See `ObjectTable.whyItNumbersAGroup`.
 """
 
 MIN_COLUMNS = 2
@@ -395,13 +395,21 @@ which means a request the focus never answers cannot fire later against somethin
 
 
 def askForColumnAfterFocus(row, cell) -> None:
-	"""Remember the cell to go to once the row taking the focus has taken it.
+	"""Remember the column to go to once the row taking the focus has taken it.
+
+	**The column, and not the cell.** NVDA hands out a fresh wrapper for a row when the focus
+	arrives, and the cells of that wrapper are fresh objects too — so the cell a routing key
+	was holding belongs to the row as it was *before* the move. Taking the navigator object to
+	it puts the reader on an object NVDA has already replaced, and a review reproduced exactly
+	that with two equal wrappers for one row. NVDA's own `RowWithFakeNavigation` stores
+	`_savedColumnNumber` for the same reason and resolves a child of the focused row after the
+	event; this does the same. See `columnWantedAfterFocus`.
 
 	:param row: the object being focused.
-	:param cell: where the navigator object belongs once it has.
+	:param cell: the cell the reader routed into, for the column it is in.
 	"""
 	global _pendingColumn
-	_pendingColumn = (row, cell)
+	_pendingColumn = (row, columnNumberOf(cell) or 1)
 
 
 def columnWantedAfterFocus(obj) -> bool:
@@ -410,6 +418,10 @@ def columnWantedAfterFocus(obj) -> bool:
 	Called for every focus change, so it does nothing at all in the ordinary case: a module
 	level `None` and a return.
 
+	The cell is resolved **against the row that has just taken the focus**, rather than being
+	the one the routing key held: that row is a fresh object and so are its cells. See
+	`askForColumnAfterFocus`.
+
 	:param obj: what has just taken the focus.
 	:return: whether a request was fulfilled by it.
 	"""
@@ -417,11 +429,14 @@ def columnWantedAfterFocus(obj) -> bool:
 	pending, _pendingColumn = _pendingColumn, None
 	if pending is None:
 		return False
-	row, cell = pending
+	row, column = pending
 	if not _isTheSame(obj, row):
 		# Some other focus change got there first, so the request was about a move that did
 		# not happen. Dropped rather than held: a stale request is one that fires against
 		# whatever the reader does next.
+		return False
+	cell = cellObjectOf(obj, column)
+	if cell is None:
 		return False
 	try:
 		import api
@@ -431,6 +446,28 @@ def columnWantedAfterFocus(obj) -> bool:
 		log.debugWarning("Could not take the navigator object to a table cell", exc_info=True)
 		return False
 	return True
+
+
+def cellObjectOf(row, column: int):
+	""":return: the cell object for one column of a row, or None if it has not got it.
+
+	By the cell's own `columnNumber` where its cells have one, which is the only answer that
+	survives a row with a merged or missing cell; by position otherwise, which is what a row of
+	plain children amounts to. `CellObjectTable.cellObject` is the same question asked of a row
+	the table is holding, and answers it the same way over cells it has remembered.
+
+	:param row: the row object.
+	:param column: which column of it, one based.
+	"""
+	cells = _childrenOf(row)
+	for cell in cells:
+		if columnNumberOf(cell) == column:
+			return cell
+	if any(columnNumberOf(cell) is not None for cell in cells):
+		# The row numbers its cells and none of them is this one, so the cell is genuinely
+		# missing rather than merely unnumbered.
+		return None
+	return cells[column - 1] if 1 <= column <= len(cells) else None
 
 
 def _isTheSame(obj, other) -> bool:
@@ -736,21 +773,23 @@ class ObjectTable:
 		structure and for no others, so a row that says it is at level two is a row of a
 		branch rather than of the table.
 
-		**A table holding room for another whole group.** A grouped table holds more than one
-		group, so what says a count is a group's is the table admitting to at least twice it.
-		The test is one sided on purpose: a virtualised list admits to *fewer* children than it
-		holds — File Explorer's answered fourteen while the reader stood on item fifty-two of
-		seventy-nine — and that is the case this module was built for. Fewer is a list that has
-		not been built.
+		**A table holding more rows than the group does.** A group is a part of the table, so a
+		table admitting to more rows than the row says its group holds has something else in it
+		as well. The test is one sided on purpose: a virtualised list admits to *fewer* children
+		than it holds — File Explorer's answered fourteen while the reader stood on item
+		fifty-two of seventy-nine — and that is the case this module was built for. Fewer is a
+		list that has not been built.
 
-		**Twice, rather than one more**, and the reader's report is why. A list that admits to
-		one row more than the row says its group holds is not a grouped list; it is a control
-		counting something this did not expect, which is the ordinary condition of the counts
-		here — this module exists because Explorer's file list answers `rowCount` fourteen,
-		`childCount` seventeen and "one of seventy-nine" about the same list at the same
-		moment. Read as grouping, one such row cost the reader the whole feature in Details
-		view and told them they were not in a table while every cell of it read perfectly.
-		Grouping is a shape, not an off-by-one, and it has to show as one.
+		**Strict, and it was briefly not.** A list that admitted to one row more than its group
+		holds was being read as flat, on the argument that an off-by-one is a control counting
+		something unexpected rather than a shape. It was: File Explorer's file list counts a
+		pane, a scrollbar and its column header among its children, and a folder of two files
+		therefore admitted to five. But the fix for that belongs where the miscount is — see
+		`childrenAdmittedTo`, which takes the decorations off — and buying it here cost the
+		test its meaning: a review found a list of ten arranged in groups of six and four read
+		as a flat table of six, so four rows of the reader's own list were behind an end that
+		was not there. A count that disagrees is ambiguous, and an ambiguous table is refused
+		rather than half drawn.
 
 		Refusing means `rowNumberOf` has no answer, which is `_getTableCellCoords` raising and
 		`tableAt` saying the reader is not in a table. That is the right outcome where the
@@ -780,10 +819,9 @@ class ObjectTable:
 			return f"the row says it is at level {level}, so it is in a branch rather than the table"
 		among = where.get("similarItemsInGroup") or 0
 		admitted = self.childrenAdmittedTo()
-		if among and admitted >= among * GROUPS_TO_BE_GROUPED:
+		if among and admitted > among:
 			return (
 				f"the table admits to {admitted} rows while the row says its group holds {among}"
-				", which is room for another whole group"
 			)
 		return None
 
@@ -945,6 +983,13 @@ class ObjectTable:
 		Cheap in the case that happens: the window asks for the row after the last one it
 		holds, so the walk is one step from something remembered.
 
+		**What is stepped over is not always a row.** A list holds a pane, a scrollbar and its
+		column header among its children, and a grouped one holds a heading between its groups;
+		a review found row two coming back as the header that sat between rows one and two. So
+		a sibling that is not a row is stepped over without counting: the rows are numbered by
+		the rows, and the physical steps are bounded separately, because a stretch of things
+		that are not rows must not turn a walk of five into a walk of a mailbox.
+
 		:param row: which row to reach, one based.
 		"""
 		known = [number for number in self._rows if self._rows[number] is not None]
@@ -962,7 +1007,8 @@ class ObjectTable:
 			return None
 		item = self._rows.get(from_)
 		forward = row > from_
-		for number in range(steps):
+		reached = from_
+		for _ in range(steps * MAX_STEPS_PER_ROW):
 			try:
 				item = item.next if forward else item.previous
 			except Exception:
@@ -970,10 +1016,17 @@ class ObjectTable:
 				return None
 			if item is None:
 				return None
+			if not self.looksLikeARow(item):
+				# A heading between two groups, or the header at the top of the list. It sits
+				# between the rows and is not one of them, so the count does not move.
+				continue
+			reached += 1 if forward else -1
 			# Remembered on the way past, so a walk of five rows is five steps rather than
 			# five walks. The window asks for them in order, which is what makes this pay.
-			self._rows[from_ + (number + 1 if forward else -(number + 1))] = item
-		return item
+			self._rows[reached] = item
+			if reached == row:
+				return item
+		return None
 
 	def describe(self) -> list:
 		"""What this stand-in found, for the log.
