@@ -2050,6 +2050,131 @@ class TestMovingTheFocusOverAPin(FocusTrackingDisplayTestCase):
 		self.assertIn("device.hidBrailleStandard.1", self.plugin._monitors)
 
 
+class TestSwappingWhileTheBandIsClaimed(FocusTrackingDisplayTestCase):
+	"""The reported defect, and the layout it was reported on.
+
+	A Monarch as one segment, a Focus 80 as one, the focus on the Focus 80 and a Teams chat
+	pinned to the Monarch. Toggling swapped them, as it should. Toggling back asked whether
+	to lose the pin, and losing it was the only answer offered.
+
+	The reason is that the flow band claims *the display the focus is on* — this reader asked
+	for that, so that the display the focus left could be used for something else. So after
+	the first toggle the whole Monarch belonged to the band, the Focus 80 was wanted by the
+	focus, and there was nowhere on the display for the pin. Nowhere yet: the band gives
+	those rows back a moment later, in the same rebuild, because the focus is leaving.
+	"""
+
+	displays = (
+		("hidBrailleStandard", 0, 8, 32),
+		("freedomScientific", 8, 1, 80),
+	)
+	segmentCounts = {"hidBrailleStandard_8x32": 1, "freedomScientific_1x80": 1}
+	rows = 9
+	cols = 80
+
+	def setUp(self):
+		super().setUp()
+		CONFIG["flowEnabled"] = True
+		CONFIG["flowBrowseMode"] = True
+		self.plugin.rebuildBuffer()
+		self.asked = []
+		self.plugin._askAboutDisplacedPins = lambda *args: self.asked.append(args)
+
+	def pinTheChat(self, number=0):
+		"""Pin something that flows, since what the reader lost was a flowing chat."""
+		import api
+
+		interceptor = FakeTreeInterceptor([f"message {index}" for index in range(30)], caretIndex=0)
+		api.getNavigatorObject = lambda: FakeNavigatorObject("Teams chat", treeInterceptor=interceptor)
+		self.plugin.startMonitoring(number)
+
+	def keys(self):
+		return [spec.key for spec in self.container.specs]
+
+	def pin(self):
+		""":return: the one monitor, or None once it has been released."""
+		return next(iter(self.plugin._monitors.values()), None)
+
+	def test_thePinFlowsWhereItWasMade(self):
+		self.pinTheChat()
+		self.assertIsNotNone(self.pin().controller)
+
+	def test_theBandTakesTheDisplayTheFocusMovesTo(self):
+		"""Which is what leaves nowhere for the pin, and is not itself a fault."""
+		self.pinTheChat()
+		self.press()
+		self.assertIn("flow", self.keys())
+
+	def test_thePinIsStillThereAfterTogglingBack(self):
+		"""The defect. It was released, and the only offer was to release it."""
+		self.pinTheChat()
+		self.press()
+		self.press()
+		self.assertIsNotNone(self.pin())
+
+	def test_andItIsBackOnTheDisplayItCameFrom(self):
+		"""A round trip: the pin and the focus trade places and trade back."""
+		self.pinTheChat()
+		self.press()
+		self.press()
+		self.assertEqual(self.pin().segmentKey, "device.hidBrailleStandard.0")
+		self.assertIsNotNone(self.pin().controller)
+
+	def test_andNothingAsked(self):
+		self.pinTheChat()
+		self.press()
+		self.press()
+		self.assertEqual(self.asked, [])
+
+	def test_theSegmentTheFocusIsLeavingIsOfferedThoughItIsClaimed(self):
+		"""The band on it goes where the focus goes, so those rows are about to be free."""
+		self.pinTheChat()
+		self.press()
+		self.assertEqual(self.plugin.homesForDisplacedPins(1), ["flow"])
+
+	def test_aClaimTheFocusIsNotOnIsStillNotOffered(self):
+		"""Only the focus's own claim is leaving. Anything else would be drawn over."""
+		self.pinTheChat()
+		self.press()
+		claimed = self.container.specs[0]
+		self.assertTrue(claimed.isReserved)
+		self.plugin.container._focusSegmentNumber = 1
+		self.assertEqual(self.plugin.homesForDisplacedPins(1), [])
+
+	def test_theReaderIsToldWhenItLandsSomewhereTooShort(self):
+		"""One row cannot hold a flow, so a chat that scrolled becomes a line that does not.
+
+		Silently, until this: the reader's report was that panning had stopped working.
+		"""
+		self.pinTheChat()
+		spokenMessages.clear()
+		self.press()
+		self.assertIsNone(self.pin().controller)
+		self.assertTrue(
+			any("flow" in message for message in spokenMessages),
+			f"nothing said about the flow: {spokenMessages}",
+		)
+
+	def test_andNotToldWhenItLandsSomewhereItCanFlow(self):
+		self.pinTheChat()
+		self.press()
+		spokenMessages.clear()
+		self.press()
+		self.assertIsNotNone(self.pin().controller)
+		self.assertFalse(any("flow" in message for message in spokenMessages))
+
+	def test_aPinWithNowhereAtAllIsReportedRatherThanVanishing(self):
+		"""The other end of it. Told their object moved, the reader must not find it gone."""
+		self.pinTheChat()
+		monitor = self.pin()
+		self.plugin._monitors.clear()
+		messages = self.plugin._whatBecameOfTheCarriedPins(
+			[plugin.CarriedPin(monitor=monitor, home="device.freedomScientific.0", wasFlowing=True)],
+		)
+		self.assertTrue(messages)
+		self.assertIn("could not be kept", messages[-1])
+
+
 class TestTheDialogAboutDisplacedPins(FocusTrackingDisplayTestCase):
 	"""The other dialog on this path, driven rather than stood in for.
 

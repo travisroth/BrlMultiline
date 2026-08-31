@@ -23,8 +23,13 @@ Added:
   its display the focus segment was, and stores the answer in the profile in force. A pinned
   object sitting where the focus is going trades places with it rather than being released,
   since pressing a key to move the focus is a decision about the focus and not about the
-  pin. Where there is nowhere to put what is displaced, or more than one thing is, the
-  reader chooses what to keep or cancels the move.
+  pin. The segment the focus is leaving counts as somewhere to put it even when the flow
+  band has claimed it, since the band follows the focus and gives those rows back, and a pin
+  carried onto a segment the rebuilding dissolves is re-homed rather than released. Where
+  there is nowhere to put what is displaced, or more than one thing is, the reader chooses
+  what to keep or cancels the move. What became of a carried pin is reported after the move
+  rather than promised before it, including when it lands somewhere with too few rows to
+  read it as a flow.
 - Per segment panning commands, unbound by default.
 - Pinning the navigator object to a segment, so it stays visible while the focus moves. A
   pin survives a layout change as long as its segment does. A pinned segment can be panned

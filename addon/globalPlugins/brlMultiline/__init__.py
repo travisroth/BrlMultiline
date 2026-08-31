@@ -97,6 +97,21 @@ def getPlugin() -> "GlobalPlugin | None":
 	return _plugin
 
 
+class CarriedPin(NamedTuple):
+	"""A pin the focus move took with it, and what it was before it went.
+
+	What it was matters as much as where it went. A pin on eight rows is read as a flow and
+	a pin on one row cannot be, so the same swap can leave a chat that scrolled showing a
+	single unscrollable line — silently, until this said so.
+	"""
+
+	monitor: ObjectMonitor
+	home: str
+	"""The segment it was filed under. What it ends up on is settled by the rebuild."""
+
+	wasFlowing: bool
+
+
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	scriptCategory = SCRIPT_CATEGORY
 
@@ -109,6 +124,24 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""Pinned objects, keyed by the segment key they live in.
 
 		Keyed rather than numbered so that a rebuild which keeps a segment keeps its pin.
+		"""
+
+		self._pinsInFlight: list[ObjectMonitor] = []
+		"""Pins a focus move is carrying, until the display it caused has settled.
+
+		A pin displaced by the focus is moved before the display is rebuilt, and the segment
+		it is moved to may not be in the display that gets built: the flow band claims the
+		display the focus is on, so the rows the focus leaves come back as segments of the
+		reader's own layout under different keys. Without this the carry-over saw a pin on a
+		key that had gone and released it — the reader traded the pin for nothing.
+
+		The monitors themselves rather than the keys they are filed under, because one move
+		rebuilds the display more than once: claiming or releasing the band rebuilds it
+		again, so a pin can be re-homed by the first pass and have to survive the second
+		under a key nobody predicted.
+
+		Held only across the rebuilding one move causes, so that a pin released later for an
+		ordinary reason is still released.
 		"""
 		self._messageBuffer: MessageBuffer | None = None
 		"""NVDA's flash messages, confined to one segment. Made on the first rebuild.
@@ -711,16 +744,23 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		present = {device.driverName for device in deviceMap()}
 		for key in self._monitors.keys() - survivors.keys():
 			driverName = driverNameForSegmentKey(key)
-			if driverName is not None and driverName not in present:
-				# The display this pin was on has gone. Every other way a segment can go —
-				# a claim taking it, the focus moving onto it, the user rearranging — is a
-				# decision, and a pin released by a decision stays released.
+			gone = driverName is not None and driverName not in present
+			carrying = any(monitor is self._monitors[key] for monitor in self._pinsInFlight)
+			if gone or carrying:
+				# Two reasons to look for somewhere else rather than let go. The display this
+				# pin was on has gone; or the focus command moved it a moment ago onto a
+				# segment this rebuild has dissolved, which is the flow band handing its rows
+				# back as the focus leaves them. Every other way a segment can go — a claim
+				# taking it, the focus moving onto it, the user rearranging — is a decision,
+				# and a pin released by a decision stays released.
+				why = (
+					f"{driverName} has gone"
+					if gone
+					else f"segment {key!r} is where the focus command put it and is not in the new layout"
+				)
 				home = self._rehomeMonitor(container, survivors)
 				if home is not None:
-					log.info(
-						f"BrlMultiline: {driverName} has gone; the object pinned to it moves to "
-						f"segment {home!r}",
-					)
+					log.info(f"BrlMultiline: {why}; the object pinned to it moves to segment {home!r}")
 					monitor = self._monitors[key]
 					# The key in this dictionary is only how the plugin finds it. What decides
 					# where it draws is the monitor's own key and the regions it has already
@@ -728,9 +768,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					monitor.moveTo(home)
 					survivors[home] = monitor
 					continue
+				# Nowhere in *this* pass, which for a pin the focus is carrying does not mean
+				# nowhere: the command is still in the middle of rebuilding, and the pass that
+				# gives the band's rows back has not happened yet. `_landPinsInFlight` settles
+				# those once the move has finished, so this is not the release it looks like.
 				log.info(
-					f"BrlMultiline: {driverName} has gone and there is nowhere left to put what "
-					f"was pinned to it, so it is released",
+					f"BrlMultiline: {why} and there is nowhere left to put what was pinned to it, "
+					f"so it {'waits for the move to settle' if carrying else 'is released'}",
 				)
 			else:
 				log.debug(
@@ -1280,6 +1324,20 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		divided a single row display into several — which this add-on allows on purpose, and
 		which gets crowded fast but is theirs to decide — has those segments offered too.
 
+		A claim on the segment the focus is leaving does not disqualify it, and that is not a
+		liberty: the flow band claims the display *the focus is on*, by design and at this
+		reader's request, so moving the focus takes the band with it and gives those rows
+		back. The alternative was reported from hardware. With the focus and its band on a
+		Monarch and a chat pinned to a Focus 80, toggling back found the Focus 80 wanted by
+		the focus and the whole Monarch owned by the band — no home anywhere, a dialog about
+		losing the pin, and a pin lost on the way to a display that was about to be free.
+
+		What the claim leaves behind may not be a segment of this key, or of any key: a
+		rectangle claimed as one panel can come back divided. So this answers where a pin
+		could go, not where it will end up. `_carryOverMonitors` settles that against the
+		display that actually gets built, and re-homes a pin whose provisional segment did
+		not survive rather than dropping it.
+
 		:param number: the segment the focus is going to.
 		:return: the keys of segments that could hold a pin, best first.
 		"""
@@ -1293,7 +1351,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		for key in ordered:
 			if key in homes or key == going or key in taken or not container.hasKey(key):
 				continue
-			if container.segmentForKey(key).isReserved:
+			if container.segmentForKey(key).isReserved and key != container.focusSegmentKey:
 				continue
 			homes.append(key)
 		return homes
@@ -1316,40 +1374,131 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			`_carryOverMonitors` as it always was.
 		"""
 		number = self.focusSegmentFor(target, position)
-		moved = self._carryPinsClearOfTheFocus(keep or {})
+		carried = self._carryPinsClearOfTheFocus(keep or {})
 		bmConfig.setFocusSegment(number)
-		self.rebuildBuffer()
+		try:
+			# One move can rebuild the display several times: the band is claimed or given
+			# back as the focus arrives, and claiming rebuilds again. The pins are in flight
+			# for all of it, and land only when it has finished.
+			self.rebuildBuffer()
+		finally:
+			self._landPinsInFlight()
 		ui.message(
 			# Translators: reported when the focus is moved onto one of several combined
 			# displays. Placeholders are the display's name and the segment number.
 			_("Focus on {display}, segment {number}").format(display=target.label, number=number),
 		)
-		if moved:
-			ui.message(
-				# Translators: reported when moving the focus moves a pinned object out of its
-				# way. The placeholder is how many objects moved.
-				_("{count} pinned objects moved").format(count=moved)
-				if moved > 1
-				# Translators: reported when moving the focus moves one pinned object out of
-				# its way, so that it is not lost.
-				else _("The pinned object moved with it"),
-			)
+		for message in self._whatBecameOfTheCarriedPins(carried):
+			ui.message(message)
 
-	def _carryPinsClearOfTheFocus(self, keep: "dict[str, str]") -> int:
+	def _landPinsInFlight(self) -> None:
+		"""Put the pins a focus move carried into the display it ended up building.
+
+		Most of them are already there: the carry-over files a pin whose segment survived,
+		and re-homes one whose segment did not. What is left is a pin that had nowhere to go
+		in the middle of the rebuilding — the pass before the flow band gave its rows back —
+		and was held rather than released. That is the pass this answers for.
+
+		Released here, once, if there really is nowhere. Then the reader is told, which is
+		the whole difference between a pin that was traded away and one that vanished.
+		"""
+		inFlight, self._pinsInFlight = self._pinsInFlight, []
+		container = self.container
+		landed = False
+		for monitor in inFlight:
+			if any(monitor is filed for filed in self._monitors.values()):
+				continue
+			home = self._rehomeMonitor(container, self._monitors) if container is not None else None
+			if home is None:
+				log.info(
+					f"BrlMultiline: nowhere on this display for the object pinned to "
+					f"{monitor.segmentKey!r}, so moving the focus released it",
+				)
+				continue
+			log.info(f"BrlMultiline: the pin the focus move carried lands on segment {home!r}")
+			monitor.moveTo(home)
+			self._monitors[home] = monitor
+			landed = True
+		if landed:
+			# Drawn where it landed, rather than waiting for the refresh tick to notice.
+			self.refreshMonitors()
+
+	def _whatBecameOfTheCarriedPins(self, carried: "list[CarriedPin]") -> list[str]:
+		""":return: what to tell the reader about the pins a focus move took with it.
+
+		Said after the rebuild rather than before it, because before it this was a promise.
+		The display that gets built decides where a pin lands and how many rows it has there,
+		and both can differ from what was intended: a segment can dissolve into the reader's
+		own layout, and the rows on the other display may be fewer.
+
+		Two things worth saying, and the second was the reported one. A pin that could not be
+		kept must be reported, or the reader is told their object moved and finds it gone. And
+		a pin that is no longer read as a flow must be reported, because that is a chat which
+		scrolled becoming a single line that does not — nothing on the display says why, and
+		the reader's account of it was that panning had broken.
+
+		:param carried: what the move took with it, before the rebuild.
+		"""
+		if not carried:
+			return []
+		alive = {id(monitor) for monitor in self._monitors.values()}
+		kept = [pin for pin in carried if id(pin.monitor) in alive]
+		messages = []
+		if len(kept) > 1:
+			messages.append(
+				# Translators: reported when moving the focus moves pinned objects out of its
+				# way. The placeholder is how many objects moved.
+				_("{count} pinned objects moved").format(count=len(kept)),
+			)
+		elif kept:
+			# Translators: reported when moving the focus moves one pinned object out of its
+			# way, so that it is not lost.
+			messages.append(_("The pinned object moved with it"))
+		flattened = sum(
+			1 for pin in kept if pin.wasFlowing and getattr(pin.monitor, "controller", None) is None
+		)
+		if flattened:
+			messages.append(
+				# Translators: reported when a pinned object that was being read as a flow —
+				# a list, a document, a table — lands somewhere with too few rows for one, so
+				# it is now a single line that cannot be panned through.
+				_("Too few rows there to read it as a flow"),
+			)
+		lost = len(carried) - len(kept)
+		if lost:
+			messages.append(
+				# Translators: reported when moving the focus could not keep a pinned object
+				# after all. The placeholder is how many were lost.
+				_("{count} pinned objects could not be kept").format(count=lost)
+				if lost > 1
+				# Translators: reported when moving the focus could not keep the one pinned
+				# object it was carrying.
+				else _("The pinned object could not be kept"),
+			)
+		return messages
+
+	def _carryPinsClearOfTheFocus(self, keep: "dict[str, str]") -> "list[CarriedPin]":
 		"""Move pins to their new homes before the display is rebuilt.
 
 		Before, deliberately. `_carryOverMonitors` decides what survives by looking at where
 		each pin *is* when the new container arrives, so a pin already moved is simply a pin
 		whose segment survived — the carry-over needs to know nothing about why it moved.
 
+		Except when the home was a segment the move itself dissolves, which is the flow band
+		giving its rows back as the focus leaves. Then the key the pin was filed under is not
+		in the new display at all, and the carry-over would drop it as gone. So what moved is
+		recorded here, and the carry-over gives those pins a home in the display that was
+		actually built. See L{_pinsMovedByTheFocus}.
+
 		:param keep: the key each pin is on now, to the key it should move to.
-		:return: how many pins moved.
+		:return: what moved, so the caller can say what became of it.
 		"""
-		moved = 0
+		carried: list[CarriedPin] = []
 		for key, home in keep.items():
 			monitor = self._monitors.get(key)
 			if monitor is None or home == key:
 				continue
+			wasFlowing = getattr(monitor, "controller", None) is not None
 			try:
 				monitor.moveTo(home)
 			except Exception:
@@ -1357,8 +1506,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				continue
 			del self._monitors[key]
 			self._monitors[home] = monitor
-			moved += 1
-		return moved
+			carried.append(CarriedPin(monitor=monitor, home=home, wasFlowing=wasFlowing))
+		self._pinsInFlight = [pin.monitor for pin in carried]
+		return carried
 
 	def _askAboutDisplacedPins(
 		self,
