@@ -53,6 +53,7 @@ import config  # noqa: E402
 from braille.brailleHandler import BrailleHandler  # noqa: E402
 
 from brlMultiline import patches  # noqa: E402
+from brlMultiline import flowObjects  # noqa: E402
 from brlMultiline.container import PLACEMENT_KEY_ATTRIBUTE, DisplayContainer  # noqa: E402
 from brlMultiline.layout import SegmentRect  # noqa: E402
 from brlMultiline.messages import MessageBuffer  # noqa: E402
@@ -2162,6 +2163,51 @@ class TestSwappingWhileTheBandIsClaimed(FocusTrackingDisplayTestCase):
 		self.press()
 		self.assertIsNotNone(self.pin().controller)
 		self.assertFalse(any("flow" in message for message in spokenMessages))
+
+	def pinARun(self, number=0):
+		"""Pin a run of objects, which is what the reader actually had: a chat history."""
+		import api
+
+		messages = []
+		for index in range(8):
+			message = FakeNavigatorObject(f"message {index}", role="LISTITEM")
+			setattr(message, flowObjects.RUN_DECLARATION, True)
+			setattr(
+				message,
+				flowObjects.RUN_NEXT,
+				lambda index=index: messages[index + 1] if index + 1 < len(messages) else None,
+			)
+			setattr(
+				message,
+				flowObjects.RUN_PREVIOUS,
+				lambda index=index: messages[index - 1] if index else None,
+			)
+			messages.append(message)
+		api.getNavigatorObject = lambda: messages[0]
+		self.plugin.startMonitoring(number)
+		return messages
+
+	def test_aChatCarriedToTheSingleRowDisplayIsStillAFlow(self):
+		"""Which is the whole point of the swap for this reader: one row, one message."""
+		self.pinARun()
+		self.press()
+		control = self.pin().controller
+		self.assertIsNotNone(control)
+		self.assertEqual(control.window.numRows, 1)
+		self.assertTrue(control.panForward())
+
+	def test_soNothingIsSaidAboutRowsForIt(self):
+		self.pinARun()
+		spokenMessages.clear()
+		self.press()
+		self.assertFalse(any("flow" in message for message in spokenMessages), spokenMessages)
+
+	def test_andItComesBackToTheDisplayItCameFrom(self):
+		self.pinARun()
+		self.press()
+		self.press()
+		self.assertEqual(self.pin().segmentKey, "device.hidBrailleStandard.0")
+		self.assertEqual(self.pin().controller.window.numRows, 8)
 
 	def test_aPinWithNowhereAtAllIsReportedRatherThanVanishing(self):
 		"""The other end of it. Told their object moved, the reader must not find it gone."""

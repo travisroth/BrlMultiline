@@ -184,6 +184,10 @@ Things worth knowing:
   is under your hands.
 - A list, a menu or a combo box's choices can be read the same way, showing the items
   around the one you are on. Turn "Lists and menus" on to try it.
+- A pinned list, menu or chat needs only one row of the display: one row is one item, and
+  panning moves to the next, which makes a single row display a usable monitor for a
+  conversation. A pinned document or table needs two, since what those are for is the shape
+  they make across rows.
 - An editor outside browse mode can be read as a flow too. Turn "Editable text" on to use
   this in applications such as Notepad; it is separate so enabling page flows does not
   unexpectedly change every editor.

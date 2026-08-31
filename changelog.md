@@ -29,7 +29,9 @@ Added:
   there is nowhere to put what is displaced, or more than one thing is, the reader chooses
   what to keep or cancels the move. What became of a carried pin is reported after the move
   rather than promised before it, including when it lands somewhere with too few rows to
-  read it as a flow.
+  read it as a flow — which a run of objects no longer needs, since one row of a chat, a
+  list or a menu is one message, one item, one entry, with panning moving to the next. A
+  document or a table still needs two.
 - Per segment panning commands, unbound by default.
 - Pinning the navigator object to a segment, so it stays visible while the focus moves. A
   pin survives a layout change as long as its segment does. A pinned segment can be panned

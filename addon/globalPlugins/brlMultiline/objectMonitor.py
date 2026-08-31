@@ -55,11 +55,28 @@ _generations = itertools.count(1)
 """Numbers each reading a pin makes, so that a bookmark from one cannot match another's."""
 
 MIN_FLOW_ROWS = 2
-"""The fewest rows a segment can show a pinned object as a flow in.
+"""The fewest rows a segment can show a pinned document or table as a flow in.
 
-Two. A flow in one row is a row, and everything a flow is for — the shape of a document under
-the hand, a table's columns lining up, a run of items to scan down — needs a second one to
-exist at all. Below this the pin reads as it always has, through NVDA's own regions.
+Two. A document in one row is a row, and what a document flow is for — the shape of a page
+under the hand, a table's columns lining up — needs a second one to exist at all. Below this
+such a pin reads as it always has, through NVDA's own regions.
+"""
+
+MIN_RUN_ROWS = 1
+"""The fewest rows a segment can show a pinned *run of objects* as a flow in.
+
+One, and the difference from L{MIN_FLOW_ROWS} is the whole point. A run has no shape to
+spread out: it is one thing per row, and one row of it is one message, one list item, one
+menu entry, with panning moving to the next. That is a chat monitor on a Focus 80, and it is
+what the two row rule was quietly refusing.
+
+Reported from hardware. A chat pinned to a Monarch and carried to a single row Focus 80 by
+the focus command stopped being a flow, fell back to regions, and showed the list *object*
+rather than the messages in it — one line that could not be panned at all. The fallback is
+worse there than the flow it was protecting the reader from.
+
+A document is a different case and keeps the old rule: one row of a document is the line NVDA
+already shows, and the regions show it better.
 """
 
 
@@ -250,9 +267,10 @@ class ObjectMonitor:
 		everything the band does for those it can do here — the reader said so, and the
 		display the focus is not on is now where pins live, so there is room to mean it.
 
-		Two things have to hold. The segment must have `MIN_FLOW_ROWS` to show one in, and
-		`buildController` must find something to read — the same question, asked the same way,
-		that decides whether the band lights up.
+		Two things have to hold. The segment must be tall enough — see L{_minimumRows}, which
+		is two rows for a document and one for a run of objects — and `buildController` must
+		find something to read, the same question, asked the same way, that decides whether
+		the band lights up.
 
 		**Not gated on the flow settings**, deliberately, and the reader's own account is the
 		argument: they turned the flow off in order to pin something at all. Those settings say
@@ -267,7 +285,7 @@ class ObjectMonitor:
 		:return: whether there is a flow to draw.
 		"""
 		size = (segment.rect.numRows, segment.rect.numCols)
-		if size[0] < MIN_FLOW_ROWS or not hasattr(segment, "attach"):
+		if size[0] < self._minimumRows(size[0]) or not hasattr(segment, "attach"):
 			self._dropFlow(segment)
 			return False
 		if self.controller is not None and self._tableHasGrown():
@@ -290,6 +308,36 @@ class ObjectMonitor:
 		self._builtInColumns = self.wantsColumns
 		log.debug(f"Reading the pin on {self.name!r} as a flow in {size[0]} by {size[1]}")
 		return True
+
+	def _minimumRows(self, rows: int) -> int:
+		""":return: the fewest rows this pin can be read as a flow in.
+
+		Asked what is being read only when it matters. A segment with two rows or more can
+		flow anything, so the question is not put; a segment with one row asks whether this
+		pin is a run of objects, which is the same question `buildController` answers a moment
+		later and is answered here by the same function.
+
+		:param rows: how many rows the segment has.
+		"""
+		if rows >= MIN_FLOW_ROWS:
+			return MIN_FLOW_ROWS
+		return MIN_RUN_ROWS if self._readsAsARun() else MIN_FLOW_ROWS
+
+	def _readsAsARun(self) -> bool:
+		""":return: whether this pin is a run of objects rather than a document or a table.
+
+		A table asked for in columns is not, whatever its rows are made of: columns need rows
+		to line up in, so a table on one row goes back to the regions like a document.
+		"""
+		if self.wantsColumns:
+			return False
+		try:
+			from .flowBuild import objectAdapterFor
+
+			return objectAdapterFor(self.pinned) is not None
+		except Exception:
+			log.debugWarning(f"Could not ask whether {self.name!r} is a run of objects", exc_info=True)
+			return False
 
 	def _build(self, size: tuple):
 		"""Build the flow for this pin, in columns if that is what was asked for.

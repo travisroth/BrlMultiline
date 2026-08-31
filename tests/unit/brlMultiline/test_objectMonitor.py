@@ -37,7 +37,7 @@ GlobalPlugin = plugin.GlobalPlugin
 
 import braille  # noqa: E402
 
-from brlMultiline import patches  # noqa: E402
+from brlMultiline import flowObjects, patches  # noqa: E402
 from brlMultiline.objectMonitor import ObjectMonitor, resolveTarget  # noqa: E402
 from brlMultiline.pinnedRegions import (  # noqa: E402
 	PinnedCursorManagerRegion,
@@ -450,7 +450,8 @@ class TestAPinTallEnoughToFlow(MonitorTestCase):
 
 
 class TestAPinWithNoRoomToFlow(MonitorTestCase):
-	"""One row is a row. Everything a flow is for needs a second one to exist at all."""
+	"""One row of a *document* is a row. Its shape needs a second one to exist at all, and the
+	line NVDA already shows is shown better by the regions."""
 
 	segmentCount = 8
 
@@ -462,6 +463,77 @@ class TestAPinWithNoRoomToFlow(MonitorTestCase):
 		self.pinDocument()
 		self.assertTrue(self.segment.regions)
 		self.assertIsNone(self.segment.controller)
+
+
+class TestARunOnOneRow(MonitorTestCase):
+	"""A run has no shape to spread out, so one row of it is one item, and panning is the
+	next item. That is a chat monitor on a single row display.
+
+	Reported from hardware: a chat pinned to a Monarch and carried to a Focus 80 by the focus
+	command stopped being a flow, fell back to the regions, and showed the list object rather
+	than the messages in it — one line that could not be panned at all. The fallback was worse
+	than the flow the two row rule was protecting the reader from.
+	"""
+
+	segmentCount = 8
+
+	def pinRun(self, count=6):
+		"""Pin a run of objects, declared the way an application module declares one."""
+		import api
+
+		messages = []
+		for index in range(count):
+			message = FakeNavigatorObject(f"message {index}", role="LISTITEM")
+			setattr(message, flowObjects.RUN_DECLARATION, True)
+			setattr(
+				message,
+				flowObjects.RUN_NEXT,
+				lambda index=index: messages[index + 1] if index + 1 < len(messages) else None,
+			)
+			setattr(
+				message,
+				flowObjects.RUN_PREVIOUS,
+				lambda index=index: messages[index - 1] if index else None,
+			)
+			messages.append(message)
+		api.getNavigatorObject = lambda: messages[0]
+		self.plugin.startMonitoring(PINNED_SEGMENT)
+		return messages
+
+	def shown(self):
+		""":return: the text of the one row, read off the block the window is on.
+
+		Off the block rather than off the drawn cells, for the reason L{TestAPinTallEnoughToFlow.held}
+		gives: the stub buffer returns no row offsets, so every drawn row comes back empty here.
+		"""
+		control = self.plugin._monitors[PINNED_KEY].controller
+		return control.blocks.get(control.window.topBlockId()).region.rawText
+
+	def test_itIsReadAsAFlow(self):
+		self.pinRun()
+		self.assertIsNotNone(self.plugin._monitors[PINNED_KEY].controller)
+
+	def test_theRowIsOneItem(self):
+		self.pinRun()
+		self.assertTrue(self.shown().startswith("message 0"))
+
+	def test_andPanningIsTheNextItem(self):
+		"""What the regions could not do, and what the reader pinned a chat to have."""
+		self.pinRun()
+		self.assertTrue(self.plugin._monitors[PINNED_KEY].controller.panForward())
+		self.assertTrue(self.shown().startswith("message 1"))
+
+	def test_andBackAgain(self):
+		self.pinRun()
+		control = self.plugin._monitors[PINNED_KEY].controller
+		control.panForward()
+		self.assertTrue(control.panBack())
+		self.assertTrue(self.shown().startswith("message 0"))
+
+	def test_aDocumentOnOneRowStillReadsThroughRegions(self):
+		"""The rule that changed is about runs. A document keeps the old one."""
+		self.pinDocument()
+		self.assertIsNone(self.plugin._monitors[PINNED_KEY].controller)
 
 
 class TestAPinnedTableInColumns(MonitorTestCase):
