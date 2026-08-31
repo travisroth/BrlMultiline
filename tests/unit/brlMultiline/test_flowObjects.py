@@ -1759,3 +1759,97 @@ class TestLookingForARunThatIsNotThere(unittest.TestCase):
 				raise RuntimeError("no")
 
 		self.assertIsNone(flowObjects._firstDeclaredWithin(Refuses()))
+
+
+class OutlookLikeItem(FakeNavigatorObject):
+	"""A message row named the way NVDA names Outlook's.
+
+	`appModules.outlook.UIAGridRow._get_name` builds the name from
+	`activeExplorer().selection`, so the unread flag, the attachment flag and the importance
+	come from whatever is *selected* rather than from the row being asked. Ask it about a row
+	the reader has moved off and it answers about the row they moved to.
+	"""
+
+	def __init__(self, subject, inbox, unread=False):
+		self.subject = subject
+		self.inbox = inbox
+		self.unread = unread
+		super().__init__(name=subject, role="LISTITEM")
+
+	@property
+	def name(self):
+		selected = self.inbox.get("selected")
+		return f"unread {self.subject}" if selected is not None and selected.unread else self.subject
+
+	@name.setter
+	def name(self, value):
+		"""Swallowed. The name is built, and the base class sets one in its constructor."""
+
+	def select(self):
+		self.inbox["selected"] = self
+
+
+class TestARowReadOutOfContext(unittest.TestCase):
+	"""Reported from hardware, in Outlook's inbox: arrowing onto an unread message put
+	"unread" on the message above it as well, which was read and not flagged. Nothing on the
+	display said which of the two it belonged to, and both claimed it.
+
+	The rows had been read correctly. What happened afterwards was the live pass reading them
+	again — a run of objects learnt to answer `blockAt` so that a pinned list could keep up —
+	and Outlook answers that question about the selection rather than about the row.
+
+	Every block was read while its object was the one in hand, which is the moment the
+	application answers about it. A re-read of any other object can only ask out of context.
+	"""
+
+	def inbox(self):
+		""":return: two messages, the second unread, with the first selected."""
+		shared = {}
+		items = [
+			OutlookLikeItem("about the workflow", shared),
+			OutlookLikeItem("about mixed case", shared, unread=True),
+		]
+		items[0].select()
+		return items
+
+	def test_aRowIsReadWhileTheReaderIsOnIt(self):
+		items = self.inbox()
+		block = sourceOver(items, at=0).blockAtCursor().block
+		self.assertNotIn("unread", block.region.rawText)
+
+	def test_andIsNotReadAgainOnceTheyHaveMovedOff(self):
+		items = self.inbox()
+		source = sourceOver(items, at=0)
+		block = source.blockAtCursor().block
+		items[1].select()
+		source.setCurrent(items[1])
+		self.assertEqual(source.blockAt(block.blockId).kind, ResultKind.ERROR)
+
+	def test_theRowTheyAreOnIsStillReadAgain(self):
+		"""Which is what the pass is for: a status line, or the tail of a chat."""
+		items = self.inbox()
+		source = sourceOver(items, at=1)
+		items[1].select()
+		block = source.blockAtCursor().block
+		self.assertIn("unread", source.blockAt(block.blockId).block.region.rawText)
+
+	def test_soTheBandKeepsWhatItReadRatherThanWhatOutlookSaysNow(self):
+		"""The reader's own report, on the band: the message above keeps the text it was read
+		with, and only the message they are on carries the flag."""
+		items = self.inbox()
+		control = controllerOver(items, at=0, numRows=4)
+		items[1].select()
+		control.source.setCurrent(items[1])
+		control.rereadContent()
+		rows = " | ".join(control.describeRows())
+		self.assertEqual(rows.count("unread"), 0)
+
+	def test_whichRowItIsIsAskedOfNvdaRatherThanOfIdentity(self):
+		"""NVDA builds a fresh wrapper for a row every time it is fetched, so the row the focus
+		hands over and the row a block was built from are two objects for one message."""
+		items = self.inbox()
+		source = sourceOver(items, at=0)
+		self.assertTrue(source.isCurrentObject(items[0]))
+		self.assertFalse(source.isCurrentObject(items[1]))
+		source.obj = None
+		self.assertFalse(source.isCurrentObject(items[0]))

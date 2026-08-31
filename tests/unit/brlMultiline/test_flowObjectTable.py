@@ -270,10 +270,129 @@ class TestReadingAWholeBandOfIt(unittest.TestCase):
 		self.assertEqual(view.builds, 0)
 
 	def test_aRowIsFetchedOnceHoweverManyColumnsItHas(self):
+		"""However the row is reached — stepped to from the row in hand, or handed over by
+		number — it is reached once and then remembered, so a page of six columns does not
+		cost six searches of the list."""
 		view, source = self.source()
+		table = source.handle.document
 		view.builds = 0
 		source.blockAt(flowTableSource.BlockId(generation=0, bookmark=2, unit="row"))
-		self.assertEqual(view.builds, 1)
+		# Stepped from the row in hand, which is the neighbour it is: asking the list to hand
+		# over its second child would be a search to reach what `next` already points at.
+		self.assertEqual(view.builds, 0)
+		self.assertIs(table._rows.get(2), view.item(2))
+		held = dict(table._rows)
+		source.blockAt(flowTableSource.BlockId(generation=0, bookmark=2, unit="row"))
+		self.assertEqual(table._rows, held)
+
+
+class TestTheHeaderReachingTheCodeThatReadsIt(unittest.TestCase):
+	"""The heading a cell carries has to arrive as the attribute a browse mode document puts on
+	a cell, because that is what everything above the seam reads. It did not, and nothing said
+	so.
+
+	`textInfos.FieldCommand` checks the type of what it is given: `"controlStart"` with
+	anything that is not a `ControlField` raises. The cells' fields were built out of a plain
+	dictionary, so the call raised every time in NVDA and never once in a test — the stand-in
+	took anything — and the caller reads a cell that cannot answer as a cell that declares
+	nothing. So **every object table silently declared no headers**: no header row was ever
+	pinned over one, and the paging command named the columns after the reader's first row and
+	then by number. The reader's own report had the cells showing their headings on the very
+	same line as "this table declares no headers".
+	"""
+
+	FILES = [
+		[("Name", "report.docx"), ("Date modified", "8/28/2026 9:41 AM")],
+		[("Name", "notes.md"), ("Date modified", "8/27/2026 4:02 PM")],
+	]
+
+	def cell(self, column=1):
+		view = FakeGrid(self.FILES)
+		table = flowObjectTable.tableFor(view.item(1))
+		return table.cellOf(view.item(1), column, 1)
+
+	def test_theHeadingArrivesAsTheAttributeTheRestOfTheAddOnReads(self):
+		self.assertEqual(flowTableSource.declaredHeader(self.cell()), "Name")
+		self.assertEqual(flowTableSource.declaredHeader(self.cell(2)), "Date modified")
+
+	def test_theFieldIsTheTypeNvdaDemands(self):
+		"""Asserted directly, because the way this failed was a raise that something else
+		caught: the header came back empty and every layer above read that as "no header"."""
+		import textInfos
+
+		fields = self.cell().getTextWithFields()
+		self.assertIsInstance(fields[0].field, textInfos.ControlField)
+
+	def test_soTheColumnsAreNamedByTheirHeadings(self):
+		view = FakeGrid(self.FILES)
+		handle = flowTableSource.tableAt(view.item(1))
+		self.assertEqual(
+			[found.label for found in flowTableSource.measure(handle)],
+			["Name", "Date modified"],
+		)
+
+	def test_andAHeaderRowCanBePinnedOverThem(self):
+		"""The other half of the same silence: a list view declares no header *row*, so the
+		headings its cells carry are the only ones it will ever have."""
+		view = FakeGrid(self.FILES)
+		handle = flowTableSource.tableAt(view.item(1))
+		source = flowTableSource.TableFlowSource(handle, (1, 2), pinHeaders=True)
+		pinned = source.headerBlock()
+		self.assertIsNotNone(pinned)
+		self.assertIn("Date modified", pinned.region.rawText)
+
+
+class TestAListWhoseChildrenAreNotAllRows(unittest.TestCase):
+	"""File Explorer's file list holds a pane, a horizontal scrollbar and the column header
+	before its first file; Outlook's message list holds a pane called "Vertical". Reaching for
+	the table's nth child as though it were the nth row therefore handed back a scrollbar for
+	row one, and every row fetched that way was three files late.
+
+	Stepping from the row in hand is what reaches a row of a virtualised list and is unchanged.
+	This is about the other route: the one call that a list which has built all its items can
+	answer.
+	"""
+
+	FILES = [[f"file{number}.py", "Available"] for number in range(1, 9)]
+	CLUTTER = (("", "PANE"), ("Horizontal", "SCROLLBAR"), ("Header", "HEADER"))
+
+	def explorer(self):
+		view = FakeGrid(self.FILES, decorations=self.CLUTTER)
+		return view, flowObjectTable.tableFor(view.item(1))
+
+	def test_theDecorationsAreCountedOut(self):
+		view, table = self.explorer()
+		self.assertEqual(table.rowsBeginAt(), len(self.CLUTTER))
+
+	def test_soARowFetchedByNumberIsThatRow(self):
+		"""A jump too far to step, which is the only time this route is taken."""
+		view, table = self.explorer()
+		table.focused = None
+		self.assertIs(table.rowObject(2), view.item(2))
+
+	def test_aListWithNoDecorationsIsUnchanged(self):
+		view = FakeGrid(self.FILES)
+		table = flowObjectTable.tableFor(view.item(1))
+		table.focused = None
+		self.assertEqual(table.rowsBeginAt(), 0)
+		self.assertIs(table.rowObject(3), view.item(3))
+
+	def test_aSmallFolderIsStillATable(self):
+		"""The decorations are children and are not rows, so counting them as rows made a
+		folder of two files admit to five — which is room for another whole group, and the
+		grouping test then took the whole feature away. A fault that only appears below a
+		threshold nobody chose."""
+		view = FakeGrid(self.FILES[:2], decorations=self.CLUTTER)
+		table = flowObjectTable.tableFor(view.item(1))
+		self.assertEqual(table.childrenAdmittedTo(), 2)
+		self.assertTrue(table.positionNumbersTheTable())
+		self.assertIsNotNone(flowTableSource.tableAt(view.item(1)))
+
+	def test_aChildThatIsNoRowIsNotReadAsOne(self):
+		"""The check that catches a list whose clutter is not all at the front."""
+		view, table = self.explorer()
+		self.assertFalse(table.looksLikeARow(view.decorations[1]))
+		self.assertTrue(table.looksLikeARow(view.item(1)))
 
 
 if __name__ == "__main__":
@@ -841,6 +960,60 @@ class TestAListArrangedInGroups(unittest.TestCase):
 		flat = flowObjectTable.tableFor(FakeGrid(self.ROWS, headers=["Name", "Rank"]).item(1))
 		self.assertIn("numbers the table", " ".join(flat.describe()))
 
+	def test_theReportSaysWhichSignSaidSo(self):
+		"""The verdict reaches the reader as "not in a table", said about a control that is
+		plainly one, so the numbers behind it are the whole of what a report has to carry."""
+		view, item = self.grouped()
+		grouped = flowObjectTable.CellObjectTable(view, row=item)
+		self.assertIn("another whole group", grouped.whyItNumbersAGroup())
+		self.assertIn("another whole group", " ".join(grouped.describe()))
+		self.assertIn("at level 2", self.branch().whyItNumbersAGroup())
+
+	def branch(self):
+		""":return: a table whose row says it is one of a branch rather than of the table."""
+		view, item = self.grouped(among=4, level=2)
+		return flowObjectTable.CellObjectTable(view, row=item)
+
+
+class TestAListThatCountsSomethingElse(unittest.TestCase):
+	"""A control that admits to a few more rows than the row says its group holds is not a
+	grouped list. It is a control whose counts disagree with each other, which is the ordinary
+	condition of the counts here: File Explorer's file list answers `rowCount` fourteen,
+	`childCount` seventeen and "one of seventy-nine" about the same list at the same moment.
+
+	Reported from hardware. Read as grouping, one such row took the whole feature away in
+	Details view: the column command said "not in a table" while every cell of that table read
+	perfectly, and the reader had no way to see which of the four steps had refused them.
+	"""
+
+	ROWS = [[f"file{number}.py", "Available"] for number in range(1, 11)]
+
+	def listCounting(self, says):
+		""":return: a ten row file list whose own `rowCount` says something else."""
+		view = FakeGrid(self.ROWS, headers=["Name", "Status"])
+		view.rowCountSays = says
+		return view
+
+	def test_oneRowMoreIsStillATable(self):
+		view = self.listCounting(len(self.ROWS) + 1)
+		table = flowObjectTable.tableFor(view.item(3))
+		self.assertTrue(table.positionNumbersTheTable())
+		self.assertIsNotNone(flowTableSource.tableAt(view.item(3)))
+
+	def test_andIsMeasuredByWhatTheRowSays(self):
+		"""The row's own count, which is the answer this module trusts first."""
+		view = self.listCounting(len(self.ROWS) + 1)
+		table = flowObjectTable.tableFor(view.item(3))
+		self.assertEqual(table.numRows, len(self.ROWS))
+
+	def test_roomForAnotherWholeGroupIsStillGrouping(self):
+		"""What the test is for has not been given away. Twice the group is a table with a
+		second group in it, which is what a grouped list looks like."""
+		view = self.listCounting(len(self.ROWS) * 2)
+		table = flowObjectTable.tableFor(view.item(3))
+		self.assertFalse(table.positionNumbersTheTable())
+		self.assertIsNone(flowTableSource.tableAt(view.item(3)))
+
 
 class TestGoingToACellNobodyCanFocus(unittest.TestCase):
 	"""Outlook's message list. `RowWithFakeNavigation` keeps the focus on the row and moves
@@ -993,3 +1166,214 @@ class TestReadingAListViewThroughItsOwnCells(unittest.TestCase):
 		table = flowObjectTable.tableFor(item)
 		self.assertEqual(table.cellOf(item, 1, 1).text, "Travis Roth")
 		self.assertEqual(table.cellOf(item, 1, 1).header, "From")
+
+
+class TestSayingWhyThereIsNoTable(unittest.TestCase):
+	"""One sentence — "not in a table" — is what the reader hears for four different answers:
+	refused as a row, refused as a cell, recognised and unable to say which row of what this
+	is, or recognised and dropped further up. Each is a different bug, and until this none of
+	them was written down anywhere.
+	"""
+
+	def test_aTableSaysWhereTheCursorIsInIt(self):
+		view = FakeGrid([["a", "one"], ["b", "two"]], headers=["Name", "Rank"])
+		said = " ".join(flowTableSource.explain(view.item(2)))
+		self.assertIn("the cursor is in row 2", said)
+		self.assertIn("numbers the table", said)
+
+	def test_aRefusedRowSaysWhichQuestionRefusedIt(self):
+		"""The numbers as well as the verdict, because the verdict is the thing that is
+		already known: the reader pressed the command and was told no."""
+		view = FakeGrid([[f"file{number}.py", "Available"] for number in range(1, 11)])
+		view.rowCountSays = 40
+		said = " ".join(flowTableSource.explain(view.item(3)))
+		self.assertIn("the cursor is not in a cell of it", said)
+		self.assertIn("numbers a group of it", said)
+		self.assertIn("another whole group", said)
+
+	def test_somethingThatIsNoTableAtAllSaysSo(self):
+		"""And says what was asked of it, since "not a table" about an ordinary list item is
+		the right answer and the report has to show that it is."""
+		plain = FakeNavigatorObject(name="a button", role="BUTTON")
+		said = " ".join(flowTableSource.explain(plain))
+		self.assertIn("nothing here navigates a table", said)
+		self.assertIn("a row that answers for its own cells: no", said)
+		self.assertIn("nothing this module can present as a table", said)
+
+	def test_nothingAtAllIsReportedRatherThanRaised(self):
+		self.assertIn("none", " ".join(flowTableSource.explain(None)))
+
+
+class TestAMessageListThatCallsItselfATable(unittest.TestCase):
+	"""Outlook's inbox, in the shape the reader's log described.
+
+	A pane holding a table called "Table View", holding the message rows, each holding its
+	fields. Every row carries `GridItemPattern` — that is what made recognising the file list
+	possible at all — and every row of a grid is in column one. So by the cell properties
+	alone a row read as a cell of the message list, the message list read as a row of cells of
+	the pane, and the answer was a table whose single row was the whole inbox and whose cells
+	were its messages. Nothing in that shape can say which row the reader is on, so the
+	command told them they were not in a table while they stood in the one they had asked
+	about.
+
+	Two things settle it, and either alone would have: the list says it is a table, and a
+	table is not a row of anything; and cells of one row are in different columns of it, while
+	those "cells" all claimed column one.
+	"""
+
+	def inbox(self, columnCount=3, rowColumn=1):
+		""":return: the message list and the row the focus is on."""
+		view = FakeGrid(MESSAGES, headers=HEADERS, name="Table View", columnCount=columnCount)
+		view.role = "TABLE"
+		view.parent = FakeNavigatorObject(name="Inbox - Outlook", role="PANE")
+		for row in view.items:
+			# What `outlook.UIAGridRow` carries: the row is the grid item, and its children
+			# are text elements that carry nothing at all.
+			row.columnNumber = rowColumn
+			for cell in row.cellObjects:
+				cell.columnNumber = None
+		return view, view.item(2)
+
+	def test_theTableIsTheMessageListAndTheRowIsTheMessage(self):
+		view, row = self.inbox()
+		table = flowObjectTable.tableFor(row)
+		self.assertIs(table.table, view)
+		self.assertIs(table.focused, row)
+
+	def test_andTheReaderIsInIt(self):
+		"""Which is the whole report: the command answered "not in a table" here."""
+		view, row = self.inbox()
+		handle = flowTableSource.tableAt(row)
+		self.assertIsNotNone(handle)
+		self.assertEqual((handle.numRows, handle.row), (len(MESSAGES), 2))
+
+	def test_theCellsAreTheMessagesFields(self):
+		view, row = self.inbox()
+		table = flowObjectTable.tableFor(row)
+		self.assertEqual(table.cellOf(row, 2, 2).text, MESSAGES[1][1])
+
+	def test_aThingThatSaysItHoldsRowsIsNeverTheRow(self):
+		view, _row = self.inbox()
+		self.assertTrue(flowObjectTable.isAContainerOfRows(view))
+		self.assertEqual(flowObjectTable.cellsOfARow(view), [])
+		self.assertIsNone(flowTableSource.tableAt(view))
+
+	def test_norIsOneWhoseChildrenAllClaimTheSameColumn(self):
+		"""The second answer, and it holds where the role is one this has never heard of."""
+		view, _row = self.inbox()
+		view.role = "somethingNobodyHasHeardOf"
+		self.assertEqual(flowObjectTable.cellsOfARow(view), [])
+
+	def test_aGridThatWillNotSayHowWideItIsIsStillRead(self):
+		"""The third way of being sure. The row's children carry nothing and the list answers
+		no `columnCount`, so all that is left is the row's own word — which is that it holds a
+		place in a grid, said by the pattern this module recognises tables through, and the
+		thing above it saying it holds rows."""
+		view, row = self.inbox(columnCount=None)
+		table = flowObjectTable.tableFor(row)
+		self.assertIs(table.table, view)
+		self.assertEqual(table.cellOf(row, 1, 2).text, MESSAGES[1][0])
+
+	def test_butACellOfAFileListIsNotARowByThatSign(self):
+		"""It claims a grid place too. What it is in is one file rather than the list, and
+		that is what keeps the two apart."""
+		explorer = FakeGrid(MESSAGES, headers=HEADERS)
+		cell = explorer.item(1).cellObjects[0]
+		cell.firstChild = None
+		self.assertFalse(flowObjectTable._holdsAPlaceInAGrid(cell))
+
+	def test_theReportSaysWhichReadingWasTaken(self):
+		view, row = self.inbox()
+		said = " ".join(flowTableSource.explain(row))
+		self.assertIn("a container of rows: yes", said)
+		self.assertIn("Table View", said)
+
+
+class TestNotReadingAWholeListToFindARow(unittest.TestCase):
+	"""The question "is this object a row" is asked of whatever the reader is standing on, and
+	the answer used to be read out of every child it had. On a message list that is every
+	message NVDA has built, one call into the application each, on the path between a key
+	press and what the display says — and NVDA's watchdog calls half a second a freeze.
+
+	A row of a table has columns, not hundreds of them.
+	"""
+
+	def test_aListTooLongToBeARowIsNotOne(self):
+		many = FakeGrid([[f"m{number}", "seen"] for number in range(flowObjectTable.MAX_ROW_CELLS + 5)])
+		many.role = "somethingNobodyHasHeardOf"
+		self.assertEqual(flowObjectTable.cellsOfARow(many), [])
+
+	def test_andIsNotEvenBuiltToFindOut(self):
+		"""`childCount` is answered without building a child, so the walk never happens."""
+		many = FakeGrid([[f"m{number}", "seen"] for number in range(flowObjectTable.MAX_ROW_CELLS + 5)])
+		many.role = "somethingNobodyHasHeardOf"
+		flowObjectTable.cellsOfARow(many)
+		self.assertEqual(many.walks, 0)
+
+	def test_aRowOfOrdinaryWidthIsStillARow(self):
+		view = FakeGrid(MESSAGES, headers=HEADERS, columnCount=3)
+		self.assertEqual(len(flowObjectTable.cellsOfARow(view.item(1))), 3)
+
+
+class TestAskingMoreThanOneCellForAHeader(unittest.TestCase):
+	"""A declared header belongs to the column, so any cell of it answers — but only if the
+	cell that was asked is one that answers at all. The first row read is not always a good
+	witness: a row of a virtualised list may be half built, and a row of a document may hold a
+	merged cell where its neighbours hold real ones. Asked once, such a cell was the whole of
+	what the column had said, and the column then had no name.
+
+	The names matter because they are what the paging command reads out: a column with no name
+	is announced by its number, and the reader hears "six, seven" instead of "From, Subject".
+	"""
+
+	FILES = [
+		[("Name", "report.docx"), ("Date modified", "8/28/2026 9:41 AM")],
+		[("Name", "notes.md"), ("Date modified", "8/27/2026 4:02 PM")],
+		[("Name", "budget.xlsx"), ("Date modified", "8/26/2026 8:15 AM")],
+	]
+
+	def explorer(self, silentRows=()):
+		"""File Explorer's Details view, as its developer info describes it: each cell's name
+		is the column's heading and its value is the content.
+
+		:param silentRows: rows whose cells answer nothing about their names, which is what a
+			row that has not finished being built looks like from here.
+		"""
+		view = FakeGrid(self.FILES)
+		for number in silentRows:
+			for cell in view.item(number).cellObjects:
+				cell.name = ""
+		return view
+
+	def labels(self, view):
+		handle = flowTableSource.tableAt(view.item(1))
+		return [found.label for found in flowTableSource.measure(handle)]
+
+	def test_theHeadingIsTheCellsOwnName(self):
+		"""Which is what NVDA speaks when the reader arrows across the columns: it speaks the
+		cell, and the cell is named after its column."""
+		self.assertEqual(self.labels(self.explorer()), ["Name", "Date modified"])
+
+	def test_aRowThatAnswersNothingDoesNotSpeakForTheColumn(self):
+		self.assertEqual(self.labels(self.explorer(silentRows=(1,))), ["Name", "Date modified"])
+
+	def test_norDoTwoOfThem(self):
+		self.assertEqual(self.labels(self.explorer(silentRows=(1, 2))), ["Name", "Date modified"])
+
+	def test_aTableThatDeclaresNothingIsNotAskedForever(self):
+		"""The bound is what keeps a table that declares nothing from paying a read of the
+		fields on every cell of the sample."""
+		view = FakeGrid([["a", "b"], ["c", "d"], ["e", "f"], ["g", "h"]])
+		asked = []
+		real = flowTableSource.declaredHeader
+
+		def counted(info, axis="column"):
+			asked.append(info)
+			return real(info, axis)
+
+		flowTableSource.declaredHeader = counted
+		try:
+			self.assertEqual(self.labels(view), ["", ""])
+		finally:
+			flowTableSource.declaredHeader = real
+		self.assertEqual(len(asked), flowTableSource.HEADER_TRIES * 2)

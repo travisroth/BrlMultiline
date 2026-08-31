@@ -1372,17 +1372,185 @@ Two things say the group is not the table, and either is enough to refuse:
 
 - **A level below the first.** NVDA reports a level for controls with a structure and for no
   others, so a row at level two is a row of a branch.
-- **A table admitting to more children than the group holds.** A group inside a table is
-  smaller than the table. The test is one sided on purpose: a virtualised list admits to
-  *fewer* children than it holds — File Explorer's answered fourteen while the reader stood on
-  item fifty-two of seventy-nine — and that is the case this whole module was built for.
-  **Fewer is a list that has not been built; more is a list that has been grouped.**
+- **A table admitting to room for another whole group.** A grouped table holds more than one
+  group, so what says a count is a group's is the table admitting to at least *twice* it. The
+  test is one sided on purpose: a virtualised list admits to *fewer* children than it holds —
+  File Explorer's answered fourteen while the reader stood on item fifty-two of seventy-nine —
+  and that is the case this whole module was built for. **Fewer is a list that has not been
+  built.**
 
 Refusing means there is no row number, which is `tableAt` saying the reader is not in a table,
 which leaves them NVDA's ordinary reading of the control. That is the right outcome: an honest
 "no" beats a layout drawn confidently from numbers that mean something else. The report says
 which of the two it read, because nothing else in it distinguishes them — both answer a row
 number and both answer a count.
+
+**Twice, and not one more, and the reader's report is why.** The first cut of the second sign
+refused on any excess at all, and that reads a disagreement between two counts as evidence of
+a shape. It is the wrong reading in this module above all others, since this module exists
+*because* those counts disagree: the same file list answers `rowCount` fourteen, `childCount`
+seventeen and "one of seventy-nine" at the same moment. One row of excess took the whole
+feature away in File Explorer's Details view — the column command answered "not in a table"
+about a table whose every cell the same code read perfectly. Grouping is a shape, and a shape
+has to show as one.
+
+### A grid's rows carry the same properties its cells do
+
+The Outlook half of the same report, and a worse fault than the count one. Every row of a UIA
+grid carries `GridItemPattern` — that is what made File Explorer's Details view recognisable at
+all — and every row of a grid is in column one. So by the cell properties alone:
+
+- the message row said which column it was in, so it read as a **cell** of the list above it;
+- the list, whose children all said which column *they* were in, read as a **row of cells**;
+- and the pane above that became the **table**.
+
+The reader's log caught it in the act: a `CellObjectTable` 17 by 15 over a `PANE` named "Inbox
+- …", whose row in hand was a `TABLE` named "Table View" and whose first cell was a whole
+message. Nothing in that shape can say which row the reader is on, so `tableAt` raised and the
+command said "not in a table" about the table they were standing in and had just asked about.
+
+Three things answer it, and each alone would have:
+
+- **A thing that says it holds rows is never the row.** `CONTAINER_ROLES` — table, list,
+  grouping, pane, window and their kin, matched by NVDA's own role name. One property read.
+- **Cells of a row are in different columns of it.** Children that all name the same column are
+  naming their container's column, and that makes them rows.
+- **A row of a grid that will not say how wide it is still holds a place in one.** The third
+  way of being sure, for the case where the row's children carry nothing and the list answers
+  no `columnCount`: the row's own grid place, plus the thing above it saying it holds rows. A
+  Details view *cell* claims a grid place too, and what it is in is one file rather than the
+  list, so the two cannot be confused.
+
+**And the walk that asked is bounded.** "Is this object a row" was answered by reading every
+child it had, and the object it was asked about turned out to be a message list — one call into
+the application per message, between a key press and what the display says, where NVDA's
+watchdog calls half a second a freeze. A row of a table has columns, not hundreds of them:
+`MAX_ROW_CELLS`, checked against `childCount` first so that a container that will say how many
+it holds is never built to find out.
+
+### A list has no header row, and its columns are not named after its first file
+
+Two halves of the same mistake, reported from the same session as the Outlook one.
+
+`TableFlowSource` asks whether row one may be read as headings before pinning it, and so never
+pinned a file over a file list. `measure` did not ask at all: with nothing declared it took row
+one's *text* as each column's label. Nothing on the display showed it, because the label is not
+drawn — it is what the paging command reads out. So turning the page in File Explorer's Details
+view answered with the reader's own first row, "report.docx, Yesterday 4:32 PM", as the names
+of the columns those values sit in. One reader for the question now, `firstRowIsHeadings`, and
+both callers ask it.
+
+What is left where a table declares no headings is the column's number, and a bare number is
+not an answer either: paging Outlook's inbox said "six, seven". A column with no heading is now
+named as a column — "column 6" — which is a place in a table rather than a number with nothing
+attached to it.
+
+**Where the heading comes from is NVDA's answer, and the developer info settled it.** A cell of
+File Explorer's Details view is `appModules.explorer.UIProperty`, and its developer info reads
+`name: 'Date modified'`, `value: '8/28/2026 9:41 AM'`. The name *is* the column heading. That is
+also how NVDA itself reports one: `RowWithFakeNavigation._moveToColumn` calls
+`speech.speakObject(cell)`, and what that speaks is the cell's name and its value. So the answer
+was never a header control to go hunting for — it is the object, and `headerTextOf` already
+prefers exactly this, with NVDA's `columnHeaderText` (the `TableItemPattern` header items) behind
+it.
+
+**And what threw the answer away was a type check.** `textInfos.FieldCommand` validates what it
+is given — `"controlStart"` with anything that is not a `ControlField` raises `ValueError` — and
+`ObjectCellInfo.getTextWithFields` built its field out of a plain dictionary. So the call raised
+on every cell of every object table in NVDA, `declaredHeader` caught it, wrote a debug line, and
+returned "" — which every layer above reads as "this column declares no header". No header row
+was ever pinned over a list view, and the paging command named the columns after the reader's
+first row and then by number. The reader's report showed both halves on the same page: every
+cell listed with its heading, and two lines below, "this table declares no headers".
+
+It survived because **the stand-in was more forgiving than the thing it stands in for**. The
+test double took any dictionary, so the suite was green about a call that could not succeed
+once. It now refuses exactly what NVDA's refuses, and reverting the fix fails ten tests.
+
+What was also wrong was **asking once**. A declared header belongs to the column, so any cell of it
+answers — but only a cell that answers at all, and the first row read is not always a good
+witness: a row of a virtualised list may be half built, and a document's row may hold a merged
+cell where its neighbours hold real ones. One such cell was the whole of what a column had ever
+said. `HEADER_TRIES` cells are asked now, stopping at the first that answers, which for a table
+that declares anything is the first cell and costs exactly what asking once cost.
+
+### The children of a list are not all rows
+
+The same report, one line further down: "inside the table, first few: PANE; SCROLLBAR; HEADER;
+LISTITEM…". File Explorer's file list holds a pane, a horizontal scrollbar and the column header
+before its first file, and Outlook's message list holds a pane called "Vertical". Two things
+were counting them as rows.
+
+`rowObject` reached for `getChild(row - 1)` when a row was too far to step to, so row one was a
+scrollbar and every row fetched that way was three files late. The offset is counted once now,
+by stepping over the front of the list until something that looks like a row turns up — where
+"looks like a row" is the role of the row already in hand, so it cannot disagree with `tableFor`
+about what a row of this table is.
+
+`childrenAdmittedTo` compared `childCount` against the group size, and three decorations made a
+folder of two files admit to five — room for another whole group, so the grouping test refused
+it and the whole feature disappeared in a small folder while working in a large one. Nobody
+chose that threshold. The decorations are taken off the count now.
+
+### An object is read while the reader is on it, and not again afterwards
+
+Reported from hardware, in Outlook's inbox read as a run of objects: arrowing onto an unread
+message put "unread" on the message above it too, which was read and not flagged. Both rows
+claimed the flag and nothing said which of them owned it.
+
+The rows had been read correctly. What happened afterwards was the live pass reading them
+again. A run of objects learnt to answer `blockAt` so that a pinned list could keep up, and
+`FlowBand._canReadAgain` admits any source that answers it — so every visible row was re-read
+on the poll. And `appModules.outlook.UIAGridRow._get_name` builds a row's name from
+`activeExplorer().selection`: the unread flag, the attachment flag and the importance belong to
+whatever is *selected*, not to the row being named. Asked about a row the reader has left, it
+answers about the row they moved to.
+
+**An object's text is not always a property of the object.** Every block was read while its
+object was the one in hand, which is the moment its application answers about it; re-reading it
+later can only ask out of context, and where the answer is context-free the block comes back
+identical anyway. So `ObjectFlowSource.blockAt` now answers for the current object only, and a
+block it will not vouch for is kept as it was — which `FlowController._rereadBlocks` already
+did for the document case, for its own reasons. The pass still keeps the row under the cursor
+fresh, which is a status line and the tail of a chat; what it gives up is noticing an edit to a
+row the reader is not on. New content is a different path and is unaffected: a message arriving
+in a chat is a new block past the end, not a re-read of an old one.
+
+### A message about the display must not be written to the display
+
+`ui.message` speaks *and* brailles, and for a message about what the display is showing that is
+the worst of both. The reader turns to the next page of columns; the display flashes the
+sentence describing the page; the page itself — the thing they pressed the key to feel —
+arrives when the flash times out. The words are a description of what their hands were already
+on, and they are in the way of it.
+
+So `GlobalPlugin.reportAboutTheDisplay` speaks and does not braille, and the messages that
+describe a layout go through it: the columns turned on, turned off, the page turned, and the
+end of the pages. In browse mode as much as in a list view — the flash is not less unwelcome
+over a web page's table.
+
+The refusals keep `ui.message`. "Not in a table" and "no table columns are showing" are about
+something the display is *not* showing, and for a reader who is not listening the flash is the
+whole message.
+
+### The four ways of saying no were one sentence
+
+The same report showed a second fault, and it is the reason the first one took a reading of the
+source to find rather than a line of the log. "Not in a table" is said for a control that is
+not a table, for a table whose row number could not be worked out, for a table no column layout
+fits, and for a table whose first row could not be read. They are four different faults in four
+different places and the reader was given one sentence for all of them, with nothing written
+anywhere.
+
+So: `flowTableSource.explain` asks the three questions again, one at a time, with nothing
+swallowed, and adds `ObjectTable.describe` where a stand-in is what answered — which carries
+the numbers that decided the group question and now names the sign that settled it.
+`FlowBand.layOutTable` keeps `buildTableController`'s own notes, which name the step that
+stopped a build and which nothing outside the dry run had ever read. Both go to the log at
+`info`, because the reader who hits this is standing in front of hardware and asking them to
+turn on debug logging and do it again is asking them to reproduce what they have reproduced
+already. And the command now tells a table it could not lay out apart from a control that is
+not a table, since those send the reader to look in two different places.
 
 ### A stand-in is not the object, and NVDA's own cell is not private
 

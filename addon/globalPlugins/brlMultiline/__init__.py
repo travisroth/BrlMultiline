@@ -1071,7 +1071,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		:param obj: the object the reader is on.
 		:return: whether they were in a table.
 		"""
-		from .flowTableSource import tableAt
+		from .flowTableSource import logExplanation, tableAt
 
 		try:
 			handle = tableAt(obj)
@@ -1079,9 +1079,39 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			log.debugWarning("Could not look for a table to lay out", exc_info=True)
 			return False
 		if handle is None:
+			# The same account the band writes when it refuses, because this is the same
+			# refusal reaching the reader through the display that has no band.
+			logExplanation(obj, "asked for a table in columns and found none")
 			return False
 		self.tableWanted = handle.key
 		return True
+
+	def reportAboutTheDisplay(self, text: str) -> None:
+		"""Say something about what the display is showing, without writing it there.
+
+		**`ui.message` writes to the display as well as speaking**, and a message written to
+		the display sits on top of what is there until it times out. For a message *about*
+		what is on the display that is the worst of both: the reader turns to the next page
+		of columns, the display flashes the sentence describing the page, and the page itself
+		— which is the thing they pressed the key to feel — arrives when the flash expires.
+		The words are a description of what their hands were already on.
+
+		So the speech half only, which is what `ui.message` does with the other half of
+		itself. The display keeps showing the table, and it is showing the answer.
+
+		This is for messages the display is already answering. A message about something the
+		display cannot show — that there is no table here, that nothing is laid out — keeps
+		`ui.message`, because for a reader who is not listening the flash *is* the message.
+
+		:param text: what to say.
+		"""
+		try:
+			import speech
+
+			speech.speakMessage(text)
+		except Exception:
+			log.debugWarning("Could not speak a message about the display", exc_info=True)
+			ui.message(text)
 
 	def layOutPinnedTables(self, wanted: bool, obj) -> int:
 		"""Show or stop showing the pins on one table in columns.
@@ -1820,7 +1850,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				self.tableWanted = None
 			self.layOutPinnedTables(False, target)
 			# Translators: reported when a table stops being laid out in columns.
-			ui.message(_("Table columns off"))
+			self.reportAboutTheDisplay(_("Table columns off"))
 			return
 		# A band with no flow on it is not a reason to refuse: a table in a document whose kind
 		# of content the flow settings have turned off is still a table the reader can ask for
@@ -1842,6 +1872,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			)
 			return
 		if not band.layOutTable():
+			from .flowBand import NO_LAYOUT
+
+			if band.tableProblem == NO_LAYOUT:
+				ui.message(
+					# Translators: reported when the cursor is in a table but it could not be
+					# shown in columns. The NVDA log says which step it was.
+					_("This table could not be laid out in columns; the NVDA log says why"),
+				)
+				return
 			# Translators: reported when a command needs the cursor to be in a table.
 			ui.message(_("Not in a table"))
 			return
@@ -1850,7 +1889,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		plan = getattr(getattr(control, "renderer", None), "columnPlan", None)
 		if plan is None:
 			# Translators: reported when a table is laid out in columns.
-			ui.message(_("Table columns on"))
+			self.reportAboutTheDisplay(_("Table columns on"))
 			return
 		# What it cost is said, not only that it worked. A column narrower than its content
 		# cuts every one of its cells at the same place, which is what makes the shape down
@@ -1883,7 +1922,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				# and how many pages there are.
 				_("page {page} of {pages}").format(page=plan.page + 1, pages=plan.numPages),
 			)
-		ui.message(", ".join(said))
+		self.reportAboutTheDisplay(", ".join(said))
 
 	@script(
 		# Translators: input help message for a command.
@@ -1985,15 +2024,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("The whole table is showing"))
 			return
 		if not band.turnColumnPage(by):
-			ui.message(
+			self.reportAboutTheDisplay(
 				# Translators: reported when a command would move past the first or last
 				# columns of a table. The placeholder is which page of columns is showing.
 				_("Page {page}, no further").format(page=plan.page + 1),
 			)
 			return
 		now = band.columnPlan()
-		labels = ", ".join(place.column.label or str(place.column.index) for place in now.placements())
-		ui.message(
+		labels = ", ".join(_columnName(place.column) for place in now.placements())
+		self.reportAboutTheDisplay(
 			# Translators: reported after moving across a table's columns. Placeholders are,
 			# in order, which page of columns is now showing, how many there are, and the
 			# names of the columns on it.
@@ -2120,6 +2159,23 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				focus=container.focusSegmentNumber,
 			),
 		)
+
+
+def _columnName(column) -> str:
+	""":return: what to call one column of a table when saying which ones are showing.
+
+	Its heading, where the table has one to give. Where it has none the number, said as a
+	number *of* something: a message list declares no headings and has no header row to
+	borrow them from, so the reader turning to the next page of one heard "six, seven" —
+	numbers with nothing attached to them, which is a worse answer than the column count.
+
+	:param column: the column, as the layout planned it.
+	"""
+	if column.label:
+		return column.label
+	# Translators: how a column with no heading of its own is named when a table's columns
+	# are reported. The placeholder is which column of the table it is.
+	return _("column {index}").format(index=column.index)
 
 
 def _displayName(displayOrdinal: int) -> str:

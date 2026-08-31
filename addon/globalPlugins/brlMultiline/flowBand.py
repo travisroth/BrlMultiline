@@ -116,6 +116,17 @@ if TYPE_CHECKING:
 BAND_NAME = "flow"
 """The panel's name, and so the key of its single segment."""
 
+NO_TABLE = "none"
+"""The reader is not in a table this can lay out. See `FlowBand.layOutTable`."""
+
+NO_LAYOUT = "layout"
+"""They are in one, and it did not come out as columns.
+
+A different thing to be told and, until it had a name, the same sentence: a table recognised
+and then dropped somewhere further down said "not in a table", which sends the reader to look
+at whether the control is a table at all — the one part that had worked.
+"""
+
 _generations = itertools.count(1)
 """Numbers each reading of a document, so that two documents cannot share a block identity.
 
@@ -172,6 +183,14 @@ class FlowBand(PanelOwner):
 		"""Changes heard, passes run, passes that redrew. For the dry run, and it earns its
 		place: whether the event reaches us at all is the one thing about this that cannot be
 		felt, and a reader whose prices sit still needs to know which half is not working."""
+
+		self.tableProblem: Optional[str] = None
+		"""Why the last request for columns came to nothing, for the command to report.
+
+		`NO_TABLE` or `NO_LAYOUT`, and None when the last one worked. See `layOutTable`."""
+
+		self.tableNotes: list = []
+		"""What `buildTableController` said as it worked, kept for the report on a failure."""
 
 		"""The table the reader has asked to see in columns lives on the plugin.
 
@@ -868,14 +887,59 @@ class FlowBand(PanelOwner):
 	def layOutTable(self) -> bool:
 		"""Read the table the reader is in as columns, if they are in one.
 
+		Which of the two ways this can fail is left in `tableProblem`, because they are
+		different things to be told and were one sentence. Standing in File Explorer's
+		Details view and hearing "not in a table" says the recognition failed; hearing it
+		when the table *was* recognised and the layout was the thing that would not come out
+		sends the reader looking in the wrong place, and it is what they were told.
+
 		:return: whether there was a table to lay out.
 		"""
-		handle = flowTableSource.tableAt(self._target())
+		obj = self._target()
+		handle = flowTableSource.tableAt(obj)
 		if handle is None:
+			self.tableProblem = NO_TABLE
+			flowTableSource.logExplanation(obj, "asked for a table in columns and found none")
 			return False
 		self.tableWanted = handle.key
+		self.tableNotes = []
 		self.refresh(force=True)
-		return self.controller is not None and self._readingATable()
+		if self.controller is not None and self._readingATable():
+			self.tableProblem = None
+			return True
+		self.tableProblem = NO_LAYOUT
+		self._reportNoLayout(obj, handle)
+		return False
+
+	def _reportNoLayout(self, obj: Any, handle) -> None:
+		"""Write down why a table that was recognised did not come out as columns.
+
+		The notes are `buildTableController`'s own, which name the step that stopped it — no
+		column layout fits this band, the first row could not be read — and until now nothing
+		read them outside the dry run. The reader who is refused is the one person who needs
+		them.
+
+		Contained, because it runs between the reader's key press and what the command says
+		back: a report that raised would take the answer with it, and the answer is the part
+		they are waiting for.
+
+		:param obj: the object they are on.
+		:param handle: the table that was recognised.
+		"""
+		try:
+			notes = self.tableNotes or ["The band never asked for a layout."]
+			log.info(
+				"\n".join(
+					[
+						f"BrlMultiline: {handle!r} was recognised and could not be laid out"
+						" in columns.",
+						*(f"  {note}" for note in notes),
+						*flowTableSource.explain(obj),
+					],
+				),
+			)
+		except Exception:
+			log.debugWarning("Could not say why a table was not laid out", exc_info=True)
 
 	@property
 	def tableWanted(self) -> Any:
@@ -1149,6 +1213,10 @@ class FlowBand(PanelOwner):
 			segment.refresh()
 			return True
 		numRows, numCols = self._bandSize(segment)
+		# Kept rather than discarded, because the step that stopped a build is the whole of
+		# what the reader needs when they are told the columns did not happen. See
+		# `_reportNoLayout`.
+		self.tableNotes = []
 		control = buildTableController(
 			obj=obj,
 			numRows=numRows,
@@ -1156,6 +1224,7 @@ class FlowBand(PanelOwner):
 			handler=self._handler(),
 			live=True,
 			generation=next(_generations),
+			notes=self.tableNotes,
 		)
 		if control is None:
 			# Recognised a moment ago and not now, or no column layout fits this band. Reading

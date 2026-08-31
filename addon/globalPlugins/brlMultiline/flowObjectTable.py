@@ -62,6 +62,62 @@ other end of a mailbox walks it item by item. Past this the table is asked to ha
 over by number instead, which works for a list that has built all its items.
 """
 
+MAX_DECORATIONS = 8
+"""How many children at the front of a list are looked at before its rows are assumed to start.
+
+The panes, scrollbars and header a list holds before its first row — three in File Explorer's
+Details view, one in Outlook's message list. Looked at once per table and never again, and
+kept small because what is being looked for is at the front by definition: a list whose first
+eight children are all decoration is a list this cannot count rows off by index anyway.
+"""
+
+MAX_ROW_CELLS = 64
+"""The most children an object can have and still be read as one row of a table.
+
+Far more columns than any list view shows and far fewer than a list holds. It is a bound on
+a call into the application rather than a judgement about tables: what is being asked is
+whether an object is a row, the object may turn out to be the whole list, and reading every
+child of a message list to find that out is how a keypress becomes a freeze.
+"""
+
+CONTAINER_ROLES = frozenset(
+	{
+		"TABLE",
+		"TABLEBODY",
+		"DATAGRID",
+		"LIST",
+		"LISTBOX",
+		"TREEVIEW",
+		"GROUPING",
+		"PANE",
+		"WINDOW",
+		"FRAME",
+		"DOCUMENT",
+		"DIALOG",
+		"PROPERTYPAGE",
+		"APPLICATION",
+	},
+)
+"""Roles that hold rows rather than being one.
+
+NVDA's own answer to "what is this", used for the one question the properties could not
+settle: Outlook's message list carries the same table cell properties its rows do, so by
+those alone it looked like a row of the pane above it. It calls itself a table, and a table
+is not a row of anything. See `tableFor`.
+
+By name rather than by importing `controlTypes`, so that nothing here depends on the numbers
+NVDA gives its roles, and so a role this add-on has never heard of is simply not one of these.
+"""
+
+GROUPS_TO_BE_GROUPED = 2
+"""How many groups a table must have room for before its counts are read as a group's.
+
+Two, because one group is the whole table and there is nothing to be wrong about. A table
+admitting to at least twice what the row says its group holds is a table with another group
+in it; a table admitting to a few more rows than that is a control whose counts disagree with
+each other, which every control here does. See `ObjectTable.whyItNumbersAGroup`.
+"""
+
 MIN_COLUMNS = 2
 """How many columns a list needs before it is worth laying out as a table.
 
@@ -120,10 +176,11 @@ def cellsRow(obj) -> Optional[Any]:
 def cellsOfARow(obj) -> list:
 	""":return: the cell objects of a row, or an empty list if this object is not such a row.
 
-	Two ways to be sure, and a row needs one of them. **Its children say which column they are
-	in**, which is `GridItemPattern` for UIA and the table cell interface for IAccessible2.
+	Three ways to be sure, and a row needs one of them. **Its children say which column they
+	are in**, which is `GridItemPattern` for UIA and the table cell interface for IAccessible2.
 	Or **the table it is in says how many columns it has**, and the row has that many children
-	to fill them.
+	to fill them. Or **it says it is in a grid, and the thing it is in says it holds rows** —
+	then its children are its fields, whatever they do or do not answer about themselves.
 
 	The second was added for Outlook's message list. Its rows are `outlook.UIAGridRow` — a
 	`RowWithFakeNavigation`, whose contract says outright that "the cells must be exposed as
@@ -134,21 +191,117 @@ def cellsOfARow(obj) -> list:
 	Counting rather than trusting the first child either way: a tree view item has children
 	too, and they are items rather than cells.
 
+	**The columns have to be different columns**, which is the reader's Outlook report. Every
+	row of a grid carries `GridItemPattern` and every one of them is in column one, so a
+	container of rows answered this exactly as a row of cells does: several children, all of
+	them numbered. The message list was then read as one row, its rows as that row's cells,
+	and the pane above it as the table — a shape in which nothing can say which row the reader
+	is on, so the command said they were not in a table while standing in the one they meant.
+	Cells of a row are in different columns of it. Children that all name the same column are
+	naming their container's column, and that makes them rows.
+
+	**The third way is what is left when a grid will not say how wide it is**, and it is the
+	same report: a message row whose children carry nothing, in a list that answers no
+	`columnCount`, has only its own word for it — and its own word is that it holds a place in
+	a grid, said by the pattern this whole module recognises tables through. What it is in
+	says the rest: a table holds rows, so a thing in a table that has children has fields.
+	Tight on purpose. A cell of File Explorer's Details view claims a grid place too, and the
+	thing above *it* is one file rather than the list, so this cannot mistake a cell for a row.
+
 	:param obj: the object the reader is on.
 	"""
 	if obj is None:
 		return []
+	children = _childrenOf(obj)
+	if len(children) < MIN_COLUMNS:
+		return []
+	numbered = [found for found in (columnNumberOf(child) for child in children) if found]
+	if len(set(numbered)) >= MIN_COLUMNS:
+		return children
+	if len(numbered) >= MIN_COLUMNS:
+		# They say which column they are in and it is the same column. See above.
+		return []
+	if _columnsOfTheTableAbove(obj) >= MIN_COLUMNS:
+		return children
+	return children if _holdsAPlaceInAGrid(obj) else []
+
+
+def _holdsAPlaceInAGrid(obj) -> bool:
+	""":return: whether an object says it is a row of something that says it holds rows.
+
+	The third way of being sure, for a grid that will not say how wide it is. See
+	`cellsOfARow`, which is the only caller and carries the argument.
+	"""
+	if columnNumberOf(obj) is None:
+		return False
+	try:
+		return isAContainerOfRows(obj.parent)
+	except Exception:
+		log.debugWarning("Could not ask what an object holding a grid place is in", exc_info=True)
+		return False
+
+
+def _childrenOf(obj, limit: int = MAX_ROW_CELLS) -> list:
+	""":return: an object's children, or nothing if it holds more than a row could.
+
+	Bounded, because this is a call into the application on the path that decides whether the
+	reader is in a table at all, and the object it is asked about is not always a row: the
+	misreading above asked it of the message list itself, whose children are every message
+	NVDA has built rather than the handful of fields a row holds. NVDA's watchdog calls half a
+	second a freeze, and a reader who has to wait for one to find out they are not in a table
+	has been charged twice.
+
+	`childCount` first, since a container that will say how many it holds says so without
+	building any of them. Where it will not say, the children are read and then counted, which
+	is the price of the answer.
+
+	:param obj: the object to look inside.
+	:param limit: the most children a row of a table can have and still be one.
+	"""
+	try:
+		count = getattr(obj, "childCount", None)
+		if count is not None and int(count) > limit:
+			return []
+	except (TypeError, ValueError):
+		pass
+	except Exception:
+		log.debugWarning("Could not ask how many children an object has", exc_info=True)
 	try:
 		children = list(obj.children or [])
 	except Exception:
 		log.debugWarning("Could not read an object's children", exc_info=True)
 		return []
-	if len(children) < MIN_COLUMNS:
-		return []
-	numbered = [child for child in children if columnNumberOf(child) is not None]
-	if len(numbered) >= MIN_COLUMNS:
-		return children
-	return children if _columnsOfTheTableAbove(obj) >= MIN_COLUMNS else []
+	return children if len(children) <= limit else []
+
+
+def roleNameOf(obj) -> str:
+	""":return: what NVDA calls an object's role, as a name, or "" where it will not say.
+
+	The name rather than the number, so that nothing here depends on `controlTypes` and a
+	stand-in in a test can answer a string. See `isAContainerOfRows` and
+	`ObjectTable.looksLikeARow`, which are the two questions asked of it.
+	"""
+	try:
+		role = getattr(obj, "role", None)
+	except Exception:
+		log.debugWarning("Could not ask an object what it is", exc_info=True)
+		return ""
+	if role is None:
+		return ""
+	return (getattr(role, "name", None) or str(role)).upper()
+
+
+def isAContainerOfRows(obj) -> bool:
+	""":return: whether an object says it holds rows, rather than being one.
+
+	One property read, and it settles what the cell properties could not. See
+	`CONTAINER_ROLES`, and `tableFor`, which is the caller.
+
+	An object that will not say its role is not one of these: refusing on silence would refuse
+	every implementation that answers nothing, and those are the ones this module exists to
+	read.
+	"""
+	return roleNameOf(obj) in CONTAINER_ROLES
 
 
 def _columnsOfTheTableAbove(row) -> int:
@@ -378,10 +531,23 @@ class ObjectCellInfo:
 		`flowTableSource.declaredHeader` needs to know nothing about where a table came from.
 		A list view's headers are declared in exactly the sense that matters: NVDA asks the
 		header control for them rather than guessing at a first row.
-		"""
-		from textInfos import FieldCommand
 
-		field = {"table-id": TABLE_ID}
+		**A real `ControlField`, and not a dictionary that looks like one.** NVDA's
+		`FieldCommand` checks the type — `"controlStart" and not isinstance(field,
+		ControlField)` raises — so a plain dictionary made this raise *every single time*, and
+		the caller, which treats a cell that cannot answer as a cell that declares nothing,
+		wrote a debug line and moved on. Every object table therefore declared no headers at
+		all: no header row was ever pinned over one, and the paging command named the columns
+		after the reader's first row and then by number. The cells had the headings the whole
+		time and the report said so, which is what made it look like a reading problem.
+
+		A `ControlField` is a `dict` subclass, so this is the same mapping with the type NVDA
+		asked for.
+		"""
+		from textInfos import ControlField, FieldCommand
+
+		field = ControlField()
+		field["table-id"] = TABLE_ID
 		if self.header:
 			field["table-columnheadertext"] = self.header
 		return [FieldCommand("controlStart", field), self.text]
@@ -441,6 +607,10 @@ class ObjectTable:
 
 		self._rows: dict = {}
 		"""Row objects by row number, so that a bandful of cells costs a bandful of rows."""
+
+		self._rowsBegin: Optional[int] = None
+		"""How many children come before the rows, once something has looked. See
+		`rowsBeginAt`."""
 
 	# The three questions `flowTableSource` asks of a document.
 
@@ -566,25 +736,56 @@ class ObjectTable:
 		structure and for no others, so a row that says it is at level two is a row of a
 		branch rather than of the table.
 
-		**A table holding more than the group does.** A group inside a table is smaller than
-		the table, so a table admitting to more children than the row says its group holds has
-		more than one group in it. The test is one sided on purpose: a virtualised list admits
-		to *fewer* children than it holds — File Explorer's answered fourteen while the reader
-		stood on item fifty-two of seventy-nine — and that is the case this module was built
-		for. Fewer is a list that has not been built; more is a list that has been grouped.
+		**A table holding room for another whole group.** A grouped table holds more than one
+		group, so what says a count is a group's is the table admitting to at least twice it.
+		The test is one sided on purpose: a virtualised list admits to *fewer* children than it
+		holds — File Explorer's answered fourteen while the reader stood on item fifty-two of
+		seventy-nine — and that is the case this module was built for. Fewer is a list that has
+		not been built.
+
+		**Twice, rather than one more**, and the reader's report is why. A list that admits to
+		one row more than the row says its group holds is not a grouped list; it is a control
+		counting something this did not expect, which is the ordinary condition of the counts
+		here — this module exists because Explorer's file list answers `rowCount` fourteen,
+		`childCount` seventeen and "one of seventy-nine" about the same list at the same
+		moment. Read as grouping, one such row cost the reader the whole feature in Details
+		view and told them they were not in a table while every cell of it read perfectly.
+		Grouping is a shape, not an off-by-one, and it has to show as one.
 
 		Refusing means `rowNumberOf` has no answer, which is `_getTableCellCoords` raising and
-		`tableAt` saying the reader is not in a table. That is the right outcome: they keep
-		NVDA's ordinary reading of the control instead of a layout confidently drawn from
-		numbers that mean something else.
+		`tableAt` saying the reader is not in a table. That is the right outcome where the
+		numbers really do count a group: the reader keeps NVDA's ordinary reading of the
+		control instead of a layout confidently drawn from numbers that mean something else.
+
+		**It is also the most expensive answer in the module**, since it is the whole feature
+		disappearing from the control the reader asked about, and the reader is told only that
+		they are not in a table. So the sign that produced it is written down. See
+		L{whyItNumbersAGroup} and `describe`.
+		"""
+		return self.whyItNumbersAGroup() is None
+
+	def whyItNumbersAGroup(self) -> Optional[str]:
+		""":return: which sign said the numbers count a group, or None if none of them did.
+
+		The reason as well as the verdict, because the verdict is invisible from outside: it
+		reaches the reader as "not in a table", said about a control that plainly is one, and
+		the numbers behind it are the only way to tell a grouped list from a table whose
+		platform counts something this did not expect. See `describe`, which is where it goes.
 		"""
 		where = _positionOf(self.focused)
 		if not where.get("indexInGroup"):
-			return False
-		if (where.get("level") or 0) > 1:
-			return False
+			return "the row does not say where in a group it is"
+		level = where.get("level") or 0
+		if level > 1:
+			return f"the row says it is at level {level}, so it is in a branch rather than the table"
 		among = where.get("similarItemsInGroup") or 0
-		return not (among and self.childrenAdmittedTo() > among)
+		admitted = self.childrenAdmittedTo()
+		if among and admitted >= among * GROUPS_TO_BE_GROUPED:
+			return (
+				f"the table admits to {admitted} rows while the row says its group holds {among}"
+				", which is room for another whole group"
+			)
+		return None
 
 	def childrenAdmittedTo(self) -> int:
 		""":return: the most rows this table admits to holding, or zero if it will not say.
@@ -592,19 +793,27 @@ class ObjectTable:
 		The larger of the two answers, because either may be the one that has been counted and
 		neither is ever an overstatement. See L{positionNumbersTheTable}, which is the only
 		caller and which reads it as a floor rather than as a measurement.
+
+		**The decorations are taken off `childCount`**, since they are children and are not
+		rows: a pane, a scrollbar and a column header count three, and a folder holding two
+		files then admitted to five. Read as evidence of grouping that is room for another
+		whole group, so the whole feature refused a small folder — while the same three
+		children left a folder of eighty well clear of the test. A bug that appears below a
+		threshold nobody chose is the kind this test exists to avoid.
 		"""
 		found = 0
-		for name in ("rowCount", "childCount"):
+		for name, decorated in (("rowCount", False), ("childCount", True)):
 			try:
 				count = getattr(self.table, name, None)
 			except Exception:
 				log.debugWarning(f"Could not read a table's {name}", exc_info=True)
 				continue
 			try:
-				found = max(found, int(count or 0))
+				said = int(count or 0)
 			except Exception:
 				continue
-		return found
+			found = max(found, said - self.rowsBeginAt() if decorated else said)
+		return max(found, 0)
 
 	@property
 	def numCols(self) -> int:
@@ -665,15 +874,64 @@ class ObjectTable:
 			# back at the object the focus event just handed over.
 			found = self.focused
 		elif 1 <= row <= self.numRows:
-			found = self.walkTo(row)
-			if found is None:
-				try:
-					found = self.table.getChild(row - 1)
-				except Exception:
-					log.debugWarning(f"Could not reach row {row} of a table", exc_info=True)
-					found = None
+			found = self.walkTo(row) or self.childAt(row - 1 + self.rowsBeginAt())
 		self._rows[row] = found
 		return found
+
+	def childAt(self, index: int):
+		""":return: one child of the table by its position, or None if it has not got it.
+
+		The one-call way to a row, for a list that has built all its items. See `rowsBeginAt`
+		for why the index is not the row number, and `looksLikeARow` for the check that
+		catches a table whose decorations are not all at the front.
+
+		:param index: which child, zero based.
+		"""
+		try:
+			found = self.table.getChild(index)
+		except Exception:
+			log.debugWarning(f"Could not reach child {index} of a table", exc_info=True)
+			return None
+		return found if found is not None and self.looksLikeARow(found) else None
+
+	def rowsBeginAt(self) -> int:
+		""":return: how many of the table's first children come before its rows.
+
+		**The children of a list are not all rows**, which the reader's own report showed and
+		which reaching for `getChild(row - 1)` assumed away. Inside File Explorer's file list,
+		in order: a pane, a horizontal scrollbar, the column header, and only then the files.
+		Inside Outlook's message list the first child is a pane called "Vertical". So row one
+		was a scrollbar and every row fetched by index was three files late.
+
+		Counted once and remembered, by stepping over the front of the list until something
+		that looks like a row turns up — a few children, not the list. Nothing that looks like
+		a row within `MAX_DECORATIONS` means no offset rather than a guess at one: an index
+		that is merely wrong is worse than an index that is plainly the caller's own.
+		"""
+		if self._rowsBegin is None:
+			self._rowsBegin = 0
+			child = _firstChildOf(self.table)
+			for seen in range(MAX_DECORATIONS):
+				if child is None:
+					break
+				if self.looksLikeARow(child):
+					self._rowsBegin = seen
+					break
+				child = _nextOf(child)
+		return self._rowsBegin
+
+	def looksLikeARow(self, obj) -> bool:
+		""":return: whether one child of the table is one of its rows.
+
+		By the role of the row in hand, which is a row of this table that something else
+		already decided was one — so this cannot disagree with `tableFor` about what a row of
+		it is. With no row in hand, a child with cells is a row and the decorations around the
+		list have none.
+		"""
+		template = self.focused
+		if template is None:
+			return bool(cellsOfARow(obj))
+		return roleNameOf(obj) == roleNameOf(template)
 
 	def walkTo(self, row: int):
 		""":return: a row reached by stepping from one already in hand, or None.
@@ -727,22 +985,55 @@ class ObjectTable:
 
 		:return: one line per thing worth knowing, no line of it needed to draw anything.
 		"""
+		group = self.whyItNumbersAGroup()
 		lines = [
 			f"  shape: {self.numRows} rows by {self.numCols} columns, as {self!r}",
 			f"  table object: {describeThing(self.table)}",
 			f"  row in hand: {describeThing(self.focused)} at row {self.rowNumberOf(self.focused)}",
+			f"  the row's own rowNumber: {_ask(self.focused, 'rowNumber')}",
 			f"  the row says it is one of {self.itemsAmong(self.focused) or 'it does not say'}",
-			f"  its position numbers {'the table' if self.positionNumbersTheTable() else 'a group of it'}"
-			f", from {_positionOf(self.focused)}",
+			f"  its position numbers {'a group of it' if group else 'the table'}"
+			f", from {_positionOf(self.focused)}"
+			+ (f", because {group}" if group else ""),
 			f"  the table's own rowCount: {_ask(self.table, 'rowCount')}"
 			f", childCount: {_ask(self.table, 'childCount')}"
 			f", columnCount: {_ask(self.table, 'columnCount')}",
 		]
+		lines.extend(self.describeAroundTheTable())
 		lines.extend(self.describeCells())
 		return lines
 
+	def describeAroundTheTable(self) -> list:
+		""":return: the first few things inside the table and beside it, for the log.
+
+		Where a header control would be if there is one. A list view's column headings are a
+		control of their own — that is what the reader sees across the top of File Explorer's
+		Details view — and where the cells will not name their columns it is the only place
+		left to ask. Whether it is a child of the list or a sibling of it differs by
+		application, so both are looked at, and only the first few of each: this is a report,
+		and a report that walks a mailbox is a report nobody can afford to ask for.
+		"""
+		lines = []
+		for what, obj in (
+			("inside the table", self.table),
+			("beside the table", _parentOf(self.table)),
+		):
+			if obj is None:
+				continue
+			lines.append(f"  {what}, first few: {'; '.join(describeFirstFew(obj)) or 'nothing'}")
+		return lines
+
 	def describeCells(self) -> list:
-		""":return: what each column of the row in hand holds, and where it came from."""
+		""":return: what each column of the row in hand holds, and where it came from.
+
+		**The three places a header can come from, separately**, because "under header ''" was
+		a report of a failure with no account of it: a reader paging File Explorer's Details
+		view heard their own first row read back as the names of the columns, and which of the
+		three had come back empty — the cell's name beside its value, or `columnHeaderText` —
+		could not be told from the one line that said the answer was nothing. They are what
+		`headerTextOf` asks and they are cheap, so they are written down beside what it made
+		of them.
+		"""
 		item = self.focused
 		if item is None:
 			return ["  no row in hand, so there are no cells to describe"]
@@ -757,7 +1048,24 @@ class ObjectTable:
 				found.append(f"  column {column}: could not be read — {error!r}")
 				continue
 			found.append(f"  column {column}: text {cell.text!r} under header {cell.header!r}")
+			found.append(f"    the cell it came from: {self.describeCellSources(item, column)}")
 		return found or ["  the row in hand has no columns"]
+
+	def describeCellSources(self, item, column: int) -> str:
+		""":return: what the object behind one cell answers to each header question.
+
+		A stand-in whose cells are not objects has no such object and says so; there the
+		header is the row's own answer for that column and there is nowhere else it could have
+		come from.
+		"""
+		cell = self.cellObject(item, column) if hasattr(self, "cellObject") else None
+		if cell is None:
+			return "the row answers for its own columns, so there is no cell object to ask"
+		name, value = nameAndValueOf(cell)
+		return (
+			f"{describeThing(cell)}, name {name!r}, value {value!r}"
+			f", columnHeaderText {_ask(cell, 'columnHeaderText')}"
+		)
 
 	def sameAs(self, other) -> bool:
 		""":return: whether another stand-in is presenting the same control as this one.
@@ -962,11 +1270,11 @@ class CellObjectTable(ObjectTable):
 		key = id(item)
 		found = self._cells.get(key)
 		if found is None:
-			try:
-				found = list(item.children or [])
-			except Exception:
-				log.debugWarning("Could not read a table row's cells", exc_info=True)
-				found = []
+			# Through the same bound the recognition used, so that a row this could never
+			# have been recognised by cannot be read a cell at a time either. See
+			# `_childrenOf`: the object in hand is only a row because something said so, and
+			# what said so can be wrong.
+			found = _childrenOf(item)
 			self._cells[key] = found
 		return found
 
@@ -1074,6 +1382,15 @@ def tableFor(obj) -> Optional[ObjectTable]:
 	it answers for, is it a cell, is it a row whose cells are objects — and the first that says
 	yes decides both the row and the shape.
 
+	**A thing that calls itself a table is never the row**, which is the reader's Outlook
+	report and the one thing the properties could not settle. A message row carries
+	`GridItemPattern`, so it reads as a cell of the list above it; that list carries the same
+	properties on every row it holds, so it read as a row of cells in turn. The answer was a
+	table made of the pane, whose one row was the whole message list — and a shape in which
+	nothing could say which row the reader was on, so the command told them they were not in a
+	table while they stood in the one they had asked about. The list says it is a table. Asking
+	it, once, costs one property and settles it.
+
 	:param obj: the object the reader is on.
 	"""
 	if obj is None:
@@ -1082,7 +1399,7 @@ def tableFor(obj) -> Optional[ObjectTable]:
 	if table is not None:
 		return RowCellTable(table, row=obj)
 	row = cellsRow(obj)
-	if row is not None and cellsOfARow(row):
+	if row is not None and not isAContainerOfRows(row) and cellsOfARow(row):
 		try:
 			# The focus was on a cell, so it says which column the reader is on as well as
 			# which row. Where it was on the row instead there is nothing to say, and the
@@ -1091,10 +1408,137 @@ def tableFor(obj) -> Optional[ObjectTable]:
 		except Exception:
 			log.debugWarning("Could not reach the table a cell is in", exc_info=True)
 			return None
-	if cellsOfARow(obj):
+	if not isAContainerOfRows(obj) and cellsOfARow(obj):
 		try:
 			return CellObjectTable(obj.parent, row=obj)
 		except Exception:
 			log.debugWarning("Could not reach the table a row is in", exc_info=True)
 			return None
 	return None
+
+
+def explain(obj) -> list:
+	"""What was asked of an object on the way to reading it as a table, and what it answered.
+
+	Written because the reader hears one sentence for four different answers. "Not in a
+	table", said while standing in File Explorer's Details view, is a report nobody can act
+	on: the object may have been refused as a row, refused as a cell, recognised and then
+	unable to say which row of what it is, or recognised and laid out and dropped somewhere
+	further up. Each of those is a different bug and none of them was written down.
+
+	The questions `tableFor` asks, in the order it asks them, each with the answer it got,
+	and then the stand-in's own account of the numbers where there is one to have. All of it
+	is what the reading itself already asks for, so nothing here can be true of the report and
+	false of the table.
+
+	:param obj: the object the reader is on.
+	:return: one line per thing asked, for the log.
+	"""
+	lines = describeTree(obj)
+	if obj is None:
+		return lines
+	found = tableFor(obj)
+	if found is None:
+		lines.append("  read as: nothing this module can present as a table")
+		return lines
+	lines.append(f"  read as: {found!r}")
+	try:
+		lines.extend(found.describe())
+	except Exception as error:
+		lines.append(f"  which could not describe itself: {error!r}")
+	return lines
+
+
+def _parentOf(obj):
+	""":return: what an object is in, or None where it will not say."""
+	try:
+		return getattr(obj, "parent", None)
+	except Exception:
+		log.debugWarning("Could not ask what an object is in", exc_info=True)
+		return None
+
+
+def describeFirstFew(obj, howMany: int = 6) -> list:
+	""":return: the first few children of an object, described, for the log.
+
+	Stepped rather than read all at once, and stopped after `howMany`: what this is for is
+	seeing what *kind* of thing is at the top of a container, and the container may be a list
+	of ten thousand messages.
+	"""
+	found = []
+	child = _firstChildOf(obj)
+	while child is not None and len(found) < howMany:
+		found.append(describeThing(child))
+		child = _nextOf(child)
+	return found
+
+
+def _firstChildOf(obj):
+	""":return: an object's first child, or None where it has none or will not say."""
+	try:
+		return getattr(obj, "firstChild", None)
+	except Exception:
+		log.debugWarning("Could not read an object's first child", exc_info=True)
+		return None
+
+
+def _nextOf(obj):
+	""":return: the object after one, or None where there is none or it will not say."""
+	try:
+		return getattr(obj, "next", None)
+	except Exception:
+		log.debugWarning("Could not read the object after one", exc_info=True)
+		return None
+
+
+def describeTree(obj) -> list:
+	""":return: the questions `tableFor` asks about an object's place in the tree, answered.
+
+	Separate from L{explain} because the two callers need different halves of it: nothing
+	navigating a table at all needs the whole account, and a stand-in that *was* built needs
+	this half followed by its own numbers rather than a second copy of them.
+
+	:param obj: the object the reader is on.
+	"""
+	lines = [f"  the object: {describeThing(obj)}"]
+	if obj is None:
+		return lines
+	table = rowsTable(obj)
+	lines.append(
+		"  a row that answers for its own cells: "
+		f"{describeThing(table) if table is not None else 'no'}",
+	)
+	row = cellsRow(obj)
+	lines.append(
+		f"  a cell of: {describeThing(row) if row is not None else 'no'}"
+		f", its own column: {columnNumberOf(obj)}",
+	)
+	lines.extend(describeChildren("this object", obj))
+	if row is not None:
+		lines.extend(describeChildren("the thing above it", row))
+	return lines
+
+
+def describeChildren(what: str, obj) -> list:
+	""":return: what an object holds and what its children say they are, for the log.
+
+	The lines the Outlook report needed and did not have. It showed a table built out of the
+	pane and a row that was the whole message list, and settling *why* meant reasoning about
+	which of two readings the properties allowed — when what decides it is one level of the
+	tree and the column each child claims, both of which are cheap to write down.
+
+	:param what: how to name this object in the line.
+	:param obj: the object to look inside.
+	"""
+	if obj is None:
+		return []
+	children = _childrenOf(obj)
+	columns = [columnNumberOf(child) for child in children[:MIN_COLUMNS * 4]]
+	return [
+		f"  {what}: {describeThing(obj)}"
+		f", holds {len(children) or 'nothing this can read as cells'}"
+		f", its own columnCount {_ask(obj, 'columnCount')}"
+		f", a container of rows: {'yes' if isAContainerOfRows(obj) else 'no'}",
+		f"  the columns its first children claim: {columns}"
+		f", so cells of a row: {'yes' if cellsOfARow(obj) else 'no'}",
+	]

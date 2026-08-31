@@ -21,6 +21,7 @@ from ._stubs import (
 	callLaterQueue,
 	FakeTableDocument,
 	NoTableDocument,
+	flashedMessages,
 	installStubs,
 	resetConfig,
 	spokenMessages,
@@ -62,6 +63,13 @@ class CommandHolder:
 		self._monitors = {}
 		self.layOutPinnedTables = GlobalPlugin.layOutPinnedTables.__get__(self)
 		self._wantTableHere = GlobalPlugin._wantTableHere.__get__(self)
+		self.reportAboutTheDisplay = GlobalPlugin.reportAboutTheDisplay.__get__(self)
+		# The paging commands go through the plugin to find which table to move, so the
+		# stand-in has to be able to answer that too: what is being tested is the command.
+		self._tableToPage = GlobalPlugin._tableToPage.__get__(self)
+		self.tablesInColumns = GlobalPlugin.tablesInColumns.__get__(self)
+		self.container = band.plugin.container
+		self._segmentKeysOn = GlobalPlugin._segmentKeysOn.__get__(self)
 		self._inAnotherTable = GlobalPlugin._inAnotherTable.__get__(self)
 
 	@property
@@ -1468,3 +1476,137 @@ class TestABandThatWouldPinNothing(TableBandTestCase):
 		self._inList(headers=["Name", "Type", "Size"])
 		self.assertIsNotNone(self.band.controller.pinned)
 		self.assertEqual(self.band.controller.window.numRows, ROWS - 1)
+
+
+class TestTellingTheTwoRefusalsApart(TableBandTestCase):
+	"""A table that was not recognised and a table that was recognised and could not be laid
+	out were the same sentence: "not in a table". They send the reader to look in two
+	different places, and the one they were sent to — is this control a table at all — is the
+	part that had worked.
+
+	Reported from hardware, in File Explorer's Details view. The command refused and nothing
+	anywhere said which of its four steps had done the refusing.
+	"""
+
+	def _press(self):
+		"""The command as NVDA runs it, on a plugin that has this band."""
+		from brlMultiline import GlobalPlugin
+
+		spokenMessages.clear()
+		GlobalPlugin.script_flowTableColumns(CommandHolder(self.band), None)
+		return list(spokenMessages)
+
+	def _unlayoutable(self):
+		""":return: a table the reader is standing in whose every cell is a hole."""
+		return self._inTable(rows=[[None, None], [None, None]])
+
+	def test_aTableThatCannotBeLaidOutSaysThatInstead(self):
+		self._unlayoutable()
+		said = self._press()
+		self.assertFalse(any("Not in a table" == message for message in said))
+		self.assertTrue(any("could not be laid out" in message for message in said))
+
+	def test_andTheBandSaysWhichRefusalItWas(self):
+		from brlMultiline.flowBand import NO_LAYOUT, NO_TABLE
+
+		self._unlayoutable()
+		self.assertFalse(self.band.layOutTable())
+		self.assertEqual(self.band.tableProblem, NO_LAYOUT)
+		self._elsewhere()
+		self.assertFalse(self.band.layOutTable())
+		self.assertEqual(self.band.tableProblem, NO_TABLE)
+
+	def test_aLayoutThatWorkedLeavesNoProblemBehind(self):
+		self._inTable()
+		self.assertTrue(self.band.layOutTable())
+		self.assertIsNone(self.band.tableProblem)
+
+	def test_theStepThatStoppedItIsKept(self):
+		"""`buildTableController` says which step it was and nothing outside the dry run had
+		ever read it. The reader who is refused is the one person who needs it."""
+		self._unlayoutable()
+		self.band.layOutTable()
+		self.assertTrue(any("column layout" in note for note in self.band.tableNotes))
+
+
+class TestSayingWhichColumnsAreShowing(TableBandTestCase):
+	"""Turning to the next page of a wide table says what landed there, and the reader's report
+	is about both halves of how it said it.
+
+	**It named the columns after the first row.** A list view declares no header row — its
+	first item is a file — and the measurement borrowed row one's text as each column's name
+	anyway, so paging File Explorer's Details view read the reader's own first file back to
+	them as the names of the columns. The layout already knew better: the source asks whether
+	row one is headings before pinning one, and the measurement did not ask at all.
+
+	**And it wrote itself to the display.** `ui.message` speaks *and* brailles, so the sentence
+	describing the new page sat on top of the new page until the message timed out — the
+	reader's hands were on the answer and were being shown a description of it instead.
+	"""
+
+	WIDE_FILES = [[f"file{number}.py", "Python", "12 KB", "Yesterday", "Available"] for number in range(1, 6)]
+
+	def _pageOf(self, view, by=1):
+		""":return: what the reader was told, having turned a page of columns."""
+		from brlMultiline import GlobalPlugin
+
+		item = view.item(1)
+		self.api.getFocusObject = lambda: item
+		self.api.getNavigatorObject = lambda: item
+		self.addCleanup(setattr, self.api, "getNavigatorObject", self.api.getNavigatorObject)
+		self.band._follow()
+		self.band.layOutTable()
+		holder = CommandHolder(self.band)
+		spokenMessages.clear()
+		flashedMessages.clear()
+		GlobalPlugin._turnColumnPage.__get__(holder)(by)
+		return list(spokenMessages)
+
+	def test_aListsColumnsAreNotNamedAfterItsFirstRow(self):
+		view = FakeGrid(self.WIDE_FILES, headers=[])
+		said = " ".join(self._pageOf(view))
+		self.assertNotIn("file1.py", said)
+
+	def test_aColumnWithNoHeadingIsNamedAsAColumn(self):
+		"""Rather than as a bare number. Paging Outlook's inbox said "six, seven"."""
+		view = FakeGrid(self.WIDE_FILES, headers=[])
+		said = " ".join(self._pageOf(view))
+		self.assertIn("column", said)
+
+	def test_aListWithHeadingsIsStillNamedByThem(self):
+		view = FakeGrid(self.WIDE_FILES, headers=["Name", "Type", "Size", "Modified", "Status"])
+		said = " ".join(self._pageOf(view))
+		self.assertTrue(any(header in said for header in ("Name", "Type", "Size", "Modified", "Status")))
+
+	def test_theDisplayIsNotWrittenOver(self):
+		"""The whole point of the report is that the display is already showing the answer."""
+		view = FakeGrid(self.WIDE_FILES, headers=["Name", "Type", "Size", "Modified", "Status"])
+		said = self._pageOf(view)
+		self.assertTrue(said)
+		self.assertEqual(flashedMessages, [])
+
+	def test_norWhenTheLayoutIsTurnedOnOrOff(self):
+		"""The same argument: what the sentence describes is what the hands are on."""
+		self._inTable()
+		holder = CommandHolder(self.band)
+		from brlMultiline import GlobalPlugin
+
+		spokenMessages.clear()
+		flashedMessages.clear()
+		GlobalPlugin.script_flowTableColumns(holder, None)
+		GlobalPlugin.script_flowTableColumns(holder, None)
+		self.assertTrue(any("columns" in message for message in spokenMessages))
+		self.assertEqual(flashedMessages, [])
+
+	def test_butSomethingTheDisplayCannotShowIsStillWritten(self):
+		"""A reader who is not listening has only the display, and "there is no table here" is
+		not something the display is showing."""
+		from brlMultiline import GlobalPlugin
+
+		self._elsewhere()
+		self.api.getNavigatorObject = self.api.getFocusObject
+		self.addCleanup(setattr, self.api, "getNavigatorObject", self.api.getNavigatorObject)
+		spokenMessages.clear()
+		flashedMessages.clear()
+		GlobalPlugin.script_flowTableColumns(CommandHolder(self.band), None)
+		self.assertIn("Not in a table", flashedMessages)

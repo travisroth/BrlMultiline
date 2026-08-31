@@ -899,15 +899,37 @@ class FieldCommand:
 	Here because `flowForms` recognises a form control from the fields of the text itself,
 	and does so with an `isinstance` check, so a stand-in has to be the type the code tests
 	against rather than something shaped like it.
+
+	**It refuses what NVDA's refuses**, and that is not decoration. NVDA's raises
+	`ValueError("command: controlStart needs a controlField")` for a plain dictionary, and
+	this one used to take anything. So the object tables built their cells' fields out of a
+	dictionary, every call raised in NVDA and nowhere else, the caller read the raise as "this
+	cell declares no header" — and every list view silently had no headings at all, for months,
+	with a green test suite. A stand-in that is more forgiving than the thing it stands in for
+	is a test that cannot fail.
 	"""
 
 	def __init__(self, command, field=None):
+		if command not in ("controlStart", "controlEnd", "formatChange"):
+			raise ValueError(f"Unknown command: {command}")
+		if command == "controlStart" and not isinstance(field, ControlField):
+			raise ValueError(f"command: {command} needs a controlField")
+		if command == "formatChange" and not isinstance(field, FormatField):
+			raise ValueError(f"command: {command} needs a formatField")
 		self.command = command
 		self.field = field
 
 
-class ControlField(dict):
+class Field(dict):
+	"""NVDA's `textInfos.Field`, which is a dictionary and the base of the two below."""
+
+
+class ControlField(Field):
 	"""NVDA's `textInfos.ControlField`, which is a dictionary carrying a role and more."""
+
+
+class FormatField(Field):
+	"""NVDA's `textInfos.FormatField`, which carries what the text looks like."""
 
 
 class FakeTreeInterceptor(CursorManager):
@@ -1906,6 +1928,18 @@ def _copyToClip(text, notify=False):
 
 
 spokenMessages: list[str] = []
+"""Everything the reader was told, however it reached them."""
+
+flashedMessages: list[str] = []
+"""What was also written to the display, which is what `ui.message` does and what a message
+about a table must not do: the display is showing the table, and a flash sits over it until
+the message times out. See `GlobalPlugin.reportAboutTheDisplay`."""
+
+
+def _flash(text):
+	"""What `ui.message` does: speak it and write it to the display."""
+	flashedMessages.append(text)
+	spokenMessages.append(text)
 """Everything `ui.message` was given, so a test can assert what the user was told."""
 
 
@@ -2090,6 +2124,13 @@ class FakeRowCell(FakeNavigatorObject):
 		return self.row._getColumnLocation(self.columnNumber)
 
 
+def _chain(objects):
+	"""Link a run of objects by `previous` and `next`, the way a real tree is walked."""
+	for index, item in enumerate(objects):
+		item.previous = objects[index - 1] if index else None
+		item.next = objects[index + 1] if index + 1 < len(objects) else None
+
+
 class FakeListView(FakeNavigatorObject):
 	"""A list view in report mode: rows of cells, and a header control saying what they are.
 
@@ -2102,6 +2143,8 @@ class FakeListView(FakeNavigatorObject):
 		self.headers = list(headers or [])
 		self.columnWidths = columnWidths
 		self.items = [FakeListItem(cells, index + 1, table=self) for index, cells in enumerate(rows)]
+		_chain(self.items)
+		self.firstChild = self.items[0] if self.items else None
 		self.builds = 0
 		"""How many times a row was fetched by number, so a test can see the caching work."""
 
@@ -2112,6 +2155,10 @@ class FakeListView(FakeNavigatorObject):
 	@property
 	def columnCount(self):
 		return len(self.headers) or max((len(item.cells) for item in self.items), default=0)
+
+	@property
+	def children(self):
+		return list(self.items)
 
 	def getChild(self, index):
 		self.builds += 1
@@ -2176,7 +2223,15 @@ class FakeGridRow(FakeNavigatorObject):
 class FakeGrid(FakeNavigatorObject):
 	"""A grid whose cells are objects: File Explorer's file list, Outlook's message list."""
 
-	def __init__(self, rows, headers=None, name="a grid", columnCount=None, realized=None):
+	def __init__(
+		self,
+		rows,
+		headers=None,
+		name="a grid",
+		columnCount=None,
+		realized=None,
+		decorations=(),
+	):
 		"""
 		:param rows: a list of rows, each a list of cell texts, or of (name, value) pairs for
 			a cell whose name is its column's header — which is how File Explorer presents a
@@ -2188,6 +2243,11 @@ class FakeGrid(FakeNavigatorObject):
 			that is all there. A number models File Explorer's, which builds the ones on
 			screen and no more: `childCount` answers that number while each item still says
 			it is one of the whole list, and asking for an item beyond it answers nothing.
+		:param decorations: (name, role) pairs for what a real list holds *before* its rows.
+			File Explorer's Details view holds a pane, a horizontal scrollbar and the column
+			header; Outlook's message list holds a pane called "Vertical". A stand-in with
+			none of those made a row fetched by index look like the row that was asked for,
+			which on hardware it was not.
 		"""
 		super().__init__(name=name, role="LIST")
 		self.headers = list(headers or [])
@@ -2203,10 +2263,19 @@ class FakeGrid(FakeNavigatorObject):
 				else:
 					built.append(FakeGridCell(cell, column, header=header))
 			self.items.append(FakeGridRow(built, index + 1, table=self, among=len(rows)))
-		for index, item in enumerate(self.items):
-			item.previous = self.items[index - 1] if index else None
-			item.next = self.items[index + 1] if index + 1 < len(self.items) else None
+		self.decorations = []
+		for label, role in decorations:
+			thing = FakeNavigatorObject(name=label, role=role)
+			thing.parent = self
+			self.decorations.append(thing)
+		_chain(self.decorations + self.items)
+		# Where a walk of the tree starts, which is how a row is reached without asking the
+		# list to build every item. The base sets it to None; a container that holds things
+		# says which thing is first.
+		self.firstChild = (self.decorations + self.items or [None])[0]
 		self.builds = 0
+		self.walks = 0
+		"""How many times every child was read, so a test can see a bound hold."""
 
 	rowCountSays = None
 	"""What this grid answers for `rowCount`, when that is not simply how many rows it has.
@@ -2223,17 +2292,46 @@ class FakeGrid(FakeNavigatorObject):
 
 	@property
 	def childCount(self):
-		return len(self.items) if self.realized is None else self.realized
+		"""How many children there are, without building any of them.
+
+		Counted rather than measured off `children`, because that is what it costs in NVDA: a
+		UIA object answers this from its cached children array and builds an object for none
+		of them. A stand-in that walked the list to answer would make a bound written against
+		the cheap question look like it was paying the dear one.
+		"""
+		return len(self.decorations) + (len(self.items) if self.realized is None else self.realized)
+
+	@property
+	def children(self):
+		"""What the grid holds: its decorations, and then such rows as have been built.
+
+		Faithful and load bearing twice over. A stand-in whose children were missing could not
+		be mistaken for a row of cells, and being mistaken for one is exactly what a real
+		message list did to the reader; a stand-in holding nothing but rows could not hand
+		back a scrollbar for row one, which is what a real file list does.
+
+		Counted in `walks`, because reading them all is a call into the application per child
+		and a test says where that is worth paying.
+		"""
+		self.walks += 1
+		built = self.items if self.realized is None else self.items[: self.realized]
+		return self.decorations + list(built)
 
 	@property
 	def columnCount(self):
 		return self.said
 
 	def getChild(self, index):
+		"""One child by its position, decorations included — which is the point of them.
+
+		A real list hands back what is *at* that index, and what is at index nought is a pane.
+		Nothing here rearranges that for the caller's convenience.
+		"""
 		self.builds += 1
-		if index >= self.childCount:
+		children = self.children
+		if index >= len(children):
 			raise LookupError("That item has not been built")
-		return self.items[index]
+		return children[index]
 
 	def item(self, row):
 		""":return: one row of the grid, by its one based number."""
@@ -2458,7 +2556,8 @@ def _installPluginStubs() -> None:
 		setNavigatorObject=_setNavigatorObject,
 		copyToClip=_copyToClip,
 	)
-	_module("ui", message=spokenMessages.append)
+	_module("ui", message=_flash)
+	_module("speech", speakMessage=spokenMessages.append)
 	_module("virtualBuffers", VirtualBuffer=FakeVirtualBufferClass)
 	_module(
 		"wx",
@@ -2626,6 +2725,8 @@ def installStubs() -> None:
 		TextInfo=FakeTextInfo,
 		FieldCommand=FieldCommand,
 		ControlField=ControlField,
+		Field=Field,
+		FormatField=FormatField,
 	)
 	braille.buffers = buffers
 	braille.display = display
@@ -2781,6 +2882,7 @@ def resetPluginState() -> None:
 	mainFrame.prePopups = mainFrame.postPopups = 0
 	mainFrame.settingsDialogs.clear()
 	spokenMessages.clear()
+	flashedMessages.clear()
 	log.messages.clear()
 	displayChanged.handlers.clear()
 	displaySizeChanged.handlers.clear()

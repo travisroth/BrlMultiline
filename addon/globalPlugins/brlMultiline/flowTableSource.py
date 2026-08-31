@@ -66,6 +66,16 @@ Still row one for the other two questions that need *a* row rather than a header
 HEADER_ATTRIBUTES = {"column": "table-columnheadertext", "row": "table-rowheadertext"}
 """What NVDA calls a cell's header text, per axis, on the control field it hands out."""
 
+HEADER_TRIES = 3
+"""How many of a column's cells are asked what its header is, before the column has none.
+
+More than one, because the cell that happens to be read first is not always a witness: a
+half-built row of a virtualised list, or a merged cell where its neighbours hold real ones,
+answered for the whole column and the column then had no name at all. Few, because a table
+that declares nothing pays this on every column of the sample and the fields are a read of
+the document.
+"""
+
 MEASURE_ROWS = 8
 """How many rows are read to decide the column widths.
 
@@ -189,6 +199,88 @@ def tableAt(obj) -> Optional[TableHandle]:
 		row=cell.row,
 		col=cell.col,
 	)
+
+
+def explain(obj) -> list:
+	"""Why `tableAt` answered as it did, in the terms it answered in.
+
+	`tableAt` swallows the three ways of saying no — nothing navigates a table here, the
+	cursor is not in a cell of it, it will not say how big it is — because for the ordinary
+	redraw they are all the same answer and none of them is news. For the reader pressing the
+	column command and being told they are not in a table they are the only news there is, so
+	the same questions are asked again, one at a time, with nothing swallowed.
+
+	Asked again rather than recorded on the way past, deliberately: the answers are what the
+	reading itself asks for and a record kept beside them is a record that can go stale. It
+	costs a second look at a control the reader is standing still in, which is a price only
+	paid when something has already gone wrong.
+
+	:param obj: the object the reader is on.
+	:return: one line per question, for the log.
+	"""
+	lines = [f"Looking for a table at {flowObjectTable.describeThing(obj)}"]
+	try:
+		document = tableDocumentFor(obj)
+	except Exception as error:
+		lines.append(f"  nothing could be asked about it: {error!r}")
+		return lines
+	if document is None:
+		lines.append(
+			"  nothing here navigates a table: not a browse mode document, not a document"
+			" that navigates its own, and not a control this can present as one",
+		)
+		lines.extend(flowObjectTable.explain(obj))
+		return lines
+	lines.append(f"  navigated by {document!r}")
+	if isinstance(document, flowObjectTable.ObjectTable):
+		# The tree around the object, which a browse mode document has no equivalent of and
+		# does not need: NVDA's own answer is the whole of that one. A stand-in was *chosen*
+		# out of a tree that allowed more than one reading of it, and the reader's Outlook
+		# report was a wrong choice that every number below this line then described
+		# faithfully. Which reading was taken is the half that was missing.
+		lines.extend(flowObjectTable.describeTree(obj))
+	where = None
+	try:
+		where = document.selection
+	except Exception as error:
+		lines.append(f"  which will not say where the cursor is: {error!r}")
+	if where is not None:
+		try:
+			cell = document._getTableCellCoords(where)
+			lines.append(f"  the cursor is in row {cell.row}, column {cell.col} of {cell.tableID!r}")
+		except Exception as error:
+			lines.append(f"  the cursor is not in a cell of it: {error!r}")
+		try:
+			numRows, numCols = document._getTableDimensions(where)
+			lines.append(f"  it says it is {numRows} rows by {numCols} columns")
+		except Exception as error:
+			lines.append(f"  it will not say how big it is: {error!r}")
+	describe = getattr(document, "describe", None)
+	if callable(describe):
+		# An object table only. A document is NVDA's own answer throughout and has nothing to
+		# add about how it arrived at one. See `flowObjectTable.ObjectTable.describe`.
+		try:
+			lines.extend(describe())
+		except Exception as error:
+			lines.append(f"  it could not describe itself: {error!r}")
+	return lines
+
+
+def logExplanation(obj, why: str) -> None:
+	"""Write down why a table could not be laid out, since the reader is being told it cannot.
+
+	At `info` rather than `debug`, and that is the point of it: the reader who hits this is
+	standing in front of hardware with a command that has just refused them, and asking them
+	to turn debug logging on and do it all again is asking them to reproduce something they
+	have already reproduced.
+
+	:param obj: the object they are on.
+	:param why: what was being attempted, for the first line.
+	"""
+	try:
+		log.info("\n".join([f"BrlMultiline: {why}.", *explain(obj)]))
+	except Exception:
+		log.debugWarning("Could not say why a table could not be laid out", exc_info=True)
 
 
 class TableRow(Region):
@@ -538,6 +630,24 @@ def headerWidth(text: str) -> int:
 		return len(text)
 
 
+def firstRowIsHeadings(document) -> bool:
+	""":return: whether row one of a table may be read as its headings.
+
+	Asked of whatever is navigating the table rather than assumed. A document says nothing and
+	gets the assumption `HEADER_ROW` is named for, which is what NVDA's own table navigation
+	assumes too. **A list view says no**, and its first row is a file or a message.
+
+	One reader, because two things ask it and they were disagreeing. `TableFlowSource` asked
+	before pinning a header row, and so never pinned one over a list; `measure` did not ask at
+	all, and took row one's text as each column's *name*. So the layout knew a message list had
+	no headings while the report of it called the columns "report.docx" and "Yesterday, 4:32
+	PM" — the reader's own first row, read back to them as the names of the things it is one of.
+
+	:param document: whatever is navigating the table.
+	"""
+	return bool(getattr(document, "hasHeaderRow", True))
+
+
 def cellRegion(handle: TableHandle, row: int, column: int, live: bool = False):
 	""":return: a region for one cell of a table, or None where there is no such cell.
 
@@ -605,7 +715,11 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 	headers: dict[int, int] = {column: 0 for column in columns}
 	seen: dict[int, list[int]] = {column: [] for column in columns}
 	found: set[int] = set()
-	declared: set[int] = set()
+	asked: dict[int, int] = {column: 0 for column in columns}
+	# Asked once, before anything is read. A table that says row one is not its headings has
+	# none to borrow, and borrowing them anyway names every column after the reader's own
+	# first row. See `firstRowIsHeadings`.
+	borrowRowOne = firstRowIsHeadings(handle.document)
 	for row in _sampleRows(handle, sample):
 		for column in columns:
 			region = cellRegion(handle, row, column, live=live)
@@ -614,16 +728,24 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 			found.add(column)
 			size = len(region.brailleCells)
 			widths[column] = max(widths[column], size)
-			if column not in declared:
-				# Asked once per column, of whichever cell of it was read first. A cell's
-				# declared header is a property of its column, so any cell answers, and one
-				# read of the fields per column is what this costs.
-				declared.add(column)
+			if not labels[column] and asked[column] < HEADER_TRIES:
+				# **Asked of more than one cell**, and that is the difference from asking
+				# once. A declared header is a property of the column, so any cell of it
+				# answers — but only if the cell that was asked is one that answers at all,
+				# and the first row read is not always a good witness: a row of a virtualised
+				# list may be half built, and a row of a document may hold a merged cell
+				# where its neighbours hold real ones. Asked once, one such cell was the
+				# whole of what the column had said, and the column then had no name.
+				#
+				# Bounded, because a table that declares nothing must not cost a read of the
+				# fields on every cell of the sample. Stopped the moment one answers, which
+				# for a table that does declare is the first cell.
+				asked[column] += 1
 				said = declaredHeader(region.info)
 				if said:
 					labels[column] = said
 					headers[column] = headerWidth(said)
-			if row == HEADER_ROW and not labels[column]:
+			if row == HEADER_ROW and borrowRowOne and not labels[column]:
 				# Nothing declared, so the guess. See `HEADER_ROW`.
 				labels[column] = region.rawText
 				headers[column] = size
@@ -867,13 +989,9 @@ class TableFlowSource:
 			return None
 
 	def _firstRowIsHeadings(self) -> bool:
-		""":return: whether row one of this table may be read as its headings.
-
-		Asked of whatever is navigating the table rather than assumed. A document says nothing
-		and gets the assumption `HEADER_ROW` is named for, which is what NVDA's own table
-		navigation assumes too. A list view says no.
-		"""
-		return bool(getattr(self.handle.document, "hasHeaderRow", True))
+		""":return: whether row one of this table may be read as its headings. See
+		`firstRowIsHeadings`, which is where the question is answered."""
+		return firstRowIsHeadings(self.handle.document)
 
 	def _headersForThisPage(self) -> dict:
 		""":return: the declared header of each column being drawn, leaving out those without one.
@@ -1080,6 +1198,8 @@ __all__ = [
 	"TableFlowSource",
 	"TableHandle",
 	"cellRegion",
+	"explain",
+	"logExplanation",
 	"sameTable",
 	"measure",
 	"tableAt",

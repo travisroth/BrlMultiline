@@ -1409,12 +1409,50 @@ class ObjectFlowSource:
 		Structural change is a different question and is not this: an item appearing or a node
 		opening changes which objects the run holds, which `shapeChanged` and the band's
 		`_runHasChangedShape` are for.
+
+		**Only the object the reader is on.** An object's text is not always a property of the
+		object: NVDA's Outlook module builds a message row's name from
+		`activeExplorer().selection`, so the unread flag, the attachment flag and the
+		importance belong to whatever is *selected* rather than to the row being named. Asked
+		about a row the reader has moved off, it answers about the row they moved to — and the
+		reader felt "unread" appear on a message they had read, with nothing to say it was not
+		that message's own.
+
+		Every block was read while it was the object in hand, which is the moment its
+		application answers about it. Re-reading it later can only ask a question out of
+		context, and where the answer is context-free the block comes back the same anyway. So
+		the pass keeps the row under the cursor fresh — a status line, the tail of a chat — and
+		leaves the rest as they were read. A block this refuses is kept rather than dropped;
+		see `FlowController._rereadBlocks`.
 		"""
 		obj = blockId.bookmark
 		if obj is None:
 			return FetchResult.failed(f"no object behind {blockId}")
+		if not self.isCurrentObject(obj):
+			return FetchResult.failed("an object is only read again while the reader is on it")
 		self.budget.startUnlessActive()
 		return self._blockAt(obj, decoration=isDecoration(obj))
+
+	def isCurrentObject(self, obj) -> bool:
+		""":return: whether one object is the one the run is being read from.
+
+		Equality, not identity, because NVDA builds a fresh wrapper for an object every time
+		it is fetched: the row the focus handed over and the row a block was built from are
+		two objects for one message. A run with nowhere in it answers no to everything, which
+		is the safe direction — see `blockAt`, the only caller.
+
+		:param obj: the object to compare with the current one.
+		"""
+		current = self.obj
+		if current is None:
+			return False
+		if obj is current:
+			return True
+		try:
+			return bool(obj == current)
+		except Exception:
+			log.debugWarning("Could not tell whether an object is the one being read", exc_info=True)
+			return False
 
 	def _blockAt(self, obj, decoration: bool = False) -> FetchResult:
 		""":return: a result carrying the block for one object."""
