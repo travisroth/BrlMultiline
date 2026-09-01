@@ -25,7 +25,15 @@ getting from `Personal` to `Archive` needs a climb out of the subtree.
 import dataclasses
 import unittest
 
-from ._stubs import FakeNavigatorObject, fakeRun, fakeTree, installStubs, wrapChildren
+from ._stubs import (
+	CONFIG,
+	FakeNavigatorObject,
+	fakeRun,
+	fakeTree,
+	installStubs,
+	resetConfig,
+	wrapChildren,
+)
 
 installStubs()
 
@@ -33,6 +41,12 @@ from brlMultiline import flowObjects  # noqa: E402
 from brlMultiline.flowIndent import FOCUS_CELL  # noqa: E402
 from brlMultiline.flowControl import FlowController  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
+
+from .test_flowSegment import (  # noqa: E402
+	FakeHandler as BandHandler,
+	FakePlugin,
+	containerWithBand,
+)
 
 NUM_COLS = 24
 
@@ -560,5 +574,84 @@ class TestNoticingANodeBeingOpened(unittest.TestCase):
 		self.assertFalse(source.shapeChanged())
 
 
+class TestMovingFromAParentToItsChild(unittest.TestCase):
+	"""The whole band, not the walk: what happens to the rows around the reader when they
+	step from a folder into the first thing inside it.
+
+	Reported from hardware twice. The second time the cause was the re-read that arriving on
+	an object now does: it drew the band again and handed the drawing only the block it had
+	re-read, which is what the window then held. The rows above and below went, and the child
+	the reader had just moved onto became the top row — a display's worth of movement for one
+	arrow key.
+	"""
+
+	def setUp(self):
+		import api
+		import braille
+
+		from brlMultiline.flowBand import FlowBand
+
+		resetConfig()
+		self.addCleanup(resetConfig)
+		CONFIG["flowEnabled"] = True
+		CONFIG["flowObjects"] = True
+		handler = BandHandler(5, NUM_COLS)
+		self.addCleanup(setattr, braille, "handler", braille.handler)
+		braille.handler = handler
+		container = containerWithBand(handler, numRows=5, numCols=NUM_COLS)
+		handler.mainBuffer = handler.buffer = container
+		self.band = FlowBand(FakePlugin(container))
+		self.api = api
+		self.addCleanup(setattr, api, "getFocusObject", api.getFocusObject)
+		self.addCleanup(setattr, api, "getNavigatorObject", api.getNavigatorObject)
+		_control, self.index = tree()
+
+	def _show(self, name):
+		obj = self.index[name]
+		self.api.getFocusObject = lambda: obj
+		self.api.getNavigatorObject = lambda: obj
+		self.assertTrue(self.band.showObject(obj))
+
+	def _rows(self):
+		""":return: what the band is holding, as the dry run describes it."""
+		return self.band.controller.describeRows()
+
+	def _cursorRow(self):
+		""":return: which row of the band the reader is on, by the mark the report puts there."""
+		for index, line in enumerate(self._rows()):
+			if line.startswith(f"{index}: *"):
+				return index
+		return None
+
+	def _depths(self):
+		""":return: the depth of each row, which is what tells these rows apart."""
+		found = []
+		for line in self._rows():
+			mark = line.find("depth ")
+			found.append(int(line[mark + 6]) if mark >= 0 else None)
+		return found
+
+	def test_theBandStaysWhereItIsAndTheCursorMoves(self):
+		self._show("Inbox")
+		self.assertEqual(self._cursorRow(), 0)
+		self._show("Work")
+		self.assertEqual(self._cursorRow(), 1)
+		self._show("Urgent")
+		self.assertEqual(self._cursorRow(), 2)
+
+	def test_theRowsAroundThemAreStillThere(self):
+		"""The folder they came out of, and everything under it."""
+		self._show("Inbox")
+		self._show("Work")
+		self.assertEqual(self._depths(), [1, 2, 3, 2, 1])
+
+	def test_andTheBandIsStillFull(self):
+		"""A band left holding one block reads as a run that ends under the reader's hand."""
+		self._show("Inbox")
+		self._show("Urgent")
+		self.assertEqual(len(self.band.controller.window.blocks), 5)
+
+
 if __name__ == "__main__":
+
 	unittest.main()

@@ -1426,6 +1426,91 @@ def cellText(cell, header: str = "") -> str:
 	return name or value
 
 
+ROW_SEPARATOR = ", "
+"""What joins one cell of a row to the next when the row is read as a single line.
+
+A comma and a space, which is what `appModules/outlook.py` joins a message row's fields with
+and what a reader of that list is used to hearing.
+"""
+
+
+def rowTextOf(row, withHeaders: Optional[bool] = None, headers: Optional[dict] = None) -> str:
+	""":return: what a row says about *itself*, built from its own cells, or "" if it has none.
+
+	**The same cell reader the spatial layout uses, serving a row that is one line.** Nothing
+	here is new: `_childrenOf` finds the cells, `cellText` takes each one's value or name, and
+	`headerTextOf` names its column, exactly as they do when the same list is laid out in
+	columns. What is new is joining them, because a run of objects shows a row as one line and
+	until now that line could only be the row's own `name`.
+
+	**Which matters because a name is not always about the row.** NVDA's Outlook module builds
+	a message row's name partly from `activeExplorer().selection` — the unread flag, the
+	executed verb, the attachment flag, the importance — so a row read while another message is
+	selected carries *that* message's flags. On hardware that put "replied" and "forwarded" on
+	messages that were neither, which is not merely wrong but alarming: a reader cannot tell it
+	from the truth. A row's cells are the row's own, whatever is selected.
+
+	**What it costs, and what it does not give.** One call into the application for the
+	children and a read per cell, bounded by `MAX_ROW_CELLS`, against one property read for the
+	name. And a state that lives nowhere but the object model — "unread" is not a cell — cannot
+	be built out of cells at all: that is why the row the reader is *on* keeps NVDA's own name,
+	where the selection and the row are the same message and every word of it is true. See
+	`flowObjects.namedFromTheSelection`.
+
+	It may also be more verbose than NVDA. NVDA leaves out an unflagged flag column by asking
+	the selection whether it is flagged — the very question this refuses to trust — so a column
+	that names itself on every row is kept here. A cell that only repeats its own header is
+	dropped, which is the part of that noise this can be sure about.
+
+	:param row: the row object.
+	:param withHeaders: whether to put each column's name before its value, or None to follow
+		NVDA's own table header setting, which is what its Outlook module follows.
+	:param headers: a place to remember what each column is called, so that a band of eight
+		rows asks the platform once per column rather than once per cell. A header belongs to
+		the column and not to the row, so this is a cache of a fact rather than a guess. Pass
+		the same dictionary for every row of one list; None asks afresh each time.
+	"""
+	cells = _childrenOf(row)
+	if not cells:
+		return ""
+	if withHeaders is None:
+		from . import bmConfig
+
+		withHeaders = bmConfig.wantsColumnHeaders()
+	said = []
+	for index, cell in enumerate(cells, start=1):
+		text = cellText(cell)
+		if not text:
+			continue
+		header = _headerFor(cell, index, withHeaders, headers)
+		if header and header != text:
+			text = f"{header} {text}"
+		elif header == text:
+			# A column saying its own name and nothing else. That is the header drawn as
+			# content, which is what an empty icon column comes back as.
+			continue
+		said.append(text)
+	return ROW_SEPARATOR.join(said)
+
+
+def _headerFor(cell, index: int, withHeaders: bool, headers: Optional[dict]) -> str:
+	""":return: what a cell's column is called, asking the platform once per column.
+
+	:param cell: the cell.
+	:param index: its place in the row, for a cell that does not number itself.
+	:param withHeaders: whether headers are wanted at all.
+	:param headers: the cache, or None to ask every time.
+	"""
+	if not withHeaders:
+		return ""
+	if headers is None:
+		return headerTextOf(cell)
+	column = columnNumberOf(cell) or index
+	if column not in headers:
+		headers[column] = headerTextOf(cell)
+	return headers[column]
+
+
 def tableFor(obj) -> Optional[ObjectTable]:
 	""":return: the object table the reader is in, or None if they are not in one.
 

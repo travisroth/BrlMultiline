@@ -191,6 +191,22 @@ Things worth knowing:
 - An editor outside browse mode can be read as a flow too. Turn "Editable text" on to use
   this in applications such as Notepad; it is separate so enabling page flows does not
   unexpectedly change every editor.
+- A wide table is dealt into pages of columns, and the commands for the next and previous
+  page move across it, without moving the cursor. The page you turn to stays there while you
+  read down the rows: with the first column repeated at the left of every page, the cell you
+  are in is still on the display, so nothing pulls the page back. Move to a column the page
+  does not show and the display comes back to your cursor, the way braille tethering brings
+  it back to the focus.
+- A table can be laid out in columns, with a command, and the layout can be **remembered**:
+  press the remember command while a table is on the display and that table comes up laid
+  out the next time you are in it, on the same page or in the same list. What is remembered
+  is which columns you kept and in what order, not how wide they came out, so a layout saved
+  on one display works on another. Turning the columns off leaves the memory alone until you
+  come back; the forget command drops it for good. Tables on web pages are recognised by the
+  page's address together with what their columns are called, so a watchlist that is
+  regenerated is still the same table; a list view is recognised by the application and
+  window it belongs to, which means File Explorer's Details view is one table whichever
+  folder is open.
 
 ## Using two displays at once
 

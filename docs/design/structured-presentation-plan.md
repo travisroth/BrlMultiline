@@ -847,12 +847,30 @@ Two things this found that reasoning had not:
   from eight columns of three cells to ten pages of the symbol plus three columns at seven,
   every row one band row tall.
 
-What is not settled, and is for hardware: whether ten page turns is a worse trade than a
-narrower symbol would be, and whether plain down-arrow in browse mode lands the caret in
-column one often enough that the band snaps back to page one while the reader is trying to
-read page four. The second is not new — the page has followed the caret since M3c — but the
-repeated column makes it more visible, because now there is something on page four worth
-staying for.
+**A page the reader turned to holds while they can feel where they are**, and it took two
+hardware reports, one either side of the answer, to say what that means. The first rule
+brought the page back to the caret's own column on every move: on any page past the first,
+one press of down arrow put the reader back on page one, because table navigation keeps the
+column while moving the row, so the caret was still in column one and the band went there.
+The fix for that held the page against every caret move, and was worse the other way — the
+caret walked off the page, nothing brought the display back to it, and a reader arrowing
+across the columns had no idea where their cursor had gone.
+
+What settles it is the rule braille tethering already follows, one axis over: the display
+may travel, and a caret that moves somewhere it is not showing brings it back. So the
+question asked on each caret move is not *whose page is this* but **is the cell they moved
+to on the display**. With the key column pinned at the left of every page — which is the
+default, and what a reader paging a watchlist has on — column one is on every page, so
+reading down a column never disturbs the page they turned to. Move to a column this page
+does not draw and the band comes to it.
+
+`ColumnPlan.drawsOnThisPage` is where the distinction lives, and it is the one place the
+pinned copy has to count as the column it copies: `pageOf` says where a column *lives*,
+which for the key column is its own page and not the several it appears on. The band keeps
+no state about pages at all now — the rule is a question about what is drawn, asked fresh.
+
+What is still for hardware: whether ten page turns for a twenty-nine column watchlist is a
+worse trade than a narrower symbol column would be.
 
 **A column can answer and hold nothing, and that is not the same as not being there.** The
 first cut of the phantom-column test asked whether any sampled row had a cell at a
@@ -1105,11 +1123,24 @@ large share of what there is, and for a table whose first row is not headers —
 is one, which is what NVDA's own table navigation assumes and what this does not try to
 guess at.
 
-Not done here: the same row for **object** tables, which is M5's source, and any notion of a
-header that is not row one.
+**Object tables pin a header row too, since the `ControlField` fix** — the heading a list
+view's cells carry now reaches `declaredHeader`, where before every one of them was thrown
+away by a type check. A list view has no header *row* to borrow, so what is pinned is what
+its cells declare, and a table that declares nothing pins nothing rather than pinning its
+first file. Still not done: any notion of a header that is not row one and is not declared.
 
 **M5 — tables as objects.** Excel, list views, the message list. Same vocabulary, second
-source. **List views built, not yet on hardware.**
+source. **List views and the message list are on hardware**: File Explorer's Details view and
+Outlook's inbox both lay out in columns, with the headings their cells declare pinned above
+them. Excel is not started.
+
+Getting there took five hardware readings and a review, and what they found was never the
+column arithmetic: it was which object is the row (Outlook's rows carry the cell properties
+their list does), which children are rows (a pane, a scrollbar and a header come first), which
+numbers count the table rather than a group, whether a heading reaches the code that reads it
+(it did not, for months, behind a caught `ValueError`), and whether an object may be read
+again while the reader is somewhere else. Each is written up above. **The vocabulary above the
+seam never changed**, which is the thing the two-milestone split was betting on.
 
 The seam turned out to be one that was already there. `flowTableSource` walks
 `documentBase.DocumentWithTableNavigation` — which cell is the cursor in, how big is the
@@ -1532,6 +1563,59 @@ What stands now is two things, each the size of the fault:
 New content was never part of this: a message arriving in a chat is a new block past the end,
 not a re-read of an old one.
 
+**And refusing the re-read was only ever half of it.** A row *walked* onto the band while a
+different message is selected was never right in the first place — refusing to ask again
+only preserved the wrong answer. Hardware showed what that costs beyond an unread flag: a
+reader whose selected message was replied to or forwarded saw "replied" and "forwarded" on
+messages that were neither, which is not merely wrong but alarming, since nothing on the
+display tells it from the truth.
+
+So a row like that is now **built from its own cells**, by the cell reader that already
+exists: `flowObjectTable.rowTextOf` calls `_childrenOf`, `cellText` and `headerTextOf` —
+the same three the spatial layout calls — and joins them into the one line a run shows. That
+is the generalisation the reader asked for: the row builder written for File Explorer's
+Details view now serves a list that is not laid out in columns at all.
+
+Three things make it honest:
+
+- **The row the reader is on keeps NVDA's own name.** There the selection *is* that row, so
+  every word of it is true — and "unread" lives nowhere else: it is not a cell, and no
+  reading of cells could recover it. Landing on a row therefore tells you more about it than
+  passing it does, which is the right way round.
+- **A row that cannot say what its cells are is read the old way.** Nothing is lost where the
+  new reading has nothing to offer.
+- **The stand-in lives for one reading.** `_NamedAs` answers `name` and forwards everything
+  else, exists inside `FlowObjectRegion.update`, and is gone before anything can route into
+  or act on the region — which is the reviewer's "a stand-in is not the object", respected by
+  keeping it to one property and one call. What it buys is NVDA's own presentation: a dozen
+  properties decide how an object reads in braille and only the name of these rows is
+  untrustworthy, so NVDA says the rest.
+
+What it costs is reading, and reading here is calls into an application: the children of a
+row and a property or two per cell, against one property for a name. A column's header is
+asked once per list rather than once per cell — a header belongs to the column — and the
+fetch budget cuts a band short as it does anywhere else. It can also be more verbose than
+NVDA, which leaves out an unflagged flag column by asking the selection whether it is
+flagged: the very question this exists to stop trusting. A cell that says nothing but its own
+header is dropped, which is the part of that noise we can be sure about.
+
+**And it cost the band, until the next hardware report.** `rereadArrival` ends by drawing the
+band again, and it handed the drawing the block it had re-read — while `FlowWindow.replaceBlocks`
+takes what it is given as *the window*. So the window was left holding one block. In a list
+nobody noticed: the reader was on the last row read and the fill put the neighbours back under
+them. In a tree it was the reported symptom — stepping from a folder into the first thing inside
+it emptied the band, the child became the top row, and the folder it came out of was gone. The
+same symptom, from a different cause, as the one `ensureVisible` was fixed for in M2a.
+
+`_redrawBlocks` now takes no list and always draws the whole window, because every caller
+wanted the whole window and only one of them had to remember to say so. A method whose
+argument must always be the same value is an argument that can be got wrong, and this one was.
+
+The re-read also stopped drawing the band at all when the answer has not changed, which is
+every arrow key down an ordinary list: the block already held is kept — and with it the region
+NVDA may have queued for update — and only a row that now reads differently, which is the
+Outlook case this exists for, costs a redraw.
+
 ### Five from the review of that work
 
 Each of these was reproduced by the reviewer before it was reported, and each is the same
@@ -1635,11 +1719,110 @@ planned, and whether a table has headings cannot be known until they are asked f
 row is reserved, the header asked for, and the whole arrangement made again at full height
 when the answer is that this table has none. A list view is exactly that case.
 
-**M6 — saved layouts.** The profile record, automatic matching by identity, applying a
-favourite by command.
+**M6 — saved layouts.** BUILT, NOT YET ON HARDWARE. The record, the identity, automatic
+matching, and the two commands.
+
+**An identity has two parts because they cost different amounts.** `where` is one attribute —
+a page's `documentConstantIdentifier`, which is the URL NVDA itself remembers a caret position
+against across loads, or an application and window class for a control. `what` is the columns
+by the headings they declare, which is the half that survives a page being regenerated, and it
+costs a read per column: so it is asked for **only when `where` already has something saved
+against it**, which is never until the reader saves their first layout. A reader who saves
+nothing pays one attribute read per table they walk into.
+
+**What is saved is the reader's choices, not the arithmetic.** A plan holds widths in cells and
+cells belong to the display they were fitted to; this reader carries a Monarch and a Focus 80.
+So the record holds which columns, in what order, how tall a row may be, whether cells are cut,
+whether the key column repeats, whether headers are pinned — and every field can say "not my
+business", so a setting the reader changes later still reaches a table they saved before it.
+The widths are worked out again by `planFor` on whatever band the table lands on.
+
+Stored as one JSON string in the add-on's own configuration section, per profile: the keys are
+URLs and window classes, and a `configobj` key may be neither.
+
+**Turning a remembered layout off has to outlive the redraw.** The command drops the request,
+and a saved layout would put it straight back — a toggle that does nothing. `tableRefused`
+holds the refusal until the reader leaves the table, since coming back to it is asking again,
+and `script_forgetTableLayout` is how they say it for good.
+
+Open, and for hardware: whether automatic application wants a setting of its own. It is
+currently on for anything saved, which is what saving means, but a reader who wants a layout
+for the command to apply and not for the page to apply on its own has nowhere to say so.
+
+**M6b — applying a favourite.** Not started. Choosing a saved layout by name while sitting in
+a table that has none, which is the escape hatch for a table nothing can recognise and the way
+a layout reaches a second table that should read like the first.
 
 **M7 — the table designer dialog.** On top of M6's record, once the record has been lived
 with.
+
+### The blanks are one of Chrome's two browse modes, not one of ours
+
+Two dry runs of the same page, one reading correctly and one full of blank rows, and the
+difference is on the second line of each:
+
+```
+Band source: <DocumentFlowSource <NVDAObjects.UIA.chromium.ChromiumUIATreeInterceptor ...>>
+Band source: <DocumentFlowSource <NVDAObjects.IAccessible.chromium.ChromeVBuf ...>>
+```
+
+**They are different browse mode implementations of the same page.** Under the UIA tree
+interceptor the document's lines are the cells — `'%Change'`, `'Open'`, `'High'` — one after
+another with nothing between them. Under the IA2 virtual buffer each cell is followed by a
+line of its own holding a single space, and NVDA puts that space in *the same cell* as the
+text before it: offsets 296 to 302 and 302 to 303 are both row 1 column 2. That is the
+separator after a cell's text, given a line by the buffer's line offsets.
+
+Which implementation a Chromium document gets is `UIAHandler._isUIAWindowHelper`: a
+`Chrome_RenderWidgetHostHWND` is treated as **non-UIA** — the IA2 buffer — when NVDA can
+inject in-process and IA2 is reachable, unless the reader has set "Yes" for UIA in Chromium.
+The answer is cached per window for half a second. So the reader's pattern is explained
+exactly: fresh NVDA, the injection into that renderer is not established, the document comes
+up on UIA and reads cleanly; switch away, come back, refresh, injection is in place, the same
+page comes up on the IA2 buffer, and every cell now has a one-space line after it. Nothing an
+add-on can reach is in that decision, and NVDA's own down arrow walks those lines the same
+way the flow does — `expand`, `collapse`, `move` — which is why speech says "row 1 column 2
+blank" on the same offsets the band draws a row for.
+
+What a reader can do about it is NVDA's setting, in Advanced: UIA in Chromium set to *Yes*
+pins the implementation their good log shows.
+
+The rule that skipped those lines was removed rather than kept behind a switch, and the
+reader's reasoning for that stands whatever produces them: a rule that hides a row the arrow
+keys still land on makes the display disagree with the caret. If it is ever wanted, the log
+now gives it an exact form rather than a guess — a whitespace-only line whose cell is the cell
+of the line above it is that cell's separator, and nothing else answers that description,
+since an empty cell reports a column of its own.
+
+The audit that came with the removal is worth keeping. The add-on writes to a document in four
+places, all of them things the reader pressed: a routing key (`FlowRegion._setCursor`,
+`TableCellRegion.routeTo`, the two `setFocus` calls in the object readers), a pan
+(`_cursorToTop`), and a line command (`_stepBlock`). Nothing on a timer, on a live update or
+on a redraw. The one path outside that list is NVDA's own: `BrailleBuffer.scrollForward` calls
+`regions[-1].nextLine()` when the buffer cannot scroll, and for a browse mode region that
+moves the cursor a line on — reached by a panning key, never by an arrow key.
+
+### A row taken away from under the reader
+
+Outlook, reported twice: two messages showing, the reader on the top one, delete it — the
+focus moves to the message below and the deleted one stays on the display.
+
+The band had no way to know. Every block it holds was read correctly when it was read, the
+object the reader arrived on is in the run, and a run being *shorter* than it was is not
+something either of those shows. It had been covered by accident: the re-read on arrival
+emptied the window to a single block and filled it again, so the deleted row fell out on the
+way past. Fixing that fault — it was what threw a tree reader onto the top row — took the
+accident with it, which is why the two reports arrived together.
+
+`FlowController.runStillHoldsTheBand` asks it deliberately now, and asks the least that
+answers it: is the block above the reader still what the run puts before them, and the block
+below still what it puts after. Two steps in the run per focus move, against walking the whole
+run on every arrow key — and it catches the change that matters, because the reader's own hand
+is what made it. When the answer is no, the run is read again by the path
+`_runHasChangedShape` already uses for a node being opened.
+
+What it does not catch is a row taken away at the far end of the band while the reader stands
+still; the live pass covers that, and any keystroke reads the band afresh.
 
 ## Open questions
 

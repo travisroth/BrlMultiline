@@ -264,6 +264,11 @@ class TestBlankLines(unittest.TestCase):
 		self.assertEqual(blank.kind, ResultKind.BLOCK)
 		self.assertEqual(source.blockAfter(blank.block.blockId).kind, ResultKind.END_OF_STREAM)
 
+	def test_aBlankLineOutsideATableStillOwnsItsRow(self):
+		"""Where an author put it there. The band is showing the shape of what is written."""
+		source = sourceOver(["a", "", "b"], caretIndex=0)
+		self.assertEqual(textsFrom(source, 2), ["a", "", "b"])
+
 	def test_walkingBackOverBlanksKeepsTheRunsFirstMember(self):
 		source = sourceOver(["a", "", "", "b"], caretIndex=3, interactive=False)
 		block = source.blockAtCursor().block

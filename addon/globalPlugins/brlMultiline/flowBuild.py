@@ -31,7 +31,7 @@ from braille.regions.focus import getFocusRegions
 from braille.regions.textInfo import TextInfoRegion
 from logHandler import log
 
-from . import bmConfig, flowForms, flowObjects, flowTable, flowTableSource
+from . import bmConfig, flowForms, flowObjects, flowTable, flowTableLayouts, flowTableSource
 from .flowControl import FlowController
 from .flowRender import FlowRenderer
 from .flowSources import (
@@ -286,6 +286,7 @@ def buildTableController(
 	generation: int = 0,
 	maxRows: Optional[int] = None,
 	notes: Optional[list] = None,
+	layout: Optional["flowTableLayouts.TableLayout"] = None,
 ) -> Optional[FlowController]:
 	"""Build a flow that reads the table the reader is in, laid out in columns.
 
@@ -308,6 +309,7 @@ def buildTableController(
 	:param generation: distinguishes this reading from an earlier one.
 	:param maxRows: how many band rows one table row may use. The reader's setting.
 	:param notes: a list to record each step in, so that a failure says which step failed.
+	:param layout: what the reader saved for this table, or None to follow the settings.
 	:return: the controller, or None if the reader is not in a table this can lay out.
 	"""
 	if notes is None:
@@ -319,11 +321,19 @@ def buildTableController(
 		notes.append("Not in a table, or the table is one NVDA presents as page layout.")
 		return None
 	notes.append(f"Reading a table: {handle!r}")
+	# What the reader decided about *this* table, where they decided anything. Every field of
+	# it can say "not my business", and an absent record says that of all of them — so the
+	# settings are what answer here exactly as they did before there were records at all. See
+	# `flowTableLayouts`.
+	saved = layout if layout is not None else flowTableLayouts.TableLayout()
+	if layout is not None:
+		notes.append(f"Using the layout saved for this table: {saved.asRecord()}")
 	# The header row is held above the window, so the window is one row shorter. Decided here
 	# and not later: it is the height everything below is planned against, and a band whose
 	# height changed while it was being read would move every row the reader had found.
-	headers = bmConfig.shouldPinTableHeaders() and handle.numRows > 1 and numRows > 2
+	headers = saved.headersOr(bmConfig.shouldPinTableHeaders()) and handle.numRows > 1 and numRows > 2
 	measured = flowTableSource.measure(handle, live=False)
+	measured = _asTheReaderWantsThem(measured, saved, notes)
 	# Twice at most, and the second time only to give a row back. Whether there is a header to
 	# pin cannot be known before the columns are chosen — a table's headers are declared by its
 	# cells, and which cells are read is what the plan decides — so the row is reserved, the
@@ -335,12 +345,14 @@ def buildTableController(
 		plan = flowTable.planFor(
 			measured,
 			numCols,
-			maxRows=bmConfig.tableRowHeight() if maxRows is None else maxRows,
-			overflow=flowTable.TRUNCATE if bmConfig.shouldTruncateTableCells() else flowTable.WRAP,
+			maxRows=saved.rowHeightOr(bmConfig.tableRowHeight()) if maxRows is None else maxRows,
+			overflow=flowTable.TRUNCATE
+			if saved.truncateOr(bmConfig.shouldTruncateTableCells())
+			else flowTable.WRAP,
 			# From the band's height, because what a row costs is only meaningful beside how
 			# many of them there is room for. See `flowTable.targetHeightFor`.
 			targetHeight=flowTable.targetHeightFor(bandRows),
-			pinKey=bmConfig.shouldPinKeyColumn(),
+			pinKey=saved.pinKeyOr(bmConfig.shouldPinKeyColumn()),
 		)
 		if plan.isEmpty:
 			notes.append("No column layout fits this table on this band.")
@@ -391,6 +403,35 @@ def buildTableController(
 		notes.append("The table was recognised but its first row could not be read.")
 		return None
 	return control
+
+
+def _asTheReaderWantsThem(measured, saved, notes: list):
+	""":return: the measured columns, cut down and ordered as a saved layout asks.
+
+	**The reader's order, and only the columns they kept.** A saved layout that names columns
+	is a reader saying "these, like this" — the four of a watchlist they actually watch, in
+	the order they read them — and everything below this is already written to draw the
+	columns it is given in the order it is given them.
+
+	A column the table no longer has is dropped rather than drawn empty: a page regenerated
+	with one column fewer is the ordinary way a saved layout meets a table that has changed,
+	and a layout that survives it minus a column is worth more than one that refuses.
+
+	:param measured: the columns as `flowTableSource.measure` found them.
+	:param saved: the layout the reader saved.
+	:param notes: where to record what was dropped, for the report.
+	"""
+	if not saved.columns:
+		return measured
+	byIndex = {item.index: item for item in measured}
+	wanted = [byIndex[index] for index in saved.columns if index in byIndex]
+	if not wanted:
+		notes.append("The saved layout names no column this table has, so all of them are drawn.")
+		return measured
+	missing = [index for index in saved.columns if index not in byIndex]
+	if missing:
+		notes.append(f"The saved layout names columns this table has not got: {missing}")
+	return wanted
 
 
 def buildController(

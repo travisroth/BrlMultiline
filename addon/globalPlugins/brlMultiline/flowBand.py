@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import api
 from logHandler import log
 
-from . import bmConfig, flowForms, flowObjects, flowQuickNav, flowTableSource, patches
+from . import bmConfig, flowForms, flowObjects, flowQuickNav, flowTableLayouts, flowTableSource, patches
 from .flowControl import FlowController
 from .flowBuild import (
 	buildTableController,
@@ -831,6 +831,16 @@ class FlowBand(PanelOwner):
 			# they pass.
 			self.obj = obj
 			self.controller.source.setCurrent(obj)
+			if not self.controller.runStillHoldsTheBand():
+				# Something beside them has been taken away or put there — a message deleted,
+				# which is the case this was reported for: the focus moves to the next one and
+				# the deleted row stays on the band, because every other block was read
+				# correctly when it was read and nothing about the arrival says otherwise. The
+				# run is what changed, so the run is read again, by the same path
+				# `_runHasChangedShape` uses for a node being opened.
+				self.controller = None
+				self.obj = None
+				return self.showObject(obj, force=True)
 			# Before the window is placed, because it is the text of the block being placed:
 			# an object is answered for reliably while the reader is on it, and this is that
 			# moment. See `FlowController.rereadArrival`.
@@ -1110,12 +1120,25 @@ class FlowBand(PanelOwner):
 			return False
 
 	def _showColumn(self, column: int) -> bool:
-		"""Bring the page holding a column onto the band.
+		"""Bring the page holding a column onto the band, unless it is already on it.
 
-		The column axis of what the window does for rows: the reader moves to a cell and the
-		display follows, rather than the reader having to find it. A table wide enough to
-		need pages is a table where the caret goes somewhere the band is not showing on
-		nearly every keystroke.
+		The column axis of what the window does for rows, and the same bargain braille
+		tethering makes with the focus: the display is free to travel away from the caret —
+		panning does it, `turnColumnPage` does it — and a caret that then moves brings it back.
+
+		**Brought back, rather than dragged back.** What is asked is whether the cell the caret
+		moved to is on the display, not whether the page is that column's own. A pinned key
+		column is drawn at the left of every page, so a reader who turned across to the numbers
+		and then walked *down* the symbols is still feeling the column they are in, and the
+		page they turned to stays. Only a caret that has gone somewhere they cannot feel is
+		worth moving the display for.
+
+		Hardware found both halves of that, one at a time. Following the caret's own page on
+		every move put a reader on any page past the first back onto page one at the first
+		press of down arrow, since table navigation keeps the column while moving the row.
+		Refusing to follow at all — the fix for that — left the band where it had been paged
+		while the caret walked off it, with nothing to bring it back and no way to tell where
+		it had gone.
 
 		:param column: the table's own number for the column to show.
 		:return: whether the page changed.
@@ -1123,9 +1146,14 @@ class FlowBand(PanelOwner):
 		plan = getattr(self.controller.renderer, "columnPlan", None)
 		if plan is None or plan.isEmpty:
 			return False
+		if plan.drawsOnThisPage(column):
+			# Under their hand already. See `ColumnPlan.drawsOnThisPage`, which counts the
+			# repeated key column as the column it is a copy of.
+			return False
 		# `pageOf` answers where the column lives, which for the pinned key column is its own
-		# page and not the several it is repeated on. That is deliberate: the caret being in a
-		# column means the reader is reading it, and the copy is cut where the column is whole.
+		# page and not the several it is repeated on. That is the right answer here: this is
+		# reached only for a column that is not on the display at all, and the copy is cut
+		# where the column is whole.
 		page = plan.pageOf(column)
 		if page is None or page == plan.page:
 			return False
@@ -1135,8 +1163,22 @@ class FlowBand(PanelOwner):
 		"""Move the band across the table by pages of columns, without moving the caret.
 
 		Looking around rather than going somewhere, which is why it leaves the caret where it
-		is — and why the next caret move brings the page back to wherever that is. The same
-		relationship panning has with the cursor one axis over.
+		is. The same relationship panning has with the cursor one axis over.
+
+		**And the page stays turned while the reader can still feel where they are.** Two
+		hardware reports, one either side of it. Bringing the page back to the caret's own
+		column on every move meant that on any page past the first, one press of down arrow put
+		the reader back on page one: table navigation keeps the column while moving the row, so
+		the caret was still in column one and the band went there. Holding the page against
+		every caret move instead — the fix for that — was worse the other way: the caret walked
+		off the page, nothing brought the display back to it, and a reader arrowing across the
+		columns had no idea where their cursor had gone.
+
+		What settles it is the same rule braille tethering follows: the display may travel, and
+		a caret that moves somewhere it is not showing brings it back. So the page holds for as
+		long as the cell the caret is in is drawn on it — which, with the key column pinned at
+		the left of every page, is the whole of reading a column down — and a move to a column
+		this page does not show is followed. See `_showColumn`, which is where that is decided.
 
 		:param by: how many pages to move, negative for back towards the first column.
 		:return: whether the page changed.
@@ -1202,7 +1244,7 @@ class FlowBand(PanelOwner):
 		:param force: rebuild even when the table has not changed.
 		:return: whether a flow is showing, or None if this is not a table to lay out.
 		"""
-		if self.tableWanted is None:
+		if self.tableWanted is None and not self._wantedByASavedLayout(obj):
 			return None
 		handle = flowTableSource.tableAt(obj)
 		if handle is None or not flowTableSource.sameTable(handle.key, self.tableWanted):
@@ -1229,6 +1271,7 @@ class FlowBand(PanelOwner):
 			live=True,
 			generation=next(_generations),
 			notes=self.tableNotes,
+			layout=flowTableLayouts.layoutFor(handle),
 		)
 		if control is None:
 			# Recognised a moment ago and not now, or no column layout fits this band. Reading
@@ -1240,6 +1283,50 @@ class FlowBand(PanelOwner):
 		self.obj = obj
 		self._attach(segment, control)
 		return True
+
+	def _wantedByASavedLayout(self, obj: Any) -> bool:
+		""":return: whether this table is one the reader has already laid out, and is now.
+
+		**The whole point of saving one.** A layout that has to be asked for by name every
+		time is a layout the reader types out again on every page load; what they asked for is
+		the watchlist coming up laid out. So a table the store knows becomes the table asked
+		for, exactly as the command would have made it, and one keystroke still takes it away
+		again — see `clearTable`, which drops the request without touching what was saved.
+
+		Cheap where nothing is saved, which is every table until the reader saves one: an
+		empty store answers here without looking at the object at all. See
+		`flowTableLayouts.layoutFor`.
+
+		:param obj: what the reader is now on.
+		"""
+		if not flowTableLayouts.stored() or self._refusedTable(obj):
+			return False
+		handle = flowTableSource.tableAt(obj)
+		if handle is None or flowTableLayouts.layoutFor(handle) is None:
+			return False
+		self.tableWanted = handle.key
+		return True
+
+	def _refusedTable(self, obj: Any) -> bool:
+		""":return: whether the reader has just taken this table's layout away.
+
+		A saved layout applies itself, so turning it off has to mean something for longer than
+		the redraw that follows: without this the command would drop the request and the next
+		redraw would put it straight back, which is a toggle that does nothing. Held until the
+		reader leaves the table, since coming back to it is them asking for it again.
+		"""
+		refused = getattr(self.plugin, "tableRefused", None)
+		if refused is None:
+			return False
+		try:
+			here = flowTableSource.wantsColumns(refused, obj)
+		except Exception:
+			log.debugWarning("Could not tell whether a table was refused", exc_info=True)
+			return False
+		if not here:
+			# Somewhere else, so the refusal is spent. It was about the table they were in.
+			self.plugin.tableRefused = None
+		return here
 
 	def _setInteractiveObject(self, obj: Any, target: Any, regions) -> bool:
 		"""Give an embedded edit's active block its real caret-owning region."""

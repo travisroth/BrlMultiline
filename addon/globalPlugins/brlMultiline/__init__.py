@@ -175,6 +175,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		writes this, so there is one answer whether or not a band is showing it.
 		"""
 
+		self.tableRefused = None
+		"""A table whose saved layout the reader has just turned off, for as long as they are
+		in it.
+
+		A saved layout applies itself the moment the reader arrives, so turning it off has to
+		mean something for longer than the redraw that follows — otherwise the command drops
+		the request and the next redraw puts it straight back, which is a toggle that does
+		nothing. Cleared when they leave the table, since coming back to it is asking again.
+		See `FlowBand._refusedTable`, and `script_forgetTableLayout` for the way to make it
+		stop for good.
+		"""
+
 		self._applyingFlow = False
 		"""Guards L{_applyFlow} against itself: claiming the band rebuilds the display."""
 
@@ -1844,6 +1856,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# no band nothing drops the old request, so the press that should have laid out the
 		# second table was turning the first one off instead.
 		if self.tableWanted is not None and not self._inAnotherTable(target):
+			# Remembered before the request is dropped, because dropping it is what lets a
+			# saved layout put it back. See `tableRefused`.
+			self.tableRefused = self.tableWanted
 			if band is not None:
 				band.clearTable()
 			else:
@@ -1923,6 +1938,91 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				_("page {page} of {pages}").format(page=plan.page + 1, pages=plan.numPages),
 			)
 		self.reportAboutTheDisplay(", ".join(said))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Remembers the table on the display, so it is laid out in columns next time"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_rememberTableLayout(self, gesture):
+		"""Save the layout on the display against the table it is showing.
+
+		The end the column command was always pointed at: a watchlist that comes up laid out.
+		What is saved is the columns as they are drawn — the decision the reader has actually
+		made by the time they press this, having turned the layout on and looked at it — and
+		nothing else, so that their ordinary settings keep reaching this table.
+		"""
+		from . import flowTableLayouts
+
+		band = self.flowBand
+		plan = band.columnPlan() if band is not None else None
+		if plan is None:
+			# Translators: reported when a command needs a table laid out in columns and there
+			# is none on the display.
+			ui.message(_("No table columns are showing"))
+			return
+		handle = self._tableHere()
+		if handle is None:
+			# Translators: reported when a command needs the cursor to be in a table.
+			ui.message(_("Not in a table"))
+			return
+		if not flowTableLayouts.remember(handle, flowTableLayouts.layoutFrom(plan, handle)):
+			ui.message(
+				# Translators: reported when a table's layout cannot be saved because nothing
+				# about the table or its window is stable enough to recognise it again.
+				_("This table cannot be recognised again, so its layout cannot be remembered"),
+			)
+			return
+		self.reportAboutTheDisplay(
+			# Translators: reported when a table's layout is saved. The placeholder is how
+			# many columns it holds.
+			_("Layout remembered, {shown} columns").format(shown=len(plan.columns)),
+		)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Forgets the remembered layout for the table you are in"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_forgetTableLayout(self, gesture):
+		"""Drop the saved layout for this table, so it reads as the page around it again."""
+		from . import flowTableLayouts
+
+		handle = self._tableHere()
+		if handle is None:
+			# Translators: reported when a command needs the cursor to be in a table.
+			ui.message(_("Not in a table"))
+			return
+		if not flowTableLayouts.forget(handle):
+			# Translators: reported when a table has no saved layout to forget.
+			ui.message(_("This table has no remembered layout"))
+			return
+		band = self.flowBand
+		if band is not None and band.tableWanted is not None:
+			band.clearTable()
+		self.tableWanted = None
+		self.tableRefused = None
+		# Translators: reported when a table's saved layout is dropped.
+		ui.message(_("Layout forgotten"))
+
+	def _tableHere(self):
+		""":return: the table the reader is in, or None, without disturbing anything.
+
+		The navigator object rather than the focus, which is what the column command uses and
+		what a reader means by "the table I am in": on a one row display there is no band, and
+		the pin they are working with is where the navigator object is.
+		"""
+		from .flowTableSource import logExplanation, tableAt
+
+		obj = api.getNavigatorObject()
+		try:
+			handle = tableAt(obj)
+		except Exception:
+			log.debugWarning("Could not look for the table the reader is in", exc_info=True)
+			return None
+		if handle is None:
+			logExplanation(obj, "asked about the table the reader is in and found none")
+		return handle
 
 	@script(
 		# Translators: input help message for a command.

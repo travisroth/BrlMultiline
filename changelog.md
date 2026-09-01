@@ -80,6 +80,24 @@ Added:
   of dots 7 and 8 rather than read out as unavailable commands. Off until it is turned on,
   separately from browse mode. Experimental.
 
+- Tables in columns, with the layout remembered against the table. A command lays the table
+  you are in out across the display, another moves through the pages of a wide one, and the
+  first column can be repeated on every page so you know whose row you are reading. The page
+  you turn to stays while the cell your cursor is in is on it, and the display comes back to
+  your cursor when it moves somewhere the page does not show. What each
+  column is called is taken from the table itself and can be held on a row above the band.
+  Two more commands remember the layout for this table and forget it again: a remembered
+  table comes up laid out with no keystroke at all, and turning the columns off leaves the
+  memory alone until you come back to it. What is remembered is which columns you kept and in
+  what order, so the same layout works on a display of another size. Web pages, File
+  Explorer's Details view and Outlook's message list are all read this way.
+
+- A message row in Outlook's list says what is true of *it*. NVDA builds part of such a row's
+  name from whichever message is selected, so rows on the display could carry another
+  message's "unread", "replied" or "forwarded". Rows you are not on are now built from their
+  own fields instead; the row you are on still says everything NVDA says about it, which is
+  where those flags are true.
+
 For add-on authors and component work:
 
 - Panels. Code can claim part of the display, subdivide it as it likes, and hand it back,

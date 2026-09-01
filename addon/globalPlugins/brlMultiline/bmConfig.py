@@ -120,6 +120,7 @@ def flowModeKey(mode: str) -> str:
 
 
 configSpec = {
+	"tableLayouts": 'string(default="")',
 	"displays": {
 		"__many__": {
 			"segmentsEnabled": "boolean(default=True)",
@@ -238,6 +239,33 @@ def flowIndentStyle(displayKey: Optional[str] = None) -> str:
 def initialize() -> None:
 	"""Register the add-on's configuration specification."""
 	config.conf.spec[CONFIG_SECTION] = configSpec
+
+
+def tableLayouts() -> str:
+	""":return: the saved table layouts, as the JSON they are stored in.
+
+	**Not per display**, unlike everything else here, and that is the decision worth stating.
+	What is saved is which columns the reader wants and how tall a row may be — choices about
+	a table — while the widths those become belong to the display the table lands on and are
+	worked out again there. A reader who lays out a watchlist on a Monarch and carries it to a
+	Focus 80 wants the same columns, not the same cells.
+
+	One string rather than a nest of sections, because the keys are URLs and window classes
+	and a `configobj` key may be neither. See `flowTableLayouts`.
+	"""
+	try:
+		return str(config.conf[CONFIG_SECTION]["tableLayouts"] or "")
+	except Exception:
+		log.debugWarning("Could not read the saved table layouts", exc_info=True)
+		return ""
+
+
+def setTableLayouts(said: str) -> None:
+	"""Store the saved table layouts.
+
+	:param said: the JSON to store. See `flowTableLayouts`.
+	"""
+	config.conf[CONFIG_SECTION]["tableLayouts"] = said
 
 
 def getDisplayKey() -> str:

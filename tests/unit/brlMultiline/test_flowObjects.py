@@ -18,11 +18,13 @@ import dataclasses
 import unittest
 
 from ._stubs import (
+	CONFIG,
 	FakeNavigatorObject,
 	FakeTreeInterceptor,
 	fakeRun,
 	fakeSeparator,
 	installStubs,
+	resetConfig,
 )
 
 installStubs()
@@ -33,6 +35,12 @@ from brlMultiline.flowIndent import FOCUS_CELL  # noqa: E402
 from brlMultiline.flowControl import FlowController  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
 from brlMultiline.flowSources import FetchBudget  # noqa: E402
+
+from .test_flowSegment import (  # noqa: E402
+	FakeHandler as BandHandler,
+	FakePlugin,
+	containerWithBand,
+)
 
 NUM_COLS = 20
 """Wide enough that a stub block — "Banana LISTITEM" — is one row."""
@@ -1827,6 +1835,18 @@ class OutlookAppModule:
 	appName = "outlook"
 
 
+def _messageCell(header, text):
+	""":return: one field of a message row, in the shape Outlook's are.
+
+	A text element whose *name* is the value — Outlook's rows have no cell values — and whose
+	column names itself through `columnHeaderText`, which is what NVDA resolves out of
+	`TableItemColumnHeaderItemsPropertyId`.
+	"""
+	cell = FakeNavigatorObject(name=text, role="STATICTEXT")
+	cell.columnHeaderText = header
+	return cell
+
+
 class OutlookLikeItem(UIAGridRow, FakeNavigatorObject):
 	"""A message row named the way NVDA names Outlook's.
 
@@ -1837,11 +1857,27 @@ class OutlookLikeItem(UIAGridRow, FakeNavigatorObject):
 
 	appModule = OutlookAppModule()
 
-	def __init__(self, subject, inbox, unread=False):
+	def __init__(self, subject, inbox, unread=False, cells=None):
 		self.subject = subject
 		self.inbox = inbox
 		self.unread = unread
 		FakeNavigatorObject.__init__(self, name=subject, role="LISTITEM")
+		self.cellObjects = [_messageCell(header, text) for header, text in (cells or (
+			("From", "Alice"),
+			("Subject", subject),
+			("Received", "10:42"),
+		))]
+		"""The row's own fields, as Outlook's grid row holds them: text elements whose names
+		are the values and whose columns name themselves. What the row says about itself,
+		whatever is selected."""
+
+	@property
+	def children(self):
+		return list(self.cellObjects)
+
+	@property
+	def childCount(self):
+		return len(self.cellObjects)
 
 	@property
 	def name(self):
@@ -1880,6 +1916,190 @@ def hangUnder(items, role="LISTITEM"):
 	parent.children = list(items)
 	parent.firstChild = items[0] if items else None
 	return items
+
+
+
+
+class TestARowBuiltFromItsOwnCells(unittest.TestCase):
+	"""Reported from hardware, and worse than it first looked: Outlook builds a message row's
+	name partly from `activeExplorer().selection`, so a row read while another message is
+	selected carries *that* message's flags. On the display, "replied" and "forwarded" appeared
+	on messages that were neither — not merely wrong but alarming, since nothing distinguishes
+	it from the truth.
+
+	Refusing to re-read such a row out of context was half the answer and could only ever be
+	half: a row walked onto the band while a different message is selected was never right in
+	the first place. A row's *cells* are its own whatever is selected, and reading them is what
+	`flowObjectTable` already does for the same list laid out in columns.
+	"""
+
+	def inbox(self, unread=True):
+		""":return: two messages, the second unread, with the first selected."""
+		shared = {}
+		items = [
+			OutlookLikeItem("about the workflow", shared),
+			OutlookLikeItem("about mixed case", shared, unread=unread),
+		]
+		hangUnder(items, role="LISTITEM")
+		items[1].select()
+		return items
+
+	def test_aRowTheReaderIsNotOnIsBuiltFromItsCells(self):
+		items = self.inbox()
+		source = sourceOver(items, at=1)
+		said = source.blockAtCursor(atObject=items[0]).block.region.rawText
+		self.assertIn("Alice", said)
+		self.assertIn("about the workflow", said)
+
+	def test_soTheSelectionsFlagsAreNotOnIt(self):
+		"""The whole point. The selected message is unread; the row above it is not, and said
+		it was."""
+		items = self.inbox()
+		said = sourceOver(items, at=1).blockAtCursor(atObject=items[0]).block.region.rawText
+		self.assertNotIn("unread", said)
+
+	def test_theRowTheReaderIsOnKeepsWhatNvdaSaysAboutIt(self):
+		"""Where the selection and the row are the same message, every word of NVDA's name is
+		true of it — and "unread" lives nowhere else: it is not a cell."""
+		items = self.inbox()
+		said = sourceOver(items, at=1).blockAtCursor().block.region.rawText
+		self.assertIn("unread", said)
+
+	def test_aRowWithNoCellsIsReadTheOrdinaryWay(self):
+		"""Nothing to build from. A row read the old way is what the reader had yesterday;
+		a row with no text at all is not."""
+		items = self.inbox()
+		items[0].cellObjects = []
+		said = sourceOver(items, at=1).blockAtCursor(atObject=items[0]).block.region.rawText
+		self.assertIn("about the workflow", said)
+
+	def test_anOrdinaryListItemIsUntouched(self):
+		"""Only an object that says its text is about the selection is read this way."""
+		items = hangUnder([ChangingItem("Apple"), ChangingItem("Banana")])
+		said = sourceOver(items, at=0).blockAtCursor(atObject=items[1]).block.region.rawText
+		self.assertIn("Banana", said)
+
+	def test_theStandInDoesNotOutliveTheReading(self):
+		"""Routing, acting and the controller all reach for the region's object, and they must
+		find the row rather than the thing the reading was done through."""
+		items = self.inbox()
+		block = sourceOver(items, at=1).blockAtCursor(atObject=items[0]).block
+		self.assertIs(block.region.obj, items[0])
+
+
+class TestARowTakenAwayFromUnderTheReader(unittest.TestCase):
+	"""Reported from Outlook: two messages showing, the reader on the top one, delete it —
+	the focus moves to the message below and the deleted one stays on the display.
+
+	The band had no way to know. Every block it holds was read correctly when it was read, the
+	object the reader arrived on is in the run, and the run being *shorter* than it was is not
+	something any of that shows. It had been covered by accident, by a re-read that emptied the
+	band on every arrival and filled it again — the same fault that threw a tree reader onto the
+	top row, so fixing that brought this back. See `FlowController.runStillHoldsTheBand`.
+	"""
+
+	def _run(self, names):
+		return fakeRun(names)
+
+	def _delete(self, items, index):
+		"""Take one item out of a run, the way an application does when a row goes."""
+		gone = items[index]
+		rest = [item for item in items if item is not gone]
+		for position, item in enumerate(rest):
+			item.next = rest[position + 1] if position + 1 < len(rest) else None
+			item.previous = rest[position - 1] if position else None
+		gone.next = None
+		gone.previous = None
+		parent = gone.parent
+		parent.children = rest
+		parent.firstChild = rest[0] if rest else None
+		return rest
+
+	def _held(self, control):
+		return [held.blockId.bookmark.name for held in control.window.blocks]
+
+	def test_soTheDeletedMessageLeavesTheDisplay(self):
+		"""The reader's own report, on a band: two messages showing, the top one deleted, the
+		focus on what is now the top one — and the display holding what is there."""
+		import api
+		import braille
+
+		from brlMultiline.flowBand import FlowBand
+
+		resetConfig()
+		self.addCleanup(resetConfig)
+		CONFIG["flowEnabled"] = True
+		CONFIG["flowObjects"] = True
+		handler = BandHandler(4, NUM_COLS)
+		self.addCleanup(setattr, braille, "handler", braille.handler)
+		braille.handler = handler
+		container = containerWithBand(handler, numRows=4, numCols=NUM_COLS)
+		handler.mainBuffer = handler.buffer = container
+		band = FlowBand(FakePlugin(container))
+		self.addCleanup(setattr, api, "getFocusObject", api.getFocusObject)
+		self.addCleanup(setattr, api, "getNavigatorObject", api.getNavigatorObject)
+		items = self._run(["Apple", "Banana", "Cherry"])
+
+		def arriveAt(obj):
+			api.getFocusObject = lambda: obj
+			api.getNavigatorObject = lambda: obj
+			band.showObject(obj)
+
+		arriveAt(items[0])
+		self.assertIn("Apple", self._held(band.controller))
+		self._delete(items, 0)
+		arriveAt(items[1])
+		self.assertEqual(self._held(band.controller), ["Banana", "Cherry"])
+
+	def test_theRunIsSeenToHaveChangedBesideThem(self):
+		items = self._run(["Apple", "Banana", "Cherry"])
+		control = controllerOver(items, at=0)
+		self.assertTrue(control.runStillHoldsTheBand())
+		self._delete(items, 0)
+		control.source.setCurrent(items[1])
+		self.assertFalse(control.runStillHoldsTheBand())
+
+	def test_anOrdinaryMoveThroughTheRunChangesNothing(self):
+		"""Which is every arrow key, and it must not cost the reader their band."""
+		items = self._run(["Apple", "Banana", "Cherry"])
+		control = controllerOver(items, at=0)
+		control.source.setCurrent(items[1])
+		self.assertTrue(control.runStillHoldsTheBand())
+
+	def test_anItemPutBesideThemIsNoticedToo(self):
+		"""The same question answers an arrival as well as a deletion."""
+		items = self._run(["Apple", "Cherry"])
+		control = controllerOver(items, at=0)
+		fresh = fakeRun(["Banana"], parent=items[0].parent)[0]
+		items[0].next = fresh
+		fresh.previous = items[0]
+		fresh.next = items[1]
+		items[1].previous = fresh
+		self.assertFalse(control.runStillHoldsTheBand())
+
+	def test_aReaderWhoIsNotOnTheBandIsNotJudged(self):
+		"""They have moved somewhere it has not read yet, and placing them is what happens
+		next. There is nothing here to compare them with."""
+		items = self._run(["Apple", "Banana", "Cherry"])
+		control = controllerOver(items, at=0, numRows=1)
+		control.source.setCurrent(items[2])
+		self.assertTrue(control.runStillHoldsTheBand())
+
+	def test_aDocumentIsNotAskedAtAll(self):
+		"""A document's blocks are positions, and positions have no neighbours to disagree."""
+		items = self._run(["Apple", "Banana"])
+		control = controllerOver(items, at=0)
+		control.source.neighbourOf = None
+		self.assertTrue(control.runStillHoldsTheBand())
+
+	def test_theEndsOfTheBandAreNotComparedWithNothing(self):
+		"""The first and last blocks have one neighbour each, and a run that ends is not a run
+		that changed."""
+		items = self._run(["Apple", "Banana"])
+		control = controllerOver(items, at=0)
+		self.assertTrue(control.runStillHoldsTheBand())
+		control.source.setCurrent(items[1])
+		self.assertTrue(control.runStillHoldsTheBand())
 
 
 class TestARowReadOutOfContext(unittest.TestCase):
@@ -1977,6 +2197,37 @@ class TestARowReadOutOfContext(unittest.TestCase):
 		control.source.setCurrent(items[1])
 		control.rereadArrival()
 		self.assertNotIn("unread", self.textFor(control, items[0]))
+
+	def test_andTheBandKeepsEveryRowItWasShowing(self):
+		"""What the re-read must not cost. Drawing the band again replaces the window with
+		what it is given, and this was giving it the one block it had re-read — so the window
+		was left holding that block alone. On a tree that was the reader stepping from a
+		folder into the first thing inside it: everything else went off the band and the child
+		became the top row, which is the second time that symptom has been reported."""
+		items = self.inbox()
+		control = controllerOver(items, at=0, numRows=4)
+		before = [rendered.blockId for rendered in control.window.blocks]
+		self.assertGreater(len(before), 1)
+		items[1].select()
+		control.source.setCurrent(items[1])
+		control.rereadArrival()
+		self.assertEqual([rendered.blockId for rendered in control.window.blocks], before)
+
+	def test_anArrivalThatSaysTheSameThingCostsNothing(self):
+		"""Which is every arrow key down an ordinary list. The block already held is kept, so
+		the region NVDA may have queued for update is kept with it and the band is not drawn
+		again for an answer that has not changed.
+
+		Ordinary items, because an Outlook row deliberately says something different once the
+		reader is on it: off it, the row is built from its own cells; on it, NVDA's own name is
+		true of it. See `TestARowBuiltFromItsOwnCells`."""
+		items = hangUnder([ChangingItem("Apple"), ChangingItem("Banana")])
+		control = controllerOver(items, at=0, numRows=4)
+		blockId = control.window.blocks[1].blockId
+		before = control.blocks.get(blockId)
+		control.source.setCurrent(items[1])
+		self.assertTrue(control.rereadArrival())
+		self.assertIs(control.blocks.get(blockId), before)
 
 	def test_aDocumentHasNoArrivalToReadAgain(self):
 		"""Only a run of objects: a document's blocks are positions, and which of them the

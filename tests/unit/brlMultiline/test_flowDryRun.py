@@ -11,7 +11,7 @@ wrong looking alike is the whole point of `describeIndent`.
 
 import unittest
 
-from ._stubs import Region, clipboard, installStubs
+from ._stubs import FakeTreeInterceptor, Region, clipboard, installStubs
 
 installStubs()
 
@@ -196,6 +196,72 @@ class FakeLiveControl(FakeControl):
 def Band(control):
 	""":return: enough of a band for the report to read a controller off."""
 	return type("Band", (), {"controller": control})()
+
+
+
+class TestWhatTheDocumentItselfSays(unittest.TestCase):
+	"""The one question the rest of the report cannot answer.
+
+	A reader feeling a blank row where they expected a value has two very different things in
+	front of them: a line the document has, which their own arrow keys will land on too, or a
+	row the flow invented. Everything else in the report is what the flow made of the document,
+	so it cannot tell them apart. This reads the document the way NVDA's own down arrow reads
+	it, with nothing of ours in between.
+	"""
+
+	def _band(self, lines, caretIndex=0, cells=None):
+		document = FakeTreeInterceptor(lines, caretIndex=caretIndex)
+		if cells is not None:
+			document._getTableCellCoords = lambda info: _cellAt(cells, info)
+		control = FakeLiveControl([1])
+		control.source = type("Source", (), {"obj": document})()
+		self.document = document
+		return Band(control)
+
+	def test_theDocumentsOwnLinesAreReported(self):
+		said = " ".join(liveReport(self._band(["Symbol", "", "Latest"])))
+		self.assertIn("What the document itself says", said)
+		self.assertIn("'Symbol'", said)
+		self.assertIn("'Latest'", said)
+
+	def test_soTheBlanksBetweenThemAreVisibleInTheReport(self):
+		"""Which is the whole point: this is where a blank row is shown to be the document's
+		own, or shown not to be."""
+		said = " ".join(liveReport(self._band(["Symbol", "", "Latest"])))
+		self.assertIn("''", said)
+
+	def test_theEndOfTheDocumentIsSaidRatherThanWalkedPast(self):
+		self.assertIn("the document ends here", " ".join(liveReport(self._band(["only"]))))
+
+	def test_whatNvdaCallsEachLineIsAskedOfNvda(self):
+		"""`_getTableCellCoords` is what browse mode's own table navigation is decided by, so
+		a line's cell — or its not being in one — is NVDA's answer and not a guess of ours."""
+		said = " ".join(liveReport(self._band(["Symbol", "", "Latest"], cells={0: (1, 2), 2: (1, 3)})))
+		self.assertIn("row 1 column 2", said)
+		self.assertIn("not in a table cell", said)
+
+	def test_nothingIsMoved(self):
+		"""It reads. A diagnostic that moved the reader's cursor would be reporting on a
+		document it had just changed."""
+		band = self._band(["Symbol", "", "Latest"], caretIndex=0)
+		liveReport(band)
+		self.assertEqual(self.document.caretIndex, 0)
+
+	def test_aSourceWithNoDocumentSaysNothingAtAll(self):
+		"""A run of objects has no document to ask, and an absent section is better than a
+		section saying it could not be filled in."""
+		control = FakeLiveControl([1])
+		control.source = type("Source", (), {"obj": object()})()
+		self.assertNotIn("What the document itself says", " ".join(liveReport(Band(control))))
+
+
+def _cellAt(cells, info):
+	""":return: a stand-in for NVDA's `_TableCell`, or LookupError as NVDA's own raises."""
+	found = cells.get(getattr(info, "index", None))
+	if found is None:
+		raise LookupError("Not in a table cell")
+	row, column = found
+	return type("Cell", (), {"tableID": 1, "row": row, "col": column})()
 
 
 class TestReportingTheLiveBand(unittest.TestCase):

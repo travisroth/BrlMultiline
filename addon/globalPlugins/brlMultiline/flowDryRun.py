@@ -28,6 +28,7 @@ import time
 from typing import TYPE_CHECKING, Optional
 
 import api
+import textInfos
 from logHandler import log
 
 from . import bmConfig, flowForms
@@ -107,8 +108,91 @@ def liveReport(band) -> list[str]:
 	except Exception as error:
 		log.debugWarning("Could not describe what the band is holding", exc_info=True)
 		lines.append(f"  could not be described: {error!r}")
+	lines.extend(whatTheDocumentItselfSays(control))
 	return lines
 
+
+
+DOCUMENT_LINES = 10
+"""How many of the document's own lines the report reads around the caret.
+
+Enough to see a pattern — a blank between every cell shows in four — and bounded because
+this runs while the reader waits, on a page that may be large.
+"""
+
+
+def whatTheDocumentItselfSays(control) -> list:
+	""":return: the document's own lines around the caret, read straight from NVDA.
+
+	**The one question the rest of this report cannot answer.** Everything above is what the
+	flow made of the document; this is what the document said, fetched the way NVDA's own
+	movement fetches it — from the cursor, expand the line, collapse to its start, move one
+	line — with nothing of this add-on's in between. A reader who feels a blank row can then be
+	told which of the two things it is: a line the document has, which their own arrow keys
+	will land on too, or a row the flow invented, which is ours to fix.
+
+	Each line is reported with the offsets that identify it, what NVDA's own table navigation
+	says about it — `documentBase.DocumentWithTableNavigation._inTable` and the cell it names —
+	and its text, so an empty cell and an empty line between cells can be told apart.
+
+	Read-only, and deliberately so: it copies the caret's position and walks the copy. Nothing
+	here moves the caret, the cursor or the focus.
+
+	:param control: the flow whose document to ask.
+	"""
+	document = getattr(getattr(control, "source", None), "obj", None)
+	if document is None or not hasattr(document, "makeTextInfo"):
+		return []
+	try:
+		here = document.makeTextInfo(textInfos.POSITION_SELECTION)
+	except Exception as error:
+		log.debugWarning("Could not read the document's own caret line", exc_info=True)
+		return [f"What the document itself says: it would not give its caret position ({error!r})."]
+	found = ["What the document itself says, from the caret onward:"]
+	for number in range(DOCUMENT_LINES):
+		try:
+			here.expand(textInfos.UNIT_LINE)
+			found.append(f"  {number}: {_describeDocumentLine(document, here)}")
+			here.collapse()
+			if here.move(textInfos.UNIT_LINE, 1) != 1:
+				found.append("  (the document ends here)")
+				break
+		except Exception as error:
+			log.debugWarning("Could not walk the document's own lines", exc_info=True)
+			found.append(f"  (the walk stopped: {error!r})")
+			break
+	return found
+
+
+def _describeDocumentLine(document, info) -> str:
+	""":return: one line of a document, as NVDA itself holds it.
+
+	:param document: the tree interceptor or object being read.
+	:param info: the position, expanded to the line.
+	"""
+	try:
+		text = info.text
+	except Exception:
+		text = "<could not be read>"
+	where = ""
+	asked = getattr(document, "_getTableCellCoords", None)
+	if asked is not None:
+		try:
+			cell = asked(info)
+			where = f" table {cell.tableID} row {cell.row} column {cell.col}"
+		except LookupError:
+			where = " not in a table cell"
+		except Exception:
+			where = " could not be asked about a table cell"
+	return f"{_offsetsOf(info)}{where}: {text!r}"
+
+
+def _offsetsOf(info) -> str:
+	""":return: where a position is, by whatever the document identifies positions with."""
+	try:
+		return f"{info.bookmark!r}"
+	except Exception:
+		return "<no bookmark>"
 
 def describeObjectTable(control) -> list:
 	""":return: what a table made of objects found, or nothing if this is not one.

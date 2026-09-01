@@ -470,6 +470,21 @@ class ColumnPlan:
 				return number
 		return None
 
+	def drawsOnThisPage(self, column: int) -> bool:
+		""":return: whether a table column is on the page this plan is showing.
+
+		A different question from `pageOf`, which answers where a column *lives*, and the two
+		differ for the one column that is drawn in more than one place: a pinned key column
+		lives on its own page and is repeated at the left of all the others. A reader whose
+		cursor is in it can feel it wherever they have paged to, which is what the pin is for.
+
+		What asks is `FlowBand._showColumn`, deciding whether a caret that has moved is still
+		on the display.
+
+		:param column: the table's own column number.
+		"""
+		return any(place.column.index == column for place in self.placements())
+
 	def cutting(self) -> "ColumnPlan":
 		""":return: this layout with every column cut rather than wrapped.
 

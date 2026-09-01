@@ -152,6 +152,7 @@ CONFIG = DisplaySection(
 		"flowScrollToNewContent": True,
 		"flowWriteByParagraph": True,
 		"flowIndentStyle": "twoSpaces",
+		"tableLayouts": "",
 	},
 )
 """The stub configuration the fake `bmConfig` reads. Tests mutate this directly.
@@ -2784,6 +2785,15 @@ def installStubs() -> None:
 	bmConfig.areSegmentsEnabled = lambda displayKey=None: _sectionFor(displayKey)["segmentsEnabled"]
 	bmConfig.setSegmentsEnabled = setSegmentsEnabled
 
+	def setTableLayouts(said):
+		CONFIG["tableLayouts"] = said
+
+	# Saved table layouts live in the add-on's own section rather than under a display — they
+	# are choices about a table and not about hardware — so they are read from L{CONFIG}
+	# directly, and `resetConfig` empties them between tests as it empties everything else.
+	bmConfig.tableLayouts = lambda: CONFIG["tableLayouts"]
+	bmConfig.setTableLayouts = setTableLayouts
+
 
 def loadPlugin():
 	"""Import the add-on's `__init__.py` as a module, and return it.
@@ -2847,6 +2857,8 @@ def resetConfig() -> None:
 		# missing reads as "could not be read" and that is a different path.
 		flowTableHeadersMode="follow",
 		flowTablePinKeyMode="follow",
+		# Saved table layouts. Empty, so a test that wants one saves it as a reader would.
+		tableLayouts="",
 	)
 	BAND_CONFIG.clear()
 	# Both are filled in by the real `getDisplayConfig` as displays are met, so a test that

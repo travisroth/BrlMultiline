@@ -17,13 +17,17 @@ show that the code above really is unchanged.
 import unittest
 
 from ._stubs import (
+	FORMAT_CONFIG,
 	FakeGrid,
 	FakeGridCell,
+	FakeGridRow,
 	FakeListView,
 	FakeNavigatorObject,
 	FakeTableDocument,
+	ReportTableHeaders,
 	installStubs,
 	navigatedTo,
+	resetConfig,
 )
 
 installStubs()
@@ -584,6 +588,69 @@ class TestWhatACellSays(unittest.TestCase):
 		"""Several header cells come back joined, and a pinned header row is one row."""
 		cell = FakeGridCell("x", 1, header="Quarter\nEnding")
 		self.assertEqual(flowObjectTable.headerTextOf(cell), "Quarter Ending")
+
+
+
+class TestARowReadAsOneLine(unittest.TestCase):
+	"""The same cell reader, serving a list that is *not* laid out in columns.
+
+	A run of objects shows a row as one line, and until now that line could only be the row's
+	own name. Outlook builds part of that name from `activeExplorer().selection`, so a row read
+	while another message is selected carried that message's flags — "replied", "forwarded",
+	"unread" — which is false and, on those words, alarming. The cells are the row's own
+	whatever is selected, and they are already being read for the spatial layout.
+	"""
+
+	def setUp(self):
+		resetConfig()
+		self.addCleanup(resetConfig)
+
+	def row(self, *cells):
+		return FakeGridRow([FakeGridCell(text, index + 1, header=header) for index, (header, text) in enumerate(cells)], position=1)
+
+	def test_theCellsAreJoinedInOrder(self):
+		said = flowObjectTable.rowTextOf(self.row(("From", "Alice"), ("Subject", "Lunch")))
+		self.assertEqual(said, "From Alice, Subject Lunch")
+
+	def test_theHeadersAreLeftOutWhenTheReaderDoesNotWantThem(self):
+		"""NVDA's own setting, which is what its Outlook module follows for the same text."""
+		said = flowObjectTable.rowTextOf(self.row(("From", "Alice"), ("Subject", "Lunch")), withHeaders=False)
+		self.assertEqual(said, "Alice, Lunch")
+
+	def test_anEmptyCellIsLeftOut(self):
+		said = flowObjectTable.rowTextOf(self.row(("From", "Alice"), ("Size", "")), withHeaders=False)
+		self.assertEqual(said, "Alice")
+
+	def test_aCellThatOnlyRepeatsItsHeaderIsLeftOut(self):
+		"""An icon column with nothing in it comes back named after itself. NVDA leaves those
+		out by asking the selection whether it is flagged, which is the question this whole
+		reading exists to stop trusting; a column that says nothing but its own name is the
+		part of that noise this can be sure about."""
+		said = flowObjectTable.rowTextOf(self.row(("From", "Alice"), ("Flag", "Flag")))
+		self.assertEqual(said, "From Alice")
+
+	def test_aColumnIsAskedItsNameOnceForTheWholeList(self):
+		"""A header belongs to the column, not the row. Asking per cell of a full band is
+		eight times the platform calls for one answer, and these calls are the expensive kind."""
+		asked = []
+		real = flowObjectTable.headerTextOf
+		flowObjectTable.headerTextOf = lambda cell: asked.append(cell) or real(cell)
+		self.addCleanup(setattr, flowObjectTable, "headerTextOf", real)
+		headers = {}
+		for _ in range(4):
+			flowObjectTable.rowTextOf(self.row(("From", "Alice"), ("Subject", "Lunch")), headers=headers)
+		self.assertEqual(len(asked), 2)
+
+	def test_somethingWithNoCellsSaysNothing(self):
+		"""So the caller reads it the ordinary way rather than showing an empty row."""
+		self.assertEqual(flowObjectTable.rowTextOf(FakeNavigatorObject("a button")), "")
+
+	def test_theReadingFollowsNvdasHeaderSetting(self):
+		"""The one its Outlook module follows for the same text."""
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS_AND_COLUMNS.value
+		self.assertIn("From", flowObjectTable.rowTextOf(self.row(("From", "Alice"))))
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
+		self.assertEqual(flowObjectTable.rowTextOf(self.row(("From", "Alice"))), "Alice")
 
 
 class TestReadingAGridThroughTheBand(unittest.TestCase):

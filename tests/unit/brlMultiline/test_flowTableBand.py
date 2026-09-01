@@ -64,6 +64,7 @@ class CommandHolder:
 		self.layOutPinnedTables = GlobalPlugin.layOutPinnedTables.__get__(self)
 		self._wantTableHere = GlobalPlugin._wantTableHere.__get__(self)
 		self.reportAboutTheDisplay = GlobalPlugin.reportAboutTheDisplay.__get__(self)
+		self._tableHere = GlobalPlugin._tableHere.__get__(self)
 		# The paging commands go through the plugin to find which table to move, so the
 		# stand-in has to be able to answer that too: what is being tested is the command.
 		self._tableToPage = GlobalPlugin._tableToPage.__get__(self)
@@ -79,6 +80,17 @@ class CommandHolder:
 	@tableWanted.setter
 	def tableWanted(self, key):
 		self.band.plugin.tableWanted = key
+
+	@property
+	def tableRefused(self):
+		"""Shared with the band for the reason `tableWanted` is: in a real installation the
+		band's plugin and the plugin running the command are one object, and two stores would
+		let the command's "off" and the band's "the store says on" disagree."""
+		return getattr(self.band.plugin, "tableRefused", None)
+
+	@tableRefused.setter
+	def tableRefused(self, key):
+		self.band.plugin.tableRefused = key
 
 	def refreshMonitors(self, reveal=None):
 		pass
@@ -449,15 +461,73 @@ class TestATableWiderThanTheBand(TableBandTestCase):
 		self.band.recheck()
 		self.assertIsNotNone(self.band.controller.cursorCell())
 
-	def test_aCaretMoveUndoesAPageTurn(self):
-		"""Which is the right way round: the page follows the reader, and turning it by hand
-		is a look rather than a move."""
+	def test_aPageTheReaderTurnedToStaysTurnedWhileTheirColumnIsOnIt(self):
+		"""Reported from hardware. The band followed the caret's own page on every move, so
+		one press of down arrow put a reader on any page past the first back onto page one —
+		the caret is still in column one, because table navigation keeps the column while
+		moving the row. It stays because the pinned key column *is* column one, drawn at the
+		left of this page: the reader can feel where they are."""
 		obj, document = self._wide(col=1)
 		self.band.layOutTable()
 		self.band.turnColumnPage(1)
+		self.assertTrue(self.band.columnPlan().drawsOnThisPage(1))
 		document.row = 3
 		self.band.recheck()
+		self.assertEqual(self.band.columnPlan().page, 1)
+
+	def test_andWhenTheCaretMovesToAnotherColumnOfTheSamePage(self):
+		"""Reading across what they turned to, which is what they turned to it for."""
+		obj, document = self._wide(col=1)
+		self.band.layOutTable()
+		self.band.turnColumnPage(1)
+		drawn = [place.column.index for place in self.band.columnPlan().placements()]
+		document.col = drawn[-1]
+		self.band.recheck()
+		self.assertEqual(self.band.columnPlan().page, 1)
+
+	def test_butACaretThatLeavesThePageBringsTheBandBack(self):
+		"""The other half, and the one holding the page against every move cost: the caret
+		walked off the display and nothing brought the display to it. Braille may travel; the
+		cursor moving is what tethers it back."""
+		obj, document = self._wide(col=1)
+		self.band.layOutTable()
+		self.band.turnColumnPage(1)
+		plan = self.band.columnPlan()
+		away = next(
+			column for column in range(1, len(WIDE[0]) + 1) if not plan.drawsOnThisPage(column)
+		)
+		document.col = away
+		self.band.recheck()
+		self.assertEqual(self.band.columnPlan().page, plan.pageOf(away))
+
+	def test_andSoDoesOneThatWalksTheColumnsPastIt(self):
+		"""Without table navigation, down arrow is a move to the next *cell*: the caret walks
+		the columns of the row, and the display goes on being where the caret is."""
+		obj, document = self._wide(col=1)
+		self.band.layOutTable()
+		self.band.turnColumnPage(1)
+		for column in range(1, len(WIDE[0]) + 1):
+			document.col = column
+			self.band.recheck()
+			plan = self.band.columnPlan()
+			self.assertTrue(plan.drawsOnThisPage(column), f"column {column} is not on the display")
+
+	def test_theBandFollowsTheCaretBeforeAnyPageIsTurned(self):
+		"""A reader who has said nothing about which columns they want arrows into a wide
+		table and the display shows where they are."""
+		obj, document = self._wide(col=1)
+		self.band.layOutTable()
 		self.assertEqual(self.band.columnPlan().page, 0)
+		document.col = 8
+		self.band.recheck()
+		self.assertNotEqual(self.band.columnPlan().page, 0)
+
+	def test_turningAnotherPageStillWorks(self):
+		obj, document = self._wide(col=1)
+		self.band.layOutTable()
+		self.band.turnColumnPage(1)
+		self.assertTrue(self.band.turnColumnPage(1))
+		self.assertEqual(self.band.columnPlan().page, 2)
 
 	def test_nothingIsLost(self):
 		self._wide()
@@ -1610,3 +1680,157 @@ class TestSayingWhichColumnsAreShowing(TableBandTestCase):
 		flashedMessages.clear()
 		GlobalPlugin.script_flowTableColumns(CommandHolder(self.band), None)
 		self.assertIn("Not in a table", flashedMessages)
+
+
+class TestATableThatLaysItselfOut(TableBandTestCase):
+	"""What the column command was always pointed at: a watchlist that comes up laid out.
+
+	A layout that has to be asked for by name every time is one the reader types out again on
+	every page load. So a table the store knows becomes the table asked for, exactly as the
+	command would have made it — and one keystroke still takes it away, without touching what
+	was saved.
+	"""
+
+	def _watchlist(self, url="https://example.com/watchlist"):
+		obj, document = self._inTable()
+		document.columnHeaders = {1: "Symbol", 2: "Last", 3: "Change", 4: "%Chg"}
+		document.documentConstantIdentifier = url
+		return obj, document
+
+	def _save(self, columns=(1, 2)):
+		from brlMultiline import flowTableLayouts, flowTableSource
+
+		handle = flowTableSource.tableAt(self.api.getNavigatorObject())
+		flowTableLayouts.remember(handle, flowTableLayouts.TableLayout(columns=columns))
+
+	def test_aTableWithNothingSavedIsLeftAlone(self):
+		self._watchlist()
+		self.band.refresh(force=True)
+		self.assertFalse(self._readingATable())
+
+	def test_aTableWithALayoutSavedComesUpLaidOut(self):
+		self._watchlist()
+		self._save()
+		self.band.clearTable()
+		self.band.refresh(force=True)
+		self.assertTrue(self._readingATable())
+
+	def test_andItIsTheColumnsThatWereSaved(self):
+		self._watchlist()
+		self._save(columns=(2, 4))
+		self.band.clearTable()
+		self.band.refresh(force=True)
+		plan = self.band.columnPlan()
+		self.assertEqual([column.index for column in plan.columns], [2, 4])
+
+	def test_oneKeystrokeStillTakesItAway(self):
+		"""And it stays away: without that, the command drops the request and the next redraw
+		puts it straight back, which is a toggle that does nothing."""
+		from brlMultiline import GlobalPlugin
+
+		self._watchlist()
+		self._save()
+		self.band.refresh(force=True)
+		holder = CommandHolder(self.band)
+		spokenMessages.clear()
+		GlobalPlugin.script_flowTableColumns(holder, None)
+		self.band.refresh(force=True)
+		self.assertFalse(self._readingATable())
+
+	def test_andComingBackToTheTableAsksForItAgain(self):
+		from brlMultiline import GlobalPlugin
+
+		obj, _document = self._watchlist()
+		self._save()
+		self.band.refresh(force=True)
+		holder = CommandHolder(self.band)
+		GlobalPlugin.script_flowTableColumns(holder, None)
+		self.band.refresh(force=True)
+		# Away from the table, which is what spends the refusal, and back again.
+		self._elsewhere()
+		self.band.refresh(force=True)
+		self.api.getFocusObject = lambda: obj
+		self.api.getNavigatorObject = lambda: obj
+		self.band.refresh(force=True)
+		self.assertTrue(self._readingATable())
+
+	def test_aSavedLayoutIsNotAskedAboutEveryPage(self):
+		"""The lookup runs wherever the reader goes, so an empty store must cost nothing."""
+		from brlMultiline import flowTableSource
+
+		self._elsewhere()
+		asked = []
+		real = flowTableSource.tableAt
+		flowTableSource.tableAt = lambda obj: asked.append(obj) or real(obj)
+		try:
+			self.band.refresh(force=True)
+		finally:
+			flowTableSource.tableAt = real
+		self.assertEqual(asked, [])
+
+
+class TestRememberingTheLayoutOnTheDisplay(TableBandTestCase):
+	"""The command that saves one, and the one that drops it."""
+
+	def _press(self, script):
+		from brlMultiline import GlobalPlugin
+
+		spokenMessages.clear()
+		flashedMessages.clear()
+		getattr(GlobalPlugin, script)(CommandHolder(self.band), None)
+		return list(spokenMessages)
+
+	def _watchlist(self):
+		obj, document = self._inTable()
+		document.columnHeaders = {1: "Symbol", 2: "Last", 3: "Change", 4: "%Chg"}
+		document.documentConstantIdentifier = "https://example.com/watchlist"
+		return obj, document
+
+	def test_thereMustBeSomethingToRemember(self):
+		self._watchlist()
+		self.assertIn("No table columns are showing", self._press("script_rememberTableLayout"))
+
+	def test_theLayoutOnTheDisplayIsSaved(self):
+		from brlMultiline import flowTableLayouts, flowTableSource
+
+		self._watchlist()
+		self.band.layOutTable()
+		said = self._press("script_rememberTableLayout")
+		self.assertTrue(any("remembered" in message for message in said))
+		handle = flowTableSource.tableAt(self.api.getNavigatorObject())
+		self.assertIsNotNone(flowTableLayouts.layoutFor(handle))
+
+	def test_andSayingSoDoesNotFlashOverIt(self):
+		"""The display is showing the thing being talked about."""
+		self._watchlist()
+		self.band.layOutTable()
+		self._press("script_rememberTableLayout")
+		self.assertEqual(flashedMessages, [])
+
+	def test_aTableNothingCanRecogniseSaysSo(self):
+		obj, document = self._inTable()
+		document.documentConstantIdentifier = None
+		self.band.layOutTable()
+		said = self._press("script_rememberTableLayout")
+		self.assertTrue(any("cannot be recognised" in message for message in said))
+
+	def test_forgettingDropsTheLayoutAndTheColumns(self):
+		self._watchlist()
+		self.band.layOutTable()
+		self._press("script_rememberTableLayout")
+		said = self._press("script_forgetTableLayout")
+		self.assertIn("Layout forgotten", said)
+		self.assertFalse(self._readingATable())
+		self.band.refresh(force=True)
+		self.assertFalse(self._readingATable())
+
+	def test_forgettingWhatWasNeverSavedSaysSo(self):
+		self._watchlist()
+		said = self._press("script_forgetTableLayout")
+		self.assertTrue(any("no remembered layout" in message for message in said))
+
+	def test_forgettingSomewhereElseSaysSo(self):
+		self._elsewhere()
+		self.api.getNavigatorObject = self.api.getFocusObject
+		self.addCleanup(setattr, self.api, "getNavigatorObject", self.api.getNavigatorObject)
+		self.assertIn("Not in a table", self._press("script_forgetTableLayout"))

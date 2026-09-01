@@ -823,6 +823,50 @@ def _isChosen(obj) -> bool:
 	return bool(names & {"SELECTED", "FOCUSED"})
 
 
+def _rowTextFor(obj, headers: Optional[dict] = None) -> str:
+	""":return: a row built from its own cells, or "" where that cannot be done.
+
+	Contained here rather than in the region, because a row that will not say what its cells
+	are is a row to read the ordinary way — not a row to fail on while the reader waits.
+
+	:param headers: where to remember what each column is called, so that a band of rows asks
+		the platform once per column. Kept by the source, since a run is one list.
+	"""
+	from . import flowObjectTable
+
+	try:
+		return flowObjectTable.rowTextOf(obj, headers=headers)
+	except Exception:
+		log.debugWarning("Could not build a row from its cells", exc_info=True)
+		return ""
+
+
+class _NamedAs:
+	"""An object with one property answered differently, for the length of one reading.
+
+	**A stand-in is not the object**, and a review has already said so about a different one,
+	so this is as small as it can be: every attribute but `name` is the real object's, it is
+	made and thrown away inside `FlowObjectRegion.update`, and nothing else ever holds one. The
+	region goes back to the real object before anything can route into it or act on it.
+
+	What it buys is NVDA's own presentation. `braille.regions.NVDAObject.NVDAObjectRegion`
+	reads a dozen properties to say what an object is — role, states, position, description,
+	whether it is current — and only the *name* of an Outlook message row is untrustworthy.
+	Composing the line ourselves would mean keeping a copy of that dozen and watching it drift
+	between NVDA versions; this changes the one word that is wrong and lets NVDA say the rest.
+	"""
+
+	def __init__(self, obj, name: str) -> None:
+		self._obj = obj
+		self.name = name
+
+	def __getattr__(self, attribute: str):
+		return getattr(self._obj, attribute)
+
+	def __repr__(self) -> str:
+		return f"<{self._obj!r} named {self.name!r}>"
+
+
 def namedFromTheSelection(obj) -> bool:
 	""":return: whether an object's text describes what is selected rather than what it is.
 
@@ -1155,6 +1199,16 @@ def regionFactory(live: bool = False, adapter: Optional[ObjectAdapter] = None) -
 			"""Unused here, and present because the controller looks for it. Nothing in an
 			object flow moves the reader's place, so nothing ever calls it."""
 
+			self.fromItsOwnCells = False
+			"""Whether to build this row's line out of its cells rather than from its name.
+
+			Set by the source before the first reading, since only the source knows which
+			object the reader is on. See `ObjectFlowSource._buildBlock` and
+			`flowObjectTable.rowTextOf`."""
+
+			self.columnHeaders = None
+			"""Where to remember what each column of this list is called, from the source."""
+
 			self.onLine = None
 			"""Called with a direction when NVDA's line commands reach this region.
 
@@ -1189,7 +1243,20 @@ def regionFactory(live: bool = False, adapter: Optional[ObjectAdapter] = None) -
 			# The start of the block: what the cursor says here is "this is the one you are
 			# on", not "this is the character you are at".
 			self.cursorPos = 0 if (self.isActive and live) else None
-			super().update()
+			said = _rowTextFor(self.obj, self.columnHeaders) if self.fromItsOwnCells else ""
+			if not said:
+				super().update()
+				self.dirty = True
+				return
+			# The object goes back before anything else can reach it: routing, acting and the
+			# controller all use `self.obj`, and only the reading is done through the
+			# stand-in. See L{_NamedAs}.
+			row = self.obj
+			self.obj = _NamedAs(row, said)
+			try:
+				super().update()
+			finally:
+				self.obj = row
 			self.dirty = True
 
 		def routeTo(self, braillePos: int) -> None:
@@ -1322,6 +1389,14 @@ class ObjectFlowSource:
 		self.budget = budget if budget is not None else FetchBudget()
 		self.unit = "object"
 		"""What a block is here, for the log and for the dry run's report."""
+
+		self._columnHeaders: dict = {}
+		"""What each column of this list is called, filled in as rows are read.
+
+		A header belongs to the column rather than to the row, and asking the platform for it
+		once per cell of a full band is eight times the work for one answer. Kept for the life
+		of the source, which is the life of one reading of one list. See
+		`flowObjectTable.rowTextOf`."""
 
 		self._shape: Optional[tuple] = None
 		"""What the run looked like under the object the reader is on, when last looked at.
@@ -1496,6 +1571,36 @@ class ObjectFlowSource:
 		self.budget.startUnlessActive()
 		return self._blockAt(obj, decoration=isDecoration(obj))
 
+	def sameObject(self, first, second) -> bool:
+		""":return: whether two references are to the same object. See L{sameObject}.
+
+		A method as well as a function so that a caller holding only a source — the controller
+		does — can ask without knowing which module the rule lives in.
+		"""
+		return sameObject(first, second)
+
+	def neighbourOf(self, obj, forward: bool):
+		""":return: the object the run puts beside this one, or None at its end.
+
+		The step `_step` takes, without reading anything from what it lands on: one call into
+		the application, and no block built. What asks is
+		`FlowController.runStillHoldsTheBand`, checking that the rows on the band are still
+		the rows the run has.
+
+		A decoration is a neighbour like any other — a separator holds a row of the band — so
+		nothing is stepped over here, and the order this gives is the order the band is in.
+
+		:param obj: where to step from.
+		:param forward: which way.
+		"""
+		if obj is None:
+			return None
+		try:
+			return self.adapter.nextOf(obj) if forward else self.adapter.previousOf(obj)
+		except Exception:
+			log.debugWarning(f"Could not look {'on' if forward else 'back'} from an object", exc_info=True)
+			return None
+
 	def isCurrentObject(self, obj) -> bool:
 		""":return: whether one object is the one the run is being read from.
 
@@ -1506,16 +1611,7 @@ class ObjectFlowSource:
 
 		:param obj: the object to compare with the current one.
 		"""
-		current = self.obj
-		if current is None:
-			return False
-		if obj is current:
-			return True
-		try:
-			return bool(obj == current)
-		except Exception:
-			log.debugWarning("Could not tell whether an object is the one being read", exc_info=True)
-			return False
+		return self.obj is not None and sameObject(obj, self.obj)
 
 	def _blockAt(self, obj, decoration: bool = False) -> FetchResult:
 		""":return: a result carrying the block for one object."""
@@ -1538,6 +1634,11 @@ class ObjectFlowSource:
 		"""
 		blockId = BlockId(generation=self.generation, bookmark=obj, unit=self.unit)
 		region = self.regionFactory(obj)
+		# A row whose name is about the selection is read from its own cells while the reader
+		# is somewhere else, and from its name while they are on it — where the selection *is*
+		# this row and every word of the name is true of it. See `flowObjectTable.rowTextOf`.
+		region.fromItsOwnCells = namedFromTheSelection(obj) and not self.isCurrentObject(obj)
+		region.columnHeaders = self._columnHeaders
 		region.update()
 		if obj is self.obj:
 			# Noted while it is in hand, so that a redraw can tell an opened node from one
@@ -1605,6 +1706,25 @@ class ObjectFlowSource:
 
 	def __repr__(self) -> str:
 		return f"<ObjectFlowSource {self.runRoot!r} by {self.adapter.name} generation {self.generation}>"
+
+
+def sameObject(first, second) -> bool:
+	""":return: whether two references are to the same thing.
+
+	Equality, not identity, because NVDA builds a fresh wrapper for an object every time it is
+	fetched: the row the focus handed over and the row a block was built from are two objects
+	for one message. An object that will not compare is treated as a different one, which
+	costs a re-read and never claims a row is something it is not.
+	"""
+	if first is second:
+		return True
+	if first is None or second is None:
+		return False
+	try:
+		return bool(first == second)
+	except Exception:
+		log.debugWarning("Could not compare two objects", exc_info=True)
+		return False
 
 
 def belongsTo(source: "ObjectFlowSource", obj) -> bool:

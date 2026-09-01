@@ -436,7 +436,7 @@ class FlowController(PanelOwner):
 		if plan == self.renderer.indentPlan:
 			return
 		self.renderer.indentPlan = plan
-		self._redrawBlocks(rendered, why="a rebased indent")
+		self._redrawBlocks(why="a rebased indent")
 
 	def useColumnPage(self, plan) -> bool:
 		"""Show a page of columns, and read what the page needs.
@@ -489,7 +489,7 @@ class FlowController(PanelOwner):
 			self.renderer.columnPlan = plan
 			if reread:
 				self._rereadBlocks()
-			self._redrawBlocks(list(self.window.blocks), why="a different page of columns")
+			self._redrawBlocks(why="a different page of columns")
 		return True
 
 	def rereadContent(self) -> bool:
@@ -510,7 +510,61 @@ class FlowController(PanelOwner):
 			return False
 		with self.operation():
 			self._rereadBlocks()
-			self._redrawBlocks(list(self.window.blocks), why="the content changed under the band")
+			self._redrawBlocks(why="the content changed under the band")
+		return True
+
+	def runStillHoldsTheBand(self) -> bool:
+		""":return: whether the rows beside the reader are still the ones the run has.
+
+		**Asked when the reader arrives, because that is when a run changes under them.** They
+		delete a message and the focus moves to the next one; the row they deleted is still on
+		the band, and nothing about the arrival says otherwise — the object they are on is in
+		the run, the band is showing it, and every other block is one that was read correctly
+		when it was read.
+
+		Two questions, one either side: is the block above the arrival still what the run puts
+		before it, and the block below still what it puts after. That is two steps in the run
+		for a focus move, against the alternative of walking the whole run on every arrow key,
+		and it catches the case that matters — the change is where the reader's hand is,
+		because their hand is what made it.
+
+		What it cannot catch is a row taken away at the far end of the band while the reader
+		stands still. The live pass is what covers that, and a keystroke reads the band afresh.
+
+		Only for a run of objects: a document's blocks are positions, and positions do not have
+		neighbours to disagree with.
+
+		:return: True when nothing has changed, and True when there is nothing to check.
+		"""
+		neighbour = getattr(self.source, "neighbourOf", None)
+		matches = getattr(self.source, "isCurrentObject", None)
+		same = getattr(self.source, "sameObject", None)
+		if neighbour is None or matches is None or same is None:
+			return True
+		blocks = self.window.blocks
+		try:
+			here = next(
+				(index for index, held in enumerate(blocks) if matches(held.blockId.bookmark)),
+				None,
+			)
+		except Exception:
+			log.debugWarning("Could not find the block the reader is on", exc_info=True)
+			return True
+		if here is None:
+			# The reader is not on the band at all, so there is nothing to compare them with.
+			# Placing them is `followCursor`'s work and it is about to happen.
+			return True
+		current = blocks[here].blockId.bookmark
+		for offset, forward in ((-1, False), (1, True)):
+			beside = here + offset
+			if not 0 <= beside < len(blocks):
+				continue
+			if not same(neighbour(current, forward), blocks[beside].blockId.bookmark):
+				self._note(
+					f"the run changed beside the reader: what is {'after' if forward else 'before'} "
+					"them is not what the band is holding",
+				)
+				return False
 		return True
 
 	def rereadArrival(self) -> bool:
@@ -543,16 +597,44 @@ class FlowController(PanelOwner):
 		if not wanted:
 			return False
 		with self.operation():
+			changed = False
 			for rendered in wanted:
 				try:
 					result = fetch(rendered.blockId)
 				except Exception:
 					log.debugWarning("Could not read the arrival again", exc_info=True)
 					continue
-				if result.kind is ResultKind.BLOCK and result.block is not None:
-					self._keep(result.block, replace=True)
-			self._redrawBlocks(wanted, why="the reader arrived on this object")
+				if result.kind is not ResultKind.BLOCK or result.block is None:
+					continue
+				if self._readsTheSame(self.blocks.get(rendered.blockId), result.block):
+					# The ordinary case, and it must cost nothing: arrowing down a list asks
+					# about each row as the reader lands on it and almost always gets the same
+					# answer back. Keeping the block the flow already holds also keeps the
+					# region NVDA may have queued for update — see `_keep`.
+					continue
+				self._keep(result.block, replace=True)
+				changed = True
+			if changed:
+				self._redrawBlocks(why="the reader arrived on this object")
 		return True
+
+	def _readsTheSame(self, held, incoming) -> bool:
+		""":return: whether a block read again says what the one already held says.
+
+		Text alone, because that is what a re-read is for and what the reader would feel
+		change. A block this cannot compare is treated as different, which costs a redraw and
+		never costs the reader an answer.
+
+		:param held: the block the flow is holding, or None if it holds none.
+		:param incoming: what the source has just said.
+		"""
+		if held is None:
+			return False
+		try:
+			return getattr(held.region, "rawText", None) == getattr(incoming.region, "rawText", object())
+		except Exception:
+			log.debugWarning("Could not compare a block with its re-reading", exc_info=True)
+			return False
 
 	def _rereadBlocks(self) -> None:
 		"""Read every block the band is holding again, keeping its identity.
@@ -594,17 +676,24 @@ class FlowController(PanelOwner):
 			if result.kind is ResultKind.BLOCK and result.block is not None:
 				self._keep(result.block, replace=True)
 
-	def _redrawBlocks(self, rendered, why: str) -> None:
+	def _redrawBlocks(self, why: str) -> None:
 		"""Lay every block on the band out again, under whatever the renderer says now.
 
-		Shared by the two things that change how the band is drawn without changing what it
-		is reading — the indent rebasing and the column page. Both replace the whole window
-		rather than the visible part of it, because a block in the margin drawn under the old
-		layout is a block that is wrong the moment the reader scrolls to it.
+		Shared by the things that change how the band is drawn without changing what it is
+		reading — the indent rebasing, the column page, a re-read. All of them replace the
+		whole window rather than the visible part of it, because a block in the margin drawn
+		under the old layout is a block that is wrong the moment the reader scrolls to it.
 
-		:param rendered: the blocks to draw again.
+		**The whole window, and it takes no list.** This used to be given the blocks to draw,
+		and `window.replaceBlocks` takes what it is given as the window — so a caller that
+		passed only the block it had just re-read left the window holding that one block. On a
+		tree that was the reader moving from a folder to the first thing inside it: the band
+		emptied, the child landed on the top row, and everything around it had to be fetched
+		again. Every caller wanted every block, so there is nothing left to pass.
+
 		:param why: what asked, for the log.
 		"""
+		rendered = list(self.window.blocks)
 		if not rendered:
 			return
 		began = self.source.budget.clock()
@@ -2242,6 +2331,12 @@ class FlowController(PanelOwner):
 			# row at a time, and a form is exactly where knowing which rows are the control
 			# and which are its prompt is the thing being checked.
 			kind = " control" if block is not None and block.isControl else ""
+			if block is not None and block.isBlank:
+				# The one row a reader cannot tell from a fault: an empty line the document gave
+				# us reads exactly like a row we could not fill, and a report of "a blank between
+				# every cell" cost a second log for want of this word. The count says how many
+				# lines the row stands for, since a collapsed run is one row for many.
+				kind += " blank" if block.collapsed < 2 else f" blank x{block.collapsed}"
 			# Said per row, because a block's first row and its wrapped rows are deliberately
 			# indented by different amounts, and one number for the whole block could not
 			# show that rule working.
