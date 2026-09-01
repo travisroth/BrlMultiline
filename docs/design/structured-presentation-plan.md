@@ -874,6 +874,36 @@ no state about pages at all now — the rule is a question about what is drawn, 
 What is still for hardware: whether ten page turns for a twenty-nine column watchlist is a
 worse trade than a narrower symbol column would be.
 
+**Paging must survive the cursor being somewhere undrawn.** Reported from hardware: the
+layout command starts the reader on a cell with data, so paging works; quick navigation and the
+arrow keys land them in the *first* cell, which on this watchlist is an icon column the layout
+leaves out — and from there "it tries, then just repeats the first columns". Two things were
+taking the page away, and both are about a rebuild rather than about paging:
+
+- **The same cell could ask for a rebuild forever.** A cell that answers "I hold something"
+  and a measurement of a bandful that says the column is empty can disagree, because the
+  sample is bounded; the layout is read again to settle it. If it comes out the same, the next
+  live pass asks the same cell and rebuilds again — and a reader who turns a page has it taken
+  back before they feel it.
+- **And a cell that answers "nothing" cost a search of the document on every redraw**, which
+  the next hardware report priced: the dry run put a single cell search at 44 ms against 169
+  document change notices while the reader sat in that blank first column. Panning stalled,
+  and a page turn made from there took five times as long as the same turn made from the
+  column beside it.
+- **A rebuild came back on page one.** A rebuild is not a decision the reader made — it
+  happens because something changed under them while they were reading somewhere — so the band
+  goes back to the page of columns they had turned to, clamped where the new layout has fewer.
+
+So an undrawn cell is looked into **once**, whatever it answers, and the flag that let a live
+pass ask again is gone. What that gives up is a value appearing in the cell while the reader
+stands on it; moving off and back asks again, and so does laying the table out afresh. That is
+the right way round: the case given up is rare and recoverable in one keystroke, and the case
+bought is every reader who quick-navigates into a table and finds the display will not move.
+
+The band already refuses to drag the page to a column that is drawn nowhere: `_showColumn`
+asks whether the caret's column is on the display, and one that is on no page is not a reason
+to move. So the cursor sitting in an icon column now costs the reader nothing.
+
 **A column can answer and hold nothing, and that is not the same as not being there.** The
 first cut of the phantom-column test asked whether any sampled row had a cell at a
 coordinate, which catches a merged cell — the coordinate raises — and misses the case that
@@ -1790,6 +1820,20 @@ And one policy stated rather than changed: the store is trimmed by age of last *
 of last reading. A lookup happens every time the reader walks into a table, and writing the
 configuration from a braille refresh to record a read is a constant cost for an eviction that
 happens once in two hundred layouts.
+
+**The other half of applying one, found on hardware.** `_showTable` offers a saved layout
+whenever the band is *built* — arriving on a page, a focus change, a table being given up — and
+in browse mode a reader walks into a table without any of those: the caret moves, the focus
+object is still the document, and nothing asks. So saving a layout, arrowing out of the table
+and arrowing back gave the ordinary reading, which is the watchlist-comes-up-laid-out promise
+refused at the moment the reader would notice it.
+
+`FlowBand._walkedIntoASavedTable` is the twin of `_recheckTable`, which is what notices the
+caret *leaving* one, and it costs the same: one recognition per redraw, and only for a reader
+who has saved something — an empty store answers without looking at the object, and a table
+whose columns they have just turned off answers before it too. The layout is offered once per
+table, so one that will not fit this band is not rebuilt on every redraw; the offer comes round
+again when they leave and come back.
 
 **M6b — applying a favourite.** Not started. Choosing a saved layout by name while sitting in
 a table that has none, which is the escape hatch for a table nothing can recognise and the way

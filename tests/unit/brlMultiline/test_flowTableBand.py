@@ -537,6 +537,102 @@ class TestATableWiderThanTheBand(TableBandTestCase):
 		self.assertEqual(drawn, list(range(1, len(WIDE[0]) + 1)))
 
 
+
+class TestPagingFromAColumnTheLayoutLeftOut(TableBandTestCase):
+	"""Reported from hardware. Quick navigation and the arrow keys land the caret in the first
+	cell of a table, and on this reader's watchlist that cell is an icon column the layout
+	leaves out. Paging then "tries, then just repeats the first columns": the reader turns a
+	page and the display is home again before they feel it.
+
+	The layout command does not show this, because it starts the reader on a cell with data.
+	Nothing should have to: the cursor being somewhere undrawn is ordinary, and it must not
+	cost the reader the ability to look around.
+	"""
+
+	WIDE = [
+		[""] + [f"h{number}" for number in range(1, 12)],
+		[""] + [f"a{number}" for number in range(1, 12)],
+		[""] + [f"b{number}" for number in range(1, 12)],
+		[""] + [f"c{number}" for number in range(1, 12)],
+	]
+
+	def _here(self, col=1):
+		obj, document = self._inTable(rows=self.WIDE, row=2, col=col)
+		self.assertTrue(self.band.layOutTable())
+		return obj, document
+
+	def test_theEmptyColumnIsLeftOutOfTheLayout(self):
+		self._here()
+		self.assertIn(1, self.band.columnPlan().omitted)
+
+	def test_andTheReaderCanStillTurnThePage(self):
+		self._here()
+		self.assertTrue(self.band.turnColumnPage(1))
+		self.assertEqual(self.band.columnPlan().page, 1)
+
+	def test_andTheRedrawAfterItLeavesThePageAlone(self):
+		"""The band follows a caret that has moved to a column it is not showing; a caret that
+		has not moved says nothing at all."""
+		self._here()
+		self.band.turnColumnPage(1)
+		self.band.recheck()
+		self.assertEqual(self.band.columnPlan().page, 1)
+
+	def _counting(self, answer):
+		""":return: the cells the shape check looks into, with the answer it is given."""
+		from brlMultiline import flowTableSource
+
+		asked = []
+		real = flowTableSource.cellHasContent
+		flowTableSource.cellHasContent = lambda handle, row, column, live=False: (
+			asked.append((row, column)) or answer
+		)
+		self.addCleanup(setattr, flowTableSource, "cellHasContent", real)
+		return asked
+
+	def test_theCellIsLookedIntoOnceWhateverItSays(self):
+		"""The reader's own case, and the cost of it: looking into a cell is a search of the
+		document, the dry run put it at 44 ms, and the page fired 169 change notices while
+		they sat there. Asked once per cell it is a search; asked per redraw it is a stall."""
+		obj, document = self._here()
+		asked = self._counting(False)
+		document.row = 3
+		for _ in range(5):
+			self.band.recheck()
+		self.assertEqual(len(asked), 1, f"the same cell was looked into {len(asked)} times")
+
+	def test_andOnceWhenItAnswersYesToo(self):
+		"""A cell that answers sends the layout to be made again. Asking a second time would
+		send it again on every live pass, which is the reader's page taken away each time they
+		turn one."""
+		obj, document = self._here()
+		asked = self._counting(True)
+		document.row = 3
+		for _ in range(5):
+			self.band.recheck()
+		self.assertEqual(len(asked), 1, f"the same cell was looked into {len(asked)} times")
+
+	def test_movingToAnotherCellAsksAgain(self):
+		"""Which is how a reader asks for a second look, and the only thing given up by
+		asking once: a value appearing in the cell while they stand on it."""
+		obj, document = self._here()
+		asked = self._counting(False)
+		for row in (3, 4, 5):
+			document.row = row
+			self.band.recheck()
+		self.assertEqual(len(asked), 3)
+
+	def test_andARebuildKeepsThePageTheyWereOn(self):
+		"""A rebuild is not a decision the reader made. Whatever changed under them, where
+		they were reading is still where they were reading."""
+		obj, document = self._here()
+		self.band.turnColumnPage(1)
+		self._counting(True)
+		document.row = 3
+		self.band.recheck()
+		self.assertEqual(self.band.columnPlan().page, 1)
+
+
 class TestTheSymbolStaysUnderTheHand(TableBandTestCase):
 	"""Six columns into a watchlist the reader is feeling four numbers with nothing to say
 	whose numbers they are. The first column is repeated at the left of every later page."""
@@ -1212,9 +1308,12 @@ class TestAColumnThatIsEmptyOnlyInTheSample(TableBandTestCase):
 		self.band.recheck()
 		self.assertIs(self.band.columnPlan(), plan)
 
-	def test_aValueAppearingInTheCellTheReaderIsInIsSeen(self):
-		"""Standing still is what makes the once-only check go quiet, so a page that fills the
-		cell under the reader would never be noticed. A live pass is not every redraw."""
+	def test_aValueAppearingUnderAStillReaderIsNotChasedAnyMore(self):
+		"""This used to be chased on every live pass, and hardware said what that costs. The
+		reader's watchlist has a blank first column, quick navigation lands them in it, and the
+		page fires change notices continuously: each pass spent a 44 ms search of the document
+		on a cell that had not changed, so panning stalled and a page turn took five times as
+		long as the same turn made from the column beside it. The cell is looked into once."""
 		obj, document = self._sparse()
 		self.band.layOutTable()
 		document.row, document.col = 4, 1
@@ -1222,6 +1321,19 @@ class TestAColumnThatIsEmptyOnlyInTheSample(TableBandTestCase):
 		self.assertIsNone(self.band.columnPlan().pageOf(1))
 		document.rows[3][0] = "NOW LIVE"
 		self.band._refreshLiveContent()
+		self.assertIsNone(self.band.columnPlan().pageOf(1))
+
+	def test_andIsSeenAsSoonAsTheyMoveOffItAndBack(self):
+		"""Which is what is given up by asking once, and how the reader asks again."""
+		obj, document = self._sparse()
+		self.band.layOutTable()
+		document.row, document.col = 4, 1
+		self.band.recheck()
+		document.rows[3][0] = "NOW LIVE"
+		document.row = 5
+		self.band.recheck()
+		document.row = 4
+		self.band.recheck()
 		self.assertIsNotNone(self.band.columnPlan().pageOf(1))
 
 	def test_sittingInAnEmptyCellIsAskedAboutOnce(self):
@@ -1722,6 +1834,64 @@ class TestATableThatLaysItselfOut(TableBandTestCase):
 		self.band.refresh(force=True)
 		plan = self.band.columnPlan()
 		self.assertEqual([column.index for column in plan.columns], [2, 4])
+
+	def test_arrowingBackIntoTheTableLaysItOutAgain(self):
+		"""Reported from hardware, and the half of a saved layout that was missing. In browse
+		mode the caret walks in and out of a table without any event: the focus object is still
+		the page and nothing was asking. So a reader who saved a layout, arrowed out and
+		arrowed back got their ordinary reading — the "watchlist that comes up laid out"
+		refused at the moment they would notice."""
+		obj, document = self._watchlist()
+		self._save()
+		self.band.refresh(force=True)
+		self.assertTrue(self._readingATable())
+		# Out of the table: the same document, still readable, no longer in a cell.
+		document.inTable = False
+		self.band.recheck()
+		self.assertFalse(self._readingATable())
+		# And back into it, with nothing but a caret move to say so.
+		document.inTable = True
+		self.band.recheck()
+		self.assertTrue(self._readingATable())
+
+	def test_aTableWithNothingSavedIsNotLaidOutOnTheWayPast(self):
+		"""The reader who has saved nothing walks through tables all day."""
+		obj, document = self._watchlist()
+		document.inTable = False
+		self.band.refresh(force=True)
+		document.inTable = True
+		self.band.recheck()
+		self.assertFalse(self._readingATable())
+
+	def test_andAReaderWithAnEmptyStorePaysNothingForTheQuestion(self):
+		"""It runs before every redraw, so it must cost nothing where nothing is saved."""
+		from brlMultiline import flowTableSource
+
+		obj, document = self._watchlist()
+		document.inTable = False
+		self.band.refresh(force=True)
+		document.inTable = True
+		asked = []
+		real = flowTableSource.tableAt
+		flowTableSource.tableAt = lambda obj: asked.append(obj) or real(obj)
+		try:
+			self.band.recheck()
+		finally:
+			flowTableSource.tableAt = real
+		self.assertEqual(asked, [])
+
+	def test_aTableTurnedOffStaysOffWhileTheyAreInIt(self):
+		"""The command drops the request; this must not put it straight back on the next
+		redraw, which would be a toggle that does nothing."""
+		from brlMultiline import GlobalPlugin
+
+		self._watchlist()
+		self._save()
+		self.band.refresh(force=True)
+		GlobalPlugin.script_flowTableColumns(CommandHolder(self.band), None)
+		self.band.recheck()
+		self.band.recheck()
+		self.assertFalse(self._readingATable())
 
 	def test_oneKeystrokeStillTakesItAway(self):
 		"""And it stays away: without that, the command drops the request and the next redraw

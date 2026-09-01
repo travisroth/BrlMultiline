@@ -170,14 +170,6 @@ class FlowBand(PanelOwner):
 		self._fillTimer = None
 		"""The pending pass to finish a fill the budget cut short. See L{_scheduleFill}."""
 
-		self._askingAgain = False
-		"""Whether the shape check may look into the caret's cell again.
-
-		Set for the length of a live pass. The check is otherwise asked once per cell, because
-		it is a search of the document and it runs on every redraw; a page that fills the cell
-		the reader is standing in would then never be noticed, since standing still is what
-		makes the check go quiet.
-		"""
 
 		self.liveCounts = [0, 0, 0]
 		"""Changes heard, passes run, passes that redrew. For the dry run, and it earns its
@@ -191,6 +183,12 @@ class FlowBand(PanelOwner):
 
 		self.tableNotes: list = []
 		"""What `buildTableController` said as it worked, kept for the report on a failure."""
+
+		self._layoutOffered: Any = None
+		"""The table a saved layout was last offered for, so it is offered once."""
+
+		self._askedAboutCell: Any = None
+		"""The undrawn cell the band last asked about, so it is asked about once."""
 
 		"""The table the reader has asked to see in columns lives on the plugin.
 
@@ -482,11 +480,7 @@ class FlowBand(PanelOwner):
 		control = self.controller
 		if control is None or not self._canReadAgain():
 			return
-		self._askingAgain = True
-		try:
-			fits = self._tableStillFits()
-		finally:
-			self._askingAgain = False
+		fits = self._tableStillFits()
 		if not fits:
 			# The table changed shape, so the layout is being made again and there is nothing
 			# to compare against. Asked before the re-read rather than after it, because a
@@ -690,6 +684,8 @@ class FlowBand(PanelOwner):
 		if self._readingATable():
 			self._recheckTable()
 			return
+		if self._walkedIntoASavedTable():
+			return
 		if self._runHasChangedShape():
 			return
 		obj = self._target()
@@ -707,6 +703,48 @@ class FlowBand(PanelOwner):
 			self.showObject(obj, force=True)
 		finally:
 			self._rechecking = False
+
+	def _walkedIntoASavedTable(self) -> bool:
+		"""Lay a remembered table out when the reader arrows into it, with no event to say so.
+
+		**The other half of a saved layout, and it was missing.** `_showTable` offers the
+		layout whenever the band is built — arriving on the page, a focus change, a table being
+		given up — and in browse mode the reader walks into a table without any of those
+		happening: the caret moves, the focus object is still the document, and nothing asks.
+		So a reader who saved a layout, arrowed out of the table and arrowed back got their
+		ordinary reading, which is exactly the "watchlist that comes up laid out" the saving is
+		for, refused at the moment they would notice.
+
+		The twin of `_recheckTable`, which is what notices the caret leaving a table, and it
+		costs the same: one recognition per redraw, and only for a reader who has saved
+		something. An empty store answers here without looking at the object at all, and a
+		table whose columns they have just turned off answers before the object is read too —
+		see `_refusedTable`.
+
+		**Offered once per table.** A table with a layout that will not fit this band would
+		otherwise be rebuilt on every redraw, each attempt failing in the same way; the key of
+		the last table offered is kept until the reader is somewhere that has none, which is
+		the redraw after they leave.
+
+		:return: whether the band was rebuilt, so the caller stops rather than asking a second
+			question about a controller that has just been replaced.
+		"""
+		if not flowTableLayouts.stored():
+			return False
+		handle, _layout = self._savedLayoutHere(self._target())
+		if handle is None:
+			self._layoutOffered = None
+			return False
+		if flowTableSource.sameTable(handle.key, self._layoutOffered):
+			return False
+		self._layoutOffered = handle.key
+		self.tableWanted = handle.key
+		self._rechecking = True
+		try:
+			self.refresh(force=True)
+		finally:
+			self._rechecking = False
+		return True
 
 	def _runHasChangedShape(self) -> bool:
 		"""Read a run of objects again if the reader has opened or closed something in it.
@@ -916,6 +954,7 @@ class FlowBand(PanelOwner):
 			flowTableSource.logExplanation(obj, "asked for a table in columns and found none")
 			return False
 		self.tableWanted = handle.key
+		self._askedAboutCell = None
 		self.tableNotes = []
 		self.refresh(force=True)
 		if self.controller is not None and self._readingATable():
@@ -985,6 +1024,7 @@ class FlowBand(PanelOwner):
 		if self.tableWanted is None:
 			return False
 		self.tableWanted = None
+		self._askedAboutCell = None
 		self._cancelLiveRead()
 		self.refresh(force=True)
 		return True
@@ -1044,13 +1084,38 @@ class FlowBand(PanelOwner):
 
 	def _rebuildTable(self) -> None:
 		"""Read whatever is here now, the ordinary way. Guarded, since this runs in a redraw."""
+		plan = self.columnPlan()
+		page = plan.page if plan is not None else 0
 		self._rechecking = True
 		try:
 			self.refresh(force=True)
+			self._keepThePageTheyWereOn(page)
 		except Exception:
 			log.debugWarning("Could not give the table's band back", exc_info=True)
 		finally:
 			self._rechecking = False
+
+	def _keepThePageTheyWereOn(self, page: int) -> None:
+		"""Put the band back on the page of columns the reader had turned to.
+
+		**A rebuild is not a decision the reader made.** The layout is read again when the
+		table changes shape under them — a column that turns out to hold something, a table
+		whose count moved — and every one of those arrives while they are reading somewhere.
+		Coming back on page one meant that a reader whose watchlist changed under them was
+		put back at the symbol column, over and over, and could not page away from it: they
+		turned, the rebuild followed, and the display was home again before they felt it.
+
+		Where the new layout has fewer pages than the old, the page is clamped by `onPage`,
+		which is the honest answer — there is nothing further to hold on to.
+
+		:param page: which page they were on before the rebuild.
+		"""
+		if not page or not self._readingATable():
+			return
+		plan = self.columnPlan()
+		if plan is None or plan.isEmpty or plan.page == page:
+			return
+		self._useColumnPage(plan.onPage(page))
 
 	def _tableChangedShape(self, found, source) -> bool:
 		"""Whether the table is no longer the shape the layout was made for.
@@ -1086,13 +1151,22 @@ class FlowBand(PanelOwner):
 		if found.col not in plan.omitted:
 			# A column the plan never measured. That is a table this layout is not of.
 			return True
-		if (found.row, found.col) == (source.row, source.column) and not self._askingAgain:
-			# This cell was asked about when the caret arrived at it, and the answer has not
-			# been made stale by anything the reader did. Asking again on every redraw would
-			# be a search of the document per draw for a column nobody can read — but a live
-			# pass is not every redraw, and a value appearing in the cell the reader is
-			# standing in is exactly the case they would never otherwise see.
+		if (found.row, found.col) == self._askedAboutCell:
+			# **Asked about this cell already, and the answer stands.** Whatever it was: a
+			# cell that answered sent the layout to be made again, and asking a second time
+			# would send it again on every live pass; a cell that said nothing is the reader
+			# standing in an icon column, and asking again is a search of the document per
+			# redraw for an answer that has not changed.
+			#
+			# The reader met both. Their watchlist has a blank first column and quick
+			# navigation lands them in it, and the dry run put the cost at 44 ms a search
+			# against 169 document change notices — panning stalled and a page turn took five
+			# times as long as the same turn made from the column beside it.
+			#
+			# What it gives up is a value appearing in that cell while they stand on it.
+			# Moving off and back asks again, and so does laying the table out afresh.
 			return False
+		self._askedAboutCell = (found.row, found.col)
 		return self._omittedColumnHasContent(found)
 
 	def _omittedColumnHasContent(self, found) -> bool:

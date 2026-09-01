@@ -199,7 +199,8 @@ Things worth knowing:
   it back to the focus.
 - A table can be laid out in columns, with a command, and the layout can be **remembered**:
   press the remember command while a table is on the display and that table comes up laid
-  out the next time you are in it, on the same page or in the same list. What is remembered
+  out the next time you are in it, on the same page or in the same list — including when you
+  arrow out of the table and back into it. What is remembered
   is which columns you kept and in what order, not how wide they came out, so a layout saved
   on one display works on another. Turning the columns off leaves the memory alone until you
   come back; the forget command drops it for good. Tables on web pages are recognised by the
