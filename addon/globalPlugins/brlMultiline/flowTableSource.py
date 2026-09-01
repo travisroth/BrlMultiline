@@ -589,27 +589,69 @@ def _textOf(info) -> str:
 		return ""
 
 
-def declaredHeaders(handle: TableHandle, columns, row: Optional[int] = None) -> dict:
+def declaredHeaders(
+	handle: TableHandle,
+	columns,
+	row: Optional[int] = None,
+	tries: int = HEADER_TRIES,
+) -> dict:
 	""":return: the header each column declares, by column number, leaving out those that do not.
 
-	One cell read per column, at whichever row is handy, because a declared header belongs to
-	the column and any cell of it answers. See L{declaredHeader}.
+	A declared header belongs to the column, so any cell of it answers — **but only a cell that
+	answers at all**, and the first row read is not always a witness. A row of a virtualised
+	list may be half built and a row of a document may hold a merged cell where its neighbours
+	hold real ones, and asked once, such a cell was the whole of what the column had said.
+	`measure` learnt that on hardware and took a few rows instead of one; a review found this
+	still asking a single row, which matters most where it is used to *name* a table — a
+	transient silence there saves or looks up a layout under a different identity. So the same
+	bounded strategy, in the one place all three callers share.
+
+	Only the columns that have not answered are asked again, and the walk stops as soon as they
+	all have — which for a table that declares its headings is the first row. A table that
+	declares nothing pays a read per column per try, which is what `HEADER_TRIES` is small for.
 
 	:param handle: the table.
 	:param columns: the table's own numbers for the columns to ask about.
-	:param row: which row to ask through. The reader's own by default, which is a row that
-		certainly exists.
+	:param row: which row to ask through first. The reader's own by default, which is a row
+		that certainly exists.
+	:param tries: how many rows to ask before a column has no header.
+	"""
+	wanted = list(columns)
+	found: dict = {}
+	for at in _rowsToAsk(handle, row, tries):
+		for column in wanted:
+			if column in found:
+				continue
+			region = cellRegion(handle, at, column, live=False)
+			if region is None:
+				continue
+			said = declaredHeader(region.info)
+			if said:
+				found[column] = said
+		if len(found) == len(wanted):
+			break
+	return found
+
+
+def _rowsToAsk(handle: TableHandle, row: Optional[int], tries: int) -> list:
+	""":return: which rows to ask for a declared header, the reader's own first.
+
+	Theirs first because it certainly exists and is certainly built — they are standing on it.
+	Then the first row and the one after theirs, which between them cover the two ways a single
+	cell goes quiet: a header row that is not where the reader is, and a half-built neighbour.
+
+	:param handle: the table.
+	:param row: the row to start from, or None for the reader's.
+	:param tries: the most rows to name.
 	"""
 	at = handle.row if row is None else row
-	found = {}
-	for column in columns:
-		region = cellRegion(handle, at, column, live=False)
-		if region is None:
-			continue
-		said = declaredHeader(region.info)
-		if said:
-			found[column] = said
-	return found
+	rows = [at]
+	for candidate in (1, at + 1, at - 1):
+		if len(rows) >= max(1, tries):
+			break
+		if 1 <= candidate <= max(1, handle.numRows) and candidate not in rows:
+			rows.append(candidate)
+	return rows
 
 
 def headerWidth(text: str) -> int:

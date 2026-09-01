@@ -36,6 +36,7 @@ from brlMultiline.flowControl import FlowController  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
 from brlMultiline.flowSources import FetchBudget  # noqa: E402
 
+
 from .test_flowSegment import (  # noqa: E402
 	FakeHandler as BandHandler,
 	FakePlugin,
@@ -1549,6 +1550,18 @@ class TestARunThatGrowsAtItsTail(unittest.TestCase):
 		self.assertFalse(self.control.isShowingTheTail)
 
 
+class _HandClock:
+	"""A clock a test moves itself, so that time can pass between operations and not inside
+	one. A clock that advanced on every reading would blow every allowance and prove nothing
+	about the one being tested."""
+
+	def __init__(self):
+		self.now = 0.0
+
+	def __call__(self):
+		return self.now
+
+
 class TestAPinThatFillsTheBandExactly(unittest.TestCase):
 	"""Four messages on a four row band, and a fifth arriving.
 
@@ -1596,6 +1609,33 @@ class TestAPinThatFillsTheBandExactly(unittest.TestCase):
 		self.assertFalse(self.control.lookPastTheEnd())
 		self.assertEqual(len(self.control.window.blocks), held)
 		self.assertEqual(len(self.written()), 4)
+
+	def test_theProbeLeavesNoBudgetRunning(self):
+		"""Found by review. The source starts a budget on its first call and something has to
+		finish it: a probe that started one and left it active made every fetch afterwards part
+		of one endless operation, so once the allowance was spent nothing could reset it."""
+		self.control.lookPastTheEnd()
+		self.assertFalse(self.control.source.budget.active)
+
+	def test_soAMessageArrivingMuchLaterStillReachesTheDisplay(self):
+		"""The failure the leak actually caused, with time passed rather than none. The old
+		test added its message immediately, which is inside any allowance."""
+		clock = _HandClock()
+		control = controllerOver(
+			self.messages,
+			adapter=flowObjects.DECLARED_RUN,
+			numRows=4,
+			budget=FetchBudget(maxBlocks=32, maxSeconds=0.12, clock=clock),
+		)
+		control.lookPastTheEnd()
+		self.assertFalse(control.source.budget.active)
+		clock.now += 5.0
+		self.add("much later")
+		self.assertTrue(control.reconsiderEnd(scrollIntoView=True))
+		rows = " ".join(
+			getattr(control.regionFor(held.blockId), "rawText", "") for held in control.window.blocks
+		)
+		self.assertIn("much later", rows)
 
 	def test_andIsNotAskedTwice(self):
 		self.control.lookPastTheEnd()

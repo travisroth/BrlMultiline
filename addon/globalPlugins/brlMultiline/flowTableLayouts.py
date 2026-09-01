@@ -29,6 +29,7 @@ a configuration key is not allowed to be either.
 """
 
 import dataclasses
+import hashlib
 import json
 from typing import Any, Optional
 
@@ -42,12 +43,46 @@ FOLLOW = ""
 YES = "yes"
 NO = "no"
 
+KEY_LENGTH = 16
+"""How much of a digest names one table in the store.
+
+Sixty-four bits. The store holds at most `MAX_SAVED` entries, so a collision is not a thing
+that happens; what it buys is that the file does not carry the reader's URLs around.
+"""
+
+
+def keyFor(said: str) -> str:
+	""":return: how one half of an identity is written down.
+
+	**A digest rather than the thing itself.** An identity is a URL — with its query string,
+	which is where a session token lives — or a local file path, or the headings of a table the
+	reader has open; the store is a file in their configuration folder that goes wherever a
+	profile goes. A digest matches exactly as the text did and says nothing about what was
+	matched. Nothing reads these keys back for meaning: the lookup compares them and that is
+	all, and the log still names tables in full, where it is the reader's own screen.
+
+	Empty stays empty, since "" is a real answer — a list view that declares no headings has
+	only its place to be known by, and `layoutFor` looks for that exact key.
+
+	:param said: a part of an identity, from `flowTableIdentity`.
+	"""
+	if not said:
+		return ""
+	return hashlib.sha256(said.encode("utf-8", "replace")).hexdigest()[:KEY_LENGTH]
+
+
 MAX_SAVED = 200
 """How many tables may be remembered before the oldest is dropped.
 
 A bound on the configuration file rather than on the reader: two hundred tables is more than
 anyone lays out by hand, and a store that grows without limit is a file that eventually
-cannot be written. Dropped by age of last use, so the tables somebody actually reads stay.
+cannot be written.
+
+**Dropped by age of last *saving*, not of last reading**, which a review pointed out is not
+what "least recently used" means. It is deliberate: a lookup happens every time the reader
+walks into a table, and writing the configuration file from a braille refresh to record that
+they read one is a cost paid constantly to improve an eviction that happens once in two
+hundred layouts. The reader whose watchlist is evicted saves it again with one keystroke.
 """
 
 
@@ -130,11 +165,17 @@ def fromRecord(record: Any) -> TableLayout:
 	if not isinstance(record, dict):
 		return TableLayout()
 	columns = []
-	for number in record.get("columns") or ():
+	# A list or a tuple or nothing. A scalar here is not a short list of columns, it is a
+	# record somebody edited by hand or a version that wrote something else, and iterating it
+	# raises where the reader is waiting for a table.
+	said = record.get("columns")
+	for number in said if isinstance(said, (list, tuple)) else ():
 		try:
-			columns.append(int(number))
+			number = int(number)
 		except (TypeError, ValueError):
 			continue
+		if number > 0:
+			columns.append(number)
 	try:
 		rowHeight = int(record.get("rowHeight") or 0)
 	except (TypeError, ValueError):
@@ -154,10 +195,46 @@ def stored() -> dict:
 	only asked for when the outer key is in here at all.
 	"""
 	try:
-		return json.loads(bmConfig.tableLayouts() or "{}") or {}
+		read = json.loads(bmConfig.tableLayouts() or "{}")
 	except Exception:
 		log.debugWarning("Could not read the saved table layouts", exc_info=True)
 		return {}
+	return _asStore(read)
+
+
+def _asStore(read: Any) -> dict:
+	""":return: what was read, with anything that is not the shape of a store left out.
+
+	**Forgiving all the way down, and it was not.** `fromRecord` is careful about a record it
+	cannot read, and everything above it took the file on trust: a stored `1`, or a place whose
+	value is a string, reached `layoutFor` and raised there — in the middle of the reader
+	walking into a table, which is a braille refresh that stops rather than an error anybody
+	sees. The module says outright that it reads a file a reader may have edited and a record
+	another version wrote, so the whole shape has to be checked, not the innermost part of it.
+
+	One bad entry costs that entry. Dropping the store because one place in it is malformed
+	would lose every layout the reader has.
+
+	:param read: whatever the configuration held.
+	"""
+	if not isinstance(read, dict):
+		log.debugWarning(f"The saved table layouts are not a store but a {type(read).__name__}")
+		return {}
+	store: dict = {}
+	for where, inner in read.items():
+		if not isinstance(where, str) or not isinstance(inner, dict):
+			log.debugWarning(f"A saved table layout is not kept where one would be: {where!r}")
+			continue
+		kept = {
+			what: record
+			for what, record in inner.items()
+			if isinstance(what, str) and isinstance(record, dict)
+		}
+		if len(kept) != len(inner):
+			log.debugWarning(f"A saved table layout under {where!r} is not a record")
+		if kept:
+			store[where] = kept
+	return store
 
 
 def _write(layouts: dict) -> None:
@@ -199,10 +276,10 @@ def layoutFor(handle) -> Optional[TableLayout]:
 	if not layouts:
 		return None
 	where = flowTableIdentity.whereOf(handle)
-	inner = layouts.get(where) if where else None
+	inner = layouts.get(keyFor(where)) if where else None
 	if not inner:
 		return None
-	record = inner.get(flowTableIdentity.signatureOf(handle))
+	record = inner.get(keyFor(flowTableIdentity.signatureOf(handle)))
 	if record is None and len(inner) == 1 and "" in inner:
 		# One layout saved for this place and nothing to tell tables apart by. A list view
 		# that declares no headings is the case: it has only its place to be known by, and
@@ -223,11 +300,12 @@ def remember(handle, layout: TableLayout) -> bool:
 	if not identity.isKnown:
 		return False
 	layouts = stored()
-	inner = dict(layouts.get(identity.where) or {})
+	where = keyFor(identity.where)
+	inner = dict(layouts.get(where) or {})
 	record = layout.asRecord()
 	record["used"] = _now()
-	inner[identity.what] = record
-	layouts[identity.where] = inner
+	inner[keyFor(identity.what)] = record
+	layouts[where] = inner
 	_write(layouts)
 	return True
 
@@ -240,15 +318,16 @@ def forget(handle) -> bool:
 	"""
 	identity = flowTableIdentity.identityOf(handle)
 	layouts = stored()
-	inner = layouts.get(identity.where) if identity.isKnown else None
+	where = keyFor(identity.where)
+	inner = layouts.get(where) if identity.isKnown else None
 	if not inner:
 		return False
-	if inner.pop(identity.what, None) is None and inner.pop("", None) is None:
+	if inner.pop(keyFor(identity.what), None) is None and inner.pop("", None) is None:
 		return False
 	if inner:
-		layouts[identity.where] = inner
+		layouts[where] = inner
 	else:
-		layouts.pop(identity.where, None)
+		layouts.pop(where, None)
 	_write(layouts)
 	return True
 

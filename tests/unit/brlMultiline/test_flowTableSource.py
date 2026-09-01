@@ -420,6 +420,51 @@ class TestTheHeaderTheDocumentDeclares(unittest.TestCase):
 		document, handle = self.document(self.MARKED)
 		self.assertEqual(flowTableSource.declaredHeaders(handle, (1, 2, 3)), self.MARKED)
 
+	def test_aSilentRowIsNotTheWholeAnswer(self):
+		"""Found by review. A declared header belongs to the column, but only a cell that
+		answers at all can say so: a half-built row of a virtualised list, or a merged cell,
+		said nothing and the column then had no name. `measure` learnt that on hardware and
+		takes a few rows; this took one, and it is what names a table for a saved layout."""
+		document, handle = self.document(self.MARKED, row=2)
+		real = flowTableSource.cellRegion
+
+		def quietOnTheReadersRow(handle, row, column, live=False):
+			region = real(handle, row, column, live=live)
+			if row == 2 and region is not None:
+				region.info.getTextWithFields = lambda formatConfig=None: ["quiet"]
+			return region
+
+		flowTableSource.cellRegion = quietOnTheReadersRow
+		self.addCleanup(setattr, flowTableSource, "cellRegion", real)
+		self.assertEqual(flowTableSource.declaredHeaders(handle, (1, 2)), {1: "Ticker", 2: "Price"})
+
+	def test_aTableThatAnswersIsAskedOnlyOnce(self):
+		"""The rows are tried in turn and the walk stops as soon as every column has spoken,
+		which for a table that declares its headings is the first row asked."""
+		document, handle = self.document(self.MARKED)
+		asked = []
+		real = flowTableSource.cellRegion
+		flowTableSource.cellRegion = lambda handle, row, column, live=False: asked.append(
+			(row, column),
+		) or real(handle, row, column, live=live)
+		self.addCleanup(setattr, flowTableSource, "cellRegion", real)
+		flowTableSource.declaredHeaders(handle, (1, 2, 3))
+		self.assertEqual(len(asked), 3)
+
+	def test_andOneThatDeclaresNothingIsNotAskedForever(self):
+		"""The cost of trying again falls on the table that will never answer, so it is
+		bounded: a read per column per try and no more."""
+		document, handle = self.document()
+		asked = []
+		real = flowTableSource.cellRegion
+		flowTableSource.cellRegion = lambda handle, row, column, live=False: asked.append(
+			(row, column),
+		) or real(handle, row, column, live=live)
+		self.addCleanup(setattr, flowTableSource, "cellRegion", real)
+		flowTableSource.declaredHeaders(handle, (1, 2))
+		self.assertLessEqual(len(asked), 2 * flowTableSource.HEADER_TRIES)
+		self.assertEqual(len({row for row, _column in asked}), flowTableSource.HEADER_TRIES)
+
 	def test_aColumnThatDeclaresNothingIsLeftOut(self):
 		document, handle = self.document({2: "Price"})
 		self.assertEqual(flowTableSource.declaredHeaders(handle, (1, 2, 3)), {2: "Price"})

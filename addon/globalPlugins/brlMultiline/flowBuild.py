@@ -287,6 +287,7 @@ def buildTableController(
 	maxRows: Optional[int] = None,
 	notes: Optional[list] = None,
 	layout: Optional["flowTableLayouts.TableLayout"] = None,
+	handle=None,
 ) -> Optional[FlowController]:
 	"""Build a flow that reads the table the reader is in, laid out in columns.
 
@@ -310,13 +311,18 @@ def buildTableController(
 	:param maxRows: how many band rows one table row may use. The reader's setting.
 	:param notes: a list to record each step in, so that a failure says which step failed.
 	:param layout: what the reader saved for this table, or None to follow the settings.
+	:param handle: the table, where the caller has already found it. Recognising one is a
+		read of the document at the caret, and the band has just done it to decide whether to
+		call this at all — a review counted the same question asked four times for one
+		redraw. None asks for it here, which is what a caller with only an object has.
 	:return: the controller, or None if the reader is not in a table this can lay out.
 	"""
 	if notes is None:
 		notes = []
 	if obj is None:
 		obj = api.getFocusObject()
-	handle = flowTableSource.tableAt(obj)
+	if handle is None:
+		handle = flowTableSource.tableAt(obj)
 	if handle is None:
 		notes.append("Not in a table, or the table is one NVDA presents as page layout.")
 		return None

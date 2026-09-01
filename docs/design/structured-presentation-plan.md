@@ -14,9 +14,11 @@ So this plan adds a second axis. Alongside "what to read" there is now "how this
 thing is shown", and the second is chosen from what the reader is actually looking at
 rather than from a role alone.
 
-**Status: M0, M1, M2a, M3a, M3b, M3c, M3d and M4 (for browse mode) are built. M0, M1 and M2a are confirmed on
-hardware; M3 has been through several hardware rounds and is being used. M2b, M5 (tables as
-objects), M6 (saved layouts) and M7 (the designer) are not built.** The milestones below say which,
+**Status: M0, M1, M2a, M3a, M3b, M3c, M3d, M4 (for browse mode), most of M5 and M6 are
+built. M0, M1 and M2a are confirmed on hardware; M3 has been through several hardware rounds
+and is being used; M5's list views and message list are on hardware and its Excel third is not
+started; M6 (saved layouts) is built and not yet on hardware. M2b, M6b (applying a favourite by
+name) and M7 (the designer) are not built.** The milestones below say which,
 and where the built shape differs from what was planned the decision records both. Read this
 before extending `flowObjects.py` or `flowRender.py`.
 
@@ -1748,6 +1750,46 @@ and `script_forgetTableLayout` is how they say it for good.
 Open, and for hardware: whether automatic application wants a setting of its own. It is
 currently on for anything saved, which is what saving means, but a reader who wants a layout
 for the command to apply and not for the page to apply on its own has nowhere to say so.
+
+### Six from the review of M6 and the pin probe
+
+Each was reproduced by the reviewer before it was reported, and the first would have shown up
+on hardware as a display that stopped following a chat some minutes after it was pinned.
+
+- **A probe that started a budget and never finished it.** `lookPastTheEnd` called the source
+  outside `FlowController.operation`, and a source starts its budget on the first call. Every
+  fetch afterwards was then part of one operation that never ended: once its allowance was
+  spent, the next arriving message was refused, the edge went to DEFERRED, and nothing reset
+  it. The probe runs inside an operation now, and the test that covers it lets time pass
+  between operations rather than adding the message immediately, which no allowance refuses.
+- **A cell whose value happens to equal its column's name is data.** The rule that drops an
+  icon column saying nothing but "Flag" was written against the *text*, so a file named "Name"
+  in the Name column went off the display. The test is the value: a cell that has one has said
+  something, and only a cell with no value whose name repeats its header is a label.
+- **A forgiving parser has to be forgiving all the way down.** `fromRecord` was careful and
+  everything above it took the file on trust, so a stored `1` — or a place holding a string —
+  raised inside `layoutFor` while the reader walked into a table, which is a braille refresh
+  that stops rather than an error anybody sees. The store is checked at every level now, one
+  bad entry costs that entry, and `columns` is read only when it is a list.
+- **The same question asked four times.** One automatic layout resolved the table four times
+  and looked the saved layout up twice, each a read of the document at the caret. Both are
+  found once and carried into `buildTableController`, which now takes the handle. What remains
+  is the one `_recheckTable` asks after every redraw, which is a different question.
+- **Identity inherited a weakness measurement had already fixed.** `signatureOf` asked one row
+  for the headings that name a table; a half-built row would have named it something else and
+  the layout saved against it would not be found. `declaredHeaders` now tries a few rows for
+  the columns that have not answered, stopping as soon as they all have — the strategy
+  `measure` was given on hardware, in the one place all three callers share.
+- **The store no longer carries the reader's URLs.** An identity is a URL with its query
+  string, a local path, or the headings of a table they have open, and it was written into the
+  configuration file as a key. It is a digest now: it matches exactly as the text did and says
+  nothing about what was matched, while the log still names tables in full on the reader's own
+  screen.
+
+And one policy stated rather than changed: the store is trimmed by age of last *saving*, not
+of last reading. A lookup happens every time the reader walks into a table, and writing the
+configuration from a braille refresh to record a read is a constant cost for an eviction that
+happens once in two hundred layouts.
 
 **M6b — applying a favourite.** Not started. Choosing a saved layout by name while sitting in
 a table that has none, which is the escape hatch for a table nothing can recognise and the way

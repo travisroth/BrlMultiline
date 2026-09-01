@@ -1482,27 +1482,45 @@ def rowTextOf(row, withHeaders: Optional[bool] = None, headers: Optional[dict] =
 		text = cellText(cell)
 		if not text:
 			continue
-		header = _headerFor(cell, index, withHeaders, headers)
-		if header and header != text:
-			text = f"{header} {text}"
-		elif header == text:
-			# A column saying its own name and nothing else. That is the header drawn as
-			# content, which is what an empty icon column comes back as.
+		header = _headerFor(cell, index, headers)
+		if _isNothingButItsOwnHeader(cell, header):
 			continue
+		if withHeaders and header and header != text:
+			text = f"{header} {text}"
 		said.append(text)
 	return ROW_SEPARATOR.join(said)
 
 
-def _headerFor(cell, index: int, withHeaders: bool, headers: Optional[dict]) -> str:
+def _isNothingButItsOwnHeader(cell, header: str) -> bool:
+	""":return: whether a cell holds nothing but the name of its own column.
+
+	An icon column with nothing in it comes back named after itself, and drawing that on every
+	row says "Flag" beside every message. **The test is the value, not the text.** A review
+	found the first cut of this dropping real data: a file named "Name" in the Name column has
+	a value that happens to equal its header, and it went off the display. A cell with a value
+	has said something; only a cell with no value at all, whose name merely repeats its column,
+	is the label being drawn as content.
+
+	:param cell: the cell.
+	:param header: what its column is called, already resolved.
+	"""
+	if not header:
+		return False
+	name, value = nameAndValueOf(cell)
+	return not value and name == header
+
+
+def _headerFor(cell, index: int, headers: Optional[dict]) -> str:
 	""":return: what a cell's column is called, asking the platform once per column.
+
+	Resolved whether or not the headers are being drawn, because it decides more than
+	presentation: a cell that holds nothing but its own column's name is left out, and that
+	cannot be told without the name. One fetch per column of a list, cached, either way.
 
 	:param cell: the cell.
 	:param index: its place in the row, for a cell that does not number itself.
-	:param withHeaders: whether headers are wanted at all.
 	:param headers: the cache, or None to ask every time.
 	"""
-	if not withHeaders:
-		return ""
 	if headers is None:
 		return headerTextOf(cell)
 	column = columnNumberOf(cell) or index

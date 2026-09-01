@@ -1244,9 +1244,17 @@ class FlowBand(PanelOwner):
 		:param force: rebuild even when the table has not changed.
 		:return: whether a flow is showing, or None if this is not a table to lay out.
 		"""
-		if self.tableWanted is None and not self._wantedByASavedLayout(obj):
-			return None
-		handle = flowTableSource.tableAt(obj)
+		# Found once and carried, because each of these is a read of the document at the
+		# caret: a review counted the table resolved four times and the saved layout looked up
+		# twice for one automatic layout, all of them asking what had just been asked.
+		handle, layout = (None, None)
+		if self.tableWanted is None:
+			handle, layout = self._savedLayoutHere(obj)
+			if handle is None:
+				return None
+			self.tableWanted = handle.key
+		if handle is None:
+			handle = flowTableSource.tableAt(obj)
 		if handle is None or not flowTableSource.sameTable(handle.key, self.tableWanted):
 			self.tableWanted = None
 			return None
@@ -1271,7 +1279,8 @@ class FlowBand(PanelOwner):
 			live=True,
 			generation=next(_generations),
 			notes=self.tableNotes,
-			layout=flowTableLayouts.layoutFor(handle),
+			handle=handle,
+			layout=layout if layout is not None else flowTableLayouts.layoutFor(handle),
 		)
 		if control is None:
 			# Recognised a moment ago and not now, or no column layout fits this band. Reading
@@ -1284,8 +1293,8 @@ class FlowBand(PanelOwner):
 		self._attach(segment, control)
 		return True
 
-	def _wantedByASavedLayout(self, obj: Any) -> bool:
-		""":return: whether this table is one the reader has already laid out, and is now.
+	def _savedLayoutHere(self, obj: Any):
+		""":return: the table the reader has already laid out and what they saved for it.
 
 		**The whole point of saving one.** A layout that has to be asked for by name every
 		time is a layout the reader types out again on every page load; what they asked for is
@@ -1297,15 +1306,20 @@ class FlowBand(PanelOwner):
 		empty store answers here without looking at the object at all. See
 		`flowTableLayouts.layoutFor`.
 
+		Both, and neither is asked for twice: recognising the table and looking the layout up
+		are reads of the document, and the caller needs the same two a moment later.
+
 		:param obj: what the reader is now on.
+		:return: the table and its layout, or (None, None) where there is nothing saved for
+			what the reader is in.
 		"""
 		if not flowTableLayouts.stored() or self._refusedTable(obj):
-			return False
+			return (None, None)
 		handle = flowTableSource.tableAt(obj)
-		if handle is None or flowTableLayouts.layoutFor(handle) is None:
-			return False
-		self.tableWanted = handle.key
-		return True
+		if handle is None:
+			return (None, None)
+		layout = flowTableLayouts.layoutFor(handle)
+		return (handle, layout) if layout is not None else (None, None)
 
 	def _refusedTable(self, obj: Any) -> bool:
 		""":return: whether the reader has just taken this table's layout away.

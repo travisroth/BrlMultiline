@@ -137,7 +137,10 @@ def signatureOf(handle, columns: Optional[Any] = None) -> str:
 	identifiers change with the markup and the headings are what the table is *about*.
 
 	Bounded by `SIGNATURE_COLUMNS`, and asked only of a table whose place already has
-	something saved against it.
+	something saved against it. `declaredHeaders` asks a few rows rather than one, because a
+	row that happens to be half built answers for the whole column — and a column that fell
+	silent here would name the table something else, so the layout saved against it would not
+	be found. That is a review finding: identity needs the same care measurement already took.
 
 	:param handle: the table.
 	:param columns: which columns to read, or None for the first few of the table's own.

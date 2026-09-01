@@ -641,6 +641,22 @@ class TestARowReadAsOneLine(unittest.TestCase):
 			flowObjectTable.rowTextOf(self.row(("From", "Alice"), ("Subject", "Lunch")), headers=headers)
 		self.assertEqual(len(asked), 2)
 
+	def test_butAValueThatHappensToEqualItsHeaderIsKept(self):
+		"""Found by review. A file named "Name" in the Name column is data, not a label, and
+		the first cut of the rule above took it off the display. The test is whether the cell
+		has a *value*: one that does has said something."""
+		row = FakeGridRow([FakeGridCell("Name", 1, header="Name", value="Name")], position=1)
+		self.assertEqual(flowObjectTable.rowTextOf(row, withHeaders=False), "Name")
+
+	def test_andSoIsAValueWithNoLabelBehindIt(self):
+		row = FakeGridRow([FakeGridCell("", 1, header="Name", value="Name")], position=1)
+		self.assertEqual(flowObjectTable.rowTextOf(row, withHeaders=False), "Name")
+
+	def test_theLabelOnlyCellGoesWhetherOrNotTheHeadersAreDrawn(self):
+		"""The noise is the same either way, so the rule cannot be part of the presentation."""
+		row = self.row(("From", "Alice"), ("Flag", "Flag"))
+		self.assertEqual(flowObjectTable.rowTextOf(row, withHeaders=False), "Alice")
+
 	def test_somethingWithNoCellsSaysNothing(self):
 		"""So the caller reads it the ordinary way rather than showing an empty row."""
 		self.assertEqual(flowObjectTable.rowTextOf(FakeNavigatorObject("a button")), "")

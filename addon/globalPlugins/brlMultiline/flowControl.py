@@ -1130,15 +1130,21 @@ class FlowController(PanelOwner):
 			# DEFERRED or ERROR: the budget and the failure paths own those, and a probe now
 			# would ask the question they are already answering.
 			return False
-		try:
-			result = self.source.blockAfter(blocks[-1].blockId)
-		except Exception:
-			log.debugWarning("Could not look past the end of the stream", exc_info=True)
-			return False
-		if result.kind is not ResultKind.BLOCK and result.edgeState is EdgeState.END:
-			self.window.setEdge(Edge.AFTER, EdgeState.END)
-			self.edgeReasons[Edge.AFTER] = result.message or result.kind.value
-			self.hasBeenToTheEnd = True
+		# Inside an operation, because the source starts its budget on the first call and
+		# something has to finish it. A probe that started a budget and left it running made
+		# every later fetch part of one endless operation: once its allowance was spent, the
+		# next item to arrive was refused and the edge went to DEFERRED with nothing to reset
+		# it — a pin that stopped following its list some minutes after it was made.
+		with self.operation():
+			try:
+				result = self.source.blockAfter(blocks[-1].blockId)
+			except Exception:
+				log.debugWarning("Could not look past the end of the stream", exc_info=True)
+				return False
+			if result.kind is not ResultKind.BLOCK and result.edgeState is EdgeState.END:
+				self.window.setEdge(Edge.AFTER, EdgeState.END)
+				self.edgeReasons[Edge.AFTER] = result.message or result.kind.value
+				self.hasBeenToTheEnd = True
 		return self.hasBeenToTheEnd
 
 	def _showWhatArrived(self) -> None:

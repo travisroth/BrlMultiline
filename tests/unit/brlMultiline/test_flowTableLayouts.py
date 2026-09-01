@@ -10,6 +10,7 @@ the reader decided that is not a record of how wide the cells came out on the di
 decided it on.
 """
 
+import json
 import unittest
 
 from ._stubs import (
@@ -149,6 +150,54 @@ class TestWhatIsRemembered(LayoutTestCase):
 		self.assertEqual(flowTableLayouts.fromRecord("not a record"), flowTableLayouts.TableLayout())
 
 
+class TestAStoreSomebodyElseWrote(LayoutTestCase):
+	"""Found by review, and the module had promised otherwise. `fromRecord` is careful about a
+	record it cannot read, and everything above it took the file on trust — so a stored `1`, or
+	a place holding a string, raised inside `layoutFor` while the reader walked into a table.
+	That is a braille refresh that stops rather than an error anybody sees.
+	"""
+
+	def storedIs(self, said):
+		CONFIG["tableLayouts"] = said
+
+	def test_aScalarIsNotAStore(self):
+		self.storedIs("1")
+		self.assertEqual(flowTableLayouts.stored(), {})
+		self.assertIsNone(flowTableLayouts.layoutFor(self.page()))
+
+	def test_norIsAString(self):
+		self.storedIs('"a layout"')
+		self.assertIsNone(flowTableLayouts.layoutFor(self.page()))
+
+	def test_norIsAList(self):
+		self.storedIs("[1, 2, 3]")
+		self.assertIsNone(flowTableLayouts.layoutFor(self.page()))
+
+	def test_aPlaceThatHoldsSomethingElseIsSkipped(self):
+		self.storedIs('{"https://example.com/watchlist": "not a record"}')
+		self.assertIsNone(flowTableLayouts.layoutFor(self.page()))
+
+	def test_andTheOtherPlacesInItSurvive(self):
+		"""One bad entry costs that entry. Dropping the store would lose every layout the
+		reader has."""
+		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1, 3)))
+		store = json.loads(CONFIG["tableLayouts"])
+		store["https://example.com/other"] = "nonsense"
+		CONFIG["tableLayouts"] = json.dumps(store)
+		self.assertIsNotNone(flowTableLayouts.layoutFor(self.page()))
+
+	def test_aRecordThatIsNotOneIsSkipped(self):
+		self.storedIs('{"https://example.com/watchlist": {"": 7}}')
+		self.assertIsNone(flowTableLayouts.layoutFor(self.page()))
+
+	def test_columnsThatAreNotAListAreNotIterated(self):
+		"""The other half of the same fault: a scalar there raised on iteration."""
+		self.assertEqual(flowTableLayouts.fromRecord({"columns": 5}).columns, ())
+
+	def test_andAColumnNumberThatMakesNoSenseIsDropped(self):
+		self.assertEqual(flowTableLayouts.fromRecord({"columns": [1, 0, -2, "3"]}).columns, (1, 3))
+
+
 class TestRememberingAndFindingOne(LayoutTestCase):
 	"""The round trip, which is the feature: save it here, find it when the reader comes back."""
 
@@ -219,4 +268,23 @@ class TestRememberingAndFindingOne(LayoutTestCase):
 	def test_whatIsStoredIsTextTheProfileCanHold(self):
 		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1, 3)))
 		self.assertIsInstance(CONFIG["tableLayouts"], str)
-		self.assertIn("example.com", CONFIG["tableLayouts"])
+		self.assertIn("columns", CONFIG["tableLayouts"])
+
+	def test_andTheReadersOwnUrlIsNotInIt(self):
+		"""Raised by review. An identity is a URL with its query string, a file path, or the
+		headings of a table they have open, and the store goes wherever a profile goes. The
+		digest matches exactly as the text did and says nothing about what was matched."""
+		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1, 3)))
+		self.assertNotIn("example.com", CONFIG["tableLayouts"])
+		self.assertNotIn("Symbol", CONFIG["tableLayouts"])
+
+	def test_andItIsStillFoundAgain(self):
+		"""Which is the only thing the key has to do."""
+		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1, 3)))
+		self.assertEqual(flowTableLayouts.layoutFor(self.page()).columns, (1, 3))
+
+	def test_anEmptySignatureStaysEmpty(self):
+		"""A list view that declares no headings has only its place to be known by, and
+		`layoutFor` looks for that exact key."""
+		self.assertEqual(flowTableLayouts.keyFor(""), "")
+		self.assertNotEqual(flowTableLayouts.keyFor("a place"), "")

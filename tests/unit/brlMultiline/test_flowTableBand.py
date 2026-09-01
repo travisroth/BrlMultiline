@@ -1754,6 +1754,42 @@ class TestATableThatLaysItselfOut(TableBandTestCase):
 		self.band.refresh(force=True)
 		self.assertTrue(self._readingATable())
 
+	def test_theTableIsRecognisedOnceForOneLayout(self):
+		"""Found by review: the table was resolved four times and the layout looked up twice
+		for one automatic layout, each of them a read of the document at the caret. Both are
+		found once now and carried through the build."""
+		from brlMultiline import flowBand, flowTableLayouts, flowTableSource
+
+		self._watchlist()
+		self._save()
+		self.band.clearTable()
+		asked = []
+		lookedUp = []
+		realTable = flowTableSource.tableAt
+		realLayout = flowTableLayouts.layoutFor
+		flowTableSource.tableAt = lambda obj: asked.append(obj) or realTable(obj)
+		flowBand.flowTableLayouts.layoutFor = lambda handle: lookedUp.append(handle) or realLayout(handle)
+		try:
+			# The build itself, rather than a whole redraw: a redraw also asks
+			# `_recheckTable` whether the caret is still in the table, which is a different
+			# question and is asked with or without a saved layout.
+			shown = self.band._showTable(
+				self.api.getNavigatorObject(),
+				self.band.segment(),
+				force=True,
+			)
+		finally:
+			flowTableSource.tableAt = realTable
+			flowBand.flowTableLayouts.layoutFor = realLayout
+		self.assertTrue(shown)
+		self.assertTrue(self._readingATable())
+		# Two: the one that decides the build, and the one `_recheckTable` makes when the
+		# band redraws afterwards to see whether the caret is still in this table. That second
+		# question is asked on every redraw of every table, saved layout or not. Before this
+		# was found the count was four, with the layout looked up twice.
+		self.assertEqual(len(asked), 2, f"the table was resolved {len(asked)} times")
+		self.assertEqual(len(lookedUp), 1, f"the layout was looked up {len(lookedUp)} times")
+
 	def test_aSavedLayoutIsNotAskedAboutEveryPage(self):
 		"""The lookup runs wherever the reader goes, so an empty store must cost nothing."""
 		from brlMultiline import flowTableSource
