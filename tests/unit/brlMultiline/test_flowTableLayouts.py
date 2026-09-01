@@ -150,6 +150,45 @@ class TestWhatIsRemembered(LayoutTestCase):
 		self.assertEqual(flowTableLayouts.fromRecord("not a record"), flowTableLayouts.TableLayout())
 
 
+class TestWhatOnePressOfRememberSaves(LayoutTestCase):
+	"""The reader who configured nothing, which is every reader today.
+
+	The command wrote down the columns as they were drawn, and those are a measurement rather
+	than a decision: a column blank in the bandful that was sampled is not drawn, so pressing
+	one key froze it out of every later reading of that table. On hardware that was a watchlist
+	whose first column vanished for good, and — because the plan then had never heard of it —
+	a band that rebuilt itself on every redraw while the reader stood in it.
+	"""
+
+	class Plan:
+		"""A column plan, in the one attribute the command reads off it."""
+
+		def __init__(self, columns):
+			self.columns = tuple(
+				type("Column", (), {"index": index})() for index in columns
+			)
+
+	def test_theRecordNamesNoColumns(self):
+		layout = flowTableLayouts.layoutFrom(self.Plan((2, 3, 4)))
+		self.assertEqual(layout.columns, ())
+
+	def test_norAnythingElseTheSettingsAlreadyDecide(self):
+		"""Row height, cutting, the key column and the headers are settings, and a reader who
+		has said nothing about this table has said nothing."""
+		self.assertTrue(flowTableLayouts.layoutFrom(self.Plan((1,))).isEmpty)
+
+	def test_butItIsStillSavedAndFoundAgain(self):
+		"""Because the record *is* the request: this table comes up in columns."""
+		handle = self.page()
+		self.assertTrue(flowTableLayouts.remember(handle, flowTableLayouts.layoutFrom(self.Plan((2,)))))
+		self.assertIsNotNone(flowTableLayouts.layoutFor(self.page()))
+
+	def test_andARecordThatDoesNameColumnsIsStillHonoured(self):
+		"""What an older build saved, and what a way of choosing columns will save."""
+		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1, 3)))
+		self.assertEqual(flowTableLayouts.layoutFor(self.page()).columns, (1, 3))
+
+
 class TestAStoreSomebodyElseWrote(LayoutTestCase):
 	"""Found by review, and the module had promised otherwise. `fromRecord` is careful about a
 	record it cannot read, and everything above it took the file on trust — so a stored `1`, or
@@ -196,6 +235,69 @@ class TestAStoreSomebodyElseWrote(LayoutTestCase):
 
 	def test_andAColumnNumberThatMakesNoSenseIsDropped(self):
 		self.assertEqual(flowTableLayouts.fromRecord({"columns": [1, 0, -2, "3"]}).columns, (1, 3))
+
+
+class TestWhatIsDecidedAboutOneColumn(LayoutTestCase):
+	"""M7's vocabulary in the record: the reader's own name for a column, which end of it to
+	keep, how much room it may have, and where a page begins."""
+
+	def choice(self, **fields):
+		from brlMultiline import flowTable
+
+		return flowTable.ColumnChoice(**fields)
+
+	def test_aColumnTheReaderSaidNothingAboutIsNotWrittenDown(self):
+		layout = flowTableLayouts.TableLayout(perColumn={2: self.choice()})
+		self.assertEqual(layout.asRecord(), {})
+
+	def test_whatTheySaidIsKeptByColumnNumber(self):
+		"""By number rather than by position, so a table that gains or loses a column does not
+		shift everybody's settings onto their neighbours."""
+		layout = flowTableLayouts.TableLayout(perColumn={2: self.choice(label="Ticker")})
+		self.assertEqual(layout.asRecord(), {"perColumn": {"2": {"label": "Ticker"}}})
+
+	def test_andComesBackTheSame(self):
+		layout = flowTableLayouts.TableLayout(
+			perColumn={
+				1: self.choice(label="Ticker", keep="end", minWidth=8),
+				3: self.choice(startsAPage=True),
+			},
+		)
+		read = flowTableLayouts.fromRecord(layout.asRecord())
+		self.assertEqual(read.perColumn[1].label, "Ticker")
+		self.assertEqual(read.perColumn[1].keep, "end")
+		self.assertEqual(read.perColumn[1].minWidth, 8)
+		self.assertTrue(read.perColumn[3].startsAPage)
+
+	def test_theKeyColumnIsRemembered(self):
+		layout = flowTableLayouts.TableLayout(keyColumn=2)
+		self.assertEqual(layout.asRecord(), {"keyColumn": 2})
+		self.assertEqual(flowTableLayouts.fromRecord(layout.asRecord()).keyColumn, 2)
+
+	def test_nonsenseInARecordIsDroppedRatherThanRaised(self):
+		"""The store is read from a file a reader may have edited and a record another version
+		wrote, all the way down."""
+		read = flowTableLayouts.fromRecord(
+			{
+				"perColumn": {
+					"1": {"keep": "sideways", "minWidth": "wide", "label": 7},
+					"nonsense": {"label": "gone"},
+					"2": "not a record",
+					"0": {"label": "no such column"},
+					"3": {"label": "Kept"},
+				},
+			},
+		)
+		self.assertEqual(set(read.perColumn), {3})
+		self.assertEqual(read.perColumn[3].label, "Kept")
+
+	def test_aWholeTableSavedThisWayIsFoundAgain(self):
+		flowTableLayouts.remember(
+			self.page(),
+			flowTableLayouts.TableLayout(perColumn={1: self.choice(label="Ticker")}),
+		)
+		found = flowTableLayouts.layoutFor(self.page())
+		self.assertEqual(found.perColumn[1].label, "Ticker")
 
 
 class TestRememberingAndFindingOne(LayoutTestCase):

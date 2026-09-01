@@ -23,6 +23,9 @@ sys.path.insert(
 )
 
 from flowTable import (  # noqa: E402
+	KEEP_END,
+	KEEP_START,
+	ColumnChoice,
 	COLUMN_GAP,
 	DEFAULT_TARGET_HEIGHT,
 	KEY_SHARE,
@@ -46,6 +49,90 @@ from flowTable import (  # noqa: E402
 )
 
 MONARCH_COLS = 32
+
+class TestWhatAReaderChoseAboutAColumn(unittest.TestCase):
+	"""M7's vocabulary, tested where it is arithmetic rather than dialog.
+
+	The reported case: a table whose first column carries six lines of help text before the
+	thing that names the row. Cut from the start it says somebody else's advice on every row;
+	cut from the end it says the row's name; renamed it says whatever the reader calls it.
+	"""
+
+	def _plan(self, choices=None, **kwargs):
+		return planFor(watchlist(), MONARCH_COLS, choices=choices, **kwargs)
+
+	def _column(self, plan, index):
+		return next(column for column in plan.columns if column.index == index)
+
+	def test_aColumnKeepsItsOwnNameByDefault(self):
+		self.assertEqual(self._column(self._plan(), 1).label, "Symbol")
+
+	def test_andTakesTheReadersInstead(self):
+		"""The strongest answer to a heading nobody can read."""
+		plan = self._plan({1: ColumnChoice(label="Ticker")})
+		self.assertEqual(self._column(plan, 1).label, "Ticker")
+
+	def test_aColumnCanBeCutWhileTheRestWrap(self):
+		plan = self._plan({2: ColumnChoice(overflow=TRUNCATE)}, overflow=WRAP)
+		self.assertEqual(self._column(plan, 2).overflow, TRUNCATE)
+		self.assertEqual(self._column(plan, 1).overflow, WRAP)
+
+	def test_andCutFromTheEndWhereThatIsWhereTheAnswerIs(self):
+		plan = self._plan({1: ColumnChoice(keep=KEEP_END)})
+		self.assertEqual(self._column(plan, 1).keep, KEEP_END)
+		self.assertEqual(self._column(plan, 2).keep, KEEP_START)
+
+	def test_theHeadingIsCutAtItsOwnEnd(self):
+		"""A column of short values under a six line heading is the reader's case, and the
+		two go wrong separately."""
+		plan = self._plan({1: ColumnChoice(headerKeep=KEEP_END)})
+		header = next(column for column in plan.cutting().columns if column.index == 1)
+		self.assertEqual(header.keep, KEEP_END)
+		self.assertEqual(header.overflow, TRUNCATE)
+
+	def test_aColumnCanBeGivenARoom(self):
+		"""What a reader means by "give the description room"."""
+		plan = self._plan({4: ColumnChoice(minWidth=12)})
+		self.assertGreaterEqual(self._column(plan, 4).width, 12)
+
+	def test_andCappedWhereItIsWiderThanItIsWorth(self):
+		plan = self._plan({2: ColumnChoice(maxWidth=4)})
+		self.assertLessEqual(self._column(plan, 2).width, 4)
+
+	def test_aPageCanBeMadeToBeginAtAColumn(self):
+		"""How a reader says "these together, those after them" without describing every page."""
+		plan = self._plan({3: ColumnChoice(startsAPage=True)})
+		self.assertEqual(plan.pageOf(1), 0)
+		self.assertEqual(plan.pageOf(2), 0)
+		self.assertEqual(plan.pageOf(3), 1)
+
+	def test_andTheOtherBreaksStillFallWhereTheyFit(self):
+		"""Only the break they named is theirs; the packing decides the rest."""
+		plan = self._plan({2: ColumnChoice(startsAPage=True)})
+		self.assertEqual(plan.pageOf(1), 0)
+		self.assertGreaterEqual(plan.numPages, 2)
+
+	def test_aBreakAtTheFirstColumnIsNotAnEmptyPage(self):
+		plan = self._plan({1: ColumnChoice(startsAPage=True)})
+		self.assertEqual(plan.pageOf(1), 0)
+
+	def test_theKeyColumnIsTheFirstDrawnUnlessTheySayOtherwise(self):
+		plan = planFor(watchlist(), 20, pinKey=True)
+		self.assertEqual(plan.keyColumn, 1)
+
+	def test_andIsTheirsToChoose(self):
+		"""The first column is the row's own label in most tables and an icon in some."""
+		plan = planFor(watchlist(), 20, pinKey=True, keyColumn=2)
+		self.assertEqual(plan.keyColumn, 2)
+
+	def test_aChoiceOfSomethingNotDrawnIsNoChoice(self):
+		plan = planFor(watchlist(), 20, pinKey=True, keyColumn=99)
+		self.assertEqual(plan.keyColumn, 1)
+
+	def test_sayingNothingChangesNothing(self):
+		self.assertEqual(planFor(watchlist(), MONARCH_COLS, choices={}), planFor(watchlist(), MONARCH_COLS))
+
+
 MONARCH_ROWS = 8
 
 

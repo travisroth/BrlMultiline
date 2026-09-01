@@ -197,12 +197,25 @@ Things worth knowing:
   are in is still on the display, so nothing pulls the page back. Move to a column the page
   does not show and the display comes back to your cursor, the way braille tethering brings
   it back to the focus.
+- The columns of a table can be **arranged**. Three commands work on the column your cursor is
+  in, for the first minute in a table nobody has arranged: hide it (or show it again), change
+  what happens when its values do not fit — wrapped, cut keeping the start, cut keeping the end
+  — and give the table back as it comes if an experiment goes wrong. A fourth opens a dialog
+  for a table you come back to, where the columns are a list you move up and down and each one
+  can be given a name of your own, a floor and a ceiling on how many cells it may have, which
+  end of its heading survives, and whether a page of columns begins at it. One column can be
+  the one repeated on every page. Cutting from the end is for a column whose values begin with
+  something nobody wrote for reading, and a name of your own is for a heading that does the
+  same.
+
 - A table can be laid out in columns, with a command, and the layout can be **remembered**:
   press the remember command while a table is on the display and that table comes up laid
   out the next time you are in it, on the same page or in the same list — including when you
-  arrow out of the table and back into it. What is remembered
-  is which columns you kept and in what order, not how wide they came out, so a layout saved
-  on one display works on another. Turning the columns off leaves the memory alone until you
+  arrow out of the table and back into it. What is remembered is that this table is read in
+  columns; which columns fit and how wide they are is worked out afresh for whatever display
+  you are on, so one memory serves a Monarch and a Focus 80 — and a column that was empty
+  when you saved comes back when it has something in it. Turning the columns off leaves the
+  memory alone until you
   come back; the forget command drops it for good. Tables on web pages are recognised by the
   page's address together with what their columns are called, so a watchlist that is
   regenerated is still the same table; a list view is recognised by the application and

@@ -22,6 +22,7 @@ duplicating it, but it left the live path's whole front end in a file named for 
 diagnostic. Nothing moved in the split but the functions themselves.
 """
 
+import dataclasses
 from typing import TYPE_CHECKING, Optional
 
 import api
@@ -288,6 +289,8 @@ def buildTableController(
 	notes: Optional[list] = None,
 	layout: Optional["flowTableLayouts.TableLayout"] = None,
 	handle=None,
+	atRow: Optional[int] = None,
+	atPage: int = 0,
 ) -> Optional[FlowController]:
 	"""Build a flow that reads the table the reader is in, laid out in columns.
 
@@ -315,6 +318,12 @@ def buildTableController(
 		read of the document at the caret, and the band has just done it to decide whether to
 		call this at all — a review counted the same question asked four times for one
 		redraw. None asks for it here, which is what a caller with only an object has.
+	:param atRow: which row of the table to place the window at, or None for the caret's. What
+		a rebuild passes so the reader keeps the rows they had panned to: a new controller
+		enters at the caret, and a rebuild is not something they asked for.
+	:param atPage: which page of columns to show. Applied before the controller is handed
+		back, so the band is written once — a review found a rebuild writing page one and then
+		the reader's page, with the driver sending both.
 	:return: the controller, or None if the reader is not in a table this can lay out.
 	"""
 	if notes is None:
@@ -338,8 +347,14 @@ def buildTableController(
 	# and not later: it is the height everything below is planned against, and a band whose
 	# height changed while it was being read would move every row the reader had found.
 	headers = saved.headersOr(bmConfig.shouldPinTableHeaders()) and handle.numRows > 1 and numRows > 2
-	measured = flowTableSource.measure(handle, live=False)
-	measured = _asTheReaderWantsThem(measured, saved, notes)
+	everything = flowTableSource.measure(handle, live=False)
+	measured = _asTheReaderWantsThem(everything, saved, notes)
+	# The columns the reader's own layout leaves out. Not drawn, and *known*: a column the
+	# plan has never heard of is evidence the table changed under it, and hardware found the
+	# band rebuilding on every redraw because the caret sat in a column the saved layout had
+	# dropped. See `flowTable.ColumnPlan.excluded`.
+	kept = {item.index for item in measured}
+	excluded = tuple(item.index for item in everything if item.index not in kept)
 	# Twice at most, and the second time only to give a row back. Whether there is a header to
 	# pin cannot be known before the columns are chosen — a table's headers are declared by its
 	# cells, and which cells are read is what the plan decides — so the row is reserved, the
@@ -359,6 +374,12 @@ def buildTableController(
 			# many of them there is room for. See `flowTable.targetHeightFor`.
 			targetHeight=flowTable.targetHeightFor(bandRows),
 			pinKey=saved.pinKeyOr(bmConfig.shouldPinKeyColumn()),
+			excluded=excluded,
+			# What the reader decided about individual columns: their own name for one, which
+			# end of it to keep, how much room it may have, where a page begins. Empty for a
+			# table nobody has arranged, which is every table until they do.
+			choices=saved.perColumn,
+			keyColumn=saved.keyColumn or None,
 		)
 		if plan.isEmpty:
 			notes.append("No column layout fits this table on this band.")
@@ -405,10 +426,41 @@ def buildTableController(
 		# Already built, above, since whether it exists is what decided the band's height.
 		control.setPinned(pinned)
 		notes.append("The header row is pinned above the band.")
-	if not control.enterAtCursor():
+	if not _entered(control, source, handle, atRow):
 		notes.append("The table was recognised but its first row could not be read.")
 		return None
+	if atPage:
+		# Before the caller attaches it, so the reader feels one display rather than two.
+		control.useColumnPage(plan.onPage(atPage))
 	return control
+
+
+def _entered(control, source, handle, atRow: Optional[int]) -> bool:
+	"""Place the window, at a given row where one was asked for.
+
+	`enterAtCursor` reads the source's idea of where the reader is, which is the caret's row. A
+	rebuild wants the row the *window* was on instead — the reader may have panned a long way
+	from the caret, and having that undone by something they did not ask for is the fault this
+	exists for. So the source is pointed at that row for the length of the placement and put
+	back afterwards: the cursor still belongs to the caret, and only the window moves.
+
+	:param control: the controller being built.
+	:param source: its source.
+	:param handle: the table, as the source knows it.
+	:param atRow: the row to place at, or None for the caret's own.
+	:return: whether anything is on the band.
+	"""
+	if atRow is None or handle is None or not 1 <= atRow <= handle.numRows:
+		return control.enterAtCursor()
+	try:
+		source.moveTo(dataclasses.replace(handle, row=atRow))
+		entered = control.enterAtCursor()
+	except Exception:
+		log.debugWarning("Could not place a rebuilt table where the reader had it", exc_info=True)
+		entered = control.enterAtCursor()
+	finally:
+		source.moveTo(handle)
+	return entered
 
 
 def _asTheReaderWantsThem(measured, saved, notes: list):

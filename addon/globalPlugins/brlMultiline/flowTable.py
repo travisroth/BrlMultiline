@@ -210,6 +210,83 @@ def rowsNeeded(content: int, width: int) -> int:
 	return 1 + -(-(content - width) // usable)
 
 
+KEEP_START = "start"
+KEEP_END = "end"
+
+KEEP_ENDS: tuple[str, ...] = (KEEP_START, KEEP_END)
+"""Which half of a cut cell is kept.
+
+The start, which is what cutting has always meant, or the end. The reader has a table whose
+first column carries six lines of help text before the thing that identifies the row: cut from
+the start it reads as six words of somebody else's advice on every row, and cut from the end it
+reads as the row's own name. Neither is right in general, which is why it is a choice.
+
+A cell is cut by drawing it in full at the column's width and keeping one of the rows that
+makes — the first or the last. See `flowRender.FlowRenderer._cellRows`.
+"""
+
+
+@dataclasses.dataclass(frozen=True)
+class ColumnChoice:
+	"""What a reader decided about one column, or nothing where they have said nothing.
+
+	Every field is empty by default and empty means "not my business": the measurement and the
+	settings answer, as they do for a table nobody has laid out by hand. That is the rule
+	`flowTableLayouts.TableLayout` follows for a whole table, for the same reason — a decision
+	written down survives a display, a page redesign and a version of this add-on, and a
+	measurement written down as though it were a decision is a trap.
+	"""
+
+	label: str = ""
+	"""What the reader calls this column, instead of what the table calls it.
+
+	The strongest answer to a heading nobody can read: a column whose header is six lines of
+	help text is called "Status" and the problem is gone, because a header is orientation drawn
+	once at the top rather than data."""
+
+	overflow: str = ""
+	"""`TRUNCATE`, `WRAP`, or "" to follow the table's own setting."""
+
+	keep: str = ""
+	"""`KEEP_START`, `KEEP_END`, or "" for the start. Only meaningful when the column is cut."""
+
+	headerKeep: str = ""
+	"""Which end of this column's *heading* is kept when it is too wide to draw.
+
+	Separate from the data's, because they go wrong separately: a column of short values under
+	an unreadable heading is the reader's own case, and a custom label is not always wanted
+	where the table's heading merely ends better than it begins."""
+
+	minWidth: int = 0
+	"""The fewest cells this column may be drawn in, or 0 to let the fitting decide."""
+
+	maxWidth: int = 0
+	"""The most, or 0 for no ceiling of the reader's own."""
+
+	startsAPage: bool = False
+	"""Whether a page of columns begins here.
+
+	How a reader says "these together, those after them" without describing every page: the
+	packing still decides where the other breaks fall, and this one is theirs."""
+
+	@property
+	def isEmpty(self) -> bool:
+		""":return: whether this decides nothing at all."""
+		return not (
+			self.label
+			or self.overflow
+			or self.keep
+			or self.headerKeep
+			or self.minWidth
+			or self.maxWidth
+			or self.startsAPage
+		)
+
+
+NOTHING_CHOSEN = ColumnChoice()
+"""What a column the reader has said nothing about answers to every question."""
+
+
 @dataclasses.dataclass(frozen=True)
 class Column:
 	"""One column, as it will be drawn."""
@@ -236,6 +313,12 @@ class Column:
 
 	overflow: str = DEFAULT_OVERFLOW
 	"""What becomes of a cell too long for `width`. See `OVERFLOW_STYLES`."""
+
+	keep: str = KEEP_START
+	"""Which end of a cut cell is kept. See `KEEP_ENDS`."""
+
+	headerKeep: str = KEEP_START
+	"""Which end of this column's heading is kept when the header row is drawn."""
 
 	pinned: bool = False
 	"""Whether this is the repeated copy of the key column rather than the column itself.
@@ -352,6 +435,20 @@ class ColumnPlan:
 	a reader cannot see: the band looks like a table with fewer columns in it, and there is
 	nothing to say whether that is the table or the layout. See `Measurement.hidden` for what
 	puts a column here.
+	"""
+
+	excluded: tuple[int, ...] = ()
+	"""The table's numbers for columns the reader's own saved layout leaves out.
+
+	Different from `omitted`, which is a column the *measurement* found nothing in, and the
+	difference is what the band does when the caret lands in one. An omitted column may turn
+	out to hold something the bounded sample missed, and is worth one look; an excluded column
+	holds whatever it holds and the reader has said they do not want it, so there is nothing to
+	look for and nothing to rebuild.
+
+	Both are *known*, which is the point. A column the plan has never heard of is evidence that
+	the table changed under the layout; hardware found the band rebuilding on every redraw
+	because the columns a saved layout dropped were, to `knows`, columns of another table.
 	"""
 
 	narrowed: tuple[int, ...] = ()
@@ -492,10 +589,18 @@ class ColumnPlan:
 		the same argument the repeated key column is made of — and one that wrapped would
 		take two of the band's rows away from the table to say "%Change" instead of "%Chang".
 		One row, always, so that the rows below it never move.
+
+		**And cut at the end the reader asked for, which is the heading's own answer rather
+		than the data's.** They go wrong separately: a column of short values can sit under a
+		heading of six lines of help text, where what identifies the column is the last word
+		of it. See `ColumnChoice.headerKeep`.
 		"""
 		return dataclasses.replace(
 			self,
-			columns=tuple(dataclasses.replace(column, overflow=TRUNCATE) for column in self.columns),
+			columns=tuple(
+				dataclasses.replace(column, overflow=TRUNCATE, keep=column.headerKeep)
+				for column in self.columns
+			),
 		)
 
 	def knows(self, column: int) -> bool:
@@ -515,7 +620,11 @@ class ColumnPlan:
 
 		:param column: the table's own column number.
 		"""
-		return self.pageOf(column) is not None or column in self.omitted
+		return (
+			self.pageOf(column) is not None
+			or column in self.omitted
+			or column in self.excluded
+		)
 
 	def placements(self) -> tuple[Placement, ...]:
 		""":return: where each column of the page being drawn goes."""
@@ -645,6 +754,9 @@ def planFor(
 	overflow: str = DEFAULT_OVERFLOW,
 	targetHeight: int = DEFAULT_TARGET_HEIGHT,
 	pinKey: bool = True,
+	excluded: Sequence[int] = (),
+	choices: Optional[dict] = None,
+	keyColumn: Optional[int] = None,
 ) -> ColumnPlan:
 	"""Work out how wide each of a table's columns is drawn, and which of them share a page.
 
@@ -682,9 +794,18 @@ def planFor(
 	:param overflow: what becomes of a cell too long for its column. See `OVERFLOW_STYLES`.
 	:param targetHeight: how tall a table row may be before a page gives up a column.
 	:param pinKey: whether to repeat the first column at the left of every later page.
+	:param excluded: the table's numbers for columns the reader's saved layout leaves out.
+		Not measured here and never drawn, but *known* — see `ColumnPlan.excluded`.
+	:param choices: what the reader decided about individual columns, by column number. See
+		`ColumnChoice`; a column not named here is drawn as the measurement and the settings
+		say, which is every column until somebody says otherwise.
+	:param keyColumn: the column to repeat at the left of every later page, or None for the
+		first one drawn. Theirs to choose: the first drawn column is the symbol on a watchlist
+		and an icon on the table beside it.
 	:return: the plan, or `READING_ORDER` when there is nothing to lay out.
 	"""
 	measured = list(measured)
+	choices = dict(choices or {})
 	# A column asking for no cells is refused here as well as in the measuring, and the two
 	# agree on purpose. `Measurement.hidden` is what a measurer says about a table it can see
 	# — a merged cell, a column of unreadable icons — and this is the arithmetic refusing to
@@ -706,8 +827,16 @@ def planFor(
 		targetHeight=targetHeight,
 		overflow=overflow,
 	)
+	shape["choices"] = choices
 	widths, assignment = _dealIntoPages(wanted, reserve=0, **shape)
-	keyColumn, keyWidth = _keyFor(wanted, numCols, gap, minWidth, pinKey and len(assignment) > 1)
+	keyColumn, keyWidth = _keyFor(
+		wanted,
+		numCols,
+		gap,
+		minWidth,
+		pinKey and len(assignment) > 1,
+		chosen=keyColumn,
+	)
 	if keyColumn is not None:
 		# Deal again with the pin's cells taken out of every page after the first. Only ever
 		# twice: the pin costs room, so a table that needed more than one page without it
@@ -715,12 +844,7 @@ def planFor(
 		widths, assignment = _dealIntoPages(wanted, reserve=keyWidth + gap, **shape)
 	return ColumnPlan(
 		columns=tuple(
-			Column(
-				index=item.index,
-				width=widths[item.index],
-				label=item.label,
-				overflow=overflow,
-			)
+			_asChosen(item, widths[item.index], overflow, choices.get(item.index, NOTHING_CHOSEN))
 			for item in wanted
 		),
 		numCols=numCols,
@@ -729,13 +853,37 @@ def planFor(
 		assignment=assignment,
 		keyColumn=keyColumn,
 		keyWidth=keyWidth,
+		excluded=tuple(sorted(excluded)),
 		omitted=tuple(sorted(drawn.symmetric_difference(item.index for item in measured))),
 		narrowed=tuple(item.index for item in wanted if widths[item.index] < item.wants),
 	)
 
 
+def _asChosen(item: "Measurement", width: int, overflow: str, choice: "ColumnChoice") -> "Column":
+	""":return: one column as the measurement found it and the reader asked for it.
+
+	:param item: the measurement.
+	:param width: the width the fitting gave it.
+	:param overflow: what the table does with a cell too long for its column.
+	:param choice: what the reader decided about this column.
+	"""
+	return Column(
+		index=item.index,
+		width=width,
+		label=choice.label or item.label,
+		overflow=choice.overflow if choice.overflow in OVERFLOW_STYLES else overflow,
+		keep=choice.keep if choice.keep in KEEP_ENDS else KEEP_START,
+		headerKeep=choice.headerKeep if choice.headerKeep in KEEP_ENDS else KEEP_START,
+	)
+
+
 def _keyFor(
-	wanted: Sequence[Measurement], numCols: int, gap: int, minWidth: int, pinKey: bool
+	wanted: Sequence[Measurement],
+	numCols: int,
+	gap: int,
+	minWidth: int,
+	pinKey: bool,
+	chosen: Optional[int] = None,
 ) -> tuple[Optional[int], int]:
 	"""Which column is repeated at the left of every later page, and how wide.
 
@@ -753,11 +901,14 @@ def _keyFor(
 	:param gap: cells between columns.
 	:param minWidth: the narrowest a column may be drawn.
 	:param pinKey: whether the reader wants this at all.
+	:param chosen: the column the reader picked for it, or None for the first drawn. The first
+		is the row's own label in most tables and an icon in some, which is why it is theirs to
+		say. A choice the plan is not drawing is no choice at all, and the first stands.
 	:return: the column's number and its pinned width, or None and zero.
 	"""
 	if not pinKey or len(wanted) < 2:
 		return None, 0
-	key = wanted[0]
+	key = next((item for item in wanted if item.index == chosen), wanted[0])
 	width = max(minWidth, min(numCols // KEY_SHARE, max(key.typical, key.labelWidth)))
 	if numCols - (width + gap) < max(minWidth, READABLE_CELLS):
 		# The pin would leave no room to read anything beside it, which is not orientation.
@@ -775,6 +926,7 @@ def _dealIntoPages(
 	maxWidth: int,
 	targetHeight: int,
 	overflow: str,
+	choices: Optional[dict] = None,
 ) -> tuple[dict, tuple[tuple[int, ...], ...]]:
 	"""Walk the columns left to right, filling one page at a time.
 
@@ -791,15 +943,21 @@ def _dealIntoPages(
 	:param maxWidth: the widest.
 	:param targetHeight: how tall a table row may be before a page gives up a column.
 	:param overflow: what becomes of a cell too long for its column.
+	:param choices: what the reader decided per column, which can both bound a width and say
+		where a page begins. See `ColumnChoice`.
 	:return: every column's width, and which columns are on which page.
 	"""
+	choices = dict(choices or {})
 	widths: dict = {}
 	assignment: list[tuple[int, ...]] = []
 	rest = list(wanted)
 	while rest:
 		room = numCols if not assignment else max(minWidth, numCols - reserve)
+		# A page the reader asked to begin somewhere ends the one before it, however much
+		# room is left. Theirs is the only break named; the rest still fall where they fit.
+		upTo = _upToTheirBreak(rest, choices)
 		take, chosen = _howManyFit(
-			rest, room, numCols, maxRows, gap, minWidth, maxWidth, targetHeight, overflow
+			upTo, room, numCols, maxRows, gap, minWidth, maxWidth, targetHeight, overflow, choices
 		)
 		widths.update(chosen)
 		assignment.append(tuple(item.index for item in rest[:take]))
@@ -817,6 +975,7 @@ def _howManyFit(
 	maxWidth: int,
 	targetHeight: int,
 	overflow: str,
+	choices: Optional[dict] = None,
 ) -> tuple[int, dict]:
 	"""How many of the columns still to place go on this page.
 
@@ -844,7 +1003,13 @@ def _howManyFit(
 	widths: dict = {}
 	for take in range(len(rest), 0, -1):
 		items = rest[:take]
-		widths = _fitWidths(items, _budgetFor(room, numCols, maxRows, take, gap), minWidth, maxWidth)
+		widths = _fitWidths(
+			items,
+			_budgetFor(room, numCols, maxRows, take, gap),
+			minWidth,
+			maxWidth,
+			choices,
+		)
 		height = _stackedHeight(items, widths, room, numCols, maxRows, gap, overflow)
 		if height is None:
 			continue
@@ -856,6 +1021,21 @@ def _howManyFit(
 	# band's width and let it wrap, which is what a column wider than the display has to do.
 	item = rest[0]
 	return 1, {item.index: max(minWidth, min(maxWidth, room))}
+
+
+def _upToTheirBreak(rest: Sequence[Measurement], choices: dict) -> Sequence[Measurement]:
+	""":return: the columns up to the next page the reader asked to begin.
+
+	The first column is always taken — a break at the column a page starts with is that page
+	starting, not an empty one — so this only ever shortens what the packing may consider.
+
+	:param rest: the columns still to place, in order.
+	:param choices: what the reader decided per column.
+	"""
+	for position, item in enumerate(rest):
+		if position and choices.get(item.index, NOTHING_CHOSEN).startsAPage:
+			return rest[:position]
+	return rest
 
 
 def _budgetFor(room: int, numCols: int, maxRows: int, count: int, gap: int) -> int:
@@ -923,7 +1103,13 @@ def _stackedHeight(
 	return sum(lanes) if lanes else 1
 
 
-def _fitWidths(items: Sequence[Measurement], budget: int, minWidth: int, maxWidth: int) -> dict:
+def _fitWidths(
+	items: Sequence[Measurement],
+	budget: int,
+	minWidth: int,
+	maxWidth: int,
+	choices: Optional[dict] = None,
+) -> dict:
 	"""Decide a width for each column of one page.
 
 	Both directions. What was here shrank the widest columns towards fitting and stopped; it
@@ -934,15 +1120,37 @@ def _fitWidths(items: Sequence[Measurement], budget: int, minWidth: int, maxWidt
 	:param budget: how many cells of content the page holds.
 	:param minWidth: the narrowest a column may be drawn.
 	:param maxWidth: the widest.
+	:param choices: what the reader decided per column, which may bound either end. A column
+		they gave a floor to keeps it through the shrinking, so what will not fit beside it
+		goes on the next page rather than being narrowed past what they asked for.
 	:return: column number to width.
 	"""
-	wants = {item.index: item.wants for item in items}
-	widths = {item.index: max(minWidth, min(maxWidth, wants[item.index])) for item in items}
-	_shrinkTowardsFitting(widths, budget, minWidth, wants)
+	choices = dict(choices or {})
+	wants = {item.index: _wantsWithin(item, choices, minWidth, maxWidth) for item in items}
+	floors = {
+		item.index: max(minWidth, choices.get(item.index, NOTHING_CHOSEN).minWidth)
+		for item in items
+	}
+	widths = {item.index: max(floors[item.index], wants[item.index]) for item in items}
+	_shrinkTowardsFitting(widths, budget, minWidth, wants, floors)
 	return widths
 
 
-def _shrinkTowardsFitting(widths: dict, budget: int, minWidth: int, wants: dict) -> None:
+def _wantsWithin(item: Measurement, choices: dict, minWidth: int, maxWidth: int) -> int:
+	""":return: what a column asks for, inside whatever bounds the reader gave it."""
+	choice = choices.get(item.index, NOTHING_CHOSEN)
+	ceiling = min(maxWidth, choice.maxWidth) if choice.maxWidth else maxWidth
+	floor = max(minWidth, choice.minWidth)
+	return max(floor, min(max(ceiling, floor), item.wants))
+
+
+def _shrinkTowardsFitting(
+	widths: dict,
+	budget: int,
+	minWidth: int,
+	wants: dict,
+	floors: Optional[dict] = None,
+) -> None:
 	"""Take cells from the widest columns while they have any to spare.
 
 	*Towards* fitting, not until it fits. Whether every column fits on one page is not this
@@ -957,7 +1165,14 @@ def _shrinkTowardsFitting(widths: dict, budget: int, minWidth: int, wants: dict)
 	:param minWidth: the narrowest a column may be drawn at all.
 	:param wants: what each column asked for, so a column already short is left alone.
 	"""
-	floors = {index: min(wants[index], max(minWidth, READABLE_CELLS)) for index in widths}
+	given = dict(floors or {})
+	floors = {
+		index: max(
+			given.get(index, 0),
+			min(wants[index], max(minWidth, READABLE_CELLS)),
+		)
+		for index in widths
+	}
 	for _ in range(sum(widths.values())):
 		if sum(widths.values()) <= budget:
 			return

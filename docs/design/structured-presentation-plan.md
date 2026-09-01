@@ -14,11 +14,11 @@ So this plan adds a second axis. Alongside "what to read" there is now "how this
 thing is shown", and the second is chosen from what the reader is actually looking at
 rather than from a role alone.
 
-**Status: M0, M1, M2a, M3a, M3b, M3c, M3d, M4 (for browse mode), most of M5 and M6 are
-built. M0, M1 and M2a are confirmed on hardware; M3 has been through several hardware rounds
-and is being used; M5's list views and message list are on hardware and its Excel third is not
-started; M6 (saved layouts) is built and not yet on hardware. M2b, M6b (applying a favourite by
-name) and M7 (the designer) are not built.** The milestones below say which,
+**Status: M0, M1, M2a, M3 (a to d), M4, M6 and most of M5 are built and on hardware.**
+M5's list views and message list are read as tables on hardware; its Excel third is not
+started. M7 (arranging a table) is built and not yet on hardware. What is not built: M1's
+orientation note, M2b (the presentation registry) and M6b (applying a saved layout by name).
+The milestones below say which,
 and where the built shape differs from what was planned the decision records both. Read this
 before extending `flowObjects.py` or `flowRender.py`.
 
@@ -760,7 +760,8 @@ of the same role apart, which is a table problem before it is a tree problem —
 plus `register` already carries the tree case. Outlook's Go To Folder is M2a's acceptance
 test, not this one's.
 
-**M3a — the column vocabulary.** DONE, NOT YET ON HARDWARE. `flowTable.py`: `Column`,
+**M3a — the column vocabulary.** BUILT, ON HARDWARE. Every table laid out on the Monarch
+is this arithmetic, and the widths it chooses have been read for weeks. `flowTable.py`: `Column`,
 `ColumnPlan`, `Measurement`, `planFor`, `shouldReplan`, and the packing across band rows.
 Pure arithmetic, no NVDA, the way `flowIndent` is.
 
@@ -775,7 +776,7 @@ A number worth knowing: shrinking runs all the way to `MIN_COLUMN_CELLS` before 
 dropped, so a 32 cell band holds eight columns before it loses one. Tables that overflow are
 tables with many columns, not tables with wide ones.
 
-**M3b — drawing a row in columns.** DONE, NOT YET ON HARDWARE. `TableRow`, `RowCell`, and
+**M3b — drawing a row in columns.** BUILT, ON HARDWARE, with routing into a cell confirmed. `TableRow`, `RowCell`, and
 `FlowRenderer._asColumns`. Each cell is translated in a buffer of its own at its own
 column's width, because translating the joined text would make the widths character counts,
 and in a contracted table those are not where the columns are. Positions are packed — which
@@ -819,7 +820,10 @@ is what a setting is for and what a default must not assume.
 
 No persistence and no pinned headers yet.
 
-**M3d — readability, paging and the repeated column.** BUILT, NOT YET ON HARDWARE.
+**M3d — readability, paging and the repeated column.** BUILT, ON HARDWARE. Paging has been
+through several hardware rounds, and what those rounds were about was never the arithmetic:
+they were about the band being rebuilt under the reader while they paged. The repeated key
+column is in daily use and is what orients the reader on a later page.
 Decisions 25 and 26, and the answer to what the reader saw on a 29 column watchlist: eight
 columns of three cells where "310.34" came out as "3".
 
@@ -874,35 +878,57 @@ no state about pages at all now — the rule is a question about what is drawn, 
 What is still for hardware: whether ten page turns for a twenty-nine column watchlist is a
 worse trade than a narrower symbol column would be.
 
-**Paging must survive the cursor being somewhere undrawn.** Reported from hardware: the
-layout command starts the reader on a cell with data, so paging works; quick navigation and the
-arrow keys land them in the *first* cell, which on this watchlist is an icon column the layout
-leaves out — and from there "it tries, then just repeats the first columns". Two things were
-taking the page away, and both are about a rebuild rather than about paging:
+**Paging must survive the cursor being somewhere undrawn.** Reported from hardware three
+times, and it took all three to find the bottom of it. The layout command starts the reader on
+a cell with data, so paging works; quick navigation and the arrow keys land them in the *first*
+cell, which on this watchlist is a blank icon column — and from there the display "tries, then
+just repeats the first columns", will not pan, and redraws continuously while the numbers sit
+still.
+
+**The bottom of it was a saved layout — and the layout had saved something nobody chose.**
+The remember command wrote down the columns *as they were drawn*, and those are a measurement
+rather than a decision: a column blank in the bandful that was sampled is not drawn, so one
+press of one key froze the reader's first column out of every later reading of that table.
+They had configured nothing at all. `_asTheReaderWantsThem` then cut the measurement down to
+the named columns, so every other column was, to `ColumnPlan.knows`, a column from some other
+table — which is the one thing that means "this layout is not of this table, read it again".
+The caret sitting in one rebuilt the band on every redraw.
+
+Two changes, and the first is the one that should have been true from the start:
+
+- **A record saved by one press says only "lay this table out".** The columns are measured
+  afresh every time, exactly as they are for a table with no record, so a column that fills in
+  later comes back. The field is kept and still honoured, because a record that names columns
+  is what an older build saved and what M7's designer or M6b's favourites will save — when
+  there is a way for a reader to *choose* columns, there will be something to write there.
+- **`knows` has two ways to know a column it does not draw**: `omitted`, which the measurement
+  found empty and is worth one look, and `excluded`, which a layout names out and is worth
+  nothing at all. Both stop the rebuild; the second is what makes a record from an older build
+  harmless.
+
+Three more, each found by the reader or the reviewer on the way down:
 
 - **The same cell could ask for a rebuild forever.** A cell that answers "I hold something"
-  and a measurement of a bandful that says the column is empty can disagree, because the
-  sample is bounded; the layout is read again to settle it. If it comes out the same, the next
-  live pass asks the same cell and rebuilds again — and a reader who turns a page has it taken
-  back before they feel it.
-- **And a cell that answers "nothing" cost a search of the document on every redraw**, which
-  the next hardware report priced: the dry run put a single cell search at 44 ms against 169
-  document change notices while the reader sat in that blank first column. Panning stalled,
-  and a page turn made from there took five times as long as the same turn made from the
-  column beside it.
-- **A rebuild came back on page one.** A rebuild is not a decision the reader made — it
-  happens because something changed under them while they were reading somewhere — so the band
-  goes back to the page of columns they had turned to, clamped where the new layout has fewer.
+  and a bandful of rows that says the column is empty can disagree, because the sample is
+  bounded. An undrawn cell is looked into **once**, whatever it answers — the flag that let a
+  live pass ask again is gone, since asking cost a 44 ms search of the document against 169
+  change notices while the reader sat still. What that gives up is a value appearing in the
+  cell while they stand on it; moving off and back asks again.
+- **The cache is keyed by the table as well as the cell.** Two tables have a row 1 column 1
+  apiece, and a review watched the second inherit the first's answer.
+- **A rebuild put the reader back on page one, at the caret's row.** They lost both axes of
+  where they were reading, which is what "cannot pan" was: a pan down, then a rebuild, and the
+  band at the caret again. The page and the top row are now carried *into* the build —
+  `buildTableController` takes `atPage` and `atRow` — so what reaches the display is the
+  reader's own window and not page one first. A review measured that as two writes for one
+  rebuild, both sent to the driver.
 
-So an undrawn cell is looked into **once**, whatever it answers, and the flag that let a live
-pass ask again is gone. What that gives up is a value appearing in the cell while the reader
-stands on it; moving off and back asks again, and so does laying the table out afresh. That is
-the right way round: the case given up is rare and recoverable in one keystroke, and the case
-bought is every reader who quick-navigates into a table and finds the display will not move.
-
-The band already refuses to drag the page to a column that is drawn nowhere: `_showColumn`
-asks whether the caret's column is on the display, and one that is on no page is not a reason
-to move. So the cursor sitting in an icon column now costs the reader nothing.
+The exception is the one rebuild the reader caused: a value found in the cell they are
+standing in. There the band goes to them, because refusing would be hiding the thing that made
+the rebuild worth doing. `_rebuildBecause` records which branch fired, with the table's shape,
+the caret, the page and the columns left out — every rebuild is a normal branch, so nothing
+raised and nothing appeared in NVDA's log while a reader watched their display rebuild itself
+in a loop.
 
 **A column can answer and hold nothing, and that is not the same as not being there.** The
 first cut of the phantom-column test asked whether any sampled row had a cell at a
@@ -1121,7 +1147,9 @@ would restore is one the reader has just left deliberately, and the move history
 `syncToCursor` at the end — on a pass that had already thrown the reader's window away and
 rebuilt it somewhere else, which is why four hardware reports were needed to find this.
 
-**M4 — pinned headers.** BUILT FOR BROWSE MODE TABLES, NOT YET ON HARDWARE. Brought
+**M4 — pinned headers.** BUILT, ON HARDWARE, for browse mode tables and for object tables
+alike — a dry run of the reader's watchlist shows the header row held above the band, and File
+Explorer's Details view pins the headings its cells declare. Brought
 forward from last because the reader met the hole it fills: a column layout turned on from
 the middle of a table showed the columns and never said what any of them was. The window
 starts where the reader is, so the header row was on the band only if they happened to have
@@ -1751,7 +1779,11 @@ planned, and whether a table has headings cannot be known until they are asked f
 row is reserved, the header asked for, and the whole arrangement made again at full height
 when the answer is that this table has none. A list view is exactly that case.
 
-**M6 — saved layouts.** BUILT, NOT YET ON HARDWARE. The record, the identity, automatic
+**M6 — saved layouts.** BUILT, ON HARDWARE. Confirmed by the reader: a table remembered with
+one keystroke comes up in columns when they walk back into it, in browse mode and in File
+Explorer's Details view. What that took beyond the record itself is written up below —
+automatic application when the caret walks in, and the two faults that came of saving a
+measurement as though it were a decision. The record, the identity, automatic
 matching, and the two commands.
 
 **An identity has two parts because they cost different amounts.** `where` is one attribute —
@@ -1835,12 +1867,163 @@ whose columns they have just turned off answers before it too. The layout is off
 table, so one that will not fit this band is not rebuilt on every redraw; the offer comes round
 again when they leave and come back.
 
+### A list whose items are grouped is still one run
+
+Reported as a Monarch panning fault in Outlook's message list, and it was not one: the display
+was refusing nothing. The list is grouped by day, and at each boundary the run simply ended —
+`ObjectFlowSource._step` says "the next object is beside this run rather than in it", the edge
+closes, and panning has nowhere to go.
+
+Both halves of `_isSameRun` fail there at once, which is why it looked like a wall rather than
+a bug. The heading of the next day is a `GROUPING`, so it fails the role test; the first
+message under that heading has a different parent, so it fails the sibling test. Neither
+refusal is wrong on its own — a grouping *is* a boundary in most controls, and a list box holds
+buttons as well as items — and the table walker, which already knows how to step over group
+headings, is not available here because Outlook numbers its rows per group and
+`positionNumbersTheTable` refuses that numbering for good reasons of its own.
+
+So a third adapter rather than a weaker second one. `GROUPED_LIST` matches only the shape it is
+written for — a run member inside a grouping inside a list — and reads that list down the
+screen the way `VISIBLE_TREE` reads a tree: through a group, across to the next group's
+heading, through that one. Four things follow from what the reader actually has:
+
+- **The heading is a row.** "Yesterday" arriving under the hand is the reason the boundary is
+  worth crossing rather than hiding.
+- **A closed group is a heading and no rows**, exactly as it is on the screen.
+- **Membership is the list they are all in**, not the parent they happen to share, which is
+  what stops the climb at the end of the last group instead of walking into the toolbar.
+- **Everything else reads as it did.** The adapter is asked before `SIBLING_RUN` and answers no
+  for a list item with no grouping above it, so ordinary lists, menus and tab strips are
+  untouched.
+
+The review noted a second shape this does not cover: a provider that gives each day a
+different parent *without* a grouping between. That falls back to today's behaviour, and the
+new boundary log is what will say which shape a given Outlook is — `_sayWhereItEnded` records
+the adapter, both objects, their roles and their parents whenever a run ends, because the end
+of a run is a normal answer and a reader cannot tell "the list ends here" from "panning is
+broken" without it.
+
 **M6b — applying a favourite.** Not started. Choosing a saved layout by name while sitting in
 a table that has none, which is the escape hatch for a table nothing can recognise and the way
 a layout reaches a second table that should read like the first.
 
-**M7 — the table designer dialog.** On top of M6's record, once the record has been lived
-with.
+### What a layout can hold: the shape of M7
+
+The reader's own case, and it is not one the current record can express: a table whose first
+column carries six lines of help text somebody thought was useful, so the *end* of that cell is
+what identifies the column and the beginning is noise. Truncation as it stands cuts the end
+off, which keeps precisely the wrong half — and the header of that column has the same problem
+independently of its data.
+
+So M7 is not only "choose the columns". It is a vocabulary of decisions about a table, and the
+record has to carry each of them. What follows is what that vocabulary should be, what each
+part costs against the code as it stands, and the order to build it in.
+
+**The rule that governs all of it, learnt the hard way.** Every field is optional and means
+"not my business" when unset — see `flowTableLayouts.TableLayout` — and nothing that is a
+*measurement* is ever written down as though it were a decision. A reader who has said nothing
+about a column gets whatever the measurement and the settings give, on whatever display they
+are on. That is what keeps a layout saved on a Monarch working on a Focus 80, and it is what
+went wrong when the remember command recorded the columns as drawn.
+
+**Table-wide, of which four exist today**: which columns and in what order; how tall a row may
+be; whether cells are cut or wrapped; whether the key column repeats; whether a header row is
+pinned. Two more are worth having:
+
+- **Which column is the key column.** It is the first drawn one today. On a watchlist that is
+  the symbol and right; on a file list the reader may want Name rather than whatever sorts
+  first, and on a table whose first column is an icon it is wrong by construction.
+- **What an empty cell says.** A blank cell and a short one feel alike under a hand. A marker
+  is one setting and one line in the renderer, and it may be wrong for tables that are mostly
+  sparse — so it is a table's own decision rather than a global one.
+
+**Per column, which is where the reader's case lives**:
+
+- **Shown or hidden**, and where in the order — the part M7 is usually described as.
+- **Cut or wrapped**, per column rather than per table. `Column.overflow` is already per column
+  and the plan simply fills it in uniformly, so this is a map instead of a value.
+- **Which end to keep when it is cut.** New, and the reader's actual need: keep the start (what
+  cutting means today), keep the end, or keep the ends and elide the middle. The renderer takes
+  `line[: width]`; the other two are `line[-width:]` and a join with a marker.
+- **A label of the reader's own.** The strongest answer to six lines of help text is not to cut
+  it but to *name* the column: the header is orientation, it is drawn once at the top, and a
+  reader who calls it "Status" has said everything they need. `Column.label` already exists and
+  is filled from what the table declares.
+- **How the header is treated, separately from the data.** Which end of the *header* to keep,
+  and whether this column contributes a heading at all. The pinned row is drawn with
+  `ColumnPlan.cutting`, so it is already a separate rendering of the same columns.
+- **Width, where the reader wants to say.** Auto is right almost always — it measures what is
+  there — but "at least this many cells" and "at most this many" are the two that matter, and
+  they are what a reader means by "give the description room". A fixed width is the same
+  mechanism with both bounds equal.
+
+**Arrangement**: which columns share a page. `ColumnPlan.assignment` is already a field for
+exactly this and is honoured wherever it is set, so "these four together, those three after
+them" needs a way to say it rather than new machinery underneath. A reader with a
+twenty-nine column watchlist and six pages is the case: the four they read together should be
+page one whatever the packing would have chosen.
+
+**How it reaches the reader.** Two ways, and both are wanted:
+
+- **A dialog**, opened from a command while in a table: the columns in a list with their
+  headings, moved and toggled, and a properties pane for the column in hand. It is the only
+  place a whole arrangement can be seen at once.
+- **Commands on the band**, for the changes made while reading — hide the column the cursor is
+  in, cut it from the other end, give it more room. A reader who has to open a dialog to drop a
+  column will not drop it, and these are three lines each on top of the record.
+
+**The order to build it**, cheapest and most valuable first:
+
+1. Per-column overflow and which end to keep, plus the reader's own label. This is the reported
+   case, and every piece of it is a field the plan already carries.
+2. The columns to show and their order, through the dialog. The record and
+   `_asTheReaderWantsThem` already do the work; what is missing is the way to say it.
+3. Header treatment per column, and the key column choice.
+4. Width bounds, then the page assignment.
+5. The empty-cell marker, if it still seems worth it once the rest is in use.
+
+**What has to be got right in the record**, whichever order it is built in: a per-column
+decision is stored against the *column's own number*, and a table that gains or loses a column
+must not shift everybody's settings. The number is what `flowTableSource` reports and what the
+existing `columns` field already uses, so the shape is `{"2": {"cut": "end"}}` rather than a
+list by position — and a column the table no longer has is dropped on reading, exactly as a
+named column already is.
+
+**M7 — arranging a table.** BUILT, NOT YET ON HARDWARE. The vocabulary, the commands on the
+band, and the dialog.
+
+**Three commands and a dialog, because they answer different questions.** The commands are for
+the first minute in a table nobody has arranged — hide the column the cursor is in, cycle how
+it is cut, give the table back as it comes — and the reader asked for them in those words:
+"they may help with exploring a new table". The dialog is for a table they come back to, where
+what is wanted is a name for a column, a floor and a ceiling on its width, which end of its
+heading survives, and where a page begins. Neither could stand in for the other: a reader who
+must open a dialog to drop a column will not drop it, and a keystroke cannot type a label.
+
+**What a column can be told**, all of it optional and all of it "not my business" when unset:
+its own name; wrapped or cut; which end a cut keeps; which end its *heading* keeps, separately,
+because a column of short values under an unreadable heading is the reader's own case; a floor
+and a ceiling on its width; and whether a page of columns begins at it. A table can also be
+told which column is repeated at the left of every later page — the first drawn one is the
+symbol on a watchlist and an icon on the table beside it.
+
+**The arrangement is a plain object and the dialog is a shell over it.**
+`flowTableDesigner.Arrangement` knows nothing about wx: the columns in order, what was decided
+about each, and a `TableLayout` at the end of it. That is the same split `flowTable` makes
+against `flowRender`, and it is what lets every decision be tested where a test run has no
+display. The list is the dialog: one line per column saying everything decided about it, so a
+reader arrows down it and hears the arrangement rather than opening each column in turn.
+
+**What is arranged is what is remembered.** The commands and the dialog write into the layout
+*in force* for the table on the band — `FlowBand.tableLayoutInForce`, kept beside `tableWanted`
+on the plugin for the same reason — and `script_rememberTableLayout` saves that. So what the
+reader feels and what is written down cannot part company, and one press of remember with
+nothing arranged still saves the request alone, which is the fix that came of saving a
+measurement as though it were a decision.
+
+Two things deliberately not built: an empty-cell marker, which was the last tier of the plan
+and is worth deciding on after the rest has been lived with; and any way to *choose* a page
+assignment beyond "a page begins here", since the packing already decides the rest well.
 
 ### The blanks are one of Chrome's two browse modes, not one of ours
 
@@ -1920,14 +2103,19 @@ still; the live pass covers that, and any keystroke reads the band afresh.
    `MAX_INDENT_SHARE`, a fixed share of the row, decided once per plan rather than per fill.
    `IndentPlan.noteLevel` says when there is something to announce.
 
-   **What remains open is what the note says.** Two candidates, and they are not the same
-   number once the plan is held across a move: the level the *margin* stands for, or the
-   level of the item on the *top row*. `noteLevel` currently holds the first. They agree
-   whenever the plan was just made, because the plan is made from the shallowest visible
-   depth — but `shouldRebase` keeps a plan while it still works, and a kept plan can have a
-   baseline that no visible row is at any more. That is the whole point of keeping it: the
-   margin stops twitching. So the note has to say which of the two it means, and say it in
-   the four cells it has. This must be settled before anything is drawn.
+   **Settled by the reader: the note says the level counted from the top of the tree, not a
+   position relative to the band.** "lvl5" means level five of the structure — what
+   `positionInfo["level"]` reports and what the tree itself would say — and never "five
+   indents from the margin". A relative number would be a second numbering for the reader to
+   hold in their head beside the one the application already uses, which is the thing the
+   indent exists to save them.
+
+   Which row's level it is remains the margin's, as `IndentPlan.noteLevel` already holds: the
+   margin is what every other row on the band is drawn relative to, so saying what the margin
+   means makes all of them readable, and on the common case — a plan just made — it is the top
+   row's own level anyway. What is still owed is the drawing, in the indent cells of the top
+   row, which is the one place this has to reach into assembled cells rather than a block's
+   own rendering.
 
 3. **Does rebasing move items enough to be felt?** Decision 5 accepts that an item already
    on the display shifts when the band rebases. It is the right trade on paper and it is

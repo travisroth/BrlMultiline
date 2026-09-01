@@ -22,6 +22,8 @@ from brlMultiline.flow import NO_POSITION, BlockId, SourceBlock  # noqa: E402
 from brlMultiline.flowIndent import planFor as indentPlanFor  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
 from brlMultiline.flowTable import (  # noqa: E402
+	KEEP_END,
+	ColumnChoice,
 	MAX_TABLE_ROWS,
 	READING_ORDER,
 	TRUNCATE,
@@ -238,6 +240,45 @@ class TestDrawingARowInColumns(unittest.TestCase):
 		).render(block(row("AAPL", "182.50", "+1.25", "+0.7%")))
 		self.assertEqual(len(drawn.rows), plan.numRows)
 		self.assertGreater(plan.numRows, 1)
+
+
+class TestWhichEndOfACutCellIsKept(unittest.TestCase):
+	"""The reader's table puts six lines of help text at the front of a column, so the front of
+	the cell is somebody else's advice and the end is the thing that names the row."""
+
+	def _plan(self, choices):
+		measured = [
+			Measurement(index=1, width=6, label="Symbol"),
+			Measurement(index=2, width=7, label="Last"),
+			Measurement(index=3, width=7, label="Change"),
+			Measurement(index=4, width=6, label="%Chg"),
+		]
+		return planFor(measured, BAND, maxRows=1, overflow=TRUNCATE, choices=choices)
+
+	def test_theStartIsKeptByDefault(self):
+		drawn = renderer(self._plan({})).render(block(row("BERKSHIRE", "1.00", "+0.01", "+0.1%")))
+		self.assertEqual(textOf(drawn.rows[0])[0:4], "BERK")
+
+	def test_andTheEndWhereTheReaderAskedForIt(self):
+		drawn = renderer(self._plan({1: ColumnChoice(keep=KEEP_END)})).render(
+			block(row("BERKSHIRE", "1.00", "+0.01", "+0.1%")),
+		)
+		self.assertIn("E", textOf(drawn.rows[0])[0:6])
+		self.assertNotIn("BERK", textOf(drawn.rows[0])[0:6])
+
+	def test_aCellThatFitsIsUntouchedEitherWay(self):
+		"""Nothing to choose between when there is nothing to cut."""
+		drawn = renderer(self._plan({1: ColumnChoice(keep=KEEP_END)})).render(
+			block(row("AAPL", "1.00", "+0.01", "+0.1%")),
+		)
+		self.assertEqual(textOf(drawn.rows[0])[0:4], "AAPL")
+
+	def test_andTheRowIsStillOneRowTall(self):
+		"""Cutting is what keeps a table row one band row, whichever end it keeps."""
+		drawn = renderer(self._plan({1: ColumnChoice(keep=KEEP_END)})).render(
+			block(row("BERKSHIRE", "1.00", "+0.01", "+0.1%")),
+		)
+		self.assertEqual(len(drawn.rows), 1)
 
 
 class TestLanesStackRatherThanOverlap(unittest.TestCase):

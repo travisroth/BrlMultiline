@@ -72,6 +72,9 @@ class CommandHolder:
 		self.container = band.plugin.container
 		self._segmentKeysOn = GlobalPlugin._segmentKeysOn.__get__(self)
 		self._inAnotherTable = GlobalPlugin._inAnotherTable.__get__(self)
+		# The band commands ask which column the reader is in and how to name it back to them.
+		self._columnUnderTheCursor = GlobalPlugin._columnUnderTheCursor.__get__(self)
+		self._sayAboutTheColumn = GlobalPlugin._sayAboutTheColumn.__get__(self)
 
 	@property
 	def tableWanted(self):
@@ -551,15 +554,50 @@ class TestPagingFromAColumnTheLayoutLeftOut(TableBandTestCase):
 
 	WIDE = [
 		[""] + [f"h{number}" for number in range(1, 12)],
-		[""] + [f"a{number}" for number in range(1, 12)],
-		[""] + [f"b{number}" for number in range(1, 12)],
-		[""] + [f"c{number}" for number in range(1, 12)],
+		*(
+			[""] + [f"r{row}c{number}" for number in range(1, 12)]
+			for row in range(1, 21)
+		),
 	]
+	"""Twenty rows, so that the band can be panned, and a blank first column: the reader's
+	watchlist has one and quick navigation lands them in it."""
 
 	def _here(self, col=1):
 		obj, document = self._inTable(rows=self.WIDE, row=2, col=col)
 		self.assertTrue(self.band.layOutTable())
 		return obj, document
+
+	def test_aColumnTheReaderExcludedIsStillKnown(self):
+		"""The fault behind the reported loop. A saved layout that names columns drops the rest
+		from the measurement, so the plan had never heard of them — and the caret sitting in
+		one read as a column from another table, which is a rebuild on every redraw: a display
+		that will not pan, and a page turn undone before the reader feels it."""
+		from brlMultiline import flowTableLayouts, flowTableSource
+
+		obj, document = self._inTable(rows=self.WIDE, row=2, col=1)
+		document.documentConstantIdentifier = "https://example.com/wide"
+		handle = flowTableSource.tableAt(obj)
+		flowTableLayouts.remember(handle, flowTableLayouts.TableLayout(columns=(2, 3, 4)))
+		self.band.clearTable()
+		self.band.refresh(force=True)
+		self.assertTrue(self._readingATable())
+		plan = self.band.columnPlan()
+		self.assertIn(1, plan.excluded)
+		self.assertTrue(plan.knows(1))
+
+	def test_soTheBandIsNotRebuiltWhileTheyStandInIt(self):
+		obj, document = self._inTable(rows=self.WIDE, row=2, col=1)
+		from brlMultiline import flowTableLayouts, flowTableSource
+
+		document.documentConstantIdentifier = "https://example.com/wide"
+		handle = flowTableSource.tableAt(obj)
+		flowTableLayouts.remember(handle, flowTableLayouts.TableLayout(columns=(2, 3, 4)))
+		self.band.clearTable()
+		self.band.refresh(force=True)
+		plan = self.band.columnPlan()
+		for _ in range(4):
+			self.band.recheck()
+		self.assertIs(self.band.columnPlan(), plan, "the layout was made again")
 
 	def test_theEmptyColumnIsLeftOutOfTheLayout(self):
 		self._here()
@@ -622,15 +660,66 @@ class TestPagingFromAColumnTheLayoutLeftOut(TableBandTestCase):
 			self.band.recheck()
 		self.assertEqual(len(asked), 3)
 
-	def test_andARebuildKeepsThePageTheyWereOn(self):
-		"""A rebuild is not a decision the reader made. Whatever changed under them, where
-		they were reading is still where they were reading."""
+	def test_aRebuildUnderThemKeepsThePageTheyWereOn(self):
+		"""A rebuild is not a decision the reader made: the table changed shape while they were
+		reading page two, and page two is still where they were reading. A review measured what
+		coming back on page one costs — two writes to the display for one rebuild, page one and
+		then theirs, both sent to the driver."""
+		obj, document = self._here()
+		self.band.turnColumnPage(1)
+		for row in document.rows:
+			row.append("new")
+		self.band.recheck()
+		self.assertEqual(self.band.columnPlan().page, 1)
+
+	def test_andTheDisplayIsWrittenOnceRatherThanTwice(self):
+		"""A review measured the old repair: the band was built on page one, attached — which
+		is a write the driver sends — and only then moved to the reader's page. On a Monarch
+		that is the display visibly flicking home and back on every rebuild. The page and the
+		rows are applied inside the build now, before anything is attached."""
+		obj, document = self._here()
+		self.band.turnColumnPage(1)
+		onTheirPage = " ".join(self.band.controller.describeRows())
+		seen = []
+		real = self.handler.update
+		self.handler.update = lambda: seen.append(
+			" ".join(self.band.controller.describeRows()) if self.band.controller else "",
+		) or real()
+		self.addCleanup(setattr, self.handler, "update", real)
+		for row in document.rows:
+			row.append("new")
+		self.band.recheck()
+		self.assertTrue(seen, "nothing was written at all")
+		for frame in seen:
+			self.assertNotIn(
+				"r1c3",
+				frame,
+				"page one reached the display on the way to the reader's page",
+			)
+		self.assertIn("r1c7", onTheirPage, "the reader was not on the second page to begin with")
+
+	def test_andTheRowsTheyHadPannedTo(self):
+		"""The other axis, and the one the reader felt as "cannot pan": a new controller enters
+		at the caret, so a pan down was undone by the next rebuild."""
+		obj, document = self._here()
+		before = self.band.controller.window.topBlockId().bookmark
+		self.assertTrue(self.band.controller.panForward())
+		panned = self.band.controller.window.topBlockId().bookmark
+		self.assertNotEqual(panned, before)
+		for row in document.rows:
+			row.append("new")
+		self.band.recheck()
+		self.assertEqual(self.band.controller.window.topBlockId().bookmark, panned)
+
+	def test_butAValueFoundUnderThemTakesThemToIt(self):
+		"""The one rebuild the reader did cause. They are standing in the cell that turned out
+		to hold something, so the band is theirs to be shown."""
 		obj, document = self._here()
 		self.band.turnColumnPage(1)
 		self._counting(True)
 		document.row = 3
 		self.band.recheck()
-		self.assertEqual(self.band.columnPlan().page, 1)
+		self.assertEqual(self.band.columnPlan().page, 0)
 
 
 class TestTheSymbolStaysUnderTheHand(TableBandTestCase):
@@ -1794,6 +1883,128 @@ class TestSayingWhichColumnsAreShowing(TableBandTestCase):
 		self.assertIn("Not in a table", flashedMessages)
 
 
+
+class TestArrangingATableFromTheBand(TableBandTestCase):
+	"""The commands a reader uses while exploring a table they have not arranged.
+
+	Working out which columns are worth the display is what the first minute in a table is,
+	and it should not need a dialog: hide the column of icons, cut the one whose cells begin
+	with six lines of help text from the other end, and start again if it goes wrong.
+	"""
+
+	def _press(self, name, gesture=None):
+		from brlMultiline import GlobalPlugin
+
+		spokenMessages.clear()
+		flashedMessages.clear()
+		getattr(GlobalPlugin, name)(CommandHolder(self.band), gesture)
+		return [*spokenMessages, *flashedMessages]
+
+	def _laidOut(self, col=1):
+		obj, document = self._inTable(row=2, col=col)
+		self.assertTrue(self.band.layOutTable())
+		return obj, document
+
+	def _drawn(self):
+		return [column.index for column in self.band.columnPlan().columns]
+
+	def test_theColumnTheCursorIsInCanBeHidden(self):
+		self._laidOut(col=2)
+		said = self._press("script_flowTableToggleColumn")
+		self.assertNotIn(2, self._drawn())
+		self.assertTrue(any("hidden" in message for message in said))
+
+	def test_andShownAgainInTheTablesOwnOrder(self):
+		self._laidOut(col=2)
+		self._press("script_flowTableToggleColumn")
+		self._press("script_flowTableToggleColumn")
+		self.assertEqual(self._drawn(), sorted(self._drawn()))
+		self.assertIn(2, self._drawn())
+
+	def test_theLastColumnIsNotHidden(self):
+		"""A table of no columns is not a layout, it is a blank display."""
+		self._laidOut(col=1)
+		self.band.showTheseColumns([1])
+		said = self._press("script_flowTableToggleColumn")
+		self.assertEqual(self._drawn(), [1])
+		self.assertTrue(any("only column" in message for message in said))
+
+	def test_cuttingCyclesWrapStartAndEnd(self):
+		"""The reported case in one keystroke: the thing that names the row is at the end."""
+		from brlMultiline import flowTable
+
+		self._laidOut(col=1)
+		said = self._press("script_flowTableCutColumn")
+		column = next(item for item in self.band.columnPlan().columns if item.index == 1)
+		self.assertEqual(column.overflow, flowTable.TRUNCATE)
+		self.assertEqual(column.keep, flowTable.KEEP_START)
+		self.assertTrue(any("keeping the start" in message for message in said))
+		said = self._press("script_flowTableCutColumn")
+		column = next(item for item in self.band.columnPlan().columns if item.index == 1)
+		self.assertEqual(column.keep, flowTable.KEEP_END)
+		self.assertTrue(any("keeping the end" in message for message in said))
+		self._press("script_flowTableCutColumn")
+		column = next(item for item in self.band.columnPlan().columns if item.index == 1)
+		self.assertEqual(column.overflow, flowTable.WRAP)
+
+	def test_whatIsArrangedIsWhatRememberSaves(self):
+		"""So that what the reader feels and what is written down are the same thing."""
+		from brlMultiline import flowTableLayouts, flowTableSource
+
+		obj, document = self._laidOut(col=2)
+		document.documentConstantIdentifier = "https://example.com/watchlist"
+		self._press("script_flowTableToggleColumn")
+		self._press("script_rememberTableLayout")
+		handle = flowTableSource.tableAt(self.api.getNavigatorObject())
+		saved = flowTableLayouts.layoutFor(handle)
+		self.assertIsNotNone(saved)
+		self.assertNotIn(2, saved.columns)
+
+	def test_andItSurvivesTheNextRedraw(self):
+		"""A change to the plan alone would be undone by the next rebuild, which is what a
+		live page does every few seconds."""
+		self._laidOut(col=2)
+		self._press("script_flowTableToggleColumn")
+		self.band.refresh(force=True)
+		self.assertNotIn(2, self._drawn())
+
+	def test_startingAgainGivesTheTableBackAsItComes(self):
+		self._laidOut(col=2)
+		self._press("script_flowTableToggleColumn")
+		said = self._press("script_flowTableResetLayout")
+		self.assertIn(2, self._drawn())
+		self.assertTrue(any("as it comes" in message for message in said))
+
+	def test_andLeavesWhatWasSavedAlone(self):
+		"""The way out of an experiment, not the way out of a memory."""
+		from brlMultiline import flowTableLayouts, flowTableSource
+
+		obj, document = self._laidOut(col=2)
+		document.documentConstantIdentifier = "https://example.com/watchlist"
+		handle = flowTableSource.tableAt(obj)
+		flowTableLayouts.remember(handle, flowTableLayouts.TableLayout(columns=(1, 3)))
+		self._press("script_flowTableToggleColumn")
+		self._press("script_flowTableResetLayout")
+		self.assertIsNotNone(flowTableLayouts.layoutFor(handle))
+
+	def test_leavingTheTableGivesUpTheArrangement(self):
+		"""An arrangement is about the table in front of them, exactly as the request is."""
+		self._laidOut(col=2)
+		self._press("script_flowTableToggleColumn")
+		self.band.clearTable()
+		self.assertIsNone(self.band.tableLayoutInForce)
+
+	def test_theCommandsSayWhenThereIsNoTable(self):
+		self._elsewhere()
+		self.band.refresh(force=True)
+		for name in (
+			"script_flowTableToggleColumn",
+			"script_flowTableCutColumn",
+			"script_flowTableResetLayout",
+		):
+			said = self._press(name)
+			self.assertTrue(any("No table columns" in message for message in said), name)
+
 class TestATableThatLaysItselfOut(TableBandTestCase):
 	"""What the column command was always pointed at: a watchlist that comes up laid out.
 
@@ -1996,15 +2207,27 @@ class TestRememberingTheLayoutOnTheDisplay(TableBandTestCase):
 		self._watchlist()
 		self.assertIn("No table columns are showing", self._press("script_rememberTableLayout"))
 
-	def test_theLayoutOnTheDisplayIsSaved(self):
+	def test_theTableIsSavedAndSaysSo(self):
 		from brlMultiline import flowTableLayouts, flowTableSource
 
 		self._watchlist()
 		self.band.layOutTable()
 		said = self._press("script_rememberTableLayout")
-		self.assertTrue(any("remembered" in message for message in said))
+		self.assertTrue(any("come up in columns" in message for message in said))
 		handle = flowTableSource.tableAt(self.api.getNavigatorObject())
 		self.assertIsNotNone(flowTableLayouts.layoutFor(handle))
+
+	def test_andTheColumnsAreMeasuredAfreshEachTime(self):
+		"""One press of remember is a request, not a choice of columns. The reader who found
+		this had configured nothing: the columns as drawn were written into the record, so a
+		column blank in the bandful that was sampled was frozen out of every later reading."""
+		from brlMultiline import flowTableLayouts, flowTableSource
+
+		self._watchlist()
+		self.band.layOutTable()
+		self._press("script_rememberTableLayout")
+		handle = flowTableSource.tableAt(self.api.getNavigatorObject())
+		self.assertEqual(flowTableLayouts.layoutFor(handle).columns, ())
 
 	def test_andSayingSoDoesNotFlashOverIt(self):
 		"""The display is showing the thing being talked about."""

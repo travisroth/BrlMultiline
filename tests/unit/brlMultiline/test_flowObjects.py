@@ -21,6 +21,7 @@ from ._stubs import (
 	CONFIG,
 	FakeNavigatorObject,
 	FakeTreeInterceptor,
+	fakeGroupedList,
 	fakeRun,
 	fakeSeparator,
 	installStubs,
@@ -1959,6 +1960,121 @@ def hangUnder(items, role="LISTITEM"):
 
 
 
+
+
+class TestAListWhoseItemsAreGrouped(unittest.TestCase):
+	"""Outlook's message list grouped by day, and a reader who could not pan past "Today".
+
+	The ordinary sibling run admits an object with a compatible role and *the same parent*. At
+	a day boundary both halves fail: the next heading is a grouping rather than a list item,
+	and the first message under it has a different parent. So the run ended there, and on the
+	display that is panning that will not move — which is not a display fault at all.
+	"""
+
+	INBOX = (
+		("Today", ["a release note", "a meeting request"]),
+		("Yesterday", ["a receipt"]),
+		("Last week", ["an invitation"]),
+	)
+
+	def _inbox(self, collapsed=()):
+		return fakeGroupedList(self.INBOX, collapsed=collapsed)
+
+	def _walk(self, start, forward=True, steps=8):
+		""":return: what the run reads, from one row, in order."""
+		adapter = flowObjects.adapterFor(start)
+		found = [start.name]
+		node = start
+		for _ in range(steps):
+			node = adapter.nextOf(node) if forward else adapter.previousOf(node)
+			if node is None or not adapter.admits(start, node):
+				break
+			found.append(node.name)
+		return found
+
+	def test_aGroupedListIsReadByItsOwnAdapter(self):
+		_list, _headings, items = self._inbox()
+		self.assertEqual(flowObjects.adapterFor(items["a receipt"]).name, "groupedList")
+
+	def test_anOrdinaryListIsStillReadAsSiblings(self):
+		"""The adapter is asked first, so it has to answer no for everything else."""
+		items = fakeRun(["Apple", "Banana"])
+		self.assertEqual(flowObjects.adapterFor(items[0]).name, "siblings")
+
+	def test_theWalkCrossesTheDayBoundary(self):
+		_list, _headings, items = self._inbox()
+		self.assertEqual(
+			self._walk(items["a release note"]),
+			[
+				"a release note",
+				"a meeting request",
+				"Yesterday",
+				"a receipt",
+				"Last week",
+				"an invitation",
+			],
+		)
+
+	def test_theHeadingIsARowRatherThanSomethingSkipped(self):
+		"""A day changing is what the reader needs to know, and it is the reason the boundary
+		is worth crossing rather than hiding."""
+		_list, _headings, items = self._inbox()
+		self.assertIn("Yesterday", self._walk(items["a meeting request"]))
+
+	def test_walkingBackIsTheMirrorOfIt(self):
+		"""Not its exact mirror: above the first message of a day is that day's heading, and
+		above a heading is the last message of the day before."""
+		_list, _headings, items = self._inbox()
+		self.assertEqual(
+			self._walk(items["an invitation"], forward=False),
+			[
+				"an invitation",
+				"Last week",
+				"a receipt",
+				"Yesterday",
+				"a meeting request",
+				"a release note",
+				"Today",
+			],
+		)
+
+	def test_aClosedGroupIsAHeadingAndNoRows(self):
+		"""Exactly what it is on the screen."""
+		_list, _headings, items = self._inbox(collapsed=("Yesterday",))
+		self.assertEqual(
+			self._walk(items["a release note"]),
+			["a release note", "a meeting request", "Yesterday", "Last week", "an invitation"],
+		)
+
+	def test_theWalkStopsAtTheEndOfTheList(self):
+		"""So it cannot climb out into the toolbar beside it."""
+		_list, headings, items = self._inbox()
+		adapter = flowObjects.adapterFor(items["an invitation"])
+		self.assertIsNone(adapter.nextOf(items["an invitation"]))
+		self.assertIsNone(adapter.previousOf(headings["Today"]))
+
+	def test_everyRowOfOneListBelongsToIt(self):
+		_list, headings, items = self._inbox()
+		start = items["a release note"]
+		adapter = flowObjects.adapterFor(start)
+		for row in (items["a receipt"], headings["Last week"], items["an invitation"]):
+			self.assertTrue(adapter.admits(start, row), f"{row.name} was refused")
+
+	def test_andSomethingBesideTheListDoesNot(self):
+		_list, _headings, items = self._inbox()
+		other, _headings2, otherItems = self._inbox()
+		start = items["a release note"]
+		adapter = flowObjects.adapterFor(start)
+		self.assertFalse(adapter.admits(start, otherItems["a receipt"]))
+		self.assertFalse(adapter.admits(start, FakeNavigatorObject("a toolbar button")))
+
+	def test_aListItemWithNoGroupingAboveItIsNotThisShape(self):
+		"""A list box inside a pane is not a grouped list, and reading it as one would let the
+		walk out of the list and into whatever the pane holds next."""
+		items = fakeRun(["Apple", "Banana"])
+		pane = FakeNavigatorObject("a pane", role="PANE")
+		items[0].parent.parent = pane
+		self.assertEqual(flowObjects.adapterFor(items[0]).name, "siblings")
 
 class TestARowBuiltFromItsOwnCells(unittest.TestCase):
 	"""Reported from hardware, and worse than it first looked: Outlook builds a message row's

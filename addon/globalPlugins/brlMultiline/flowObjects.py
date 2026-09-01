@@ -632,6 +632,212 @@ def _isSameRun(root, candidate) -> bool:
 	return _sameParent(root, candidate)
 
 
+RUN_CONTAINERS = frozenset({"LIST", "LISTBOX", "TABLE", "DATAGRID", "TREEVIEW", "PANE"})
+"""What a grouped list may call itself, and so what bounds the walk across its groups.
+
+A message list calls itself a list or a table depending on the provider, and Outlook's UIA
+one is a table of rows. The set is here to say where the walk *stops*: the end of the last
+group is the end of the list, and without something to compare against, the climb would carry
+on into the toolbar beside it.
+"""
+
+GROUP_ROLES = frozenset({"GROUPING"})
+"""What a list puts between itself and its items when it groups them.
+
+Outlook's message list groups by day — "Today", "Yesterday", "Last week" — and each day is a
+`GROUPING` holding that day's messages. The role is deliberately narrow: a grouping is a real
+boundary in most controls, and the walk below steps across it only where the shape is
+unmistakable, which is a run member whose parent is one of these inside a list.
+"""
+
+MAX_GROUPS = 200
+"""How many groups a walk may cross before it decides the list is lying to it.
+
+The same kind of bound as `MAX_TREE_DEPTH`: a message list has a group per day and a reader
+pans through a few of them, while a container whose `next` points back into itself would walk
+forever.
+"""
+
+
+def _groupOf(obj):
+	""":return: the group an item sits in, or None if its list does not group its items.
+
+	One step, and it has to answer no for the ordinary list: the parent must call itself a
+	grouping, and there must be something above it holding the groups. A list box inside a
+	pane is not a grouped list, and reading it as one would let the walk out of the list and
+	into whatever the pane holds next.
+
+	:param obj: a run member.
+	"""
+	try:
+		group = getattr(obj, "parent", None)
+	except Exception:
+		log.debugWarning("Could not ask an object what it is in", exc_info=True)
+		return None
+	if group is None or roleName(getattr(group, "role", None)) not in GROUP_ROLES:
+		return None
+	return group if _listHolding(group) is not None else None
+
+
+def _listHolding(group):
+	""":return: the list a group belongs to, or None.
+
+	The thing that bounds the whole walk: at the end of the last group there is nothing more
+	to read, and without this the climb would carry on into the toolbar beside the list.
+
+	:param group: the grouping.
+	"""
+	try:
+		above = getattr(group, "parent", None)
+	except Exception:
+		log.debugWarning("Could not ask a group what holds it", exc_info=True)
+		return None
+	return above if above is not None and roleName(getattr(above, "role", None)) in RUN_CONTAINERS else None
+
+
+def _listOf(obj):
+	""":return: the grouped list an object belongs to, or None.
+
+	Asked of an item and of a group heading alike, because both are rows of the same run.
+	"""
+	if roleName(getattr(obj, "role", None)) in GROUP_ROLES:
+		return _listHolding(obj)
+	group = _groupOf(obj)
+	return _listHolding(group) if group is not None else None
+
+
+def _isInAGroupedList(obj) -> bool:
+	""":return: whether an object is a row of a list whose items are grouped.
+
+	**Narrow on purpose.** This adapter is asked before the ordinary sibling run, and what it
+	does differently is cross a boundary that is real in most controls; so it matches only the
+	shape it was written for — a run member inside a grouping inside a list, or the grouping
+	itself.
+	"""
+	if roleName(getattr(obj, "role", None)) in GROUP_ROLES:
+		return _listHolding(obj) is not None and _firstInGroup(obj) is not None
+	return _isRunMember(obj) and _groupOf(obj) is not None
+
+
+def _isInTheSameList(root, candidate) -> bool:
+	""":return: whether two rows belong to one grouped list.
+
+	The membership test the ordinary run cannot give: the items of one day and the items of
+	the next have different parents and are the same list, so what is compared is the list
+	they are all in. A heading is admitted too — see `_groupedNext`, which offers them as
+	rows, since "Yesterday" arriving under the reader's hand is the whole reason the boundary
+	is worth crossing rather than hiding.
+	"""
+	if root is None or candidate is None:
+		return False
+	if not (_isRunMember(candidate) or roleName(getattr(candidate, "role", None)) in GROUP_ROLES):
+		return False
+	here = _listOf(root)
+	there = _listOf(candidate)
+	if here is None or there is None:
+		return False
+	return _isTheSameObject(here, there)
+
+
+def _isTheSameObject(first, second) -> bool:
+	""":return: whether two references are to one object, by equality where identity fails."""
+	if first is second:
+		return True
+	try:
+		return bool(first == second)
+	except Exception:
+		log.debugWarning("Could not compare two containers", exc_info=True)
+		return False
+
+
+def _firstInGroup(group):
+	""":return: the first item of a group, or None where it holds none the reader can reach.
+
+	Nothing is descended into while a group is closed: a collapsed day is a heading and no
+	rows, exactly as it is on the screen.
+	"""
+	if _isExpanded(group) is False:
+		return None
+	try:
+		found = getattr(group, "firstChild", None)
+	except Exception:
+		log.debugWarning("Could not look inside a group", exc_info=True)
+		return None
+	return found if _isRunMember(found) else None
+
+
+def _lastInGroup(group):
+	""":return: the last item of a group, or None. See `_firstInGroup`."""
+	found = _firstInGroup(group)
+	if found is None:
+		return None
+	for _ in range(MAX_CHILDREN):
+		try:
+			after = getattr(found, "next", None)
+		except Exception:
+			log.debugWarning("Could not walk to the end of a group", exc_info=True)
+			return found
+		if not _isRunMember(after):
+			return found
+		found = after
+	return found
+
+
+def _groupBeside(group, forward: bool):
+	""":return: the next or previous group of the same list, or None at its end.
+
+	Anything between two groups that is not a group is stepped over, bounded by `MAX_GROUPS`:
+	a list may put a separator or an empty pane between its days, and neither is a row.
+	"""
+	node = group
+	for _ in range(MAX_GROUPS):
+		try:
+			node = getattr(node, "next" if forward else "previous", None)
+		except Exception:
+			log.debugWarning("Could not walk to the next group", exc_info=True)
+			return None
+		if node is None:
+			return None
+		if roleName(getattr(node, "role", None)) in GROUP_ROLES:
+			return node
+	return None
+
+
+def _groupedNext(obj):
+	""":return: the row below this one on the screen, crossing group boundaries.
+
+	The order the reader sees: a heading, then that group's messages, then the next heading.
+	At the end of a day the walk climbs to the group, steps to the next one and offers *it* —
+	the heading is a row, not something to be skipped past, because "Yesterday" arriving under
+	the hand is what tells the reader why the dates changed.
+	"""
+	if roleName(getattr(obj, "role", None)) in GROUP_ROLES:
+		inside = _firstInGroup(obj)
+		return inside if inside is not None else _groupBeside(obj, True)
+	after = _siblingNext(obj)
+	if _isRunMember(after):
+		return after
+	group = _groupOf(obj)
+	return _groupBeside(group, True) if group is not None else None
+
+
+def _groupedPrevious(obj):
+	""":return: the row above this one on the screen. The mirror of `_groupedNext`.
+
+	Not its exact mirror, and that is the point: above the first message of a day is that
+	day's heading, and above a heading is the *last* message of the day before it.
+	"""
+	if roleName(getattr(obj, "role", None)) in GROUP_ROLES:
+		before = _groupBeside(obj, False)
+		if before is None:
+			return None
+		return _lastInGroup(before) or before
+	previous = _siblingPrevious(obj)
+	if _isRunMember(previous):
+		return previous
+	return _groupOf(obj)
+
+
 def _isChild(root, candidate) -> bool:
 	""":return: whether a candidate is one of a container's own children."""
 	if root is None or candidate is None:
@@ -1111,6 +1317,34 @@ do, and what is on the screen. A collapsed node's children are not rows, and its
 is a change the band has to notice without a focus event to tell it.
 """
 
+GROUPED_LIST = ObjectAdapter(
+	name="groupedList",
+	matches=_isInAGroupedList,
+	admits=_isInTheSameList,
+	nextOf=_groupedNext,
+	previousOf=_groupedPrevious,
+	expandedOf=_isExpanded,
+	openChildOf=_firstInGroup,
+)
+"""A list whose items are grouped, read down the screen across the groups.
+
+Outlook's message list grouped by day is the case, and a review found the reader stuck at the
+boundary: the ordinary sibling run admits an object with a compatible role and *the same
+parent*, so the heading of the next day fails on its role and the first message of that day
+fails on its parent — and the run ends there, which on the display is panning that will not
+move. The tree adapter already knows this shape and cannot be used, because these are list
+items rather than tree items and Outlook's own row numbering is per group.
+
+So the walk is the tree's, over a list: down through a group, across to the next group's
+heading, down through that. The heading is a row rather than something to skip, because a day
+changing is what the reader needs to know; a collapsed group is a heading and no rows, exactly
+as it is on the screen; and membership is the list they are all in, which is what stops the
+climb at the toolbar.
+
+Asked before `SIBLING_RUN` and matching only a run member inside a grouping inside a list, so
+every ordinary list, menu and tab strip reads exactly as it did.
+"""
+
 SIBLING_RUN = ObjectAdapter(name="siblings", matches=_isRunMember)
 """A list item, a tree item, a menu item: the reader is in a run and the run is its siblings."""
 
@@ -1131,7 +1365,7 @@ Asked before the built-in adapters, because the built-in answer for a kind of co
 guess about every control of that kind and the application's is about this one.
 """
 
-_adapters: list[ObjectAdapter] = [DECLARED_RUN, VISIBLE_TREE, SIBLING_RUN, CHOICES]
+_adapters: list[ObjectAdapter] = [DECLARED_RUN, VISIBLE_TREE, GROUPED_LIST, SIBLING_RUN, CHOICES]
 """The adapters, in the order they are asked. First match wins."""
 
 
@@ -1529,8 +1763,39 @@ class ObjectFlowSource:
 			# Beside the run rather than in it — the button under a list box, the toolbar
 			# after a menu. The run ends here, and NVDA presents that object as it always has
 			# if the reader goes to it.
+			self._sayWhereItEnded(current, found)
 			return FetchResult.endOfStream("the next object is beside this run rather than in it")
 		return self._blockAt(found)
+
+	def _sayWhereItEnded(self, current, found) -> None:
+		"""Write down what the walk stopped at, for the log.
+
+		**The end of a run is a normal answer, so nothing raised and nothing was logged** —
+		and on hardware "panning does not work" and "this list really does end here" feel the
+		same and read the same. A review asked for this while working out why Outlook's message
+		list stopped at each day boundary, which turned out to be two different refusals
+		wearing one message: a heading failing on its role, and the next day's first message
+		failing on its parent.
+
+		So the adapter, both objects, their roles and their parents, once per ending. It runs
+		where a fetch has already been made, so it costs nothing anybody is waiting on.
+
+		:param current: the object walked from.
+		:param found: what the walk landed on and would not admit.
+		"""
+		try:
+			# Imported here rather than at the top: `flowBuild` reads this module, so the other
+			# way round is a circle, and this runs once at the end of a run.
+			from .flowBuild import describeObject
+
+			log.debug(
+				f"BrlMultiline run: the {self.adapter.name} run ends after "
+				f"{describeObject(current)} — the next object is {describeObject(found)}, "
+				f"whose parent is {describeObject(getattr(found, 'parent', None))} against "
+				f"{describeObject(getattr(current, 'parent', None))}.",
+			)
+		except Exception:
+			log.debugWarning("Could not say where a run ended", exc_info=True)
 
 	def blockAt(self, blockId: BlockId) -> FetchResult:
 		""":return: one block again, read afresh from the object it was built for.

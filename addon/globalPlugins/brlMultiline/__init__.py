@@ -1939,6 +1939,175 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			)
 		self.reportAboutTheDisplay(", ".join(said))
 
+	def _columnUnderTheCursor(self):
+		""":return: the band and the table column the cursor is in, or (None, 0).
+
+		The column the *reader* is in rather than the one at the left of the display: these
+		commands are "do this to what I am reading", and on a table wide enough to need pages
+		the two are often not the same column.
+		"""
+		band = self.flowBand
+		if band is None or band.columnPlan() is None:
+			return None, 0
+		source = getattr(band.controller, "source", None)
+		try:
+			return band, int(getattr(source, "column", 0) or 0)
+		except (TypeError, ValueError):
+			return band, 0
+
+	def _sayAboutTheColumn(self, band, column: int, said: str) -> None:
+		"""Report a change to one column, naming it the way the reader knows it.
+
+		:param band: the band showing the table.
+		:param column: the table's own column number.
+		:param said: what happened to it.
+		"""
+		plan = band.columnPlan()
+		found = next((item for item in plan.columns if item.index == column), None) if plan else None
+		# The heading where the column has one, and "column 6" where it has not — the same
+		# answer the paging report gives, since a bare number is not a name.
+		name = (
+			_columnName(found)
+			if found is not None
+			# Translators: how a column is named when it is not one the layout is drawing. The
+			# placeholder is which column of the table it is.
+			else _("column {index}").format(index=column)
+		)
+		self.reportAboutTheDisplay(f"{name}: {said}")
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Hides the column you are in, or shows it again"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_flowTableToggleColumn(self, gesture):
+		"""Take the column the cursor is in out of the layout, or put it back.
+
+		What a reader does while exploring a table they have not arranged: a column of icons, a
+		column of internal identifiers, a column repeating what the one beside it says. Working
+		out which columns are worth the display is what the first minute in a table *is*, and
+		it should not need a dialog.
+		"""
+		band, column = self._columnUnderTheCursor()
+		if band is None or not column:
+			# Translators: reported when a command needs a table laid out in columns and there
+			# is none on the display.
+			ui.message(_("No table columns are showing"))
+			return
+		plan = band.columnPlan()
+		showing = [item.index for item in plan.columns]
+		if column in showing and len(showing) < 2:
+			# Translators: reported when hiding a column would leave a table with none.
+			ui.message(_("This is the only column showing"))
+			return
+		wanted = [index for index in showing if index != column] if column in showing else None
+		if wanted is None:
+			# Back again, in the table's own order, which is where the reader will expect it.
+			wanted = sorted({*showing, column})
+		if not band.showTheseColumns(wanted):
+			return
+		self._sayAboutTheColumn(
+			band,
+			column,
+			# Translators: reported when a column is taken out of a table's layout.
+			_("hidden") if column not in wanted else _("showing"),
+		)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Changes how the column you are in is cut when it does not fit"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_flowTableCutColumn(self, gesture):
+		"""Cycle one column between wrapping, cut at the start, and cut at the end.
+
+		The reported case, in one keystroke: a column whose cells begin with six lines of help
+		text somebody thought was useful reads as that help text on every row, and the thing
+		that names the row is at the other end.
+		"""
+		from . import flowTable
+
+		band, column = self._columnUnderTheCursor()
+		if band is None or not column:
+			# Translators: reported when a command needs a table laid out in columns and there
+			# is none on the display.
+			ui.message(_("No table columns are showing"))
+			return
+		# From what the reader is feeling rather than from what they have said: a column they
+		# have said nothing about is being drawn some way, and the next press should move on
+		# from *that* rather than from the start of the list.
+		plan = band.columnPlan()
+		drawn = next((item for item in plan.columns if item.index == column), None) if plan else None
+		order = (
+			(flowTable.WRAP, "", _("wrapped")),
+			(flowTable.TRUNCATE, flowTable.KEEP_START, _("cut, keeping the start")),
+			(flowTable.TRUNCATE, flowTable.KEEP_END, _("cut, keeping the end")),
+		)
+		here = next(
+			(
+				position
+				for position, (overflow, keep, _said) in enumerate(order)
+				if drawn is not None
+				and overflow == drawn.overflow
+				and (not keep or keep == drawn.keep)
+			),
+			-1,
+		)
+		overflow, keep, said = order[(here + 1) % len(order)]
+		if band.arrangeColumn(column, overflow=overflow, keep=keep):
+			self._sayAboutTheColumn(band, column, said)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Lets the table on the display find its own layout again"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_flowTableResetLayout(self, gesture):
+		"""Drop what has been arranged from the band, without touching what was saved.
+
+		The way out of an experiment. What was remembered for this table is still remembered —
+		`script_forgetTableLayout` is how that goes — so a reader who has been trying things on
+		a table they arranged last week gets that arrangement back rather than nothing.
+		"""
+		band = self.flowBand
+		if band is None or band.columnPlan() is None:
+			# Translators: reported when a command needs a table laid out in columns and there
+			# is none on the display.
+			ui.message(_("No table columns are showing"))
+			return
+		band.arrangeTable(None)
+		self.reportAboutTheDisplay(
+			# Translators: reported when the columns a reader arranged are given up, so the
+			# table is laid out the way it would be if they had arranged nothing.
+			_("Reading this table as it comes"),
+		)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Arranges the columns of the table on the display"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_flowTableDesigner(self, gesture):
+		"""Open the designer for the table on the display.
+
+		The other half of the band commands: those answer what a keystroke can answer while
+		reading, and this is for a table the reader comes back to — what to call a column whose
+		heading is unreadable, how much room the description may have, which column is repeated
+		on every page, where a page begins. See `flowTableDesigner`.
+		"""
+		from . import flowTableDesigner
+
+		band = self.flowBand
+		if band is None or band.columnPlan() is None:
+			# Translators: reported when a command needs a table laid out in columns and there
+			# is none on the display.
+			ui.message(_("No table columns are showing"))
+			return
+		try:
+			flowTableDesigner.arrangeTheTable(band)
+		except Exception:
+			log.debugWarning("Could not arrange the table", exc_info=True)
+
 	@script(
 		# Translators: input help message for a command.
 		description=_("Remembers the table on the display, so it is laid out in columns next time"),
@@ -1948,9 +2117,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""Save the layout on the display against the table it is showing.
 
 		The end the column command was always pointed at: a watchlist that comes up laid out.
-		What is saved is the columns as they are drawn — the decision the reader has actually
-		made by the time they press this, having turned the layout on and looked at it — and
-		nothing else, so that their ordinary settings keep reaching this table.
+		**What is saved is what the reader arranged**, which for one press and nothing else is
+		the request alone — read this table in columns — and after the band commands or the
+		dialog is whatever they said there. Never the columns as they came out: those are a
+		measurement, and writing one down as though it were a decision froze a reader's first
+		column out of their watchlist for good.
 		"""
 		from . import flowTableLayouts
 
@@ -1966,7 +2137,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when a command needs the cursor to be in a table.
 			ui.message(_("Not in a table"))
 			return
-		if not flowTableLayouts.remember(handle, flowTableLayouts.layoutFrom(plan, handle)):
+		arranged = band.tableLayoutInForce
+		if not flowTableLayouts.remember(handle, flowTableLayouts.layoutFrom(plan, handle, arranged)):
 			ui.message(
 				# Translators: reported when a table's layout cannot be saved because nothing
 				# about the table or its window is stable enough to recognise it again.
@@ -1974,9 +2146,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			)
 			return
 		self.reportAboutTheDisplay(
-			# Translators: reported when a table's layout is saved. The placeholder is how
-			# many columns it holds.
-			_("Layout remembered, {shown} columns").format(shown=len(plan.columns)),
+			# Translators: reported when a table's layout is saved, so that the table comes up
+			# in columns whenever the reader is in it.
+			_("This table will come up in columns"),
 		)
 
 	@script(

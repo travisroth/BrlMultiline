@@ -2400,6 +2400,48 @@ def fakeRun(names, role="LISTITEM", parent=None, selected=0, levels=None):
 	return items
 
 
+def fakeGroupedList(groups, role="LISTITEM", containerRole="LIST", collapsed=()):
+	"""Build a list whose items are grouped, as Outlook's message list is by day.
+
+	The shape is what makes the ordinary sibling walk stop: each group is a `GROUPING` holding
+	that day's messages, so the first message of one day and the last of the day before have
+	different parents, and between them sits a heading that is not a list item at all.
+
+	:param groups: pairs of (heading, [item names]).
+	:param role: the role each item has.
+	:param containerRole: what the list calls itself.
+	:param collapsed: the headings whose groups are closed, so their items are not rows.
+	:return: the list, a dict of heading name to group, and a dict of item name to item.
+	"""
+	container = FakeNavigatorObject("a list", role=containerRole)
+	headings = {}
+	items = {}
+	built = []
+	for heading, names in groups:
+		group = FakeNavigatorObject(heading, role="GROUPING")
+		group.parent = container
+		group.states = {"COLLAPSED"} if heading in collapsed else {"EXPANDED"}
+		inside = []
+		for name in names:
+			item = FakeNavigatorObject(name, role=role)
+			item.parent = group
+			items[name] = item
+			inside.append(item)
+		for position, item in enumerate(inside):
+			item.next = inside[position + 1] if position + 1 < len(inside) else None
+			item.previous = inside[position - 1] if position else None
+		group.children = inside
+		group.firstChild = inside[0] if inside else None
+		headings[heading] = group
+		built.append(group)
+	for position, group in enumerate(built):
+		group.next = built[position + 1] if position + 1 < len(built) else None
+		group.previous = built[position - 1] if position else None
+	container.children = built
+	container.firstChild = built[0] if built else None
+	return container, headings, items
+
+
 def fakeTree(spec, role="TREEVIEWITEM", containerRole="TREEVIEW"):
 	"""Build a nested tree of objects, wired the way a real tree control exposes one.
 

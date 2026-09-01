@@ -88,9 +88,22 @@ Added:
   column is called is taken from the table itself and can be held on a row above the band.
   Two more commands remember the layout for this table and forget it again: a remembered
   table comes up laid out with no keystroke at all, and turning the columns off leaves the
-  memory alone until you come back to it. What is remembered is which columns you kept and in
-  what order, so the same layout works on a display of another size. Web pages, File
+  memory alone until you come back to it. What is remembered is that this table is read in
+  columns; which columns fit and how wide they are is worked out afresh for the display you
+  are on. Web pages, File
   Explorer's Details view and Outlook's message list are all read this way.
+
+- The columns of a table can be arranged, from the band or from a dialog. On the band: hide the
+  column you are in, cycle it between wrapped, cut keeping the start and cut keeping the end,
+  and give the table back as it comes. In the dialog: the columns as a list to reorder, a name
+  of your own for any of them, a floor and a ceiling on its width, which end of its heading
+  survives, where a page of columns begins, and which column is repeated on every page. What
+  you arrange is what the remember command writes down.
+
+- A list whose items are grouped reads as one run. Outlook's message list grouped by day
+  used to end at each boundary, so panning stopped at the last message of the day; the walk
+  now crosses into the next group, and the day heading is a row of its own. A closed group
+  shows its heading and nothing under it.
 
 - A message row in Outlook's list says what is true of *it*. NVDA builds part of such a row's
   name from whichever message is selected, so rows on the display could carry another

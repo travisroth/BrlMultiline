@@ -110,6 +110,20 @@ class TableLayout:
 	headers: str = FOLLOW
 	"""Whether a header row is held above the band. `YES`, `NO`, or `FOLLOW`."""
 
+	keyColumn: int = 0
+	"""Which column is repeated at the left of every later page, or 0 for the first drawn.
+
+	The first is the row's own label in most tables — the symbol, the criterion, the date — and
+	an icon in some, which is why the reader can say."""
+
+	perColumn: dict = dataclasses.field(default_factory=dict)
+	"""What they decided about individual columns, by the table's own column number.
+
+	By number rather than by position, so that a table which gains or loses a column does not
+	shift everybody's settings onto their neighbours. See `flowTable.ColumnChoice` for what one
+	holds; a column named here that the table has not got is dropped on reading, exactly as a
+	named column already is."""
+
 	def asRecord(self) -> dict:
 		""":return: this layout as the plain data that goes into the store.
 
@@ -119,6 +133,15 @@ class TableLayout:
 		record: dict = {}
 		if self.columns:
 			record["columns"] = list(self.columns)
+		if self.keyColumn:
+			record["keyColumn"] = int(self.keyColumn)
+		chosen = {
+			str(column): _choiceAsRecord(choice)
+			for column, choice in (self.perColumn or {}).items()
+			if not choice.isEmpty
+		}
+		if chosen:
+			record["perColumn"] = chosen
 		if self.rowHeight:
 			record["rowHeight"] = int(self.rowHeight)
 		for name in ("truncate", "pinKey", "headers"):
@@ -184,7 +207,85 @@ def fromRecord(record: Any) -> TableLayout:
 	for name in ("truncate", "pinKey", "headers"):
 		value = record.get(name)
 		said[name] = value if value in (YES, NO) else FOLLOW
-	return TableLayout(columns=tuple(columns), rowHeight=max(0, rowHeight), **said)
+	try:
+		keyColumn = int(record.get("keyColumn") or 0)
+	except (TypeError, ValueError):
+		keyColumn = 0
+	return TableLayout(
+		columns=tuple(columns),
+		rowHeight=max(0, rowHeight),
+		keyColumn=max(0, keyColumn),
+		perColumn=_perColumnFrom(record.get("perColumn")),
+		**said,
+	)
+
+
+def _choiceAsRecord(choice) -> dict:
+	""":return: one column's decisions as the plain data that goes into the store."""
+	record: dict = {}
+	for name in ("label", "overflow", "keep", "headerKeep"):
+		said = getattr(choice, name, "")
+		if said:
+			record[name] = said
+	for name in ("minWidth", "maxWidth"):
+		said = getattr(choice, name, 0)
+		if said:
+			record[name] = int(said)
+	if getattr(choice, "startsAPage", False):
+		record["startsAPage"] = True
+	return record
+
+
+def _perColumnFrom(said: Any) -> dict:
+	""":return: the per-column decisions read back, dropping anything unreadable.
+
+	As forgiving as the rest of the store, and for the same reason: this file is edited by hand
+	and written by other versions, and the honest failure is one column losing a setting rather
+	than a reader losing their table.
+
+	:param said: whatever the record held under "perColumn".
+	"""
+	if not isinstance(said, dict):
+		return {}
+	found = {}
+	for column, record in said.items():
+		try:
+			number = int(column)
+		except (TypeError, ValueError):
+			continue
+		if number < 1 or not isinstance(record, dict):
+			continue
+		choice = _choiceFrom(record)
+		if not choice.isEmpty:
+			found[number] = choice
+	return found
+
+
+def _choiceFrom(record: dict):
+	""":return: one column's decisions, defaulting anything that cannot be read."""
+	from . import flowTable
+
+	said = {}
+	for name, allowed in (
+		("overflow", flowTable.OVERFLOW_STYLES),
+		("keep", flowTable.KEEP_ENDS),
+		("headerKeep", flowTable.KEEP_ENDS),
+	):
+		value = record.get(name)
+		said[name] = value if value in allowed else ""
+	label = record.get("label")
+	widths = {}
+	for name in ("minWidth", "maxWidth"):
+		try:
+			widths[name] = max(0, int(record.get(name) or 0))
+		except (TypeError, ValueError):
+			widths[name] = 0
+	return flowTable.ColumnChoice(
+		label=label if isinstance(label, str) else "",
+		startsAPage=bool(record.get("startsAPage")),
+		**said,
+		**widths,
+	)
 
 
 def stored() -> dict:
@@ -332,19 +433,34 @@ def forget(handle) -> bool:
 	return True
 
 
-def layoutFrom(plan, handle=None) -> TableLayout:
-	""":return: the layout that would reproduce what is on the display now.
+def layoutFrom(plan, handle=None, arranged: Optional[TableLayout] = None) -> TableLayout:
+	""":return: what the remember command saves, which today is the *request* and nothing else.
 
-	The columns as they are drawn, which is the decision the reader has actually made by the
-	time they save: they turned the layout on, moved through its pages, and are looking at
-	something they want back. The rest is left to follow the settings, since a reader who has
-	not said otherwise about this table has not said otherwise.
+	**A measurement is not a decision.** The first cut of this wrote down the columns as they
+	were drawn, on the reasoning that a reader who has paged through a layout and pressed
+	remember is looking at something they want back. What they are looking at, though, is what
+	the measurement made of the table a moment ago: a column blank in the bandful that was
+	sampled is not drawn, and writing that into the record froze it out of every later reading —
+	so a column that fills in later, or was merely empty where the reader happened to be, could
+	never come back. The reader who found this had configured nothing at all; they had pressed
+	one key, and their watchlist's first column was excluded for good.
 
-	:param plan: the column plan in force.
+	So the record says only "lay this table out", and the columns are measured afresh each time,
+	which is what happens for a table with no record at all. Every other field still says "not
+	my business" and follows the settings.
+
+	**When there is a way to choose columns there will be something to write here** — M7's
+	designer, or M6b's favourite by name — and the field is kept for it: a record that names
+	columns is still honoured, which is also what a record saved by an older build does.
+
+	:param plan: the column plan in force. Read for nothing, and kept because a caller with
+		a plan and no arrangement is the ordinary case and should not have to say so twice.
 	:param handle: the table, for a future field that needs it. Unused today.
+	:param arranged: what the reader has arranged for this table with the band commands or the
+		dialog, where they have arranged anything. That *is* a decision, and it is what this
+		hands back when there is one.
 	"""
-	columns = tuple(column.index for column in getattr(plan, "columns", ()) or ())
-	return TableLayout(columns=columns)
+	return arranged if arranged is not None else TableLayout()
 
 
 def _now() -> int:

@@ -37,6 +37,7 @@ from .flowIndent import FLAT, IndentPlan
 from .flowTable import (
 	MAX_TABLE_ROWS,
 	READING_ORDER,
+	KEEP_END,
 	TRUNCATE,
 	ColumnPlan,
 	cellPosition,
@@ -368,7 +369,12 @@ class FlowRenderer:
 			return [], []
 		rows, positions, _more = self._layout(buffer, fromRow=0)
 		if column.overflow == TRUNCATE:
-			# One row, and the rest of the value is not shown. The reader asked for that.
+			# One row, and the rest of the value is not shown. The reader asked for that — and
+			# which row is theirs too: the first is what cutting has always meant, and the last
+			# is the end of the value, for a column whose cells begin with something nobody
+			# wrote for reading. See `flowTable.KEEP_ENDS`.
+			if column.keep == KEEP_END and len(rows) > 1:
+				return rows[-1:], positions[-1:]
 			return rows[:1], positions[:1]
 		if len(rows) <= 1:
 			return rows, positions

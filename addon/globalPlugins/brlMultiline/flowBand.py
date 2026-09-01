@@ -24,13 +24,23 @@ answered in `bandRect` below, and a band of some of one display's rows is the sa
 with a smaller rectangle once there is a setting to name it.
 """
 
+import dataclasses
 import itertools
 from typing import TYPE_CHECKING, Any, Optional
 
 import api
 from logHandler import log
 
-from . import bmConfig, flowForms, flowObjects, flowQuickNav, flowTableLayouts, flowTableSource, patches
+from . import (
+	bmConfig,
+	flowForms,
+	flowObjects,
+	flowQuickNav,
+	flowTable,
+	flowTableLayouts,
+	flowTableSource,
+	patches,
+)
 from .flowControl import FlowController
 from .flowBuild import (
 	buildTableController,
@@ -187,8 +197,19 @@ class FlowBand(PanelOwner):
 		self._layoutOffered: Any = None
 		"""The table a saved layout was last offered for, so it is offered once."""
 
+		self._keepOnRebuild = True
+		"""Whether the next rebuild leaves the reader where they were reading. Set with the
+		reason for it; see `_rebuildBecause`."""
+
+		self._readAgainAt: Any = None
+		"""The page and row to put back when a rebuild is under way, or None. See
+		`_whereTheyAreReading`."""
+
 		self._askedAboutCell: Any = None
-		"""The undrawn cell the band last asked about, so it is asked about once."""
+		"""The table and undrawn cell the band last asked about, so it is asked once.
+
+		The table as well as the cell, because two tables have a row 1 column 1 apiece and a
+		review found the second inheriting the first's answer."""
 
 		"""The table the reader has asked to see in columns lives on the plugin.
 
@@ -1003,6 +1024,83 @@ class FlowBand(PanelOwner):
 	def tableWanted(self, key: Any) -> None:
 		self.plugin.tableWanted = key
 
+	@property
+	def tableLayoutInForce(self):
+		""":return: the layout the table on the band is being read with, or None.
+
+		Kept on the plugin beside `tableWanted`, and for the same reason: a one row display
+		moves the table off the band, and a request that lived on the band would go with it.
+
+		None means "however this table reads by itself" — the measurement and the settings,
+		or whatever was saved for it. A layout appears here when the reader arranges one from
+		the band or the dialog, and it is what `script_rememberTableLayout` writes down.
+		"""
+		return getattr(self.plugin, "tableLayout", None)
+
+	@tableLayoutInForce.setter
+	def tableLayoutInForce(self, layout) -> None:
+		self.plugin.tableLayout = layout
+
+	def arrangeColumn(self, column: int, **changes) -> bool:
+		"""Change one column of the layout in force, and read the table again.
+
+		What the commands on the band do: hide the column the cursor is in, cut it from the
+		other end. They act on the layout rather than on the plan, so that what the reader
+		feels and what `remember` would write down are the same thing — and so that a change
+		survives the next rebuild, which a plan does not.
+
+		:param column: the table's own number for the column.
+		:param changes: the fields of `flowTable.ColumnChoice` to set.
+		:return: whether anything was changed.
+		"""
+		if not self._readingATable() or column < 1:
+			return False
+		layout = self.tableLayoutInForce or self._layoutBehindTheBand()
+		choices = dict(layout.perColumn or {})
+		choices[column] = dataclasses.replace(
+			choices.get(column, flowTable.ColumnChoice()),
+			**changes,
+		)
+		self.tableLayoutInForce = dataclasses.replace(layout, perColumn=choices)
+		self._rebuildTable(keepTheWindow=True)
+		return self._readingATable()
+
+	def showTheseColumns(self, columns) -> bool:
+		"""Read this table with these columns, in this order, and nothing else.
+
+		:param columns: the table's own numbers, in drawing order.
+		:return: whether a table is showing afterwards.
+		"""
+		layout = self.tableLayoutInForce or self._layoutBehindTheBand()
+		return self.arrangeTable(dataclasses.replace(layout, columns=tuple(columns)))
+
+	def arrangeTable(self, layout) -> bool:
+		"""Read this table with a whole layout, as the dialog hands one over.
+
+		:param layout: what to read it with, or None to go back to how it reads by itself.
+		:return: whether a table is showing afterwards.
+		"""
+		if not self._readingATable():
+			return False
+		self.tableLayoutInForce = layout
+		self._rebuildTable(keepTheWindow=True)
+		return self._readingATable()
+
+	def _layoutBehindTheBand(self):
+		""":return: the layout this table would be read with if nobody arranged one.
+
+		The saved record where there is one, so that arranging a column of a remembered table
+		changes that column rather than throwing the rest of the record away.
+		"""
+		handle = self._tableOnTheBand()
+		saved = flowTableLayouts.layoutFor(handle) if handle is not None else None
+		return saved if saved is not None else flowTableLayouts.TableLayout()
+
+	def _tableOnTheBand(self):
+		""":return: the table the band is reading, as its source knows it, or None."""
+		source = getattr(self.controller, "source", None)
+		return getattr(source, "handle", None)
+
 	def wantsColumnsFor(self, obj: Any) -> bool:
 		""":return: whether the reader has asked for the table this object is in as columns.
 
@@ -1024,6 +1122,7 @@ class FlowBand(PanelOwner):
 		if self.tableWanted is None:
 			return False
 		self.tableWanted = None
+		self.tableLayoutInForce = None
 		self._askedAboutCell = None
 		self._cancelLiveRead()
 		self.refresh(force=True)
@@ -1056,6 +1155,7 @@ class FlowBand(PanelOwner):
 			# Out of the table. The request goes with it, so that walking into a different
 			# table later does not lay that one out uninvited.
 			self.tableWanted = None
+			self.tableLayoutInForce = None
 			self._rebuildTable()
 			return
 		if self._tableChangedShape(found, source):
@@ -1063,7 +1163,13 @@ class FlowBand(PanelOwner):
 			# it has no page for a column it never measured, so the band cannot follow the
 			# caret there — and the widths were measured from what was in the old one. Read
 			# the whole thing again.
-			self._rebuildTable()
+			#
+			# Where the reader is put afterwards depends on what set this off. A caret that
+			# has just moved is the reader going somewhere, and the band follows them there
+			# as it would for any move; a caret that has not moved means the table changed
+			# under them while they were reading, and then the page and the rows they had are
+			# theirs to keep. See `_whereTheyAreReading`.
+			self._rebuildTable(keepTheWindow=(found.row, found.col) == (source.row, source.column))
 			return
 		if (found.row, found.col) == (source.row, source.column):
 			return
@@ -1082,40 +1188,39 @@ class FlowBand(PanelOwner):
 		finally:
 			self._rechecking = False
 
-	def _rebuildTable(self) -> None:
-		"""Read whatever is here now, the ordinary way. Guarded, since this runs in a redraw."""
-		plan = self.columnPlan()
-		page = plan.page if plan is not None else 0
+	def _rebuildTable(self, keepTheWindow: bool = False) -> None:
+		"""Read whatever is here now, the ordinary way. Guarded, since this runs in a redraw.
+
+		:param keepTheWindow: whether to put the band back on the page and rows it was showing.
+			False follows the caret, which is right when the caret moving is what set this off.
+		"""
 		self._rechecking = True
+		self._readAgainAt = self._whereTheyAreReading() if keepTheWindow else None
 		try:
 			self.refresh(force=True)
-			self._keepThePageTheyWereOn(page)
 		except Exception:
 			log.debugWarning("Could not give the table's band back", exc_info=True)
 		finally:
+			self._readAgainAt = None
 			self._rechecking = False
 
-	def _keepThePageTheyWereOn(self, page: int) -> None:
-		"""Put the band back on the page of columns the reader had turned to.
+	def _whereTheyAreReading(self):
+		""":return: the page of columns and the top row the band is showing, or None.
 
-		**A rebuild is not a decision the reader made.** The layout is read again when the
-		table changes shape under them — a column that turns out to hold something, a table
-		whose count moved — and every one of those arrives while they are reading somewhere.
-		Coming back on page one meant that a reader whose watchlist changed under them was
-		put back at the symbol column, over and over, and could not page away from it: they
-		turned, the rebuild followed, and the display was home again before they felt it.
+		**What a rebuild has to put back, and put back before anything is written.** A rebuild
+		is not something the reader asked for — the table changed shape under them while they
+		were reading somewhere — and a new controller starts at the caret on page one. So they
+		lost both axes at once: the page they had turned to, and the rows they had panned to.
 
-		Where the new layout has fewer pages than the old, the page is clamped by `onPage`,
-		which is the honest answer — there is nothing further to hold on to.
-
-		:param page: which page they were on before the rebuild.
+		A review measured the cost of putting it back afterwards instead: two writes to the
+		display for one rebuild, page one and then theirs, and the driver sends both.
 		"""
-		if not page or not self._readingATable():
-			return
 		plan = self.columnPlan()
-		if plan is None or plan.isEmpty or plan.page == page:
-			return
-		self._useColumnPage(plan.onPage(page))
+		if plan is None:
+			return None
+		top = self.controller.window.topBlockId() if self.controller is not None else None
+		row = getattr(top, "bookmark", None) if top is not None else None
+		return (plan.page, row if isinstance(row, int) else None)
 
 	def _tableChangedShape(self, found, source) -> bool:
 		"""Whether the table is no longer the shape the layout was made for.
@@ -1142,16 +1247,29 @@ class FlowBand(PanelOwner):
 		:return: whether to build the layout again.
 		"""
 		if found.numCols != source.handle.numCols:
+			self._rebuildBecause(
+				f"the table has {found.numCols} columns and the layout was made for "
+				f"{source.handle.numCols}",
+			)
 			return True
 		plan = getattr(self.controller.renderer, "columnPlan", None)
 		if plan is None or plan.isEmpty:
 			return False
 		if plan.pageOf(found.col) is not None:
 			return False
+		if found.col in plan.excluded:
+			# A column the reader's own saved layout leaves out. They have said they do not
+			# want it; there is nothing to look for in it and nothing to rebuild. Hardware
+			# found this the hard way: a saved layout dropped the columns it did not name, so
+			# the caret sitting in one read as a column from another table, and the band was
+			# rebuilt on every redraw — which is a display that will not pan and a page turn
+			# undone before the reader feels it.
+			return False
 		if found.col not in plan.omitted:
 			# A column the plan never measured. That is a table this layout is not of.
+			self._rebuildBecause(f"column {found.col} is not one this layout was made from")
 			return True
-		if (found.row, found.col) == self._askedAboutCell:
+		if (self.tableWanted, found.row, found.col) == self._askedAboutCell:
 			# **Asked about this cell already, and the answer stands.** Whatever it was: a
 			# cell that answered sent the layout to be made again, and asking a second time
 			# would send it again on every live pass; a cell that said nothing is the reader
@@ -1166,8 +1284,45 @@ class FlowBand(PanelOwner):
 			# What it gives up is a value appearing in that cell while they stand on it.
 			# Moving off and back asks again, and so does laying the table out afresh.
 			return False
-		self._askedAboutCell = (found.row, found.col)
-		return self._omittedColumnHasContent(found)
+		self._askedAboutCell = (self.tableWanted, found.row, found.col)
+		if not self._omittedColumnHasContent(found):
+			return False
+		self._rebuildBecause(
+			f"column {found.col} was measured as empty and row {found.row} of it is not",
+			# The reader is standing in that cell. Leaving the band where it was would refuse
+			# them the very thing that made the rebuild worth doing.
+			keepTheWindow=False,
+		)
+		return True
+
+	def _rebuildBecause(self, why: str, keepTheWindow: bool = True) -> None:
+		"""Say why the layout is being made again, for the log.
+
+		**Every rebuild is a normal branch**, so nothing raised and nothing appeared in NVDA's
+		log while a reader watched their display rebuild itself in a loop. A review asked for
+		this after that hunt: the reason, the table's shape, where the caret is and what the
+		band was showing, once per rebuild.
+
+		:param why: which branch decided it, in the plainest words available.
+		:param keepTheWindow: whether the reader is left where they were reading. False for a
+			rebuild they caused by standing somewhere, which is theirs to be shown.
+		"""
+		self._keepOnRebuild = keepTheWindow
+		try:
+			plan = self.columnPlan()
+			source = getattr(self.controller, "source", None)
+			handle = getattr(source, "handle", None)
+			log.debug(
+				"BrlMultiline table: reading the layout again because "
+				f"{why}. Table {handle!r}, caret at row {getattr(source, 'row', '?')} "
+				f"column {getattr(source, 'column', '?')}, showing page "
+				f"{plan.page if plan is not None else '?'} of "
+				f"{plan.numPages if plan is not None else '?'}, columns left out "
+				f"{plan.omitted if plan is not None else '?'}, excluded by the reader "
+				f"{plan.excluded if plan is not None else '?'}.",
+			)
+		except Exception:
+			log.debugWarning("Could not say why a table was read again", exc_info=True)
 
 	def _omittedColumnHasContent(self, found) -> bool:
 		"""Whether a column the layout left out turns out to hold something after all.
@@ -1354,7 +1509,14 @@ class FlowBand(PanelOwner):
 			generation=next(_generations),
 			notes=self.tableNotes,
 			handle=handle,
-			layout=layout if layout is not None else flowTableLayouts.layoutFor(handle),
+			# What the reader has arranged for this table, then what they saved for it, then
+			# nothing — which is the measurement and the settings, as for any other table.
+			layout=self._layoutToReadWith(handle, layout),
+			# Where the reader had the band, when this is a rebuild rather than an arrival.
+			# Applied inside the build, so what reaches the display is their own window and
+			# not page one first. See `_whereTheyAreReading`.
+			atPage=self._readAgainAt[0] if self._readAgainAt else 0,
+			atRow=self._readAgainAt[1] if self._readAgainAt else None,
 		)
 		if control is None:
 			# Recognised a moment ago and not now, or no column layout fits this band. Reading
@@ -1366,6 +1528,17 @@ class FlowBand(PanelOwner):
 		self.obj = obj
 		self._attach(segment, control)
 		return True
+
+	def _layoutToReadWith(self, handle, offered):
+		""":return: the layout to read this table with, in the order the reader means them.
+
+		:param handle: the table.
+		:param offered: the saved layout the caller has already looked up, or None.
+		"""
+		inForce = self.tableLayoutInForce
+		if inForce is not None:
+			return inForce
+		return offered if offered is not None else flowTableLayouts.layoutFor(handle)
 
 	def _savedLayoutHere(self, obj: Any):
 		""":return: the table the reader has already laid out and what they saved for it.
