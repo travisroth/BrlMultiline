@@ -2181,6 +2181,62 @@ class TestARowBuiltFromItsOwnCells(unittest.TestCase):
 		self.assertIs(block.region.obj, items[0])
 
 
+class TestTheCursorSurvivesAReRead(unittest.TestCase):
+	"""Reported from hardware: the cursor disappears from a list a couple of seconds after
+	arriving in it — in File Explorer, and in the add-on's own dialogs.
+
+	The live poll re-reads the band about every two seconds, and a re-read replaces a block's
+	region. A region is born inactive, because every block holds a collapsed position and
+	would otherwise all claim a cursor; the controller went on knowing which block was active
+	and the new region did not, so `cursorCell` found nothing. Nothing was logged and nothing
+	moved. It is worst on a flat list, where there is no indent marker left to say which row
+	the reader is on.
+	"""
+
+	def _list(self, names=("Apple", "Banana", "Cherry")):
+		return hangUnder([ChangingItem(name) for name in names])
+
+	def test_theCursorIsWhereItWasBeforeTheReRead(self):
+		control = controllerOver(self._list(), at=1, numRows=4)
+		before = control.cursorCell()
+		self.assertIsNotNone(before)
+		control.rereadContent()
+		self.assertEqual(control.cursorCell(), before)
+
+	def test_andTheReadersOwnRegionIsTheOneThatSaysSo(self):
+		items = self._list()
+		control = controllerOver(items, at=1, numRows=4)
+		control.rereadContent()
+		active = [
+			block.blockId
+			for block in control.window.blocks
+			if getattr(control.regionFor(block.blockId), "isActive", False)
+		]
+		self.assertEqual(len(active), 1)
+		self.assertIs(objectAt(control, active[0]), items[1])
+
+	def test_andItSurvivesARowChangingItsTextUnderThem(self):
+		"""Which is what the poll is for, and the case that replaces the region."""
+		items = self._list()
+		control = controllerOver(items, at=1, numRows=4)
+		before = control.cursorCell()
+		items[0].becomes("Apricot")
+		items[1].becomes("Blackberry")
+		control.rereadContent()
+		self.assertIn("Blackberry", " ".join(control.describeRows()))
+		self.assertEqual(control.cursorCell(), before)
+
+	def test_andItFollowsThemToTheRowTheyMoveTo(self):
+		items = self._list()
+		control = controllerOver(items, at=0, numRows=4)
+		control.source.setCurrent(items[2])
+		control.enterAtCursor()
+		moved = control.cursorCell()
+		self.assertIsNotNone(moved)
+		control.rereadContent()
+		self.assertEqual(control.cursorCell(), moved)
+
+
 class TestARowTakenAwayFromUnderTheReader(unittest.TestCase):
 	"""Reported from Outlook: two messages showing, the reader on the top one, delete it —
 	the focus moves to the message below and the deleted one stays on the display.

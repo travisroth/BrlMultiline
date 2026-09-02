@@ -105,6 +105,12 @@ Added:
   remembered deletes what was saved. The dialog opens on NVDA's event loop rather than inside
   the command, which is what stopped NVDA responding the first time it was opened.
 
+- The cursor stays on the row you are on in a list. The live re-read replaces a row's
+  region every couple of seconds, and a fresh region does not know it is the one you are on —
+  so the cursor quietly disappeared from File Explorer and from the add-on's own dialogs a
+  moment after you arrived. Worst on a flat list, where no indent marker is left to say which
+  row is which.
+
 - A list whose items are grouped reads as one run. Outlook's message list grouped by day
   used to end at each boundary, so panning stopped at the last message of the day; the walk
   now crosses into the next group, and the day heading is a row of its own. A closed group

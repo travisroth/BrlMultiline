@@ -649,6 +649,14 @@ class FlowController(PanelOwner):
 		honest answer to "is this still the same block" is then no; showing yesterday's text
 		is better than showing a neighbour's under this block's name, and the reader's next
 		keystroke reads the document afresh either way.
+
+		**The block the reader is on is made active again afterwards.** A re-read replaces a
+		block's region, and a region is born inactive — every block holds a collapsed position
+		and would otherwise all claim a cursor, so nothing is active until something says so.
+		The controller went on knowing which block was active and the new region did not, and
+		`cursorCell` asks the region. On hardware that was the cursor vanishing from a list
+		about two seconds after arriving in it: nothing logged, nothing moved, and on a flat
+		list there is no indent marker left to say which row is which. See `_setActive`.
 		"""
 		fetch = getattr(self.source, "blockAt", None)
 		if fetch is None:
@@ -658,6 +666,7 @@ class FlowController(PanelOwner):
 			# the block they are in is the one being edited; re-reading under them would
 			# fight the editor rather than follow it.
 			return
+		lostTheCursor = False
 		# The window's blocks rather than the whole cache: they are what `_redrawBlocks` is
 		# about to draw, and the cache is keyed by a bookmark that cannot be hashed or walked.
 		for rendered in list(self.window.blocks):
@@ -675,6 +684,13 @@ class FlowController(PanelOwner):
 				continue
 			if result.kind is ResultKind.BLOCK and result.block is not None:
 				self._keep(result.block, replace=True)
+				if self.activeBlockId is not None and rendered.blockId == self.activeBlockId:
+					lostTheCursor = True
+		if lostTheCursor:
+			# Only when the reader's own block was one of the ones replaced. Every other
+			# re-read leaves the active region alone, and saying it again would re-read that
+			# region for nothing on every tick of the live timer.
+			self._setActive(self.activeBlockId)
 
 	def _redrawBlocks(self, why: str) -> None:
 		"""Lay every block on the band out again, under whatever the renderer says now.
