@@ -1034,12 +1034,34 @@ class FlowBand(PanelOwner):
 		None means "however this table reads by itself" — the measurement and the settings,
 		or whatever was saved for it. A layout appears here when the reader arranges one from
 		the band or the dialog, and it is what `script_rememberTableLayout` writes down.
+
+		**Kept with the table it was arranged for**, and answered as None for any other. It
+		is stored beside `tableWanted` but it is not the same thing: the request is dropped
+		on several paths — leaving the table, a table that stopped being recognised, a build
+		that could not fit the band — and an arrangement that outlived one of those would be
+		waiting for the next table the reader laid out. Hidden columns and widths measured
+		from a watchlist, applied to a message list, are worse than no columns at all, and
+		the reader has no way to feel that is what has happened. So the key is stored with
+		the layout and checked on the way out.
 		"""
-		return getattr(self.plugin, "tableLayout", None)
+		held = getattr(self.plugin, "tableLayout", None)
+		if held is None:
+			return None
+		key, layout = held
+		return layout if flowTableSource.sameTable(key, self.tableWanted) else None
 
 	@tableLayoutInForce.setter
 	def tableLayoutInForce(self, layout) -> None:
-		self.plugin.tableLayout = layout
+		self.plugin.tableLayout = None if layout is None else (self.tableWanted, layout)
+
+	def _forgetTheTable(self) -> None:
+		"""Drop the reader's request for this table, and the arrangement that went with it.
+
+		One place, because the two must go together and there are four paths that drop the
+		request. See `tableLayoutInForce`.
+		"""
+		self.tableWanted = None
+		self.tableLayoutInForce = None
 
 	def arrangeColumn(self, column: int, **changes) -> bool:
 		"""Change one column of the layout in force, and read the table again.
@@ -1121,8 +1143,7 @@ class FlowBand(PanelOwner):
 		"""
 		if self.tableWanted is None:
 			return False
-		self.tableWanted = None
-		self.tableLayoutInForce = None
+		self._forgetTheTable()
 		self._askedAboutCell = None
 		self._cancelLiveRead()
 		self.refresh(force=True)
@@ -1154,8 +1175,7 @@ class FlowBand(PanelOwner):
 		if found is None or not flowTableSource.sameTable(found.key, self.tableWanted):
 			# Out of the table. The request goes with it, so that walking into a different
 			# table later does not lay that one out uninvited.
-			self.tableWanted = None
-			self.tableLayoutInForce = None
+			self._forgetTheTable()
 			self._rebuildTable()
 			return
 		if self._tableChangedShape(found, source):
@@ -1485,7 +1505,7 @@ class FlowBand(PanelOwner):
 		if handle is None:
 			handle = flowTableSource.tableAt(obj)
 		if handle is None or not flowTableSource.sameTable(handle.key, self.tableWanted):
-			self.tableWanted = None
+			self._forgetTheTable()
 			return None
 		if not force and self._readingATable() and self.controller.source.isStillHere(obj):
 			# The same table. The caret has moved between its cells, which is a move within
@@ -1522,7 +1542,7 @@ class FlowBand(PanelOwner):
 			# Recognised a moment ago and not now, or no column layout fits this band. Reading
 			# order is a good answer to both, so the request is dropped rather than held on to
 			# in the hope that the next redraw goes better.
-			self.tableWanted = None
+			self._forgetTheTable()
 			return None
 		self.controller = control
 		self.obj = obj

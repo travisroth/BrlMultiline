@@ -752,6 +752,66 @@ class TestHowTallARowActuallyComesOut(unittest.TestCase):
 		self.assertEqual(predictedHeight(plan, wanted), lanes)
 
 
+class TestPlanningWithColumnsCutOneWayAndTheTableAnother(unittest.TestCase):
+	"""The pages are decided by predicting how tall a row comes out, and the rows are drawn
+	from the column's own answer. A review found the prediction reading only the table-wide
+	value, so the two could disagree in both directions: a wrapping table with wide columns
+	cut by hand was given a page it did not need, and a truncating table with columns wrapped
+	by hand was given one page whose rows came out twice the target. Both ask
+	`effectiveOverflow` now."""
+
+	def _wide(self):
+		"""Two columns that each wrap to four rows at the width they would be given."""
+		return [Measurement(index=n, width=28, typicalWidth=28, label="") for n in (1, 2)]
+
+	def test_columnsCutByHandFitOnOnePage(self):
+		wanted = self._wide()
+		choices = {n: ColumnChoice(overflow=TRUNCATE, keep=KEEP_START) for n in (1, 2)}
+		plan = planFor(
+			wanted,
+			MONARCH_COLS,
+			maxRows=1,
+			targetHeight=1,
+			overflow=WRAP,
+			pinKey=False,
+			choices=choices,
+		)
+		self.assertEqual(plan.numPages, 1)
+		self.assertEqual(predictedHeight(plan, wanted), 1)
+
+	def test_andColumnsWrappedByHandAreGivenTheRoomTheyNeed(self):
+		"""Three of them on one lane, which a table-wide cut would have called one row high
+		and which comes out four."""
+		wanted = [Measurement(index=n, width=28, typicalWidth=28, label="") for n in (1, 2, 3)]
+		choices = {n: ColumnChoice(overflow=WRAP) for n in (1, 2, 3)}
+		plan = planFor(
+			wanted,
+			MONARCH_COLS,
+			maxRows=1,
+			targetHeight=2,
+			overflow=TRUNCATE,
+			pinKey=False,
+			choices=choices,
+		)
+		self.assertLessEqual(predictedHeight(plan, wanted), 2)
+
+	def test_whatWasPredictedIsWhatTheColumnsSay(self):
+		"""The prediction and the drawing, on the same plan, agreeing about every column."""
+		wanted = self._wide()
+		choices = {1: ColumnChoice(overflow=TRUNCATE, keep=KEEP_START), 2: ColumnChoice(overflow=WRAP)}
+		plan = planFor(
+			wanted,
+			MONARCH_COLS,
+			maxRows=2,
+			targetHeight=2,
+			overflow=WRAP,
+			pinKey=False,
+			choices=choices,
+		)
+		drawn = {place.column.index: place.column.overflow for place in plan.placements()}
+		self.assertEqual(drawn.get(1), TRUNCATE)
+
+
 class TestAColumnOfProse(unittest.TestCase):
 	"""A VPAT remarks column: no arrangement puts it beside anything at a readable width. The
 	reader asked for one column at a time in that case, and the search reaching one is it."""

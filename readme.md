@@ -203,10 +203,14 @@ Things worth knowing:
   — and give the table back as it comes if an experiment goes wrong. A fourth opens a dialog
   for a table you come back to, where the columns are a list you move up and down and each one
   can be given a name of your own, a floor and a ceiling on how many cells it may have, which
-  end of its heading survives, and whether a page of columns begins at it. One column can be
-  the one repeated on every page. Cutting from the end is for a column whose values begin with
-  something nobody wrote for reading, and a name of your own is for a heading that does the
-  same.
+  end of its heading survives, and whether a page of columns begins at it. One column is the
+  one repeated on every page, and "the first column shown" is one of the answers, since that
+  is what a table does when you have named none. Each per-column question also has "follow the
+  table setting", which names what the table is currently doing, so nothing in the dialog
+  claims a decision you did not make. Ticking "remember this arrangement" saves it against the
+  table; unticking it on a table you had remembered deletes what was saved. Cutting from the
+  end is for a column whose values begin with something nobody wrote for reading, and a name
+  of your own is for a heading that does the same.
 
 - A table can be laid out in columns, with a command, and the layout can be **remembered**:
   press the remember command while a table is on the display and that table comes up laid

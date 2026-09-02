@@ -859,6 +859,22 @@ def planFor(
 	)
 
 
+def effectiveOverflow(choice: "ColumnChoice", overflow: str) -> str:
+	""":return: what actually becomes of a cell too long for one column.
+
+	The reader's own answer where they gave one, and the table's otherwise. **One function,
+	asked in both places**: the pages are decided by predicting how tall a row comes out, and
+	the rows are drawn by `_asChosen`. A review found the prediction reading only the
+	table-wide value while the drawing read the reader's, so a table set to wrap with two wide
+	columns cut by hand was given two pages for a row that came out one high, and a table set
+	to cut with two columns wrapped by hand was given one page for a row that came out four.
+
+	:param choice: what the reader decided about this column.
+	:param overflow: what the table does with a cell too long for its column.
+	"""
+	return choice.overflow if choice.overflow in OVERFLOW_STYLES else overflow
+
+
 def _asChosen(item: "Measurement", width: int, overflow: str, choice: "ColumnChoice") -> "Column":
 	""":return: one column as the measurement found it and the reader asked for it.
 
@@ -871,7 +887,7 @@ def _asChosen(item: "Measurement", width: int, overflow: str, choice: "ColumnCho
 		index=item.index,
 		width=width,
 		label=choice.label or item.label,
-		overflow=choice.overflow if choice.overflow in OVERFLOW_STYLES else overflow,
+		overflow=effectiveOverflow(choice, overflow),
 		keep=choice.keep if choice.keep in KEEP_ENDS else KEEP_START,
 		headerKeep=choice.headerKeep if choice.headerKeep in KEEP_ENDS else KEEP_START,
 	)
@@ -1010,7 +1026,7 @@ def _howManyFit(
 			maxWidth,
 			choices,
 		)
-		height = _stackedHeight(items, widths, room, numCols, maxRows, gap, overflow)
+		height = _stackedHeight(items, widths, room, numCols, maxRows, gap, overflow, choices)
 		if height is None:
 			continue
 		if take == 1:
@@ -1063,6 +1079,7 @@ def _stackedHeight(
 	maxRows: int,
 	gap: int,
 	overflow: str,
+	choices: Optional[dict] = None,
 ) -> Optional[int]:
 	"""How tall a row of these columns actually comes out, or None if they do not fit.
 
@@ -1085,8 +1102,13 @@ def _stackedHeight(
 	:param gap: cells between columns.
 	:param overflow: what becomes of a cell too long for its column. A cut one is always one
 		row, however much it holds.
+	:param choices: what the reader decided per column, because a column they cut by hand is
+		one row here whatever the table says and a column they wrapped by hand is as many as
+		it needs. Read through `effectiveOverflow`, which is the same question the drawing
+		asks, so that the prediction and the display cannot part company.
 	:return: the height in band rows, or None if these columns do not fit.
 	"""
+	choices = dict(choices or {})
 	lanes: list[int] = []
 	row, offset, limit = 0, 0, room
 	for item in items:
@@ -1097,7 +1119,8 @@ def _stackedHeight(
 			return None
 		while len(lanes) <= row:
 			lanes.append(1)
-		tall = 1 if overflow == TRUNCATE else rowsNeeded(item.typical, width)
+		style = effectiveOverflow(choices.get(item.index, NOTHING_CHOSEN), overflow)
+		tall = 1 if style == TRUNCATE else rowsNeeded(item.typical, width)
 		lanes[row] = max(lanes[row], tall)
 		offset += width + gap
 	return sum(lanes) if lanes else 1

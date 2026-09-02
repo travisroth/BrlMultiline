@@ -2087,6 +2087,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		description=_("Table: Open table layout designer for the current table"),
 		category=SCRIPT_CATEGORY,
 	)
+	@gui.blockAction.when(gui.blockAction.Context.MODAL_DIALOG_OPEN)
 	def script_flowTableDesigner(self, gesture):
 		"""Open the designer for the table on the display.
 
@@ -2094,6 +2095,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		reading, and this is for a table the reader comes back to — what to call a column whose
 		heading is unreadable, how much room the description may have, which column is repeated
 		on every page, where a page begins. See `flowTableDesigner`.
+
+		**Asks for the dialog and returns.** The dialog itself is opened from the event loop:
+		a script runs inside `queueHandler.pumpAll`, and a modal dialog shown there never
+		gives the pump back — NVDA froze on hardware the first time this was pressed. See
+		`flowTableDesigner.arrangeTheTable`.
 		"""
 		from . import flowTableDesigner
 

@@ -97,8 +97,13 @@ Added:
   column you are in, cycle it between wrapped, cut keeping the start and cut keeping the end,
   and give the table back as it comes. In the dialog: the columns as a list to reorder, a name
   of your own for any of them, a floor and a ceiling on its width, which end of its heading
-  survives, where a page of columns begins, and which column is repeated on every page. What
-  you arrange is what the remember command writes down.
+  survives, where a page of columns begins, and which column is repeated on every page — with
+  "the first column shown" as its own answer, since that is what a table does when you have
+  named none. Every per-column question also has "follow the table setting", which names what
+  the table is currently doing. What you arrange is what the remember command writes down, and
+  the box that remembers it is a state rather than a button: unticking it on a table you had
+  remembered deletes what was saved. The dialog opens on NVDA's event loop rather than inside
+  the command, which is what stopped NVDA responding the first time it was opened.
 
 - A list whose items are grouped reads as one run. Outlook's message list grouped by day
   used to end at each boundary, so panning stopped at the last message of the day; the walk

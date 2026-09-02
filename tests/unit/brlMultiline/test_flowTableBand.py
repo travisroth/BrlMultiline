@@ -1994,6 +1994,20 @@ class TestArrangingATableFromTheBand(TableBandTestCase):
 		self.band.clearTable()
 		self.assertIsNone(self.band.tableLayoutInForce)
 
+	def test_andItDoesNotFollowThemIntoAnotherTable(self):
+		"""Hidden columns and widths measured from a watchlist, applied to a message list,
+		are worse than no columns: the reader has no way to feel that is what happened. A
+		review found four paths that dropped the request and left the arrangement waiting for
+		whatever table was laid out next, so the arrangement is kept with its own table's key
+		and answered as nothing for any other."""
+		self._laidOut(col=2)
+		self._press("script_flowTableToggleColumn")
+		self.assertNotIn(2, self._drawn())
+		self._inTable(tableID=2, row=2, col=1)
+		self.assertTrue(self.band.layOutTable())
+		self.assertIsNone(self.band.tableLayoutInForce)
+		self.assertIn(2, self._drawn())
+
 	def test_theCommandsSayWhenThereIsNoTable(self):
 		self._elsewhere()
 		self.band.refresh(force=True)
@@ -2213,7 +2227,7 @@ class TestRememberingTheLayoutOnTheDisplay(TableBandTestCase):
 		self._watchlist()
 		self.band.layOutTable()
 		said = self._press("script_rememberTableLayout")
-		self.assertTrue(any("come up in columns" in message for message in said))
+		self.assertTrue(any("display in columns" in message for message in said))
 		handle = flowTableSource.tableAt(self.api.getNavigatorObject())
 		self.assertIsNotNone(flowTableLayouts.layoutFor(handle))
 
@@ -2248,7 +2262,7 @@ class TestRememberingTheLayoutOnTheDisplay(TableBandTestCase):
 		self.band.layOutTable()
 		self._press("script_rememberTableLayout")
 		said = self._press("script_forgetTableLayout")
-		self.assertIn("Layout forgotten", said)
+		self.assertIn("Table layout deleted", said)
 		self.assertFalse(self._readingATable())
 		self.band.refresh(force=True)
 		self.assertFalse(self._readingATable())
@@ -2256,7 +2270,7 @@ class TestRememberingTheLayoutOnTheDisplay(TableBandTestCase):
 	def test_forgettingWhatWasNeverSavedSaysSo(self):
 		self._watchlist()
 		said = self._press("script_forgetTableLayout")
-		self.assertTrue(any("no remembered layout" in message for message in said))
+		self.assertTrue(any("no saved layout" in message for message in said))
 
 	def test_forgettingSomewhereElseSaysSo(self):
 		self._elsewhere()

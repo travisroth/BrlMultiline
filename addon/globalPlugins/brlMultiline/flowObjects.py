@@ -713,9 +713,16 @@ def _isInAGroupedList(obj) -> bool:
 	does differently is cross a boundary that is real in most controls; so it matches only the
 	shape it was written for — a run member inside a grouping inside a list, or the grouping
 	itself.
+
+	A heading matches on the list that holds it and on nothing else. Asking whether it had a
+	child the reader could reach as well meant a *collapsed* day was not a grouped list: the
+	generic run took it instead and began at a message Outlook still keeps in the tree behind
+	a closed group, and the walk across the days was lost at exactly the row that names them.
+	A group with nothing open under it is a row of its own, and `_groupedNext` steps from it
+	to the day beside it.
 	"""
 	if roleName(getattr(obj, "role", None)) in GROUP_ROLES:
-		return _listHolding(obj) is not None and _firstInGroup(obj) is not None
+		return _listHolding(obj) is not None
 	return _isRunMember(obj) and _groupOf(obj) is not None
 
 

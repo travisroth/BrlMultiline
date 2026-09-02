@@ -1896,6 +1896,14 @@ heading, through that one. Four things follow from what the reader actually has:
   for a list item with no grouping above it, so ordinary lists, menus and tab strips are
   untouched.
 
+A review then found the match itself too narrow in one place. A heading was admitted only if
+it had a child the reader could reach as well as a list holding it — so a *collapsed* day was
+not a grouped list at all, the generic run took it instead, and that run began at a message
+Outlook still keeps in the tree behind the closed group. The walk across the days was lost at
+exactly the row that names them. A heading matches on the list that holds it and nothing else
+now; a group with nothing open under it is a row of its own, and the step from it is the day
+beside it, which `_groupedNext` already did.
+
 The review noted a second shape this does not cover: a provider that gives each day a
 different parent *without* a grouping between. That falls back to today's behaviour, and the
 new boundary log is what will say which shape a given Outlook is — `_sayWhereItEnded` records
@@ -2024,6 +2032,62 @@ measurement as though it were a decision.
 Two things deliberately not built: an empty-cell marker, which was the last tier of the plan
 and is worth deciding on after the rest has been lived with; and any way to *choose* a page
 assignment beyond "a page begins here", since the packing already decides the rest well.
+
+**What the first review of it found, and what changed.** All of it was about state ownership
+rather than about the arithmetic, and all of it is the same mistake in four places: something
+that belongs to one table, kept where it could be read for another.
+
+- *An arrangement outliving its table.* The layout in force was stored on the plugin with
+  nothing saying which table it was for, and four paths drop the request without dropping it —
+  leaving the arrangement waiting for whatever table was laid out next. Hidden columns and
+  widths measured from a watchlist, applied to a message list, are worse than no columns,
+  because nothing the reader can feel says that is what happened. The key is stored with the
+  layout now and checked on the way out, and the four paths go through one `_forgetTheTable`.
+- *The dialog opened over the wrong layout.* It was given only what had been arranged, and a
+  remembered table normally has nothing arranged — so a table the reader came back to opened
+  on an empty dialog with "remember this" already ticked, and pressing OK wrote that emptiness
+  over the record. It is given what the table is *being read with* now, and `asLayout` replaces
+  fields on that record rather than building a new one, so the row height, the table-wide
+  cutting, and the two pinning settings — none of which the dialog asks about — come back out
+  untouched.
+- *The remember box was a button rather than a state.* Unticking it on a remembered table did
+  nothing, so the table came back laid out by a layout the reader had just said they were
+  finished with; it forgets now. A table nothing can name says so, instead of the save failing
+  in silence.
+- *A column measured blank became a column hidden.* The list held the drawn columns and the
+  excluded ones and not the ones the measurement found nothing in, so hiding any *other* column
+  wrote a list of survivors without them — freezing a column out of every later reading over a
+  decision nobody made. That is the same fault, in the designer, that `omitted` and `excluded`
+  were separated to prevent.
+- *The controls described something other than the display.* An untouched column read "Wrapped"
+  in a table that was cutting, and the column being repeated had no box ticked although one was
+  being repeated. Every per-column question has an explicit "follow the table setting" that
+  names what following means, the repeated column is one choice with "the first column shown"
+  as an answer, and the line for a column says which end its heading keeps and whether it is
+  the repeated one. A width floor above its ceiling is refused with a message rather than
+  normalised, because which of the two numbers was meant is not ours to guess.
+- *The dialog bypassed NVDA's popup lifecycle*, so the previous focus and the foreground were
+  not restored around it. `gui.mainFrame.prePopup()` and `postPopup()` surround it now.
+
+Hardware then found the one thing no review had: **the dialog was opened from inside the
+script**, and a script runs inside `queueHandler.pumpAll`. A modal dialog shown there never
+gives the pump back, so NVDA's core stopped turning the moment the designer came up — the
+display froze, the watchdog logged "Core frozen in stack!" every fifteen seconds for ninety
+seconds, and the reader had to kill it. The script asks for the dialog and returns now;
+`wx.CallAfter` shows it on the next turn of the event loop, which is what NVDA's own commands
+do for every settings dialog and what the add-on's two other dialogs already did. What the
+reader is arranging is still read in the script, while the table is certainly on the display;
+only the showing is put off. On the way back out, the band is changed only if it is still
+reading the table the designer was opened over — the dialog stays up as long as the reader
+wants it — while what they asked to remember is saved against that table wherever they are by
+then.
+
+One finding was not about the designer at all: the **page planner** predicted a row's height
+from the table-wide cutting while the drawing used the column's own, so the two could disagree
+in both directions — a wrapping table with columns cut by hand was given a page it did not
+need, and a truncating table with columns wrapped by hand was given one page whose rows came
+out twice the target. Both ask `flowTable.effectiveOverflow` now, which is one function so
+that they cannot part company again.
 
 ### The blanks are one of Chrome's two browse modes, not one of ours
 

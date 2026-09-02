@@ -2068,6 +2068,44 @@ class TestAListWhoseItemsAreGrouped(unittest.TestCase):
 		self.assertFalse(adapter.admits(start, otherItems["a receipt"]))
 		self.assertFalse(adapter.admits(start, FakeNavigatorObject("a toolbar button")))
 
+	def test_aHeadingIsReadByTheGroupedAdapterToo(self):
+		"""Landing on "Today" is landing on a row of the list, not on something else."""
+		_list, headings, _items = self._inbox()
+		self.assertEqual(flowObjects.adapterFor(headings["Today"]).name, "groupedList")
+
+	def test_andSoIsAClosedOne(self):
+		"""A review found the adapter asking a heading for a child it could reach as well as
+		for the list holding it. A collapsed day has no reachable child, so the generic run
+		took it instead — and began at a message Outlook keeps in the tree behind the closed
+		group. The walk across the days was lost at the row that names them."""
+		_list, headings, _items = self._inbox(collapsed=("Yesterday",))
+		self.assertEqual(flowObjects.adapterFor(headings["Yesterday"]).name, "groupedList")
+
+	def test_andOneWithNothingUnderItAtAll(self):
+		_list, headings, _items = fakeGroupedList(
+			(("Today", ["a release note"]), ("Yesterday", []), ("Last week", ["an invitation"])),
+		)
+		self.assertEqual(flowObjects.adapterFor(headings["Yesterday"]).name, "groupedList")
+
+	def test_readingOnFromAClosedHeadingIsTheDayBesideIt(self):
+		"""Not the messages behind it, which is what the generic run reached for."""
+		_list, headings, _items = self._inbox(collapsed=("Yesterday",))
+		self.assertEqual(
+			self._walk(headings["Yesterday"]),
+			["Yesterday", "Last week", "an invitation"],
+		)
+
+	def test_andFromAnOpenOneItIsTheMessagesUnderIt(self):
+		_list, headings, _items = self._inbox()
+		self.assertEqual(
+			self._walk(headings["Yesterday"]),
+			["Yesterday", "a receipt", "Last week", "an invitation"],
+		)
+
+	def test_andTheFirstMessageOfADayJustOpenedReadsOnAsUsual(self):
+		_list, _headings, items = self._inbox()
+		self.assertEqual(self._walk(items["a receipt"]), ["a receipt", "Last week", "an invitation"])
+
 	def test_aListItemWithNoGroupingAboveItIsNotThisShape(self):
 		"""A list box inside a pane is not a grouped list, and reading it as one would let the
 		walk out of the list and into whatever the pane holds next."""
