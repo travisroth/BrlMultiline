@@ -134,7 +134,14 @@ Added:
 
 - The Excel support is an **application module**, so it is loaded only while Excel is running
   and nothing about Excel is asked of any other application. It extends NVDA's own Excel
-  module rather than replacing it, so everything NVDA does there goes on happening.
+  module rather than replacing it, so everything NVDA does there goes on happening. A sheet
+  whose used range is enormous — Excel counts formatting as use, and never forgets it — is
+  left to NVDA's ordinary reading rather than measured, since measuring it would stop the
+  display for as long as it took.
+
+- In the table designer, a column chosen as the one repeated on every page can no longer be
+  a hidden one. Choosing it and then hiding it used to leave the saved layout naming a column
+  the display was not repeating.
 
 - A list whose items are grouped reads as one run. Outlook's message list grouped by day
   used to end at each boundary, so panning stopped at the last message of the day; the walk

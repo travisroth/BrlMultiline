@@ -40,8 +40,27 @@ Such a cell is left alone, so the reader keeps NVDA's ordinary reading of it rat
 layout drawn from numbers this could not check.
 """
 
+import eventHandler
 from logHandler import log
 from nvdaBuiltin.appModules.excel import AppModule as ExcelAppModule
+
+MAX_COLUMNS = 250
+"""How wide a sheet may be before it is left to NVDA's ordinary reading.
+
+**Because Excel's used range lies, and lies large.** It grows to whatever has ever been
+written in or *formatted* and does not shrink when the content is deleted, so a sheet with a
+fill colour once applied to a whole row reports itself as sixteen thousand columns wide. The
+measurement reads a bandful of rows across every column of the table — see
+`flowTableSource.measure` — so an honest reading of that sheet is a hundred and fifty thousand
+COM calls and translations, in one go, on the thread NVDA answers the reader on. The display
+would stop and the reader would have no way to know why.
+
+So a sheet wider than this is refused, and refusing means the reader keeps NVDA's ordinary
+cell-at-a-time reading rather than waiting for a layout that was never going to arrive. The
+number is generous for anything anybody arranges by hand — two hundred and fifty columns is
+already forty pages on a Monarch — and it bounds the measurement at a couple of thousand
+reads.
+"""
 
 
 class ExcelSheet:
@@ -71,12 +90,34 @@ class ExcelSheet:
 	def where(self) -> tuple:
 		""":return: the row and column the reader is on, as Excel numbers them.
 
-		NVDA's answer rather than Excel's: `rowNumber` and `columnNumber` are on the cell, and
-		they are the same numbers `cells(row, column)` takes. Nothing has to be translated
-		between the two, which is the reason to keep the table's coordinates as the sheet's
-		own.
+		NVDA's answer first: `rowNumber` and `columnNumber` are on the cell, and they are the
+		same numbers `cells(row, column)` takes, which is the reason to keep the table's
+		coordinates as the sheet's own.
+
+		**Excel's own answer second, and nothing third.** NVDA's two come from its Excel
+		helper, and that can be silent — not yet started, or unable to reach the sheet — while
+		the COM range beside it still knows perfectly well where it is. Reading a silence as
+		A1 would attach the whole reading to the wrong place and say nothing had gone wrong,
+		which is the worst of the three outcomes. See `sheetFor`, which declines the reading
+		when neither answers.
 		"""
-		return (int(self.cell.rowNumber or 1), int(self.cell.columnNumber or 1))
+		return (self._coordinate("rowNumber", "row"), self._coordinate("columnNumber", "column"))
+
+	def _coordinate(self, said: str, asked: str) -> int:
+		""":return: one of the reader's coordinates, or 0 if nothing will say.
+
+		:param said: what NVDA calls it on the cell.
+		:param asked: what Excel calls it on the range.
+		"""
+		for thing, name in ((self.cell, said), (self.cell.excelCellObject, asked)):
+			try:
+				found = int(getattr(thing, name, 0) or 0)
+			except Exception:
+				log.debugWarning(f"Could not read a cell's {name}", exc_info=True)
+				continue
+			if found > 0:
+				return found
+		return 0
 
 	def shape(self) -> tuple:
 		""":return: how far the sheet is used, as (rows, columns), counted from A1.
@@ -90,15 +131,30 @@ class ExcelSheet:
 		A sheet is a million rows by sixteen thousand columns and nearly all of it is empty,
 		so the used range is what makes a layout possible at all: it is what Excel considers
 		written in, and it is one call.
+
+		**And the cell the reader is standing in, whether or not Excel counts it as used.**
+		Arrowing about a blank sheet does not enlarge the used range: on an empty workbook the
+		active cell can be D20 while the used range is still A1, and a table of one row by one
+		column with the reader at row 20 column 4 is a reading with nowhere to put them. The
+		table therefore reaches at least as far as they do.
 		"""
+		row, column = self.where()
 		try:
 			used = self._sheet.usedRange
 			rows = int(used.row) + int(used.rows.count) - 1
 			columns = int(used.column) + int(used.columns.count) - 1
 		except Exception:
 			log.debugWarning("Could not ask a worksheet how far it is used", exc_info=True)
-			return self.where()
-		return (max(1, rows), max(1, columns))
+			rows = columns = 0
+		return (max(1, rows, row), max(1, columns, column))
+
+	def tooWide(self) -> bool:
+		""":return: whether this sheet is too wide to measure without stopping NVDA.
+
+		See `MAX_COLUMNS`, which is about what Excel's used range says rather than about what
+		anybody wrote.
+		"""
+		return self.shape()[1] > MAX_COLUMNS
 
 	def cellAt(self, row: int, column: int):
 		""":return: the cell at one coordinate, or None if it cannot be reached.
@@ -108,7 +164,7 @@ class ExcelSheet:
 		add-on's guess at one.
 		"""
 		try:
-			return type(self.cell)(
+			found = type(self.cell)(
 				windowHandle=self.cell.windowHandle,
 				excelWindowObject=self.cell.excelWindowObject,
 				excelCellObject=self._sheet.cells(row, column),
@@ -116,18 +172,78 @@ class ExcelSheet:
 		except Exception:
 			log.debugWarning(f"Could not reach row {row} column {column}", exc_info=True)
 			return None
+		# **The worksheet already in hand, given to the cell rather than left to be built.**
+		# `ExcelCell._get_parent` makes a new `ExcelWorksheet` for every cell that is asked,
+		# and a worksheet's header tracker is populated by walking every defined name in the
+		# workbook — so asking a bandful of cells what their column's header is would have
+		# walked the workbook once per cell. `parent` is an auto-property, so assigning it is
+		# what stops the getter ever running.
+		found.parent = self.obj
+		return found
+
+
+def sheetFor(cell):
+	""":return: the worksheet a cell is in, or None if it cannot be read by coordinate.
+
+	Three ways to answer no, and each of them leaves the reader with NVDA's ordinary reading
+	of the cell rather than with a layout that is wrong or a display that has stopped:
+
+	- **Nothing will say where the reader is.** See `ExcelSheet.where`.
+	- **The sheet is too wide to measure.** See `MAX_COLUMNS`.
+	- **The sheet cannot be reached at all**, which is any other failure.
+
+	:param cell: the cell the reader is on.
+	"""
+	try:
+		sheet = ExcelSheet(cell)
+		if 0 in sheet.where():
+			log.debugWarning("An Excel cell would not say which row and column it is")
+			return None
+		if sheet.tooWide():
+			log.debugWarning(
+				f"An Excel sheet says it is {sheet.shape()[1]} columns wide, which is more "
+				f"than the {MAX_COLUMNS} that can be measured without stopping NVDA. "
+				"Reading it as NVDA ordinarily would.",
+			)
+			return None
+	except Exception:
+		log.debugWarning("Could not reach the worksheet behind a cell", exc_info=True)
+		return None
+	return sheet
 
 
 class SpreadsheetCell:
-	"""The overlay that offers a worksheet to the flow, and does nothing else.
+	"""The overlay on a worksheet cell: it offers a sheet, and it can be gone to.
 
-	One method, and it is the whole interface between this application and the rest of the
+	Two methods, and they are the whole interface between this application and the rest of the
 	add-on. See the module docstring.
 	"""
 
 	def brlMultilineSheet(self):
-		""":return: the worksheet this cell is in, as `flowObjectTable.Sheet`."""
-		return ExcelSheet(self)
+		""":return: the worksheet this cell is in, as `flowObjectTable.Sheet`, or None."""
+		return sheetFor(self)
+
+	def setFocus(self):
+		"""Go to this cell, which is what a routing key over it means.
+
+		**`NVDAObject.setFocus` does nothing at all by default**, and an Excel cell inherits
+		that — so routing into a column did exactly nothing, silently, which is the worst way
+		for a core interaction to fail. NVDA's own Excel navigation says what going to a cell
+		means and this is that sequence: select it, activate it, and tell NVDA the focus has
+		arrived. See `ExcelBrowseModeTreeInterceptor.navigationHelper`, which is what the arrow
+		keys do inside a sheet.
+
+		The event is fired on this object rather than on a fresh one, since this object is
+		already the cell being gone to.
+		"""
+		try:
+			cell = self.excelCellObject
+			cell.Select()
+			cell.Activate()
+		except Exception:
+			log.debugWarning("Excel would not go to a cell", exc_info=True)
+			return
+		eventHandler.executeEvent("gainFocus", self)
 
 
 def readsByCoordinate(obj) -> bool:

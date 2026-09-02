@@ -312,6 +312,38 @@ class TestWhatTheDialogSaysIsBeingDone(unittest.TestCase):
 		self.assertNotIn("repeated on every page", arrangement.describe(0))
 		self.assertIn("repeated on every page", arrangement.describe(2))
 
+	def test_butNotOneTheyThenHid(self):
+		"""Naming a column and hiding it are two decisions that cannot both be met, and the
+		planner settles it by repeating the first drawn column instead. A record naming the
+		hidden one would leave the dialog saying one thing and the display doing another."""
+		arrangement = flowTableDesigner.Arrangement.of(plan())
+		arrangement.keyColumn = 3
+		arrangement.toggle(2)
+		self.assertEqual(arrangement.repeatedColumn, 1)
+		self.assertIn("repeated on every page", arrangement.describe(0))
+
+	def test_andHidingItIsNotWrittenDownEither(self):
+		"""So the reader does not meet the impossible pair again every time they come back."""
+		arrangement = flowTableDesigner.Arrangement.of(plan())
+		arrangement.keyColumn = 3
+		self.assertEqual(arrangement.asLayout().keyColumn, 3)
+		arrangement.toggle(2)
+		self.assertEqual(arrangement.asLayout().keyColumn, 0)
+
+	def test_andShowingItAgainBringsItBack(self):
+		arrangement = flowTableDesigner.Arrangement.of(plan())
+		arrangement.keyColumn = 3
+		arrangement.toggle(2)
+		arrangement.toggle(2)
+		self.assertEqual(arrangement.repeatedColumn, 3)
+		self.assertEqual(arrangement.asLayout().keyColumn, 3)
+
+	def test_aColumnTheTableHasNotGotNamesNothing(self):
+		arrangement = flowTableDesigner.Arrangement.of(plan())
+		arrangement.keyColumn = 99
+		self.assertEqual(arrangement.repeatedColumn, 1)
+		self.assertEqual(arrangement.asLayout().keyColumn, 0)
+
 	def test_theLineSaysWhichEndTheHeadingKeeps(self):
 		arrangement = flowTableDesigner.Arrangement.of(plan())
 		arrangement.decide(0, headerKeep=flowTable.KEEP_END)

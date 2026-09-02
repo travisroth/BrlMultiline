@@ -1400,6 +1400,42 @@ row or column themselves, and every cell of the column then answers `columnHeade
 reaches the pinned row through `headerTextOf` exactly as a list view's declared header does, so
 there is nothing to borrow from row one and nothing to guess.
 
+**What the first review of it found**, all of it in the application module and none of it in
+the shape, which is the split working: the generic half had tests and the Excel half had
+none. Every one of these is now reachable with fake COM objects, and none of them needs Excel.
+
+- **Routing did nothing at all, silently.** `NVDAObject.setFocus` is empty by default and an
+  Excel cell inherits it, so a routing key over a column moved nothing and said nothing. NVDA's
+  own Excel navigation says what going to a cell means — select it, activate it, fire
+  `gainFocus` — and the overlay does that now.
+- **The reader could stand outside the table.** Arrowing about a blank sheet does not enlarge
+  the used range: the active cell can be D20 while the used range is still A1, and the reading
+  was then one row by one column with the reader at row 20 column 4 — nowhere to put them. The
+  shape reaches at least as far as they do.
+- **A bloated used range could stop NVDA.** Excel's used range grows to whatever has ever been
+  written in *or formatted* and does not shrink when the content goes, so a fill colour once
+  applied to a row reports sixteen thousand columns. The measurement reads a bandful of rows
+  across every column, which is a hundred and fifty thousand calls and translations on the
+  thread NVDA answers on. A sheet wider than `MAX_COLUMNS` is refused and the reader keeps
+  NVDA's ordinary cell-at-a-time reading, which is the right answer rather than a wait with
+  nothing to explain it. Reaching a distant active cell cannot get round the bound either.
+- **Every fetched cell built a worksheet.** `ExcelCell._get_parent` makes a new
+  `ExcelWorksheet` for each cell asked, and a worksheet's header tracker is populated by
+  walking every defined name in the workbook — so asking a bandful of cells for their column's
+  header walked the workbook once per cell. The worksheet already in hand is assigned to each
+  constructed cell, which stops the getter running at all.
+- **A missing coordinate became A1.** NVDA's `rowNumber` and `columnNumber` come from its Excel
+  helper and can be silent while the COM range beside them knows perfectly well where it is.
+  Excel's own answer is taken second, and where neither will say the reading is declined —
+  since attaching the whole thing to the wrong place while saying nothing is the worst of the
+  three outcomes.
+
+One more the review found next door, in the designer: **a column named as the repeated one and
+then hidden**. The two decisions cannot both be met and the planner settles it by repeating the
+first drawn column, so the record named one column while the display repeated another. The
+chooser now offers only drawn columns, hiding the chosen one takes it out of the choice, and
+neither `repeatedColumn` nor the saved record names a column that is not showing.
+
 Not yet on hardware.
 
 ### Following NVDA's own Document Formatting settings

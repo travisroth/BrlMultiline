@@ -325,12 +325,28 @@ class Arrangement:
 		which is what zero means on the display and what nothing at all meant in the dialog.
 		Zero for a table that repeats no column, because the setting can be off and then there
 		is no such column to name.
+
+		**A hidden column is not repeated on every page**, whatever the record says. Naming a
+		column and then hiding it is two decisions that cannot both be met, and the planner
+		settles it by repeating the first drawn column instead — so a record naming a hidden
+		one would leave the dialog saying one thing and the display doing another. The named
+		column has to be showing to count.
 		"""
-		if self.keyColumn:
-			return self.keyColumn
+		named = self.named(self.keyColumn)
+		if named is not None and named.shown:
+			return named.index
 		if not self.repeats:
 			return 0
 		return next((column.index for column in self.columns if column.shown), 0)
+
+	def named(self, index: int) -> Optional[Column]:
+		""":return: the column with one of the table's own numbers, or None.
+
+		:param index: the table's number for it, or 0 for no column at all.
+		"""
+		if not index:
+			return None
+		return next((column for column in self.columns if column.index == index), None)
 
 	def describe(self, position: int) -> str:
 		""":return: the line for one column of the list, or "" if there is none there.
@@ -454,10 +470,14 @@ class Arrangement:
 			for column in self.columns
 			if not column.choice.isEmpty
 		}
+		# What is actually repeated, which for a column they named and then hid is not that
+		# column. Writing the hidden one down would save a decision the display cannot carry
+		# out, and the reader would meet it again every time they came back to the table.
+		named = self.named(self.keyColumn)
 		return dataclasses.replace(
 			self.base,
 			columns=columns,
-			keyColumn=self.keyColumn,
+			keyColumn=named.index if named is not None and named.shown else 0,
 			perColumn=chosen,
 		)
 
@@ -868,13 +888,19 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 				self._settingChecks = False
 
 		def _fillKeys(self) -> None:
-			"""Draw the repeated-column choice again, in whatever order the columns are now."""
-			self.keyCtrl.Set([KEY_IS_THE_FIRST, *(column.name for column in self.arrangement.columns)])
+			"""Draw the repeated-column choice again, over the columns that are drawn.
+
+			The drawn ones only: a column that is not on the display cannot be the one
+			repeated at the left of every page of it, and offering it would let the reader
+			choose something the planner would quietly overrule.
+			"""
+			self._keyable = [column for column in self.arrangement.columns if column.shown]
+			self.keyCtrl.Set([KEY_IS_THE_FIRST, *(column.name for column in self._keyable)])
 			self.keyCtrl.SetSelection(
 				next(
 					(
 						position + 1
-						for position, column in enumerate(self.arrangement.columns)
+						for position, column in enumerate(self._keyable)
 						if column.index == self.arrangement.keyColumn
 					),
 					0,
@@ -923,6 +949,9 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 			position = event.GetIndex()
 			wanted = self.columnList.IsItemChecked(position)
 			shown = self.arrangement.setShown(position, wanted)
+			# The repeated-column choice holds the drawn columns, so hiding or showing one
+			# changes what may be in it — and hiding the one that was chosen takes it out.
+			self._fillKeys()
 			if shown != wanted:
 				# Translators: reported when hiding a column would leave a table with none.
 				gui.messageBox(
@@ -969,7 +998,8 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 
 		def _onKey(self, event) -> None:
 			chosen = self.keyCtrl.GetSelection()
-			column = self.arrangement.at(chosen - 1) if chosen > 0 else None
+			keyable = getattr(self, "_keyable", [])
+			column = keyable[chosen - 1] if 0 < chosen <= len(keyable) else None
 			self.arrangement.keyColumn = column.index if column is not None else 0
 			self._redrawLines()
 
