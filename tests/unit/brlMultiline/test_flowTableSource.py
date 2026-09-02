@@ -323,6 +323,102 @@ class TestMeasuringTheColumns(unittest.TestCase):
 		self.assertEqual(measured[1].width, len("402.15"))
 
 
+class TestAColumnDrawnWithoutCapitalSigns(unittest.TestCase):
+	"""A stock symbol is written in capitals, and in a six dot table an all-capitals word
+	carries the capitals-word indicator in front of it — dot 6 twice. `AAPL` is six cells and
+	`aapl` is four; `BRK.B` is eight against five. On a column sized for a symbol that is the
+	difference between the value fitting and being cut.
+
+	liblouis takes no mode for suppressing the indicator and the reader did not want a
+	different braille table for one column, so the lever is the text handed to the translator.
+	The regions here are one cell per character, so what these tests can say is that the text
+	is lowered wherever it is read; how many cells that saves is liblouis's answer, and it was
+	measured against the real tables before this was built.
+	"""
+
+	def _source(self, plainCase=(), columns=ALL_COLUMNS, live=False):
+		handle = tableAt(FakeFocus(watchlist()))
+		return TableFlowSource(
+			handle,
+			columns=columns,
+			generation=1,
+			live=live,
+			plainCase=plainCase,
+		)
+
+	def test_theColumnTheReaderAskedForIsLowered(self):
+		found = textsOf(self._source(plainCase=(1,)).blockAt(BlockId(1, 2, "row")))
+		self.assertEqual(found[0], "aapl")
+
+	def test_andNoOtherColumnIs(self):
+		"""It is one column's decision, not the table's."""
+		document = FakeTableDocument(
+			[["Symbol", "Name"], ["AAPL", "Apple Inc"]],
+			row=2,
+			col=1,
+		)
+		handle = tableAt(FakeFocus(document))
+		source = TableFlowSource(handle, columns=(1, 2), generation=1, plainCase=(1,))
+		self.assertEqual(textsOf(source.blockAt(BlockId(1, 2, "row"))), ["aapl", "Apple Inc"])
+
+	def test_andATableNobodyAskedAboutIsUntouched(self):
+		found = textsOf(self._source().blockAt(BlockId(1, 2, "row")))
+		self.assertEqual(found[0], "AAPL")
+
+	def test_theWidthIsMeasuredTheWayItIsDrawn(self):
+		"""Or the setting saves nothing: a column sized from text with the indicator in it is
+		two cells wider than what will be drawn in it, which is the two cells the reader
+		turned it on to get back."""
+		handle = tableAt(FakeFocus(watchlist()))
+		plain = {item.index: item.width for item in measure(handle, plainCase=(1,))}
+		asIs = {item.index: item.width for item in measure(handle)}
+		self.assertEqual(plain[1], asIs[1])
+		labels = {item.index: item.label for item in measure(handle, plainCase=(1,))}
+		self.assertEqual(labels[1], "symbol")
+
+	def test_theHeadingGoesWithTheColumn(self):
+		"""One column and one decision: the heading is cut to the same width, so the capitals
+		cost it the same cells. The reader asked for it that way — "so it is just one column
+		setting"."""
+		document = FakeTableDocument(
+			[list(line) for line in WATCHLIST],
+			row=2,
+			col=1,
+			columnHeaders={1: "SYMBOL", 2: "LAST"},
+		)
+		handle = tableAt(FakeNavigatorObject("a page", treeInterceptor=document))
+		source = TableFlowSource(
+			handle,
+			columns=(1, 2),
+			generation=1,
+			pinHeaders=True,
+			plainCase=(1,),
+		)
+		found = [cell.region.rawText for cell in rowCellsOf(source.headerBlock().region)]
+		self.assertEqual(found, ["symbol", "LAST"])
+
+	def test_andARowOneHeadingBorrowedForOneGoesWithItToo(self):
+		"""A table that declares nothing has its first row read as the heading, and that is
+		read as a cell like any other."""
+		source = self._source(plainCase=(1,), columns=(1, 2))
+		found = textsOf(source.blockAt(BlockId(1, flowTableSource.HEADER_ROW, "row")))
+		self.assertEqual(found, ["symbol", "Last"])
+
+	def test_aRowReadAgainIsStillLowered(self):
+		"""The question that decided where this goes. A live page is re-read every couple of
+		seconds and each re-read builds the region afresh, so lowering at the moment the text
+		becomes a region is applied every time — where a value lowered once and cached would
+		have the capitals back the next time the poll came round."""
+		source = self._source(plainCase=(1,))
+		first = textsOf(source.blockAt(BlockId(1, 2, "row")))
+		again = textsOf(source.blockAt(BlockId(1, 2, "row")))
+		self.assertEqual(first, again)
+		self.assertEqual(again[0], "aapl")
+
+	def test_theTextItselfIsWhatChanges(self):
+		self.assertEqual(flowTableSource.withoutCapitals("BRK.B"), "brk.b")
+
+
 class TestStayingWithTheTable(unittest.TestCase):
 	"""A layout must not outlive its table. Easy Table Navigator clears its bindings on every
 	focus change for the same reason, and a watchlist's columns carried onto the next page are

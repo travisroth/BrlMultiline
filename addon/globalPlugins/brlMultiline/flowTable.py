@@ -269,6 +269,28 @@ class ColumnChoice:
 	How a reader says "these together, those after them" without describing every page: the
 	packing still decides where the other breaks fall, and this one is theirs."""
 
+	plainCase: bool = False
+	"""Whether this column is drawn without capital signs, values and heading alike.
+
+	**Two cells of a seven cell column.** A stock symbol is written in capitals, and in a six
+	dot table an all-capitals word carries the capitals-word indicator in front of it — dot 6
+	twice. `AAPL` is six cells, `aapl` is four, `BRK.B` is eight against five. On a column
+	sized for a symbol that is the difference between the value fitting and being cut.
+
+	Done by lowering the text before it is translated, which is the only lever there is:
+	liblouis takes no mode for this — NVDA passes it `compbrlAtCursor` and `partialTrans` and
+	nothing else — and the indicator comes from the table's own `capsletter` and `begcapsword`
+	opcodes. Removing the cells afterwards would mean knowing which cell is an indicator in
+	every table there is; lowering the text asks the table that question itself.
+
+	It costs nothing but the capitals. Translating twenty-three tickers, names and headings
+	both ways in `en-ueb-g2`, the lowercase cells were in every case the uppercase cells with
+	the dot 6 cells taken out: `CHTR` keeps its `ch` contraction, `T` keeps the grade one
+	indicator that stops it reading as "that", and nothing came out longer. A reader on an
+	eight dot computer braille table will see no change, because there the capital is dot 7
+	inside the cell and costs nothing to begin with.
+	"""
+
 	@property
 	def isEmpty(self) -> bool:
 		""":return: whether this decides nothing at all."""
@@ -280,6 +302,7 @@ class ColumnChoice:
 			or self.minWidth
 			or self.maxWidth
 			or self.startsAPage
+			or self.plainCase
 		)
 
 

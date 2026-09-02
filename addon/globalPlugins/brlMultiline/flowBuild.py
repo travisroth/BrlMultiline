@@ -347,7 +347,13 @@ def buildTableController(
 	# and not later: it is the height everything below is planned against, and a band whose
 	# height changed while it was being read would move every row the reader had found.
 	headers = saved.headersOr(bmConfig.shouldPinTableHeaders()) and handle.numRows > 1 and numRows > 2
-	everything = flowTableSource.measure(handle, live=False)
+	# **Measured the way it will be drawn.** A column the reader has asked for without capital
+	# signs is two cells narrower than its text says, and measuring it with them would size it
+	# for the cells the setting exists to save. See `flowTableSource.withoutCapitals`.
+	plainCase = frozenset(
+		column for column, choice in (saved.perColumn or {}).items() if choice.plainCase
+	)
+	everything = flowTableSource.measure(handle, live=False, plainCase=plainCase)
 	measured = _asTheReaderWantsThem(everything, saved, notes)
 	# The columns the reader's own layout leaves out. Not drawn, and *known*: a column the
 	# plan has never heard of is evidence the table changed under it, and hardware found the
@@ -398,6 +404,9 @@ def buildTableController(
 			generation=generation,
 			budget=budgetForBand(bandRows),
 			live=live,
+			# The whole table's, not this page's: a page turn hands the source different
+			# columns and the reader's decisions are about the table.
+			plainCase=plainCase,
 			# The header is drawn above the window when it is pinned, and the source decides
 			# what that costs the stream: row one is skipped only where row one is what was
 			# pinned. A table that declares its headers has not necessarily put them there.

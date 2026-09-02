@@ -1987,6 +1987,46 @@ class TestArrangingATableFromTheBand(TableBandTestCase):
 		self._press("script_flowTableResetLayout")
 		self.assertIsNotNone(flowTableLayouts.layoutFor(handle))
 
+	def test_aColumnCanBeDrawnWithoutCapitalSigns(self):
+		"""The whole way through, because the decision is read in three places: the widths are
+		measured from it, the rows are built from it, and the record carries it. A stock
+		symbol costs two cells of a seven cell column to the capitals-word indicator."""
+		from brlMultiline import flowTable
+
+		self._laidOut(col=1)
+		self.band.arrangeColumn(1, plainCase=True)
+		self.assertIn("aapl", " ".join(self.band.controller.describeRows()).lower())
+		self.assertNotIn("AAPL", " ".join(self.band.controller.describeRows()))
+		self.assertTrue(self.band.tableLayoutInForce.perColumn[1].plainCase)
+		self.assertEqual(flowTable.ColumnChoice(plainCase=True).plainCase, True)
+		# And the width was measured the way it is drawn. The measurement is what names a
+		# column as well as sizing it, so the name it came back with says which text it read:
+		# a column measured with the capitals still in it is sized for cells that will not be
+		# drawn, which is exactly the two the reader turned this on to get back.
+		drawn = next(item for item in self.band.columnPlan().columns if item.index == 1)
+		self.assertEqual(drawn.label, "symbol")
+
+	def test_andTheColumnsBesideItAreLeftAlone(self):
+		"""It is one column's decision, not the table's."""
+		self._laidOut(col=1)
+		self.band.arrangeColumn(1, plainCase=True)
+		self.assertIn("Change", " ".join(self.band.controller.describeRows()))
+
+	def test_andItComesBackWithASavedLayout(self):
+		from brlMultiline import flowTable, flowTableLayouts, flowTableSource
+
+		obj, document = self._laidOut(col=1)
+		document.documentConstantIdentifier = "https://example.com/watchlist"
+		handle = flowTableSource.tableAt(obj)
+		flowTableLayouts.remember(
+			handle,
+			flowTableLayouts.TableLayout(perColumn={1: flowTable.ColumnChoice(plainCase=True)}),
+		)
+		self.band.clearTable()
+		self.band.refresh(force=True)
+		self.assertTrue(self.band.layOutTable())
+		self.assertIn("aapl", " ".join(self.band.controller.describeRows()).lower())
+
 	def test_leavingTheTableGivesUpTheArrangement(self):
 		"""An arrangement is about the table in front of them, exactly as the request is."""
 		self._laidOut(col=2)

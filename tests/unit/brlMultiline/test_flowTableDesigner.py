@@ -85,6 +85,33 @@ class TestWhatTheReaderOpens(unittest.TestCase):
 		arrangement = flowTableDesigner.Arrangement.of(plan(columns=(6,), labels={}))
 		self.assertIn("6", arrangement.at(0).name)
 
+	def test_aHiddenColumnIsStillCalledWhatTheTableCallsIt(self):
+		"""Reported from hardware: hide a column, open the dialog again, and it had become
+		"column 19". A hidden column has no place in the plan, so the plan cannot say what it
+		is called — the table is asked instead, and the answer is handed in here."""
+		arrangement = flowTableDesigner.Arrangement.of(
+			plan(columns=(1, 2), excluded=(19,)),
+			headings={19: "Dividend yield"},
+		)
+		self.assertEqual(arrangement.at(2).name, "Dividend yield")
+
+	def test_andByTheirOwnNameForItAheadOfEitherOfThose(self):
+		"""Which needs nothing looked up, and is the answer for a hidden column they named."""
+		layout = flowTableLayouts.TableLayout(
+			columns=(1, 2),
+			perColumn={19: flowTable.ColumnChoice(label="Yield")},
+		)
+		arrangement = flowTableDesigner.Arrangement.of(
+			plan(columns=(1, 2), excluded=(19,)),
+			layout,
+			headings={19: "Dividend yield"},
+		)
+		self.assertEqual(arrangement.at(2).name, "Yield")
+
+	def test_andByItsNumberWhenNothingCanSayAnythingElse(self):
+		arrangement = flowTableDesigner.Arrangement.of(plan(columns=(1, 2), excluded=(19,)))
+		self.assertIn("19", arrangement.at(2).name)
+
 	def test_whatWasDecidedBeforeIsThere(self):
 		layout = flowTableLayouts.TableLayout(
 			perColumn={2: flowTable.ColumnChoice(label="Price", keep=flowTable.KEEP_END)},
@@ -105,10 +132,14 @@ class TestTheLineForOneColumn(unittest.TestCase):
 	def test_theNameIsEnoughForAColumnNobodyHasTouched(self):
 		self.assertEqual(flowTableDesigner.Arrangement.of(plan()).at(0).describe(), "Symbol")
 
-	def test_aHiddenColumnSaysSo(self):
+	def test_aHiddenColumnDoesNotSaySoInWords(self):
+		"""The checkbox on the line is whether the column is drawn, and it is announced with
+		the line. Saying it in the text as well had the reader told "hidden" twice on every
+		line they arrowed onto."""
 		arrangement = flowTableDesigner.Arrangement.of(plan())
 		arrangement.toggle(0)
-		self.assertIn("hidden", arrangement.at(0).describe())
+		self.assertFalse(arrangement.at(0).shown)
+		self.assertEqual(arrangement.at(0).describe(), "Symbol")
 
 	def test_soDoesOneCutAtItsEnd(self):
 		said = self.line(overflow=flowTable.TRUNCATE, keep=flowTable.KEEP_END)
@@ -122,6 +153,11 @@ class TestTheLineForOneColumn(unittest.TestCase):
 
 	def test_andWhereAPageBegins(self):
 		self.assertIn("starts a page", self.line(startsAPage=True))
+
+	def test_andThatItIsDrawnWithoutCapitalSigns(self):
+		"""Two cells of a seven cell column: `AAPL` is six cells in a six dot table and
+		`aapl` is four."""
+		self.assertIn("no capital signs", self.line(plainCase=True))
 
 
 class TestArrangingIt(unittest.TestCase):
@@ -143,11 +179,25 @@ class TestArrangingIt(unittest.TestCase):
 		self.assertFalse(self.arrangement.toggle(1))
 		self.assertTrue(self.arrangement.toggle(1))
 
+	def test_orSetEitherWayDirectly(self):
+		"""Which is what a checkbox says: not "the other one" but "this one"."""
+		self.assertFalse(self.arrangement.setShown(1, False))
+		self.assertFalse(self.arrangement.setShown(1, False))
+		self.assertTrue(self.arrangement.setShown(1, True))
+
 	def test_butNotTheLastOneShowing(self):
 		"""A table of no columns is not a layout, it is a blank display."""
 		for position in (1, 2, 3):
 			self.arrangement.toggle(position)
 		self.assertTrue(self.arrangement.toggle(0))
+
+	def test_andTheRefusalIsToldApartFromTheAnswer(self):
+		"""So the dialog can put the tick back and say why, rather than leave a clear box
+		over a column that is still drawn."""
+		for position in (1, 2, 3):
+			self.arrangement.setShown(position, False)
+		self.assertTrue(self.arrangement.setShown(0, False))
+		self.assertTrue(self.arrangement.at(0).shown)
 
 	def test_cuttingIsOneQuestionRatherThanTwo(self):
 		"""A reader looking at a column asks "what happens when it does not fit", and which
@@ -382,6 +432,58 @@ class TestKeepingOrDroppingWhatWasArranged(unittest.TestCase):
 		answer was being thrown away: the reader was told their arrangement was kept."""
 		flowTableDesigner._keepOrDrop(aTable(url=None), self.layout, remembered=False, keepIt=True)
 		self.assertTrue(any("cannot be recognised" in message for message in spokenMessages))
+
+
+class TestAskingTheTableAboutTheColumnsItIsNotDrawing(unittest.TestCase):
+	"""Where the names of the hidden columns come from. Only the hidden ones are asked about,
+	and only when the dialog opens: it is a few cells read at the reader's own row, against
+	the alternative of measuring the whole table again on a keystroke."""
+
+	def setUp(self):
+		self.asked = []
+
+		def declaredHeaders(handle, columns, *args, **kwargs):
+			self.asked.append(list(columns))
+			return {index: f"heading {index}" for index in columns}
+
+		self.addCleanup(
+			setattr,
+			flowTableSource,
+			"declaredHeaders",
+			flowTableSource.declaredHeaders,
+		)
+		flowTableSource.declaredHeaders = declaredHeaders
+
+	def test_theOnesLeftOutAndNoOthers(self):
+		found = flowTableDesigner._whatTheTableCallsTheRest(
+			aTable(),
+			plan(columns=(1, 2), excluded=(19,), omitted=(7,)),
+		)
+		self.assertEqual(self.asked, [[7, 19]])
+		self.assertEqual(found[19], "heading 19")
+
+	def test_andNothingIsAskedWhenEveryColumnIsDrawn(self):
+		self.assertEqual(flowTableDesigner._whatTheTableCallsTheRest(aTable(), plan()), {})
+		self.assertEqual(self.asked, [])
+
+	def test_norWhenNothingRecognisesTheTable(self):
+		self.assertEqual(
+			flowTableDesigner._whatTheTableCallsTheRest(None, plan(columns=(1,), excluded=(2,))),
+			{},
+		)
+		self.assertEqual(self.asked, [])
+
+	def test_aTableThatWillNotAnswerCostsTheNamesAndNothingElse(self):
+		"""The dialog is worth opening with numbers for names; it is not worth not opening."""
+
+		def refuses(handle, columns, *args, **kwargs):
+			raise RuntimeError("no")
+
+		flowTableSource.declaredHeaders = refuses
+		self.assertEqual(
+			flowTableDesigner._whatTheTableCallsTheRest(aTable(), plan(columns=(1,), excluded=(2,))),
+			{},
+		)
 
 
 class FakeDialog:

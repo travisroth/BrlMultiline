@@ -2181,6 +2181,55 @@ class TestARowBuiltFromItsOwnCells(unittest.TestCase):
 		self.assertIs(block.region.obj, items[0])
 
 
+class TestAListWhoseItemsSayTheyAreCheckboxes(unittest.TestCase):
+	"""Reported from hardware: the add-on's own table designer put its columns in a list view
+	with checkboxes, and that list would not flow at all — the band read the one item the
+	reader was on as though it were a document, and panning did nothing.
+
+	A list view with checkboxes reports every item as a `CHECKBOX`. That is MSAA's answer
+	rather than NVDA's, and it is the right one for saying "ticked"; but a run tested only by
+	what an object calls itself found no run in it. What holds the object answers where its
+	own role does not. See `flowObjects.RUN_PARENTS`.
+	"""
+
+	def _checkedList(self, names=("Symbol", "Last", "Change")):
+		return fakeRun(list(names), role="CHECKBOX")
+
+	def test_theListIsReadAsARun(self):
+		items = self._checkedList()
+		self.assertEqual(flowObjects.adapterFor(items[0]).name, "siblings")
+
+	def test_andEveryItemOfItIsAdmitted(self):
+		items = self._checkedList()
+		adapter = flowObjects.adapterFor(items[0])
+		for item in items[1:]:
+			self.assertTrue(adapter.admits(items[0], item), item.name)
+
+	def test_andTheBandShowsTheWholeList(self):
+		"""Which is the report: one item on the display and panning that would not move."""
+		items = self._checkedList()
+		control = controllerOver(items, at=0, numRows=4)
+		said = " ".join(control.describeRows())
+		for item in items:
+			self.assertIn(item.name, said)
+
+	def test_aCheckboxThatIsNotInAListIsStillJustACheckbox(self):
+		"""A settings panel is not a run, and reading one as though it were would flow every
+		dialog in NVDA."""
+		panel = FakeNavigatorObject("a panel", role="PANE")
+		alone = FakeNavigatorObject("Speak typed characters", role="CHECKBOX")
+		alone.parent = panel
+		self.assertIsNone(flowObjects.adapterFor(alone))
+
+	def test_andSomethingElseInTheListIsNotOneOfTheItems(self):
+		"""A list box holds a button as often as not, and the roles have to be of a kind."""
+		items = self._checkedList()
+		button = FakeNavigatorObject("Close", role="BUTTON")
+		button.parent = items[0].parent
+		adapter = flowObjects.adapterFor(items[0])
+		self.assertFalse(adapter.admits(items[0], button))
+
+
 class TestTheCursorSurvivesAReRead(unittest.TestCase):
 	"""Reported from hardware: the cursor disappears from a list a couple of seconds after
 	arriving in it — in File Explorer, and in the add-on's own dialogs.

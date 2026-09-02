@@ -136,13 +136,14 @@ class Column:
 		find the one they changed. A review found two things missing from "everything": which
 		end of the heading survives, and whether this is the column repeated on every page.
 
+		**Except whether it is shown**, which is the checkbox on the line and is announced with
+		it. Saying it here as well would have the reader told "hidden" twice on every line they
+		arrow onto.
+
 		:param repeated: whether this is the column drawn again on every page after the first.
 		"""
 		said = [self.name]
-		if not self.shown:
-			# Translators: said of a column of a table that the reader's layout leaves out.
-			said.append(_("hidden"))
-		elif self.blank:
+		if self.shown and self.blank:
 			# Translators: said of a table column the measurement found nothing in.
 			said.append(_("empty here"))
 		for value, label in CUTTING:
@@ -166,6 +167,9 @@ class Column:
 		if self.choice.startsAPage:
 			# Translators: said of a table column where the reader asked a page to begin.
 			said.append(_("starts a page"))
+		if self.choice.plainCase:
+			# Translators: said of a table column drawn without braille capital signs.
+			said.append(_("no capital signs"))
 		return ", ".join(said)
 
 
@@ -206,7 +210,14 @@ class Arrangement:
 		self.repeats = repeats
 
 	@classmethod
-	def of(cls, plan, layout=None, remembered: bool = False, following: str = WRAPPED) -> "Arrangement":
+	def of(
+		cls,
+		plan,
+		layout=None,
+		remembered: bool = False,
+		following: str = WRAPPED,
+		headings=None,
+	) -> "Arrangement":
 		"""Build the arrangement of a table on the display.
 
 		:param plan: the column plan being drawn.
@@ -218,12 +229,18 @@ class Arrangement:
 		:param remembered: whether the table has a saved layout.
 		:param following: what the table itself does with a cell too long for its column,
 			which is what a column set to `FOLLOW` is doing.
+		:param headings: what the table calls columns the plan does not draw, by column
+			number. **A hidden column has no place in the plan, so the plan cannot say what it
+			is called** — and it came back as "column 19", which is not a name and is no use to
+			a reader deciding whether to show it again. See `arrangeTheTable`, which asks the
+			table.
 		:return: the arrangement.
 		"""
 		layout = layout if layout is not None else flowTableLayouts.TableLayout()
 		choices = dict(layout.perColumn or {})
 		drawn = [column.index for column in getattr(plan, "columns", ()) or ()]
-		names = {column.index: column.label for column in getattr(plan, "columns", ()) or ()}
+		names = dict(headings or {})
+		names.update({column.index: column.label for column in getattr(plan, "columns", ()) or ()})
 		# Measured and not drawn, which is not the same as hidden and must not become it. A
 		# column that was blank in the rows sampled is still a column of the table, and
 		# leaving it out here meant that hiding any *other* column wrote a list of survivors
@@ -236,7 +253,13 @@ class Arrangement:
 			[
 				Column(
 					index=index,
-					name=_nameOf(index, names.get(index, "")),
+					# Their own name for it first, which needs nothing looked up and is the
+					# answer for a hidden column they had named. Then what the table calls it,
+					# then its number.
+					name=_nameOf(
+						index,
+						choices.get(index, flowTable.ColumnChoice()).label or names.get(index, ""),
+					),
 					shown=index not in hidden,
 					choice=choices.get(index, flowTable.ColumnChoice()),
 					blank=index in blank,
@@ -314,8 +337,25 @@ class Arrangement:
 		self.columns[position], self.columns[target] = self.columns[target], self.columns[position]
 		return target
 
+	def setShown(self, position: int, shown: bool) -> bool:
+		"""Say whether one column is drawn.
+
+		:param position: which column.
+		:param shown: whether the reader wants it drawn.
+		:return: whether it is shown afterwards, which is not what was asked for when the
+			last showing column was the one being taken away.
+		"""
+		column = self.at(position)
+		if column is None:
+			return False
+		if not shown and len([item for item in self.columns if item.shown]) < 2:
+			# A table of no columns is not a layout, it is a blank display.
+			return True
+		column.shown = shown
+		return column.shown
+
 	def toggle(self, position: int) -> bool:
-		"""Show or hide one column.
+		"""Show a hidden column, or hide a shown one.
 
 		:param position: which column.
 		:return: whether it is shown afterwards.
@@ -323,11 +363,7 @@ class Arrangement:
 		column = self.at(position)
 		if column is None:
 			return False
-		if column.shown and len([item for item in self.columns if item.shown]) < 2:
-			# A table of no columns is not a layout, it is a blank display.
-			return True
-		column.shown = not column.shown
-		return column.shown
+		return self.setShown(position, not column.shown)
 
 	def decide(self, position: int, **changes) -> None:
 		"""Record what the reader said about one column.
@@ -448,9 +484,39 @@ def arrangeTheTable(band) -> bool:
 		band.tableLayoutInForce or saved,
 		remembered=saved is not None,
 		following=_tableCutting(band.tableLayoutInForce or saved),
+		headings=_whatTheTableCallsTheRest(handle, plan),
 	)
 	wx.CallAfter(_askThenApply, band, arrangement, handle)
 	return True
+
+
+def _whatTheTableCallsTheRest(handle, plan) -> dict:
+	""":return: the headings of the columns the plan does not draw, by column number.
+
+	A column the layout leaves out is not in the plan, so nothing on the display knows what it
+	is called — and the dialog showed it as "column 19", which is a position rather than a
+	name and tells a reader nothing about whether to show it again. So the table is asked,
+	here and once: the dialog is opened by a keystroke and this is a few cells read at the
+	reader's own row, against the alternative of measuring the whole table again.
+
+	:param handle: the table, or None where nothing recognises one.
+	:param plan: the column plan being drawn.
+	"""
+	from . import flowTableSource
+
+	drawn = {column.index for column in getattr(plan, "columns", ()) or ()}
+	rest = [
+		index
+		for index in (*(getattr(plan, "omitted", ()) or ()), *(getattr(plan, "excluded", ()) or ()))
+		if index not in drawn
+	]
+	if handle is None or not rest:
+		return {}
+	try:
+		return flowTableSource.declaredHeaders(handle, sorted(set(rest)))
+	except Exception:
+		log.debugWarning("Could not ask a table what its hidden columns are called", exc_info=True)
+		return {}
 
 
 def _askThenApply(band, arrangement: "Arrangement", handle) -> None:
@@ -554,12 +620,18 @@ Asked of `wx.Dialog` itself rather than of the import, because a test run has a 
 if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 
 	class TableDesignerDialog(wx.Dialog):
-		"""The columns of one table, in a list, with what has been decided about each.
+		"""The columns of one table, in a checked list, with what has been decided about each.
 
 		**The list is the dialog.** Every column is one line that says everything decided
 		about it, so a reader arrows down it and hears the whole arrangement rather than
 		opening each column in turn to find the one they changed. The controls beside it act
 		on whichever line they are on.
+
+		**The checkbox on the line is whether the column is drawn.** This was a plain list
+		with a "Show or hide" button beside it, and the reader who used it said what was wrong
+		with that: the state was in the line's text and the way to change it was somewhere
+		else. A checked list says both in one place — the control announces "checked" with the
+		line, and space toggles it where the reader already is.
 		"""
 
 		def __init__(self, parent, arrangement: Arrangement) -> None:
@@ -569,19 +641,42 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 			self.keepIt = arrangement.remembered
 			main = wx.BoxSizer(wx.VERTICAL)
 			helper = guiHelper.BoxSizerHelper(self, sizer=main)
-			# Translators: the label of the list of a table's columns.
-			self.columnList = helper.addLabeledControl(_("&Columns:"), wx.ListBox, choices=[])
-			self.columnList.Bind(wx.EVT_LISTBOX, self._onColumn)
+			# **A checked list, and the checkbox is whether the column is drawn.** It was a
+			# plain list with a "Show or hide" button beside it, which is a worse way to say
+			# the same thing: the state lived on the line and the way to change it lived
+			# somewhere else, and a reader arrowing the list heard "hidden" in the text
+			# instead of hearing the control's own answer. A checkbox is announced with the
+			# line it is on and is toggled where it stands.
+			#
+			# A **list view** with checkboxes rather than a `wx.CheckListBox`, which is the
+			# obvious control and the wrong one: its checkboxes are drawn by wx rather than by
+			# the system, so nothing reaches a screen reader and the reader hears a list of
+			# names with no states in it. A list view's checkbox is the system's own, which
+			# NVDA reports as it reports every other one.
+			self.columnList = helper.addLabeledControl(
+				# Translators: the label of the list of a table's columns, each of which is
+				# ticked when that column is drawn.
+				_("&Columns to show:"),
+				wx.ListCtrl,
+				style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.LC_NO_HEADER,
+			)
+			# Translators: the heading of the only column of the list of a table's columns.
+			self.columnList.InsertColumn(0, _("Column"))
+			self.columnList.EnableCheckBoxes(True)
+			self._settingChecks = False
+			"""Set while the checkboxes are being put where the arrangement has them, because
+			checking an item raises the same event the reader's own tick does."""
+
+			self.columnList.Bind(wx.EVT_LIST_ITEM_SELECTED, self._onColumn)
+			self.columnList.Bind(wx.EVT_LIST_ITEM_CHECKED, self._onChecked)
+			self.columnList.Bind(wx.EVT_LIST_ITEM_UNCHECKED, self._onChecked)
 			buttons = guiHelper.ButtonHelper(wx.HORIZONTAL)
 			# Translators: a button that moves a column earlier in the reading order.
 			self.upButton = buttons.addButton(self, label=_("Move &up"))
 			# Translators: a button that moves a column later in the reading order.
 			self.downButton = buttons.addButton(self, label=_("Move &down"))
-			# Translators: a button that shows or hides the selected column.
-			self.showButton = buttons.addButton(self, label=_("&Show or hide"))
 			self.upButton.Bind(wx.EVT_BUTTON, lambda event: self._move(-1))
 			self.downButton.Bind(wx.EVT_BUTTON, lambda event: self._move(1))
-			self.showButton.Bind(wx.EVT_BUTTON, self._onToggle)
 			helper.addItem(buttons)
 			# Translators: the label of a field for the reader's own name for a column.
 			self.labelCtrl = helper.addLabeledControl(_("Call this column:"), wx.TextCtrl)
@@ -619,6 +714,11 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 			# Translators: a checkbox for beginning a page of columns at the selected column.
 			self.pageCtrl = helper.addItem(wx.CheckBox(self, label=_("Start a &page here")))
 			self.pageCtrl.Bind(wx.EVT_CHECKBOX, self._onPage)
+			self.caseCtrl = helper.addItem(
+				# Translators: a checkbox for drawing a column without braille capital signs.
+				wx.CheckBox(self, label=_("&No capital signs in this column")),
+			)
+			self.caseCtrl.Bind(wx.EVT_CHECKBOX, self._onCase)
 			# A choice of one column rather than a box on each, because that is the shape of
 			# the question: exactly one column is repeated, and "none of them" is not one of
 			# the answers. A box on each column also had nothing to show for the default —
@@ -661,17 +761,42 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 
 		@property
 		def _position(self) -> int:
-			return max(0, self.columnList.GetSelection())
+			return max(0, self.columnList.GetFirstSelected())
 
 		def _fillList(self, select: int) -> None:
 			"""Draw the list again and put the selection back where it was."""
-			self.columnList.Set(
-				[self.arrangement.describe(index) for index in range(len(self.arrangement.columns))],
-			)
+			self.columnList.DeleteAllItems()
+			for position in range(len(self.arrangement.columns)):
+				self.columnList.InsertItem(position, self.arrangement.describe(position))
+			self._showChecks()
 			if self.arrangement.columns:
-				self.columnList.SetSelection(min(select, len(self.arrangement.columns) - 1))
+				self._select(min(select, len(self.arrangement.columns) - 1))
+			self.columnList.SetColumnWidth(0, wx.LIST_AUTOSIZE)
 			self._fillKeys()
 			self._showColumn()
+
+		def _select(self, position: int) -> None:
+			"""Put the selection, and the focus that follows it, on one line."""
+			self.columnList.Select(position)
+			self.columnList.Focus(position)
+
+		def _showChecks(self) -> None:
+			"""Tick the columns that are drawn, and untick the rest.
+
+			Every line rather than the one in hand, and after every redrawing of the text:
+			setting a line's text is not documented to leave its check alone, and the checks
+			move with the columns when one is moved up or down.
+
+			Guarded, because checking an item raises the same event the reader's own tick
+			does — and that event asks the arrangement, which redraws the lines, which checks
+			the items again.
+			"""
+			self._settingChecks = True
+			try:
+				for position, column in enumerate(self.arrangement.columns):
+					self.columnList.CheckItem(position, column.shown)
+			finally:
+				self._settingChecks = False
 
 		def _fillKeys(self) -> None:
 			"""Draw the repeated-column choice again, in whatever order the columns are now."""
@@ -694,7 +819,8 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 			the table, so a change to it moves a phrase from one line to another.
 			"""
 			for position in range(len(self.arrangement.columns)):
-				self.columnList.SetString(position, self.arrangement.describe(position))
+				self.columnList.SetItem(position, 0, self.arrangement.describe(position))
+			self._showChecks()
 
 		def _showColumn(self) -> None:
 			"""Put the controls where the column in hand has them."""
@@ -707,6 +833,7 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 			self.minCtrl.SetValue(column.choice.minWidth)
 			self.maxCtrl.SetValue(column.choice.maxWidth)
 			self.pageCtrl.SetValue(column.choice.startsAPage)
+			self.caseCtrl.SetValue(column.choice.plainCase)
 
 		def _onColumn(self, event) -> None:
 			self._showColumn()
@@ -714,8 +841,28 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 		def _move(self, by: int) -> None:
 			self._fillList(self.arrangement.move(self._position, by))
 
-		def _onToggle(self, event) -> None:
-			self.arrangement.toggle(self._position)
+		def _onChecked(self, event) -> None:
+			"""Show or hide the column whose box was just ticked or unticked.
+
+			The one answer that can be refused: the last showing column is not something to
+			take away, because a table of no columns is not a layout but a blank display. The
+			tick goes back and the reader is told why, rather than the box staying clear over
+			a column that is still drawn.
+			"""
+			if self._settingChecks:
+				return
+			position = event.GetIndex()
+			wanted = self.columnList.IsItemChecked(position)
+			shown = self.arrangement.setShown(position, wanted)
+			if shown != wanted:
+				# Translators: reported when hiding a column would leave a table with none.
+				gui.messageBox(
+					_("This is the only column showing"),
+					# Translators: the title of the table designer's dialog.
+					_("Arrange this table"),
+					wx.OK | wx.ICON_ERROR,
+					self,
+				)
 			self._redrawLines()
 
 		def _onLabel(self, event) -> None:
@@ -745,6 +892,10 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 
 		def _onPage(self, event) -> None:
 			self.arrangement.decide(self._position, startsAPage=self.pageCtrl.GetValue())
+			self._redrawLines()
+
+		def _onCase(self, event) -> None:
+			self.arrangement.decide(self._position, plainCase=self.caseCtrl.GetValue())
 			self._redrawLines()
 
 		def _onKey(self, event) -> None:

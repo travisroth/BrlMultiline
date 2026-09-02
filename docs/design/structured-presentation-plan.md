@@ -1904,6 +1904,26 @@ exactly the row that names them. A heading matches on the list that holds it and
 now; a group with nothing open under it is a row of its own, and the step from it is the day
 beside it, which `_groupedNext` already did.
 
+### A list item does not always say it is one
+
+Hardware again, and from the add-on's own dialog: the table designer's list of columns would
+not flow at all. The band read the one item under the reader as though it were a document, and
+panning did nothing — the dry run showed a `DocumentFlowSource` over a `sysListView32.ListItem`
+with no adapter note above it.
+
+The role was the answer. A list view with checkboxes reports every item as a `CHECKBOX`, which
+is MSAA's answer rather than NVDA's and is the right one for saying "ticked" — but `RUN_ROLES`
+is a set of role names, so the run was tested for by asking each object what it called itself
+and no run was found. The reader's question was whether this wanted a new adapter. It does not:
+the walk, the membership and the reading are all exactly the sibling run's, and only the way in
+was wrong. So `_isRunMember` asks a second question — *what holds it* — against a set narrower
+than the one that bounds the grouped walk: `RUN_PARENTS` is a list and a list box, and neither
+a pane (which holds anything at all, so one child says nothing about the next), nor a tree
+(only a top-level node has the tree for a parent, and a checkable tree wants `VISIBLE_TREE`
+rather than one generation of siblings), nor a table (whose rows are `flowTableSource`'s
+business). `_isSameRun` asks the same question of a candidate, and still requires the roles to
+be of a kind, which is what keeps the Close button out of a list of ticked items.
+
 The review noted a second shape this does not cover: a provider that gives each day a
 different parent *without* a grouping between. That falls back to today's behaviour, and the
 new boundary log is what will say which shape a given Outlook is — `_sayWhereItEnded` records
@@ -2011,9 +2031,67 @@ must open a dialog to drop a column will not drop it, and a keystroke cannot typ
 **What a column can be told**, all of it optional and all of it "not my business" when unset:
 its own name; wrapped or cut; which end a cut keeps; which end its *heading* keeps, separately,
 because a column of short values under an unreadable heading is the reader's own case; a floor
-and a ceiling on its width; and whether a page of columns begins at it. A table can also be
-told which column is repeated at the left of every later page — the first drawn one is the
-symbol on a watchlist and an icon on the table beside it.
+and a ceiling on its width; whether a page of columns begins at it; and whether it is drawn
+without capital signs. A table can also be told which column is repeated at the left of every
+later page — the first drawn one is the symbol on a watchlist and an icon on the table beside
+it.
+
+### Capital signs cost a stock symbol two cells of seven
+
+The last of those came from hardware and is worth its own note, because the obvious ways to do
+it are all wrong. In a six dot table an all-capitals word carries the capitals-word indicator
+in front of it — dot 6 twice — so `AAPL` is six cells and `aapl` is four, and `BRK.B` is eight
+against five. On a column sized for a ticker that is the difference between the value fitting
+and being cut, and the reader was spending two cells of seven on it on every row.
+
+There are three places the indicator could be removed and two of them are closed. **A mode
+flag** does not exist: NVDA passes liblouis `compbrlAtCursor` and `partialTrans` and nothing
+else, and the indicator comes from the table's own `capsletter` and `begcapsword` opcodes. **A
+different braille table for the column** the reader ruled out, and rightly — it would change
+the contractions as well as the capitals. **Stripping the cells after translation** means
+knowing which cell is an indicator in every table there is, and would leave the position maps
+pointing at cells that are no longer there. What is left is the text handed to the translator,
+so the text is lowered and the table is left to answer the question itself.
+
+Measured before it was built, against the real `liblouis.dll` and NVDA's own tables. Twenty
+three tickers, company names and headings translated both ways in `en-ueb-g2`: in every case
+the lowercase cells were the uppercase cells with the dot 6 cells taken out, nothing came out
+longer, `CHTR` kept its `ch` contraction, and `T` kept the grade one indicator that stops it
+reading as the shortform "that". On an eight dot computer braille table it changes nothing,
+because there a capital is a dot inside the cell.
+
+Two things follow from where it had to go. It is applied **where the text becomes a region**,
+which is a fresh region on every read — so a live re-read lowers what it has just read, where
+a value lowered once and cached would have its capitals back the next time the poll came round.
+And the **measurement** is told as well as the drawing: a column measured with the indicator in
+it is sized for two cells that will not be drawn, which are exactly the two the setting exists
+to save. Routing is unaffected, since a cell is routed to as a place rather than at the
+character under the finger. It covers the column's heading as well as its values, at the
+reader's own request — "so it is just one column setting" — and because the heading is cut to
+the same width and pays the same two cells.
+
+**Shown or hidden is a checkbox on the line.** The first cut was a plain list with a "Show
+or hide" button beside it, and the reader who used it named what was wrong: the state was in
+the line's text and the way to change it was somewhere else, so arrowing the list meant hearing
+"hidden" as a word rather than hearing a control answer for itself. A checked list says both in
+one place, space toggles it where the reader already is, and the word comes out of the line.
+The one answer that can be refused stays refused — the last showing column is not something to
+take away — and then the tick goes back and they are told why, rather than a clear box left
+standing over a column that is still drawn.
+
+The control is a **list view with checkboxes**, not the `wx.CheckListBox` that is the obvious
+answer and the wrong one: its boxes are drawn by wx rather than by the system, so no state
+reaches a screen reader and the reader hears a list of names with nothing said about any of
+them. It is a long-standing wx limitation rather than anything NVDA can be asked to fix. A
+list view's checkbox is the system's own, and is reported like every other one.
+
+**A hidden column keeps its name.** It has no place in the plan — the plan is what is on the
+display — so nothing on the display could say what it was called, and it came back as
+"column 19". That is a position, not a name, and it is exactly the wrong answer for the reader
+deciding whether to show it again. The dialog asks the table for the headings of the columns it
+is not drawing, once, when it opens: a few cells at the reader's own row rather than measuring
+the whole table again on a keystroke. Their own name for a column comes first where they gave
+one, since that needs nothing looked up and is what they chose to call it.
 
 **The arrangement is a plain object and the dialog is a shell over it.**
 `flowTableDesigner.Arrangement` knows nothing about wx: the columns in order, what was decided

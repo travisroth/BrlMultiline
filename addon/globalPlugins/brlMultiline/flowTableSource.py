@@ -494,14 +494,19 @@ class TableCellRegion(TextRegion):
 	the cell's position, so a routing key over the cell can put the caret in it.
 	"""
 
-	def __init__(self, document, info, live: bool = False) -> None:
+	def __init__(self, document, info, live: bool = False, plainCase: bool = False) -> None:
 		"""
 		:param document: what navigates the table, for moving the caret.
 		:param info: the cell's position, as `_getTableCellAt` returned it.
 		:param live: whether this flow moves the reader's own cursor. A viewer routes
 			nowhere, exactly as it reads nothing else into the document.
+		:param plainCase: whether this column is drawn without capital signs. See
+			`withoutCapitals`. Routing is unaffected — a cell is routed to as a place rather
+			than at the character under the finger, so there is nothing for a changed text to
+			put the caret wrong in.
 		"""
-		super().__init__(_textOf(info))
+		said = _textOf(info)
+		super().__init__(withoutCapitals(said) if plainCase else said)
 		self.document = document
 		self.info = info
 		self.live = live
@@ -690,11 +695,50 @@ def firstRowIsHeadings(document) -> bool:
 	return bool(getattr(document, "hasHeaderRow", True))
 
 
-def cellRegion(handle: TableHandle, row: int, column: int, live: bool = False):
+def withoutCapitals(text: str) -> str:
+	""":return: text that will translate without capital signs.
+
+	**The only lever there is.** In a six dot table an all-capitals word carries the
+	capitals-word indicator in front of it — dot 6 twice — so `AAPL` is six cells and `aapl`
+	is four, which on a column sized for a stock symbol is the difference between the value
+	fitting and being cut. liblouis takes no mode for suppressing it (NVDA passes it
+	`compbrlAtCursor` and `partialTrans` and nothing else) and the indicator comes from the
+	table's own `capsletter` and `begcapsword` opcodes, so the choice is to lower the text, to
+	strip cells afterwards, or to translate the column through a different table. Stripping
+	cells means knowing which cell is an indicator in every table there is, and would leave
+	the position maps saying the wrong thing; a different table changes the contractions as
+	well. Lowering the text asks the table the question itself and changes nothing else.
+
+	Measured rather than assumed: twenty-three tickers, company names and headings translated
+	both ways in `en-ueb-g2` gave, in every case, the uppercase cells with the dot 6 cells
+	taken out. `CHTR` keeps its `ch` contraction, `T` keeps the grade one indicator that stops
+	it reading as "that", and nothing came out longer.
+
+	:param text: the cell's text.
+	"""
+	return text.lower()
+
+
+def cellRegion(
+	handle: TableHandle,
+	row: int,
+	column: int,
+	live: bool = False,
+	plainCase: bool = False,
+):
 	""":return: a region for one cell of a table, or None where there is no such cell.
 
 	None is ordinary rather than exceptional: a merged cell occupies one coordinate and leaves
 	the others empty, and `_getTableCellAt` says so by raising.
+
+	:param handle: the table.
+	:param row: the row to read.
+	:param column: the column to read.
+	:param live: whether the region may move the reader's cursor.
+	:param plainCase: whether this column is drawn without capital signs. Applied here, where
+		the text becomes a region, because that is where it is translated — and because a
+		region is built afresh on every read, so a live re-read lowers what it has just read
+		rather than restoring the capitals under the reader's hand.
 	"""
 	try:
 		info = handle.document._getTableCellAt(handle.tableID, handle.document.selection, row, column)
@@ -705,7 +749,7 @@ def cellRegion(handle: TableHandle, row: int, column: int, live: bool = False):
 		return None
 	if info is None:
 		return None
-	region = TableCellRegion(handle.document, info, live=live)
+	region = TableCellRegion(handle.document, info, live=live, plainCase=plainCase)
 	region.update()
 	return region
 
@@ -731,7 +775,12 @@ def cellHasContent(handle: TableHandle, row: int, column: int, live: bool = Fals
 	return bool((region.rawText or "").strip())
 
 
-def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS) -> list[Measurement]:
+def measure(
+	handle: TableHandle,
+	live: bool = False,
+	sample: int = MEASURE_ROWS,
+	plainCase=(),
+) -> list[Measurement]:
 	"""Read a bandful of rows and find out how wide each column needs to be.
 
 	In cells, by translating, because that is the only honest measurement — see `flowTable`.
@@ -745,6 +794,11 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 		they are thrown away; the parameter is here so that measuring cannot quietly differ
 		from reading.
 	:param sample: how many rows to read.
+	:param plainCase: the table's numbers for the columns drawn without capital signs.
+		**Measured the way they are drawn, or the setting saves nothing**: a column sized from
+		text with the capitals-word indicator in it is two cells wider than what will be drawn
+		in it, which is exactly the two cells the reader turned it on to get back. See
+		`withoutCapitals`.
 	:return: one measurement per column of the table.
 
 	A column found empty here is *tentatively* empty: the sample is bounded, so this cannot
@@ -768,9 +822,10 @@ def measure(handle: TableHandle, live: bool = False, sample: int = MEASURE_ROWS)
 	# none to borrow, and borrowing them anyway names every column after the reader's own
 	# first row. See `firstRowIsHeadings`.
 	borrowRowOne = firstRowIsHeadings(handle.document)
+	plain = frozenset(plainCase)
 	for row in _sampleRows(handle, sample):
 		for column in columns:
-			region = cellRegion(handle, row, column, live=live)
+			region = cellRegion(handle, row, column, live=live, plainCase=column in plain)
 			if region is None:
 				continue
 			found.add(column)
@@ -880,6 +935,7 @@ class TableFlowSource:
 		budget: Optional[FetchBudget] = None,
 		live: bool = False,
 		pinHeaders: bool = False,
+		plainCase=(),
 	) -> None:
 		"""
 		:param handle: the table, and where in it the reader was when it was recognised.
@@ -896,9 +952,15 @@ class TableFlowSource:
 		:param pinHeaders: whether a header row is held above the window. It decides
 			L{firstRow}, and only this source can decide that, because only this source
 			knows whether the pinned row is row one or something the table declared.
+		:param plainCase: the table's numbers for the columns drawn without capital signs.
+			The whole table's, not this page's: a page turn hands over different columns and
+			the reader's decisions are about the table. See `withoutCapitals`.
 		"""
 		self.handle = handle
 		self.columns = tuple(columns)
+		self.plainCase = frozenset(plainCase)
+		"""Which columns are drawn without capital signs, by the table's own numbers."""
+
 		self._declared = {}
 		"""The header each drawn column declares. Empty where the table declares none."""
 
@@ -1090,7 +1152,10 @@ class TableFlowSource:
 		"""
 		cells = []
 		for column in self.columns:
-			region = TextRegion(said.get(column, ""))
+			# The heading with the column, because it is one column and one decision: the
+			# heading is cut to the same width, so the capitals cost it the same cells.
+			heading = said.get(column, "")
+			region = TextRegion(withoutCapitals(heading) if column in self.plainCase else heading)
 			region.update()
 			cells.append(RowCell(index=column, region=region))
 		content = TableRow(cells, obj=self.obj)
@@ -1170,7 +1235,13 @@ class TableFlowSource:
 		"""
 		cells = []
 		for column in self.columns:
-			region = cellRegion(self.handle, row, column, live=self.live)
+			region = cellRegion(
+				self.handle,
+				row,
+				column,
+				live=self.live,
+				plainCase=column in self.plainCase,
+			)
 			if region is not None:
 				cells.append(RowCell(index=column, region=region))
 		content = TableRow(

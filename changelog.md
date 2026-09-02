@@ -95,9 +95,12 @@ Added:
 
 - The columns of a table can be arranged, from the band or from a dialog. On the band: hide the
   column you are in, cycle it between wrapped, cut keeping the start and cut keeping the end,
-  and give the table back as it comes. In the dialog: the columns as a list to reorder, a name
+  and give the table back as it comes. In the dialog: the columns as a checked list view to
+  reorder, where the tick on a line is whether that column is drawn, a name
   of your own for any of them, a floor and a ceiling on its width, which end of its heading
-  survives, where a page of columns begins, and which column is repeated on every page — with
+  survives, whether it is drawn without braille capital signs — `AAPL` is six cells in a six
+  dot table and `aapl` is four, which on a seven cell column decides whether the value fits —
+  where a page of columns begins, and which column is repeated on every page — with
   "the first column shown" as its own answer, since that is what a table does when you have
   named none. Every per-column question also has "follow the table setting", which names what
   the table is currently doing. What you arrange is what the remember command writes down, and
@@ -110,6 +113,13 @@ Added:
   so the cursor quietly disappeared from File Explorer and from the add-on's own dialogs a
   moment after you arrived. Worst on a flat list, where no indent marker is left to say which
   row is which.
+
+- A list whose items have checkboxes flows like any other list. A list view with checkboxes
+  reports every item as a checkbox rather than as a list item — that is Windows' answer, not
+  NVDA's, and it is the right one for saying "ticked" — and a run found only by what an object
+  calls itself found no run at all: the band showed the one item you were on and panning did
+  nothing. What holds an object now answers where its own role does not. Noticed in this
+  add-on's own table designer, and it applies to File Explorer's checkbox mode too.
 
 - A list whose items are grouped reads as one run. Outlook's message list grouped by day
   used to end at each boundary, so panning stopped at the last message of the day; the walk

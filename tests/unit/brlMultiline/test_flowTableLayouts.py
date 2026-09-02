@@ -237,6 +237,28 @@ class TestAStoreSomebodyElseWrote(LayoutTestCase):
 		self.assertEqual(flowTableLayouts.fromRecord({"columns": [1, 0, -2, "3"]}).columns, (1, 3))
 
 
+class TestDrawingAColumnWithoutCapitalSigns(LayoutTestCase):
+	"""One more per-column decision, and it goes into the record like the rest of them."""
+
+	def choice(self, **fields):
+		from brlMultiline import flowTable
+
+		return flowTable.ColumnChoice(**fields)
+
+	def test_itSurvivesTheStore(self):
+		layout = flowTableLayouts.TableLayout(perColumn={1: self.choice(plainCase=True)})
+		read = flowTableLayouts.fromRecord(layout.asRecord())
+		self.assertTrue(read.perColumn[1].plainCase)
+
+	def test_andIsADecisionLikeAnyOther(self):
+		"""So a column with nothing else said about it is still written down."""
+		self.assertFalse(self.choice(plainCase=True).isEmpty)
+
+	def test_andAColumnNobodyAskedAboutIsStillNotWrittenDown(self):
+		layout = flowTableLayouts.TableLayout(perColumn={1: self.choice()})
+		self.assertEqual(layout.asRecord(), {})
+
+
 class TestWhatIsDecidedAboutOneColumn(LayoutTestCase):
 	"""M7's vocabulary in the record: the reader's own name for a column, which end of it to
 	keep, how much room it may have, and where a page begins."""

@@ -201,9 +201,11 @@ Things worth knowing:
   in, for the first minute in a table nobody has arranged: hide it (or show it again), change
   what happens when its values do not fit — wrapped, cut keeping the start, cut keeping the end
   — and give the table back as it comes if an experiment goes wrong. A fourth opens a dialog
-  for a table you come back to, where the columns are a list you move up and down and each one
+  for a table you come back to, where the columns are a checked list — ticked means drawn —
+  that you move up and down, and each one
   can be given a name of your own, a floor and a ceiling on how many cells it may have, which
-  end of its heading survives, and whether a page of columns begins at it. One column is the
+  end of its heading survives, whether a page of columns begins at it, and whether it is
+  drawn without capital signs. One column is the
   one repeated on every page, and "the first column shown" is one of the answers, since that
   is what a table does when you have named none. Each per-column question also has "follow the
   table setting", which names what the table is currently doing, so nothing in the dialog
@@ -211,6 +213,15 @@ Things worth knowing:
   table; unticking it on a table you had remembered deletes what was saved. Cutting from the
   end is for a column whose values begin with something nobody wrote for reading, and a name
   of your own is for a heading that does the same.
+
+- A column can be drawn **without capital signs**. In a six dot table an all-capitals word
+  carries the capitals-word indicator in front of it, so `AAPL` takes six cells and `aapl`
+  takes four; `BRK.B` takes eight against five. On a column sized for a stock symbol that is
+  the difference between the value fitting and being cut. It applies to the column's heading
+  as well as its values, since both are cut to the same width. Nothing else changes: the
+  contractions are the same ones, and a column set this way is measured the way it is drawn,
+  so the cells it saves are cells you get back. There is nothing to gain from it on an eight
+  dot computer braille table, where a capital is a dot inside the cell and costs nothing.
 
 - A table can be laid out in columns, with a command, and the layout can be **remembered**:
   press the remember command while a table is on the display and that table comes up laid

@@ -231,8 +231,9 @@ def _choiceAsRecord(choice) -> dict:
 		said = getattr(choice, name, 0)
 		if said:
 			record[name] = int(said)
-	if getattr(choice, "startsAPage", False):
-		record["startsAPage"] = True
+	for name in ("startsAPage", "plainCase"):
+		if getattr(choice, name, False):
+			record[name] = True
 	return record
 
 
@@ -283,6 +284,7 @@ def _choiceFrom(record: dict):
 	return flowTable.ColumnChoice(
 		label=label if isinstance(label, str) else "",
 		startsAPage=bool(record.get("startsAPage")),
+		plainCase=bool(record.get("plainCase")),
 		**said,
 		**widths,
 	)

@@ -620,13 +620,15 @@ def _isSameRun(root, candidate) -> bool:
 
 	Sharing a parent is not enough on its own. A list box holds a button as often as not,
 	and a menu holds its separators, and either one read through the list item adapter is
-	presented to the reader as one of the things they are arrowing through.
+	presented to the reader as one of the things they are arrowing through. So the roles must
+	be of a kind as well — which is what keeps a button out of a list of ticked items, since
+	those report themselves as checkboxes and the button does not.
 	"""
 	if root is None or candidate is None:
 		return False
-	role = roleName(getattr(candidate, "role", None))
-	if role not in RUN_ROLES:
+	if not _isRunMember(candidate):
 		return False
+	role = roleName(getattr(candidate, "role", None))
 	if not _sameKind(role, roleName(getattr(root, "role", None))):
 		return False
 	return _sameParent(root, candidate)
@@ -970,9 +972,39 @@ class ObjectAdapter:
 	"""
 
 
+RUN_PARENTS = frozenset({"LIST", "LISTBOX"})
+"""Containers all of whose children are one run, whatever the children call themselves.
+
+**Because a list item does not always say it is one.** A list view with checkboxes reports
+every item as a `CHECKBOX` — that is MSAA's answer, not NVDA's, and it is the right one for
+saying "ticked" — so a role test alone found no run at all and the band read the one item the
+reader was on as though it were a document. The dialog this add-on puts up for arranging a
+table was the first place it was noticed, and File Explorer's checkbox mode is another.
+
+Narrow on purpose, and narrower than `RUN_CONTAINERS`, which is about where a *walk stops*
+and admits a pane for that reason. A pane holds anything at all, and one child of a pane is
+no evidence about the next. Two things are deliberately not here:
+
+- **A tree.** Only a top-level node has the tree for a parent — a nested one hangs under
+  another node — so the parent says nothing about most of them, and a checkable tree wants
+  `VISIBLE_TREE` rather than a walk along one generation. It needs its own evidence.
+- **A table.** Its rows are a run, and a table has `flowTableSource` for exactly that.
+"""
+
+
 def _isRunMember(obj) -> bool:
-	""":return: whether an object is one of a run of siblings."""
-	return roleName(getattr(obj, "role", None)) in RUN_ROLES
+	""":return: whether an object is one of a run of siblings.
+
+	What it calls itself, or what holds it. See `RUN_PARENTS`.
+	"""
+	if roleName(getattr(obj, "role", None)) in RUN_ROLES:
+		return True
+	try:
+		parent = getattr(obj, "parent", None)
+	except Exception:
+		log.debugWarning("Could not ask an object what holds it", exc_info=True)
+		return False
+	return parent is not None and roleName(getattr(parent, "role", None)) in RUN_PARENTS
 
 
 def _hasChoices(obj) -> bool:
