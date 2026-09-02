@@ -1192,7 +1192,8 @@ first file. Still not done: any notion of a header that is not row one and is no
 **M5 — tables as objects.** Excel, list views, the message list. Same vocabulary, second
 source. **List views and the message list are on hardware**: File Explorer's Details view and
 Outlook's inbox both lay out in columns, with the headings their cells declare pinned above
-them. Excel is not started.
+them. **Excel is built and not yet on hardware** — a third shape of table object, read by
+coordinate, reached through the add-on's first application module. See below.
 
 Getting there took five hardware readings and a review, and what they found was never the
 column arithmetic: it was which object is the row (Outlook's rows carry the cell properties
@@ -1327,9 +1328,79 @@ each column's text and header. The report before it took a guess at which of fou
 the wrong one. This is the sixth time this project has been told that when reasoning cannot
 settle a question, the thing to improve is the diagnostic.
 
-Still to come in M5: Excel, where a cell is reached as
-`excelWorksheetObject.cells(row, column)` wrapped in NVDA's own `ExcelCell`, exactly as
-`ExcelWorksheet._get_firstChild` does it.
+### Excel: a third shape, and the first application module
+
+**A spreadsheet is neither of the two shapes already built.** A row whose cells are objects is
+walked child by child; a row that answers for its own cells is asked column by column. A sheet
+is neither — its rows are not children of anything — and a cell is reached by saying which one
+you want. That is exactly the question `_getTableCellAt` asks, so it is the closest of the
+three to what the rest of the add-on already wanted and the smallest to write:
+`flowObjectTable.SheetTable` answers coordinates outright and overrides away everything the
+other two work out by walking. There is no run of children to count, no decorations to skip,
+and no `positionInfo` to interrogate about whether it numbers the table or a group of it. A
+spreadsheet says which row and column a cell is, and means it.
+
+It is also the one place NVDA has no generic answer, and that is what decides the design.
+Everything else a table is asked — what a cell says, which row and column it is, what its
+column's header is, where the caret goes when a routing key lands on it — is already on
+`NVDAObject`, implemented once per accessibility API and tuned per application, and is asked
+of the object exactly as it is for a list view. *The cell at (row, column)* exists only on
+`DocumentWithTableNavigation`, for text documents. Supplying it, per application, is the whole
+of what an adapter is for.
+
+**So Excel lives in an application module, and it is the only file in the add-on that knows
+Excel exists.** The reader asked whether this could be done instead of loading it into the
+global plugin, and it can, for a reason worth stating: a global plugin is resident for the
+session and asked about every object in every application, while an application module is
+loaded when its application runs and unloaded when it stops. What makes the split possible is
+that the seam is *one method*. An overlay class on a worksheet cell offers `brlMultilineSheet`;
+`flowObjectTable.sheetOf` asks every object it meets whether it has that name, which is one
+attribute lookup that fails on everything else; what comes back answers four questions —
+`obj`, `shape()`, `where()`, `cellAt(row, column)`. `flowObjectTable` mentions no application,
+and `appModules/excel.py` mentions no braille.
+
+Two details that had to be checked rather than assumed:
+
+- **An add-on's application module replaces the built-in one of the same name**, so ours
+  extends NVDA's rather than standing beside it: `from nvdaBuiltin.appModules.excel import
+  AppModule as ExcelAppModule`, subclass, and call `super` in
+  `chooseNVDAObjectOverlayClasses`. `nvdaBuiltin` exists for exactly this. Everything NVDA's
+  module does — the formula bar redirect, the broken data validation list, the UI Automation
+  window choices — goes on happening.
+- **Overlay classes reach cells that NVDA builds directly**, not only ones that arrive from an
+  event. `DynamicNVDAObjectType.__call__` runs the overlay selection for every instantiation,
+  so a cell built by `ExcelWorksheet._get_firstChild` gets the overlay as surely as the focused
+  one does. Without that the seam would have had nowhere to attach.
+
+**Two object models, and only one of them can be read this way.** By default NVDA reaches
+Excel through its COM object model: `NVDAObjects.window.excel.ExcelCell` carries
+`excelCellObject`, its parent worksheet carries `excelWorksheetObject`, and that answers
+`cells(row, column)` — the same call NVDA's own `_get_firstChild` makes, wrapped in NVDA's own
+`ExcelCell` so that every later question is NVDA's answer. With "use UI Automation to access
+Microsoft Excel spreadsheet controls when available" turned on — off by default,
+`config.conf["UIA"]["useInMSExcelWhenAvailable"]` — the cells are `NVDAObjects.UIA.excel`
+instead, and there is no equivalent: NVDA does not wrap the grid pattern's item lookup, and a
+sheet's cells cannot be walked as children. Such a cell is recognised as *not* readable this
+way and left alone, so the reader keeps NVDA's ordinary reading of it rather than a layout
+drawn from numbers this could not check. The recognition is by what makes the reading possible
+rather than by class, so it cannot half-work.
+
+**Coordinates are Excel's own, counted from A1.** The shape comes from the used range —
+`usedRange.row + usedRange.rows.count - 1`, and the same for columns — rather than from the
+sheet's million rows, which is what makes a layout possible at all. Counting from A1 rather
+than from the corner of the used range means a sheet whose data starts at C5 has four empty
+rows above it and they are read as four empty rows; the alternative is an offset every
+coordinate in the add-on would have to carry, to save the reader a scroll they can make in one
+keystroke. And because the numbers are Excel's, the `rowNumber` and `columnNumber` NVDA reports
+on a cell are the same numbers `cells(row, column)` takes, so nothing has to be translated.
+
+**Headers are the reader's own.** A spreadsheet declares none, and `hasHeaderRow` is false:
+row one is data until somebody says otherwise. In NVDA somebody does — a reader marks a header
+row or column themselves, and every cell of the column then answers `columnHeaderText`. That
+reaches the pinned row through `headerTextOf` exactly as a list view's declared header does, so
+there is nothing to borrow from row one and nothing to guess.
+
+Not yet on hardware.
 
 ### Following NVDA's own Document Formatting settings
 

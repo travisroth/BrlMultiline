@@ -1529,6 +1529,170 @@ def _headerFor(cell, index: int, headers: Optional[dict]) -> str:
 	return headers[column]
 
 
+SHEET = "brlMultilineSheet"
+"""What an object offers when it can hand over a grid to be read by coordinate.
+
+**The seam an application module joins the flow at**, and the whole of what the flow knows
+about any particular application. An object that answers to this name is asked once, by
+`sheetOf`, and what comes back answers `Sheet`'s four questions. Nothing here imports an
+application's module, reads its object model, or knows that Excel exists; the code that does
+lives in `appModules/excel.py` and is loaded only while Excel is running.
+
+Asked as one `getattr` of every object the band meets, which is what makes it affordable to
+ask at all — an object that does not answer costs one attribute lookup that fails.
+"""
+
+
+class Sheet:
+	"""What an application module hands over: a grid addressed by coordinate.
+
+	Not a class to inherit — it is here to say what the four names mean, and an adapter that
+	answers them will do. A spreadsheet is the shape this exists for and it is the third shape
+	of table object, different from the other two in the way that matters most:
+
+	- A **row whose cells are objects** is walked, child by child (`CellObjectTable`).
+	- A **row that answers for its own cells** is asked, column by column (`RowCellTable`).
+	- A **sheet** is neither. There is no row object at all — a spreadsheet's rows are not
+	  children of anything — and a cell is reached by saying which one you want. That is
+	  exactly the question `_getTableCellAt` asks, so this shape is the closest of the three
+	  to what the rest of the add-on already wanted, and the smallest.
+
+	It is also the one place NVDA has no generic answer. Every other question a table is asked
+	— what a cell says, which row and column it is, what its column's header is — is already
+	on `NVDAObject`, implemented once per accessibility API and tuned per application, and is
+	asked of the object exactly as it is everywhere else in this module. *The cell at (row,
+	column)* is the one NVDA does not offer outside `DocumentWithTableNavigation`, and
+	supplying it, per application, is the whole of what an adapter is for.
+	"""
+
+	obj = None
+	"""The `NVDAObject` that *is* the grid, for identity. See `ObjectTable.obj`."""
+
+	def shape(self) -> tuple:
+		""":return: how many rows and how many columns, as (rows, columns)."""
+		raise NotImplementedError
+
+	def where(self) -> tuple:
+		""":return: the row and column the reader is on, as (row, column), one based."""
+		raise NotImplementedError
+
+	def cellAt(self, row: int, column: int):
+		""":return: the cell at one coordinate as an `NVDAObject`, or None if there is none.
+
+		An object, not a string, because everything the flow then asks of it — its text, its
+		column's header, where the caret goes when a routing key lands on it — is a question
+		NVDA already answers about an object.
+		"""
+		raise NotImplementedError
+
+
+def sheetOf(obj):
+	""":return: the grid an object is a cell of, or None if it is not a cell of one.
+
+	:param obj: the object the reader is on.
+	"""
+	if obj is None:
+		return None
+	offered = getattr(obj, SHEET, None)
+	if offered is None:
+		return None
+	try:
+		return offered()
+	except Exception:
+		log.debugWarning(f"Could not reach the sheet behind {describeThing(obj)}", exc_info=True)
+		return None
+
+
+class SheetTable(ObjectTable):
+	"""A table addressed by coordinate, with no row objects in it at all. See `Sheet`.
+
+	Everything `ObjectTable` works out by walking is answered outright here, so most of what
+	that class does is overridden away rather than reused: there is no run of children to
+	count, no decorations to skip past, and no `positionInfo` to decide whether it numbers the
+	table or a group of it. A spreadsheet says which row and column a cell is, and means it.
+
+	A row number stands in for the row object, which is honest rather than a trick: the rest
+	of this module holds "the row" only to ask it for cells, and here the coordinate is what
+	the cells are asked for by.
+	"""
+
+	hasHeaderRow = False
+	"""A spreadsheet's first row is data until somebody says otherwise, and in NVDA somebody
+	does: a reader marks a header row or column themselves, and the cells then answer
+	`columnHeaderText` for it. That reaches the pinned row through `headerTextOf` like any
+	other declared header, so there is nothing to borrow from row one and nothing to guess."""
+
+	def __init__(self, sheet) -> None:
+		"""
+		:param sheet: the grid, answering `Sheet`.
+		"""
+		row, column = sheet.where()
+		super().__init__(sheet.obj, row=None, column=column)
+		self.sheet = sheet
+		self.row = max(1, int(row or 1))
+		"""Which row the reader is on. Held rather than asked of a row object, since there is
+		no row object to ask."""
+
+	@property
+	def selection(self):
+		""":return: where the reader is, as the cell they are in."""
+		return ObjectCellInfo("", target=self.sheet.cellAt(self.row, self.column))
+
+	def _getTableCellCoords(self, info) -> ObjectCell:
+		""":return: which cell the reader is in, which the sheet says outright."""
+		return ObjectCell(TABLE_ID, self.row, self.column)
+
+	def cellOf(self, item, column: int, row: int) -> ObjectCellInfo:
+		""":return: one cell, fetched by coordinate. See `ObjectTable.cellOf`.
+
+		:param item: the row number, which is what stands in for a row object here.
+		"""
+		cell = self.sheet.cellAt(row, column)
+		if cell is None:
+			raise LookupError(f"No cell at row {row} column {column}")
+		header = headerTextOf(cell)
+		return ObjectCellInfo(cellText(cell, header), target=cell, header=header, row=cell)
+
+	def rowObject(self, row: int):
+		""":return: the row number itself, which is what a cell is fetched by."""
+		return row if 1 <= row <= self.numRows else None
+
+	def rowNumberOf(self, item) -> Optional[int]:
+		""":return: the row number, which here is the thing itself."""
+		return int(item) if isinstance(item, int) and item > 0 else None
+
+	@property
+	def numRows(self) -> int:
+		return max(1, int(self._shape()[0] or 1))
+
+	@property
+	def numCols(self) -> int:
+		return max(1, int(self._shape()[1] or 1))
+
+	def _shape(self) -> tuple:
+		""":return: the grid's shape, asked once per reading rather than per cell."""
+		if getattr(self, "_measured", None) is None:
+			try:
+				self._measured = tuple(self.sheet.shape())
+			except Exception:
+				log.debugWarning("Could not ask a sheet its shape", exc_info=True)
+				self._measured = (1, 1)
+		return self._measured
+
+	def forget(self) -> None:
+		super().forget()
+		self._measured = None
+
+	def describe(self) -> list:
+		""":return: what this found, for the dry run. See `ObjectTable.describe`."""
+		return [
+			f"  A sheet read by coordinate: {self.numRows} rows, {self.numCols} columns, "
+			f"the reader at row {self.row} column {self.column}.",
+			f"  The sheet is {describeThing(self.sheet.obj)}.",
+			*self.describeCells(),
+		]
+
+
 def tableFor(obj) -> Optional[ObjectTable]:
 	""":return: the object table the reader is in, or None if they are not in one.
 
@@ -1551,6 +1715,12 @@ def tableFor(obj) -> Optional[ObjectTable]:
 	"""
 	if obj is None:
 		return None
+	sheet = sheetOf(obj)
+	if sheet is not None:
+		# Asked first, because an application that hands over a grid has said something about
+		# itself that no amount of looking at the object could work out — and because the
+		# other three questions below are about shapes a spreadsheet does not have.
+		return SheetTable(sheet)
 	table = rowsTable(obj)
 	if table is not None:
 		return RowCellTable(table, row=obj)

@@ -32,7 +32,7 @@ from ._stubs import (
 
 installStubs()
 
-from brlMultiline import flowObjectTable, flowTableSource  # noqa: E402
+from brlMultiline import flowObjectTable, flowTable, flowTableSource  # noqa: E402
 
 MESSAGES = [
 	["Travis Roth", "The watchlist columns", "09:14"],
@@ -1007,6 +1007,171 @@ class TestARowWhoseCellsCarryNothing(unittest.TestCase):
 		row = view.item(1)
 		row.cellObjects = row.cellObjects[:1]
 		self.assertIsNone(flowObjectTable.tableFor(row))
+
+
+SALES = [
+	["Region", "Q1", "Q2", "Q3"],
+	["North", "1200", "1310", "1405"],
+	["South", "980", "1024", "1190"],
+	["East", "1750", "1690", "1802"],
+]
+
+
+class FakeSheet:
+	"""A grid addressed by coordinate, as an application module hands one over.
+
+	The third shape of table object, and the one with no row objects in it: a spreadsheet's
+	rows are not children of anything, so a cell is reached by saying which one you want. See
+	`flowObjectTable.Sheet`, which this answers, and which is all the flow knows about any
+	particular application.
+	"""
+
+	def __init__(self, rows=None, at=(2, 1), headers=None, shape=None):
+		self.rows = rows if rows is not None else SALES
+		self.obj = FakeNavigatorObject("Sheet1", role="TABLE")
+		self.at = at
+		self.headers = headers or {}
+		self.asked = []
+		self._shape = shape
+		self.timesAskedTheShape = 0
+
+	def where(self):
+		return self.at
+
+	def shape(self):
+		self.timesAskedTheShape += 1
+		if self._shape is not None:
+			return self._shape
+		return (len(self.rows), max(len(line) for line in self.rows))
+
+	def cellAt(self, row, column):
+		self.asked.append((row, column))
+		if not (1 <= row <= len(self.rows)):
+			return None
+		line = self.rows[row - 1]
+		if not (1 <= column <= len(line)):
+			return None
+		cell = FakeNavigatorObject(line[column - 1], role="TABLECELL")
+		cell.rowNumber = row
+		cell.columnNumber = column
+		cell.columnHeaderText = self.headers.get(column, "")
+		return cell
+
+
+class TestASheetReadByCoordinate(unittest.TestCase):
+	"""M5's third: a spreadsheet. Different from the other two shapes in the way that matters
+	most — there is no row object at all, and a cell is reached by saying which one you want,
+	which is exactly the question `_getTableCellAt` asks.
+
+	Nothing here mentions Excel, and nor does the code under test. The one thing an
+	application has to supply is the cell at a coordinate; every other question is asked of
+	the object NVDA built, as it is for a list view or a message list.
+	"""
+
+	def table(self, **kwargs):
+		sheet = FakeSheet(**kwargs)
+		return sheet, flowObjectTable.SheetTable(sheet)
+
+	def test_anObjectThatOffersASheetIsReadAsOne(self):
+		cell = FakeNavigatorObject("North", role="TABLECELL")
+		sheet = FakeSheet()
+		cell.brlMultilineSheet = lambda: sheet
+		found = flowObjectTable.tableFor(cell)
+		self.assertIsInstance(found, flowObjectTable.SheetTable)
+
+	def test_andAnObjectThatOffersNothingIsNot(self):
+		"""One attribute lookup that fails, on every other object in Windows."""
+		self.assertIsNone(flowObjectTable.sheetOf(FakeNavigatorObject("a button", role="BUTTON")))
+
+	def test_aSheetThatCannotBeReachedIsNotATable(self):
+		"""Rather than an exception on the way to the display."""
+		cell = FakeNavigatorObject("North", role="TABLECELL")
+
+		def refuses():
+			raise RuntimeError("no")
+
+		cell.brlMultilineSheet = refuses
+		self.assertIsNone(flowObjectTable.sheetOf(cell))
+
+	def test_theShapeIsWhateverTheSheetSays(self):
+		_sheet, table = self.table()
+		self.assertEqual(table._getTableDimensions(None), (4, 4))
+
+	def test_andTheReaderIsWhereTheSheetSaysTheyAre(self):
+		_sheet, table = self.table(at=(3, 2))
+		found = table._getTableCellCoords(None)
+		self.assertEqual((found.row, found.col), (3, 2))
+
+	def test_aCellIsFetchedByItsCoordinateAndNotWalkedTo(self):
+		sheet, table = self.table()
+		cell = table._getTableCellAt(flowObjectTable.TABLE_ID, None, 3, 2)
+		self.assertEqual(cell.text, "980")
+		self.assertEqual(sheet.asked, [(3, 2)])
+
+	def test_andACoordinateTheSheetHasNotGotIsALookupError(self):
+		"""Ordinary rather than exceptional, and how the rest of the add-on hears "nothing
+		here"."""
+		_sheet, table = self.table()
+		with self.assertRaises(LookupError):
+			table._getTableCellAt(flowObjectTable.TABLE_ID, None, 99, 1)
+
+	def test_theHeaderIsWhateverTheCellDeclares(self):
+		"""In a spreadsheet nobody declares one until the reader marks a header row, and then
+		NVDA answers `columnHeaderText` on every cell of the column. It reaches the pinned row
+		the same way a list view's does."""
+		_sheet, table = self.table(headers={2: "Q1"})
+		cell = table._getTableCellAt(flowObjectTable.TABLE_ID, None, 2, 2)
+		self.assertEqual(cell.header, "Q1")
+
+	def test_andRowOneIsNotAssumedToBeTheHeadings(self):
+		"""A spreadsheet's first row is data until somebody says otherwise."""
+		_sheet, table = self.table()
+		self.assertFalse(table.hasHeaderRow)
+
+	def test_theShapeIsAskedOnceRatherThanPerCell(self):
+		"""A bandful of cells is a bandful of coordinate lookups, and the extent of the sheet
+		is not one of the things that changes between them."""
+		sheet, table = self.table()
+		for row in (2, 3, 4):
+			for column in (1, 2):
+				table._getTableCellAt(flowObjectTable.TABLE_ID, None, row, column)
+		self.assertEqual(sheet.timesAskedTheShape, 1)
+
+	def test_andAskedAgainWhenTheTableIsReadAfresh(self):
+		sheet, table = self.table()
+		table._getTableDimensions(None)
+		table.forget()
+		table._getTableDimensions(None)
+		self.assertEqual(sheet.timesAskedTheShape, 2)
+
+	def test_aSheetThatWillNotSayItsShapeIsStillOneRowByOne(self):
+		"""So that a sheet the flow cannot measure reads as a small table rather than as a
+		crash on the way to the display."""
+
+		class Silent(FakeSheet):
+			def shape(self):
+				raise RuntimeError("no")
+
+		table = flowObjectTable.SheetTable(Silent())
+		self.assertEqual(table._getTableDimensions(None), (1, 1))
+
+	def test_theWholeThingReadsThroughTheTableSource(self):
+		"""End to end: the shape the flow already knows how to read a bandful of."""
+		cell = FakeNavigatorObject("North", role="TABLECELL")
+		sheet = FakeSheet(at=(2, 1))
+		cell.brlMultilineSheet = lambda: sheet
+		handle = flowTableSource.tableAt(cell)
+		self.assertIsNotNone(handle)
+		self.assertEqual((handle.numRows, handle.numCols), (4, 4))
+		self.assertEqual((handle.row, handle.col), (2, 1))
+		source = flowTableSource.TableFlowSource(handle, columns=(1, 2, 3))
+		found = source.blockAt(
+			flowTableSource.BlockId(generation=0, bookmark=3, unit=source.unit),
+		)
+		self.assertEqual(
+			[item.region.rawText for item in flowTable.rowCellsOf(found.block.region)],
+			["South", "980", "1024"],
+		)
 
 
 class TestAListArrangedInGroups(unittest.TestCase):

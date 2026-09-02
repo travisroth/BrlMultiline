@@ -223,6 +223,15 @@ Things worth knowing:
   so the cells it saves are cells you get back. There is nothing to gain from it on an eight
   dot computer braille table, where a capital is a dot inside the cell and costs nothing.
 
+- An **Excel worksheet** reads in columns like any other table. The sheet's extent is
+  whatever Excel considers used, and the row and column numbers are Excel's own, so what the
+  display says a cell is matches what Excel says it is. A spreadsheet has no headings of its
+  own, so what is pinned above the columns is the header row or column you marked with NVDA's
+  own commands, and nothing is pinned until you mark one. This uses NVDA's default way of
+  reaching Excel; if you have turned on "use UI Automation to access Microsoft Excel
+  spreadsheet controls when available" in NVDA's advanced settings, cells are read the
+  ordinary way instead.
+
 - A table can be laid out in columns, with a command, and the layout can be **remembered**:
   press the remember command while a table is on the display and that table comes up laid
   out the next time you are in it, on the same page or in the same list — including when you

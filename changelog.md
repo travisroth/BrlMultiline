@@ -124,6 +124,18 @@ Added:
   nothing. What holds an object now answers where its own role does not. Noticed in this
   add-on's own table designer, and it applies to File Explorer's checkbox mode too.
 
+- **An Excel worksheet can be read in columns**, like a web page's table or File Explorer's
+  Details view. A sheet is read by coordinate rather than by walking rows, its extent comes
+  from Excel's used range, and its row and column numbers are Excel's own. Headers are the
+  ones you mark yourself with NVDA's own header commands; a sheet declares none, so row one is
+  read as data until you say otherwise. This needs NVDA's default way of reaching Excel: with
+  "use UI Automation to access Microsoft Excel spreadsheet controls when available" turned on,
+  a cell is left to NVDA's ordinary reading instead.
+
+- The Excel support is an **application module**, so it is loaded only while Excel is running
+  and nothing about Excel is asked of any other application. It extends NVDA's own Excel
+  module rather than replacing it, so everything NVDA does there goes on happening.
+
 - A list whose items are grouped reads as one run. Outlook's message list grouped by day
   used to end at each boundary, so panning stopped at the last message of the day; the walk
   now crosses into the next group, and the day heading is a row of its own. A closed group
