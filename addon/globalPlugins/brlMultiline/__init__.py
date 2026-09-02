@@ -1796,7 +1796,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Reads the whole display as one flowing document"),
+		description=_("Toggle reading the whole display as one flowing document"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_toggleFlow(self, gesture):
@@ -1831,7 +1831,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Lays the table you are in out in columns on the braille display"),
+		description=_("Table: Toggle table columns on or off"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_flowTableColumns(self, gesture):
@@ -1977,7 +1977,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Hides the column you are in, or shows it again"),
+		description=_("Table: Show/Hide the current column"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_flowTableToggleColumn(self, gesture):
@@ -2015,7 +2015,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Changes how the column you are in is cut when it does not fit"),
+		description=_("Table: Changes how the column you are in is trimmed when it does not fit"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_flowTableCutColumn(self, gesture):
@@ -2059,7 +2059,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Lets the table on the display find its own layout again"),
+		description=_("Table: Undo custom table layout"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_flowTableResetLayout(self, gesture):
@@ -2084,7 +2084,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Arranges the columns of the table on the display"),
+		description=_("Table: Open table layout designer for the current table"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_flowTableDesigner(self, gesture):
@@ -2110,7 +2110,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Remembers the table on the display, so it is laid out in columns next time"),
+		description=_("Table: Save table layout"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_rememberTableLayout(self, gesture):
@@ -2142,18 +2142,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(
 				# Translators: reported when a table's layout cannot be saved because nothing
 				# about the table or its window is stable enough to recognise it again.
-				_("This table cannot be recognised again, so its layout cannot be remembered"),
+				_("This table cannot be recognised again, so its layout cannot be saved"),
 			)
 			return
 		self.reportAboutTheDisplay(
 			# Translators: reported when a table's layout is saved, so that the table comes up
 			# in columns whenever the reader is in it.
-			_("This table will come up in columns"),
+			_("This table will display in columns"),
 		)
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Forgets the remembered layout for the table you are in"),
+		description=_("Table: Delete saved table layout"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_forgetTableLayout(self, gesture):
@@ -2167,7 +2167,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return
 		if not flowTableLayouts.forget(handle):
 			# Translators: reported when a table has no saved layout to forget.
-			ui.message(_("This table has no remembered layout"))
+			ui.message(_("This table has no saved layout"))
 			return
 		band = self.flowBand
 		if band is not None and band.tableWanted is not None:
@@ -2175,7 +2175,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self.tableWanted = None
 		self.tableRefused = None
 		# Translators: reported when a table's saved layout is dropped.
-		ui.message(_("Layout forgotten"))
+		ui.message(_("Table layout deleted"))
 
 	def _tableHere(self):
 		""":return: the table the reader is in, or None, without disturbing anything.
@@ -2198,7 +2198,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Shows the next columns of the table on the braille display"),
+		description=_("Table: Next columns"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_flowNextColumns(self, gesture):
@@ -2207,7 +2207,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Shows the previous columns of the table on the braille display"),
+		description=_("Table: Previous columns"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_flowPreviousColumns(self, gesture):
@@ -2317,7 +2317,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Reports what the flow on the display has cost, and copies the detail"),
+		description=_("Debug: Reports what the flow on the display has cost, and copies the detail"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_flowCost(self, gesture):
@@ -2365,7 +2365,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Copies what a flowed reading of this object would show to the clipboard"),
+		description=_("Debug: Copies what a flowed reading of this object would show to the clipboard"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_flowDryRun(self, gesture):
@@ -2409,7 +2409,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Reports the BrlMultiline segment layout"),
+		description=_("Misc: Reports the BrlMultiline segment layout"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_reportLayout(self, gesture):
@@ -2487,13 +2487,13 @@ def _makeDisplayScrollScript(displayOrdinal: int, segmentOrdinal: int, forward: 
 		_(
 			# Translators: input help message for a command. Placeholders are a segment number,
 			# counting from 0 on that display, and the name of one of the combined displays.
-			"Scrolls segment {segment} of {display} forward",
+			"Navigation: Scrolls segment {segment} of {display} forward",
 		)
 		if forward
 		else _(
 			# Translators: input help message for a command. Placeholders are a segment number,
 			# counting from 0 on that display, and the name of one of the combined displays.
-			"Scrolls segment {segment} of {display} back",
+			"Navigation: Scrolls segment {segment} of {display} back",
 		)
 	)
 	scrollScript.__doc__ = template.format(
@@ -2525,13 +2525,13 @@ def _makeDisplayMonitorScript(displayOrdinal: int, segmentOrdinal: int, start: b
 		_(
 			# Translators: input help message for a command. Placeholders are a segment number,
 			# counting from 0 on that display, and the name of one of the combined displays.
-			"Shows the navigator object in segment {segment} of {display}",
+			"Monitoring: Shows the navigator object in segment {segment} of {display}",
 		)
 		if start
 		else _(
 			# Translators: input help message for a command. Placeholders are a segment number,
 			# counting from 0 on that display, and the name of one of the combined displays.
-			"Stops showing an object in segment {segment} of {display}",
+			"Monitoring: Stops showing an object in segment {segment} of {display}",
 		)
 	)
 	monitorScript.__doc__ = template.format(
@@ -2550,10 +2550,10 @@ def _makeScrollScript(segmentNumber: int, forward: bool):
 
 	if forward:
 		# Translators: input help message for a command. The placeholder is a segment number.
-		scrollScript.__doc__ = _("Scrolls segment {number} forward").format(number=segmentNumber)
+		scrollScript.__doc__ = _("Navigation: Scrolls segment {number} forward").format(number=segmentNumber)
 	else:
 		# Translators: input help message for a command. The placeholder is a segment number.
-		scrollScript.__doc__ = _("Scrolls segment {number} back").format(number=segmentNumber)
+		scrollScript.__doc__ = _("Navigation: Scrolls segment {number} back").format(number=segmentNumber)
 	scrollScript.category = SCRIPT_CATEGORY
 	scrollScript.bypassInputHelp = False
 	return scrollScript
