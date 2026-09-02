@@ -330,6 +330,60 @@ class TestWhatTheDialogSaysIsBeingDone(unittest.TestCase):
 		self.assertEqual(arrangement.complaint(), "")
 
 
+class TestWhatTheLeaveItAloneOptionSaysItIsFollowing(unittest.TestCase):
+	"""A reader asked what "follow the table setting" meant, and there was no honest answer to
+	give: the cutting control was following a real setting that applies to every table, and the
+	heading control was following nothing whatever — a heading that does not fit is cut at its
+	end because `flowTable._asChosen` says so when nothing else has. One label was vague and
+	the other was untrue."""
+
+	def setUp(self):
+		resetConfig()
+		self.addCleanup(resetConfig)
+		import braille
+
+		from ._stubs import FakeHandler
+
+		self.addCleanup(setattr, braille, "handler", braille.handler)
+		braille.handler = FakeHandler(8, 32)
+
+	def test_theCuttingFollowsTheSettingForAllTables(self):
+		from ._stubs import CONFIG
+
+		CONFIG["flowTableTruncate"] = False
+		self.assertEqual(flowTableDesigner._tableCutting(None), flowTableDesigner.WRAPPED)
+		CONFIG["flowTableTruncate"] = True
+		self.assertEqual(flowTableDesigner._tableCutting(None), flowTableDesigner.CUT_START)
+
+	def test_unlessThisTablesOwnRecordOverridesIt(self):
+		from ._stubs import CONFIG
+
+		CONFIG["flowTableTruncate"] = False
+		saved = flowTableLayouts.TableLayout(truncate=flowTableLayouts.YES)
+		self.assertEqual(flowTableDesigner._tableCutting(saved), flowTableDesigner.CUT_START)
+		self.assertTrue(flowTableDesigner._cuttingIsThisTables(saved))
+
+	def test_andTheOptionSaysWhichOfTheTwoItIs(self):
+		"""Because naming a source the answer did not come from is the whole fault here."""
+		self.assertFalse(flowTableDesigner._cuttingIsThisTables(None))
+		self.assertFalse(
+			flowTableDesigner._cuttingIsThisTables(flowTableLayouts.TableLayout(columns=(1, 2))),
+		)
+
+	def test_theHeadingFollowsNothingAndSaysSoAsADefault(self):
+		"""There is no setting for which end a heading keeps, anywhere. The first option is
+		what happens when nobody says, which is a default and not a setting."""
+		self.assertEqual(flowTableDesigner.HEADER_ENDS[0][0], flowTableDesigner.FOLLOW)
+		self.assertNotIn("setting", flowTableDesigner.HEADER_ENDS[0][1].lower())
+
+	def test_andLeavingItAloneIsStillDifferentFromChoosingIt(self):
+		"""Which is why the option is worth having rather than folded into its answer: a
+		default is not written down and a decision is."""
+		arrangement = flowTableDesigner.Arrangement.of(plan())
+		arrangement.decide(0, headerKeep=flowTable.KEEP_START)
+		self.assertFalse(arrangement.asLayout().isEmpty)
+
+
 class TestAColumnTheMeasurementFoundNothingIn(unittest.TestCase):
 	"""Measured and not drawn is not the same as hidden, and must not quietly become it. The
 	reader who reported this had configured nothing at all and found columns missing from

@@ -2070,6 +2070,22 @@ character under the finger. It covers the column's heading as well as its values
 reader's own request — "so it is just one column setting" — and because the heading is cut to
 the same width and pays the same two cells.
 
+**"Leave it alone" has to say what it is leaving alone.** Every per-column question offers
+one option that means "I have not decided", and all of them were labelled "follow the table
+setting". A reader asked what that meant and there was no honest answer:
+
+- The **cutting** does follow a real setting — "Cut table cells that are too long, instead of
+  wrapping them", which is this add-on's own and applies to every table — and this table's
+  saved record may override it through `TableLayout.truncateOr`. The label now names which of
+  the two it is, and either way says what it currently comes out as.
+- **Which end a heading keeps** followed nothing whatever. There is no setting for it anywhere;
+  a heading that will not fit is cut at its end because `flowTable._asChosen` says so when
+  nobody has said otherwise. It is called a default now, which is what it is.
+
+The option is still worth having rather than folded into its answer, and that is the reason to
+keep both: a default is not written into the record and follows a change of mind about the
+setting, while a decision is written down and does not.
+
 **Shown or hidden is a checkbox on the line.** The first cut was a plain list with a "Show
 or hide" button beside it, and the reader who used it named what was wrong: the state was in
 the line's text and the way to change it was somewhere else, so arrowing the list meant hearing

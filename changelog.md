@@ -102,8 +102,11 @@ Added:
   dot table and `aapl` is four, which on a seven cell column decides whether the value fits —
   where a page of columns begins, and which column is repeated on every page — with
   "the first column shown" as its own answer, since that is what a table does when you have
-  named none. Every per-column question also has "follow the table setting", which names what
-  the table is currently doing. What you arrange is what the remember command writes down, and
+  named none. Every per-column question also has an option meaning "I have not
+  decided", which says both where its answer comes from and what that currently is: the
+  cutting follows the "cut table cells that are too long" setting (or this table's own saved
+  record, when it has one), and the heading's end follows nothing at all and is called a
+  default, since there is no setting for it. What you arrange is what the remember command writes down, and
   the box that remembers it is a state rather than a button: unticking it on a table you had
   remembered deletes what was saved. The dialog opens on NVDA's event loop rather than inside
   the command, which is what stopped NVDA responding the first time it was opened.

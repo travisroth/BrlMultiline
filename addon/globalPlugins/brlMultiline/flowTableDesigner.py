@@ -38,20 +38,45 @@ except ImportError:  # pragma: no cover - only in a test run with no NVDA around
 FOLLOW = ""
 """What a per-column control holds when the reader has decided nothing about that column.
 
-Not the same as a decision that happens to match the table: a column following the table
-changes when the table's own setting changes, and a column that was set does not. The
-control says which of the two it is, and names what following currently means — a review
-found the cutting control reading "Wrapped" on an untouched column of a table that was
-cutting, which is the dialog describing something other than what is on the display.
+Not the same as a decision that happens to match: a column left alone changes when what it
+falls back to changes, and a column that was set does not. The control says which of the two
+it is, and names what being left alone currently means — a review found the cutting control
+reading "Wrapped" on an untouched column of a table that was cutting, which is the dialog
+describing something other than what is on the display.
+
+**What it falls back to is not the same question for every control**, and saying "follow the
+table setting" for all of them was wrong in one place and vague in the other. A reader asked
+what the phrase meant and there was no honest answer to give:
+
+- **Cutting** falls back to a real setting — "Cut table cells that are too long, instead of
+  wrapping them", in this add-on's settings, which applies to every table — with this table's
+  saved record able to override it. So the option names the setting's scope, not "the table".
+- **Which end a heading keeps** falls back to nothing at all. There is no setting for it
+  anywhere; a heading that does not fit is cut at its end because `flowTable._asChosen` says
+  so when nothing else has. So the option there is called a default, which is what it is.
+
+Both are still worth having as an option rather than being folded into their answer, because
+the two mean different things in the record: a default is not written down and survives a
+change of mind about the setting, and a decision is written down and does not.
 """
 
 WRAPPED = "wrapped"
 CUT_START = "cutStart"
 CUT_END = "cutEnd"
 
+# Translators: a column of a table is drawn however this table's own saved layout says to.
+FOLLOWS_THIS_TABLE = _("Follow this table's own setting")
+"""The first cutting option's label where this table's saved record overrides the setting.
+
+Rare, and worth being right about: the record can carry a whole-table cutting decision that
+the dialog does not offer to change, so a column left alone follows *that* rather than the
+setting for all tables. Saying "the setting for all tables" there would name a source the
+answer did not come from, which is the mistake this whole set of labels was reworded for.
+"""
+
 CUTTING: tuple[tuple[str, str], ...] = (
-	# Translators: a column of a table is drawn however the table itself is set to draw them.
-	(FOLLOW, _("Follow the table setting")),
+	# Translators: a column of a table is drawn however the setting for all tables says to.
+	(FOLLOW, _("Follow the setting for all tables")),
 	# Translators: how a column too wide for its place is drawn: the value continues on the
 	# next row of the same table row.
 	(WRAPPED, _("Wrapped over more rows")),
@@ -71,14 +96,20 @@ become — and `FOLLOW`, which is the fourth and the one every column starts on.
 """
 
 HEADER_ENDS: tuple[tuple[str, str], ...] = (
-	# Translators: a column's heading is drawn however the table itself is set to draw them.
-	(FOLLOW, _("Follow the table setting")),
+	# Translators: a column's heading is drawn whichever way the add-on draws them by default.
+	(FOLLOW, _("Default")),
 	# Translators: which end of a column's heading is shown when it does not fit.
 	(flowTable.KEEP_START, _("Keep the start")),
 	# Translators: which end of a column's heading is shown when it does not fit.
 	(flowTable.KEEP_END, _("Keep the end")),
 )
-"""Which end of a *heading* survives. Asked separately because they go wrong separately."""
+"""Which end of a *heading* survives. Asked separately because they go wrong separately.
+
+A heading is always cut rather than wrapped — the pinned row is one row — so the only question
+is which end, and there is no setting for it: `flowTable._asChosen` keeps the start when
+nothing has said otherwise. See `FOLLOW`, which is why the first of these is a default and not
+a setting to follow.
+"""
 
 # Translators: the option for repeating whichever column is drawn first on every page.
 KEY_IS_THE_FIRST = _("The first column shown")
@@ -190,6 +221,7 @@ class Arrangement:
 		base=None,
 		following: str = WRAPPED,
 		repeats: bool = True,
+		followsThisTable: bool = False,
 	) -> None:
 		"""
 		:param columns: the columns, in order, as `Column`.
@@ -201,6 +233,8 @@ class Arrangement:
 		:param following: what the table itself does with a cell too long for its column.
 		:param repeats: whether this table repeats a column on its later pages at all, which
 			is a setting rather than a column and can be off.
+		:param followsThisTable: whether `following` came from this table's own saved record
+			rather than from the setting for all tables. See `FOLLOWS_THIS_TABLE`.
 		"""
 		self.columns = list(columns)
 		self.keyColumn = keyColumn
@@ -208,6 +242,7 @@ class Arrangement:
 		self.base = base if base is not None else flowTableLayouts.TableLayout()
 		self.following = following
 		self.repeats = repeats
+		self.followsThisTable = followsThisTable
 
 	@classmethod
 	def of(
@@ -217,6 +252,7 @@ class Arrangement:
 		remembered: bool = False,
 		following: str = WRAPPED,
 		headings=None,
+		followsThisTable: bool = False,
 	) -> "Arrangement":
 		"""Build the arrangement of a table on the display.
 
@@ -227,8 +263,9 @@ class Arrangement:
 			over an empty layout showed none of what was saved and then offered to save that
 			emptiness over it.
 		:param remembered: whether the table has a saved layout.
-		:param following: what the table itself does with a cell too long for its column,
-			which is what a column set to `FOLLOW` is doing.
+		:param following: what a column left alone comes out as for a cell too long for it.
+		:param followsThisTable: whether that came from this table's record rather than from
+			the setting for all tables.
 		:param headings: what the table calls columns the plan does not draw, by column
 			number. **A hidden column has no place in the plan, so the plan cannot say what it
 			is called** — and it came back as "column 19", which is not a name and is no use to
@@ -271,6 +308,7 @@ class Arrangement:
 			base=layout,
 			following=following,
 			repeats=getattr(plan, "keyColumn", None) is not None,
+			followsThisTable=followsThisTable,
 		)
 
 	def at(self, position: int) -> Optional[Column]:
@@ -484,6 +522,7 @@ def arrangeTheTable(band) -> bool:
 		band.tableLayoutInForce or saved,
 		remembered=saved is not None,
 		following=_tableCutting(band.tableLayoutInForce or saved),
+		followsThisTable=_cuttingIsThisTables(band.tableLayoutInForce or saved),
 		headings=_whatTheTableCallsTheRest(handle, plan),
 	)
 	wx.CallAfter(_askThenApply, band, arrangement, handle)
@@ -572,8 +611,12 @@ def _stillThere(band, handle) -> bool:
 def _tableCutting(layout) -> str:
 	""":return: what this table does with a cell too long for its column, in the dialog's words.
 
-	What a column set to `FOLLOW` is following, so the control can name it rather than leave
-	the reader to guess which of the four they are on.
+	What a column left alone comes out as, so the control can name it rather than leave the
+	reader to guess which of the other options they are already on.
+
+	The answer is the "cut table cells that are too long" setting, which is this add-on's and
+	applies to every table, unless this table's own saved record overrides it — see
+	`TableLayout.truncateOr` and `_cuttingIsThisTables`.
 
 	:param layout: the layout the table is being read with, or None.
 	"""
@@ -581,6 +624,16 @@ def _tableCutting(layout) -> str:
 
 	saying = layout if layout is not None else flowTableLayouts.TableLayout()
 	return CUT_START if saying.truncateOr(bmConfig.shouldTruncateTableCells()) else WRAPPED
+
+
+def _cuttingIsThisTables(layout) -> bool:
+	""":return: whether this table's own record decides its cutting, rather than the setting.
+
+	Which of the two labels the first cutting option gets. See `FOLLOWS_THIS_TABLE`.
+
+	:param layout: the layout the table is being read with, or None.
+	"""
+	return layout is not None and layout.truncate in (flowTableLayouts.YES, flowTableLayouts.NO)
 
 
 def _keepOrDrop(handle, layout, remembered: bool, keepIt: bool) -> None:
@@ -685,7 +738,11 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 				# Translators: the label of a choice of what a column does with a long value.
 				_("When a value does not fit:"),
 				wx.Choice,
-				choices=self._withFollowing(CUTTING, arrangement.following),
+				choices=self._withFollowing(
+					CUTTING,
+					arrangement.following,
+					named=FOLLOWS_THIS_TABLE if arrangement.followsThisTable else "",
+				),
 			)
 			self.cuttingCtrl.Bind(wx.EVT_CHOICE, self._onCutting)
 			self.headerCtrl = helper.addLabeledControl(
@@ -743,17 +800,29 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 			self.columnList.SetFocus()
 
 		@staticmethod
-		def _withFollowing(offered, effective: str) -> list:
-			""":return: the labels for one choice, the following one naming what it means.
+		def _withFollowing(offered, effective: str, named: str = "") -> list:
+			""":return: the labels for one choice, the first one naming what it comes out as.
+
+			The first option is `FOLLOW` and its own label says where the answer comes from —
+			a setting for the cutting, nothing at all for the heading; see `FOLLOW`. What is
+			added here is what it currently *is*, so the reader is not left to guess which of
+			the other options they are already on.
 
 			:param offered: pairs of value and label, `FOLLOW` first.
-			:param effective: the value that following currently comes out as.
+			:param effective: the value that being left alone currently comes out as.
+			:param named: a label to use for the first option instead of its own, where the
+				answer comes from somewhere other than the usual place. See
+				`FOLLOWS_THIS_TABLE`.
 			"""
-			named = dict(offered)
+			words = dict(offered)
 			return [
-				# Translators: an option that follows the table's own setting. The placeholder
-				# is what that setting currently is.
-				_("Follow the table setting ({how})").format(how=named.get(effective, "").lower())
+				# Translators: an option that leaves a column's setting alone. The first
+				# placeholder says where the answer comes from and the second is what it
+				# currently is, for example "Default (keep the start)".
+				_("{option} ({how})").format(
+					option=named or label,
+					how=words.get(effective, "").lower(),
+				)
 				if not value
 				else label
 				for value, label in offered
