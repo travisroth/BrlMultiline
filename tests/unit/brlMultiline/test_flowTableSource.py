@@ -27,10 +27,11 @@ from ._stubs import (
 installStubs()
 
 from brlMultiline import flowTableSource  # noqa: E402
-from brlMultiline.flow import BlockId, ResultKind  # noqa: E402
+from brlMultiline.flow import BlockId, CallCancelled, ResultKind  # noqa: E402
 from brlMultiline.flowTable import rowCellsOf  # noqa: E402
 from brlMultiline.flowTableSource import (  # noqa: E402
 	TableFlowSource,
+	cellRegion,
 	measure,
 	sameTable,
 	tableAt,
@@ -321,6 +322,77 @@ class TestMeasuringTheColumns(unittest.TestCase):
 		rows[1][1] = None
 		measured = measure(tableAt(FakeFocus(FakeTableDocument(rows, row=1))))
 		self.assertEqual(measured[1].width, len("402.15"))
+
+
+class TestAReadThatWasCancelledIsNotAnEmptyCell(unittest.TestCase):
+	"""When NVDA's watchdog decides the core has frozen it cancels every COM call the main
+	thread makes, and NVDA turns that into `CallCancelled` — not a `COMError`, not an
+	`OSError`.
+
+	This module used to catch `LookupError` and `OSError` as "there is no cell at this
+	coordinate", which is what a merged cell looks like, and everything else as a cell that
+	could not be read. A cancellation fell into the second, was logged at debug level and
+	became an empty column; on an Excel sheet all twenty-one columns went that way at once,
+	the plan came out empty, and the reader was told the table would not lay out in columns.
+	"""
+
+	def _cancelling(self):
+		document = watchlist()
+		real = document._getTableCellAt
+
+		def cancelled(*args, **kwargs):
+			raise CallCancelled("COM call cancelled")
+
+		document._getTableCellAt = cancelled
+		self.addCleanup(setattr, document, "_getTableCellAt", real)
+		return tableAt(FakeFocus(document))
+
+	def test_theCancellationGoesUpToWhoeverAskedForTheReading(self):
+		handle = self._cancelling()
+		with self.assertRaises(CallCancelled):
+			cellRegion(handle, 2, 1)
+
+	def test_andOutOfTheMeasurementWithIt(self):
+		"""Which is the one place that can tell the difference between a table with nothing
+		in it and a table nothing could be got out of."""
+		handle = self._cancelling()
+		with self.assertRaises(CallCancelled):
+			measure(handle)
+
+	def test_aCellTheTableHasNotGotIsStillJustAHole(self):
+		"""The merged cell case, which is what the broad catch was there for."""
+		handle = tableAt(FakeFocus(FakeTableDocument([["one", None], ["two", "three"]], row=1)))
+		self.assertIsNone(cellRegion(handle, 1, 2))
+		self.assertIsNotNone(cellRegion(handle, 2, 2))
+
+
+class TestTheCheapSeamsAreAskedOfOurOwnStandInsOnly(unittest.TestCase):
+	"""The two optional ways a table can be measured more cheaply are looked up by name, and
+	the other kind of table this reads is a browse mode document — a foreign object where a
+	name means whatever the application that wrote it decided it means.
+
+	Which is not hypothetical: the stand-in these tests use holds a table's column headers in
+	an attribute called exactly `columnHeaders`, and calling that as a method would have
+	written a debug warning on every measurement of every web page.
+	"""
+
+	def test_aBrowseModeDocumentIsNotAskedForARowAtOnce(self):
+		handle = tableAt(FakeFocus(watchlist()))
+		self.assertIsNone(flowTableSource.rowTextOf(handle, 1, 1, 3))
+
+	def test_norForItsColumnsNamesEvenWhereItHasThatVeryAttribute(self):
+		document = FakeTableDocument([["a", "b"]], columnHeaders={1: "Symbol"})
+		handle = tableAt(FakeFocus(document))
+		self.assertIsInstance(document.columnHeaders, dict)
+		self.assertIsNone(flowTableSource.columnHeadersOf(handle, 1, 2))
+
+	def test_andItsHeadersStillReachTheMeasurement(self):
+		"""Through the cells, where a browse mode document declares them. Unchanged, and
+		checked here because the gate above is what could have stopped it."""
+		document = FakeTableDocument([["a", "b"], ["c", "d"]], columnHeaders={1: "Symbol"})
+		measured = measure(tableAt(FakeFocus(document)))
+		self.assertEqual(measured[0].label, "Symbol")
+		self.assertTrue(measured[0].declared)
 
 
 class TestAColumnDrawnWithoutCapitalSigns(unittest.TestCase):

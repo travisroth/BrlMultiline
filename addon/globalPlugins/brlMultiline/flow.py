@@ -41,6 +41,25 @@ import dataclasses
 import enum
 from typing import Iterable, Optional, Sequence
 
+# **NVDA's own "that call was cancelled", named here so a reader can tell it from an empty
+# cell.** When the watchdog decides the core has frozen it sets `cancelCallEvent`, and from
+# that moment every COM call made on the main thread comes back as `RPC_E_CALL_CANCELED`;
+# NVDA's comtypes patch turns that into this exception. It is not a `COMError` and not an
+# `OSError`, so code that catches broadly and treats a failed fetch as "there is nothing at
+# this coordinate" reads a whole table as empty.
+#
+# Which is exactly what happened on an Excel sheet. Measuring it took the core past the
+# watchdog's patience, every read after that was cancelled, all twenty-one columns measured
+# nothing, and the reader was told the table could not be laid out in columns. It could not
+# be *read*, which is a different thing to be told and a different thing to do about it.
+try:
+	from exceptions import CallCancelled
+except ImportError:  # Outside NVDA, and on an NVDA old enough not to have it.
+
+	class CallCancelled(Exception):  # type: ignore[no-redef]
+		"""Stand-in for NVDA's own, so this package imports where NVDA is not."""
+
+
 BLANK_CELL = 0
 """The cell value of a blank cell, matching NVDA's own use of 0 for an empty cell."""
 

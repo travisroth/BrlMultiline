@@ -17,12 +17,13 @@ shape of those, and they record what was asked so a test can say what was *not* 
 as what was.
 """
 
+import ctypes
 import os
 import sys
 import types
 import unittest
 
-from ._stubs import installStubs, log
+from ._stubs import CallCancelled, installStubs, log
 
 installStubs()
 
@@ -31,12 +32,79 @@ ADDON = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."
 firedEvents: list = []
 """What `eventHandler.executeEvent` was told, so a test can see the focus arrive."""
 
+fetches: list = []
+"""Every batch cell fetch asked of NVDA's in-process helper, as (address, count)."""
+
+batch: dict = {}
+"""What the fake helper answers with, by address: a list of (column, text). An address it
+does not know is answered for by position, which is what a helper that reports no coordinates
+looks like."""
+
+helperFails = [0]
+"""What the fake helper returns as its status, so a test can make the call fail."""
+
+
+class EXCEL_CELLINFO(ctypes.Structure):
+	"""The four fields of NVDA's own struct that this module reads or fills in.
+
+	A real `ctypes.Structure`, so that the array the module allocates and hands to the helper
+	is a real array and the fake helper writes into it the way the real one does. Standing in
+	for it with a dictionary would have tested the test.
+	"""
+
+	_fields_ = [
+		("text", ctypes.c_wchar_p),
+		("address", ctypes.c_wchar_p),
+		("rowNumber", ctypes.c_long),
+		("columnNumber", ctypes.c_long),
+	]
+
+
+def _getCellInfos(binding, window, address, flags, count, infos, fetched):
+	"""Stand in for `nvdaInProcUtils_excel_getCellInfos`, filling the caller's array."""
+	fetches.append((str(address), int(count), int(flags)))
+	if helperFails[0]:
+		return helperFails[0]
+	said = batch.get(str(address))
+	if said is None:
+		fetched._obj.value = 0
+		return 0
+	for index, (column, text) in enumerate(said[:count]):
+		infos[index].text = text
+		infos[index].columnNumber = column
+	fetched._obj.value = len(said[:count])
+	return 0
+
 
 def _install() -> None:
 	"""Register what the application module imports, and put the add-on on the path."""
 	if "nvdaBuiltin.appModules.excel" in sys.modules:
 		return
 	sys.modules["eventHandler"] = types.ModuleType("eventHandler")
+	# The batch fetch, which is how a row is read in one call. See `ExcelSheet.textRow`.
+	helper = types.ModuleType("NVDAHelper")
+	helper.localLib = types.SimpleNamespace(nvdaInProcUtils_excel_getCellInfos=_getCellInfos)
+	localLib = types.ModuleType("NVDAHelper.localLib")
+	localLib.EXCEL_CELLINFO = EXCEL_CELLINFO
+	sys.modules["NVDAHelper"] = helper
+	sys.modules["NVDAHelper.localLib"] = localLib
+	sys.modules["comtypes"] = types.ModuleType("comtypes")
+	sys.modules["comtypes"].BSTR = str
+	objects = types.ModuleType("NVDAObjects")
+	objects.__path__ = []
+	window = types.ModuleType("NVDAObjects.window")
+	window.__path__ = []
+	nvdaExcel = types.ModuleType("NVDAObjects.window.excel")
+	nvdaExcel.NVCELLINFOFLAG_TEXT = 0x2
+	nvdaExcel.NVCELLINFOFLAG_COORDS = 0x10
+	nvdaExcel.xlA1 = 1
+	# NVDA's own turns an invariant address into the application's notation by asking it for
+	# its list separator. Recorded rather than reproduced: what matters here is that the
+	# address the helper is given went through it.
+	nvdaExcel.convertAddressToLocal = lambda application, address: address
+	sys.modules["NVDAObjects"] = objects
+	sys.modules["NVDAObjects.window"] = window
+	sys.modules["NVDAObjects.window.excel"] = nvdaExcel
 	sys.modules["eventHandler"].executeEvent = lambda name, obj, **kwargs: firedEvents.append(
 		(name, obj),
 	)
@@ -88,12 +156,25 @@ class FakeRange:
 		self.text = text
 		self.selected = False
 		self.activated = False
+		self.Application = "an Excel"
+		"""What an address is turned into the application's own notation through."""
 
 	def Select(self):
 		self.selected = True
 
 	def Activate(self):
 		self.activated = True
+
+
+class FakeSpan:
+	"""Several of Excel's cells at once, which is what a row is read through in one call."""
+
+	def __init__(self, first, last):
+		self.first = first
+		self.last = last
+
+	def address(self, rowAbsolute, columnAbsolute, style, external):
+		return f"Sheet1!R{self.first.row}C{self.first.column}:C{self.last.column}"
 
 
 class FakeUsedRange:
@@ -113,7 +194,14 @@ class FakeWorksheetObject:
 		self.values = values if values is not None else SALES
 		self.used = used if used is not None else FakeUsedRange(1, 1, 3, 3)
 		self.asked: list = []
+		self.spans: list = []
 		self.timesAskedTheUsedRange = 0
+		self.Application = "an Excel"
+
+	def range(self, first, last):
+		"""Excel's `Range(cell1, cell2)`, which is the span a whole row is fetched over."""
+		self.spans.append(((first.row, first.column), (last.row, last.column)))
+		return FakeSpan(first, last)
 
 	@property
 	def usedRange(self):
@@ -131,9 +219,13 @@ class FakeWorksheetObject:
 class FakeWorksheet:
 	"""NVDA's `ExcelWorksheet`, as far as this add-on touches it."""
 
-	def __init__(self, sheet):
+	def __init__(self, sheet, marked=None):
 		self.excelWorksheetObject = sheet
 		self.built = 0
+		# NVDA's record of what the reader has marked as a header row or column, which on
+		# the real thing is populated by walking every defined name in the workbook. Empty on
+		# every sheet nobody has marked up, which is what makes it worth asking.
+		self.headerCellTracker = types.SimpleNamespace(infosDict=dict(marked or {}))
 
 
 class FakeCell:
@@ -152,6 +244,10 @@ class FakeCell:
 		self.rowNumber = excelCellObject.row if excelCellObject else None
 		self.columnNumber = excelCellObject.column if excelCellObject else None
 		self._parent = None
+		self.appModule = types.SimpleNamespace(helperLocalBindingHandle=7)
+		"""What the in-process helper is reached through. Falsy where NVDA has not injected
+		it, and then there is no batch fetch to be had."""
+
 		FakeCell.made.append(self)
 
 	@property
@@ -168,13 +264,16 @@ class FakeCell:
 		self._parent = value
 
 
-def aCell(row=2, column=1, sheet=None, values=None, used=None):
+def aCell(row=2, column=1, sheet=None, values=None, used=None, marked=None):
 	""":return: a worksheet cell with the add-on's overlay on it, as NVDA would build one."""
 
 	class SpreadsheetCell(excelModule.SpreadsheetCell, FakeCell):
 		"""The overlay over NVDA's cell, which is the order NVDA composes them in."""
 
-	worksheet = FakeWorksheet(sheet if sheet is not None else FakeWorksheetObject(values, used))
+	worksheet = FakeWorksheet(
+		sheet if sheet is not None else FakeWorksheetObject(values, used),
+		marked=marked,
+	)
 	cell = SpreadsheetCell(
 		windowHandle=42,
 		excelWindowObject=object(),
@@ -182,6 +281,147 @@ def aCell(row=2, column=1, sheet=None, values=None, used=None):
 	)
 	cell.parent = worksheet
 	return cell
+
+
+class TestReadingAWholeRowInOneCall(unittest.TestCase):
+	"""Measuring a table reads a bandful of rows across every column and keeps only the
+	widths. Asked cell by cell, one cell of a worksheet is a coordinate lookup, an
+	`NVDAObject` built with its overlay classes chosen, and a cross-process fetch of that
+	cell's text, address, states, comments and formula.
+
+	Twenty-one columns of two rows came to over ten seconds on hardware — past the watchdog's
+	patience, so every read after that was cancelled and the sheet measured as empty. NVDA
+	itself never reads a cell at a time when it wants many: `ExcelCellInfoQuicknavIterator`
+	hands the helper an address and a count. So does this now.
+	"""
+
+	def setUp(self):
+		fetches.clear()
+		batch.clear()
+		helperFails[0] = 0
+
+	def _sheet(self, **kwargs):
+		return excelModule.ExcelSheet(aCell(**kwargs))
+
+	def _address(self, row=1, first=1, last=3):
+		return f"Sheet1!R{row}C{first}:C{last}"
+
+	def test_theRowComesBackAsTextAndInOneFetch(self):
+		sheet = self._sheet()
+		batch[self._address()] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
+		self.assertEqual(sheet.textRow(1, 1, 3), ["Region", "Q1", "Q2"])
+		self.assertEqual(len(fetches), 1)
+
+	def test_andNoCellObjectIsBuiltToGetIt(self):
+		"""Which is the whole saving. Objects are still built for the cells that are drawn."""
+		sheet = self._sheet()
+		batch[self._address()] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
+		before = len(FakeCell.made)
+		sheet.textRow(1, 1, 3)
+		self.assertEqual(len(FakeCell.made), before)
+
+	def test_andItAsksForTextAndCoordinatesAndNothingElse(self):
+		"""`NVCELLINFOFLAG_ALL`, which is what building a cell fetches, gathers comments and
+		formulas and states that nobody measuring a column is going to read."""
+		sheet = self._sheet()
+		batch[self._address()] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
+		sheet.textRow(1, 1, 3)
+		self.assertEqual(fetches[0][2], 0x2 | 0x10)
+
+	def test_andOverTheSpanItWasAskedFor(self):
+		sheet = self._sheet()
+		batch[self._address(row=2, first=2, last=3)] = [(2, "1200"), (3, "1310")]
+		self.assertEqual(sheet.textRow(2, 2, 3), ["1200", "1310"])
+		self.assertEqual(
+			sheet.obj.excelWorksheetObject.spans,
+			[((2, 2), (2, 3))],
+		)
+
+	def test_eachCellGoesInTheColumnItSaysItIsIn(self):
+		"""By its own coordinate, so a short or reordered answer cannot put a value under
+		the wrong heading."""
+		sheet = self._sheet()
+		batch[self._address()] = [(3, "Q2"), (1, "Region")]
+		self.assertEqual(sheet.textRow(1, 1, 3), ["Region", "", "Q2"])
+
+	def test_andWhereItSaysNothingItGoesWhereItArrived(self):
+		sheet = self._sheet()
+		batch[self._address()] = [(0, "Region"), (0, "Q1")]
+		self.assertEqual(sheet.textRow(1, 1, 3), ["Region", "Q1", ""])
+
+	def test_aHelperThatAnswersForNothingSendsTheReaderBackToTheCells(self):
+		"""None means "ask me the ordinary way". A silence read as a row of empty cells is a
+		table read as blank, which is the failure this whole seam was added after."""
+		self.assertIsNone(self._sheet().textRow(1, 1, 3))
+
+	def test_asDoesOneThatFailsOutright(self):
+		helperFails[0] = 5
+		batch[self._address()] = [(1, "Region")]
+		self.assertIsNone(self._sheet().textRow(1, 1, 3))
+
+	def test_asDoesOneNvdaHasNotInjected(self):
+		cell = aCell()
+		cell.appModule = types.SimpleNamespace(helperLocalBindingHandle=0)
+		self.assertIsNone(excelModule.ExcelSheet(cell).textRow(1, 1, 3))
+
+	def test_aSpanOfNoColumnsIsNotAsked(self):
+		self.assertIsNone(self._sheet().textRow(1, 3, 1))
+		self.assertEqual(fetches, [])
+
+	def test_aCancelledFetchIsNotAnEmptyRow(self):
+		"""It goes up to whoever asked for the reading, which is the only place that can tell
+		the reader the sheet could not be read."""
+		sheet = self._sheet()
+		real = excelModule._cellInfosFor
+
+		def cancelled(*args, **kwargs):
+			raise CallCancelled("COM call cancelled")
+
+		excelModule._cellInfosFor = cancelled
+		self.addCleanup(setattr, excelModule, "_cellInfosFor", real)
+		with self.assertRaises(CallCancelled):
+			sheet.textRow(1, 1, 3)
+
+	def test_anythingElseGoingWrongIsJustARowThisCannotRead(self):
+		class Awkward(FakeWorksheetObject):
+			def range(self, first, last):
+				raise RuntimeError("no")
+
+		self.assertIsNone(self._sheet(sheet=Awkward()).textRow(1, 1, 3))
+
+
+class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
+	"""A worksheet has no headers until a reader marks a row or a column as one, and NVDA
+	keeps what they marked in the worksheet's header cell tracker.
+
+	An empty tracker is a first-hand "no column of this sheet declares anything", and it is
+	worth asking for because the alternative was building a cell per column to be told
+	nothing — on a sheet twenty-one columns wide, the entire cost of the answer.
+	"""
+
+	def test_aSheetNobodyHasMarkedUpSaysSoWithoutTouchingACell(self):
+		sheet = excelModule.ExcelSheet(aCell())
+		self.assertEqual(sheet.columnHeaders(1, 3), {})
+		self.assertEqual(sheet.obj.excelWorksheetObject.asked, [])
+
+	def test_andOneWithMarkedHeadersSendsTheQuestionToTheCells(self):
+		"""Which marked range applies to which column is NVDA's own work and it wants a cell
+		to do it. None is how this says "ask them", and they are then asked once each."""
+		sheet = excelModule.ExcelSheet(aCell(marked={(1, 1): "a header"}))
+		self.assertIsNone(sheet.columnHeaders(1, 3))
+
+	def test_asDoesAWorksheetThatWillNotSay(self):
+		cell = aCell()
+
+		class Silent:
+			@property
+			def headerCellTracker(self):
+				raise RuntimeError("no")
+
+			excelWorksheetObject = FakeWorksheetObject()
+
+		cell.parent = Silent()
+		self.assertIsNone(excelModule.ExcelSheet(cell).columnHeaders(1, 3))
 
 
 class TestRecognisingAWorksheetCell(unittest.TestCase):

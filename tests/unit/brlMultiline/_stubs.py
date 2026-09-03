@@ -2721,11 +2721,24 @@ def scriptDecorator(**kwargs):
 	return decorate
 
 
+class CallCancelled(Exception):
+	"""NVDA's own, for the modules that catch it.
+
+	Defined here rather than imported because NVDA is not present: what matters is that one
+	class stands for it everywhere in a test run, so that a raise in a stand-in and a catch in
+	the add-on are talking about the same thing.
+	"""
+
+
 def installStubs() -> None:
 	"""Register the stand-in modules. Safe to call more than once."""
 	if PACKAGE in sys.modules:
 		return
 	_module("logHandler", log=log)
+	# NVDA's own, and the real class rather than the add-on's fallback for it: a test that
+	# raises this is testing what the watchdog does to a COM call, and it only tests it if
+	# what the add-on catches is what the test raised. See `flow.CallCancelled`.
+	_module("exceptions", CallCancelled=CallCancelled)
 	# Registered here rather than only beside the driver stubs: the plugin reaches for the
 	# composite display's own notification, and which stub module a test installed should not
 	# decide whether it finds one.

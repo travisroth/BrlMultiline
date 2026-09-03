@@ -1887,8 +1887,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			)
 			return
 		if not band.layOutTable():
-			from .flowBand import NO_LAYOUT
+			from .flowBand import NO_LAYOUT, NOT_READ
 
+			if band.tableProblem == NOT_READ:
+				ui.message(
+					# Translators: reported when the cursor is in a table but nothing could be
+					# read out of it, so there were no columns to arrange. Said apart from the
+					# message below because this one is often a moment that has passed and is
+					# worth trying again, where that one is about this display.
+					_("Nothing could be read from this table; the NVDA log says why"),
+				)
+				return
 			if band.tableProblem == NO_LAYOUT:
 				ui.message(
 					# Translators: reported when the cursor is in a table but it could not be

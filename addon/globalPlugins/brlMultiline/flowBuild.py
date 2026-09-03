@@ -33,6 +33,7 @@ from braille.regions.textInfo import TextInfoRegion
 from logHandler import log
 
 from . import bmConfig, flowForms, flowObjects, flowTable, flowTableLayouts, flowTableSource
+from .flow import CallCancelled
 from .flowControl import FlowController
 from .flowRender import FlowRenderer
 from .flowSources import (
@@ -278,6 +279,22 @@ def _objectController(
 	return control
 
 
+class Unreadable(str):
+	"""A note that also says the table could not be *read*, not that it would not lay out.
+
+	**Two failures that reached the reader as one sentence.** "This table could not be laid
+	out in columns" is true of a table whose columns will not fit a band, and it was also what
+	was said about an Excel sheet where every single read had been cancelled by the watchdog:
+	nothing had been measured, so nothing could be planned, so the plan came back empty and
+	the arithmetic was blamed. They are different things to be told — one is about this
+	display and is permanent until something changes, the other is a moment that has passed
+	and is worth trying again — so the note that explains a failure says which it was.
+
+	A string, because that is what a note is and what the log wants. The type is the whole of
+	the extra meaning: `flowBand.layOutTable` looks for one of these among the notes.
+	"""
+
+
 def buildTableController(
 	obj: Optional["NVDAObject"] = None,
 	numRows: int = DEFAULT_ROWS,
@@ -353,7 +370,20 @@ def buildTableController(
 	plainCase = frozenset(
 		column for column, choice in (saved.perColumn or {}).items() if choice.plainCase
 	)
-	everything = flowTableSource.measure(handle, live=False, plainCase=plainCase)
+	try:
+		everything = flowTableSource.measure(handle, live=False, plainCase=plainCase)
+	except CallCancelled:
+		# NVDA stopped waiting on the application in the middle of measuring, so what came
+		# back is silence rather than an empty table. Said as such, and not retried here: the
+		# core is busy, and asking again from inside the same command is asking the thing that
+		# is already too slow to do it twice. See `flow.CallCancelled`.
+		notes.append(
+			Unreadable(
+				"NVDA cancelled the reads while measuring this table, because the core had "
+				"stopped answering. Nothing was measured, so nothing could be laid out.",
+			),
+		)
+		return None
 	measured = _asTheReaderWantsThem(everything, saved, notes)
 	# The columns the reader's own layout leaves out. Not drawn, and *known*: a column the
 	# plan has never heard of is evidence the table changed under it, and hardware found the
@@ -388,7 +418,20 @@ def buildTableController(
 			keyColumn=saved.keyColumn or None,
 		)
 		if plan.isEmpty:
-			notes.append("No column layout fits this table on this band.")
+			# **Which of the two happened**, because a plan is empty either when the columns
+			# will not fit the band or when there were no columns to fit. The second is not an
+			# arithmetic failure and telling the reader it was sends them to the layout
+			# designer for a table nothing could be read out of. See `Unreadable`.
+			if not any(item.wants for item in everything):
+				notes.append(
+					Unreadable(
+						f"Nothing was read from any of this table's {handle.numCols} "
+						"columns, so there was nothing to lay out. Either it holds nothing "
+						"at the rows that were measured, or the reads failed.",
+					),
+				)
+			else:
+				notes.append("No column layout fits this table on this band.")
 			return None
 		source = flowTableSource.TableFlowSource(
 			handle,

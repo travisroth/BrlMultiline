@@ -139,6 +139,24 @@ Added:
   left to NVDA's ordinary reading rather than measured, since measuring it would stop the
   display for as long as it took.
 
+- An Excel worksheet is **measured a row at a time rather than a cell at a time**, which is
+  the difference between a layout arriving and NVDA stopping while it is worked out. Twenty
+  one columns of a small sheet took over ten seconds and then failed; the same reading is now
+  one request to Excel per row. What a column is called is asked once for the column instead
+  of once for every cell of it, and on a sheet where you have marked no headers it is not
+  asked of any cell at all.
+
+- When nothing can be read out of a table, the command **says that** rather than saying it
+  could not be laid out in columns. They are different things: one is about the display being
+  too narrow for the columns, the other is often a moment that has passed and is worth asking
+  for again. Reads that NVDA cancels because it has stopped waiting on an application are no
+  longer mistaken for empty cells, which is what turned a slow Excel sheet into a sheet that
+  looked blank.
+
+- The log's account of a worksheet that would not lay out now says what each of its columns
+  holds and where each heading came from, as it already did for a list. It used to say only
+  that there was no row in hand.
+
 - In the table designer, a column chosen as the one repeated on every page can no longer be
   a hidden one. Choosing it and then hiding it used to leave the saved layout naming a column
   the display was not repeating.

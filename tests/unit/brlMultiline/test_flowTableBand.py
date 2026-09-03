@@ -1749,7 +1749,7 @@ class TestABandThatWouldPinNothing(TableBandTestCase):
 		self.assertEqual(self.band.controller.window.numRows, ROWS - 1)
 
 
-class TestTellingTheTwoRefusalsApart(TableBandTestCase):
+class TestTellingTheThreeRefusalsApart(TableBandTestCase):
 	"""A table that was not recognised and a table that was recognised and could not be laid
 	out were the same sentence: "not in a table". They send the reader to look in two
 	different places, and the one they were sent to — is this control a table at all — is the
@@ -1757,6 +1757,12 @@ class TestTellingTheTwoRefusalsApart(TableBandTestCase):
 
 	Reported from hardware, in File Explorer's Details view. The command refused and nothing
 	anywhere said which of its four steps had done the refusing.
+
+	**And then a third, from an Excel sheet.** "Could not be laid out in columns" is about
+	arithmetic — these columns, this band, no arrangement fits — and it was what was said
+	about a worksheet where every read had been cancelled before a single width was measured.
+	Nothing was wrong with the arrangement, because there had been nothing to arrange, and the
+	reader was sent to the layout designer for a table nothing could be read out of.
 	"""
 
 	def _press(self):
@@ -1767,9 +1773,32 @@ class TestTellingTheTwoRefusalsApart(TableBandTestCase):
 		GlobalPlugin.script_flowTableColumns(CommandHolder(self.band), None)
 		return list(spokenMessages)
 
-	def _unlayoutable(self):
-		""":return: a table the reader is standing in whose every cell is a hole."""
+	def _unreadable(self):
+		""":return: a table the reader is standing in whose every cell is a hole.
+
+		Which is what a cancelled worksheet looks like from here: a table that says it has
+		columns, and not one of them answering.
+		"""
 		return self._inTable(rows=[[None, None], [None, None]])
+
+	def _unlayoutable(self):
+		""":return: a table that reads perfectly onto a band with no room for a column.
+
+		Two cells wide, which is under `flowTable.MIN_COLUMN_CELLS` — below that a column
+		stops being a value and becomes a fragment of one, so the planner refuses rather than
+		drawing one digit of each. Every cell here is readable, which is the whole difference
+		from `_unreadable`: this is the arithmetic saying no.
+		"""
+		import braille
+
+		from brlMultiline.flowBand import FlowBand
+
+		self.handler = FakeHandler(ROWS, 2)
+		braille.handler = self.handler
+		self.container = containerWithBand(self.handler, numRows=ROWS, numCols=2)
+		self.handler.mainBuffer = self.handler.buffer = self.container
+		self.band = FlowBand(FakePlugin(self.container))
+		return self._inTable(rows=[["AAPL", "182.50"], ["MSFT", "410.10"]])
 
 	def test_aTableThatCannotBeLaidOutSaysThatInstead(self):
 		self._unlayoutable()
@@ -1777,12 +1806,23 @@ class TestTellingTheTwoRefusalsApart(TableBandTestCase):
 		self.assertFalse(any("Not in a table" == message for message in said))
 		self.assertTrue(any("could not be laid out" in message for message in said))
 
+	def test_aTableThatCouldNotBeReadSaysThatInstead(self):
+		"""And says it *apart* from the arithmetic, because it is a different thing to do
+		about: often a moment that has passed and is worth asking for again."""
+		self._unreadable()
+		said = self._press()
+		self.assertFalse(any("could not be laid out" in message for message in said))
+		self.assertTrue(any("Nothing could be read" in message for message in said))
+
 	def test_andTheBandSaysWhichRefusalItWas(self):
-		from brlMultiline.flowBand import NO_LAYOUT, NO_TABLE
+		from brlMultiline.flowBand import NO_LAYOUT, NO_TABLE, NOT_READ
 
 		self._unlayoutable()
 		self.assertFalse(self.band.layOutTable())
 		self.assertEqual(self.band.tableProblem, NO_LAYOUT)
+		self._unreadable()
+		self.assertFalse(self.band.layOutTable())
+		self.assertEqual(self.band.tableProblem, NOT_READ)
 		self._elsewhere()
 		self.assertFalse(self.band.layOutTable())
 		self.assertEqual(self.band.tableProblem, NO_TABLE)
@@ -1798,6 +1838,31 @@ class TestTellingTheTwoRefusalsApart(TableBandTestCase):
 		self._unlayoutable()
 		self.band.layOutTable()
 		self.assertTrue(any("column layout" in note for note in self.band.tableNotes))
+
+	def test_andSaysSoWhenNothingCameBackAtAll(self):
+		self._unreadable()
+		self.band.layOutTable()
+		self.assertTrue(any("Nothing was read" in note for note in self.band.tableNotes))
+
+	def test_aReadCancelledMidMeasureIsNotAnEmptyTable(self):
+		"""The Excel case exactly. Once the watchdog starts recovering a frozen core, every
+		COM call raises this — so a measurement that swallowed it read twenty-one columns as
+		empty and the arithmetic got the blame."""
+		from brlMultiline import flowBuild
+		from brlMultiline.flow import CallCancelled
+		from brlMultiline.flowBand import NOT_READ
+
+		self._inTable()
+
+		def cancelled(*args, **kwargs):
+			raise CallCancelled("COM call cancelled")
+
+		real = flowBuild.flowTableSource.measure
+		flowBuild.flowTableSource.measure = cancelled
+		self.addCleanup(setattr, flowBuild.flowTableSource, "measure", real)
+		self.assertFalse(self.band.layOutTable())
+		self.assertEqual(self.band.tableProblem, NOT_READ)
+		self.assertTrue(any("cancelled the reads" in note for note in self.band.tableNotes))
 
 
 class TestSayingWhichColumnsAreShowing(TableBandTestCase):

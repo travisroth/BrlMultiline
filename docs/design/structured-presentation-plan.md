@@ -1436,7 +1436,68 @@ first drawn column, so the record named one column while the display repeated an
 chooser now offers only drawn columns, hiding the chosen one takes it out of the choice, and
 neither `repeatedColumn` nor the saved record names a column that is not showing.
 
-Not yet on hardware.
+### What the first sheet on hardware found
+
+A worksheet of nine rows, the reader standing on empty A10 below them, twenty-one columns of
+used range. The command refused with "this table could not be laid out in columns", and the
+log had an eleven second freeze in front of it: watchdog recovery started ten seconds in, the
+refusal was logged two tenths of a second later, and the whole thing recovered a second after
+that. Four separate faults, and the ordering of those three lines is what tells them apart.
+
+**Measuring cost eight or so cross-process calls per cell, and there is no need for any of
+them.** The sample was two rows — the caret's, which was the last, and row one — across
+twenty-one columns. Forty-two cells, ten seconds, about a quarter of a second each. Each cell
+was a coordinate lookup, an `NVDAObject` built with its overlay classes chosen, and
+`_get_excelCellInfo`, which is three COM calls (`address`, `Application`, `International`)
+before an in-process fetch of that one cell's text, address, states, comments, formula and
+coordinates. Standing anywhere higher in the same sheet would have made it eight rows rather
+than two.
+
+NVDA never does this. When it wants many cells it fetches a *range*:
+`ExcelCellInfoQuicknavIterator.iterate` hands the helper an address and a count and reads back
+an array. So the `Sheet` protocol gained an optional `textRow(row, first, last)` — a row of
+strings for a span of columns, or None meaning "ask me the ordinary way" — and the measurement
+uses it wherever it is offered. One call for a row instead of a hundred and seventy. Objects
+are still built for the cells that are drawn and routed into, which is where an object is what
+is wanted; measuring wants text and throws everything else away.
+
+The text is NVDA's own displayed text, which is why this goes through the helper rather than
+`Range.Value2`. A one-call value read exists and hands back what is *stored* — a date as a
+serial number, a percentage as a fraction — and a column sized from that is sized for
+something the reader will never feel.
+
+**A column's name was asked once per cell.** `SheetTable.cellOf` resolved `columnHeaderText`
+for every cell it built, and on a worksheet that is `fetchAssociatedHeaderCellText` walking the
+marked header ranges with the cell's coordinates in hand. A declared header belongs to the
+column, so it is now asked once per column — the same thing `_headerFor` already did for a list
+view. And the sheet is asked first: `Sheet.columnHeaders` is optional and Excel answers it from
+NVDA's header cell tracker, so a worksheet nobody has marked up says "no column declares
+anything" without a single cell being built, which is the entire cost of that answer on a wide
+sheet.
+
+**A cancelled read looked exactly like an empty cell**, and that is what turned a slow command
+into a wrong message. Once the watchdog starts recovering a frozen core it cancels every COM
+call the main thread makes; NVDA's comtypes patch raises `exceptions.CallCancelled`, which is
+not a `COMError` and not an `OSError`. Both `ExcelSheet.cellAt` and `flowTableSource.cellRegion`
+caught broadly and answered "there is no cell at this coordinate" — which is what a merged cell
+looks like — so all twenty-one columns measured nothing, the plan came out empty, and the
+arithmetic got the blame. It is now caught by name and re-raised, and the build says so.
+
+**And the two refusals are told apart.** "Could not be laid out in columns" is about
+arithmetic: these columns, this band, no arrangement fits, which is a thing to change the
+layout about. Nothing having been read is not that. `flowBuild.Unreadable` is a note that is
+also a kind — a `str` subclass, so the log is unchanged — `flowBand.NOT_READ` is the third
+`tableProblem`, and the command says "nothing could be read from this table" instead, which is
+often a moment that has passed and is worth asking for again.
+
+**The report could not describe a single cell.** `SheetTable` passed `row=None` to its base, so
+`describeCells` said "no row in hand, so there are no cells to describe" for every sheet — and
+the one report written to explain why this sheet would not lay out explained nothing. A sheet
+has a row *number* where the other two shapes have a row object, and that is what stands in for
+one everywhere else in the class; it now stands in here too, and `cellObject` is answered so
+the three places a header can come from are written down as they are for a list view.
+
+Not yet read on hardware since.
 
 ### Following NVDA's own Document Formatting settings
 

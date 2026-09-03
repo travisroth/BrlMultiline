@@ -43,6 +43,7 @@ from . import (
 )
 from .flowControl import FlowController
 from .flowBuild import (
+	Unreadable,
 	buildTableController,
 	bandSize,
 	buildController,
@@ -135,6 +136,16 @@ NO_LAYOUT = "layout"
 A different thing to be told and, until it had a name, the same sentence: a table recognised
 and then dropped somewhere further down said "not in a table", which sends the reader to look
 at whether the control is a table at all — the one part that had worked.
+"""
+
+NOT_READ = "unread"
+"""They are in one, and nothing could be read out of it.
+
+The third of the same family, and the same argument a step further along. "Could not be laid
+out in columns" is about arithmetic — these columns, this band, no arrangement fits — and it
+sent a reader to the layout designer for an Excel sheet where every read had been cancelled
+before a single width was measured. Nothing was wrong with the arrangement, because there had
+been nothing to arrange. See `flowBuild.Unreadable`, which is how the build says so.
 """
 
 _generations = itertools.count(1)
@@ -981,7 +992,12 @@ class FlowBand(PanelOwner):
 		if self.controller is not None and self._readingATable():
 			self.tableProblem = None
 			return True
-		self.tableProblem = NO_LAYOUT
+		# Which of the two the build hit, in its own words. See `flowBuild.Unreadable`.
+		self.tableProblem = (
+			NOT_READ
+			if any(isinstance(note, Unreadable) for note in self.tableNotes)
+			else NO_LAYOUT
+		)
 		self._reportNoLayout(obj, handle)
 		return False
 

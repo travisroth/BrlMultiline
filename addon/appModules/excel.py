@@ -40,9 +40,29 @@ Such a cell is left alone, so the reader keeps NVDA's ordinary reading of it rat
 layout drawn from numbers this could not check.
 """
 
+import ctypes
+from typing import Optional
+
 import eventHandler
+import NVDAHelper
+from comtypes import BSTR
 from logHandler import log
+from NVDAHelper.localLib import EXCEL_CELLINFO
+from NVDAObjects.window.excel import (
+	NVCELLINFOFLAG_COORDS,
+	NVCELLINFOFLAG_TEXT,
+	convertAddressToLocal,
+	xlA1,
+)
 from nvdaBuiltin.appModules.excel import AppModule as ExcelAppModule
+
+try:
+	from exceptions import CallCancelled
+except ImportError:  # Outside NVDA, and on an NVDA old enough not to have it.
+
+	class CallCancelled(Exception):  # type: ignore[no-redef]
+		"""Stand-in for NVDA's own. See `globalPlugins.brlMultiline.flow`."""
+
 
 MAX_COLUMNS = 250
 """How wide a sheet may be before it is left to NVDA's ordinary reading.
@@ -156,12 +176,97 @@ class ExcelSheet:
 		"""
 		return self.shape()[1] > MAX_COLUMNS
 
+	def textRow(self, row: int, first: int, last: int) -> Optional[list]:
+		""":return: a row's text across a span of columns, in one call, or None.
+
+		**One cross-process call for the whole row, where asking cell by cell was eight or so
+		per column.** This is the batch fetch NVDA's own quick navigation uses —
+		`ExcelCellInfoQuicknavIterator.iterate` — pointed at a contiguous range instead of a
+		sparse collection: the helper is given an address and a count and fills in one
+		`EXCEL_CELLINFO` per cell, of which this wants two fields.
+
+		The measurement is what needs it. Reading twenty-one columns of two rows a cell at a
+		time took over ten seconds on hardware, because each cell was a coordinate lookup, an
+		`NVDAObject` built with its overlay classes chosen, and a separate helper call
+		fetching that one cell's text, address, states, comments and formula. NVDA never does
+		that: it fetches ranges. Neither does this, now.
+
+		**The text is what is displayed**, which is the point of going through the helper
+		rather than through `Range.Value2`. A one-call value read exists, but it hands back
+		what is stored — a date as a serial number, a percentage as a fraction — and a column
+		sized from that is a column sized for something the reader will never feel.
+
+		None wherever this cannot be sure, and None means the caller reads the row cell by
+		cell as it always did. See `flowObjectTable.Sheet.textRow`.
+
+		:param row: the row to read.
+		:param first: the first column of the span.
+		:param last: the last column, inclusive.
+		"""
+		count = last - first + 1
+		if count < 1:
+			return None
+		try:
+			sheet = self._sheet
+			span = sheet.range(sheet.cells(row, first), sheet.cells(row, last))
+			address = convertAddressToLocal(
+				self.cell.excelCellObject.Application,
+				span.address(True, True, xlA1, True),
+			)
+			said = _cellInfosFor(self.cell, address, count)
+		except CallCancelled:
+			raise
+		except Exception:
+			log.debugWarning(f"Could not read row {row} in one call", exc_info=True)
+			return None
+		if said is None:
+			return None
+		texts = [""] * count
+		for index, (column, text) in enumerate(said):
+			# By the coordinate it came back with, and by its place in the answer only where
+			# it came back without one. A cell that says which column it is in cannot be put
+			# in the wrong one by a short or reordered answer.
+			place = column - first if column else index
+			if 0 <= place < count:
+				texts[place] = text
+		return texts
+
+	def columnHeaders(self, first: int, last: int) -> Optional[dict]:
+		""":return: an empty mapping where no column declares a header, or None to ask the cells.
+
+		**Almost always the empty mapping, and that is the whole value of it.** A worksheet
+		has no headers until a reader marks a row or a column as one, and NVDA records what
+		they marked in the worksheet's header cell tracker. An empty tracker is a first-hand
+		"no column of this sheet declares anything", which saves building a cell per column to
+		be told nothing — on a sheet twenty-one columns wide that was the entire cost of the
+		answer.
+
+		Where the tracker does hold something, None: resolving which marked range applies to
+		which column is `fetchAssociatedHeaderCellText`'s job and it wants a cell to do it, so
+		the ordinary per-column ask is the right thing and it happens once per column. See
+		`flowObjectTable.SheetTable._headerOf`.
+
+		:param first: the first column of the span. Unused; the tracker is the whole sheet's.
+		:param last: the last column, inclusive. Unused, for the same reason.
+		"""
+		try:
+			marked = getattr(self.obj.headerCellTracker, "infosDict", None)
+		except CallCancelled:
+			raise
+		except Exception:
+			log.debugWarning("Could not ask a worksheet whether it has header cells", exc_info=True)
+			return None
+		return None if marked else {}
+
 	def cellAt(self, row: int, column: int):
 		""":return: the cell at one coordinate, or None if it cannot be reached.
 
 		Wrapped in NVDA's own `ExcelCell`, exactly as `ExcelWorksheet._get_firstChild` does
 		it, so that everything asked of the cell afterwards is NVDA's answer and not this
 		add-on's guess at one.
+
+		**For the cells that are drawn and routed into**, which after `textRow` is what this
+		is for. Measuring a bandful of a sheet no longer comes through here.
 		"""
 		try:
 			found = type(self.cell)(
@@ -169,6 +274,11 @@ class ExcelSheet:
 				excelWindowObject=self.cell.excelWindowObject,
 				excelCellObject=self._sheet.cells(row, column),
 			)
+		except CallCancelled:
+			# Not "there is no cell here": NVDA has stopped waiting on Excel, and a reader
+			# that hears "empty" instead is told the sheet is blank. See
+			# `globalPlugins.brlMultiline.flow.CallCancelled`.
+			raise
 		except Exception:
 			log.debugWarning(f"Could not reach row {row} column {column}", exc_info=True)
 			return None
@@ -180,6 +290,46 @@ class ExcelSheet:
 		# what stops the getter ever running.
 		found.parent = self.obj
 		return found
+
+
+def _cellInfosFor(cell, address: str, count: int) -> Optional[list]:
+	""":return: the column and text of each cell of a range, in one call, or None.
+
+	The call itself, kept apart from `ExcelSheet.textRow` because it is the only ctypes in
+	this file and because what it does is one sentence: hand NVDA's in-process helper an
+	address and a count, and read back what it filled in.
+
+	Only two of the twelve fields of an `EXCEL_CELLINFO` are asked for. The flags matter as
+	much as the batching does — `NVCELLINFOFLAG_ALL`, which is what building a cell object
+	fetches, gathers comments and formulas and states nobody is going to read.
+
+	:param cell: any cell of the sheet, for the window and the helper's binding handle.
+	:param address: the range, already in the application's own notation.
+	:param count: how many cells the range holds.
+	:return: one (column number, text) pair per cell the helper answered for, or None where
+		it answered for none — which sends the caller back to reading cell by cell rather
+		than letting a silence be read as a row of empty cells.
+	"""
+	binding = cell.appModule.helperLocalBindingHandle
+	if not binding:
+		return None
+	infos = (EXCEL_CELLINFO * count)()
+	fetched = ctypes.c_long()
+	result = NVDAHelper.localLib.nvdaInProcUtils_excel_getCellInfos(
+		binding,
+		cell.windowHandle,
+		BSTR(address),
+		NVCELLINFOFLAG_TEXT | NVCELLINFOFLAG_COORDS,
+		count,
+		infos,
+		ctypes.byref(fetched),
+	)
+	if result != 0 or not fetched.value:
+		return None
+	return [
+		(int(infos[index].columnNumber or 0), infos[index].text or "")
+		for index in range(min(fetched.value, count))
+	]
 
 
 def sheetFor(cell):

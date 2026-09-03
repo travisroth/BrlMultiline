@@ -1058,6 +1058,233 @@ class FakeSheet:
 		return cell
 
 
+class BulkSheet(FakeSheet):
+	"""A sheet that reads a whole row in one call and answers for its columns' names.
+
+	The two optional halves of `flowObjectTable.Sheet`, which a spreadsheet can answer and a
+	list view cannot. `FakeSheet` above offers neither, so the pair covers both sides of both
+	seams: the cheap path and the fallback to reading cell by cell.
+	"""
+
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self.rowsRead = []
+		self.timesAskedTheHeaders = 0
+		self.short = 0
+		"""How many columns to leave off the end of an answer, for the ragged case."""
+
+	def textRow(self, row, first, last):
+		self.rowsRead.append((row, first, last))
+		line = self.rows[row - 1] if 1 <= row <= len(self.rows) else []
+		said = [
+			(line[column - 1] or "") if 1 <= column <= len(line) else ""
+			for column in range(first, last + 1)
+		]
+		return said[: len(said) - self.short] if self.short else said
+
+	def columnHeaders(self, first, last):
+		self.timesAskedTheHeaders += 1
+		return dict(self.headers)
+
+
+class TestMeasuringASheetThatReadsItsOwnRows(unittest.TestCase):
+	"""Measuring wants text and throws everything else away, and a grid can often hand over a
+	row of it far more cheaply than the flow can assemble one.
+
+	From hardware: twenty-one columns of two rows of an Excel sheet, read a cell at a time,
+	took over ten seconds — each cell a coordinate lookup, an `NVDAObject` built with its
+	overlay classes chosen, and a cross-process fetch of that cell's text, address, states,
+	comments and formula. Past the watchdog's patience, so the reads that followed were
+	cancelled and the sheet then measured empty.
+	"""
+
+	def _handle(self, sheet):
+		""":return: the table, with what recognising it cost already forgotten.
+
+		Recognising a table asks the sheet for the cell the reader is standing in, once, to
+		find out where that is. That is not measuring and these tests are about measuring, so
+		the record starts empty here and every cell in it afterwards is one the measurement
+		asked for.
+		"""
+		cell = FakeNavigatorObject("North", role="TABLECELL")
+		cell.brlMultilineSheet = lambda: sheet
+		handle = flowTableSource.tableAt(cell)
+		sheet.asked.clear()
+		return handle
+
+	def test_theRowsAreReadWholeAndNoCellIsBuilt(self):
+		sheet = BulkSheet(at=(2, 1))
+		flowTableSource.measure(self._handle(sheet))
+		self.assertEqual(sheet.asked, [])
+		self.assertEqual(sheet.rowsRead, [(1, 1, 4), (2, 1, 4), (3, 1, 4), (4, 1, 4)])
+
+	def test_andTheWidthsAreTheOnesTheCellsWouldHaveGiven(self):
+		"""The point of the seam is the cost, so the answer has to be the same answer."""
+		cheap = flowTableSource.measure(self._handle(BulkSheet(at=(2, 1))))
+		slow = flowTableSource.measure(self._handle(FakeSheet(at=(2, 1))))
+		self.assertEqual(
+			[(item.index, item.width, item.typicalWidth) for item in cheap],
+			[(item.index, item.width, item.typicalWidth) for item in slow],
+		)
+
+	def test_aSheetThatDoesNotOfferItIsStillReadCellByCell(self):
+		sheet = FakeSheet(at=(2, 1))
+		flowTableSource.measure(self._handle(sheet))
+		self.assertTrue(sheet.asked)
+
+	def test_andSoIsOneThatOffersItAndThenWillNotAnswer(self):
+		"""None is "ask me the ordinary way", which is what a batch fetch that came back
+		empty has to say — a silence read as a row of empty cells is a table read as blank."""
+
+		class Silent(BulkSheet):
+			def textRow(self, row, first, last):
+				return None
+
+		sheet = Silent(at=(2, 1))
+		flowTableSource.measure(self._handle(sheet))
+		self.assertTrue(sheet.asked)
+
+	def test_aRaggedAnswerIsPaddedRatherThanRefused(self):
+		"""So that a grid answering for fewer columns than were asked still saves the reads
+		it did answer for."""
+		sheet = BulkSheet(at=(2, 1))
+		sheet.short = 2
+		measured = flowTableSource.measure(self._handle(sheet))
+		self.assertEqual(sheet.asked, [])
+		self.assertTrue(measured[0].width)
+		self.assertTrue(measured[-1].hidden)
+
+	def test_aColumnWithoutCapitalSignsIsLoweredOnThisPathToo(self):
+		"""Or the setting saves nothing: a column measured with the capitals indicator in it
+		is sized for the two cells the reader turned it off to get back."""
+		sheet = BulkSheet(rows=[["AAPL"], ["MSFT"]], at=(1, 1))
+		measured = flowTableSource.measure(self._handle(sheet), plainCase=(1,))
+		self.assertEqual(measured[0].width, len("aapl"))
+
+	def test_theHeadersAreAskedOnceForTheWholeTable(self):
+		sheet = BulkSheet(at=(2, 1), headers={1: "Region", 2: "Q1"})
+		measured = flowTableSource.measure(self._handle(sheet))
+		self.assertEqual(sheet.timesAskedTheHeaders, 1)
+		self.assertEqual([item.label for item in measured[:2]], ["Region", "Q1"])
+		self.assertTrue(all(item.declared for item in measured[:2]))
+
+	def test_andNoCellIsBuiltToBeToldThereAreNone(self):
+		"""Which is every worksheet nobody has marked up, and on a wide one it was the entire
+		cost of the answer."""
+		sheet = BulkSheet(at=(2, 1))
+		measured = flowTableSource.measure(self._handle(sheet))
+		self.assertEqual(sheet.asked, [])
+		self.assertEqual([item.label for item in measured], ["", "", "", ""])
+
+	def test_aSheetThatWillNotSayIsAskedThroughItsCellsInstead(self):
+		"""Once per column, and only because the bulk path never builds a cell to ask."""
+
+		class Unsure(BulkSheet):
+			def columnHeaders(self, first, last):
+				return None
+
+		sheet = Unsure(at=(2, 1), headers={2: "Q1"})
+		measured = flowTableSource.measure(self._handle(sheet))
+		self.assertEqual(measured[1].label, "Q1")
+		self.assertTrue(sheet.asked)
+
+
+class TestAskingAColumnWhatItIsCalledOnce(unittest.TestCase):
+	"""A declared header belongs to the column, so a second cell of it cannot answer
+	differently — and on a spreadsheet `columnHeaderText` is resolved by walking the
+	worksheet's marked ranges with the cell's coordinates in hand, which is real work.
+
+	It was asked of every cell fetched: a band of eight rows across five columns asked it
+	forty times for five answers.
+	"""
+
+	def _counting(self):
+		""":return: the asks made of a cell for its column's name, as they happen."""
+		asks: list = []
+		real = flowObjectTable.headerTextOf
+		flowObjectTable.headerTextOf = lambda cell: asks.append(cell.columnNumber) or real(cell)
+		self.addCleanup(setattr, flowObjectTable, "headerTextOf", real)
+		return asks
+
+	def test_aColumnIsAskedOnceAndNotOncePerCell(self):
+		asks = self._counting()
+		table = flowObjectTable.SheetTable(FakeSheet(headers={2: "Q1"}))
+		for row in (1, 2, 3, 4):
+			table._getTableCellAt(flowObjectTable.TABLE_ID, None, row, 2)
+		self.assertEqual(asks, [2])
+
+	def test_andTheAnswerIsStillOnEveryCellOfIt(self):
+		table = flowObjectTable.SheetTable(FakeSheet(headers={2: "Q1"}))
+		found = [
+			table._getTableCellAt(flowObjectTable.TABLE_ID, None, row, 2).header
+			for row in (1, 2, 3, 4)
+		]
+		self.assertEqual(found, ["Q1"] * 4)
+
+	def test_andEachColumnIsAskedForItself(self):
+		asks = self._counting()
+		table = flowObjectTable.SheetTable(FakeSheet(headers={1: "Region", 2: "Q1"}))
+		for column in (1, 2, 1, 2):
+			table._getTableCellAt(flowObjectTable.TABLE_ID, None, 2, column)
+		self.assertEqual(asks, [1, 2])
+
+	def test_noCellIsAskedWhereTheSheetAnsweredForAllOfThem(self):
+		"""Including by answering that none of them declares anything, which is every
+		worksheet nobody has marked up."""
+		asks = self._counting()
+		table = flowObjectTable.SheetTable(BulkSheet())
+		for column in (1, 2, 3):
+			table._getTableCellAt(flowObjectTable.TABLE_ID, None, 2, column)
+		self.assertEqual(asks, [])
+
+	def test_andTheSheetsAnswerIsTheOneDrawn(self):
+		table = flowObjectTable.SheetTable(BulkSheet(headers={3: "Q2"}))
+		cell = table._getTableCellAt(flowObjectTable.TABLE_ID, None, 2, 3)
+		self.assertEqual(cell.header, "Q2")
+
+	def test_theNamesAreForgottenWhenTheTableIs(self):
+		"""A sheet read afresh may be a sheet whose reader has just marked a header row."""
+		asks = self._counting()
+		table = flowObjectTable.SheetTable(FakeSheet(headers={2: "Q1"}))
+		table._getTableCellAt(flowObjectTable.TABLE_ID, None, 2, 2)
+		table.forget()
+		table._getTableCellAt(flowObjectTable.TABLE_ID, None, 2, 2)
+		self.assertEqual(asks, [2, 2])
+
+
+class TestWhatASheetSaysInTheReport(unittest.TestCase):
+	"""The dry run's account of a sheet said "no row in hand, so there are no cells to
+	describe" and nothing else, for every sheet — because a sheet has a row *number* where
+	the other two shapes have a row object, and the base class asked for the object.
+
+	So the one report written to explain why an Excel sheet would not lay out explained
+	nothing, and the reason had to be reasoned out from the shape of the failure instead.
+	"""
+
+	def _table(self, **kwargs):
+		return flowObjectTable.SheetTable(FakeSheet(**kwargs))
+
+	def test_theRowInHandIsTheRowNumberTheSheetGave(self):
+		self.assertEqual(self._table(at=(3, 2)).focused, 3)
+
+	def test_andTheCellsOfItAreDescribed(self):
+		found = "\n".join(self._table(at=(3, 1)).describeCells())
+		self.assertNotIn("no row in hand", found)
+		self.assertIn("'South'", found)
+		self.assertIn("'980'", found)
+
+	def test_andSoIsWhereEachOfThemCameFrom(self):
+		"""The three places a header can come from, which is what the report is for."""
+		found = "\n".join(self._table(at=(3, 1), headers={1: "Region"}).describeCells())
+		self.assertIn("columnHeaderText", found)
+		self.assertIn("under header 'Region'", found)
+
+	def test_andTheWholeAccountStillNamesTheSheet(self):
+		found = "\n".join(self._table(at=(3, 1)).describe())
+		self.assertIn("A sheet read by coordinate", found)
+		self.assertIn("'South'", found)
+
+
 class TestASheetReadByCoordinate(unittest.TestCase):
 	"""M5's third: a spreadsheet. Different from the other two shapes in the way that matters
 	most — there is no row object at all, and a cell is reached by saying which one you want,

@@ -44,7 +44,7 @@ from braille.regions.base import Region, TextRegion
 from logHandler import log
 
 from . import flowObjectTable
-from .flow import BlockId, FetchResult, SourceBlock
+from .flow import BlockId, CallCancelled, FetchResult, SourceBlock
 from .flowSources import FetchBudget
 from .flowTable import SEPARATOR_CELL, Measurement, RowCell, cellPosition, positionParts
 
@@ -659,12 +659,15 @@ def _rowsToAsk(handle: TableHandle, row: Optional[int], tries: int) -> list:
 	return rows
 
 
-def headerWidth(text: str) -> int:
-	""":return: how wide a header is in braille cells, by translating it.
+def widthOf(text: str) -> int:
+	""":return: how wide a piece of text is in braille cells, by translating it.
 
-	The only honest measurement, and the same one `measure` makes of a cell — see the module
-	docstring. A declared header is a string rather than a cell of the table, so there is no
-	region to ask; one is made and thrown away.
+	The only honest measurement — see the module docstring, which is about why a character
+	count is not one. Used wherever the text arrives as a string rather than as a cell of the
+	document: a declared header, and a row handed over whole by a grid that can read itself
+	cheaply. A region is made and thrown away, which is what measuring a cell does too.
+
+	:param text: what will be drawn.
 	"""
 	if not text:
 		return 0
@@ -673,8 +676,97 @@ def headerWidth(text: str) -> int:
 		region.update()
 		return len(region.brailleCells)
 	except Exception:
-		log.debugWarning("Could not measure a table header", exc_info=True)
+		log.debugWarning("Could not measure a piece of text", exc_info=True)
 		return len(text)
+
+
+def headerWidth(text: str) -> int:
+	""":return: how wide a header is in braille cells. See `widthOf`."""
+	return widthOf(text)
+
+
+def _offeredBy(handle: TableHandle, name: str):
+	""":return: one of the optional methods of a table stand-in, or None if there is not one.
+
+	**Asked only of this add-on's own stand-ins**, and that is the whole of the care needed
+	here. The two optional seams are looked up by name, and the other kind of table this
+	reads is a browse mode document — a foreign object where a name means whatever the
+	application that wrote it decided it means. NVDA's own table document has no `rowText`;
+	the stand-in this add-on's tests use holds a table's column headers in an attribute called
+	exactly `columnHeaders`, and calling that as a method would have written a debug warning
+	on every measurement of every web page.
+
+	:param handle: the table.
+	:param name: the method wanted.
+	"""
+	if not isinstance(handle.document, flowObjectTable.ObjectTable):
+		return None
+	offered = getattr(handle.document, name, None)
+	return offered if callable(offered) else None
+
+
+def rowTextOf(handle: TableHandle, row: int, first: int, last: int):
+	""":return: a row's text across a span of columns in one read, or None to read it cell by cell.
+
+	**The cheap seam, asked of the document and offered by almost nothing.** Only a grid that
+	can read itself in bulk answers — see `flowObjectTable.Sheet.textRow` — and everything
+	else is measured exactly as it was, one cell region at a time. A document that answers is
+	trusted for the whole span: a column it left out is a column that holds nothing, which is
+	what an empty string means everywhere else here.
+
+	:param handle: the table.
+	:param row: the row to read.
+	:param first: the first column of the span.
+	:param last: the last column, inclusive.
+	:return: one string per column of the span, or None.
+	"""
+	offered = _offeredBy(handle, "rowText")
+	if offered is None:
+		return None
+	wanted = last - first + 1
+	if wanted <= 0:
+		return None
+	try:
+		said = offered(row, first, last)
+	except CallCancelled:
+		raise
+	except Exception:
+		log.debugWarning(f"Could not read row {row} in one go", exc_info=True)
+		return None
+	if said is None:
+		return None
+	said = [str(text or "") for text in list(said)[:wanted]]
+	# Padded rather than refused, so that a grid which answers for fewer columns than were
+	# asked still saves the reads it did answer for.
+	return said + [""] * (wanted - len(said))
+
+
+def columnHeadersOf(handle: TableHandle, first: int, last: int):
+	""":return: what the columns declare, from a document that can say without reading cells.
+
+	None where it cannot, which sends the caller to `declaredHeaders` or to asking each cell
+	as it is measured. An empty mapping is an answer rather than a silence: it means the
+	document was asked and no column of it declares anything, and it is what saves a
+	spreadsheet a cell fetch per column for a question whose answer is nothing. See
+	`flowObjectTable.Sheet.columnHeaders`.
+
+	:param handle: the table.
+	:param first: the first column of the span.
+	:param last: the last column, inclusive.
+	"""
+	offered = _offeredBy(handle, "columnHeaders")
+	if offered is None:
+		return None
+	try:
+		said = offered(first, last)
+	except CallCancelled:
+		raise
+	except Exception:
+		log.debugWarning("Could not ask a table what its columns are called", exc_info=True)
+		return None
+	if said is None:
+		return None
+	return {int(column): str(text or "") for column, text in dict(said).items()}
 
 
 def firstRowIsHeadings(document) -> bool:
@@ -742,6 +834,12 @@ def cellRegion(
 	"""
 	try:
 		info = handle.document._getTableCellAt(handle.tableID, handle.document.selection, row, column)
+	except CallCancelled:
+		# **Not "there is no cell here".** A cancelled call is NVDA saying it has stopped
+		# waiting, and swallowing it here made a whole worksheet measure empty. It goes up to
+		# whoever asked for the reading, which is the only place that can tell the reader the
+		# table could not be read. See `flow.CallCancelled`.
+		raise
 	except (LookupError, OSError):
 		return None
 	except Exception:
@@ -823,15 +921,47 @@ def measure(
 	# first row. See `firstRowIsHeadings`.
 	borrowRowOne = firstRowIsHeadings(handle.document)
 	plain = frozenset(plainCase)
+	# **What the columns are called, asked once for the table rather than once per cell.**
+	# Where the document can say without reading anything it is asked here and the per-cell
+	# question below never runs; where it cannot, and rows are being read in bulk so there
+	# are no cells to ask, one cell per column is read now instead of one per cell later.
+	# See `columnHeadersOf` and `flowObjectTable.Sheet.columnHeaders`.
+	stated = columnHeadersOf(handle, 1, handle.numCols)
+	if stated is None and _offeredBy(handle, "rowText") is not None:
+		stated = declaredHeaders(handle, columns)
+	for column, said in (stated or {}).items():
+		if said and column in labels:
+			labels[column] = said
+			headers[column] = headerWidth(said)
+			declared.add(column)
 	for row in _sampleRows(handle, sample):
+		# One read for the whole row where the document offers it, and the ordinary cell at a
+		# time where it does not. Only the source of the text differs; everything below this
+		# is the same measurement either way. See `rowTextOf`.
+		saidRow = rowTextOf(handle, row, 1, handle.numCols)
 		for column in columns:
-			region = cellRegion(handle, row, column, live=live, plainCase=column in plain)
-			if region is None:
-				continue
+			info = None
+			if saidRow is not None:
+				text = saidRow[column - 1]
+				if column in plain:
+					text = withoutCapitals(text)
+				size = widthOf(text)
+			else:
+				region = cellRegion(handle, row, column, live=live, plainCase=column in plain)
+				if region is None:
+					continue
+				text = region.rawText
+				size = len(region.brailleCells)
+				info = region.info
 			found.add(column)
-			size = len(region.brailleCells)
 			widths[column] = max(widths[column], size)
-			if not labels[column] and asked[column] < HEADER_TRIES and column not in declared:
+			if (
+				info is not None
+				and stated is None
+				and not labels[column]
+				and asked[column] < HEADER_TRIES
+				and column not in declared
+			):
 				# **Asked of more than one cell**, and that is the difference from asking
 				# once. A declared header is a property of the column, so any cell of it
 				# answers — but only if the cell that was asked is one that answers at all,
@@ -844,14 +974,14 @@ def measure(
 				# fields on every cell of the sample. Stopped the moment one answers, which
 				# for a table that does declare is the first cell.
 				asked[column] += 1
-				said = declaredHeader(region.info)
+				said = declaredHeader(info)
 				if said:
 					labels[column] = said
 					headers[column] = headerWidth(said)
 					declared.add(column)
 			if row == HEADER_ROW and borrowRowOne and not labels[column]:
 				# Nothing declared, so the guess. See `HEADER_ROW`.
-				labels[column] = region.rawText
+				labels[column] = text
 				headers[column] = size
 			else:
 				# Row one included, where the header was declared rather than borrowed from
