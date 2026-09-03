@@ -13,16 +13,36 @@ Monarch connected in terminal mode and selected as NVDA's braille display.
 	import tactileGraphicsSpike as spike
 	spike.hunt()
 
-The first run of `hunt` on real hardware found something the plan did not expect: the
-device declares an output report of 481 bytes, when eight rows of thirty-two cells need
-only 33. Four hundred and eighty payload bytes is 3,840 bits, which is exactly the
-Monarch's pin count, and exactly 48 cell columns by 10 cell rows of the full 96 by 40
-panel. The only output declaration not accounted for by the braille rows is a single output
-*button* cap, which is how a pin matrix would be declared: one bit per pin.
+After editing this file, the console will keep running the version it first imported, because
+`import` is a no op once a module is in `sys.modules`. Reload it:
 
-That is the whole 47 percent the plan wrote off, sitting on the interface NVDA already has
-open. NVDA cannot see it because `hidBrailleStandard._findCellValueCaps` keeps only value
-caps whose link usage is `BRAILLE_ROW`, and NVDA reads button caps for input only.
+	import importlib; spike = importlib.reload(spike)
+
+That is safe to do while the display is held. `hold` shadows the handler's `_writeCells`
+with an instance attribute and `release` deletes it again, so neither depends on module
+state that a reload would discard. `isHeld` reads the handler rather than a flag.
+
+Hardware runs have now confirmed what the plan did not expect. The Monarch declares an
+output report of 481 bytes, where eight rows of thirty-two cells need only 33, and the
+extra is a single output *button* cap:
+
+	report 0x21, usage 0x301, collection 4 (link usage 0x300), ReportCount 3840
+
+Three thousand eight hundred and forty one bit fields is 480 bytes, which is the whole 481
+byte report, and 3,840 is exactly the Monarch's pin count. It is declared in the same
+vendor collection, usage 0x300, that owns the eight braille rows.
+
+That is the entire pin grid, on the interface NVDA already has open. NVDA cannot see it:
+`hidBrailleStandard._findCellValueCaps` keeps only value caps whose link usage is
+`BRAILLE_ROW`, and NVDA reads button caps for input only.
+
+**It is confirmed working.** With the handler held, `pinClear` lowered the whole panel and
+`pinFill` raised it fully solid. No mode switch, no feature write. What remains is the bit
+order, which `pinBit` and `pinWalk` exist to establish by touch.
+
+Note that output report 0x21 and *feature* report 0x21 are different reports — HID report
+IDs are namespaced per report type. The feature one carries usage 0x301 again as a 0 or 1
+value, alongside 0x302 and 0x304, and reads `21 01 50 20`.
 
 So the run order is now:
 
@@ -56,16 +76,18 @@ from __future__ import annotations
 
 import ctypes
 import time
+from collections import deque
 from ctypes import byref
 from ctypes.wintypes import ULONG, USHORT
 from typing import Any, Optional
 
 import braille
+import core
 import hidpi
 import hwPortUtils
 import winBindings.hid
 from braille.regions.base import TextRegion
-from hwIo.hid import HidOutputReport, check_HidP_status
+from hwIo.hid import HidInputReport, HidOutputReport, check_HidP_status
 from logHandler import log
 
 # --- Dot numbering -------------------------------------------------------------------
@@ -93,8 +115,32 @@ Derived from NVDA's own table rather than transcribed, so it cannot drift from c
 this is **not** the packing `dotPad.driver.DpTactileGraphicsBuffer` uses, which puts the
 left column in bits 0 to 3 and the right column in bits 4 to 7. That is not braille dot
 numbering and would render scrambled through a HID `8 Dot Braille Cell` value. `dotOrder`
-is the hardware check that this table is the right one.
+is the hardware check that this table is the right one, and `pinVLine` turned out to be a
+second one: the pin path had copied the DotPad packing and drew a column of p.
 """
+
+POSITION_FOR_CELL_BIT: tuple = tuple(tuple(coords) for coords in _brailleDotCoords)
+"""Where in a 2 by 4 block each bit of a cell byte raises its pin.
+
+The same table read the other way, kept beside it so an index and a position cannot come
+from two different beliefs about the packing.
+"""
+
+try:
+	from tactile import TactileGraphicsBuffer as _BufferBase
+except ImportError:  # NVDA older than 2025.1.
+
+	class _BufferBase:  # type: ignore[no-redef]
+		def __init__(self, width: int, height: int):
+			self.width = width
+			self.height = height
+
+
+"""The seam NVDA core offers for tactile graphics, present since 2025.1.
+
+Defined here, above both canvases, because `PinCanvas` and `CellCanvas` both subclass it.
+"""
+
 
 CELL_WIDTH = 2
 CELL_HEIGHT = 4
@@ -105,10 +151,6 @@ MONARCH_PINS = 3840
 """The published pin count, and the number this device's descriptor keeps referring to."""
 
 BRAILLE_USAGE_PAGE = 0x41
-
-_held: bool = False
-_originalWriteCells = None
-"""`braille.handler._writeCells` as it was before `hold` replaced it."""
 
 
 def _say(message: str) -> None:
@@ -270,11 +312,26 @@ def _buttonCaps(device: Any, reportType: hidpi.HIDP_REPORT_TYPE) -> list[Any]:
 	return list(capsList[: number.value])
 
 
-def _capUsageCount(cap: Any) -> int:
-	""":return: how many usages a cap covers, which for a button cap is how many bits."""
-	if cap.IsRange:
-		return cap.u1.Range.UsageMax - cap.u1.Range.UsageMin + 1
-	return 1
+def _capBitCount(cap: Any) -> int:
+	""":return: how many one bit fields a button cap occupies in its report.
+
+	There are two ways a descriptor can declare a block of bits, and the Monarch uses both,
+	so counting only one of them gets the wrong answer.
+
+	A *usage range* declares one usage per bit and leaves `ReportCount` at 1: the Monarch's
+	routing keys are `0x402` to `0x501`, 256 usages, 256 bits, 32 bytes, which is exactly its
+	33 byte input report.
+
+	A *repeated single usage* declares one usage and puts the count in `ReportCount`: the
+	Monarch's output report 0x21 is usage `0x301` with `ReportCount` 3840. That is 3,840 one
+	bit fields, 480 bytes, which is exactly its 481 byte output report. One bit per pin.
+
+	The first version of this function returned the usage count alone, so it read the pin
+	array as a single bit and `pinCap` dismissed it. Taking the larger of the two is right
+	for both forms.
+	"""
+	usages = cap.u1.Range.UsageMax - cap.u1.Range.UsageMin + 1 if cap.IsRange else 1
+	return max(usages, cap.ReportCount)
 
 
 def _describeValueCap(cap: Any) -> str:
@@ -304,12 +361,18 @@ def _describeButtonCap(cap: Any) -> str:
 		nr = cap.u1.NotRange
 		usageText = f"usage 0x{nr.Usage:X} {_brailleUsageName(nr.Usage) if cap.UsagePage == BRAILLE_USAGE_PAGE else ''}"
 		indexText = f"data index {nr.DataIndex}"
-	bits = _capUsageCount(cap)
+	bits = _capBitCount(cap)
+	# Say which of the two declaration forms this is, because they look alike in a dump and
+	# reading the wrong one is exactly how the pin array got missed the first time.
+	if cap.IsRange:
+		shapeText = f"{bits} usages, one bit each"
+	else:
+		shapeText = f"one usage repeated {cap.ReportCount} times"
 	return (
 		f"  report 0x{cap.ReportID:02X} page 0x{cap.UsagePage:04X} ({_usagePageName(cap.UsagePage)}) "
 		f"{usageText} in collection {cap.LinkCollection} "
 		f"(link page 0x{cap.LinkUsagePage:04X} usage 0x{cap.LinkUsage:X}), "
-		f"{bits} usages = {bits} bits = {bits / 8:.0f} bytes, reportCount {cap.ReportCount}, {indexText}"
+		f"{shapeText} = {bits} bits = {bits / 8:.0f} bytes, reportCount {cap.ReportCount}, {indexText}"
 	)
 
 
@@ -387,7 +450,7 @@ def reports() -> None:
 			f"value usage 0x{cap.u1.NotRange.Usage:X} count {cap.ReportCount}",
 		)
 	for cap in _buttonCaps(device, hidpi.HIDP_REPORT_TYPE.OUTPUT):
-		bits = _capUsageCount(cap)
+		bits = _capBitCount(cap)
 		sizes[cap.ReportID] = sizes.get(cap.ReportID, 0) + bits
 		owners.setdefault(cap.ReportID, []).append(f"button array of {bits} bits")
 	_say("--- Output reports ---")
@@ -504,10 +567,10 @@ def pinCap() -> Optional[Any]:
 		return None
 	best = None
 	for cap in _buttonCaps(device, hidpi.HIDP_REPORT_TYPE.OUTPUT):
-		bits = _capUsageCount(cap)
+		bits = _capBitCount(cap)
 		if bits < 256:
 			continue
-		if best is None or bits > _capUsageCount(best):
+		if best is None or bits > _capBitCount(best):
 			best = cap
 	return best
 
@@ -529,7 +592,7 @@ def pins() -> None:
 		_say("No output button array large enough to be a pin matrix.")
 		_say("If NumberOutputButtonCaps is non zero, run descriptor() and read the caps by hand.")
 		return
-	bits = _capUsageCount(cap)
+	bits = _capBitCount(cap)
 	_say(f"Candidate pin report 0x{cap.ReportID:02X}: {bits} bits = {(bits + 7) // 8} payload bytes")
 	_say(_describeButtonCap(cap))
 	if bits == MONARCH_PINS:
@@ -555,7 +618,7 @@ def _pinWrite(payload: bytes) -> None:
 	if cap is None or device is None:
 		_say("No pin report to write to.")
 		return
-	if not _held:
+	if not isHeld():
 		_say("Not held. NVDA's next braille write may land on top of this. Call hold() first.")
 	report = HidOutputReport(device, reportID=cap.ReportID)
 	size = len(report.data)
@@ -600,7 +663,7 @@ def pinFill() -> None:
 	if cap is None:
 		_say("No pin report found.")
 		return
-	bits = _capUsageCount(cap)
+	bits = _capBitCount(cap)
 	_pinWrite(b"\xff" * ((bits + 7) // 8))
 	_say(f"Raised all {bits} bits of report 0x{cap.ReportID:02X}. Solid, or ridged?")
 
@@ -625,7 +688,7 @@ def pinBit(index: int) -> None:
 	if cap is None:
 		_say("No pin report found.")
 		return
-	bits = _capUsageCount(cap)
+	bits = _capBitCount(cap)
 	if not 0 <= index < bits:
 		_say(f"Bit index must be between 0 and {bits - 1}.")
 		return
@@ -644,7 +707,7 @@ def pinBits(indices: list[int]) -> None:
 	if cap is None:
 		_say("No pin report found.")
 		return
-	bits = _capUsageCount(cap)
+	bits = _capBitCount(cap)
 	payload = bytearray((bits + 7) // 8)
 	for index in indices:
 		if 0 <= index < bits:
@@ -653,43 +716,633 @@ def pinBits(indices: list[int]) -> None:
 	_say(f"Raised {len(indices)} bit(s).")
 
 
-def pinWalk(start: int = 0, count: int = 12, seconds: float = 1.5) -> None:
-	"""Raise single pins in sequence, pausing between, so the path can be felt.
+def pinWalk(start: int = 0, count: int = 12, seconds: float = 1.0, cumulative: bool = True) -> None:
+	"""Raise pins in sequence so the bit order can be felt, without blocking NVDA.
 
-	Keep a finger resting near the origin and feel which way the pin travels. That answers
-	the bit order question faster than any number of single writes.
+	Two things were wrong with the first version of this, and both are worth recording
+	because they are easy to repeat.
+
+	It ran a loop with `time.sleep` in it. The console executes on NVDA's main thread, so
+	that froze NVDA for the whole walk and made the run feel like a hang. Steps are now
+	chained through `core.callLater`, which is the same rule `brlMultilineFlowProbe` states
+	for the same reason: never hold the thread that has to do the work you are watching.
+
+	It also raised one pin at a time against an otherwise flat panel, which is close to
+	unreadable — a single pin is hard to find even when you know roughly where it is. The
+	default is now cumulative, so bits accumulate into a growing line you can feel the shape
+	and direction of.
 
 	:param start: first bit index.
 	:param count: how many bits to walk through.
-	:param seconds: how long to hold each one.
+	:param seconds: how long between steps.
+	:param cumulative: leave earlier pins raised, so a line grows. False walks a single pin.
 	"""
 	cap = pinCap()
 	if cap is None:
 		_say("No pin report found.")
 		return
-	bits = _capUsageCount(cap)
-	for index in range(start, min(start + count, bits)):
-		payload = bytearray((bits + 7) // 8)
-		payload[index // 8] = 1 << (index % 8)
-		_pinWrite(bytes(payload))
-		time.sleep(seconds)
-	_say(f"Walked bits {start} to {min(start + count, bits) - 1}.")
+	bits = _capBitCount(cap)
+	end = min(start + count, bits)
+	raised: list[int] = []
+
+	def step(index: int) -> None:
+		if index >= end:
+			_say(f"Walked bits {start} to {end - 1}.")
+			return
+		if cumulative:
+			raised.append(index)
+			pinBits(raised)
+		else:
+			pinBits([index])
+		core.callLater(int(seconds * 1000), step, index + 1)
+
+	_say(f"Walking bits {start} to {end - 1}, {seconds} s apart. NVDA stays responsive.")
+	step(start)
 
 
-def pinRow(index: int, width: int = 96) -> None:
-	"""Raise one contiguous run of pins, on the assumption of a row major layout.
+# --- The confirmed pin layout ---------------------------------------------------------------
 
-	Only meaningful once `pinBit` has established that the order really is row major. If it
-	is, this draws a solid horizontal line, which is the thing the cell path cannot do.
+PIN_WIDTH = 96
+PIN_HEIGHT = 40
+"""The Monarch's pin grid, established by touch through `pinBit`."""
 
-	:param index: which row, from 0.
-	:param width: pins per row, 96 on the Monarch.
+PIN_BLOCK_COLS = PIN_WIDTH // CELL_WIDTH
+PIN_BLOCK_ROWS = PIN_HEIGHT // CELL_HEIGHT
+"""The grid measured in 2 by 4 blocks: 48 across, 10 down, 480 in all, one byte each."""
+
+
+def pinIndexFor(x: int, y: int) -> int:
+	"""Convert a pin coordinate to its bit index in report 0x21.
+
+	One byte covers a 2 wide by 4 tall block and the blocks run in reading order, 48 across
+	by 10 down. That much was established by touch and is unchanged. **Within a block the
+	byte is an ordinary eight dot braille cell** — dots 1 to 8, `BIT_FOR_CELL_POSITION`,
+	the same packing this file already uses for the cell path.
+
+	It was column major here, left column in bits 0 to 3 and right column in bits 4 to 7,
+	copied from `dotPad.driver.DpTactileGraphicsBuffer` on the belief that a pin report is a
+	graphics buffer rather than a row of cells. Two drawings disproved it:
+
+	- `pinVLine(0)` asks for the left column of every block, which is dots 1, 2, 3 and 7.
+	  Column major wrote bits 0 to 3, and the panel raised dots 1, 2, 3 and 4 — a column of
+	  p, with a bump to the right at the top of each cell and the bottom pin missing.
+	- `pinHLine(0)` asks for the top pin of every block, which is dots 1 and 4. Column major
+	  wrote bits 0 and 4, and the panel raised dots 1 and 5 — a row of e, a staircase rather
+	  than a line, which is exactly the rhythm that function's docstring says to feel for.
+
+	So the warning on `BIT_FOR_CELL_POSITION` applies to this path too. The DotPad's graphic
+	packing is not braille dot numbering, and the Monarch's pin report wants braille dot
+	numbering: the firmware raises a byte's pins by dot number whichever report it arrived
+	in.
+
+	:param x: pin column, 0 to 95.
+	:param y: pin row, 0 to 39.
+	:return: the bit index, 0 to 3839.
 	"""
-	pinBits(list(range(index * width, (index + 1) * width)))
-	_say(f"Raised row {index}, {width} pins. Is it a solid unbroken line?")
+	blockIndex = (y // CELL_HEIGHT) * PIN_BLOCK_COLS + (x // CELL_WIDTH)
+	return blockIndex * 8 + BIT_FOR_CELL_POSITION[(x % CELL_WIDTH, y % CELL_HEIGHT)]
+
+
+def pinPositionFor(index: int) -> tuple[int, int]:
+	"""Convert a bit index in report 0x21 back to a pin coordinate.
+
+	The inverse of `pinIndexFor`, kept beside it so the two cannot drift apart.
+
+	:param index: the bit index, 0 to 3839.
+	:return: pin column and row.
+	"""
+	blockIndex, bitInBlock = divmod(index, 8)
+	blockY, blockX = divmod(blockIndex, PIN_BLOCK_COLS)
+	dotX, dotY = POSITION_FOR_CELL_BIT[bitInBlock]
+	return (blockX * CELL_WIDTH + dotX, blockY * CELL_HEIGHT + dotY)
+
+
+def pinLayout() -> None:
+	"""Print the layout mapping's own predictions, so they can be checked against fingers.
+
+	Cheap self consistency check as well: every index round trips through `pinIndexFor` and
+	`pinPositionFor`, so a mistake in either shows up here rather than as a puzzling drawing.
+
+	Self consistency is all it is, though, and that is worth saying plainly: this printed a
+	clean round trip for a packing the panel disagreed with. **The whole first block is
+	listed** because the eight bits of one cell are where the two candidate packings differ,
+	and reading them out is what tells column major from dot numbering without touching
+	anything. See `pinIndexFor`.
+	"""
+	broken = [i for i in range(PIN_WIDTH * PIN_HEIGHT) if pinIndexFor(*pinPositionFor(i)) != i]
+	_say(f"Grid {PIN_WIDTH} by {PIN_HEIGHT}, {PIN_BLOCK_COLS} by {PIN_BLOCK_ROWS} blocks of 2 by 4.")
+	for index in (0, 1, 2, 3, 4, 5, 6, 7, 8, 96, 3839):
+		x, y = pinPositionFor(index)
+		_say(f"  bit {index} -> x {x}, y {y}")
+	_say(f"Round trip failures: {len(broken)}." if broken else "Round trip clean for all 3840 bits.")
+
+
+class PinCanvas(_BufferBase):
+	"""A 96 by 40 dot canvas that packs into the 480 byte pin report.
+
+	The real graphics buffer, at full panel resolution, with none of the cell path's lattice
+	gaps. Subclasses NVDA's `TactileGraphicsBuffer` so it presents the same seam the DotPad
+	driver uses and can move into the add-on unchanged.
+	"""
+
+	def __init__(self) -> None:
+		self.payload = bytearray(PIN_BLOCK_COLS * PIN_BLOCK_ROWS)
+		super().__init__(PIN_WIDTH, PIN_HEIGHT)
+
+	def clear(self) -> None:
+		"""Lower every pin in the buffer, without writing to the device."""
+		self.payload = bytearray(len(self.payload))
+
+	def setDot(self, x: int, y: int) -> None:
+		"""Raise the pin at a coordinate, ignoring anything off the panel."""
+		if not (0 <= x < self.width) or not (0 <= y < self.height):
+			return
+		index = pinIndexFor(x, y)
+		self.payload[index // 8] |= 1 << (index % 8)
+
+	def line(self, x0: int, y0: int, x1: int, y1: int) -> None:
+		"""Draw a straight line by Bresenham."""
+		dx = abs(x1 - x0)
+		dy = -abs(y1 - y0)
+		stepX = 1 if x0 < x1 else -1
+		stepY = 1 if y0 < y1 else -1
+		error = dx + dy
+		while True:
+			self.setDot(x0, y0)
+			if x0 == x1 and y0 == y1:
+				return
+			doubled = 2 * error
+			if doubled >= dy:
+				error += dy
+				x0 += stepX
+			if doubled <= dx:
+				error += dx
+				y0 += stepY
+
+	def rect(self, x: int, y: int, width: int, height: int, filled: bool = False) -> None:
+		"""Draw a rectangle, outline or filled."""
+		if filled:
+			for row in range(y, y + height):
+				for col in range(x, x + width):
+					self.setDot(col, row)
+			return
+		self.line(x, y, x + width - 1, y)
+		self.line(x, y + height - 1, x + width - 1, y + height - 1)
+		self.line(x, y, x, y + height - 1)
+		self.line(x + width - 1, y, x + width - 1, y + height - 1)
+
+	def show(self) -> None:
+		"""Send the buffer to the pin report."""
+		_pinWrite(bytes(self.payload))
+
+
+def pinCanvas() -> PinCanvas:
+	""":return: a blank full panel canvas."""
+	return PinCanvas()
+
+
+def pinHLine(y: int = 0) -> None:
+	"""Draw one horizontal line across the full 96 pin width.
+
+	The decisive confirmation of the layout, and of the whole exercise: this is the thing the
+	cell path cannot do. If it feels like one unbroken line with no rhythm to it, the mapping
+	is right and the spacer columns are genuinely ours.
+
+	:param y: the pin row, 0 to 39.
+	"""
+	buffer = PinCanvas()
+	buffer.line(0, y, PIN_WIDTH - 1, y)
+	buffer.show()
+	_say(f"Horizontal line at y={y}, all {PIN_WIDTH} pins. Unbroken?")
+
+
+def pinVLine(x: int = 0) -> None:
+	"""Draw one vertical line down the full 40 pin height.
+
+	:param x: the pin column, 0 to 95.
+	"""
+	buffer = PinCanvas()
+	buffer.line(x, 0, x, PIN_HEIGHT - 1)
+	buffer.show()
+	_say(f"Vertical line at x={x}, all {PIN_HEIGHT} pins.")
+
+
+def pinBox() -> None:
+	"""Border the whole panel with both diagonals through it.
+
+	The general purpose legibility test, and the first thing worth showing anyone else. If
+	the corners are square and the diagonals meet in the middle, the mapping is correct in
+	both axes at once.
+	"""
+	buffer = PinCanvas()
+	buffer.rect(0, 0, PIN_WIDTH, PIN_HEIGHT)
+	buffer.line(0, 0, PIN_WIDTH - 1, PIN_HEIGHT - 1)
+	buffer.line(PIN_WIDTH - 1, 0, 0, PIN_HEIGHT - 1)
+	buffer.show()
+	_say(f"Box with diagonals on the full {PIN_WIDTH} by {PIN_HEIGHT} panel.")
+
+
+def pinBars(values: Optional[list[int]] = None) -> None:
+	"""Draw a bar chart at full panel resolution, as a taste of phase 4.
+
+	:param values: percentages, 0 to 100. A default set is used when omitted.
+	"""
+	buffer = PinCanvas()
+	values = values if values is not None else [20, 55, 80, 35, 95, 60, 15, 70]
+	barWidth = max(1, PIN_WIDTH // (len(values) * 2))
+	x = 0
+	for value in values:
+		height = max(1, round(PIN_HEIGHT * min(100, max(0, value)) / 100))
+		buffer.rect(x, PIN_HEIGHT - height, barWidth, height, filled=True)
+		x += barWidth * 2
+		if x >= PIN_WIDTH:
+			break
+	buffer.show()
+	_say(f"Bar chart of {len(values)} values, bars {barWidth} pins wide, on the full panel.")
+
+
+# --- Text drawn into the pin buffer ----------------------------------------------------------
+
+TEXT_CELL_PITCH = CELL_WIDTH + 1
+TEXT_LINE_PITCH = CELL_HEIGHT + 1
+"""The pitch the Monarch's own braille layout uses, which the pin grid explains exactly.
+
+96 pin columns is 32 cells at 3 columns each, two dots and a gap. 40 pin rows is 8 lines at
+5 rows each, four dots and a gap. That is where terminal mode's 8 rows of 32 comes from: the
+two "missing" lines are not withheld, they are the inter-line spacing. Drawing text into the
+pin buffer at this pitch reproduces the native layout exactly; drawing at a tighter pitch
+buys rows at the cost of legibility.
+"""
+
+
+def pinTextRows(lines: list[str], startRow: int = 0) -> PinCanvas:
+	"""Render lines of text into a pin buffer at the native braille pitch.
+
+	Uses NVDA's own `tactile.braille.drawBrailleCells`, which is exactly the DotPad's
+	approach: when the only surface is a pin grid, characters are drawn into it rather than
+	sent as cells. On the Monarch's pin path that is now the required model rather than a
+	curiosity — see `pinMixed` for why.
+
+	:param lines: text, one string per braille line, translated with the configured table.
+	:param startRow: which braille line to start at, 0 to 7.
+	:return: the buffer, not yet shown, so a caller can draw over it.
+	"""
+	from tactile.braille import drawBrailleCells
+
+	buffer = PinCanvas()
+	maxCells = PIN_WIDTH // TEXT_CELL_PITCH
+	for offset, line in enumerate(lines):
+		region = TextRegion(line)
+		region.update()
+		drawBrailleCells(
+			buffer,
+			0,
+			(startRow + offset) * TEXT_LINE_PITCH,
+			list(region.brailleCells)[:maxCells],
+			hCellPadding=1,
+		)
+	return buffer
+
+
+def pinText(*lines: str) -> None:
+	"""Show lines of braille text rendered as pins, to check the pitch against the real thing.
+
+	Compare with what NVDA puts up normally: it should be indistinguishable. If it is, the
+	pin path can carry text as well as graphics, which is what makes a mixed panel possible
+	given that the two report families cannot share the display.
+
+	:param lines: the lines to show.
+	"""
+	text = list(lines) if lines else ["line one on pins", "line two", "line three"]
+	pinTextRows(text).show()
+	_say(f"Drew {len(text)} line(s) at {TEXT_CELL_PITCH} by {TEXT_LINE_PITCH} pin pitch.")
+
+
+def pinMixed(caption: str = "profit by quarter") -> None:
+	"""A caption in braille and a chart below it, in **one** pin report.
+
+	This is the phase 2 question re-asked for the pin path, and the answer had to change.
+	Releasing a hold with `pinBox` up showed NVDA's next braille write wiping the whole
+	panel: the Monarch treats every write as a full display refresh, so pin writes and cell
+	writes do not compose, they replace one another.
+
+	So a graphics area cannot sit beside braille that NVDA is still driving. Whatever is on
+	the panel has to be composed by us and sent as a single pin report — text drawn in as
+	pins, graphics drawn in beside it. Which is precisely the DotPad's situation, and the
+	reason NVDA core has `drawBrailleCells` at all.
+
+	:param caption: the top line, translated with the configured table.
+	"""
+	buffer = pinTextRows([caption])
+	values = [25, 45, 70, 90, 60, 80, 40, 55]
+	top = TEXT_LINE_PITCH
+	height = PIN_HEIGHT - top
+	barWidth = max(1, PIN_WIDTH // (len(values) * 2))
+	x = 0
+	for value in values:
+		barHeight = max(1, round(height * value / 100))
+		buffer.rect(x, PIN_HEIGHT - barHeight, barWidth, barHeight, filled=True)
+		x += barWidth * 2
+		if x >= PIN_WIDTH:
+			break
+	buffer.show()
+	_say(f"One report: {caption!r} on the top line, a chart on the {height} rows below.")
+
+
+# --- Watching what the panel sends back ------------------------------------------------------
+
+ROUTING_USAGE_MIN = 0x402
+ROUTING_USAGE_MAX = 0x501
+"""The Monarch's 256 routing usages, one per cell of the 8 by 32 braille layout."""
+
+PIN_POSITION_USAGE = 0x401
+"""Input usage 0x401, report 0x40, 16 bits, logical 0 to 3840: **the touched pin**.
+
+Established from four touches, each of which came with a report 0x41 naming a routing cell.
+The value is a **row major** pin index over the 96 by 40 grid, one based, with 0 meaning
+released:
+
+	index = value - 1;  x = index % 96;  y = index // 96
+
+Every sample derived the cell the device itself reported in the paired 0x41, which is
+`(y // 5) * 32 + (x // 3)`. Two consecutive braille rows differed by 480, which is 96 by 5,
+one line band. And logical max 3840 is the pin count exactly, so 1 to 3840 covers every pin
+with 0 left over for "none" — which is the reading that makes the range fit.
+
+Note this is **not** the block packing `pinIndexFor` uses. Output pins are addressed as 2 by
+4 blocks of braille dots; touch comes back as a plain raster index. Two different orders on
+one device, and using the output one to decode the input gives plausible nonsense — it did
+here before the samples were checked against the routing cells.
+
+NVDA reads none of it: its HID driver inspects input values only to find
+`NUMBER_OF_BRAILLE_CELLS`, so 0x401 is discarded. That is why a touch reached the log with
+no number attached.
+"""
+
+TOUCH_CELL_COLS = PIN_WIDTH // TEXT_CELL_PITCH
+"""32 touch columns, from the 3 pin cell pitch."""
+
+_inputEvents: deque = deque(maxlen=500)
+_emptyReports: int = 0
+"""How many reports decoded to nothing and were dropped rather than recorded.
+
+Two hundred empty 0x41s once evicted the touches around them from this log. That was read as
+the panel streaming continuously; a later clean run recorded no empties at all, so it is
+really hand contact that produces them, not idleness. Counted rather than kept either way.
+"""
+
+
+def _pristineOnReceive(display: Any) -> Optional[Any]:
+	"""The callback the device should have when nothing of ours is installed.
+
+	`hidBrailleStandard` constructs its device with `onReceive=self._hidOnReceive`, so the
+	driver's own bound method is by definition the correct base. Deriving it rather than
+	remembering it is what makes `watchInput` and `unwatchInput` safe to call in any state.
+
+	This exists because the alternative was tried and did real damage. An earlier watcher
+	saved whatever was installed and restored that. After a module reload the old wrapper was
+	still on the device, untagged, so a second `watchInput` wrapped the wrapper — and because
+	the old one called the module global `_originalOnReceive`, which the new one had just
+	pointed back at the old one, every arriving report recursed until the stack blew. One
+	report filled a 500 entry log with copies of itself, and NVDA's own `_hidOnReceive` was
+	never reached at all, so routing keys and buttons silently stopped working.
+
+	Never wrap whatever happens to be installed. Wrap the thing you can name.
+
+	:param display: the braille display driver.
+	:return: the driver's own receive callback, or None if it has none.
+	"""
+	return getattr(display, "_hidOnReceive", None)
+
+
+def _inputUsageByDataIndex(device: Any) -> dict[int, tuple[int, int, str]]:
+	"""Map every input data index to the usage it carries.
+
+	Both buttons and values, because the question is which of the two the Monarch answers a
+	finger with. Ranges are expanded, so a routing usage can be recovered from the index the
+	report actually carries.
+
+	:param device: the `hwIo.hid.Hid` the driver opened.
+	:return: data index to usage page, usage, and "button" or "value".
+	"""
+	byIndex: dict[int, tuple[int, int, str]] = {}
+	for cap in _buttonCaps(device, hidpi.HIDP_REPORT_TYPE.INPUT):
+		if cap.IsRange:
+			r = cap.u1.Range
+			for index in range(r.DataIndexMin, r.DataIndexMax + 1):
+				byIndex[index] = (cap.UsagePage, r.UsageMin + (index - r.DataIndexMin), "button")
+		else:
+			byIndex[cap.u1.NotRange.DataIndex] = (cap.UsagePage, cap.u1.NotRange.Usage, "button")
+	for cap in _valueCaps(device, hidpi.HIDP_REPORT_TYPE.INPUT):
+		if cap.IsRange:
+			r = cap.u1.Range
+			for index in range(r.DataIndexMin, r.DataIndexMax + 1):
+				byIndex[index] = (cap.UsagePage, r.UsageMin + (index - r.DataIndexMin), "value")
+		else:
+			byIndex[cap.u1.NotRange.DataIndex] = (cap.UsagePage, cap.u1.NotRange.Usage, "value")
+	return byIndex
+
+
+def touchPositionFor(value: int) -> Optional[tuple[int, int]]:
+	"""Convert a report 0x40 usage 0x401 value to the pin the reader touched.
+
+	:param value: the raw value, 0 for released.
+	:return: pin column and row, or None when nothing is touched or the value is out of range.
+	"""
+	if value <= 0:
+		return None
+	index = value - 1
+	y, x = divmod(index, PIN_WIDTH)
+	return (x, y) if y < PIN_HEIGHT else None
+
+
+def touchCellFor(x: int, y: int) -> int:
+	"""Convert a touched pin to the routing cell the device reports alongside it.
+
+	The cross check that established the touch mapping: every sample's derived cell equalled
+	the one the paired report 0x41 named.
+
+	:param x: pin column.
+	:param y: pin row.
+	:return: routing cell index, 0 to 255.
+	"""
+	return (y // TEXT_LINE_PITCH) * TOUCH_CELL_COLS + (x // TEXT_CELL_PITCH)
+
+
+def _describeInputUsage(usage: int, value: int) -> str:
+	""":return: what one decoded input item means, in the terms this investigation cares about.
+
+	Both touch reports are turned into pin coordinates, because when a graphic is on the
+	panel a cell number means nothing but a position over the drawing means everything. The
+	pin report's own derived cell is printed beside it so that any future disagreement
+	between the two is visible immediately rather than assumed away.
+	"""
+	if ROUTING_USAGE_MIN <= usage <= ROUTING_USAGE_MAX:
+		routingIndex = usage - ROUTING_USAGE_MIN
+		row, col = divmod(routingIndex, TOUCH_CELL_COLS)
+		x, y = col * TEXT_CELL_PITCH, row * TEXT_LINE_PITCH
+		return (
+			f"routing cell {routingIndex} (row {row}, col {col}) "
+			f"-> pin band x {x} to {x + TEXT_CELL_PITCH - 1}, y {y} to {y + TEXT_LINE_PITCH - 1}"
+		)
+	if usage == PIN_POSITION_USAGE:
+		position = touchPositionFor(value)
+		if position is None:
+			return (
+				f"usage 0x401 = {value} -> released"
+				if value == 0
+				else f"usage 0x401 = {value} -> out of range"
+			)
+		x, y = position
+		return (
+			f"usage 0x401 = {value} -> TOUCHED PIN x {x}, y {y} (implies routing cell {touchCellFor(x, y)})"
+		)
+	return f"usage 0x{usage:X} = {value}"
+
+
+def watchInput(recordEmpty: bool = False) -> None:
+	"""Record the input reports that carry something, decoded, without disturbing NVDA.
+
+	Wraps `device._onReceive` rather than the driver's `_hidOnReceive`, because the driver
+	handed its bound method to the device at construction and replacing the attribute on the
+	driver would not be seen. The original is always called, so NVDA's own routing, keys and
+	gestures carry on exactly as before.
+
+	Reports are recorded rather than printed: this runs on the I/O thread, and printing to
+	the console from there interleaves badly. Call `inputReport` to read them.
+
+	Reports that decode to nothing are counted rather than kept, so that a burst of empty
+	0x41s cannot bury the touches around it.
+
+	**Reloading this module does not reinstall the wrapper.** `importlib.reload` reuses the
+	module object and rebinds its globals, but the function already sitting on the device is
+	the old closure and keeps running. It resolves globals by name, so it goes on appending
+	to whatever `_inputEvents` currently is, while none of the newer code runs — which reads
+	as new behaviour silently not taking effect. So the wrapper is tagged, and this function
+	replaces a stale one rather than refusing because a module flag says it is already
+	watching. Same lesson as `hold` and `release`: never keep the only copy of recovery state
+	in a module global.
+
+	:param recordEmpty: keep the empty reports too, for judging how chatty the panel is.
+	"""
+	device = _device()
+	display = _display()
+	if device is None or display is None:
+		return
+	original = _pristineOnReceive(display)
+	if original is None:
+		_say("This driver has no _hidOnReceive, so there is no known good callback to restore.")
+		return
+	if device._onReceive is not original:
+		_say("Discarding a callback already installed on the device; see _pristineOnReceive.")
+	byIndex = _inputUsageByDataIndex(device)
+
+	def wrapped(data: bytes) -> None:
+		global _emptyReports
+		try:
+			decoded = []
+			report = HidInputReport(device, data)
+			for item in report.getDataItems():
+				page, usage, kind = byIndex.get(item.DataIndex, (0, 0, "unknown"))
+				value = item.u1.On if kind == "button" else item.u1.RawValue
+				if kind == "button" and not value:
+					continue
+				decoded.append(_describeInputUsage(usage, int(value)))
+			if decoded or recordEmpty:
+				_inputEvents.append(
+					{
+						"reportId": data[0] if data else None,
+						"raw": data.hex(" "),
+						"decoded": decoded,
+					},
+				)
+			else:
+				_emptyReports += 1
+		except Exception:
+			log.error("tactileGraphicsSpike: failed to decode an input report", exc_info=True)
+		original(data)
+
+	wrapped._tgSpikeWatcher = True
+	wrapped._tgSpikeOriginal = original
+	device._onReceive = wrapped
+	_say("Watching input. Touch the panel, then call inputReport().")
+
+
+def isWatchingInput() -> bool:
+	""":return: whether a watcher is installed, read from the device rather than a flag."""
+	device = _device()
+	return device is not None and getattr(device._onReceive, "_tgSpikeWatcher", False)
+
+
+def unwatchInput() -> None:
+	"""Restore the driver's own receive callback. Always safe, whatever is installed.
+
+	Sets the device back to `display._hidOnReceive` rather than to a remembered value, so it
+	repairs a stacked or recursive chain as readily as it removes a clean wrapper.
+	"""
+	device = _device()
+	display = _display()
+	if device is None or display is None:
+		return
+	original = _pristineOnReceive(display)
+	if original is None:
+		_say("This driver has no _hidOnReceive to restore.")
+		return
+	if device._onReceive is original:
+		_say("Not watching input; the driver's own callback is already in place.")
+		return
+	device._onReceive = original
+	_say("Restored the driver's own receive callback.")
+
+
+def inputReport(count: int = 20) -> None:
+	"""Print the input reports recorded so far, most recent last.
+
+	Both touch reports appear, in pairs: a 0x40 carrying the touched pin, then a 0x41 carrying
+	the routing cell that pin falls in, then both again as zero on release. The 0x40 is the
+	one worth building on — it is finer, and the 0x41 is derivable from it.
+
+	One thing not to read meaning into: a 0x40 report's bytes past the third are whatever the
+	previous read left in the buffer, so a released 0x40 often carries the trailing bytes of
+	the 0x41 before it. Only the declared field matters.
+
+	:param count: how many of the most recent reports to print.
+	"""
+	if not _inputEvents:
+		_say("No input carrying data recorded. Call watchInput() first, then touch the panel.")
+		_say(f"{_emptyReports} empty report(s) seen, so the panel is talking; nothing was touched.")
+		return
+	for event in list(_inputEvents)[-count:]:
+		reportId = event["reportId"]
+		_say(f"report 0x{reportId:02X}: {event['raw']}" if reportId is not None else f"raw {event['raw']}")
+		for line in event["decoded"]:
+			_say(f"    {line}")
+	_say(f"{len(_inputEvents)} report(s) with data recorded, {_emptyReports} empty one(s) dropped.")
+	if not isWatchingInput():
+		_say("No watcher is installed. These records are stale; call watchInput() again.")
+
+
+def clearInput() -> None:
+	"""Forget the recorded input reports, so the next touch is easy to find."""
+	global _emptyReports
+	_inputEvents.clear()
+	_emptyReports = 0
+	_say("Input log cleared.")
 
 
 # --- Holding the display ------------------------------------------------------------------
+
+
+def isHeld() -> bool:
+	""":return: whether the handler is currently suppressed, read from the handler itself.
+
+	The handler is the source of truth rather than a module flag, because this module gets
+	reloaded during a session. `hold` shadows the bound method `_writeCells` with an instance
+	attribute, so the presence of that attribute in the handler's own `__dict__` is the
+	condition, and it survives a reload that would reset any flag we kept here.
+	"""
+	handler = braille.handler
+	return handler is not None and "_writeCells" in handler.__dict__
 
 
 def hold() -> None:
@@ -699,30 +1352,33 @@ def hold() -> None:
 	blink all reach the hardware through it. Safe to call twice. **Call `release` when
 	finished**, or braille stays dead until NVDA restarts.
 	"""
-	global _held, _originalWriteCells
 	handler = braille.handler
 	if handler is None:
 		_say("No braille handler.")
 		return
-	if _held:
+	if isHeld():
 		_say("Already held.")
 		return
-	_originalWriteCells = handler._writeCells
 	handler._writeCells = lambda cells: None
-	_held = True
 	_say("Held. NVDA's braille output is suppressed until release() is called.")
 
 
 def release() -> None:
-	"""Give the display back to NVDA. Safe to call when nothing is held."""
-	global _held, _originalWriteCells
+	"""Give the display back to NVDA. Safe to call when nothing is held.
+
+	Deletes the instance attribute rather than restoring a saved reference, which uncovers
+	the bound method on the class. That makes this work even after the module has been
+	reloaded, and even if `hold` was called by a previous incarnation of it: there is nothing
+	to remember, so there is nothing a reload can lose.
+	"""
 	handler = braille.handler
-	if not _held or handler is None:
+	if handler is None:
+		_say("No braille handler.")
+		return
+	if not isHeld():
 		_say("Nothing held.")
 		return
-	handler._writeCells = _originalWriteCells
-	_originalWriteCells = None
-	_held = False
+	del handler.__dict__["_writeCells"]
 	try:
 		handler.update()
 	except Exception:
@@ -744,7 +1400,7 @@ def raw(cells: list[int]) -> None:
 	display = _display()
 	if display is None:
 		return
-	if not _held:
+	if not isHeld():
 		_say("Not held: NVDA will overwrite this almost immediately. Call hold() first.")
 	total = display.numCells
 	cells = list(cells[:total])
@@ -845,15 +1501,6 @@ def checker() -> None:
 
 
 # --- A canvas over the cell path ------------------------------------------------------------
-
-try:
-	from tactile import TactileGraphicsBuffer as _BufferBase
-except ImportError:  # NVDA older than 2025.1.
-
-	class _BufferBase:  # type: ignore[no-redef]
-		def __init__(self, width: int, height: int):
-			self.width = width
-			self.height = height
 
 
 class CellCanvas(_BufferBase):
@@ -1030,7 +1677,7 @@ def timing(count: int = 10) -> None:
 	display = _display()
 	if display is None:
 		return
-	if not _held:
+	if not isHeld():
 		_say("Call hold() first, or NVDA's own writes will be mixed into the measurement.")
 		return
 	patterns = ([0xFF] * display.numCells, [0x00] * display.numCells)
@@ -1046,9 +1693,12 @@ def timing(count: int = 10) -> None:
 
 
 def summary() -> None:
-	"""Print the phase 0 questions and where each answer comes from."""
-	_say("Read only: hunt(), which now includes button caps, reports() and pins().")
-	_say("The pin report: pinClear(), pinFill(), pinBit(n), pinWalk(), pinRow(n).")
-	_say("The cell path: dotOrder(), spacers(1..3), checker(), hLine(), vLine(), box().")
-	_say("Mechanism: timing(). Mixing: mixed().")
-	_say(f"Currently held: {_held}. Call release() before closing the console.")
+	"""Print what this module can do and where each answer comes from."""
+	_say("Read only: hunt(), which includes button caps, reports() and pins().")
+	_say("Pins, raw: pinClear(), pinFill(), pinBit(n), pinWalk(), pinLayout().")
+	_say("Pins, drawing: pinHLine(), pinVLine(), pinBox(), pinBars().")
+	_say("Pins, with text: pinText('a', 'b'), pinMixed('caption').")
+	_say("Input: watchInput(), touch the panel, inputReport(), clearInput(), unwatchInput().")
+	_say("The cell path fallback: dotOrder(), spacers(1..3), checker(), hLine(), vLine(), box().")
+	_say("Mechanism: timing().")
+	_say(f"Currently held: {isHeld()}. Call release() before closing the console.")
