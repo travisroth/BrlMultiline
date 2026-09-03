@@ -6,60 +6,50 @@
 r"""Console spike: how much of the Monarch's pin grid can we actually reach?
 
 Everything in `docs/design/tactile-graphics-plan.md` rests on questions that cannot be
-settled by reading source. The HID Braille Display usage page has no graphics usage, so the
-only canvas we know about is the cell array, and the cell array is laid out for braille:
-the Monarch spends three pin columns per cell, two dot columns and one spacer, so a third
-of its 96 columns may be unreachable. Whether they really are unreachable, and whether some
-other path exists, is what this module is for.
-
-It is not part of the add-on and is not packaged: `spikes/` sits outside `addon/`, so the
-build never sees it. Import it from the NVDA Python console (NVDA+control+z) with a Monarch
-connected in terminal mode and selected as NVDA's braille display.
+settled by reading source. Import this from the NVDA Python console (NVDA+control+z) with a
+Monarch connected in terminal mode and selected as NVDA's braille display.
 
 	import sys; sys.path.insert(0, r"C:\code\BrlMultiline\spikes")
 	import tactileGraphicsSpike as spike
-	spike.geometry()
 	spike.hunt()
 
-`hunt` is the descriptor forensics: it answers question 4 without touching the pins, and it
-is the only part of this file that could find a way to the other 47 percent. Read its output
-before doing anything else, because if it turns up a vendor collection the rest of the plan
-changes shape.
+The first run of `hunt` on real hardware found something the plan did not expect: the
+device declares an output report of 481 bytes, when eight rows of thirty-two cells need
+only 33. Four hundred and eighty payload bytes is 3,840 bits, which is exactly the
+Monarch's pin count, and exactly 48 cell columns by 10 cell rows of the full 96 by 40
+panel. The only output declaration not accounted for by the braille rows is a single output
+*button* cap, which is how a pin matrix would be declared: one bit per pin.
 
-Then the pins. **`hold` freezes NVDA's braille output** so that a pattern stays up long
-enough to feel. Nothing NVDA wants to show reaches the display until `release`.
+That is the whole 47 percent the plan wrote off, sitting on the interface NVDA already has
+open. NVDA cannot see it because `hidBrailleStandard._findCellValueCaps` keeps only value
+caps whose link usage is `BRAILLE_ROW`, and NVDA reads button caps for input only.
+
+So the run order is now:
+
+	spike.hunt()          # read only. Look at the OUTPUT button caps section.
+	spike.reports()       # which report ID is the big one, and how big
+	spike.pins()          # what the pin report looks like, still without writing
+
+Then, if `pins` reports a plausible pin array, the layout has to be discovered by touch,
+because a bit index is not a coordinate until something says which way it runs:
 
 	spike.hold()
-	spike.dotOrder()          # question 1, and confirms the bit numbering
-	spike.spacers()           # question 2, the important one
-	spike.checker()
-	spike.hLine(8); spike.vLine(16); spike.box()
-	spike.timing()
-	spike.mixed()
+	spike.pinClear()
+	spike.pinBit(0)       # feel where bit 0 lands
+	spike.pinBit(1)
+	spike.pinBit(96)      # row major would put this directly below bit 0
+	spike.pinBit(40)      # column major would put this directly right of bit 0
+	spike.pinWalk(0, 12)  # first twelve bits in sequence, pausing between
 	spike.release()
 
-`release` is safe to call at any point and safe to call twice. Call it before closing the
-console, and call it if anything raises; a held handler is a display that has stopped
-updating.
+**`hold` freezes NVDA's braille output** so a pattern stays up long enough to feel.
+`release` gives it back and is safe to call twice. Call it before closing the console.
 
-What each phase 0 question looks like when answered:
-
-- **Does it render arbitrary patterns?** `dotOrder` puts one dot in each of the first eight
-  cells of row 0, in dot number order. If you feel dot 1 in cell 0, dot 2 in cell 1, and so
-  on through dot 8, then arbitrary bytes reach the pins unfiltered and the bit numbering is
-  standard braille. Anything else, and the plan stops here.
-- **Are the spacer columns filled?** `spacers`. See its own docstring; it is a three step
-  procedure with a different thing to feel at each step, and it is the single answer the
-  rest of the design depends on.
-- **What is the real geometry?** `geometry`, and `lattice` for what that geometry means in
-  pins.
-- **What does the descriptor contain?** `hunt`.
-
-A note on what this file will not do. It reads feature reports, which is safe, and it never
-writes one, and it never writes to a usage or collection outside the braille page. If
-`hunt` finds a vendor collection, the next step is a conversation with Humanware about what
-it is for, not a blind write to an eighteen thousand dollar device. Fuzzing an actuator
-array is not research.
+What this module will not do: write a feature report. Feature 0x21 carries a boolean at
+usage 0x301 inside the vendor collection that owns the display rows, which has the shape of
+a mode switch, and it may well be what gates the pin report. Flipping an unknown vendor
+mode flag on an actuator array is not research. If the pin report turns out to be inert,
+that is a question for Humanware, not a thing to poke.
 """
 
 from __future__ import annotations
@@ -75,7 +65,7 @@ import hidpi
 import hwPortUtils
 import winBindings.hid
 from braille.regions.base import TextRegion
-from hwIo.hid import check_HidP_status
+from hwIo.hid import HidOutputReport, check_HidP_status
 from logHandler import log
 
 # --- Dot numbering -------------------------------------------------------------------
@@ -99,20 +89,20 @@ BIT_FOR_CELL_POSITION: dict[tuple[int, int], int] = {
 }
 """Which bit of a cell byte raises the pin at a position within that cell.
 
-Derived from NVDA's own table rather than transcribed, so that it cannot drift from core.
-Note that this is **not** the packing `dotPad.driver.DpTactileGraphicsBuffer` uses, which
-puts the left column in bits 0 to 3 and the right column in bits 4 to 7. That layout is not
-braille dot numbering and would render scrambled through a HID `8 Dot Braille Cell` value.
-`dotOrder` is the hardware check that this table is the right one.
+Derived from NVDA's own table rather than transcribed, so it cannot drift from core. Note
+this is **not** the packing `dotPad.driver.DpTactileGraphicsBuffer` uses, which puts the
+left column in bits 0 to 3 and the right column in bits 4 to 7. That is not braille dot
+numbering and would render scrambled through a HID `8 Dot Braille Cell` value. `dotOrder`
+is the hardware check that this table is the right one.
 """
 
 CELL_WIDTH = 2
 CELL_HEIGHT = 4
 PIN_COLUMNS_PER_CELL = 3
-"""Two dot columns and one spacer, per the Monarch's published 96 by 40 pin geometry.
+"""Two dot columns and one spacer, per the Monarch's published 96 by 40 pin geometry."""
 
-The spacer is the whole question. `spacers` is the test.
-"""
+MONARCH_PINS = 3840
+"""The published pin count, and the number this device's descriptor keeps referring to."""
 
 BRAILLE_USAGE_PAGE = 0x41
 
@@ -140,8 +130,20 @@ def _display() -> Optional[Any]:
 	return display
 
 
+def _device() -> Optional[Any]:
+	""":return: the `hwIo.hid.Hid` the current driver opened, or None."""
+	display = _display()
+	if display is None:
+		return None
+	device = getattr(display, "_dev", None)
+	if device is None:
+		_say(f"{display.name} is not a HID driver, or does not keep its device as _dev.")
+		return None
+	return device
+
+
 def _usagePageName(page: int) -> str:
-	""":return: a readable name for a usage page, so that anything unexpected stands out."""
+	""":return: a readable name for a usage page, so anything unexpected stands out."""
 	known = {
 		0x01: "Generic Desktop",
 		0x07: "Keyboard",
@@ -170,18 +172,11 @@ def _brailleUsageName(usage: int) -> str:
 
 
 def geometry() -> None:
-	"""Report what NVDA thinks the display is, and what that means as a canvas.
-
-	The plan assumes 8 rows of 32, 256 cells, from a panel that physically has 10 lines. If
-	this reports 10 rows, terminal mode is giving us more than expected and the canvas is a
-	quarter larger than the plan says. If it reports something else again, every dimension
-	in the plan needs revisiting before anything is built.
-	"""
+	"""Report what NVDA thinks the display is, and what that means as a canvas."""
 	display = _display()
 	if display is None:
 		return
-	handler = braille.handler
-	dimensions = handler.displayDimensions
+	dimensions = braille.handler.displayDimensions
 	_say(f"Driver: {display.name} ({display.description})")
 	_say(f"Driver geometry: {display.numRows} rows of {display.numCols}, {display.numCells} cells")
 	_say(f"Handler geometry: {dimensions.numRows} rows of {dimensions.numCols}")
@@ -189,17 +184,13 @@ def geometry() -> None:
 	width = display.numCols * CELL_WIDTH
 	height = display.numRows * CELL_HEIGHT
 	_say(f"Canvas through cells: {width} by {height} dots, {width * height} pins addressable")
-	if display.numRows > 1:
-		_say("Multi row, so a flat cell array is a bitmap in scanline order.")
-	else:
-		_say("Single row. Drawing is possible but there is only one cell of height to draw in.")
 
 
 def lattice() -> None:
-	"""Show which physical pin columns the cell canvas can and cannot reach.
+	"""Show which physical pin columns the *cell* canvas can and cannot reach.
 
-	Assumes the published three pin columns per cell. Confirm the assumption with `spacers`
-	before trusting this; it is arithmetic, not a measurement.
+	Arithmetic on the published three pin columns per cell, not a measurement. Only
+	describes the cell path; if the pin report in `pins` works, none of this applies.
 	"""
 	display = _display()
 	if display is None:
@@ -211,19 +202,13 @@ def lattice() -> None:
 	_say(f"Physical columns if three pins per cell: {physicalWidth}")
 	_say(f"Reachable through cells: {len(reachable)} columns, first twelve {reachable[:12]}")
 	_say(f"Unreachable spacers: {len(unreachable)} columns, first twelve {unreachable[:12]}")
-	percent = 100 * len(reachable) // physicalWidth
-	_say(f"Horizontal reach: {percent} percent of columns, gapped every {CELL_WIDTH} dots.")
 
 
-# --- Question 4: descriptor forensics -------------------------------------------------
+# --- Descriptor forensics ---------------------------------------------------------------
 
 
 class _LinkCollectionNode(ctypes.Structure):
-	"""`HIDP_LINK_COLLECTION_NODE`, which NVDA does not bind.
-
-	Bound here because the collection tree is where a vendor defined top level collection
-	would be visible, and that is the one thing in this file that could change the plan.
-	"""
+	"""`HIDP_LINK_COLLECTION_NODE`, which NVDA does not bind."""
 
 	_fields_ = [
 		("LinkUsage", USHORT),
@@ -241,13 +226,15 @@ class _LinkCollectionNode(ctypes.Structure):
 		return self._bits & 0xFF
 
 
-def _valueCaps(device: Any, reportType: hidpi.HIDP_REPORT_TYPE) -> list[Any]:
-	"""Read every value cap of one report type, including types NVDA never asks for.
+_REPORT_TYPES = (
+	("OUTPUT", hidpi.HIDP_REPORT_TYPE.OUTPUT),
+	("INPUT", hidpi.HIDP_REPORT_TYPE.INPUT),
+	("FEATURE", hidpi.HIDP_REPORT_TYPE.FEATURE),
+)
 
-	:param device: the `hwIo.hid.Hid` the driver opened.
-	:param reportType: input, output or feature.
-	:return: the caps, or an empty list if the device declares none.
-	"""
+
+def _valueCaps(device: Any, reportType: hidpi.HIDP_REPORT_TYPE) -> list[Any]:
+	"""Read every value cap of one report type, including types NVDA never asks for."""
 	counts = {
 		hidpi.HIDP_REPORT_TYPE.INPUT: device.caps.NumberInputValueCaps,
 		hidpi.HIDP_REPORT_TYPE.OUTPUT: device.caps.NumberOutputValueCaps,
@@ -258,18 +245,40 @@ def _valueCaps(device: Any, reportType: hidpi.HIDP_REPORT_TYPE) -> list[Any]:
 		return []
 	capsList = (hidpi.HIDP_VALUE_CAPS * count)()
 	number = ctypes.c_ushort(count)
-	check_HidP_status(
-		winBindings.hid.HidP_GetValueCaps,
-		reportType,
-		capsList,
-		byref(number),
-		device._pd,
-	)
+	check_HidP_status(winBindings.hid.HidP_GetValueCaps, reportType, capsList, byref(number), device._pd)
 	return list(capsList[: number.value])
 
 
+def _buttonCaps(device: Any, reportType: hidpi.HIDP_REPORT_TYPE) -> list[Any]:
+	"""Read every button cap of one report type.
+
+	The one NVDA never reads is the output set, and on the Monarch that is where the pin
+	array appears to live. A button is one bit; a button cap declaring a usage range of
+	3,840 usages is a 480 byte report with one bit per pin.
+	"""
+	counts = {
+		hidpi.HIDP_REPORT_TYPE.INPUT: device.caps.NumberInputButtonCaps,
+		hidpi.HIDP_REPORT_TYPE.OUTPUT: device.caps.NumberOutputButtonCaps,
+		hidpi.HIDP_REPORT_TYPE.FEATURE: device.caps.NumberFeatureButtonCaps,
+	}
+	count = counts[reportType]
+	if not count:
+		return []
+	capsList = (hidpi.HIDP_BUTTON_CAPS * count)()
+	number = ctypes.c_ushort(count)
+	check_HidP_status(winBindings.hid.HidP_GetButtonCaps, reportType, capsList, byref(number), device._pd)
+	return list(capsList[: number.value])
+
+
+def _capUsageCount(cap: Any) -> int:
+	""":return: how many usages a cap covers, which for a button cap is how many bits."""
+	if cap.IsRange:
+		return cap.u1.Range.UsageMax - cap.u1.Range.UsageMin + 1
+	return 1
+
+
 def _describeValueCap(cap: Any) -> str:
-	""":return: one line describing a value cap, naming anything off the braille page."""
+	""":return: one line describing a value cap."""
 	if cap.IsRange:
 		usageText = f"usages 0x{cap.u1.Range.UsageMin:X} to 0x{cap.u1.Range.UsageMax:X}"
 		usageName = "(range)"
@@ -279,41 +288,41 @@ def _describeValueCap(cap: Any) -> str:
 		usageName = _brailleUsageName(usage) if cap.UsagePage == BRAILLE_USAGE_PAGE else ""
 	return (
 		f"  report 0x{cap.ReportID:02X} page 0x{cap.UsagePage:04X} ({_usagePageName(cap.UsagePage)}) "
-		f"{usageText} {usageName} "
-		f"in collection {cap.LinkCollection} "
+		f"{usageText} {usageName} in collection {cap.LinkCollection} "
 		f"(link page 0x{cap.LinkUsagePage:04X} usage 0x{cap.LinkUsage:X}), "
-		f"count {cap.ReportCount} of {cap.BitSize} bits, "
-		f"logical {cap.LogiclMin} to {cap.LogicalMax}"
+		f"count {cap.ReportCount} of {cap.BitSize} bits, logical {cap.LogiclMin} to {cap.LogicalMax}"
+	)
+
+
+def _describeButtonCap(cap: Any) -> str:
+	""":return: one line describing a button cap, with its bit count made explicit."""
+	if cap.IsRange:
+		r = cap.u1.Range
+		usageText = f"usages 0x{r.UsageMin:X} to 0x{r.UsageMax:X}"
+		indexText = f"data indices {r.DataIndexMin} to {r.DataIndexMax}"
+	else:
+		nr = cap.u1.NotRange
+		usageText = f"usage 0x{nr.Usage:X} {_brailleUsageName(nr.Usage) if cap.UsagePage == BRAILLE_USAGE_PAGE else ''}"
+		indexText = f"data index {nr.DataIndex}"
+	bits = _capUsageCount(cap)
+	return (
+		f"  report 0x{cap.ReportID:02X} page 0x{cap.UsagePage:04X} ({_usagePageName(cap.UsagePage)}) "
+		f"{usageText} in collection {cap.LinkCollection} "
+		f"(link page 0x{cap.LinkUsagePage:04X} usage 0x{cap.LinkUsage:X}), "
+		f"{bits} usages = {bits} bits = {bits / 8:.0f} bytes, reportCount {cap.ReportCount}, {indexText}"
 	)
 
 
 def descriptor() -> None:
-	"""Dump every value cap the device advertises, not only the ones NVDA uses.
+	"""Dump every value cap **and every button cap** the device advertises.
 
-	This is the most likely hiding place for a graphics path, and the reason is specific.
-	`hidBrailleStandard._findCellValueCaps` keeps only output value caps whose *link usage*
-	is `BRAILLE_ROW` and whose usage is a six or eight dot cell. A value array on a vendor
-	page, or on the braille page under some other collection, is silently invisible to NVDA
-	and would never appear in any log. It would appear here.
-
-	Two things to look for in the output:
-
-	1. Any line whose usage page is not 0x41. A vendor defined page carrying a large value
-	   array is exactly what a pin matrix interface would look like.
-	2. Any braille page output array that is not one of the rows the driver counted. In
-	   particular, note that `hidBrailleStandard` refuses a device whose rows have differing
-	   report counts, so a wide graphics row cannot coexist with the braille rows under the
-	   same link usage. It could perfectly well exist under a different one.
-
-	Also worth reading is the accounting at the end: if the output report is materially
-	larger than the cells need, something else is meant to travel in it.
+	The button caps are the point. NVDA reads output value caps and input button caps, and
+	never looks at output buttons at all, so an output button array is invisible to it and
+	would never appear in any NVDA log. On the Monarch that is where the 480 byte report
+	appears to be.
 	"""
-	display = _display()
-	if display is None:
-		return
-	device = getattr(display, "_dev", None)
+	device = _device()
 	if device is None:
-		_say(f"{display.name} is not a HID driver, or does not keep its device as _dev.")
 		return
 	caps = device.caps
 	_say("--- Device capabilities ---")
@@ -333,48 +342,68 @@ def descriptor() -> None:
 	)
 
 	foreign: list[str] = []
-	for label, reportType in (
-		("OUTPUT", hidpi.HIDP_REPORT_TYPE.OUTPUT),
-		("INPUT", hidpi.HIDP_REPORT_TYPE.INPUT),
-		("FEATURE", hidpi.HIDP_REPORT_TYPE.FEATURE),
-	):
+	for label, reportType in _REPORT_TYPES:
 		valueCaps = _valueCaps(device, reportType)
 		_say(f"--- {label} value caps ({len(valueCaps)}) ---")
 		for cap in valueCaps:
 			line = _describeValueCap(cap)
 			_say(line)
 			if cap.UsagePage != BRAILLE_USAGE_PAGE:
-				foreign.append(f"{label}: {line.strip()}")
+				foreign.append(f"{label} value: {line.strip()}")
+		buttonCaps = _buttonCaps(device, reportType)
+		_say(f"--- {label} button caps ({len(buttonCaps)}) ---")
+		for cap in buttonCaps:
+			_say(_describeButtonCap(cap))
 
-	outputCaps = _valueCaps(device, hidpi.HIDP_REPORT_TYPE.OUTPUT)
-	cellBytes = sum(
-		cap.ReportCount * (cap.BitSize // 8 or 1) for cap in outputCaps if cap.UsagePage == BRAILLE_USAGE_PAGE
-	)
 	_say("--- Accounting ---")
-	_say(f"Bytes of braille cell payload across all output reports: {cellBytes}")
-	_say(f"Output report byte length: {caps.OutputReportByteLength} (one of which is the report ID)")
+	cellBytes = sum(
+		cap.ReportCount * (cap.BitSize // 8 or 1)
+		for cap in _valueCaps(device, hidpi.HIDP_REPORT_TYPE.OUTPUT)
+		if cap.UsagePage == BRAILLE_USAGE_PAGE
+	)
+	_say(f"Braille cell payload across all output reports: {cellBytes} bytes")
+	_say(f"Largest output report: {caps.OutputReportByteLength} bytes including the report ID")
 	if foreign:
-		_say(f"*** {len(foreign)} cap(s) outside the braille page. This is the interesting result. ***")
+		_say(f"*** {len(foreign)} declaration(s) outside the braille page. ***")
 		for line in foreign:
 			_say(f"  {line}")
-	else:
-		_say("Nothing outside the braille page on this interface. If there is a graphics path,")
-		_say("it is not on the interface NVDA opened. Run `interfaces` next.")
+
+
+def reports() -> None:
+	"""Group every output declaration by report ID and size each report.
+
+	This is what identifies the big one. A braille row report is 33 bytes: one report ID and
+	thirty-two cells. Anything materially larger is not braille.
+	"""
+	device = _device()
+	if device is None:
+		return
+	sizes: dict[int, int] = {}
+	owners: dict[int, list[str]] = {}
+	for cap in _valueCaps(device, hidpi.HIDP_REPORT_TYPE.OUTPUT):
+		bits = cap.ReportCount * cap.BitSize
+		sizes[cap.ReportID] = sizes.get(cap.ReportID, 0) + bits
+		owners.setdefault(cap.ReportID, []).append(
+			f"value usage 0x{cap.u1.NotRange.Usage:X} count {cap.ReportCount}",
+		)
+	for cap in _buttonCaps(device, hidpi.HIDP_REPORT_TYPE.OUTPUT):
+		bits = _capUsageCount(cap)
+		sizes[cap.ReportID] = sizes.get(cap.ReportID, 0) + bits
+		owners.setdefault(cap.ReportID, []).append(f"button array of {bits} bits")
+	_say("--- Output reports ---")
+	for reportId in sorted(sizes):
+		payload = (sizes[reportId] + 7) // 8
+		marker = "  <-- THIS IS THE BIG ONE" if payload > 64 else ""
+		_say(f"  report 0x{reportId:02X}: {sizes[reportId]} bits = {payload} bytes{marker}")
+		for owner in owners[reportId]:
+			_say(f"      {owner}")
+	_say(f"Device declares its largest output report as {device.caps.OutputReportByteLength} bytes with ID.")
 
 
 def collections() -> None:
-	"""Print the link collection tree, which shows top level collections NVDA ignores.
-
-	A device may declare several application collections. NVDA opens one interface and reads
-	the braille one; a sibling collection for something else would show here as a node whose
-	parent is 0 and whose usage page is not 0x41.
-	"""
-	display = _display()
-	if display is None:
-		return
-	device = getattr(display, "_dev", None)
+	"""Print the link collection tree."""
+	device = _device()
 	if device is None:
-		_say(f"{display.name} is not a HID driver.")
 		return
 	count = device.caps.NumberLinkCollectionNodes
 	if not count:
@@ -391,33 +420,22 @@ def collections() -> None:
 	_say(f"--- Link collections ({length.value}) ---")
 	for index in range(length.value):
 		node = nodes[index]
-		marker = (
-			"  <-- TOP LEVEL, NOT BRAILLE"
-			if node.Parent == 0 and node.LinkUsagePage != BRAILLE_USAGE_PAGE
-			else ""
-		)
 		_say(
 			f"  [{index}] page 0x{node.LinkUsagePage:04X} ({_usagePageName(node.LinkUsagePage)}) "
 			f"usage 0x{node.LinkUsage:X} type {node.collectionType} "
-			f"parent {node.Parent} children {node.NumberOfChildren}{marker}",
+			f"parent {node.Parent} children {node.NumberOfChildren}",
 		)
 
 
 def interfaces(match: str = "") -> None:
-	"""List HID interfaces on the system, to find ones NVDA never opens.
+	"""List HID interfaces, to find ones NVDA never opens.
 
-	This is the strongest lead available without vendor cooperation. NVDA opens exactly one
-	HID interface, the one whose top level usage page is 0x41. A composite device may
-	present several, and a graphics interface would be a separate one carrying a vendor
-	usage page. The Wing It application proves some full resolution path into this hardware
-	exists; if it is USB HID rather than Bluetooth, it is visible here.
-
-	:param match: a case insensitive substring to filter on, matched against the whole
-		record. Empty means the usual suspects. Pass "*" for everything on the machine.
+	:param match: case insensitive substring, matched against the whole record. Empty means
+		the usual suspects. Pass "*" for everything on the machine.
 	"""
 	keywords = ["humanware", "monarch", "aph", "braille"] if not match else [match.lower()]
-	shown = 0
 	byUsbId: dict[str, int] = {}
+	shown = 0
 	for info in hwPortUtils.listHidDevices():
 		text = repr(info).lower()
 		if match != "*" and not any(keyword in text for keyword in keywords):
@@ -427,92 +445,259 @@ def interfaces(match: str = "") -> None:
 		byUsbId[usbId] = byUsbId.get(usbId, 0) + 1
 		_say(f"  {usbId}  {info.get('manufacturer', '')} {info.get('product', '')}")
 		_say(f"    hardwareID {info.get('hardwareID', '')}")
-		_say(f"    path {info.get('devicePath', '')}")
 	_say(f"--- {shown} HID interface(s) matched ---")
 	for usbId, count in byUsbId.items():
 		if count > 1:
 			_say(f"*** {usbId} presents {count} HID interfaces. NVDA opens one of them. ***")
 
 
-def serialPorts() -> None:
-	"""List serial ports, in case the device also presents a CDC interface.
-
-	The DotPad's graphics path is FTDI serial, so it is worth checking whether the Monarch
-	offers anything similar alongside its HID interface.
-	"""
-	found = 0
-	for port in hwPortUtils.listComPorts():
-		text = repr(port).lower()
-		if any(keyword in text for keyword in ("humanware", "monarch", "aph", "braille")):
-			found += 1
-			_say(f"  {port}")
-	_say(f"--- {found} matching serial port(s) ---")
-
-
 def features() -> None:
-	"""Read every feature report the device declares. Read only, never written.
-
-	A mode switch, if one exists, is most likely a feature report. Reading one is safe and
-	tells us the report exists and what it currently holds. Writing one is not safe and this
-	module will not do it: an unknown vendor feature on an actuator array is not something
-	to guess at.
-	"""
-	display = _display()
-	if display is None:
-		return
-	device = getattr(display, "_dev", None)
+	"""Read every feature report the device declares. Read only, never written."""
+	device = _device()
 	if device is None:
-		_say(f"{display.name} is not a HID driver.")
 		return
 	reportIds = sorted({cap.ReportID for cap in _valueCaps(device, hidpi.HIDP_REPORT_TYPE.FEATURE)})
 	if not reportIds:
-		_say("No feature value caps declared. Nothing to read.")
+		_say("No feature value caps declared.")
 		return
 	for reportId in reportIds:
 		try:
 			data = device.getFeature(bytes([reportId]))
 			_say(f"  feature 0x{reportId:02X}: {data.hex(' ')}")
-		except Exception as error:
+		except Exception as error:  # noqa: BLE001
 			_say(f"  feature 0x{reportId:02X}: read failed ({error})")
 
 
 def hunt() -> None:
-	"""Run every read only investigation, in order. Touches no pins.
-
-	This is question 4 of phase 0 in one call. Run it first, save the console output into
-	`docs/design/`, and read it before deciding anything. If it finds a vendor collection or
-	a second HID interface, the plan's "long game" section becomes the near game.
-	"""
+	"""Run every read only investigation, in order. Touches no pins."""
 	_say("=== Geometry ===")
 	geometry()
-	_say("=== Lattice, assuming three pin columns per cell ===")
+	_say("=== Lattice of the cell path ===")
 	lattice()
 	_say("=== Descriptor ===")
 	descriptor()
+	_say("=== Output reports by size ===")
+	reports()
 	_say("=== Collections ===")
 	collections()
 	_say("=== HID interfaces ===")
 	interfaces()
-	_say("=== Serial ports ===")
-	serialPorts()
 	_say("=== Feature reports ===")
 	features()
+	_say("=== Candidate pin report ===")
+	pins()
 	_say("=== End of hunt. Save this output. ===")
 
 
-# --- Holding the display --------------------------------------------------------------
+# --- The pin report ---------------------------------------------------------------------
+
+
+def pinCap() -> Optional[Any]:
+	""":return: the output button cap that looks like a pin array, or None.
+
+	Looks for an output button array of many bits. Deliberately loose about the exact count:
+	the published pin total is 3,840, but a device may pad to a byte boundary or reserve a
+	few, and refusing to recognise it over a handful of bits would be silly.
+	"""
+	device = _device()
+	if device is None:
+		return None
+	best = None
+	for cap in _buttonCaps(device, hidpi.HIDP_REPORT_TYPE.OUTPUT):
+		bits = _capUsageCount(cap)
+		if bits < 256:
+			continue
+		if best is None or bits > _capUsageCount(best):
+			best = cap
+	return best
+
+
+def pins() -> None:
+	"""Report the candidate pin array without writing anything.
+
+	What to look for in the output:
+
+	- A bit count at or near 3,840. That is one bit per pin on the full 96 by 40 panel, and
+	  it is the entire point of this investigation.
+	- A usage page of 0x41. On the braille page it is part of the device's advertised
+	  braille interface, which is ordinary to drive. On a vendor page it would still be
+	  worth pursuing but with more caution.
+	- A report ID distinct from the braille rows, 0x31 to 0x38.
+	"""
+	cap = pinCap()
+	if cap is None:
+		_say("No output button array large enough to be a pin matrix.")
+		_say("If NumberOutputButtonCaps is non zero, run descriptor() and read the caps by hand.")
+		return
+	bits = _capUsageCount(cap)
+	_say(f"Candidate pin report 0x{cap.ReportID:02X}: {bits} bits = {(bits + 7) // 8} payload bytes")
+	_say(_describeButtonCap(cap))
+	if bits == MONARCH_PINS:
+		_say(f"*** {bits} is exactly the Monarch's pin count. This is the full 96 by 40 panel. ***")
+	elif abs(bits - MONARCH_PINS) < 64:
+		_say(f"*** {bits} is within a byte or two of the Monarch's {MONARCH_PINS} pins. ***")
+	_say("Bit order is not knowable from the descriptor. Use pinBit() and feel where bits land.")
+
+
+def _pinWrite(payload: bytes) -> None:
+	"""Send a raw payload to the pin report.
+
+	Uses `HidOutputReport` so the buffer is exactly the size Windows demands, and writes the
+	payload after the report ID. Deliberately does not go through `HidP_SetUsages`: a
+	contiguous button array is a flat bitfield, and building it by hand is the only way to
+	control the bit order we are trying to discover.
+
+	:param payload: up to as many bytes as the report holds. Short payloads are zero padded,
+		which lowers the remaining pins.
+	"""
+	cap = pinCap()
+	device = _device()
+	if cap is None or device is None:
+		_say("No pin report to write to.")
+		return
+	if not _held:
+		_say("Not held. NVDA's next braille write may land on top of this. Call hold() first.")
+	report = HidOutputReport(device, reportID=cap.ReportID)
+	size = len(report.data)
+	room = size - 1
+	data = bytes(payload[:room])
+	buffer = bytearray(report.data)
+	buffer[1 : 1 + len(data)] = data
+	for index in range(1 + len(data), size):
+		buffer[index] = 0
+	try:
+		device.write(bytes(buffer))
+	except Exception:
+		log.error("tactileGraphicsSpike: the pin report write failed", exc_info=True)
+		_say("The pin report write raised. See the log.")
+
+
+def pinClear() -> None:
+	"""Lower every pin through the pin report.
+
+	The safest possible first write: an all zero payload on an output report can only ever
+	mean "nothing raised". If the panel goes flat and stays flat, the report is live and
+	everything below is worth doing. If nothing happens, the report is either inert in
+	terminal mode or gated behind the mode flag in feature 0x21.
+	"""
+	cap = pinCap()
+	if cap is None:
+		_say("No pin report found.")
+		return
+	_pinWrite(b"")
+	_say(f"Wrote an all zero payload to report 0x{cap.ReportID:02X}. Is the panel flat?")
+
+
+def pinFill() -> None:
+	"""Raise every pin through the pin report.
+
+	If this raises the whole panel *including* the columns between braille cells, the pin
+	report addresses the full grid and the cell path's lattice problem is gone. Feel across
+	the middle: solid means every pin, a two up one down rhythm means this is still going
+	through cells somehow.
+	"""
+	cap = pinCap()
+	if cap is None:
+		_say("No pin report found.")
+		return
+	bits = _capUsageCount(cap)
+	_pinWrite(b"\xff" * ((bits + 7) // 8))
+	_say(f"Raised all {bits} bits of report 0x{cap.ReportID:02X}. Solid, or ridged?")
+
+
+def pinBit(index: int) -> None:
+	"""Raise exactly one pin, by bit index, and lower everything else.
+
+	This is how the bit order gets established, because a bit index is not a coordinate
+	until the hardware says which way it runs. Feel where each of these lands:
+
+	- Bit 0 should be a corner. Which corner tells you the origin.
+	- Bit 1 next to it tells you whether the array runs along rows or down columns.
+	- Bit 96 lands directly below bit 0 if the order is row major across a 96 pin wide
+	  panel. Bit 40 lands directly right of bit 0 if it is column major down a 40 pin tall
+	  one. Whichever of those two is true settles the layout.
+	- If neither, try bit 4 and bit 8: an order of 480 braille cells rather than raw pins
+	  would put bit 4 at the top of the second cell column.
+
+	:param index: which bit to raise, from 0.
+	"""
+	cap = pinCap()
+	if cap is None:
+		_say("No pin report found.")
+		return
+	bits = _capUsageCount(cap)
+	if not 0 <= index < bits:
+		_say(f"Bit index must be between 0 and {bits - 1}.")
+		return
+	payload = bytearray((bits + 7) // 8)
+	payload[index // 8] = 1 << (index % 8)
+	_pinWrite(bytes(payload))
+	_say(f"Raised bit {index} alone. Where is it?")
+
+
+def pinBits(indices: list[int]) -> None:
+	"""Raise a set of pins by bit index, and lower everything else.
+
+	:param indices: the bits to raise.
+	"""
+	cap = pinCap()
+	if cap is None:
+		_say("No pin report found.")
+		return
+	bits = _capUsageCount(cap)
+	payload = bytearray((bits + 7) // 8)
+	for index in indices:
+		if 0 <= index < bits:
+			payload[index // 8] |= 1 << (index % 8)
+	_pinWrite(bytes(payload))
+	_say(f"Raised {len(indices)} bit(s).")
+
+
+def pinWalk(start: int = 0, count: int = 12, seconds: float = 1.5) -> None:
+	"""Raise single pins in sequence, pausing between, so the path can be felt.
+
+	Keep a finger resting near the origin and feel which way the pin travels. That answers
+	the bit order question faster than any number of single writes.
+
+	:param start: first bit index.
+	:param count: how many bits to walk through.
+	:param seconds: how long to hold each one.
+	"""
+	cap = pinCap()
+	if cap is None:
+		_say("No pin report found.")
+		return
+	bits = _capUsageCount(cap)
+	for index in range(start, min(start + count, bits)):
+		payload = bytearray((bits + 7) // 8)
+		payload[index // 8] = 1 << (index % 8)
+		_pinWrite(bytes(payload))
+		time.sleep(seconds)
+	_say(f"Walked bits {start} to {min(start + count, bits) - 1}.")
+
+
+def pinRow(index: int, width: int = 96) -> None:
+	"""Raise one contiguous run of pins, on the assumption of a row major layout.
+
+	Only meaningful once `pinBit` has established that the order really is row major. If it
+	is, this draws a solid horizontal line, which is the thing the cell path cannot do.
+
+	:param index: which row, from 0.
+	:param width: pins per row, 96 on the Monarch.
+	"""
+	pinBits(list(range(index * width, (index + 1) * width)))
+	_say(f"Raised row {index}, {width} pins. Is it a solid unbroken line?")
+
+
+# --- Holding the display ------------------------------------------------------------------
 
 
 def hold() -> None:
 	"""Stop NVDA writing to the display, so a pattern stays up long enough to feel.
 
-	`braille.handler._writeCells` is the single choke point: `update`, `message` and the
-	cursor blink all reach the hardware through it. Replacing it on the handler instance
-	blocks all three without disturbing the driver, the buffers, or anything the add-on has
-	arranged.
-
-	Safe to call twice. **Call `release` when finished**, or braille stays dead until NVDA
-	restarts.
+	`braille.handler._writeCells` is the single choke point: update, message and the cursor
+	blink all reach the hardware through it. Safe to call twice. **Call `release` when
+	finished**, or braille stays dead until NVDA restarts.
 	"""
 	global _held, _originalWriteCells
 	handler = braille.handler
@@ -545,14 +730,14 @@ def release() -> None:
 	_say("Released. NVDA is driving the display again.")
 
 
-# --- Raw writes -----------------------------------------------------------------------
+# --- The cell path, which works whatever the pin report turns out to do --------------------
 
 
 def raw(cells: list[int]) -> None:
 	"""Write a raw cell array straight to the driver, padded or truncated to fit.
 
-	Deliberately bypasses `braille.handler`, so no normalisation, no cursor, and no
-	translation happens between this list and the pins.
+	Bypasses `braille.handler`, so no normalisation, no cursor and no translation happens
+	between this list and the pins.
 
 	:param cells: dot patterns, one per cell, row major.
 	"""
@@ -574,7 +759,7 @@ def raw(cells: list[int]) -> None:
 def fill(value: int = 0xFF) -> None:
 	"""Fill every cell with one byte.
 
-	:param value: the dot pattern, 0 to 255. 0xFF raises all eight dots of every cell.
+	:param value: the dot pattern, 0 to 255.
 	"""
 	display = _display()
 	if display is None:
@@ -584,125 +769,82 @@ def fill(value: int = 0xFF) -> None:
 
 
 def clear() -> None:
-	"""Lower every pin."""
+	"""Lower every pin the cell path can reach."""
 	fill(0x00)
-
-
-# --- Question 1: does it render arbitrary patterns, and in what bit order? -------------
 
 
 def dotOrder() -> None:
 	"""Put one dot in each of the first eight cells, in dot number order.
 
-	Cell 0 gets dot 1, cell 1 gets dot 2, and so on to cell 7 with dot 8. Every other cell
-	is blank, so the row reads as a staircase.
+	Cell 0 gets dot 1, cell 1 gets dot 2, on to cell 7 with dot 8, everything else blank.
 
-	What to feel, on the top row, in the first eight cells:
-
-	- Cells 0, 1, 2 have a single dot descending the left column, and cell 6 has the fourth
-	  one below them. That is dots 1, 2, 3, 7.
-	- Cells 3, 4, 5 have a single dot descending the right column, and cell 7 has the fourth
-	  one below them. That is dots 4, 5, 6, 8.
+	What to feel on the top row: cells 0, 1, 2 have a single dot descending the left column
+	and cell 6 has the fourth below them, which is dots 1, 2, 3, 7. Cells 3, 4, 5 descend
+	the right column with cell 7 below, which is dots 4, 5, 6, 8.
 
 	If that is what is there, arbitrary bytes reach the pins unfiltered and
-	`BIT_FOR_CELL_POSITION` is correct. If the dots appear in a different order, the device
-	uses a different bit numbering and every packing constant in the plan needs changing. If
-	some cells are blank or show more than one dot, something between us and the pins is
-	interpreting cell values, and the whole approach is dead.
+	`BIT_FOR_CELL_POSITION` is correct.
 	"""
 	display = _display()
 	if display is None:
 		return
 	cells = [0] * display.numCells
-	for bit in range(8):
-		if bit < display.numCols:
-			cells[bit] = 1 << bit
+	for bit in range(min(8, display.numCols)):
+		cells[bit] = 1 << bit
 	raw(cells)
-	_say("Wrote dots 1 to 8 into cells 0 to 7 of row 0. Feel the staircase; see the docstring.")
-
-
-# --- Question 2: are the spacer columns filled? ---------------------------------------
+	_say("Wrote dots 1 to 8 into cells 0 to 7 of row 0. Feel the staircase.")
 
 
 def spacers(step: int = 0) -> None:
-	"""The decisive test. Are the pin columns between cells reachable, or filled, or dead?
+	"""Are the pin columns between cells reachable through the *cell* path?
 
-	Call it three times, `spacers(1)`, `spacers(2)`, `spacers(3)`, feeling the panel between
-	each. Every conclusion about drawing quality in the plan follows from what you feel.
+	Call `spacers(1)`, `spacers(2)`, `spacers(3)`, feeling the panel between each.
 
-	**Step 1, whole panel solid.** Every cell 0xFF. Run a finger horizontally across the
-	middle of the panel.
+	Step 1, whole panel at 0xFF. Uniformly solid means the Monarch fills its spacer columns
+	when neighbouring dots are raised. A ridge and groove rhythm, two up and one down, means
+	the spacers are dead on this path. If the pin report works, this stops mattering.
 
-	- Uniformly solid, no rhythm: the Monarch fills its spacer columns when the neighbouring
-	  dots are raised. Horizontal lines will be solid, fills will be smooth, and the canvas
-	  behaves like a real 64 by 32 bitmap. This is the good outcome.
-	- A regular ridge and groove, two pins up and one down: the spacers are dead in terminal
-	  mode. Horizontal lines will read dashed, fills will read striped. Usable for diagrams,
-	  bad for anything fine, and phase 3 must know the lattice.
+	Step 2, a four cell wide vertical bar. Feel its edges for bleed past the last cell.
 
-	**Step 2, one solid column of cells.** A vertical bar four cells wide, in the middle.
-	Feel its left and right edges.
+	Step 3, alternating full and empty cells. How wide do the gaps feel, one column or
+	three?
 
-	- If step 1 felt solid, this tells you whether the fill is a property of the whole panel
-	  being raised or of adjacent dots specifically. A clean edge with no bleed one column
-	  past the last cell means the device fills between raised neighbours only, which is
-	  exactly what we want and costs us nothing.
-	- Bleed past the edge means the device is interpolating, which would blur small features
-	  and needs to be known before drawing anything with one dot detail.
-
-	**Step 3, alternating full and empty cells.** Full, empty, full, empty across the row.
-
-	- If the gaps feel one dot column wide, the spacers stay down between raised cells and
-	  step 1 was solid for some other reason. Suspicious; re-feel step 1.
-	- If the gaps feel three columns wide, the geometry is as published and the spacers
-	  simply follow their neighbours.
-
-	:param step: 1, 2 or 3. Zero prints this procedure instead of writing anything.
+	:param step: 1, 2 or 3. Zero prints the procedure.
 	"""
 	display = _display()
 	if display is None:
 		return
 	if step == 0:
 		_say("Call spacers(1), then spacers(2), then spacers(3), feeling the panel between each.")
-		_say("See the docstring for what each step means. Step 1 is the one that matters most.")
 		return
 	if step == 1:
 		fill(0xFF)
 		_say("Step 1: whole panel raised. Solid, or ridged two up one down?")
-		return
-	if step == 2:
+	elif step == 2:
 		cells = [0] * display.numCells
 		start = max(0, display.numCols // 2 - 2)
 		for row in range(display.numRows):
 			for col in range(start, min(start + 4, display.numCols)):
 				cells[row * display.numCols + col] = 0xFF
 		raw(cells)
-		_say(f"Step 2: cells {start} to {start + 3} raised on every row. Feel the two vertical edges.")
-		return
-	if step == 3:
-		cells = [0xFF if (index % display.numCols) % 2 == 0 else 0x00 for index in range(display.numCells)]
-		raw(cells)
+		_say(f"Step 2: cells {start} to {start + 3} on every row. Feel the vertical edges.")
+	elif step == 3:
+		raw([0xFF if (index % display.numCols) % 2 == 0 else 0x00 for index in range(display.numCells)])
 		_say("Step 3: alternating full and empty cells. How wide do the gaps feel?")
-		return
-	_say("Step must be 1, 2 or 3.")
+	else:
+		_say("Step must be 1, 2 or 3.")
 
 
 def checker() -> None:
-	"""Alternate 0x55 and 0xAA across the panel, for feeling dot level addressing.
-
-	0x55 is dots 1, 3, 5, 7 and 0xAA is dots 2, 4, 6, 8, so adjacent cells interlock. If the
-	result feels like a regular fine texture rather than a smear, single dot addressing
-	works and the mechanism resolves neighbouring pins.
-	"""
+	"""Alternate 0x55 and 0xAA across the panel, for feeling dot level addressing."""
 	display = _display()
 	if display is None:
 		return
-	cells = [0x55 if index % 2 == 0 else 0xAA for index in range(display.numCells)]
-	raw(cells)
+	raw([0x55 if index % 2 == 0 else 0xAA for index in range(display.numCells)])
 	_say("Wrote an interlocking checker. It should feel like a fine regular texture.")
 
 
-# --- A canvas, prototyping phase 1 -----------------------------------------------------
+# --- A canvas over the cell path ------------------------------------------------------------
 
 try:
 	from tactile import TactileGraphicsBuffer as _BufferBase
@@ -717,10 +859,8 @@ except ImportError:  # NVDA older than 2025.1.
 class CellCanvas(_BufferBase):
 	"""A dot canvas that packs into braille cells in the correct dot order.
 
-	This is `CellTactileGraphicsBuffer` from phase 1 of the plan, prototyped here so that
-	the packing can be confirmed by touch before it is committed to the add-on and unit
-	tested. Subclasses NVDA's `TactileGraphicsBuffer` where that exists, so the seam is the
-	same one the DotPad driver uses.
+	This is `CellTactileGraphicsBuffer` from phase 1 of the plan, prototyped here so the
+	packing can be confirmed by touch before it is committed and unit tested.
 	"""
 
 	def __init__(self, numRows: int, numCols: int):
@@ -741,7 +881,7 @@ class CellCanvas(_BufferBase):
 		self.cells[cellIndex] |= 1 << BIT_FOR_CELL_POSITION[(x % CELL_WIDTH, y % CELL_HEIGHT)]
 
 	def line(self, x0: int, y0: int, x1: int, y1: int) -> None:
-		"""Draw a straight line by Bresenham. One bit pins, so there is nothing to smooth."""
+		"""Draw a straight line by Bresenham."""
 		dx = abs(x1 - x0)
 		dy = -abs(y1 - y0)
 		stepX = 1 if x0 < x1 else -1
@@ -785,12 +925,9 @@ def canvas() -> Optional[CellCanvas]:
 
 
 def hLine(y: int = 4) -> None:
-	"""Draw one horizontal line across the canvas.
+	"""Draw one horizontal line. Continuous, or broken every two dots?
 
-	The reading that matters: is it continuous, or does it break every two dots? That is the
-	same question as `spacers` step 1, asked in the form the drawing code will actually use.
-
-	:param y: the canvas row, 0 to height minus 1.
+	:param y: the canvas row.
 	"""
 	buffer = canvas()
 	if buffer is None:
@@ -801,12 +938,9 @@ def hLine(y: int = 4) -> None:
 
 
 def vLine(x: int = 16) -> None:
-	"""Draw one vertical line down the canvas.
+	"""Draw one vertical line, which should be solid whatever the spacers do.
 
-	This one should be solid whatever the spacers do, because the lattice is contiguous
-	vertically. If it is not solid, the vertical geometry is not what the plan assumes.
-
-	:param x: the canvas column, 0 to width minus 1.
+	:param x: the canvas column.
 	"""
 	buffer = canvas()
 	if buffer is None:
@@ -817,11 +951,7 @@ def vLine(x: int = 16) -> None:
 
 
 def box() -> None:
-	"""Draw a border round the whole canvas with both diagonals through it.
-
-	The general purpose "is this shape legible" test. Corners, straight edges and slopes all
-	at once, and the first thing worth showing anyone else.
-	"""
+	"""Draw a border round the whole canvas with both diagonals through it."""
 	buffer = canvas()
 	if buffer is None:
 		return
@@ -853,16 +983,47 @@ def bars(values: Optional[list[int]] = None) -> None:
 	_say(f"Bar chart of {len(values)} values, bars {barWidth} dots wide.")
 
 
-# --- Timing and mechanism --------------------------------------------------------------
+def mixed(text: str = "profit by quarter") -> None:
+	"""Put translated braille on the top row and a drawing underneath, in one write.
+
+	Phase 2's question answered at the cell level: one cell array, so a row of characters
+	and a row of pixels cost the same and need no mode switch.
+
+	:param text: the caption, translated with NVDA's configured output table.
+	"""
+	display = _display()
+	if display is None:
+		return
+	if display.numRows < 2:
+		_say("Needs at least two rows.")
+		return
+	region = TextRegion(text)
+	region.update()
+	caption = list(region.brailleCells)[: display.numCols]
+	caption.extend([0] * (display.numCols - len(caption)))
+	buffer = CellCanvas(display.numRows - 1, display.numCols)
+	values = [25, 45, 70, 90, 60, 80, 40, 55]
+	barWidth = max(1, buffer.width // (len(values) * 2))
+	x = 0
+	for value in values:
+		height = max(1, round(buffer.height * value / 100))
+		buffer.rect(x, buffer.height - height, barWidth, height, filled=True)
+		x += barWidth * 2
+		if x >= buffer.width:
+			break
+	raw(caption + list(buffer.cells))
+	_say(f"Row 0 is the caption {text!r}. The rest is a drawing.")
+
+
+# --- Timing -------------------------------------------------------------------------------
 
 
 def timing(count: int = 10) -> None:
-	"""Measure how long a full panel write takes, and let the mechanism be judged by ear.
+	"""Measure how long a full panel write takes, and judge the mechanism by ear.
 
-	The number this prints is the time to hand a report to the driver, not the time for the
-	pins to settle. The pins are the part that matters and the only instrument for them is
-	your hand and your ear: while this runs, listen to the panel and decide whether a
-	graphics area redrawn on every caret movement would be tolerable to sit beside.
+	The number printed is the time to hand a report to the driver, not the time for pins to
+	settle. The pins are the part that matters and the only instrument for them is your hand
+	and your ear.
 
 	:param count: how many alternating writes to make.
 	"""
@@ -880,58 +1041,14 @@ def timing(count: int = 10) -> None:
 		times.append(time.perf_counter() - start)
 		time.sleep(0.5)
 	mean = sum(times) / len(times)
-	_say(f"{count} full panel writes: mean {mean * 1000:.1f} ms, max {max(times) * 1000:.1f} ms to hand off.")
-	_say("Now say what the mechanism sounded and felt like. That is the number that decides")
-	_say("whether a graphics panel can update live or must be redrawn on request.")
-
-
-# --- Mixing braille and drawing ---------------------------------------------------------
-
-
-def mixed(text: str = "profit by quarter") -> None:
-	"""Put translated braille on the top row and a drawing underneath, in one write.
-
-	This is phase 2's question answered at the cell level, before any panel machinery exists:
-	there is one cell array, so a row of characters and a row of pixels cost the same and
-	need no mode switch. If this reads as a caption above a chart, mixing works and the rest
-	of phase 2 is plumbing.
-
-	:param text: the caption, translated with NVDA's configured output table.
-	"""
-	display = _display()
-	if display is None:
-		return
-	if display.numRows < 2:
-		_say("Needs at least two rows.")
-		return
-	region = TextRegion(text)
-	region.update()
-	caption = list(region.brailleCells)[: display.numCols]
-	caption.extend([0] * (display.numCols - len(caption)))
-
-	buffer = CellCanvas(display.numRows - 1, display.numCols)
-	values = [25, 45, 70, 90, 60, 80, 40, 55]
-	barWidth = max(1, buffer.width // (len(values) * 2))
-	x = 0
-	for value in values:
-		height = max(1, round(buffer.height * value / 100))
-		buffer.rect(x, buffer.height - height, barWidth, height, filled=True)
-		x += barWidth * 2
-		if x >= buffer.width:
-			break
-	raw(caption + list(buffer.cells))
-	_say(f"Row 0 is the caption {text!r}. Rows 1 to {display.numRows - 1} are a drawing.")
-
-
-# --- Session ----------------------------------------------------------------------------
+	_say(f"{count} writes: mean {mean * 1000:.1f} ms, max {max(times) * 1000:.1f} ms to hand off.")
+	_say("Now say what the mechanism sounded and felt like.")
 
 
 def summary() -> None:
-	"""Print the four phase 0 questions and where each one's answer comes from."""
-	_say("Phase 0, from docs/design/tactile-graphics-plan.md:")
-	_say("1. Does it render arbitrary patterns?  dotOrder(), then checker().")
-	_say("2. Are the spacer columns filled?      spacers(1), spacers(2), spacers(3). The big one.")
-	_say("3. What is the real geometry?          geometry(), lattice().")
-	_say("4. What does the descriptor contain?   hunt(). Save its output into docs/design/.")
-	_say("Also: timing() for the mechanism, mixed() for the phase 2 question.")
+	"""Print the phase 0 questions and where each answer comes from."""
+	_say("Read only: hunt(), which now includes button caps, reports() and pins().")
+	_say("The pin report: pinClear(), pinFill(), pinBit(n), pinWalk(), pinRow(n).")
+	_say("The cell path: dotOrder(), spacers(1..3), checker(), hLine(), vLine(), box().")
+	_say("Mechanism: timing(). Mixing: mixed().")
 	_say(f"Currently held: {_held}. Call release() before closing the console.")

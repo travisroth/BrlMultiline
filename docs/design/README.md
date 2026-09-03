@@ -32,11 +32,12 @@ Read the files in this order:
    whether it flows. Nothing in it is built yet; read it before extending `flowObjects.py`
    or `flowRender.py`.
 8. [tactile-graphics-plan.md](tactile-graphics-plan.md) — feasibility findings and the plan
-   for drawing on the Monarch through the HID braille connection the add-on already has,
-   including what the HID standard does and does not offer, the Monarch's real pin geometry,
-   and why the DotPad's approach is the inverse of the one we need. Nothing in it is built
-   yet, and phase 0 is a hardware session that could still kill it; read it before writing
-   any code that sets dots rather than characters.
+   for drawing on the Monarch through the HID braille connection the add-on already has.
+   Covers what the HID standard does and does not offer, the Monarch's pin geometry, why the
+   DotPad's approach is the inverse of the one we need, and a first hardware run that found
+   an undocumented 480 byte output report matching the Monarch's pin count exactly. Nothing
+   is built yet and phase 0 is unfinished; read it before writing any code that sets dots
+   rather than characters.
 
 ## Project background
 
