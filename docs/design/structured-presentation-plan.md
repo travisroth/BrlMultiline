@@ -1590,6 +1590,63 @@ as a place and not at the character under the finger — `TableCellRegion.routeT
 ignores the offset — and one position for the whole of a cell also keeps the cursor at the
 column's start, since `FlowController.cursorCell` takes the first band cell that matches.
 
+### One cursor, one expanded word
+
+NVDA has a setting called "expand to computer braille for the word at the cursor". It is on by
+default and it is what makes routing into a word to edit it work: the word under the cursor is
+written out uncontracted so that cells and characters line up.
+
+It is applied in `braille.regions.base.Region.update`, which asks liblouis for
+`COMPBRL_AT_CURSOR` whenever the setting is on **and the region has a cursor**. And every block
+of a flow has one, by construction: a block reads a fixed position, and `TextInfoRegion.update`
+asks the region where the selection is and lays the block out around the answer. Each block
+answers with its own position, so each has a cursor at character zero, so each has its first
+word expanded. The reader's Favorites page came out with every line beginning in computer
+braille.
+
+The blocks were already clearing the cursor — in `FlowRegion.update`, straight after
+`super().update()`. That is one liblouis call too late: the cells have been made. The fix is to
+refuse the cursor *before* the translation, which means making it a property rather than an
+attribute, since the value is set inside NVDA's own update between the two moments.
+
+`CursorOnlyWhereTheReaderIs` is that property, with the subclass answering `holdsTheCursor`:
+the active block of a live band for a flow, and the caret's own line for the document lines
+drawn around it. Both had the fault and both had it for the same reason.
+
+**The harness could not have caught it**, which is the more useful lesson. The stand-in
+`TextInfoRegion` set its cursor *after* calling `Region.update` — the reverse of NVDA — so
+clearing a cursor after translating looked identical to never having one. It now works the
+cursor out first, and the stand-in `Region` records whether the translation it just did was
+asked for with a cursor. That is what the tests assert: eight rows, one expanded word.
+
+Left alone: a pinned region still expands at its own cursor. A pin is a reading position the
+reader chose and pans and routes within, and it draws a cursor today; taking the expansion away
+would take the cursor with it.
+
+### The answer the designer did not have
+
+The reader asked for "none" among the choices of which column is repeated on every page, and
+the interesting part is that nothing needed building underneath it. `TableLayout.pinKey` has
+been there since the record was designed — `YES`, `NO`, or follow the setting — and `planFor`
+has always honoured it. Nothing wrote it but the settings dialog, which decides for every table
+at once. So the feature existed at both ends and had no way in.
+
+Two halves of one question, and the dialog was asking half: `keyColumn` says *which* column and
+`pinKey` says *whether* there is one. Asked as one control, the answers are the first column
+shown, none at all, or a named column — and "none" outranks a named column, because a record
+can hold both and the reader's later word is the one that counts.
+
+Choosing a column deliberately does not turn the repeat *on*. A table that was following the
+setting goes on following it; only a reader moving off "none" has said anything about whether,
+and then it is written down as yes. The rule is the one this dialog already lives by: it must
+not decide what it was not asked, and opening it over a table and pressing OK must change
+nothing.
+
+The logic sits on `Arrangement` — what the answers are, which one this table amounts to, and
+what choosing one means — rather than in the dialog, because that class is the half with no wx
+in it and the question is identical on a worksheet and on a web page. The dialog sets a list of
+strings and reports an index.
+
 ### What a review of the Excel work found
 
 Thirteen findings, three of them urgent, and the shape of them is worth keeping: almost every

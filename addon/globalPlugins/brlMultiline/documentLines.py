@@ -22,6 +22,8 @@ from braille.regions.base import Region
 from braille.regions.textInfo import TextInfoRegion
 from logHandler import log
 
+from .pinnedRegions import CursorOnlyWhereTheReaderIs
+
 if TYPE_CHECKING:
 	from NVDAObjects import NVDAObject
 
@@ -29,11 +31,25 @@ if TYPE_CHECKING:
 	from .segments import BrailleBufferSegment
 
 
-class TextInfoPositionRegion(TextInfoRegion):
+class TextInfoPositionRegion(CursorOnlyWhereTheReaderIs, TextInfoRegion):
 	"""A text region showing the line a fixed number of lines from the caret.
 
 	With an offset of zero this behaves as an ordinary `TextInfoRegion`.
 	"""
+
+	lineOffset = 0
+	"""Default on the class, because the cursor is asked about while the region below is
+	still being built. See `holdsTheCursor`."""
+
+	def holdsTheCursor(self) -> bool:
+		""":return: whether this is the caret's own line.
+
+		The line at offset zero is where the reader is; the ones above and below it are lines
+		they can see and are not in. Only the first has a cursor — and, with NVDA's "expand to
+		computer braille for the word at the cursor" turned on, only the first has a word
+		written out uncontracted. See `pinnedRegions.CursorOnlyWhereTheReaderIs`.
+		"""
+		return self.lineOffset == 0
 
 	def __init__(self, obj: "NVDAObject", lineOffset: int = 0) -> None:
 		"""

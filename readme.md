@@ -205,14 +205,21 @@ Things worth knowing:
   that you move up and down, and each one
   can be given a name of your own, a floor and a ceiling on how many cells it may have, which
   end of its heading survives, whether a page of columns begins at it, and whether it is
-  drawn without capital signs. One column is the
+  drawn without capital signs. One column can be the
   one repeated on every page, and "the first column shown" is one of the answers, since that
-  is what a table does when you have named none. Each per-column question also has "follow the
+  is what a table does when you have named none — as is "no column repeated", which is this
+  table's own decision rather than the setting that turns the repeat off for all of them. Each per-column question also has "follow the
   table setting", which names what the table is currently doing, so nothing in the dialog
   claims a decision you did not make. Ticking "remember this arrangement" saves it against the
   table; unticking it on a table you had remembered deletes what was saved. Cutting from the
   end is for a column whose values begin with something nobody wrote for reading, and a name
   of your own is for a heading that does the same.
+
+- NVDA's **"expand to computer braille for the word at the cursor"** applies to the row your
+  cursor is on and to no other. The setting is what makes routing into a word to edit it line
+  up, and it is worth having; applied to every row of a band it wrote out the first word of
+  every line uncontracted, which is eight expansions where one was wanted. Everything but your
+  own row is drawn in whatever table and contraction you chose.
 
 - A column can be drawn **without capital signs**. In a six dot table an all-capitals word
   carries the capitals-word indicator in front of it, so `AAPL` takes six cells and `aapl`

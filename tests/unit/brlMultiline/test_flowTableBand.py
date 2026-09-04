@@ -2135,6 +2135,52 @@ class TestTheFocusMovingInsideATable(TableBandTestCase):
 		self.assertIsNotNone(self.band.controller.cursorCell())
 
 
+class TestATableThatRepeatsNoColumn(TableBandTestCase):
+	"""The reader's own ask: **per table, not per installation.**
+
+	Whether a column is repeated at the left of every later page was a setting for all tables
+	at once, and which column it is was decided in the designer per table. So a reader who
+	wanted one table's rows to start at the left had to turn the repeat off everywhere. The
+	record has always had room for the answer — `pinKey` — and the planner has always honoured
+	it; nothing but the settings dialog wrote it.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		from brlMultiline import flowTableLayouts
+
+		self.layouts = flowTableLayouts
+
+	def _wide(self):
+		"""A table too wide for one page, so that there is a later page to repeat onto."""
+		return [[f"r{row}c{column}" for column in range(1, 12)] for row in range(1, 6)]
+
+	def _repeatsNothing(self):
+		return self.layouts.TableLayout(pinKey=self.layouts.NO)
+
+	def test_theBandRepeatsOneUntilTheReaderSaysOtherwise(self):
+		self._inTable(rows=self._wide())
+		self.assertTrue(self.band.layOutTable())
+		self.assertIsNotNone(self.band.columnPlan().keyColumn)
+
+	def test_andArrangingItAwayTakesItOffTheDisplay(self):
+		"""Applied where they are standing, before anything is saved."""
+		self._inTable(rows=self._wide())
+		self.band.layOutTable()
+		self.assertTrue(self.band.arrangeTable(self._repeatsNothing()))
+		self.assertIsNone(self.band.columnPlan().keyColumn)
+
+	def test_andTheOtherTablesAreNotToldAnything(self):
+		"""Which is the whole difference from the setting: this is one table's decision."""
+		self._inTable(rows=self._wide())
+		self.band.layOutTable()
+		self.band.arrangeTable(self._repeatsNothing())
+		self.band.clearTable()
+		self._inTable(rows=self._wide(), tableID=2)
+		self.assertTrue(self.band.layOutTable())
+		self.assertIsNotNone(self.band.columnPlan().keyColumn)
+
+
 class TestACancelledReadingIsNotAnAbsentTable(TableBandTestCase):
 	"""**Recognising the table happens before anything is built**, and it is a read of the
 	document like any other. Cancelled, it used to answer "there is no table here" — which is

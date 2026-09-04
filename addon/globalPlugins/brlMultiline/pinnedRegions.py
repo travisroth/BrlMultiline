@@ -34,6 +34,52 @@ from braille.regions.textInfo import CursorManagerRegion, TextInfoRegion
 from logHandler import log
 
 
+class CursorOnlyWhereTheReaderIs:
+	"""Mixin: a region that has a cursor only where the reader actually is.
+
+	**And a cursor decides more than where two dots go.** NVDA's "expand to computer braille
+	for the word at the cursor" is applied in `braille.regions.base.Region.update`, which asks
+	liblouis for `COMPBRL_AT_CURSOR` whenever that setting is on *and the region has a
+	cursor*. A region answering "yes, at character zero" therefore has its first word written
+	out uncontracted — and a display showing eight rows showed eight expanded first words, one
+	per row, on a page the reader was only reading.
+
+	Which is what a region reading a fixed position does by construction: NVDA asks where the
+	selection is, the region answers with its own position, and the cursor lands inside every
+	block. Clearing it afterwards — which is what these regions did — is too late by one
+	liblouis call: the cells have already been translated.
+
+	So the cursor is a property here, and it reads as nothing for a region the reader is not
+	in. `Region.update` then sees no cursor, asks for no computer braille, and the row comes
+	out in whatever table and contraction the reader chose. The setting still does what it
+	says on the one row it is about.
+
+	The two regions that need this are the ones that show a place the reader is not standing
+	in: a flow's blocks, and the document lines drawn around the caret in other segments. See
+	`flowSources.FlowRegion` and `documentLines.TextInfoPositionRegion`.
+	"""
+
+	_cursorPos = None
+	"""Where the cursor is, as the region worked it out. Read back only where it counts."""
+
+	def holdsTheCursor(self) -> bool:
+		""":return: whether this region is the one the reader is in.
+
+		Answered by whoever mixes this in, because only they know: for a flow it is the active
+		block of a live band, and for a document line it is the caret's own line.
+		"""
+		return True
+
+	@property
+	def cursorPos(self):
+		""":return: where the cursor is, or None where the reader is somewhere else."""
+		return self._cursorPos if self.holdsTheCursor() else None
+
+	@cursorPos.setter
+	def cursorPos(self, position) -> None:
+		self._cursorPos = position
+
+
 class PinnedRegion:
 	"""Mixin giving a text region a reading position of its own.
 

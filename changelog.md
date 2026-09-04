@@ -164,6 +164,22 @@ Added:
   header cell has no header above it, and its answer was taken for the whole column. On a
   spreadsheet that is where the cursor usually is when you ask.
 
+- **"Expand to computer braille for the word at the cursor" applies to the row you are on,
+  and to no other.** NVDA's setting is applied wherever a braille region has a cursor, and
+  every row of a flow reads a place of its own — so the band asked for computer braille on
+  every one of them, and each line came out with its first word written out uncontracted. The
+  cursor was being taken away afterwards, which is one translation too late. Every row but
+  yours is now in whatever table and contraction you chose. The same fix applies to the
+  document lines shown around the caret in other segments, where only the caret's own line
+  expands.
+
+- **"No column repeated" is one of the answers in the table designer.** Whether a column is
+  drawn again at the left of every page was a setting for all your tables at once, while which
+  column it is was decided per table — so a table whose rows should start at the left meant
+  turning the repeat off everywhere. It is now the same question, asked once, and answered for
+  the table in front of you: the first column shown, none at all, or one you name. Saving the
+  arrangement keeps it with that table, and every other table goes on following the setting.
+
 - **A worksheet is read a row at a time everywhere, not only while its columns are being
   measured.** The rows on the display were still built one cell at a time — a coordinate
   lookup and an object built with its overlay classes chosen, per column, per row — and the

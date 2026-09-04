@@ -223,6 +223,7 @@ SPEECH_OUTPUT_MODE = "speechOutput"
 BRAILLE_CONFIG = {
 	"mode": FOLLOW_CURSORS_MODE,
 	"focusContextPresentation": "changedContext",
+	"expandAtCursor": True,
 }
 """NVDA's own braille settings, which the add-on reads through the real `bmConfig`.
 
@@ -385,6 +386,17 @@ class Region:
 	"""
 
 	hidePreviousRegions = False
+	expandedAtCursor = False
+	"""Whether the last translation asked liblouis to expand the word at the cursor.
+
+	**What NVDA's `Region.update` decides, reproduced because it is decided there.** The
+	setting is "expand to computer braille for the word at the cursor", and the region that
+	answers "yes, at character zero" has its first word written out uncontracted. A region
+	that must not do that has to have no cursor *before* it is translated; clearing one
+	afterwards leaves the cells already wrong, and a stub that translated first could not tell
+	the two apart. See `pinnedRegions.CursorOnlyWhereTheReaderIs`.
+	"""
+
 	cursorPos = None
 	selectionStart = None
 	selectionEnd = None
@@ -404,6 +416,12 @@ class Region:
 		self.focusToHardLeft = False
 
 	def update(self):
+		# Read here and not afterwards, which is where NVDA reads it: the mode handed to
+		# liblouis is decided from the cursor at the moment of translating. See
+		# `expandedAtCursor`.
+		self.expandedAtCursor = bool(BRAILLE_CONFIG.get("expandAtCursor")) and (
+			self.cursorPos is not None
+		)
 		self.brailleCells = [ord(character) & 0xFF for character in self.rawText]
 
 	def routeTo(self, pos):
@@ -1201,22 +1219,28 @@ class TextInfoRegion(Region):
 		reading = info.copy()
 		reading.expand(self._getReadingUnit())
 		self.rawText = reading.text
-		Region.update(self)
-		# A collapsed position is a cursor, as it is in NVDA. Regions that must not show one
-		# clear it after calling this, which is the behaviour worth being able to test.
+		# **Before the translation, which is the order NVDA does it in and the order that
+		# matters.** `TextInfoRegion.update` works the cursor out and then calls
+		# `Region.update`, which decides from it whether to ask liblouis for computer braille
+		# at the cursor. Set afterwards — as this stub used to — a region could clear its
+		# cursor after being translated and the test could not see that the cells had already
+		# been made with one. That is exactly the fault the reader reported: every row of the
+		# band with its first word expanded. See `Region.expandedAtCursor`.
 		#
-		# From the position this region reads, and not from the object's caret. NVDA's
-		# `TextInfoRegion.update` calls `_getSelection` once and lays the block out around
-		# what it returns — so a region answering that call with a position of its own shows
-		# a cursor at that position and nowhere else. Reading the caret directly here made
-		# every flow block track it, which is neither what a pinned block does nor what the
-		# hardware saw: an edit field whose cursor sat on the first cell and stayed there.
+		# A collapsed position is a cursor, as it is in NVDA. From the position this region
+		# reads, and not from the object's caret: NVDA's `TextInfoRegion.update` calls
+		# `_getSelection` once and lays the block out around what it returns, so a region
+		# answering that call with a position of its own has a cursor at that position and
+		# nowhere else. Reading the caret directly here made every flow block track it, which
+		# is neither what a pinned block does nor what the hardware saw: an edit field whose
+		# cursor sat on the first cell and stayed there.
 		#
 		# Clamped to a cell that exists, as NVDA clamps it: there the reading unit gains a
 		# trailing space so that a caret at its end has somewhere to be, and the cursor is
 		# then held inside the text. A cursor past the last cell is not a state a region
 		# ever reaches, so it is not one a test should be able to produce.
 		self.cursorPos = min(info.offset, max(0, len(self.rawText) - 1))
+		Region.update(self)
 		self.brailleCursorPos = self.cursorPos
 
 	def routeTo(self, pos):

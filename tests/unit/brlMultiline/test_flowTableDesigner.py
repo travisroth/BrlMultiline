@@ -214,6 +214,111 @@ class TestArrangingIt(unittest.TestCase):
 		self.assertEqual(self.arrangement.at(1).cutting, flowTableDesigner.CUT_START)
 
 
+class TestChoosingWhichColumnIsRepeated(unittest.TestCase):
+	"""**"None" was not one of the answers, and the reader asked for it.**
+
+	Whether a column is repeated on every page was a setting for all tables at once, while
+	*which* column it is was decided per table — so a reader who wanted one table's rows to
+	start at the left of every page had to turn the repeat off for every table they read.
+
+	Both halves belong to the table and the record has always had room for both: `keyColumn`
+	says which column and `pinKey` says whether there is one. Nothing wrote the second, so the
+	dialog could not offer the answer. The same question on a worksheet as on a web page —
+	this is the half with no wx in it.
+	"""
+
+	def _arrangement(self, layout=None):
+		return flowTableDesigner.Arrangement.of(plan(), layout or flowTableLayouts.TableLayout())
+
+	def test_theAnswersAreTheTwoAndThenTheColumns(self):
+		arrangement = self._arrangement()
+		self.assertEqual(
+			arrangement.keyChoices(),
+			[
+				flowTableDesigner.KEY_IS_THE_FIRST,
+				flowTableDesigner.KEY_IS_NONE,
+				"Symbol",
+				"Last",
+				"Change",
+				"%Chg",
+			],
+		)
+
+	def test_aTableWithNothingDecidedIsOnTheFirstOne(self):
+		self.assertEqual(self._arrangement().keyChoice, 0)
+
+	def test_andChoosingNoneIsWrittenDownAsADecision(self):
+		"""Rather than left to the setting, which is what the reader is trying to get away
+		from: they want it off *here*."""
+		arrangement = self._arrangement()
+		arrangement.chooseKey(1)
+		self.assertEqual(arrangement.asLayout().pinKey, flowTableLayouts.NO)
+		self.assertEqual(arrangement.asLayout().asRecord()["pinKey"], flowTableLayouts.NO)
+
+	def test_andItComesBackAsNoneWhenTheyOpenItAgain(self):
+		saved = flowTableLayouts.TableLayout(pinKey=flowTableLayouts.NO)
+		self.assertEqual(self._arrangement(saved).keyChoice, 1)
+
+	def test_andNoLineSaysItIsRepeated(self):
+		"""The lines say what the display does, so nothing may claim to be repeated."""
+		arrangement = self._arrangement()
+		arrangement.chooseKey(1)
+		self.assertEqual(arrangement.repeatedColumn, 0)
+		self.assertNotIn("repeated", " ".join(arrangement.describe(n) for n in range(4)))
+
+	def test_choosingAColumnNamesIt(self):
+		arrangement = self._arrangement()
+		arrangement.chooseKey(4)
+		self.assertEqual(arrangement.keyColumn, 3)
+		self.assertEqual(arrangement.repeatedColumn, 3)
+
+	def test_andComesBackSelectedWhenTheyOpenItAgain(self):
+		saved = flowTableLayouts.TableLayout(keyColumn=3)
+		self.assertEqual(self._arrangement(saved).keyChoice, 4)
+
+	def test_choosingAColumnDoesNotTurnTheRepeatOnForATableFollowingTheSetting(self):
+		"""**A dialog must not decide what it was not asked.** A reader naming a column has
+		said which, not whether; a table that was following the setting goes on following
+		it."""
+		arrangement = self._arrangement()
+		arrangement.chooseKey(4)
+		self.assertEqual(arrangement.asLayout().pinKey, flowTableLayouts.FOLLOW)
+
+	def test_butMovingOffNoneTurnsItBackOn(self):
+		"""They have just said they want one repeated, and following a setting that is off
+		would leave the control saying one thing and the display doing another."""
+		arrangement = self._arrangement(flowTableLayouts.TableLayout(pinKey=flowTableLayouts.NO))
+		arrangement.chooseKey(0)
+		self.assertEqual(arrangement.asLayout().pinKey, flowTableLayouts.YES)
+
+	def test_andHidingAColumnTakesItOutOfTheAnswers(self):
+		"""A column that is not drawn cannot be the one repeated on every page of it."""
+		arrangement = self._arrangement()
+		arrangement.setShown(1, False)
+		self.assertNotIn("Last", arrangement.keyChoices())
+		self.assertEqual(
+			arrangement.keyChoices()[:2],
+			[flowTableDesigner.KEY_IS_THE_FIRST, flowTableDesigner.KEY_IS_NONE],
+		)
+
+	def test_andTheLayoutSaysNoneAllTheWayToThePlan(self):
+		"""End to end, which is the half of this that was already built and never reached: the
+		planner has always honoured `pinKey`, and nothing but the settings dialog wrote it."""
+		arrangement = self._arrangement()
+		arrangement.chooseKey(1)
+		layout = arrangement.asLayout()
+		measured = [
+			flowTable.Measurement(index=index, width=6, label=str(index))
+			for index in (1, 2, 3, 4)
+		]
+		made = flowTable.planFor(measured, 16, pinKey=layout.pinKeyOr(True))
+		self.assertIsNone(made.keyColumn)
+
+	def test_andASavedNoneSurvivesTheStore(self):
+		record = flowTableLayouts.TableLayout(pinKey=flowTableLayouts.NO).asRecord()
+		self.assertEqual(flowTableLayouts.fromRecord(record).pinKey, flowTableLayouts.NO)
+
+
 class TestWhatLeavesTheDialog(unittest.TestCase):
 	"""A `TableLayout`, holding only what was decided."""
 
@@ -472,8 +577,20 @@ class TestOpeningATableThatIsAlreadyRemembered(unittest.TestCase):
 			remembered=True,
 		)
 		self.assertFalse(arrangement.at(3).shown)
-		self.assertEqual(arrangement.repeatedColumn, 3)
 		self.assertIn("called Delta", arrangement.describe(1))
+
+	def test_andASavedRecordThatRepeatsNothingRepeatsNothing(self):
+		"""The record names column 3 *and* says this table repeats no column, which is not a
+		contradiction: `keyColumn` says which and `pinKey` says whether. The dialog used to
+		read only the first half and told the reader column 3 was repeated, over a display
+		repeating nothing."""
+		arrangement = flowTableDesigner.Arrangement.of(
+			plan(columns=(1, 3, 4), excluded=(2,)),
+			self._saved(),
+			remembered=True,
+		)
+		self.assertEqual(arrangement.keyColumn, 3)
+		self.assertEqual(arrangement.repeatedColumn, 0)
 
 
 class TestKeepingOrDroppingWhatWasArranged(unittest.TestCase):
