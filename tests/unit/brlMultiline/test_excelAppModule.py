@@ -156,9 +156,6 @@ class FakeCell(metaclass=DynamicType):
 		Resolved through the worksheet, which is where NVDA resolves it: the reader marks a
 		header row and every cell of the column answers for it. This is the answer the flow
 		uses, and the one an empty header cell tracker made it stop asking for."""
-		said = getattr(self.parent, "marked", {}).get(self.columnNumber)
-		if said:
-			return said
 		return self.parent.headingFor(self.rowNumber, self.columnNumber)
 
 	@property
@@ -175,6 +172,55 @@ class FakeCell(metaclass=DynamicType):
 		self._parent = value
 
 
+class HeaderCellInfo:
+	"""One entry of NVDA's header cell tracker: a cell that heads a run of columns."""
+
+	def __init__(
+		self,
+		rowNumber,
+		columnNumber,
+		rowSpan=1,
+		colSpan=1,
+		minColumnNumber=None,
+		maxColumnNumber=None,
+		minRowNumber=None,
+		maxRowNumber=None,
+		isColumnHeader=True,
+		isRowHeader=False,
+	):
+		self.rowNumber = rowNumber
+		self.columnNumber = columnNumber
+		self.rowSpan = rowSpan
+		self.colSpan = colSpan
+		self.minColumnNumber = minColumnNumber
+		self.maxColumnNumber = maxColumnNumber
+		self.minRowNumber = minRowNumber
+		self.maxRowNumber = maxRowNumber
+		self.isColumnHeader = isColumnHeader
+		self.isRowHeader = isRowHeader
+
+
+class HeaderCellTracker:
+	"""`tableUtils.HeaderCellTracker`, which is where what a reader marked ends up.
+
+	NVDA's own, as far as this add-on touches it: the entries, their keys in the order NVDA
+	walks them, and the one method that adds one. Reproduced rather than summarised, because
+	the whole question is what an entry says about which columns — a summary would have
+	answered it for the test rather than for the module.
+	"""
+
+	def __init__(self):
+		self.infosDict = {}
+		self.listByRow = []
+
+	def addHeaderCellInfo(self, **kwargs):
+		info = HeaderCellInfo(**kwargs)
+		key = (info.rowNumber, info.columnNumber)
+		self.infosDict[key] = info
+		self.listByRow.append(key)
+		self.listByRow.sort(reverse=True)
+
+
 def _install() -> None:
 	"""Register what the application module imports, and put the add-on on the path."""
 	if "nvdaBuiltin.appModules.excel" in sys.modules:
@@ -187,6 +233,10 @@ def _install() -> None:
 	localLib.EXCEL_CELLINFO = EXCEL_CELLINFO
 	sys.modules["NVDAHelper"] = helper
 	sys.modules["NVDAHelper.localLib"] = localLib
+	tableUtils = types.ModuleType("tableUtils")
+	tableUtils.HeaderCellTracker = HeaderCellTracker
+	tableUtils.HeaderCellInfo = HeaderCellInfo
+	sys.modules["tableUtils"] = tableUtils
 	sys.modules["comtypes"] = types.ModuleType("comtypes")
 	sys.modules["comtypes"].BSTR = str
 	objects = types.ModuleType("NVDAObjects")
@@ -322,92 +372,78 @@ class FakeWorksheetObject:
 		return FakeRange(row, column, said)
 
 
-class FakeHeaderCellInfo:
-	"""One entry of NVDA's header cell tracker: a cell that heads a run of columns."""
-
-	def __init__(
-		self,
-		rowNumber,
-		columnNumber,
-		rowSpan=1,
-		colSpan=1,
-		minColumnNumber=None,
-		maxColumnNumber=None,
-		minRowNumber=None,
-		maxRowNumber=None,
-		isColumnHeader=True,
-		isRowHeader=False,
-	):
-		self.rowNumber = rowNumber
-		self.columnNumber = columnNumber
-		self.rowSpan = rowSpan
-		self.colSpan = colSpan
-		self.minColumnNumber = minColumnNumber
-		self.maxColumnNumber = maxColumnNumber
-		self.minRowNumber = minRowNumber
-		self.maxRowNumber = maxRowNumber
-		self.isColumnHeader = isColumnHeader
-		self.isRowHeader = isRowHeader
-
-
-class FakeHeaderCellTracker:
-	"""`tableUtils.HeaderCellTracker`, which is where what a reader marked ends up.
-
-	The two attributes NVDA fills in and this add-on reads: the entries, and their keys in
-	the order NVDA walks them. Built here rather than summarised, because the whole question
-	is what an entry says about which columns, and a summary would have answered it for the
-	test rather than for the module.
-	"""
-
-	def __init__(self, headings=()):
-		self.infosDict = {}
-		self.listByRow = []
-		for heading in headings:
-			info = FakeHeaderCellInfo(**heading)
-			key = (info.rowNumber, info.columnNumber)
-			self.infosDict[key] = info
-			self.listByRow.append(key)
-		self.listByRow.sort(reverse=True)
-
-
 class FakeWorksheet:
 	"""NVDA's `ExcelWorksheet`, as far as this add-on touches it."""
 
-	def __init__(self, sheet, marked=None, headings=None):
+	def __init__(self, sheet, marked=None, headings=None, poisoned=False, namesFail=False):
 		self.excelWorksheetObject = sheet
 		self.built = 0
 		self.marked = dict(marked or {})
-		"""What a cell of this sheet answers `columnHeaderText` with, by column number.
-
-		Set on its own, it stands for the case that cost the reader their header row: the
-		tracker says nothing and the cells say plenty. NVDA resolves the two from the same
-		place, so they disagree only when the tracker was not built — which happens, because
-		NVDA keeps whatever the walk of the workbook's defined names produced."""
+		"""What the marked heading row says, by column number, where a test wants to name it
+		rather than put the text in the sheet."""
 
 		self.headings = list(headings or [])
-		"""What the reader marked, as the tracker's own entries. See `headerCellTracker`."""
+		"""What the reader marked, as the tracker's entries. See `headerCellTracker`."""
 
-		self.timesAskedTheTracker = 0
+		self.poisoned = poisoned
+		"""**Whether the tracker NVDA already keeps came out of a walk that failed.**
+
+		The reader's own fault, and the reason the add-on fills a tracker of its own rather
+		than reading this one: NVDA builds it by walking every defined name in the workbook
+		and keeps whatever the walk produced. An empty one is then indistinguishable from a
+		sheet with no headings — and a cell asked instead answers through this same tracker,
+		so asking one is asking the same silence twice."""
+
+		self.namesFail = namesFail
+		"""Whether walking the workbook's names raises, which is the other half of it: a walk
+		that cannot finish must not come back as "this sheet has no headings"."""
+
+		self.timesWalked = 0
+		self._tracker = None
 
 	@property
 	def headerCellTracker(self):
-		"""NVDA's, built on being asked and kept. Counted, because asking is a walk of every
-		defined name in the workbook and doing it per cell is what this seam is avoiding."""
-		self.timesAskedTheTracker += 1
-		return FakeHeaderCellTracker(self.headings)
+		"""NVDA's, built lazily and kept — poisoned and all. See `poisoned`."""
+		if self._tracker is None:
+			self._tracker = HeaderCellTracker()
+			if not self.poisoned:
+				self.populateHeaderCellTrackerFromNames(self._tracker)
+		return self._tracker
+
+	@headerCellTracker.setter
+	def headerCellTracker(self, tracker):
+		"""Assigned, which is how NVDA's own getter caches it and how the add-on mends one."""
+		self._tracker = tracker
+
+	def populateHeaderCellTrackerFromNames(self, tracker):
+		"""Fill a tracker from the workbook's defined names, which is where NVDA reads the
+		reader's marked headings from. Counted, because it is a walk of the workbook."""
+		self.timesWalked += 1
+		if self.namesFail:
+			raise RuntimeError("the walk over the workbook's names did not finish")
+		for heading in self.headings:
+			tracker.addHeaderCellInfo(**heading)
 
 	def headingFor(self, row, column):
 		""":return: what a cell's column is called, the way `fetchAssociatedHeaderCellText`
-		works it out: the first entry that covers the column and sits above the cell, read as
-		the text at (its row, this column) and joined down its rows."""
-		for key in sorted(FakeHeaderCellTracker(self.headings).infosDict, reverse=True):
-			info = FakeHeaderCellTracker(self.headings).infosDict[key]
+		works it out: through **the tracker this worksheet is keeping**, taking the first
+		entry that covers the column and sits above the cell, read as the text at (its row,
+		this column) and joined down its rows.
+
+		The same tracker the add-on reads and mends, which is the point: in NVDA a cell and
+		the tracker are not two opinions, and a stand-in where they were let a witness cell
+		answer a question the tracker could not."""
+		tracker = self.headerCellTracker
+		for key in tracker.listByRow:
+			info = tracker.infosDict[key]
 			if not info.isColumnHeader or column < info.columnNumber:
 				continue
 			if info.maxColumnNumber and column > info.maxColumnNumber:
 				continue
 			if row < info.rowNumber + info.rowSpan:
 				return None
+			if self.marked:
+				return self.marked.get(column)
 			said = " ".join(
 				self.excelWorksheetObject.cells(at, column).text
 				for at in range(info.rowNumber, info.rowNumber + info.rowSpan)
@@ -417,7 +453,17 @@ class FakeWorksheet:
 		return None
 
 
-def aCell(row=2, column=1, sheet=None, values=None, used=None, marked=None, headings=None):
+def aCell(
+	row=2,
+	column=1,
+	sheet=None,
+	values=None,
+	used=None,
+	marked=None,
+	headings=None,
+	poisoned=False,
+	namesFail=False,
+):
 	""":return: a worksheet cell with the add-on's overlay on it, as NVDA would build one.
 
 	Through the metaclass rather than by naming a composed class, because that is the order
@@ -427,6 +473,8 @@ def aCell(row=2, column=1, sheet=None, values=None, used=None, marked=None, head
 		sheet if sheet is not None else FakeWorksheetObject(values, used),
 		marked=marked,
 		headings=headings,
+		poisoned=poisoned,
+		namesFail=namesFail,
 	)
 	cell = FakeCell(
 		windowHandle=42,
@@ -652,11 +700,15 @@ class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
 	Answered from an empty `ExcelWorksheet.headerCellTracker` it cost the reader their header
 	row, which is the other direction. The tracker is built by walking every defined name in
 	the workbook and NVDA keeps whatever that walk produced — including nothing, where it
-	failed part way — so an empty one can mean "I know of none just now" while every cell of
-	that same sheet names its column perfectly well.
+	failed part way — so an empty one can mean "I know of none just now".
 
-	So the tracker is read for what it positively says, and its silence is checked against one
-	cell before it is believed.
+	**And a cell is no second opinion**, which a review had to point out: a cell resolves its
+	column's header through its worksheet's tracker, and the cells this hands out are given
+	this same worksheet. Asking one was asking the same silence twice.
+
+	So a tracker is filled here instead of read. The walk either finishes — and an empty
+	tracker then means what it says — or it raises, and that is a different answer. The
+	finished tracker is put on the worksheet, so the cells and this cannot disagree.
 	"""
 
 	def setUp(self):
@@ -693,7 +745,7 @@ class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
 		sheet.columnHeaders(1, 3)
 		sheet.columnHeaders(2, 3)
 		self.assertEqual(len(fetches), 1)
-		self.assertEqual(sheet.obj.timesAskedTheTracker, 1)
+		self.assertEqual(sheet.obj.timesWalked, 1)
 
 	def test_aColumnOutsideWhatWasMarkedIsNotNamed(self):
 		"""A heading marked from column two does not name column one — which is
@@ -707,19 +759,37 @@ class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
 		saves an unmarked sheet a cell per column for a question whose answer is nothing."""
 		self.assertEqual(self._sheet().columnHeaders(1, 3), {})
 
-	def test_andProvesItWithOneCellRatherThanNone(self):
-		"""The check that the last attempt did not make. One cell, not one per column."""
+	def test_andItCostsNoCellsToSayIt(self):
+		"""Not even one. The check is the walk finishing, not a cell's opinion of it."""
 		sheet = self._sheet()
 		before = len(FakeCell.made)
 		sheet.columnHeaders(1, 3)
-		self.assertEqual(len(FakeCell.made) - before, 1)
+		self.assertEqual(len(FakeCell.made), before)
 
-	def test_soATrackerThatIsWrongIsNotBelieved(self):
-		"""**The reader's own fault, in one test.** The tracker says nothing and the cells say
-		plenty; NVDA resolves both from the same place, so they disagree only when the walk
-		that fills the tracker did not finish — and NVDA keeps the empty one it made first."""
-		sheet = self._sheet(marked={1: "Date", 2: "Al"})
-		self.assertIsNone(sheet.columnHeaders(1, 3))
+	def test_aTrackerLeftEmptyByAFailedWalkIsNotWhatIsRead(self):
+		"""**The reader's own fault, in one test.** NVDA already holds an empty tracker for
+		this sheet, from a walk that did not finish, and the headings are there to be found.
+		Reading the tracker back answers "no headings"; asking a cell answers the same, since
+		a cell resolves its column's header through that very tracker. Filling one here finds
+		them."""
+		sheet = self._sheet(headings=self.ACROSS, poisoned=True)
+		batch["Sheet1!R1C1:C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
+		self.assertEqual(sheet.obj.headerCellTracker.infosDict, {})
+		self.assertEqual(sheet.columnHeaders(1, 3), {1: "Region", 2: "Q1", 3: "Q2"})
+
+	def test_andTheWorksheetIsMendedSoItsCellsAgree(self):
+		"""The finished tracker is put where NVDA keeps its own, which is what every cell
+		built from this sheet resolves its column's header through."""
+		sheet = self._sheet(headings=self.ACROSS, poisoned=True)
+		batch["Sheet1!R1C1:C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
+		self.assertIsNone(sheet.cellAt(3, 2).columnHeaderText)
+		sheet.columnHeaders(1, 3)
+		self.assertEqual(sheet.cellAt(3, 2).columnHeaderText, "Q1")
+
+	def test_aWalkThatCannotFinishIsNotAnEmptySheet(self):
+		"""The other half of it: an answer of "no headings" is only worth giving after a walk
+		that got to the end. This one raises, so the cells are asked as they always were."""
+		self.assertIsNone(self._sheet(headings=self.ACROSS, namesFail=True).columnHeaders(1, 3))
 
 	def test_aHeadingSeveralRowsTallIsLeftToNvda(self):
 		"""NVDA joins the rows of the span together itself; this reads one row."""
@@ -746,7 +816,7 @@ class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
 
 	def test_andACellStillNamesItsColumn(self):
 		"""Which is what the flow falls back to, through `flowObjectTable.headerTextOf`."""
-		sheet = self._sheet(marked={2: "Q1"})
+		sheet = self._sheet(headings=self.ACROSS, marked={2: "Q1"})
 		self.assertEqual(sheet.cellAt(3, 2).columnHeaderText, "Q1")
 
 	def test_andACellNamesItFromTheMarkedRowToo(self):
@@ -871,6 +941,22 @@ class TestHowFarTheSheetGoes(unittest.TestCase):
 		cell = aCell(row=7, column=2)
 		cell.parent.excelWorksheetObject.used = None
 		self.assertIsNone(cell.brlMultilineSheet())
+
+	def test_butACancelledReadIsNotASheetThatIsNotThere(self):
+		"""**The reviewer's own repro.** Recognising the sheet is the first read of the whole
+		operation, and a cancelled one used to come back as None — which the flow reports as
+		"you are not in a table", to a reader looking straight at one. It goes up instead, and
+		the command says the table could not be read."""
+
+		class Cancelling:
+			@property
+			def row(self):
+				raise excelModule.CallCancelled("NVDA stopped waiting")
+
+		cell = aCell()
+		cell.parent.excelWorksheetObject.used = Cancelling()
+		with self.assertRaises(excelModule.CallCancelled):
+			cell.brlMultilineSheet()
 
 	def test_aSheetTooWideToMeasureIsLeftToNvda(self):
 		"""Excel's used range grows to whatever has ever been *formatted* and never shrinks,

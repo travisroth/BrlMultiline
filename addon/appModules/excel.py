@@ -66,6 +66,14 @@ except ImportError:  # Outside NVDA, and on an NVDA old enough not to have it.
 		"""Stand-in for NVDA's own. See `globalPlugins.brlMultiline.flow`."""
 
 
+try:
+	from tableUtils import HeaderCellTracker
+except ImportError:  # pragma: no cover - an NVDA without it answers no headings at all.
+	HeaderCellTracker = None
+"""Where NVDA records the header rows and columns a reader has marked. See
+`ExcelSheet._trackerNow`, which fills one rather than reading the worksheet's."""
+
+
 _UNASKED = object()
 """Stands for a question not yet put, where None is one of the answers."""
 
@@ -222,6 +230,18 @@ class ExcelSheet:
 			log.debugWarning("Could not ask a worksheet which workbook it is in", exc_info=True)
 			return None
 
+	def usedShape(self) -> tuple:
+		""":return: how far Excel considers this sheet *used*, as (rows, columns).
+
+		`shape` stretches its answer to wherever the reader is standing, because a table that
+		stops short of them is a reading with nowhere to put them. That makes it the wrong
+		number to notice a change by: on a blank sheet, arrowing from D20 to D21 moves it, and
+		a layout rebuilt on every keypress is a display that will not settle. This is the half
+		that only moves when the sheet does. See `flowObjectTable.Sheet.usedShape`.
+		"""
+		self.shape()
+		return self._used
+
 	def tooWide(self) -> bool:
 		""":return: whether this sheet is too wide to measure without stopping NVDA.
 
@@ -319,13 +339,13 @@ class ExcelSheet:
 		call. So a marked sheet is answered by one read of its header row rather than one read
 		per column, and an unmarked one is answered without reading anything at all.
 
-		**An empty tracker is checked before it is believed.** This is the second time it has
-		been asked and the first time cost the reader their header row: the tracker is built
-		by walking every defined name in the workbook, NVDA keeps whatever that walk produced
-		— including nothing, where it failed part way — and every cell of that same sheet
-		could name its column perfectly well. So an empty tracker is worth one witness: a
-		single cell, asked what its column is called. If it answers, the tracker is not to be
-		trusted here and the ordinary per-column ask stands.
+		**An empty answer is only given after a walk that finished.** This is the second time
+		the tracker has been asked and the first time cost the reader their header row: NVDA
+		builds one lazily by walking every defined name in the workbook and keeps whatever
+		that walk produced, an empty one included where it failed part way, while every cell
+		of that same sheet could name its column perfectly well. Read off the worksheet, an
+		empty tracker cannot tell "no headings" from "the walk did not finish". Filled here,
+		the difference is the difference between returning and raising. See `_trackerNow`.
 
 		None for anything this cannot work out exactly, which sends the caller back to asking
 		the cells: a heading several rows tall, which NVDA joins together itself, and one that
@@ -356,7 +376,7 @@ class ExcelSheet:
 		if marked is None:
 			return None
 		if not marked:
-			return None if self._aCellNamesItsColumn() else {}
+			return {}
 		width = self.shape()[1]
 		found: dict = {}
 		for row, low, high in marked:
@@ -383,11 +403,13 @@ class ExcelSheet:
 		see `tableUtils.HeaderCellTracker.iterPossibleHeaderCellInfosFor`, which is the rule
 		this follows.
 
-		None where an entry is a shape that cannot be read off one row: a heading several rows
-		tall, which NVDA joins together, or one bounded to a run of rows, which is not a
-		property of the column at all.
+		None where the tracker could not be finished, and where an entry is a shape that cannot
+		be read off one row: a heading several rows tall, which NVDA joins together, or one
+		bounded to a run of rows, which is not a property of the column at all.
 		"""
-		tracker = self.obj.headerCellTracker
+		tracker = self._trackerNow()
+		if tracker is None:
+			return None
 		infos = getattr(tracker, "infosDict", None) or {}
 		marked = []
 		for key in list(getattr(tracker, "listByRow", ()) or ()):
@@ -404,25 +426,34 @@ class ExcelSheet:
 				marked.append((int(info.rowNumber), low, high))
 		return marked
 
-	def _aCellNamesItsColumn(self) -> bool:
-		""":return: whether a cell of this sheet can name its column after all.
+	def _trackerNow(self):
+		""":return: a header cell tracker filled here and now, or None if it cannot be.
 
-		One cell, and never one of row one: a header cell has no header above it, so the row a
-		reader most often marks is the one row that answers nothing. Theirs where they are
-		standing anywhere else, and the row under the top otherwise.
+		**Filled rather than read off the worksheet, and that is the whole of the safeguard.**
+		NVDA builds one lazily, by walking every defined name in the workbook, and keeps
+		whatever the walk produced — so a walk interrupted part way leaves an empty tracker
+		cached on the worksheet, and reading it back cannot tell that from a sheet with no
+		headings. That is what took the reader's header row off the display, and asking a cell
+		instead would not have caught it either: a cell resolves `columnHeaderText` through
+		its worksheet's tracker, and the cells this hands out are given this same worksheet.
+		One poisoned answer, asked twice.
+
+		Filling one here makes the question answerable: the walk either finishes, and an empty
+		tracker then means the sheet has no marked headings, or it raises, and this says so by
+		answering None.
+
+		The finished tracker is put on the worksheet, which is where NVDA keeps its own and
+		what every cell built from this sheet resolves its column's header through — so the
+		two paths cannot answer differently, and a worksheet whose tracker was left empty by a
+		failed walk is mended rather than worked around.
 		"""
-		row, column = self.where()
-		asked = row if row > 1 else 2
-		if asked > self.shape()[0]:
-			return False
-		cell = self.cellAt(asked, max(1, column))
-		if cell is None:
-			return False
-		try:
-			return bool((cell.columnHeaderText or "").strip())
-		except Exception:
-			log.debugWarning("Could not ask a cell what its column is called", exc_info=True)
-			return False
+		populate = getattr(self.obj, "populateHeaderCellTrackerFromNames", None)
+		if populate is None or HeaderCellTracker is None:
+			return None
+		tracker = HeaderCellTracker()
+		populate(tracker)
+		self.obj.headerCellTracker = tracker
+		return tracker
 
 	def cellAt(self, row: int, column: int):
 		""":return: the cell at one coordinate, or None if it cannot be reached.
@@ -556,6 +587,12 @@ def sheetFor(cell):
 				"Reading it as NVDA ordinarily would.",
 			)
 			return None
+	except CallCancelled:
+		# **Not "this is not a worksheet".** NVDA has stopped waiting on Excel, and answering
+		# no here tells the reader they are not in a table at all — an explanation of
+		# something that never happened, and one they cannot act on. It goes up to whoever
+		# asked. See `globalPlugins.brlMultiline.flow.CallCancelled`.
+		raise
 	except Exception:
 		log.debugWarning("Could not reach the worksheet behind a cell", exc_info=True)
 		return None

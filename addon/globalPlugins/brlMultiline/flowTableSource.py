@@ -136,6 +136,17 @@ class TableHandle:
 	col: int
 	"""The column the caret is in, one based."""
 
+	contentRows: int = 0
+	"""How many rows the table had content in when this handle was made, or 0 for unknown.
+
+	**Read once and carried, because it is a snapshot and the point of it is comparing two.**
+	`numRows` reaches at least as far as the reader on a grid, so that the row they are
+	standing in is part of the table; that makes it move when they arrow below the data, and a
+	layout rebuilt on every keypress is a display that will not settle. This is the half that
+	only moves when the table does. See `flowObjectTable.SheetTable.contentRows` and
+	`flowBand.FlowBand._tableChangedShape`.
+	"""
+
 	@property
 	def key(self) -> tuple:
 		"""What names this table, and names it apart from every other one.
@@ -201,7 +212,19 @@ def tableAt(obj) -> Optional[TableHandle]:
 		numCols=numCols,
 		row=cell.row,
 		col=cell.col,
+		# Asked now rather than later: two handles are compared to notice a table that has
+		# changed, and a number read from the document at comparing time is the same number
+		# twice. See `TableHandle.contentRows`.
+		contentRows=_contentRowsOf(document, numRows),
 	)
+
+
+def _contentRowsOf(document, numRows: int) -> int:
+	""":return: how many rows a table has content in, or its row count where it will not say."""
+	said = getattr(document, "contentRows", None)
+	if not isinstance(said, int) or said < 1:
+		return numRows
+	return said
 
 
 def explain(obj) -> list:

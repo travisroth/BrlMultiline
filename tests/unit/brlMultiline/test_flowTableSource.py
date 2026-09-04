@@ -424,6 +424,19 @@ class TestACancelledReadFromAnyStageSaysSo(unittest.TestCase):
 		with self.assertRaises(CallCancelled):
 			flowTableSource.tableAt(obj)
 
+	def test_namingTheTableIsNotSwallowedEither(self):
+		"""A table named from reads that never happened is a table matched against somebody
+		else's saved layout — or against nothing, so the reader's own is not found."""
+		from brlMultiline import flowTableIdentity
+
+		document = FakeTableDocument(WATCHLIST, row=2, col=1)
+		document.whereIsIt = _raisesCancelled
+		handle = flowTableSource.tableAt(
+			FakeNavigatorObject("a page", treeInterceptor=document),
+		)
+		with self.assertRaises(CallCancelled):
+			flowTableIdentity.whereOf(handle)
+
 	def test_andTheBuildSaysTheTableCouldNotBeRead(self):
 		from brlMultiline import flowBuild
 

@@ -36,6 +36,8 @@ from typing import Any, Optional
 
 from logHandler import log
 
+from .flow import CallCancelled
+
 SIGNATURE_COLUMNS = 8
 """How many of a table's columns are read to make its signature.
 
@@ -112,6 +114,10 @@ def _saysWhereItIs(document) -> str:
 		return ""
 	try:
 		found = said()
+	except CallCancelled:
+		# A table named by a read that never happened is a table matched against somebody
+		# else's saved layout. See `flow.CallCancelled`.
+		raise
 	except Exception:
 		log.debugWarning("Could not ask a table where it is", exc_info=True)
 		return ""
@@ -176,6 +182,10 @@ def signatureOf(handle, columns: Optional[Any] = None) -> str:
 		return ""
 	try:
 		said = flowTableSource.declaredHeaders(handle, wanted)
+	except CallCancelled:
+		# A signature read from cancelled reads is a different table's name, and the layout
+		# saved against the real one would not be found. See `flow.CallCancelled`.
+		raise
 	except Exception:
 		log.debugWarning("Could not read a table's headings for its signature", exc_info=True)
 		return ""

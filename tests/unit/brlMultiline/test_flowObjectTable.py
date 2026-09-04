@@ -1459,6 +1459,56 @@ class TestDrawingARowInOneCall(unittest.TestCase):
 		self.assertTrue(sheet.asked)
 
 
+class TestHowFarASheetIsWrittenIn(unittest.TestCase):
+	"""**Told apart from how far the reader can walk**, which is what stopped the layout being
+	rebuilt on every arrow key below the data.
+
+	A grid reaches at least as far as the cell the reader is in, so that the row and column
+	they are standing in are part of the table. Read as a count of the table, that moves each
+	time they step outside the data — and the check that notices a table which has actually
+	grown was reading it.
+	"""
+
+	def _table(self, sheet):
+		cell = FakeNavigatorObject("a cell", role="TABLECELL")
+		cell.brlMultilineSheet = lambda: sheet
+		return flowObjectTable.tableFor(cell)
+
+	def test_aSheetThatSaysSoIsBelieved(self):
+		class Written(FakeSheet):
+			def shape(self):
+				return (20, 4)
+
+			def usedShape(self):
+				return (3, 4)
+
+		table = self._table(Written(at=(20, 4)))
+		self.assertEqual(table.numRows, 20)
+		self.assertEqual(table.contentRows, 3)
+
+	def test_andOneThatWillNotSayIsTakenAtItsRowCount(self):
+		"""A list view has no such distinction: it is as big as it is."""
+		table = self._table(FakeSheet(at=(2, 1)))
+		self.assertEqual(table.contentRows, table.numRows)
+
+	def test_andTheHandleCarriesItRatherThanAskingTwice(self):
+		"""Two handles are compared to notice a table that changed, and a number read at
+		comparing time is the same number twice — which is no comparison at all."""
+
+		class Written(FakeSheet):
+			def shape(self):
+				return (20, 4)
+
+			def usedShape(self):
+				return (3, 4)
+
+		cell = FakeNavigatorObject("a cell", role="TABLECELL")
+		cell.brlMultilineSheet = lambda: Written(at=(20, 4))
+		handle = flowTableSource.tableAt(cell)
+		self.assertEqual(handle.numRows, 20)
+		self.assertEqual(handle.contentRows, 3)
+
+
 class TestNotAskingTheSameQuestionTwice(unittest.TestCase):
 	"""What a column is called is asked while the table is measured and again by the source
 	that pins the header row, and on a worksheet each ask is an `NVDAObject` built and a

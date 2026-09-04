@@ -1105,9 +1105,22 @@ class FakeTableDocument(FakeTreeInterceptor):
 		self.columnHeaders = dict(columnHeaders or {})
 		self.reads = []
 		self.carets = []
+		self.reach = 0
+		"""How far the reader can go beyond what is written in, which is what a spreadsheet
+		does: the table reaches at least as far as the cell they are standing in, or a reader
+		arrowing below the data is standing outside their own table. Zero for a document,
+		where a table is as big as it is."""
 
 	@property
 	def numRows(self):
+		return max(len(self.rows), self.reach)
+
+	@property
+	def contentRows(self):
+		""":return: how far this table is written in, which is not how far it reaches.
+
+		The number that only moves when the table does. See
+		`flowObjectTable.SheetTable.contentRows`."""
 		return len(self.rows)
 
 	@property

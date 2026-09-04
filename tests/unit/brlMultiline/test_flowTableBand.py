@@ -30,8 +30,9 @@ from ._stubs import (
 installStubs()
 
 from brlMultiline import bmConfig  # noqa: E402
-from brlMultiline.flow import Edge, EdgeState  # noqa: E402
-from brlMultiline.flowBand import LIVE_SETTLE_MILLIS  # noqa: E402
+from brlMultiline.flow import CallCancelled, Edge, EdgeState  # noqa: E402
+from brlMultiline.flowBand import LIVE_SETTLE_MILLIS, NO_TABLE, NOT_READ  # noqa: E402
+from brlMultiline.flowBuild import Unreadable  # noqa: E402
 from brlMultiline.flowTableSource import TableFlowSource  # noqa: E402
 
 from .test_flowSegment import FakeHandler, FakePlugin, containerWithBand  # noqa: E402
@@ -714,6 +715,24 @@ class TestPagingFromAColumnTheLayoutLeftOut(TableBandTestCase):
 		document.rows.append([f"r21c{n}" for n in range(1, len(document.rows[0]) + 1)])
 		self.band.recheck()
 		self.assertIsNot(self.band.columnPlan(), plan, "the layout was not made again")
+
+	def test_butWalkingBelowTheDataIsNotTheTableChanging(self):
+		"""**A review caught the layout being rebuilt on every arrow key.** A grid reaches at
+		least as far as the reader, so that the row they are standing in is part of the table
+		— and read as a count of the table, that moves each time they step below the data. On
+		a blank sheet, D20 to D21 and back again was two rebuilds: measured again, planned
+		again, and their page and panned rows put back, for a sheet nothing had happened to.
+		"""
+		obj, document = self._here()
+		document.rowCountIsExact = True
+		plan = self.band.columnPlan()
+		control = self.band.controller
+		for row in (len(document.rows) + 1, len(document.rows) + 2, len(document.rows) + 1):
+			document.reach = row
+			document.row = row
+			self.band.recheck()
+		self.assertIs(self.band.controller, control, "the flow was made again")
+		self.assertIs(self.band.columnPlan(), plan, "the layout was made again")
 
 	def test_butAListThatIsStillBeingBuiltIsLeftAlone(self):
 		"""File Explorer answered fourteen rows while the reader stood on item fifty two of
@@ -2114,6 +2133,53 @@ class TestTheFocusMovingInsideATable(TableBandTestCase):
 		_document, moveTo = self._walk(rows=rows)
 		moveTo(11, column=2)
 		self.assertIsNotNone(self.band.controller.cursorCell())
+
+
+class TestACancelledReadingIsNotAnAbsentTable(TableBandTestCase):
+	"""**Recognising the table happens before anything is built**, and it is a read of the
+	document like any other. Cancelled, it used to answer "there is no table here" — which is
+	the one thing the reader can see is untrue, and it sends them looking in the wrong place.
+
+	A review found this after the boundary was put around the build: the build was never
+	reached. The reader is told the table could not be *read*, which is a moment that has
+	passed rather than a display too narrow, and asking again is the thing to do.
+	"""
+
+	def _cancelling(self):
+		"""Make recognising the table raise what a cancelled COM call raises."""
+		from brlMultiline import flowTableSource
+
+		real = flowTableSource.tableAt
+
+		def stop(obj):
+			raise CallCancelled("NVDA stopped waiting")
+
+		flowTableSource.tableAt = stop
+		self.addCleanup(setattr, flowTableSource, "tableAt", real)
+
+	def test_theCommandSaysTheTableCouldNotBeRead(self):
+		self._inTable()
+		self._cancelling()
+		self.assertFalse(self.band.layOutTable())
+		self.assertEqual(self.band.tableProblem, NOT_READ)
+
+	def test_andNotThatThereIsNoTable(self):
+		self._inTable()
+		self._cancelling()
+		self.band.layOutTable()
+		self.assertNotEqual(self.band.tableProblem, NO_TABLE)
+
+	def test_andARedrawThatIsCancelledDoesNotRaiseAtTheReader(self):
+		"""The same reads happen on every redraw, where there is no command to report to and
+		nothing to be done but leave the band as it was."""
+		self._inTable()
+		self.assertTrue(self.band.layOutTable())
+		self._cancelling()
+		self.band.refresh(force=True)
+		self.assertTrue(
+			any(isinstance(note, Unreadable) for note in self.band.tableNotes),
+			"nothing was left saying why",
+		)
 
 
 class TestTellingTheThreeRefusalsApart(TableBandTestCase):

@@ -657,6 +657,16 @@ class ObjectTable:
 	they are the ones its cells declare, and where it declares none there is nothing to pin.
 	"""
 
+	@property
+	def contentRows(self) -> int:
+		""":return: how many rows this table has content in, for noticing that it changed.
+
+		The row count itself, for everything but a grid: a list has as many rows as it has, and
+		nothing stretches it. See `SheetTable.contentRows`, and `rowCountIsExact`, which is
+		what decides whether the number is worth comparing at all.
+		"""
+		return self.numRows
+
 	rowCountIsExact = False
 	"""Whether this table's count of its rows is a fact rather than what has been built so far.
 
@@ -1665,6 +1675,17 @@ class Sheet:
 	# instead and answers everything above; they exist because *measuring* asks a different
 	# question from *reading*, and a grid can often answer it far more cheaply.
 
+	def usedShape(self) -> Optional[tuple]:
+		""":return: how far this grid is written in, as (rows, columns), or None if it cannot say.
+
+		Optional, and told apart from `shape` on purpose: `shape` reaches at least as far as
+		the reader, so that the column and row they are standing in are part of the table. It
+		therefore changes when they move about the empty part of a sheet, and something has to
+		notice a table that has actually *grown* — a formula filling down, a query refreshing —
+		without mistaking their arrow keys for it.
+		"""
+		return None
+
 	def whereIsIt(self) -> Optional[str]:
 		""":return: what names the place this grid is in, or None to be named the ordinary way.
 
@@ -1734,6 +1755,9 @@ def sheetOf(obj):
 		return None
 	try:
 		return offered()
+	except CallCancelled:
+		# Not "this is not a cell of a grid". See `flow.CallCancelled`.
+		raise
 	except Exception:
 		log.debugWarning(f"Could not reach the sheet behind {describeThing(obj)}", exc_info=True)
 		return None
@@ -1902,6 +1926,27 @@ class SheetTable(ObjectTable):
 	def cellObject(self, item, column: int):
 		""":return: the object behind one cell, for the report. See `describeCellSources`."""
 		return self.sheet.cellAt(self.rowNumberOf(item) or self.row, column)
+
+	@property
+	def contentRows(self) -> int:
+		""":return: how far the sheet is written in, which is not how far the reader can go.
+
+		**The number that only moves when the sheet does.** `numRows` reaches at least as far
+		as the reader, so that the row they are standing in is part of the table — and read as
+		a count of the table it moves every time they press an arrow key below the data. A
+		review caught the layout being rebuilt on each of those: measured again, planned again,
+		and the reader's page and panned rows put back, for a sheet nothing had happened to.
+		"""
+		said = getattr(self.sheet, "usedShape", None)
+		if said is None:
+			return self.numRows
+		try:
+			return max(1, int(said()[0] or 1))
+		except CallCancelled:
+			raise
+		except Exception:
+			log.debugWarning("Could not ask a sheet how far it is written in", exc_info=True)
+			return self.numRows
 
 	def rowObject(self, row: int):
 		""":return: the row number itself, which is what a cell is fetched by."""

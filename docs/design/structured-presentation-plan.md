@@ -1632,6 +1632,33 @@ asking how far a worksheet goes, a used range that would not answer at all. Each
 by a broad catch and reported as "not a table", "no headings", a one by one sheet. Every stage
 of building a table flow is now inside one catch that says what actually happened.
 
+**What the second review of it found.** Three things, and two of them were fixes that stopped
+short of the fault they were aimed at.
+
+*A witness that shares the poisoned well.* The empty header tracker was to be checked against
+one cell, and a cell resolves its column's header through its worksheet's tracker — the same
+one, since `cellAt` hands out cells carrying this very worksheet. Asking one was asking the
+same silence twice. The answer is not a second opinion but a fresh walk: `_trackerNow` fills a
+tracker of its own from the workbook's defined names, so the walk either finishes — and an
+empty tracker then means what it says — or raises, which is a different answer. The finished
+tracker is put on the worksheet, where NVDA keeps its own, so the two paths cannot disagree and
+a worksheet left with a half-built one is mended. The stand-in was wrong in the same way and
+was making the old fix look tested: it let a cell answer from a map the tracker knew nothing
+about. It now resolves both through the one tracker, as NVDA does.
+
+*A boundary the reads never reached.* Cancellation was caught around building the table flow,
+and recognising the table, naming it and looking up what the reader saved for it all happen
+before that. Each answered "not a table" — the one thing a reader looking at a table can see is
+untrue. They re-raise now, and the boundary is around the whole of the band's table operation
+and around the command's own first read.
+
+*A count that moves when the reader does.* Rebuilding on a changed row count is right for a
+sheet that gained rows and wrong for the number that was being compared: `shape` reaches at
+least as far as the reader, so on a blank sheet D20 to D21 and back was two rebuilds. How far a
+grid is *written in* is now a separate question — `usedShape` — and the answer is taken once,
+onto the handle, because two handles are what get compared and a number read at comparing time
+is the same number twice.
+
 Two findings are left undone deliberately, and both are the same shape: they need work that
 cannot be checked without Excel in front of it.
 

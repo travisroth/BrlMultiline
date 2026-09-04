@@ -173,9 +173,10 @@ Added:
 - **What the columns of a sheet are called is asked once of the sheet** rather than of every
   cell. On a sheet nobody has marked up it costs no reads at all, where it used to build up to
   three cell objects per column before a row you can feel had been read; on a marked one it is
-  a single read of the heading row. A sheet that says it has no headings is checked against one
-  of its own cells before it is believed, which is what went wrong the first time this was
-  tried.
+  a single read of the heading row. The record of what you marked is built afresh each time
+  rather than read from the one NVDA is keeping, so "this sheet has no headings" is only said
+  after a search that reached the end — and a sheet whose record NVDA left half built is mended
+  rather than worked around.
 
 - **The column you are standing in is drawn even when it is empty.** On a spreadsheet the
   column beside the data is where you go to write the next one, and an empty column was left
@@ -203,8 +204,14 @@ Added:
   down as a digest as every other identity is.
 
 - When NVDA stops waiting on Excel part way through laying out a table, the command says the
-  table could not be *read* — whichever step it happened in. It used to come out as "not a
-  table", "no headings", or a row that could not be read, depending on where it landed.
+  table could not be *read* — whichever step it happened in, including recognising the sheet
+  and naming it, which happen before anything is built. It used to come out as "you are not in
+  a table", "no headings", or a row that could not be read, depending on where it landed.
+
+- Arrowing about the empty part of a sheet no longer rebuilds the layout on every keypress. A
+  sheet reaches at least as far as the cell you are in, so that the row you are standing in is
+  part of the table; what is watched for a table that has actually grown is how far it is
+  written in, which only moves when the sheet does.
 
 - **A pinned header row is not also drawn in the table.** Where a sheet's headings are its
   own first row — which is what you mark when you mark a header row — the row held above the

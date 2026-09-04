@@ -41,6 +41,7 @@ from . import (
 	flowTableSource,
 	patches,
 )
+from .flow import CallCancelled
 from .flowControl import FlowController
 from .flowBuild import (
 	Unreadable,
@@ -1020,14 +1021,22 @@ class FlowBand(PanelOwner):
 		:return: whether there was a table to lay out.
 		"""
 		obj = self._target()
-		handle = flowTableSource.tableAt(obj)
+		self.tableNotes = []
+		try:
+			handle = flowTableSource.tableAt(obj)
+		except CallCancelled:
+			# **Before anything is built, and it is the first thing the command does.** A
+			# cancelled recognition used to come back as "you are not in a table", which is
+			# the one thing the reader can see is untrue. See `flow.CallCancelled`.
+			self.tableProblem = NOT_READ
+			log.debugWarning("Asked for a table in columns and the reading was cancelled")
+			return False
 		if handle is None:
 			self.tableProblem = NO_TABLE
 			flowTableSource.logExplanation(obj, "asked for a table in columns and found none")
 			return False
 		self.tableWanted = handle.key
 		self._askedAboutCell = None
-		self.tableNotes = []
 		self.refresh(force=True)
 		if self.controller is not None and self._readingATable():
 			self.tableProblem = None
@@ -1330,20 +1339,24 @@ class FlowBand(PanelOwner):
 				f"{source.handle.numCols}",
 			)
 			return True
-		if (
-			getattr(found.document, "rowCountIsExact", False)
-			and found.numRows != source.handle.numRows
-		):
-			# **Only where the count is a fact.** A list view's grows as the platform builds
-			# it and means nothing; a sheet's means the sheet gained or lost rows — a formula
-			# filling down, a query refreshing — and the stream then cannot be panned into the
-			# new ones at all, because the source keeps the count it was made with. See
-			# `flowObjectTable.ObjectTable.rowCountIsExact`.
-			self._rebuildBecause(
-				f"the table has {found.numRows} rows and the layout was made for "
-				f"{source.handle.numRows}",
-			)
-			return True
+		if getattr(found.document, "rowCountIsExact", False):
+			# **Only where the count is a fact, and only the part of it the reader cannot
+			# move.** A list view's row count grows as the platform builds it and means
+			# nothing; a sheet's means the sheet gained or lost rows — a formula filling down,
+			# a query refreshing — and the stream then cannot be panned into the new ones at
+			# all, because the source keeps the count it was made with.
+			#
+			# Not `numRows`, which reaches at least as far as the reader so that the row they
+			# are standing in is part of the table: on a blank sheet that moves with every
+			# arrow key, and a review caught the layout being measured and built again on each
+			# of them. See `flowObjectTable.SheetTable.contentRows`.
+			now = found.contentRows or found.numRows
+			before = source.handle.contentRows or source.handle.numRows
+			if now != before:
+				self._rebuildBecause(
+					f"the table has content in {now} rows and the layout was made for {before}",
+				)
+				return True
 		plan = getattr(self.controller.renderer, "columnPlan", None)
 		if plan is None or plan.isEmpty:
 			return False
@@ -1547,6 +1560,35 @@ class FlowBand(PanelOwner):
 		return isinstance(source, flowTableSource.TableFlowSource)
 
 	def _showTable(self, obj: Any, segment, force: bool = False) -> Optional[bool]:
+		"""Show the reader's table, and say when NVDA stopped waiting rather than pretending.
+
+		**The boundary is here rather than around the build alone**, which is what a review
+		asked for and where it counted: recognising the table, looking up what the reader
+		saved for it and naming it for that lookup all happen *before* anything is built, and
+		all of them are reads of the document. Cancelled, each answered "not a table" — and a
+		reader told they are not in a table when they are looking at one goes looking in the
+		wrong place.
+
+		The band shows nothing either way. What differs is that a note is left, so the command
+		says the table could not be read and they know to ask again.
+
+		See `_showTheTable`, which is the work, and `flow.CallCancelled`.
+		"""
+		try:
+			return self._showTheTable(obj, segment, force=force)
+		except CallCancelled:
+			if self.tableNotes is None:
+				self.tableNotes = []
+			self.tableNotes.append(
+				Unreadable(
+					"NVDA cancelled the reads while it was working out which table this is, "
+					"because the core had stopped answering.",
+				),
+			)
+			log.debugWarning("A table reading was cancelled while the table was recognised")
+			return None
+
+	def _showTheTable(self, obj: Any, segment, force: bool = False) -> Optional[bool]:
 		"""Show the reader's table in columns, or say that this is not the moment to.
 
 		Answers None rather than False when there is no table to lay out, because None means
