@@ -164,6 +164,48 @@ Added:
   header cell has no header above it, and its answer was taken for the whole column. On a
   spreadsheet that is where the cursor usually is when you ask.
 
+- **A worksheet is read a row at a time everywhere, not only while its columns are being
+  measured.** The rows on the display were still built one cell at a time — a coordinate
+  lookup and an object built with its overlay classes chosen, per column, per row — and the
+  refresh did it again. The cell object behind a value is now fetched only when a routing key
+  lands on that one cell.
+
+- **What the columns of a sheet are called is asked once of the sheet** rather than of every
+  cell. On a sheet nobody has marked up it costs no reads at all, where it used to build up to
+  three cell objects per column before a row you can feel had been read; on a marked one it is
+  a single read of the heading row. A sheet that says it has no headings is checked against one
+  of its own cells before it is believed, which is what went wrong the first time this was
+  tried.
+
+- **The column you are standing in is drawn even when it is empty.** On a spreadsheet the
+  column beside the data is where you go to write the next one, and an empty column was left
+  out of the layout — so your cursor went with it, there was nothing to route into, and a blank
+  sheet could not be laid out at all. A list is unchanged: a column of icons that reads as
+  nothing still costs no cells.
+
+- **A worksheet that will not say how far it goes is left to NVDA** rather than presented as a
+  table one cell bigger than wherever you are standing.
+
+- **A batch read that came back short is read again cell by cell.** Excel's own fetch stops at
+  the first cell it cannot reach, and the rest used to be filled in with blanks — so columns
+  with values in them measured as columns holding nothing.
+
+- Merged cells read as their content under every column they span, rather than as one value
+  and then blanks.
+
+- Rows appearing in a sheet while you sit still — a formula filling down, a query refreshing —
+  bring the layout up to date. The check compared columns and never rows, so the new rows could
+  not be panned into at all.
+
+- **A layout you save for one workbook stays with it.** Every worksheet of every workbook
+  looked alike to the part that remembers layouts, so two workbooks with the same headings were
+  each other's saved layout. A sheet is now known by its workbook and its own name, written
+  down as a digest as every other identity is.
+
+- When NVDA stops waiting on Excel part way through laying out a table, the command says the
+  table could not be *read* — whichever step it happened in. It used to come out as "not a
+  table", "no headings", or a row that could not be read, depending on where it landed.
+
 - **A pinned header row is not also drawn in the table.** Where a sheet's headings are its
   own first row — which is what you mark when you mark a header row — the row held above the
   band and the first row of the flow were the same row, and both were drawn: a doubled heading

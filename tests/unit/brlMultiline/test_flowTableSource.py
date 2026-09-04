@@ -396,6 +396,60 @@ class TestAReadThatWasCancelledIsNotAnEmptyCell(unittest.TestCase):
 		self.assertIsNotNone(cellRegion(handle, 2, 2))
 
 
+class TestACancelledReadFromAnyStageSaysSo(unittest.TestCase):
+	"""**Not "there is no table here".** When NVDA's watchdog decides the core has frozen it
+	cancels every COM call the main thread makes, and every stage of building a table flow is
+	one: recognising it, asking a worksheet how far it goes, finding what its columns are
+	called, reading its first row.
+
+	A review found each of those swallowed by a broad catch somewhere below and reported as
+	something else — "not a table", "no headers", a row that could not be read. They are all
+	the same thing, the core was busy, and the reader can act on it: ask again in a moment.
+	"""
+
+	def _cancelling(self, name):
+		"""Make one stage of the reading raise what a cancelled COM call raises."""
+		real = getattr(flowTableSource, name)
+
+		def stop(*args, **kwargs):
+			raise CallCancelled("NVDA stopped waiting")
+
+		setattr(flowTableSource, name, stop)
+		self.addCleanup(setattr, flowTableSource, name, real)
+
+	def test_recognisingTheTableIsNotSwallowed(self):
+		document = FakeTableDocument(WATCHLIST, row=2, col=1)
+		obj = FakeNavigatorObject("a page", treeInterceptor=document)
+		document._getTableCellCoords = _raisesCancelled
+		with self.assertRaises(CallCancelled):
+			flowTableSource.tableAt(obj)
+
+	def test_andTheBuildSaysTheTableCouldNotBeRead(self):
+		from brlMultiline import flowBuild
+
+		document = FakeTableDocument(WATCHLIST, row=2, col=1)
+		obj = FakeNavigatorObject("a page", treeInterceptor=document)
+		self._cancelling("measure")
+		notes = []
+		self.assertIsNone(flowBuild.buildTableController(obj=obj, notes=notes))
+		self.assertTrue(any(isinstance(note, flowBuild.Unreadable) for note in notes))
+
+	def test_andSoDoesOneFromAnyOtherStage(self):
+		"""The catch is around the whole of it rather than around the measuring alone."""
+		from brlMultiline import flowBuild
+
+		document = FakeTableDocument(WATCHLIST, row=2, col=1)
+		obj = FakeNavigatorObject("a page", treeInterceptor=document)
+		self._cancelling("declaredHeaders")
+		notes = []
+		self.assertIsNone(flowBuild.buildTableController(obj=obj, notes=notes))
+		self.assertTrue(any(isinstance(note, flowBuild.Unreadable) for note in notes))
+
+
+def _raisesCancelled(*args, **kwargs):
+	raise CallCancelled("NVDA stopped waiting")
+
+
 class TestACellThatCarriesItsOwnHeader(unittest.TestCase):
 	"""An object table's cell holds its column's name as a string and then encodes it into a
 	control field so that it looks like a document's cell to everything downstream.
@@ -829,6 +883,26 @@ class TestPinningTheDeclaredHeader(unittest.TestCase):
 		self.assertFalse(source.pinnedIsRowOne)
 		self.assertEqual(source.firstRow, flowTableSource.HEADER_ROW)
 		self.assertIsNone(source.headerBlock().region.brailleCursorPos)
+
+	def test_aColumnWithDataAndNoHeadingKeepsRowOne(self):
+		"""**A review found a row of the reader's data being dropped.** Two columns matching
+		their declared headings was enough to call row one the header row, and the third
+		column of that row held a value and declared no heading of its own — so the flow began
+		at row two and "Important" was gone, with nothing saying so.
+
+		A row is given up only when there is nothing in it but the headings themselves."""
+		document = FakeTableDocument(
+			[["Sym", "Last", "Important"], ["AAPL", "182.50", ""], ["F", "9.10", ""]],
+			row=2,
+			col=1,
+			columnHeaders={1: "Sym", 2: "Last"},
+		)
+		handle = flowTableSource.tableAt(FakeNavigatorObject("a page", treeInterceptor=document))
+		source = flowTableSource.TableFlowSource(handle, (1, 2, 3), pinHeaders=True)
+		self.assertFalse(source.pinnedIsRowOne)
+		self.assertEqual(source.firstRow, flowTableSource.HEADER_ROW)
+		above = source.blockBefore(BlockId(generation=0, bookmark=2, unit="row"))
+		self.assertIn("Important", above.block.region.rawText)
 
 	def test_oneColumnDisagreeingIsEnoughToKeepRowOne(self):
 		"""Dropping a row of data is a lost row; drawing a heading twice is a wasted one. The

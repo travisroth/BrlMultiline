@@ -49,6 +49,7 @@ from comtypes import BSTR
 from logHandler import log
 from NVDAHelper.localLib import EXCEL_CELLINFO
 from NVDAObjects.window.excel import (
+	NVCELLINFOFLAG_ADDRESS,
 	NVCELLINFOFLAG_COORDS,
 	NVCELLINFOFLAG_TEXT,
 	ExcelCell,
@@ -64,6 +65,9 @@ except ImportError:  # Outside NVDA, and on an NVDA old enough not to have it.
 	class CallCancelled(Exception):  # type: ignore[no-redef]
 		"""Stand-in for NVDA's own. See `globalPlugins.brlMultiline.flow`."""
 
+
+_UNASKED = object()
+"""Stands for a question not yet put, where None is one of the answers."""
 
 MAX_COLUMNS = 250
 """How wide a sheet may be before it is left to NVDA's ordinary reading.
@@ -97,6 +101,12 @@ class ExcelSheet:
 		:param cell: the `NVDAObjects.window.excel.ExcelCell` the reader is on.
 		"""
 		self.cell = cell
+		self._headers = _UNASKED
+		"""What the columns are called, worked out once. See `columnHeaders`."""
+
+		self._used = None
+		"""How far Excel considers this sheet used, asked once. See `shape`."""
+
 		self.obj = cell.parent
 		"""The worksheet, which is what tells one sheet from another. NVDA builds it from the
 		cell's own `Worksheet`, and compares two of them by the sheet's index — see
@@ -133,6 +143,9 @@ class ExcelSheet:
 		for thing, name in ((self.cell, said), (self.cell.excelCellObject, asked)):
 			try:
 				found = int(getattr(thing, name, 0) or 0)
+			except CallCancelled:
+				# Not "this cell will not say where it is", which declines the whole sheet.
+				raise
 			except Exception:
 				log.debugWarning(f"Could not read a cell's {name}", exc_info=True)
 				continue
@@ -151,7 +164,12 @@ class ExcelSheet:
 
 		A sheet is a million rows by sixteen thousand columns and nearly all of it is empty,
 		so the used range is what makes a layout possible at all: it is what Excel considers
-		written in, and it is one call.
+		written in, and it is one call. **One call per adapter**, which is what the caching is
+		for: recognising the table asks the shape twice on its own — once to find out whether
+		the sheet is too wide, once for the table's dimensions — and a review counted eight
+		used range reads for one move between cells. Where the reader is, though, is asked
+		afresh every time, since that is what the answer is stretched to cover and it costs
+		nothing to ask.
 
 		**And the cell the reader is standing in, whether or not Excel counts it as used.**
 		Arrowing about a blank sheet does not enlarge the used range: on an empty workbook the
@@ -160,14 +178,49 @@ class ExcelSheet:
 		table therefore reaches at least as far as they do.
 		"""
 		row, column = self.where()
-		try:
-			used = self._sheet.usedRange
-			rows = int(used.row) + int(used.rows.count) - 1
-			columns = int(used.column) + int(used.columns.count) - 1
-		except Exception:
-			log.debugWarning("Could not ask a worksheet how far it is used", exc_info=True)
-			rows = columns = 0
+		if self._used is None:
+			try:
+				used = self._sheet.usedRange
+				self._used = (
+					int(used.row) + int(used.rows.count) - 1,
+					int(used.column) + int(used.columns.count) - 1,
+				)
+			except CallCancelled:
+				raise
+			except Exception:
+				# **Unknown rather than nothing.** Falling back to zero left the reader's own
+				# coordinate as the whole of the answer, so a worksheet that would not say how
+				# far it goes was presented as a table one cell bigger than wherever they were
+				# standing — a truncated sheet, offered as though it were the sheet. Refused
+				# instead, which leaves them NVDA's ordinary reading of the cell. See
+				# `sheetFor`, which is what turns this into a no.
+				log.debugWarning("Could not ask a worksheet how far it is used", exc_info=True)
+				raise LookupError("The worksheet would not say how far it is used") from None
+		rows, columns = self._used
 		return (max(1, rows, row), max(1, columns, column))
+
+	def whereIsIt(self) -> Optional[str]:
+		""":return: the workbook and the sheet, which is what tells one worksheet from another.
+
+		The ordinary answer for a control is its application and window class, and every
+		worksheet of every workbook is "excel" and "EXCEL7" — so two workbooks with the same
+		headings were each other's saved layout. A review found it; the fix is that a sheet
+		can say. Written down as a digest and never in full. See
+		`flowObjectTable.Sheet.whereIsIt` and `flowTableLayouts.keyFor`.
+
+		The workbook's own name where the path cannot be had — an unsaved workbook has no path
+		— which is still a great deal better than naming every sheet the same thing.
+		"""
+		try:
+			sheet = self._sheet
+			book = sheet.parent
+			where = str(getattr(book, "fullName", "") or getattr(book, "name", "") or "").strip()
+			return f"{where}/{str(sheet.name or '').strip()}" if where else None
+		except CallCancelled:
+			raise
+		except Exception:
+			log.debugWarning("Could not ask a worksheet which workbook it is in", exc_info=True)
+			return None
 
 	def tooWide(self) -> bool:
 		""":return: whether this sheet is too wide to measure without stopping NVDA.
@@ -223,31 +276,153 @@ class ExcelSheet:
 		if said is None:
 			return None
 		texts = [""] * count
-		for index, (column, text) in enumerate(said):
+		merged: dict = {}
+		for index, (column, text, address) in enumerate(said):
 			# By the coordinate it came back with, and by its place in the answer only where
 			# it came back without one. A cell that says which column it is in cannot be put
-			# in the wrong one by a short or reordered answer.
+			# in the wrong one by a reordered answer.
 			place = column - first if column else index
-			if 0 <= place < count:
-				texts[place] = text
+			if not 0 <= place < count:
+				continue
+			# Stripped, because the object path strips — see `flowTableSource._textOf` — and
+			# a column measured from padding is a column wider than what is drawn in it.
+			texts[place] = (text or "").strip()
+			if address:
+				merged.setdefault(address, []).append(place)
+		for places in merged.values():
+			# **A merged cell is one cell under several columns.** The helper reads `.text`
+			# off each cell of the range, and only the top left member of a merge holds it,
+			# so the rest came back empty. The address it reports is the *merge area's* — all
+			# the members of one merge answer with the same address and nothing else does —
+			# so they are the group that shares whichever of them has the text.
+			if len(places) < 2:
+				continue
+			said = next((texts[place] for place in places if texts[place]), "")
+			if said:
+				for place in places:
+					texts[place] = said
 		return texts
 
-	# **There is deliberately no `columnHeaders` here**, and the reason is worth keeping.
-	# It answered "no column of this sheet declares a header" from an empty
-	# `ExcelWorksheet.headerCellTracker`, to save building a cell per column to be told
-	# nothing — on a sheet twenty-one columns wide, the whole cost of that answer.
-	#
-	# It took the reader's header row off the display. The tracker is NVDA's own, private,
-	# and populated lazily by walking every defined name in the workbook; an empty one means
-	# "I know of none just now" and not "there are none", and every cell of that very sheet
-	# could name its column through `columnHeaderText`. Answering the seam suppressed the
-	# per-column ask outright, so the layout was built believing the table had no headings
-	# and the band spent no row on them.
-	#
-	# The saving was real and small — one read per column, once per layout — and it is not
-	# worth a guess about somebody else's private state. `flowTableSource.measure` no longer
-	# lets an empty answer stop the ask either, but the cheapest way not to be wrong here is
-	# not to answer.
+	def columnHeaders(self, first: int, last: int) -> Optional[dict]:
+		""":return: what each column of a span is called, {} where none is, or None to ask cells.
+
+		**The question that nearly froze a worksheet.** Asked cell by cell it costs an
+		`ExcelCell` built and a header search per column, three times over for a column that
+		says nothing — sixty three cell objects on a twenty one column sheet nobody has marked
+		up, before a single row the reader can feel has been read. Forty two of them was
+		already enough to pass the watchdog on hardware.
+
+		Where a reader marks a header row, NVDA writes it into the workbook as a defined name
+		and keeps what it found in the worksheet's header cell tracker. The tracker says which
+		cell heads which columns; what that cell *says* is the text at (its row, the column),
+		which is `fetchAssociatedHeaderCellText` exactly — and a row of text is one batch
+		call. So a marked sheet is answered by one read of its header row rather than one read
+		per column, and an unmarked one is answered without reading anything at all.
+
+		**An empty tracker is checked before it is believed.** This is the second time it has
+		been asked and the first time cost the reader their header row: the tracker is built
+		by walking every defined name in the workbook, NVDA keeps whatever that walk produced
+		— including nothing, where it failed part way — and every cell of that same sheet
+		could name its column perfectly well. So an empty tracker is worth one witness: a
+		single cell, asked what its column is called. If it answers, the tracker is not to be
+		trusted here and the ordinary per-column ask stands.
+
+		None for anything this cannot work out exactly, which sends the caller back to asking
+		the cells: a heading several rows tall, which NVDA joins together itself, and one that
+		applies to a run of rows rather than to the column.
+
+		:param first: the first column of the span, one based.
+		:param last: the last column, inclusive.
+		"""
+		if self._headers is _UNASKED:
+			self._headers = self._askedHeaders()
+		if self._headers is None:
+			return None
+		return {column: said for column, said in self._headers.items() if first <= column <= last}
+
+	def _askedHeaders(self) -> Optional[dict]:
+		"""Work out what every column of the sheet is called, once. See `columnHeaders`.
+
+		The whole sheet rather than the span in hand, because the answer is cached and a later
+		page asks about columns this one did not.
+		"""
+		try:
+			marked = self._markedHeaders()
+		except CallCancelled:
+			raise
+		except Exception:
+			log.debugWarning("Could not ask a worksheet where its headings are", exc_info=True)
+			return None
+		if marked is None:
+			return None
+		if not marked:
+			return None if self._aCellNamesItsColumn() else {}
+		width = self.shape()[1]
+		found: dict = {}
+		for row, low, high in marked:
+			high = min(high, width)
+			if high < low:
+				continue
+			said = self.textRow(row, low, high)
+			if said is None:
+				# The heading row could not be read in one go, and guessing which of these
+				# columns it would have named is worse than asking their cells.
+				return None
+			for index, text in enumerate(said):
+				# The first entry that answers, in the tracker's own order, which is what
+				# `fetchAssociatedHeaderCellText` returns for a cell.
+				if text and not found.get(low + index):
+					found[low + index] = text
+		return found
+
+	def _markedHeaders(self) -> Optional[list]:
+		""":return: (row, first column, last column) per marked column heading, or None.
+
+		Read off NVDA's own tracker, which is where what the reader marked ends up. An entry
+		heads the columns from its own rightwards, bounded by whatever the defined name said —
+		see `tableUtils.HeaderCellTracker.iterPossibleHeaderCellInfosFor`, which is the rule
+		this follows.
+
+		None where an entry is a shape that cannot be read off one row: a heading several rows
+		tall, which NVDA joins together, or one bounded to a run of rows, which is not a
+		property of the column at all.
+		"""
+		tracker = self.obj.headerCellTracker
+		infos = getattr(tracker, "infosDict", None) or {}
+		marked = []
+		for key in list(getattr(tracker, "listByRow", ()) or ()):
+			info = infos.get(key)
+			if info is None or not getattr(info, "isColumnHeader", False):
+				continue
+			if getattr(info, "minRowNumber", None) or getattr(info, "maxRowNumber", None):
+				return None
+			if int(getattr(info, "rowSpan", 1) or 1) != 1:
+				return None
+			low = max(int(info.columnNumber), int(getattr(info, "minColumnNumber", 0) or 0) or 1)
+			high = int(getattr(info, "maxColumnNumber", 0) or 0) or self.shape()[1]
+			if high >= low:
+				marked.append((int(info.rowNumber), low, high))
+		return marked
+
+	def _aCellNamesItsColumn(self) -> bool:
+		""":return: whether a cell of this sheet can name its column after all.
+
+		One cell, and never one of row one: a header cell has no header above it, so the row a
+		reader most often marks is the one row that answers nothing. Theirs where they are
+		standing anywhere else, and the row under the top otherwise.
+		"""
+		row, column = self.where()
+		asked = row if row > 1 else 2
+		if asked > self.shape()[0]:
+			return False
+		cell = self.cellAt(asked, max(1, column))
+		if cell is None:
+			return False
+		try:
+			return bool((cell.columnHeaderText or "").strip())
+		except Exception:
+			log.debugWarning("Could not ask a cell what its column is called", exc_info=True)
+			return False
 
 	def cellAt(self, row: int, column: int):
 		""":return: the cell at one coordinate, or None if it cannot be reached.
@@ -313,12 +488,22 @@ def _cellInfosFor(cell, address: str, count: int) -> Optional[list]:
 	much as the batching does — `NVCELLINFOFLAG_ALL`, which is what building a cell object
 	fetches, gathers comments and formulas and states nobody is going to read.
 
+	The address is asked for as well as the text and the coordinates, and it is what tells a
+	merged cell from a blank one: the helper reports a cell's *merge area's* address, so every
+	member of one merge answers with the same string. See `ExcelSheet.textRow`.
+
 	:param cell: any cell of the sheet, for the window and the helper's binding handle.
 	:param address: the range, already in the application's own notation.
 	:param count: how many cells the range holds.
-	:return: one (column number, text) pair per cell the helper answered for, or None where
-		it answered for none — which sends the caller back to reading cell by cell rather
-		than letting a silence be read as a row of empty cells.
+	:return: one (column number, text, address) triple per cell of the range, or None for
+		anything short of the whole range.
+
+	**Short is incomplete, not empty.** The helper walks the range with an enumerator and
+	stops at the first cell it cannot get — `IEnumVARIANT::Next` failing breaks the loop and
+	leaves the count where it got to — so the cells it did not reach are cells nobody has
+	read. Padded with empty strings they measured as a table whose columns hold nothing,
+	which is the failure this seam exists to prevent. The whole row goes back to being read
+	cell by cell instead, which is slow and right.
 	"""
 	binding = cell.appModule.helperLocalBindingHandle
 	if not binding:
@@ -329,16 +514,21 @@ def _cellInfosFor(cell, address: str, count: int) -> Optional[list]:
 		binding,
 		cell.windowHandle,
 		BSTR(address),
-		NVCELLINFOFLAG_TEXT | NVCELLINFOFLAG_COORDS,
+		NVCELLINFOFLAG_TEXT | NVCELLINFOFLAG_COORDS | NVCELLINFOFLAG_ADDRESS,
 		count,
 		infos,
 		ctypes.byref(fetched),
 	)
-	if result != 0 or not fetched.value:
+	if result != 0 or fetched.value != count:
+		if result == 0 and fetched.value:
+			log.debugWarning(
+				f"Excel answered for {fetched.value} of {count} cells of {address}, "
+				"so the row is being read cell by cell instead",
+			)
 		return None
 	return [
-		(int(infos[index].columnNumber or 0), infos[index].text or "")
-		for index in range(min(fetched.value, count))
+		(int(infos[index].columnNumber or 0), infos[index].text or "", infos[index].address or "")
+		for index in range(count)
 	]
 
 

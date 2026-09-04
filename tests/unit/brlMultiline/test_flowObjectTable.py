@@ -1080,6 +1080,10 @@ class BulkSheet(FakeSheet):
 		self.short = 0
 		"""How many columns to leave off the end of an answer, for the ragged case."""
 
+		self.saysThereAreNone = None
+		"""What this answers where it has no headings: None for "I cannot say", `{}` for a
+		grid that has looked and is sure. See `columnHeaders`."""
+
 	def textRow(self, row, first, last):
 		self.rowsRead.append((row, first, last))
 		line = self.rows[row - 1] if 1 <= row <= len(self.rows) else []
@@ -1090,8 +1094,13 @@ class BulkSheet(FakeSheet):
 		return said[: len(said) - self.short] if self.short else said
 
 	def columnHeaders(self, first, last):
+		"""**Three answers, and a stand-in that only had two hid one of them.** A mapping is
+		what the columns are called. `{}` is "this sheet declares none", which is worth acting
+		on. None is "I cannot say", which is not the same thing and sends the caller to the
+		cells — and reading the last two as one is what took a worksheet's header row off the
+		display. A sheet with no headings here cannot say unless a test says it can."""
 		self.timesAskedTheHeaders += 1
-		return dict(self.headers)
+		return dict(self.headers) if self.headers else self.saysThereAreNone
 
 
 class TestMeasuringASheetThatReadsItsOwnRows(unittest.TestCase):
@@ -1170,15 +1179,20 @@ class TestMeasuringASheetThatReadsItsOwnRows(unittest.TestCase):
 		flowTableSource.measure(self._handle(sheet))
 		self.assertTrue(sheet.asked)
 
-	def test_aRaggedAnswerIsPaddedRatherThanRefused(self):
-		"""So that a grid answering for fewer columns than were asked still saves the reads
-		it did answer for."""
-		sheet = BulkSheet(at=(2, 1), headers={1: "Region"})
+	def test_aRaggedAnswerIsRefusedRatherThanPadded(self):
+		"""**An unfinished answer is not a finished one.** It used to be padded with empty
+		strings, so that a grid answering for part of a row saved the reads it had answered
+		for; a review found what that costs. Excel's batch fetch walks the range with an
+		enumerator and stops at the first cell it cannot reach, so the tail it left out is the
+		part nobody read — and the columns it covers then measured as columns that hold
+		nothing, with their values sitting there in the ordinary cell objects all along.
+		"""
+		sheet = BulkSheet(rows=[["Region", "Q1", "Q2"], ["North", "1200", "1310"]], at=(2, 1))
 		sheet.short = 2
 		measured = flowTableSource.measure(self._handle(sheet))
-		self.assertEqual(sheet.asked, [])
-		self.assertTrue(measured[0].width)
-		self.assertTrue(measured[-1].hidden)
+		self.assertTrue(sheet.asked, "the row should have been read cell by cell instead")
+		self.assertFalse(any(item.hidden for item in measured))
+		self.assertEqual(measured[-1].width, len("1310"))
 
 	def test_aColumnWithoutCapitalSignsIsLoweredOnThisPathToo(self):
 		"""Or the setting saves nothing: a column measured with the capitals indicator in it
@@ -1194,23 +1208,30 @@ class TestMeasuringASheetThatReadsItsOwnRows(unittest.TestCase):
 		self.assertEqual([item.label for item in measured[:2]], ["Region", "Q1"])
 		self.assertTrue(all(item.declared for item in measured[:2]))
 
-	def test_anEmptyAnswerDoesNotStopTheCellsBeingAsked(self):
-		"""**The fault that took a worksheet's header row off the display.** The sheet said no
-		column declared anything, so the cells were never asked — and every cell of that table
-		could name its column perfectly well. The layout was then built believing the table had
-		no headings, and the band spent no row on them.
+	def test_anEmptyAnswerIsAnAnswerAndTheCellsAreLeftAlone(self):
+		"""**Where the checking belongs, which is the second half of a fault the reader met.**
 
-		An empty mapping says "I know of none", which is not "there are none"."""
+		An empty mapping used to be read as a silence and the cells asked anyway, because on
+		an Excel worksheet an empty answer once took their header row off the display: the
+		sheet said no column declared anything and every cell of that table could name its
+		column perfectly well.
 
-		class Unsure(BulkSheet):
+		The cost of not believing it is what a review put a number on — a cell object and a
+		header search per column, three times over for a column that says nothing, before a
+		row the reader can feel has been read. So the answer is believed here, and whoever
+		gives it has to have checked: see `appModules.excel.ExcelSheet.columnHeaders`, which
+		reads NVDA's header cell tracker and asks one cell before it answers empty.
+		"""
+
+		class Sure(BulkSheet):
 			def columnHeaders(self, first, last):
 				self.timesAskedTheHeaders += 1
 				return {}
 
-		sheet = Unsure(at=(2, 1), headers={2: "Q1"})
+		sheet = Sure(at=(2, 1), headers={2: "Q1"})
 		measured = flowTableSource.measure(self._handle(sheet))
-		self.assertEqual(measured[1].label, "Q1")
-		self.assertTrue(measured[1].declared)
+		self.assertEqual(sheet.asked, [])
+		self.assertEqual(measured[1].label, "")
 
 	def test_aSheetThatWillNotSayIsAskedThroughItsCellsInstead(self):
 		"""Once per column, and only because the bulk path never builds a cell to ask."""
@@ -1361,6 +1382,188 @@ class TestTheFirstCellAskedIsNotTheLastWord(unittest.TestCase):
 		block = source.headerBlock()
 		self.assertIsNotNone(block)
 		self.assertIn("Region", block.region.rawText)
+
+
+class TestDrawingARowInOneCall(unittest.TestCase):
+	"""**The rows on the display, not only the ones being measured.**
+
+	The batch seam was added for measuring, and a review found what that left behind: every
+	row the reader can actually feel was still built a cell at a time — a coordinate lookup
+	and an `NVDAObject` with its overlay classes chosen, per column, per row — and the live
+	pass does it again. Twelve cell objects for one re-read of a four by three window, on a
+	worksheet nobody had touched, every two seconds.
+
+	The object a cell stands for is not fetched at all until a routing key lands on it.
+	"""
+
+	def _source(self, sheet, columns=(1, 2, 3, 4), live=False):
+		cell = FakeNavigatorObject("a cell", role="TABLECELL")
+		cell.brlMultilineSheet = lambda: sheet
+		handle = flowTableSource.tableAt(cell)
+		return flowTableSource.TableFlowSource(handle, columns, live=live)
+
+	def test_aDrawnRowIsOneReadAndNoCellObjects(self):
+		sheet = BulkSheet(at=(2, 1))
+		source = self._source(sheet)
+		sheet.rowsRead.clear()
+		sheet.asked.clear()
+		block = source.blockAtCursor().block
+		self.assertIn("North", block.region.rawText)
+		self.assertEqual(sheet.rowsRead, [(2, 1, 4)])
+		self.assertEqual(sheet.asked, [])
+
+	def test_andReadingItAgainIsOneReadToo(self):
+		"""Which is what the live pass does, on a timer."""
+		sheet = BulkSheet(at=(2, 1))
+		source = self._source(sheet)
+		sheet.rowsRead.clear()
+		sheet.asked.clear()
+		for _ in range(3):
+			source.blockAt(flowTableSource.BlockId(generation=0, bookmark=2, unit="row"))
+		self.assertEqual(len(sheet.rowsRead), 3)
+		self.assertEqual(sheet.asked, [])
+
+	def test_butRoutingIntoACellStillReachesTheCell(self):
+		"""One lookup, for the one cell, at the moment the reader presses a key."""
+		sheet = BulkSheet(at=(2, 1))
+		source = self._source(sheet, live=True)
+		row = source.blockAtCursor().block.region
+		sheet.asked.clear()
+		row.routeTo(flowTable.cellPosition(2, 0))
+		self.assertEqual(sheet.asked, [(2, 2)])
+
+	def test_andTheHeadingsComeFromWhatTheTableAlreadySaid(self):
+		"""Rather than from the cell, which is the thing that is not being built."""
+		cell = FakeNavigatorObject("a cell", role="TABLECELL")
+		sheet = BulkSheet(at=(2, 1), headers={1: "Region", 2: "Q1"})
+		cell.brlMultilineSheet = lambda: sheet
+		handle = flowTableSource.tableAt(cell)
+		source = flowTableSource.TableFlowSource(
+			handle,
+			(1, 2),
+			declared={1: "Region", 2: "Q1"},
+			pinHeaders=True,
+		)
+		block = source.blockAtCursor().block
+		self.assertEqual(block.region.cells[1].region.info.header, "Q1")
+
+	def test_andASheetThatWillNotAnswerIsReadCellByCellAsBefore(self):
+		class Silent(BulkSheet):
+			def textRow(self, row, first, last):
+				return None
+
+		sheet = Silent(at=(2, 1))
+		source = self._source(sheet)
+		sheet.asked.clear()
+		self.assertIn("North", source.blockAtCursor().block.region.rawText)
+		self.assertTrue(sheet.asked)
+
+
+class TestNotAskingTheSameQuestionTwice(unittest.TestCase):
+	"""What a column is called is asked while the table is measured and again by the source
+	that pins the header row, and on a worksheet each ask is an `NVDAObject` built and a
+	header search. A review counted the second round: eighteen cell objects on a five row,
+	three column probe, most of them header probing, before a row was drawn.
+
+	Both go through whatever the table will answer outright, which for a grid is one read of
+	its header row and for an unmarked one is no read at all.
+	"""
+
+	def _source(self, sheet, columns=(1, 2, 3, 4)):
+		cell = FakeNavigatorObject("a cell", role="TABLECELL")
+		cell.brlMultilineSheet = lambda: sheet
+		handle = flowTableSource.tableAt(cell)
+		measured = flowTableSource.measure(handle)
+		return sheet, flowTableSource.TableFlowSource(
+			handle,
+			columns,
+			declared={item.index: item.label for item in measured if item.declared},
+			pinHeaders=True,
+		)
+
+	def test_thePinnedRowCostsNoCellsOfItsOwn(self):
+		sheet, source = self._source(BulkSheet(at=(2, 1), headers={1: "Region", 2: "Q1"}))
+		sheet.asked.clear()
+		self.assertIn("Region", source.headerBlock().region.rawText)
+		self.assertEqual(sheet.asked, [])
+
+	def test_norDoesTurningThePage(self):
+		"""The columns change and a header belongs to its column, so the new ones have to be
+		asked about — of the table, which already knows."""
+		sheet, source = self._source(
+			BulkSheet(at=(2, 1), headers={1: "Region", 2: "Q1", 3: "Q2", 4: "Q3"}),
+			columns=(1, 2),
+		)
+		sheet.asked.clear()
+		source.setColumns((3, 4))
+		self.assertIn("Q3", source.headerBlock().region.rawText)
+		self.assertEqual(sheet.asked, [])
+
+	def test_andASheetThatDeclaresNothingIsNotProbedPerColumn(self):
+		sheet = BulkSheet(at=(2, 1))
+		sheet.saysThereAreNone = {}
+		sheet, source = self._source(sheet)
+		sheet.asked.clear()
+		source.headerBlock()
+		self.assertEqual(sheet.asked, [])
+
+
+class TestTheEmptyColumnTheReaderIsStandingIn(unittest.TestCase):
+	"""A grid is a plane, not a table with a fixed set of columns.
+
+	An empty column is left out of a layout, which is right for a list — a watchlist's first
+	column is unreadable icons, and four cells of a thirty two cell band spent on it are four
+	the reader never gets back. Read the same way on a spreadsheet it takes the reader's own
+	cursor away: the column beside the data is where they go to write the next one, and with
+	it left out the row on the band has no cell there, so there is nothing to draw a cursor in
+	and no routing key that reaches it. A blank sheet with the active cell at D20 could not be
+	laid out at all.
+	"""
+
+	def _handle(self, sheet):
+		cell = FakeNavigatorObject("a cell", role="TABLECELL")
+		cell.brlMultilineSheet = lambda: sheet
+		return flowTableSource.tableAt(cell)
+
+	def _measured(self, sheet):
+		return {item.index: item for item in flowTableSource.measure(self._handle(sheet))}
+
+	def test_theEmptyColumnTheyAreInIsStillAColumn(self):
+		rows = [[line[0], line[1], line[2], ""] for line in SALES]
+		measured = self._measured(FakeSheet(rows=rows, at=(2, 4)))
+		self.assertFalse(measured[4].hidden)
+		self.assertGreater(measured[4].wants, 0)
+
+	def test_andTheOnesTheyAreNotInAreStillLeftOut(self):
+		"""Or a sheet twenty one columns wide spends its band on the empty ones."""
+		rows = [[line[0], "", line[2], ""] for line in SALES]
+		measured = self._measured(FakeSheet(rows=rows, at=(2, 4)))
+		self.assertTrue(measured[2].hidden)
+		self.assertFalse(measured[4].hidden)
+
+	def test_soAnEmptySheetCanBeLaidOutAtAll(self):
+		"""The reviewer's case: an empty workbook with the active cell at D20."""
+		blank = FakeSheet(rows=[["", "", "", ""] for _ in range(20)], at=(20, 4))
+		plan = flowTable.planFor(flowTableSource.measure(self._handle(blank)), 32)
+		self.assertEqual([column.index for column in plan.columns], [4])
+
+	def test_andTheirCursorHasSomewhereToBeInIt(self):
+		blank = FakeSheet(rows=[["", "", "", ""] for _ in range(20)], at=(20, 4))
+		handle = self._handle(blank)
+		source = flowTableSource.TableFlowSource(handle, (4,), live=False)
+		row = source.blockAtCursor().block.region
+		self.assertIsNotNone(row.brailleCursorPos)
+
+	def test_butAListStillLeavesItsIconsOut(self):
+		"""The same rule read backwards, and the reason it is asked of the table rather than
+		assumed. The reader's watchlist has a column of icons NVDA cannot read, and quick
+		navigation lands them in it; a column of a list showing nothing is the application's
+		decision and not something they are missing."""
+		_view, item = listView(rows=[["", "AAPL", "182.50"], ["", "F", "9.10"]])
+		handle = flowTableSource.tableAt(item)
+		handle.document.column = 1
+		measured = {found.index: found for found in flowTableSource.measure(handle)}
+		self.assertTrue(measured[1].hidden)
 
 
 class TestASheetWhoseHeaderRowIsRowOne(unittest.TestCase):

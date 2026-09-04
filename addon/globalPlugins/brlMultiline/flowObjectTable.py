@@ -46,6 +46,8 @@ from typing import Any, Optional
 
 from logHandler import log
 
+from .flow import CallCancelled
+
 TABLE_ID = "objectTable"
 """What this stands in for NVDA's table identifier with.
 
@@ -494,7 +496,7 @@ class ObjectCellInfo:
 	claims to be nothing else.
 	"""
 
-	def __init__(self, text: str, target=None, header: str = "", row=None) -> None:
+	def __init__(self, text: str, target=None, header: str = "", row=None, fetch=None) -> None:
 		"""
 		:param text: the cell's content.
 		:param target: the object the reader means when they route into this cell. The cell
@@ -503,15 +505,43 @@ class ObjectCellInfo:
 		:param header: what the table says this column's header is, or "" if it says nothing.
 		:param row: the row the cell is in, which is the thing that can take the focus when
 			the cell cannot. The target itself when there is nothing else.
+		:param fetch: how to get the object, for a cell whose text arrived without one.
+
+			**Because reading and going to are different questions.** A grid can hand over a
+			row's text in one call; building the object for each cell of it costs a coordinate
+			lookup and an `NVDAObject` with its overlay classes chosen, and on a worksheet a
+			bandful of that is what stopped the display. Nothing needs the object until a
+			routing key lands on the cell, which is one cell, once, at a moment the reader is
+			waiting for something to happen anyway.
 		"""
 		self.text = text
-		self.target = target
+		self._target = target
+		self._fetch = fetch
 		self.header = header
-		self.row = row if row is not None else target
+		self._row = row
 		self.isCollapsed = True
 
+	@property
+	def target(self):
+		""":return: the object this cell stands for, fetched now if it was not to hand."""
+		if self._target is None and self._fetch is not None:
+			try:
+				self._target = self._fetch()
+			except Exception:
+				log.debugWarning("Could not fetch the object behind a table cell", exc_info=True)
+			finally:
+				# Once, whatever came back. A cell that cannot be reached is not going to be
+				# reachable on the next routing key either, and this is the reader pressing.
+				self._fetch = None
+		return self._target
+
+	@property
+	def row(self):
+		""":return: the row this cell is in, which for a grid is the cell itself."""
+		return self._row if self._row is not None else self.target
+
 	def copy(self) -> "ObjectCellInfo":
-		return ObjectCellInfo(self.text, self.target, self.header, self.row)
+		return ObjectCellInfo(self.text, self._target, self.header, self._row, self._fetch)
 
 	def collapse(self, end: bool = False) -> None:
 		"""A cell is already a place rather than a range. Kept for the shape of a position."""
@@ -625,6 +655,39 @@ class ObjectTable:
 	back to reading them there. A list view's first item is a file: pinning it would draw one
 	of the reader's own rows above the rest and call it a heading. Where a list has headings
 	they are the ones its cells declare, and where it declares none there is nothing to pin.
+	"""
+
+	rowCountIsExact = False
+	"""Whether this table's count of its rows is a fact rather than what has been built so far.
+
+	False for a list, because it is not: File Explorer's file list answered fourteen to
+	`rowCount` and seventeen to `childCount` while the reader stood on item fifty two of
+	seventy nine, and a list that grows as the platform builds it is not a list that changed.
+	Nothing can be concluded from the number moving.
+
+	True for a grid, which knows how far it is used and says so in one call. There the number
+	moving means the sheet gained or lost rows — a formula filling down, an external query
+	refreshing — and a stream that keeps the old count cannot be panned into the new rows at
+	all. See `flowBand.FlowBand._tableChangedShape`.
+	"""
+
+	emptyColumnsArePlaces = False
+	"""Whether a column of this table that holds nothing is still somewhere the reader goes.
+
+	False for a list, and that is what keeps a watchlist's column of unreadable icons off the
+	band: there is a cell in it on every row, it is simply empty, and four cells of a thirty
+	two cell band spent on it are four the reader never gets back. A column of a list is the
+	application's to show, and one showing nothing is not something they are missing.
+
+	True for a grid, where it is the opposite. A spreadsheet is not a table with a fixed set
+	of columns; it is a plane, and the column beside the data is where the reader goes to
+	write the next one. Left out for holding nothing, it took their cursor with it — the row
+	on the band has no cell there, so there is nothing to draw a cursor in and nothing for a
+	routing key to reach — and a blank sheet with the active cell at D20 could not be laid
+	out at all. Only the column they are *in* is kept, so a sheet twenty one columns wide
+	still spends nothing on the empty ones they are not.
+
+	See `flowTableSource.measure`, which is the only thing that reads this.
 	"""
 
 	def __init__(self, table, row=None, column: int = 1) -> None:
@@ -1602,6 +1665,21 @@ class Sheet:
 	# instead and answers everything above; they exist because *measuring* asks a different
 	# question from *reading*, and a grid can often answer it far more cheaply.
 
+	def whereIsIt(self) -> Optional[str]:
+		""":return: what names the place this grid is in, or None to be named the ordinary way.
+
+		Optional, and for a grid that is neither a web page nor one control of an application.
+		A layout the reader saves is remembered against where the table is and what its
+		columns are called — see `flowTableIdentity` — and for a worksheet the ordinary answer
+		to *where* is the application and the window class, which is "excel" and "EXCEL7" for
+		every sheet of every workbook they will ever open. Two workbooks with the same
+		headings were then each other's saved layout.
+
+		What is answered here is written down as a digest and never in full, so a file path is
+		a reasonable thing to give. See `flowTableLayouts.keyFor`.
+		"""
+		return None
+
 	def textRow(self, row: int, first: int, last: int):
 		""":return: the text of one row across a span of columns, or None to be asked cell by cell.
 
@@ -1673,6 +1751,13 @@ class SheetTable(ObjectTable):
 	of this module holds "the row" only to ask it for cells, and here the coordinate is what
 	the cells are asked for by.
 	"""
+
+	rowCountIsExact = True
+	"""A sheet knows how far it is used. See `ObjectTable.rowCountIsExact`."""
+
+	emptyColumnsArePlaces = True
+	"""A grid is a plane, and the empty column beside the data is a place. See
+	`ObjectTable.emptyColumnsArePlaces`."""
 
 	hasHeaderRow = False
 	"""A spreadsheet's first row is data until somebody says otherwise, and in NVDA somebody
@@ -1767,10 +1852,13 @@ class SheetTable(ObjectTable):
 		"""
 		if self._headers is None:
 			said = self.columnHeaders(1, self.numCols)
-			# Empty is not an answer to stop on: it says the sheet knows of no header, not
-			# that no cell of it can name its column. See `flowTableSource.measure`, where
-			# believing it took a worksheet's header row off the display.
-			self._askEachCell = not said
+			# **Three answers, not two.** A mapping is what the columns are called; an empty
+			# mapping is "this sheet declares none", which is worth acting on because it
+			# saves a cell built and a header search per column; None is "I cannot say",
+			# which is not the same thing and must send this to the cells. Read as two, the
+			# empty answer took a worksheet's header row off the display — see
+			# `flowObjectTable.Sheet.columnHeaders`, which is where the checking now is.
+			self._askEachCell = said is None
 			self._headers = dict(said or {})
 		known = self._headers.get(column)
 		if known or not self._askEachCell:
@@ -1782,6 +1870,13 @@ class SheetTable(ObjectTable):
 		if found:
 			self._headers[column] = found
 		return found
+
+	def whereIsIt(self):
+		""":return: what names the place this sheet is in, or None. See `Sheet.whereIsIt`."""
+		offered = getattr(self.sheet, "whereIsIt", None)
+		if offered is None:
+			return None
+		return offered()
 
 	def rowText(self, row: int, first: int, last: int):
 		""":return: one row's text across a span of columns in a single read, or None.
@@ -1829,6 +1924,9 @@ class SheetTable(ObjectTable):
 		if getattr(self, "_measured", None) is None:
 			try:
 				self._measured = tuple(self.sheet.shape())
+			except CallCancelled:
+				# Not a one by one sheet. See `flow.CallCancelled`.
+				raise
 			except Exception:
 				log.debugWarning("Could not ask a sheet its shape", exc_info=True)
 				self._measured = (1, 1)

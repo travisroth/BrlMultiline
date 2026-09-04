@@ -89,10 +89,33 @@ def whereOf(handle) -> str:
 	document = getattr(handle, "document", None)
 	if document is None:
 		return ""
+	said = _saysWhereItIs(document)
+	if said:
+		return said
 	said = _documentIdentifier(document)
 	if said:
 		return said
 	return _controlIdentifier(getattr(document, "table", None) or getattr(document, "obj", None))
+
+
+def _saysWhereItIs(document) -> str:
+	""":return: what a table says names the place it is in, or "" where it says nothing.
+
+	**For a table that is neither a page nor one control.** A review found two Excel workbooks
+	sharing an identity: the application and the window class are "excel" and "EXCEL7" for
+	every sheet of every workbook, so two sheets with the same headings were each other's
+	saved layout. A workbook has a path and a sheet has a name, and nothing else here can know
+	that — see `flowObjectTable.Sheet.whereIsIt`.
+	"""
+	said = getattr(document, "whereIsIt", None)
+	if said is None:
+		return ""
+	try:
+		found = said()
+	except Exception:
+		log.debugWarning("Could not ask a table where it is", exc_info=True)
+		return ""
+	return str(found).strip() if found else ""
 
 
 def _documentIdentifier(document) -> str:

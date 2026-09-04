@@ -1301,10 +1301,12 @@ class FlowBand(PanelOwner):
 	def _tableChangedShape(self, found, source) -> bool:
 		"""Whether the table is no longer the shape the layout was made for.
 
-		Two cheap questions, asked on each redraw beside the ones already being asked. How
-		many columns it has now, which `_getTableDimensions` has just answered anyway; and
-		whether the caret's column is one the plan knows, which is proof of a change the
-		count cannot see — a column removed and another added leaves the count alone.
+		Three cheap questions, asked on each redraw beside the ones already being asked. How
+		many columns it has now and — where the count is a fact rather than what has been
+		built so far — how many rows, both of which `_getTableDimensions` has just answered
+		anyway; and whether the caret's column is one the plan knows, which is proof of a
+		change the counts cannot see, since a column removed and another added leaves the
+		count alone.
 
 		**Knowing a column is not the same as drawing it.** A column measured and left out —
 		one holding nothing the reader can read — is one this plan knows perfectly well. The
@@ -1326,6 +1328,20 @@ class FlowBand(PanelOwner):
 			self._rebuildBecause(
 				f"the table has {found.numCols} columns and the layout was made for "
 				f"{source.handle.numCols}",
+			)
+			return True
+		if (
+			getattr(found.document, "rowCountIsExact", False)
+			and found.numRows != source.handle.numRows
+		):
+			# **Only where the count is a fact.** A list view's grows as the platform builds
+			# it and means nothing; a sheet's means the sheet gained or lost rows — a formula
+			# filling down, a query refreshing — and the stream then cannot be panned into the
+			# new ones at all, because the source keeps the count it was made with. See
+			# `flowObjectTable.ObjectTable.rowCountIsExact`.
+			self._rebuildBecause(
+				f"the table has {found.numRows} rows and the layout was made for "
+				f"{source.handle.numRows}",
 			)
 			return True
 		plan = getattr(self.controller.renderer, "columnPlan", None)
@@ -1562,11 +1578,16 @@ class FlowBand(PanelOwner):
 		if handle is None or not flowTableSource.sameTable(handle.key, self.tableWanted):
 			self._forgetTheTable()
 			return None
-		if not force and self._readingATable() and self.controller.source.isStillHere(obj):
+		if not force and self._readingATable() and self.controller.source.stillReading(handle):
 			# The same table. The caret has moved between its cells, which is a move within
 			# what is already being read rather than an arrival somewhere new.
+			#
+			# Both of these used to look the table up again, from the object, having been
+			# handed the object the lookup above had just been made from. A review counted the
+			# table resolved four times for one move between cells; on a worksheet each of
+			# those reads the used range. The handle in hand is the answer to both questions.
 			self.obj = obj
-			self.controller.source.setCurrent(obj)
+			self.controller.source.moveTo(handle)
 			# **Both axes, because this is the only thing that hears the move.** In browse
 			# mode a caret move is not a focus change, so it arrives at `_recheckTable`, which
 			# follows the columns as well as the rows. In a spreadsheet or a list it arrives

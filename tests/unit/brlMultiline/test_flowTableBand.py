@@ -701,6 +701,29 @@ class TestPagingFromAColumnTheLayoutLeftOut(TableBandTestCase):
 			self.band.recheck()
 		self.assertEqual(len(asked), 3)
 
+	def test_aTableThatGainedRowsIsReadAgainWhereItSaysSoExactly(self):
+		"""**Rows appearing under a stationary reader.** A formula fills down, a query
+		refreshes, and the source keeps the count it was made with — so the new rows cannot be
+		panned into at all. The check compared columns and never rows.
+
+		Only where the count is a fact: a list view's grows as the platform builds it and says
+		nothing about the list changing. See `flowObjectTable.ObjectTable.rowCountIsExact`."""
+		obj, document = self._here()
+		plan = self.band.columnPlan()
+		document.rowCountIsExact = True
+		document.rows.append([f"r21c{n}" for n in range(1, len(document.rows[0]) + 1)])
+		self.band.recheck()
+		self.assertIsNot(self.band.columnPlan(), plan, "the layout was not made again")
+
+	def test_butAListThatIsStillBeingBuiltIsLeftAlone(self):
+		"""File Explorer answered fourteen rows while the reader stood on item fifty two of
+		seventy nine. A count that moves as the platform builds is not a table that changed."""
+		obj, document = self._here()
+		plan = self.band.columnPlan()
+		document.rows.append([f"r21c{n}" for n in range(1, len(document.rows[0]) + 1)])
+		self.band.recheck()
+		self.assertIs(self.band.columnPlan(), plan, "the layout was made again")
+
 	def test_aRebuildUnderThemKeepsThePageTheyWereOn(self):
 		"""A rebuild is not a decision the reader made: the table changed shape while they were
 		reading page two, and page two is still where they were reading. A review measured what

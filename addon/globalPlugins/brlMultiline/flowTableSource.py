@@ -179,6 +179,11 @@ def tableAt(obj) -> Optional[TableHandle]:
 		where = document.selection
 		cell = document._getTableCellCoords(where)
 		numRows, numCols = document._getTableDimensions(where)
+	except CallCancelled:
+		# **Not "there is no table here".** NVDA has stopped waiting on the application, and
+		# an answer of "not a table" sends the reader an explanation of something that never
+		# happened. It goes up to whoever asked. See `flow.CallCancelled`.
+		raise
 	except (LookupError, OSError):
 		# Not in a table, or the document could not be asked. `OSError` covers the
 		# `WindowsError` that a document going away underneath the question raises, which
@@ -731,9 +736,16 @@ def rowTextOf(handle: TableHandle, row: int, first: int, last: int):
 
 	**The cheap seam, asked of the document and offered by almost nothing.** Only a grid that
 	can read itself in bulk answers — see `flowObjectTable.Sheet.textRow` — and everything
-	else is measured exactly as it was, one cell region at a time. A document that answers is
-	trusted for the whole span: a column it left out is a column that holds nothing, which is
-	what an empty string means everywhere else here.
+	else is measured exactly as it was, one cell region at a time.
+
+	**All of the span or none of it.** A short answer used to be padded with empty strings, so
+	that a grid answering for part of a row still saved the reads it had answered for. That
+	reads an unfinished answer as a finished one: Excel's batch fetch walks the range with an
+	enumerator and stops at the first cell it cannot reach, so the tail it did not return is
+	the part nobody has read — and padded, the columns it covers measure as columns that hold
+	nothing while their values sit there in the ordinary cell objects. A table read as blank
+	is the failure this seam exists to prevent, so an answer that is not the length it was
+	asked for sends the whole row back to being read cell by cell.
 
 	:param handle: the table.
 	:param row: the row to read.
@@ -756,10 +768,14 @@ def rowTextOf(handle: TableHandle, row: int, first: int, last: int):
 		return None
 	if said is None:
 		return None
-	said = [str(text or "") for text in list(said)[:wanted]]
-	# Padded rather than refused, so that a grid which answers for fewer columns than were
-	# asked still saves the reads it did answer for.
-	return said + [""] * (wanted - len(said))
+	said = [str(text or "") for text in said]
+	if len(said) != wanted:
+		log.debugWarning(
+			f"Row {row} came back with {len(said)} of {wanted} columns, "
+			"so it is being read cell by cell instead",
+		)
+		return None
+	return said
 
 
 def columnHeadersOf(handle: TableHandle, first: int, last: int):
@@ -925,6 +941,25 @@ def measure(
 	again about the one cell that turns out to matter.
 	"""
 	columns = range(1, handle.numCols + 1)
+	theirs = (
+		handle.col
+		if getattr(handle.document, "emptyColumnsArePlaces", False) and 1 <= handle.col <= handle.numCols
+		else 0
+	)
+	"""The reader's own column, where an empty one of this table's is still a place.
+
+	**A column nobody visits does not need to be drawn**, which is what hiding an empty column
+	is for, and their own column is visited by definition. Left out, it took their cursor with
+	it: the row on the band has no cell there, so there is nothing to draw a cursor in and
+	nothing for a routing key to reach. On a sheet — the blank column beside the data, an empty
+	workbook with the active cell at D20 — that is where the reader means to be, and a blank
+	sheet could not be laid out at all.
+
+	Asked of the table rather than assumed, because the same rule read backwards is what keeps
+	a watchlist's column of unreadable icons off the band. See
+	`flowObjectTable.ObjectTable.emptyColumnsArePlaces`.
+	"""
+
 	widths: dict[int, int] = {column: 0 for column in columns}
 	labels: dict[int, str] = {column: "" for column in columns}
 	headers: dict[int, int] = {column: 0 for column in columns}
@@ -948,12 +983,16 @@ def measure(
 	# are no cells to ask, one cell per column is read now instead of one per cell later.
 	# See `columnHeadersOf` and `flowObjectTable.Sheet.columnHeaders`.
 	stated = columnHeadersOf(handle, 1, handle.numCols)
-	if not stated and _offeredBy(handle, "rowText") is not None:
-		# **Empty is not an answer to stop on.** It was, and on an Excel worksheet that cost
-		# the reader their header row: the sheet said no column declared anything, the cells
-		# were therefore never asked, and every cell of that table could name its column
-		# perfectly well. A mapping that comes back empty says "I know of none", which is a
-		# different thing from "there are none" and not worth the reads it saves.
+	if stated is None and _offeredBy(handle, "rowText") is not None:
+		# **A grid read in bulk has no cells to ask on the way past.** Everything below reads
+		# rows rather than cells, so the per-cell question further down never runs for one;
+		# where it will not answer for its columns outright, they are asked for here instead.
+		#
+		# `None` and `{}` are different answers and telling them apart is the whole contract:
+		# empty means the table was asked and declares nothing, None means it could not say.
+		# Read as the same thing, an empty answer suppressed the ask outright and took an
+		# Excel worksheet's header row off the display — which is why what answers empty now
+		# has to have checked. See `flowObjectTable.Sheet.columnHeaders`.
 		stated = declaredHeaders(handle, columns)
 	for column, said in (stated or {}).items():
 		if said and column in labels:
@@ -1017,7 +1056,10 @@ def measure(
 	return [
 		Measurement(
 			index=column,
-			width=widths[column],
+			# One cell for the reader's own empty column, because `planFor` refuses a column
+			# that asks for nothing whoever measured it, and widens what it keeps to
+			# `MIN_COLUMN_CELLS`.
+			width=widths[column] or (1 if column == theirs and column in found else 0),
 			typicalWidth=_typicalOf(seen[column]) or widths[column],
 			label=labels[column],
 			declared=column in declared,
@@ -1038,7 +1080,9 @@ def measure(
 			# The header row is always sampled, which is what keeps the first test honest: a
 			# spanning cell looks the same from outside, and a real column has a header even
 			# where its body is merged away.
-			hidden=column not in found or widths[column] == 0,
+			# Kept for the reader's own column of a grid even where nothing was found in
+			# it. See `theirs`.
+			hidden=column not in found or (widths[column] == 0 and column != theirs),
 		)
 		for column in columns
 	]
@@ -1158,7 +1202,7 @@ class TableFlowSource:
 			self._declared = {column: said for column, said in declared.items() if said}
 			self._headersAsked = set(declared)
 		elif pinHeaders:
-			self._declared = declaredHeaders(handle, self.columns)
+			self._declared = self._askColumns(self.columns)
 			self._headersAsked = set(self.columns)
 
 		self.pinnedIsRowOne = bool(pinHeaders) and (
@@ -1279,6 +1323,17 @@ class TableFlowSource:
 		if found is not None and sameTable(found.key, self.handle.key):
 			self.handle = found
 
+	def stillReading(self, handle: Optional[TableHandle]) -> bool:
+		""":return: whether a table just looked up is the one this source is reading.
+
+		The same question as `isStillHere` and without the lookup, for the caller that has the
+		handle already. A review counted the table resolved four times for one move between
+		cells, two of them here — and on a worksheet resolving it reads the used range.
+
+		:param handle: the table the reader is in now.
+		"""
+		return handle is not None and sameTable(handle.key, self.handle.key)
+
 	def isStillHere(self, obj) -> bool:
 		""":return: whether the reader is still in the table this source is reading.
 
@@ -1311,6 +1366,9 @@ class TableFlowSource:
 				# were, which is worse than saying nothing.
 				return None
 			return self._buildRow(HEADER_ROW)
+		except CallCancelled:
+			# Not "this table has no headings". See `flow.CallCancelled`.
+			raise
 		except Exception:
 			log.debugWarning("Could not read the table's header row", exc_info=True)
 			return None
@@ -1334,33 +1392,45 @@ class TableFlowSource:
 		cost a row of a seven row band and read as a table whose first record was its own
 		column names.
 
-		Row one only, and only against the columns on the page: one read of one row, which on
-		a sheet is one call. False for anything it cannot read or cannot decide, since drawing
-		a heading twice is a wasted row and dropping a row of data is a lost one.
+		**Every column on the page, not only the ones with a heading.** A review found what
+		comparing the declared ones alone gives up: two columns matching their headings was
+		enough to drop row one, and the third column of that row held "Important" and no
+		heading of its own — a row of the reader's data, gone, with nothing saying so. A row
+		is given up only when there is nothing in it but the headings themselves.
+
+		Row one only, and only the columns on the page: one read of one row, which on a sheet
+		is one call. False for anything it cannot read or cannot decide, since drawing a
+		heading twice costs a row and dropping a row of data loses one.
 		"""
-		wanted = {
-			column: said
-			for column, said in ((column, self._declared.get(column, "")) for column in self.columns)
-			if said
-		}
-		if not wanted:
+		wanted = {column: self._declared.get(column, "") for column in self.columns}
+		if not any(wanted.values()):
 			return False
 		try:
 			texts = rowTextOf(self.handle, HEADER_ROW, 1, self.handle.numCols)
 			matched = 0
 			for column, heading in wanted.items():
 				if texts is not None:
-					if not 1 <= column <= len(texts):
-						continue
-					said = texts[column - 1]
+					said = texts[column - 1] if 1 <= column <= len(texts) else None
 				else:
 					region = cellRegion(self.handle, HEADER_ROW, column)
-					if region is None:
-						continue
-					said = region.rawText
-				if " ".join((said or "").split()) != heading:
+					said = None if region is None else region.rawText
+				if said is None:
+					# No cell there at all — a merged coordinate. Nothing to match and
+					# nothing to lose.
+					continue
+				said = " ".join(said.split())
+				if heading:
+					if said != heading:
+						return False
+					matched += 1
+				elif said:
+					# Something of the reader's, in a column that names itself nothing. This
+					# is a row of the table that happens to sit under the headings.
 					return False
-				matched += 1
+		except CallCancelled:
+			# Neither answer is safe to guess at from a read that never happened: one draws
+			# the headings twice, the other drops a row of the table.
+			raise
 		except Exception:
 			log.debugWarning("Could not tell whether row one is the header row", exc_info=True)
 			return False
@@ -1386,7 +1456,7 @@ class TableFlowSource:
 		missing = [column for column in self.columns if column not in self._headersAsked]
 		if missing:
 			self._headersAsked.update(missing)
-			self._declared.update(declaredHeaders(self.handle, missing))
+			self._declared.update(self._askColumns(missing))
 		if self._declared and not self._askedAboutRowOne:
 			# Headers in hand for the first time, so the question that could not be settled
 			# without them can be. Once, and before the row is built below, so that a header
@@ -1396,6 +1466,25 @@ class TableFlowSource:
 				self.pinnedIsRowOne = True
 				self.firstRow = HEADER_ROW + 1
 		return {column: self._declared[column] for column in self.columns if column in self._declared}
+
+	def _askColumns(self, columns) -> dict:
+		""":return: what a run of columns declare, by the cheapest way this table will answer.
+
+		The table itself first, which for a grid is one read of its header row and for an
+		unmarked one is no read at all, and the cells of a few rows only where it will not say
+		— see `columnHeadersOf` and `declaredHeaders`. A review found the cells being asked
+		here for a second time on every page turn, having already been asked while the table
+		was measured, which on a worksheet is an `NVDAObject` and a header search apiece.
+
+		:param columns: the table's own numbers for the columns to ask about.
+		"""
+		wanted = list(columns)
+		if not wanted:
+			return {}
+		stated = columnHeadersOf(self.handle, min(wanted), max(wanted))
+		if stated is None:
+			return declaredHeaders(self.handle, wanted)
+		return {column: said for column, said in stated.items() if said and column in wanted}
 
 	def _declaredRow(self, said: dict) -> SourceBlock:
 		"""Build the pinned row out of what the table says its headers are.
@@ -1505,17 +1594,19 @@ class TableFlowSource:
 		numbered by the table, the numbering survives a re-read, and it is what
 		`_getTableCellAt` takes. Nothing has to be remembered between fetches.
 		"""
-		cells = []
-		for column in self.columns:
-			region = cellRegion(
-				self.handle,
-				row,
-				column,
-				live=self.live,
-				plainCase=column in self.plainCase,
-			)
-			if region is not None:
-				cells.append(RowCell(index=column, region=region))
+		cells = self._readInOneCall(row)
+		if cells is None:
+			cells = []
+			for column in self.columns:
+				region = cellRegion(
+					self.handle,
+					row,
+					column,
+					live=self.live,
+					plainCase=column in self.plainCase,
+				)
+				if region is not None:
+					cells.append(RowCell(index=column, region=region))
 		content = TableRow(
 			cells,
 			obj=self.obj,
@@ -1526,6 +1617,61 @@ class TableFlowSource:
 			region=content,
 			isBlank=not content.rawText.strip(),
 		)
+
+	def _readInOneCall(self, row: int) -> Optional[list]:
+		""":return: the drawn cells of one row from a single read, or None to read them singly.
+
+		**The rows on the display, not only the ones being measured.** The batch seam was
+		added for measuring and a review found what that left behind: every row the reader can
+		actually feel was still built a cell at a time — a coordinate lookup and an
+		`NVDAObject` with its overlay classes chosen, per column, per row — and the live pass
+		does it all again. Twelve cell objects for one re-read of a four by three window, on a
+		worksheet nobody had touched.
+
+		The object each cell stands for is not fetched at all. Nothing needs it until a
+		routing key lands on that one cell, and then it is one lookup at a moment the reader
+		is waiting for something to happen anyway. See `flowObjectTable.ObjectCellInfo`.
+
+		The header comes from what the table already declared, which is where the drawn cells
+		were getting it from in any case.
+
+		:param row: the row to read.
+		"""
+		wanted = sorted(self.columns)
+		if not wanted:
+			return None
+		fetch = _offeredBy(self.handle, "cellObject")
+		rows = _offeredBy(self.handle, "rowObject")
+		if fetch is None or rows is None:
+			return None
+		said = rowTextOf(self.handle, row, wanted[0], wanted[-1])
+		if said is None:
+			return None
+		# What a cell is fetched by, which is a row object for a list and the number itself
+		# for a grid. Asked rather than assumed: `cellObject` takes one or the other and only
+		# the table knows which.
+		item = rows(row)
+		if item is None:
+			return None
+		cells = []
+		for column in wanted:
+			text = said[column - wanted[0]]
+			info = flowObjectTable.ObjectCellInfo(
+				text,
+				header=self._declared.get(column, ""),
+				fetch=functools.partial(fetch, item, column),
+			)
+			region = TableCellRegion(
+				self.handle.document,
+				info,
+				live=self.live,
+				plainCase=column in self.plainCase,
+			)
+			region.update()
+			cells.append(RowCell(index=column, region=region))
+		# In the table's own order, which is the plan's: the row is drawn by each cell's
+		# column number and read in reading order by their order here.
+		return [cell for column in self.columns for cell in cells if cell.index == column]
 
 	def _caretColumn(self, row: int):
 		""":return: which column the caret is in on one row of the table, or None.

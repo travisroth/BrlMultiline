@@ -69,9 +69,13 @@ def _getCellInfos(binding, window, address, flags, count, infos, fetched):
 	if said is None:
 		fetched._obj.value = 0
 		return 0
-	for index, (column, text) in enumerate(said[:count]):
+	for index, entry in enumerate(said[:count]):
+		column, text = entry[0], entry[1]
 		infos[index].text = text
 		infos[index].columnNumber = column
+		# The merge area's address, which is what the real helper reports and what tells a
+		# merged cell from a blank one. Its own where a test does not say.
+		infos[index].address = entry[2] if len(entry) > 2 else f"R1C{column or index + 1}"
 	fetched._obj.value = len(said[:count])
 	return 0
 
@@ -152,7 +156,10 @@ class FakeCell(metaclass=DynamicType):
 		Resolved through the worksheet, which is where NVDA resolves it: the reader marks a
 		header row and every cell of the column answers for it. This is the answer the flow
 		uses, and the one an empty header cell tracker made it stop asking for."""
-		return getattr(self.parent, "marked", {}).get(self.columnNumber)
+		said = getattr(self.parent, "marked", {}).get(self.columnNumber)
+		if said:
+			return said
+		return self.parent.headingFor(self.rowNumber, self.columnNumber)
 
 	@property
 	def parent(self):
@@ -187,6 +194,7 @@ def _install() -> None:
 	window = types.ModuleType("NVDAObjects.window")
 	window.__path__ = []
 	nvdaExcel = types.ModuleType("NVDAObjects.window.excel")
+	nvdaExcel.NVCELLINFOFLAG_ADDRESS = 0x1
 	nvdaExcel.NVCELLINFOFLAG_TEXT = 0x2
 	nvdaExcel.NVCELLINFOFLAG_COORDS = 0x10
 	nvdaExcel.xlA1 = 1
@@ -284,13 +292,17 @@ class FakeUsedRange:
 class FakeWorksheetObject:
 	"""Excel's own worksheet: it answers by coordinate, and it records what it was asked."""
 
-	def __init__(self, values=None, used=None):
+	def __init__(self, values=None, used=None, name="Sheet1", book=r"C:\\books\\sales.xlsx"):
 		self.values = values if values is not None else SALES
 		self.used = used if used is not None else FakeUsedRange(1, 1, 3, 3)
 		self.asked: list = []
 		self.spans: list = []
 		self.timesAskedTheUsedRange = 0
 		self.Application = "an Excel"
+		self.name = name
+		self.parent = types.SimpleNamespace(fullName=book, name="sales.xlsx")
+		"""The workbook, which is what tells one worksheet from another with the same
+		headings. See `ExcelSheet.whereIsIt`."""
 
 	def range(self, first, last):
 		"""Excel's `Range(cell1, cell2)`, which is the span a whole row is fetched over."""
@@ -310,20 +322,102 @@ class FakeWorksheetObject:
 		return FakeRange(row, column, said)
 
 
+class FakeHeaderCellInfo:
+	"""One entry of NVDA's header cell tracker: a cell that heads a run of columns."""
+
+	def __init__(
+		self,
+		rowNumber,
+		columnNumber,
+		rowSpan=1,
+		colSpan=1,
+		minColumnNumber=None,
+		maxColumnNumber=None,
+		minRowNumber=None,
+		maxRowNumber=None,
+		isColumnHeader=True,
+		isRowHeader=False,
+	):
+		self.rowNumber = rowNumber
+		self.columnNumber = columnNumber
+		self.rowSpan = rowSpan
+		self.colSpan = colSpan
+		self.minColumnNumber = minColumnNumber
+		self.maxColumnNumber = maxColumnNumber
+		self.minRowNumber = minRowNumber
+		self.maxRowNumber = maxRowNumber
+		self.isColumnHeader = isColumnHeader
+		self.isRowHeader = isRowHeader
+
+
+class FakeHeaderCellTracker:
+	"""`tableUtils.HeaderCellTracker`, which is where what a reader marked ends up.
+
+	The two attributes NVDA fills in and this add-on reads: the entries, and their keys in
+	the order NVDA walks them. Built here rather than summarised, because the whole question
+	is what an entry says about which columns, and a summary would have answered it for the
+	test rather than for the module.
+	"""
+
+	def __init__(self, headings=()):
+		self.infosDict = {}
+		self.listByRow = []
+		for heading in headings:
+			info = FakeHeaderCellInfo(**heading)
+			key = (info.rowNumber, info.columnNumber)
+			self.infosDict[key] = info
+			self.listByRow.append(key)
+		self.listByRow.sort(reverse=True)
+
+
 class FakeWorksheet:
 	"""NVDA's `ExcelWorksheet`, as far as this add-on touches it."""
 
-	def __init__(self, sheet, marked=None):
+	def __init__(self, sheet, marked=None, headings=None):
 		self.excelWorksheetObject = sheet
 		self.built = 0
 		self.marked = dict(marked or {})
-		"""What the reader has marked as this sheet's headers, by column number. NVDA keeps
-		this in the worksheet's header cell tracker and resolves it per cell through
-		`fetchAssociatedHeaderCellText`; what matters to this add-on is that a cell answers
-		`columnHeaderText`, so that is what the stand-in reproduces."""
+		"""What a cell of this sheet answers `columnHeaderText` with, by column number.
+
+		Set on its own, it stands for the case that cost the reader their header row: the
+		tracker says nothing and the cells say plenty. NVDA resolves the two from the same
+		place, so they disagree only when the tracker was not built — which happens, because
+		NVDA keeps whatever the walk of the workbook's defined names produced."""
+
+		self.headings = list(headings or [])
+		"""What the reader marked, as the tracker's own entries. See `headerCellTracker`."""
+
+		self.timesAskedTheTracker = 0
+
+	@property
+	def headerCellTracker(self):
+		"""NVDA's, built on being asked and kept. Counted, because asking is a walk of every
+		defined name in the workbook and doing it per cell is what this seam is avoiding."""
+		self.timesAskedTheTracker += 1
+		return FakeHeaderCellTracker(self.headings)
+
+	def headingFor(self, row, column):
+		""":return: what a cell's column is called, the way `fetchAssociatedHeaderCellText`
+		works it out: the first entry that covers the column and sits above the cell, read as
+		the text at (its row, this column) and joined down its rows."""
+		for key in sorted(FakeHeaderCellTracker(self.headings).infosDict, reverse=True):
+			info = FakeHeaderCellTracker(self.headings).infosDict[key]
+			if not info.isColumnHeader or column < info.columnNumber:
+				continue
+			if info.maxColumnNumber and column > info.maxColumnNumber:
+				continue
+			if row < info.rowNumber + info.rowSpan:
+				return None
+			said = " ".join(
+				self.excelWorksheetObject.cells(at, column).text
+				for at in range(info.rowNumber, info.rowNumber + info.rowSpan)
+			).strip()
+			if said:
+				return said
+		return None
 
 
-def aCell(row=2, column=1, sheet=None, values=None, used=None, marked=None):
+def aCell(row=2, column=1, sheet=None, values=None, used=None, marked=None, headings=None):
 	""":return: a worksheet cell with the add-on's overlay on it, as NVDA would build one.
 
 	Through the metaclass rather than by naming a composed class, because that is the order
@@ -332,6 +426,7 @@ def aCell(row=2, column=1, sheet=None, values=None, used=None, marked=None):
 	worksheet = FakeWorksheet(
 		sheet if sheet is not None else FakeWorksheetObject(values, used),
 		marked=marked,
+		headings=headings,
 	)
 	cell = FakeCell(
 		windowHandle=42,
@@ -379,13 +474,14 @@ class TestReadingAWholeRowInOneCall(unittest.TestCase):
 		sheet.textRow(1, 1, 3)
 		self.assertEqual(len(FakeCell.made), before)
 
-	def test_andItAsksForTextAndCoordinatesAndNothingElse(self):
-		"""`NVCELLINFOFLAG_ALL`, which is what building a cell fetches, gathers comments and
-		formulas and states that nobody measuring a column is going to read."""
+	def test_andItAsksForThreeFieldsAndNothingElse(self):
+		"""Text, coordinates and the address. `NVCELLINFOFLAG_ALL`, which is what building a
+		cell fetches, gathers comments and formulas and states that nobody measuring a column
+		is going to read."""
 		sheet = self._sheet()
 		batch[self._address()] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
 		sheet.textRow(1, 1, 3)
-		self.assertEqual(fetches[0][2], 0x2 | 0x10)
+		self.assertEqual(fetches[0][2], 0x1 | 0x2 | 0x10)
 
 	def test_andOverTheSpanItWasAskedFor(self):
 		sheet = self._sheet()
@@ -397,16 +493,52 @@ class TestReadingAWholeRowInOneCall(unittest.TestCase):
 		)
 
 	def test_eachCellGoesInTheColumnItSaysItIsIn(self):
-		"""By its own coordinate, so a short or reordered answer cannot put a value under
-		the wrong heading."""
+		"""By its own coordinate, so a reordered answer cannot put a value under the wrong
+		heading."""
 		sheet = self._sheet()
-		batch[self._address()] = [(3, "Q2"), (1, "Region")]
+		batch[self._address()] = [(3, "Q2"), (2, ""), (1, "Region")]
 		self.assertEqual(sheet.textRow(1, 1, 3), ["Region", "", "Q2"])
 
 	def test_andWhereItSaysNothingItGoesWhereItArrived(self):
 		sheet = self._sheet()
-		batch[self._address()] = [(0, "Region"), (0, "Q1")]
-		self.assertEqual(sheet.textRow(1, 1, 3), ["Region", "Q1", ""])
+		batch[self._address()] = [(0, "Region"), (0, "Q1"), (0, "Q2")]
+		self.assertEqual(sheet.textRow(1, 1, 3), ["Region", "Q1", "Q2"])
+
+	def test_aShortAnswerIsAnUnfinishedOneAndIsRefused(self):
+		"""**The helper stops at the first cell it cannot reach.** It walks the range with an
+		enumerator and breaks out of the loop when `Next` fails, so the cells it did not get
+		to are cells nobody has read. Padded with empty strings they measured as columns that
+		hold nothing — which is a table read as blank, the exact failure this seam was added
+		to prevent — and the values were sitting there in the ordinary cell objects."""
+		sheet = self._sheet()
+		batch[self._address()] = [(1, "Region")]
+		self.assertIsNone(sheet.textRow(1, 1, 3))
+
+	def test_aMergedCellReadsAsItsContentUnderEveryColumnItSpans(self):
+		"""The helper reads `.text` off each cell of the range and only the top left member
+		of a merge holds it, so the rest came back empty and the column measured as one that
+		holds nothing. The address it reports is the merge area's, so the members of one
+		merge are exactly the cells that answer with the same string."""
+		sheet = self._sheet()
+		batch[self._address()] = [
+			(1, "Region", "R1C1"),
+			(2, "First half", "R1C2:R1C3"),
+			(3, "", "R1C2:R1C3"),
+		]
+		self.assertEqual(sheet.textRow(1, 1, 3), ["Region", "First half", "First half"])
+
+	def test_andTwoBlankCellsSideBySideStayBlank(self):
+		"""They are not a merge: each answers with an address of its own."""
+		sheet = self._sheet()
+		batch[self._address()] = [(1, "Region"), (2, ""), (3, "")]
+		self.assertEqual(sheet.textRow(1, 1, 3), ["Region", "", ""])
+
+	def test_theTextIsStrippedTheWayACellsOwnIs(self):
+		"""A column measured from the space Excel pads a value with is a column wider than
+		what will be drawn in it. See `flowTableSource._textOf`, which is the other path."""
+		sheet = self._sheet()
+		batch[self._address()] = [(1, "  Region  "), (2, "Q1"), (3, "Q2")]
+		self.assertEqual(sheet.textRow(1, 1, 3), ["Region", "Q1", "Q2"])
 
 	def test_aHelperThatAnswersForNothingSendsTheReaderBackToTheCells(self):
 		"""None means "ask me the ordinary way". A silence read as a row of empty cells is a
@@ -449,32 +581,185 @@ class TestReadingAWholeRowInOneCall(unittest.TestCase):
 		self.assertIsNone(self._sheet(sheet=Awkward()).textRow(1, 1, 3))
 
 
-class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
-	"""**This module deliberately does not answer the headings seam**, and the reason is the
-	reader's header row disappearing off an Excel sheet.
-
-	It used to. `ExcelWorksheet.headerCellTracker` is where NVDA keeps the header rows and
-	columns a reader has marked, and an empty one looked like a first-hand "no column of this
-	sheet declares anything" — worth saying, because the alternative is building a cell per
-	column to be told nothing, which on a sheet twenty-one columns wide is the whole cost of
-	the answer.
-
-	The tracker is NVDA's own, private, and populated lazily by walking every defined name in
-	the workbook. An empty one means "I know of none just now". Answered as though it meant
-	"there are none", it suppressed the per-column ask outright — and every cell of that very
-	sheet could name its column through `columnHeaderText`. The layout was built believing the
-	table had no headings and the band spent no row on them.
+class TestWhichWorksheetThisIs(unittest.TestCase):
+	"""What a saved layout is remembered against. For a control that is the application and
+	the window class, and every worksheet of every workbook is "excel" and "EXCEL7" — so two
+	workbooks with the same headings were each other's saved layout, which a review found.
 	"""
 
-	def test_theSeamIsLeftUnanswered(self):
-		"""So the flow asks the cells, which is where the answer actually is. One read per
-		column, once per layout, is not worth a guess about somebody else's private state."""
-		self.assertIsNone(getattr(excelModule.ExcelSheet(aCell()), "columnHeaders", None))
+	def _sheet(self, **kwargs):
+		return excelModule.ExcelSheet(aCell(sheet=FakeWorksheetObject(**kwargs)))
+
+	def test_aSheetIsNamedByItsWorkbookAndItsOwnName(self):
+		self.assertEqual(self._sheet().whereIsIt(), r"C:\\books\\sales.xlsx/Sheet1")
+
+	def test_soTwoSheetsOfOneWorkbookAreDifferentTables(self):
+		self.assertNotEqual(self._sheet().whereIsIt(), self._sheet(name="Sheet2").whereIsIt())
+
+	def test_andSoAreTwoWorkbooksWithTheSameSheetName(self):
+		self.assertNotEqual(
+			self._sheet().whereIsIt(),
+			self._sheet(book=r"C:\\books\\other.xlsx").whereIsIt(),
+		)
+
+	def test_anUnsavedWorkbookIsStillNamedByWhatItHas(self):
+		"""It has no path yet. Its name is still better than naming every sheet alike."""
+		sheet = self._sheet(book="")
+		self.assertEqual(sheet.whereIsIt(), "sales.xlsx/Sheet1")
+
+	def test_andASheetThatWillNotSayIsNamedTheOrdinaryWay(self):
+		sheet = FakeWorksheetObject()
+		del sheet.parent
+		self.assertIsNone(excelModule.ExcelSheet(aCell(sheet=sheet)).whereIsIt())
+
+
+class TestAskingExcelHowFarTheSheetGoes(unittest.TestCase):
+	"""The used range is one call, and it was being made over and over.
+
+	Recognising a table asks the shape twice on its own — once to find out whether the sheet
+	is too wide to measure, once for the table's own dimensions — and the table is resolved
+	several times for one move between cells. A review counted eight used range reads before
+	any new content was fetched.
+	"""
+
+	def test_theUsedRangeIsAskedForOnce(self):
+		sheet = excelModule.ExcelSheet(aCell())
+		sheet.shape()
+		sheet.shape()
+		sheet.shape()
+		self.assertEqual(sheet.obj.excelWorksheetObject.timesAskedTheUsedRange, 1)
+
+	def test_butWhereTheReaderIsIsAskedEveryTime(self):
+		"""It is what the answer is stretched to cover — a reader arrowing about a blank sheet
+		does not enlarge the used range — and asking costs nothing."""
+		cell = aCell(row=2, column=1)
+		sheet = excelModule.ExcelSheet(cell)
+		self.assertEqual(sheet.shape(), (3, 3))
+		cell.rowNumber = 20
+		cell.columnNumber = 4
+		self.assertEqual(sheet.shape(), (20, 4))
+
+
+class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
+	"""**The question that nearly froze a worksheet, and the one that has now been got wrong
+	in both directions.**
+
+	Asked cell by cell it costs an `ExcelCell` built and a header search per column, three
+	times over for a column that says nothing: sixty three cell objects on a twenty one column
+	sheet nobody has marked up, before a row the reader can feel has been read. Forty two was
+	already enough to pass the watchdog on hardware.
+
+	Answered from an empty `ExcelWorksheet.headerCellTracker` it cost the reader their header
+	row, which is the other direction. The tracker is built by walking every defined name in
+	the workbook and NVDA keeps whatever that walk produced — including nothing, where it
+	failed part way — so an empty one can mean "I know of none just now" while every cell of
+	that same sheet names its column perfectly well.
+
+	So the tracker is read for what it positively says, and its silence is checked against one
+	cell before it is believed.
+	"""
+
+	def setUp(self):
+		fetches.clear()
+		batch.clear()
+		helperFails[0] = 0
+
+	ACROSS = [{"rowNumber": 1, "columnNumber": 1, "maxColumnNumber": 3}]
+	"""A header row marked across the sheet, which is what a reader marks."""
+
+	def _sheet(self, **kwargs):
+		return excelModule.ExcelSheet(aCell(**kwargs))
+
+	def test_aMarkedHeaderRowIsReadInOneCall(self):
+		sheet = self._sheet(headings=self.ACROSS)
+		batch["Sheet1!R1C1:C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
+		self.assertEqual(sheet.columnHeaders(1, 3), {1: "Region", 2: "Q1", 3: "Q2"})
+		self.assertEqual(len(fetches), 1)
+
+	def test_andNoCellIsBuiltToGetIt(self):
+		"""Which is the whole saving: one call rather than one cell object per column, three
+		times over for the columns that say nothing."""
+		sheet = self._sheet(headings=self.ACROSS)
+		batch["Sheet1!R1C1:C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
+		before = len(FakeCell.made)
+		sheet.columnHeaders(1, 3)
+		self.assertEqual(len(FakeCell.made), before)
+
+	def test_andTheAnswerIsWorkedOutOnce(self):
+		"""Asking is a walk of every defined name in the workbook."""
+		sheet = self._sheet(headings=self.ACROSS)
+		batch["Sheet1!R1C1:C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
+		sheet.columnHeaders(1, 3)
+		sheet.columnHeaders(1, 3)
+		sheet.columnHeaders(2, 3)
+		self.assertEqual(len(fetches), 1)
+		self.assertEqual(sheet.obj.timesAskedTheTracker, 1)
+
+	def test_aColumnOutsideWhatWasMarkedIsNotNamed(self):
+		"""A heading marked from column two does not name column one — which is
+		`iterPossibleHeaderCellInfosFor`'s own rule, and the reader's partial header range."""
+		sheet = self._sheet(headings=[{"rowNumber": 1, "columnNumber": 2, "maxColumnNumber": 3}])
+		batch["Sheet1!R1C2:C3"] = [(2, "Q1"), (3, "Q2")]
+		self.assertEqual(sheet.columnHeaders(1, 3), {2: "Q1", 3: "Q2"})
+
+	def test_aSheetNobodyHasMarkedSaysSoOutright(self):
+		"""An empty mapping, which is an answer: this sheet declares no headers. It is what
+		saves an unmarked sheet a cell per column for a question whose answer is nothing."""
+		self.assertEqual(self._sheet().columnHeaders(1, 3), {})
+
+	def test_andProvesItWithOneCellRatherThanNone(self):
+		"""The check that the last attempt did not make. One cell, not one per column."""
+		sheet = self._sheet()
+		before = len(FakeCell.made)
+		sheet.columnHeaders(1, 3)
+		self.assertEqual(len(FakeCell.made) - before, 1)
+
+	def test_soATrackerThatIsWrongIsNotBelieved(self):
+		"""**The reader's own fault, in one test.** The tracker says nothing and the cells say
+		plenty; NVDA resolves both from the same place, so they disagree only when the walk
+		that fills the tracker did not finish — and NVDA keeps the empty one it made first."""
+		sheet = self._sheet(marked={1: "Date", 2: "Al"})
+		self.assertIsNone(sheet.columnHeaders(1, 3))
+
+	def test_aHeadingSeveralRowsTallIsLeftToNvda(self):
+		"""NVDA joins the rows of the span together itself; this reads one row."""
+		sheet = self._sheet(headings=[{"rowNumber": 1, "columnNumber": 1, "rowSpan": 2}])
+		self.assertIsNone(sheet.columnHeaders(1, 3))
+
+	def test_asIsAHeadingThatOnlyAppliesToSomeRows(self):
+		"""It is not a property of the column, so it cannot be answered per column."""
+		sheet = self._sheet(
+			headings=[{"rowNumber": 1, "columnNumber": 1, "maxColumnNumber": 3, "maxRowNumber": 9}],
+		)
+		self.assertIsNone(sheet.columnHeaders(1, 3))
+
+	def test_andARowHeaderIsNotAColumnHeader(self):
+		sheet = self._sheet(
+			headings=[{"rowNumber": 1, "columnNumber": 1, "isColumnHeader": False, "isRowHeader": True}],
+		)
+		self.assertEqual(sheet.columnHeaders(1, 3), {})
+
+	def test_aHeaderRowThatCannotBeReadInOneGoIsLeftToTheCells(self):
+		"""Guessing which of those columns it would have named is worse than asking them."""
+		sheet = self._sheet(headings=self.ACROSS)
+		self.assertIsNone(sheet.columnHeaders(1, 3))
 
 	def test_andACellStillNamesItsColumn(self):
-		"""Which is the answer the flow now uses, through `flowObjectTable.headerTextOf`."""
-		sheet = excelModule.ExcelSheet(aCell(marked={2: "Q1"}))
+		"""Which is what the flow falls back to, through `flowObjectTable.headerTextOf`."""
+		sheet = self._sheet(marked={2: "Q1"})
 		self.assertEqual(sheet.cellAt(3, 2).columnHeaderText, "Q1")
+
+	def test_andACellNamesItFromTheMarkedRowToo(self):
+		"""The stand-in resolves a header the way NVDA does — the text at (the marked row,
+		this column) — so the two paths cannot quietly answer differently."""
+		sheet = self._sheet(headings=self.ACROSS)
+		self.assertEqual(sheet.cellAt(3, 2).columnHeaderText, "Q1")
+
+	def test_butACellOfTheMarkedRowHasNoHeaderAboveIt(self):
+		"""Which is what made the first cell asked the worst possible witness, and why the
+		one cell this asks is never a cell of row one."""
+		sheet = self._sheet(headings=self.ACROSS)
+		self.assertIsNone(sheet.cellAt(1, 2).columnHeaderText)
 
 
 class TestRecognisingAWorksheetCell(unittest.TestCase):
@@ -577,10 +862,15 @@ class TestHowFarTheSheetGoes(unittest.TestCase):
 		sheet = aCell(row=20, column=4, used=used).brlMultilineSheet()
 		self.assertEqual(sheet.shape(), (20, 4))
 
-	def test_andIsTheReadersOwnPlaceWhenExcelWillNotSay(self):
+	def test_aSheetThatWillNotSayHowFarItGoesIsLeftToNvda(self):
+		"""**Unknown rather than nothing**, which a review asked for. The fallback was zero,
+		and zero leaves the reader's own coordinate as the whole of the answer — so a
+		worksheet that would not say was presented as a table one cell bigger than wherever
+		they were standing, a truncated sheet offered as though it were the sheet. Declining
+		it leaves them NVDA's ordinary reading of the cell, which is right and says so."""
 		cell = aCell(row=7, column=2)
 		cell.parent.excelWorksheetObject.used = None
-		self.assertEqual(cell.brlMultilineSheet().shape(), (7, 2))
+		self.assertIsNone(cell.brlMultilineSheet())
 
 	def test_aSheetTooWideToMeasureIsLeftToNvda(self):
 		"""Excel's used range grows to whatever has ever been *formatted* and never shrinks,

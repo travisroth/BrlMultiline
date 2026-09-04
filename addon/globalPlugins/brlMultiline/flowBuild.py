@@ -309,6 +309,58 @@ def buildTableController(
 	atRow: Optional[int] = None,
 	atPage: int = 0,
 ) -> Optional[FlowController]:
+	"""Build the table flow, and say so where NVDA stopped waiting part way through.
+
+	**Every stage of it, which is what a review asked for.** Recognising the table, asking how
+	far a worksheet goes, finding what its columns are called, reading its first row: each is
+	a call into the application and each can be cancelled, and each used to be swallowed by a
+	broad catch somewhere below and reported as "not a table", "no headers", or a row that
+	could not be read. They are all the same thing — the core was busy — and the reader can
+	act on it: ask again in a moment.
+
+	See `buildTheTable`, which is the work, and `flow.CallCancelled`.
+	"""
+	if notes is None:
+		notes = []
+	try:
+		return buildTheTable(
+			obj=obj,
+			numRows=numRows,
+			numCols=numCols,
+			handler=handler,
+			live=live,
+			generation=generation,
+			maxRows=maxRows,
+			notes=notes,
+			layout=layout,
+			handle=handle,
+			atRow=atRow,
+			atPage=atPage,
+		)
+	except CallCancelled:
+		notes.append(
+			Unreadable(
+				"NVDA cancelled the reads while this table was being read, because the core "
+				"had stopped answering. Nothing here says the table cannot be laid out.",
+			),
+		)
+		return None
+
+
+def buildTheTable(
+	obj: Optional["NVDAObject"] = None,
+	numRows: int = DEFAULT_ROWS,
+	numCols: int = DEFAULT_COLS,
+	handler=None,
+	live: bool = False,
+	generation: int = 0,
+	maxRows: Optional[int] = None,
+	notes: Optional[list] = None,
+	layout: Optional["flowTableLayouts.TableLayout"] = None,
+	handle=None,
+	atRow: Optional[int] = None,
+	atPage: int = 0,
+) -> Optional[FlowController]:
 	"""Build a flow that reads the table the reader is in, laid out in columns.
 
 	Separate from `buildController` rather than a branch inside it, because it answers a
@@ -486,7 +538,13 @@ def buildTableController(
 		control.setPinned(pinned)
 		notes.append("The header row is pinned above the band.")
 	if not _entered(control, source, handle, atRow):
-		notes.append("The table was recognised but its first row could not be read.")
+		# **Read, not laid out.** The columns were measured and planned; what failed is a
+		# fetch, which is a moment that has passed rather than a display too narrow. Told the
+		# other way, the reader is sent to the layout designer for a table nothing was wrong
+		# with. See `Unreadable`.
+		notes.append(
+			Unreadable("The table was recognised but its first row could not be read."),
+		)
 		return None
 	if atPage:
 		# Before the caller attaches it, so the reader feels one display rather than two.

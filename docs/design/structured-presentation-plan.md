@@ -1590,6 +1590,65 @@ as a place and not at the character under the finger — `TableCellRegion.routeT
 ignores the offset — and one position for the whole of a cell also keeps the cursor at the
 column's start, since `FlowController.cursorCell` takes the first band cell that matches.
 
+### What a review of the Excel work found
+
+Thirteen findings, three of them urgent, and the shape of them is worth keeping: almost every
+one is *a question asked of Excel more often than it needs to be*, or *an answer believed
+without being checked*. Both are the same mistake at different ends.
+
+**Reading in bulk stopped at the measuring.** `Sheet.textRow` was added to measure a table
+without building a cell object per cell, and the rows the reader actually feels went on being
+built one cell at a time — twelve objects for one re-read of a four by three window, repeated
+on every live pass. What made it fixable is that the object is not needed to *draw* a cell,
+only to *go* to one: `ObjectCellInfo` now takes a way to fetch its object instead of the
+object, and nothing calls it until a routing key lands on that one cell.
+
+**The header question was the expensive one.** Asked cell by cell it is an `ExcelCell` and a
+header search per column, three times over for a column that says nothing — sixty three cell
+objects on a twenty one column sheet nobody has marked up, when forty two had already been
+enough to pass the watchdog. It is now asked of the sheet: NVDA's header cell tracker says
+which cell heads which columns, and what that cell says is one read of the heading row.
+
+That is the seam that took the reader's header row off the display two rounds earlier, so it
+comes back with the checking it lacked. The tracker is built by walking the workbook's defined
+names and NVDA keeps whatever that walk produced, including nothing where it failed part way —
+so an empty tracker is worth one witness cell before it is believed, and the three states
+(`None`, `{}`, a mapping) mean what they say again everywhere they are read.
+
+**An empty column the reader is standing in.** Hiding an empty column is what keeps a
+watchlist's column of unreadable icons off the band, and read the same way on a spreadsheet it
+takes the reader's own cursor with it: a grid is a plane, and the column beside the data is
+where they go to write the next one. So the table is asked — `emptyColumnsArePlaces` — rather
+than the rule being applied to both.
+
+**Two answers that were not checked before they were believed.** Excel's batch fetch stops at
+the first cell it cannot reach, and a short answer was padded with empty strings, so columns
+holding values measured as columns holding nothing. And the row one question compared only the
+columns that declared a heading, so a third column holding "Important" and declaring nothing
+was dropped along with the heading row.
+
+**And several places where a cancelled read came back as an answer.** Recognising the table,
+asking how far a worksheet goes, a used range that would not answer at all. Each was swallowed
+by a broad catch and reported as "not a table", "no headings", a one by one sheet. Every stage
+of building a table flow is now inside one catch that says what actually happened.
+
+Two findings are left undone deliberately, and both are the same shape: they need work that
+cannot be checked without Excel in front of it.
+
+- **Hidden and filtered rows and columns.** The adapter does not consult Excel's hidden state,
+  so a hidden column with text in it is measured and drawn, and rows an AutoFilter has hidden
+  are fetched by coordinate and read as part of the flow. The column half could be done with
+  one `SpecialCells(xlCellTypeVisible)` call over the heading row; the row half cannot, because
+  the source walks `row + 1` bounded by the row count and skipping hidden rows means a
+  `rowAfter`/`rowBefore` contract for every shape of table, not just this one. Writing either
+  against a fake and shipping it unverified risks the thing this whole area has been getting
+  wrong — columns silently missing — so it waits for hardware.
+
+- **A used range inflated downwards.** Formatting a whole column and clearing it leaves Excel
+  reporting a million rows, which is not a freeze but is an endless stream of blank rows to pan
+  through. `MAX_COLUMNS` has no vertical twin, and the honest fix is a last-content-row query
+  that has to be tried against a real workbook.
+
 ### The header row that was drawn twice, and the sample that read nothing
 
 Two reports off one worksheet, and both were about the same thing: a table is asked questions
