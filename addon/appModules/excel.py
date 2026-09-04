@@ -51,6 +51,7 @@ from NVDAHelper.localLib import EXCEL_CELLINFO
 from NVDAObjects.window.excel import (
 	NVCELLINFOFLAG_COORDS,
 	NVCELLINFOFLAG_TEXT,
+	ExcelCell,
 	convertAddressToLocal,
 	xlA1,
 )
@@ -231,45 +232,50 @@ class ExcelSheet:
 				texts[place] = text
 		return texts
 
-	def columnHeaders(self, first: int, last: int) -> Optional[dict]:
-		""":return: an empty mapping where no column declares a header, or None to ask the cells.
-
-		**Almost always the empty mapping, and that is the whole value of it.** A worksheet
-		has no headers until a reader marks a row or a column as one, and NVDA records what
-		they marked in the worksheet's header cell tracker. An empty tracker is a first-hand
-		"no column of this sheet declares anything", which saves building a cell per column to
-		be told nothing — on a sheet twenty-one columns wide that was the entire cost of the
-		answer.
-
-		Where the tracker does hold something, None: resolving which marked range applies to
-		which column is `fetchAssociatedHeaderCellText`'s job and it wants a cell to do it, so
-		the ordinary per-column ask is the right thing and it happens once per column. See
-		`flowObjectTable.SheetTable._headerOf`.
-
-		:param first: the first column of the span. Unused; the tracker is the whole sheet's.
-		:param last: the last column, inclusive. Unused, for the same reason.
-		"""
-		try:
-			marked = getattr(self.obj.headerCellTracker, "infosDict", None)
-		except CallCancelled:
-			raise
-		except Exception:
-			log.debugWarning("Could not ask a worksheet whether it has header cells", exc_info=True)
-			return None
-		return None if marked else {}
+	# **There is deliberately no `columnHeaders` here**, and the reason is worth keeping.
+	# It answered "no column of this sheet declares a header" from an empty
+	# `ExcelWorksheet.headerCellTracker`, to save building a cell per column to be told
+	# nothing — on a sheet twenty-one columns wide, the whole cost of that answer.
+	#
+	# It took the reader's header row off the display. The tracker is NVDA's own, private,
+	# and populated lazily by walking every defined name in the workbook; an empty one means
+	# "I know of none just now" and not "there are none", and every cell of that very sheet
+	# could name its column through `columnHeaderText`. Answering the seam suppressed the
+	# per-column ask outright, so the layout was built believing the table had no headings
+	# and the band spent no row on them.
+	#
+	# The saving was real and small — one read per column, once per layout — and it is not
+	# worth a guess about somebody else's private state. `flowTableSource.measure` no longer
+	# lets an empty answer stop the ask either, but the cheapest way not to be wrong here is
+	# not to answer.
 
 	def cellAt(self, row: int, column: int):
 		""":return: the cell at one coordinate, or None if it cannot be reached.
 
-		Wrapped in NVDA's own `ExcelCell`, exactly as `ExcelWorksheet._get_firstChild` does
-		it, so that everything asked of the cell afterwards is NVDA's answer and not this
-		add-on's guess at one.
+		**`ExcelCell` itself, and never the class of the cell in hand.** That is exactly what
+		`ExcelWorksheet._get_firstChild` and `navigationHelper` do, and the reason is the one
+		that cost a whole reading: NVDA's objects are *composed*. `DynamicNVDAObjectType`
+		builds an object from an API class, asks the application module for overlay classes,
+		and mutates the object into a new type made of both — so the cell the reader is
+		standing on is a `Dynamic_SpreadsheetCellExcelCell`, whose bases are this module's
+		overlay and NVDA's cell.
+
+		Ask for another of *those* and the metaclass does it all again: it offers the
+		composite as the only class, this module inserts its overlay in front of it, and the
+		bases come out as (overlay, (overlay, cell)) — which cannot be linearised. Python
+		raises `TypeError: Cannot create a consistent method resolution order`, this returned
+		None, and every cell of the band became "no cell at this coordinate". The layout was
+		planned, the command said the columns were showing, and the display was blank.
+
+		So the API class, which is what NVDA composes *from*, and the overlay is added to the
+		result exactly as it is to any other cell Excel hands over. A merged coordinate reads
+		as its top left content, which is what NVDA's own first child does.
 
 		**For the cells that are drawn and routed into**, which after `textRow` is what this
 		is for. Measuring a bandful of a sheet no longer comes through here.
 		"""
 		try:
-			found = type(self.cell)(
+			found = ExcelCell(
 				windowHandle=self.cell.windowHandle,
 				excelWindowObject=self.cell.excelWindowObject,
 				excelCellObject=self._sheet.cells(row, column),
@@ -281,6 +287,10 @@ class ExcelSheet:
 			raise
 		except Exception:
 			log.debugWarning(f"Could not reach row {row} column {column}", exc_info=True)
+			return None
+		if found is None:
+			# The metaclass answers None rather than raising when it will not build one.
+			log.debugWarning(f"NVDA would not build a cell at row {row} column {column}")
 			return None
 		# **The worksheet already in hand, given to the cell rather than left to be built.**
 		# `ExcelCell._get_parent` makes a new `ExcelWorksheet` for every cell that is asked,
@@ -399,16 +409,25 @@ class SpreadsheetCell:
 def readsByCoordinate(obj) -> bool:
 	""":return: whether this object is a worksheet cell that can be read by coordinate.
 
-	The COM model's cell and only that one. It is recognised by what makes the reading
-	possible — a cell object whose worksheet can be asked for another cell — rather than by
-	its class, so a cell missing either is left alone rather than half read. The UI Automation
-	model's cell has neither; see the module docstring.
+	The COM model's cell and only that one. `NVDAObjects.UIA.excel.ExcelCell` is a different
+	class on a different branch — it derives from `UIA`, not from `Window` — so this tells the
+	two models apart exactly, and the two attributes are what the reading is actually made of.
+	See the module docstring for why the UI Automation model is left alone.
+
+	**And nothing here may ask the cell for its parent**, which is what this used to do to
+	prove the worksheet was reachable. This runs inside `DynamicNVDAObjectType.__call__` —
+	NVDA asks the application module to choose overlay classes for *every* object it builds —
+	and `ExcelCell._get_parent` makes a whole `ExcelWorksheet`, whose header tracker is
+	populated by walking every defined name in the workbook. So the one question asked to
+	recognise a cell undid the sharing of the worksheet that `ExcelSheet.cellAt` arranges
+	afterwards, once per cell of every band. It proved nothing either: a COM model cell's
+	parent is an `ExcelWorksheet` by construction.
 
 	:param obj: the object NVDA has just built.
 	"""
-	if not hasattr(obj, "excelCellObject") or not hasattr(obj, "excelWindowObject"):
+	if not isinstance(obj, ExcelCell):
 		return False
-	return hasattr(obj.parent, "excelWorksheetObject")
+	return hasattr(obj, "excelCellObject") and hasattr(obj, "excelWindowObject")
 
 
 class AppModule(ExcelAppModule):
@@ -421,6 +440,13 @@ class AppModule(ExcelAppModule):
 	def chooseNVDAObjectOverlayClasses(self, obj, clsList):
 		super().chooseNVDAObjectOverlayClasses(obj, clsList)
 		try:
+			# Not twice, and a class *made of* this overlay counts as having it. Such a
+			# class is one NVDA already composed being offered for composing again, and the
+			# bases would come out as (overlay, (overlay, cell)) — a pair with no consistent
+			# method resolution order, so `type` raises and NVDA is left with no object at
+			# all. See `ExcelSheet.cellAt` for what that looked like from the display.
+			if any(issubclass(found, SpreadsheetCell) for found in clsList):
+				return
 			if readsByCoordinate(obj):
 				clsList.insert(0, SpreadsheetCell)
 		except Exception:

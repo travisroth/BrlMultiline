@@ -50,6 +50,23 @@ def _focusObject():
 		return None
 
 
+def howTheLayoutWasMade(band) -> list[str]:
+	""":return: what `buildTableController` said as it made the layout on the band.
+
+	**Only a failure used to show these**, and that was a hole exactly where a hard fault
+	lives: the notes name each step — what the table measured, which columns name themselves,
+	whether a row was spent on a header — and a layout that comes out *wrong* is not a layout
+	that failed, so nothing printed them. A worksheet losing its header row was diagnosed for
+	three rounds without the one line that said whether the headings had been found.
+
+	:param band: the live band.
+	"""
+	notes = list(getattr(band, "tableNotes", None) or ())
+	if not notes:
+		return []
+	return ["Band layout, as it was made:", *(f"  {note}" for note in notes)]
+
+
 def liveReport(band) -> list[str]:
 	"""What the band is showing at this moment, as opposed to what a fresh flow would show.
 
@@ -93,6 +110,7 @@ def liveReport(band) -> list[str]:
 	plan = getattr(getattr(control, "renderer", None), "columnPlan", None)
 	if plan is not None and not plan.isEmpty:
 		lines.append(f"Band columns: {flowTable.describe(plan)}")
+	lines.extend(howTheLayoutWasMade(band))
 	lines.extend(describeObjectTable(control))
 	lines.append(f"Band direction: {getattr(control, 'lastDirection', 'unknown')}")
 	# Every move, in order, because the direction test's verdict on its own was misleading:
@@ -466,6 +484,25 @@ def describeCost(control: FlowController) -> list[str]:
 	return lines
 
 
+def _whatTheBandIsDoing(band) -> str:
+	""":return: what the band has on it, for the title, or "nothing" if it has no flow.
+
+	Short and in the title's own words, because the whole point is that the reader should not
+	have to read as far as the detail to find out that the two halves of this report are about
+	two different things. See `dryRun`.
+
+	:param band: the live band.
+	"""
+	control = getattr(band, "controller", None)
+	if control is None:
+		return "nothing"
+	plan = getattr(getattr(control, "renderer", None), "columnPlan", None)
+	if plan is not None and not plan.isEmpty:
+		first, last, total = plan.whereItIs
+		return f"a table in columns ({first} to {last} of {total})"
+	return "a flow of its own"
+
+
 def dryRun(handler=None, obj: Optional["NVDAObject"] = None, band=None) -> list[str]:
 	"""Run a flow over what the reader is in and report the result.
 
@@ -494,7 +531,18 @@ def dryRun(handler=None, obj: Optional["NVDAObject"] = None, band=None) -> list[
 	if control is None:
 		# Every step is reported, because "nothing here can be flowed" was one message for
 		# four different failures and said nothing about which had happened.
-		lines = ["Flow dry run: nothing here can be flowed. What happened:"]
+		#
+		# **And it is about this dry run's own flow, not about the band.** The two part
+		# company exactly where it matters: in Excel the band reads the worksheet as a table
+		# and the ordinary reading of the same place is a tree interceptor with no text in it,
+		# so a report headed "nothing here can be flowed" sat on top of a full account of a
+		# table the reader could feel under their fingers. The reader read the title, and the
+		# title was talking about something else.
+		lines = [
+			"Flow dry run: nothing here can be flowed on its own"
+			+ (f", though the band is reading {_whatTheBandIsDoing(band)}" if band is not None else "")
+			+ ". What happened:",
+		]
 		lines.extend(f"  {note}" for note in notes)
 	else:
 		lines = report(control)

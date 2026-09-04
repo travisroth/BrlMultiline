@@ -548,9 +548,21 @@ class FlowBand(PanelOwner):
 		if header is None:
 			return
 		try:
-			control.setPinned(header())
+			said = header()
 		except Exception:
 			log.debugWarning("Could not read the pinned header row again", exc_info=True)
+			return
+		if said is None:
+			# **Kept rather than cleared.** "I could not read it just now" is not "this table
+			# has no headers": a header is a property of the table and it was there a moment
+			# ago. `headerBlock` answers None for both, and it swallows its own failures to do
+			# it — so one unlucky read took the header off the display and nothing put it back
+			# until the layout was made again. On a spreadsheet every read can fail: a cell
+			# fetch crosses a process boundary and the watchdog cancels the lot when the core
+			# is busy.
+			log.debugWarning("The pinned header row could not be read again, so it stands")
+			return
+		control.setPinned(said)
 
 	def _tableStillFits(self) -> bool:
 		"""Notice a table that changed shape, on a pass that may write nothing.
@@ -852,22 +864,50 @@ class FlowBand(PanelOwner):
 		return self.showObject(
 			obj if obj is not None else self._target(),
 			force=True,
+			# **A focus change is a move, not a new reading**, and for a table that is the
+			# whole difference. See `showObject`.
+			focusMoved=True,
 			focusRegions=regions,
 		)
 
-	def showObject(self, obj: Any, force: bool = False, focusRegions=None) -> bool:
+	def showObject(
+		self,
+		obj: Any,
+		force: bool = False,
+		focusRegions=None,
+		focusMoved: bool = False,
+	) -> bool:
 		"""Show a flow over an object, keeping the current one if it is the same document.
 
 		:param obj: what the reader is now on.
 		:param force: rebuild even when the document has not changed.
 		:param focusRegions: the regions NVDA built for this focus, so an embedded edit can
 			keep its real text region and caret owner.
+		:param focusMoved: whether this is the focus arriving somewhere rather than a reading
+			that has to be made again. **The two are the same thing for a document and
+			opposite things for a table**, which is what this exists to say.
+
+			In browse mode the focus stays on the page while the caret walks it, so a table
+			was only ever redrawn through the live pass, which follows the cursor. In a
+			*spreadsheet or a list* every arrow key is a focus change — a different cell, a
+			different row — and each one arrived here as `force`, which means "make the
+			reading again". So the layout was planned afresh on every keypress and the window
+			was placed afresh with it: the row the reader had just moved to went to the **top**
+			of the band with the rest of the table below it, instead of coming on at the
+			bottom. Reported from an Excel worksheet as a display that jumped a page at a
+			time, and, at the first row past the data, as a band that went blank but for its
+			headers — a fresh window entered at the last row has nothing after it to fill with.
+
+			The table path already has the question it needs, and it is a better one than
+			`force`: `isStillHere` asks whether the reader is in the same table. Where they
+			are, this is a move within it and the cursor is followed; where they are not, it
+			rebuilds exactly as before.
 		:return: whether a flow is showing afterwards.
 		"""
 		segment = self.segment()
 		if segment is None:
 			return False
-		shown = self._showTable(obj, segment, force=force)
+		shown = self._showTable(obj, segment, force=force and not focusMoved)
 		if shown is not None:
 			return shown
 		if self._readingATable():
@@ -1256,7 +1296,7 @@ class FlowBand(PanelOwner):
 			return None
 		top = self.controller.window.topBlockId() if self.controller is not None else None
 		row = getattr(top, "bookmark", None) if top is not None else None
-		return (plan.page, row if isinstance(row, int) else None)
+		return (plan.at, row if isinstance(row, int) else None)
 
 	def _tableChangedShape(self, found, source) -> bool:
 		"""Whether the table is no longer the shape the layout was made for.
@@ -1268,7 +1308,7 @@ class FlowBand(PanelOwner):
 
 		**Knowing a column is not the same as drawing it.** A column measured and left out —
 		one holding nothing the reader can read — is one this plan knows perfectly well. The
-		first cut asked `pageOf`, which says where a column is *drawn*, so a caret sitting in
+		first cut asked where a column is *drawn*, so a caret sitting in
 		an undrawn column read as a table that had changed under the band. Quick navigation
 		lands the caret in the first cell of a table and on the reader's own watchlist that
 		cell is an unreadable icon, so the layout was rebuilt on every redraw and panning did
@@ -1291,7 +1331,7 @@ class FlowBand(PanelOwner):
 		plan = getattr(self.controller.renderer, "columnPlan", None)
 		if plan is None or plan.isEmpty:
 			return False
-		if plan.pageOf(found.col) is not None:
+		if plan.holds(found.col):
 			return False
 		if found.col in plan.excluded:
 			# A column the reader's own saved layout leaves out. They have said they do not
@@ -1351,9 +1391,8 @@ class FlowBand(PanelOwner):
 			log.debug(
 				"BrlMultiline table: reading the layout again because "
 				f"{why}. Table {handle!r}, caret at row {getattr(source, 'row', '?')} "
-				f"column {getattr(source, 'column', '?')}, showing page "
-				f"{plan.page if plan is not None else '?'} of "
-				f"{plan.numPages if plan is not None else '?'}, columns left out "
+				f"column {getattr(source, 'column', '?')}, showing columns "
+				f"{plan.whereItIs if plan is not None else '?'}, columns left out "
 				f"{plan.omitted if plan is not None else '?'}, excluded by the reader "
 				f"{plan.excluded if plan is not None else '?'}.",
 			)
@@ -1411,18 +1450,18 @@ class FlowBand(PanelOwner):
 		plan = getattr(self.controller.renderer, "columnPlan", None)
 		if plan is None or plan.isEmpty:
 			return False
-		if plan.drawsOnThisPage(column):
-			# Under their hand already. See `ColumnPlan.drawsOnThisPage`, which counts the
-			# repeated key column as the column it is a copy of.
+		if plan.showing(column):
+			# Under their hand already. See `ColumnPlan.showing`, which counts the repeated
+			# key column as the column it is a copy of.
 			return False
-		# `pageOf` answers where the column lives, which for the pinned key column is its own
-		# page and not the several it is repeated on. That is the right answer here: this is
-		# reached only for a column that is not on the display at all, and the copy is cut
-		# where the column is whole.
-		page = plan.pageOf(column)
-		if page is None or page == plan.page:
+		# **By the least movement that reaches it**, which for the next column along is one
+		# column: one comes on at the right and one goes off at the left, exactly as the
+		# window does with rows. It used to turn to the column's own page, so a caret
+		# stepping one to the right replaced every column under the reader's hands.
+		start = plan.startShowing(column)
+		if start == plan.at:
 			return False
-		return self._useColumnPage(plan.onPage(page))
+		return self._useColumnPage(plan.scrolledTo(start))
 
 	def turnColumnPage(self, by: int) -> bool:
 		"""Move the band across the table by pages of columns, without moving the caret.
@@ -1453,7 +1492,7 @@ class FlowBand(PanelOwner):
 		plan = getattr(self.controller.renderer, "columnPlan", None)
 		if plan is None or plan.isEmpty:
 			return False
-		moved = self._useColumnPage(plan.onPage(plan.page + by))
+		moved = self._useColumnPage(plan.turnedBy(by))
 		if moved:
 			segment = self.segment()
 			if segment is not None:
@@ -1528,6 +1567,13 @@ class FlowBand(PanelOwner):
 			# what is already being read rather than an arrival somewhere new.
 			self.obj = obj
 			self.controller.source.setCurrent(obj)
+			# **Both axes, because this is the only thing that hears the move.** In browse
+			# mode a caret move is not a focus change, so it arrives at `_recheckTable`, which
+			# follows the columns as well as the rows. In a spreadsheet or a list it arrives
+			# here instead — and `setCurrent` above has already moved the source, so the check
+			# in `_recheckTable` finds nothing changed and never looks at the column. The band
+			# followed the reader down the rows and left them behind across the columns.
+			self._showColumn(handle.col)
 			self.controller.followCursor()
 			segment.refresh()
 			return True

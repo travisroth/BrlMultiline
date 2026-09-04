@@ -294,8 +294,10 @@ class FlowRenderer:
 		where = [[NO_POSITION] * plan.numCols for _ in range(total)]
 		for lane, items in lanes.items():
 			for place, lines, positions in items:
+				start = starts.get(lane, 0)
+				drawn = False
 				for index, (line, marks) in enumerate(zip(lines, positions)):
-					target = starts.get(lane, 0) + index
+					target = start + index
 					if target >= total:
 						break
 					for offset, value in enumerate(line[: place.column.width]):
@@ -307,9 +309,39 @@ class FlowRenderer:
 						# the column before it, and a routing key over it would have gone
 						# there.
 						mark = marks[offset]
+						if mark != NO_POSITION:
+							drawn = True
 						where[target][place.offset + offset] = (
 							NO_POSITION if mark == NO_POSITION else cellPosition(place.column.index, mark)
 						)
+				# **An empty cell is still a place, and it is as wide as its column.** It
+				# draws nothing, so without this it left no position anywhere on the row —
+				# and a position is what the cursor is found by and what a routing key is
+				# turned back into. So the reader arriving in an empty cell got no cursor at
+				# all and could not tell which column they were in, and no routing key would
+				# take them into one. Reported from an Excel sheet, on the first blank row
+				# under the data, where *every* cell is empty and the whole row was
+				# unreachable and unmarked.
+				#
+				# Marking only the column's first band cell fixed the cursor and did not fix
+				# routing, which is the second report: on a blank row nothing is drawn, so
+				# there is no way to feel which single cell of thirty-two is the live one,
+				# and every press either side of it reached nothing. The reader's own way of
+				# aiming is the pinned header — press under the heading you want — and that
+				# only works if the whole of the column answers.
+				#
+				# So every band cell the column occupies says which column it is. All at
+				# offset zero, not at their own offsets: a cell is routed to as a place
+				# rather than at the character under the finger (see
+				# `flowTableSource.TableCellRegion.routeTo`), and one position for the whole
+				# of it also keeps the cursor at the column's start, since
+				# `FlowController.cursorCell` takes the first band cell that matches.
+				if not drawn and start < total:
+					for offset in range(place.column.width):
+						at = place.offset + offset
+						if at >= plan.numCols:
+							break
+						where[start][at] = cellPosition(place.column.index, 0)
 		return rows, where
 
 	def _chunkOf(self, block: SourceBlock, rows: list, where: list, fromRow: int) -> RenderedBlock:

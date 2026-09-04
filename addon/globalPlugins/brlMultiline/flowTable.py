@@ -37,11 +37,18 @@ wants them legible.
 
 **And a table may have more columns than any band can hold.** Twenty-nine of them is an
 ordinary watchlist and thirty-two cells is an ordinary display, and no arithmetic reconciles
-those. So the columns are dealt into *pages* — as many as fit at readable widths, then the
-next page — and the reader moves between them, exactly as the window moves between rows. The
-first attempt at this squeezed what it could into one band and dropped the rest, which gave
-three cells of each of eight columns and eleven columns that did not exist. Nothing is
-dropped now.
+those. So the columns are dealt into bandfuls — as many as fit at readable widths, then the
+next — which is what decides the widths, and the band then shows a *run* of them starting
+wherever the reader has scrolled to. The first attempt at this squeezed what it could into one
+band and dropped the rest, which gave three cells of each of eight columns and eleven columns
+that did not exist. Nothing is dropped.
+
+**The run scrolls; it does not turn like leaves.** The second attempt showed one fixed page at
+a time, so a caret moving one column past the right edge replaced everything under the
+reader's hands at once. The row axis has never worked that way and the reader asked for the
+same here: one column on at the right, one off at the left. The page turn command is still
+there and still moves a whole bandful — of whatever is showing at the time, so the two cannot
+get out of step. See `ColumnPlan.at`.
 """
 
 import dataclasses
@@ -351,6 +358,14 @@ class Column:
 	table's own column number, so routing a finger press over it goes to the real cell.
 	"""
 
+	startsAPage: bool = False
+	"""Whether the reader said a page of columns begins here. See `ColumnChoice.startsAPage`.
+
+	Carried on the column because the band no longer shows fixed pages: it shows a run of
+	columns starting wherever the reader has scrolled to, so the one break that is *theirs*
+	has to travel with the column it is at. Everything else falls where it fits.
+	"""
+
 	@property
 	def indent(self) -> int:
 		""":return: how far a wrapped cell's continuation is indented in this column."""
@@ -408,15 +423,26 @@ class ColumnPlan:
 	gap: int = COLUMN_GAP
 	"""Cells between one column and the next."""
 
-	page: int = 0
-	"""Which page of columns is being drawn, zero based.
+	at: int = 0
+	"""Which column the band starts at, as an index into `columns`.
 
 	A table of twenty-nine columns cannot be shown on thirty-two cells and never could. The
 	first cut of this squeezed what it could into the band and dropped the rest, which gave a
 	reader three cells of every column and eleven columns that did not exist — a table you
-	could not read and could not reach the rest of. Nothing is dropped now: the columns are
-	dealt into pages, the band shows one, and the reader moves between them. Which is what
-	the window does for rows, one axis over.
+	could not read and could not reach the rest of. Nothing is dropped: the band shows a run
+	of columns and the reader moves along it, which is what the window does for rows, one
+	axis over.
+
+	**A place in the run rather than a page number**, and that is the second cut. The columns
+	were dealt into fixed pages and the band showed one whole page at a time, so a caret
+	moving one column to the right past the edge changed everything under the reader's hands
+	at once. The row axis has never worked that way — a row past the bottom comes on at the
+	bottom and one row goes off the top — and the reader asked for the same here: one column
+	on, one column off. So this is an offset, the page turn command moves it by however many
+	columns are showing, and the two cannot get out of step because there is only one number.
+
+	The deal into pages is still what decided the widths — see `assignment` — and the one
+	break the reader named is still kept, because it is theirs. See `Column.startsAPage`.
 	"""
 
 	assignment: tuple[tuple[int, ...], ...] = ()
@@ -501,47 +527,36 @@ class ColumnPlan:
 		"""
 		return any(column.overflow == TRUNCATE for column in self.columns)
 
-	def pages(self) -> tuple[tuple[Placement, ...], ...]:
-		"""Every column, dealt into pages of what the band can hold at once.
+	def _placeFrom(self, start: int) -> tuple[Placement, ...]:
+		"""Lay out as many columns as the band holds, beginning at one of them.
 
-		Packed greedily across the rows allowed and then greedily across pages: the reader's
-		eye and hand both go left to right and then down, so the first row of a record holds
-		as much of it as it can and the first page holds as many columns as it can. Balancing
-		would move a column to the next row or the next page for the sake of an even shape
-		nobody is reading.
+		Packed greedily across the rows allowed: the reader's eye and hand both go left to
+		right and then down, so the first row of a record holds as much of it as it can.
+		Balancing would move a column to the next row for the sake of an even shape nobody is
+		reading.
 
-		Columns keep their order, so a column is always on the same page and always at the
-		same offset on it, which is the whole of what makes a column findable.
+		Columns keep their order and their widths, so a column drawn twice in a row's life is
+		drawn the same both times. Where it *sits* depends on where the band starts, which is
+		the difference from paging: the reader is scrolling a run rather than turning leaves.
 
-		:return: the placements for each page, in order.
+		:param start: which column to begin at, as an index into `columns`.
+		:return: where each drawn column goes.
 		"""
 		if not self.columns or self.numCols < 1:
 			return ()
-		if self.assignment:
-			return tuple(self._placePage(number, page) for number, page in enumerate(self.assignment))
-		return self._packedPages()
-
-	def _placePage(self, number: int, indexes: tuple[int, ...]) -> tuple[Placement, ...]:
-		"""Lay out one page of an assignment, pinning the key column where it belongs.
-
-		:param number: which page this is, zero based.
-		:param indexes: the table's numbers for the columns on it, in drawing order.
-		:return: where each of them goes.
-		"""
-		byIndex = {column.index: column for column in self.columns}
+		start = max(0, min(start, len(self.columns) - 1))
 		placed: list[Placement] = []
 		row = 0
 		offset = 0
-		if number and self.keyColumn is not None and self.keyColumn not in indexes:
-			key = byIndex.get(self.keyColumn)
-			if key is not None and self.keyWidth:
-				pin = dataclasses.replace(key, width=self.keyWidth, overflow=TRUNCATE, pinned=True)
-				placed.append(Placement(column=pin, row=0, offset=0))
-				offset = self.keyWidth + self.gap
-		for index in indexes:
-			column = byIndex.get(index)
-			if column is None:
-				continue
+		pin = self._pinFor(start)
+		if pin is not None:
+			placed.append(Placement(column=pin, row=0, offset=0))
+			offset = self.keyWidth + self.gap
+		for position, column in enumerate(self.columns[start:]):
+			if position and column.startsAPage:
+				# A break the reader asked for ends the run before it, however much room is
+				# left. Theirs is the only break named; the rest fall where they fit.
+				break
 			if offset and offset + column.width > self.numCols:
 				row, offset = row + 1, 0
 			if row >= self.maxRows or offset + column.width > self.numCols:
@@ -550,53 +565,115 @@ class ColumnPlan:
 			offset += column.width + self.gap
 		return tuple(placed)
 
-	def _packedPages(self) -> tuple[tuple[Placement, ...], ...]:
-		""":return: the pages of a plan that carries no assignment, packed greedily."""
-		pages: list[tuple[Placement, ...]] = []
-		current: list[Placement] = []
-		row = 0
-		offset = 0
-		for column in self.columns:
-			nextRow, nextOffset = row, offset
-			if offset and offset + self.gap + column.width > self.numCols:
-				nextRow, nextOffset = row + 1, 0
-			elif offset:
-				nextOffset = offset + self.gap
-			if nextRow >= self.maxRows or nextOffset + column.width > self.numCols:
-				# Out of band. Not out of table: this column starts the next page.
-				if current:
-					pages.append(tuple(current))
-				current = []
-				nextRow, nextOffset = 0, 0
-			current.append(Placement(column=column, row=nextRow, offset=nextOffset))
-			row, offset = nextRow, nextOffset + column.width
-		if current:
-			pages.append(tuple(current))
-		return tuple(pages)
+	def _pinFor(self, start: int) -> Optional["Column"]:
+		""":return: the key column's repeated copy for a band starting here, or None.
+
+		Only where the column itself is off to the left. A band that starts at or before the
+		key column draws the real thing, and drawing the copy beside it would spend cells
+		saying twice what the row already says once.
+
+		:param start: which column the band begins at, as an index into `columns`.
+		"""
+		if self.keyColumn is None or not self.keyWidth:
+			return None
+		position = next(
+			(index for index, column in enumerate(self.columns) if column.index == self.keyColumn),
+			None,
+		)
+		if position is None or position >= start:
+			return None
+		return dataclasses.replace(
+			self.columns[position],
+			width=self.keyWidth,
+			overflow=TRUNCATE,
+			pinned=True,
+		)
 
 	@property
-	def numPages(self) -> int:
-		""":return: how many pages of columns this table has."""
-		return max(1, len(self.pages()))
+	def lastStart(self) -> int:
+		""":return: the furthest along the run the band can start and still show something new.
 
-	def onPage(self, page: int) -> "ColumnPlan":
-		""":return: this plan showing a different page, clamped to the ones there are."""
-		return dataclasses.replace(self, page=max(0, min(page, self.numPages - 1)))
+		The first place from which the last column is drawn. Scrolling past it would take
+		columns off the left for nothing to come on at the right, which is the column axis of
+		what the window refuses to do with rows.
+		"""
+		if not self.columns:
+			return 0
+		last = self.columns[-1].index
+		for start in range(len(self.columns)):
+			if any(place.column.index == last for place in self._placeFrom(start)):
+				return start
+		return len(self.columns) - 1
 
-	def pageOf(self, column: int) -> Optional[int]:
-		""":return: which page a table column is drawn on, or None if it is not drawn."""
-		for number, page in enumerate(self.pages()):
-			if any(place.column.index == column for place in page):
-				return number
-		return None
+	@property
+	def shown(self) -> int:
+		""":return: how many of the table's own columns the band is showing.
 
-	def drawsOnThisPage(self, column: int) -> bool:
-		""":return: whether a table column is on the page this plan is showing.
+		Not counting the repeated key column, which is a copy of one that is off the band.
+		This is what a page turn moves by, so counting the copy would move the reader by one
+		column less than they can see each time.
+		"""
+		return sum(1 for place in self.placements() if not place.column.pinned)
 
-		A different question from `pageOf`, which answers where a column *lives*, and the two
-		differ for the one column that is drawn in more than one place: a pinned key column
-		lives on its own page and is repeated at the left of all the others. A reader whose
-		cursor is in it can feel it wherever they have paged to, which is what the pin is for.
+	def scrolledTo(self, start: int) -> "ColumnPlan":
+		""":return: this plan with the band starting at another column, clamped to the run.
+
+		**The one place the run ends**, and every other way of moving comes through here. That
+		is what makes "keep turning until it stops" terminate: without the clamp a page turn
+		moves the band every time it is asked and answers yes for ever.
+		"""
+		return dataclasses.replace(self, at=max(0, min(start, self.lastStart)))
+
+	def scrolledBy(self, columns: int) -> "ColumnPlan":
+		""":return: this plan moved along the run by a number of columns."""
+		return self.scrolledTo(self.at + columns)
+
+	def turnedBy(self, pages: int) -> "ColumnPlan":
+		""":return: this plan moved by whole bandfuls of columns.
+
+		A bandful is however many are showing *now*, which is what keeps the page turn and
+		the column-by-column scroll from getting out of step: a reader who has scrolled two
+		columns along and then asks for the next page gets the next band's worth from where
+		they are, not from where a fixed page would have started.
+
+		:param pages: how many bandfuls, negative for back towards the first column.
+		"""
+		return self.scrolledBy(pages * max(1, self.shown))
+
+	def startShowing(self, column: int) -> int:
+		""":return: where the band would have to start to draw a column, moving as little as
+		possible.
+
+		The column axis of `FlowWindow.ensureVisible`, and the same rule: a column already on
+		the band moves nothing at all, one off the left end becomes the leftmost, and one off
+		the right end is brought on by the smallest scroll that reaches it — which for the
+		next column along is one column.
+
+		:param column: the table's own column number.
+		"""
+		if self.showing(column):
+			return self.at
+		position = next(
+			(index for index, item in enumerate(self.columns) if item.index == column),
+			None,
+		)
+		if position is None:
+			return self.at
+		if position < self.at:
+			return position
+		for start in range(self.at + 1, position + 1):
+			if any(place.column.index == column for place in self._placeFrom(start)):
+				return start
+		return position
+
+	def showing(self, column: int) -> bool:
+		""":return: whether a table column is on the band as it is drawn now.
+
+		A different question from `holds`, which answers whether the plan draws the column at
+		all, and the two differ for the one column that is drawn in more than one place: the
+		key column is repeated at the left whenever it is itself off to the left. A reader
+		whose cursor is in it can feel it wherever they have scrolled to, which is what the
+		pin is for.
 
 		What asks is `FlowBand._showColumn`, deciding whether a caret that has moved is still
 		on the display.
@@ -604,6 +681,84 @@ class ColumnPlan:
 		:param column: the table's own column number.
 		"""
 		return any(place.column.index == column for place in self.placements())
+
+	def holds(self, column: int) -> bool:
+		""":return: whether this plan draws a table column anywhere along the run."""
+		return any(item.index == column for item in self.columns)
+
+	@property
+	def numColumns(self) -> int:
+		""":return: how many columns this plan draws in all, over the whole run."""
+		return len(self.columns)
+
+	# The run, counted in bandfuls. Scrolling is the primitive and these are a view of it:
+	# where the band would sit if it had only ever moved a whole bandful at a time, which is
+	# what the page turn command does and what "how far along is this table" means to a
+	# reader. Nothing here decides a layout; `_placeFrom` does that.
+
+	def pageStarts(self) -> tuple[int, ...]:
+		""":return: where each bandful of columns begins, counted from the first column."""
+		if not self.columns:
+			return ()
+		starts = [0]
+		while True:
+			placed = self._placeFrom(starts[-1])
+			taken = sum(1 for place in placed if not place.column.pinned)
+			following = starts[-1] + max(1, taken)
+			if following > len(self.columns) - 1:
+				return tuple(starts)
+			starts.append(following)
+
+	def pages(self) -> tuple[tuple[Placement, ...], ...]:
+		""":return: the placements of each bandful, in order. See `pageStarts`."""
+		return tuple(self._placeFrom(start) for start in self.pageStarts())
+
+	@property
+	def numPages(self) -> int:
+		""":return: how many bandfuls of columns this table takes."""
+		return max(1, len(self.pageStarts()))
+
+	@property
+	def page(self) -> int:
+		""":return: which bandful the band is in, zero based.
+
+		The last one that begins at or before where the band starts, because after a scroll of
+		one column the band sits *between* bandfuls and there is no exact answer. Which is why
+		nothing reports this to the reader: `whereItIs` says which columns are showing, and
+		that is true wherever the band has been scrolled to.
+		"""
+		starts = self.pageStarts()
+		return max((number for number, start in enumerate(starts) if start <= self.at), default=0)
+
+	def onPage(self, page: int) -> "ColumnPlan":
+		""":return: this plan with the band at the start of a bandful, clamped to the ones there are."""
+		starts = self.pageStarts()
+		if not starts:
+			return self
+		return self.scrolledTo(starts[max(0, min(page, len(starts) - 1))])
+
+	def pageOf(self, column: int) -> Optional[int]:
+		""":return: which bandful a table column falls in, or None if the plan does not draw it."""
+		for number, page in enumerate(self.pages()):
+			if any(place.column.index == column and not place.column.pinned for place in page):
+				return number
+		return None
+
+	@property
+	def showsEverything(self) -> bool:
+		""":return: whether the whole table is on the band, so there is nowhere to scroll."""
+		return self.shown >= self.numColumns
+
+	@property
+	def whereItIs(self) -> tuple[int, int, int]:
+		""":return: which columns of the run are showing, as (first, last, how many in all).
+
+		Counted along the run and one based, which is what a reader can act on: "columns six
+		to nine of twenty-one" says both where they are and how far there is to go. The
+		table's own numbers would be the wrong answer — a layout that hides columns leaves
+		holes in them, so they do not count anything.
+		"""
+		return (self.at + 1, self.at + max(1, self.shown), self.numColumns)
 
 	def cutting(self) -> "ColumnPlan":
 		""":return: this layout with every column cut rather than wrapped.
@@ -630,7 +785,7 @@ class ColumnPlan:
 		""":return: whether this plan was made from a table that had this column.
 
 		Two ways of knowing it, and the second is the one that was missed. A column is known
-		if it is drawn on some page — `pageOf` answers that — and it is *also* known if it was
+		if it is drawn somewhere in the run — `holds` answers that — and it is *also* known if it was
 		measured and deliberately left out, because a column holding nothing the reader can
 		read is a decision this plan made rather than a column it has never heard of.
 
@@ -643,18 +798,11 @@ class ColumnPlan:
 
 		:param column: the table's own column number.
 		"""
-		return (
-			self.pageOf(column) is not None
-			or column in self.omitted
-			or column in self.excluded
-		)
+		return self.holds(column) or column in self.omitted or column in self.excluded
 
 	def placements(self) -> tuple[Placement, ...]:
-		""":return: where each column of the page being drawn goes."""
-		pages = self.pages()
-		if not pages:
-			return ()
-		return pages[max(0, min(self.page, len(pages) - 1))]
+		""":return: where each column the band is showing goes. See `_placeFrom`."""
+		return self._placeFrom(self.at)
 
 	@property
 	def numRows(self) -> int:
@@ -682,7 +830,8 @@ class ColumnPlan:
 		if self.isEmpty:
 			return "<ColumnPlan reading order>"
 		widths = ", ".join(f"{place.column.index}:{place.column.width}" for place in self.placements())
-		pages = f", page {self.page + 1} of {self.numPages}" if self.numPages > 1 else ""
+		first, last, total = self.whereItIs
+		pages = "" if self.showsEverything else f", columns {first} to {last} of {total}"
 		return f"<ColumnPlan {widths} in {self.numCols} over {self.numRows} rows{pages}>"
 
 
@@ -913,6 +1062,7 @@ def _asChosen(item: "Measurement", width: int, overflow: str, choice: "ColumnCho
 		overflow=effectiveOverflow(choice, overflow),
 		keep=choice.keep if choice.keep in KEEP_ENDS else KEEP_START,
 		headerKeep=choice.headerKeep if choice.headerKeep in KEEP_ENDS else KEEP_START,
+		startsAPage=choice.startsAPage,
 	)
 
 
@@ -1328,8 +1478,9 @@ def describe(plan: ColumnPlan) -> str:
 		short = ", ".join(str(index) for index in here)
 		what = "cut" if plan.cuts else "wrapped over more rows"
 		notes.append(f"Column {short} is drawn narrower than its content and is {what}.")
-	if plan.numPages > 1:
-		notes.append(f"Page {plan.page + 1} of {plan.numPages}.")
+	if not plan.showsEverything:
+		first, last, total = plan.whereItIs
+		notes.append(f"Columns {first} to {last} of {total} are showing.")
 	return " ".join([f"{drawn}.", *notes])
 
 

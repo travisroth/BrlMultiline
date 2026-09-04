@@ -384,6 +384,13 @@ def buildTableController(
 			),
 		)
 		return None
+	# **What the header question found, in the report.** Whether a table names its columns
+	# decides whether a row of the band is spent on a pinned header, and when it came out
+	# wrong there was nothing in the log between "the cells know their headings" and "this
+	# table declares no headers" — two lines of the same report disagreeing with no way to
+	# see which step had lost it.
+	named = {item.index: item.label for item in everything if item.declared}
+	notes.append(f"Columns that name themselves: {named or 'none'}")
 	measured = _asTheReaderWantsThem(everything, saved, notes)
 	# The columns the reader's own layout leaves out. Not drawn, and *known*: a column the
 	# plan has never heard of is evidence the table changed under it, and hardware found the
@@ -483,7 +490,7 @@ def buildTableController(
 		return None
 	if atPage:
 		# Before the caller attaches it, so the reader feels one display rather than two.
-		control.useColumnPage(plan.onPage(atPage))
+		control.useColumnPage(plan.scrolledTo(atPage))
 	return control
 
 

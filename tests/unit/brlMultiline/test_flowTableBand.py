@@ -120,13 +120,23 @@ class TableBandTestCase(unittest.TestCase):
 		self.api = api
 		self.addCleanup(setattr, api, "getFocusObject", api.getFocusObject)
 
-	def _inTable(self, rows=None, tableID=1, row=2, col=1, lines=None, caretIndex=0):
+	def _inTable(
+		self,
+		rows=None,
+		tableID=1,
+		row=2,
+		col=1,
+		lines=None,
+		caretIndex=0,
+		columnHeaders=None,
+	):
 		document = FakeTableDocument(
 			[list(line) for line in (rows or WATCHLIST)],
 			tableID=tableID,
 			row=row,
 			col=col,
 			lines=lines,
+			columnHeaders=columnHeaders,
 		)
 		document.caretIndex = caretIndex
 		obj = FakeNavigatorObject("a page", treeInterceptor=document)
@@ -450,12 +460,12 @@ class TestATableWiderThanTheBand(TableBandTestCase):
 		pages is one where the caret goes off the band on nearly every keystroke."""
 		obj, document = self._wide(col=1)
 		self.band.layOutTable()
-		self.assertEqual(self.band.columnPlan().page, 0)
+		self.assertEqual(self.band.columnPlan().at, 0)
 		document.col = 8
 		self.band.recheck()
 		plan = self.band.columnPlan()
-		self.assertEqual(plan.page, plan.pageOf(8))
-		self.assertNotEqual(plan.page, 0)
+		self.assertTrue(plan.showing(8))
+		self.assertNotEqual(plan.at, 0)
 
 	def test_theCursorGoesWithIt(self):
 		obj, document = self._wide(col=1)
@@ -473,10 +483,11 @@ class TestATableWiderThanTheBand(TableBandTestCase):
 		obj, document = self._wide(col=1)
 		self.band.layOutTable()
 		self.band.turnColumnPage(1)
-		self.assertTrue(self.band.columnPlan().drawsOnThisPage(1))
+		self.assertTrue(self.band.columnPlan().showing(1))
+		where = self.band.columnPlan().at
 		document.row = 3
 		self.band.recheck()
-		self.assertEqual(self.band.columnPlan().page, 1)
+		self.assertEqual(self.band.columnPlan().at, where)
 
 	def test_andWhenTheCaretMovesToAnotherColumnOfTheSamePage(self):
 		"""Reading across what they turned to, which is what they turned to it for."""
@@ -484,9 +495,10 @@ class TestATableWiderThanTheBand(TableBandTestCase):
 		self.band.layOutTable()
 		self.band.turnColumnPage(1)
 		drawn = [place.column.index for place in self.band.columnPlan().placements()]
+		where = self.band.columnPlan().at
 		document.col = drawn[-1]
 		self.band.recheck()
-		self.assertEqual(self.band.columnPlan().page, 1)
+		self.assertEqual(self.band.columnPlan().at, where)
 
 	def test_butACaretThatLeavesThePageBringsTheBandBack(self):
 		"""The other half, and the one holding the page against every move cost: the caret
@@ -497,11 +509,11 @@ class TestATableWiderThanTheBand(TableBandTestCase):
 		self.band.turnColumnPage(1)
 		plan = self.band.columnPlan()
 		away = next(
-			column for column in range(1, len(WIDE[0]) + 1) if not plan.drawsOnThisPage(column)
+			column for column in range(1, len(WIDE[0]) + 1) if not plan.showing(column)
 		)
 		document.col = away
 		self.band.recheck()
-		self.assertEqual(self.band.columnPlan().page, plan.pageOf(away))
+		self.assertTrue(self.band.columnPlan().showing(away))
 
 	def test_andSoDoesOneThatWalksTheColumnsPastIt(self):
 		"""Without table navigation, down arrow is a move to the next *cell*: the caret walks
@@ -513,17 +525,17 @@ class TestATableWiderThanTheBand(TableBandTestCase):
 			document.col = column
 			self.band.recheck()
 			plan = self.band.columnPlan()
-			self.assertTrue(plan.drawsOnThisPage(column), f"column {column} is not on the display")
+			self.assertTrue(plan.showing(column), f"column {column} is not on the display")
 
 	def test_theBandFollowsTheCaretBeforeAnyPageIsTurned(self):
 		"""A reader who has said nothing about which columns they want arrows into a wide
 		table and the display shows where they are."""
 		obj, document = self._wide(col=1)
 		self.band.layOutTable()
-		self.assertEqual(self.band.columnPlan().page, 0)
+		self.assertEqual(self.band.columnPlan().at, 0)
 		document.col = 8
 		self.band.recheck()
-		self.assertNotEqual(self.band.columnPlan().page, 0)
+		self.assertNotEqual(self.band.columnPlan().at, 0)
 
 	def test_turningAnotherPageStillWorks(self):
 		obj, document = self._wide(col=1)
@@ -531,6 +543,35 @@ class TestATableWiderThanTheBand(TableBandTestCase):
 		self.band.turnColumnPage(1)
 		self.assertTrue(self.band.turnColumnPage(1))
 		self.assertEqual(self.band.columnPlan().page, 2)
+
+	def test_aCaretOneColumnPastTheBandScrollsByOneColumn(self):
+		"""Not a page. The reader asked for this: working column by column, a whole page turn
+		replaces everything under their hands for a move of one cell."""
+		obj, document = self._wide(col=1)
+		self.band.layOutTable()
+		before = [place.column.index for place in self.band.columnPlan().placements()]
+		document.col = before[-1] + 1
+		self.band.recheck()
+		after = [place.column.index for place in self.band.columnPlan().placements()]
+		self.assertIn(before[-1] + 1, after)
+		self.assertIn(before[-1], after)
+
+	def test_andThePageTurnStillMovesAWholeBandful(self):
+		obj, document = self._wide(col=1)
+		self.band.layOutTable()
+		plan = self.band.columnPlan()
+		self.band.turnColumnPage(1)
+		self.assertEqual(self.band.columnPlan().at, plan.at + plan.shown)
+
+	def test_andItTurnsFromWhereverTheScrollingLeftThem(self):
+		"""The two cannot get out of step, because there is only one number to be in."""
+		obj, document = self._wide(col=1)
+		self.band.layOutTable()
+		document.col = self.band.columnPlan().shown + 1
+		self.band.recheck()
+		scrolled = self.band.columnPlan()
+		self.band.turnColumnPage(1)
+		self.assertEqual(self.band.columnPlan().at, scrolled.at + scrolled.shown)
 
 	def test_nothingIsLost(self):
 		self._wide()
@@ -1747,6 +1788,309 @@ class TestABandThatWouldPinNothing(TableBandTestCase):
 		self._inList(headers=["Name", "Type", "Size"])
 		self.assertIsNotNone(self.band.controller.pinned)
 		self.assertEqual(self.band.controller.window.numRows, ROWS - 1)
+
+
+class TestWhatTheDryRunsTitleIsAbout(TableBandTestCase):
+	"""The title is about the dry run's *own* flow, and the two part company exactly where it
+	matters.
+
+	In Excel the band reads the worksheet as a table and the ordinary reading of the same
+	place is a tree interceptor with no text in it — so a report headed "nothing here can be
+	flowed" sat on top of a full account of a table the reader could feel under their fingers.
+	The reader read the title, and the title was talking about something else.
+	"""
+
+	def _onASheet(self):
+		"""A band reading a grid by coordinate, over an object that has no text of its own.
+
+		Which is the Excel shape and the shape that showed this: the band reads the worksheet
+		as a table, and the ordinary reading of the same place has nothing in it at all.
+		"""
+		from .test_flowObjectTable import FakeSheet
+
+		sheet = FakeSheet(
+			rows=[["Date", "Al", "Deborah"]] + [[f"{n}/4", "84", "128"] for n in range(1, 6)],
+			at=(2, 1),
+			headers={1: "Date", 2: "Al", 3: "Deborah"},
+		)
+		cell = FakeNavigatorObject("a cell", role="TABLECELL")
+		cell.rowNumber, cell.columnNumber = 2, 1
+		cell.brlMultilineSheet = lambda: sheet
+		self.api.getFocusObject = lambda: cell
+		self.api.getNavigatorObject = lambda: cell
+		self.band._follow()
+		self.assertTrue(self.band.layOutTable())
+
+	def _dryRun(self):
+		from brlMultiline import flowDryRun
+
+		return flowDryRun.dryRun(handler=self.handler, band=self.band)
+
+	def test_theTitleSaysTheBandIsReadingATable(self):
+		self._onASheet()
+		said = self._dryRun()[0]
+		self.assertIn("nothing here can be flowed on its own", said)
+		self.assertIn("the band is reading a table in columns", said)
+
+	def test_andWhichColumnsOfIt(self):
+		self._onASheet()
+		first, last, total = self.band.columnPlan().whereItIs
+		self.assertIn(f"({first} to {last} of {total})", self._dryRun()[0])
+
+	def test_andTheReportCarriesTheNotesTheLayoutWasMadeWith(self):
+		"""**Only a failure used to show these**, which is a hole exactly where a hard fault
+		lives: a layout that comes out *wrong* is not a layout that failed, so nothing printed
+		the steps that made it. A worksheet losing its header row was diagnosed for three
+		rounds without the one line saying whether the headings had been found."""
+		self._onASheet()
+		said = " ".join(self._dryRun())
+		self.assertIn("Band layout, as it was made:", said)
+		self.assertIn("Columns that name themselves:", said)
+
+	def test_andSaysNothingOfTheKindWhereTheBandHasNothing(self):
+		self._elsewhere()
+		self.band.clearTable()
+		self.assertNotIn("a table in columns", self._dryRun()[0])
+
+
+class TestAPinnedHeaderThatCannotBeReadAgain(TableBandTestCase):
+	"""A header is a property of the table, so "I could not read it just now" is not "this
+	table has no headers".
+
+	`headerBlock` answers None for both, and it swallows its own failures to do it — so one
+	unlucky read took the header row off the display, and nothing put it back until the layout
+	was made again. On a spreadsheet every read can fail: a cell fetch crosses a process
+	boundary, and NVDA's watchdog cancels every one of them when the core is busy.
+	"""
+
+	def _reading(self):
+		obj, document = self._inTable(rows=WIDE, row=2, col=1)
+		self.assertTrue(self.band.layOutTable())
+		self.assertIsNotNone(self.band.controller.pinnedBlock)
+		return obj, document
+
+	def test_theReportSaysWhichColumnsNameThemselves(self):
+		"""Whether a table names its columns decides whether a row of the band is spent on a
+		header, and when it came out wrong there was nothing in the log between "the cells
+		know their headings" and "this table declares no headers"."""
+		self._inTable(
+			rows=[["Symbol", "Last"], ["AAPL", "182.50"]],
+			row=2,
+			col=1,
+			columnHeaders={1: "Symbol", 2: "Last"},
+		)
+		self.band.layOutTable()
+		said = " ".join(self.band.tableNotes)
+		self.assertIn("Columns that name themselves:", said)
+		self.assertIn("'Symbol'", said)
+
+	def test_andSaysNoneWhereNoneDo(self):
+		self._inTable(rows=[["a", "b"], ["c", "d"]], row=2, col=1)
+		self.band.layOutTable()
+		self.assertIn(
+			"Columns that name themselves: none",
+			" ".join(self.band.tableNotes),
+		)
+
+	def _sayNothing(self):
+		"""Make the source answer None to every request for its header row."""
+		source = self.band.controller.source
+		real = source.headerBlock
+		source.headerBlock = lambda: None
+		self.addCleanup(setattr, source, "headerBlock", real)
+
+	def test_theHeaderStandsWhenALiveReadCannotFindIt(self):
+		self._reading()
+		held = self.band.controller.pinnedBlock
+		self._sayNothing()
+		self.band._rereadPinnedRow()
+		self.assertIs(self.band.controller.pinnedBlock, held)
+
+	def test_andWhenTheHeaderReadRaises(self):
+		self._reading()
+		held = self.band.controller.pinnedBlock
+
+		def explode():
+			raise RuntimeError("gone")
+
+		source = self.band.controller.source
+		real = source.headerBlock
+		source.headerBlock = explode
+		self.addCleanup(setattr, source, "headerBlock", real)
+		self.band._rereadPinnedRow()
+		self.assertIs(self.band.controller.pinnedBlock, held)
+
+	def test_andWhenAPageOfColumnsHasNoNamesOfItsOwn(self):
+		"""A page of unnamed columns is not a table without headers. What stands is the row
+		that was there, which is at worst out of date."""
+		self._reading()
+		held = self.band.controller.pinnedBlock
+		self._sayNothing()
+		self.band.turnColumnPage(1)
+		self.assertIs(self.band.controller.pinnedBlock, held)
+
+	def test_aHeaderThatDoesReadIsStillTakenUp(self):
+		"""The whole point of asking again: a heading renamed while the reader watched."""
+		obj, document = self._reading()
+		document.rows[0][1] = "Newest"
+		self.band._rereadPinnedRow()
+		self.assertIn("Newest", " ".join(self.band.controller.describeRows()))
+
+	def test_andTheReportSaysWhenOneIsHeldAndNotDrawn(self):
+		"""A missing line is not evidence: a report that shows nothing where the header
+		should be reads the same whether the band never had one or lost it."""
+		self._reading()
+		self.band.controller.pinned = None
+		self.assertIn(
+			"pinned: held but not drawn",
+			" ".join(self.band.controller.describeRows()),
+		)
+
+
+class TestTheFocusMovingInsideATable(TableBandTestCase):
+	"""In a spreadsheet or a list, every arrow key is a focus change.
+
+	Which is the difference from browse mode, where the focus stays on the page while the
+	caret walks it and a table was only ever redrawn through the live pass. A focus change
+	arrives as `force` — "make this reading again" — and for a table that was exactly wrong:
+	the layout was planned afresh on every keypress and the window was placed afresh with it,
+	so the row the reader had just moved to went to the **top** of the band with the rest of
+	the table below it.
+
+	Reported from an Excel worksheet as a display that jumped a page at a time on every
+	arrow, and, at the first row past the data, as a band that went blank but for its headers
+	— a window entered afresh at the last row has nothing after it to fill with.
+	"""
+
+	TALL = [["Date", "Al", "Deborah", "Dan", "Sarah", "Tania", "Tonya"]] + [
+		[f"{month} April 2026 x", "84", "1289999", "55.5", "171", "107", "99"]
+		for month in range(1, 10)
+	]
+
+	def _walk(self, rows=None, first=2):
+		""":return: a table laid out in columns, and a way to move the focus down it.
+
+		The rows are wide enough that each takes two rows of the band, which is what makes
+		the difference visible: a band of eight shows three and a half of them, so the reader
+		runs out of band after three keypresses.
+		"""
+		obj, document = self._inTable(rows=rows or self.TALL, row=first)
+		self.assertTrue(self.band.layOutTable())
+
+		def moveTo(row, column=1):
+			document.row = row
+			document.col = column
+			# A new object each time, as a new cell or a new row of a list is. What NVDA
+			# hands the band is the regions it built for the new focus; `handleFocusRegions`
+			# is where those arrive.
+			moved = FakeNavigatorObject("a page", treeInterceptor=document)
+			self.api.getFocusObject = lambda found=moved: found
+			self.api.getNavigatorObject = lambda found=moved: found
+			self.band.showObject(moved, force=True, focusMoved=True)
+			return moved
+
+		return document, moveTo
+
+	def _holds(self):
+		return [item.blockId.bookmark for item in self.band.controller.window.blocks]
+
+	def _anchor(self):
+		anchor = self.band.controller.window.anchor
+		return (anchor.blockId.bookmark, anchor.entry.value)
+
+	def test_aRowPastTheBandComesOnAtTheBottom(self):
+		_document, moveTo = self._walk()
+		for row in (3, 4, 5, 6):
+			moveTo(row)
+		self.assertEqual(self._anchor(), (6, "bottom"))
+
+	def test_andWhatWasAboveThemStaysAbove(self):
+		"""The whole complaint: the band jumped instead of scrolling."""
+		_document, moveTo = self._walk()
+		for row in (3, 4, 5, 6):
+			moveTo(row)
+		self.assertEqual(self._holds()[0], 2)
+
+	def test_aRowStillOnTheBandMovesNothingAtAll(self):
+		_document, moveTo = self._walk()
+		before = self._anchor()
+		moveTo(3)
+		self.assertEqual(self._anchor(), before)
+
+	def test_theLastRowLeavesTheRestOfTheTableOnTheBand(self):
+		"""The blank row under a sheet's data was a blank band: a window placed afresh at the
+		last row has nothing after it, so nothing filled in below and nothing was left above."""
+		_document, moveTo = self._walk()
+		for row in range(3, 11):
+			moveTo(row)
+		self.assertEqual(self.band.controller.activeBlockId.bookmark, 10)
+		self.assertGreater(len(self._holds()), 1)
+
+	def test_theLayoutIsNotPlannedAgainOnEveryKeypress(self):
+		"""Which is what a rebuild costs: every column of a bandful of rows measured again,
+		and on a spreadsheet that is a cross-process read per cell."""
+		from brlMultiline import flowBuild
+
+		_document, moveTo = self._walk()
+		counted = []
+		real = flowBuild.flowTableSource.measure
+		flowBuild.flowTableSource.measure = lambda *args, **kwargs: (
+			counted.append(1) or real(*args, **kwargs)
+		)
+		self.addCleanup(setattr, flowBuild.flowTableSource, "measure", real)
+		for row in (3, 4, 5, 6):
+			moveTo(row)
+		self.assertEqual(counted, [])
+
+	def test_butMovingIntoAnotherTableStillBuildsOne(self):
+		"""The layout must not outlive its table, and `isStillHere` is what says so."""
+		_document, moveTo = self._walk()
+		moveTo(4)
+		other = FakeTableDocument([["A", "B"], ["c", "d"]], tableID=2, row=2, col=1)
+		arrived = FakeNavigatorObject("another page", treeInterceptor=other)
+		self.api.getFocusObject = lambda: arrived
+		self.api.getNavigatorObject = lambda: arrived
+		self.band.showObject(arrived, force=True, focusMoved=True)
+		self.assertFalse(self.band._readingATable())
+
+	def test_theWholeOfANewRowComesOnAndNotJustItsFirstLine(self):
+		"""A row that wraps is one row of the table and the reader is standing on all of it.
+		Brought on by the line the cursor is on, a record two lines tall arrived with its
+		first line on the bottom row and its second off the band — so the values in the
+		columns that had wrapped were the ones they could not read."""
+		_document, moveTo = self._walk()
+		for row in (3, 4, 5, 6):
+			moveTo(row)
+		rows = [
+			(row.blockId.bookmark, row.rowIndex)
+			for row in self.band.controller.window.visibleRows()
+			if getattr(row, "blockId", None) is not None
+		]
+		self.assertIn((6, 0), rows)
+		self.assertIn((6, 1), rows)
+
+	def test_andTheColumnIsFollowedTooWhenTheFocusIsWhatMoved(self):
+		"""In browse mode a caret move reaches the live pass, which follows both axes. In a
+		spreadsheet or a list it arrives as a focus change instead, and that path moved the
+		source and then never asked which column the reader had gone to — so the band
+		followed them down the rows and left them behind across the columns."""
+		obj, document = self._inTable(rows=WIDE, row=2, col=1)
+		self.assertTrue(self.band.layOutTable())
+		beyond = self.band.columnPlan().shown + 1
+		document.col = beyond
+		moved = FakeNavigatorObject("a page", treeInterceptor=document)
+		self.api.getFocusObject = lambda: moved
+		self.api.getNavigatorObject = lambda: moved
+		self.band.showObject(moved, force=True, focusMoved=True)
+		self.assertTrue(self.band.columnPlan().showing(beyond))
+
+	def test_andTheReaderKeepsACursorOnTheBlankRow(self):
+		"""Every column of it marks a position, so the cursor says which one they are in.
+		Without that the row was unmarked and they were left with speech."""
+		rows = [line[:] for line in self.TALL] + [["", "", "", "", "", "", ""]]
+		_document, moveTo = self._walk(rows=rows)
+		moveTo(11, column=2)
+		self.assertIsNotNone(self.band.controller.cursorCell())
 
 
 class TestTellingTheThreeRefusalsApart(TableBandTestCase):

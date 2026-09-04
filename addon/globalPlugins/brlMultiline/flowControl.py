@@ -456,7 +456,7 @@ class FlowController(PanelOwner):
 		:param plan: the layout, on the page wanted.
 		:return: whether the page changed.
 		"""
-		if plan.page == self.renderer.columnPlan.page:
+		if plan.at == self.renderer.columnPlan.at:
 			return False
 		setColumns = getattr(self.source, "setColumns", None)
 		if setColumns is not None:
@@ -466,9 +466,19 @@ class FlowController(PanelOwner):
 			header = getattr(self.source, "headerBlock", None)
 			if header is not None:
 				try:
-					self.setPinned(header())
+					said = header()
 				except Exception:
 					log.debugWarning("Could not read the header for a new page", exc_info=True)
+					said = None
+				if said is not None:
+					self.setPinned(said)
+				else:
+					# The columns that have just come on may be ones the table names nothing
+					# for, and a page of unnamed columns is not a table without headers. What
+					# stands is the row that was there, which is at worst out of date and at
+					# best exactly right; clearing it costs the reader the row itself, and
+					# nothing asks again until the layout is made afresh.
+					log.debugWarning("No header row for this page of columns, so the last one stands")
 		return changed
 
 	def setColumnPlan(self, plan, reread: bool = False) -> bool:
@@ -1712,6 +1722,7 @@ class FlowController(PanelOwner):
 				rowIndex=row if row is not None else 0,
 				forward=forward,
 			)
+			moved = self._showTheWholeOfIt(self.activeBlockId) or moved
 		except LookupError:
 			self._note(f"{why}: the block is not in the window, so the band was entered afresh")
 			return self.enterAtCursor()
@@ -1723,6 +1734,43 @@ class FlowController(PanelOwner):
 		if moved:
 			self.fill()
 		return moved
+
+	def _showTheWholeOfIt(self, blockId: "BlockId") -> bool:
+		"""Bring the rest of the block the cursor is in onto the band, where it fits.
+
+		**A row that wraps is one row of the table and the reader is standing on all of it.**
+		Bringing a block on by the line the cursor is on is the right rule for keeping the
+		cursor in view, and it is the wrong amount to show when the block has just become the
+		reader's own: scrolling down onto a record two lines tall put its first line on the
+		bottom row and left the second off the band, so the values in the columns that had
+		wrapped were the ones the reader could not read. The same on a list of files whose
+		names run to two lines.
+
+		So the cursor's row is brought on first — that is what must be visible, and it is what
+		decides which edge the block arrives at — and then the far end of the block is asked
+		for as well. Where the whole block fits on the band that shows all of it; where the
+		block is taller than the band it is refused, because the alternative is scrolling the
+		cursor's own row off to show a part of the row nobody asked for. Panning through a
+		block taller than the band is what panning is for.
+
+		:param blockId: the block the cursor is in.
+		:return: whether the window moved.
+		:raises LookupError: if the block is not in the window, as `ensureVisible` does.
+		"""
+		rendered = self.window.blocks[self.window.blockIndex(blockId)]
+		last = rendered.numRows - 1
+		if last < 1 or rendered.numRows > self.window.numRows:
+			return False
+		if rendered.rowOffset or rendered.moreRows:
+			# A chunk of a block rather than the whole of it, which is what a long edit is
+			# rendered as: sixty-four rows is the renderer's working set and the reader may be
+			# on row seventy-four of their own field. The far end of a chunk is not the far end
+			# of anything the reader is standing on, and going to it takes their caret off the
+			# band.
+			return False
+		if self.window.isVisible(blockId, last):
+			return False
+		return self.window.ensureVisible(blockId, rowIndex=last, forward=True)
 
 	def _caretMark(self):
 		""":return: where the caret is, as something two calls can compare.
@@ -2329,6 +2377,12 @@ class FlowController(PanelOwner):
 		if self.pinned is not None:
 			held = rowText(self.pinnedBlock.region, self.pinned, 0) if self.pinnedBlock else ""
 			lines.append(f"pinned: {held!r}")
+		elif self.pinnedBlock is not None:
+			# Said rather than left out, and only in the case worth a line: a header row this
+			# flow is holding and did not draw. A report that shows nothing where the header
+			# should be reads the same whether the band never had one or lost it, and those
+			# are different faults. A flow with no header at all says nothing here, as before.
+			lines.append("pinned: held but not drawn")
 		try:
 			visible = self.window.visibleRows()
 		except LookupError:

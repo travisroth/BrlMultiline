@@ -155,7 +155,52 @@ Added:
 
 - The log's account of a worksheet that would not lay out now says what each of its columns
   holds and where each heading came from, as it already did for a list. It used to say only
-  that there was no row in hand.
+  that there was no row in hand. It also carries the steps the layout was made with — what was
+  measured, which columns name themselves, whether a row was spent on a header — which used to
+  be written down only when a layout failed outright.
+
+- **A table laid out from its header row keeps its header row.** Asking for the columns while
+  the cursor was on the headings themselves left the display with no heading row at all: a
+  header cell has no header above it, and its answer was taken for the whole column. On a
+  spreadsheet that is where the cursor usually is when you ask.
+
+- **A pinned header row is not also drawn in the table.** Where a sheet's headings are its
+  own first row — which is what you mark when you mark a header row — the row held above the
+  band and the first row of the flow were the same row, and both were drawn: a doubled heading
+  that appeared as soon as you arrowed up onto row one, and stayed. Row one is now served from
+  the pinned row alone, and standing on it puts your cursor there. Where a table declares its
+  headings somewhere else — two rows down, in a column, anywhere you cannot arrow to — row one
+  is data and is still read as data.
+
+- **A table measures the same from either end of it.** The widths were decided from a
+  bandful of rows read forward from wherever the cursor was, so asking for the columns from
+  the blank row under the data measured two rows — the heading row, and your own empty one.
+  Every column came out sized to its heading, every value wrapped, and the same sheet laid
+  out from the top came out right. When there is not a bandful ahead the rows behind are read
+  instead, which costs nothing extra.
+
+- **An empty cell is somewhere you can be, and somewhere you can route to.** A cell with
+  nothing in it draws nothing, and so had no place on the display at all: standing in one gave
+  no cursor, and no routing key would take you into one. On the blank row under a sheet's data
+  every cell is empty, so the whole row was unreachable and you were left with speech. Each
+  column now answers across its whole width on such a row — press under the heading you want
+  and you arrive in that column, ready to type.
+
+- **A table's columns scroll one at a time** rather than turning a page at a time. Moving to
+  the next column along brings that column on at the right and takes one off at the left,
+  instead of replacing every column on the display at once. The command that moves across a
+  table still moves a whole display's worth, from wherever the scrolling has left you, and
+  what is reported is which columns are showing — "columns 6 to 9 of 21" — rather than a page
+  number, since the display can now sit between pages.
+
+- The display follows the caret across the columns in a spreadsheet or a list, as it already
+  did on a web page. Moving to a column that is not showing brings it on.
+
+- **A row that wraps onto more than one line arrives whole.** Scrolling down onto a record two
+  lines tall used to show its first line and leave the second off the display, so the values
+  in the columns that had wrapped were the ones you could not read. Where the whole of it fits
+  it is all brought on; where it is taller than the display it is left to panning, as before.
+  This is for lists and documents as much as tables.
 
 - In the table designer, a column chosen as the one repeated on every page can no longer be
   a hidden one. Choosing it and then hiding it used to leave the saved layout naming a column

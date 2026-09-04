@@ -76,6 +76,98 @@ def _getCellInfos(binding, window, address, flags, count, infos, fetched):
 	return 0
 
 
+built: list = []
+"""Which class each object was built from, so a test can say it was not the composed one."""
+
+_composed: dict = {}
+"""Composed classes by their bases, which is what makes two of them the same class."""
+
+
+class DynamicType(type):
+	"""What NVDA's `DynamicNVDAObjectType` does to every object it builds.
+
+	**NVDA's objects are composed, not subclassed**, and reproducing that here is the whole
+	point of this stand-in. An object is made from an API class, the application module is
+	asked which overlay classes belong on it, and the object is then *mutated* into a new type
+	whose bases are the overlays in front of the API class.
+
+	Which means asking for another object of an already-composed class asks for the
+	composition to happen a second time, and the bases come out as (overlay, (overlay, cell))
+	— a pair with no consistent method resolution order. Python raises, and on hardware that
+	turned into a laid-out table with a blank display. A stand-in that simply constructed
+	whatever class it was handed could not have shown that, and did not.
+	"""
+
+	def __call__(cls, **kwargs):
+		obj = cls.__new__(cls)
+		obj.__init__(**kwargs)
+		obj.APIClass = cls
+		built.append(cls)
+		classes = [cls]
+		excelModule.AppModule().chooseNVDAObjectOverlayClasses(obj, classes)
+		bases = tuple(
+			found
+			for index, found in enumerate(classes)
+			if index == 0 or not issubclass(classes[index - 1], found)
+		)
+		if len(bases) > 1:
+			# Cached by its bases, as NVDA's `_dynamicClassCache` is, so that two cells
+			# composed the same way are of the same class and can be compared.
+			composed = _composed.get(bases)
+			if composed is None:
+				name = "Dynamic_" + "".join(found.__name__ for found in classes)
+				composed = type(name, bases, {"__module__": __name__})
+				_composed[bases] = composed
+			obj.__class__ = composed
+		return obj
+
+
+class FakeCell(metaclass=DynamicType):
+	"""NVDA's `ExcelCell`: it wraps one of Excel's cells and answers about it.
+
+	Built the way the real one is — the class is called with the three keyword arguments, and
+	the metaclass composes the overlay on afterwards — so that a test sees whichever cells the
+	module constructs, what it gave them, and what class it asked for.
+	"""
+
+	made: list = []
+
+	def __init__(self, windowHandle=None, excelWindowObject=None, excelCellObject=None):
+		self.windowHandle = windowHandle
+		self.excelWindowObject = excelWindowObject
+		self.excelCellObject = excelCellObject
+		self.rowNumber = excelCellObject.row if excelCellObject else None
+		self.columnNumber = excelCellObject.column if excelCellObject else None
+		self._parent = None
+		self.appModule = types.SimpleNamespace(helperLocalBindingHandle=7)
+		"""What the in-process helper is reached through. Falsy where NVDA has not injected
+		it, and then there is no batch fetch to be had."""
+
+		FakeCell.made.append(self)
+
+	@property
+	def columnHeaderText(self):
+		""":return: what this cell says its column is called, as NVDA's own cell does.
+
+		Resolved through the worksheet, which is where NVDA resolves it: the reader marks a
+		header row and every cell of the column answers for it. This is the answer the flow
+		uses, and the one an empty header cell tracker made it stop asking for."""
+		return getattr(self.parent, "marked", {}).get(self.columnNumber)
+
+	@property
+	def parent(self):
+		if self._parent is None:
+			# What NVDA's own `_get_parent` does, and what costs a walk of every defined name
+			# in the workbook when it is left to happen per cell.
+			self._parent = FakeWorksheet(FakeWorksheetObject())
+			self._parent.built = 1
+		return self._parent
+
+	@parent.setter
+	def parent(self, value):
+		self._parent = value
+
+
 def _install() -> None:
 	"""Register what the application module imports, and put the add-on on the path."""
 	if "nvdaBuiltin.appModules.excel" in sys.modules:
@@ -102,6 +194,8 @@ def _install() -> None:
 	# its list separator. Recorded rather than reproduced: what matters here is that the
 	# address the helper is given went through it.
 	nvdaExcel.convertAddressToLocal = lambda application, address: address
+	# The API class the module builds cells from, and the one it tells a COM model cell by.
+	nvdaExcel.ExcelCell = FakeCell
 	sys.modules["NVDAObjects"] = objects
 	sys.modules["NVDAObjects.window"] = window
 	sys.modules["NVDAObjects.window.excel"] = nvdaExcel
@@ -222,59 +316,24 @@ class FakeWorksheet:
 	def __init__(self, sheet, marked=None):
 		self.excelWorksheetObject = sheet
 		self.built = 0
-		# NVDA's record of what the reader has marked as a header row or column, which on
-		# the real thing is populated by walking every defined name in the workbook. Empty on
-		# every sheet nobody has marked up, which is what makes it worth asking.
-		self.headerCellTracker = types.SimpleNamespace(infosDict=dict(marked or {}))
-
-
-class FakeCell:
-	"""NVDA's `ExcelCell`: it wraps one of Excel's cells and answers about it.
-
-	Built the way the real one is — the class is called with the three keyword arguments — so
-	that a test sees whichever cells the module constructs and what it gave them.
-	"""
-
-	made: list = []
-
-	def __init__(self, windowHandle=None, excelWindowObject=None, excelCellObject=None):
-		self.windowHandle = windowHandle
-		self.excelWindowObject = excelWindowObject
-		self.excelCellObject = excelCellObject
-		self.rowNumber = excelCellObject.row if excelCellObject else None
-		self.columnNumber = excelCellObject.column if excelCellObject else None
-		self._parent = None
-		self.appModule = types.SimpleNamespace(helperLocalBindingHandle=7)
-		"""What the in-process helper is reached through. Falsy where NVDA has not injected
-		it, and then there is no batch fetch to be had."""
-
-		FakeCell.made.append(self)
-
-	@property
-	def parent(self):
-		if self._parent is None:
-			# What NVDA's own `_get_parent` does, and what costs a walk of every defined name
-			# in the workbook when it is left to happen per cell.
-			self._parent = FakeWorksheet(FakeWorksheetObject())
-			self._parent.built = 1
-		return self._parent
-
-	@parent.setter
-	def parent(self, value):
-		self._parent = value
+		self.marked = dict(marked or {})
+		"""What the reader has marked as this sheet's headers, by column number. NVDA keeps
+		this in the worksheet's header cell tracker and resolves it per cell through
+		`fetchAssociatedHeaderCellText`; what matters to this add-on is that a cell answers
+		`columnHeaderText`, so that is what the stand-in reproduces."""
 
 
 def aCell(row=2, column=1, sheet=None, values=None, used=None, marked=None):
-	""":return: a worksheet cell with the add-on's overlay on it, as NVDA would build one."""
+	""":return: a worksheet cell with the add-on's overlay on it, as NVDA would build one.
 
-	class SpreadsheetCell(excelModule.SpreadsheetCell, FakeCell):
-		"""The overlay over NVDA's cell, which is the order NVDA composes them in."""
-
+	Through the metaclass rather than by naming a composed class, because that is the order
+	NVDA does it in and the order is what matters. See `DynamicType`.
+	"""
 	worksheet = FakeWorksheet(
 		sheet if sheet is not None else FakeWorksheetObject(values, used),
 		marked=marked,
 	)
-	cell = SpreadsheetCell(
+	cell = FakeCell(
 		windowHandle=42,
 		excelWindowObject=object(),
 		excelCellObject=FakeRange(row, column),
@@ -391,37 +450,31 @@ class TestReadingAWholeRowInOneCall(unittest.TestCase):
 
 
 class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
-	"""A worksheet has no headers until a reader marks a row or a column as one, and NVDA
-	keeps what they marked in the worksheet's header cell tracker.
+	"""**This module deliberately does not answer the headings seam**, and the reason is the
+	reader's header row disappearing off an Excel sheet.
 
-	An empty tracker is a first-hand "no column of this sheet declares anything", and it is
-	worth asking for because the alternative was building a cell per column to be told
-	nothing — on a sheet twenty-one columns wide, the entire cost of the answer.
+	It used to. `ExcelWorksheet.headerCellTracker` is where NVDA keeps the header rows and
+	columns a reader has marked, and an empty one looked like a first-hand "no column of this
+	sheet declares anything" — worth saying, because the alternative is building a cell per
+	column to be told nothing, which on a sheet twenty-one columns wide is the whole cost of
+	the answer.
+
+	The tracker is NVDA's own, private, and populated lazily by walking every defined name in
+	the workbook. An empty one means "I know of none just now". Answered as though it meant
+	"there are none", it suppressed the per-column ask outright — and every cell of that very
+	sheet could name its column through `columnHeaderText`. The layout was built believing the
+	table had no headings and the band spent no row on them.
 	"""
 
-	def test_aSheetNobodyHasMarkedUpSaysSoWithoutTouchingACell(self):
-		sheet = excelModule.ExcelSheet(aCell())
-		self.assertEqual(sheet.columnHeaders(1, 3), {})
-		self.assertEqual(sheet.obj.excelWorksheetObject.asked, [])
+	def test_theSeamIsLeftUnanswered(self):
+		"""So the flow asks the cells, which is where the answer actually is. One read per
+		column, once per layout, is not worth a guess about somebody else's private state."""
+		self.assertIsNone(getattr(excelModule.ExcelSheet(aCell()), "columnHeaders", None))
 
-	def test_andOneWithMarkedHeadersSendsTheQuestionToTheCells(self):
-		"""Which marked range applies to which column is NVDA's own work and it wants a cell
-		to do it. None is how this says "ask them", and they are then asked once each."""
-		sheet = excelModule.ExcelSheet(aCell(marked={(1, 1): "a header"}))
-		self.assertIsNone(sheet.columnHeaders(1, 3))
-
-	def test_asDoesAWorksheetThatWillNotSay(self):
-		cell = aCell()
-
-		class Silent:
-			@property
-			def headerCellTracker(self):
-				raise RuntimeError("no")
-
-			excelWorksheetObject = FakeWorksheetObject()
-
-		cell.parent = Silent()
-		self.assertIsNone(excelModule.ExcelSheet(cell).columnHeaders(1, 3))
+	def test_andACellStillNamesItsColumn(self):
+		"""Which is the answer the flow now uses, through `flowObjectTable.headerTextOf`."""
+		sheet = excelModule.ExcelSheet(aCell(marked={2: "Q1"}))
+		self.assertEqual(sheet.cellAt(3, 2).columnHeaderText, "Q1")
 
 
 class TestRecognisingAWorksheetCell(unittest.TestCase):
@@ -440,10 +493,23 @@ class TestRecognisingAWorksheetCell(unittest.TestCase):
 		"""The formula bar, a dialog, a chart."""
 		self.assertFalse(excelModule.readsByCoordinate(types.SimpleNamespace()))
 
-	def test_norACellWhoseParentIsNotAWorksheet(self):
+	def test_norACellMissingWhatTheReadingIsMadeOf(self):
 		cell = aCell()
-		cell.parent = types.SimpleNamespace()
+		del cell.excelCellObject
 		self.assertFalse(excelModule.readsByCoordinate(cell))
+
+	def test_andTheCellIsNeverAskedForItsParentToFindOut(self):
+		"""This runs inside NVDA's object construction, for every object it builds, and
+		`ExcelCell._get_parent` makes a whole `ExcelWorksheet` — whose header tracker is
+		populated by walking every defined name in the workbook. Asking it here undid the
+		sharing of the worksheet that `ExcelSheet.cellAt` arranges, once per cell of a band."""
+		cell = FakeCell(
+			windowHandle=42,
+			excelWindowObject=object(),
+			excelCellObject=FakeRange(2, 1),
+		)
+		self.assertTrue(excelModule.readsByCoordinate(cell))
+		self.assertIsNone(cell._parent)
 
 
 class TestTheApplicationModuleExtendsNvdasOwn(unittest.TestCase):
@@ -568,6 +634,53 @@ class TestReachingACell(unittest.TestCase):
 
 		cell.parent.excelWorksheetObject.cells = refuses
 		self.assertIsNone(cell.brlMultilineSheet().cellAt(2, 1))
+
+
+class TestBuildingACellTheWayNvdaComposesThem(unittest.TestCase):
+	"""The fault that made a laid-out table come out blank.
+
+	NVDA's objects are composed rather than subclassed: `DynamicNVDAObjectType` builds one
+	from an API class, asks the application module for overlay classes, and mutates the object
+	into a type made of the overlays in front of that API class. So the cell the reader stands
+	on is a `Dynamic_SpreadsheetCellExcelCell`.
+
+	`cellAt` asked for another of *those*, by writing `type(self.cell)`. The metaclass composed
+	it a second time — offering the composite as the only class, this module putting its
+	overlay in front of it — and (overlay, (overlay, cell)) has no consistent method
+	resolution order. Python raised, the broad catch turned it into None, and every cell of the
+	band came back as "no cell at this coordinate". The command reported the columns were
+	showing, the log listed their widths, and the display was empty.
+	"""
+
+	def setUp(self):
+		built.clear()
+
+	def test_aCellIsBuiltFromTheApiClassAndNotFromTheComposedOne(self):
+		sheet = aCell().brlMultilineSheet()
+		built.clear()
+		sheet.cellAt(2, 2)
+		self.assertEqual(built, [FakeCell])
+
+	def test_andWhatComesBackStillCarriesTheOverlay(self):
+		"""Because the metaclass puts it there, which is the whole reason not to ask for it."""
+		found = aCell().brlMultilineSheet().cellAt(2, 2)
+		self.assertTrue(hasattr(found, "brlMultilineSheet"))
+		self.assertTrue(hasattr(found, "setFocus"))
+
+	def test_composingAnAlreadyComposedClassHasNoResolutionOrder(self):
+		"""The mechanism itself, so that what the fix avoids is written down rather than
+		assumed. Nothing in the add-on does this; it is what `type(self.cell)` came to."""
+		composed = type(aCell())
+		with self.assertRaises(TypeError):
+			type("Again", (excelModule.SpreadsheetCell, composed), {})
+
+	def test_soTheOverlayIsNotOfferedToAClassAlreadyMadeOfIt(self):
+		"""Insurance for any other path that hands over a composed class: nothing is added,
+		the bases stay a single class, and there is nothing to linearise."""
+		composed = type(aCell())
+		classes = [composed]
+		excelModule.AppModule().chooseNVDAObjectOverlayClasses(aCell(), classes)
+		self.assertEqual(classes, [composed])
 
 
 class TestGoingToACell(unittest.TestCase):

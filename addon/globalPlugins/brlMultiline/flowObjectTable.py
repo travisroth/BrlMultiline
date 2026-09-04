@@ -1529,6 +1529,19 @@ def _headerFor(cell, index: int, headers: Optional[dict]) -> str:
 	return headers[column]
 
 
+HEADER_TRIES = 3
+"""How many of a column's cells are asked what its header is, before the column has none.
+
+More than one, because the cell that happens to be read first is not always a witness. Three
+kinds of bad witness have been met: a half-built row of a virtualised list, a merged cell
+where its neighbours hold real ones, and — the one that took an Excel worksheet's header row
+off the display — a cell *in the header row itself*, which has no header above it and says so
+for every column at once when that is where the reader was standing.
+
+Few, because a table that declares nothing pays this on every column, and on a spreadsheet a
+cell's header is resolved by walking the worksheet's marked ranges.
+"""
+
 SHEET = "brlMultilineSheet"
 """What an object offers when it can hand over a grid to be read by coordinate.
 
@@ -1693,12 +1706,25 @@ class SheetTable(ObjectTable):
 
 		self._askEachCell = True
 		"""Whether a column's header has to be got from one of its cells. False where the
-		sheet answered for every column at once, including by saying there are none."""
+		sheet answered for every column at once."""
+
+		self._headerTries: dict = {}
+		"""How many of a column's cells have been asked what it is called and said nothing.
+		Bounded, so a table that names no column does not cost a read per cell for ever, and
+		more than one, so the first cell asked is not the last word. See `_headerOf`."""
 
 	@property
 	def selection(self):
-		""":return: where the reader is, as the cell they are in."""
-		return ObjectCellInfo("", target=self.sheet.cellAt(self.row, self.column))
+		""":return: where the reader is, which for a sheet is a coordinate and not a cell.
+
+		**No cell is fetched for it**, and that halved the cost of reading a sheet. This is
+		passed to `_getTableCellAt` as the position to read from, which for every shape here
+		is ignored — the coordinates are the arguments beside it — and `_getTableCellCoords`
+		answers from `row` and `column` without looking either. So building a cell to put in
+		it meant every read of a cell built two: on a worksheet, two coordinate lookups and
+		two `NVDAObject`s with their overlay classes chosen, for one value.
+		"""
+		return ObjectCellInfo("")
 
 	def _getTableCellCoords(self, info) -> ObjectCell:
 		""":return: which cell the reader is in, which the sheet says outright."""
@@ -1716,28 +1742,46 @@ class SheetTable(ObjectTable):
 		return ObjectCellInfo(cellText(cell, header), target=cell, header=header, row=cell)
 
 	def _headerOf(self, column: int, cell) -> str:
-		""":return: what a column is called, asked once for the column and not once per cell.
+		""":return: what a column is called, asked of a few of its cells rather than all of them.
 
-		**Once per column, like `_headerFor` next door, and for the same reason twice over.**
-		A declared header belongs to the column, so a second cell of it cannot answer
-		differently; and on a spreadsheet `columnHeaderText` is resolved by walking the
-		worksheet's header ranges with the cell's coordinates in hand, which is real work
-		repeated for every cell of every band.
+		A declared header belongs to the column, so on a spreadsheet `columnHeaderText` is
+		resolved by walking the worksheet's marked ranges with the cell's coordinates in hand
+		— real work, and repeated for every cell of every band if nothing remembers it.
 
-		The sheet is asked first and asked once. Where it answers — including by answering
-		that no column declares anything, which is every worksheet nobody has marked up — no
-		cell is asked at all.
+		**An answer is remembered; a silence is only counted.** That is the difference from
+		remembering both, and it is what took the header row off an Excel worksheet. The
+		layout was made with the reader standing on row one, which is the row they had marked
+		as the header — and a header cell has no header above it, so every column's *first*
+		witness answered nothing. Remembered as the answer, that settled all five columns
+		before a single data cell was asked, and the table read as one that named no column at
+		all. Its own report said so on one line and listed the headings on the next.
+
+		So a silence is worth asking again about, from another cell, `HEADER_TRIES` times over
+		— the same bounded strategy `flowTableSource.declaredHeaders` uses one level up, and
+		for exactly the same reason: the first cell read is not always a good witness. A column
+		that has said nothing that many times is left alone, which is what keeps a table
+		nobody has marked up from costing a read per cell for ever.
 
 		:param column: the table's own number for the column.
 		:param cell: a cell of it, to ask where the sheet will not say.
 		"""
 		if self._headers is None:
 			said = self.columnHeaders(1, self.numCols)
-			self._askEachCell = said is None
-			self._headers = {} if said is None else dict(said)
-		if self._askEachCell and column not in self._headers:
-			self._headers[column] = headerTextOf(cell)
-		return self._headers.get(column, "")
+			# Empty is not an answer to stop on: it says the sheet knows of no header, not
+			# that no cell of it can name its column. See `flowTableSource.measure`, where
+			# believing it took a worksheet's header row off the display.
+			self._askEachCell = not said
+			self._headers = dict(said or {})
+		known = self._headers.get(column)
+		if known or not self._askEachCell:
+			return known or ""
+		if self._headerTries.get(column, 0) >= HEADER_TRIES:
+			return ""
+		self._headerTries[column] = self._headerTries.get(column, 0) + 1
+		found = headerTextOf(cell)
+		if found:
+			self._headers[column] = found
+		return found
 
 	def rowText(self, row: int, first: int, last: int):
 		""":return: one row's text across a span of columns in a single read, or None.
@@ -1797,6 +1841,7 @@ class SheetTable(ObjectTable):
 		# just marked a header row.
 		self._headers = None
 		self._askEachCell = True
+		self._headerTries = {}
 
 	def describe(self) -> list:
 		""":return: what this found, for the dry run. See `ObjectTable.describe`."""

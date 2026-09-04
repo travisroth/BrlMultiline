@@ -1939,12 +1939,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				# how many columns are affected.
 				_("{wrapped} wrapping").format(wrapped=len(plan.narrowed)),
 			)
-		if plan.numPages > 1:
+		if not plan.showsEverything:
+			first, last, total = plan.whereItIs
 			said.append(
 				# Translators: reported after the above when a table has more columns than the
-				# display can show at once. Placeholders are which page of columns is shown
-				# and how many pages there are.
-				_("page {page} of {pages}").format(page=plan.page + 1, pages=plan.numPages),
+				# display can show at once. Placeholders are, in order, the first and last of
+				# the columns being shown and how many columns there are in all.
+				_("columns {first} to {last} of {total}").format(
+					first=first,
+					last=last,
+					total=total,
+				),
 			)
 		self.reportAboutTheDisplay(", ".join(said))
 
@@ -2305,27 +2310,30 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# is none on the display.
 			ui.message(_("No table columns are showing"))
 			return
-		if plan.numPages <= 1:
+		if plan.showsEverything:
 			# Translators: reported when a table's columns all fit on the display already, so
 			# there is nowhere to move to.
 			ui.message(_("The whole table is showing"))
 			return
 		if not band.turnColumnPage(by):
+			first, last, _total = plan.whereItIs
 			self.reportAboutTheDisplay(
 				# Translators: reported when a command would move past the first or last
-				# columns of a table. The placeholder is which page of columns is showing.
-				_("Page {page}, no further").format(page=plan.page + 1),
+				# columns of a table. Placeholders are the first and last columns showing.
+				_("Columns {first} to {last}, no further").format(first=first, last=last),
 			)
 			return
 		now = band.columnPlan()
 		labels = ", ".join(_columnName(place.column) for place in now.placements())
+		first, last, total = now.whereItIs
 		self.reportAboutTheDisplay(
 			# Translators: reported after moving across a table's columns. Placeholders are,
-			# in order, which page of columns is now showing, how many there are, and the
-			# names of the columns on it.
-			_("Page {page} of {pages}: {columns}").format(
-				page=now.page + 1,
-				pages=now.numPages,
+			# in order, the first and last of the columns now showing, how many columns there
+			# are in all, and the names of the ones on the display.
+			_("Columns {first} to {last} of {total}: {columns}").format(
+				first=first,
+				last=last,
+				total=total,
 				columns=labels,
 			),
 		)

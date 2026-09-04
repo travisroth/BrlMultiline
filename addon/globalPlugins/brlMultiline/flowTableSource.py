@@ -66,14 +66,12 @@ Still row one for the other two questions that need *a* row rather than a header
 HEADER_ATTRIBUTES = {"column": "table-columnheadertext", "row": "table-rowheadertext"}
 """What NVDA calls a cell's header text, per axis, on the control field it hands out."""
 
-HEADER_TRIES = 3
+HEADER_TRIES = flowObjectTable.HEADER_TRIES
 """How many of a column's cells are asked what its header is, before the column has none.
 
-More than one, because the cell that happens to be read first is not always a witness: a
-half-built row of a virtualised list, or a merged cell where its neighbours hold real ones,
-answered for the whole column and the column then had no name at all. Few, because a table
-that declares nothing pays this on every column of the sample and the fields are a read of
-the document.
+Defined next door, because the same rule is applied at two levels and one number should say
+it: this module asks a few *rows* of a table, and an object table asks a few *cells* of a
+column. See `flowObjectTable.HEADER_TRIES`.
 """
 
 MEASURE_ROWS = 8
@@ -421,8 +419,17 @@ class TableRow(Region):
 			if not runs or runs[-1][0] != column:
 				runs.append((column, []))
 			runs[-1][1].append(offset)
+		# Cells that read as nothing are left out rather than joined as empty strings. Every
+		# column of a row now marks a position even when it holds nothing — see
+		# `flowRender.FlowRenderer._laidOut`, which is what gives an empty cell a cursor and a
+		# routing key — and a report that answered "AAPL  " for a row with one value in it
+		# would be describing separators rather than content.
 		return self.separator.join(
-			_sliceByBraille(self.cellFor(column).region, offsets) for column, offsets in runs
+			said
+			for said in (
+				_sliceByBraille(self.cellFor(column).region, offsets) for column, offsets in runs
+			)
+			if said
 		)
 
 	def routeTo(self, braillePos: int) -> None:
@@ -560,6 +567,20 @@ def declaredHeader(info, axis: str = "column") -> str:
 	attribute = HEADER_ATTRIBUTES.get(axis)
 	if attribute is None or info is None:
 		return ""
+	# **A cell that carries its header says so directly.** An object table's cell holds the
+	# answer as a string — `flowObjectTable.ObjectCellInfo.header`, resolved once per column
+	# from the object — and then encodes it into a control field so that it looks like a
+	# document's cell to everything downstream. Reading it back out of that field is a round
+	# trip whose only purpose was uniformity, and a round trip is somewhere an answer can be
+	# lost: NVDA's `FieldCommand` and `ControlField` are particular about what they are made
+	# of, and this decoding is guarded so a failure comes back as "no header" rather than as
+	# an error. Where the answer is already in hand, it is taken.
+	#
+	# Only the column axis, because that is the only one such a cell answers for.
+	if axis == "column":
+		said = getattr(info, "header", None)
+		if isinstance(said, str):
+			return " ".join(said.split())
 	try:
 		fields = info.getTextWithFields()
 	except Exception:
@@ -927,7 +948,12 @@ def measure(
 	# are no cells to ask, one cell per column is read now instead of one per cell later.
 	# See `columnHeadersOf` and `flowObjectTable.Sheet.columnHeaders`.
 	stated = columnHeadersOf(handle, 1, handle.numCols)
-	if stated is None and _offeredBy(handle, "rowText") is not None:
+	if not stated and _offeredBy(handle, "rowText") is not None:
+		# **Empty is not an answer to stop on.** It was, and on an Excel worksheet that cost
+		# the reader their header row: the sheet said no column declared anything, the cells
+		# were therefore never asked, and every cell of that table could name its column
+		# perfectly well. A mapping that comes back empty says "I know of none", which is a
+		# different thing from "there are none" and not worth the reads it saves.
 		stated = declaredHeaders(handle, columns)
 	for column, said in (stated or {}).items():
 		if said and column in labels:
@@ -1041,9 +1067,29 @@ def _typicalOf(sizes: list[int]) -> int:
 
 
 def _sampleRows(handle: TableHandle, sample: int) -> list[int]:
-	""":return: which rows to measure: the header, then a bandful from the caret."""
-	first = max(1, min(handle.row, max(1, handle.numRows)))
-	rows = list(range(first, min(handle.numRows, first + sample - 1) + 1))
+	""":return: which rows to measure: the header, then a bandful about the caret.
+
+	Forward from the caret, because what the widths are decided from should be what the
+	reader is about to feel. **And backwards when there is not a bandful ahead**, which is
+	the fix for a layout that came out differently depending on where it was asked for.
+
+	Reading forward alone, a reader standing on the blank row under a nine row worksheet
+	sampled exactly two rows: the header, and their own empty one. Every column was then
+	sized to its heading alone, every value in the table was too wide for the column it was
+	drawn in, and the same sheet laid out from the top — where there is a bandful ahead —
+	came out with different widths. The reader asked why the arithmetic differed when the
+	data had not, and there was no good answer: the data had not been read.
+
+	The rows behind are as much a description of the table as the rows ahead, and reading
+	them costs nothing extra, since the sample is the same size either way.
+	"""
+	last = max(1, handle.numRows)
+	first = max(1, min(handle.row, last))
+	rows = list(range(first, min(last, first + sample - 1) + 1))
+	behind = first - 1
+	while len(rows) < sample and behind >= 1:
+		rows.insert(0, behind)
+		behind -= 1
 	if 1 not in rows:
 		rows.insert(0, 1)
 	return rows
@@ -1115,13 +1161,35 @@ class TableFlowSource:
 			self._declared = declaredHeaders(handle, self.columns)
 			self._headersAsked = set(self.columns)
 
-		# Row one is skipped only when row one is what is pinned. A table that declares its
-		# headers may have them two rows deep, in a column rather than a row, or nowhere near
-		# the top at all — and then row one is data, and dropping it would lose a row of the
-		# table to a guess the document had already contradicted.
-		self.firstRow = (
-			HEADER_ROW + 1 if pinHeaders and not self._declared and self._firstRowIsHeadings() else HEADER_ROW
+		self.pinnedIsRowOne = bool(pinHeaders) and (
+			self._declaredRowIsRowOne() if self._declared else self._firstRowIsHeadings()
 		)
+		"""Whether the row held above the band is row one of the table itself.
+
+		Two ways it can be, and they had to be told apart by different questions. Where
+		nothing is declared, row one is *borrowed* as the headings and the document is asked
+		whether that is fair — see `firstRowIsHeadings`. Where the table declares its headers,
+		it does not say which row they live on, and they may be two rows deep, in a column
+		rather than a row, or nowhere near the top at all. So row one is read and compared
+		against them. See `_declaredRowIsRowOne`.
+		"""
+
+		self._askedAboutRowOne = bool(self._declared)
+		"""Whether the row one question has been put to real headers yet.
+
+		It cannot be settled with nothing in hand — a table that declares no header pins no
+		declared row — and `_headersForThisPage` may find one later, on a page turn or where
+		the measurement came back empty and the cells answer perfectly well. That was the
+		shape of the fault that took a worksheet's headings off the display, so it is worth
+		not assuming it cannot happen again.
+		"""
+
+		# Row one is skipped only when row one is what is pinned. Dropping it otherwise would
+		# lose a row of the table to a guess the document had already contradicted — and
+		# *not* dropping it when it is pinned draws the headings twice, which is what an
+		# Excel worksheet with a marked header row did the moment the reader arrowed up onto
+		# row one and the flow put that row on the band beside the copy above it.
+		self.firstRow = HEADER_ROW + 1 if self.pinnedIsRowOne else HEADER_ROW
 		self.generation = generation
 		self.budget = budget if budget is not None else FetchBudget()
 		self.live = live
@@ -1252,21 +1320,81 @@ class TableFlowSource:
 		`firstRowIsHeadings`, which is where the question is answered."""
 		return firstRowIsHeadings(self.handle.document)
 
+	def _declaredRowIsRowOne(self) -> bool:
+		""":return: whether what this table declares as its headers is row one's own text.
+
+		**Asked by reading row one, because nothing will say.** A declared header is resolved
+		from wherever the markup points — a marked range on a worksheet, a `<th>` in a page —
+		and neither NVDA nor the document reports which row that was. So the only witness is
+		the row itself: if every column being drawn holds, in row one, exactly what that
+		column declares as its heading, then row one is the header row.
+
+		On a worksheet it is, almost always: a reader marks the top row as the headings, and
+		then the pinned row and the first row of the flow are the same row. Drawn twice, that
+		cost a row of a seven row band and read as a table whose first record was its own
+		column names.
+
+		Row one only, and only against the columns on the page: one read of one row, which on
+		a sheet is one call. False for anything it cannot read or cannot decide, since drawing
+		a heading twice is a wasted row and dropping a row of data is a lost one.
+		"""
+		wanted = {
+			column: said
+			for column, said in ((column, self._declared.get(column, "")) for column in self.columns)
+			if said
+		}
+		if not wanted:
+			return False
+		try:
+			texts = rowTextOf(self.handle, HEADER_ROW, 1, self.handle.numCols)
+			matched = 0
+			for column, heading in wanted.items():
+				if texts is not None:
+					if not 1 <= column <= len(texts):
+						continue
+					said = texts[column - 1]
+				else:
+					region = cellRegion(self.handle, HEADER_ROW, column)
+					if region is None:
+						continue
+					said = region.rawText
+				if " ".join((said or "").split()) != heading:
+					return False
+				matched += 1
+		except Exception:
+			log.debugWarning("Could not tell whether row one is the header row", exc_info=True)
+			return False
+		return matched > 0
+
 	def _headersForThisPage(self) -> dict:
 		""":return: the declared header of each column being drawn, leaving out those without one.
 
 		Asked again for a column this source has not seen, which is what turning the page
 		brings: the columns change and their headers are a property of the columns. Nothing
 		is asked twice — including a column whose answer was that it has no header, which is
-		what L{_headersAsked} is for — and nothing is asked at all for a table that declares
-		nothing, since then there is nothing to look up and row one is what will be pinned.
+		what L{_headersAsked} is for.
+
+		**And a measurement that found nothing does not settle it.** This used to answer
+		nothing at all when it started with no headers in hand, on the grounds that a table
+		which declares none has nothing to look up. That made one empty answer permanent: an
+		Excel worksheet whose every cell could name its column came out of the measurement
+		with none, and this then refused to ask a single cell — so no header row was built, the
+		band gave that row back to the table, and it stayed that way for as long as the layout
+		lived. The columns are asked once each, once, whatever the measurement thought;
+		`_headersAsked` is what keeps it to once.
 		"""
-		if not self._declared:
-			return {}
 		missing = [column for column in self.columns if column not in self._headersAsked]
 		if missing:
 			self._headersAsked.update(missing)
 			self._declared.update(declaredHeaders(self.handle, missing))
+		if self._declared and not self._askedAboutRowOne:
+			# Headers in hand for the first time, so the question that could not be settled
+			# without them can be. Once, and before the row is built below, so that a header
+			# found late does not end up drawn twice. See `pinnedIsRowOne`.
+			self._askedAboutRowOne = True
+			if self._declaredRowIsRowOne():
+				self.pinnedIsRowOne = True
+				self.firstRow = HEADER_ROW + 1
 		return {column: self._declared[column] for column in self.columns if column in self._declared}
 
 	def _declaredRow(self, said: dict) -> SourceBlock:
@@ -1288,7 +1416,17 @@ class TableFlowSource:
 			region = TextRegion(withoutCapitals(heading) if column in self.plainCase else heading)
 			region.update()
 			cells.append(RowCell(index=column, region=region))
-		content = TableRow(cells, obj=self.obj)
+		content = TableRow(
+			cells,
+			obj=self.obj,
+			# **Only where the pinned row is a row of the table.** The reader can stand on
+			# row one, and once it is drawn above the band and no longer in it, the pinned
+			# row is the only place their cursor can be — see `FlowController._pinnedCursor`,
+			# which asks the pinned region and nothing else. Where the headings were declared
+			# somewhere the reader cannot arrow to, row one is data and this row must claim
+			# no cursor at all.
+			caretColumn=functools.partial(self._caretColumn, HEADER_ROW) if self.pinnedIsRowOne else None,
+		)
 		return SourceBlock(
 			blockId=BlockId(generation=self.generation, bookmark=HEADER_ROW, unit=self.unit),
 			region=content,
@@ -1310,7 +1448,11 @@ class TableFlowSource:
 		except Exception as error:
 			return f"could not be worked out: {error!r}"
 		if said:
-			return f"declared by the table's own cells: {said}"
+			# Which row it came off, where that could be told. The reader cannot see that the
+			# pinned row and row one are the same row, and the report could not say so either
+			# — which is how a doubled header row went unexplained.
+			where = ", which is row one itself" if self.pinnedIsRowOne else ""
+			return f"declared by the table's own cells{where}: {said}"
 		if not self._firstRowIsHeadings():
 			return "nothing: this table declares no headers and its first row is not headings"
 		return f"row {HEADER_ROW}, since this table declares none"
