@@ -38,6 +38,11 @@ Read the files in this order:
    an undocumented 480 byte output report matching the Monarch's pin count exactly. Nothing
    is built yet and phase 0 is unfinished; read it before writing any code that sets dots
    rather than characters.
+9. [monarch-driver-plan.md](monarch-driver-plan.md) — the design of `brlMultilineMonarch`, a
+   braille display driver that subclasses NVDA's HID braille driver and drives the Monarch
+   through its pin report instead of its cell reports. Gives graphics, a choice of 8 or 10
+   line pitch, touch at pin resolution, and Bluetooth that survives a dropout. Built but not
+   yet run on hardware; read it before touching that driver package.
 
 ## Project background
 

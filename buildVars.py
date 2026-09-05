@@ -67,6 +67,7 @@ two working areas."""),
 pythonSources: list[str] = [
 	"addon/globalPlugins/brlMultiline/*.py",
 	"addon/brailleDisplayDrivers/brlMultilineVirtual/*.py",
+	"addon/brailleDisplayDrivers/brlMultilineMonarch/*.py",
 	# One application module, for the one application whose tables cannot be read without
 	# knowing something about it. See `addon/appModules/excel.py`.
 	"addon/appModules/*.py",
