@@ -124,7 +124,7 @@ the critical path, and there is now no reason to write it.
 
 Published figures, now partly confirmed:
 
-1. The panel is approximately **96 by 40 equidistant pins**, 3,840 in total. Equidistant is
+1. The panel is exactly **96 by 40 equidistant pins**, 3,840 in total. Equidistant is
    the important word: a uniform grid, not clusters.
 2. Braille layout spends **three pin columns per cell**, two dot columns and one spacer, so
    32 cells consume all 96 columns and 32 of those columns carry nothing on the cell path.
@@ -247,6 +247,7 @@ from structure, not from pixels. Ranked against what the add-on already knows:
    selection sits in a table.
 4. **Simple line art** from applications with vector geometry to give.
 5. **Screen capture, dithered.** Last, and mostly as a diagnostic.
+6. Images from screen capture or web pages processed into a simplified tactile view such as with edges algorithms, or better: machine learning classifier of objects to then use tactile friendly established images as baselines.
 
 ## Plan
 
@@ -265,9 +266,9 @@ Answered:
    switch was needed and no feature report was written.
 
 4. **The bit order**: blocks of 2 by 4 in reading order, 48 across by 10 down, each byte an
-   ordinary eight dot braille cell. Read as column major first, from walking single pins,
-   and disproved by `pinVLine(0)` drawing a column of p and `pinHLine(0)` a row of e. See
-   "The pin report's layout" above.
+   ordinary eight dot braille cell. 
+Read as column major first, so byte 0 is first cell, bite 1 moves one cell to right on top row, etc.
+Cells are Braille reading order, see discussion above. SPike.pinHLine() and spike.pinVLine() have been set to draw straight lines accounting for this geometry.
 
 5. **The layout holds across the whole panel.** `pinHLine(0)` is solid and unbroken end to
    end, `pinVLine(0)` is a clean column, and `pinBox()` gives square corners with both
@@ -287,8 +288,12 @@ Still open, and neither blocks phase 1:
 
 1. **Does the cell path render arbitrary patterns?** `dotOrder()`. Only relevant to non
    Monarch hardware and to the fallback now.
+** partial answer** there is a library possibly on python's pipy that does ascii art by converting to braille cells.
+But we are not interested in this for Monarch DotPad which have tactile displays.
+
 2. **Are the spacer columns filled on the cell path?** `spacers(1)`, `(2)`, `(3)`. Same
    demotion; comparing `fill(0xFF)` with `pinFill()` answers it as a by-product.
+**Answer** whe all cells are filled in terminal cell writing mode, spacing dots are not raised.
 
 Not to be done: writing feature 0x21. It was never needed, which settles the question of
 whether to risk it.
@@ -361,9 +366,7 @@ below assumes it:
 3. **So a graphics view is closer to a mode than a panel.** The add-on's existing model is
    panels tiling one display that updates continuously. A Monarch graphics view is better
    thought of as: enter it, the panel shows a composed image with its own braille labels,
-   ordinary braille is held, and leaving it restores normal operation. That is a different
-   shape from `GraphicsPanel` as originally sketched below, and phase 2 should be rewritten
-   around it before anything is built.
+   ordinary braille is held, and leaving it restores normal operation. 
 
 ### Phase 1, the buffer and the region
 
@@ -453,6 +456,8 @@ document that rather than tuning forever.
    40 pin rows × 2 is a coincidence worth checking rather than believing.
 5. Can text be drawn at a tighter than native pitch and still read? 40 rows at a 4 row pitch
    is 10 lines instead of 8, at the cost of the inter-line gap.
+**Answer** Yes, Monarch already does 10 lines natively on its platform. It gets crowded with a cursor, but long form reading with standard 6-dot braile and 10 lines is very useful.
+
 6. Does a partial redraw exist? Every write seen so far refreshes the whole panel, which is
    what makes this a page turning device. If some report updates a region, the mechanical
    cost argument changes completely.
