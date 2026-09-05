@@ -2874,6 +2874,57 @@ is what made it. When the answer is no, the run is read again by the path
 What it does not catch is a row taken away at the far end of the band while the reader stands
 still; the live pass covers that, and any keystroke reads the band afresh.
 
+### Braille was not told what speech was told
+
+Reported while the Excel application module was being finished, and not about the flow at
+all: on a sheet whose header row the reader has marked, NVDA speaks "9/4/2026  A2  Date" and
+brailles "9/4/2026  A2". The header is fetched, it is spoken, and the display does not get
+it — so the reader who works in braille has to leave the cell and come back to find out what
+the column is called.
+
+It is not a policy anybody set. `braille.regions.properties.getPropertiesBraille` has a
+`columnHeaderText` and appends it exactly where speech does; it only ever looks for one
+beside a `columnNumber`, and `NVDAObjectRegion.update` sends neither. It sends
+`cellCoordsText` and stops. Speech reaches the same function by a different road — the
+property collection that `speakObject` makes — and that road carries the headers.
+
+So the module that already replaces NVDA's Excel module puts them back, on the region that
+draws a cell. `appModules.excel.HeadersInBraille.getBrailleRegions` is the seam: NVDA asks an
+object for its own braille regions before it builds any, and for a worksheet cell one region
+is the whole answer — a cell is not editable text, has no navigable text and carries no tree
+interceptor, so `getFocusRegions` makes exactly one `NVDAObjectRegion` for it anyway.
+
+Three decisions worth writing down.
+
+**The header goes through `appendText`, not into `rawText`.** `rawText` is what has already
+been handed to liblouis; changing it after `update` means translating the line twice, which
+is the mistake the cursor work in this same session had just finished undoing elsewhere.
+`appendText` is concatenated by the base *before* translating, so the header costs nothing —
+and it is put back afterwards, because a region is updated again whenever the cell changes
+underneath it and a header appended twice would show twice.
+
+**Braille does not go quiet on the second cell of a column.** Speech says a header only when
+the row or column changed, and it has to: it is a stream of announcements and a header
+repeated on every arrow key would be unbearable. Braille is a standing description of where
+the reader is. A header that vanished after the first cell would be a header the reader
+cannot read, since reading it is exactly what they do after the display settles.
+
+**It is a second overlay class, not a third method on the first.** `SpreadsheetCell` says
+"this cell can be read by coordinate, and here is the seam the flow uses". What a cell's
+column is called is a different claim and belongs to NVDA's own line of braille: a sheet too
+wide to lay out, or a cell this add-on would refuse, still deserves its header. So
+`HeadersInBraille` goes on any COM model cell, and `SpreadsheetCell` on the ones that can
+actually be read.
+
+Left where it is: the UI Automation model's cells. They are a different class on a different
+branch, the header commands the reader marks with are on the COM branch, and this is the same
+line the module already draws for reading.
+
+The stand-in region had to be corrected first, which is the recurring lesson in a new shape.
+It drew "name role" and no coordinates, so it could have agreed with a header put anywhere at
+all. It now puts the coordinates last, as `getPropertiesBraille` does, and concatenates the
+appended text rather than joining it — because those two facts are the whole question.
+
 ## Open questions
 
 1. **What re-reads a tree when a node is expanded?** A state change event is the obvious

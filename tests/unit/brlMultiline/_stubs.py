@@ -439,6 +439,11 @@ class TextRegion(Region):
 	"""
 
 
+TEXT_SEPARATOR = " "
+"""NVDA's `braille.constants.TEXT_SEPARATOR`: what one thing on a braille line is parted from
+the next by."""
+
+
 class BrailleBuffer(AutoPropertyObject):
 	"""The smallest buffer that answers everything the container asks of a segment.
 
@@ -2397,13 +2402,34 @@ class NVDAObjectRegion(Region):
 	def update(self):
 		name = getattr(self.obj, "name", "") or ""
 		role = getattr(self.obj, "role", "") or ""
-		self.rawText = f"{name} {role}".strip() + self.appendText
+		said = f"{name} {role}".strip()
+		# Where a table cell is, which `getPropertiesBraille` puts **last** — after
+		# everything else it was given, and governed by the reader's own coordinates
+		# setting. Reproduced because that position is the whole question the Excel module's
+		# header answers: a stub that joined some strings in some order would have agreed
+		# with any answer at all. See `appModules.excel.CellHeaders`.
+		coords = getattr(self.obj, "cellCoordsText", None)
+		if coords and FORMAT_CONFIG.get("reportTableCellCoords"):
+			said = f"{said} {coords}".strip()
+		# Concatenated, not joined: NVDA appends this to the finished translation, which is
+		# what lets a caller put something of its own at the end of the line.
+		self.rawText = said + self.appendText
 		super().update()
 		# One cell per character in this harness, so a text position is a braille position.
 		self.brailleCursorPos = self.cursorPos
 
+
 	def routeTo(self, pos):
 		self.acted = True
+
+
+class ReviewNVDAObjectRegion(NVDAObjectRegion):
+	"""The same region when braille follows the review cursor rather than the focus.
+
+	NVDA's own differs in one thing — a routing key focuses the object before acting on it —
+	which is nothing this add-on changes. What matters here is that it is a distinct class,
+	so that a module choosing between the two can be held to choosing.
+	"""
 
 
 def fakeRun(names, role="LISTITEM", parent=None, selected=0, levels=None):
@@ -2705,6 +2731,7 @@ def _installPluginStubs() -> None:
 		"braille.constants",
 		CONTEXTPRES_CHANGEDCONTEXT="changedContext",
 		CONTINUATION_SHAPE=0xC0,
+		TEXT_SEPARATOR=TEXT_SEPARATOR,
 	)
 	_module("braille.regions.focus", getFocusRegions=fakeGetFocusRegions)
 	_module("cursorManager", CursorManager=CursorManager)
@@ -2718,7 +2745,11 @@ def _installPluginStubs() -> None:
 		"""
 
 	_module("editableText", EditableText=EditableText)
-	_module("braille.regions.NVDAObject", NVDAObjectRegion=NVDAObjectRegion)
+	_module(
+		"braille.regions.NVDAObject",
+		NVDAObjectRegion=NVDAObjectRegion,
+		ReviewNVDAObjectRegion=ReviewNVDAObjectRegion,
+	)
 	# The braille display driver package, as a path with no code, so that the settings panel's
 	# `from brailleDisplayDrivers.brlMultilineVirtual import vdConfig` resolves to the real
 	# module without running the driver's `__init__`, which wants `hwIo` and `inputCore`.

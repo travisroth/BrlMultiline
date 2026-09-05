@@ -43,9 +43,13 @@ layout drawn from numbers this could not check.
 import ctypes
 from typing import Optional
 
+import config
 import eventHandler
 import NVDAHelper
+from braille.constants import TEXT_SEPARATOR
+from braille.regions.NVDAObject import NVDAObjectRegion, ReviewNVDAObjectRegion
 from comtypes import BSTR
+from config.configFlags import ReportTableHeaders
 from logHandler import log
 from NVDAHelper.localLib import EXCEL_CELLINFO
 from NVDAObjects.window.excel import (
@@ -599,6 +603,131 @@ def sheetFor(cell):
 	return sheet
 
 
+def wantedHeaders() -> tuple:
+	""":return: which of a cell's headers to show, as the attribute names to read them from.
+
+	The reader's own setting, and the one speech obeys: "report table headers" in Document
+	Formatting, which is one setting with two axes — rows, columns, both, or off. The order
+	is speech's order too: the row's header, then the column's. See
+	`speech.getPropertiesSpeech`, which appends them in that order after the coordinates.
+
+	Read on each call rather than kept, because the reader can change it at any moment and
+	the next cell they land on should be drawn under the answer that is true then.
+	"""
+	try:
+		setting = config.conf["documentFormatting"]["reportTableHeaders"]
+	except Exception:
+		log.debugWarning("Could not read NVDA's reportTableHeaders setting", exc_info=True)
+		setting = ReportTableHeaders.ROWS_AND_COLUMNS.value
+	wanted = []
+	if setting in (ReportTableHeaders.ROWS_AND_COLUMNS.value, ReportTableHeaders.ROWS.value):
+		wanted.append("rowHeaderText")
+	if setting in (ReportTableHeaders.ROWS_AND_COLUMNS.value, ReportTableHeaders.COLUMNS.value):
+		wanted.append("columnHeaderText")
+	return tuple(wanted)
+
+
+def headerTextFor(cell) -> str:
+	""":return: what a cell's headers say, or "" where there are none to say.
+
+	The cell is asked exactly as speech asks it — `columnHeaderText` and `rowHeaderText` are
+	NVDA's own properties, and on a worksheet cell they resolve through the header rows and
+	columns the reader marked with NVDA+shift+c. Nothing here works out what a header is.
+
+	:param cell: the `NVDAObjects.window.excel.ExcelCell` being drawn.
+	"""
+	said = []
+	for name in wantedHeaders():
+		try:
+			answer = getattr(cell, name)
+		except Exception:
+			# A cancelled COM call among them, and it is caught here rather than handed
+			# upward on purpose: braille is drawn from here, there is no boundary above
+			# this to hand a failure to, and a header that could not be read this time
+			# would cost the reader the cell as well as its header. The next update asks
+			# again.
+			log.debugWarning(f"Could not read a cell's {name}", exc_info=True)
+			answer = None
+		if answer:
+			said.append(answer.strip())
+	return TEXT_SEPARATOR.join(text for text in said if text)
+
+
+class CellHeaders:
+	"""A cell's one line of braille, with the header the reader marked after the coordinates.
+
+	**Speech says it and braille did not.** Land on a cell in a sheet whose header row has
+	been marked and NVDA speaks "9/4/2026  A2  Date"; the same cell in braille is "9/4/2026
+	A2", and the only way to find out what the column was called was to leave the cell and
+	come back. That is not a decision anybody took. `getPropertiesBraille` knows perfectly
+	well what to do with a `columnHeaderText` — it is simply never given one, because it only
+	looks for it beside a `columnNumber`, and `NVDAObjectRegion.update` sends neither. It
+	sends the coordinates and stops.
+
+	So the headers are put where speech puts them, after the coordinates, on the region that
+	draws the cell.
+
+	**Through `appendText` rather than into `rawText` afterwards.** `rawText` is what has
+	already been handed to liblouis; changing it means translating the line a second time.
+	`appendText` is what the base concatenates *before* translating, so this costs nothing —
+	and it is put back afterwards, because a region is updated again whenever the cell
+	changes underneath it and a header appended twice would be shown twice.
+
+	Unlike speech, this does not go quiet on the second cell of a column. Speech is a stream
+	of announcements and repeating the header on every cell of a row would be unbearable;
+	braille is a standing description of where the reader is, and a header that vanished
+	after the first cell would be a header the reader could not read.
+	"""
+
+	def update(self):
+		theirs = self.appendText
+		said = headerTextFor(self.obj)
+		if said:
+			self.appendText = TEXT_SEPARATOR + said + theirs
+		try:
+			super().update()
+		finally:
+			self.appendText = theirs
+
+
+class CellRegion(CellHeaders, NVDAObjectRegion):
+	"""A worksheet cell as braille draws it while following the focus."""
+
+
+class ReviewCellRegion(CellHeaders, ReviewNVDAObjectRegion):
+	"""The same cell while braille follows the review cursor.
+
+	NVDA's review region differs in one thing — a routing key focuses the object first — and
+	that difference is worth keeping, so there are two classes rather than one.
+	"""
+
+
+class HeadersInBraille:
+	"""The overlay that gives a worksheet cell its header in braille.
+
+	Separate from `SpreadsheetCell`, and not folded into it, because it is a different claim:
+	`SpreadsheetCell` says this cell can be read by coordinate and is the seam the flow uses,
+	while this says only that NVDA is about to draw a cell on one line and should say what
+	its column is called. A cell this add-on will not lay out still deserves its header.
+	"""
+
+	def getBrailleRegions(self, review: bool = False):
+		"""Yield the regions braille should draw this cell from, which is one region.
+
+		**One is the whole answer for a cell**, and not an abbreviation of NVDA's own
+		`braille.regions.focus.getFocusRegions`: that yields a second, text-reading region
+		for an object with navigable text, and a worksheet cell has none — its role is a
+		table cell, it is not editable text, and it carries no tree interceptor. So what NVDA
+		makes for a cell is exactly one `NVDAObjectRegion`, and this is that region with the
+		header added.
+
+		The region is not updated here: `getFocusRegions` updates whatever this yields.
+
+		:param review: whether braille is following the review cursor rather than the focus.
+		"""
+		yield (ReviewCellRegion if review else CellRegion)(self)
+
+
 class SpreadsheetCell:
 	"""The overlay on a worksheet cell: it offers a sheet, and it can be gone to.
 
@@ -633,6 +762,19 @@ class SpreadsheetCell:
 		eventHandler.executeEvent("gainFocus", self)
 
 
+def isAWorksheetCell(obj) -> bool:
+	""":return: whether this object is a cell of Excel's COM object model.
+
+	Which is the model whose cells carry the headers a reader marks: the marking scripts and
+	`ExcelWorksheet.fetchAssociatedHeaderCellText` are on this branch. A UI Automation cell
+	is a different class on a different branch and is left to NVDA, as it is for reading —
+	see the module docstring.
+
+	:param obj: the object NVDA has just built.
+	"""
+	return isinstance(obj, ExcelCell)
+
+
 def readsByCoordinate(obj) -> bool:
 	""":return: whether this object is a worksheet cell that can be read by coordinate.
 
@@ -657,8 +799,20 @@ def readsByCoordinate(obj) -> bool:
 	return hasattr(obj, "excelCellObject") and hasattr(obj, "excelWindowObject")
 
 
+OVERLAYS = (
+	(HeadersInBraille, isAWorksheetCell),
+	(SpreadsheetCell, readsByCoordinate),
+)
+"""The overlay classes this module adds, and what each of them is for.
+
+Two, and deliberately not one: what a cell says its column is called is worth showing in
+braille whether or not this add-on can lay the sheet out, and the two questions are answered
+by different things about a cell. See `HeadersInBraille`.
+"""
+
+
 class AppModule(ExcelAppModule):
-	"""NVDA's Excel module, with one overlay class added.
+	"""NVDA's Excel module, with the overlay classes in L{OVERLAYS} added.
 
 	Everything NVDA's own module does goes on happening: this subclasses it and calls `super`
 	rather than standing in for it, which is what `nvdaBuiltin` exists for.
@@ -667,14 +821,16 @@ class AppModule(ExcelAppModule):
 	def chooseNVDAObjectOverlayClasses(self, obj, clsList):
 		super().chooseNVDAObjectOverlayClasses(obj, clsList)
 		try:
-			# Not twice, and a class *made of* this overlay counts as having it. Such a
-			# class is one NVDA already composed being offered for composing again, and the
-			# bases would come out as (overlay, (overlay, cell)) — a pair with no consistent
-			# method resolution order, so `type` raises and NVDA is left with no object at
-			# all. See `ExcelSheet.cellAt` for what that looked like from the display.
-			if any(issubclass(found, SpreadsheetCell) for found in clsList):
-				return
-			if readsByCoordinate(obj):
-				clsList.insert(0, SpreadsheetCell)
+			for overlay, belongs in OVERLAYS:
+				# Not twice, and a class *made of* an overlay counts as having it. Such a
+				# class is one NVDA already composed being offered for composing again, and
+				# the bases would come out as (overlay, (overlay, cell)) — a pair with no
+				# consistent method resolution order, so `type` raises and NVDA is left with
+				# no object at all. See `ExcelSheet.cellAt` for what that looked like from
+				# the display.
+				if any(issubclass(found, overlay) for found in clsList):
+					continue
+				if belongs(obj):
+					clsList.insert(0, overlay)
 		except Exception:
 			log.debugWarning("Could not tell whether this is a worksheet cell", exc_info=True)

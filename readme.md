@@ -239,6 +239,13 @@ Things worth knowing:
   spreadsheet controls when available" in NVDA's advanced settings, cells are read the
   ordinary way instead.
 
+- On an Excel cell, **the header you marked is shown in NVDA's ordinary one line braille**,
+  after the cell's coordinates. NVDA speaks it there and did not braille it, which left the
+  braille reader with the cell reference and no column name. It follows NVDA's own "report
+  table headers" setting, so turning headers off in Document Formatting turns this off too,
+  and it stays on the display for every cell of the column rather than being announced once.
+  This is nothing to do with reading the sheet in columns; it applies to any cell you land on.
+
 - A table can be laid out in columns, with a command, and the layout can be **remembered**:
   press the remember command while a table is on the display and that table comes up laid
   out the next time you are in it, on the same page or in the same list — including when you

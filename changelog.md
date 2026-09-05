@@ -132,6 +132,16 @@ Added:
   "use UI Automation to access Microsoft Excel spreadsheet controls when available" turned on,
   a cell is left to NVDA's ordinary reading instead.
 
+- **A cell's header is now shown in braille as well as spoken.** Land on a cell in a sheet
+  whose header row you have marked and NVDA says "9/4/2026  A2  Date"; in braille the same
+  cell was "9/4/2026  A2", and the only way to find out what the column was called was to
+  leave the cell and come back. The header now follows the coordinates on the display, where
+  speech puts it, and it obeys the same "report table headers" setting speech obeys — rows,
+  columns, both or off. Unlike speech it does not go quiet on the next cell of the column:
+  braille says where you are standing, not what has just changed. This is NVDA's ordinary one
+  line reading of a cell, not the flow, so it applies whether or not the sheet is laid out in
+  columns.
+
 - The Excel support is an **application module**, so it is loaded only while Excel is running
   and nothing about Excel is asked of any other application. It extends NVDA's own Excel
   module rather than replacing it, so everything NVDA does there goes on happening. A sheet

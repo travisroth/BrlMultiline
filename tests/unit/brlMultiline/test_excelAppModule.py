@@ -23,7 +23,7 @@ import sys
 import types
 import unittest
 
-from ._stubs import CallCancelled, installStubs, log
+from ._stubs import CallCancelled, FORMAT_CONFIG, ReportTableHeaders, installStubs, log
 
 installStubs()
 
@@ -148,6 +148,27 @@ class FakeCell(metaclass=DynamicType):
 		it, and then there is no batch fetch to be had."""
 
 		FakeCell.made.append(self)
+
+	@property
+	def name(self):
+		""":return: what NVDA calls a cell, which is what the cell says."""
+		return self.excelCellObject.text if self.excelCellObject else ""
+
+	@property
+	def cellCoordsText(self):
+		""":return: where the cell is, as NVDA writes it on the display: "B2"."""
+		letters = ""
+		column = self.columnNumber or 0
+		while column:
+			column, remainder = divmod(column - 1, 26)
+			letters = chr(ord("A") + remainder) + letters
+		return f"{letters}{self.rowNumber}"
+
+	@property
+	def rowHeaderText(self):
+		""":return: what this cell says its row is called, through the same worksheet and the
+		same tracker its column's name comes from. See `columnHeaderText`."""
+		return self.parent.rowHeadingFor(self.rowNumber, self.columnNumber)
 
 	@property
 	def columnHeaderText(self):
@@ -424,6 +445,30 @@ class FakeWorksheet:
 		for heading in self.headings:
 			tracker.addHeaderCellInfo(**heading)
 
+	def rowHeadingFor(self, row, column):
+		""":return: what a cell's row is called, which is the other branch of
+		`fetchAssociatedHeaderCellText`: the first marked header column at or to the left of
+		the cell, read as the text at (this row, its column) and joined across its columns.
+
+		A cell inside the header column itself is named by nothing, which is
+		`iterPossibleHeaderCellInfosFor`'s own rule — a header does not head itself."""
+		tracker = self.headerCellTracker
+		for key in tracker.listByRow:
+			info = tracker.infosDict[key]
+			if not info.isRowHeader or row < info.rowNumber:
+				continue
+			if info.maxRowNumber and row > info.maxRowNumber:
+				continue
+			if column < info.columnNumber + info.colSpan:
+				return None
+			said = " ".join(
+				self.excelWorksheetObject.cells(row, at).text
+				for at in range(info.columnNumber, info.columnNumber + info.colSpan)
+			).strip()
+			if said:
+				return said
+		return None
+
 	def headingFor(self, row, column):
 		""":return: what a cell's column is called, the way `fetchAssociatedHeaderCellText`
 		works it out: through **the tracker this worksheet is keeping**, taking the first
@@ -476,10 +521,17 @@ def aCell(
 		poisoned=poisoned,
 		namesFail=namesFail,
 	)
+	# The cell carries what the sheet says at its coordinate, which is where NVDA's own gets
+	# it. Taken from the values rather than through `cells`, so that a test counting what the
+	# worksheet was asked counts only what the add-on asked it.
+	values = worksheet.excelWorksheetObject.values
+	said = ""
+	if 1 <= row <= len(values) and 1 <= column <= len(values[row - 1]):
+		said = values[row - 1][column - 1]
 	cell = FakeCell(
 		windowHandle=42,
 		excelWindowObject=object(),
-		excelCellObject=FakeRange(row, column),
+		excelCellObject=FakeRange(row, column, said),
 	)
 	cell.parent = worksheet
 	return cell
@@ -872,11 +924,21 @@ class TestTheApplicationModuleExtendsNvdasOwn(unittest.TestCase):
 	to extend NVDA's rather than stand beside it — or every Excel fix NVDA has would be lost
 	the moment this add-on is installed."""
 
-	def test_theOverlayIsAddedToAWorksheetCell(self):
+	def test_theOverlaysAreAddedToAWorksheetCell(self):
 		module = excelModule.AppModule()
 		classes = []
 		module.chooseNVDAObjectOverlayClasses(aCell(), classes)
-		self.assertEqual(classes, [excelModule.SpreadsheetCell])
+		self.assertEqual(classes, [excelModule.SpreadsheetCell, excelModule.HeadersInBraille])
+
+	def test_andACellThatCannotBeReadByCoordinateStillGetsItsHeaderInBraille(self):
+		"""The two overlays are two claims, and only one of them is about laying a sheet out.
+		What a cell's column is called belongs to NVDA's own line of braille."""
+		module = excelModule.AppModule()
+		cell = aCell()
+		del cell.excelCellObject
+		classes = []
+		module.chooseNVDAObjectOverlayClasses(cell, classes)
+		self.assertEqual(classes, [excelModule.HeadersInBraille])
 
 	def test_andNvdasOwnChoosingStillHappens(self):
 		module = excelModule.AppModule()
@@ -1057,6 +1119,123 @@ class TestBuildingACellTheWayNvdaComposesThem(unittest.TestCase):
 		classes = [composed]
 		excelModule.AppModule().chooseNVDAObjectOverlayClasses(aCell(), classes)
 		self.assertEqual(classes, [composed])
+
+
+class TestTheHeaderInNvdasOwnBraille(unittest.TestCase):
+	"""**Speech says it and braille did not.**
+
+	Land on a cell in a sheet whose header row the reader has marked and NVDA speaks
+	"9/4/2026  A2  Date". The same cell in braille was "9/4/2026  A2", and the only way to
+	find out what the column was called was to leave the cell and come back — so the reader
+	who cannot hear the header cannot have it at all.
+
+	It is not that braille does not know how. `getPropertiesBraille` has a `columnHeaderText`
+	and puts it exactly where speech does; it is only ever given one beside a `columnNumber`,
+	and the region that draws an object sends neither. Nothing decided this.
+	"""
+
+	ACROSS = [{"rowNumber": 1, "columnNumber": 1, "maxColumnNumber": 3}]
+	"""A header row marked across the sheet, which is what NVDA+shift+c leaves behind."""
+
+	DOWN = [
+		{
+			"rowNumber": 2,
+			"columnNumber": 1,
+			"maxRowNumber": 3,
+			"isColumnHeader": False,
+			"isRowHeader": True,
+		},
+	]
+	"""And a header column marked down it, from A2, which is what NVDA+shift+r leaves behind.
+
+	From A2 and not from A1 because that is where a reader marks it — row one is already the
+	header row — and because NVDA keys a tracker entry by (row, column): a header row and a
+	header column both anchored on the same cell are one entry, not two.
+	"""
+
+	def setUp(self):
+		settings = dict(FORMAT_CONFIG)
+		self.addCleanup(FORMAT_CONFIG.update, settings)
+
+	def _region(self, review=False, **kwargs):
+		""":return: the region NVDA would draw a cell from, updated as `getFocusRegions`
+		updates whatever an object hands it."""
+		cell = kwargs.pop("cell", None) or aCell(**kwargs)
+		regions = list(cell.getBrailleRegions(review=review))
+		self.assertEqual(len(regions), 1, "a cell is drawn from one region")
+		regions[0].update()
+		return regions[0]
+
+	def test_theColumnHeaderIsShownAfterTheCoordinates(self):
+		"""Where speech says it, and after everything else the line already carried."""
+		self.assertEqual(self._region(row=2, column=2, headings=self.ACROSS).rawText, "1200 B2 Q1")
+
+	def test_aSheetNobodyHasMarkedIsDrawnExactlyAsNvdaDrewIt(self):
+		self.assertEqual(self._region(row=2, column=2).rawText, "1200 B2")
+
+	def test_norIsAHeaderCellNamedByItself(self):
+		"""`iterPossibleHeaderCellInfosFor`'s own rule: a header does not head itself."""
+		self.assertEqual(self._region(row=1, column=2, headings=self.ACROSS).rawText, "Q1 B1")
+
+	def test_theReadersOwnSettingTurnsItOff(self):
+		"""The same setting speech obeys. A reader who turned table headers off is not given
+		them here either — it is one decision, not two."""
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.OFF.value
+		self.assertEqual(self._region(row=2, column=2, headings=self.ACROSS).rawText, "1200 B2")
+
+	def test_andRowsOnlyMeansTheColumnsHeaderIsNotShown(self):
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS.value
+		region = self._region(row=2, column=2, headings=self.ACROSS + self.DOWN)
+		self.assertEqual(region.rawText, "1200 B2 North")
+
+	def test_andColumnsOnlyMeansTheRowsIsNot(self):
+		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.COLUMNS.value
+		region = self._region(row=2, column=2, headings=self.ACROSS + self.DOWN)
+		self.assertEqual(region.rawText, "1200 B2 Q1")
+
+	def test_andBothComeInSpeechsOrder(self):
+		"""The row's header, then the column's. See `speech.getPropertiesSpeech`."""
+		region = self._region(row=2, column=2, headings=self.ACROSS + self.DOWN)
+		self.assertEqual(region.rawText, "1200 B2 North Q1")
+
+	def test_theCoordinatesCanBeTurnedOffAndTheHeaderStillArrives(self):
+		"""Two settings, and the header is not smuggled in beside the coordinates."""
+		FORMAT_CONFIG["reportTableCellCoords"] = False
+		self.assertEqual(self._region(row=2, column=2, headings=self.ACROSS).rawText, "1200 Q1")
+
+	def test_drawingTheSameRegionAgainDoesNotShowTheHeaderTwice(self):
+		"""A region is updated again whenever the cell changes underneath it, and the header
+		is appended to what the base concatenates *before* translating — so it has to be put
+		back afterwards or it accumulates."""
+		region = self._region(row=2, column=2, headings=self.ACROSS)
+		region.update()
+		region.update()
+		self.assertEqual(region.rawText, "1200 B2 Q1")
+
+	def test_andWhatFollowsTheRegionStaysAtTheEnd(self):
+		"""NVDA appends a separator to a region that precedes another one. The header goes
+		before it, not after: it belongs to this cell."""
+		region = excelModule.CellRegion(aCell(row=2, column=2, headings=self.ACROSS), appendText="!")
+		region.update()
+		self.assertEqual(region.rawText, "1200 B2 Q1!")
+
+	def test_aHeaderThatCannotBeReadCostsTheHeaderAndNotTheCell(self):
+		"""Braille is drawn from here and there is nowhere above to hand a failure to. A walk
+		of the workbook's names that did not finish must not take the line down with it."""
+		region = self._region(row=2, column=2, headings=self.ACROSS, namesFail=True)
+		self.assertEqual(region.rawText, "1200 B2")
+
+	def test_followingTheReviewCursorGivesTheRegionThatFocusesOnRouting(self):
+		"""NVDA's review region differs in what a routing key does, and that difference is
+		not this add-on's to drop."""
+		region = self._region(row=2, column=2, headings=self.ACROSS, review=True)
+		self.assertIsInstance(region, excelModule.ReviewCellRegion)
+		self.assertEqual(region.rawText, "1200 B2 Q1")
+
+	def test_andFollowingTheFocusGivesTheOrdinaryOne(self):
+		region = self._region(row=2, column=2, headings=self.ACROSS)
+		self.assertNotIsInstance(region, excelModule.ReviewCellRegion)
+		self.assertIsInstance(region, excelModule.CellRegion)
 
 
 class TestGoingToACell(unittest.TestCase):
