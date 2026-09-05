@@ -260,6 +260,36 @@ Things worth knowing:
   window it belongs to, which means File Explorer's Details view is one table whichever
   folder is open.
 
+## Arrow keys in a table
+
+Inside a browse mode table — a web page, a message in your mail, anything NVDA reads in
+browse mode — the arrow keys read the table itself:
+
+- Up and down move a row and stay in the column, so you can read down a column of figures
+  without reading every row on the way.
+- Left and right move a cell and stay in the row.
+- Home and end move to the first and last cell of the row.
+
+There is nothing to turn on and nothing to turn off. Being in a table is the whole of the
+state, and no key is ever swallowed: when there is no cell in the direction you pressed, the
+key does exactly what it does anywhere else on the page. The down arrow on the last row
+leaves the table, the up arrow on the first row leaves it upwards, and the right arrow in
+the last cell of a row carries on into whatever follows the table. Nothing announces an edge,
+because from where you are sitting there is not one.
+
+This is independent of laying a table out in columns on the display; it applies whether or
+not the table is showing as a flow.
+
+Shift with the arrows still selects, and control with the arrows still moves by word and by
+paragraph, so a long cell can still be read a word at a time and say all still reads
+everything. What you give up is moving line by line *within* a tall cell with the down arrow,
+which is the trade a table reading mode is.
+
+The movement itself is NVDA's own, the same one control+alt+arrow uses, so merged cells and
+your layout table setting behave exactly as they do with NVDA's table commands, and what is
+announced when you arrive in a cell is what NVDA announces. If you have set "report tables"
+to off in NVDA's Document Formatting settings, the arrow keys are left alone entirely.
+
 ## Using two displays at once
 
 The add-on can drive several braille displays as one, stacked one above another, so that a

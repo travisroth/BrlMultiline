@@ -29,7 +29,7 @@ from braille.extensions import displayChanged, displaySizeChanged
 from logHandler import log
 from scriptHandler import script
 
-from . import bmConfig, panning, patches
+from . import bmConfig, panning, patches, tableArrows
 from .container import DisplayContainer
 from .flowTableSource import wantsColumns
 from . import devices as devicesModule
@@ -200,6 +200,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		patches.install()
 		# Which display's keys are being pressed, for the per display panning direction.
 		panning.install()
+		# The arrow keys inside a browse mode table, which is a way of reading rather than a
+		# way of displaying and so is not waited on a flow. See `tableArrows`.
+		tableArrows.install()
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(BrailleMultilineSettingsPanel)
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(FlowSettingsPanel)
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(VirtualDisplaySettingsPanel)
@@ -237,6 +240,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._restoreOriginalBuffer()
 			patches.remove()
 			panning.remove()
+			tableArrows.remove()
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(BrailleMultilineSettingsPanel)
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(FlowSettingsPanel)
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(VirtualDisplaySettingsPanel)

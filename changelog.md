@@ -124,6 +124,21 @@ Added:
   nothing. What holds an object now answers where its own role does not. Noticed in this
   add-on's own table designer, and it applies to File Explorer's checkbox mode too.
 
+- **The arrow keys read a browse mode table by cell.** Inside a table, up and down move a
+  row and keep the column, left and right move a cell and keep the row, and home and end go
+  to the first and last cell of the row — the way the same keys read a spreadsheet, and
+  without a mode to turn on or a chord to hold down. It happens wherever the cursor is in a
+  table, whether or not the table is laid out in columns on the display.
+
+  **Nothing is trapped.** A key is only taken when there is a cell to move to: the down
+  arrow on the last row leaves the table, the up arrow on the first row leaves it upwards,
+  and the right arrow in the last cell of a row walks on into what follows, all exactly as
+  they do on any other page. There is no edge message and nothing to switch off to get out.
+  Shift and control with the arrows are untouched, so selecting text and moving by word
+  inside a long cell work as they always did. The movement, and what is announced on
+  arrival, are NVDA's own — the same ones control+alt+arrow uses — and the arrows are left
+  alone entirely if you have turned tables off in NVDA's Document Formatting settings.
+
 - **An Excel worksheet can be read in columns**, like a web page's table or File Explorer's
   Details view. A sheet is read by coordinate rather than by walking rows, its extent comes
   from Excel's used range, and its row and column numbers are Excel's own. Headers are the

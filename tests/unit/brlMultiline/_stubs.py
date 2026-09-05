@@ -18,6 +18,7 @@ every test module may call it.
 """
 
 import dataclasses
+import enum
 import os
 import re
 import sys
@@ -1081,6 +1082,28 @@ class FakeCellInfo:
 			self.cell["caret"] = True
 
 
+class Axis(str, enum.Enum):
+	"""`documentBase._Axis`: which way a table movement runs."""
+
+	ROW = "row"
+	COLUMN = "column"
+
+
+class Movement(str, enum.Enum):
+	"""`documentBase._Movement`: which end of the axis a table movement is towards.
+
+	Real enumerations, and mixed with `str` exactly as NVDA's are, because the difference
+	shows: NVDA tests these with `movement in {_Movement.NEXT, _Movement.PREVIOUS}`, and a
+	string that merely spells the same word hashes differently and is not in that set. A
+	stand-in made of plain strings would have accepted what NVDA rejects.
+	"""
+
+	NEXT = "next"
+	PREVIOUS = "previous"
+	FIRST = "first"
+	LAST = "last"
+
+
 class FakeTableCell:
 	"""What `_getTableCellCoords` answers with. NVDA's own is a dataclass of these fields."""
 
@@ -1973,6 +1996,25 @@ def _copyToClip(text, notify=False):
 spokenMessages: list[str] = []
 """Everything the reader was told, however it reached them."""
 
+spokenPositions: list[tuple] = []
+"""Every `speech.speakTextInfo` call, as (info, formatConfig, reason).
+
+What NVDA speaks a table cell with when the reader moves onto it. Recorded rather than
+rendered: what matters to the add-on is which position was spoken and under what formatting
+settings, and turning a position into words is NVDA's work."""
+
+SCRIPT_STATE = {"waiting": False, "sayAllResuming": False}
+"""What `scriptHandler` says about the moment a script is running in.
+
+`isScriptWaiting` is true when keypresses have backed up, which is NVDA's signal to move
+without reporting or not to move at all. `willSayAllResume` is true when the key that ran
+this script is one that resumes an interrupted say all, in which case the key is not a
+request to move at all."""
+
+
+def _speakTextInfo(info, formatConfig=None, reason=None, **kwargs):
+	spokenPositions.append((info, formatConfig, reason))
+
 flashedMessages: list[str] = []
 """What was also written to the display, which is what `ui.message` does and what a message
 about a table must not do: the display is showing the table, and a flash sits over it until
@@ -2663,7 +2705,7 @@ def _installPluginStubs() -> None:
 		copyToClip=_copyToClip,
 	)
 	_module("ui", message=_flash)
-	_module("speech", speakMessage=spokenMessages.append)
+	_module("speech", speakMessage=spokenMessages.append, speakTextInfo=_speakTextInfo)
 	_module("virtualBuffers", VirtualBuffer=FakeVirtualBufferClass)
 	_module(
 		"wx",
@@ -2722,9 +2764,18 @@ def _installPluginStubs() -> None:
 		guiHelper=types.SimpleNamespace(BoxSizerHelper=object),
 	)
 	_module("gui.guiHelper", BoxSizerHelper=object)
-	_module("scriptHandler", script=scriptDecorator)
+	_module(
+		"scriptHandler",
+		script=scriptDecorator,
+		isScriptWaiting=lambda: SCRIPT_STATE["waiting"],
+		willSayAllResume=lambda gesture: SCRIPT_STATE["sayAllResuming"],
+	)
 	_module("keyboardHandler", keyCounter=0)
-	_module("controlTypes", Role=lambda role: types.SimpleNamespace(displayString=str(role)))
+	_module(
+		"controlTypes",
+		Role=lambda role: types.SimpleNamespace(displayString=str(role)),
+		OutputReason=types.SimpleNamespace(CARET="caret", FOCUS="focus", QUERY="query"),
+	)
 	_module("braille.extensions", displayChanged=displayChanged, displaySizeChanged=displaySizeChanged)
 	_module("braille.brailleHandler", BrailleHandler=FakeBrailleHandler)
 	_module(
@@ -2834,7 +2885,12 @@ def installStubs() -> None:
 	gestureModule = _module("braille.display.gesture", BrailleDisplayGesture=BrailleDisplayGesture)
 	regions = _module("braille.regions")
 	regionsBase = _module("braille.regions.base", Region=Region, TextRegion=TextRegion)
-	_module("documentBase", DocumentWithTableNavigation=FakeTableDocument)
+	_module(
+		"documentBase",
+		DocumentWithTableNavigation=FakeTableDocument,
+		_Axis=Axis,
+		_Movement=Movement,
+	)
 	regionsTextInfo = _module(
 		"braille.regions.textInfo",
 		TextInfoRegion=TextInfoRegion,

@@ -2925,6 +2925,64 @@ It drew "name role" and no coordinates, so it could have agreed with a header pu
 all. It now puts the coordinates last, as `getPropertiesBraille` does, and concatenates the
 appended text rather than joining it — because those two facts are the whole question.
 
+### The arrow keys, inside a table
+
+Asked for directly: in a browse mode table, up and down should move by row, left and right by
+cell, home and end to the ends of the row — and the table must not trap the reader.
+
+The reading problem is real and old. A table is two dimensional and browse mode's reading
+keys are not, so following a column downwards means reading every cell of every row on the
+way, and the one thing a table exists for is the one thing the reading keys cannot do. NVDA
+answers it with a second set of commands, control+alt+arrows, which works and costs a four
+finger chord per cell. Other screen readers answer it with a mode, entered and left by hand.
+
+**The design is one sentence: it is not a mode, and it never traps.** Being in a table is
+already the state — the reader arrows in and the arrows read the table, arrows out and they
+read the page — and the thing that makes that safe is that a key is taken *only when there is
+a cell to move to*. Where there is not, nothing here happens at all and the key is NVDA's
+own: the down arrow on the last row leaves the table, the right arrow in the last cell walks
+on into the text after it. There is no edge announcement and no boundary case, because the
+fallback is not a fallback — it is the key doing what that key does.
+
+That inverts where the complexity usually goes. A navigation mode has to define what happens
+at every edge; this has to define only when it acts, and everything it does not act on is
+already defined by NVDA.
+
+`tableArrows` wraps six of `cursorManager.CursorManager`'s movement scripts — the ones browse
+mode binds the plain arrows, home and end to, and the only class in NVDA that defines them.
+Shift and control with the arrows are different scripts, so selecting and moving by word are
+untouched by construction rather than by a rule.
+
+**The movement is NVDA's and not this add-on's.** `_tableFindNewCell(raiseOnEdge=True)` is
+what control+alt+arrow moves with, and `raiseOnEdge` is precisely the difference this needed:
+the same arithmetic — merged cells, missing cells, the reader's layout table setting — with
+the edge raising instead of announcing itself. What is reported on arrival is what NVDA's own
+table movement reports, in the order it reports it: spoken before the selection is set,
+because setting the selection can move the focus and rebuild the document under the position
+just found. So a reader who uses both gets one behaviour, and this module holds no opinion
+about what a table is.
+
+Five refusals, each a case where moving by cell is the wrong answer rather than one where it
+would fail: a key with a selection under it, a key resuming say all, a backed up key queue
+(NVDA's own policy for both kinds of movement), focus mode, and a reader who has turned
+tables off in Document Formatting — the last because taking the arrow keys over is something
+this add-on does on its own account, which is exactly what that setting governs.
+
+Home and end carry one extra rule: if the first or last cell of the row is the cell the
+reader is already in, the key is not taken. A key that would move nothing is not a key worth
+keeping, and NVDA's own start of line is more use than nothing at all.
+
+**What the harness could not answer.** The document stand-in reproduces `_tableFindNewCell`'s
+*contract* — it raises at an edge and otherwise answers with a cell, a position and NVDA's
+selection record — and deliberately not its arithmetic, which is NVDA's to get right and is
+shared with a command that already works. Two tests are therefore written against the log
+rather than against behaviour: reaching the edge of a table must not be written down as a
+fault, and something that is not a table navigating document must be *recognised* rather than
+merely survived. Both would pass by accident against a broad catch, which is what the second
+one caught: with the check for the kind of document removed, asking a review cursor for its
+cells raised, the catch turned that into no movement, and the reader got the right key for
+the wrong reason.
+
 ## Open questions
 
 1. **What re-reads a tree when a node is expanded?** A state change event is the obvious
