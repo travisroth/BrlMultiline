@@ -288,5 +288,66 @@ class TestPinBuffer(unittest.TestCase):
 		self.assertEqual(buffer.rows(), ["OOO", "..O", "..O"])
 
 
+class TestCellSlot(unittest.TestCase):
+	"""A glyph fills the gap column braille leaves blank, without moving the next cell."""
+
+	def test_slotIsOneColumnWiderThanACell(self):
+		for pitch in (monarch.PITCH_8_ROW, monarch.PITCH_10_ROW):
+			width, height = pitch.slotSize
+			self.assertEqual(width, pitch.cellCols + pitch.gapCols)
+			self.assertEqual(width, pitch.cellCols + 1)
+			self.assertEqual(height, 4)
+
+	def test_slotsTileTheGridExactly(self):
+		"""32 slots of 3 is 96, so even a glyph in the last cell fits with nothing spilling."""
+		pitch = monarch.PITCH_8_ROW
+		self.assertEqual(pitch.numCols * pitch.slotSize[0], monarch.PIN_WIDTH)
+
+	def test_slotsDoNotOverlap(self):
+		pitch = monarch.PITCH_8_ROW
+		width = pitch.slotSize[0]
+		for col in range(pitch.numCols - 1):
+			thisX, _ = monarch.cellOrigin(0, col, pitch)
+			nextX, _ = monarch.cellOrigin(0, col + 1, pitch)
+			self.assertEqual(thisX + width, nextX)
+
+
+class TestGlyphPatterns(unittest.TestCase):
+	"""The shapes themselves, drawn as text so a wrong one is visible rather than inferred."""
+
+	def test_fromRowsRoundTripsThroughRows(self):
+		shape = ["OOO", "O.O", "OOO", "..."]
+		self.assertEqual(PinBuffer.fromRows(shape).rows(), shape)
+
+	def test_fromRowsAcceptsAnyInkCharacter(self):
+		self.assertEqual(PinBuffer.fromRows(["#*O"]).rows(), ["OOO"])
+
+	def test_fromRowsPadsShortRows(self):
+		self.assertEqual(PinBuffer.fromRows(["OOO", ""]).rows(), ["OOO", "..."])
+
+	def test_focusIndicatorIsASquareThatBrailleCannotDraw(self):
+		"""Monarch's own list indicator: a solid 3 by 3 with the fourth row left blank.
+
+		Three columns wide is the whole point — a braille cell has two, so the square is only
+		square once the gap column is used. The fallback below is the nearest braille can get.
+		"""
+		glyph = PinBuffer.fromRows(["OOO", "OOO", "OOO", "..."])
+		self.assertEqual(glyph.width, monarch.PITCH_8_ROW.slotSize[0])
+		self.assertEqual(glyph.height, monarch.PITCH_8_ROW.slotSize[1])
+		self.assertEqual(glyph.rows(), ["OOO", "OOO", "OOO", "..."])
+
+	def test_dotsOneToSixIsTheFocusIndicatorsFallback(self):
+		"""0x3F is a solid 2 by 3, which is the square minus the column braille cannot reach.
+
+		So one buffer serves every display: a true square here, a recognisable block elsewhere.
+		"""
+		buffer = PinBuffer(monarch.BLOCK_WIDTH, monarch.BLOCK_HEIGHT)
+		for bit in range(8):
+			if 0x3F & (1 << bit):
+				x, y = monarch._BRAILLE_DOT_COORDS[bit]
+				buffer.setDot(x, y)
+		self.assertEqual(buffer.rows(), ["OO", "OO", "OO", ".."])
+
+
 if __name__ == "__main__":
 	unittest.main()

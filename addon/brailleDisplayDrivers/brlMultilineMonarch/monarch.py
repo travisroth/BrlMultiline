@@ -120,6 +120,22 @@ class Pitch:
 		""":return: how many cells fit across the grid at this pitch."""
 		return PIN_WIDTH // self.cellStride
 
+	@property
+	def slotSize(self) -> tuple[int, int]:
+		"""The pins a single cell owns, including the gap column after it.
+
+		Braille uses only `cellCols` of those columns and leaves the gap blank, because a
+		reader needs the separation to tell one cell from the next. Nothing in the hardware
+		requires it: in graphics the whole slot is addressable, which is what makes a glyph
+		one column wider than a braille cell without moving anything.
+
+		The slot is what a glyph may fill. It stops at the cell boundary, so the next cell
+		still starts exactly where it would have.
+
+		:return: slot width and height in pins.
+		"""
+		return self.cellStride, self.dotRows
+
 
 PITCH_8_ROW = Pitch("8row", gapRows=1)
 """8 lines of 32. Four dot rows and a blank one: 8 x 5 = 40, exactly terminal mode.

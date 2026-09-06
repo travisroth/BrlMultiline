@@ -105,6 +105,51 @@ exactly the thing a reader most needs to see.
 `numRows` and `numCols` are reported to NVDA accordingly, so the handler, the add-on's views
 and the flow all size themselves correctly with no special cases above the driver.
 
+### Cell glyphs, which are the gap column spent differently
+
+A braille cell is two dot columns and a blank one. The blank exists so a reader can tell one
+cell from the next, not because the hardware needs it — and in graphics nothing enforces it.
+So a cell slot can carry a **3 by 4 glyph** instead of a 2 by 4 braille cell, and because the
+slot is unchanged the next cell still starts exactly where it did. Layout, routing, wrapping
+and scrolling are all untouched. 32 slots of 3 is 96, so even a glyph in the last cell fits.
+
+A cell is one byte and twelve pins need twelve bits, so **the pattern cannot travel in the
+cell array**. There is no spare value to use as an escape either: all 256 are legitimate
+braille. The position comes from the cell grid and the pattern arrives alongside, through
+`setCellGlyphs`, keyed by index into the flat cell array.
+
+Each glyph carries the braille cell it stands in for, and is drawn only while the cell at
+that index still reads it. One check, three properties:
+
+1. A frame the add-on did not compose — a braille message — cannot get a glyph painted over
+   unrelated content. It is skipped and the ordinary cell shows.
+2. The fallback is what a display without glyphs renders anyway, so the add-on writes one
+   buffer and every display does the best it can with it.
+3. A caret wins. NVDA ors the cursor into the cell before the driver sees it, the cell stops
+   matching, and the braille cell with its cursor is drawn instead.
+
+The worked example is the list focus indicator. Monarch's own is a solid 3 by 3 with the
+fourth row blank, followed by a space cell, and it is easy to find precisely because it is
+square — which needs three columns. BrlMultiline currently approximates it with dots 3678
+twice. As a glyph it is the real thing, with a fallback of dots 1 to 6 (0x3F, a solid 2 by 3)
+that stays recognisable on a Focus.
+
+**The vocabulary lives in the add-on, not here.** The driver is handed patterns and never
+learns a symbol's name, so an Excel module wanting a formula marker and a Word module wanting
+a checkmark do not touch this file. `newGlyph` is a factory on the driver so the add-on can
+build one without importing the package, the way `devices.py` reads the live driver object
+rather than importing it.
+
+Single cell only. A glyph spanning several cells would need a region the flow must not break,
+and the add-on has only wrap and no-wrap today; that is a larger change than the idea is
+worth. An app module wanting a two cell symbol accepts that it can split, which readers of
+refreshable braille are used to.
+
+`glyphSize` and `cellSize` are both published so the add-on can tell whether a display has a
+gap to reclaim. A display whose cells are already gapless reports the same for both and
+glyphs gain it nothing, which is the honest answer for that hardware rather than a silent
+degradation.
+
 ### Touch, where both reports are kept
 
 The panel answers a finger with two reports and the driver reads both:
@@ -175,14 +220,18 @@ In:
 3. Pitch setting: 8 rows or 10 rows, all eight dots drawn at both.
 4. Graphics overlay API, composited with text.
 5. Touch capture, both reports, published for the add-on.
-6. Reconnection: retry, read error watch, backoff poll, in place device reopen.
+6. Single cell glyphs: 3 by 4 shapes filling a cell slot, each with the braille fallback the
+   add-on also writes into the buffer. The vocabulary stays in the add-on.
+7. Reconnection: retry, read error watch, backoff poll, in place device reopen.
 
 Out:
 
-1. Focus indicators distinct from the cursor. The overlay API carries them when wanted.
-2. A DotPad X driver. The seam is prepared, the device is not here.
-3. Any change to the virtual driver, including the coexistence check.
-4. Anything above the driver: panels, views and a graphics segment are the tactile graphics
+1. The glyph vocabulary itself, and deciding which app modules want which symbols. The driver
+   supplies the mechanism; naming the shapes is the add-on's.
+2. Multi cell glyphs, which would need a region the flow must not break.
+3. A DotPad X driver. The seam is prepared, the device is not here.
+4. Any change to the virtual driver, including the coexistence check.
+5. Anything above the driver: panels, views and a graphics segment are the tactile graphics
    plan's phase 2 and follow separately.
 
 ## Open questions

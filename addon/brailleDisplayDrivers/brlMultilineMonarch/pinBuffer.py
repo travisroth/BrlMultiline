@@ -37,6 +37,31 @@ class PinBuffer:
 		self.height = height
 		self._dots = bytearray(width * height)
 
+	@classmethod
+	def fromRows(cls, rows: list[str]) -> "PinBuffer":
+		"""Build a buffer from text, the inverse of `rows`.
+
+		Written for glyph literals, where being able to see the shape in the source is worth
+		more than compactness::
+
+			PinBuffer.fromRows(["OOO", "OOO", "OOO", "..."])
+
+		Any character other than a space or a full stop raises a dot, so ``#`` or ``*`` read
+		as well as ``O``. Short rows are padded, so a trailing blank row can be written as
+		``""``.
+
+		:param rows: one string per row. The width is the longest of them.
+		:return: the buffer.
+		"""
+		height = len(rows)
+		width = max((len(row) for row in rows), default=0)
+		buffer = cls(width, height)
+		for y, row in enumerate(rows):
+			for x, character in enumerate(row):
+				if character not in " .":
+					buffer.setDot(x, y)
+		return buffer
+
 	def clear(self) -> None:
 		"""Lower every dot."""
 		self._dots = bytearray(self.width * self.height)

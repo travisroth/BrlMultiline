@@ -68,6 +68,29 @@ POLL_BACKOFF_LIMIT = 60.0
 """How often to look for a device that has dropped, and how far apart that may grow."""
 
 
+class CellGlyph:
+	"""A shape drawn in place of one braille cell, filling the cell's whole slot.
+
+	A braille cell is two dot columns and a blank one; the blank is there so a reader can tell
+	one cell from the next, not because the hardware needs it. A glyph fills all three, giving
+	3 by 4 instead of 2 by 4 without moving anything: the next cell still starts where it did,
+	so routing, layout and scrolling are untouched.
+
+	Built through `BrailleDisplayDriver.newGlyph` rather than directly, so the add-on never
+	imports this package.
+	"""
+
+	def __init__(self, pattern: PinBuffer, fallbackCell: int):
+		"""
+		:param pattern: the shape, clipped to the slot.
+		:param fallbackCell: the braille cell this stands in for, which the add-on has written
+			into the buffer at the same position. The glyph is drawn only while the cell there
+			still reads it.
+		"""
+		self.pattern = pattern
+		self.fallbackCell = fallbackCell
+
+
 def _standardHidDriverName() -> str:
 	""":return: the name `bdDetect` files HID braille devices under.
 
@@ -106,6 +129,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._pitch = monarch.PITCHES[monarch.PITCH_8_ROW.name]
 		self._overlays: dict[str, tuple[int, int, PinBuffer]] = {}
 		self._lastCells: list[int] = []
+		self._glyphs: dict[int, CellGlyph] = {}
 		self._lastTouchPin: Optional[tuple[int, int]] = None
 		self._lastTouchCell: Optional[int] = None
 		self._writeLock = threading.Lock()
@@ -348,6 +372,71 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		""":return: a blank buffer the size of this display's pin grid."""
 		return PinBuffer(monarch.PIN_WIDTH, monarch.PIN_HEIGHT)
 
+	# --- Cell glyphs -----------------------------------------------------------------------
+
+	@property
+	def glyphSize(self) -> tuple[int, int]:
+		"""The pins a glyph may fill, which is one cell slot including its gap column.
+
+		3 by 4 on the Monarch, against a braille cell's 2 by 4. A display whose cells have no
+		gap to reclaim would report the same size as its cell and a glyph would gain nothing;
+		the add-on can compare this with `cellSize` to find out whether glyphs are worth using.
+
+		:return: width and height in pins.
+		"""
+		return self._pitch.slotSize
+
+	@property
+	def cellSize(self) -> tuple[int, int]:
+		""":return: the pins a braille cell uses, for comparison with `glyphSize`."""
+		return self._pitch.cellCols, self._pitch.dotRows
+
+	def newGlyph(self, rows: list[str], fallbackCell: int) -> "CellGlyph":
+		"""Build a glyph this driver can draw, without the caller importing anything.
+
+		The add-on reaches the driver as a live object and does not import the package — the
+		same rule `devices.py` follows — so the factory lives here rather than the class being
+		imported there.
+
+		:param rows: the shape, one string per row, as `PinBuffer.fromRows` takes it. Anything
+			past the slot is clipped.
+		:param fallbackCell: the braille cell the add-on has put in the buffer at this
+			position. See `setCellGlyphs` for what it is for.
+		:return: the glyph.
+		"""
+		return CellGlyph(PinBuffer.fromRows(rows), fallbackCell)
+
+	def setCellGlyphs(self, glyphs: dict[int, "CellGlyph"]) -> None:
+		"""Replace the set of cells that are drawn as glyphs rather than as braille.
+
+		Keyed by index into the flat cell array the handler writes, so a glyph sits in the
+		text and scrolls with it: it occupies exactly one cell slot and the next cell starts
+		where it always would.
+
+		Each glyph carries the braille cell it stands in for, and is drawn **only if the cell
+		at that index still reads it**. That does three things at once:
+
+		1. A frame the add-on did not compose — a braille message, say — cannot get a glyph
+		   painted over unrelated content. The glyph is skipped and the cell shows instead.
+		2. The fallback is what a display without glyphs shows anyway, so the add-on writes
+		   one buffer and every display renders the best it can. A solid dots 1 to 6 becomes a
+		   true 3 by 3 square here and stays a recognisable block elsewhere.
+		3. A caret wins. NVDA ors the cursor shape into the cell before the driver sees it, so
+		   the cell no longer matches and the braille cell with its cursor is drawn. Deliberate:
+		   the reader needs the caret more than the symbol.
+
+		The whole set is replaced, so the add-on registers what it wants on each recompose and
+		never has to clear individually.
+
+		:param glyphs: cell index to glyph. Empty clears them.
+		"""
+		self._glyphs = dict(glyphs)
+		self._repaint()
+
+	def clearCellGlyphs(self) -> None:
+		"""Draw every cell as braille again."""
+		self.setCellGlyphs({})
+
 	# --- Graphics overlays ---------------------------------------------------------------
 
 	def setGraphicsOverlay(self, key: str, x: int, y: int, buffer: PinBuffer) -> None:
@@ -516,6 +605,44 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			if not rowCells:
 				break
 			self._drawRow(buffer, list(rowCells), row, pitch)
+			self._drawGlyphs(buffer, list(rowCells), row, start, pitch)
+
+	def _drawGlyphs(
+		self,
+		buffer: PinBuffer,
+		rowCells: list[int],
+		row: int,
+		start: int,
+		pitch,
+	) -> None:
+		"""Replace any cell in this row that has a glyph registered and still matches it.
+
+		Drawn after the row rather than instead of it, and the slot is cleared first, so a
+		glyph replaces its cell rather than merging with it. Merging would be worse than
+		useless: a symbol or-ed with a letter is neither.
+
+		The match against `fallbackCell` is what makes a stale registration harmless. See
+		`setCellGlyphs`.
+
+		:param buffer: the panel buffer.
+		:param rowCells: the line's cells.
+		:param row: which braille line.
+		:param start: the flat index of the first cell in this row.
+		:param pitch: the layout being rendered.
+		"""
+		if not self._glyphs:
+			return
+		slotWidth, slotHeight = pitch.slotSize
+		for col, cell in enumerate(rowCells):
+			glyph = self._glyphs.get(start + col)
+			if glyph is None or cell != glyph.fallbackCell:
+				continue
+			x, y = monarch.cellOrigin(row, col, pitch)
+			buffer.clearRect(x, y, slotWidth, slotHeight)
+			for dotY in range(min(slotHeight, glyph.pattern.height)):
+				for dotX in range(min(slotWidth, glyph.pattern.width)):
+					if glyph.pattern.getDot(dotX, dotY):
+						buffer.setDot(x + dotX, y + dotY)
 
 	def _drawRow(self, buffer: PinBuffer, rowCells: list[int], row: int, pitch) -> None:
 		"""Draw one line of cells.
@@ -720,4 +847,4 @@ class BrailleDisplayDriver(HidBrailleDriver):
 
 
 # Re-exported so callers can name usages without importing NVDA's HID driver themselves.
-__all__ = ["BrailleDisplayDriver", "BraillePageUsageID", "monarch"]
+__all__ = ["BrailleDisplayDriver", "BraillePageUsageID", "CellGlyph", "monarch"]
