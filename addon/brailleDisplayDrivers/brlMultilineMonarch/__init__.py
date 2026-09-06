@@ -20,7 +20,8 @@ the cells go. They are drawn into a pin buffer and the whole panel is written as
 
 What that buys, beyond graphics:
 
-- A choice of line pitch. 40 rows is 8 lines of eight dot braille or 10 lines of six dot.
+- A choice of how many braille lines: 8 rows with a blank row between them, or 10 without.
+  All eight dots are drawn either way, so a caret and an eight dot table work in both.
 - Graphics and text on one surface, composed here, with no mode switch and nothing suspended.
 - Touch at pin resolution, which NVDA discards, so a drawing can be pointed at.
 - Bluetooth that survives a dropout, using `brlMultilineVirtual`'s approach.
@@ -102,7 +103,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		:raises RuntimeError: if no HID braille device is there, or the one that is has no pin
 			report and so is not a Monarch.
 		"""
-		self._pitch = monarch.PITCHES[monarch.PITCH_EIGHT_DOT.name]
+		self._pitch = monarch.PITCHES[monarch.PITCH_8_ROW.name]
 		self._overlays: dict[str, tuple[int, int, PinBuffer]] = {}
 		self._lastCells: list[int] = []
 		self._lastTouchPin: Optional[tuple[int, int]] = None
@@ -297,15 +298,15 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		if StringParameterInfo is None:
 			return {}
 		return {
-			monarch.PITCH_EIGHT_DOT.name: StringParameterInfo(
-				monarch.PITCH_EIGHT_DOT.name,
-				# Translators: a Monarch line pitch choice.
-				_("8 rows, eight dot"),
+			monarch.PITCH_8_ROW.name: StringParameterInfo(
+				monarch.PITCH_8_ROW.name,
+				# Translators: a Monarch line pitch choice: 8 braille lines with a blank row between.
+				_("8 rows"),
 			),
-			monarch.PITCH_SIX_DOT.name: StringParameterInfo(
-				monarch.PITCH_SIX_DOT.name,
-				# Translators: a Monarch line pitch choice.
-				_("10 rows, six dot"),
+			monarch.PITCH_10_ROW.name: StringParameterInfo(
+				monarch.PITCH_10_ROW.name,
+				# Translators: a Monarch line pitch choice: 10 braille lines, no blank row between.
+				_("10 rows"),
 			),
 		}
 
@@ -325,8 +326,6 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			return
 		self._pitch = pitch
 		self._applyPitch()
-		if pitch.dropsDots7And8:
-			log.info("BrlMultiline: six dot pitch; dots 7 and 8 have no row and are not shown")
 		handler = braille.handler
 		if handler is not None:
 			try:
@@ -397,7 +396,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		"""
 		if self._lastTouchPin is None:
 			return None
-		if self._pitch is monarch.PITCH_EIGHT_DOT and self._lastTouchCell is not None:
+		if self._pitch is monarch.PITCH_8_ROW and self._lastTouchCell is not None:
 			return divmod(self._lastTouchCell, monarch.NATIVE_ROUTING_COLS)
 		return monarch.cellAtPin(self._lastTouchPin[0], self._lastTouchPin[1], self._pitch)
 
@@ -502,17 +501,21 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		drawn into it. Falls back to a local copy if that module is unavailable, so the driver
 		still works on an NVDA without the tactile package.
 
+		**Cells are passed through untouched.** All eight dots are drawn at every pitch, so a
+		caret shows and an eight dot table reads. At 10 rows the fourth row of a cell is the
+		one that would otherwise separate the lines, which is a density the reader chooses by
+		choosing the pitch — it is not the driver's business to decide a dot should not appear.
+
 		:param buffer: the panel buffer.
 		:param cells: one dot pattern per cell, row major.
 		"""
 		pitch = self._pitch
-		mask = 0x3F if pitch.dropsDots7And8 else 0xFF
 		for row in range(pitch.numRows):
 			start = row * pitch.numCols
-			rowCells = [cell & mask for cell in cells[start : start + pitch.numCols]]
+			rowCells = cells[start : start + pitch.numCols]
 			if not rowCells:
 				break
-			self._drawRow(buffer, rowCells, row, pitch)
+			self._drawRow(buffer, list(rowCells), row, pitch)
 
 	def _drawRow(self, buffer: PinBuffer, rowCells: list[int], row: int, pitch) -> None:
 		"""Draw one line of cells.

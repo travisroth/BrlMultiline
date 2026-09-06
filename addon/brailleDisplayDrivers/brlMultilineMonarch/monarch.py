@@ -79,20 +79,23 @@ refused it: a vertical line came out as a column of *p* and a horizontal one as 
 class Pitch:
 	"""One way of laying braille lines out on the pin grid.
 
-	The grid is 40 rows, and a braille cell is as tall as the dots it uses plus a gap row. So
-	the pitch decides how many lines fit, and there are exactly two sensible answers.
+	A cell is always four dot rows: dots 1, 2, 3 down the left and 4, 5, 6 down the right,
+	with dots 7 and 8 on the fourth. **Every pitch draws all eight**, so a caret shows and an
+	eight dot table works whichever is chosen. Nothing here ever discards a dot.
+
+	What the pitch decides is the blank row *after* a cell. One blank row gives 8 lines on a
+	40 row grid; none gives 10. That is the whole difference.
 	"""
 
-	def __init__(self, name: str, dotRows: int, gapRows: int, cellCols: int, gapCols: int):
+	def __init__(self, name: str, gapRows: int, cellCols: int = 2, gapCols: int = 1):
 		"""
 		:param name: the setting value, and how it is logged.
-		:param dotRows: dot rows in a cell, 4 for eight dot and 3 for six dot.
-		:param gapRows: blank rows between lines.
+		:param gapRows: blank rows after a line, before the next one starts.
 		:param cellCols: dot columns in a cell, always 2.
 		:param gapCols: blank columns between cells.
 		"""
 		self.name = name
-		self.dotRows = dotRows
+		self.dotRows = BLOCK_HEIGHT
 		self.gapRows = gapRows
 		self.cellCols = cellCols
 		self.gapCols = gapCols
@@ -117,26 +120,25 @@ class Pitch:
 		""":return: how many cells fit across the grid at this pitch."""
 		return PIN_WIDTH // self.cellStride
 
-	@property
-	def dropsDots7And8(self) -> bool:
-		""":return: whether this pitch has no room for the lower two dots of a cell."""
-		return self.dotRows < 4
 
+PITCH_8_ROW = Pitch("8row", gapRows=1)
+"""8 lines of 32. Four dot rows and a blank one: 8 x 5 = 40, exactly terminal mode.
 
-PITCH_EIGHT_DOT = Pitch("eightDot", dotRows=4, gapRows=1, cellCols=2, gapCols=1)
-"""8 lines of 32. 4 dot rows and a gap: 8 x 5 = 40, which is exactly terminal mode.
-
-The two lines terminal mode appears to withhold are not withheld, they are this spacing.
+The two lines terminal mode appears to withhold are not withheld, they are this blank row.
 """
 
-PITCH_SIX_DOT = Pitch("sixDot", dotRows=3, gapRows=1, cellCols=2, gapCols=1)
-"""10 lines of 32. 3 dot rows and a gap: 10 x 4 = 40, with the same separation between lines.
+PITCH_10_ROW = Pitch("10row", gapRows=0)
+"""10 lines of 32. Four dot rows and no blank one: 10 x 4 = 40.
 
-Denser but not crowded, and what the Monarch's own software offers. Dots 7 and 8 have
-nowhere to go and are dropped, so this wants a six dot output table.
+What the Monarch's own software offers, and the reason it can. Dots 7 and 8 are still drawn:
+the fourth row of a cell is where they live, so what this spends is the separation between
+lines rather than the lower two dots. Six dot content leaves that row empty and the lines
+look separated anyway; a caret or an eight dot table fills it and the lines meet there.
+
+Which is the user's trade to make, not the driver's. Nothing masks a dot.
 """
 
-PITCHES = {pitch.name: pitch for pitch in (PITCH_EIGHT_DOT, PITCH_SIX_DOT)}
+PITCHES = {pitch.name: pitch for pitch in (PITCH_8_ROW, PITCH_10_ROW)}
 
 
 def pinBitIndex(x: int, y: int) -> int:
@@ -198,7 +200,7 @@ def nativeRoutingCell(x: int, y: int) -> int:
 	:param y: pin row.
 	:return: routing cell index, 0 to 255.
 	"""
-	stride = PITCH_EIGHT_DOT
+	stride = PITCH_8_ROW
 	return (y // stride.lineStride) * NATIVE_ROUTING_COLS + (x // stride.cellStride)
 
 

@@ -40,25 +40,35 @@ class TestGeometry(unittest.TestCase):
 		self.assertEqual(monarch.BLOCK_COLS * monarch.BLOCK_ROWS, monarch.PIN_REPORT_BYTES)
 		self.assertEqual(monarch.PIN_REPORT_BYTES, 480)
 
-	def test_eightDotPitchGivesTerminalModesShape(self):
+	def test_eightRowPitchGivesTerminalModesShape(self):
 		"""8 lines of 32 is what terminal mode reports, and 8 x 5 is 40."""
-		pitch = monarch.PITCH_EIGHT_DOT
+		pitch = monarch.PITCH_8_ROW
+		self.assertEqual(pitch.name, "8row")
 		self.assertEqual(pitch.lineStride, 5)
 		self.assertEqual(pitch.cellStride, 3)
 		self.assertEqual(pitch.numRows, 8)
 		self.assertEqual(pitch.numCols, 32)
-		self.assertFalse(pitch.dropsDots7And8)
 
-	def test_sixDotPitchGivesTenLines(self):
-		"""3 dot rows and a gap is 4, and 10 x 4 is 40, with the same separation."""
-		pitch = monarch.PITCH_SIX_DOT
+	def test_tenRowPitchDropsTheBlankRowNotTheDots(self):
+		"""Four dot rows and no blank one: 10 x 4 is 40."""
+		pitch = monarch.PITCH_10_ROW
+		self.assertEqual(pitch.name, "10row")
 		self.assertEqual(pitch.lineStride, 4)
+		self.assertEqual(pitch.gapRows, 0)
 		self.assertEqual(pitch.numRows, 10)
 		self.assertEqual(pitch.numCols, 32)
-		self.assertTrue(pitch.dropsDots7And8)
+
+	def test_everyPitchDrawsAllEightDots(self):
+		"""A pitch never costs a dot, so a caret and an eight dot table work at both.
+
+		Four dot rows in a cell is the whole point: dots 7 and 8 live on the fourth, which at
+		10 rows is the row that would otherwise separate the lines.
+		"""
+		for pitch in (monarch.PITCH_8_ROW, monarch.PITCH_10_ROW):
+			self.assertEqual(pitch.dotRows, 4)
 
 	def test_bothPitchesUseEveryRow(self):
-		for pitch in (monarch.PITCH_EIGHT_DOT, monarch.PITCH_SIX_DOT):
+		for pitch in (monarch.PITCH_8_ROW, monarch.PITCH_10_ROW):
 			self.assertEqual(pitch.numRows * pitch.lineStride, monarch.PIN_HEIGHT)
 
 
@@ -195,39 +205,44 @@ class TestAgainstHardware(unittest.TestCase):
 
 	def test_consecutiveBrailleRowsAreOneLineBandApart(self):
 		"""1120 and 1600 were one braille row apart, and 480 is 96 by 5."""
-		self.assertEqual(1600 - 1120, monarch.PIN_WIDTH * monarch.PITCH_EIGHT_DOT.lineStride)
+		self.assertEqual(1600 - 1120, monarch.PIN_WIDTH * monarch.PITCH_8_ROW.lineStride)
 
 
 class TestCellAtPin(unittest.TestCase):
 	def test_originIsTheFirstCell(self):
-		self.assertEqual(monarch.cellAtPin(0, 0, monarch.PITCH_EIGHT_DOT), (0, 0))
+		self.assertEqual(monarch.cellAtPin(0, 0, monarch.PITCH_8_ROW), (0, 0))
 
 	def test_gapRowBelongsToTheLineAbove(self):
 		"""A fingertip covers several pins, so the gap must not be dead."""
-		self.assertEqual(monarch.cellAtPin(0, 4, monarch.PITCH_EIGHT_DOT), (0, 0))
-		self.assertEqual(monarch.cellAtPin(0, 5, monarch.PITCH_EIGHT_DOT), (1, 0))
+		self.assertEqual(monarch.cellAtPin(0, 4, monarch.PITCH_8_ROW), (0, 0))
+		self.assertEqual(monarch.cellAtPin(0, 5, monarch.PITCH_8_ROW), (1, 0))
 
 	def test_gapColumnBelongsToTheCellBefore(self):
-		self.assertEqual(monarch.cellAtPin(2, 0, monarch.PITCH_EIGHT_DOT), (0, 0))
-		self.assertEqual(monarch.cellAtPin(3, 0, monarch.PITCH_EIGHT_DOT), (0, 1))
+		self.assertEqual(monarch.cellAtPin(2, 0, monarch.PITCH_8_ROW), (0, 0))
+		self.assertEqual(monarch.cellAtPin(3, 0, monarch.PITCH_8_ROW), (0, 1))
 
-	def test_sixDotPitchGivesTenAddressableRows(self):
-		self.assertEqual(monarch.cellAtPin(0, 36, monarch.PITCH_SIX_DOT), (9, 0))
+	def test_tenRowPitchGivesTenAddressableRows(self):
+		self.assertEqual(monarch.cellAtPin(0, 36, monarch.PITCH_10_ROW), (9, 0))
+
+	def test_tenRowPitchHasNoGapRowToAbsorb(self):
+		"""With no blank row, every pin row belongs to a line and rows follow each other."""
+		self.assertEqual(monarch.cellAtPin(0, 3, monarch.PITCH_10_ROW), (0, 0))
+		self.assertEqual(monarch.cellAtPin(0, 4, monarch.PITCH_10_ROW), (1, 0))
 
 	def test_offGridIsRejected(self):
-		self.assertIsNone(monarch.cellAtPin(-1, 0, monarch.PITCH_EIGHT_DOT))
-		self.assertIsNone(monarch.cellAtPin(0, monarch.PIN_HEIGHT, monarch.PITCH_EIGHT_DOT))
+		self.assertIsNone(monarch.cellAtPin(-1, 0, monarch.PITCH_8_ROW))
+		self.assertIsNone(monarch.cellAtPin(0, monarch.PIN_HEIGHT, monarch.PITCH_8_ROW))
 
 	def test_lastPinClampsToTheLastCell(self):
 		row, col = monarch.cellAtPin(
 			monarch.PIN_WIDTH - 1,
 			monarch.PIN_HEIGHT - 1,
-			monarch.PITCH_EIGHT_DOT,
+			monarch.PITCH_8_ROW,
 		)
 		self.assertEqual((row, col), (7, 31))
 
 	def test_cellOriginRoundTrips(self):
-		for pitch in (monarch.PITCH_EIGHT_DOT, monarch.PITCH_SIX_DOT):
+		for pitch in (monarch.PITCH_8_ROW, monarch.PITCH_10_ROW):
 			for row in range(pitch.numRows):
 				for col in range(pitch.numCols):
 					x, y = monarch.cellOrigin(row, col, pitch)

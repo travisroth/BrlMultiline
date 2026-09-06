@@ -22,10 +22,10 @@ first is about graphics:
 1. **Report 0x21 is unreachable otherwise.** Report selection is not in the payload, so no
    cell values fed to `hidBrailleStandard` can reach the pin array. Some code has to choose
    the report, and that code is a driver.
-2. **Line pitch becomes a choice.** 40 pin rows is 8 lines of eight dot braille at a 5 row
-   pitch, or **10 lines of six dot braille at a 4 row pitch** — three dot rows and a gap,
-   the same separation, which is what the Monarch's own software offers. Terminal mode gives
-   8 and cannot give 10. A driver rendering into pins gives whichever the user wants.
+2. **How many lines becomes a choice.** A cell is four dot rows whatever else changes; what
+   varies is the blank row after it. One blank row gives **8 rows** on a 40 row grid, none
+   gives **10**, which is what the Monarch's own software offers. Terminal mode gives 8 and
+   cannot give 10. All eight dots are drawn at either setting.
 3. **Bluetooth recovery.** `hidBrailleStandard` gives up at the first dropout and needs NVDA
    restarted. `brlMultilineVirtual` already solves this for its members and the same
    machinery works here.
@@ -84,14 +84,23 @@ That removes the need for anything like the spike's `hold()`. The handler goes o
 normally; the driver simply decides what reaches the panel, so an ordinary braille update
 cannot wipe a drawing and nothing has to be suspended or monkey patched.
 
-Two pitches, as a driver setting:
+Two pitches, as a driver setting, named for what they give: **8 rows** and **10 rows**.
 
-1. **8 rows of 32, eight dot.** 4 dot rows plus a gap. Identical to terminal mode, and the
-   right default because it matches what every existing BrlMultiline layout assumes.
-2. **10 rows of 32, six dot.** 3 dot rows plus a gap. Dots 7 and 8 have nowhere to go and are
-   dropped, so this wants a six dot output table; with an eight dot table the underline dots
-   simply do not appear. Denser, and the user's judgement is that it reads well for reading
-   and is busy for editing.
+1. **8 rows of 32.** Four dot rows and a blank one. Identical to terminal mode, and the right
+   default because it matches what every existing BrlMultiline layout assumes.
+2. **10 rows of 32.** Four dot rows and no blank one. Denser, and the user's judgement is that
+   it reads well for reading and is busy for editing.
+
+**Every pitch draws all eight dots, and the driver never masks one.** Dots 7 and 8 live on
+the fourth row of a cell, which at 10 rows is the row that would otherwise separate the
+lines. So what 10 rows spends is the separation, not the dots: six dot content leaves that
+row empty and the lines look separated anyway, while a caret or an eight dot table fills it
+and the lines meet where it does.
+
+That is the reader's trade to make by choosing the pitch. An earlier version of this driver
+masked dots 7 and 8 at the denser pitch, on the reasoning that they had "nowhere to go". They
+have somewhere to go, and silently discarding them would have cost the caret — which is
+exactly the thing a reader most needs to see.
 
 `numRows` and `numCols` are reported to NVDA accordingly, so the handler, the add-on's views
 and the flow all size themselves correctly with no special cases above the driver.
@@ -163,7 +172,7 @@ In:
 
 1. Subclass, detection over USB and Bluetooth, refusal to load on a device with no pin report.
 2. Always render through report 0x21.
-3. Pitch setting: 8 rows eight dot, or 10 rows six dot.
+3. Pitch setting: 8 rows or 10 rows, all eight dots drawn at both.
 4. Graphics overlay API, composited with text.
 5. Touch capture, both reports, published for the add-on.
 6. Reconnection: retry, read error watch, backoff poll, in place device reopen.
@@ -181,8 +190,8 @@ Out:
 1. Does a 480 byte pin write cost more or less, mechanically, than the eight cell reports it
    replaces? Every write is a full refresh either way, so it should be no worse, but it has
    not been measured.
-2. In 10 row mode, how should an eight dot output table be handled — dropped dots, a warning,
-   or forcing a six dot table?
+2. At 10 rows, how legible is an eight dot table in practice, given that dots 7 and 8 land
+   where the line separation would otherwise be? A question for fingers, not for the driver.
 3. Is the device's routing cell better than a pin derived one at native pitch? The plan
    assumes yes and prefers it; a session comparing the two would settle it.
 4. Does reopening the device in place recover a Bluetooth drop as reliably as the virtual
