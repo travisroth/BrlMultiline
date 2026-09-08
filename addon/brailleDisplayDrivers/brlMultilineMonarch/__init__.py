@@ -33,6 +33,8 @@ import time
 from typing import TYPE_CHECKING, Optional
 
 import addonHandler
+from autoSettingsUtils.driverSetting import DriverSetting
+from autoSettingsUtils.utils import StringParameterInfo
 import bdDetect
 import braille
 import braille.display.driver
@@ -40,6 +42,7 @@ import hwIo.hid
 from logHandler import log
 
 from braille.constants import AUTOMATIC_PORT, BLUETOOTH_PORT, USB_PORT
+from brailleDisplayDrivers.brlMultilineVirtual import handover
 from brailleDisplayDrivers.hidBrailleStandard import BraillePageUsageID, HidBrailleDriver
 
 from . import monarch
@@ -54,8 +57,6 @@ except Exception:
 	# Translation is a nicety; failing to set it up must not cost the user their braille.
 	log.debugWarning("BrlMultiline: could not initialise Monarch driver translations", exc_info=True)
 
-from autoSettingsUtils.driverSetting import DriverSetting
-from autoSettingsUtils.utils import StringParameterInfo
 
 OPEN_ATTEMPTS = 3
 OPEN_RETRY_DELAY = 0.3
@@ -159,6 +160,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 				)
 			self._applyPitch()
 			self._watchForDisconnect()
+			# NVDA builds the incoming driver before terminating this one, so switching away
+			# from here would otherwise hand the next driver a device we are still holding.
+			handover.releaseOnSwitch(self.name)
 		except Exception:
 			self._releaseAfterFailedInit()
 			raise
@@ -191,8 +195,33 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		refuse to open twice and then open normally, so a single attempt is not enough when
 		switching displays.
 
+		If every attempt fails, the display being switched away from is released and the
+		attempts are made again. `_switchDisplay` constructs the incoming driver *before*
+		terminating the outgoing one, so switching to this driver from `hidBrailleStandard`
+		on the same Monarch means racing a handle NVDA has not let go of yet — and no amount
+		of retrying inside that window can win, because the release comes afterwards.
+
 		:param port: as NVDA passes it.
-		:raises RuntimeError: if every attempt failed.
+		:raises RuntimeError: if every attempt failed, twice over.
+		"""
+		error = self._tryOpen(port)
+		if error is None:
+			return
+		if self._releaseOutgoingDisplay():
+			error = self._tryOpen(port)
+			if error is None:
+				return
+		raise RuntimeError(f"Monarch did not open after {OPEN_ATTEMPTS} attempts") from error
+
+	def _tryOpen(self, port) -> Optional[BaseException]:
+		"""Run the inherited constructor a few times.
+
+		Phase 0 of the virtual display plan established that a display NVDA released moments
+		earlier can refuse to open twice and then open normally, so one attempt is not enough
+		when switching displays.
+
+		:param port: as NVDA passes it.
+		:return: the last error, or None if the device opened.
 		"""
 		lastError: Optional[BaseException] = None
 		for attempt in range(1, OPEN_ATTEMPTS + 1):
@@ -211,8 +240,35 @@ class BrailleDisplayDriver(HidBrailleDriver):
 				)
 				time.sleep(OPEN_RETRY_DELAY)
 			else:
-				return
-		raise RuntimeError(f"Monarch did not open after {OPEN_ATTEMPTS} attempts") from lastError
+				return None
+		return lastError
+
+	def _releaseOutgoingDisplay(self) -> bool:
+		"""Close the display being switched away from, if it is holding a device.
+
+		`braille.handler.display` still points at the outgoing driver while this constructor
+		runs, because `_setDisplay` assigns the new one only once `_switchDisplay` returns. So
+		it can be reached, and closing it here is the only way to get a device it is holding
+		before our own attempts are exhausted.
+
+		`releaseDisplayNow` also disarms the driver's next `terminate`, because NVDA will call
+		it a moment later and a second close would at best log an error.
+
+		Only a driver with a device is touched: there is nothing to gain from terminating
+		`noBraille` or a serial display, and every reason not to close something we did not
+		need to.
+
+		:return: whether a display was released, and so whether another attempt is worthwhile.
+		"""
+		handler = braille.handler
+		display = getattr(handler, "display", None) if handler is not None else None
+		if display is None or display is self or getattr(display, "_dev", None) is None:
+			return False
+		log.info(
+			f"BrlMultiline: releasing {getattr(display, 'name', '?')} so the Monarch can be opened",
+		)
+		handover.releaseDisplayNow(display)
+		return True
 
 	def _closeStrayDevice(self) -> None:
 		"""Release a device left behind by a constructor that raised. Best effort.
@@ -929,6 +985,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def terminate(self):
 		"""Stop polling and unhook before letting the base class close the device."""
 		try:
+			handover.stopReleasingOnSwitch(self.name)
 			self._stopPolling()
 			self._reopening = False
 			self._stopWatching()

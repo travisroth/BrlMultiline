@@ -80,6 +80,19 @@ from logHandler import log
 _originalSwitchDisplay = None
 """`BrailleHandler._switchDisplay` as it was before the patch, or None when not in the chain."""
 
+_releasingNames: set[str] = set()
+"""The drivers this patch releases before their replacement is built.
+
+A set rather than the one virtual display it began as, because the add-on has a second
+driver with the same need: `brlMultilineMonarch` holds a HID device exclusively, so switching
+away from it left `hidBrailleStandard` unable to find the display it was being asked to open.
+The problem is not particular to either driver — it belongs to any driver holding hardware
+that the next one may want — so membership is registered rather than hard coded.
+
+Also what decides whether the patch is still wanted. It is removed when the last driver in it
+unregisters, so one driver leaving cannot pull the patch out from under another.
+"""
+
 _active = False
 """Whether the patch should do anything.
 
@@ -91,7 +104,7 @@ still delegating, doing nothing of its own.
 """
 
 
-def _closeAndNeuter(display) -> None:
+def releaseDisplayNow(display) -> None:
 	"""Terminate a display now, and make terminating it again do nothing.
 
 	NVDA will call `terminate` on this instance itself once the switch completes. Letting
@@ -187,28 +200,72 @@ def _switchDisplayReleasingVirtual(
 	if (
 		_active
 		and oldDisplay is not None
-		and _isVirtualDisplay(oldDisplay)
+		and _shouldRelease(oldDisplay)
 		and newDisplayClass is not oldDisplay.__class__
 	):
 		# Releases the member displays, so that the driver about to be constructed can have
 		# whichever of them it wants.
-		_closeAndNeuter(oldDisplay)
+		releaseDisplayNow(oldDisplay)
 	return original(self, oldDisplay, newDisplayClass, **kwargs)
 
 
-def _isVirtualDisplay(display) -> bool:
-	"""Whether a driver instance is this add-on's virtual display.
+def _shouldRelease(display) -> bool:
+	"""Whether this driver has asked to be released ahead of its replacement.
 
-	Compares the driver name rather than the class, to avoid importing the driver module
-	from here — it imports this one.
+	Compares the driver name rather than the class, to avoid importing driver modules from
+	here — they import this one.
 	"""
-	from .virtualLayout import VIRTUAL_DRIVER_NAME
+	return getattr(display, "name", None) in _releasingNames
 
-	return getattr(display, "name", None) == VIRTUAL_DRIVER_NAME
+
+def releaseOnSwitch(name: str) -> None:
+	"""Have a departing driver of this name closed before its replacement is constructed.
+
+	Called by a driver that holds hardware another driver may immediately be asked to open,
+	from the point where it is live. Safe to call more than once.
+
+	:param name: the driver's `name`.
+	"""
+	_releasingNames.add(name)
+	_ensureInstalled()
+
+
+def stopReleasingOnSwitch(name: str) -> None:
+	"""Stop releasing a driver of this name, and remove the patch if nothing else wants it.
+
+	Safe to call when the name was never registered.
+
+	:param name: the driver's `name`.
+	"""
+	_releasingNames.discard(name)
+	_uninstallIfUnwanted()
 
 
 def installSwitchPatch() -> None:
-	"""Install the switch patch, or reactivate it. Safe to call when it is already installed."""
+	"""Register the virtual display and install the patch. Safe to call repeatedly.
+
+	Kept as the virtual driver's own entry point, which is what its call sites and tests use.
+	It is `releaseOnSwitch` for this driver's name.
+	"""
+	from .virtualLayout import VIRTUAL_DRIVER_NAME
+
+	releaseOnSwitch(VIRTUAL_DRIVER_NAME)
+
+
+def removeSwitchPatch() -> None:
+	"""Unregister the virtual display, and stand down if no other driver still wants this.
+
+	Safe to call when nothing is installed. Note that this no longer necessarily removes the
+	patch: another driver may have registered, and pulling the patch out from under it would
+	reintroduce for that driver exactly the failure this module exists to prevent.
+	"""
+	from .virtualLayout import VIRTUAL_DRIVER_NAME
+
+	stopReleasingOnSwitch(VIRTUAL_DRIVER_NAME)
+
+
+def _ensureInstalled() -> None:
+	"""Put the patch in the chain if it is not already there, and arm it."""
 	global _originalSwitchDisplay, _active
 	_active = True
 	if _originalSwitchDisplay is not None:
@@ -219,14 +276,19 @@ def installSwitchPatch() -> None:
 	log.debug("BrlMultiline: display switch patch installed")
 
 
-def removeSwitchPatch() -> None:
-	"""Stand down. Safe to call when nothing is installed.
+def _uninstallIfUnwanted() -> None:
+	"""Take the patch out, unless a registered driver still needs it.
 
 	Restores NVDA's own method only when this patch is still the outermost one. If something
 	else has wrapped `_switchDisplay` since, restoring would throw that wrapper away, so the
 	patch stays in the chain and simply stops acting.
 	"""
 	global _originalSwitchDisplay, _active
+	if _releasingNames:
+		log.debug(
+			f"BrlMultiline: display switch patch still wanted by {sorted(_releasingNames)}; leaving it",
+		)
+		return
 	if _originalSwitchDisplay is None:
 		return
 	_active = False

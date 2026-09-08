@@ -1192,6 +1192,46 @@ class TestPatchCoexistence(AckPatchTestCase):
 		self.assertTrue(handover._active)
 		handover.removeSwitchPatch()
 
+	def test_aSecondDriverKeepsThePatchWhenTheVirtualDisplayLeaves(self):
+		"""The Monarch driver registers too, and one leaving must not disarm the other.
+
+		Removing the patch while another driver still wants it would hand that driver back
+		exactly the failure this module exists to prevent.
+		"""
+		from braille.brailleHandler import BrailleHandler
+
+		handover.installSwitchPatch()
+		handover.releaseOnSwitch("brlMultilineMonarch")
+		try:
+			handover.removeSwitchPatch()
+			self.assertIsNot(BrailleHandler._switchDisplay, handover._originalSwitchDisplay)
+			self.assertTrue(handover._active)
+		finally:
+			handover.stopReleasingOnSwitch("brlMultilineMonarch")
+
+	def test_thePatchGoesOnceTheLastDriverUnregisters(self):
+		handover.installSwitchPatch()
+		handover.releaseOnSwitch("brlMultilineMonarch")
+		handover.removeSwitchPatch()
+		handover.stopReleasingOnSwitch("brlMultilineMonarch")
+		self.assertIsNone(handover._originalSwitchDisplay)
+		self.assertFalse(handover._active)
+
+	def test_onlyRegisteredDriversAreReleased(self):
+		"""A driver that never registered is left for NVDA to terminate as it always did."""
+		handover.releaseOnSwitch("brlMultilineMonarch")
+		try:
+			self.assertTrue(handover._shouldRelease(_named("brlMultilineMonarch")))
+			self.assertFalse(handover._shouldRelease(_named("hidBrailleStandard")))
+			self.assertFalse(handover._shouldRelease(_named(None)))
+		finally:
+			handover.stopReleasingOnSwitch("brlMultilineMonarch")
+
+
+def _named(name):
+	""":return: the smallest thing `_shouldRelease` will look at."""
+	return type("Display", (), {"name": name})()
+
 
 class TestVdConfig(VirtualDriverTestCase):
 	def test_roundTrip(self):
