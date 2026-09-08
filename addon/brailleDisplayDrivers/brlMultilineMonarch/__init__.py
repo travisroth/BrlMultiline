@@ -27,9 +27,10 @@ What that buys, beyond graphics:
 - Bluetooth that survives a dropout, using `brlMultilineVirtual`'s approach.
 """
 
+import collections
 import threading
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import addonHandler
 import bdDetect
@@ -38,10 +39,14 @@ import braille.display.driver
 import hwIo.hid
 from logHandler import log
 
+from braille.constants import AUTOMATIC_PORT, BLUETOOTH_PORT, USB_PORT
 from brailleDisplayDrivers.hidBrailleStandard import BraillePageUsageID, HidBrailleDriver
 
 from . import monarch
 from .pinBuffer import PinBuffer
+
+if TYPE_CHECKING:
+	from collections import OrderedDict
 
 try:
 	addonHandler.initTranslation()
@@ -142,21 +147,43 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._port = port
 
 		self._openWithRetry(port)
-		self._verifyDotOrder()
-		self._pinCap = self._findPinCap()
-		if self._pinCap is None:
-			# Not a Monarch, or a firmware without the pin array. Refuse rather than silently
-			# behaving like the standard driver, because the user chose this one on purpose.
-			super().terminate()
-			raise RuntimeError(
-				"This HID braille display has no pin report; use Standard HID Braille Display instead",
-			)
-		self._applyPitch()
-		self._watchForDisconnect()
+		# Everything from here on can raise on a device that opened perfectly well, and the
+		# handle is ours the moment it did. Nothing else can reach this instance once the
+		# constructor throws, so it has to let go of the device itself — a leaked exclusive
+		# handle takes the display away from every other driver until NVDA restarts, which is
+		# exactly what a failure here used to do.
+		try:
+			self._verifyDotOrder()
+			self._pinCap = self._findPinCap()
+			if self._pinCap is None:
+				# Not a Monarch, or a firmware without the pin array. Refuse rather than
+				# silently behaving like the standard driver: the user chose this one.
+				raise RuntimeError(
+					"This HID braille display has no pin report; use Standard HID Braille Display instead",
+				)
+			self._applyPitch()
+			self._watchForDisconnect()
+		except Exception:
+			self._releaseAfterFailedInit()
+			raise
 		log.info(
 			f"BrlMultiline: Monarch on {monarch.PIN_WIDTH} by {monarch.PIN_HEIGHT} pins, "
 			f"{self._pitch.numRows} rows of {self._pitch.numCols} at pitch {self._pitch.name}",
 		)
+
+	def _releaseAfterFailedInit(self) -> None:
+		"""Close the device after a constructor that got past opening it and then failed.
+
+		`_suppressDisplayClear` first, because the base class blanks the display on the way
+		out and a half built driver may not be able to: NVDA's own flag for "close this
+		without writing to it". `terminate` is safe to call here because everything it touches
+		is set before the device is opened.
+		"""
+		self._suppressDisplayClear = True
+		try:
+			self.terminate()
+		except Exception:
+			log.debugWarning("BrlMultiline: Monarch raised while releasing a failed start", exc_info=True)
 
 	def _openWithRetry(self, port) -> None:
 		"""Run the inherited constructor, retrying a device that is present but not openable.
@@ -204,6 +231,39 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		except Exception:
 			log.debugWarning("BrlMultiline: could not close a stray Monarch handle", exc_info=True)
 		self._dev = None
+
+	@classmethod
+	def getPossiblePorts(cls) -> "OrderedDict[str, str]":
+		"""Offer the automatic, USB and Bluetooth choices the settings dialog shows.
+
+		The third thing keyed on `cls.name` that a subclass of a HID braille driver silently
+		loses, after `check` and `_getAutoPorts`. The base implementation asks
+		`bdDetect.getConnectedUsbDevicesForDriver(cls.name)` and its Bluetooth twin, both of
+		which raise `LookupError` for a driver with no detection data, so it concludes neither
+		transport exists and returns an empty mapping. The dialog then shows no port control
+		at all, which is what made this driver look less capable than the standard one.
+
+		Answered from `_getAutoPorts` per transport instead, so a choice is offered only when
+		a device is actually reachable that way. The plumbing behind the choice already
+		worked: `_getTryPorts` passes the flags straight through, so picking USB really did
+		restrict to USB even while the dialog was refusing to say so.
+
+		:return: port name to displayable description, in the order the dialog shows them.
+		"""
+		ports: "OrderedDict[str, str]" = collections.OrderedDict()
+		try:
+			usb = next(cls._getAutoPorts(usb=True, bluetooth=False), None) is not None
+			bluetooth = next(cls._getAutoPorts(usb=False, bluetooth=True), None) is not None
+		except Exception:
+			log.debugWarning("BrlMultiline: could not list Monarch ports", exc_info=True)
+			return ports
+		if usb or bluetooth:
+			ports.update((AUTOMATIC_PORT,))
+			if usb:
+				ports.update((USB_PORT,))
+			if bluetooth:
+				ports.update((BLUETOOTH_PORT,))
+		return ports
 
 	@classmethod
 	def check(cls) -> bool:
@@ -328,10 +388,14 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	# --- Geometry ----------------------------------------------------------------------
 
 	def _applyPitch(self) -> None:
-		"""Tell NVDA the shape this pitch gives, so everything above sizes itself correctly."""
+		"""Tell NVDA the shape this pitch gives, so everything above sizes itself correctly.
+
+		Rows and columns only. `numCells` is a computed property — `numRows * numCols` — and
+		its setter *raises* on a multi line display rather than being merely redundant, which
+		is how an earlier version of this failed to load at all.
+		"""
 		self.numRows = self._pitch.numRows
 		self.numCols = self._pitch.numCols
-		self.numCells = self._pitch.numRows * self._pitch.numCols
 
 	if DriverSetting is not None:
 		supportedSettings = [  # noqa: RUF012

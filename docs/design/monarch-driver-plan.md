@@ -97,6 +97,33 @@ on it:
    so. That is the better failure: being wrongly offered is recoverable, being invisible on
    the device we do support is not.
 
+### The port list, which is the third of the same gotcha
+
+`getPossiblePorts` asks `bdDetect.getConnectedUsbDevicesForDriver(cls.name)` and its Bluetooth
+twin. Both raise `LookupError` for a driver with no detection data, so the base concludes
+neither transport exists, returns an empty mapping, and the settings dialog shows no port
+control at all — while `hidBrailleStandard` beside it offers Automatic, USB and Bluetooth.
+
+The plumbing behind the choice already worked: `_getTryPorts` passes the usb and bluetooth
+flags through to `_getAutoPorts`, so picking USB really did restrict to USB. Only the
+advertisement was missing. Overridden to answer from `_getAutoPorts` per transport.
+
+That is three things a HID braille subclass silently loses because they are keyed on
+`cls.name`: `_getAutoPorts`, `check`, and `getPossiblePorts`. Anything else consulting
+`bdDetect` by driver name will need the same treatment, and none of them fail loudly.
+
+### Letting go of the device when the constructor fails
+
+`__init__` can raise after the device is open — a firmware without the pin report, or a
+plain bug. Nothing else can reach the instance once it throws, so it has to close the handle
+itself. `hwIo.hid.Hid` opens exclusively, so a leaked handle takes the display away from
+every other driver until NVDA restarts.
+
+This is not hypothetical: the first hardware run set `numCells`, whose setter *raises* on a
+multi line display rather than being merely redundant, and the resulting failure left the
+USB interface held. Set `_suppressDisplayClear` before terminating, because a half built
+driver may not be able to blank a display.
+
 ### Rendering, which is always through pins
 
 `display(cells)` never writes reports 0x31 to 0x38. It draws the cells into the pin buffer
