@@ -206,6 +206,35 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._dev = None
 
 	@classmethod
+	def check(cls) -> bool:
+		"""Say whether this driver is worth offering, which decides whether it is listed.
+
+		`getDisplayList` drops any driver whose `check` is False, so without this the driver
+		never appears in NVDA's braille settings — which is exactly what happened. The base
+		implementation has two ways to say yes and we passed neither: its first branch needs
+		`supportsAutomaticDetection`, which is deliberately False here so as not to compete
+		with `hidBrailleStandard` for the device, and its second needs `getManualPorts`, which
+		is for serial ports and raises `NotImplementedError` for a HID driver.
+
+		`brlMultilineVirtual` lists its members from the drivers themselves rather than
+		through `getDisplayList`, which is why the driver showed up there and nowhere else.
+
+		Presence only, and deliberately not more. **This must not open the device**: `check`
+		runs for every driver when the settings dialog is built, and `hwIo.hid.Hid` opens
+		exclusively, so opening here would take the display away from whatever is driving it.
+		That means we cannot confirm a pin report and will answer True for any HID braille
+		display. A non Monarch is then listed and refused at construction with a message
+		saying so, which is a better failure than being invisible on the device we do support.
+
+		:return: whether a HID braille display is attached.
+		"""
+		try:
+			return next(cls._getAutoPorts(), None) is not None
+		except Exception:
+			log.debugWarning("BrlMultiline: Monarch availability check failed", exc_info=True)
+			return False
+
+	@classmethod
 	def _getAutoPorts(cls, usb=True, bluetooth=True):
 		"""Find HID braille devices, over both transports.
 

@@ -74,6 +74,29 @@ Bluetooth and the standard driver carries both, so dropping either would be a re
 competition with `hidBrailleStandard` for the same device, and the user selects a driver
 here anyway.
 
+### Being listed at all, which is the second gotcha and follows from the first
+
+`getDisplayList` drops any driver whose `check` returns False, and the base `check` has two
+ways to say yes. The first needs `supportsAutomaticDetection`, which we have just turned off.
+The second needs `getManualPorts`, which is for serial ports and raises `NotImplementedError`
+on a HID driver. So the base implementation answers False and the driver is simply absent
+from NVDA's braille settings, with nothing in the log to say why.
+
+It still appeared in `brlMultilineVirtual`'s member list, because that enumerates the drivers
+themselves rather than going through `getDisplayList` — which made the absence look like a
+settings bug rather than a driver one.
+
+So `check` is overridden to report whether `_getAutoPorts` finds anything. Two constraints
+on it:
+
+1. **It must not open the device.** `check` runs for every driver when the settings dialog is
+   built, and `hwIo.hid.Hid` opens exclusively, so opening here would take the display away
+   from whatever is currently driving it.
+2. Which means it cannot confirm a pin report, so it answers True for any HID braille
+   display. A non Monarch is then listed and refused at construction with a message saying
+   so. That is the better failure: being wrongly offered is recoverable, being invisible on
+   the device we do support is not.
+
 ### Rendering, which is always through pins
 
 `display(cells)` never writes reports 0x31 to 0x38. It draws the cells into the pin buffer
