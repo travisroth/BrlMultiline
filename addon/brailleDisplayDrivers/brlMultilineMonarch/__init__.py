@@ -54,12 +54,8 @@ except Exception:
 	# Translation is a nicety; failing to set it up must not cost the user their braille.
 	log.debugWarning("BrlMultiline: could not initialise Monarch driver translations", exc_info=True)
 
-try:
-	from autoSettingsUtils.driverSetting import DriverSetting
-	from autoSettingsUtils.utils import StringParameterInfo
-except ImportError:  # pragma: no cover - only in a stripped test environment.
-	DriverSetting = None
-	StringParameterInfo = None
+from autoSettingsUtils.driverSetting import DriverSetting
+from autoSettingsUtils.utils import StringParameterInfo
 
 OPEN_ATTEMPTS = 3
 OPEN_RETRY_DELAY = 0.3
@@ -168,7 +164,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			raise
 		log.info(
 			f"BrlMultiline: Monarch on {monarch.PIN_WIDTH} by {monarch.PIN_HEIGHT} pins, "
-			f"{self._pitch.numRows} rows of {self._pitch.numCols} at pitch {self._pitch.name}",
+			f"{self._pitch.numRows} rows of {self._pitch.numCols} at pitch {self._pitch.name}, "
+			f"writing output report 0x{monarch.PIN_REPORT_ID:02X}. "
+			f"Settings offered: {[setting.id for setting in self.supportedSettings]}",
 		)
 
 	def _releaseAfterFailedInit(self) -> None:
@@ -397,23 +395,32 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self.numRows = self._pitch.numRows
 		self.numCols = self._pitch.numCols
 
-	if DriverSetting is not None:
-		supportedSettings = [  # noqa: RUF012
-			DriverSetting(
-				"pitch",
-				# Translators: label for the Monarch line pitch setting.
-				_("&Line pitch"),
-				useConfig=True,
-			),
-		]
+	supportedSettings = [  # noqa: RUF012
+		DriverSetting(
+			"pitch",
+			# Translators: label for the setting choosing how many braille rows the Monarch shows.
+			_("&Braille rows"),
+			defaultVal=monarch.PITCH_8_ROW.name,
+			useConfig=True,
+		),
+	]
+	"""Deliberately not wrapped in a try for the import above.
+
+	It was, and that was a silent failure waiting to happen: if the import had failed for any
+	reason the class would simply have inherited an empty `supportedSettings` from the base
+	and the control would have vanished from NVDA's braille settings with nothing but a
+	swallowed ImportError to show for it. A driver that cannot build its settings should fail
+	loudly at load rather than quietly lose them.
+
+	The id stays `pitch` because it is the config key and the name behind `availablePitchs`;
+	only the label speaks of rows, which is what a reader chooses between.
+	"""
 
 	def _get_availablePitchs(self) -> dict:
 		"""NVDA's naming: the choices for the `pitch` setting.
 
 		:return: setting value to displayable choice.
 		"""
-		if StringParameterInfo is None:
-			return {}
 		return {
 			monarch.PITCH_8_ROW.name: StringParameterInfo(
 				monarch.PITCH_8_ROW.name,
