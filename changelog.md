@@ -157,6 +157,15 @@ Added:
   line reading of a cell, not the flow, so it applies whether or not the sheet is laid out in
   columns.
 
+- **An error NVDA logs when you close a workbook no longer arrives under this add-on's name.**
+  Close a workbook with control+W and NVDA is still holding the cell that had the focus while
+  it reports the keystroke — but the workbook is gone, so asking Excel about that cell fails
+  and NVDA writes a traceback into the log. The traceback is made entirely of NVDA's own
+  frames, and the add-on is not doing anything at that moment; the object named at the top of
+  it, though, is one NVDA composed out of this add-on's classes, so it reads exactly like a
+  crash in the add-on. A cell whose workbook has closed now says it has nothing to report,
+  which is an answer NVDA's own code already expects from it, and the log stays clean.
+
 - The Excel support is an **application module**, so it is loaded only while Excel is running
   and nothing about Excel is asked of any other application. It extends NVDA's own Excel
   module rather than replacing it, so everything NVDA does there goes on happening. A sheet

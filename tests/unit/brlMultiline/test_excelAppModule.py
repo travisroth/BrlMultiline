@@ -60,6 +60,21 @@ class EXCEL_CELLINFO(ctypes.Structure):
 	]
 
 
+class COMError(Exception):
+	"""`comtypes.COMError`, which is how Excel's own refusals reach NVDA.
+
+	The real one carries the HRESULT, its text and whatever details came back, and this
+	carries the same three. It is a real exception class rather than a stand-in for one
+	because the module tells this failure from every other by catching this and nothing
+	else: 0x800A01A8, "object required", is what a cell answers once its workbook is gone,
+	while a COM call NVDA gave up waiting for arrives as a plain `CallCancelled`.
+	"""
+
+	def __init__(self, hresult=-2146827864, text=None, details=None):
+		super().__init__(hresult, text, details)
+		self.hresult = hresult
+
+
 def _getCellInfos(binding, window, address, flags, count, infos, fetched):
 	"""Stand in for `nvdaInProcUtils_excel_getCellInfos`, filling the caller's array."""
 	fetches.append((str(address), int(count), int(flags)))
@@ -153,6 +168,27 @@ class FakeCell(metaclass=DynamicType):
 	def name(self):
 		""":return: what NVDA calls a cell, which is what the cell says."""
 		return self.excelCellObject.text if self.excelCellObject else ""
+
+	def _get_excelCellInfo(self):
+		""":return: what Excel says about this cell, or None where it will not say.
+
+		NVDA's own, as far as this add-on touches it: no helper means no information, and
+		otherwise the cell is asked where it is before anything is fetched. Reproduced to
+		that depth rather than summarised, because what the overlay has to be right about is
+		that the failure comes up out of `super`."""
+		if not self.appModule.helperLocalBindingHandle:
+			return None
+		self.excelCellObject.address(True, True, 1, True)
+		return types.SimpleNamespace(text=self.excelCellObject.text)
+
+	@property
+	def excelCellInfo(self):
+		""":return: the same, reached as NVDA's auto properties reach it.
+
+		NVDA's objects turn `_get_excelCellInfo` into an `excelCellInfo` attribute, and it
+		matters that the attribute is what resolves the method: that is how an overlay in
+		front of the cell gets to answer at all."""
+		return self._get_excelCellInfo()
 
 	@property
 	def cellCoordsText(self):
@@ -260,6 +296,7 @@ def _install() -> None:
 	sys.modules["tableUtils"] = tableUtils
 	sys.modules["comtypes"] = types.ModuleType("comtypes")
 	sys.modules["comtypes"].BSTR = str
+	sys.modules["comtypes"].COMError = COMError
 	objects = types.ModuleType("NVDAObjects")
 	objects.__path__ = []
 	window = types.ModuleType("NVDAObjects.window")
@@ -323,7 +360,7 @@ SALES = [
 class FakeRange:
 	"""Excel's own cell, which knows where it is and what it says."""
 
-	def __init__(self, row, column, text=""):
+	def __init__(self, row, column, text="", gone=False):
 		self.row = row
 		self.column = column
 		self.text = text
@@ -331,6 +368,19 @@ class FakeRange:
 		self.activated = False
 		self.Application = "an Excel"
 		"""What an address is turned into the application's own notation through."""
+
+		self.gone = gone
+		"""Whether Excel has let go of this cell, which is what a closed workbook leaves
+		behind: the object NVDA holds is still there and every question put to it fails."""
+
+	def address(self, rowAbsolute, columnAbsolute, style, external):
+		"""Where this cell is, which is the first thing NVDA asks a cell for its info.
+
+		And the question that fails on a cell whose workbook has closed, which is the whole
+		of the race this add-on covers. See `CellOutlivingItsWorkbook`."""
+		if self.gone:
+			raise COMError(-2146827864, None, (None, None, None, 0, None))
+		return f"Sheet1!R{self.row}C{self.column}"
 
 	def Select(self):
 		self.selected = True
@@ -928,7 +978,14 @@ class TestTheApplicationModuleExtendsNvdasOwn(unittest.TestCase):
 		module = excelModule.AppModule()
 		classes = []
 		module.chooseNVDAObjectOverlayClasses(aCell(), classes)
-		self.assertEqual(classes, [excelModule.SpreadsheetCell, excelModule.HeadersInBraille])
+		self.assertEqual(
+			classes,
+			[
+				excelModule.CellOutlivingItsWorkbook,
+				excelModule.SpreadsheetCell,
+				excelModule.HeadersInBraille,
+			],
+		)
 
 	def test_andACellThatCannotBeReadByCoordinateStillGetsItsHeaderInBraille(self):
 		"""The two overlays are two claims, and only one of them is about laying a sheet out.
@@ -938,7 +995,10 @@ class TestTheApplicationModuleExtendsNvdasOwn(unittest.TestCase):
 		del cell.excelCellObject
 		classes = []
 		module.chooseNVDAObjectOverlayClasses(cell, classes)
-		self.assertEqual(classes, [excelModule.HeadersInBraille])
+		self.assertEqual(
+			classes,
+			[excelModule.CellOutlivingItsWorkbook, excelModule.HeadersInBraille],
+		)
 
 	def test_andNvdasOwnChoosingStillHappens(self):
 		module = excelModule.AppModule()
@@ -951,6 +1011,65 @@ class TestTheApplicationModuleExtendsNvdasOwn(unittest.TestCase):
 		classes = []
 		module.chooseNVDAObjectOverlayClasses(types.SimpleNamespace(), classes)
 		self.assertEqual(classes, [])
+
+
+class TestACellWhoseWorkbookHasClosed(unittest.TestCase):
+	"""**A race of NVDA's own, covered here because it is logged under this add-on's name.**
+
+	Close a workbook with control+W and NVDA raises a typed character event for that same
+	keystroke on the cell that had the focus. Deciding whether to echo the character asks that
+	cell whether typing is protected, which asks for its states, which asks Excel for the
+	cell's address — and the cell's workbook has just gone, so Excel answers "object required"
+	and NVDA logs a traceback made entirely of its own frames.
+
+	Entirely its own, and yet the object named at the top of it is
+	`Dynamic_SpreadsheetCellHeadersInBrailleExcelCell`, because NVDA names a composed class
+	after the overlays in it. A reader reading their log sees this add-on over a crash it did
+	not cause. Answering None instead is what these tests hold in place.
+	"""
+
+	def setUp(self):
+		log.messages.clear()
+
+	def _cell(self, gone=False):
+		""":return: a worksheet cell, with or without a workbook still behind it."""
+		return FakeCell(
+			windowHandle=42,
+			excelWindowObject=object(),
+			excelCellObject=FakeRange(2, 2, "1200", gone=gone),
+		)
+
+	def test_aCellExcelStillHasIsDescribedByNvdasOwn(self):
+		"""Which is the half that must not be lost: this stands in front of NVDA's method and
+		hands back what it answers, unread and unchanged."""
+		self.assertEqual(self._cell().excelCellInfo.text, "1200")
+
+	def test_aCellWhoseWorkbookHasGoneAnswersNothing(self):
+		"""Rather than raising. None is not an invention: it is what NVDA's own method answers
+		when there is nothing to fetch, and every caller of it in NVDA is written for it."""
+		self.assertIsNone(self._cell(gone=True).excelCellInfo)
+
+	def test_andNvdaIsNotToldAnythingWentWrong(self):
+		"""A debug line and not an error, because nothing did go wrong: a cell of a closed
+		workbook has no information to give and saying so is the truthful answer. An error
+		here would be the very log line this exists to stop."""
+		self._cell(gone=True).excelCellInfo
+		self.assertEqual([level for level, message in log.messages], ["debugWarning"])
+
+	def test_butACallNvdaGaveUpWaitingForStillGoesUp(self):
+		"""**Not the same thing as a dead cell, and it must not be answered as one.** NVDA
+		raises `CallCancelled` when it stops waiting on Excel; the cell is still there and the
+		reader is still in it. Answering None would describe a cell nobody has left. It is a
+		plain exception rather than a `COMError`, which is why catching that and nothing else
+		is what lets it past. See `sheetFor`."""
+		cell = self._cell()
+
+		def gaveUp(*args):
+			raise CallCancelled("COM call cancelled")
+
+		cell.excelCellObject.address = gaveUp
+		with self.assertRaises(CallCancelled):
+			cell.excelCellInfo
 
 
 class TestWhereTheReaderIs(unittest.TestCase):

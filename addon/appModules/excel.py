@@ -48,7 +48,7 @@ import eventHandler
 import NVDAHelper
 from braille.constants import TEXT_SEPARATOR
 from braille.regions.NVDAObject import NVDAObjectRegion, ReviewNVDAObjectRegion
-from comtypes import BSTR
+from comtypes import BSTR, COMError
 from config.configFlags import ReportTableHeaders
 from logHandler import log
 from NVDAHelper.localLib import EXCEL_CELLINFO
@@ -762,6 +762,46 @@ class SpreadsheetCell:
 		eventHandler.executeEvent("gainFocus", self)
 
 
+class CellOutlivingItsWorkbook:
+	"""A cell that answers None, rather than raising, once Excel has let go of what is behind it.
+
+	**Nothing this covers is this add-on's fault, and that is exactly why it is here.** Close a
+	workbook with control+W and NVDA raises a `typedCharacter` event for that same keystroke on
+	the cell that had the focus — a cell whose workbook has just gone. Deciding whether to echo
+	the character asks the cell whether typing is protected, which asks for its states, which
+	asks NVDA's own `_get_excelCellInfo`, which asks Excel for the cell's address over COM.
+	The cell is dead by then and Excel answers 0x800A01A8, "object required". Every frame of
+	the traceback NVDA then logs is NVDA's own; not one of them is this add-on's.
+
+	But the object at the top of it is called `Dynamic_SpreadsheetCellHeadersInBrailleExcelCell`,
+	because NVDA names a composed class after the overlays in it and every worksheet cell wears
+	this module's overlays once the add-on is installed. A reader reading their log sees this
+	add-on's name over a crash it did not cause and has no way to tell otherwise. That is worth
+	a method to prevent.
+
+	**None is not an invention.** It is what NVDA's own `_get_excelCellInfo` already answers
+	when the in-process helper is not there or the fetch comes back empty, so every caller in
+	NVDA is written for it: `_get_states` returns the states it has and `_get_name` falls back
+	to the cell's own text. Answering it for a cell that no longer exists is truthful — there
+	is no cell information to be had — and it is the answer that costs the reader least.
+
+	This covers the one property a keystroke passes through, and not every way a dead cell can
+	be touched, because a fix aimed at a race is worth only what it quiets: the log line a
+	reader actually meets, on the way out of a workbook they have just closed.
+	"""
+
+	def _get_excelCellInfo(self):
+		""":return: what NVDA's own answers, or None where Excel no longer has the cell."""
+		try:
+			return super()._get_excelCellInfo()
+		except COMError:
+			# Not `Exception`, and `CallCancelled` is not caught here either: a COM call NVDA
+			# stopped waiting for is raised as `CallCancelled`, which is a plain exception
+			# rather than a `COMError` and so goes past this to whoever asked. See `sheetFor`.
+			log.debugWarning("Excel would not describe a cell, whose workbook has probably closed")
+			return None
+
+
 def isAWorksheetCell(obj) -> bool:
 	""":return: whether this object is a cell of Excel's COM object model.
 
@@ -802,12 +842,15 @@ def readsByCoordinate(obj) -> bool:
 OVERLAYS = (
 	(HeadersInBraille, isAWorksheetCell),
 	(SpreadsheetCell, readsByCoordinate),
+	(CellOutlivingItsWorkbook, isAWorksheetCell),
 )
 """The overlay classes this module adds, and what each of them is for.
 
-Two, and deliberately not one: what a cell says its column is called is worth showing in
-braille whether or not this add-on can lay the sheet out, and the two questions are answered
-by different things about a cell. See `HeadersInBraille`.
+Three, and deliberately not one. What a cell says its column is called is worth showing in
+braille whether or not this add-on can lay the sheet out, and those two questions are answered
+by different things about a cell — see `HeadersInBraille`. The third is not about reading at
+all: it keeps a race of NVDA's own from being written into the log under this add-on's name.
+See `CellOutlivingItsWorkbook`.
 """
 
 
