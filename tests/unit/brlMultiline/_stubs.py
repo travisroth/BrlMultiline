@@ -612,12 +612,26 @@ class FakeTextInfo:
 	an empty text would mean modelling ranges rather than positions.
 	"""
 
-	def __init__(self, lines, index, offset=0, expandsBackAt=None, paragraphBreaks=None):
+	def __init__(
+		self,
+		lines,
+		index,
+		offset=0,
+		expandsBackAt=None,
+		paragraphBreaks=None,
+		expandsOnAt=None,
+	):
 		self.lines = lines
 		self.index = index
 		self.offset = offset
 		self.expanded = False
 		"""Whether this range covers its whole unit, as `expand` makes it."""
+
+		self.reachedOn = None
+		"""The last line this range covers, when its expansion reached past its own.
+
+		Set by `expand` from `expandsOnAt`, and the only way a range here ends anywhere but
+		on the line it starts on. See `expandsOnAt`."""
 
 		self.expandedUnit = None
 		"""Which unit `expand` covered, because a line and a paragraph are different ranges."""
@@ -634,6 +648,19 @@ class FakeTextInfo:
 		shape the probe caught in a plain textarea. A dict maps each affected line to the
 		line its expansion reaches back to, for the partial reach a paragraph-structured
 		editor produces."""
+
+		self.expandsOnAt = expandsOnAt
+		"""Units whose expansion reaches *forward* over the unit after them.
+
+		The other half of the same transient, and the half that shows. A unit that reaches
+		back hides its neighbour behind it; a unit that reaches on holds the next line as
+		well as its own, so the band draws that line twice — once here and once in the block
+		below — which is what a reader typing into a multi-line edit felt at the bottom of
+		the display.
+
+		The same shapes as `expandsBackAt`: an int means expansion at that line runs to the
+		end of the document, a dict maps each affected line to the last line its expansion
+		covers."""
 
 		self.paragraphBreaks = paragraphBreaks
 		"""Which lines end a paragraph, or None for every line being its own paragraph.
@@ -661,6 +688,10 @@ class FakeTextInfo:
 	def text(self):
 		if not 0 <= self.index < len(self.lines):
 			return ""
+		if self.expanded and self.reachedOn is not None:
+			# This line and everything the expansion took in after it, which is the text the
+			# band draws from this block — and draws again in the block below it.
+			return "".join(self.lines[self.index : self.reachedOn + 1])
 		if self.expanded and self.expandedUnit == UNIT_PARAGRAPH and self.paragraphBreaks is not None:
 			# A paragraph's wrapped lines are continuous text: the wrap is presentation, and
 			# NVDA reading the paragraph gets it whole.
@@ -668,15 +699,51 @@ class FakeTextInfo:
 		return self.lines[self.index]
 
 	def copy(self):
-		copied = type(self)(self.lines, self.index, self.offset, self.expandsBackAt, self.paragraphBreaks)
+		copied = type(self)(
+			self.lines,
+			self.index,
+			self.offset,
+			self.expandsBackAt,
+			self.paragraphBreaks,
+			self.expandsOnAt,
+		)
 		copied.expanded = self.expanded
 		copied.expandedUnit = self.expandedUnit
+		copied.reachedOn = self.reachedOn
 		return copied
 
+	def _startPoint(self):
+		""":return: where this range begins, as a comparable position."""
+		return (self.index, 0 if self.expanded else self.offset)
+
+	def _endPoint(self):
+		""":return: where this range ends, as a comparable position.
+
+		A collapsed position ends where it starts. An expanded one ends at the end of the
+		last line it covers: its own, the end of its paragraph, or wherever its expansion
+		reached on to.
+		"""
+		if not self.expanded:
+			return (self.index, self.offset)
+		last = self.index
+		if self.reachedOn is not None:
+			last = self.reachedOn
+		elif self.expandedUnit == UNIT_PARAGRAPH and self.paragraphBreaks is not None:
+			last = self._paragraphEnd(self.index)
+		length = len(self.lines[last]) if 0 <= last < len(self.lines) else 0
+		return (last, length)
+
 	def compareEndPoints(self, other, which="startToStart"):
-		"""Order two positions, as NVDA's TextInfo does. Only the starts are modelled."""
-		here = (self.index, 0 if self.expanded else self.offset)
-		there = (other.index, 0 if other.expanded else other.offset)
+		"""Order two ranges, as NVDA's TextInfo does.
+
+		**Both ends, because a range has two.** This modelled starts alone and answered
+		start to start whatever it was asked, which is right until something asks whether one
+		block runs into the next — the question a duplicated row on the display is the answer
+		to. A stand-in that quietly answers a different question from the one asked would let
+		a guard against that pass its tests while doing nothing at all.
+		"""
+		here = self._startPoint() if which.startswith("start") else self._endPoint()
+		there = other._startPoint() if which.endswith("Start") else other._endPoint()
 		return (here > there) - (here < there)
 
 	@property
@@ -699,13 +766,24 @@ class FakeTextInfo:
 	def collapse(self, end=False):
 		"""Reduce a range to one of its ends. A position is already one, and does not move."""
 		if self.expanded:
-			if end and self.expandedUnit == UNIT_PARAGRAPH and self.paragraphBreaks is not None:
+			if end and self.reachedOn is not None:
+				self.index = self.reachedOn
+			elif end and self.expandedUnit == UNIT_PARAGRAPH and self.paragraphBreaks is not None:
 				self.index = self._paragraphEnd(self.index)
 			self.expanded = False
 			self.expandedUnit = None
+			self.reachedOn = None
 			self.offset = len(self.text) if end else 0
 			return
 		self.expandedUnit = None
+
+	def _reachesOnTo(self):
+		""":return: the last line expansion here covers, or None for an honest answer."""
+		if self.expandsOnAt is None:
+			return None
+		if isinstance(self.expandsOnAt, dict):
+			return self.expandsOnAt.get(self.index)
+		return len(self.lines) - 1 if self.index == self.expandsOnAt else None
 
 	def _reachesBackTo(self):
 		""":return: where expansion at this position lands, or None for an honest answer."""
@@ -722,6 +800,7 @@ class FakeTextInfo:
 		begins at an earlier line instead.
 		"""
 		target = self._reachesBackTo()
+		reachedOn = self._reachesOnTo()
 		if target is not None:
 			self.index = target
 		elif unit == UNIT_PARAGRAPH and self.paragraphBreaks is not None:
@@ -729,6 +808,7 @@ class FakeTextInfo:
 		self.offset = 0
 		self.expanded = True
 		self.expandedUnit = unit
+		self.reachedOn = reachedOn
 
 	def move(self, unit, count):
 		"""Move by whole units, reporting how far it actually got, as NVDA's TextInfo does.
@@ -738,6 +818,7 @@ class FakeTextInfo:
 		"""
 		self.expanded = False
 		self.expandedUnit = None
+		self.reachedOn = None
 		self.offset = 0
 		if unit == UNIT_PARAGRAPH and self.paragraphBreaks is not None:
 			moved = 0
@@ -969,10 +1050,15 @@ class FakeTreeInterceptor(CursorManager):
 		bookmarks=True,
 		expandsBackAt=None,
 		paragraphBreaks=None,
+		expandsOnAt=None,
 	):
 		self.lines = lines
 		self.expandsBackAt = expandsBackAt
 		"""Which unit of this document reaches back when expanded. See `FakeTextInfo`."""
+
+		self.expandsOnAt = expandsOnAt
+		"""Which unit of this document reaches on over the next when expanded. See
+		`FakeTextInfo`."""
 
 		self.paragraphBreaks = paragraphBreaks
 		"""Which lines end a paragraph, for a document whose paragraphs wrap. See `FakeTextInfo`."""
@@ -1003,6 +1089,7 @@ class FakeTreeInterceptor(CursorManager):
 			offset,
 			self.expandsBackAt,
 			paragraphBreaks=self.paragraphBreaks,
+			expandsOnAt=self.expandsOnAt,
 		)
 
 	@selection.setter

@@ -573,6 +573,9 @@ class FetchBudget:
 		self.stopped = False
 		"""Whether the operation under way has had a fetch refused."""
 
+		self.renewals = 0
+		"""How many operations were given a second allowance. See L{renew}."""
+
 		self.lastSeconds = 0.0
 		self.lastBlocks = 0
 		"""What the most recent operation cost, for a report taken straight after one."""
@@ -610,6 +613,30 @@ class FetchBudget:
 		self.totalSeconds += elapsed
 		if self.stopped:
 			self.stops += 1
+
+	def renew(self) -> None:
+		"""Give the operation under way a fresh allowance, without ending it.
+
+		**For one thing: showing the reader where they are, after the reaching failed.** An
+		arrival first tries to extend the band to the block the reader has moved to, and on a
+		slow application that walk can spend the whole allowance and not get there — in
+		Outlook a single step took twice what a whole operation is given. What follows is the
+		fallback that places the band afresh around them, and run on the spent allowance it
+		places one block and refuses every other, so the reader who moved one row is left
+		with one row. The reaching cost them nothing they can use; the placing is the answer
+		to the key they pressed.
+
+		Bounded by being asked for in one place: an arrival may cost two allowances and never
+		three, so the longest a keypress can take is doubled and not unbounded.
+
+		`stopped` is deliberately left as it is. The operation *was* cut short, the reader did
+		feel it, and an operation that hid its own stop from the count would leave the numbers
+		saying the budget fits when it does not. What the renewal is worth is counted
+		separately, in L{renewals}.
+		"""
+		self.renewals += 1
+		self.blocks = 0
+		self.started = self.clock()
 
 	def startUnlessActive(self) -> None:
 		"""Begin an operation only if the caller above has not already begun one."""
@@ -670,7 +697,8 @@ class FetchBudget:
 		"""
 		average = (self.totalSeconds / self.operations) if self.operations else 0.0
 		return [
-			f"operations: {self.operations}, of which {self.stops} were cut short",
+			f"operations: {self.operations}, of which {self.stops} were cut short "
+			f"and {self.renewals} were given a second allowance to place the reader",
 			f"fetches refused: {self.stopsBy.get('blocks', 0)} out of blocks, "
 			f"{self.stopsBy.get('time', 0)} out of time",
 			f"allowance: {self.maxBlocks} blocks or {self.maxSeconds * 1000:.0f} ms each",
@@ -1029,6 +1057,8 @@ class DocumentFlowSource:
 			return FetchResult.endOfStream("the step went nowhere, or back over the block it came from")
 		if self.writing and not self._startsWhereItLanded(moved, startOfMoved):
 			return FetchResult.endOfStream("the unit found does not begin where the walk landed")
+		if self.writing and self._overlapsWhereItCameFrom(startOfMoved, start, forward):
+			return FetchResult.endOfStream("the unit found runs into the block it was walked from")
 		if self.interactive or not self._isBlank(moved):
 			return self._blockAt(moved, start=startOfMoved)
 		# A blank block while reading: the run costs one row rather than a display.
@@ -1064,6 +1094,48 @@ class DocumentFlowSource:
 		except Exception:
 			log.debugWarning("Could not tell where a walked unit starts", exc_info=True)
 			return True
+
+	def _overlapsWhereItCameFrom(self, start, origin, forward: bool) -> bool:
+		"""Whether a walked block covers text the block it came from already covers.
+
+		**The one shape a duplicate on the display can have that nothing else here catches.**
+		Two blocks are two rows, and two rows must be two different pieces of the document;
+		when the ranges behind them overlap, whatever they share is drawn twice and the
+		reader reads a line they have already read. `_advanced` compares where the two blocks
+		*begin*, which is a different question — a block can begin earlier and still reach
+		forward over its neighbour — and `_hasSwallowedWhatFollows` asks the text of a line
+		rather than the extent of a unit, so it says nothing about a paragraph and nothing
+		about the walk backwards.
+
+		Backwards is where this earns its place. Restoring the band's top row walks back from
+		the caret on every keystroke, and a rich editor being typed into answers the unit at
+		that landing by reaching *forward* over the boundary, so the block above ends inside
+		the line being typed and the reader feels their own line twice: once above and once
+		under the caret. That is the twin of the reach-back `_startsWhereItLanded` refuses,
+		and the same answer is right for it.
+
+		Asked only while writing, for the reason given there: the transient lives in an editor
+		answering during a keystroke, a document being read holds still, and content is too
+		expensive to refuse over an implementation quirk that is not happening.
+
+		:param start: where the unit the walk found begins.
+		:param origin: the position the walk set out from, which is the boundary the new
+			block must stay on its own side of.
+		:param forward: which way it was going.
+		:return: whether the two overlap, and so whether to refuse the step.
+		"""
+		try:
+			found = start.copy()
+			found.expand(self.unit)
+			if forward:
+				# The block behind, expanded, must stop at or before the new one starts.
+				behind = origin.copy()
+				behind.expand(self.unit)
+				return behind.compareEndPoints(start, "endToStart") > 0
+			return found.compareEndPoints(origin, "endToStart") > 0
+		except Exception:
+			log.debugWarning("Could not tell whether two blocks overlap", exc_info=True)
+			return False
 
 	def _advanced(self, origin, start, forward: bool) -> bool:
 		"""Whether a walked block really is the next one along.

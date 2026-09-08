@@ -67,9 +67,15 @@ def sourceOver(
 	interactive=False,
 	budget=None,
 	expandsBackAt=None,
+	expandsOnAt=None,
 ) -> DocumentFlowSource:
 	"""Build a source over a browse mode document of the given lines."""
-	interceptor = FakeTreeInterceptor(lines, caretIndex=caretIndex, expandsBackAt=expandsBackAt)
+	interceptor = FakeTreeInterceptor(
+		lines,
+		caretIndex=caretIndex,
+		expandsBackAt=expandsBackAt,
+		expandsOnAt=expandsOnAt,
+	)
 	factory = regionFactoryFor(CursorManagerRegion(interceptor), live=live)
 	return DocumentFlowSource(
 		interceptor,
@@ -320,6 +326,52 @@ class TestBudget(unittest.TestCase):
 		first = source.blockAtCursor().block
 		source.blockAfter(first.blockId)
 		self.assertGreater(budget.slowest, 0)
+
+
+class TestABlockThatRunsIntoItsNeighbour(unittest.TestCase):
+	"""Two rows are two blocks, and two blocks must be two different pieces of the document.
+
+	Where the ranges behind them overlap, whatever they share is drawn twice and the reader
+	reads a line they have already read. A rich editor being typed into produces exactly that:
+	asked to expand the unit at a landing it reaches *forward* over the boundary, so the block
+	above ends inside the line being typed.
+
+	The reach backwards was already refused — see `_startsWhereItLanded` — and this is its
+	twin. `_advanced` cannot catch it, because it compares where two blocks begin and a block
+	can begin earlier and still reach over its neighbour; `_hasSwallowedWhatFollows` cannot,
+	because it reads the text of a line for a break and says nothing about a paragraph or
+	about the walk backwards.
+	"""
+
+	LINES = ["one", "two", "three", "four"]
+
+	def test_aStepBackOntoAUnitThatReachesIntoTheCaretsLineIsRefused(self):
+		source = sourceOver(self.LINES, caretIndex=3, interactive=True, expandsOnAt={2: 3})
+		here = source.blockAtCursor().block
+		found = source.blockBefore(here.blockId)
+		self.assertEqual(found.kind, ResultKind.END_OF_STREAM)
+
+	def test_andTheOrdinaryStepBackIsUntouched(self):
+		"""The guard costs nothing where nothing is wrong, which is nearly always."""
+		source = sourceOver(self.LINES, caretIndex=3, interactive=True)
+		here = source.blockAtCursor().block
+		self.assertEqual(source.blockBefore(here.blockId).block.region.rawText, "three")
+
+	def test_aStepOnFromAUnitThatAlreadyHoldsWhatFollowsIsRefused(self):
+		"""The same rule forwards, where a line break in the text is not the evidence: a
+		paragraph may hold breaks of its own, and the extent is what says the block below
+		would repeat what this one already draws."""
+		source = sourceOver(self.LINES, caretIndex=0, interactive=True, expandsOnAt={0: 1})
+		here = source.blockAtCursor().block
+		self.assertEqual(source.blockAfter(here.blockId).kind, ResultKind.END_OF_STREAM)
+
+	def test_butADocumentBeingReadRatherThanWrittenKeepsItsContent(self):
+		"""Asked only while writing, where the transient lives. A document merely being read
+		holds still, and content is too expensive to refuse over a quirk that is not
+		happening — the reason `_startsWhereItLanded` gives, and the same one here."""
+		source = sourceOver(self.LINES, caretIndex=3, expandsOnAt={2: 3})
+		here = source.blockAtCursor().block
+		self.assertEqual(source.blockBefore(here.blockId).kind, ResultKind.BLOCK)
 
 
 class TestBookmarksAreNotHashable(unittest.TestCase):

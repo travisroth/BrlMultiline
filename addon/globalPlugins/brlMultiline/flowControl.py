@@ -388,17 +388,27 @@ class FlowController(PanelOwner):
 		"""
 		return any(state is EdgeState.DEFERRED for state in self.window.edges.values())
 
-	def fill(self) -> None:
-		"""Fetch whatever the window is short of, at both ends, and drop what is far away."""
-		with self.operation():
-			self._fillBothEnds()
+	def fill(self) -> bool:
+		"""Fetch whatever the window is short of, at both ends, and drop what is far away.
 
-	def _fillBothEnds(self) -> None:
+		:return: whether anything came back. **Not whether the band is full**: a fill cut
+			short by the budget adds what it could and leaves the rest, and the caller that
+			comes back for the rest — see `FlowBand._fillMore` — needs to know that asking
+			again is worth it. A pass that adds nothing is a document that will not answer,
+			and asking it again is how a refusal turns into a loop.
+		"""
+		with self.operation():
+			return self._fillBothEnds()
+
+	def _fillBothEnds(self) -> bool:
+		""":return: whether anything came back at either end. See `fill`."""
+		added = False
 		for edge in (Edge.AFTER, Edge.BEFORE):
 			shortfall = self.window.shortfall(edge)
 			if shortfall:
-				self._fill(edge, shortfall)
+				added = self._fill(edge, shortfall) or added
 		self._trim()
+		return added
 
 	def _rebaseIndent(self) -> None:
 		"""Draw the band's depths again if the plan in force has stopped working.
@@ -800,20 +810,25 @@ class FlowController(PanelOwner):
 
 		:param edge: which end to fetch at.
 		:param rows: how many rows are wanted.
-		:return: whether the shortfall was made up.
+		:return: whether anything came back. **Not whether the shortfall was made up**: a
+			fill cut short by the budget has answered the reader with what it got, and the
+			pass that comes back for the rest needs to tell that from a document that will
+			not answer at all. See `fill`.
 		"""
+		added = False
 		for _ in range(MAX_FETCHES):
 			if self.window.shortfall(edge) <= 0:
-				return True
+				return added
 			if self.source.budget.refuseIfExhausted():
 				# Out of budget, not out of document. Said so on the display, so that the
 				# rows the reader cannot see yet do not read as the end of the page.
 				self.window.setEdge(edge, EdgeState.DEFERRED)
-				return False
+				return added
 			if not self._fetchOne(edge):
-				return False
+				return added
+			added = True
 		log.debugWarning(f"A flow stopped fetching {edge.value} after {MAX_FETCHES} blocks")
-		return False
+		return added
 
 	def _fetchOne(self, edge: Edge) -> bool:
 		"""Ask the source for one more block at one end.
@@ -1348,7 +1363,7 @@ class FlowController(PanelOwner):
 		blockId = result.block.blockId
 		forward = self._isForward(blockId)
 		if not self.window.hasBlock(blockId) and not self._reach(blockId, forward):
-			return True if self._enterAtCursor(atObject=atObject) else None
+			return True if self._placeAfresh(atObject) else None
 		# Asked again, now that it can be answered. The first call was a guess: the block was
 		# not in the window, so there was nothing to compare it with and `_isForward` says
 		# "forward" when it cannot tell — which is the right guess for `_reach`, since reading
@@ -1372,6 +1387,33 @@ class FlowController(PanelOwner):
 			else self.syncToCursor(forward=forward, why="the reader arriving")
 		)
 		return moved
+
+	def _placeAfresh(self, atObject) -> bool:
+		"""Put the band around the reader, after reaching for them failed.
+
+		**With a fresh allowance where the reaching spent the old one.** Reaching and placing
+		are two answers to one keypress and only the second is any use to the reader: on a
+		slow application — Outlook's grouped inbox, where one step into the list took twice
+		what a whole operation is given — the walk towards where they moved could spend the
+		lot and arrive nowhere, and the placing that followed it then had nothing left to fill
+		the band with. The reader who arrowed up one row got the row they were on and blank
+		rows under it, and the band only came back when they left the folder and returned,
+		which builds a controller with a budget of its own. That is the bug, and it is the
+		budget rather than the fallback: the fallback was there and could not afford to run.
+
+		Only here, and only after a refusal. An arrival costs two allowances at the very
+		worst, never three, and an arrival that reached the reader the ordinary way costs one
+		as it always did. See `FetchBudget.renew`.
+
+		:param atObject: what the reader arrived at, if the document can place it.
+		:return: whether anything is on the display.
+		"""
+		if self.source.budget.stopped:
+			# Refused rather than answered. A reach that ended because the document ends
+			# there has spent nothing worth giving back.
+			self.source.budget.renew()
+			self._note("the reach ran out of time, so placing the band afresh was given its own")
+		return self._enterAtCursor(atObject=atObject)
 
 	def _activeLength(self) -> Optional[int]:
 		""":return: how many characters the block under the caret holds, or None if unreadable.

@@ -1196,7 +1196,7 @@ class TestTheSettlePass(unittest.TestCase):
 
 
 class TestTheBandSettleTimer(unittest.TestCase):
-	"""The band's half of the settle pass: one timer, restarted per keystroke."""
+	"""The band's half of the settle pass: one timer, and a keystroke never pushes it out."""
 
 	def band(self, lines=None):
 		from brlMultiline.flowBand import FlowBand
@@ -1211,13 +1211,47 @@ class TestTheBandSettleTimer(unittest.TestCase):
 		callLaterQueue.pending.clear()
 		return band, control
 
-	def test_aFreshKeystrokeRestartsTheTimer(self):
+	def test_aKeystrokeWhileAPassIsComingLeavesItAlone(self):
+		"""**The repair must not be postponed by the typing it repairs.** Restarting the timer
+		on every keystroke was the first rule here, so that a burst of typing was answered once
+		at the end of it — and a reader who types faster than the delay never reaches the end of
+		the burst, so the second look was pushed out again by every keystroke and never ran.
+		The reader who most needs it is exactly that one."""
 		band, _control = self.band()
 		band._scheduleSettle()
 		first = band._settleTimer
 		band._scheduleSettle()
-		self.assertTrue(first.stopped)
+		self.assertFalse(first.stopped)
+		self.assertIs(band._settleTimer, first)
 		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_andTheKeystrokeAfterThePassHasRunSchedulesTheNext(self):
+		"""So the last keystroke of a burst still earns its own look afterwards."""
+		band, _control = self.band()
+		band._scheduleSettle()
+		callLaterQueue.fire()
+		band._scheduleSettle()
+		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_aSettleThatChangesNothingTakesBackItsOwnClaim(self):
+		"""Reading again while writing arms `rereadWhileWriting` for the segment to turn into
+		a settle pass, and the segment sees it only when the band is redrawn — which is exactly
+		what a pass that changed nothing does not do. Left armed, it is found by whatever
+		updates the display next for its own reason, and buys a band's worth of reads to settle
+		something that settled long ago."""
+		band, control = self.band()
+		band._scheduleSettle()
+		callLaterQueue.fire()
+		self.assertFalse(control.rereadWhileWriting)
+
+	def test_butASettleThatHealedTheBandLeavesItArmed(self):
+		"""The band is redrawn, the segment consumes the claim, and it asks for the look after
+		this one: an editor that is still settling is asked again rather than once."""
+		band, control = self.band()
+		band._scheduleSettle()
+		control.source.obj.lines[0] = "mended"
+		callLaterQueue.fire()
+		self.assertTrue(control.rereadWhileWriting)
 
 	def test_aSettleThatChangesNothingRedrawsNothing(self):
 		band, _control = self.band()

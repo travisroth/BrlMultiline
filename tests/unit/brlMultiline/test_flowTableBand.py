@@ -1232,16 +1232,40 @@ class TestFinishingAFillTheBudgetCutShort(TableBandTestCase):
 	def test_aPassThatAddsNothingEndsTheChain(self):
 		"""A document that will not answer is asked twice and then left alone."""
 		control = self._short()
-		control.fill = lambda: None
+		control.fill = lambda: False
 		self.band._fillMore()
 		self.assertEqual(callLaterQueue.pending, [])
 
 	def test_aPassThatAddsSomethingAsksForAnother(self):
 		control = self._short()
-		control.fill = lambda: control.window.setEdge(Edge.AFTER, EdgeState.DEFERRED)
+		control.fill = lambda: control.window.setEdge(Edge.AFTER, EdgeState.DEFERRED) or True
 		control.cells = iter([[1], [2], [2]]).__next__
 		self.band._fillMore()
 		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_aPassWhoseRowsLandWhereTheReaderCannotFeelThemAsksForAnother(self):
+		"""**What was added, not what is showing.** The rows a cut-short band is missing are
+		usually rows that do not show: content fetched above the window is what the reader
+		scrolls up into, and it arrives off the top of the band by definition. Chaining on the
+		display changing stopped on the first of those — on the one document slow enough to
+		need the chain at all."""
+		control = self._short()
+		control.fill = lambda: control.window.setEdge(Edge.AFTER, EdgeState.DEFERRED) or True
+		control.cells = lambda: [1]
+		self.band._fillMore()
+		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_butTheDisplayIsStillOnlyWrittenWhenItChanged(self):
+		"""The bargain that keeps a reading hand still, and the reason the cells are compared
+		at all."""
+		control = self._short()
+		control.fill = lambda: True
+		control.cells = lambda: [1]
+		refreshes = []
+		spy = type("SpySegment", (), {"refresh": lambda inner: refreshes.append(True)})()
+		self.band.segment = lambda: spy
+		self.band._fillMore()
+		self.assertEqual(refreshes, [])
 
 
 class TestKeepingUpWithoutATable(TableBandTestCase):

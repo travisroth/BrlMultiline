@@ -66,6 +66,7 @@ def controllerOver(
 	unit="line",
 	expandsBackAt=None,
 	paragraphBreaks=None,
+	expandsOnAt=None,
 ):
 	"""Build a controller over a browse mode document of the given lines."""
 	interceptor = FakeTreeInterceptor(
@@ -74,6 +75,7 @@ def controllerOver(
 		bookmarks=bookmarks,
 		expandsBackAt=expandsBackAt,
 		paragraphBreaks=paragraphBreaks,
+		expandsOnAt=expandsOnAt,
 	)
 	source = DocumentFlowSource(
 		interceptor,
@@ -256,6 +258,17 @@ class TestLongBlocks(unittest.TestCase):
 		self.assertEqual(len(seen), 11)
 		self.assertEqual(len(set(seen)), 11)
 
+	def test_aContinuedChunkCountsAsSomethingComingBack(self):
+		"""A chunk is as much a step forward as a whole block, and the count of blocks does
+		not move for it. A fill that reported new blocks alone would call a paragraph still
+		being read a document that will not answer, and the pass that comes back to finish a
+		band the budget cut short would stop on it."""
+		control = self._paragraph()
+		before = len(control.window.blocks)
+		with control.operation():
+			self.assertTrue(control._fetchOne(Edge.AFTER))
+		self.assertEqual(len(control.window.blocks), before)
+
 	def test_theRowsAreContinuousAcrossAChunkBoundary(self):
 		control = self._paragraph(characters=400)
 		rows = rowTexts(control)
@@ -339,6 +352,126 @@ class TestBudgetCoversAnOperation(unittest.TestCase):
 		self.assertLessEqual(len(control.window.blocks) - before, 1)
 		self.assertLessEqual(budget.blocks, 1)
 		self.assertIs(control.window.edges[Edge.AFTER], EdgeState.DEFERRED)
+
+
+class TestAFillSaysWhetherItAddedAnything(unittest.TestCase):
+	"""What the caller that comes back for the rest needs to know, and the only thing it can
+	act on: a pass that added nothing is a document that will not answer, and asking that one
+	again is how a refusal turns into a loop."""
+
+	def test_aFillWithNothingToFetchSaysSo(self):
+		control = controllerOver(["a", "b"], numRows=4)
+		self.assertFalse(control.fill())
+
+	def test_aFillCutShortSaysItAddedWhatItGot(self):
+		"""**Not whether the band is full.** The band is still short afterwards — that is what
+		being cut short means — and a fill that reported only "full or not" would be answering
+		"no" to a document that is answering perfectly well, one block at a time."""
+		budget = FetchBudget(maxBlocks=1, maxSeconds=10.0, clock=lambda: 0.0)
+		control = controllerOver([str(number) for number in range(20)], numRows=4, budget=budget)
+		self.assertTrue(control.fill())
+		self.assertTrue(control.hasMoreToFetch)
+
+
+class TestPlacingTheReaderWhenTheReachRanOut(unittest.TestCase):
+	"""**Outlook's grouped inbox, and the reader who arrowed up out of the band.**
+
+	An arrival first tries to extend the band to the block the reader moved to, and on a slow
+	application that walk can spend the whole allowance and arrive nowhere: one step through
+	that list took twice what a whole operation is given. The fallback that places the band
+	afresh around them was already there and could not afford to run — it placed the one block
+	it is handed for nothing and was refused every fetch after it, so the reader who arrowed up
+	one row got that row and blank rows under it, until they left the folder and came back,
+	which builds a controller with a budget of its own.
+	"""
+
+	def _reachedTooFar(self):
+		""":return: a controller whose reader has jumped further than one allowance reaches."""
+		budget = FetchBudget(maxBlocks=1, maxSeconds=10.0, clock=lambda: 0.0)
+		control = controllerOver(
+			[str(number) for number in range(40)],
+			caretIndex=0,
+			numRows=4,
+			budget=budget,
+		)
+		control.source.obj.caretIndex = 30
+		return control, budget
+
+	def test_theReaderIsPlacedWhereTheyAre(self):
+		control, _budget = self._reachedTooFar()
+		control.followCursor()
+		self.assertIn("30", "".join(rowTexts(control)))
+
+	def test_andTheBandAroundThemIsFilled(self):
+		"""The half that was missing. One block on a display of four is not being placed."""
+		control, budget = self._reachedTooFar()
+		control.followCursor()
+		self.assertEqual(budget.renewals, 1)
+		self.assertGreater(len(control.window.blocks), 1)
+
+	def test_andTheStopIsStillCounted(self):
+		"""An operation that hid its own stop would leave the numbers saying the budget fits
+		when the reader felt it not fitting. The renewal is counted separately.
+
+		Read on a document whose end the placing reaches, so that nothing after the renewal
+		is refused: with a refusal after it the stop would be recorded again whatever the
+		renewal did with the first one, and the test would pass without the rule."""
+		budget = FetchBudget(maxBlocks=1, maxSeconds=10.0, clock=lambda: 0.0)
+		control = controllerOver(
+			[str(number) for number in range(9)],
+			caretIndex=0,
+			numRows=4,
+			budget=budget,
+		)
+		control.source.obj.caretIndex = 8
+		before = budget.stops
+		control.followCursor()
+		self.assertEqual(budget.renewals, 1)
+		self.assertEqual(budget.stops, before + 1)
+
+	def test_anArrivalThatReachedTheReaderIsNotRenewed(self):
+		"""The ordinary move, which is nearly every move: one allowance, as it always was."""
+		control = controllerOver([str(number) for number in range(40)], caretIndex=0, numRows=4)
+		control.source.obj.caretIndex = 2
+		control.followCursor()
+		self.assertEqual(control.source.budget.renewals, 0)
+
+
+class TestALineDrawnTwiceWhileWriting(unittest.TestCase):
+	"""**The duplicate at the bottom of a multi-line edit.**
+
+	More lines than the display holds, the caret on the last of them, and a keystroke: the
+	band is read again from the caret and the rows above it are fetched by walking back. A
+	rich editor answering during that keystroke expands the unit above the caret over the
+	line the caret is on, so that block holds the reader's own line as well — and the band
+	draws it once there and once in the caret's own block below.
+	"""
+
+	LINES = ["one", "two", "three", "four", "five"]
+
+	def _writingBand(self, expandsOnAt=None):
+		return controllerOver(
+			self.LINES,
+			caretIndex=3,
+			numRows=4,
+			numCols=16,
+			live=True,
+			interactive=True,
+			expandsOnAt=expandsOnAt,
+		)
+
+	def test_theCaretsLineIsDrawnOnce(self):
+		control = self._writingBand(expandsOnAt={2: 3})
+		control.followCursor()
+		self.assertEqual("".join(rowTexts(control)).count("four"), 1)
+
+	def test_andTheRowAboveIsStillFetchedWhenTheEditorAnswersProperly(self):
+		"""The guard must cost nothing in the ordinary case: refusing a walk back that is
+		perfectly good would leave the reader typing on the top row with what they wrote
+		above them gone, which is the bug the context above the caret exists to heal."""
+		control = self._writingBand()
+		control.followCursor()
+		self.assertIn("three", "".join(rowTexts(control)))
 
 
 class TestCursor(unittest.TestCase):

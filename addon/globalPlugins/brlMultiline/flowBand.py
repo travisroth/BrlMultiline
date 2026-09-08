@@ -353,18 +353,24 @@ class FlowBand(PanelOwner):
 		right after pressing return is reading the display, and that is exactly the moment
 		the garbage sat under their fingers.
 
-		Restarted on every keystroke, so during steady typing it fires once, after the
-		burst. The pass itself redraws only when it changed something, and scheduling
-		happens only from a display update, so a settle that changes nothing ends the
-		exchange rather than perpetuating it.
+		**A pass already coming is left where it is.** Restarting it on every keystroke was
+		the first rule here, on the reasoning that a burst of typing should be answered once
+		at the end of it — and a reader who types faster than the delay never reaches the end
+		of the burst, so the repair was pushed out again by every keystroke and never ran at
+		all. The one reader who most needs the second look is the one typing steadily into
+		the editor that answers wrongly while they do. So the timer is set by the first
+		keystroke that finds none pending and left alone after that: during a burst it fires
+		on its own clock, and the last keystroke of the burst still leaves one pending, which
+		is the pass after the burst that the old rule was written for.
+
+		The pass itself redraws only when it changed something, and scheduling happens only
+		from a display update, so a settle that changes nothing ends the exchange rather than
+		perpetuating it.
 		"""
 		import wx
 
 		if self._settleTimer is not None:
-			try:
-				self._settleTimer.Stop()
-			except Exception:
-				pass
+			return
 		try:
 			self._settleTimer = wx.CallLater(SETTLE_MILLIS, self._settle)
 		except Exception:
@@ -381,6 +387,14 @@ class FlowBand(PanelOwner):
 			before = control.cells()
 			control.followCursor()
 			if control.cells() == before:
+				# The band has settled, and the claim this pass made on the way must not
+				# outlive it. Reading again while writing arms `rereadWhileWriting` for the
+				# segment to turn into a settle pass, and the segment only ever sees it when
+				# the band is redrawn — which is exactly what is not about to happen here. Left
+				# armed, it is found by whatever updates the display next, for its own
+				# unrelated reason, and spends a band's worth of reads settling something that
+				# settled long ago.
+				control.rereadWhileWriting = False
 				return
 			segment = self.segment()
 			if segment is not None:
@@ -615,6 +629,16 @@ class FlowBand(PanelOwner):
 
 		Chained rather than looped: each pass asks for the next only if this one added
 		something, so a document that will not answer is asked twice and left alone.
+
+		**What was added, not what is showing.** The chain used to go on only while the
+		display changed, and the rows a cut-short band is missing are usually rows that do not
+		show: content fetched above the window is what the reader scrolls up into, and it
+		arrives off the top of the band by definition. So on the one document slow enough to
+		need this — one step through Outlook's grouped inbox costs twice a whole allowance —
+		the first pass fetched a row nobody could see yet, saw the display unchanged, and
+		stopped, leaving the band short until something else happened to redraw it. The
+		display is still only written when the cells came out different, which is the bargain
+		that keeps a reading hand still.
 		"""
 		self._fillTimer = None
 		control = self.controller
@@ -622,12 +646,12 @@ class FlowBand(PanelOwner):
 			return
 		try:
 			before = control.cells()
-			control.fill()
-			if control.cells() == before:
+			if not control.fill():
 				return
-			segment = self.segment()
-			if segment is not None:
-				segment.refresh()
+			if control.cells() != before:
+				segment = self.segment()
+				if segment is not None:
+					segment.refresh()
 		except Exception:
 			log.debugWarning("Could not finish filling the band", exc_info=True)
 			return

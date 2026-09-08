@@ -301,6 +301,22 @@ Added:
   it is all brought on; where it is taller than the display it is left to panning, as before.
   This is for lists and documents as much as tables.
 
+- **A line is no longer drawn twice at the bottom of a multi-line edit.** Two rows are two
+  blocks and two blocks must be two different pieces of the document; a rich editor answering
+  during a keystroke can expand the line above the caret over the line the caret is on, so the
+  band drew that line once above and once under your fingers. A block whose range runs into the
+  block it was walked from is now refused while you are writing, the same way a block that
+  reaches backwards already was, and the next reading — a moment later, or your next keystroke
+  — draws it properly.
+
+- **The second look after a keystroke is no longer postponed by the next keystroke.** The pass
+  that repairs a transiently wrong reading was restarted every time you typed, so that steady
+  typing pushed it out again and again and it never ran — and steady typing into an editor that
+  answers wrongly while you type is exactly when it is needed. A pass already coming is now left
+  where it is, and the last keystroke of a burst still earns the one after it. A pass that finds
+  nothing to mend also takes back its own claim on the next one, rather than leaving it for
+  some later redraw to spend a band's worth of reading on.
+
 - In the table designer, a column chosen as the one repeated on every page can no longer be
   a hidden one. Choosing it and then hiding it used to leave the saved layout naming a column
   the display was not repeating.
@@ -309,6 +325,18 @@ Added:
   used to end at each boundary, so panning stopped at the last message of the day; the walk
   now crosses into the next group, and the day heading is a row of its own. A closed group
   shows its heading and nothing under it.
+
+- **Arrowing up in a slow list no longer leaves the display where it was.** Reading back into
+  Outlook's grouped inbox needs a step or two into the application, and there a single step can
+  take twice as long as a whole keypress is allowed. The band tried to reach back to where you
+  had moved, spent the allowance on the reaching, and then had nothing left to draw the band
+  it fell back to — so the row you moved to arrived with blank rows under it, and the reading
+  only came back when you left the folder and returned. Placing the band around you is now
+  given its own allowance, since it is the answer to the key you pressed and the reaching was
+  not, and the second look that finishes a band the budget cut short now carries on for as long
+  as the document is still answering. It used to stop the moment a fetch changed nothing on the
+  display — which is exactly what fetching the rows *above* the window does, those being the
+  rows you scroll up into.
 
 - A message row in Outlook's list says what is true of *it*. NVDA builds part of such a row's
   name from whichever message is selected, so rows on the display could carry another
