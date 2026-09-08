@@ -1714,6 +1714,159 @@ class TestASheetWhoseHeaderRowIsRowOne(unittest.TestCase):
 		self.assertIn("North", above.block.region.rawText)
 
 
+class FilteredSheet(BulkSheet):
+	"""A sheet with a filter on it, which is a sheet that answers for rows it is not showing.
+
+	The half a stand-in has to get right: `cellAt` and `textRow` hand over any row asked for,
+	filtered away or not, exactly as Excel does. A sheet that refused the hidden rows would
+	make the walk look correct without the walk having done anything.
+	"""
+
+	def __init__(self, *args, showing=None, **kwargs):
+		super().__init__(*args, **kwargs)
+		self.showing = showing or []
+		"""The runs of rows on show, as (first, last) pairs."""
+
+		self.timesAsked = 0
+
+	def rowAfter(self, row, by):
+		self.timesAsked += 1
+		if by > 0:
+			for first, last in self.showing:
+				if row < first:
+					return first
+				if first <= row < last:
+					return row + 1
+			return None
+		for first, last in reversed(self.showing):
+			if row > last:
+				return last
+			if first < row <= last:
+				return row - 1
+		return None
+
+
+class TestASheetThatHidesColumns(unittest.TestCase):
+	"""**A hidden column is still a column.** Ask a worksheet for column 5 with column 5
+	hidden and it hands over column 5's cells like any other, so the layout drew a column the
+	reader could not arrow to, counted it among the columns — "columns 5 to 6 of 6" — and put
+	its heading in the pinned row. Hiding it was them saying they did not want it, once.
+	"""
+
+	def _sheet(self, showing=None, at=(1, 1)):
+		sheet = BulkSheet(
+			rows=[["one", "two", "three", "four"], ["1", "2", "3", "4"]],
+			at=at,
+			headers={1: "First", 2: "Second", 3: "Third", 4: "Fourth"},
+		)
+		if showing is not None:
+			sheet.columnsShowing = lambda: showing
+		return sheet
+
+	def _measured(self, sheet):
+		cell = FakeNavigatorObject("a cell", role="TABLECELL")
+		cell.brlMultilineSheet = lambda: sheet
+		return flowTableSource.measure(flowTableSource.tableAt(cell))
+
+	def test_aHiddenColumnIsNotMeasured(self):
+		found = self._measured(self._sheet(showing={1, 2, 4}))
+		self.assertEqual([item.index for item in found], [1, 2, 4])
+
+	def test_norIsItCountedAmongTheColumns(self):
+		"""Which is the half the reader hears: "columns five to six of six" counted a column
+		that was not there."""
+		found = self._measured(self._sheet(showing={1, 2, 4}))
+		self.assertEqual(len(found), 3)
+
+	def test_norIsItsHeadingTakenForThePinnedRow(self):
+		found = self._measured(self._sheet(showing={1, 2, 4}))
+		self.assertNotIn("Third", [item.label for item in found])
+
+	def test_butTheReadersOwnColumnIsKeptWhateverTheSheetSays(self):
+		"""Arriving on a hidden column is not something Excel ordinarily allows, and where it
+		happens the answer that leaves the reader a cursor to feel beats the tidy one: a
+		column left out is a column with nowhere to put their cursor and nothing for a routing
+		key to reach."""
+		found = self._measured(self._sheet(showing={1, 2, 4}, at=(1, 3)))
+		self.assertEqual([item.index for item in found], [1, 2, 3, 4])
+
+	def test_aSheetWithNoOpinionKeepsEveryColumn(self):
+		"""Every list, every document table, and every sheet hiding nothing."""
+		found = self._measured(self._sheet())
+		self.assertEqual([item.index for item in found], [1, 2, 3, 4])
+
+
+class TestASheetThatHidesRows(unittest.TestCase):
+	"""**A filter hides rows; it does not remove them.**
+
+	Ask a filtered worksheet for row 40 and it hands over row 40's cells whether or not the
+	filter left it on show. A band that walks by adding one to a row number therefore walks
+	off the end of the filtered block and straight into what the reader filtered away — which
+	is what they met at both ends of it.
+	"""
+
+	def _source(self, sheet, columns=(1, 2, 3, 4)):
+		cell = FakeNavigatorObject("a cell", role="TABLECELL")
+		cell.brlMultilineSheet = lambda: sheet
+		handle = flowTableSource.tableAt(cell)
+		return flowTableSource.TableFlowSource(handle, columns, declared={}, pinHeaders=False)
+
+	def _sheet(self, showing):
+		return FilteredSheet(
+			rows=[[f"row {number}", str(number), "", ""] for number in range(1, 13)],
+			at=(3, 1),
+			showing=showing,
+		)
+
+	def _at(self, row):
+		return flowTableSource.BlockId(generation=0, bookmark=row, unit="row")
+
+	def test_theWalkSkipsWhatTheFilterTookAway(self):
+		source = self._source(self._sheet([(1, 3), (9, 12)]))
+		found = source.blockAfter(self._at(3))
+		self.assertIn("row 9", found.block.region.rawText)
+
+	def test_andSkipsItGoingBackAsWell(self):
+		"""Panning back out of a filtered block is the same walk in the other direction, and
+		the reader met the rows above the filter there."""
+		source = self._source(self._sheet([(1, 3), (9, 12)]))
+		found = source.blockBefore(self._at(9))
+		self.assertIn("row 3", found.block.region.rawText)
+
+	def test_andEndsWhereTheFilterDoes(self):
+		"""Rather than reading on into rows the reader filtered away, which from the display
+		is a table that does not end where it says it does."""
+		source = self._source(self._sheet([(1, 3), (9, 12)]))
+		self.assertIsNone(source.blockAfter(self._at(12)).block)
+		self.assertIsNone(source.blockBefore(self._at(1)).block)
+
+	def test_theWidthsAreMeasuredFromRowsTheReaderCanSee(self):
+		"""A column sized from the rows the filter took away is a column sized for text that
+		will never be drawn in it, and the widths are what the whole layout is built from."""
+		sheet = self._sheet([(1, 3), (9, 12)])
+		sheet.rows[5] = ["a very long value indeed", "", "", ""]
+		cell = FakeNavigatorObject("a cell", role="TABLECELL")
+		cell.brlMultilineSheet = lambda: sheet
+		flowTableSource.measure(flowTableSource.tableAt(cell))
+		self.assertEqual([row for row, _first, _last in sheet.rowsRead if 4 <= row <= 8], [])
+
+	def test_aSheetWithNoOpinionIsWalkedByOne(self):
+		"""Every other grid, and every list: a table that hides nothing must not be read as a
+		table saying it ends at the row the reader is on."""
+		source = self._source(BulkSheet(at=(1, 1)))
+		found = source.blockAfter(self._at(1))
+		self.assertIsNotNone(found.block)
+
+	def test_andASheetThatRaisesIsWalkedByOneToo(self):
+		"""A question that failed must not cost the reader the rest of the sheet."""
+		sheet = self._sheet([(1, 12)])
+		def refuse(row, by):
+			raise RuntimeError("no")
+		sheet.rowAfter = refuse
+		source = self._source(sheet)
+		self.assertIn("row 4", source.blockAfter(self._at(3)).block.region.rawText)
+
+
 class TestWhatASheetSaysInTheReport(unittest.TestCase):
 	"""The dry run's account of a sheet said "no row in hand, so there are no cells to
 	describe" and nothing else, for every sheet — because a sheet has a row *number* where

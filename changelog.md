@@ -139,6 +139,26 @@ Added:
   arrival, are NVDA's own — the same ones control+alt+arrow uses — and the arrows are left
   alone entirely if you have turned tables off in NVDA's Document Formatting settings.
 
+- **A filtered worksheet is read as the filter left it.** Panning off the end of a filtered
+  block carried on into the rows the filter had taken away, at both ends, because a filter
+  hides rows rather than removing them: ask Excel for row 40 of a sheet filtered down to nine
+  rows and it hands over row 40 as if nothing were hidden. Excel is now asked which rows it is
+  showing — once per reading, in one call — and the band steps between those, so the reading
+  ends where the filtered block does. A sheet with no filter costs that one question and is
+  walked exactly as before, and a sheet whose answer cannot be had is too, rather than losing
+  you the rest of it.
+
+- **A hidden column is not drawn, counted or named.** Hiding column 5 in Excel took it out of
+  what the arrow keys reach and left it in the layout: it had a column of the display, its
+  heading sat in the pinned row, and it was counted in "columns five to six of six" — a column
+  of braille spent on something you had said once you did not want. Columns Excel is hiding are
+  now left out before anything is measured, which is what takes them out of all three. The one
+  exception is the column you are standing in, which is kept whatever the sheet says, since a
+  column left out has nowhere to put your cursor and nothing for a routing key to reach.
+
+  The rows and the columns come out of the same single question, so a sheet that is both
+  filtered and hiding a column costs no more to read than either.
+
 - **An Excel worksheet can be read in columns**, like a web page's table or File Explorer's
   Details view. A sheet is read by coordinate rather than by walking rows, its extent comes
   from Excel's used range, and its row and column numbers are Excel's own. Headers are the
@@ -309,13 +329,23 @@ Added:
   reaches backwards already was, and the next reading — a moment later, or your next keystroke
   — draws it properly.
 
-- **The second look after a keystroke is no longer postponed by the next keystroke.** The pass
-  that repairs a transiently wrong reading was restarted every time you typed, so that steady
-  typing pushed it out again and again and it never ran — and steady typing into an editor that
-  answers wrongly while you type is exactly when it is needed. A pass already coming is now left
-  where it is, and the last keystroke of a burst still earns the one after it. A pass that finds
-  nothing to mend also takes back its own claim on the next one, rather than leaving it for
-  some later redraw to spend a band's worth of reading on.
+- **The second look after a keystroke can no longer be postponed for ever.** The pass that
+  repairs a transiently wrong reading was restarted every time you typed, so steady typing
+  pushed it out again and again and it never ran — and steady typing into an editor that
+  answers wrongly while you type is exactly when it is needed. Typing still puts the pass off,
+  since a pass that lands mid-word reads the very thing it is there to clear, but no longer
+  than half a second: you now get one either just after you pause or, in a long burst, at that
+  interval. A pass that finds nothing to mend also takes back its own claim on the next one,
+  rather than leaving it for some later redraw to spend a band's worth of reading on.
+
+- **The rows above the line you are typing come back on their own.** A keystroke re-reads the
+  band from the caret — its own line, then the rows below it, and only then the walk back to
+  what you had written above — so on a slow editor the rows above are what the allowance runs
+  out during, and they are the ones you lose. On a ten row display that is most of the band:
+  the line being typed, a marker saying there is more, and nothing you could read. What could
+  not be afforded is now written down and finished by the pass that comes back a moment later,
+  on a fresh allowance, without the keystroke waiting for any of it. The band moves once, when
+  the rows are all there, rather than creeping up under your fingers a row at a time.
 
 - In the table designer, a column chosen as the one repeated on every page can no longer be
   a hidden one. Choosing it and then hiding it used to leave the saved layout naming a column

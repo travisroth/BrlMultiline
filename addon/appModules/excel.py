@@ -41,6 +41,7 @@ layout drawn from numbers this could not check.
 """
 
 import ctypes
+import re
 from typing import Optional
 
 import config
@@ -100,6 +101,83 @@ reads.
 """
 
 
+XL_CELL_TYPE_VISIBLE = 12
+"""Excel's `xlCellTypeVisible`, which is how a range is asked for the part of it on show.
+
+Named here because NVDA's own Excel module has no name for it; it has `xlCellTypeFormulas`
+beside it for its formula quick navigation and nothing for this.
+"""
+
+ADDRESS_SEPARATORS = ",;"
+"""What Excel may put between the areas of an address: a comma, or a semicolon where that is
+the reader's list separator."""
+
+
+def columnNumberOf(letters: str) -> int:
+	""":return: which column a run of letters names: A is 1, Z is 26, AA is 27.
+
+	:param letters: the column's letters, in either case.
+	"""
+	number = 0
+	for letter in letters.upper():
+		number = number * 26 + (ord(letter) - ord("A") + 1)
+	return number
+
+
+def columnSpansIn(address: Optional[str]) -> Optional[list]:
+	""":return: the runs of columns an address covers, as (first, last) pairs, or None.
+
+	The other half of what the same address says. A sheet with column 5 hidden answers with
+	its used range split in two — "$A$1:$D$129,$F$1:$F$129" — and the letters are what says
+	which columns those are.
+
+	None where any area of it names no column at all, which is what a reference to whole rows
+	looks like: every column is showing there, and an answer built from the other areas alone
+	would hide columns the sheet is perfectly willing to show.
+
+	:param address: what Excel called the range, or None.
+	"""
+	if not address:
+		return None
+	spans = []
+	for part in re.split(f"[{ADDRESS_SEPARATORS}]", address):
+		letters = re.findall(r"([A-Za-z]+)", part)
+		if not letters:
+			return None
+		numbers = [columnNumberOf(found) for found in letters]
+		spans.append((min(numbers), max(numbers)))
+	if not spans:
+		return None
+	return sorted(spans)
+
+
+def rowSpansIn(address: Optional[str]) -> Optional[list]:
+	""":return: the runs of rows an address covers, as (first, last) pairs, or None.
+
+	An address of several areas — "$A$1:$F$3,$A$9:$F$20" — is what a filtered sheet answers
+	when it is asked which of its cells are showing, and the row numbers in it are the whole
+	of what this needs. Parsed from the string rather than walked as `Areas`, because the
+	string is one call into Excel and the walk is two per area: a filter that leaves fifty
+	scattered rows would cost a hundred calls to learn what one already said.
+
+	:param address: what Excel called the range, or None.
+	"""
+	if not address:
+		return None
+	spans = []
+	for part in re.split(f"[{ADDRESS_SEPARATORS}]", address):
+		# The row numbers of "$A$9:$F$20", and of "$A$9", and of a whole-row "$9:$20". A
+		# column is letters and a row is digits, so the digits are the answer whichever
+		# shape the area has.
+		numbers = [int(found) for found in re.findall(r"(\d+)", part)]
+		if not numbers:
+			continue
+		spans.append((min(numbers), max(numbers)))
+	if not spans:
+		return None
+	return sorted(spans)
+
+
 class ExcelSheet:
 	"""One worksheet, addressed by coordinate. Answers `flowObjectTable.Sheet`.
 
@@ -118,6 +196,10 @@ class ExcelSheet:
 
 		self._used = None
 		"""How far Excel considers this sheet used, asked once. See `shape`."""
+
+		self._shown = _UNASKED
+		"""What Excel is showing of this sheet, asked once: the runs of rows and the runs of
+		columns, either of which may be None for "cannot say". See `_whatIsShowing`."""
 
 		self.obj = cell.parent
 		"""The worksheet, which is what tells one sheet from another. NVDA builds it from the
@@ -326,6 +408,99 @@ class ExcelSheet:
 				for place in places:
 					texts[place] = said
 		return texts
+
+	def rowAfter(self, row: int, by: int) -> Optional[int]:
+		""":return: the next row Excel is showing, or None where it is showing no more.
+
+		**A filter hides rows; it does not remove them.** Ask a filtered worksheet for row 40
+		and it hands over row 40's cells whether or not the filter left it on show, so a band
+		that walks by adding one to a row number walks straight out of the rows the reader
+		filtered to and into the ones they filtered away — which is what they met at each end
+		of a filtered block. Excel is asked which rows are showing instead, once per reading,
+		and the walk steps between them.
+
+		Where the answer cannot be had, the next row along is given rather than None: None
+		ends the walk, and ending it because a question failed would cost the reader the rest
+		of the sheet over something that will very likely answer next time.
+
+		:param row: the row walked from, one based.
+		:param by: which way, as 1 or -1.
+		"""
+		spans = self._shownRows()
+		if spans is None:
+			return row + by
+		if by > 0:
+			for first, last in spans:
+				if row < first:
+					return first
+				if first <= row < last:
+					return row + 1
+			return None
+		for first, last in reversed(spans):
+			if row > last:
+				return last
+			if first < row <= last:
+				return row - 1
+		return None
+
+	def columnsShowing(self) -> Optional[set]:
+		""":return: the columns Excel is showing, or None where every column is showing.
+
+		**A hidden column is still a column.** Ask a worksheet for column 5 with column 5
+		hidden and it hands over column 5's cells exactly as it does for any other, so a
+		layout built from the columns the sheet *has* drew one the reader could not arrow to,
+		counted it among the columns, and put its heading in the pinned row. Hiding a column
+		is the reader saying they do not want it, once.
+
+		From the same answer the rows come from, so it costs nothing beyond that: what Excel
+		hands back as showing is split at a hidden column as much as at a filtered row, and
+		the letters in the address are which columns those are.
+		"""
+		spans = self._whatIsShowing()[1]
+		if spans is None:
+			return None
+		showing = set()
+		for first, last in spans:
+			showing.update(range(first, last + 1))
+		return showing or None
+
+	def _shownRows(self) -> Optional[list]:
+		""":return: the runs of rows Excel is showing, or None where it would not say."""
+		return self._whatIsShowing()[0]
+
+	def _whatIsShowing(self) -> tuple:
+		""":return: what Excel is showing, as (runs of rows, runs of columns).
+
+		Asked once for this reading, as the used range and the headings are: a band walks a
+		row at a time and asks about the columns once more on top of that, and the answer is
+		the same for all of them. It changes when the reader changes the filter or unhides a
+		column — which builds the sheet afresh anyway.
+		"""
+		if self._shown is _UNASKED:
+			address = self._askWhatIsShowing()
+			self._shown = (rowSpansIn(address), columnSpansIn(address))
+		return self._shown
+
+	def _askWhatIsShowing(self) -> Optional[str]:
+		""":return: how Excel describes the part of this sheet on show, or None if it will not.
+
+		One call for the range and one for its address. A sheet with no filter answers with
+		its whole used range in one area, which costs the same two calls and says the walk may
+		step by one anywhere — so nothing here is a tax on the ordinary sheet beyond that.
+		"""
+		try:
+			showing = self._sheet.usedRange.SpecialCells(XL_CELL_TYPE_VISIBLE)
+			address = showing.address(True, True, xlA1, False)
+		except CallCancelled:
+			# Not "every row is showing". See `sheetFor`.
+			raise
+		except Exception:
+			# Excel raises rather than answering when a range holds nothing at all, and an
+			# older or otherwise unwilling Excel may simply refuse. Either way the walk goes
+			# back to stepping by one, which is what it did before this existed.
+			log.debugWarning("Excel would not say which rows it is showing", exc_info=True)
+			return None
+		return address
 
 	def columnHeaders(self, first: int, last: int) -> Optional[dict]:
 		""":return: what each column of a span is called, {} where none is, or None to ask cells.

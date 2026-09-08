@@ -26,6 +26,7 @@ with a smaller rectangle once there is a setting to name it.
 
 import dataclasses
 import itertools
+import time
 from typing import TYPE_CHECKING, Any, Optional
 
 import api
@@ -122,6 +123,25 @@ short enough that a reader pausing to read the display never meets them. Restart
 keystroke, so a steady typist pays for one settle pass per pause rather than one per key.
 """
 
+SETTLE_LATEST_MILLIS = 600
+"""The longest a settle pass may be put off by the typing it is waiting for.
+
+**Both rules are needed, and each without the other is a bug this add-on has had.** Restart
+the pass on every keystroke and a reader who types faster than the delay never reaches the
+pause it waits for, so the repair never runs — and a steady typist in a rich editor is
+exactly who needs it. Refuse to restart it at all and the pass fires in the middle of the
+burst, which is the one moment the editor's answers are transiently wrong: it reads the
+garbage it exists to clear and shows the reader that instead.
+
+So a keystroke pushes the pass out, but never past this. A typist gets a settle within a
+keystroke or two of pausing, and at worst one mid-burst pass every this often — the price of
+not waiting for a pause that may not come."""
+
+
+def _now() -> float:
+	""":return: a monotonic clock in milliseconds, which is what the delays here are in."""
+	return time.monotonic() * 1000
+
 if TYPE_CHECKING:
 	from .container import DisplayContainer
 
@@ -182,6 +202,10 @@ class FlowBand(PanelOwner):
 
 		self._settleTimer = None
 		"""The pending settle pass, so a fresh keystroke can restart it. See L{_scheduleSettle}."""
+
+		self._settleBy = 0.0
+		"""When the pending pass must run by, however much more is typed. See
+		L{SETTLE_LATEST_MILLIS}."""
 
 		self._liveTimer = None
 		"""The pending live-table pass. See L{_scheduleLiveRead}."""
@@ -353,15 +377,13 @@ class FlowBand(PanelOwner):
 		right after pressing return is reading the display, and that is exactly the moment
 		the garbage sat under their fingers.
 
-		**A pass already coming is left where it is.** Restarting it on every keystroke was
-		the first rule here, on the reasoning that a burst of typing should be answered once
-		at the end of it — and a reader who types faster than the delay never reaches the end
-		of the burst, so the repair was pushed out again by every keystroke and never ran at
-		all. The one reader who most needs the second look is the one typing steadily into
-		the editor that answers wrongly while they do. So the timer is set by the first
-		keystroke that finds none pending and left alone after that: during a burst it fires
-		on its own clock, and the last keystroke of the burst still leaves one pending, which
-		is the pass after the burst that the old rule was written for.
+		**A keystroke puts the pass off, but only so far.** Restarting it on every keystroke
+		is right for a reader who pauses — the pass then lands on an editor that has finished
+		answering — and it is a trap for one who does not: typing faster than the delay pushed
+		the repair out again on every key and it never ran at all. Refusing to restart it is
+		the opposite trap, since the pass then fires mid-burst and reads the very transient it
+		exists to clear. So the pass is pushed out while the burst is young, and left alone
+		once it has been waiting `SETTLE_LATEST_MILLIS`.
 
 		The pass itself redraws only when it changed something, and scheduling happens only
 		from a display update, so a settle that changes nothing ends the exchange rather than
@@ -369,10 +391,19 @@ class FlowBand(PanelOwner):
 		"""
 		import wx
 
-		if self._settleTimer is not None:
+		now = _now()
+		if self._settleTimer is None:
+			self._settleBy = now + SETTLE_LATEST_MILLIS
+		elif now + SETTLE_MILLIS <= self._settleBy:
+			# Still inside the ceiling, so this keystroke buys the editor more time to
+			# finish answering.
+			self._cancelSettle()
+		else:
+			# A pass is coming and has been put off as long as it may be. Pushing it out
+			# again is how the repair was starved.
 			return
 		try:
-			self._settleTimer = wx.CallLater(SETTLE_MILLIS, self._settle)
+			self._settleTimer = wx.CallLater(int(max(1, min(SETTLE_MILLIS, self._settleBy - now))), self._settle)
 		except Exception:
 			log.debugWarning("Could not schedule a flow settle pass", exc_info=True)
 			self._settleTimer = None

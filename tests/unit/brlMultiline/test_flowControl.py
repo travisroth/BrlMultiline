@@ -437,6 +437,90 @@ class TestPlacingTheReaderWhenTheReachRanOut(unittest.TestCase):
 		self.assertEqual(control.source.budget.renewals, 0)
 
 
+class TestTheRowsAboveTheCaretWhileWriting(unittest.TestCase):
+	"""**What a slow editor takes from the reader first, because it is read last.**
+
+	A keystroke re-reads the band from the caret: the caret's own block, then the rows below
+	it, and only then the walk back to what was above. That walk is most of the work on a tall
+	display — nine rows of a Monarch against four of a Focus — so it is what the allowance runs
+	out during, and the reader typing at the end of a document was left with the line they are
+	on and nothing they had already written.
+
+	Nothing healed it, either. The band asks again whenever an end of it is short, and this end
+	is not short: the window is anchored at the caret's block with nothing above it, so there
+	was no shortfall to make up and the pass that comes back had nothing to ask for. The debt
+	is written down instead, and paid on that pass.
+	"""
+
+	def _typedInto(self, maxBlocks=1):
+		""":return: a band being written into whose walk back cannot be afforded."""
+		budget = FetchBudget(maxBlocks=maxBlocks, maxSeconds=10.0, clock=lambda: 0.0)
+		control = controllerOver(
+			[str(number) for number in range(20)],
+			caretIndex=15,
+			numRows=6,
+			live=True,
+			interactive=True,
+			budget=budget,
+		)
+		control.followCursor()
+		return control
+
+	def test_whatCouldNotBeAffordedIsWrittenDown(self):
+		control = self._typedInto()
+		self.assertEqual(control.window.rowsAbove(), 0)
+		self.assertEqual(control._owedAbove, control.window.numRows // 2)
+
+	def test_andThePassThatComesBackPaysWhatItCan(self):
+		"""A fetch or two at a time, on a fresh allowance each pass: neither the keystroke nor
+		the reader's next arrival waits for any of it. The band does not move for a part
+		payment — walking the display up a row per pass would move it three times to arrive
+		where one move gets it."""
+		control = self._typedInto()
+		self.assertTrue(control.fill())
+		self.assertGreater(control.window.rowsAbove(), 0)
+		self.assertTrue(control._owedAbove)
+		self.assertEqual(rowTexts(control)[0].strip(), "15")
+
+	def test_untilTheReaderHasTheirRowsBack(self):
+		"""And then the band moves once, with the caret's line where the rows above it put
+		it: three rows of what they have written, and their own line under them."""
+		control = self._typedInto()
+		for _ in range(10):
+			if not control._owedAbove:
+				break
+			control.fill()
+		self.assertEqual(control._owedAbove, 0)
+		self.assertEqual(rowTexts(control)[0].strip(), "12")
+		self.assertEqual(rowTexts(control)[3].strip(), "15")
+
+	def test_aWalkBackThatReachedTheStartOfTheDocumentOwesNothing(self):
+		"""The debt is a refusal, not a short answer: a caret near the top of a document has
+		fewer rows above it than the band would like and is not owed them.
+
+		Asked of the walk itself, because the pass that pays clears an imaginary debt a moment
+		later and would hide the difference — the band would be right and the reason would be
+		luck."""
+		budget = FetchBudget(maxBlocks=40, maxSeconds=10.0, clock=lambda: 0.0)
+		control = controllerOver(
+			["one", "two", "three", "four"],
+			caretIndex=1,
+			numRows=6,
+			live=True,
+			interactive=True,
+			budget=budget,
+		)
+		control.followCursor()
+		control._contextAboveTheCaret()
+		self.assertEqual(control._owedAbove, 0)
+
+	def test_andEnteringAfreshOwesNothingEither(self):
+		"""The debt belonged to the band that was replaced."""
+		control = self._typedInto()
+		control.enterAtCursor()
+		self.assertEqual(control._owedAbove, 0)
+
+
 class TestALineDrawnTwiceWhileWriting(unittest.TestCase):
 	"""**The duplicate at the bottom of a multi-line edit.**
 

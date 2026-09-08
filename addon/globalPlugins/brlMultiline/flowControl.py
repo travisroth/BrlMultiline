@@ -245,6 +245,22 @@ class FlowController(PanelOwner):
 		More than one position, because a caret moved by panning has two right answers while
 		the application catches up. See `_caretsAfterAPan`."""
 
+		self._owedAbove = 0
+		"""How many rows of context above the caret a writing re-read could not afford.
+
+		**The rows above are the ones that go missing, because they are read last.** A
+		keystroke re-reads the band from the caret: the caret's own block, then the rows
+		below it, and only then the walk back to what was above. On a tall display that walk
+		is most of the work — nine rows of a Monarch against four of a Focus — and it is what
+		the allowance runs out during, so the reader typing at the end of a document was left
+		with their line and blank rows where everything they had written should be.
+
+		Nothing healed it either. The band asks again whenever an end of it is short, and
+		this end is not short: the window is anchored at the caret's block with nothing above
+		it, so there is no shortfall to make up and the pass that comes back had nothing to
+		ask for. So the debt is written down here and paid on that pass instead. See
+		`_contextAboveTheCaret` and `_payWhatIsOwedAbove`."""
+
 		self.rereadWhileWriting = False
 		"""Whether the last cursor move re-read the band as an edit being typed into.
 
@@ -296,6 +312,8 @@ class FlowController(PanelOwner):
 
 	def _enterAtCursor(self, contextRows: int = 0, atObject=None) -> bool:
 		""":return: whether anything is now on the display. See `enterAtCursor`."""
+		# Whatever was owed was owed by the band being replaced here.
+		self._owedAbove = 0
 		result = self.source.blockAtCursor(atObject)
 		self.lastResult = result
 		if result.kind is not ResultKind.BLOCK or result.block is None:
@@ -402,13 +420,47 @@ class FlowController(PanelOwner):
 
 	def _fillBothEnds(self) -> bool:
 		""":return: whether anything came back at either end. See `fill`."""
-		added = False
+		added = self._payWhatIsOwedAbove()
 		for edge in (Edge.AFTER, Edge.BEFORE):
 			shortfall = self.window.shortfall(edge)
 			if shortfall:
 				added = self._fill(edge, shortfall) or added
 		self._trim()
 		return added
+
+	def _payWhatIsOwedAbove(self) -> bool:
+		"""Fetch context above the caret that a writing re-read could not afford at the time.
+
+		Asked on every fill, which is what the band's continuation pass calls: the debt is
+		paid a fetch or two at a time, on a fresh allowance each pass, until the rows the
+		reader had above them are back or the document says there are no more. Neither the
+		reader's keystroke nor their next arrival waits for any of it.
+
+		:return: whether anything came back, so that the pass knows to come again.
+		"""
+		wanted = self._owedAbove
+		active = self.activeBlockId
+		if not wanted or active is None:
+			self._owedAbove = 0
+			return False
+		before = self.window.rowsAbove()
+		self._reachBack(wanted)
+		rowsAbove = self.window.rowsAbove()
+		if rowsAbove < wanted and self.window.edges[Edge.BEFORE] is EdgeState.DEFERRED:
+			# Short still, and still being refused rather than answered. The rows are kept and
+			# the band is left exactly where it is: moving it up a row per pass would walk the
+			# display under a reading hand three times to arrive where one move gets it.
+			return rowsAbove > before
+		# Paid, or there is nothing left to pay it with — the document starts here. Either way
+		# the debt is over and what was reached goes above the caret.
+		self._owedAbove = 0
+		if rowsAbove <= 0:
+			return False
+		try:
+			self.window.enterAt(active, contextRows=min(wanted, rowsAbove))
+		except LookupError:
+			log.debugWarning("Could not put back the rows above the caret", exc_info=True)
+		return rowsAbove > before
 
 	def _rebaseIndent(self) -> None:
 		"""Draw the band's depths again if the plan in force has stopped working.
@@ -1618,6 +1670,14 @@ class FlowController(PanelOwner):
 			rowsAbove = self.window.rowsAbove()
 			if rowsAbove > 0:
 				self.window.enterAt(active, contextRows=min(wanted, rowsAbove))
+			# What could not be afforded this time, for the pass that comes back with a fresh
+			# allowance. The rows above are read last and are the first thing a slow editor
+			# costs the reader; see `_owedAbove`.
+			self._owedAbove = (
+				wanted
+				if rowsAbove < wanted and self.window.edges[Edge.BEFORE] is EdgeState.DEFERRED
+				else 0
+			)
 		except LookupError:
 			log.debugWarning("Could not anchor the band at the caret", exc_info=True)
 

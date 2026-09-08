@@ -400,14 +400,54 @@ class FakeSpan:
 		return f"Sheet1!R{self.first.row}C{self.first.column}:C{self.last.column}"
 
 
+class FakeVisibleRange:
+	"""What `SpecialCells(xlCellTypeVisible)` hands back: a range of one area per run of rows.
+
+	Only its address is asked for, and only the row numbers in that are read — which is the
+	whole reason the address is what the module asks Excel for. See `excelModule.rowSpansIn`.
+	"""
+
+	def __init__(self, areas, separator=","):
+		self.areas = areas
+		self.separator = separator
+
+	def address(self, rowAbsolute, columnAbsolute, style, external):
+		return self.separator.join(self.areas)
+
+
 class FakeUsedRange:
 	"""What Excel considers written in, which is not the same as what is written in."""
 
-	def __init__(self, row, column, rows, columns):
+	def __init__(self, row, column, rows, columns, showing=None, refuses=False, areas=None):
 		self.row = row
 		self.column = column
 		self.rows = types.SimpleNamespace(count=rows)
 		self.columns = types.SimpleNamespace(count=columns)
+		self.showing = showing
+		"""Which runs of rows a filter has left on show, or None for an unfiltered sheet."""
+
+		self.refuses = refuses
+		"""Whether Excel will not answer at all, which is what it does for a range holding
+		nothing — it raises rather than handing back an empty one."""
+
+		self.areas = areas
+		"""The addresses Excel answers with, written out, for a sheet hiding columns as well
+		as rows. A hidden column splits every area of the answer sideways, which is a shape
+		`showing` cannot express."""
+
+		self.timesAskedWhatIsShowing = 0
+
+	def SpecialCells(self, kind):
+		self.timesAskedWhatIsShowing += 1
+		if self.refuses:
+			raise COMError(-2146827284, None, (None, None, None, 0, None))
+		if self.areas is not None:
+			return FakeVisibleRange(self.areas)
+		if self.showing is None:
+			# An unfiltered sheet answers with the whole of itself, in one area.
+			last = self.row + self.rows.count - 1
+			return FakeVisibleRange([f"$A${self.row}:$F${last}"])
+		return FakeVisibleRange([f"$A${first}:$F${last}" for first, last in self.showing])
 
 
 class FakeWorksheetObject:
@@ -932,6 +972,159 @@ class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
 		one cell this asks is never a cell of row one."""
 		sheet = self._sheet(headings=self.ACROSS)
 		self.assertIsNone(sheet.cellAt(1, 2).columnHeaderText)
+
+
+class TestTheRowsExcelIsShowing(unittest.TestCase):
+	"""**A filter hides rows; it does not remove them.**
+
+	Ask a filtered worksheet for row 40 and it hands over row 40's cells whether or not the
+	filter left it on show, so a band walking by adding one to a row number reads out of what
+	the reader filtered to and into what they filtered away. The reader met that at both ends
+	of a filtered block.
+	"""
+
+	def _sheet(self, showing=None, refuses=False, rows=20):
+		worksheet = FakeWorksheetObject(
+			values=[[f"row {number}"] for number in range(1, rows + 1)],
+			used=FakeUsedRange(1, 1, rows, 1, showing=showing, refuses=refuses),
+		)
+		return excelModule.ExcelSheet(aCell(sheet=worksheet)), worksheet
+
+	def test_theNextRowIsTheNextOneShowing(self):
+		sheet, _worksheet = self._sheet(showing=[(1, 3), (9, 12)])
+		self.assertEqual(sheet.rowAfter(3, 1), 9)
+
+	def test_andGoingBackIsTheSame(self):
+		sheet, _worksheet = self._sheet(showing=[(1, 3), (9, 12)])
+		self.assertEqual(sheet.rowAfter(9, -1), 3)
+
+	def test_withinARunItIsSimplyTheNextRow(self):
+		sheet, _worksheet = self._sheet(showing=[(1, 3), (9, 12)])
+		self.assertEqual(sheet.rowAfter(1, 1), 2)
+		self.assertEqual(sheet.rowAfter(12, -1), 11)
+
+	def test_andThereIsNoneBeyondTheLastRunEitherWay(self):
+		"""Which is what stops the band reading on into the rows the filter took away."""
+		sheet, _worksheet = self._sheet(showing=[(1, 3), (9, 12)])
+		self.assertIsNone(sheet.rowAfter(12, 1))
+		self.assertIsNone(sheet.rowAfter(1, -1))
+
+	def test_anUnfilteredSheetWalksRowByRow(self):
+		sheet, _worksheet = self._sheet()
+		self.assertEqual(sheet.rowAfter(5, 1), 6)
+		self.assertEqual(sheet.rowAfter(5, -1), 4)
+
+	def test_excelIsAskedOnceForAWholeReading(self):
+		"""A band walks a row at a time and the answer is the same for all of them. It changes
+		when the reader changes the filter, which builds the sheet afresh anyway."""
+		sheet, worksheet = self._sheet(showing=[(1, 3), (9, 12)])
+		for row in (1, 2, 3, 9, 10):
+			sheet.rowAfter(row, 1)
+		self.assertEqual(worksheet.used.timesAskedWhatIsShowing, 1)
+
+	def test_aSheetThatWillNotSayIsWalkedRowByRow(self):
+		"""None ends the walk, and ending it because a question failed would cost the reader
+		the rest of the sheet over something that will very likely answer next time."""
+		sheet, _worksheet = self._sheet(refuses=True)
+		log.messages.clear()
+		self.assertEqual(sheet.rowAfter(5, 1), 6)
+		self.assertEqual([level for level, message in log.messages], ["debugWarning"])
+
+
+class TestTheColumnsExcelIsShowing(unittest.TestCase):
+	"""**A hidden column is still a column.**
+
+	Ask a worksheet for column 5 with column 5 hidden and it hands over column 5's cells like
+	any other, so the layout drew a column the reader could not arrow to, counted it among the
+	columns, and put its heading in the pinned row.
+	"""
+
+	def _sheet(self, areas=None, refuses=False):
+		worksheet = FakeWorksheetObject(
+			values=[[f"row {number}"] for number in range(1, 21)],
+			used=FakeUsedRange(1, 1, 20, 6, areas=areas, refuses=refuses),
+		)
+		return excelModule.ExcelSheet(aCell(sheet=worksheet))
+
+	def test_aHiddenColumnIsNotAmongThem(self):
+		"""Excel splits its answer sideways at the hidden column, which is what says so."""
+		sheet = self._sheet(["$A$1:$D$20", "$F$1:$F$20"])
+		self.assertEqual(sheet.columnsShowing(), {1, 2, 3, 4, 6})
+
+	def test_aSheetHidingNothingSaysSoBySayingAllOfThem(self):
+		sheet = self._sheet()
+		self.assertEqual(sheet.columnsShowing(), {1, 2, 3, 4, 5, 6})
+
+	def test_aSheetThatWillNotSayAnswersNothing(self):
+		"""None is every column, which is the answer that changes nothing."""
+		self.assertIsNone(self._sheet(refuses=True).columnsShowing())
+
+	def test_theSameAnswerServesBothAxes(self):
+		"""One call, and the rows and the columns both come out of it: a filter and a hidden
+		column split the same address, one way each."""
+		sheet = self._sheet(["$A$1:$D$3", "$F$1:$F$3", "$A$9:$D$20", "$F$9:$F$20"])
+		self.assertEqual(sheet.columnsShowing(), {1, 2, 3, 4, 6})
+		self.assertEqual(sheet.rowAfter(3, 1), 9)
+
+
+class TestReadingAnAddressForItsColumns(unittest.TestCase):
+	"""The letters of the same address the rows are read out of."""
+
+	def test_theAreasAreRunsOfColumns(self):
+		self.assertEqual(excelModule.columnSpansIn("$A$1:$D$129,$F$1:$F$129"), [(1, 4), (6, 6)])
+
+	def test_aSingleCellIsARunOfOne(self):
+		self.assertEqual(excelModule.columnSpansIn("$B$3"), [(2, 2)])
+
+	def test_lettersPastZKeepCounting(self):
+		self.assertEqual(excelModule.columnSpansIn("$AA$1:$AB$2"), [(27, 28)])
+
+	def test_aSemicolonSeparatesAreasHereToo(self):
+		self.assertEqual(excelModule.columnSpansIn("$A$1:$D$3;$F$1:$F$3"), [(1, 4), (6, 6)])
+
+	def test_anAreaNamingNoColumnMeansEveryColumn(self):
+		"""A reference to whole rows names no column, and every column is showing in it. An
+		answer built from the other areas alone would hide columns the sheet is perfectly
+		willing to show."""
+		self.assertIsNone(excelModule.columnSpansIn("$A$1:$D$3,$9:$20"))
+
+	def test_andNothingIsNoAnswerAtAll(self):
+		self.assertIsNone(excelModule.columnSpansIn(""))
+		self.assertIsNone(excelModule.columnSpansIn(None))
+
+
+class TestReadingAnAddressForItsRows(unittest.TestCase):
+	"""What Excel says when it is asked which cells are showing, and what is taken from it.
+
+	Parsed from the address rather than walked as `Areas`, because the address is one call
+	and the walk is two per area: a filter leaving fifty scattered rows would cost a hundred
+	calls to learn what one string already said.
+	"""
+
+	def test_severalAreasAreSeveralRunsOfRows(self):
+		self.assertEqual(excelModule.rowSpansIn("$A$1:$F$3,$A$9:$F$20"), [(1, 3), (9, 20)])
+
+	def test_aSingleCellIsARunOfOne(self):
+		self.assertEqual(excelModule.rowSpansIn("$A$9"), [(9, 9)])
+
+	def test_wholeRowsAreReadTheSameWay(self):
+		"""Excel writes a range of entire rows as "$9:$20", with no column in it at all."""
+		self.assertEqual(excelModule.rowSpansIn("$9:$20"), [(9, 20)])
+
+	def test_aSemicolonSeparatesAreasWhereThatIsTheListSeparator(self):
+		"""Excel writes an address in the reader's own conventions, and in much of Europe the
+		list separator is a semicolon."""
+		self.assertEqual(excelModule.rowSpansIn("$A$1:$F$3;$A$9:$F$20"), [(1, 3), (9, 20)])
+
+	def test_theRunsComeBackInOrder(self):
+		self.assertEqual(excelModule.rowSpansIn("$A$9:$F$20,$A$1:$F$3"), [(1, 3), (9, 20)])
+
+	def test_andNothingIsNoAnswerAtAll(self):
+		"""Told apart from an empty list on purpose: "no rows" would end every walk, and what
+		this means is that the walk should carry on as it did before."""
+		self.assertIsNone(excelModule.rowSpansIn(""))
+		self.assertIsNone(excelModule.rowSpansIn(None))
+		self.assertIsNone(excelModule.rowSpansIn("nothing with a number in it"))
 
 
 class TestRecognisingAWorksheetCell(unittest.TestCase):

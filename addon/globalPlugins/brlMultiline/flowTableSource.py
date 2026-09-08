@@ -754,6 +754,27 @@ def _offeredBy(handle: TableHandle, name: str):
 	return offered if callable(offered) else None
 
 
+def columnsShowingIn(handle: TableHandle):
+	""":return: which of a table's columns are on show, or None for all of them.
+
+	A hidden column is still a column and answers for its cells like any other, so a layout
+	built from the count alone draws one the reader cannot arrow to. See
+	`flowObjectTable.Sheet.columnsShowing`.
+
+	:param handle: the table.
+	"""
+	offered = _offeredBy(handle, "columnsShowing")
+	if offered is None:
+		return None
+	try:
+		return offered()
+	except CallCancelled:
+		raise
+	except Exception:
+		log.debugWarning("Could not ask a table which columns it is showing", exc_info=True)
+		return None
+
+
 def rowTextOf(handle: TableHandle, row: int, first: int, last: int):
 	""":return: a row's text across a span of columns in one read, or None to read it cell by cell.
 
@@ -963,7 +984,24 @@ def measure(
 	prove a column holds nothing anywhere. See `cellHasContent`, which is how the band asks
 	again about the one cell that turns out to matter.
 	"""
-	columns = range(1, handle.numCols + 1)
+	showing = columnsShowingIn(handle)
+	columns = [
+		column
+		for column in range(1, handle.numCols + 1)
+		if showing is None or column in showing or column == handle.col
+	]
+	"""The columns this table is measured across: every one it has, less the ones it is
+	hiding.
+
+	**Left out here rather than dropped later, because a column that is not measured does not
+	exist to anything downstream.** It takes no width, gets no place in the plan, is not
+	counted in "columns five to six of six", and its heading does not reach the pinned row —
+	all of which a reader hiding a column in Excel has already asked for once.
+
+	The reader's own column is kept whatever the sheet says. Arriving on a hidden column is
+	not something Excel ordinarily allows, and if it happens the answer that leaves them a
+	cursor to feel is better than the tidy one."""
+
 	theirs = (
 		handle.col
 		if getattr(handle.document, "emptyColumnsArePlaces", False) and 1 <= handle.col <= handle.numCols
@@ -1133,6 +1171,32 @@ def _typicalOf(sizes: list[int]) -> int:
 	return ordered[min(len(ordered) - 1, (len(ordered) * 3) // 4)]
 
 
+def rowBeside(handle: TableHandle, row: int, by: int) -> Optional[int]:
+	""":return: the row beside one, or None where the table says there is none beside it.
+
+	The row next to this one, unless the table hides rows and can say which: a filtered
+	worksheet answers for every row it has, including the ones the filter took away, so a walk
+	that adds one reads out of what the reader filtered to and into what they filtered away.
+	See `flowObjectTable.Sheet.rowAfter`.
+
+	:param handle: the table.
+	:param row: the row to step from, one based.
+	:param by: which way, as 1 or -1.
+	"""
+	beside = _offeredBy(handle, "rowAfter")
+	if beside is None:
+		return row + by
+	try:
+		found = beside(row, by)
+	except CallCancelled:
+		# Not "the table ends here". See `flow.CallCancelled`.
+		raise
+	except Exception:
+		log.debugWarning("Could not ask a table which row comes next", exc_info=True)
+		return row + by
+	return found
+
+
 def _sampleRows(handle: TableHandle, sample: int) -> list[int]:
 	""":return: which rows to measure: the header, then a bandful about the caret.
 
@@ -1152,11 +1216,22 @@ def _sampleRows(handle: TableHandle, sample: int) -> list[int]:
 	"""
 	last = max(1, handle.numRows)
 	first = max(1, min(handle.row, last))
-	rows = list(range(first, min(last, first + sample - 1) + 1))
-	behind = first - 1
-	while len(rows) < sample and behind >= 1:
+	rows = [first]
+	# Through the table's own idea of what comes next, not by counting: a column of a filtered
+	# sheet measured from the rows the filter took away is a column sized for text the reader
+	# will never be shown, and the widths are what the whole layout is built from.
+	ahead = first
+	while len(rows) < sample:
+		ahead = rowBeside(handle, ahead, 1)
+		if ahead is None or not first < ahead <= last:
+			break
+		rows.append(ahead)
+	behind = first
+	while len(rows) < sample:
+		behind = rowBeside(handle, behind, -1)
+		if behind is None or behind < 1:
+			break
 		rows.insert(0, behind)
-		behind -= 1
 	if 1 not in rows:
 		rows.insert(0, 1)
 	return rows
@@ -1594,7 +1669,9 @@ class TableFlowSource:
 		buffer per column to learn something already known.
 		"""
 		self.budget.startUnlessActive()
-		row = blockId.bookmark + by
+		row = rowBeside(self.handle, blockId.bookmark, by)
+		if row is None:
+			return FetchResult.endOfStream("this table shows no row beyond this one")
 		if not self.firstRow <= row <= self.handle.numRows:
 			return FetchResult.endOfStream(f"row {row} is outside this table")
 		return self._rowAt(row)

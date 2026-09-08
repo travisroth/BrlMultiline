@@ -1196,14 +1196,29 @@ class TestTheSettlePass(unittest.TestCase):
 
 
 class TestTheBandSettleTimer(unittest.TestCase):
-	"""The band's half of the settle pass: one timer, and a keystroke never pushes it out."""
+	"""The band's half of the settle pass: one timer, put off by typing but only so far.
+
+	Both halves are rules this add-on has had to learn. Restarting the pass on every keystroke
+	answers a reader who pauses, and starves the one who does not: typing faster than the delay
+	pushed the repair out again on every key and it never ran. Never restarting it fires the
+	pass mid-burst, which is the one moment the editor's answers are wrong, so it reads the
+	garbage it exists to clear. The ceiling is what holds both.
+	"""
 
 	def band(self, lines=None):
+		from brlMultiline import flowBand
 		from brlMultiline.flowBand import FlowBand
 
 		control = controllerOver(lines or ["one", "two", "three"], interactive=True)
 		band = object.__new__(FlowBand)
 		band._settleTimer = None
+		band._settleBy = 0.0
+		self.clock = [0.0]
+		# A clock the test drives, since what is being tested is when a keystroke is early
+		# enough to buy the editor more time.
+		theirs = flowBand._now
+		flowBand._now = lambda: self.clock[0]
+		self.addCleanup(setattr, flowBand, "_now", theirs)
 		band.controller = control
 		self.refreshes = []
 		segment = type("FakeSegment", (), {"refresh": lambda inner: self.refreshes.append(True)})()
@@ -1211,27 +1226,57 @@ class TestTheBandSettleTimer(unittest.TestCase):
 		callLaterQueue.pending.clear()
 		return band, control
 
-	def test_aKeystrokeWhileAPassIsComingLeavesItAlone(self):
-		"""**The repair must not be postponed by the typing it repairs.** Restarting the timer
-		on every keystroke was the first rule here, so that a burst of typing was answered once
-		at the end of it — and a reader who types faster than the delay never reaches the end of
-		the burst, so the second look was pushed out again by every keystroke and never ran.
-		The reader who most needs it is exactly that one."""
+	def test_aKeystrokeEarlyInTheBurstPutsThePassOff(self):
+		"""Which is what gives a reader who pauses a pass that lands on an editor that has
+		finished answering, rather than one taken mid-word."""
+		from brlMultiline.flowBand import SETTLE_MILLIS
+
 		band, _control = self.band()
 		band._scheduleSettle()
 		first = band._settleTimer
+		self.clock[0] += SETTLE_MILLIS / 2
+		band._scheduleSettle()
+		self.assertTrue(first.stopped)
+		self.assertIsNot(band._settleTimer, first)
+		self.assertEqual(len(callLaterQueue.pending), 1)
+
+	def test_butOnceItHasBeenPutOffLongEnoughItIsLeftAlone(self):
+		"""The starvation. A reader typing steadily never stops pressing keys, so a pass that
+		every key pushed out was a pass that never ran at all."""
+		from brlMultiline.flowBand import SETTLE_LATEST_MILLIS
+
+		band, _control = self.band()
+		band._scheduleSettle()
+		first = band._settleTimer
+		self.clock[0] += SETTLE_LATEST_MILLIS
 		band._scheduleSettle()
 		self.assertFalse(first.stopped)
 		self.assertIs(band._settleTimer, first)
 		self.assertEqual(len(callLaterQueue.pending), 1)
 
-	def test_andTheKeystrokeAfterThePassHasRunSchedulesTheNext(self):
-		"""So the last keystroke of a burst still earns its own look afterwards."""
+	def test_andThePassNeverRunsLaterThanTheCeiling(self):
+		"""The delay is trimmed as the ceiling is approached, so the last keystroke before it
+		cannot carry the pass past it."""
+		from brlMultiline.flowBand import SETTLE_LATEST_MILLIS, SETTLE_MILLIS
+
 		band, _control = self.band()
 		band._scheduleSettle()
+		self.clock[0] += SETTLE_LATEST_MILLIS - SETTLE_MILLIS - 10
+		band._scheduleSettle()
+		self.assertLessEqual(self.clock[0] + band._settleTimer.milliseconds, SETTLE_LATEST_MILLIS)
+
+	def test_andTheKeystrokeAfterThePassHasRunSchedulesTheNext(self):
+		"""So the last keystroke of a burst still earns its own look afterwards, and it starts
+		the ceiling again rather than inheriting a spent one."""
+		from brlMultiline.flowBand import SETTLE_LATEST_MILLIS
+
+		band, _control = self.band()
+		band._scheduleSettle()
+		self.clock[0] += SETTLE_LATEST_MILLIS * 2
 		callLaterQueue.fire()
 		band._scheduleSettle()
 		self.assertEqual(len(callLaterQueue.pending), 1)
+		self.assertGreater(band._settleBy, self.clock[0])
 
 	def test_aSettleThatChangesNothingTakesBackItsOwnClaim(self):
 		"""Reading again while writing arms `rereadWhileWriting` for the segment to turn into

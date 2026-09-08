@@ -1725,6 +1725,47 @@ class Sheet:
 		"""
 		return None
 
+	def rowAfter(self, row: int, by: int):
+		""":return: the next row the reader may be shown, or None when there is no next row.
+
+		**Optional, and about rows the grid is hiding rather than rows it has not got.** A
+		filtered worksheet still answers for every row of its used range: ask for row 40 of a
+		sheet filtered down to nine rows and Excel hands over row 40's cells, so a band that
+		walks by adding one to a row number reads straight out of what the reader filtered to
+		and into what they filtered away. Which is what the reader met: panning off the end of
+		a filtered block onto the rows either side of it.
+
+		Only a grid can answer this — a list has no hidden items and a document's table has no
+		filter — so it is optional, and a grid that does not offer it is walked by adding one
+		exactly as before. A grid that offers it and cannot say *this time* should answer
+		`row + by` rather than None: None ends the walk, and ending it on a failure to ask
+		would cost the reader the rest of the sheet.
+
+		:param row: the row walked from, one based.
+		:param by: which way, as 1 or -1. One row at a time is all the walk ever asks for.
+		"""
+		return None
+
+	def columnsShowing(self):
+		""":return: the columns the grid is showing, or None where every column is showing.
+
+		**The other axis of `rowAfter`, and the same fact about a grid.** A hidden column is
+		still a column: ask a worksheet for column 5 with column 5 hidden and it hands over
+		column 5's cells, so a layout built from every column the sheet has draws one the
+		reader cannot arrow to, gives it a place in the count of columns, and puts its heading
+		in the pinned row. Which is a column of the display spent on something that is not
+		there.
+
+		Only a grid can hide a column — a list's columns are what its items have, and a
+		document's table has no such thing — so it is optional, and a grid that does not
+		offer it has every column measured exactly as before. So does one that answers None,
+		which is what "I cannot say" means here: there is no ambiguity to guard against,
+		since a grid showing no columns at all is not a grid anybody is reading.
+
+		:return: the column numbers on show, as a set or any collection `in` works on.
+		"""
+		return None
+
 	def columnHeaders(self, first: int, last: int):
 		""":return: what each column of a span declares as its header, or None to ask the cells.
 
@@ -1922,6 +1963,32 @@ class SheetTable(ObjectTable):
 		if offered is None:
 			return None
 		return offered(first, last)
+
+	def columnsShowing(self):
+		""":return: the columns the grid is showing, or None for all of them.
+
+		Handed straight to the sheet. See `Sheet.columnsShowing`.
+		"""
+		offered = getattr(self.sheet, "columnsShowing", None)
+		if offered is None:
+			return None
+		return offered()
+
+	def rowAfter(self, row: int, by: int):
+		""":return: the next row to show, or None when the grid says there is none.
+
+		The seam `flowTableSource` walks by, handed straight to the sheet. See
+		`Sheet.rowAfter`, which is where the reason for it is.
+
+		**The next row along where the sheet offers no opinion**, and not None: this class
+		always answers, since the walker cannot tell a table that has no view on hidden rows
+		from one saying the sheet ends here — and read as the second, every grid that hides
+		nothing stopped at the row the reader was on.
+		"""
+		offered = getattr(self.sheet, "rowAfter", None)
+		if offered is None:
+			return row + by
+		return offered(row, by)
 
 	def cellObject(self, item, column: int):
 		""":return: the object behind one cell, for the report. See `describeCellSources`."""
