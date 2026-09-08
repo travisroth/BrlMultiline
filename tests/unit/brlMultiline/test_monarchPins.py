@@ -241,6 +241,36 @@ class TestCellAtPin(unittest.TestCase):
 		)
 		self.assertEqual((row, col), (7, 31))
 
+	def test_routingIndexIsFlatAcrossTheCurrentPitch(self):
+		self.assertEqual(monarch.routingIndexForPin(0, 0, monarch.PITCH_8_ROW), 0)
+		self.assertEqual(monarch.routingIndexForPin(3, 0, monarch.PITCH_8_ROW), 1)
+		self.assertEqual(monarch.routingIndexForPin(0, 5, monarch.PITCH_8_ROW), 32)
+
+	def test_routingIndexCoversEveryCellAtTenRows(self):
+		"""320 cells at 10 rows, against the 256 the device can name. That is the bug.
+
+		The device reports routing on its native 8 by 32 grid whatever we render, so at 10
+		rows it cannot address 64 of the cells on the panel and misplaces the rest.
+		"""
+		pitch = monarch.PITCH_10_ROW
+		seen = {
+			monarch.routingIndexForPin(*monarch.cellOrigin(row, col, pitch), pitch)
+			for row in range(pitch.numRows)
+			for col in range(pitch.numCols)
+		}
+		self.assertEqual(seen, set(range(pitch.numRows * pitch.numCols)))
+		self.assertEqual(len(seen), 320)
+		self.assertGreater(len(seen), monarch.NATIVE_ROUTING_COLS * monarch.NATIVE_ROUTING_ROWS)
+
+	def test_theSamePinRoutesDifferentlyAtEachPitch(self):
+		"""Pin row 20 is line 4 at a 5 row pitch and line 5 at a 4 row pitch."""
+		self.assertEqual(monarch.routingIndexForPin(0, 20, monarch.PITCH_8_ROW), 4 * 32)
+		self.assertEqual(monarch.routingIndexForPin(0, 20, monarch.PITCH_10_ROW), 5 * 32)
+
+	def test_routingIndexRejectsAPinOffTheGrid(self):
+		self.assertIsNone(monarch.routingIndexForPin(-1, 0, monarch.PITCH_8_ROW))
+		self.assertIsNone(monarch.routingIndexForPin(0, monarch.PIN_HEIGHT, monarch.PITCH_10_ROW))
+
 	def test_cellOriginRoundTrips(self):
 		for pitch in (monarch.PITCH_8_ROW, monarch.PITCH_10_ROW):
 			for row in range(pitch.numRows):

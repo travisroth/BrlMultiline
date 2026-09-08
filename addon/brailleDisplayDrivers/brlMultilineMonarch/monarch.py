@@ -242,6 +242,27 @@ def cellAtPin(x: int, y: int, pitch: Pitch) -> tuple[int, int] | None:
 	return row, col
 
 
+def routingIndexForPin(x: int, y: int, pitch: Pitch) -> int | None:
+	"""Convert a touched pin to an index into the flat cell array NVDA routes against.
+
+	The device reports routing on its native 8 by 32 grid whatever we are rendering, so at any
+	other pitch its cell number addresses the wrong place: at 10 rows the panel has 320 cells
+	and the device can only ever name 256 of them, and even the ones it names land on the
+	wrong line. Deriving the index from the touched pin is what makes routing work at a pitch
+	the device knows nothing about.
+
+	:param x: pin column.
+	:param y: pin row.
+	:param pitch: the layout being rendered.
+	:return: the cell index, or None if the pin is off the grid.
+	"""
+	cell = cellAtPin(x, y, pitch)
+	if cell is None:
+		return None
+	row, col = cell
+	return row * pitch.numCols + col
+
+
 def cellOrigin(row: int, col: int, pitch: Pitch) -> tuple[int, int]:
 	"""Where a braille cell's top left dot sits on the pin grid.
 

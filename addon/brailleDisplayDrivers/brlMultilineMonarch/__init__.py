@@ -39,11 +39,15 @@ import bdDetect
 import braille
 import braille.display.driver
 import hwIo.hid
-from logHandler import log
-
+import inputCore
 from braille.constants import AUTOMATIC_PORT, BLUETOOTH_PORT, USB_PORT
 from brailleDisplayDrivers.brlMultilineVirtual import handover
-from brailleDisplayDrivers.hidBrailleStandard import BraillePageUsageID, HidBrailleDriver
+from brailleDisplayDrivers.hidBrailleStandard import (
+	BraillePageUsageID,
+	HidBrailleDriver,
+	InputGesture as HidInputGesture,
+)
+from logHandler import log
 
 from . import monarch
 from .pinBuffer import PinBuffer
@@ -134,6 +138,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._glyphs: dict[int, CellGlyph] = {}
 		self._lastTouchPin: Optional[tuple[int, int]] = None
 		self._lastTouchCell: Optional[int] = None
+		self._pinAtRouting: Optional[tuple[int, int]] = None
 		self._writeLock = threading.Lock()
 		self._pinCap = None
 		self._watched: Optional[tuple] = None
@@ -666,6 +671,12 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _readTouch(self, data: bytes) -> None:
 		"""Decode a touch report, if this is one.
 
+		The pin is also snapshotted the moment a routing key goes down, and that snapshot is
+		what routing uses. It has to be, because of the order the panel speaks in: the pin
+		arrives first, then the routing cell, then the pin again as zero on release, and only
+		then does NVDA raise the gesture. By gesture time the live pin has been cleared, so
+		reading it there would find nothing.
+
 		:param data: the raw input report.
 		"""
 		report = hwIo.hid.HidInputReport(self._dev, data)
@@ -679,6 +690,53 @@ class BrailleDisplayDriver(HidBrailleDriver):
 					self._lastTouchCell = None
 			elif monarch.ROUTING_USAGE_MIN <= usage <= monarch.ROUTING_USAGE_MAX and item.u1.On:
 				self._lastTouchCell = usage - monarch.ROUTING_USAGE_MIN
+				self._pinAtRouting = self._lastTouchPin
+
+	def _routingIndexForPitch(self) -> Optional[int]:
+		"""The cell a routing press addressed, worked out from the pin rather than the device.
+
+		Returns None at the native pitch, deliberately. There the device's own cell number is
+		its calibrated answer — a fingertip covers several pins and its algorithm knows more
+		about which one was meant than we do — and it already indexes the grid we are
+		rendering, so there is nothing to correct.
+
+		At any other pitch there is everything to correct. The device reports on its native
+		8 by 32 grid whatever we draw, so at 10 rows it can name only 256 of the 320 cells on
+		the panel and the ones it names sit on the wrong lines. That is why routing did not
+		work at 10 rows: not a missing feature so much as an unfinished one.
+
+		:return: the cell index for the current pitch, or None to leave the device's own alone.
+		"""
+		if self._pitch is monarch.PITCH_8_ROW:
+			return None
+		if self._pinAtRouting is None:
+			log.debugWarning(
+				f"BrlMultiline: routing at pitch {self._pitch.name} with no touched pin; "
+				"falling back to the device's own cell, which addresses a different layout",
+			)
+			return None
+		return monarch.routingIndexForPin(self._pinAtRouting[0], self._pinAtRouting[1], self._pitch)
+
+	def _handleKeyRelease(self):
+		"""Raise the gesture, using ours so that routing can be corrected for the pitch.
+
+		Mirrors the inherited method, which names its own `InputGesture` class directly and so
+		cannot be steered by overriding an attribute.
+
+		The routing snapshot is dropped afterwards whatever happened, so a later press that
+		somehow arrives without a pin cannot be given this one's.
+		"""
+		if self._ignoreKeyReleases or not self._keysDown:
+			return
+		try:
+			inputCore.manager.executeGesture(InputGesture(self, self._keysDown))
+		except inputCore.NoInputGestureAction:
+			pass
+		finally:
+			self._pinAtRouting = None
+		# Any further releases are just the rest of the keys in the combination being released,
+		# so they should be ignored.
+		self._ignoreKeyReleases = True
 
 	def _inputUsageForDataIndex(self, dataIndex: int) -> Optional[int]:
 		"""Map an input data index to its usage, building the map once.
@@ -1003,5 +1061,29 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	"""
 
 
+class InputGesture(HidInputGesture):
+	"""A HID braille gesture whose routing index suits the pitch being rendered.
+
+	Everything else is inherited, `source` included, so the identifiers stay
+	`br(hidBrailleStandard):...` and a user's existing gestures for the standard driver go on
+	working here unchanged.
+
+	Only a single routing press is corrected. Several at once is a range selection, which
+	means something different and whose endpoints the device is better placed to report.
+	"""
+
+	def __init__(self, driver, dataIndices):
+		"""
+		:param driver: the Monarch driver.
+		:param dataIndices: the data indices of the keys that were down.
+		"""
+		super().__init__(driver, dataIndices)
+		if not self.cellIndexes or len(self.cellIndexes) != 1:
+			return
+		corrected = driver._routingIndexForPitch()
+		if corrected is not None:
+			self.cellIndexes = [corrected]
+
+
 # Re-exported so callers can name usages without importing NVDA's HID driver themselves.
-__all__ = ["BrailleDisplayDriver", "BraillePageUsageID", "CellGlyph", "monarch"]
+__all__ = ["BrailleDisplayDriver", "BraillePageUsageID", "CellGlyph", "InputGesture", "monarch"]
