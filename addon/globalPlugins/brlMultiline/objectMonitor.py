@@ -397,7 +397,7 @@ class ObjectMonitor:
 		plan = self.columnPlan()
 		if plan is None:
 			return False
-		if not self.controller.useColumnPage(plan.onPage(plan.page + by)):
+		if not self.controller.useColumnPage(plan.turnedBy(by)):
 			return False
 		self.refresh()
 		return True

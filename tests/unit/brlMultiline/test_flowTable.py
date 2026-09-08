@@ -12,7 +12,6 @@ is the case the reader named. Its shape is what makes the arithmetic matter: one
 column that cannot give up a cell, and one wide one that can give up ten.
 """
 
-import dataclasses
 import os
 import sys
 import unittest
@@ -1020,6 +1019,90 @@ class TestTheKeyColumnIsRepeated(unittest.TestCase):
 		self.assertEqual(self._wide().pageOf(1), 0)
 
 
+class TestTheBandScrollsAlongTheColumns(unittest.TestCase):
+	"""The columns are a run and the band shows part of it, starting wherever the reader has
+	scrolled to. The row axis has always worked that way — a row past the bottom comes on at
+	the bottom and one row goes off the top — and the column axis used to turn whole pages
+	instead, so a caret stepping one column to the right replaced everything under the
+	reader's hands at once.
+	"""
+
+	def _wide(self):
+		return planFor(bigWatchlist(), MONARCH_COLS, pinKey=False)
+
+	def _drawn(self, plan):
+		return [place.column.index for place in plan.placements() if not place.column.pinned]
+
+	def test_thebandStartsAtTheFirstColumn(self):
+		self.assertEqual(self._wide().at, 0)
+
+	def test_scrollingOneColumnBringsOneOnAndTakesOneOff(self):
+		plan = self._wide()
+		before = self._drawn(plan)
+		after = self._drawn(plan.scrolledBy(1))
+		self.assertEqual(after[0], before[1])
+		self.assertNotIn(before[0], after)
+		self.assertGreater(after[-1], before[-1])
+
+	def test_scrollingStopsWhenTheLastColumnIsOn(self):
+		"""Going further would take columns off the left for nothing to come on at the right,
+		which is the column axis of what the window refuses to do with rows."""
+		plan = self._wide()
+		far = plan.scrolledTo(999)
+		self.assertIn(plan.columns[-1].index, self._drawn(far))
+		self.assertEqual(far.at, plan.lastStart)
+		self.assertEqual(far.scrolledBy(5).at, far.at)
+
+	def test_andItCannotGoBackPastTheFirst(self):
+		self.assertEqual(self._wide().scrolledBy(-3).at, 0)
+
+	def test_aTurnMovesAWholeBandfulFromWhereverTheBandIs(self):
+		"""Which is what keeps the two from getting out of step: a reader who has scrolled a
+		column or two and then asks for the next page gets the next band's worth from where
+		they are, not from where a fixed page would have started."""
+		plan = self._wide().scrolledBy(1)
+		turned = plan.turnedBy(1)
+		self.assertEqual(turned.at, plan.at + plan.shown)
+		self.assertEqual(self._drawn(turned)[0], self._drawn(plan)[-1] + 1)
+
+	def test_andBackAgainByTheSameKind(self):
+		plan = self._wide().turnedBy(1)
+		self.assertEqual(plan.turnedBy(-1).at, 0)
+
+	def test_aColumnAlreadyShowingIsNotScrolledTo(self):
+		plan = self._wide()
+		self.assertEqual(plan.startShowing(self._drawn(plan)[-1]), plan.at)
+
+	def test_theNextColumnAlongIsBroughtOnByTheLeastMovement(self):
+		plan = self._wide()
+		beyond = self._drawn(plan)[-1] + 1
+		moved = plan.scrolledTo(plan.startShowing(beyond))
+		self.assertIn(beyond, self._drawn(moved))
+		self.assertEqual(self._drawn(moved)[0], self._drawn(plan)[1])
+
+	def test_aColumnBehindThemBecomesTheLeftmost(self):
+		plan = self._wide().turnedBy(1)
+		self.assertEqual(plan.scrolledTo(plan.startShowing(1)).at, 0)
+
+	def test_aColumnThePlanHasNotGotMovesNothing(self):
+		plan = self._wide()
+		self.assertEqual(plan.startShowing(999), plan.at)
+
+	def test_whereItIsCountsAlongTheRunAndNotByTableNumbers(self):
+		"""A layout that hides columns leaves holes in the table's own numbers, so they do
+		not count anything the reader can act on."""
+		plan = self._wide()
+		first, last, total = plan.whereItIs
+		self.assertEqual((first, last), (1, plan.shown))
+		self.assertEqual(total, len(plan.columns))
+		self.assertFalse(plan.showsEverything)
+
+	def test_aTableThatFitsSaysSo(self):
+		plan = planFor(watchlist(), MONARCH_COLS)
+		self.assertTrue(plan.showsEverything)
+		self.assertEqual(plan.whereItIs, (1, len(plan.columns), len(plan.columns)))
+
+
 class TestThePageAssignmentIsAField(unittest.TestCase):
 	"""It is about to be a reader's choice — "show these columns together and those apart" is
 	exactly this tuple with different contents."""
@@ -1032,12 +1115,32 @@ class TestThePageAssignmentIsAField(unittest.TestCase):
 			[item.index for item in bigWatchlist()],
 		)
 
-	def test_anAssignmentIsHonoured(self):
-		"""The grouping the reader will ask for, given by hand."""
-		plan = planFor(watchlist(), MONARCH_COLS)
-		grouped = dataclasses.replace(plan, assignment=((1, 2), (3, 4)))
-		self.assertEqual(grouped.numPages, 2)
-		self.assertEqual([place.column.index for place in grouped.placements()], [1, 2])
+	def test_aBreakTheReaderAskedForIsHonoured(self):
+		"""The grouping the reader asks for, which is a break at a column rather than a
+		grouping of them: the band shows a run and can start anywhere along it, so the one
+		break that is theirs has to travel with the column it is at."""
+		plan = planFor(
+			watchlist(),
+			MONARCH_COLS,
+			choices={3: ColumnChoice(startsAPage=True)},
+		)
+		self.assertEqual([place.column.index for place in plan.placements()], [1, 2])
+		self.assertEqual(
+			[place.column.index for place in plan.scrolledTo(2).placements()],
+			[1, 3, 4],
+		)
+
+	def test_andHoldsWhereverTheBandHasScrolledTo(self):
+		"""It is a break in the run, not a page number: a band that has scrolled one column
+		along still stops at it."""
+		plan = planFor(
+			bigWatchlist(),
+			MONARCH_COLS,
+			pinKey=False,
+			choices={4: ColumnChoice(startsAPage=True)},
+		)
+		drawn = [place.column.index for place in plan.scrolledTo(1).placements()]
+		self.assertEqual(drawn, [2, 3])
 
 	def test_aPlanWithoutOneStillPacksItself(self):
 		"""A plan built by hand, which is what most of these tests build."""

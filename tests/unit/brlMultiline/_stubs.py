@@ -18,6 +18,7 @@ every test module may call it.
 """
 
 import dataclasses
+import enum
 import os
 import re
 import sys
@@ -223,6 +224,7 @@ SPEECH_OUTPUT_MODE = "speechOutput"
 BRAILLE_CONFIG = {
 	"mode": FOLLOW_CURSORS_MODE,
 	"focusContextPresentation": "changedContext",
+	"expandAtCursor": True,
 }
 """NVDA's own braille settings, which the add-on reads through the real `bmConfig`.
 
@@ -385,6 +387,17 @@ class Region:
 	"""
 
 	hidePreviousRegions = False
+	expandedAtCursor = False
+	"""Whether the last translation asked liblouis to expand the word at the cursor.
+
+	**What NVDA's `Region.update` decides, reproduced because it is decided there.** The
+	setting is "expand to computer braille for the word at the cursor", and the region that
+	answers "yes, at character zero" has its first word written out uncontracted. A region
+	that must not do that has to have no cursor *before* it is translated; clearing one
+	afterwards leaves the cells already wrong, and a stub that translated first could not tell
+	the two apart. See `pinnedRegions.CursorOnlyWhereTheReaderIs`.
+	"""
+
 	cursorPos = None
 	selectionStart = None
 	selectionEnd = None
@@ -404,6 +417,12 @@ class Region:
 		self.focusToHardLeft = False
 
 	def update(self):
+		# Read here and not afterwards, which is where NVDA reads it: the mode handed to
+		# liblouis is decided from the cursor at the moment of translating. See
+		# `expandedAtCursor`.
+		self.expandedAtCursor = bool(BRAILLE_CONFIG.get("expandAtCursor")) and (
+			self.cursorPos is not None
+		)
 		self.brailleCells = [ord(character) & 0xFF for character in self.rawText]
 
 	def routeTo(self, pos):
@@ -419,6 +438,11 @@ class TextRegion(Region):
 	One cell per character here, as `Region` is, so a drawn table row reads back as the
 	string it came from.
 	"""
+
+
+TEXT_SEPARATOR = " "
+"""NVDA's `braille.constants.TEXT_SEPARATOR`: what one thing on a braille line is parted from
+the next by."""
 
 
 class BrailleBuffer(AutoPropertyObject):
@@ -1058,6 +1082,28 @@ class FakeCellInfo:
 			self.cell["caret"] = True
 
 
+class Axis(str, enum.Enum):
+	"""`documentBase._Axis`: which way a table movement runs."""
+
+	ROW = "row"
+	COLUMN = "column"
+
+
+class Movement(str, enum.Enum):
+	"""`documentBase._Movement`: which end of the axis a table movement is towards.
+
+	Real enumerations, and mixed with `str` exactly as NVDA's are, because the difference
+	shows: NVDA tests these with `movement in {_Movement.NEXT, _Movement.PREVIOUS}`, and a
+	string that merely spells the same word hashes differently and is not in that set. A
+	stand-in made of plain strings would have accepted what NVDA rejects.
+	"""
+
+	NEXT = "next"
+	PREVIOUS = "previous"
+	FIRST = "first"
+	LAST = "last"
+
+
 class FakeTableCell:
 	"""What `_getTableCellCoords` answers with. NVDA's own is a dataclass of these fields."""
 
@@ -1105,9 +1151,22 @@ class FakeTableDocument(FakeTreeInterceptor):
 		self.columnHeaders = dict(columnHeaders or {})
 		self.reads = []
 		self.carets = []
+		self.reach = 0
+		"""How far the reader can go beyond what is written in, which is what a spreadsheet
+		does: the table reaches at least as far as the cell they are standing in, or a reader
+		arrowing below the data is standing outside their own table. Zero for a document,
+		where a table is as big as it is."""
 
 	@property
 	def numRows(self):
+		return max(len(self.rows), self.reach)
+
+	@property
+	def contentRows(self):
+		""":return: how far this table is written in, which is not how far it reaches.
+
+		The number that only moves when the table does. See
+		`flowObjectTable.SheetTable.contentRows`."""
 		return len(self.rows)
 
 	@property
@@ -1188,22 +1247,28 @@ class TextInfoRegion(Region):
 		reading = info.copy()
 		reading.expand(self._getReadingUnit())
 		self.rawText = reading.text
-		Region.update(self)
-		# A collapsed position is a cursor, as it is in NVDA. Regions that must not show one
-		# clear it after calling this, which is the behaviour worth being able to test.
+		# **Before the translation, which is the order NVDA does it in and the order that
+		# matters.** `TextInfoRegion.update` works the cursor out and then calls
+		# `Region.update`, which decides from it whether to ask liblouis for computer braille
+		# at the cursor. Set afterwards — as this stub used to — a region could clear its
+		# cursor after being translated and the test could not see that the cells had already
+		# been made with one. That is exactly the fault the reader reported: every row of the
+		# band with its first word expanded. See `Region.expandedAtCursor`.
 		#
-		# From the position this region reads, and not from the object's caret. NVDA's
-		# `TextInfoRegion.update` calls `_getSelection` once and lays the block out around
-		# what it returns — so a region answering that call with a position of its own shows
-		# a cursor at that position and nowhere else. Reading the caret directly here made
-		# every flow block track it, which is neither what a pinned block does nor what the
-		# hardware saw: an edit field whose cursor sat on the first cell and stayed there.
+		# A collapsed position is a cursor, as it is in NVDA. From the position this region
+		# reads, and not from the object's caret: NVDA's `TextInfoRegion.update` calls
+		# `_getSelection` once and lays the block out around what it returns, so a region
+		# answering that call with a position of its own has a cursor at that position and
+		# nowhere else. Reading the caret directly here made every flow block track it, which
+		# is neither what a pinned block does nor what the hardware saw: an edit field whose
+		# cursor sat on the first cell and stayed there.
 		#
 		# Clamped to a cell that exists, as NVDA clamps it: there the reading unit gains a
 		# trailing space so that a caret at its end has somewhere to be, and the cursor is
 		# then held inside the text. A cursor past the last cell is not a state a region
 		# ever reaches, so it is not one a test should be able to produce.
 		self.cursorPos = min(info.offset, max(0, len(self.rawText) - 1))
+		Region.update(self)
 		self.brailleCursorPos = self.cursorPos
 
 	def routeTo(self, pos):
@@ -1931,6 +1996,25 @@ def _copyToClip(text, notify=False):
 spokenMessages: list[str] = []
 """Everything the reader was told, however it reached them."""
 
+spokenPositions: list[tuple] = []
+"""Every `speech.speakTextInfo` call, as (info, formatConfig, reason).
+
+What NVDA speaks a table cell with when the reader moves onto it. Recorded rather than
+rendered: what matters to the add-on is which position was spoken and under what formatting
+settings, and turning a position into words is NVDA's work."""
+
+SCRIPT_STATE = {"waiting": False, "sayAllResuming": False}
+"""What `scriptHandler` says about the moment a script is running in.
+
+`isScriptWaiting` is true when keypresses have backed up, which is NVDA's signal to move
+without reporting or not to move at all. `willSayAllResume` is true when the key that ran
+this script is one that resumes an interrupted say all, in which case the key is not a
+request to move at all."""
+
+
+def _speakTextInfo(info, formatConfig=None, reason=None, **kwargs):
+	spokenPositions.append((info, formatConfig, reason))
+
 flashedMessages: list[str] = []
 """What was also written to the display, which is what `ui.message` does and what a message
 about a table must not do: the display is showing the table, and a flash sits over it until
@@ -2360,13 +2444,34 @@ class NVDAObjectRegion(Region):
 	def update(self):
 		name = getattr(self.obj, "name", "") or ""
 		role = getattr(self.obj, "role", "") or ""
-		self.rawText = f"{name} {role}".strip() + self.appendText
+		said = f"{name} {role}".strip()
+		# Where a table cell is, which `getPropertiesBraille` puts **last** — after
+		# everything else it was given, and governed by the reader's own coordinates
+		# setting. Reproduced because that position is the whole question the Excel module's
+		# header answers: a stub that joined some strings in some order would have agreed
+		# with any answer at all. See `appModules.excel.CellHeaders`.
+		coords = getattr(self.obj, "cellCoordsText", None)
+		if coords and FORMAT_CONFIG.get("reportTableCellCoords"):
+			said = f"{said} {coords}".strip()
+		# Concatenated, not joined: NVDA appends this to the finished translation, which is
+		# what lets a caller put something of its own at the end of the line.
+		self.rawText = said + self.appendText
 		super().update()
 		# One cell per character in this harness, so a text position is a braille position.
 		self.brailleCursorPos = self.cursorPos
 
+
 	def routeTo(self, pos):
 		self.acted = True
+
+
+class ReviewNVDAObjectRegion(NVDAObjectRegion):
+	"""The same region when braille follows the review cursor rather than the focus.
+
+	NVDA's own differs in one thing — a routing key focuses the object before acting on it —
+	which is nothing this add-on changes. What matters here is that it is a distinct class,
+	so that a module choosing between the two can be held to choosing.
+	"""
 
 
 def fakeRun(names, role="LISTITEM", parent=None, selected=0, levels=None):
@@ -2600,7 +2705,7 @@ def _installPluginStubs() -> None:
 		copyToClip=_copyToClip,
 	)
 	_module("ui", message=_flash)
-	_module("speech", speakMessage=spokenMessages.append)
+	_module("speech", speakMessage=spokenMessages.append, speakTextInfo=_speakTextInfo)
 	_module("virtualBuffers", VirtualBuffer=FakeVirtualBufferClass)
 	_module(
 		"wx",
@@ -2659,15 +2764,25 @@ def _installPluginStubs() -> None:
 		guiHelper=types.SimpleNamespace(BoxSizerHelper=object),
 	)
 	_module("gui.guiHelper", BoxSizerHelper=object)
-	_module("scriptHandler", script=scriptDecorator)
+	_module(
+		"scriptHandler",
+		script=scriptDecorator,
+		isScriptWaiting=lambda: SCRIPT_STATE["waiting"],
+		willSayAllResume=lambda gesture: SCRIPT_STATE["sayAllResuming"],
+	)
 	_module("keyboardHandler", keyCounter=0)
-	_module("controlTypes", Role=lambda role: types.SimpleNamespace(displayString=str(role)))
+	_module(
+		"controlTypes",
+		Role=lambda role: types.SimpleNamespace(displayString=str(role)),
+		OutputReason=types.SimpleNamespace(CARET="caret", FOCUS="focus", QUERY="query"),
+	)
 	_module("braille.extensions", displayChanged=displayChanged, displaySizeChanged=displaySizeChanged)
 	_module("braille.brailleHandler", BrailleHandler=FakeBrailleHandler)
 	_module(
 		"braille.constants",
 		CONTEXTPRES_CHANGEDCONTEXT="changedContext",
 		CONTINUATION_SHAPE=0xC0,
+		TEXT_SEPARATOR=TEXT_SEPARATOR,
 	)
 	_module("braille.regions.focus", getFocusRegions=fakeGetFocusRegions)
 	_module("cursorManager", CursorManager=CursorManager)
@@ -2681,7 +2796,11 @@ def _installPluginStubs() -> None:
 		"""
 
 	_module("editableText", EditableText=EditableText)
-	_module("braille.regions.NVDAObject", NVDAObjectRegion=NVDAObjectRegion)
+	_module(
+		"braille.regions.NVDAObject",
+		NVDAObjectRegion=NVDAObjectRegion,
+		ReviewNVDAObjectRegion=ReviewNVDAObjectRegion,
+	)
 	# The braille display driver package, as a path with no code, so that the settings panel's
 	# `from brailleDisplayDrivers.brlMultilineVirtual import vdConfig` resolves to the real
 	# module without running the driver's `__init__`, which wants `hwIo` and `inputCore`.
@@ -2721,11 +2840,24 @@ def scriptDecorator(**kwargs):
 	return decorate
 
 
+class CallCancelled(Exception):
+	"""NVDA's own, for the modules that catch it.
+
+	Defined here rather than imported because NVDA is not present: what matters is that one
+	class stands for it everywhere in a test run, so that a raise in a stand-in and a catch in
+	the add-on are talking about the same thing.
+	"""
+
+
 def installStubs() -> None:
 	"""Register the stand-in modules. Safe to call more than once."""
 	if PACKAGE in sys.modules:
 		return
 	_module("logHandler", log=log)
+	# NVDA's own, and the real class rather than the add-on's fallback for it: a test that
+	# raises this is testing what the watchdog does to a COM call, and it only tests it if
+	# what the add-on catches is what the test raised. See `flow.CallCancelled`.
+	_module("exceptions", CallCancelled=CallCancelled)
 	# Registered here rather than only beside the driver stubs: the plugin reaches for the
 	# composite display's own notification, and which stub module a test installed should not
 	# decide whether it finds one.
@@ -2753,7 +2885,12 @@ def installStubs() -> None:
 	gestureModule = _module("braille.display.gesture", BrailleDisplayGesture=BrailleDisplayGesture)
 	regions = _module("braille.regions")
 	regionsBase = _module("braille.regions.base", Region=Region, TextRegion=TextRegion)
-	_module("documentBase", DocumentWithTableNavigation=FakeTableDocument)
+	_module(
+		"documentBase",
+		DocumentWithTableNavigation=FakeTableDocument,
+		_Axis=Axis,
+		_Movement=Movement,
+	)
 	regionsTextInfo = _module(
 		"braille.regions.textInfo",
 		TextInfoRegion=TextInfoRegion,

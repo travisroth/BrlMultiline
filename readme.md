@@ -205,14 +205,21 @@ Things worth knowing:
   that you move up and down, and each one
   can be given a name of your own, a floor and a ceiling on how many cells it may have, which
   end of its heading survives, whether a page of columns begins at it, and whether it is
-  drawn without capital signs. One column is the
+  drawn without capital signs. One column can be the
   one repeated on every page, and "the first column shown" is one of the answers, since that
-  is what a table does when you have named none. Each per-column question also has "follow the
+  is what a table does when you have named none — as is "no column repeated", which is this
+  table's own decision rather than the setting that turns the repeat off for all of them. Each per-column question also has "follow the
   table setting", which names what the table is currently doing, so nothing in the dialog
   claims a decision you did not make. Ticking "remember this arrangement" saves it against the
   table; unticking it on a table you had remembered deletes what was saved. Cutting from the
   end is for a column whose values begin with something nobody wrote for reading, and a name
   of your own is for a heading that does the same.
+
+- NVDA's **"expand to computer braille for the word at the cursor"** applies to the row your
+  cursor is on and to no other. The setting is what makes routing into a word to edit it line
+  up, and it is worth having; applied to every row of a band it wrote out the first word of
+  every line uncontracted, which is eight expansions where one was wanted. Everything but your
+  own row is drawn in whatever table and contraction you chose.
 
 - A column can be drawn **without capital signs**. In a six dot table an all-capitals word
   carries the capitals-word indicator in front of it, so `AAPL` takes six cells and `aapl`
@@ -232,6 +239,13 @@ Things worth knowing:
   spreadsheet controls when available" in NVDA's advanced settings, cells are read the
   ordinary way instead.
 
+- On an Excel cell, **the header you marked is shown in NVDA's ordinary one line braille**,
+  after the cell's coordinates. NVDA speaks it there and did not braille it, which left the
+  braille reader with the cell reference and no column name. It follows NVDA's own "report
+  table headers" setting, so turning headers off in Document Formatting turns this off too,
+  and it stays on the display for every cell of the column rather than being announced once.
+  This is nothing to do with reading the sheet in columns; it applies to any cell you land on.
+
 - A table can be laid out in columns, with a command, and the layout can be **remembered**:
   press the remember command while a table is on the display and that table comes up laid
   out the next time you are in it, on the same page or in the same list — including when you
@@ -245,6 +259,36 @@ Things worth knowing:
   regenerated is still the same table; a list view is recognised by the application and
   window it belongs to, which means File Explorer's Details view is one table whichever
   folder is open.
+
+## Arrow keys in a table
+
+Inside a browse mode table — a web page, a message in your mail, anything NVDA reads in
+browse mode — the arrow keys read the table itself:
+
+- Up and down move a row and stay in the column, so you can read down a column of figures
+  without reading every row on the way.
+- Left and right move a cell and stay in the row.
+- Home and end move to the first and last cell of the row.
+
+There is nothing to turn on and nothing to turn off. Being in a table is the whole of the
+state, and no key is ever swallowed: when there is no cell in the direction you pressed, the
+key does exactly what it does anywhere else on the page. The down arrow on the last row
+leaves the table, the up arrow on the first row leaves it upwards, and the right arrow in
+the last cell of a row carries on into whatever follows the table. Nothing announces an edge,
+because from where you are sitting there is not one.
+
+This is independent of laying a table out in columns on the display; it applies whether or
+not the table is showing as a flow.
+
+Shift with the arrows still selects, and control with the arrows still moves by word and by
+paragraph, so a long cell can still be read a word at a time and say all still reads
+everything. What you give up is moving line by line *within* a tall cell with the down arrow,
+which is the trade a table reading mode is.
+
+The movement itself is NVDA's own, the same one control+alt+arrow uses, so merged cells and
+your layout table setting behave exactly as they do with NVDA's table commands, and what is
+announced when you arrive in a cell is what NVDA announces. If you have set "report tables"
+to off in NVDA's Document Formatting settings, the arrow keys are left alone entirely.
 
 ## Using two displays at once
 

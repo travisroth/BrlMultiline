@@ -41,8 +41,10 @@ from . import (
 	flowTableSource,
 	patches,
 )
+from .flow import CallCancelled
 from .flowControl import FlowController
 from .flowBuild import (
+	Unreadable,
 	buildTableController,
 	bandSize,
 	buildController,
@@ -135,6 +137,16 @@ NO_LAYOUT = "layout"
 A different thing to be told and, until it had a name, the same sentence: a table recognised
 and then dropped somewhere further down said "not in a table", which sends the reader to look
 at whether the control is a table at all — the one part that had worked.
+"""
+
+NOT_READ = "unread"
+"""They are in one, and nothing could be read out of it.
+
+The third of the same family, and the same argument a step further along. "Could not be laid
+out in columns" is about arithmetic — these columns, this band, no arrangement fits — and it
+sent a reader to the layout designer for an Excel sheet where every read had been cancelled
+before a single width was measured. Nothing was wrong with the arrangement, because there had
+been nothing to arrange. See `flowBuild.Unreadable`, which is how the build says so.
 """
 
 _generations = itertools.count(1)
@@ -537,9 +549,21 @@ class FlowBand(PanelOwner):
 		if header is None:
 			return
 		try:
-			control.setPinned(header())
+			said = header()
 		except Exception:
 			log.debugWarning("Could not read the pinned header row again", exc_info=True)
+			return
+		if said is None:
+			# **Kept rather than cleared.** "I could not read it just now" is not "this table
+			# has no headers": a header is a property of the table and it was there a moment
+			# ago. `headerBlock` answers None for both, and it swallows its own failures to do
+			# it — so one unlucky read took the header off the display and nothing put it back
+			# until the layout was made again. On a spreadsheet every read can fail: a cell
+			# fetch crosses a process boundary and the watchdog cancels the lot when the core
+			# is busy.
+			log.debugWarning("The pinned header row could not be read again, so it stands")
+			return
+		control.setPinned(said)
 
 	def _tableStillFits(self) -> bool:
 		"""Notice a table that changed shape, on a pass that may write nothing.
@@ -841,22 +865,50 @@ class FlowBand(PanelOwner):
 		return self.showObject(
 			obj if obj is not None else self._target(),
 			force=True,
+			# **A focus change is a move, not a new reading**, and for a table that is the
+			# whole difference. See `showObject`.
+			focusMoved=True,
 			focusRegions=regions,
 		)
 
-	def showObject(self, obj: Any, force: bool = False, focusRegions=None) -> bool:
+	def showObject(
+		self,
+		obj: Any,
+		force: bool = False,
+		focusRegions=None,
+		focusMoved: bool = False,
+	) -> bool:
 		"""Show a flow over an object, keeping the current one if it is the same document.
 
 		:param obj: what the reader is now on.
 		:param force: rebuild even when the document has not changed.
 		:param focusRegions: the regions NVDA built for this focus, so an embedded edit can
 			keep its real text region and caret owner.
+		:param focusMoved: whether this is the focus arriving somewhere rather than a reading
+			that has to be made again. **The two are the same thing for a document and
+			opposite things for a table**, which is what this exists to say.
+
+			In browse mode the focus stays on the page while the caret walks it, so a table
+			was only ever redrawn through the live pass, which follows the cursor. In a
+			*spreadsheet or a list* every arrow key is a focus change — a different cell, a
+			different row — and each one arrived here as `force`, which means "make the
+			reading again". So the layout was planned afresh on every keypress and the window
+			was placed afresh with it: the row the reader had just moved to went to the **top**
+			of the band with the rest of the table below it, instead of coming on at the
+			bottom. Reported from an Excel worksheet as a display that jumped a page at a
+			time, and, at the first row past the data, as a band that went blank but for its
+			headers — a fresh window entered at the last row has nothing after it to fill with.
+
+			The table path already has the question it needs, and it is a better one than
+			`force`: `isStillHere` asks whether the reader is in the same table. Where they
+			are, this is a move within it and the cursor is followed; where they are not, it
+			rebuilds exactly as before.
 		:return: whether a flow is showing afterwards.
 		"""
 		segment = self.segment()
 		if segment is None:
 			return False
-		shown = self._showTable(obj, segment, force=force)
+		shown = self._showTable(obj, segment, force=force and not focusMoved)
 		if shown is not None:
 			return shown
 		if self._readingATable():
@@ -969,19 +1021,32 @@ class FlowBand(PanelOwner):
 		:return: whether there was a table to lay out.
 		"""
 		obj = self._target()
-		handle = flowTableSource.tableAt(obj)
+		self.tableNotes = []
+		try:
+			handle = flowTableSource.tableAt(obj)
+		except CallCancelled:
+			# **Before anything is built, and it is the first thing the command does.** A
+			# cancelled recognition used to come back as "you are not in a table", which is
+			# the one thing the reader can see is untrue. See `flow.CallCancelled`.
+			self.tableProblem = NOT_READ
+			log.debugWarning("Asked for a table in columns and the reading was cancelled")
+			return False
 		if handle is None:
 			self.tableProblem = NO_TABLE
 			flowTableSource.logExplanation(obj, "asked for a table in columns and found none")
 			return False
 		self.tableWanted = handle.key
 		self._askedAboutCell = None
-		self.tableNotes = []
 		self.refresh(force=True)
 		if self.controller is not None and self._readingATable():
 			self.tableProblem = None
 			return True
-		self.tableProblem = NO_LAYOUT
+		# Which of the two the build hit, in its own words. See `flowBuild.Unreadable`.
+		self.tableProblem = (
+			NOT_READ
+			if any(isinstance(note, Unreadable) for note in self.tableNotes)
+			else NO_LAYOUT
+		)
 		self._reportNoLayout(obj, handle)
 		return False
 
@@ -1240,19 +1305,21 @@ class FlowBand(PanelOwner):
 			return None
 		top = self.controller.window.topBlockId() if self.controller is not None else None
 		row = getattr(top, "bookmark", None) if top is not None else None
-		return (plan.page, row if isinstance(row, int) else None)
+		return (plan.at, row if isinstance(row, int) else None)
 
 	def _tableChangedShape(self, found, source) -> bool:
 		"""Whether the table is no longer the shape the layout was made for.
 
-		Two cheap questions, asked on each redraw beside the ones already being asked. How
-		many columns it has now, which `_getTableDimensions` has just answered anyway; and
-		whether the caret's column is one the plan knows, which is proof of a change the
-		count cannot see — a column removed and another added leaves the count alone.
+		Three cheap questions, asked on each redraw beside the ones already being asked. How
+		many columns it has now and — where the count is a fact rather than what has been
+		built so far — how many rows, both of which `_getTableDimensions` has just answered
+		anyway; and whether the caret's column is one the plan knows, which is proof of a
+		change the counts cannot see, since a column removed and another added leaves the
+		count alone.
 
 		**Knowing a column is not the same as drawing it.** A column measured and left out —
 		one holding nothing the reader can read — is one this plan knows perfectly well. The
-		first cut asked `pageOf`, which says where a column is *drawn*, so a caret sitting in
+		first cut asked where a column is *drawn*, so a caret sitting in
 		an undrawn column read as a table that had changed under the band. Quick navigation
 		lands the caret in the first cell of a table and on the reader's own watchlist that
 		cell is an unreadable icon, so the layout was rebuilt on every redraw and panning did
@@ -1272,10 +1339,28 @@ class FlowBand(PanelOwner):
 				f"{source.handle.numCols}",
 			)
 			return True
+		if getattr(found.document, "rowCountIsExact", False):
+			# **Only where the count is a fact, and only the part of it the reader cannot
+			# move.** A list view's row count grows as the platform builds it and means
+			# nothing; a sheet's means the sheet gained or lost rows — a formula filling down,
+			# a query refreshing — and the stream then cannot be panned into the new ones at
+			# all, because the source keeps the count it was made with.
+			#
+			# Not `numRows`, which reaches at least as far as the reader so that the row they
+			# are standing in is part of the table: on a blank sheet that moves with every
+			# arrow key, and a review caught the layout being measured and built again on each
+			# of them. See `flowObjectTable.SheetTable.contentRows`.
+			now = found.contentRows or found.numRows
+			before = source.handle.contentRows or source.handle.numRows
+			if now != before:
+				self._rebuildBecause(
+					f"the table has content in {now} rows and the layout was made for {before}",
+				)
+				return True
 		plan = getattr(self.controller.renderer, "columnPlan", None)
 		if plan is None or plan.isEmpty:
 			return False
-		if plan.pageOf(found.col) is not None:
+		if plan.holds(found.col):
 			return False
 		if found.col in plan.excluded:
 			# A column the reader's own saved layout leaves out. They have said they do not
@@ -1335,9 +1420,8 @@ class FlowBand(PanelOwner):
 			log.debug(
 				"BrlMultiline table: reading the layout again because "
 				f"{why}. Table {handle!r}, caret at row {getattr(source, 'row', '?')} "
-				f"column {getattr(source, 'column', '?')}, showing page "
-				f"{plan.page if plan is not None else '?'} of "
-				f"{plan.numPages if plan is not None else '?'}, columns left out "
+				f"column {getattr(source, 'column', '?')}, showing columns "
+				f"{plan.whereItIs if plan is not None else '?'}, columns left out "
 				f"{plan.omitted if plan is not None else '?'}, excluded by the reader "
 				f"{plan.excluded if plan is not None else '?'}.",
 			)
@@ -1395,18 +1479,18 @@ class FlowBand(PanelOwner):
 		plan = getattr(self.controller.renderer, "columnPlan", None)
 		if plan is None or plan.isEmpty:
 			return False
-		if plan.drawsOnThisPage(column):
-			# Under their hand already. See `ColumnPlan.drawsOnThisPage`, which counts the
-			# repeated key column as the column it is a copy of.
+		if plan.showing(column):
+			# Under their hand already. See `ColumnPlan.showing`, which counts the repeated
+			# key column as the column it is a copy of.
 			return False
-		# `pageOf` answers where the column lives, which for the pinned key column is its own
-		# page and not the several it is repeated on. That is the right answer here: this is
-		# reached only for a column that is not on the display at all, and the copy is cut
-		# where the column is whole.
-		page = plan.pageOf(column)
-		if page is None or page == plan.page:
+		# **By the least movement that reaches it**, which for the next column along is one
+		# column: one comes on at the right and one goes off at the left, exactly as the
+		# window does with rows. It used to turn to the column's own page, so a caret
+		# stepping one to the right replaced every column under the reader's hands.
+		start = plan.startShowing(column)
+		if start == plan.at:
 			return False
-		return self._useColumnPage(plan.onPage(page))
+		return self._useColumnPage(plan.scrolledTo(start))
 
 	def turnColumnPage(self, by: int) -> bool:
 		"""Move the band across the table by pages of columns, without moving the caret.
@@ -1437,7 +1521,7 @@ class FlowBand(PanelOwner):
 		plan = getattr(self.controller.renderer, "columnPlan", None)
 		if plan is None or plan.isEmpty:
 			return False
-		moved = self._useColumnPage(plan.onPage(plan.page + by))
+		moved = self._useColumnPage(plan.turnedBy(by))
 		if moved:
 			segment = self.segment()
 			if segment is not None:
@@ -1476,6 +1560,35 @@ class FlowBand(PanelOwner):
 		return isinstance(source, flowTableSource.TableFlowSource)
 
 	def _showTable(self, obj: Any, segment, force: bool = False) -> Optional[bool]:
+		"""Show the reader's table, and say when NVDA stopped waiting rather than pretending.
+
+		**The boundary is here rather than around the build alone**, which is what a review
+		asked for and where it counted: recognising the table, looking up what the reader
+		saved for it and naming it for that lookup all happen *before* anything is built, and
+		all of them are reads of the document. Cancelled, each answered "not a table" — and a
+		reader told they are not in a table when they are looking at one goes looking in the
+		wrong place.
+
+		The band shows nothing either way. What differs is that a note is left, so the command
+		says the table could not be read and they know to ask again.
+
+		See `_showTheTable`, which is the work, and `flow.CallCancelled`.
+		"""
+		try:
+			return self._showTheTable(obj, segment, force=force)
+		except CallCancelled:
+			if self.tableNotes is None:
+				self.tableNotes = []
+			self.tableNotes.append(
+				Unreadable(
+					"NVDA cancelled the reads while it was working out which table this is, "
+					"because the core had stopped answering.",
+				),
+			)
+			log.debugWarning("A table reading was cancelled while the table was recognised")
+			return None
+
+	def _showTheTable(self, obj: Any, segment, force: bool = False) -> Optional[bool]:
 		"""Show the reader's table in columns, or say that this is not the moment to.
 
 		Answers None rather than False when there is no table to lay out, because None means
@@ -1507,11 +1620,23 @@ class FlowBand(PanelOwner):
 		if handle is None or not flowTableSource.sameTable(handle.key, self.tableWanted):
 			self._forgetTheTable()
 			return None
-		if not force and self._readingATable() and self.controller.source.isStillHere(obj):
+		if not force and self._readingATable() and self.controller.source.stillReading(handle):
 			# The same table. The caret has moved between its cells, which is a move within
 			# what is already being read rather than an arrival somewhere new.
+			#
+			# Both of these used to look the table up again, from the object, having been
+			# handed the object the lookup above had just been made from. A review counted the
+			# table resolved four times for one move between cells; on a worksheet each of
+			# those reads the used range. The handle in hand is the answer to both questions.
 			self.obj = obj
-			self.controller.source.setCurrent(obj)
+			self.controller.source.moveTo(handle)
+			# **Both axes, because this is the only thing that hears the move.** In browse
+			# mode a caret move is not a focus change, so it arrives at `_recheckTable`, which
+			# follows the columns as well as the rows. In a spreadsheet or a list it arrives
+			# here instead — and `setCurrent` above has already moved the source, so the check
+			# in `_recheckTable` finds nothing changed and never looks at the column. The band
+			# followed the reader down the rows and left them behind across the columns.
+			self._showColumn(handle.col)
 			self.controller.followCursor()
 			segment.refresh()
 			return True

@@ -38,6 +38,7 @@ from logHandler import log
 
 from . import flowForms
 from .flow import BlockId, ByIdentity, FetchResult, SourceBlock
+from .pinnedRegions import CursorOnlyWhereTheReaderIs
 
 DEFAULT_MAX_BLOCKS = 12
 """How many blocks one operation may read before giving up, on a band of unstated height.
@@ -198,13 +199,32 @@ class PositionMark:
 		return f"<PositionMark {self.info!r}>"
 
 
-class FlowRegion:
+class FlowRegion(CursorOnlyWhereTheReaderIs):
 	"""Mixin giving a region a fixed position, and a cursor only when it is the active one.
 
 	Mixed in ahead of the region class whose cursor policy it adjusts, so that
 	`super()._getSelection` still reaches the right one. The same arrangement
 	`pinnedRegions` uses, for the same reason.
 	"""
+
+	live = False
+	isActive = False
+	"""Defaults on the class, because the cursor is asked about while the region below is
+	still being built. See `holdsTheCursor`."""
+
+	def holdsTheCursor(self) -> bool:
+		""":return: whether this is the block the reader is in.
+
+		One cursor on the display and it belongs to the focus, so: the active block, and only
+		in a live flow. A viewer band shows none at all.
+
+		**Asked before the translation and not after it**, which is the whole of what this
+		answers — see `pinnedRegions.CursorOnlyWhereTheReaderIs`. Every block of a flow reads
+		a fixed position and answers that position when NVDA asks where the selection is, so
+		the cursor falls inside all of them; clearing it after `update` left every row already
+		translated with its first word expanded to computer braille.
+		"""
+		return bool(self.isActive and self.live)
 
 	def __init__(self, obj, info=None, live: bool = False) -> None:
 		"""
@@ -342,10 +362,10 @@ class FlowRegion:
 		# which is nearly all of them. It tells NVDA's buffer to show the last region alone,
 		# and a flow assembles its own rows, so it is never wanted here.
 		self.hidePreviousRegions = False
-		if not (self.isActive and self.live):
-			# Only the active block of a live flow shows a cursor. A viewer band shows none
-			# at all: there is one cursor on the display and it belongs to the focus.
-			self.cursorPos = None
+		if not self.holdsTheCursor():
+			# The cursor itself is refused before the translation rather than after it — see
+			# `holdsTheCursor` — so this is only the drawn one, which `TextInfoRegion.update`
+			# also sets outright while the reader is entering braille.
 			self.brailleCursorPos = None
 
 	def takeCursor(self) -> bool:

@@ -769,6 +769,75 @@ class TestAGrowingEdit(unittest.TestCase):
 		)
 
 
+class TestAllOfWhatTheReaderHasArrivedAt(unittest.TestCase):
+	"""A block that wraps is one item and the reader is standing on all of it.
+
+	Bringing it on by the line the cursor is on is the right rule for keeping the cursor in
+	view and the wrong amount to show when the block has just become theirs: scrolling down
+	onto a record two lines tall put its first line on the bottom row and left the second off
+	the band, so the values that had wrapped were the ones they could not read. The same on a
+	list of files whose names run to two lines. Reported from a spreadsheet and asked for
+	across the board.
+	"""
+
+	def _rows(self, control):
+		""":return: which line, and which of its wrapped rows, is on each row of the band."""
+		found = []
+		for row in control.window.visibleRows():
+			mark = getattr(row, "blockId", None)
+			if mark is None:
+				continue
+			found.append((getattr(mark.bookmark, "index", mark.bookmark), row.rowIndex))
+		return found
+
+	def _flow(self, numRows=4):
+		"""A document of two line items, each too long for the band."""
+		return controllerOver(
+			["one two three", "four five six", "seven eight nine", "ten eleven twelve"],
+			caretIndex=0,
+			numRows=numRows,
+			numCols=8,
+			live=True,
+		)
+
+	def test_bothLinesOfTheRowArriveTogether(self):
+		control = self._flow()
+		control.source.obj.caretIndex = 2
+		control.followCursor()
+		self.assertIn((2, 0), self._rows(control))
+		self.assertIn((2, 1), self._rows(control))
+
+	def test_andTheCursorIsStillOnTheBand(self):
+		control = self._flow()
+		control.source.obj.caretIndex = 2
+		control.followCursor()
+		self.assertIsNotNone(control.cursorCell())
+
+	def test_oneAlreadyWhollyOnTheBandMovesNothing(self):
+		control = self._flow()
+		control.source.obj.caretIndex = 1
+		control.followCursor()
+		before = self._rows(control)
+		control.source.obj.caretIndex = 0
+		control.followCursor()
+		self.assertEqual(self._rows(control), before)
+
+	def test_aBlockTallerThanTheBandIsNotDraggedOn(self):
+		"""There the far end is not somewhere to go: reaching it would scroll the cursor's
+		own row off, and panning is what a block taller than the band is read by."""
+		control = controllerOver(
+			["short", "a b c d e f g h i j k l m n o p"],
+			caretIndex=0,
+			numRows=2,
+			numCols=8,
+			live=True,
+		)
+		control.source.obj.caretIndex = 1
+		control.followCursor()
+		self.assertIsNotNone(control.cursorCell())
+		self.assertIn((1, 0), self._rows(control))
+
+
 class TestTheCursorWithinItsBlock(unittest.TestCase):
 	"""The block the reader is in is read from where they are; every other from its start.
 

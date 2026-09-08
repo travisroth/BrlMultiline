@@ -119,6 +119,19 @@ Zero in the record, and the first drawn column on the display. A checkbox on eac
 could not say that: the reader saw nothing checked and the display was repeating one.
 """
 
+# Translators: the option for repeating no column at all on the later pages of a table.
+KEY_IS_NONE = _("No column repeated")
+"""What the repeated-column control holds where this table repeats nothing.
+
+**The answer the control did not have.** Whether a column is repeated was a setting for every
+table at once, and which column it is was a decision per table — so a reader who wanted their
+cells to start at the left of every page on *this* table had to turn it off for all of them.
+Both belong to the table, and this is where the whole question is now asked.
+
+`flowTableLayouts.NO` in the record, which is a field that has always existed and was never
+written by this dialog. See `Arrangement.pinKey`.
+"""
+
 NO_LIMIT = 0
 """What a width control holds when the reader has set no bound of their own."""
 
@@ -222,6 +235,7 @@ class Arrangement:
 		following: str = WRAPPED,
 		repeats: bool = True,
 		followsThisTable: bool = False,
+		pinKey: str = flowTableLayouts.FOLLOW,
 	) -> None:
 		"""
 		:param columns: the columns, in order, as `Column`.
@@ -235,6 +249,10 @@ class Arrangement:
 			is a setting rather than a column and can be off.
 		:param followsThisTable: whether `following` came from this table's own saved record
 			rather than from the setting for all tables. See `FOLLOWS_THIS_TABLE`.
+		:param pinKey: whether this table repeats a column at all — `YES`, `NO`, or `FOLLOW`
+			for the setting. Held beside `keyColumn` because they are two halves of one
+			question and the dialog asks it once: *which* column, of which "none of them" is
+			an answer. See `KEY_IS_NONE`.
 		"""
 		self.columns = list(columns)
 		self.keyColumn = keyColumn
@@ -243,6 +261,7 @@ class Arrangement:
 		self.following = following
 		self.repeats = repeats
 		self.followsThisTable = followsThisTable
+		self.pinKey = pinKey
 
 	@classmethod
 	def of(
@@ -309,6 +328,7 @@ class Arrangement:
 			following=following,
 			repeats=getattr(plan, "keyColumn", None) is not None,
 			followsThisTable=followsThisTable,
+			pinKey=layout.pinKey,
 		)
 
 	def at(self, position: int) -> Optional[Column]:
@@ -331,13 +351,81 @@ class Arrangement:
 		settles it by repeating the first drawn column instead — so a record naming a hidden
 		one would leave the dialog saying one thing and the display doing another. The named
 		column has to be showing to count.
+
+		Zero as well where the reader has said this table repeats nothing, which is the answer
+		that outranks a named column: `keyColumn` says *which*, and this says *whether*.
 		"""
+		if self.pinKey == flowTableLayouts.NO:
+			return 0
 		named = self.named(self.keyColumn)
 		if named is not None and named.shown:
 			return named.index
 		if not self.repeats:
 			return 0
 		return next((column.index for column in self.columns if column.shown), 0)
+
+	@property
+	def keyable(self) -> list:
+		""":return: the columns that could be the repeated one, which is the drawn ones.
+
+		A column that is not on the display cannot be the one repeated at the left of every
+		page of it, and offering it would let the reader choose something the planner would
+		quietly overrule.
+		"""
+		return [column for column in self.columns if column.shown]
+
+	def keyChoices(self) -> list:
+		""":return: the answers to which column is repeated, in the order they are offered.
+
+		Two before the columns: whichever is drawn first, which is what a table with nothing
+		decided does, and none at all.
+
+		Here rather than in the dialog because this class is what has no wx in it — the
+		question is which answers there are and what each means, and that is the same question
+		on a worksheet as on a web page.
+		"""
+		return [KEY_IS_THE_FIRST, KEY_IS_NONE, *(column.name for column in self.keyable)]
+
+	@property
+	def keyChoice(self) -> int:
+		""":return: which of `keyChoices` this table's layout amounts to.
+
+		**"None" outranks a named column**, because the two answer different questions and a
+		record can hold both: `keyColumn` says which column and `pinKey` says whether there is
+		one. A table whose reader has said it repeats nothing repeats nothing, whatever column
+		was named before they said so.
+		"""
+		if self.pinKey == flowTableLayouts.NO:
+			return 1
+		return next(
+			(
+				position + 2
+				for position, column in enumerate(self.keyable)
+				if column.index == self.keyColumn
+			),
+			0,
+		)
+
+	def chooseKey(self, position: int) -> None:
+		"""Take the reader's answer to both halves of the question at once.
+
+		Choosing "none" is a decision about this table and is written down as one. Choosing
+		anything else leaves *whether* alone unless it was "none" — a reader moving off that
+		has just said they want one repeated, and a table whose record says nothing goes on
+		following the setting as it always did. A dialog must not decide what it was not
+		asked, and turning the repeat on for every table where somebody opened this and
+		pressed OK would be exactly that.
+
+		:param position: which of `keyChoices` they chose.
+		"""
+		if position == 1:
+			self.pinKey = flowTableLayouts.NO
+			return
+		if self.pinKey == flowTableLayouts.NO:
+			self.pinKey = flowTableLayouts.YES
+		keyable = self.keyable
+		column = keyable[position - 2] if 1 < position <= len(keyable) + 1 else None
+		self.keyColumn = column.index if column is not None else 0
 
 	def named(self, index: int) -> Optional[Column]:
 		""":return: the column with one of the table's own numbers, or None.
@@ -478,6 +566,11 @@ class Arrangement:
 			self.base,
 			columns=columns,
 			keyColumn=named.index if named is not None and named.shown else 0,
+			# **Written down, which it never was.** The field has always been there and the
+			# planner has always honoured it; nothing wrote it but the settings dialog, which
+			# decides for every table at once. So a reader who wanted one table's rows to
+			# start at the left had to turn the repeat off for all of them.
+			pinKey=self.pinKey,
 			perColumn=chosen,
 		)
 
@@ -797,14 +890,20 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 			)
 			self.caseCtrl.Bind(wx.EVT_CHECKBOX, self._onCase)
 			# A choice of one column rather than a box on each, because that is the shape of
-			# the question: exactly one column is repeated, and "none of them" is not one of
-			# the answers. A box on each column also had nothing to show for the default —
-			# the display repeated the first drawn column and no box was ticked.
+			# the question: at most one column is repeated. A box on each column also had
+			# nothing to show for the default — the display repeated the first drawn column
+			# and no box was ticked.
+			#
+			# **And "none of them" is one of the answers**, which it was not: whether a column
+			# is repeated at all was a setting for every table at once while *which* column it
+			# is was decided per table, so a reader who wanted one table's rows to start at
+			# the left of every page had to turn the repeat off for all of them. Both halves
+			# are the table's, and both are asked here. See `KEY_IS_NONE`.
 			self.keyCtrl = helper.addLabeledControl(
 				# Translators: the label of a choice of which column is drawn again on every page.
 				_("Column &repeated on every page:"),
 				wx.Choice,
-				choices=[KEY_IS_THE_FIRST],
+				choices=[KEY_IS_THE_FIRST, KEY_IS_NONE],
 			)
 			self.keyCtrl.Bind(wx.EVT_CHOICE, self._onKey)
 			self.keepCtrl = helper.addItem(
@@ -890,22 +989,12 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 		def _fillKeys(self) -> None:
 			"""Draw the repeated-column choice again, over the columns that are drawn.
 
-			The drawn ones only: a column that is not on the display cannot be the one
-			repeated at the left of every page of it, and offering it would let the reader
-			choose something the planner would quietly overrule.
+			What the answers are and what each means is the arrangement's — see
+			`Arrangement.keyChoices`, which is the half of this dialog that has no wx in it
+			and is the same on a worksheet as on a web page.
 			"""
-			self._keyable = [column for column in self.arrangement.columns if column.shown]
-			self.keyCtrl.Set([KEY_IS_THE_FIRST, *(column.name for column in self._keyable)])
-			self.keyCtrl.SetSelection(
-				next(
-					(
-						position + 1
-						for position, column in enumerate(self._keyable)
-						if column.index == self.arrangement.keyColumn
-					),
-					0,
-				),
-			)
+			self.keyCtrl.Set(self.arrangement.keyChoices())
+			self.keyCtrl.SetSelection(self.arrangement.keyChoice)
 
 		def _redrawLines(self) -> None:
 			"""Draw the lines again without moving the selection.
@@ -997,10 +1086,7 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 			self._redrawLines()
 
 		def _onKey(self, event) -> None:
-			chosen = self.keyCtrl.GetSelection()
-			keyable = getattr(self, "_keyable", [])
-			column = keyable[chosen - 1] if 0 < chosen <= len(keyable) else None
-			self.arrangement.keyColumn = column.index if column is not None else 0
+			self.arrangement.chooseKey(self.keyCtrl.GetSelection())
 			self._redrawLines()
 
 		def _onKeep(self, event) -> None:

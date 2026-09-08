@@ -1436,7 +1436,523 @@ first drawn column, so the record named one column while the display repeated an
 chooser now offers only drawn columns, hiding the chosen one takes it out of the choice, and
 neither `repeatedColumn` nor the saved record names a column that is not showing.
 
-Not yet on hardware.
+### What the first sheet on hardware found
+
+A worksheet of nine rows, the reader standing on empty A10 below them, twenty-one columns of
+used range. The command refused with "this table could not be laid out in columns", and the
+log had an eleven second freeze in front of it: watchdog recovery started ten seconds in, the
+refusal was logged two tenths of a second later, and the whole thing recovered a second after
+that. Four separate faults, and the ordering of those three lines is what tells them apart.
+
+**Measuring cost eight or so cross-process calls per cell, and there is no need for any of
+them.** The sample was two rows — the caret's, which was the last, and row one — across
+twenty-one columns. Forty-two cells, ten seconds, about a quarter of a second each. Each cell
+was a coordinate lookup, an `NVDAObject` built with its overlay classes chosen, and
+`_get_excelCellInfo`, which is three COM calls (`address`, `Application`, `International`)
+before an in-process fetch of that one cell's text, address, states, comments, formula and
+coordinates. Standing anywhere higher in the same sheet would have made it eight rows rather
+than two.
+
+NVDA never does this. When it wants many cells it fetches a *range*:
+`ExcelCellInfoQuicknavIterator.iterate` hands the helper an address and a count and reads back
+an array. So the `Sheet` protocol gained an optional `textRow(row, first, last)` — a row of
+strings for a span of columns, or None meaning "ask me the ordinary way" — and the measurement
+uses it wherever it is offered. One call for a row instead of a hundred and seventy. Objects
+are still built for the cells that are drawn and routed into, which is where an object is what
+is wanted; measuring wants text and throws everything else away.
+
+The text is NVDA's own displayed text, which is why this goes through the helper rather than
+`Range.Value2`. A one-call value read exists and hands back what is *stored* — a date as a
+serial number, a percentage as a fraction — and a column sized from that is sized for
+something the reader will never feel.
+
+**A column's name was asked once per cell.** `SheetTable.cellOf` resolved `columnHeaderText`
+for every cell it built, and on a worksheet that is `fetchAssociatedHeaderCellText` walking the
+marked header ranges with the cell's coordinates in hand. A declared header belongs to the
+column, so it is now asked once per column — the same thing `_headerFor` already did for a list
+view. And the sheet is asked first: `Sheet.columnHeaders` is optional and Excel answers it from
+NVDA's header cell tracker, so a worksheet nobody has marked up says "no column declares
+anything" without a single cell being built, which is the entire cost of that answer on a wide
+sheet.
+
+**A cancelled read looked exactly like an empty cell**, and that is what turned a slow command
+into a wrong message. Once the watchdog starts recovering a frozen core it cancels every COM
+call the main thread makes; NVDA's comtypes patch raises `exceptions.CallCancelled`, which is
+not a `COMError` and not an `OSError`. Both `ExcelSheet.cellAt` and `flowTableSource.cellRegion`
+caught broadly and answered "there is no cell at this coordinate" — which is what a merged cell
+looks like — so all twenty-one columns measured nothing, the plan came out empty, and the
+arithmetic got the blame. It is now caught by name and re-raised, and the build says so.
+
+**And the two refusals are told apart.** "Could not be laid out in columns" is about
+arithmetic: these columns, this band, no arrangement fits, which is a thing to change the
+layout about. Nothing having been read is not that. `flowBuild.Unreadable` is a note that is
+also a kind — a `str` subclass, so the log is unchanged — `flowBand.NOT_READ` is the third
+`tableProblem`, and the command says "nothing could be read from this table" instead, which is
+often a moment that has passed and is worth asking for again.
+
+**The report could not describe a single cell.** `SheetTable` passed `row=None` to its base, so
+`describeCells` said "no row in hand, so there are no cells to describe" for every sheet — and
+the one report written to explain why this sheet would not lay out explained nothing. A sheet
+has a row *number* where the other two shapes have a row object, and that is what stands in for
+one everywhere else in the class; it now stands in here too, and `cellObject` is answered so
+the three places a header can come from are written down as they are for a list view.
+
+### What the second sheet on hardware found
+
+The measuring half worked: the same sheet came back as nine rows by twenty-one columns, the
+plan named five columns with real widths over seven pages, and the command said the columns
+were showing. **The display was blank.** Every drawn cell had come back as "no cell at row R
+column C", which is `SheetTable.cellOf` saying `Sheet.cellAt` answered None.
+
+**NVDA's objects are composed, and this asked for a composition of a composition.**
+`DynamicNVDAObjectType.__call__` builds an object from an API class, asks the application
+module which overlay classes belong on it, and mutates the object into a new type whose bases
+are the overlays in front of that API class. So the cell the reader stands on is a
+`Dynamic_SpreadsheetCellExcelCell` — the log says so on every line that names the focus.
+
+`cellAt` asked for another cell by writing `type(self.cell)(...)`, which is that composite. The
+metaclass then did the whole thing again: it offered the composite as the only class, this
+module inserted its overlay in front of it, and the bases came out as (overlay, (overlay,
+cell)). That pair has no consistent method resolution order, `type` raised `TypeError`, the
+broad catch in `cellAt` turned it into None, and a reader with a correct layout got an empty
+band.
+
+The fix is what NVDA does everywhere it reaches for a cell — `ExcelWorksheet._get_firstChild`
+and `ExcelBrowseModeTreeInterceptor.navigationHelper` both name `ExcelCell` outright. The API
+class is what a composition is made *from*; the overlay is put back on the result by the same
+metaclass, so the cell that comes back still answers `brlMultilineSheet` and `setFocus`. A
+second guard sits beside it: a class list already holding a class made of this overlay is not
+offered it again, whatever path handed it over.
+
+The stand-ins had not been able to show any of this, because they were plain classes and
+constructing one just constructed it. They now compose the way NVDA does, including its cache
+of composed classes by their bases, and `type(self.cell)` fails in the tests exactly as it
+failed on hardware.
+
+**And recognising a cell was building a worksheet per cell.** `readsByCoordinate` proved the
+worksheet was reachable by reading `obj.parent`, and it runs inside the metaclass for every
+object NVDA builds — so `ExcelCell._get_parent` made a fresh `ExcelWorksheet`, and populated
+its header tracker by walking every defined name in the workbook, *before* `cellAt` could hand
+over the worksheet it already had. The sharing arranged after the first review was undone once
+per cell of every band by the recognition in front of it. The COM model's cell is now told from
+the UI Automation model's by class, which is exact — they are on different branches, `Window`
+against `UIA` — and costs nothing. The parent check proved nothing anyway: a COM model cell's
+parent is an `ExcelWorksheet` by construction.
+
+### What the third sheet on hardware found
+
+Data on the display at last, and then two faults in how it moved — both of them the same
+fault, and neither of them about Excel.
+
+**Every arrow key rebuilt the whole reading.** A focus change reaches the band as
+`showObject(force=True)`, and `force` means "make this reading again". In browse mode that is
+right and harmless: the focus stays on the page while the caret walks it, so a table is
+redrawn through the live pass, which follows the cursor. In a spreadsheet — or a list, or a
+message list — *every* arrow key is a focus change, to a different cell or a different row.
+So the layout was measured and planned afresh on each keypress, and the window was placed
+afresh with it: the row the reader had just moved to went to the **top** of the band with the
+rest of the table below it, instead of coming on at the bottom. The display jumped a page at
+a time.
+
+The same rebuild is why stepping onto the first blank row under the data blanked the band. A
+window entered afresh at the last row of a table has nothing after it to fill with and
+nothing above it that it kept, so all that was left was the pinned header.
+
+The table path already had the better question and was not being allowed to ask it:
+`isStillHere` says whether the reader is in the same table. A focus change now says so —
+`focusMoved` — and where it is the same table the cursor is followed, exactly as a caret move
+in browse mode always was. Where it is not, it rebuilds as before. The saved layout, the
+pinned header and the reader's page all stay put, and a bandful of cells is no longer
+measured per keypress, which on a worksheet is a cross-process read per cell.
+
+**An empty cell was not a place.** It draws nothing, so it left no position anywhere on the
+row — and a position is what the cursor is found by and what a routing key is turned back
+into. A reader standing in an empty cell therefore had no cursor at all, no way to feel which
+column they were in, and no routing key that would take them into one. On the blank row under
+a sheet's data every cell is empty, so the whole row was unreachable and unmarked and they
+were left with speech.
+
+Each drawn column now marks the band cells it occupies even when the cell it holds is empty:
+nothing to read, but somewhere to be. The cursor lands there and a routing key over it reaches
+that cell — which is also what makes an empty cell somewhere you can go in order to type in it.
+Reporting is unchanged, because a cell that reads as nothing is left out of the row's text
+rather than joined in as an empty string.
+
+**The column's whole width, and the first attempt marked only its start.** That fixed the
+cursor and did not fix routing, which is what the reader reported next: on a blank row nothing
+is drawn, so there is no telling which single cell of thirty-two is the live one, and every
+press either side of it still reached nothing. The way a reader aims at a column they cannot
+feel is the pinned header — press under the heading you want — and that only works if the whole
+of the column answers. Every band cell the column occupies now carries it.
+
+All of them at offset zero rather than at their own offsets, because a table cell is routed to
+as a place and not at the character under the finger — `TableCellRegion.routeTo` says so and
+ignores the offset — and one position for the whole of a cell also keeps the cursor at the
+column's start, since `FlowController.cursorCell` takes the first band cell that matches.
+
+### One cursor, one expanded word
+
+NVDA has a setting called "expand to computer braille for the word at the cursor". It is on by
+default and it is what makes routing into a word to edit it work: the word under the cursor is
+written out uncontracted so that cells and characters line up.
+
+It is applied in `braille.regions.base.Region.update`, which asks liblouis for
+`COMPBRL_AT_CURSOR` whenever the setting is on **and the region has a cursor**. And every block
+of a flow has one, by construction: a block reads a fixed position, and `TextInfoRegion.update`
+asks the region where the selection is and lays the block out around the answer. Each block
+answers with its own position, so each has a cursor at character zero, so each has its first
+word expanded. The reader's Favorites page came out with every line beginning in computer
+braille.
+
+The blocks were already clearing the cursor — in `FlowRegion.update`, straight after
+`super().update()`. That is one liblouis call too late: the cells have been made. The fix is to
+refuse the cursor *before* the translation, which means making it a property rather than an
+attribute, since the value is set inside NVDA's own update between the two moments.
+
+`CursorOnlyWhereTheReaderIs` is that property, with the subclass answering `holdsTheCursor`:
+the active block of a live band for a flow, and the caret's own line for the document lines
+drawn around it. Both had the fault and both had it for the same reason.
+
+**The harness could not have caught it**, which is the more useful lesson. The stand-in
+`TextInfoRegion` set its cursor *after* calling `Region.update` — the reverse of NVDA — so
+clearing a cursor after translating looked identical to never having one. It now works the
+cursor out first, and the stand-in `Region` records whether the translation it just did was
+asked for with a cursor. That is what the tests assert: eight rows, one expanded word.
+
+Left alone: a pinned region still expands at its own cursor. A pin is a reading position the
+reader chose and pans and routes within, and it draws a cursor today; taking the expansion away
+would take the cursor with it.
+
+### The answer the designer did not have
+
+The reader asked for "none" among the choices of which column is repeated on every page, and
+the interesting part is that nothing needed building underneath it. `TableLayout.pinKey` has
+been there since the record was designed — `YES`, `NO`, or follow the setting — and `planFor`
+has always honoured it. Nothing wrote it but the settings dialog, which decides for every table
+at once. So the feature existed at both ends and had no way in.
+
+Two halves of one question, and the dialog was asking half: `keyColumn` says *which* column and
+`pinKey` says *whether* there is one. Asked as one control, the answers are the first column
+shown, none at all, or a named column — and "none" outranks a named column, because a record
+can hold both and the reader's later word is the one that counts.
+
+Choosing a column deliberately does not turn the repeat *on*. A table that was following the
+setting goes on following it; only a reader moving off "none" has said anything about whether,
+and then it is written down as yes. The rule is the one this dialog already lives by: it must
+not decide what it was not asked, and opening it over a table and pressing OK must change
+nothing.
+
+The logic sits on `Arrangement` — what the answers are, which one this table amounts to, and
+what choosing one means — rather than in the dialog, because that class is the half with no wx
+in it and the question is identical on a worksheet and on a web page. The dialog sets a list of
+strings and reports an index.
+
+### What a review of the Excel work found
+
+Thirteen findings, three of them urgent, and the shape of them is worth keeping: almost every
+one is *a question asked of Excel more often than it needs to be*, or *an answer believed
+without being checked*. Both are the same mistake at different ends.
+
+**Reading in bulk stopped at the measuring.** `Sheet.textRow` was added to measure a table
+without building a cell object per cell, and the rows the reader actually feels went on being
+built one cell at a time — twelve objects for one re-read of a four by three window, repeated
+on every live pass. What made it fixable is that the object is not needed to *draw* a cell,
+only to *go* to one: `ObjectCellInfo` now takes a way to fetch its object instead of the
+object, and nothing calls it until a routing key lands on that one cell.
+
+**The header question was the expensive one.** Asked cell by cell it is an `ExcelCell` and a
+header search per column, three times over for a column that says nothing — sixty three cell
+objects on a twenty one column sheet nobody has marked up, when forty two had already been
+enough to pass the watchdog. It is now asked of the sheet: NVDA's header cell tracker says
+which cell heads which columns, and what that cell says is one read of the heading row.
+
+That is the seam that took the reader's header row off the display two rounds earlier, so it
+comes back with the checking it lacked. The tracker is built by walking the workbook's defined
+names and NVDA keeps whatever that walk produced, including nothing where it failed part way —
+so an empty tracker is worth one witness cell before it is believed, and the three states
+(`None`, `{}`, a mapping) mean what they say again everywhere they are read.
+
+**An empty column the reader is standing in.** Hiding an empty column is what keeps a
+watchlist's column of unreadable icons off the band, and read the same way on a spreadsheet it
+takes the reader's own cursor with it: a grid is a plane, and the column beside the data is
+where they go to write the next one. So the table is asked — `emptyColumnsArePlaces` — rather
+than the rule being applied to both.
+
+**Two answers that were not checked before they were believed.** Excel's batch fetch stops at
+the first cell it cannot reach, and a short answer was padded with empty strings, so columns
+holding values measured as columns holding nothing. And the row one question compared only the
+columns that declared a heading, so a third column holding "Important" and declaring nothing
+was dropped along with the heading row.
+
+**And several places where a cancelled read came back as an answer.** Recognising the table,
+asking how far a worksheet goes, a used range that would not answer at all. Each was swallowed
+by a broad catch and reported as "not a table", "no headings", a one by one sheet. Every stage
+of building a table flow is now inside one catch that says what actually happened.
+
+**What the second review of it found.** Three things, and two of them were fixes that stopped
+short of the fault they were aimed at.
+
+*A witness that shares the poisoned well.* The empty header tracker was to be checked against
+one cell, and a cell resolves its column's header through its worksheet's tracker — the same
+one, since `cellAt` hands out cells carrying this very worksheet. Asking one was asking the
+same silence twice. The answer is not a second opinion but a fresh walk: `_trackerNow` fills a
+tracker of its own from the workbook's defined names, so the walk either finishes — and an
+empty tracker then means what it says — or raises, which is a different answer. The finished
+tracker is put on the worksheet, where NVDA keeps its own, so the two paths cannot disagree and
+a worksheet left with a half-built one is mended. The stand-in was wrong in the same way and
+was making the old fix look tested: it let a cell answer from a map the tracker knew nothing
+about. It now resolves both through the one tracker, as NVDA does.
+
+*A boundary the reads never reached.* Cancellation was caught around building the table flow,
+and recognising the table, naming it and looking up what the reader saved for it all happen
+before that. Each answered "not a table" — the one thing a reader looking at a table can see is
+untrue. They re-raise now, and the boundary is around the whole of the band's table operation
+and around the command's own first read.
+
+*A count that moves when the reader does.* Rebuilding on a changed row count is right for a
+sheet that gained rows and wrong for the number that was being compared: `shape` reaches at
+least as far as the reader, so on a blank sheet D20 to D21 and back was two rebuilds. How far a
+grid is *written in* is now a separate question — `usedShape` — and the answer is taken once,
+onto the handle, because two handles are what get compared and a number read at comparing time
+is the same number twice.
+
+Two findings are left undone deliberately, and both are the same shape: they need work that
+cannot be checked without Excel in front of it.
+
+- **Hidden and filtered rows and columns.** The adapter does not consult Excel's hidden state,
+  so a hidden column with text in it is measured and drawn, and rows an AutoFilter has hidden
+  are fetched by coordinate and read as part of the flow. The column half could be done with
+  one `SpecialCells(xlCellTypeVisible)` call over the heading row; the row half cannot, because
+  the source walks `row + 1` bounded by the row count and skipping hidden rows means a
+  `rowAfter`/`rowBefore` contract for every shape of table, not just this one. Writing either
+  against a fake and shipping it unverified risks the thing this whole area has been getting
+  wrong — columns silently missing — so it waits for hardware.
+
+- **A used range inflated downwards.** Formatting a whole column and clearing it leaves Excel
+  reporting a million rows, which is not a freeze but is an endless stream of blank rows to pan
+  through. `MAX_COLUMNS` has no vertical twin, and the honest fix is a last-content-row query
+  that has to be tried against a real workbook.
+
+### The header row that was drawn twice, and the sample that read nothing
+
+Two reports off one worksheet, and both were about the same thing: a table is asked questions
+from wherever the reader happens to be standing, and both answers depended on that.
+
+**The pinned row and row one were the same row.** Row one used to be dropped from the stream
+only where it was *borrowed* as the headings — a table that declares nothing, where
+`firstRowIsHeadings` says row one may be read as its names. Where the table declares its
+headers, the reasoning was that they may be two rows deep, in a column rather than a row, or
+nowhere near the top at all; drop row one and a table loses a row of data to a guess the
+document had already contradicted. Which is right, and is not the whole answer: on a
+spreadsheet what the reader marks as the header row is row one, so the declared headings and
+row one are the same text, and both were drawn. It showed the moment they arrowed up onto row
+one, since that is what put that row on the band, and it stayed there afterwards.
+
+Nothing says which row a declared header lives on. NVDA resolves it from wherever the markup
+points — a marked range on a worksheet, a `<th>` in a page — and reports the text and not the
+place. So the only witness is the row itself: if every column on the page holds, in row one,
+exactly what that column declares as its heading, then row one is the header row. One read of
+one row, which on a sheet is one call, and false for anything that cannot be read or cannot be
+decided — because drawing a heading twice costs a row and dropping a row of data loses one.
+
+That row is now `pinnedIsRowOne`, and it decides two things rather than one. It skips row one
+in the stream, and it lets the pinned row claim the cursor: once the row is above the band and
+no longer in it, the pinned row is the only place the reader's cursor can be, and
+`FlowController._pinnedCursor` asks the pinned region and nothing else. The report says which
+row the headings came off, since the reader cannot see that and neither could the log.
+
+**And the widths were measured from wherever the reader stood.** `_sampleRows` read a bandful
+forward from the caret, which is the right instinct — what the widths are decided from should
+be what the reader is about to feel — and it has no answer at the end of a table. Standing on
+the blank row under a nine row sheet, the sample was two rows: the header row, which is always
+read, and their own empty one. Every column was then sized to its heading alone and every
+value in the table wrapped, while the same sheet laid out from the top came out right. The
+reader asked why the arithmetic differed when the data had not, which is the right question:
+the data had not been read. The rows behind are as much a description of the table as the rows
+ahead, so the sample fills backwards when there are not enough ahead, at the same size.
+
+What is still not answered is what an empty cell *says*. Nothing is drawn in one, so a blank
+row is felt as a blank row: the cursor says which column you are in and the pinned header says
+what it is called, and beyond that the columns are invisible until something is written in
+them. A marker would show them, and it is still one setting and one line in the renderer —
+see M7, where it belongs to the table rather than to the add-on.
+
+Both were found by walking a stand-in table one focus change at a time and printing where the
+band put each row, which is the shape the tests now take. Neither needed Excel; both had been
+reachable from the day object tables were added, and neither showed up because browse mode
+never takes that path.
+
+### Following the columns, and scrolling them one at a time
+
+Three things asked for together, and the first two are the same axis.
+
+**The columns are followed on the focus path as well.** Browse mode reaches `_recheckTable`,
+which follows both axes; a spreadsheet or a list reaches `_showTable` instead, and that path
+called `setCurrent` and then `followCursor` — so by the time the live pass ran, the source had
+already moved and the check that would have looked at the column found nothing changed. The
+band followed the reader down the rows and left them behind across the columns. It now asks
+`_showColumn` there too, which is the same call `_recheckTable` makes.
+
+**And the columns scroll rather than turn.** The columns were dealt into fixed pages and the
+band showed one whole page at a time, so a caret moving one column past the right edge
+replaced everything under the reader's hands at once. That is not how the row axis has ever
+worked — a row past the bottom comes on at the bottom and one row goes off the top — and it is
+not what reading column by column wants.
+
+So `ColumnPlan.page` became `ColumnPlan.at`: an offset into the run of columns rather than an
+index of a leaf. `placements()` packs from there, `startShowing` is the column axis of
+`FlowWindow.ensureVisible` — already showing moves nothing, off the left becomes the leftmost,
+off the right comes on by the smallest scroll that reaches it — and `turnedBy` moves a whole
+bandful of *whatever is showing now*. That last part is what keeps the two from getting out of
+step: there is only one number to be in, so a reader who has scrolled two columns along and
+then asks for the next page gets the next band's worth from where they are.
+
+The deal into pages still decides the widths, which is what it was always for, and the one
+break a reader names is still kept — carried on `Column.startsAPage` rather than in the
+assignment, because a break has to travel with its column once the band can start anywhere.
+Bandfuls counted from the first column survive as `pageStarts`, `pages` and `numPages`; the
+reader is never told a page number, because after a one-column scroll the band sits between
+two of them. What they are told is which columns are showing: "columns 6 to 9 of 21", which is
+true wherever the band is.
+
+**And a row that has just become theirs is shown whole.** A block is brought on by the line
+the cursor is on, which is the right rule for keeping the cursor in view and the wrong amount
+to show when the block has just arrived: scrolling down onto a record two lines tall put its
+first line on the bottom row and left the second off the band, so the values in the columns
+that had wrapped were exactly the ones the reader could not read. The same on a list of files
+whose names run to two lines. `syncToCursor` now asks for the far end of the block as well,
+where the whole of it fits on the band; where the block is taller than the band it is refused,
+because reaching its far end would scroll the cursor's own row off, and panning is what a
+block taller than the band is read by. A rendering that is only a chunk of its block — a long
+edit, sixty-four rows at a time — is refused for the same reason.
+
+**A header row that could not be read again was being thrown away.** `headerBlock` answers
+None both for "this table has no headers" and for "I could not read them just now", and it
+swallows its own failures to do it. Two callers took that None at face value — the live pass,
+which re-reads the pinned row so a renamed heading reaches the display, and the page turn,
+which reads the headings of the columns that have just come on. Either could take the header
+row off the band, and nothing put it back until the layout was made afresh. On a spreadsheet
+that is a live risk rather than a theoretical one: every cell fetch crosses a process boundary
+and the watchdog cancels the lot when the core is busy. A header is a property of the table,
+so what stands now is the row that was there — at worst out of date, at best exactly right —
+and the report says "pinned: held but not drawn" when a flow is holding a header row it did
+not draw, because a missing line reads the same whether there never was one or it was lost.
+
+That was not it. The next report answered the question outright, in three numbers: the window
+was **eight** rows rather than seven, no `pinned:` line at all, and the source saying "nothing:
+this table declares no headers and its first row is not headings" — while the same report
+listed every column of the same table under a header it had read from the cell. The band had
+never been given a header row. Nothing lost it; it was never built.
+
+**Because this module answered a question it could not know the answer to.**
+`ExcelSheet.columnHeaders` said "no column of this sheet declares a header" whenever
+`ExcelWorksheet.headerCellTracker` was empty, to save building a cell per column to be told
+nothing — on a sheet twenty-one columns wide, the whole cost of that answer. The tracker is
+NVDA's own, private, and populated lazily by walking every defined name in the workbook, so an
+empty one means "I know of none just now". Answered as though it meant "there are none", it
+suppressed the per-column ask outright: the measurement marked no column as declaring
+anything, `flowBuild` was handed an empty `declared`, `headerBlock` had nothing to build a row
+from, and the band gave the header's row back to the table.
+
+Three changes, and the first is the general one:
+
+- **An empty answer no longer stops the ask**, in the measurement and in the drawing alike. A
+  mapping that comes back empty says "I know of none", which is not "there are none", and it
+  is not worth the reads it saves.
+- **The Excel side no longer answers the seam at all.** One read per column, once per layout,
+  is a small price for not guessing about somebody else's private state. The seam stays for an
+  adapter that can answer authoritatively.
+- **And a sheet no longer builds two cells for every one it reads.** `SheetTable.selection`
+  fetched the cell the reader is standing in so that it could be handed to `_getTableCellAt`
+  as the position to read from — which every shape here ignores, since the coordinates are the
+  arguments beside it. So each cell of a band cost two coordinate lookups and two
+  `NVDAObject`s with their overlay classes chosen. It is a coordinate now, and nothing is
+  fetched for it.
+
+**And the report's title was talking about something else.** "Flow dry run: nothing here can be
+flowed" is about the dry run's own flow, built beside the band to compare against — and in
+Excel the ordinary reading of a worksheet is a tree interceptor with no text in it, so the
+title sat on top of a full account of a table the reader could feel under their fingers. It
+now says what the band is reading when the two disagree: "nothing here can be flowed on its
+own, though the band is reading a table in columns (1 to 5 of 19)".
+
+That was not the whole of it either: the next report, from the new build, still had an eight
+row window, no pinned row and the same "this table declares no headers" beside a full list of
+columns the same report had read headings for. So the measurement is still concluding that a
+table which plainly names its columns names none.
+
+**The round trip through a control field is the remaining suspect, and it has been taken out
+of the path.** An object table's cell holds its column's name as a string —
+`ObjectCellInfo.header`, resolved once per column from the object — and then encodes it into a
+`ControlField` so that it looks like a document's cell to everything downstream.
+`declaredHeader` decoded it back out, guarded, so any failure in that round trip comes back as
+"no header" rather than as an error. Where the answer is already in hand it is now taken
+directly, and only a document's cell — where the field really is the only place it lives — is
+read through the fields.
+
+Whether that is what was losing it is not yet proven, so the build now writes down what the
+header question found: **"Columns that name themselves: {...}"**, or "none". That line sits
+between the two that were disagreeing, and the next report will say which side of it the
+answer is lost on — whether the measurement never found the headings, or found them and
+something after it refused the row.
+
+**And the same rule, a third time, in the place that made it permanent.**
+`TableFlowSource._headersForThisPage` answered nothing at all when it started with no headers
+in hand — on the grounds that a table which declares none has nothing to look up. That turned
+one empty measurement into a table with no headings for as long as the layout lived: the
+worksheet's every cell could name its column, and not one of them was ever asked. The columns
+are asked once each now, whatever the measurement thought, and `_headersAsked` is what keeps
+it to once. So the header row comes back even where the measurement is what went wrong, which
+is the difference between a fault and a fault that cannot recover.
+
+Three times now the same shape has been the bug: an empty answer taken as a settled one. It is
+worth stating as a rule for this area — **"I know of none" is not "there are none"** — because
+each of the three read perfectly reasonably in isolation.
+
+The diagnostic that should have found this sooner was written to the wrong place: the build's
+notes are printed only when a layout *fails*, and a layout that comes out wrong is not one that
+failed. The report now carries them whenever the band is reading a table, under "Band layout,
+as it was made".
+
+### The header row, found at last
+
+The report that had the layout's own notes in it named the fault in two lines:
+
+	Reading a table: <TableHandle 9x21 at row 1 column 1>
+	Columns that name themselves: none
+
+**Row one.** The reader puts the cursor at the top of their worksheet — the row they had
+marked as its headings — and asks for the columns. And a header cell has no header above it,
+so the first cell of every column answered nothing.
+
+`SheetTable._headerOf` remembered that as *the* answer. It was written to ask once per column,
+because a declared header belongs to the column and a second cell of it cannot answer
+differently — which is true, and is exactly wrong about a cell that is not a witness. All five
+columns were settled before a single data cell was asked; the measurement found no headings,
+no header row was built, and the band gave that row back to the table. The same report listed
+the headings on the next line, because the stand-in that printed them was built later, from a
+data row.
+
+So an answer is remembered and a silence is only counted: a column that says nothing is asked
+again, from another cell, `HEADER_TRIES` times over. That is the same bounded strategy
+`flowTableSource.declaredHeaders` uses one level up and for the same reason — the first cell
+read is not always a good witness — and the number now lives in one place for both.
+
+Three kinds of bad witness have now been met, and they are written where the number is
+defined: a half-built row of a virtualised list, a merged cell where its neighbours hold real
+ones, and a cell in the header row itself.
+
+**Four rounds, and the same shape every time: an empty answer taken as a settled one.** The
+tracker that knew of no headers, the sheet that answered none, the measurement that found
+none, and now the cell that had none. Each read perfectly sensibly on its own. The rule for
+this area is worth stating once: **"I know of none" is not "there are none"** — and the way to
+be sure is to ask something else, a bounded number of times.
+
+The three fixes made along the way stay. They were real, they are each tested, and the last of
+them — the source asking the cells even when the measurement found nothing — is what makes
+this recoverable rather than permanent if it ever happens again.
+
+Not yet read on hardware since.
 
 ### Following NVDA's own Document Formatting settings
 
@@ -2357,6 +2873,115 @@ is what made it. When the answer is no, the run is read again by the path
 
 What it does not catch is a row taken away at the far end of the band while the reader stands
 still; the live pass covers that, and any keystroke reads the band afresh.
+
+### Braille was not told what speech was told
+
+Reported while the Excel application module was being finished, and not about the flow at
+all: on a sheet whose header row the reader has marked, NVDA speaks "9/4/2026  A2  Date" and
+brailles "9/4/2026  A2". The header is fetched, it is spoken, and the display does not get
+it — so the reader who works in braille has to leave the cell and come back to find out what
+the column is called.
+
+It is not a policy anybody set. `braille.regions.properties.getPropertiesBraille` has a
+`columnHeaderText` and appends it exactly where speech does; it only ever looks for one
+beside a `columnNumber`, and `NVDAObjectRegion.update` sends neither. It sends
+`cellCoordsText` and stops. Speech reaches the same function by a different road — the
+property collection that `speakObject` makes — and that road carries the headers.
+
+So the module that already replaces NVDA's Excel module puts them back, on the region that
+draws a cell. `appModules.excel.HeadersInBraille.getBrailleRegions` is the seam: NVDA asks an
+object for its own braille regions before it builds any, and for a worksheet cell one region
+is the whole answer — a cell is not editable text, has no navigable text and carries no tree
+interceptor, so `getFocusRegions` makes exactly one `NVDAObjectRegion` for it anyway.
+
+Three decisions worth writing down.
+
+**The header goes through `appendText`, not into `rawText`.** `rawText` is what has already
+been handed to liblouis; changing it after `update` means translating the line twice, which
+is the mistake the cursor work in this same session had just finished undoing elsewhere.
+`appendText` is concatenated by the base *before* translating, so the header costs nothing —
+and it is put back afterwards, because a region is updated again whenever the cell changes
+underneath it and a header appended twice would show twice.
+
+**Braille does not go quiet on the second cell of a column.** Speech says a header only when
+the row or column changed, and it has to: it is a stream of announcements and a header
+repeated on every arrow key would be unbearable. Braille is a standing description of where
+the reader is. A header that vanished after the first cell would be a header the reader
+cannot read, since reading it is exactly what they do after the display settles.
+
+**It is a second overlay class, not a third method on the first.** `SpreadsheetCell` says
+"this cell can be read by coordinate, and here is the seam the flow uses". What a cell's
+column is called is a different claim and belongs to NVDA's own line of braille: a sheet too
+wide to lay out, or a cell this add-on would refuse, still deserves its header. So
+`HeadersInBraille` goes on any COM model cell, and `SpreadsheetCell` on the ones that can
+actually be read.
+
+Left where it is: the UI Automation model's cells. They are a different class on a different
+branch, the header commands the reader marks with are on the COM branch, and this is the same
+line the module already draws for reading.
+
+The stand-in region had to be corrected first, which is the recurring lesson in a new shape.
+It drew "name role" and no coordinates, so it could have agreed with a header put anywhere at
+all. It now puts the coordinates last, as `getPropertiesBraille` does, and concatenates the
+appended text rather than joining it — because those two facts are the whole question.
+
+### The arrow keys, inside a table
+
+Asked for directly: in a browse mode table, up and down should move by row, left and right by
+cell, home and end to the ends of the row — and the table must not trap the reader.
+
+The reading problem is real and old. A table is two dimensional and browse mode's reading
+keys are not, so following a column downwards means reading every cell of every row on the
+way, and the one thing a table exists for is the one thing the reading keys cannot do. NVDA
+answers it with a second set of commands, control+alt+arrows, which works and costs a four
+finger chord per cell. Other screen readers answer it with a mode, entered and left by hand.
+
+**The design is one sentence: it is not a mode, and it never traps.** Being in a table is
+already the state — the reader arrows in and the arrows read the table, arrows out and they
+read the page — and the thing that makes that safe is that a key is taken *only when there is
+a cell to move to*. Where there is not, nothing here happens at all and the key is NVDA's
+own: the down arrow on the last row leaves the table, the right arrow in the last cell walks
+on into the text after it. There is no edge announcement and no boundary case, because the
+fallback is not a fallback — it is the key doing what that key does.
+
+That inverts where the complexity usually goes. A navigation mode has to define what happens
+at every edge; this has to define only when it acts, and everything it does not act on is
+already defined by NVDA.
+
+`tableArrows` wraps six of `cursorManager.CursorManager`'s movement scripts — the ones browse
+mode binds the plain arrows, home and end to, and the only class in NVDA that defines them.
+Shift and control with the arrows are different scripts, so selecting and moving by word are
+untouched by construction rather than by a rule.
+
+**The movement is NVDA's and not this add-on's.** `_tableFindNewCell(raiseOnEdge=True)` is
+what control+alt+arrow moves with, and `raiseOnEdge` is precisely the difference this needed:
+the same arithmetic — merged cells, missing cells, the reader's layout table setting — with
+the edge raising instead of announcing itself. What is reported on arrival is what NVDA's own
+table movement reports, in the order it reports it: spoken before the selection is set,
+because setting the selection can move the focus and rebuild the document under the position
+just found. So a reader who uses both gets one behaviour, and this module holds no opinion
+about what a table is.
+
+Five refusals, each a case where moving by cell is the wrong answer rather than one where it
+would fail: a key with a selection under it, a key resuming say all, a backed up key queue
+(NVDA's own policy for both kinds of movement), focus mode, and a reader who has turned
+tables off in Document Formatting — the last because taking the arrow keys over is something
+this add-on does on its own account, which is exactly what that setting governs.
+
+Home and end carry one extra rule: if the first or last cell of the row is the cell the
+reader is already in, the key is not taken. A key that would move nothing is not a key worth
+keeping, and NVDA's own start of line is more use than nothing at all.
+
+**What the harness could not answer.** The document stand-in reproduces `_tableFindNewCell`'s
+*contract* — it raises at an edge and otherwise answers with a cell, a position and NVDA's
+selection record — and deliberately not its arithmetic, which is NVDA's to get right and is
+shared with a command that already works. Two tests are therefore written against the log
+rather than against behaviour: reaching the edge of a table must not be written down as a
+fault, and something that is not a table navigating document must be *recognised* rather than
+merely survived. Both would pass by accident against a broad catch, which is what the second
+one caught: with the check for the kind of document removed, asking a review cursor for its
+cells raised, the catch turned that into no movement, and the reader got the right key for
+the wrong reason.
 
 ## Open questions
 

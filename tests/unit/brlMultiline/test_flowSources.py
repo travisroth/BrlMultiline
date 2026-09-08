@@ -12,6 +12,7 @@ display and wrongly, that there was no more to read.
 import unittest
 
 from ._stubs import (
+	BRAILLE_CONFIG,
 	CursorManagerRegion,
 	FakeNavigatorObject,
 	FakeTextInfo,
@@ -19,6 +20,7 @@ from ._stubs import (
 	Region,
 	TextInfoRegion,
 	installStubs,
+	resetConfig,
 )
 
 installStubs()
@@ -416,6 +418,71 @@ class TestRegionFlavours(unittest.TestCase):
 		block.region.hidePreviousRegions = True
 		block.region.update()
 		self.assertFalse(block.region.hidePreviousRegions)
+
+
+class TestTheWordAtTheCursorIsExpandedOnceOnly(unittest.TestCase):
+	"""**NVDA's "expand to computer braille for the word at the cursor", honoured too well.**
+
+	It is applied in `braille.regions.base.Region.update`, which asks liblouis for computer
+	braille at the cursor whenever the setting is on and the region has one. Every block of a
+	flow reads a fixed position and answers that position when NVDA asks where the selection
+	is, so the cursor fell inside all of them — and a band of eight rows came out with eight
+	first words written out uncontracted, on a page the reader was only reading.
+
+	The cursor was being cleared, but after `update`, which is one liblouis call too late.
+	Reported from a Favorites page where every line began in computer braille.
+	"""
+
+	def setUp(self):
+		resetConfig()
+		self.addCleanup(resetConfig)
+		BRAILLE_CONFIG["expandAtCursor"] = True
+		self.addCleanup(BRAILLE_CONFIG.__setitem__, "expandAtCursor", True)
+
+	def _blocks(self, live=True):
+		"""The first three blocks of a document, as the band holds them."""
+		source = sourceOver(["first line", "second line", "third line"], caretIndex=0, live=live)
+		first = source.blockAtCursor().block
+		second = source.blockAfter(first.blockId).block
+		third = source.blockAfter(second.blockId).block
+		return [block.region for block in (first, second, third)]
+
+	def test_aBlockTheReaderIsNotInIsTranslatedWithNoCursorAtAll(self):
+		for region in self._blocks():
+			region.update()
+			self.assertFalse(
+				region.expandedAtCursor,
+				f"{region.rawText!r} was expanded to computer braille",
+			)
+
+	def test_butTheBlockTheyAreInStillIs(self):
+		"""The setting does what it says on the one row it is about."""
+		regions = self._blocks()
+		regions[1].isActive = True
+		regions[1].update()
+		self.assertTrue(regions[1].expandedAtCursor)
+
+	def test_andNothingIsExpandedWhenTheSettingIsOff(self):
+		BRAILLE_CONFIG["expandAtCursor"] = False
+		regions = self._blocks()
+		regions[0].isActive = True
+		regions[0].update()
+		self.assertFalse(regions[0].expandedAtCursor)
+
+	def test_andAViewerBandExpandsNothingEvenOnItsActiveBlock(self):
+		"""There is one cursor on the display and it belongs to the focus."""
+		regions = self._blocks(live=False)
+		regions[0].isActive = True
+		regions[0].update()
+		self.assertFalse(regions[0].expandedAtCursor)
+
+	def test_theCursorItselfIsRefusedRatherThanClearedAfterwards(self):
+		"""Which is the whole of the fix: cleared afterwards, the cells are already made."""
+		region = self._blocks()[0]
+		region.cursorPos = 0
+		self.assertIsNone(region.cursorPos)
+		region.isActive = True
+		self.assertEqual(region.cursorPos, 0)
 
 
 class TestControls(unittest.TestCase):

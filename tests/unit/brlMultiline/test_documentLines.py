@@ -11,7 +11,15 @@ no place in the document reading order at all.
 
 import unittest
 
-from ._stubs import CONFIG, FakeDocument, FakeHandler, Region, installStubs, resetConfig
+from ._stubs import (
+	BRAILLE_CONFIG,
+	CONFIG,
+	FakeDocument,
+	FakeHandler,
+	Region,
+	installStubs,
+	resetConfig,
+)
 
 installStubs()
 
@@ -213,6 +221,25 @@ class TestTextInfoPositionRegion(DocumentLinesTestCase):
 		region.nextLine()
 		region.previousLine()
 		self.assertFalse(hasattr(region, "panned"))
+
+	def test_theWordAtTheCursorIsExpandedOnTheCaretLineOnly(self):
+		"""**NVDA's "expand to computer braille for the word at the cursor" is about one
+		line.** It is applied wherever a region has a cursor, and a region reading a line of
+		its own has one by construction — so every segment of this view came out with its
+		first word written out uncontracted, on lines the reader is only looking at. See
+		`pinnedRegions.CursorOnlyWhereTheReaderIs`."""
+		BRAILLE_CONFIG["expandAtCursor"] = True
+		self.addCleanup(BRAILLE_CONFIG.__setitem__, "expandAtCursor", True)
+		theirs = documentLines.TextInfoPositionRegion(FakeDocument(LINES, 5), lineOffset=0)
+		theirs.update()
+		self.assertTrue(theirs.expandedAtCursor)
+		for offset in (-2, -1, 1, 2):
+			region = documentLines.TextInfoPositionRegion(FakeDocument(LINES, 5), lineOffset=offset)
+			region.update()
+			self.assertFalse(
+				region.expandedAtCursor,
+				f"the line {offset} away was expanded to computer braille",
+			)
 
 
 class TestDocumentContext(DocumentLinesTestCase):

@@ -455,6 +455,129 @@ class TestTheRowsOwnCursor(unittest.TestCase):
 		self.assertIsNone(table.brailleCursorPos)
 
 
+class TestAnEmptyCellIsStillAPlace(unittest.TestCase):
+	"""A cell with nothing in it draws nothing, and so left no position anywhere on the row.
+
+	A position is what the cursor is found by and what a routing key is turned back into, so a
+	reader standing in an empty cell had no cursor at all — no way to feel which column they
+	were in — and no routing key would take them into one. Reported from an Excel worksheet on
+	the first blank row under the data, where every cell is empty: the whole row was
+	unreachable and unmarked, and the reader was left with speech.
+
+	**The column's whole width, which was the second half of the same report.** Marking the
+	column's first band cell alone gave the cursor somewhere to sit and still left routing
+	broken: on a blank row nothing is drawn, so there is no telling which single cell of
+	thirty-two is the live one, and every press either side of it reached nothing. The reader
+	aims by the pinned header — press under the heading you want — and that only works if the
+	whole of the column answers.
+	"""
+
+	def _drawn(self, *values):
+		return renderer().render(block(row(*values)))
+
+	def _startOf(self, column: int) -> int:
+		""":return: the band cell the plan puts one column at."""
+		return next(
+			place.offset for place in watchlistPlan().placements() if place.column.index == column
+		)
+
+	def _placed(self, column: int):
+		""":return: where the plan puts one column, as (start, width)."""
+		place = next(
+			place for place in watchlistPlan().placements() if place.column.index == column
+		)
+		return place.offset, place.column.width
+
+	def test_theColumnOfAnEmptyCellIsMarkedAtItsOwnStart(self):
+		drawn = self._drawn("AAPL", "", "+1.25", "+0.7%")
+		self.assertEqual(positionParts(drawn.positions[0][self._startOf(2)]), (2, 0))
+
+	def test_andTheCellItselfIsBlank(self):
+		"""It says where it is, it does not draw anything."""
+		drawn = self._drawn("AAPL", "", "+1.25", "+0.7%")
+		self.assertEqual(drawn.rows[0][self._startOf(2)], 0)
+
+	def test_everyColumnOfAWhollyEmptyRowIsThere(self):
+		"""The blank row under a sheet's data, which is the reported case."""
+		drawn = self._drawn("", "", "", "")
+		found = {
+			positionParts(position)[0]
+			for position in drawn.positions[0]
+			if position != NO_POSITION
+		}
+		self.assertEqual(sorted(found), [1, 2, 3, 4])
+
+	def test_andItAnswersAcrossTheWholeOfItsColumn(self):
+		"""Every band cell the column occupies, so a press anywhere over it arrives."""
+		drawn = self._drawn("AAPL", "", "+1.25", "+0.7%")
+		start, width = self._placed(2)
+		self.assertEqual(
+			[positionParts(where) for where in drawn.positions[0][start : start + width]],
+			[(2, 0)] * width,
+		)
+
+	def test_andSaysNothingInTheSeparatorBesideIt(self):
+		"""The gap between two columns is not either of them, and a press there does nothing."""
+		drawn = self._drawn("AAPL", "", "+1.25", "+0.7%")
+		start, width = self._placed(2)
+		self.assertEqual(drawn.positions[0][start + width], NO_POSITION)
+
+	def test_soAPressUnderAHeadingReachesTheCellBeneathIt(self):
+		"""**How the reader aims**, and the whole of why one band cell was not enough: they
+		feel the pinned header and press under the heading they want. Every cell the heading
+		is written across must reach that heading's own column on the blank row below it."""
+		heading = renderer().renderPinned(block(row(*WATCHLIST)))
+		empty = self._drawn("", "", "", "")
+		written = [at for at, where in enumerate(heading.positions[0]) if where != NO_POSITION]
+		self.assertEqual(len(written), len("SymbolLastChange%Chg"))
+		for at in written:
+			self.assertNotEqual(empty.positions[0][at], NO_POSITION, f"nothing at band cell {at}")
+			self.assertEqual(
+				positionParts(empty.positions[0][at])[0],
+				positionParts(heading.positions[0][at])[0],
+				f"band cell {at} is under a different column from the heading on it",
+			)
+
+	def test_soTheCursorHasSomewhereToSit(self):
+		table = TableRow(
+			[RowCell(index=1, region=Region("AAPL")), RowCell(index=2, region=Region(""))],
+			caretColumn=lambda: 2,
+		)
+		drawn = renderer().render(block(table))
+		self.assertIn(table.brailleCursorPos, drawn.positions[0])
+
+	def test_andARoutingKeyOverItReachesThatCell(self):
+		routed = []
+		empty = Region("")
+		empty.routeTo = lambda offset: routed.append(offset)
+		table = TableRow(
+			[RowCell(index=1, region=Region("AAPL")), RowCell(index=2, region=empty)],
+		)
+		drawn = renderer().render(block(table))
+		table.routeTo(drawn.positions[0][self._startOf(2)])
+		self.assertEqual(routed, [0])
+
+	def test_aColumnTheRowHasNotGotIsStillNotThere(self):
+		"""An empty cell and a missing cell are different things: a merged cell leaves no
+		cell at that coordinate at all, and there is nothing to route into or stand in."""
+		table = TableRow([RowCell(index=1, region=Region("AAPL"))])
+		drawn = renderer().render(block(table))
+		found = {
+			positionParts(position)[0]
+			for position in drawn.positions[0]
+			if position != NO_POSITION
+		}
+		self.assertEqual(found, {1})
+
+	def test_theReportStillSaysWhatTheRowDraws(self):
+		"""Every column marking a position must not turn a row with one value in it into a
+		row of separators."""
+		table = row("AAPL", "", "", "")
+		drawn = renderer().render(block(table))
+		positions = [position for position in drawn.positions[0] if position != NO_POSITION]
+		self.assertEqual(table.textForPositions(positions), "AAPL")
+
+
 class TestRoutingIntoAColumn(unittest.TestCase):
 	"""A finger lands on the band and the answer has to be a cell of the table."""
 

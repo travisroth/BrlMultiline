@@ -27,10 +27,11 @@ from ._stubs import (
 installStubs()
 
 from brlMultiline import flowTableSource  # noqa: E402
-from brlMultiline.flow import BlockId, ResultKind  # noqa: E402
+from brlMultiline.flow import BlockId, CallCancelled, ResultKind  # noqa: E402
 from brlMultiline.flowTable import rowCellsOf  # noqa: E402
 from brlMultiline.flowTableSource import (  # noqa: E402
 	TableFlowSource,
+	cellRegion,
 	measure,
 	sameTable,
 	tableAt,
@@ -259,6 +260,36 @@ class TestMeasuringTheColumns(unittest.TestCase):
 		measure(tableAt(FakeFocus(document)), sample=8)
 		self.assertLessEqual(len({row for row, _column in document.reads}), 8)
 
+	def test_theSameTableMeasuresTheSameFromEitherEndOfIt(self):
+		"""**The reader's question: why does the arithmetic differ when the data has not?**
+
+		The sample reads forward from the caret, so a reader standing on the blank row under
+		a nine row worksheet sampled two rows — the header, and their own empty one. Every
+		column was then sized to its heading alone and every value in the table wrapped, while
+		the same sheet laid out from the top came out right.
+		"""
+		# A short last row, so that measuring from it alone is visibly not measuring the
+		# table — which is exactly what the reader's blank row under the data was.
+		rows = [["Symbol", "Last"]] + [[f"SYMBOL{n}", f"{n}000.00"] for n in range(8)] + [["Z", "1"]]
+		fromTheTop = measure(tableAt(FakeFocus(FakeTableDocument(rows, row=1))))
+		fromTheEnd = measure(tableAt(FakeFocus(FakeTableDocument(rows, row=len(rows)))))
+		self.assertEqual(
+			[(item.width, item.typicalWidth) for item in fromTheEnd],
+			[(item.width, item.typicalWidth) for item in fromTheTop],
+		)
+
+	def test_soTheRowsBehindAreReadWhenThereAreNoneAhead(self):
+		"""Backwards from the caret, and no more rows than reading forward would have."""
+		rows = [["Symbol", "Last"]] + [[f"SYM{n}", f"{n}.00"] for n in range(20)]
+		document = FakeTableDocument(rows, row=len(rows))
+		document.reads.clear()
+		measure(tableAt(FakeFocus(document)), sample=8)
+		read = {row for row, _column in document.reads}
+		# The sample, and the header row that is always read beside it.
+		self.assertLessEqual(len(read), 9)
+		self.assertIn(len(rows), read)
+		self.assertIn(len(rows) - 1, read)
+
 	def test_aColumnNothingWasFoundInIsNotAColumn(self):
 		"""Given a width it became a phantom: three cells of blank between two real columns,
 		on every row, for something the table is not showing."""
@@ -321,6 +352,193 @@ class TestMeasuringTheColumns(unittest.TestCase):
 		rows[1][1] = None
 		measured = measure(tableAt(FakeFocus(FakeTableDocument(rows, row=1))))
 		self.assertEqual(measured[1].width, len("402.15"))
+
+
+class TestAReadThatWasCancelledIsNotAnEmptyCell(unittest.TestCase):
+	"""When NVDA's watchdog decides the core has frozen it cancels every COM call the main
+	thread makes, and NVDA turns that into `CallCancelled` — not a `COMError`, not an
+	`OSError`.
+
+	This module used to catch `LookupError` and `OSError` as "there is no cell at this
+	coordinate", which is what a merged cell looks like, and everything else as a cell that
+	could not be read. A cancellation fell into the second, was logged at debug level and
+	became an empty column; on an Excel sheet all twenty-one columns went that way at once,
+	the plan came out empty, and the reader was told the table would not lay out in columns.
+	"""
+
+	def _cancelling(self):
+		document = watchlist()
+		real = document._getTableCellAt
+
+		def cancelled(*args, **kwargs):
+			raise CallCancelled("COM call cancelled")
+
+		document._getTableCellAt = cancelled
+		self.addCleanup(setattr, document, "_getTableCellAt", real)
+		return tableAt(FakeFocus(document))
+
+	def test_theCancellationGoesUpToWhoeverAskedForTheReading(self):
+		handle = self._cancelling()
+		with self.assertRaises(CallCancelled):
+			cellRegion(handle, 2, 1)
+
+	def test_andOutOfTheMeasurementWithIt(self):
+		"""Which is the one place that can tell the difference between a table with nothing
+		in it and a table nothing could be got out of."""
+		handle = self._cancelling()
+		with self.assertRaises(CallCancelled):
+			measure(handle)
+
+	def test_aCellTheTableHasNotGotIsStillJustAHole(self):
+		"""The merged cell case, which is what the broad catch was there for."""
+		handle = tableAt(FakeFocus(FakeTableDocument([["one", None], ["two", "three"]], row=1)))
+		self.assertIsNone(cellRegion(handle, 1, 2))
+		self.assertIsNotNone(cellRegion(handle, 2, 2))
+
+
+class TestACancelledReadFromAnyStageSaysSo(unittest.TestCase):
+	"""**Not "there is no table here".** When NVDA's watchdog decides the core has frozen it
+	cancels every COM call the main thread makes, and every stage of building a table flow is
+	one: recognising it, asking a worksheet how far it goes, finding what its columns are
+	called, reading its first row.
+
+	A review found each of those swallowed by a broad catch somewhere below and reported as
+	something else — "not a table", "no headers", a row that could not be read. They are all
+	the same thing, the core was busy, and the reader can act on it: ask again in a moment.
+	"""
+
+	def _cancelling(self, name):
+		"""Make one stage of the reading raise what a cancelled COM call raises."""
+		real = getattr(flowTableSource, name)
+
+		def stop(*args, **kwargs):
+			raise CallCancelled("NVDA stopped waiting")
+
+		setattr(flowTableSource, name, stop)
+		self.addCleanup(setattr, flowTableSource, name, real)
+
+	def test_recognisingTheTableIsNotSwallowed(self):
+		document = FakeTableDocument(WATCHLIST, row=2, col=1)
+		obj = FakeNavigatorObject("a page", treeInterceptor=document)
+		document._getTableCellCoords = _raisesCancelled
+		with self.assertRaises(CallCancelled):
+			flowTableSource.tableAt(obj)
+
+	def test_namingTheTableIsNotSwallowedEither(self):
+		"""A table named from reads that never happened is a table matched against somebody
+		else's saved layout — or against nothing, so the reader's own is not found."""
+		from brlMultiline import flowTableIdentity
+
+		document = FakeTableDocument(WATCHLIST, row=2, col=1)
+		document.whereIsIt = _raisesCancelled
+		handle = flowTableSource.tableAt(
+			FakeNavigatorObject("a page", treeInterceptor=document),
+		)
+		with self.assertRaises(CallCancelled):
+			flowTableIdentity.whereOf(handle)
+
+	def test_andTheBuildSaysTheTableCouldNotBeRead(self):
+		from brlMultiline import flowBuild
+
+		document = FakeTableDocument(WATCHLIST, row=2, col=1)
+		obj = FakeNavigatorObject("a page", treeInterceptor=document)
+		self._cancelling("measure")
+		notes = []
+		self.assertIsNone(flowBuild.buildTableController(obj=obj, notes=notes))
+		self.assertTrue(any(isinstance(note, flowBuild.Unreadable) for note in notes))
+
+	def test_andSoDoesOneFromAnyOtherStage(self):
+		"""The catch is around the whole of it rather than around the measuring alone."""
+		from brlMultiline import flowBuild
+
+		document = FakeTableDocument(WATCHLIST, row=2, col=1)
+		obj = FakeNavigatorObject("a page", treeInterceptor=document)
+		self._cancelling("declaredHeaders")
+		notes = []
+		self.assertIsNone(flowBuild.buildTableController(obj=obj, notes=notes))
+		self.assertTrue(any(isinstance(note, flowBuild.Unreadable) for note in notes))
+
+
+def _raisesCancelled(*args, **kwargs):
+	raise CallCancelled("NVDA stopped waiting")
+
+
+class TestACellThatCarriesItsOwnHeader(unittest.TestCase):
+	"""An object table's cell holds its column's name as a string and then encodes it into a
+	control field so that it looks like a document's cell to everything downstream.
+
+	Reading it back out of that field is a round trip whose only purpose is uniformity, and a
+	round trip is somewhere an answer can be lost: NVDA's `FieldCommand` and `ControlField`
+	are particular about what they are made of, and the decoding is guarded so that a failure
+	comes back as "no header" rather than as an error. Where the answer is in hand, it is
+	taken.
+	"""
+
+	def _cell(self, header, fields=None):
+		from brlMultiline.flowObjectTable import ObjectCellInfo
+
+		cell = ObjectCellInfo("AAPL", header=header)
+		if fields is not None:
+			cell.getTextWithFields = fields
+		return cell
+
+	def test_theHeaderIsTakenFromTheCell(self):
+		self.assertEqual(flowTableSource.declaredHeader(self._cell("Symbol")), "Symbol")
+
+	def test_andNotThroughTheFieldItEncodesOneInto(self):
+		def explode(formatConfig=None):
+			raise RuntimeError("gone")
+
+		self.assertEqual(
+			flowTableSource.declaredHeader(self._cell("Symbol", fields=explode)),
+			"Symbol",
+		)
+
+	def test_aCellThatNamesNothingStillNamesNothing(self):
+		self.assertEqual(flowTableSource.declaredHeader(self._cell("")), "")
+
+	def test_andItIsWrittenAsOneLine(self):
+		"""Two header cells above one column come back separated, and a pinned row is one row."""
+		self.assertEqual(flowTableSource.declaredHeader(self._cell("Last\nprice")), "Last price")
+
+	def test_aDocumentsCellIsStillReadThroughItsFields(self):
+		"""Which is where a browse mode document puts it, and the only place it is."""
+		document = FakeTableDocument([["a", "b"], ["c", "d"]], columnHeaders={1: "Symbol"})
+		handle = tableAt(FakeFocus(document))
+		self.assertEqual(flowTableSource.declaredHeader(cellRegion(handle, 2, 1).info), "Symbol")
+
+	def test_andARowHeaderIsStillAskedOfTheFields(self):
+		"""A cell of an object table answers for its column and not for its row."""
+		self.assertEqual(flowTableSource.declaredHeader(self._cell("Symbol"), axis="row"), "")
+
+
+class TestTheCheapSeamsAreAskedOfOurOwnStandInsOnly(unittest.TestCase):
+	"""The two optional ways a table can be measured more cheaply are looked up by name, and
+	the other kind of table this reads is a browse mode document — a foreign object where a
+	name means whatever the application that wrote it decided it means.
+
+	Which is not hypothetical: the stand-in these tests use holds a table's column headers in
+	an attribute called exactly `columnHeaders`, and calling that as a method would have
+	written a debug warning on every measurement of every web page.
+	"""
+
+	def test_aBrowseModeDocumentIsNotAskedForARowAtOnce(self):
+		handle = tableAt(FakeFocus(watchlist()))
+		self.assertIsNone(flowTableSource.rowTextOf(handle, 1, 1, 3))
+
+	def test_norForItsColumnsNamesEvenWhereItHasThatVeryAttribute(self):
+		document = FakeTableDocument([["a", "b"]], columnHeaders={1: "Symbol"})
+		handle = tableAt(FakeFocus(document))
+		self.assertIsInstance(document.columnHeaders, dict)
+		self.assertIsNone(flowTableSource.columnHeadersOf(handle, 1, 2))
+
+	def test_andItsHeadersStillReachTheMeasurement(self):
+		"""Through the cells, where a browse mode document declares them. Unchanged, and
+		checked here because the gate above is what could have stopped it."""
+		document = FakeTableDocument([["a", "b"], ["c", "d"]], columnHeaders={1: "Symbol"})
+		measured = measure(tableAt(FakeFocus(document)))
+		self.assertEqual(measured[0].label, "Symbol")
+		self.assertTrue(measured[0].declared)
 
 
 class TestAColumnDrawnWithoutCapitalSigns(unittest.TestCase):
@@ -612,6 +830,24 @@ class TestPinningTheDeclaredHeader(unittest.TestCase):
 		handle = flowTableSource.tableAt(FakeNavigatorObject("a page", treeInterceptor=document))
 		return document, flowTableSource.TableFlowSource(handle, columns, pinHeaders=pinHeaders)
 
+	def test_aMeasurementThatFoundNoneIsNotTheLastWord(self):
+		"""The Excel case in one line. The measurement handed over nothing, and every cell of
+		the table can name its column perfectly well; a source that took the empty hand as the
+		answer never built a header row at all, and the band gave that row back to the table
+		for as long as the layout lived."""
+		document = FakeTableDocument(
+			self.ROWS,
+			row=2,
+			col=1,
+			columnHeaders={1: "Ticker", 2: "Price"},
+		)
+		handle = flowTableSource.tableAt(FakeNavigatorObject("a page", treeInterceptor=document))
+		source = flowTableSource.TableFlowSource(handle, (1, 2), declared={}, pinHeaders=True)
+		block = source.headerBlock()
+		self.assertIsNotNone(block)
+		self.assertIn("Ticker", block.region.rawText)
+		self.assertIn("Price", block.region.rawText)
+
 	def test_theDeclaredHeaderIsWhatIsPinned(self):
 		_document, source = self.source({1: "Ticker", 2: "Price"})
 		block = source.headerBlock()
@@ -631,6 +867,81 @@ class TestPinningTheDeclaredHeader(unittest.TestCase):
 		block = source.headerBlock()
 		self.assertIn("Sym", block.region.rawText)
 		self.assertEqual(source.firstRow, flowTableSource.HEADER_ROW + 1)
+
+	def test_aDeclaredHeaderThatIsRowOneIsNotDrawnTwice(self):
+		"""**A worksheet with a marked header row**, which is what a reader marks: the row the
+		table declares its headings from is row one itself, so the pinned row and the first
+		row of the flow were the same row. It showed as a doubled heading the moment they
+		arrowed up onto row one and the flow put that row on the band beside the copy above
+		it, and it stayed there.
+		"""
+		document = FakeTableDocument(self.ROWS, row=1, col=1, columnHeaders={1: "Sym", 2: "Last"})
+		handle = flowTableSource.tableAt(FakeNavigatorObject("a page", treeInterceptor=document))
+		source = flowTableSource.TableFlowSource(handle, (1, 2), pinHeaders=True)
+		self.assertTrue(source.pinnedIsRowOne)
+		self.assertEqual(source.firstRow, flowTableSource.HEADER_ROW + 1)
+		self.assertIn("Sym", source.headerBlock().region.rawText)
+
+	def test_andTheReaderStandingOnItStillHasACursor(self):
+		"""Once it is drawn above the band and no longer in it, the pinned row is the only
+		place their cursor can be."""
+		document = FakeTableDocument(self.ROWS, row=1, col=2, columnHeaders={1: "Sym", 2: "Last"})
+		handle = flowTableSource.tableAt(FakeNavigatorObject("a page", treeInterceptor=document))
+		source = flowTableSource.TableFlowSource(handle, (1, 2), pinHeaders=True)
+		self.assertIsNotNone(source.headerBlock().region.brailleCursorPos)
+
+	def test_butOneDeclaredElsewhereClaimsNoCursorAndKeepsRowOne(self):
+		"""Row one is data then, and the reader standing on it is standing on the band."""
+		_document, source = self.source({1: "Ticker", 2: "Price"})
+		self.assertFalse(source.pinnedIsRowOne)
+		self.assertEqual(source.firstRow, flowTableSource.HEADER_ROW)
+		self.assertIsNone(source.headerBlock().region.brailleCursorPos)
+
+	def test_aColumnWithDataAndNoHeadingKeepsRowOne(self):
+		"""**A review found a row of the reader's data being dropped.** Two columns matching
+		their declared headings was enough to call row one the header row, and the third
+		column of that row held a value and declared no heading of its own — so the flow began
+		at row two and "Important" was gone, with nothing saying so.
+
+		A row is given up only when there is nothing in it but the headings themselves."""
+		document = FakeTableDocument(
+			[["Sym", "Last", "Important"], ["AAPL", "182.50", ""], ["F", "9.10", ""]],
+			row=2,
+			col=1,
+			columnHeaders={1: "Sym", 2: "Last"},
+		)
+		handle = flowTableSource.tableAt(FakeNavigatorObject("a page", treeInterceptor=document))
+		source = flowTableSource.TableFlowSource(handle, (1, 2, 3), pinHeaders=True)
+		self.assertFalse(source.pinnedIsRowOne)
+		self.assertEqual(source.firstRow, flowTableSource.HEADER_ROW)
+		above = source.blockBefore(BlockId(generation=0, bookmark=2, unit="row"))
+		self.assertIn("Important", above.block.region.rawText)
+
+	def test_oneColumnDisagreeingIsEnoughToKeepRowOne(self):
+		"""Dropping a row of data is a lost row; drawing a heading twice is a wasted one. The
+		read that cannot decide keeps the row."""
+		document = FakeTableDocument(self.ROWS, row=2, col=1, columnHeaders={1: "Sym", 2: "Price"})
+		handle = flowTableSource.tableAt(FakeNavigatorObject("a page", treeInterceptor=document))
+		source = flowTableSource.TableFlowSource(handle, (1, 2), pinHeaders=True)
+		self.assertFalse(source.pinnedIsRowOne)
+		self.assertEqual(source.firstRow, flowTableSource.HEADER_ROW)
+
+	def test_andDecidingItReadsRowOneAndNothingElse(self):
+		"""One row, and only the columns on the page. On a sheet that is a single call.
+
+		Built the way the band builds it, with the measurement's headers handed over, so what
+		is read here is the comparison and nothing else.
+		"""
+		document = FakeTableDocument(self.ROWS, row=2, col=1, columnHeaders={1: "Sym", 2: "Last"})
+		handle = flowTableSource.tableAt(FakeNavigatorObject("a page", treeInterceptor=document))
+		document.reads.clear()
+		flowTableSource.TableFlowSource(
+			handle,
+			(1, 2),
+			declared={1: "Sym", 2: "Last"},
+			pinHeaders=True,
+		)
+		self.assertEqual(document.reads, [(flowTableSource.HEADER_ROW, 1), (flowTableSource.HEADER_ROW, 2)])
 
 	def test_nothingIsPinnedWhenNothingIsAsking(self):
 		"""A source with no pinned row does not look the headers up at all, and serves every
@@ -658,13 +969,30 @@ class TestPinningTheDeclaredHeader(unittest.TestCase):
 		self.assertIn("Price", source.headerBlock().region.rawText)
 		self.assertEqual([column for _row, column in document.reads], [2])
 
-	def test_aTableDeclaringNothingLooksNothingUpOnAPageTurn(self):
+	def test_aTableDeclaringNothingIsStillAskedOnce(self):
+		"""**A measurement that found nothing does not settle it.** This used to look nothing
+		up at all once it started with no headers in hand, on the grounds that a table which
+		declares none has nothing to look up — which made one empty answer permanent. An Excel
+		worksheet whose every cell could name its column came out of the measurement with
+		none, and no header row was ever built for it.
+
+		So the columns are asked, and `_headersAsked` is what keeps it to once each."""
 		document, source = self.source(columns=(1,))
 		source.headerBlock()
 		document.reads.clear()
 		source.setColumns((2,))
 		source.headerBlock()
-		# Row one, read as the fallback header. Nothing was looked up for the column itself.
+		self.assertIn(2, [column for _row, column in document.reads])
+
+	def test_andNotAskedAgainAfterThat(self):
+		"""Which is what stops a question already answered "nothing" costing a search of the
+		document on every redraw."""
+		document, source = self.source(columns=(1,))
+		source.setColumns((2,))
+		source.headerBlock()
+		document.reads.clear()
+		source.headerBlock()
+		# Row one, read as the fallback header. Nothing was looked up for the column again.
 		self.assertEqual(document.reads, [(1, 2)])
 
 

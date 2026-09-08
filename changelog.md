@@ -124,6 +124,21 @@ Added:
   nothing. What holds an object now answers where its own role does not. Noticed in this
   add-on's own table designer, and it applies to File Explorer's checkbox mode too.
 
+- **The arrow keys read a browse mode table by cell.** Inside a table, up and down move a
+  row and keep the column, left and right move a cell and keep the row, and home and end go
+  to the first and last cell of the row — the way the same keys read a spreadsheet, and
+  without a mode to turn on or a chord to hold down. It happens wherever the cursor is in a
+  table, whether or not the table is laid out in columns on the display.
+
+  **Nothing is trapped.** A key is only taken when there is a cell to move to: the down
+  arrow on the last row leaves the table, the up arrow on the first row leaves it upwards,
+  and the right arrow in the last cell of a row walks on into what follows, all exactly as
+  they do on any other page. There is no edge message and nothing to switch off to get out.
+  Shift and control with the arrows are untouched, so selecting text and moving by word
+  inside a long cell work as they always did. The movement, and what is announced on
+  arrival, are NVDA's own — the same ones control+alt+arrow uses — and the arrows are left
+  alone entirely if you have turned tables off in NVDA's Document Formatting settings.
+
 - **An Excel worksheet can be read in columns**, like a web page's table or File Explorer's
   Details view. A sheet is read by coordinate rather than by walking rows, its extent comes
   from Excel's used range, and its row and column numbers are Excel's own. Headers are the
@@ -132,12 +147,159 @@ Added:
   "use UI Automation to access Microsoft Excel spreadsheet controls when available" turned on,
   a cell is left to NVDA's ordinary reading instead.
 
+- **A cell's header is now shown in braille as well as spoken.** Land on a cell in a sheet
+  whose header row you have marked and NVDA says "9/4/2026  A2  Date"; in braille the same
+  cell was "9/4/2026  A2", and the only way to find out what the column was called was to
+  leave the cell and come back. The header now follows the coordinates on the display, where
+  speech puts it, and it obeys the same "report table headers" setting speech obeys — rows,
+  columns, both or off. Unlike speech it does not go quiet on the next cell of the column:
+  braille says where you are standing, not what has just changed. This is NVDA's ordinary one
+  line reading of a cell, not the flow, so it applies whether or not the sheet is laid out in
+  columns.
+
+- **An error NVDA logs when you close a workbook no longer arrives under this add-on's name.**
+  Close a workbook with control+W and NVDA is still holding the cell that had the focus while
+  it reports the keystroke — but the workbook is gone, so asking Excel about that cell fails
+  and NVDA writes a traceback into the log. The traceback is made entirely of NVDA's own
+  frames, and the add-on is not doing anything at that moment; the object named at the top of
+  it, though, is one NVDA composed out of this add-on's classes, so it reads exactly like a
+  crash in the add-on. A cell whose workbook has closed now says it has nothing to report,
+  which is an answer NVDA's own code already expects from it, and the log stays clean.
+
 - The Excel support is an **application module**, so it is loaded only while Excel is running
   and nothing about Excel is asked of any other application. It extends NVDA's own Excel
   module rather than replacing it, so everything NVDA does there goes on happening. A sheet
   whose used range is enormous — Excel counts formatting as use, and never forgets it — is
   left to NVDA's ordinary reading rather than measured, since measuring it would stop the
   display for as long as it took.
+
+- An Excel worksheet is **measured a row at a time rather than a cell at a time**, which is
+  the difference between a layout arriving and NVDA stopping while it is worked out. Twenty
+  one columns of a small sheet took over ten seconds and then failed; the same reading is now
+  one request to Excel per row. What a column is called is asked once for the column instead
+  of once for every cell of it, and on a sheet where you have marked no headers it is not
+  asked of any cell at all.
+
+- When nothing can be read out of a table, the command **says that** rather than saying it
+  could not be laid out in columns. They are different things: one is about the display being
+  too narrow for the columns, the other is often a moment that has passed and is worth asking
+  for again. Reads that NVDA cancels because it has stopped waiting on an application are no
+  longer mistaken for empty cells, which is what turned a slow Excel sheet into a sheet that
+  looked blank.
+
+- The log's account of a worksheet that would not lay out now says what each of its columns
+  holds and where each heading came from, as it already did for a list. It used to say only
+  that there was no row in hand. It also carries the steps the layout was made with — what was
+  measured, which columns name themselves, whether a row was spent on a header — which used to
+  be written down only when a layout failed outright.
+
+- **A table laid out from its header row keeps its header row.** Asking for the columns while
+  the cursor was on the headings themselves left the display with no heading row at all: a
+  header cell has no header above it, and its answer was taken for the whole column. On a
+  spreadsheet that is where the cursor usually is when you ask.
+
+- **"Expand to computer braille for the word at the cursor" applies to the row you are on,
+  and to no other.** NVDA's setting is applied wherever a braille region has a cursor, and
+  every row of a flow reads a place of its own — so the band asked for computer braille on
+  every one of them, and each line came out with its first word written out uncontracted. The
+  cursor was being taken away afterwards, which is one translation too late. Every row but
+  yours is now in whatever table and contraction you chose. The same fix applies to the
+  document lines shown around the caret in other segments, where only the caret's own line
+  expands.
+
+- **"No column repeated" is one of the answers in the table designer.** Whether a column is
+  drawn again at the left of every page was a setting for all your tables at once, while which
+  column it is was decided per table — so a table whose rows should start at the left meant
+  turning the repeat off everywhere. It is now the same question, asked once, and answered for
+  the table in front of you: the first column shown, none at all, or one you name. Saving the
+  arrangement keeps it with that table, and every other table goes on following the setting.
+
+- **A worksheet is read a row at a time everywhere, not only while its columns are being
+  measured.** The rows on the display were still built one cell at a time — a coordinate
+  lookup and an object built with its overlay classes chosen, per column, per row — and the
+  refresh did it again. The cell object behind a value is now fetched only when a routing key
+  lands on that one cell.
+
+- **What the columns of a sheet are called is asked once of the sheet** rather than of every
+  cell. On a sheet nobody has marked up it costs no reads at all, where it used to build up to
+  three cell objects per column before a row you can feel had been read; on a marked one it is
+  a single read of the heading row. The record of what you marked is built afresh each time
+  rather than read from the one NVDA is keeping, so "this sheet has no headings" is only said
+  after a search that reached the end — and a sheet whose record NVDA left half built is mended
+  rather than worked around.
+
+- **The column you are standing in is drawn even when it is empty.** On a spreadsheet the
+  column beside the data is where you go to write the next one, and an empty column was left
+  out of the layout — so your cursor went with it, there was nothing to route into, and a blank
+  sheet could not be laid out at all. A list is unchanged: a column of icons that reads as
+  nothing still costs no cells.
+
+- **A worksheet that will not say how far it goes is left to NVDA** rather than presented as a
+  table one cell bigger than wherever you are standing.
+
+- **A batch read that came back short is read again cell by cell.** Excel's own fetch stops at
+  the first cell it cannot reach, and the rest used to be filled in with blanks — so columns
+  with values in them measured as columns holding nothing.
+
+- Merged cells read as their content under every column they span, rather than as one value
+  and then blanks.
+
+- Rows appearing in a sheet while you sit still — a formula filling down, a query refreshing —
+  bring the layout up to date. The check compared columns and never rows, so the new rows could
+  not be panned into at all.
+
+- **A layout you save for one workbook stays with it.** Every worksheet of every workbook
+  looked alike to the part that remembers layouts, so two workbooks with the same headings were
+  each other's saved layout. A sheet is now known by its workbook and its own name, written
+  down as a digest as every other identity is.
+
+- When NVDA stops waiting on Excel part way through laying out a table, the command says the
+  table could not be *read* — whichever step it happened in, including recognising the sheet
+  and naming it, which happen before anything is built. It used to come out as "you are not in
+  a table", "no headings", or a row that could not be read, depending on where it landed.
+
+- Arrowing about the empty part of a sheet no longer rebuilds the layout on every keypress. A
+  sheet reaches at least as far as the cell you are in, so that the row you are standing in is
+  part of the table; what is watched for a table that has actually grown is how far it is
+  written in, which only moves when the sheet does.
+
+- **A pinned header row is not also drawn in the table.** Where a sheet's headings are its
+  own first row — which is what you mark when you mark a header row — the row held above the
+  band and the first row of the flow were the same row, and both were drawn: a doubled heading
+  that appeared as soon as you arrowed up onto row one, and stayed. Row one is now served from
+  the pinned row alone, and standing on it puts your cursor there. Where a table declares its
+  headings somewhere else — two rows down, in a column, anywhere you cannot arrow to — row one
+  is data and is still read as data.
+
+- **A table measures the same from either end of it.** The widths were decided from a
+  bandful of rows read forward from wherever the cursor was, so asking for the columns from
+  the blank row under the data measured two rows — the heading row, and your own empty one.
+  Every column came out sized to its heading, every value wrapped, and the same sheet laid
+  out from the top came out right. When there is not a bandful ahead the rows behind are read
+  instead, which costs nothing extra.
+
+- **An empty cell is somewhere you can be, and somewhere you can route to.** A cell with
+  nothing in it draws nothing, and so had no place on the display at all: standing in one gave
+  no cursor, and no routing key would take you into one. On the blank row under a sheet's data
+  every cell is empty, so the whole row was unreachable and you were left with speech. Each
+  column now answers across its whole width on such a row — press under the heading you want
+  and you arrive in that column, ready to type.
+
+- **A table's columns scroll one at a time** rather than turning a page at a time. Moving to
+  the next column along brings that column on at the right and takes one off at the left,
+  instead of replacing every column on the display at once. The command that moves across a
+  table still moves a whole display's worth, from wherever the scrolling has left you, and
+  what is reported is which columns are showing — "columns 6 to 9 of 21" — rather than a page
+  number, since the display can now sit between pages.
+
+- The display follows the caret across the columns in a spreadsheet or a list, as it already
+  did on a web page. Moving to a column that is not showing brings it on.
+
+- **A row that wraps onto more than one line arrives whole.** Scrolling down onto a record two
+  lines tall used to show its first line and leave the second off the display, so the values
+  in the columns that had wrapped were the ones you could not read. Where the whole of it fits
+  it is all brought on; where it is taller than the display it is left to panning, as before.
+  This is for lists and documents as much as tables.
 
 - In the table designer, a column chosen as the one repeated on every page can no longer be
   a hidden one. Choosing it and then hiding it used to leave the saved layout naming a column

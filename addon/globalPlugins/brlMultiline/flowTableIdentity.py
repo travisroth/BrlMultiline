@@ -36,6 +36,8 @@ from typing import Any, Optional
 
 from logHandler import log
 
+from .flow import CallCancelled
+
 SIGNATURE_COLUMNS = 8
 """How many of a table's columns are read to make its signature.
 
@@ -89,10 +91,37 @@ def whereOf(handle) -> str:
 	document = getattr(handle, "document", None)
 	if document is None:
 		return ""
+	said = _saysWhereItIs(document)
+	if said:
+		return said
 	said = _documentIdentifier(document)
 	if said:
 		return said
 	return _controlIdentifier(getattr(document, "table", None) or getattr(document, "obj", None))
+
+
+def _saysWhereItIs(document) -> str:
+	""":return: what a table says names the place it is in, or "" where it says nothing.
+
+	**For a table that is neither a page nor one control.** A review found two Excel workbooks
+	sharing an identity: the application and the window class are "excel" and "EXCEL7" for
+	every sheet of every workbook, so two sheets with the same headings were each other's
+	saved layout. A workbook has a path and a sheet has a name, and nothing else here can know
+	that — see `flowObjectTable.Sheet.whereIsIt`.
+	"""
+	said = getattr(document, "whereIsIt", None)
+	if said is None:
+		return ""
+	try:
+		found = said()
+	except CallCancelled:
+		# A table named by a read that never happened is a table matched against somebody
+		# else's saved layout. See `flow.CallCancelled`.
+		raise
+	except Exception:
+		log.debugWarning("Could not ask a table where it is", exc_info=True)
+		return ""
+	return str(found).strip() if found else ""
 
 
 def _documentIdentifier(document) -> str:
@@ -153,6 +182,10 @@ def signatureOf(handle, columns: Optional[Any] = None) -> str:
 		return ""
 	try:
 		said = flowTableSource.declaredHeaders(handle, wanted)
+	except CallCancelled:
+		# A signature read from cancelled reads is a different table's name, and the layout
+		# saved against the real one would not be found. See `flow.CallCancelled`.
+		raise
 	except Exception:
 		log.debugWarning("Could not read a table's headings for its signature", exc_info=True)
 		return ""
