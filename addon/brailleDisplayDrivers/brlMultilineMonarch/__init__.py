@@ -717,6 +717,35 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			return None
 		return monarch.routingIndexForPin(self._pinAtRouting[0], self._pinAtRouting[1], self._pitch)
 
+	def _recordRouting(self, deviceCells, corrected: Optional[int]) -> None:
+		"""Keep what the last routing press decided, so it can be read back after the fact.
+
+		Routing crosses three things that can each be wrong on their own — the device's cell,
+		the pin, and whatever the add-on above does with the index — and a press that does
+		nothing looks identical whichever it was. This records all of it in one place.
+
+		Kept on the driver as well as logged, because reproducing a routing press with debug
+		logging on is a different session from the one where it misbehaved. Read it with::
+
+			braille.handler.display.lastRouting
+
+		:param deviceCells: the cell indexes the device itself reported.
+		:param corrected: the index this driver substituted, or None if it left them alone.
+		"""
+		self.lastRouting = {
+			"pitch": self._pitch.name,
+			"rows": self._pitch.numRows,
+			"cols": self._pitch.numCols,
+			"cellsFromDevice": list(deviceCells) if deviceCells else None,
+			"pinAtRouting": self._pinAtRouting,
+			"corrected": corrected,
+			"numCells": self.numCells,
+		}
+		log.debug(f"BrlMultiline: routing {self.lastRouting}")
+
+	lastRouting: Optional[dict] = None
+	"""What the last routing press decided. See `_recordRouting`."""
+
 	def _handleKeyRelease(self):
 		"""Raise the gesture, using ours so that routing can be corrected for the pitch.
 
@@ -1078,11 +1107,24 @@ class InputGesture(HidInputGesture):
 		:param dataIndices: the data indices of the keys that were down.
 		"""
 		super().__init__(driver, dataIndices)
-		if not self.cellIndexes or len(self.cellIndexes) != 1:
+		if not self.cellIndexes:
 			return
-		corrected = driver._routingIndexForPitch()
-		if corrected is not None:
-			self.cellIndexes = [corrected]
+		corrected = None
+		try:
+			if len(self.cellIndexes) == 1:
+				corrected = driver._routingIndexForPitch()
+				if corrected is not None:
+					self.cellIndexes = [corrected]
+		except Exception:
+			# A bug in the correction must not cost the user every gesture this display
+			# sends. The device's own index is wrong at a non native pitch, but wrong is
+			# recoverable and no dispatch at all is not.
+			log.error("BrlMultiline: could not correct the routing index", exc_info=True)
+		finally:
+			try:
+				driver._recordRouting(self.cellIndexes, corrected)
+			except Exception:
+				log.debugWarning("BrlMultiline: could not record the routing decision", exc_info=True)
 
 
 # Re-exported so callers can name usages without importing NVDA's HID driver themselves.
