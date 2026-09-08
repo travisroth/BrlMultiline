@@ -77,6 +77,49 @@ POLL_BACKOFF_LIMIT = 60.0
 """How often to look for a device that has dropped, and how far apart that may grow."""
 
 
+def _callLater(milliseconds: int, work, *args):
+	"""Schedule something, from whichever thread this is.
+
+	`core.callLater` rather than `wx.CallLater` because this driver declares `isThreadSafe`,
+	so NVDA may call into it from the I/O thread — and a read error, which is exactly what
+	starts a reconnection, arrives there. `wx.CallLater` constructs a timer on the calling
+	thread; `core.callLater` marshals that to the GUI thread first, which is the entire reason
+	NVDA offers it.
+
+	It also means the return value cannot be relied on: off the main thread `core.callLater`
+	returns whatever `wx.CallAfter` returned, which is None, and the timer is created later.
+	So the caller must not treat a returned handle as proof anything is scheduled, and must
+	not rely on being able to cancel it. `_stopPolling` covers that with a generation number.
+
+	:param milliseconds: how long to wait.
+	:param work: what to run.
+	:param args: what to pass it.
+	:return: a cancellable timer, or None when there is nothing to cancel.
+	:raises Exception: if there is no wx, or NVDA is not initialised enough to schedule.
+	"""
+	try:
+		import core
+
+		return core.callLater(milliseconds, work, *args)
+	except ImportError:
+		import wx
+
+		return wx.CallLater(milliseconds, work, *args)
+
+
+def _stopTimer(timer) -> None:
+	"""Cancel a timer, if there is one and it can be cancelled. Best effort.
+
+	:param timer: what `_callLater` returned, which may be None.
+	"""
+	if timer is None:
+		return
+	try:
+		timer.Stop()
+	except Exception:
+		log.debugWarning("BrlMultiline: could not stop a Monarch timer", exc_info=True)
+
+
 class CellGlyph:
 	"""A shape drawn in place of one braille cell, filling the cell's whole slot.
 
@@ -142,10 +185,24 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._lastTouchPin: Optional[tuple[int, int]] = None
 		self._lastTouchCell: Optional[int] = None
 		self._pinAtRouting: Optional[tuple[int, int]] = None
+		self._repaintPending = False
+		# Three locks, and the order between them is the whole of what keeps them from
+		# deadlocking: `_stateLock`, then `_lifecycleLock`, then `_writeLock`, and never the
+		# other way round. Only `_reopenDevice` ever holds two at once; everywhere else one is
+		# released before the next is taken. In particular a failed write reports the device
+		# lost *after* letting `_writeLock` go, and `terminate` sets its flag and releases
+		# `_lifecycleLock` before the base class blanks the display through `display`.
+		self._stateLock = threading.RLock()
+		"""What the panel is made of: cells, glyphs, overlays, pitch, the pending flag."""
 		self._writeLock = threading.Lock()
+		"""One writer at a time on the wire, and the device is not swapped mid-report."""
+		self._lifecycleLock = threading.RLock()
+		"""The device handle, the termination flag, and the reconnect timer."""
 		self._pinCap = None
 		self._watched: Optional[tuple] = None
 		self._pollTimer = None
+		self._pollScheduled = False
+		self._pollGeneration = 0
 		self._retryDelay = POLL_INTERVAL
 		self._reopening = False
 		self._terminated = False
@@ -159,7 +216,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		# exactly what a failure here used to do.
 		try:
 			self._verifyDotOrder()
-			self._pinCap = self._findPinCap()
+			self._pinCap = self._findPinCap(self._dev)
 			if self._pinCap is None:
 				# Not a Monarch, or a firmware without the pin array. Refuse rather than
 				# silently behaving like the standard driver: the user chose this one.
@@ -407,13 +464,17 @@ class BrailleDisplayDriver(HidBrailleDriver):
 				"cells may render incorrectly. See monarch.BIT_FOR_BLOCK_POSITION.",
 			)
 
-	def _findPinCap(self):
+	def _findPinCap(self, device):
 		"""Look for the output button array that is the pin matrix.
 
 		Declared as one usage repeated 3,840 times rather than as a usage range, so the count
 		is in `ReportCount` and not in the usage span. Reading only the usage span is how this
 		report stayed hidden: it looks like a single bit.
 
+		Takes the device rather than reading `self._dev`, because a reconnection has to ask
+		this of a candidate handle before deciding to install it.
+
+		:param device: the open `hwIo.hid.Hid` to interrogate.
 		:return: the `HIDP_VALUE_CAPS`-shaped button cap, or None if this is not a Monarch.
 		"""
 		try:
@@ -425,7 +486,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		except Exception:
 			log.error("BrlMultiline: cannot read HID button caps", exc_info=True)
 			return None
-		count = self._dev.caps.NumberOutputButtonCaps
+		count = device.caps.NumberOutputButtonCaps
 		if not count:
 			return None
 		capsList = (hidpi.HIDP_BUTTON_CAPS * count)()
@@ -436,42 +497,89 @@ class BrailleDisplayDriver(HidBrailleDriver):
 				hidpi.HIDP_REPORT_TYPE.OUTPUT,
 				capsList,
 				ctypes.byref(number),
-				self._dev._pd,
+				device._pd,
 			)
 		except Exception:
 			log.debugWarning("BrlMultiline: could not read output button caps", exc_info=True)
 			return None
-		outputLength = self._dev.caps.OutputReportByteLength
+		outputLength = device.caps.OutputReportByteLength
 		for cap in capsList[: number.value]:
-			usages = cap.u1.Range.UsageMax - cap.u1.Range.UsageMin + 1 if cap.IsRange else 1
-			bits = max(usages, cap.ReportCount)
-			if bits != monarch.PIN_COUNT:
-				continue
-			# Every fact the raw writer depends on, checked before it is depended on. This
-			# accepted any large output button array and then wrote a Monarch shaped payload
-			# to report 0x21 regardless of which report the capability actually named, which
-			# on some other device with a big button array would be bytes sent somewhere they
-			# were never meant to go.
-			if cap.ReportID != monarch.PIN_REPORT_ID:
-				log.debugWarning(
-					f"BrlMultiline: pin sized array on report 0x{cap.ReportID:02X}, "
-					f"not the expected 0x{monarch.PIN_REPORT_ID:02X}; ignoring it",
-				)
-				continue
-			if cap.UsagePage != bdDetect.HID_USAGE_PAGE_BRAILLE:
-				log.debugWarning(
-					f"BrlMultiline: pin sized array on usage page 0x{cap.UsagePage:04X}, "
-					"not the braille page; ignoring it",
-				)
-				continue
-			if outputLength < monarch.PIN_REPORT_BYTES + 1:
-				log.debugWarning(
-					f"BrlMultiline: output reports are {outputLength} bytes, too small for the "
-					f"{monarch.PIN_REPORT_BYTES} byte pin payload; ignoring it",
-				)
-				continue
-			return cap
+			if self._isPinCap(cap, outputLength):
+				return cap
 		return None
+
+	def _isPinCap(self, cap, outputLength: int) -> bool:
+		"""Decide whether one output button cap really is the Monarch's pin array.
+
+		Every fact `_writePins` depends on, checked before it is depended on, because a match
+		here is what authorises writing 480 raw bytes to output report 0x21. An earlier version
+		accepted any large output button array and wrote a Monarch shaped payload regardless of
+		which report or usage the capability actually named, which on some other display with a
+		big button array would be bytes sent somewhere they were never meant to go.
+
+		The bit width needs no check: a *button* cap is one bit per field by definition, which
+		is what distinguishes it from a value cap. What cannot be checked from the parsed caps
+		is the report's bit offset — Windows does not expose it here — so the payload's position
+		still rests on the pin array being the report's only content, which is what 3,840 bits
+		in a 481 byte report leaves room for and nothing else.
+
+		Neither is the VID and PID checked, deliberately: no Monarch identifier has been
+		confirmed across firmware revisions, and hard coding a guessed one would refuse real
+		hardware. The path is logged instead when a candidate is rejected, so a device that
+		should have matched can be identified from a log rather than from a second session.
+
+		:param cap: one `HIDP_BUTTON_CAPS`.
+		:param outputLength: the device's output report byte length, including the report ID.
+		:return: whether this is the pin array.
+		"""
+		if cap.IsAlias:
+			# An alias entry re-describes fields another cap already covers.
+			return False
+		if cap.IsRange:
+			r = cap.u1.Range
+			bits = r.UsageMax - r.UsageMin + 1
+			usage = r.UsageMin
+		else:
+			bits = cap.ReportCount
+			usage = cap.u1.NotRange.Usage
+		if bits != monarch.PIN_COUNT:
+			return False
+		# From here on the array is pin sized, so anything that fails is worth saying out loud:
+		# it is a display that nearly matched, and the reason is what a bug report needs.
+		if usage != monarch.PIN_USAGE:
+			log.debugWarning(
+				f"BrlMultiline: pin sized array under usage 0x{usage:04X}, "
+				f"not the expected 0x{monarch.PIN_USAGE:04X}; ignoring it",
+			)
+			return False
+		if cap.ReportID != monarch.PIN_REPORT_ID:
+			log.debugWarning(
+				f"BrlMultiline: pin sized array on report 0x{cap.ReportID:02X}, "
+				f"not the expected 0x{monarch.PIN_REPORT_ID:02X}; ignoring it",
+			)
+			return False
+		if cap.UsagePage != bdDetect.HID_USAGE_PAGE_BRAILLE:
+			log.debugWarning(
+				f"BrlMultiline: pin sized array on usage page 0x{cap.UsagePage:04X}, "
+				"not the braille page; ignoring it",
+			)
+			return False
+		if outputLength < monarch.PIN_REPORT_BYTES + 1:
+			log.debugWarning(
+				f"BrlMultiline: output reports are {outputLength} bytes, too small for the "
+				f"{monarch.PIN_REPORT_BYTES} byte pin payload; ignoring it",
+			)
+			return False
+		# Both declarations put the same bits in the same order, so either is usable. Which one
+		# the firmware chose is worth knowing, because reading only the usage span is what hid
+		# this report in the first place.
+		log.debug(
+			f"BrlMultiline: pin array found, declared as "
+			f"{'a usage range' if cap.IsRange else f'usage 0x{usage:04X} repeated {bits} times'}, "
+			f"link collection {cap.LinkCollection} under usage 0x{cap.LinkUsage:04X} "
+			f"on page 0x{cap.LinkUsagePage:04X}, bit field 0x{cap.BitField:04X}",
+		)
+		return True
 
 	# --- Geometry ----------------------------------------------------------------------
 
@@ -536,10 +644,18 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		pitch = monarch.PITCHES.get(value)
 		if pitch is None:
 			raise ValueError(f"Unsupported pitch {value}")
-		if pitch is self._pitch:
-			return
-		self._pitch = pitch
-		self._applyPitch()
+		with self._stateLock:
+			if pitch is self._pitch:
+				return
+			self._pitch = pitch
+			# The cells on the panel were laid out for the old pitch and there are now a
+			# different number of them, so glyph indexes no longer name what they named and
+			# the cells themselves are the wrong length. Both are dropped rather than
+			# re-interpreted, and the update `_announceGeometry` queues brings a whole frame
+			# at the new shape.
+			self._lastCells = []
+			self._glyphs = {}
+			self._applyPitch()
 		self._announceGeometry()
 
 	def _announceGeometry(self) -> None:
@@ -642,7 +758,13 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		where it always would.
 
 		Each glyph carries the braille cell it stands in for, and is drawn **only if the cell
-		at that index still reads it**. That does three things at once:
+		at that index still reads it**, on this frame or on frames redrawn from it. A frame
+		that does not match retires the glyph outright rather than leaving it registered, so a
+		later unrelated frame that happens to carry the same byte at the same index cannot
+		bring an old symbol back. That is the difference between "this glyph belongs to this
+		content" and "this byte looks familiar", and only the first is safe.
+
+		The match does three things at once:
 
 		1. A frame the add-on did not compose — a braille message, say — cannot get a glyph
 		   painted over unrelated content. The glyph is skipped and the cell shows instead.
@@ -654,16 +776,43 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		   the reader needs the caret more than the symbol.
 
 		The whole set is replaced, so the add-on registers what it wants on each recompose and
-		never has to clear individually.
+		never has to clear individually. It **must** re-register on each recompose, because a
+		glyph is retired by the first frame that does not carry its cell: a braille message
+		flashing over the content ends the registration, and the redraw afterwards is where it
+		comes back. That is the contract the add-on side is written to, and it is what stops a
+		glyph outliving the content it belonged to.
 
 		:param glyphs: cell index to glyph. Empty clears them.
 		"""
-		self._glyphs = dict(glyphs)
-		self._repaint()
+		with self._stateLock:
+			self._glyphs = dict(glyphs)
+		self._scheduleRepaint()
 
 	def clearCellGlyphs(self) -> None:
 		"""Draw every cell as braille again."""
 		self.setCellGlyphs({})
+
+	def _expireGlyphs(self, cells: list[int]) -> None:
+		"""Drop glyphs the incoming frame does not claim. Call with `_stateLock` held.
+
+		A glyph is registered against the cell the add-on put in the buffer for it, and lives
+		exactly as long as a frame keeps carrying that cell at that index. The first frame that
+		does not — different content, or a caret or-ed in — retires it.
+
+		Retiring rather than merely skipping is the point. Skipping leaves the registration
+		standing, and some later frame with an unrelated 0x3F at the same index would then be
+		painted with a symbol belonging to content that scrolled away minutes ago. This bounds
+		a glyph's life to the run of frames that actually contain it.
+
+		:param cells: the frame just handed to `display`.
+		"""
+		if not self._glyphs:
+			return
+		self._glyphs = {
+			index: glyph
+			for index, glyph in self._glyphs.items()
+			if 0 <= index < len(cells) and cells[index] == glyph.fallbackCell
+		}
 
 	# --- Graphics overlays ---------------------------------------------------------------
 
@@ -679,19 +828,21 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		:param y: pin row of its top edge.
 		:param buffer: what to draw.
 		"""
-		self._overlays[key] = (x, y, buffer)
-		self._repaint()
+		with self._stateLock:
+			self._overlays[key] = (x, y, buffer)
+		self._scheduleRepaint()
 
 	def clearGraphicsOverlay(self, key: Optional[str] = None) -> None:
 		"""Remove one overlay, or all of them.
 
 		:param key: which overlay, or None for every one.
 		"""
-		if key is None:
-			self._overlays.clear()
-		else:
-			self._overlays.pop(key, None)
-		self._repaint()
+		with self._stateLock:
+			if key is None:
+				self._overlays.clear()
+			else:
+				self._overlays.pop(key, None)
+		self._scheduleRepaint()
 
 	# --- Touch ---------------------------------------------------------------------------
 
@@ -727,8 +878,17 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		Both touch reports are kept. See `lastTouchCell` for why the cell one still earns its
 		place now that the pin one exists.
 
+		A report arriving while there is no device is dropped. That happens for a moment during
+		a reconnection: `hwIo.hid.Hid` starts reading the instant it is constructed, and the
+		callback it was given is this one, so a key pressed as the link comes back can arrive
+		before the candidate handle has been installed. Both this method and the inherited one
+		decode against `self._dev`, and against None the inherited one raises where nothing
+		catches it.
+
 		:param data: the raw input report.
 		"""
+		if getattr(self, "_dev", None) is None:
+			return
 		try:
 			self._readTouch(data)
 		except Exception:
@@ -759,45 +919,79 @@ class BrailleDisplayDriver(HidBrailleDriver):
 				self._lastTouchCell = usage - monarch.ROUTING_USAGE_MIN
 				self._pinAtRouting = self._lastTouchPin
 
-	def _routingIndexForPitch(self) -> Optional[int]:
-		"""The cell a routing press addressed, worked out from the pin rather than the device.
+	KEEP_ROUTING = "keep"
+	REPLACE_ROUTING = "replace"
+	CANCEL_ROUTING = "cancel"
+	"""What to do with the cell indexes the device reported. See `_routingDecision`."""
 
-		Returns None at the native pitch, deliberately. There the device's own cell number is
-		its calibrated answer — a fingertip covers several pins and its algorithm knows more
-		about which one was meant than we do — and it already indexes the grid we are
-		rendering, so there is nothing to correct.
+	def _routingDecision(self, count: int) -> tuple[str, Optional[int]]:
+		"""Decide what a routing press means at the pitch being rendered.
+
+		`KEEP` at the native pitch, deliberately. There the device's own cell number is its
+		calibrated answer — a fingertip covers several pins and its algorithm knows more about
+		which one was meant than we do — and it already indexes the grid we are rendering, so
+		there is nothing to correct.
 
 		At any other pitch there is everything to correct. The device reports on its native
 		8 by 32 grid whatever we draw, so at 10 rows it can name only 256 of the 320 cells on
 		the panel and the ones it names sit on the wrong lines. That is why routing did not
 		work at 10 rows: not a missing feature so much as an unfinished one.
 
-		:return: the cell index for the current pitch, or None to leave the device's own alone.
+		The correction needs the pin, and the pin is available for exactly one press: usage
+		0x401 reports a single touched point, so a range selection arrives as several routing
+		cells with one pin between them and there is no way to re-base its endpoints. Where the
+		answer cannot be derived — no pin, or more cells than pins — the press is **cancelled**
+		rather than passed through. Passing it through was activating a cell chosen on a layout
+		we are not drawing, which reads to a user as the display doing something at random; a
+		press that does nothing is a press they will simply make again.
+
+		:param count: how many routing cells the device reported.
+		:return: what to do, and the index to use when that is `REPLACE_ROUTING`.
 		"""
 		if self._pitch is monarch.PITCH_8_ROW:
-			return None
+			return self.KEEP_ROUTING, None
+		if count != 1:
+			log.debugWarning(
+				f"BrlMultiline: {count} routing cells at pitch {self._pitch.name}. The device "
+				"names them on its native 8 by 32 grid and reports only one touched pin, so the "
+				"range cannot be re-based; cancelling rather than selecting the wrong span",
+			)
+			return self.CANCEL_ROUTING, None
 		if self._pinAtRouting is None:
 			log.debugWarning(
 				f"BrlMultiline: routing at pitch {self._pitch.name} with no touched pin; "
-				"falling back to the device's own cell, which addresses a different layout",
+				"cancelling rather than activating the cell the device named, which addresses "
+				"a different layout",
 			)
-			return None
-		return monarch.routingIndexForPin(self._pinAtRouting[0], self._pinAtRouting[1], self._pitch)
+			return self.CANCEL_ROUTING, None
+		index = monarch.routingIndexForPin(self._pinAtRouting[0], self._pinAtRouting[1], self._pitch)
+		if index is None:
+			log.debugWarning(
+				f"BrlMultiline: routing pin {self._pinAtRouting} is off the panel; cancelling",
+			)
+			return self.CANCEL_ROUTING, None
+		return self.REPLACE_ROUTING, index
 
-	def _recordRouting(self, deviceCells, corrected: Optional[int]) -> None:
+	def _recordRouting(self, deviceCells, dispatched, action: str, corrected: Optional[int]) -> None:
 		"""Keep what the last routing press decided, so it can be read back after the fact.
 
 		Routing crosses three things that can each be wrong on their own — the device's cell,
 		the pin, and whatever the add-on above does with the index — and a press that does
-		nothing looks identical whichever it was. This records all of it in one place.
+		nothing looks identical whichever it was. This records all of it in one place, and
+		keeps the raw and the substituted separately: an earlier version recorded
+		`cellIndexes` after it had already been replaced, so the field labelled "from the
+		device" was the driver's own answer read back to itself, which is the one reading that
+		can never disagree with anything.
 
 		Kept on the driver as well as logged, because reproducing a routing press with debug
 		logging on is a different session from the one where it misbehaved. Read it with::
 
 			braille.handler.display.lastRouting
 
-		:param deviceCells: the cell indexes the device itself reported.
-		:param corrected: the index this driver substituted, or None if it left them alone.
+		:param deviceCells: the cell indexes the device itself reported, before any correction.
+		:param dispatched: the indexes the gesture actually carried, or None if it was cancelled.
+		:param action: `KEEP_ROUTING`, `REPLACE_ROUTING` or `CANCEL_ROUTING`.
+		:param corrected: the index derived from the pin, when there was one.
 		"""
 		self.lastRouting = {
 			"pitch": self._pitch.name,
@@ -805,7 +999,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			"cols": self._pitch.numCols,
 			"cellsFromDevice": list(deviceCells) if deviceCells else None,
 			"pinAtRouting": self._pinAtRouting,
+			"action": action,
 			"corrected": corrected,
+			"dispatched": list(dispatched) if dispatched else None,
 			"numCells": self.numCells,
 		}
 		log.debug(f"BrlMultiline: routing {self.lastRouting}")
@@ -819,13 +1015,19 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		Mirrors the inherited method, which names its own `InputGesture` class directly and so
 		cannot be steered by overriding an attribute.
 
+		A gesture that cancelled itself is not dispatched at all, rather than dispatched with
+		nothing to route to. See `_routingDecision` for when that happens and why doing nothing
+		is the right answer there.
+
 		The routing snapshot is dropped afterwards whatever happened, so a later press that
 		somehow arrives without a pin cannot be given this one's.
 		"""
 		if self._ignoreKeyReleases or not self._keysDown:
 			return
 		try:
-			inputCore.manager.executeGesture(InputGesture(self, self._keysDown))
+			gesture = InputGesture(self, self._keysDown)
+			if not gesture.cancelled:
+				inputCore.manager.executeGesture(gesture)
 		except inputCore.NoInputGestureAction:
 			pass
 		finally:
@@ -881,18 +1083,90 @@ class BrailleDisplayDriver(HidBrailleDriver):
 
 		:param cells: one dot pattern per cell, row major, as the handler supplies them.
 		"""
-		self._lastCells = list(cells)
-		self._repaint()
+		with self._stateLock:
+			frame = list(cells)
+			self._lastCells = frame
+			self._expireGlyphs(frame)
+			# A frame is the natural publishing point for anything an overlay or glyph setter
+			# had pending: it is about to be drawn anyway, so the deferred write would be a
+			# second full mechanical refresh of a panel that already shows the answer.
+			self._repaintPending = False
+			snapshot = self._snapshot()
+		self._writePins(self._compose(snapshot))
+
+	def _snapshot(self) -> tuple:
+		"""Freeze everything the panel is composed from. Call with `_stateLock` held.
+
+		Composing reads four things that four different threads may be changing — the handler
+		writes cells from its I/O thread while the add-on sets overlays and glyphs from the
+		main one — and a frame built from a mixture of before and after is a frame that was
+		never asked for. Worse, iterating the overlays while another thread inserts one raises
+		`RuntimeError: dictionary changed size during iteration` and the panel simply does not
+		update.
+
+		So the state is copied under the lock and the drawing, which is the slow part, happens
+		outside it against something nothing can change underneath it.
+
+		:return: pitch, cells, glyphs and overlays, as of now.
+		"""
+		return (
+			self._pitch,
+			list(self._lastCells),
+			dict(self._glyphs),
+			list(self._overlays.values()),
+		)
+
+	def _compose(self, snapshot: tuple) -> PinBuffer:
+		"""Draw a snapshot into a panel buffer.
+
+		Reads nothing from the driver, deliberately: everything it needs was frozen by
+		`_snapshot`, which is what makes the frame internally consistent.
+
+		:param snapshot: what `_snapshot` returned.
+		:return: the whole panel, ready to write.
+		"""
+		pitch, cells, glyphs, overlays = snapshot
+		buffer = PinBuffer(monarch.PIN_WIDTH, monarch.PIN_HEIGHT)
+		self._drawCells(buffer, cells, pitch, glyphs)
+		for x, y, overlay in overlays:
+			buffer.blit(overlay, x, y)
+		return buffer
 
 	def _repaint(self) -> None:
-		"""Compose the panel from the last cells and the current overlays, and write it."""
-		buffer = PinBuffer(monarch.PIN_WIDTH, monarch.PIN_HEIGHT)
-		self._drawCells(buffer, self._lastCells)
-		for x, y, overlay in self._overlays.values():
-			buffer.blit(overlay, x, y)
-		self._writePins(buffer)
+		"""Compose the panel from the current state and write it, now."""
+		with self._stateLock:
+			self._repaintPending = False
+			snapshot = self._snapshot()
+		self._writePins(self._compose(snapshot))
 
-	def _drawCells(self, buffer: PinBuffer, cells: list[int]) -> None:
+	def _scheduleRepaint(self) -> None:
+		"""Ask for a repaint at the next opportunity, collapsing several requests into one.
+
+		Overlays and glyphs are set a few at a time — a chart, then its axes, then a focus
+		marker — and repainting on each would be several complete mechanical refreshes of a
+		panel nobody has read yet. The Monarch is a page turn device: each write clatters, and
+		the reader has to lift their hand for the pins to settle accurately. One write per
+		batch is not an optimisation here, it is the difference between a page and a flicker.
+
+		So the request is marked and handed to the main thread, and whichever comes first —
+		that deferred flush or an ordinary `display` — publishes everything pending.
+		"""
+		with self._stateLock:
+			if self._repaintPending:
+				return
+			self._repaintPending = True
+		self._onMainThread(self._flushRepaint)
+
+	def _flushRepaint(self) -> None:
+		"""Draw a repaint that `_scheduleRepaint` asked for, unless a frame got there first."""
+		with self._stateLock:
+			if not self._repaintPending:
+				return
+			self._repaintPending = False
+			snapshot = self._snapshot()
+		self._writePins(self._compose(snapshot))
+
+	def _drawCells(self, buffer: PinBuffer, cells: list[int], pitch, glyphs: dict) -> None:
 		"""Draw braille cells into the buffer at the current pitch.
 
 		Uses NVDA's own `drawBrailleCells` where it can, which is the same function the DotPad
@@ -907,15 +1181,16 @@ class BrailleDisplayDriver(HidBrailleDriver):
 
 		:param buffer: the panel buffer.
 		:param cells: one dot pattern per cell, row major.
+		:param pitch: the layout being rendered, from the snapshot.
+		:param glyphs: cell index to glyph, from the snapshot.
 		"""
-		pitch = self._pitch
 		for row in range(pitch.numRows):
 			start = row * pitch.numCols
 			rowCells = cells[start : start + pitch.numCols]
 			if not rowCells:
 				break
 			self._drawRow(buffer, list(rowCells), row, pitch)
-			self._drawGlyphs(buffer, list(rowCells), row, start, pitch)
+			self._drawGlyphs(buffer, list(rowCells), row, start, pitch, glyphs)
 
 	def _drawGlyphs(
 		self,
@@ -924,6 +1199,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		row: int,
 		start: int,
 		pitch,
+		glyphs: dict,
 	) -> None:
 		"""Replace any cell in this row that has a glyph registered and still matches it.
 
@@ -939,12 +1215,13 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		:param row: which braille line.
 		:param start: the flat index of the first cell in this row.
 		:param pitch: the layout being rendered.
+		:param glyphs: cell index to glyph, from the snapshot.
 		"""
-		if not self._glyphs:
+		if not glyphs:
 			return
 		slotWidth, slotHeight = pitch.slotSize
 		for col, cell in enumerate(rowCells):
-			glyph = self._glyphs.get(start + col)
+			glyph = glyphs.get(start + col)
 			if glyph is None or cell != glyph.fallbackCell:
 				continue
 			x, y = monarch.cellOrigin(row, col, pitch)
@@ -982,23 +1259,34 @@ class BrailleDisplayDriver(HidBrailleDriver):
 
 		Serialised, because a repaint can come from the handler's I/O thread and from an
 		overlay set on the main thread, and two half written reports interleaved would be a
-		garbled panel.
+		garbled panel. The same lock is what a reconnection takes to swap the handle, so a
+		write cannot land on a device that is being closed underneath it.
+
+		A failure is reported *after* the lock is released. `_onDeviceLost` takes the lifecycle
+		lock, and reporting from in here would be `_writeLock` then `_lifecycleLock` while a
+		reconnection holds them the other way round.
 
 		:param buffer: the whole panel.
 		"""
 		if self._pinCap is None or self._terminated:
 			return
 		payload = monarch.packPins(buffer)
+		lost = False
 		with self._writeLock:
+			device = self._dev
+			if device is None or self._terminated or self._pinCap is None:
+				return
 			try:
-				report = hwIo.hid.HidOutputReport(self._dev, reportID=monarch.PIN_REPORT_ID)
+				report = hwIo.hid.HidOutputReport(device, reportID=monarch.PIN_REPORT_ID)
 				data = bytearray(report.data)
 				room = len(data) - 1
 				data[1 : 1 + min(room, len(payload))] = payload[:room]
-				self._dev.write(bytes(data))
+				device.write(bytes(data))
 			except Exception:
 				log.debugWarning("BrlMultiline: Monarch pin write failed", exc_info=True)
-				self._onDeviceLost()
+				lost = True
+		if lost:
+			self._onDeviceLost()
 
 	# --- Staying connected -------------------------------------------------------------
 
@@ -1054,17 +1342,28 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _onDeviceLost(self) -> bool:
 		"""Begin trying to get the device back. Safe to call more than once.
 
+		`_reopening` is cleared again if nothing could be scheduled. It used to be set before
+		the attempt and left set afterwards, so a failure to create a timer left the driver
+		claiming to be recovering with nothing recovering: every later loss answered "handled"
+		at once and returned, and a virtual display holding this member kept a display that was
+		never coming back.
+
 		:return: whether recovery is now running, which is what the read error hook reports
 			upward. Saying True when nothing is actually retrying would have a virtual display
 			keep a member that is never coming back.
 		"""
-		if self._terminated:
-			return False
-		if self._reopening:
+		with self._lifecycleLock:
+			if self._terminated:
+				return False
+			if self._reopening:
+				return True
+			self._reopening = True
+			self._retryDelay = POLL_INTERVAL
+		if self._startPolling(POLL_INTERVAL):
 			return True
-		self._reopening = True
-		self._retryDelay = POLL_INTERVAL
-		return self._startPolling(POLL_INTERVAL)
+		with self._lifecycleLock:
+			self._reopening = False
+		return False
 
 	def _startPolling(self, delay: float) -> bool:
 		"""Start the reconnect timer. Safe to call when one is already running.
@@ -1075,50 +1374,88 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		twice the time that passed, and no second attempt was ever made. The backoff now lives
 		in the timer itself and there is no deadline to outrun.
 
-		:param delay: seconds until the next attempt.
-		:return: whether a timer was started.
-		"""
-		if self._terminated:
-			return False
-		if self._pollTimer is not None:
-			return True
-		try:
-			import wx
+		Each attempt carries a generation number, and `_stopPolling` moves the generation on.
+		That is what makes a timer we could not cancel harmless, and there will be such timers:
+		`core.callLater` off the main thread creates the timer later and hands back nothing to
+		cancel. A stale tick compares generations and returns.
 
-			self._pollTimer = wx.CallLater(int(delay * 1000), self._poll)
-			return True
+		:param delay: seconds until the next attempt.
+		:return: whether an attempt is scheduled.
+		"""
+		with self._lifecycleLock:
+			if self._terminated:
+				return False
+			if self._pollScheduled:
+				return True
+			self._pollGeneration += 1
+			generation = self._pollGeneration
+			self._pollScheduled = True
+		try:
+			timer = _callLater(int(delay * 1000), self._poll, generation)
 		except Exception:
-			# No timer means no reconnection, and everything else goes on working. The one
-			# place this happens is a test harness with no wx.
+			# No timer means no reconnection, and the caller has to know: it is what the read
+			# error hook answers upward with. This happens in a test harness with no wx, and
+			# in NVDA before the wx app exists.
 			log.debugWarning("BrlMultiline: could not start looking for the Monarch", exc_info=True)
+			with self._lifecycleLock:
+				if self._pollGeneration == generation:
+					self._pollScheduled = False
 			return False
+		with self._lifecycleLock:
+			if self._pollGeneration == generation:
+				self._pollTimer = timer
+				return True
+		# Stopped while the timer was being created. The generation check in `_poll` already
+		# makes the tick harmless; cancelling saves a pointless wakeup.
+		_stopTimer(timer)
+		return False
 
 	def _stopPolling(self) -> None:
-		"""Stop the reconnect timer. Safe to call when nothing is running."""
-		timer, self._pollTimer = self._pollTimer, None
-		if timer is None:
-			return
-		try:
-			timer.Stop()
-		except Exception:
-			log.debugWarning("BrlMultiline: could not stop looking for the Monarch", exc_info=True)
+		"""Stop the reconnect timer. Safe to call when nothing is running.
 
-	def _poll(self) -> None:
-		"""Try to reopen the device, and keep trying with a growing wait."""
-		self._pollTimer = None
-		if not self._reopening or self._terminated:
-			return
-		try:
-			if self._reopenDevice():
-				self._reopening = False
-				self._retryDelay = POLL_INTERVAL
-				log.info("BrlMultiline: the Monarch is back")
-				self._repaint()
+		Moving the generation on is the part that always works. Cancelling the timer is best
+		effort, because there may be no timer to cancel yet — see `_startPolling`.
+		"""
+		with self._lifecycleLock:
+			timer, self._pollTimer = self._pollTimer, None
+			self._pollScheduled = False
+			self._pollGeneration += 1
+		_stopTimer(timer)
+
+	def _poll(self, generation: int) -> None:
+		"""Try to reopen the device, and keep trying with a growing wait.
+
+		:param generation: which attempt this tick belongs to. A tick from before the last
+			`_stopPolling` is discarded: termination and a fresh loss both move the generation
+			on, and a timer that could not be cancelled would otherwise reopen a device this
+			driver has finished with.
+		"""
+		with self._lifecycleLock:
+			if generation != self._pollGeneration or self._terminated or not self._reopening:
 				return
+			self._pollTimer = None
+			self._pollScheduled = False
+		reopened = False
+		try:
+			reopened = self._reopenDevice()
 		except Exception:
 			log.error("BrlMultiline: error reopening the Monarch", exc_info=True)
-		self._retryDelay = min(self._retryDelay * 2, POLL_BACKOFF_LIMIT)
-		self._startPolling(self._retryDelay)
+		if reopened:
+			with self._lifecycleLock:
+				self._reopening = False
+				self._retryDelay = POLL_INTERVAL
+			log.info("BrlMultiline: the Monarch is back")
+			self._repaint()
+			return
+		with self._lifecycleLock:
+			if self._terminated or not self._reopening:
+				return
+			self._retryDelay = min(self._retryDelay * 2, POLL_BACKOFF_LIMIT)
+			delay = self._retryDelay
+		if not self._startPolling(delay):
+			with self._lifecycleLock:
+				self._reopening = False
+			log.warning("BrlMultiline: nothing is watching for the Monarch to come back")
 
 	def _reopenDevice(self) -> bool:
 		"""Close the dead handle and open the device again, keeping this driver alive.
@@ -1127,19 +1464,29 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		the driver stays and only its device is replaced. NVDA is never told the display went
 		away, so there is no display switch, no fallback to no braille, and no restart.
 
+		The candidate is opened into a local and installed only after `_terminated` has been
+		checked again under the lock. It has to be, because this runs concurrently with
+		`terminate`: `terminate` can see no device, decide there is nothing to close, and
+		finish, all while a handle is being opened here. Installing it then would leave an
+		exclusive handle on the hardware that nothing can reach and nothing will close, and
+		every later attempt to open the display — by any driver — fails until NVDA restarts.
+		That is the one failure here bad enough to be worth a lock.
+
 		:return: whether the device is open again.
 		"""
 		self._stopWatching()
-		old = getattr(self, "_dev", None)
+		with self._lifecycleLock, self._writeLock:
+			old, self._dev = getattr(self, "_dev", None), None
+			self._pinCap = None
+			self._inputUsages = None
 		if old is not None:
 			try:
 				old.close()
 			except Exception:
 				log.debugWarning("BrlMultiline: could not close the old Monarch handle", exc_info=True)
-		self._dev = None
-		self._pinCap = None
-		self._inputUsages = None
 		for portType, portId, port, portInfo in self._getTryPorts(self._port):  # noqa: B007
+			if self._terminated:
+				return False
 			if portType != bdDetect.ProtocolType.HID:
 				continue
 			try:
@@ -1149,15 +1496,53 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			if device.usagePage != bdDetect.HID_USAGE_PAGE_BRAILLE:
 				device.close()
 				continue
-			self._dev = device
-			self._pinCap = self._findPinCap()
-			if self._pinCap is None:
+			pinCap = self._findPinCap(device)
+			if pinCap is None:
 				device.close()
-				self._dev = None
 				continue
+			with self._lifecycleLock, self._writeLock:
+				stale = self._terminated
+				if not stale:
+					self._dev = device
+					self._pinCap = pinCap
+					self._resetInputSession()
+			if stale:
+				log.debug("BrlMultiline: the Monarch was terminated while reopening; letting go again")
+				device.close()
+				return False
 			self._watchForDisconnect()
 			return True
 		return False
+
+	def _resetInputSession(self) -> None:
+		"""Start the input side over on a device that has just been opened.
+
+		Everything the input path remembers describes the handle that went away: which keys
+		were down, whether releases were being ignored, where the last touch was, and — the
+		one that matters most — the capability structures every report is decoded against.
+		Data indexes are a property of a device's report descriptor, so keeping the old map
+		would mean decoding the new device's reports with the old device's key numbering.
+
+		Carrying the key state across is its own bug: a release arriving after the reconnect
+		would complete a combination begun on a device that is gone, and fire whatever that
+		combination is bound to.
+
+		Call with `_lifecycleLock` held, and only once `_dev` is the new device — the caps come
+		from it.
+		"""
+		self._keysDown = set()
+		self._ignoreKeyReleases = False
+		self._pinAtRouting = None
+		self._lastTouchPin = None
+		self._lastTouchCell = None
+		self._inputUsages = None
+		try:
+			self._inputButtonCapsByDataIndex = self._collectInputButtonCapsByDataIndex()
+		except Exception:
+			# Without this map no key decodes, which is worth an error rather than a note. An
+			# empty one is still better than the previous device's: no gestures beats wrong ones.
+			log.error("BrlMultiline: could not read the reconnected Monarch's buttons", exc_info=True)
+			self._inputButtonCapsByDataIndex = {}
 
 	# --- Shutdown ------------------------------------------------------------------------
 
@@ -1173,21 +1558,39 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		A driver whose device is gone must also not take the inherited path: it closes `_dev`
 		unconditionally and would raise on None. The base class's own cleanup still runs, with
 		the blanking suppressed, because there is nothing left to blank.
+
+		The flag is set under the lifecycle lock and the lock is then let go, rather than held
+		across the rest. Holding it would mean taking `_lifecycleLock` and then, through the
+		base class blanking the display, `_stateLock` and `_writeLock` — the reverse of the
+		order every other path takes them in, which is a deadlock waiting for a write to
+		coincide with a shutdown.
 		"""
-		self._terminated = True
+		with self._lifecycleLock:
+			self._terminated = True
 		try:
 			handover.stopReleasingOnSwitch(self.name)
 			self._stopPolling()
-			self._reopening = False
+			with self._lifecycleLock:
+				self._reopening = False
 			self._stopWatching()
-			self._overlays.clear()
-			self._glyphs.clear()
+			with self._stateLock:
+				self._overlays.clear()
+				self._glyphs.clear()
+				self._repaintPending = False
 		finally:
-			if getattr(self, "_dev", None) is None:
-				self._suppressDisplayClear = True
-				braille.display.driver.BrailleDisplayDriver.terminate(self)
-			else:
-				super().terminate()
+			try:
+				if getattr(self, "_dev", None) is None:
+					self._suppressDisplayClear = True
+					braille.display.driver.BrailleDisplayDriver.terminate(self)
+				else:
+					super().terminate()
+					self._dev = None
+			finally:
+				# A reconnection that was already past its `_terminated` check when the flag
+				# went up closes its own candidate and stops. One that had installed a device
+				# a moment before is closed here: an exclusive handle nothing can reach holds
+				# the hardware away from every driver until NVDA restarts.
+				self._closeStrayDevice()
 
 	gestureMap = HidBrailleDriver.gestureMap
 	"""Inherited wholesale.
@@ -1216,12 +1619,16 @@ class InputGesture(HidInputGesture):
 	matters: the specific identifier is offered first, so a Monarch-only binding can be made
 	without disturbing the shared one.
 
-	**Routing.** Only a single press is corrected for the pitch. Several at once is a range
-	selection, which means something different and whose endpoints the device is better placed
-	to report.
+	**Routing.** Only a single press can be corrected for the pitch, because the panel reports
+	one touched pin. At a non native pitch a press that cannot be corrected is *cancelled*
+	rather than passed through — see `BrailleDisplayDriver._routingDecision` — and `cancelled`
+	is how this says so, since a gesture cannot decline to exist once it is constructed.
 	"""
 
 	source = DRIVER_NAME
+
+	cancelled = False
+	"""Whether this gesture should be dropped rather than dispatched."""
 
 	def _get_identifiers(self):
 		"""Our own identifiers, then the standard HID ones they replace.
@@ -1242,20 +1649,31 @@ class InputGesture(HidInputGesture):
 		super().__init__(driver, dataIndices)
 		if not self.cellIndexes:
 			return
-		corrected = None
+		# Kept before anything replaces it. Recording `cellIndexes` after the correction meant
+		# the field labelled "from the device" was the driver's own answer read back to itself.
+		deviceCells = list(self.cellIndexes)
+		action, corrected = driver.KEEP_ROUTING, None
 		try:
-			if len(self.cellIndexes) == 1:
-				corrected = driver._routingIndexForPitch()
-				if corrected is not None:
-					self.cellIndexes = [corrected]
+			action, corrected = driver._routingDecision(len(deviceCells))
+			if action == driver.REPLACE_ROUTING:
+				self.cellIndexes = [corrected]
+			elif action == driver.CANCEL_ROUTING:
+				self.cancelled = True
 		except Exception:
-			# A bug in the correction must not cost the user every gesture this display
-			# sends. The device's own index is wrong at a non native pitch, but wrong is
-			# recoverable and no dispatch at all is not.
-			log.error("BrlMultiline: could not correct the routing index", exc_info=True)
+			# A bug in the correction must not cost the user every gesture this display sends.
+			# Keeping the device's own index is the safe failure for a *press* — at the native
+			# pitch it is right, and at any other one the deliberate answer is a cancel that
+			# `_routingDecision` would have returned had it not raised.
+			log.error("BrlMultiline: could not decide the routing index", exc_info=True)
+			action = driver.KEEP_ROUTING
 		finally:
 			try:
-				driver._recordRouting(self.cellIndexes, corrected)
+				driver._recordRouting(
+					deviceCells,
+					None if self.cancelled else self.cellIndexes,
+					action,
+					corrected,
+				)
 			except Exception:
 				log.debugWarning("BrlMultiline: could not record the routing decision", exc_info=True)
 

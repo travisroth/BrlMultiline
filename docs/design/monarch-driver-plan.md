@@ -178,6 +178,18 @@ that index still reads it. One check, three properties:
 3. A caret wins. NVDA ors the cursor into the cell before the driver sees it, the cell stops
    matching, and the braille cell with its cursor is drawn instead.
 
+The match alone is not enough, and the difference is worth spelling out. Skipping a glyph
+leaves it registered, so a later unrelated frame carrying the same byte at the same index gets
+painted with a symbol belonging to content that scrolled away minutes ago: the check answers
+"this byte looks familiar" when the question is "does this glyph belong to this content". So a
+frame that does not match **retires** the glyph rather than skipping it. A glyph lives exactly
+as long as the run of frames that carry its cell.
+
+The contract that follows: **the add-on re-registers on every recompose.** A braille message
+flashing over the content ends the registration, and the redraw afterwards is where the glyph
+comes back. `setCellGlyphs` replaces the whole set, so re-registering is the ordinary call and
+nothing has to be cleared individually.
+
 The worked example is the list focus indicator. Monarch's own is a solid 3 by 3 with the
 fourth row blank, followed by a space cell, and it is easy to find precisely because it is
 square — which needs three columns. BrlMultiline currently approximates it with dots 3678
@@ -218,6 +230,17 @@ was meant is a second opinion worth having when turning a pin into a line and co
 Both are published on the driver; NVDA's own routing gestures continue to work unchanged
 because the inherited `_hidOnReceive` still runs.
 
+The pin has to be **snapshotted when the routing key goes down**, because of the order the
+panel speaks in: the pin arrives, then the routing cell, then the pin again as zero on
+release, and only then does NVDA raise the gesture. By gesture time the live pin is gone.
+
+Where the correction cannot be made, the press is **cancelled** rather than passed through.
+There are two such cases at a non-native pitch: no pin was captured, and more than one routing
+cell — a range selection, which one touched pin cannot re-base. Passing the device's own index
+through in either case activates a cell chosen on a layout we are not drawing, which reads to
+a user as the display acting at random. A press that does nothing is one they will simply make
+again. At the native pitch nothing is cancelled, because nothing needs correcting.
+
 ### Reconnection, lifted from the virtual driver
 
 `brlMultilineVirtual` already solved this and the pieces transfer directly:
@@ -236,6 +259,54 @@ is replaced. Here the driver stays and reopens **its own device** in place: clos
 run detection again, open a new `hwIo.hid.Hid`, re-read the caps, re-hook the read error, and
 repaint the last frame. NVDA is never told the display went away, so no display switch,
 no fallback to no braille, and no restart.
+
+Three things about that are not obvious, and each was a bug first.
+
+**A reconnect is a new input session.** Everything the input path remembers describes the
+handle that went away: which keys were down, whether releases were being ignored, where the
+last touch was, and the capability structures every report is decoded against. Data indexes
+belong to a device's report descriptor, so keeping the old map decodes the new device's
+reports with the old device's key numbering. Carrying key state across is worse — a release
+arriving after the reconnect completes a combination begun on a device that is gone, and fires
+whatever it is bound to. All of it is reset once the new handle is installed.
+
+**Scheduling goes through `core.callLater`, not `wx.CallLater`.** The driver declares
+`isThreadSafe`, so NVDA may call into it from the I/O thread, and a read error — which is what
+starts a reconnection — arrives there. `core.callLater` marshals timer creation to the GUI
+thread, which is the reason NVDA offers it. The cost is that off the main thread it returns
+nothing to cancel, so each attempt carries a generation number and a stale tick compares and
+returns. If scheduling fails outright the recovering flag is cleared again: leaving it set
+means every later loss answers "handled" with nothing behind it, and a virtual display holding
+this member keeps a display that is never coming back.
+
+**Termination races the reopen, and the loser leaks the hardware.** `_poll` can check the
+termination flag, `terminate` can then run and find no device to close, and the reopen can
+install a handle afterwards that nothing will ever reach. `hwIo.hid.Hid` opens exclusively, so
+that handle holds the Monarch away from *every* driver until NVDA restarts. The candidate is
+therefore opened into a local and installed only after the flag is re-checked under a lock,
+and `terminate` closes anything that beat it to the install.
+
+### Three locks, in one order
+
+`_stateLock` for what the panel is made of, `_writeLock` for the wire, `_lifecycleLock` for
+the device handle and the reconnect timer — and always in that order, never the reverse. Each
+is held over a short section that calls nothing which could take an earlier one: a failed
+write reports the device lost *after* releasing `_writeLock`, and `terminate` sets its flag
+and lets `_lifecycleLock` go before the base class blanks the display through `display`.
+
+`_stateLock` earns its place twice over. Composing reads cells, glyphs, overlays and pitch,
+which four different threads write — the handler writes cells from its I/O thread while the
+add-on sets overlays from the main one — and a frame built from a mixture of before and after
+was never asked for. Worse, iterating the overlays while another thread inserts one raises
+`dictionary changed size during iteration` and the panel simply does not update. So the state
+is copied under the lock and the drawing, which is the slow part, happens outside it against a
+snapshot nothing can change underneath.
+
+Overlay and glyph changes are also **coalesced**. Setting three of them used to be three
+complete mechanical refreshes; now the request is marked and handed to the main thread, and
+whichever comes first — that flush or an ordinary `display` — publishes everything pending.
+On a page turn device where each write clatters and the reader has to lift their hand, one
+write per batch is not an optimisation.
 
 ### Indicators
 
@@ -295,3 +366,13 @@ Out:
    assumes yes and prefers it; a session comparing the two would settle it.
 4. Does reopening the device in place recover a Bluetooth drop as reliably as the virtual
    driver's member replacement does? The failure modes may not be identical.
+5. What are the Monarch's USB vendor and product IDs, and are they stable across firmware
+   revisions? A match on the pin capability is what authorises writing a raw 480 byte report,
+   so a device identity check would be worth having on top of it. None is made today, and
+   deliberately: no identifier has been confirmed, and hard coding a guessed one would refuse
+   real hardware. A rejected near miss capability is logged with its descriptor shape, so the
+   answer can come out of a log rather than out of a second hardware session.
+6. What is the pin array's bit offset within report 0x21? Windows does not expose it through
+   the parsed capabilities, so the payload's position rests on the pin array being the
+   report's only content — which 3,840 bits in a 481 byte report leaves room for and nothing
+   else. True on this firmware; not proven for the next one.

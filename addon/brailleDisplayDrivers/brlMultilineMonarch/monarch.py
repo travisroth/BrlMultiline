@@ -39,6 +39,15 @@ NVDA cannot see it: it reads output value caps only, and button caps only for in
 
 PIN_REPORT_BYTES = PIN_COUNT // 8
 
+PIN_USAGE = 0x301
+"""The usage the pin array is declared under, on the braille page.
+
+Above everything HUTRR78 defines — the braille page's own usages stop at 0x21E — so it is a
+vendor extension and, on the braille page, a strong signature. Checked before the driver will
+write a raw report, because a large output button array on some other display is not licence
+to send it 480 bytes on report 0x21.
+"""
+
 TOUCH_PIN_USAGE = 0x401
 """Input report 0x40. The touched pin, one based, 0 on release."""
 
