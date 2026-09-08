@@ -62,6 +62,9 @@ except Exception:
 	log.debugWarning("BrlMultiline: could not initialise Monarch driver translations", exc_info=True)
 
 
+DRIVER_NAME = "brlMultilineMonarch"
+"""The driver name, shared with the gesture so the two cannot drift apart."""
+
 OPEN_ATTEMPTS = 3
 OPEN_RETRY_DELAY = 0.3
 """A device Windows lists is not always openable, especially just after a release.
@@ -111,7 +114,7 @@ def _standardHidDriverName() -> str:
 class BrailleDisplayDriver(HidBrailleDriver):
 	"""The Monarch, driven by its pins."""
 
-	name = "brlMultilineMonarch"
+	name = DRIVER_NAME
 	# Translators: the name of the Monarch braille display driver, shown in NVDA's display list.
 	description = _("BrlMultiline: Humanware Monarch (pin mode)")
 
@@ -144,8 +147,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._watched: Optional[tuple] = None
 		self._pollTimer = None
 		self._retryDelay = POLL_INTERVAL
-		self._nextAttempt = 0.0
 		self._reopening = False
+		self._terminated = False
 		self._port = port
 
 		self._openWithRetry(port)
@@ -438,10 +441,36 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		except Exception:
 			log.debugWarning("BrlMultiline: could not read output button caps", exc_info=True)
 			return None
+		outputLength = self._dev.caps.OutputReportByteLength
 		for cap in capsList[: number.value]:
 			usages = cap.u1.Range.UsageMax - cap.u1.Range.UsageMin + 1 if cap.IsRange else 1
-			if max(usages, cap.ReportCount) >= monarch.PIN_COUNT:
-				return cap
+			bits = max(usages, cap.ReportCount)
+			if bits != monarch.PIN_COUNT:
+				continue
+			# Every fact the raw writer depends on, checked before it is depended on. This
+			# accepted any large output button array and then wrote a Monarch shaped payload
+			# to report 0x21 regardless of which report the capability actually named, which
+			# on some other device with a big button array would be bytes sent somewhere they
+			# were never meant to go.
+			if cap.ReportID != monarch.PIN_REPORT_ID:
+				log.debugWarning(
+					f"BrlMultiline: pin sized array on report 0x{cap.ReportID:02X}, "
+					f"not the expected 0x{monarch.PIN_REPORT_ID:02X}; ignoring it",
+				)
+				continue
+			if cap.UsagePage != bdDetect.HID_USAGE_PAGE_BRAILLE:
+				log.debugWarning(
+					f"BrlMultiline: pin sized array on usage page 0x{cap.UsagePage:04X}, "
+					"not the braille page; ignoring it",
+				)
+				continue
+			if outputLength < monarch.PIN_REPORT_BYTES + 1:
+				log.debugWarning(
+					f"BrlMultiline: output reports are {outputLength} bytes, too small for the "
+					f"{monarch.PIN_REPORT_BYTES} byte pin payload; ignoring it",
+				)
+				continue
+			return cap
 		return None
 
 	# --- Geometry ----------------------------------------------------------------------
@@ -511,12 +540,50 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			return
 		self._pitch = pitch
 		self._applyPitch()
+		self._announceGeometry()
+
+	def _announceGeometry(self) -> None:
+		"""Let NVDA notice that this display is now a different size.
+
+		One read of `handler.displayDimensions` does it: the handler recomputes it from the
+		driver every time and raises `displaySizeChanged` itself when the value has changed.
+		The same trick `brlMultilineVirtual._announceGeometry` uses, for the same reason.
+
+		This used to call `handler.handleDisplaySizeChanged()`, which does not exist. The
+		exception was swallowed, so changing the pitch quietly left NVDA believing the display
+		was still the old shape — 8 rows of 32, 256 cells — while the driver drew 10 rows of
+		32 and routed against 320. That is very likely why routing at 10 rows did nothing:
+		half the indexes were past the end of a buffer NVDA had never resized.
+
+		The update is queued rather than called, so it lands after whatever the notification
+		causes to be rebuilt. Nothing is announced unless this is the display NVDA has, which
+		keeps construction from announcing against the driver being replaced.
+		"""
 		handler = braille.handler
-		if handler is not None:
-			try:
-				handler.handleDisplaySizeChanged()
-			except Exception:
-				log.debugWarning("BrlMultiline: could not announce the new Monarch shape", exc_info=True)
+		if handler is None or handler.display is not self:
+			return
+		try:
+			handler.displayDimensions  # noqa: B018 - read for its side effect.
+		except Exception:
+			log.error("BrlMultiline: could not tell NVDA the display had changed size", exc_info=True)
+			return
+		self._onMainThread(handler.update)
+
+	@staticmethod
+	def _onMainThread(work) -> None:
+		"""Run something on the main thread, wherever this is called from.
+
+		:param work: what to run, taking no arguments.
+		"""
+		try:
+			import wx
+
+			wx.CallAfter(work)
+		except Exception:
+			# Without wx there is no main thread to hand this to, which is the test harness
+			# and nothing else.
+			log.debugWarning("BrlMultiline: no main thread to defer to; working here", exc_info=True)
+			work()
 
 	@property
 	def graphicsSize(self) -> tuple[int, int]:
@@ -919,7 +986,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 
 		:param buffer: the whole panel.
 		"""
-		if self._pinCap is None:
+		if self._pinCap is None or self._terminated:
 			return
 		payload = monarch.packPins(buffer)
 		with self._writeLock:
@@ -959,10 +1026,15 @@ class BrailleDisplayDriver(HidBrailleDriver):
 					handled = bool(original(error))
 			except Exception:
 				log.error("BrlMultiline: Monarch raised handling a read error", exc_info=True)
-			if not handled:
-				log.warning(f"BrlMultiline: Monarch stopped responding (error {error}); will retry")
-				self._onDeviceLost()
-			return handled
+			if handled:
+				return True
+			log.warning(f"BrlMultiline: Monarch stopped responding (error {error}); will retry")
+			# Report that this is handled once recovery is actually running. Returning False
+			# here said "this driver is finished", and inside a virtual display that is taken
+			# at its word: the member is dropped and the in place reconnection this driver
+			# promises never gets the chance to happen. False stays the answer when nothing
+			# is retrying, because a member kept alive with no recovery behind it is worse.
+			return self._onDeviceLost()
 
 		device._onReadError = onReadError
 		self._watched = (device, original, onReadError)
@@ -979,27 +1051,47 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		except Exception:
 			log.debugWarning("BrlMultiline: could not unhook the Monarch read error", exc_info=True)
 
-	def _onDeviceLost(self) -> None:
-		"""Begin trying to get the device back. Safe to call more than once."""
+	def _onDeviceLost(self) -> bool:
+		"""Begin trying to get the device back. Safe to call more than once.
+
+		:return: whether recovery is now running, which is what the read error hook reports
+			upward. Saying True when nothing is actually retrying would have a virtual display
+			keep a member that is never coming back.
+		"""
+		if self._terminated:
+			return False
 		if self._reopening:
-			return
+			return True
 		self._reopening = True
 		self._retryDelay = POLL_INTERVAL
-		self._nextAttempt = time.monotonic()
-		self._startPolling()
+		return self._startPolling(POLL_INTERVAL)
 
-	def _startPolling(self) -> None:
-		"""Start the reconnect timer. Safe to call when one is already running."""
+	def _startPolling(self, delay: float) -> bool:
+		"""Start the reconnect timer. Safe to call when one is already running.
+
+		The delay is passed in rather than fixed, which is the whole of a bug worth recording.
+		This used to schedule every tick `POLL_INTERVAL` apart and separately track a deadline
+		that each tick pushed further out — so after the first failure the deadline receded by
+		twice the time that passed, and no second attempt was ever made. The backoff now lives
+		in the timer itself and there is no deadline to outrun.
+
+		:param delay: seconds until the next attempt.
+		:return: whether a timer was started.
+		"""
+		if self._terminated:
+			return False
 		if self._pollTimer is not None:
-			return
+			return True
 		try:
 			import wx
 
-			self._pollTimer = wx.CallLater(int(POLL_INTERVAL * 1000), self._poll)
+			self._pollTimer = wx.CallLater(int(delay * 1000), self._poll)
+			return True
 		except Exception:
 			# No timer means no reconnection, and everything else goes on working. The one
 			# place this happens is a test harness with no wx.
 			log.debugWarning("BrlMultiline: could not start looking for the Monarch", exc_info=True)
+			return False
 
 	def _stopPolling(self) -> None:
 		"""Stop the reconnect timer. Safe to call when nothing is running."""
@@ -1014,10 +1106,10 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _poll(self) -> None:
 		"""Try to reopen the device, and keep trying with a growing wait."""
 		self._pollTimer = None
-		if not self._reopening:
+		if not self._reopening or self._terminated:
 			return
 		try:
-			if time.monotonic() >= self._nextAttempt and self._reopenDevice():
+			if self._reopenDevice():
 				self._reopening = False
 				self._retryDelay = POLL_INTERVAL
 				log.info("BrlMultiline: the Monarch is back")
@@ -1026,8 +1118,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		except Exception:
 			log.error("BrlMultiline: error reopening the Monarch", exc_info=True)
 		self._retryDelay = min(self._retryDelay * 2, POLL_BACKOFF_LIMIT)
-		self._nextAttempt = time.monotonic() + self._retryDelay
-		self._startPolling()
+		self._startPolling(self._retryDelay)
 
 	def _reopenDevice(self) -> bool:
 		"""Close the dead handle and open the device again, keeping this driver alive.
@@ -1046,6 +1137,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			except Exception:
 				log.debugWarning("BrlMultiline: could not close the old Monarch handle", exc_info=True)
 		self._dev = None
+		self._pinCap = None
 		self._inputUsages = None
 		for portType, portId, port, portInfo in self._getTryPorts(self._port):  # noqa: B007
 			if portType != bdDetect.ProtocolType.HID:
@@ -1070,36 +1162,77 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	# --- Shutdown ------------------------------------------------------------------------
 
 	def terminate(self):
-		"""Stop polling and unhook before letting the base class close the device."""
+		"""Stop polling and unhook before letting the base class close the device.
+
+		`_terminated` is set first and every other path checks it, because shutdown is exactly
+		when a stale timer or a dying read can start work that outlives the driver. Blanking
+		the display on the way out goes through `display`, so without the flag a device that
+		had already gone would fail its write, be reported lost, and start a reconnection poll
+		during termination.
+
+		A driver whose device is gone must also not take the inherited path: it closes `_dev`
+		unconditionally and would raise on None. The base class's own cleanup still runs, with
+		the blanking suppressed, because there is nothing left to blank.
+		"""
+		self._terminated = True
 		try:
 			handover.stopReleasingOnSwitch(self.name)
 			self._stopPolling()
 			self._reopening = False
 			self._stopWatching()
 			self._overlays.clear()
+			self._glyphs.clear()
 		finally:
-			super().terminate()
+			if getattr(self, "_dev", None) is None:
+				self._suppressDisplayClear = True
+				braille.display.driver.BrailleDisplayDriver.terminate(self)
+			else:
+				super().terminate()
 
 	gestureMap = HidBrailleDriver.gestureMap
 	"""Inherited wholesale.
 
 	The keys, routing and controls are the same hardware whichever report the pins arrive in,
-	so a user's existing `hidBrailleStandard` gestures keep working. Note that the identifiers
-	in the inherited map name that driver, which is what NVDA matches against the gesture's
-	own source; see `InputGesture.source` in the base module.
+	so a user's existing `hidBrailleStandard` gestures keep working. The identifiers in this
+	map name that driver, and they keep matching because `InputGesture` offers them as aliases
+	after its own — see the source discussion there.
 	"""
 
 
 class InputGesture(HidInputGesture):
-	"""A HID braille gesture whose routing index suits the pitch being rendered.
+	"""A HID braille gesture that says which driver it came from, and routes for the pitch.
 
-	Everything else is inherited, `source` included, so the identifiers stay
-	`br(hidBrailleStandard):...` and a user's existing gestures for the standard driver go on
-	working here unchanged.
+	**Source.** The inherited gesture reports `hidBrailleStandard`, because that is the driver
+	the class belongs to. Standing alone that is harmless — the identifiers still match, and
+	the driver's inherited `gestureMap` is written in those terms. Inside `brlMultilineVirtual`
+	it is not harmless at all: the virtual display finds the member a gesture came from by
+	driver name, so a Monarch reporting `hidBrailleStandard` matches no member. Routing indexes
+	are not rebased into the composite, panning cannot tell which band to move, and a pan can
+	end up scrolling a segment on the other display entirely.
 
-	Only a single routing press is corrected. Several at once is a range selection, which
-	means something different and whose endpoints the device is better placed to report.
+	So the source is this driver, and the `hidBrailleStandard` identifiers are kept as aliases
+	after it. Bindings a user already has for the standard driver keep working, the inherited
+	`gestureMap` keeps matching, and the virtual display gets an unambiguous answer. Order
+	matters: the specific identifier is offered first, so a Monarch-only binding can be made
+	without disturbing the shared one.
+
+	**Routing.** Only a single press is corrected for the pitch. Several at once is a range
+	selection, which means something different and whose endpoints the device is better placed
+	to report.
 	"""
+
+	source = DRIVER_NAME
+
+	def _get_identifiers(self):
+		"""Our own identifiers, then the standard HID ones they replace.
+
+		:return: identifiers most specific first.
+		"""
+		ids = super()._get_identifiers()
+		ours = f"br({self.source}):"
+		theirs = f"br({HidBrailleDriver.name}):"
+		aliases = [identifier.replace(ours, theirs, 1) for identifier in ids if identifier.startswith(ours)]
+		return ids + aliases
 
 	def __init__(self, driver, dataIndices):
 		"""
