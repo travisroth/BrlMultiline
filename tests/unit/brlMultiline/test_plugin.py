@@ -58,7 +58,13 @@ from brlMultiline import flowObjects  # noqa: E402
 from brlMultiline.container import PLACEMENT_KEY_ATTRIBUTE, DisplayContainer  # noqa: E402
 from brlMultiline.layout import SegmentRect  # noqa: E402
 from brlMultiline.messages import MessageBuffer  # noqa: E402
-from brlMultiline.panels import BlankPanel, GridPanel, SinglePanel  # noqa: E402
+from brlMultiline.panels import (  # noqa: E402
+	BlankPanel,
+	FlowPanel,
+	GraphicsPanel,
+	GridPanel,
+	SinglePanel,
+)
 from brlMultiline.devices import deviceMap  # noqa: E402
 from brlMultiline.views import (  # noqa: E402
 	SegmentView,
@@ -356,6 +362,127 @@ class TestPanelClaims(PluginTestCase):
 		self.plugin.restoreConfiguredView()
 		self.assertEqual(self.plugin._activePanels, [])
 		self.assertEqual(self.container.numSegments, 8)
+
+
+class TestClaimPriority(PluginTestCase):
+	"""A drawing outranks the flow, which outranks an ordinary claim.
+
+	The flow is on most of the time — it is the add-on's default and it is wanted in Excel
+	and on the web — so without an order, showing a drawing was a fight with it: whichever
+	claim was made most recently took the rows, and a profile switch or a focus change
+	could take a figure off the display mid-read.
+	"""
+
+	segmentCount = 8
+
+	def test_theHighestRankIsLaidLast(self):
+		rect = SegmentRect(0, 0, 4, MONARCH_COLS)
+		ordered = plugin._byPriority(
+			[GraphicsPanel("g", rect), SinglePanel("s", rect), FlowPanel("f", rect)],
+		)
+		self.assertEqual([panel.name for panel in ordered], ["s", "f", "g"])
+
+	def test_equalRanksKeepTheOrderTheyWereClaimedIn(self):
+		rect = SegmentRect(0, 0, 4, MONARCH_COLS)
+		ordered = plugin._byPriority([SinglePanel("first", rect), SinglePanel("second", rect)])
+		self.assertEqual([panel.name for panel in ordered], ["first", "second"])
+
+	def test_aDrawingKeepsItsRowsAgainstAClaimMadeAfterIt(self):
+		"""The whole point. Before the ladder, the later claim simply took them.
+
+		The latecomer takes rows 2 to 4 rather than the whole display, because a claim over the
+		base view's own focus segment is refused whatever its rank — a rule that predates the
+		ladder and is nothing to do with it.
+		"""
+		self.plugin.activatePanel(
+			GraphicsPanel("graphics", SegmentRect(0, 0, 8, MONARCH_COLS), textRows=1),
+		)
+		self.plugin.activatePanel(SinglePanel("latecomer", SegmentRect(1, 0, 3, MONARCH_COLS)))
+		self.assertTrue(self.container.hasKey("graphics.drawing"))
+		self.assertFalse(self.container.hasKey("latecomer"))
+
+	def test_anOrdinaryClaimStillWinsWhereNoDrawingWantsTheRows(self):
+		"""The ladder must not turn into graphics owning the display permanently."""
+		self.plugin.activatePanel(SinglePanel("mine", SegmentRect(0, 0, 4, MONARCH_COLS)))
+		self.assertTrue(self.container.hasKey("mine"))
+
+	def test_theFlowDoesNotClaimWhileADrawingIsUp(self):
+		"""Letting it claim rows it is going to lose would cost a claim, an eviction and
+		a teardown on every rebuild, and the flow is on for most rebuilds.
+		"""
+		self.assertFalse(self.plugin.graphicsMode.active)
+		self.plugin.graphicsMode._drawing = object()
+		try:
+			self.plugin._applyFlow()
+			self.assertIsNone(self.plugin.flowBand)
+		finally:
+			self.plugin.graphicsMode._drawing = None
+
+
+class TestLayoutReport(PluginTestCase):
+	"""The report has to say who took the rows, not only how many are left.
+
+	A reader whose display had stopped dividing was told "devices+flow view, 3 panels, 2
+	segments". That contains the answer — the `+` means a claim was laid over the
+	configured view, and the flow had taken the rows the segments were meant to occupy —
+	but only to someone who knows how `SegmentView.withPanel` names a composed view. These
+	tests are that the name and the rows are said outright.
+	"""
+
+	segmentCount = 8
+
+	def report(self):
+		":return: what the reader was told."
+		spokenMessages.clear()
+		self.plugin.script_reportLayout(None)
+		return spokenMessages[-1]
+
+	def claim(self):
+		return GridPanel(
+			"table",
+			SegmentRect(2, 0, 6, MONARCH_COLS),
+			rowBands=[2, 2, 2],
+			colWidths=[10, 10, 10],
+		)
+
+	def test_theConfiguredViewSaysSoAndNamesNoClaim(self):
+		message = self.report()
+		self.assertIn("8 segments", message)
+		self.assertNotIn("Claimed", message)
+
+	def test_aClaimIsNamedWithTheRowsItHolds(self):
+		"""The fact that was missing on hardware."""
+		self.plugin.activatePanel(self.claim())
+		message = self.report()
+		self.assertIn("Claimed", message)
+		self.assertIn("table", message)
+		# Rows counted from 1, as the settings dialog counts them: a claim at row 2 spanning
+		# 6 rows is rows 3 to 8.
+		self.assertIn("rows 3 to 8", message)
+
+	def test_theBreakdownNamesEveryPanelAndWhichOneWasClaimed(self):
+		self.plugin.activatePanel(self.claim())
+		lines = plugin._layoutLines(self.container, self.plugin._activePanels)
+		text = "\n".join(lines)
+		self.assertIn("claimed by code", text)
+		self.assertIn("table", text)
+		self.assertIn("focus segment:", text)
+		# One line per panel and one per segment, so a display that has lost rows can be
+		# read off rather than deduced.
+		for panel in self.container.panels:
+			self.assertIn(panel.name, text)
+		for spec in self.container.specs:
+			self.assertIn(spec.key, text)
+
+	def test_theBreakdownSaysWhenNothingHasClaimedAnything(self):
+		text = "\n".join(plugin._layoutLines(self.container, []))
+		self.assertIn("no claims", text)
+
+	def test_reservedAndFocusSegmentsAreMarked(self):
+		self.plugin.activatePanel(self.claim())
+		text = "\n".join(plugin._layoutLines(self.container, self.plugin._activePanels))
+		self.assertIn("reserved by", text)
+		self.assertIn("[focus", text)
 
 
 class TestSpeechOutputMode(PluginTestCase):

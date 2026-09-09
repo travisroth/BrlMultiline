@@ -256,6 +256,19 @@ was meant is a second opinion worth having when turning a pin into a line and co
 Both are published on the driver; NVDA's own routing gestures continue to work unchanged
 because the inherited `_hidOnReceive` still runs.
 
+**A third thing is published, and it is the only one anything above the driver can use.**
+`lastTouch` is the live touch, and the live touch is zero the moment the finger lifts. NVDA
+compounds that by running a gesture's script from a queue rather than during dispatch, so by
+the time a script asks what a press meant, even that press's own touch has gone. Anything
+wanting to know *where* a press landed, at pin resolution rather than cell resolution, would
+have got nothing every time.
+
+So `lastRoutingPin` holds the pin that was under the finger when the routing key went down.
+Set at gesture construction, for every dispatched press at both pitches, and left standing
+until the next press replaces it — unlike `_pinAtRouting`, which guards the correction and
+must not outlive its own press. This is what makes a drawing something to point at: the
+add-on's graphics mode reads it when a press lands inside a figure.
+
 The pin has to be **snapshotted when the routing key goes down**, because of the order the
 panel speaks in: the pin arrives, then the routing cell, then the pin again as zero on
 release, and only then does NVDA raise the gesture. By gesture time the live pin is gone.

@@ -32,6 +32,7 @@ from scriptHandler import script
 from . import bmConfig, panning, patches, tableArrows
 from .container import DisplayContainer
 from .flowTableSource import wantsColumns
+from .graphicsMode import FIT as GRAPHICS_FIT, PANEL_NAME as GRAPHICS_PANEL_NAME, GraphicsMode
 from . import devices as devicesModule
 from .devices import (
 	DeviceInfo,
@@ -190,6 +191,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._applyingFlow = False
 		"""Guards L{_applyFlow} against itself: claiming the band rebuilds the display."""
 
+		self.graphicsMode = GraphicsMode(self)
+		"""The drawing on the display, and the zoom and origin that make it readable.
+
+		Built whether or not the display can draw: it answers `active` as False and reports
+		why when asked to show something, which is a better failure than a missing attribute
+		on hardware that has no pins to raise.
+		"""
+
 		self._activePanels: list[BraillePanel] = []
 		"""Claims laid over whatever view is in force, in the order they were made.
 
@@ -236,6 +245,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			if self.flowBand is not None:
 				self.flowBand.onTerminate()
 				self.flowBand = None
+			self.graphicsMode.onTerminate()
 			self.stopAllMonitoring()
 			self._restoreOriginalBuffer()
 			patches.remove()
@@ -391,7 +401,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""
 		devices = deviceMap()
 		view = self._baseView(numRows, numCols, devices)
-		for panel in panels:
+		for panel in _byPriority(panels):
 			view = view.withPanel(panel, numRows, numCols)
 		validateAgainstHardware(view, devices, numCols)
 		return view
@@ -450,7 +460,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		devices = deviceMap()
 		view = self._baseView(numRows, numCols, devices)
 		kept: list[BraillePanel] = []
-		for panel in self._activePanels:
+		for panel in _byPriority(self._activePanels):
 			try:
 				candidate = view.withPanel(panel, numRows, numCols)
 				# Composed into a candidate rather than into `view`, so that a claim which
@@ -466,7 +476,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				continue
 			view = candidate
 			kept.append(panel)
-		self._activePanels = kept
+		# Restored to the order they were claimed in. `kept` came out in priority order, and
+		# storing that would make the sort cumulative: a claim that lost a tie once would keep
+		# losing it, and the order a reader made their claims in would quietly stop meaning
+		# anything.
+		self._activePanels = [panel for panel in self._activePanels if panel in kept]
 		return view
 
 	def rebuildBuffer(self) -> None:
@@ -504,10 +518,23 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# written over the fresh layout rather than under it.
 		self.refreshMonitors()
 		self._carryOverFlow(container)
+		self._carryOverGraphics()
 		self._applyFlow()
 
 	def _applyFlow(self) -> None:
 		"""Claim or give back the flow band, following the setting for this display and profile.
+
+		**A drawing outranks the flow, and this is where that is honoured.** The priority
+		ladder in `panels` decides who wins the cells, but letting the flow claim rows it is
+		going to lose would still cost a claim, an eviction and a teardown on every rebuild —
+		and the flow is on most of the time, so that is most rebuilds. So while a figure is up
+		the flow simply does not claim, and leaving the figure rebuilds the display and brings
+		it straight back.
+
+		Not conditioned on the two wanting the same rows, deliberately. Both default to the
+		tallest display — `devices.preferredDevice` with nothing named — so in practice they
+		always do, and a rule that reads "while a drawing is up, the flow waits" is one a
+		reader can hold in their head.
 
 		Called after every rebuild, which is what makes the setting answer a profile switch.
 		NVDA switches profile when the foreground application changes, the switch rebuilds
@@ -521,7 +548,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if self._terminated or self._applyingFlow:
 			# Claiming the band rebuilds the display, which arrives back here. One pass does it.
 			return
-		wanted = bmConfig.shouldClaimFlowBand()
+		wanted = bmConfig.shouldClaimFlowBand() and not self.graphicsMode.active
 		active = self.flowBand is not None
 		geometryChanged = False
 		if wanted and active:
@@ -593,6 +620,22 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self.flowBand = None
 			return
 		band.onRebuilt()
+
+	def _carryOverGraphics(self) -> None:
+		"""Draw the figure again after a rebuild, or drop it if its claim has gone.
+
+		The same gap `_carryOverFlow` closes, answered differently because a graphics claim
+		has no segments to look for. Its claim is its own evidence: the rebuild drops a panel
+		that no longer fits, so a claim missing from the active panels is a claim that is gone.
+		"""
+		mode = self.graphicsMode
+		if not mode.active:
+			return
+		if any(panel.name == GRAPHICS_PANEL_NAME for panel in self._activePanels):
+			mode.onRebuilt()
+			return
+		log.debugWarning("BrlMultiline: the graphics claim did not survive the rebuild; dropping the figure")
+		mode.onEvicted()
 
 	def _fallbackContainer(self, handler, dimensions) -> DisplayContainer:
 		"""Build the simplest container the connected display can have.
@@ -2434,30 +2477,320 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			)
 		log.debug(verdict)
 
+	# --- Graphics ------------------------------------------------------------------------
+	#
+	# The only commands in this add-on that arrive bound, and the reason is where the
+	# reader's hands are. Everything else is unbound on purpose: a reader assigns what they
+	# want, and an add-on helping itself to keystrokes is a nuisance. A drawing is different.
+	# The reader is at the display with a hand on the panel, and a command that needs the
+	# keyboard means taking that hand off the figure — which for zoom and pan is exactly the
+	# wrong moment, since what they are keeping track of is where their finger was.
+	#
+	# The chords are chosen to be collision free rather than mnemonic. `hidBrailleStandard`'s
+	# gesture map, which the Monarch driver inherits whole, uses no chord containing dot 7 or
+	# dot 8 anywhere, so every chord here sits in space the standard map left empty and none
+	# of them shadows an existing binding. Dot 7 added to the four arrow chords that map
+	# already defines — dots 1, 4, 3 and 6 — pans, which is the one piece of mnemonic going:
+	# the arrow you already know, with a modifier on it.
+	#
+	# Named for the Monarch driver rather than for `hidBrailleStandard`, deliberately. The
+	# gesture offers both identifiers, and binding the standard one would take these chords
+	# on every HID braille display, including ones that cannot draw and would answer nothing
+	# but "No drawing". All of it is rebindable in Input Gestures under BrlMultiline.
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Show or hide a drawing on the display"),
+		category=SCRIPT_CATEGORY,
+		gestures=["br(brlMultilineMonarch):space+dot7+dot8"],
+	)
+	def script_toggleGraphics(self, gesture):
+		"""Put a figure on the part of the display that can draw, or take it off again.
+
+		A display that cannot raise individual pins says so rather than doing nothing, because
+		"nothing happened" is the one answer a reader cannot act on.
+		"""
+		mode = self.graphicsMode
+		if mode.active:
+			mode.leave()
+			# Translators: reported when a drawing is taken off the display.
+			ui.message(_("Drawing off"))
+			return
+		if mode.enter():
+			ui.message(mode.describe())
+			return
+		# Translators: reported when a drawing could not be shown. The placeholder is why.
+		ui.message(mode.lastError or _("The drawing could not be shown"))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Magnify the drawing"),
+		category=SCRIPT_CATEGORY,
+		gestures=["br(brlMultilineMonarch):space+dot8"],
+	)
+	def script_graphicsZoomIn(self, gesture):
+		self._zoomGraphics(1)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Shrink the drawing"),
+		category=SCRIPT_CATEGORY,
+		gestures=["br(brlMultilineMonarch):space+dot7"],
+	)
+	def script_graphicsZoomOut(self, gesture):
+		self._zoomGraphics(-1)
+
+	def _zoomGraphics(self, step: int) -> None:
+		"""Change the magnification and say what it became.
+
+		:param step: levels in, negative for out.
+		"""
+		mode = self.graphicsMode
+		if not mode.active:
+			# Translators: reported when a drawing command is used with no drawing on the display.
+			ui.message(_("No drawing"))
+			return
+		mode.zoomBy(step)
+		# Reported whether or not it moved: at the ends of the ladder the useful answer is
+		# still where the reader now is, and silence would read as the command having missed.
+		# `describe` says "whole drawing" at the bottom of the ladder rather than a number,
+		# because a magnification figure for a compressed drawing means nothing to a reader.
+		ui.message(mode.describe())
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Move the drawing view up"),
+		category=SCRIPT_CATEGORY,
+		gestures=["br(brlMultilineMonarch):space+dot1+dot7"],
+	)
+	def script_graphicsPanUp(self, gesture):
+		self._panGraphics(0, -1)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Move the drawing view down"),
+		category=SCRIPT_CATEGORY,
+		gestures=["br(brlMultilineMonarch):space+dot4+dot7"],
+	)
+	def script_graphicsPanDown(self, gesture):
+		self._panGraphics(0, 1)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Move the drawing view left"),
+		category=SCRIPT_CATEGORY,
+		gestures=["br(brlMultilineMonarch):space+dot3+dot7"],
+	)
+	def script_graphicsPanLeft(self, gesture):
+		self._panGraphics(-1, 0)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Move the drawing view right"),
+		category=SCRIPT_CATEGORY,
+		gestures=["br(brlMultilineMonarch):space+dot6+dot7"],
+	)
+	def script_graphicsPanRight(self, gesture):
+		self._panGraphics(1, 0)
+
+	def _panGraphics(self, across: int, down: int) -> None:
+		"""Move the visible part of the drawing, and say where it now starts.
+
+		Written out four times rather than generated, unlike the segment commands, because a
+		generated script cannot carry a default gesture: the metaclass collects a decorator's
+		gestures from the class body, and anything attached afterwards is never seen.
+
+		:param across: steps right, negative for left.
+		:param down: steps down, negative for up.
+		"""
+		mode = self.graphicsMode
+		if not mode.active:
+			ui.message(_("No drawing"))
+			return
+		if mode.zoom == GRAPHICS_FIT:
+			# Not an edge and not a failure: at the bottom of the zoom ladder the whole drawing
+			# is on the panel, so there is nowhere to move to and nothing off the display to go
+			# looking for. Saying that is more use than saying the pan did not happen.
+			# Translators: reported when panning is asked for but the whole drawing is already
+			# on the display.
+			ui.message(_("Whole drawing is shown; magnify to move around it"))
+			return
+		stepAcross, stepDown = mode.panStep()
+		if not mode.panBy(across * stepAcross, down * stepDown):
+			# Translators: reported when the drawing cannot be moved any further that way.
+			ui.message(_("Edge of the drawing"))
+			return
+		# Said as a fraction of how far the window can move rather than as a source dot: the
+		# dot number depends on how large the drawing happens to be, which is a fact about the
+		# file and not about what the reader is feeling. See `GraphicsMode.positionWords`.
+		ui.message(mode.positionWords())
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Show or hide the braille line beside the drawing"),
+		category=SCRIPT_CATEGORY,
+		gestures=["br(brlMultilineMonarch):space+dot2+dot7"],
+	)
+	def script_toggleGraphicsTextLine(self, gesture):
+		"""Give the drawing the whole display, or give the braille line back.
+
+		A figure on the Monarch is 96 by 35 pins with a line kept beside it and 96 by 40
+		without — about a seventh more, and the seventh across the middle of the panel where
+		a reader's hands already are. Worth having at times, which is why it is a command
+		rather than a setting decided once.
+
+		The cost is stated rather than hidden: with no line left, NVDA's focus braille has
+		nowhere to go and is dropped for as long as the figure is up. A reader with a second
+		display does not pay it at all — their focus segment is over there, untouched.
+		"""
+		mode = self.graphicsMode
+		if not mode.active:
+			ui.message(_("No drawing"))
+			return
+		hiding = bool(mode.textLines)
+		if not mode.setTextLines(0 if hiding else 1):
+			# Translators: reported when the drawing could not be resized.
+			ui.message(_("The display would not give up those rows"))
+			return
+		if hiding:
+			# Translators: reported when a drawing takes the whole display and the braille
+			# line beside it goes away.
+			ui.message(_("Full panel, no braille line"))
+			return
+		# Translators: reported when the braille line beside a drawing comes back.
+		ui.message(_("Braille line back"))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Reports the drawing on the display"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_reportGraphics(self, gesture):
+		ui.message(self.graphicsMode.describe())
+
 	@script(
 		# Translators: input help message for a command.
 		description=_("Misc: Reports the BrlMultiline segment layout"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_reportLayout(self, gesture):
+		"""Say what is on the display, and who claimed it.
+
+		The counts alone were not enough to debug with. A reader whose display had stopped
+		dividing was told "devices+flow view, 3 panels, 2 segments", which contains the
+		answer — the `+` means a claim was laid over the configured view, and the flow had
+		taken the rows the segments were meant to occupy — but only to someone who knows how
+		`SegmentView.withPanel` names a composed view. What was missing was plain: which
+		claim, and which rows.
+
+		So the summary now names every claim and the rows it holds, and the full breakdown —
+		every panel and every segment, with its rectangle, its owner and whether it follows
+		the focus — goes to the log at INFO, where it needs no debug logging to appear and can
+		be sent on.
+		"""
 		container = self.container
 		if container is None:
 			# Translators: reported when a command needs segments but none are configured.
 			ui.message(_("BrlMultiline is not active"))
 			return
-		ui.message(
-			_(
-				# Translators: reports the current layout. Placeholders are the name of the view,
-				# the number of panels, the number of segments, and the segment following the
-				# focus.
-				"{view} view, {panels} panels, {count} segments, focus in segment {focus}",
-			).format(
-				view=container.view.name,
-				panels=len(container.panels),
-				count=container.numSegments,
-				focus=container.focusSegmentNumber,
-			),
+		claims = list(self._activePanels)
+		try:
+			log.info("BrlMultiline layout:\n" + "\n".join(_layoutLines(container, claims)))
+		except Exception:
+			log.error("BrlMultiline: could not write the layout breakdown", exc_info=True)
+		summary = _(
+			# Translators: reports the current layout. Placeholders are the name of the view,
+			# the number of panels, the number of segments, and the segment following the
+			# focus.
+			"{view} view, {panels} panels, {count} segments, focus in segment {focus}",
+		).format(
+			view=container.view.name,
+			panels=len(container.panels),
+			count=container.numSegments,
+			focus=container.focusSegmentNumber,
 		)
+		if claims:
+			summary += ". " + _(
+				# Translators: follows the layout report, naming what has laid a claim over the
+				# configured display and which rows it holds. The placeholder is that list.
+				"Claimed: {claims}",
+			).format(
+				claims="; ".join(
+					_(
+						# Translators: one claim in the layout report. Placeholders are its name
+						# and the first and last row it holds, counted from 1.
+						"{name} rows {first} to {last}",
+					).format(
+						name=panel.name,
+						first=panel.rect.row + 1,
+						last=panel.rect.row + panel.rect.numRows,
+					)
+					for panel in claims
+				),
+			)
+		ui.message(summary)
+
+
+def _rectWords(rect) -> str:
+	":return: a rectangle as rows and columns, counted from 1 as a reader counts them."
+	return (
+		f"rows {rect.row + 1} to {rect.row + rect.numRows}, "
+		f"cols {rect.col + 1} to {rect.col + rect.numCols}"
+	)
+
+
+def _layoutLines(container, claims: list) -> list[str]:
+	"""Describe the whole arrangement, for the log.
+
+	English rather than translated, like the flow dry run's output and for the same reason:
+	this is read by whoever is diagnosing a display, often from a log someone else sent.
+
+	:param container: the live display.
+	:param claims: the panels code has laid over the configured view, which is what
+		separates "the reader configured this" from "something took it".
+	:return: one line per fact, ready to join.
+	"""
+	claimed = {panel.name for panel in claims}
+	lines = [f"  view: {container.view.name}"]
+	lines.append(
+		f"  display: {container.numRows} rows of {container.numCols}, "
+		f"{container.numSegments} segments in {len(container.panels)} panels"
+	)
+	lines.append(f"  focus segment: {container.focusSegmentNumber} ({container.focusSegmentKey!r})")
+	lines.append(f"  panels ({len(container.panels)}):")
+	for panel in container.panels:
+		mark = "  <- claimed by code" if panel.name in claimed else ""
+		lines.append(f"    {panel.name}: {_rectWords(panel.rect)}{mark}")
+	lines.append(f"  segments ({container.numSegments}):")
+	for number, spec in enumerate(container.specs):
+		notes = []
+		if number == container.focusSegmentNumber:
+			notes.append("focus")
+		if spec.owner:
+			notes.append(f"reserved by {spec.owner!r}")
+		if spec.hostsSystemFocus:
+			notes.append("hosts system focus")
+		lines.append(
+			f"    {number} {spec.key}: {_rectWords(spec.rect)}"
+			+ (f"  [{', '.join(notes)}]" if notes else "")
+		)
+	if claims:
+		lines.append(f"  claims laid over the configured view: {', '.join(sorted(claimed))}")
+	else:
+		lines.append("  no claims; this is the configured view")
+	return lines
+
+
+def _byPriority(panels) -> list:
+	"""Order claims so the highest priority is laid over the rest.
+
+	Stable, so claims of equal rank keep the order they were made in, which is what decided
+	them before the ladder existed.
+
+	:param panels: the claims, in the order they were made.
+	:return: the same claims, lowest priority first.
+	"""
+	return sorted(panels, key=lambda panel: getattr(panel, "priority", 0))
 
 
 def _columnName(column) -> str:

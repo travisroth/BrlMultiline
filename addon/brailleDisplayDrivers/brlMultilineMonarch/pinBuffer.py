@@ -20,6 +20,56 @@ it, because that module is not importable outside NVDA and this one has to be.
 """
 
 
+BRAILLE_DOT_COORDS = [
+	(0, 0),  # dot 1
+	(0, 1),  # dot 2
+	(0, 2),  # dot 3
+	(1, 0),  # dot 4
+	(1, 1),  # dot 5
+	(1, 2),  # dot 6
+	(0, 3),  # dot 7
+	(1, 3),  # dot 8
+]
+"""Where each dot sits inside a braille cell, matching NVDA's `tactile.braille._brailleDotCoords`.
+
+Braille geometry rather than device geometry, which is why it lives here rather than beside
+the Monarch's pin order: any display drawing a cell into dots puts the dots in these places.
+`monarch.py` re-exports it under its own name and the driver checks it against NVDA's at load,
+so there is one copy and it is verified.
+"""
+
+MARKERS = {
+	"dot": ["O"],
+	"cross": [
+		"O.O",
+		".O.",
+		"O.O",
+	],
+	"plus": [
+		".O.",
+		"OOO",
+		".O.",
+	],
+	"square": [
+		"OOO",
+		"O.O",
+		"OOO",
+	],
+	"diamond": [
+		".O.",
+		"O.O",
+		".O.",
+	],
+}
+"""The shapes `PinBuffer.marker` can stamp, as `fromRows` patterns.
+
+Small and few on purpose. At this resolution a marker has about three dots to distinguish
+itself with, so the useful vocabulary is short and the shapes have to differ in their outline
+rather than in their detail. Odd sizes throughout, so that a marker has a centre dot to be
+placed by.
+"""
+
+
 class PinBuffer:
 	"""A grid of dots that can be drawn on.
 
@@ -176,6 +226,48 @@ class PinBuffer:
 			for col in range(other.width):
 				if other.getDot(col, row):
 					self.setDot(x + col, y + row)
+
+	def marker(self, x: int, y: int, kind: str = "dot") -> None:
+		"""Stamp a small named shape centred on a point.
+
+		Centred rather than placed by its corner, because a marker stands for a position —
+		a data point, a callout — and the caller knows where that position is, not where the
+		shape's top left corner would have to go to put it there.
+
+		:param x: the point's column.
+		:param y: the point's row.
+		:param kind: a key of `MARKERS`. An unknown name draws a single dot, because losing
+			a data point is worse than losing its shape.
+		"""
+		rows = MARKERS.get(kind)
+		if rows is None:
+			rows = MARKERS["dot"]
+		shape = PinBuffer.fromRows(rows)
+		self.blit(shape, x - shape.width // 2, y - shape.height // 2)
+
+	def text(self, x: int, y: int, cells: list[int], cellStride: int = 3) -> None:
+		"""Draw braille cells into this buffer as dots.
+
+		The driver draws whole lines across the panel at the display's own pitch. This is the
+		same operation scoped to a rectangle, so a caption can sit inside a figure at a
+		position the figure chose rather than on a line boundary.
+
+		Additive, like everything else here: a caption over a drawing raises its dots and
+		lowers nothing. Call `clearRect` first for a caption on a cleared strip.
+
+		:param x: left edge of the first cell.
+		:param y: top edge of the line.
+		:param cells: one eight dot cell value per cell, as NVDA writes them.
+		:param cellStride: dot columns from one cell's left edge to the next. Three matches a
+			display that leaves a gap column; two packs cells with no separation, which is
+			legible for a short label and not for prose.
+		"""
+		for index, cell in enumerate(cells):
+			originX = x + index * cellStride
+			for bit in range(8):
+				if cell & (1 << bit):
+					dotX, dotY = BRAILLE_DOT_COORDS[bit]
+					self.setDot(originX + dotX, y + dotY)
 
 	def clearRect(self, x: int, y: int, width: int, height: int) -> None:
 		"""Lower every dot in a rectangle.

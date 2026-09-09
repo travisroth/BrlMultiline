@@ -16,6 +16,16 @@ Everything here was established against hardware and two readings of it were wro
 see the tactile graphics plan for what the wrong ones looked like.
 """
 
+try:
+	from .pinBuffer import BRAILLE_DOT_COORDS
+except ImportError:  # pragma: no cover - the bare module import the pin tests use.
+	# Both import forms have to work. The driver imports this as part of its package; the pin
+	# tests put the package directory on the path and import this and `pinBuffer` as bare
+	# modules, deliberately, because importing the package would run `__init__.py` and that
+	# needs NVDA. These tests are the ones that keep the packing honest, so they must stay
+	# runnable without a screen reader.
+	from pinBuffer import BRAILLE_DOT_COORDS
+
 PIN_WIDTH = 96
 PIN_HEIGHT = 40
 """The pin grid. 3,840 pins, uniformly spaced, no clusters."""
@@ -58,20 +68,13 @@ ROUTING_USAGE_MAX = 0x501
 NATIVE_ROUTING_COLS = 32
 NATIVE_ROUTING_ROWS = 8
 
-_BRAILLE_DOT_COORDS = [
-	(0, 0),  # dot 1
-	(0, 1),  # dot 2
-	(0, 2),  # dot 3
-	(1, 0),  # dot 4
-	(1, 1),  # dot 5
-	(1, 2),  # dot 6
-	(0, 3),  # dot 7
-	(1, 3),  # dot 8
-]
+_BRAILLE_DOT_COORDS = BRAILLE_DOT_COORDS
 """Where each dot sits inside a cell, matching NVDA's `tactile.braille._brailleDotCoords`.
 
-Copied rather than imported because this module must be importable without NVDA. The driver
-asserts the two agree at load time, so a change upstream is caught rather than inherited.
+Kept as a name here because this is the module the packing is reasoned about in, but it is
+braille geometry rather than Monarch geometry, so the one copy lives in `pinBuffer.py` beside
+the drawing that also needs it. Neither imports NVDA; the driver asserts the copy agrees with
+NVDA's at load time, so a change upstream is caught rather than inherited.
 """
 
 BIT_FOR_BLOCK_POSITION = {coords: bit for bit, coords in enumerate(_BRAILLE_DOT_COORDS)}

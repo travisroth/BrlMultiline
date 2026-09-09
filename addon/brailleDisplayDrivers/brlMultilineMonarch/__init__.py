@@ -712,9 +712,22 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		"""
 		return monarch.PIN_WIDTH, monarch.PIN_HEIGHT
 
-	def newGraphicsBuffer(self) -> PinBuffer:
-		""":return: a blank buffer the size of this display's pin grid."""
-		return PinBuffer(monarch.PIN_WIDTH, monarch.PIN_HEIGHT)
+	def newGraphicsBuffer(self, width: Optional[int] = None, height: Optional[int] = None) -> PinBuffer:
+		"""Make a blank buffer to draw into.
+
+		Sized to the whole panel by default, because that was the only thing the driver itself
+		needed. A caller drawing into part of the panel wants a buffer the size of its own
+		rectangle instead: an overlay is placed by its top left corner, so a right sized buffer
+		is positioned by where the rectangle starts and nothing has to be offset twice.
+
+		:param width: dots across, or None for the full pin width.
+		:param height: dots down, or None for the full pin height.
+		:return: a blank buffer.
+		"""
+		return PinBuffer(
+			monarch.PIN_WIDTH if width is None else max(0, width),
+			monarch.PIN_HEIGHT if height is None else max(0, height),
+		)
 
 	# --- Cell glyphs -----------------------------------------------------------------------
 
@@ -993,6 +1006,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		:param action: `KEEP_ROUTING`, `REPLACE_ROUTING` or `CANCEL_ROUTING`.
 		:param corrected: the index derived from the pin, when there was one.
 		"""
+		self.lastRoutingPin = self._pinAtRouting
 		self.lastRouting = {
 			"pitch": self._pitch.name,
 			"rows": self._pitch.numRows,
@@ -1008,6 +1022,21 @@ class BrailleDisplayDriver(HidBrailleDriver):
 
 	lastRouting: Optional[dict] = None
 	"""What the last routing press decided. See `_recordRouting`."""
+
+	lastRoutingPin: Optional[tuple[int, int]] = None
+	"""The pin under the finger at the last routing press, or None if there was none.
+
+	`lastTouch` cannot answer this and never will. The panel reports the touched pin as zero
+	the moment the finger lifts, and NVDA runs a gesture's script from a queue rather than
+	while the gesture is being dispatched — so by the time anything above the driver is asked
+	what a press meant, the live touch is already gone. Anything that wants to know where a
+	press landed, at pin resolution rather than cell resolution, has to read it from here.
+
+	Set for every dispatched press at both pitches, including the native one where the index
+	itself is the device's own. Deliberately *not* cleared when the press ends, unlike
+	`_pinAtRouting`: that one guards the correction and must not outlive its press, while this
+	one is the record of the last press and is replaced by the next.
+	"""
 
 	def _handleKeyRelease(self):
 		"""Raise the gesture, using ours so that routing can be corrected for the pitch.

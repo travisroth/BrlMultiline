@@ -36,10 +36,11 @@ Read the files in this order:
    Covers what the HID standard does and does not offer, the Monarch's pin geometry, why the
    DotPad's approach is the inverse of the one we need, and the hardware runs that found an
    undocumented 480 byte output report matching the Monarch's pin count exactly. Phase 0 is
-   complete on hardware; phase 1's buffer and most of phase 3's drawing primitives are
-   delivered inside the Monarch driver as `pinBuffer.py`; phase 2, the graphics view, is the
-   next piece and nothing above the driver consumes the graphics API yet. Read it before
-   writing any code that sets dots rather than characters.
+   complete on hardware; phases 1 and 3 are delivered as `pinBuffer.py` in the Monarch driver;
+   phase 2, the graphics mode, is built and unit tested and awaits a hardware run — see
+   `graphics.py` and `graphicsMode.py` in the plugin. Phases 4 and 5, real content and image
+   import, are not started. Read it before writing any code that sets dots rather than
+   characters.
 9. [monarch-driver-plan.md](monarch-driver-plan.md) — the design of `brlMultilineMonarch`, a
    braille display driver that subclasses NVDA's HID braille driver and drives the Monarch
    through its pin report instead of its cell reports. Gives graphics, a choice of 8 or 10

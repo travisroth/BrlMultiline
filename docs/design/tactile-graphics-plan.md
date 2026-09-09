@@ -410,9 +410,15 @@ device to justify it, not before.
 
 ### Phase 2, the graphics view
 
-Status: not started, and it is the gate. Nothing above the driver calls `newGraphicsBuffer`,
-`setGraphicsOverlay`, `newGlyph` or `lastTouch` — the mechanism is complete and has no
-consumer. Phases 3 to 5 all sit behind this one.
+Status: **built and unit tested, awaiting a hardware run.** All nine pieces below exist, 60
+tests cover them, and the modules import and answer correctly inside a real NVDA. What has
+not happened is a finger on a Monarch, which is the exit criterion at the end of this section
+and the only thing that can settle it.
+
+The gate it was is open: `graphics.py` and `graphicsMode.py` consume `newGraphicsBuffer`,
+`setGraphicsOverlay`, `clearGraphicsOverlay` and `lastTouch`, so the driver's mechanism has a
+caller at last. `newGlyph` and `setCellGlyphs` still have none — glyphs belong to the add-on's
+own vocabulary decision, not to a figure.
 
 **Rewritten twice.** The original sketch was a `GraphicsPanel` tiling the display alongside
 ordinary flow, and full panel refresh ruled that out. The rewrite after phase 0 then said a
@@ -459,39 +465,283 @@ whichever pitch is active — a braille line is 4 pin rows at the 10 row pitch a
 row pitch, so 8 spare rows is two lines at 10 rows and one line with three rows of slack at
 8. The 10 row pitch divides more usefully here, which is a second argument for it.
 
-That leaves two candidate shapes, and this is genuinely undecided:
+Two shapes were considered:
 
 1. **The mode is panel aware.** It is a view like any other, and one of its panels is a
    graphics panel that owns a rectangle and holds the zoom state. The other panels are
-   ordinary and keep flowing text. This keeps one compositor and one mental model, and makes
-   the "figure on top, braille line underneath" example fall out for free.
+   ordinary and keep flowing text.
 2. **Panels belong to the mode.** Entering saves the active view, replaces it with a
-   graphics arrangement the mode owns, and leaving restores it. This keeps graphics state out
-   of `views.py` entirely, at the cost of a second way of arranging the display.
+   graphics arrangement the mode owns, and leaving restores it. This keeps graphics state
+   out of `views.py` entirely, at the cost of a second way of arranging the display.
 
-The first looks better on the evidence so far, because the driver already composites and the
-add-on already assigns rectangles, which is most of what shape one needs. The thing that
-would decide it is zoom: if zoom turns out to want gestures, a settings ring entry and a
-status line of its own, the mode is heavier than a panel and shape two earns its keep.
+**Decided: shape one.** The claiming machinery already exists and does exactly what is
+needed — `BlankPanel` reserves cells and emits no segments, `SegmentView.withPanel` lays a
+claim over the active view without disturbing the rest, and the plugin re-composes
+`_activePanels` on every rebuild. The driver already composites overlays over text in one
+write. So a graphics rectangle beside a live braille line costs nothing structurally, and
+shape two would be a second arrangement mechanism bought for nothing.
 
-Exit criterion: a real enter and leave, a figure and a live braille line on the panel at the
-same time from the add-on rather than from the driver, ordinary braille intact on both sides,
-and the reserved rows genuinely reserved.
+Shape two is not ruled out forever. What would earn it is zoom turning out to need its own
+gestures, settings and status line rather than living on a panel owner — and that will be
+known by the end of piece 6 below rather than by arguing about it now.
+
+#### What phase 2 builds
+
+Nine pieces, in build order. All nine are built; where the answer differed from the plan it
+is recorded under the piece.
+
+1. **`graphics.py`, the capability seam.** Built. A new module in `globalPlugins/brlMultiline`
+   following the rule `devices.py` already states: read the live display object, duck type
+   it, never import the driver. It answers whether there is a drawable surface, its pin size,
+   its cell and glyph sizes, and hands out a buffer through `newGraphicsBuffer`. Where there
+   is no such surface it says so and everything above degrades to text.
+
+2. **Reaching the display through the composite.** Built, and it was the risk it was
+   expected to be. This is the piece with real risk and it
+   comes second because the ordinary configuration hits it. With `brlMultilineVirtual` as the
+   display, `braille.handler.display` is the composite, and its `__getattr__` proxies driver
+   *settings* names only — `setGraphicsOverlay` is not reachable through it. So `graphics.py`
+   finds the member that can draw, the way `devices.py` already reads `display.slots`, takes
+   that slot's driver object directly, and carries `slot.band` as the offset between composite
+   rows and that member's own rows. Overlay coordinates are member local, so the band is
+   subtracted, not added.
+
+3. **`GraphicsPanel`, in `panels.py`.** Built. It claims a cell rectangle and holds **one
+   blank reserved segment**, which was not the original design: the plan said no segments at
+   all, so that nothing writes text under the drawing. Nothing does — but a routing press
+   reaches the add-on only through the segment it lands in, and `DisplayContainer.routeTo`
+   drops a press falling in no segment with a debug line. The segment exists to carry a
+   routing policy and for no other reason. See piece 7. A claim on a cell rectangle that produces no segments,
+   so nothing writes text under the drawing. `BlankPanel` is already three quarters of this;
+   what is new is that the panel knows the pin rectangle its cells correspond to and has an
+   owner. Modelled on `FlowPanel`, which claims a band and leaves the content to a controller.
+
+4. **Cell rectangle to pin rectangle, and back.** Built as `GraphicsSurface.pinRectForCells`
+   and `cellForPin`, and it needed neither the pitch nor the Monarch: `pinsPerRow` is the pin
+   height divided by the cell rows and `pinsPerCol` the width divided by the columns, which
+   gives 5 and 3 at the 8 row pitch and 4 and 3 at 10 without either number being written down. Panels speak in display rows and columns;
+   the driver speaks in pins. A braille line is 5 pin rows at the 8 row pitch and 4 at the 10
+   row pitch, a column is 3 pins wide, and the composite band offsets the whole thing. One
+   function, both directions, unit tested on its own. This is where the arithmetic mistakes
+   will be, so it is isolated and tested before anything depends on it.
+
+5. **The mode object, a `PanelOwner` that holds the drawing.** Built as `GraphicsMode`.
+   The plugin calls `_carryOverGraphics` beside `_carryOverFlow` after each rebuild; a graphics
+   claim has no segments to look for, so the test is whether its panel survived the rebuild. It owns the source drawing at
+   its natural size, the current scale and origin, the panel claim, and the enter and leave.
+   Enter composes the claim onto the active view through the existing path, renders, and
+   pushes one overlay. Leave clears the overlay, drops the claim, and rebuilds. `onEvicted`
+   and `onTerminate` clear the overlay too, or a drawing outlives its claim and sits on the
+   panel with nothing owning it.
+
+6. **Zoom and pan.** Built, integer levels 1 to 8, zooming about the centre of the claim so
+   that what is under the reader's hand stays under it. Scale and origin applied over the source, re-rendered into a fresh
+   `PinBuffer`, one overlay write per change. This is the state that justifies the mode
+   existing rather than being a panel that tiles a rectangle. It also sets the redraw
+   discipline: deliberate events only — a command, a zoom step, a new object — never caret
+   movement.
+
+7. **Touch read back, which had to become a routing press.** The plan had this as a command
+   reading `lastTouch`, and that cannot work — twice over, and the design is better for both.
+
+   The first reason is the reader. On this hardware you point by putting a finger on the
+   panel and pressing a routing key there. That is one hand doing one thing. A separate
+   keyboard command needs the hand off the panel, and a reader has no third hand to hold the
+   position with.
+
+   The second is the protocol, and it is fatal on its own. The panel reports the touched pin
+   as zero the instant the finger lifts, and NVDA runs a gesture's script from a queue rather
+   than during dispatch — so even the press's *own* live touch has gone by the time any
+   script sees it. A command reading `lastTouch` would have answered nothing for every press
+   ever made.
+
+   So the driver publishes `lastRoutingPin`, the pin under the finger when the routing key
+   went down, set at gesture construction and left standing until the next press. The claim's
+   segment carries a `GraphicsRoutingPolicy`, and a press inside the drawing reports what is
+   at that point of the source instead of routing a cursor — there being no text under a
+   drawing to route into. Where a drawable display reports no pin, the middle of the pressed
+   cell is used: coarse at 3 by 5 pins, and an answer rather than silence. Map `lastTouch` from a pin to a point in the source through the
+   inverse of pieces 4 and 6, so pointing at the figure can say what is under the finger. The
+   driver already publishes the pin and nothing consumes it. Cell scale accuracy is proven;
+   sub-cell is not, so build the transform and find out rather than promising precision first.
+
+8. **Two missing primitives in `pinBuffer.py`:**  Built, and they removed a duplicate rather
+   than adding one: the braille dot table now lives in `pinBuffer.py`, with `monarch.py`
+   re-exporting it under the name the packing is reasoned about by. They are: `marker`, a named small shape at a point, and
+   `text(x, y, cells)` so a caption can be drawn inside the figure rather than only across the
+   whole panel at the current pitch.
+
+9. **Commands, and these ship bound.** Toggle, zoom in and out, pan in four directions, and
+   report the drawing. Every other command in this add-on is unbound on purpose; these are
+   not, because of where the reader's hands are. A keyboard command for zoom or pan means
+   taking a hand off the figure at exactly the moment the reader is keeping track of where
+   their finger was.
+
+   They sit on the display's own keys, chosen to be collision free rather than mnemonic.
+   `hidBrailleStandard`'s gesture map, which the Monarch driver inherits whole, uses no chord
+   containing dot 7 or dot 8 anywhere, so all of this is in space the standard map left
+   empty:
+
+   - space+dot7+dot8 shows or hides the drawing
+   - space+dot8 magnifies, space+dot7 shrinks
+   - space+dot7 with dot 1, 4, 3 or 6 pans up, down, left or right — the arrow chords the
+     standard map already defines, with dot 7 added
+
+   Named for `brlMultilineMonarch` rather than `hidBrailleStandard`, deliberately: the
+   gesture offers both identifiers, and binding the standard one would take these chords on
+   every HID braille display, including ones that cannot draw. All rebindable in Input
+   Gestures under BrlMultiline. Written out four times rather than generated, unlike the
+   segment commands, because the metaclass collects a decorator's gestures from the class
+   body and never sees a script attached afterwards.
+
+#### What phase 2 does not build
+
+The chart is phase 4 and image import is phase 5. Phase 2's content is a fixed test figure —
+a box, a diagonal, a marker, a caption — because the point is the enter, the claim, the
+transform and the leave, not the drawing. The glyph vocabulary stays out too; that is the
+add-on's separate decision about which app modules want which symbols.
+
+#### What the first hardware run found
+
+Two faults, both in pieces that the unit tests had agreed with because the tests had been
+written from the same wrong assumption.
+
+1. **The claim fought the focus segment, and the first fix for it was wrong too.** With the
+   focus segment on the Monarch, showing a drawing failed with "the display could not give up
+   those rows"; with it on the Focus 80 the figure appeared. `SegmentView.withPanel` refuses a
+   claim that evicts the focus segment unless the new panel offers one in its place.
+
+   The first fix left the focus segment's *rows* out of the claim, and was refused on hardware
+   all the same: `LookupError: Panel 'graphics' would evict the focus segment
+   'device.brlMultilineMonarch.0'`. **Panels are evicted whole.** A claim on part of a band
+   takes the band's entire panel with it, focus segment included, however carefully the claim
+   avoided that segment's own rows — and on a composite a member's rows are exactly one device
+   panel. Leaving rows free is not the same as leaving a panel alone.
+
+   So `GraphicsPanel` now claims the whole band and supplies the replacement braille line
+   itself, as a second segment offered through `focusSegmentKey` — the mechanism `withPanel`
+   provides for this, and the only way a claim may take a focus segment at all. The panel holds
+   two segments: an ordinary text line at the top that hosts the focus and routes normally, and
+   the reserved blank one below it that carries the graphics routing policy. With no text line
+   the panel offers no focus segment, so such a claim is refused rather than quietly losing the
+   focus under the drawing.
+
+   That also gives the arrangement this plan wanted without asking for it: the live braille
+   line beside the figure is the focus line, which is the one worth keeping.
+
+2. **A fingertip is far wider than a pin.** Touching the caption, the diagonal and the top
+   border all reported "blank", missing by 1, 2 and 3 pins. Reporting what is at the single pin
+   the panel names makes a line one dot wide almost unfindable: the contact centre lands beside
+   it nearly every time, because a finger pad rests below the fingertip tracing the ridge and
+   the camera reports one point for the whole patch. The report now names the nearest raised
+   dot within half a braille line, rounded up — 3 pins at the 8 row pitch, 2 at 10 — divided by
+   the zoom, since magnification is the act of making a source dot bigger than a finger. Set
+   from three deliberate touches, so it is a starting point from a small sample rather than a
+   calibration.
+
+#### The priority ladder, and the flow
+
+The second hardware session turned up a design gap rather than a fault. The flow is the
+add-on's default and is wanted in Excel and on the web, which is most of a working day — and
+both the flow and a drawing want the same rows, because both default to the tallest display.
+Whichever claim was made most recently took them, so showing a figure became a fight with the
+flow, and a profile switch or a focus change could take a figure off the display mid-read.
+
+So claims are ranked. `panels.py` carries the ladder — ordinary 0, flow 10, graphics 20 — and
+the plugin composes them lowest first, each laid over what is already there, so the highest
+number wins. Ties keep the order they were made in, which is what decided them before.
+
+Graphics outranks the flow because it is deliberate and temporary: a reader turns a figure on,
+reads it, and turns it off, while the flow is a standing preference that should resume by
+itself afterwards, and does. Nothing else is ranked; a table claim and a pinned object have
+never wanted the same rows as each other.
+
+The ladder alone would still cost a claim, an eviction and a teardown on every rebuild, since
+the flow would go on claiming rows it was going to lose. So while a figure is up the flow does
+not claim at all, and leaving the figure rebuilds the display and brings it straight back.
+That rule is deliberately not conditioned on the two wanting the same rows: in practice they
+always do, and "while a drawing is up, the flow waits" is one a reader can hold in their head.
+
+#### Fit first, and what zoom is for
+
+The zoom model was wrong for real content and was corrected against the Monarch's own tactile
+viewer, which is the right reference: **step 0 shows all of the drawing**, compressed as far
+as it needs to be, and panning does not exist there because nothing is off the edge. Zoom is
+what makes panning mean anything — past the point where the drawing no longer fits, moving the
+window is the only way to reach the rest of it.
+
+The first version made step 1 the natural size, one source dot per pin, which for anything
+larger than the panel showed the top left corner and demanded panning to discover the rest.
+That is backwards: a reader wants the shape of the thing first and the detail second.
+
+Three things follow, and each is a decision rather than an implementation detail:
+
+1. **Fitting only ever shrinks.** A drawing smaller than the panel comes out at the size it
+   was drawn rather than blown up to fill it, so a chart authored at the panel's own size is
+   shown as authored. Magnification is always something the reader asked for.
+2. **A pin is raised if *any* source dot it covers is raised**, rather than sampling the middle
+   one. Compression is where a tactile drawing is most easily ruined: a line one dot wide
+   reduced to a quarter is missed by three sample points out of four and comes out dashed or
+   gone. Taking any dot keeps every line the drawing had, at the cost of thickening a dense
+   area into a solid one — which is the right way round, because a reader can feel that a
+   region is busy and cannot feel a line that is not there.
+3. **The touch search radius follows the scale in both directions.** It is a fingertip
+   measured in source dots, so it grows as the drawing is compressed — one pin then stands for
+   several source dots — and falls to nothing as it is magnified, where a finger can be placed
+   exactly.
+
+The ladder is five doublings from fit, capped at 8 pins per source dot, beyond which a single
+source dot is wider than a braille cell and the reader is feeling the magnification rather
+than the figure. Panning at fit reports that the whole drawing is shown rather than claiming
+an edge that does not exist.
+
+**Where the window is, is said as a fraction of how far it can move.** The origin is held as a
+source dot, which is the right thing to compute with and the wrong thing to say: "at 48, 18"
+is a fact about how large the drawing happens to be in dots, not about what the reader is
+feeling, and panning by a quarter of the view gave a fresh pair of numbers each time with
+nothing to measure them against. So it is reported as a percentage of the pannable range — 0
+hard against one edge, 100 hard against the other — with the ends named rather than numbered,
+because reaching an edge is worth hearing as an edge. An axis that cannot move is left out
+rather than reported as a meaningless zero, so a drawing wider than the display but not taller
+says only how far across it is. Panning reads "25 across, 51 down", then "left edge, 51 down".
+
+Touches keep reporting source dots, deliberately: "raised at 26, 9" is a position *within the
+drawing*, which is a fact about the drawing and stays true however the window moves.
+
+#### Giving the whole panel to the figure
+
+A figure on the Monarch is 96 by 35 pins with a braille line kept beside it and 96 by 40
+without — a seventh more, across the middle of the panel where the reader's hands already are.
+`GraphicsMode.setTextLines` changes it without leaving the figure, so zoom and origin survive,
+which is the point of being able to change it mid-read at all.
+
+At zero the drawing segment hosts the focus itself and is `exclusive`, so NVDA's focus regions
+are handed to the owner and dropped rather than written into cells the figure is composited
+over. That is a real cost, it is stated when it happens, and it is undone by the same command.
+A reader with a second display does not pay it: their focus segment is over there, untouched,
+which is the arrangement to prefer where the hardware allows it.
+
+#### Exit criterion
+
+Partly met. A figure shows, and pointing at it answers. Still to confirm: that the fixes above
+hold, that the reserved rows stay free of text, that zoom and pan read correctly under the
+hand, and that leaving restores ordinary braille.
+
+The Monarch showing a figure in a claimed rectangle with a live NVDA braille line underneath
+it, entered and left by command, ordinary braille intact on both sides, the reserved rows
+genuinely holding no text, zoom changing the figure and nothing else, and a routing press
+inside the figure reporting the point under the finger. Under the composite as well as with the Monarch driven
+directly, because that is the configuration actually in use.
 
 ### Phase 3, a drawing API
 
-Status: **mostly delivered**, in `pinBuffer.py`, because the driver needed it first.
+Status: **delivered**, in `pinBuffer.py`, because the driver needed most of it first and
+phase 2 needed the rest.
 
-Built and unit tested: `setDot`, `clearDot`, `getDot`, `line` (Bresenham), `rect` outline and
-filled, `polyline`, `blit`, `clearRect`, `contains`, and `fromRows`/`rows` for building and
-inspecting a shape from text.
-
-Still to add, and both are phase 2's customers rather than the driver's:
-
-1. `marker` — a named small shape at a point, for data points and callouts.
-2. `text(x, y, cells)` — braille into an arbitrary buffer at an arbitrary pin position. The
-   driver draws text into pins already in `_drawCells`, but only for the whole panel at the
-   current pitch. A caption inside a figure needs the same thing scoped to a rectangle.
+`setDot`, `clearDot`, `getDot`, `line` (Bresenham), `rect` outline and filled, `polyline`,
+`blit`, `clearRect`, `contains`, `fromRows` and `rows` came with the driver. `marker`, which
+stamps one of a few named shapes centred on a point, and `text`, which draws braille cells
+into a buffer at an arbitrary position and stride, came with phase 2. All unit tested.
 
 Lattice compensation is not needed and never will be on this path: the pin report has no
 lattice. It belongs with the cell path fallback if that is ever built.

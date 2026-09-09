@@ -43,7 +43,15 @@ from .layout import (
 	validateRects,
 	wholeDisplayRect,
 )
-from .panels import BlankPanel, BraillePanel, GridPanel, RowsPanel, SegmentSpec, SinglePanel
+from .panels import (
+	BlankPanel,
+	BraillePanel,
+	GraphicsPanel,
+	GridPanel,
+	RowsPanel,
+	SegmentSpec,
+	SinglePanel,
+)
 from .routing import DEFAULT_ROUTING_POLICY, EdgeRowScrollRoutingPolicy, RoutingPolicy
 
 __all__ = [
@@ -65,6 +73,7 @@ __all__ = [
 	"BlankPanel",
 	"BraillePanel",
 	"DEFAULT_ROUTING_POLICY",
+	"GraphicsPanel",
 	"EdgeRowScrollRoutingPolicy",
 	"GridPanel",
 	"RoutingPolicy",

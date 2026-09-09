@@ -1480,7 +1480,7 @@ class FakeHandler:
 			self.update()
 
 
-def fakeVirtualDisplay(*bands, configured=None):
+def fakeVirtualDisplay(*bands, configured=None, drivers=None):
 	"""A stand-in for the add-on's own braille display driver, which is several displays.
 
 	Shaped the way `devices` reads it — a name, the members it was opened for, and a slot per
@@ -1493,8 +1493,12 @@ def fakeVirtualDisplay(*bands, configured=None):
 	:param configured: the members it was opened for, or None for exactly the bands given. A
 		display switched off before braille started has no band and is still configured, which
 		is the case that separates "a display is away" from "the list has been edited".
+	:param drivers: the live driver object for each member, by driver name. `devices` never
+		reads these, but `graphics` does: finding the member that can draw means looking at
+		the drivers themselves, since the composite does not forward their methods.
 	:return: the stand-in display.
 	"""
+	drivers = drivers or {}
 	return types.SimpleNamespace(
 		name="brlMultilineVirtual",
 		configuredMembers=tuple(
@@ -1505,6 +1509,7 @@ def fakeVirtualDisplay(*bands, configured=None):
 				driverName=driverName,
 				band=types.SimpleNamespace(rowStart=rowStart, numRows=numRows, numCols=numCols),
 				failed=False,
+				driver=drivers.get(driverName),
 			)
 			for driverName, rowStart, numRows, numCols in bands
 		),

@@ -36,6 +36,27 @@ from .routing import DEFAULT_ROUTING_POLICY, RoutingPolicy
 BLANK_PANEL_NAME = "blank"
 """Name given to the filler panels that claim cells nothing else wants."""
 
+PRIORITY_ORDINARY = 0
+PRIORITY_FLOW = 10
+PRIORITY_GRAPHICS = 20
+"""The ladder that decides which claim wins when two want the same cells.
+
+Claims are composed lowest first, and each is laid over what is already there, so the
+highest number wins. Ties keep the order they were made in, which is what it meant
+before there were any numbers.
+
+The ladder exists because the flow is on most of the time — it is the add-on's default,
+and it is wanted in Excel and on the web, which is most of a working day. Without an
+order, showing a drawing became a fight with it: whichever claim was made most recently
+took the rows, so a profile switch or a focus change could take a figure off the display
+mid-read. Ranking them settles it once instead of per occasion.
+
+Graphics outranks the flow because it is deliberate and temporary. A reader turns a
+figure on, reads it, and turns it off; the flow is a standing preference that should
+resume by itself afterwards, and it does. Nothing else is ranked yet: a table claim and a
+pinned object have never wanted the same rows as each other.
+"""
+
 
 @dataclasses.dataclass(frozen=True)
 class SegmentSpec:
@@ -177,6 +198,9 @@ class BraillePanel:
 		self.documentContextIndex = documentContextIndex
 		self.hostsSystemFocus = hostsSystemFocus
 		self.exclusive = exclusive
+
+	priority: int = PRIORITY_ORDINARY
+	"""Which claim wins where two want the same cells. See the priority constants above."""
 
 	def segments(self) -> list[SegmentSpec]:
 		"""Subdivide this panel's claim.
@@ -359,6 +383,128 @@ class BlankPanel(BraillePanel):
 		return []
 
 
+class GraphicsPanel(BraillePanel):
+	"""A claim on a band of the display: a drawing, and a line of braille beside it.
+
+	Two segments. The **drawing** segment is reserved and never written into, so it
+	composites as blank and the overlay the driver holds shows through. The **text**
+	segment is an ordinary line of braille that hosts the system focus.
+
+	**Why the text line belongs to this panel rather than to whatever was there before.**
+	Panels are evicted whole. `SegmentView.withPanel` drops every panel a claim *touches*,
+	because a panel is a rectangle and has to stay one — so a claim on part of a band takes
+	the band's whole panel with it, focus segment included, however carefully the claim
+	avoided the focus segment's own rows. On a composite that is exactly what happens: a
+	member's rows are one device panel, and any claim inside them evicts all of it.
+
+	The first attempt at this left the focus segment's rows out of the claim and was
+	refused anyway, on hardware, with `LookupError: Panel 'graphics' would evict the focus
+	segment 'device.brlMultilineMonarch.0'`. Leaving rows free is not the same as leaving a
+	panel alone. So the claim takes the whole band and supplies the replacement line itself,
+	offering it as `focusSegmentKey`, which is the mechanism `withPanel` provides for
+	exactly this and the only way a claim may take a focus segment at all.
+
+	The drawing itself does not travel through the container: it is pins, sent to the
+	display as an overlay and composited over these cells by the driver. The two halves meet
+	only on the hardware, in one write.
+
+	**Why the drawing segment exists at all, being blank.** Routing. On a display like the
+	Monarch, pointing at the figure is pressing a routing key where you are touching, and a
+	routing press reaches the add-on only through the segment it lands in —
+	`DisplayContainer.routeTo` finds the segment and asks its policy, and a press in space
+	no segment covers is dropped with a debug line. So the drawing segment is there to carry
+	a routing policy, and the text segment keeps the ordinary one.
+	"""
+
+	priority = PRIORITY_GRAPHICS
+
+	TEXT_SUFFIX = "text"
+	DRAWING_SUFFIX = "drawing"
+	"""Segment key suffixes, so an owner can name either without composing strings."""
+
+	def __init__(
+		self,
+		name: str,
+		rect: SegmentRect,
+		*,
+		textRows: int = 1,
+		drawingRoutingPolicy: RoutingPolicy | None = None,
+	) -> None:
+		"""
+		:param name: who this panel belongs to, and the prefix of its segment keys.
+		:param rect: the whole band claimed, drawing and text line together.
+		:param textRows: rows at the top of the claim kept as ordinary braille. Zero gives the
+			whole claim to the drawing, and the drawing segment then hosts the focus itself and
+			draws none of it — `exclusive`, so NVDA's focus regions are handed over and dropped
+			rather than written under the figure where they would be drawn over and lost. That
+			is a real cost and the reader has to ask for it; see the graphics mode's command.
+		:param drawingRoutingPolicy: what a routing press inside the drawing does. None
+			leaves it routing as any other segment would, which is what a press on blank
+			cells does: nothing.
+		"""
+		self.textRows = max(0, min(textRows, rect.numRows))
+		focusKey = f"{name}.{self.TEXT_SUFFIX}" if self.textRows else f"{name}.{self.DRAWING_SUFFIX}"
+		super().__init__(
+			name,
+			rect,
+			reserve=True,
+			focusSegmentKey=focusKey,
+		)
+		self.drawingRoutingPolicy = drawingRoutingPolicy or DEFAULT_ROUTING_POLICY
+
+	@property
+	def drawingRect(self) -> SegmentRect:
+		":return: the part of the claim the drawing occupies."
+		return SegmentRect(
+			row=self.rect.row + self.textRows,
+			col=self.rect.col,
+			numRows=self.rect.numRows - self.textRows,
+			numCols=self.rect.numCols,
+		)
+
+	def segments(self) -> list[SegmentSpec]:
+		"""Built directly rather than through `buildSpec`, because the two differ in every
+		flag that matters: one is ordinary display space hosting the focus, the other is
+		reserved space nothing may write into.
+		"""
+		specs = []
+		if self.textRows:
+			specs.append(
+				SegmentSpec(
+					rect=SegmentRect(
+						row=self.rect.row,
+						col=self.rect.col,
+						numRows=self.textRows,
+						numCols=self.rect.numCols,
+					),
+					key=f"{self.name}.{self.TEXT_SUFFIX}",
+					# Ordinary space, deliberately: no owner, so the document lines feature may
+					# use it, and hosting the focus so NVDA's untargeted regions land here rather
+					# than under the drawing where they would be drawn over and lost.
+					owner=None,
+					hostsSystemFocus=True,
+					routingPolicy=DEFAULT_ROUTING_POLICY,
+				),
+			)
+		drawing = self.drawingRect
+		if drawing.numRows > 0:
+			specs.append(
+				SegmentSpec(
+					rect=drawing,
+					key=f"{self.name}.{self.DRAWING_SUFFIX}",
+					owner=self.name,
+					# With no text line the drawing is the only segment, so it has to host the
+					# focus — a view must have somewhere for untargeted content to land. Exclusive
+					# with it, so that content is handed to the owner and dropped rather than
+					# written into cells the figure is about to be composited over.
+					hostsSystemFocus=not self.textRows,
+					exclusive=not self.textRows,
+					routingPolicy=self.drawingRoutingPolicy,
+				),
+			)
+		return specs
+
+
 class FlowPanel(BraillePanel):
 	"""A band of rows presented as one continuous flow of content.
 
@@ -379,6 +525,8 @@ class FlowPanel(BraillePanel):
 	the block after a short one sharing its row. Subdividing the band into a segment per
 	row would hand that job back to NVDA's buffer, which cannot do it.
 	"""
+
+	priority = PRIORITY_FLOW
 
 	def __init__(
 		self,

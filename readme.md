@@ -458,6 +458,24 @@ python -m uv run ruff check .
 python -m uv run python -m unittest discover -s tests
 ```
 
+### Checking against a real NVDA
+
+The unit suite runs against stubs, which is fast and needs no NVDA, and which therefore
+cannot notice when NVDA's own API moves underneath the add-on. `tests/nvdareal.py` is the
+other half: it brings a real NVDA up from a source checkout, imports the add-on into it the
+way NVDA does at runtime, and checks that what the add-on calls is still there and still
+behaves as it thinks. It runs safely while NVDA is running, touches no configuration and no
+hardware, and needs NVDA's own interpreter rather than this project's:
+
+```bash
+C:/code/nvda/.venv/Scripts/python.exe tests/nvdareal.py
+```
+
+Set `BRLMULTILINE_NVDA` if the NVDA source is somewhere other than `C:\code\nvda`. Add
+`--displays` to see what braille hardware NVDA can find, or `--log` to read the tail of the
+log NVDA writes when it is run from source. Read the file's own docstring before relying on
+what it reports; it is explicit about what it does and does not prove.
+
 Design documentation, including notes on the parts of NVDA this add-on depends on, is in
 `docs/design/`.
 
