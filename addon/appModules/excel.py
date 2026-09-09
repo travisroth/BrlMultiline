@@ -443,6 +443,37 @@ class ExcelSheet:
 				return row - 1
 		return None
 
+	def rowShowing(self, row: int) -> Optional[bool]:
+		""":return: whether Excel is showing one row, or None where it will not say.
+
+		**A row already on the band is never walked to again.** `rowAfter` steps over the rows
+		a filter took away, so nothing is ever *fetched* out of them — but a row fetched before
+		the filter was applied is held in the band's cache, and every question asked about it
+		afterwards is answered perfectly well by a row that should no longer be there. Which is
+		what the reader met: they filtered a sheet down to one row, and the row above it, which
+		the filter had taken away, stayed on the display over the one they had asked for.
+
+		From the same answer `rowAfter` walks by, so asking about a bandful of rows costs what
+		asking about one costs.
+
+		**Only about the part of the sheet Excel calls used**, which is the part this answer
+		describes: a row past either end of it is not hidden but empty, and a sheet is read
+		from A1 to at least as far as the reader stands — see `shape`, and the reader who
+		arrows about a blank sheet is standing well past anything Excel counts as used. Said
+		to be hidden, those rows would have the whole reading built again on every arrow key.
+		So the answer is "cannot say" outside the runs, which is read as showing. The cost is
+		that a filter hiding the very first or very last used rows is not caught for those
+		rows, and the reader's next move through them is.
+
+		:param row: the row asked about, one based.
+		"""
+		spans = self._shownRows()
+		if not spans:
+			return None
+		if row < spans[0][0] or row > spans[-1][1]:
+			return None
+		return any(first <= row <= last for first, last in spans)
+
 	def columnsShowing(self) -> Optional[set]:
 		""":return: the columns Excel is showing, or None where every column is showing.
 

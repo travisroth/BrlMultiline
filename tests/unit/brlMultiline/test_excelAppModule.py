@@ -1031,6 +1031,55 @@ class TestTheRowsExcelIsShowing(unittest.TestCase):
 		self.assertEqual([level for level, message in log.messages], ["debugWarning"])
 
 
+class TestWhetherARowIsStillShowing(unittest.TestCase):
+	"""**A row already on the band is never walked to again.**
+
+	The walk steps over the rows a filter took away, so no hidden row is ever fetched. A row
+	fetched *before* the filter was applied is held in the band's cache and answers every
+	question put to it, which is how a filtered-away row stayed on the display above the one
+	row the reader had filtered down to.
+	"""
+
+	def _sheet(self, showing=None, refuses=False, rows=20):
+		worksheet = FakeWorksheetObject(
+			values=[[f"row {number}"] for number in range(1, rows + 1)],
+			used=FakeUsedRange(1, 1, rows, 1, showing=showing, refuses=refuses),
+		)
+		return excelModule.ExcelSheet(aCell(sheet=worksheet)), worksheet
+
+	def test_aRowTheFilterTookAwayIsNotShowing(self):
+		sheet, _worksheet = self._sheet(showing=[(1, 1), (9, 9)])
+		self.assertIs(sheet.rowShowing(5), False)
+
+	def test_aRowTheFilterLeftIsShowing(self):
+		sheet, _worksheet = self._sheet(showing=[(1, 1), (9, 9)])
+		self.assertIs(sheet.rowShowing(9), True)
+		self.assertIs(sheet.rowShowing(1), True)
+
+	def test_everyRowOfAnUnfilteredSheetIsShowing(self):
+		sheet, _worksheet = self._sheet()
+		self.assertIs(sheet.rowShowing(5), True)
+
+	def test_aSheetThatWillNotSayAnswersNothing(self):
+		"""None is "I cannot say", which is read as showing: a row nothing objects to stays."""
+		sheet, _worksheet = self._sheet(refuses=True)
+		self.assertIsNone(sheet.rowShowing(5))
+
+	def test_aRowPastWhatExcelCallsUsedIsNotCalledHidden(self):
+		"""It is empty, not hidden. A sheet is read from A1 to at least as far as the reader
+		stands, and a reader arrowing about a blank sheet stands well past the used range —
+		so called hidden, those rows would have the reading built again on every arrow key."""
+		sheet, _worksheet = self._sheet(showing=[(1, 12)], rows=12)
+		self.assertIsNone(sheet.rowShowing(40))
+
+	def test_aBandfulOfRowsCostsWhatOneCosts(self):
+		"""The same answer the walk uses, asked once for the reading."""
+		sheet, worksheet = self._sheet(showing=[(1, 1), (9, 9)])
+		for row in range(1, 12):
+			sheet.rowShowing(row)
+		self.assertEqual(worksheet.used.timesAskedWhatIsShowing, 1)
+
+
 class TestTheColumnsExcelIsShowing(unittest.TestCase):
 	"""**A hidden column is still a column.**
 

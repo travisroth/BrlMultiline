@@ -33,6 +33,32 @@ first is about graphics:
    in the margin rather than a caret. Once we own the pins that is expressible; through cell
    values at a 3 pin pitch it is not.
 
+## Status, as confirmed on hardware
+
+Built, and run on a Monarch on 8 September 2026. The driver opens the device, reports
+`Monarch on 96 by 40 pins, 8 rows of 32 at pitch 8row, writing output report 0x21`, and
+drives the panel through the pin report for ordinary braille. Everything in the v1 scope
+below is implemented, with 126 driver and pin unit tests inside a suite of 3,060.
+
+What the hardware settled, so it need not be argued again:
+
+1. **Routing works at both pitches.** At the native 8 rows the device's own routing cell is
+   used unchanged. At the custom 10 rows the pin derived correction is good: routing into
+   list items and edit fields lands where the finger is. Whether a pin derived index would
+   beat the device's own at the native pitch is not an interesting question — at 8 rows we
+   defer to the Monarch's calibration deliberately, and there is no reason to second guess it.
+2. **A 480 byte pin write costs no more than the eight cell reports it replaces.** Write
+   speed is indistinguishable in use, and at 10 rows it buys two extra lines of content for
+   that same cost. No ill effect has been seen driving either 8 or 10 rows through the
+   96 by 40 pin record.
+3. **The 10 row pitch stays a feature.** An eight dot table at 10 rows is crowded, because
+   dots 7 and 8 land where the line separation would otherwise be. That is the expected
+   trade and it is the user's to make, which is why it is a setting rather than a default.
+
+Not yet exercised: the driver's **own in place reopen**. The reconnection seen on hardware
+was `brlMultilineVirtual` replacing a failed member, which constructs a fresh driver. The
+path where this driver keeps its instance and reopens its own handle has run only in tests.
+
 ## Staying honest about DotPad X
 
 The end goal is that BrlMultiline's graphics support is not Monarch specific. Only one
@@ -234,6 +260,12 @@ The pin has to be **snapshotted when the routing key goes down**, because of the
 panel speaks in: the pin arrives, then the routing cell, then the pin again as zero on
 release, and only then does NVDA raise the gesture. By gesture time the live pin is gone.
 
+Hardware settled this. At the 10 row pitch the pin derived index is accurate enough for
+real work: routing into list items and edit fields lands on the cell under the finger. The
+worry that an infrared camera might quantise below the cell, or that a fingertip covering
+several pins would blur the answer, did not show up in use. At 8 rows the device's own cell
+is used and the comparison does not arise.
+
 Where the correction cannot be made, the press is **cancelled** rather than passed through.
 There are two such cases at a non-native pitch: no pin was captured, and more than one routing
 cell — a range selection, which one touched pin cannot re-base. Passing the device's own index
@@ -334,6 +366,9 @@ plainly in its documentation. Not v1.
 
 ## v1 scope
 
+Status: **delivered**, and confirmed on hardware. See "Status, as confirmed on hardware"
+above for what the device settled.
+
 In:
 
 1. Subclass, detection over USB and Bluetooth, refusal to load on a device with no pin report.
@@ -357,15 +392,21 @@ Out:
 
 ## Open questions
 
-1. Does a 480 byte pin write cost more or less, mechanically, than the eight cell reports it
-   replaces? Every write is a full refresh either way, so it should be no worse, but it has
-   not been measured.
-2. At 10 rows, how legible is an eight dot table in practice, given that dots 7 and 8 land
-   where the line separation would otherwise be? A question for fingers, not for the driver.
-3. Is the device's routing cell better than a pin derived one at native pitch? The plan
-   assumes yes and prefers it; a session comparing the two would settle it.
+1. **Answered.** A 480 byte pin write costs no more, mechanically, than the eight cell
+   reports it replaces. Write speed is indistinguishable in use, and at 10 rows the same
+   write carries two more lines of content. Driving either pitch through the 96 by 40 pin
+   record has shown no ill effect.
+2. **Answered.** An eight dot table at 10 rows is crowded, and legible. Dots 7 and 8 land
+   where the line separation would otherwise be, which is exactly the trade the pitch makes.
+   It works as expected, it is the user's choice to make, and the 10 row pitch stays.
+3. **Answered, and it was the wrong question.** At the native pitch we defer to the Monarch's
+   own routing cell by design, because it is the device's calibrated answer on the layout it
+   was built around. There is nothing to compare. The question that mattered was whether the
+   pin derived index is good enough at 10 rows, and it is — see "Touch" above.
 4. Does reopening the device in place recover a Bluetooth drop as reliably as the virtual
-   driver's member replacement does? The failure modes may not be identical.
+   driver's member replacement does? The failure modes may not be identical, and the hardware
+   run so far exercised only the member replacement path — the driver's own in place reopen
+   has run in tests and not yet on a real dropout.
 5. What are the Monarch's USB vendor and product IDs, and are they stable across firmware
    revisions? A match on the pin capability is what authorises writing a raw 480 byte report,
    so a device identity check would be worth having on top of it. None is made today, and

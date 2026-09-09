@@ -101,6 +101,9 @@ def liveReport(band) -> list[str]:
 	lines.append(f"Band line focus: {describeLineFocus(control)}")
 	lines.append(f"Band live updates: {describeLiveUpdates(band)}")
 	lines.append(f"Band edges: {describeEdges(control)}")
+	onShow = describeRowsOnShow(control)
+	if onShow is not None:
+		lines.append(f"Band rows: {onShow}")
 	# The band's own numbers. Everything under `Cost` below belongs to the controller this
 	# command builds to answer with, which reads the same document and has a budget of its
 	# own — so a reader diagnosing a band that keeps saying "more, not fetched" was being
@@ -238,6 +241,31 @@ def describeObjectTable(control) -> list:
 		except Exception as error:
 			lines.append(f"  pinned header: could not be described: {error!r}")
 	return lines
+
+
+def describeRowsOnShow(control):
+	""":return: whether the band is holding a row the table has stopped showing, or None.
+
+	**The line the report that found this did not have.** A worksheet filtered down to one row
+	came up with the row above it on the display, and the report said everything about that
+	row except the one thing that mattered: that the sheet was no longer showing it. Every
+	other line was correct — the row was fetched correctly when it was fetched, and it answers
+	correctly still — so the report read as a band that was working.
+
+	None for anything that cannot hide a row, which is every table but a grid, so the line is
+	absent rather than reassuring where it would mean nothing.
+	"""
+	asked = getattr(control.source, "rowNoLongerShown", None)
+	if asked is None:
+		return None
+	try:
+		gone = asked(block.blockId.bookmark for block in control.window.blocks)
+	except Exception as error:
+		log.debugWarning("Could not ask which rows the table is showing", exc_info=True)
+		return f"could not be told which of them the table is showing: {error!r}"
+	if gone is None:
+		return "every row on the band is one the table is still showing."
+	return f"row {gone} is on the band and the table has stopped showing it."
 
 
 def describeEdges(control) -> str:

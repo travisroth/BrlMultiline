@@ -639,6 +639,38 @@ class FlowController(PanelOwner):
 				return False
 		return True
 
+	def tableStillHoldsTheBand(self) -> bool:
+		""":return: whether the rows on the band are still rows the table is showing.
+
+		**The table's answer to `runStillHoldsTheBand`, and asked at the same moment.** A run
+		changes under a reader when something in it is deleted; a table changes under them when
+		they filter it, and the two leave the band in the same state — holding rows that were
+		read correctly, answer correctly, and are no longer there. The reader filtered a sheet
+		down to one row and the row above it stayed on the display.
+
+		Every row held rather than the two beside the reader, because a filter takes away
+		whatever it takes away and the band may be holding several of them, and because it
+		costs nothing to ask about all of them: the rows a sheet is showing are one answer,
+		fetched once for a reading. Which rows are not judged is `TableFlowSource.rowNoLongerShown`.
+
+		Only for a table that can hide rows. A document's table and a list have no filter, so
+		they answer that nothing has changed without looking.
+
+		:return: True when nothing has changed, and True when there is nothing to check.
+		"""
+		asked = getattr(self.source, "rowNoLongerShown", None)
+		if asked is None:
+			return True
+		try:
+			gone = asked(block.blockId.bookmark for block in self.window.blocks)
+		except Exception:
+			log.debugWarning("Could not tell whether the band is holding a hidden row", exc_info=True)
+			return True
+		if gone is None:
+			return True
+		self._note(f"the table has stopped showing row {gone}, which the band is holding")
+		return False
+
 	def rereadArrival(self) -> bool:
 		"""Read the block for the object the reader has just arrived on again.
 

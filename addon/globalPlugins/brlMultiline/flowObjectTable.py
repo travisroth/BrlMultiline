@@ -1746,6 +1746,22 @@ class Sheet:
 		"""
 		return None
 
+	def rowShowing(self, row: int):
+		""":return: whether the grid is showing one row, or None where it cannot say.
+
+		**The other half of `rowAfter`, and about rows the band is already holding.** Walking
+		by `rowAfter` means no hidden row is ever fetched, and says nothing about the rows
+		fetched before the reader hid them: those sit in the band's cache, answer every
+		question put to them, and are drawn over the row the reader filtered down to. Asked of
+		the rows on the band when the reader moves, which is when a filter changes under one.
+
+		Optional for the same reason `rowAfter` is, and None means the same thing — "I cannot
+		say" — which is read as showing, since a row nothing objects to is a row that stays.
+
+		:param row: the row asked about, one based.
+		"""
+		return None
+
 	def columnsShowing(self):
 		""":return: the columns the grid is showing, or None where every column is showing.
 
@@ -1973,6 +1989,16 @@ class SheetTable(ObjectTable):
 		if offered is None:
 			return None
 		return offered()
+
+	def rowShowing(self, row: int):
+		""":return: whether the grid is still showing one row, or None where it cannot say.
+
+		Handed straight to the sheet. See `Sheet.rowShowing`.
+		"""
+		offered = getattr(self.sheet, "rowShowing", None)
+		if offered is None:
+			return None
+		return offered(row)
 
 	def rowAfter(self, row: int, by: int):
 		""":return: the next row to show, or None when the grid says there is none.

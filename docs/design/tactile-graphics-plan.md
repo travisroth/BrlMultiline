@@ -209,6 +209,12 @@ above, including what a single walked pin cannot tell you.
 
 ## Where this lands in the add-on
 
+**Superseded, and kept for the reasoning.** The pin report turned out to be live, so the
+answer is the last paragraph of this section: a Monarch specific driver. It is built — see
+[monarch-driver-plan.md](monarch-driver-plan.md) — and the five numbered points below
+describe the cell path through `braille.handler`, which the Monarch does not take. Read them
+for what a cell path fallback would need, not for what exists.
+
 `BrailleHandler` writes one flat row major cell array and knows nothing about graphics. The
 add-on composes that array through views, panels and segments, and a segment's cells come
 from its regions. So:
@@ -284,6 +290,13 @@ Cells are Braille reading order, see discussion above. SPike.pinHLine() and spik
    audibly, and because the pins are magnetically driven **the reader has to lift their hand
    for a refresh to settle correctly**. This is a page turning device, not an animating one.
 
+   **The pin report costs no more than the cell reports.** Later hardware use of the driver
+   settled the obvious follow up question: a single 480 byte write to report 0x21 is
+   indistinguishable in speed from the eight cell reports it replaces, and at the 10 row
+   pitch it carries two more lines of content for that same write. Driving either 8 or 10
+   rows through the 96 by 40 pin record has shown no ill effect. So the page turning
+   constraint is a property of the mechanism, not of the report we chose.
+
 Still open, and neither blocks phase 1:
 
 1. **Does the cell path render arbitrary patterns?** `dotOrder()`. Only relevant to non
@@ -351,6 +364,13 @@ One thing to be sure of before relying on it: whether the camera genuinely resol
 The y values across the samples varied within a line band, so it is finer than a cell in at
 least that axis, but four samples is not a calibration.
 
+**Since confirmed for text, and that is most of the worry gone.** The Monarch driver derives
+routing from the touched pin at the 10 row pitch, where the device's own cell index is
+meaningless, and in real use it lands correctly in list items and edit fields. So the pin
+index is trustworthy at cell scale under an ordinary reading finger, not merely in careful
+laboratory taps. What remains unmeasured is *sub-cell* precision, which is what naming a bar
+in a chart by touch would lean on.
+
 ### What the mechanism forces on the design
 
 The refresh constraint is not a performance detail, it is a design input, and every phase
@@ -370,49 +390,111 @@ below assumes it:
 
 ### Phase 1, the buffer and the region
 
-Status: not started.
+Status: **delivered on the pin path**, as part of the Monarch driver rather than as a region.
 
-`CellTactileGraphicsBuffer(TactileGraphicsBuffer)` with the braille dot order derived from
-core, `GraphicsRegion`, and unit tests for the dot mapping, bounds clipping and packing. No
-hardware needed. It does not start from nothing: `CellCanvas` in the spike is this buffer
-prototyped, with the dot order confirmed by touch in phase 0.
+The pin report was live, so the conditional half of this phase became the whole of it.
+`pinBuffer.py` in the driver package is the buffer: a plain 96 by 40 dot canvas with the
+layout phase 0 established, unit tested for dot mapping, bounds clipping and packing, and it
+imports nothing from NVDA. The driver exposes it as `newGraphicsBuffer()` and composites it
+with text through `setGraphicsOverlay`.
 
-If the pin report is live, add a `PinTactileGraphicsBuffer` beside it with the layout phase
-0 established, and let the panel choose.
+`GraphicsRegion` was never built and is not wanted on this device. It existed to push a
+bitmap through `braille.handler` as cell values, and once the driver owns the whole panel
+there is nothing for a region to do: the graphics never travel as cells at all.
+
+What that leaves unbuilt is the **cell path**: `CellTactileGraphicsBuffer` and the region
+that would feed it. It is not dead work, it is the fallback for hardware that has no pin
+report — a DotPad, or a Monarch on a firmware that loses it — and `CellCanvas` in the spike
+is it prototyped, with the dot order confirmed by touch. Build it when there is a second
+device to justify it, not before.
 
 ### Phase 2, the graphics view
 
-Status: not started. **Rewritten after phase 0** — the original sketch was a `GraphicsPanel`
-tiling the display alongside ordinary flow, and full panel refresh rules that out.
+Status: not started, and it is the gate. Nothing above the driver calls `newGraphicsBuffer`,
+`setGraphicsOverlay`, `newGlyph` or `lastTouch` — the mechanism is complete and has no
+consumer. Phases 3 to 5 all sit behind this one.
 
-A graphics view is a mode, not a panel:
+**Rewritten twice.** The original sketch was a `GraphicsPanel` tiling the display alongside
+ordinary flow, and full panel refresh ruled that out. The rewrite after phase 0 then said a
+graphics view must own the *whole* panel. The driver has since made that too strong, and the
+correction matters for the design.
 
-1. Entering it suppresses NVDA's braille output for as long as it is up, the way
-   `spike.hold()` does but properly, and composes the whole panel itself.
-2. Its content is one `PinCanvas`: graphics drawn with the phase 3 primitives, and any text
-   drawn in with `drawBrailleCells` at the 3 by 5 pin pitch, which reproduces the native
-   32 by 8 layout exactly.
-3. It redraws only on deliberate events — a command, a page turn, a new object — never on
-   caret movement, because of the refresh cost and because it must not change under the
-   reader's hand.
-4. Leaving it restores ordinary braille with one write.
+#### What the driver already does, which changes the shape
 
-`spike.pinMixed()` is this proven at the smallest scale: a braille caption on the top line
-and a chart on the rows below, in a single pin report. Exit criterion is that plus a real
-enter and leave, with ordinary braille intact on both sides.
+`_compose` draws NVDA's cells across the whole panel first and then blits each overlay on
+top, all into one buffer, sent as one write. So graphics and braille already coexist in a
+single pin report at the driver level. Nothing needs suppressing to get a drawing onto the
+panel beside text, and `spike.pinMixed()` is no longer the thing to prove — the driver
+proves it on every repaint.
 
-The open design question is how this coexists with the add-on's existing views. A mode that
-takes the whole display is not something `views.py` currently models, and the honest answer
-may be that a graphics view saves the active view, replaces it, and restores it — rather
-than being composed from panels at all.
+What the add-on still has to supply is the other half: **keeping its own content off the pin
+rows a drawing occupies**. An overlay blits over whatever text was composed underneath, so
+text there is not corrupted, merely wasted — and the reader loses rows they were using. The
+segment machinery has to reserve the rectangle, not the driver.
+
+#### It is a mode, and the reason is state
+
+A drawing needs somewhere for its own state to live, and **zoom** is the case that settles
+it: a drawing that can be zoomed has a scale, an origin, and a history of both, none of
+which belongs to a panel that merely tiles a rectangle. Panning, layers, a selected element
+and "what does this touch mean here" all want the same home. So there is a graphics mode,
+entered and left deliberately, and it holds that state.
+
+The rest of the mode's behaviour follows from the mechanism rather than from taste:
+
+1. It redraws only on deliberate events — a command, a zoom, a page turn, a new object —
+   never on caret movement, because of the refresh cost and because the panel must not
+   change under the reader's hand.
+2. Its content is a `PinBuffer` drawn with the phase 3 primitives, with any text drawn in as
+   pins so that caption and drawing arrive in the same write.
+3. Leaving it restores what was there before, in one write.
+
+#### The open question: does the mode contain panels, or know about them?
+
+The mode does **not** have to take the whole panel, because rectangles are ours to assign
+anywhere. A worked example: give a drawing the top 96 by 32 pins and leave the bottom 8 pin
+rows to an ordinary braille segment, so the reader keeps a live line of NVDA braille under
+the figure. The split has to be expressed in **pin rows** and land on a line boundary for
+whichever pitch is active — a braille line is 4 pin rows at the 10 row pitch and 5 at the 8
+row pitch, so 8 spare rows is two lines at 10 rows and one line with three rows of slack at
+8. The 10 row pitch divides more usefully here, which is a second argument for it.
+
+That leaves two candidate shapes, and this is genuinely undecided:
+
+1. **The mode is panel aware.** It is a view like any other, and one of its panels is a
+   graphics panel that owns a rectangle and holds the zoom state. The other panels are
+   ordinary and keep flowing text. This keeps one compositor and one mental model, and makes
+   the "figure on top, braille line underneath" example fall out for free.
+2. **Panels belong to the mode.** Entering saves the active view, replaces it with a
+   graphics arrangement the mode owns, and leaving restores it. This keeps graphics state out
+   of `views.py` entirely, at the cost of a second way of arranging the display.
+
+The first looks better on the evidence so far, because the driver already composites and the
+add-on already assigns rectangles, which is most of what shape one needs. The thing that
+would decide it is zoom: if zoom turns out to want gestures, a settings ring entry and a
+status line of its own, the mode is heavier than a panel and shape two earns its keep.
+
+Exit criterion: a real enter and leave, a figure and a live braille line on the panel at the
+same time from the add-on rather than from the driver, ordinary braille intact on both sides,
+and the reserved rows genuinely reserved.
 
 ### Phase 3, a drawing API
 
-Status: not started.
+Status: **mostly delivered**, in `pinBuffer.py`, because the driver needed it first.
 
-`line`, `rect`, `fillRect`, `polyline`, `marker`, and `text(x, y, cells)` wrapping
-`drawBrailleCells`. Bresenham is enough. If the cell path is what we end up with and phase 0
-showed striping, this is where lattice compensation lives.
+Built and unit tested: `setDot`, `clearDot`, `getDot`, `line` (Bresenham), `rect` outline and
+filled, `polyline`, `blit`, `clearRect`, `contains`, and `fromRows`/`rows` for building and
+inspecting a shape from text.
+
+Still to add, and both are phase 2's customers rather than the driver's:
+
+1. `marker` — a named small shape at a point, for data points and callouts.
+2. `text(x, y, cells)` — braille into an arbitrary buffer at an arbitrary pin position. The
+   driver draws text into pins already in `_drawCells`, but only for the whole panel at the
+   current pitch. A caption inside a figure needs the same thing scoped to a rectangle.
+
+Lattice compensation is not needed and never will be on this path: the pin report has no
+lattice. It belongs with the cell path fallback if that is ever built.
 
 ### Phase 4, first real content
 
@@ -444,12 +526,18 @@ document that rather than tuning forever.
 
 ## Open questions
 
-1. How accurate is the touched pin in practice? The protocol carries pin resolution — see
-   "Touch" below — but four samples cannot say whether the infrared camera resolves a finger
-   that finely or whether the device is quantising internally somewhere below the cell. Worth
-   a session of deliberate touches at known positions before a graphics view promises
-   sub-cell precision to anything.
-2. How does a whole panel mode coexist with `views.py`? See phase 2.
+1. **Answered for routing, still open for graphics.** In use at the 10 row pitch the touched
+   pin is accurate enough to route into list items and edit fields reliably, so the worry
+   that the camera might quantise below the cell did not materialise for text. What that does
+   not establish is how finely a *drawing* can be pointed at — reading a data point off a
+   chart asks more of the same signal than picking a cell does. Worth measuring against known
+   positions before a graphics view promises sub-cell precision, but it is no longer a risk
+   to the driver.
+2. How does a graphics mode coexist with `views.py` — is the mode panel aware, or do panels
+   belong to the mode? No longer a question about a *whole panel* mode: the driver
+   composites overlays over text in one write, so a drawing can take a rectangle and leave
+   the remaining pin rows to an ordinary braille segment. Zoom is the thing that decides it.
+   See phase 2.
 3. What is feature usage 0x301, currently reading 1? It gates nothing, since the pin report
    works without touching it, but it plainly means something.
 4. What are 0x302 = 32 and 0x304 = 80? The 32 is cells per row; the 80 is unexplained.
@@ -460,7 +548,10 @@ document that rather than tuning forever.
 
 6. Does a partial redraw exist? Every write seen so far refreshes the whole panel, which is
    what makes this a page turning device. If some report updates a region, the mechanical
-   cost argument changes completely.
+   cost argument changes completely. Less pressing than it looked: a full 480 byte pin write
+   turns out to cost no more than the eight cell reports it replaces, so nothing is being
+   lost by writing the panel whole. What a partial redraw would buy is a quieter and less
+   disruptive update under the reader's hand, not throughput.
 7. Is the DotPad bit order an upstream bug? Now doubly worth asking, since the Monarch wants
    braille dot numbering on a report that is unambiguously a graphics buffer.
 

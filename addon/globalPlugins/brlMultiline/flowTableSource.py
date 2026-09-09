@@ -1197,6 +1197,28 @@ def rowBeside(handle: TableHandle, row: int, by: int) -> Optional[int]:
 	return found
 
 
+def rowShowingIn(handle: TableHandle, row: int) -> Optional[bool]:
+	""":return: whether a table is still showing one row, or None where it will not say.
+
+	The question `rowBeside` does not answer: walking by that one means no hidden row is ever
+	fetched, and says nothing about a row fetched before the reader hid it. See
+	`flowObjectTable.Sheet.rowShowing`.
+
+	:param handle: the table.
+	:param row: the row asked about, one based.
+	"""
+	offered = _offeredBy(handle, "rowShowing")
+	if offered is None:
+		return None
+	try:
+		return offered(row)
+	except CallCancelled:
+		raise
+	except Exception:
+		log.debugWarning("Could not ask a table whether it is still showing a row", exc_info=True)
+		return None
+
+
 def _sampleRows(handle: TableHandle, sample: int) -> list[int]:
 	""":return: which rows to measure: the header, then a bandful about the caret.
 
@@ -1643,6 +1665,31 @@ class TableFlowSource:
 		if not self._firstRowIsHeadings():
 			return "nothing: this table declares no headers and its first row is not headings"
 		return f"row {HEADER_ROW}, since this table declares none"
+
+	def rowNoLongerShown(self, rows) -> Optional[int]:
+		""":return: the first of these rows the table has stopped showing, or None if none has.
+
+		**What the band is holding, against what the table is showing now.** A filter is
+		applied to a sheet the band is already reading: the walk steps over the rows it took
+		away from that moment on — see `rowBeside` — and the rows walked before it was applied
+		stay in the window, are re-read by their own row numbers, and are drawn above and below
+		the row the reader filtered down to. Nothing else notices, because every one of those
+		rows was read correctly when it was read and answers correctly still.
+
+		Two rows are never judged. The reader's own row is where they are standing, and a row
+		that reads as hidden while somebody is in it is a wrong answer to act on — rebuilding
+		would put them right back on it. And a row before the first this source serves is the
+		pinned header, which is drawn above the band rather than walked to and would set off a
+		rebuild on every move for a reader who hid row one.
+
+		:param rows: the row numbers the band is holding, in any order.
+		"""
+		for row in rows:
+			if not isinstance(row, int) or row == self.handle.row or row < self.firstRow:
+				continue
+			if rowShowingIn(self.handle, row) is False:
+				return row
+		return None
 
 	def blockAtCursor(self, atObject=None) -> FetchResult:
 		""":return: the row the reader is on.

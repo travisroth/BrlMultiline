@@ -439,6 +439,38 @@ class TestWhatAnObjectTableAddsToTheReport(unittest.TestCase):
 		self.assertIn("could not be described", said)
 
 
+class TestWhetherTheBandIsHoldingAHiddenRow(unittest.TestCase):
+	"""**The line the report that found this did not have.**
+
+	A worksheet filtered down to one row came up with the row above it — the filter had taken
+	it away — on the display over it, and the report said everything about that row except the
+	one thing that mattered. Every other line was right: it was fetched correctly when it was
+	fetched and answers correctly still, so the report read as a band that was working.
+	"""
+
+	def band(self, answer):
+		control = FakeLiveControl([1])
+		control.source = type("Source", (), {"rowNoLongerShown": staticmethod(answer)})()
+		return Band(control)
+
+	def test_theRowIsNamed(self):
+		said = " ".join(liveReport(self.band(lambda rows: 3)))
+		self.assertIn("row 3 is on the band and the table has stopped showing it", said)
+
+	def test_andASheetWithNothingHiddenSaysSo(self):
+		said = " ".join(liveReport(self.band(lambda rows: None)))
+		self.assertIn("every row on the band is one the table is still showing", said)
+
+	def test_aTableThatCannotHideARowAddsNoLine(self):
+		"""Every table but a grid, where the line would mean nothing and read as reassurance."""
+		self.assertNotIn("Band rows:", " ".join(liveReport(Band(FakeLiveControl([1])))))
+
+	def test_aQuestionThatFailsDoesNotTakeTheReportWithIt(self):
+		def refuse(rows):
+			raise RuntimeError("gone")
+		self.assertIn("could not be told", " ".join(liveReport(self.band(refuse))))
+
+
 class _SaysSomething:
 	def describe(self):
 		return ["  what it found"]

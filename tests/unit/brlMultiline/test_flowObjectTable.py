@@ -1729,6 +1729,16 @@ class FilteredSheet(BulkSheet):
 
 		self.timesAsked = 0
 
+	def rowShowing(self, row):
+		self.timesAsked += 1
+		if not self.showing:
+			return None
+		if row < self.showing[0][0] or row > self.showing[-1][1]:
+			# Outside what the answer describes, which is the part of the sheet Excel calls
+			# used. Excel says nothing about a row past either end of it, and nor does this.
+			return None
+		return any(first <= row <= last for first, last in self.showing)
+
 	def rowAfter(self, row, by):
 		self.timesAsked += 1
 		if by > 0:
@@ -1805,11 +1815,11 @@ class TestASheetThatHidesRows(unittest.TestCase):
 	is what they met at both ends of it.
 	"""
 
-	def _source(self, sheet, columns=(1, 2, 3, 4)):
+	def _source(self, sheet, columns=(1, 2, 3, 4), pinHeaders=False):
 		cell = FakeNavigatorObject("a cell", role="TABLECELL")
 		cell.brlMultilineSheet = lambda: sheet
 		handle = flowTableSource.tableAt(cell)
-		return flowTableSource.TableFlowSource(handle, columns, declared={}, pinHeaders=False)
+		return flowTableSource.TableFlowSource(handle, columns, declared={}, pinHeaders=pinHeaders)
 
 	def _sheet(self, showing):
 		return FilteredSheet(
@@ -1865,6 +1875,104 @@ class TestASheetThatHidesRows(unittest.TestCase):
 		sheet.rowAfter = refuse
 		source = self._source(sheet)
 		self.assertIn("row 4", source.blockAfter(self._at(3)).block.region.rawText)
+
+
+class TestARowTheBandIsHoldingAfterTheFilterChanges(unittest.TestCase):
+	"""**The walk is not the whole of it: a row already on the band is never walked to.**
+
+	The reader filters a sheet the band is already reading. From that moment the walk steps
+	over what the filter took away — and the rows walked before it was applied stay in the
+	window, are re-read by their own row numbers, and are drawn above and below the row the
+	reader filtered down to. Which is what they met: one row left by the filter, with the row
+	above it, filtered away, still on the display over it.
+	"""
+
+	def _source(self, sheet, pinHeaders=False, declared=None):
+		cell = FakeNavigatorObject("a cell", role="TABLECELL")
+		cell.brlMultilineSheet = lambda: sheet
+		handle = flowTableSource.tableAt(cell)
+		return flowTableSource.TableFlowSource(
+			handle,
+			(1, 2, 3, 4),
+			declared=declared or {},
+			pinHeaders=pinHeaders,
+		)
+
+	def _sheet(self, showing, at=(9, 1)):
+		return FilteredSheet(
+			rows=[[f"row {number}", str(number), "", ""] for number in range(1, 13)],
+			at=at,
+			showing=showing,
+		)
+
+	def test_aHeldRowTheFilterTookAwayIsNamed(self):
+		source = self._source(self._sheet([(1, 1), (9, 9)]))
+		self.assertEqual(source.rowNoLongerShown([3, 9]), 3)
+
+	def test_andRowsTheFilterLeftAreNot(self):
+		source = self._source(self._sheet([(1, 1), (9, 9)]))
+		self.assertIsNone(source.rowNoLongerShown([1, 9]))
+
+	def test_theReadersOwnRowIsNeverJudged(self):
+		"""A row that reads as hidden while somebody is standing in it is a wrong answer to
+		act on: rebuilding the reading would put them straight back on it."""
+		source = self._source(self._sheet([(1, 1), (2, 2)], at=(9, 1)))
+		self.assertIsNone(source.rowNoLongerShown([9]))
+
+	def test_norIsThePinnedHeaderRow(self):
+		"""It is drawn above the band rather than walked to, so a reader who hid row one would
+		otherwise have the whole reading built again on every move."""
+		headings = ["Name", "Type", "Note", "Extra"]
+		sheet = self._sheet([(1, 1), (9, 9)])
+		sheet.rows[0] = headings
+		source = self._source(
+			sheet,
+			pinHeaders=True,
+			declared=dict(enumerate(headings, start=1)),
+		)
+		self.assertEqual(source.firstRow, flowTableSource.HEADER_ROW + 1)
+		self.assertIsNone(source.rowNoLongerShown([flowTableSource.HEADER_ROW]))
+
+	def test_aSheetWithNoOpinionSaysNothingHasGone(self):
+		"""Every other grid, and every list: nothing there can hide a row, so nothing there is
+		read again for one."""
+		source = self._source(BulkSheet(at=(2, 1)))
+		self.assertIsNone(source.rowNoLongerShown([1, 2, 3]))
+
+	def test_andNorDoesASheetThatRaises(self):
+		sheet = self._sheet([(1, 1), (9, 9)])
+		def refuse(row):
+			raise RuntimeError("no")
+		sheet.rowShowing = refuse
+		self.assertIsNone(self._source(sheet).rowNoLongerShown([3]))
+
+	def _band(self, sheet, numRows=6):
+		from brlMultiline import flowBuild
+
+		cell = FakeNavigatorObject("a cell", role="TABLECELL")
+		cell.brlMultilineSheet = lambda: sheet
+		return flowBuild.buildTableController(obj=cell, numRows=numRows, numCols=40)
+
+	def test_theBandSaysSoWhileItIsHoldingOne(self):
+		"""The reader's own report, from the sheet they sent it in on: one row left by the
+		filter, and the row above it — filtered away, read before they filtered — still drawn
+		over it."""
+		sheet = self._sheet([(1, 3), (9, 12)])
+		control = self._band(sheet)
+		control.panBack()
+		self.assertIn(3, [block.blockId.bookmark for block in control.window.blocks])
+		self.assertTrue(control.tableStillHoldsTheBand())
+		# What a filter leaves: the row it was filtered down to, and the header row above it,
+		# which is what Excel keeps on show and what bounds the answer at the top.
+		sheet.showing = [(1, 1), (9, 9)]
+		self.assertFalse(control.tableStillHoldsTheBand())
+
+	def test_andSaysNothingWhenEveryRowOnItIsStillShowing(self):
+		"""Which is every move the reader makes: the question is asked on each of them and
+		must cost them nothing when the answer is yes."""
+		control = self._band(self._sheet([(1, 3), (9, 12)]))
+		control.panBack()
+		self.assertTrue(control.tableStillHoldsTheBand())
 
 
 class TestWhatASheetSaysInTheReport(unittest.TestCase):

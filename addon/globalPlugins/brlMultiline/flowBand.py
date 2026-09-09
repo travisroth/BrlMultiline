@@ -1344,7 +1344,7 @@ class FlowBand(PanelOwner):
 			self._readAgainAt = None
 			self._rechecking = False
 
-	def _whereTheyAreReading(self):
+	def _whereTheyAreReading(self, andTheRows: bool = True):
 		""":return: the page of columns and the top row the band is showing, or None.
 
 		**What a rebuild has to put back, and put back before anything is written.** A rebuild
@@ -1354,10 +1354,17 @@ class FlowBand(PanelOwner):
 
 		A review measured the cost of putting it back afterwards instead: two writes to the
 		display for one rebuild, page one and then theirs, and the driver sends both.
+
+		:param andTheRows: whether the top row is theirs to keep. False keeps the page of
+			columns alone and follows the caret down the rows, which is what a band holding
+			rows the table has stopped showing wants: the page is still the reader's own
+			choice, and the row they were parked on may be one of the rows that went away.
 		"""
 		plan = self.columnPlan()
 		if plan is None:
 			return None
+		if not andTheRows:
+			return (plan.at, None)
 		top = self.controller.window.topBlockId() if self.controller is not None else None
 		row = getattr(top, "bookmark", None) if top is not None else None
 		return (plan.at, row if isinstance(row, int) else None)
@@ -1665,6 +1672,9 @@ class FlowBand(PanelOwner):
 		# caret: a review counted the table resolved four times and the saved layout looked up
 		# twice for one automatic layout, all of them asking what had just been asked.
 		handle, layout = (None, None)
+		readAgainAt = self._readAgainAt
+		"""Where to put the band once it is built: what a rebuild asked for, or, where the
+		table has changed under the reader below, the page of columns they had."""
 		if self.tableWanted is None:
 			handle, layout = self._savedLayoutHere(obj)
 			if handle is None:
@@ -1685,16 +1695,27 @@ class FlowBand(PanelOwner):
 			# those reads the used range. The handle in hand is the answer to both questions.
 			self.obj = obj
 			self.controller.source.moveTo(handle)
-			# **Both axes, because this is the only thing that hears the move.** In browse
-			# mode a caret move is not a focus change, so it arrives at `_recheckTable`, which
-			# follows the columns as well as the rows. In a spreadsheet or a list it arrives
-			# here instead — and `setCurrent` above has already moved the source, so the check
-			# in `_recheckTable` finds nothing changed and never looks at the column. The band
-			# followed the reader down the rows and left them behind across the columns.
-			self._showColumn(handle.col)
-			self.controller.followCursor()
-			segment.refresh()
-			return True
+			if self.controller.tableStillHoldsTheBand():
+				# **Both axes, because this is the only thing that hears the move.** In browse
+				# mode a caret move is not a focus change, so it arrives at `_recheckTable`,
+				# which follows the columns as well as the rows. In a spreadsheet or a list it
+				# arrives here instead — and `setCurrent` above has already moved the source,
+				# so the check in `_recheckTable` finds nothing changed and never looks at the
+				# column. The band followed the reader down the rows and left them behind
+				# across the columns.
+				self._showColumn(handle.col)
+				self.controller.followCursor()
+				segment.refresh()
+				return True
+			# The table has stopped showing a row the band is holding, which on a worksheet is
+			# the reader filtering it. Everything below is the reading made again — the rows
+			# walked afresh, so the ones the filter took away are stepped over, and the columns
+			# measured afresh from rows that are actually on show.
+			#
+			# Falling through rather than calling `_rebuildTable`, which asks for a redraw from
+			# inside the redraw that is already running. The build below is the same build, and
+			# it has the table in hand.
+			readAgainAt = self._whereTheyAreReading(andTheRows=False)
 		numRows, numCols = self._bandSize(segment)
 		# Kept rather than discarded, because the step that stopped a build is the whole of
 		# what the reader needs when they are told the columns did not happen. See
@@ -1715,8 +1736,8 @@ class FlowBand(PanelOwner):
 			# Where the reader had the band, when this is a rebuild rather than an arrival.
 			# Applied inside the build, so what reaches the display is their own window and
 			# not page one first. See `_whereTheyAreReading`.
-			atPage=self._readAgainAt[0] if self._readAgainAt else 0,
-			atRow=self._readAgainAt[1] if self._readAgainAt else None,
+			atPage=readAgainAt[0] if readAgainAt else 0,
+			atRow=readAgainAt[1] if readAgainAt else None,
 		)
 		if control is None:
 			# Recognised a moment ago and not now, or no column layout fits this band. Reading

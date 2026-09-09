@@ -148,6 +148,16 @@ Added:
   walked exactly as before, and a sheet whose answer cannot be had is too, rather than losing
   you the rest of it.
 
+  **And a filter applied while the band is already reading takes its rows off the display.**
+  Stepping between the rows on show settles what is fetched from that moment on and says
+  nothing about the rows fetched before you filtered: those stayed in the band's cache, were
+  re-read by their own row numbers, and were drawn above and below the one row you had
+  filtered down to. Every move you make now checks the rows on the band against the rows the
+  sheet is showing, and a reading holding one it has stopped showing is made again — with the
+  columns measured afresh from rows that are actually on show, and the page of columns you had
+  turned to kept. The report says so too, so a band holding a row that is no longer there can
+  be told from one that is working.
+
 - **A hidden column is not drawn, counted or named.** Hiding column 5 in Excel took it out of
   what the arrow keys reach and left it in the layout: it had a column of the display, its
   heading sat in the pinned row, and it was counted in "columns five to six of six" — a column

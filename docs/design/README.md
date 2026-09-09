@@ -34,15 +34,18 @@ Read the files in this order:
 8. [tactile-graphics-plan.md](tactile-graphics-plan.md) — feasibility findings and the plan
    for drawing on the Monarch through the HID braille connection the add-on already has.
    Covers what the HID standard does and does not offer, the Monarch's pin geometry, why the
-   DotPad's approach is the inverse of the one we need, and a first hardware run that found
-   an undocumented 480 byte output report matching the Monarch's pin count exactly. Nothing
-   is built yet and phase 0 is unfinished; read it before writing any code that sets dots
-   rather than characters.
+   DotPad's approach is the inverse of the one we need, and the hardware runs that found an
+   undocumented 480 byte output report matching the Monarch's pin count exactly. Phase 0 is
+   complete on hardware; phase 1's buffer and most of phase 3's drawing primitives are
+   delivered inside the Monarch driver as `pinBuffer.py`; phase 2, the graphics view, is the
+   next piece and nothing above the driver consumes the graphics API yet. Read it before
+   writing any code that sets dots rather than characters.
 9. [monarch-driver-plan.md](monarch-driver-plan.md) — the design of `brlMultilineMonarch`, a
    braille display driver that subclasses NVDA's HID braille driver and drives the Monarch
    through its pin report instead of its cell reports. Gives graphics, a choice of 8 or 10
-   line pitch, touch at pin resolution, and Bluetooth that survives a dropout. Built but not
-   yet run on hardware; read it before touching that driver package.
+   line pitch, touch at pin resolution, and Bluetooth that survives a dropout. Built, and
+   confirmed on hardware: it opens the device, draws through report 0x21, and routes
+   correctly at both pitches. Read it before touching that driver package.
 
 ## Project background
 

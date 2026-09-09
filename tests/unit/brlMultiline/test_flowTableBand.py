@@ -2885,3 +2885,79 @@ class TestRememberingTheLayoutOnTheDisplay(TableBandTestCase):
 		self.api.getNavigatorObject = self.api.getFocusObject
 		self.addCleanup(setattr, self.api, "getNavigatorObject", self.api.getNavigatorObject)
 		self.assertIn("Not in a table", self._press("script_forgetTableLayout"))
+
+
+class TestTheReaderFilteringTheSheetUnderTheBand(TableBandTestCase):
+	"""**A filter hides rows; it does not remove them, and the band is already holding some.**
+
+	The walk steps over the rows a filter took away from the moment it is applied — and the
+	rows walked before that stay in the window, are re-read by their own row numbers, and are
+	drawn above and below the row the reader filtered down to. Nothing else notices: every one
+	of those rows was read correctly when it was read, and answers correctly still.
+
+	Reported from a worksheet filtered down to a single row, which came up with the row above
+	it — filtered away — on the display over it.
+	"""
+
+	def _sheet(self, showing, at=(9, 1)):
+		from .test_flowObjectTable import FilteredSheet
+
+		return FilteredSheet(
+			rows=[[f"row {number}", "x" * 20, "y" * 20, "z" * 20] for number in range(1, 13)],
+			at=at,
+			showing=showing,
+		)
+
+	def _onASheet(self, sheet):
+		"""Put the reader on a cell of a sheet and lay its columns out, as the command does."""
+		cell = FakeNavigatorObject("a cell", role="TABLECELL")
+		cell.brlMultilineSheet = lambda: sheet
+		self.api.getFocusObject = lambda: cell
+		self.api.getNavigatorObject = lambda: cell
+		self.addCleanup(setattr, self.api, "getNavigatorObject", self.api.getNavigatorObject)
+		self.band._follow()
+		self.assertTrue(self.band.layOutTable())
+		return cell
+
+	def _held(self):
+		return [block.blockId.bookmark for block in self.band.controller.window.blocks]
+
+	def test_theRowsTheFilterTookAwayLeaveTheBand(self):
+		sheet = self._sheet([(1, 3), (9, 12)])
+		cell = self._onASheet(sheet)
+		self.band.controller.panBack()
+		self.assertIn(3, self._held())
+		# What a filter leaves: the one row it was filtered down to, and the header row above
+		# it, which Excel keeps on show.
+		sheet.showing = [(1, 1), (9, 9)]
+		sheet.at = (9, 2)
+		self.band.showObject(cell, focusMoved=True)
+		self.assertEqual(self._held(), [9])
+
+	def test_andTheReaderKeepsThePageOfColumnsTheyHadTurnedTo(self):
+		"""The rebuild is not something they asked for, and the page is their own choice. Only
+		the rows are given up, because the row they were parked on may be one of the rows that
+		went away."""
+		sheet = self._sheet([(1, 3), (9, 12)])
+		cell = self._onASheet(sheet)
+		self.assertTrue(self.band.turnColumnPage(1))
+		page = self.band.columnPlan().at
+		self.band.controller.panBack()
+		# What a filter leaves: the one row it was filtered down to, and the header row above
+		# it, which Excel keeps on show.
+		sheet.showing = [(1, 1), (9, 9)]
+		sheet.at = (9, 2)
+		self.band.showObject(cell, focusMoved=True)
+		self.assertEqual(self.band.columnPlan().at, page)
+
+	def test_aSheetWhoseFilterHasNotChangedIsNotReadAgain(self):
+		"""Every move the reader makes asks this, and the answer is almost always that nothing
+		has changed. A reading made again on each of them would measure the sheet on every
+		arrow key and take the reader's window from them."""
+		sheet = self._sheet([(1, 3), (9, 12)])
+		cell = self._onASheet(sheet)
+		self.band.controller.panBack()
+		held = self._held()
+		sheet.at = (9, 2)
+		self.band.showObject(cell, focusMoved=True)
+		self.assertEqual(self._held(), held)
