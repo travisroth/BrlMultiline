@@ -12,6 +12,7 @@ longer exists.
 before, after, or instead of running.
 """
 
+import contextlib
 import types
 import unittest
 
@@ -364,6 +365,40 @@ class TestPanelClaims(PluginTestCase):
 		self.assertEqual(self.container.numSegments, 8)
 
 
+class FakeFlowBand:
+	"""Enough of a flow band to exercise the plugin's three answers to a rebuild.
+
+	The real one needs a document, a controller and a browse mode tree to say anything at
+	all, none of which this is about: what is being tested is which of `onRebuilt`,
+	`onSuspended` and `onEvicted` the plugin picks, and whether the band survives.
+	"""
+
+	def __init__(self, segment=object()):
+		self._segment = segment
+		self.rebuilt = False
+		self.suspended = False
+		self.evicted = False
+		self.stopped = False
+
+	def segment(self):
+		return self._segment
+
+	def onRebuilt(self, keys=frozenset()):
+		self.rebuilt = True
+
+	def onSuspended(self):
+		self.suspended = True
+
+	def onEvicted(self, keys=frozenset()):
+		self.evicted = True
+
+	def onTerminate(self):
+		self.stopped = True
+
+	def stop(self):
+		self.stopped = True
+
+
 class TestClaimPriority(PluginTestCase):
 	"""A drawing outranks the flow, which outranks an ordinary claim.
 
@@ -374,6 +409,19 @@ class TestClaimPriority(PluginTestCase):
 	"""
 
 	segmentCount = 8
+
+	@contextlib.contextmanager
+	def drawingUp(self):
+		"""Pretend a figure is on the display, without needing one.
+
+		The mode answers `active` from whether it holds a drawing, and every rule about
+		priority keys on that one fact.
+		"""
+		self.plugin.graphicsMode._drawing = object()
+		try:
+			yield
+		finally:
+			self.plugin.graphicsMode._drawing = None
 
 	def test_theHighestRankIsLaidLast(self):
 		rect = SegmentRect(0, 0, 4, MONARCH_COLS)
@@ -411,12 +459,61 @@ class TestClaimPriority(PluginTestCase):
 		a teardown on every rebuild, and the flow is on for most rebuilds.
 		"""
 		self.assertFalse(self.plugin.graphicsMode.active)
-		self.plugin.graphicsMode._drawing = object()
-		try:
+		with self.drawingUp():
 			self.plugin._applyFlow()
 			self.assertIsNone(self.plugin.flowBand)
+
+	def test_aFlowAlreadyRunningIsNotStoppedWhenADrawingArrives(self):
+		"""Stopping it would take its controller, and the controller is where the
+		reader's place in the document lives. Reported from hardware: the flow came back
+		after a drawing and was at the top of the page rather than where they had got to.
+		"""
+		band = FakeFlowBand()
+		self.plugin.flowBand = band
+		try:
+			with self.drawingUp():
+				self.plugin._applyFlow()
+				self.assertIs(self.plugin.flowBand, band)
+				self.assertFalse(band.stopped)
 		finally:
-			self.plugin.graphicsMode._drawing = None
+			self.plugin.flowBand = None
+
+	def test_aBandWithoutItsRowsIsSuspendedWhileADrawingIsUp(self):
+		band = FakeFlowBand(segment=None)
+		self.plugin.flowBand = band
+		try:
+			with self.drawingUp():
+				self.plugin._carryOverFlow(self.container)
+			self.assertTrue(band.suspended)
+			self.assertFalse(band.evicted)
+			self.assertIs(self.plugin.flowBand, band)
+		finally:
+			self.plugin.flowBand = None
+
+	def test_aBandWithoutItsRowsAndNoDrawingIsEvictedAsBefore(self):
+		"""The suspension must not swallow a real eviction: rows gone with nothing to
+		give them back means the flow is over.
+		"""
+		band = FakeFlowBand(segment=None)
+		self.plugin.flowBand = band
+		try:
+			self.plugin._carryOverFlow(self.container)
+			self.assertTrue(band.evicted)
+			self.assertFalse(band.suspended)
+			self.assertIsNone(self.plugin.flowBand)
+		finally:
+			self.plugin.flowBand = None
+
+	def test_aBandThatKeptItsRowsIsSimplyRedrawn(self):
+		band = FakeFlowBand()
+		self.plugin.flowBand = band
+		try:
+			self.plugin._carryOverFlow(self.container)
+			self.assertTrue(band.rebuilt)
+			self.assertFalse(band.suspended)
+			self.assertFalse(band.evicted)
+		finally:
+			self.plugin.flowBand = None
 
 
 class TestLayoutReport(PluginTestCase):

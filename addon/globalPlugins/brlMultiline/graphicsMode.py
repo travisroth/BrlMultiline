@@ -47,6 +47,7 @@ from .routing import RoutingPolicy
 __all__ = [
 	"Drawing",
 	"GraphicsMode",
+	"labelCells",
 	"GraphicsRoutingPolicy",
 	"testFigure",
 ]
@@ -89,7 +90,7 @@ MAX_SCALE = 8.0
 """Pins per source dot, at the most magnified. See the zoom ladder."""
 
 
-def _labelCells(text: str) -> list[int]:
+def labelCells(text: str) -> list[int]:
 	"""Translate a short label into braille cells.
 
 	Uses the reader's own output table, so a caption inside a figure reads the way the rest of
@@ -119,13 +120,19 @@ class Drawing:
 	reader has magnified it.
 	"""
 
-	def __init__(self, buffer, name: str = ""):
+	def __init__(self, buffer, name: str = "", describeAt=None):
 		"""
 		:param buffer: the dots, a buffer from `GraphicsSurface.newBuffer`.
 		:param name: what to call this when the reader asks what is on the display.
+		:param describeAt: what is at a point of this drawing, taking source coordinates and
+			returning a phrase or None. Optional, and it is the difference between a drawing a
+			reader can feel and one they can interrogate: without it a press can only report a
+			dot, so a reader learns that one bar is taller than another and never learns what
+			either of them is. A chart supplies one; a scanned picture has nothing to say.
 		"""
 		self.buffer = buffer
 		self.name = name
+		self.describeAt = describeAt
 
 	@property
 	def width(self) -> int:
@@ -166,13 +173,47 @@ def testFigure(surface: GraphicsSurface, width: int, height: int) -> Optional[Dr
 	buffer.marker(sourceWidth // 2, sourceHeight // 2, "diamond")
 	buffer.marker(sourceWidth // 4, sourceHeight // 4, "cross")
 	buffer.marker(3 * sourceWidth // 4, 3 * sourceHeight // 4, "square")
-	cells = _labelCells("test")
+	cells = labelCells("test")
 	if cells:
 		# Cleared first, then drawn: a caption over the diagonals would be unreadable, and
 		# `text` is additive like everything else here.
 		buffer.clearRect(2, 2, len(cells) * 3 + 1, 5)
 		buffer.text(3, 2, cells)
 	return Drawing(buffer, name="test figure")
+
+
+def _sayAfterThePress(text: str) -> None:
+	"""Say something in speech and braille, once the routing press has finished.
+
+	**Not `ui.message` directly, and the reason is a rule of NVDA's that this walks into.**
+	`BrailleHandler.routeTo` is:
+
+		self.buffer.routeTo(windowPos)
+		if self.buffer is self.messageBuffer:
+			self._dismissMessage()
+
+	The first line is what runs the routing policy, so a message raised from inside a policy
+	arrives *before* the second — and the second exists to make a routing key dismiss a
+	message that is up. NVDA says so in its own docstring: "The message will be dismissed
+	immediately if the user presses a cursor routing key." The press and the message were
+	meant to be two events; here they are one, so the message dismissed itself the instant it
+	appeared. It was spoken, and never reached braille, which is exactly how it behaved on
+	hardware and is a difference no log would have shown.
+
+	Queued onto the event queue, so it lands after `routeTo` has returned and the press is
+	over. Then it is an ordinary message and stands for its ordinary timeout.
+
+	:param text: what to say.
+	"""
+	try:
+		import queueHandler
+
+		queueHandler.queueFunction(queueHandler.eventQueue, ui.message, text)
+	except Exception:
+		# Better spoken now than not at all: without the queue the braille half is lost to
+		# the dismissal above, and the speech half is the part carrying the answer.
+		log.debugWarning("BrlMultiline: could not defer a message past the press", exc_info=True)
+		ui.message(text)
 
 
 class GraphicsRoutingPolicy(RoutingPolicy):
@@ -303,6 +344,40 @@ class GraphicsMode(PanelOwner):
 		return self._originX, self._originY
 
 	# --- Entering and leaving ---------------------------------------------------------------
+
+	def drawingSize(self, textLines: int = DEFAULT_TEXT_LINES) -> Optional[tuple]:
+		"""How big a drawing would be if one were shown now.
+
+		For a caller composing a drawing for this display rather than bringing one that
+		already exists. A chart is drawn to fill its rectangle exactly, so it has to know the
+		rectangle before it can be built, and asking here keeps the claim's arithmetic — the
+		band, the pitch, the text line, the composite's offset — in one place instead of
+		being repeated by everything that wants to draw.
+
+		:param textLines: braille lines that would be kept beside it.
+		:return: width and height in pins, or None where nothing can be drawn.
+		"""
+		surface = findSurface()
+		if surface is None:
+			return None
+		claim = self._claimFor(surface, textLines)
+		if claim is None:
+			return None
+		panel = GraphicsPanel(PANEL_NAME, claim, textRows=textLines)
+		pins = surface.pinRectForCells(panel.drawingRect)
+		return None if pins.isEmpty else (pins.width, pins.height)
+
+	def newBuffer(self, width: int, height: int):
+		"""Make a buffer to compose a drawing in.
+
+		The display's own factory, so a caller building a drawing never imports a driver.
+
+		:param width: dots across.
+		:param height: dots down.
+		:return: a blank buffer, or None if there is no display to ask.
+		"""
+		surface = findSurface()
+		return None if surface is None else surface.newBuffer(width, height)
 
 	def enter(self, drawing: Optional[Drawing] = None, textLines: int = DEFAULT_TEXT_LINES) -> bool:
 		"""Claim a rectangle and show a figure in it.
@@ -813,7 +888,7 @@ class GraphicsMode(PanelOwner):
 				# the claim, which happens when a press was decided from the device's own cell
 				# index instead. The cell is coarser and is still an answer.
 				point = self.pointForCell(segmentPos, surface)
-		ui.message(self.describePoint(point, surface))
+		_sayAfterThePress(self.describePoint(point, surface))
 
 	def searchRadius(self, surface: Optional[GraphicsSurface] = None) -> int:
 		"""How far from the reported pin to look for a dot, in source dots.
@@ -876,6 +951,30 @@ class GraphicsMode(PanelOwner):
 						return x + dx, y + dy
 		return None
 
+	def _meaningAt(self, point: tuple) -> Optional[str]:
+		"""Ask the drawing what is at a point of it.
+
+		Preferred over reporting a dot, because a drawing that knows what it is made of has
+		a better answer than "raised at 26, 9": a chart can say which bar and what it is
+		worth. Only a drawing built from structure has one — a picture does not — so this
+		falls through to the dot when there is nothing to ask.
+
+		A drawing's own answer is trusted about a *blank* point too, which is why this comes
+		before the search: the space above a short bar still belongs to that bar, and naming
+		it is more use than finding the nearest raised dot somewhere else.
+
+		:param point: the source dot the press mapped to.
+		:return: what is there, or None if the drawing does not say.
+		"""
+		describeAt = getattr(self._drawing, "describeAt", None)
+		if describeAt is None:
+			return None
+		try:
+			return describeAt(point[0], point[1])
+		except Exception:
+			log.error("BrlMultiline: a drawing could not say what is at a point", exc_info=True)
+			return None
+
 	def describePoint(self, point: Optional[tuple], surface: Optional[GraphicsSurface] = None) -> str:
 		"""Say what the finger is on.
 
@@ -890,6 +989,9 @@ class GraphicsMode(PanelOwner):
 		if point is None or not self.active:
 			# Translators: reported for a press that did not land on the drawing.
 			return _("Not on the drawing")
+		meaning = self._meaningAt(point)
+		if meaning:
+			return meaning
 		found = self.nearestDot(point, self.searchRadius(surface))
 		if found is not None:
 			# Translators: reported for a press on or beside a raised dot of a drawing. {x} and

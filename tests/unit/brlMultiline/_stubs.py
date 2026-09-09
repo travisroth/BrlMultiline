@@ -2113,6 +2113,32 @@ about a table must not do: the display is showing the table, and a flash sits ov
 the message times out. See `GlobalPlugin.reportAboutTheDisplay`."""
 
 
+queuedFunctions: list = []
+"""What was queued onto NVDA's event queue, so a test can run it when it chooses.
+
+Held rather than run, because *when* something runs is the point wherever this is used.
+A message raised from inside a cursor routing press has to land after the press, or
+`BrailleHandler.routeTo` dismisses it as the press's own dismissal of a message — which
+is a real fault that ran correctly in every test until the queue was modelled.
+"""
+
+
+def _queueFunction(queue, func, *args, **kwargs):
+	"""What `queueHandler.queueFunction` does: hold it for the main loop."""
+	queuedFunctions.append((func, args, kwargs))
+
+
+def runQueuedFunctions():
+	"""Run what was queued, as NVDA's main loop would.
+
+	:return: how many ran.
+	"""
+	pending, queuedFunctions[:] = list(queuedFunctions), []
+	for func, args, kwargs in pending:
+		func(*args, **kwargs)
+	return len(pending)
+
+
 def _flash(text):
 	"""What `ui.message` does: speak it and write it to the display."""
 	flashedMessages.append(text)
@@ -2797,6 +2823,7 @@ def _installPluginStubs() -> None:
 		copyToClip=_copyToClip,
 	)
 	_module("ui", message=_flash)
+	_module("queueHandler", eventQueue=object(), queueFunction=_queueFunction)
 	_module("speech", speakMessage=spokenMessages.append, speakTextInfo=_speakTextInfo)
 	_module("virtualBuffers", VirtualBuffer=FakeVirtualBufferClass)
 	_module(

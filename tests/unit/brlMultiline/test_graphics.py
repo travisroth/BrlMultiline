@@ -23,7 +23,12 @@ import sys
 import types
 import unittest
 
-from ._stubs import fakeVirtualDisplay, flashedMessages, installStubs
+from ._stubs import (
+	fakeVirtualDisplay,
+	flashedMessages,
+	installStubs,
+	runQueuedFunctions,
+)
 
 installStubs()
 
@@ -764,12 +769,33 @@ class TestPointing(unittest.TestCase):
 	def press(self, segmentPos=0):
 		"""Make the press the way the container does, through the claim's policy.
 
+		The queue is run afterwards because the press does not say anything itself — it queues
+		the saying for after `BrailleHandler.routeTo` has returned. See `_sayAfterThePress`,
+		and `test_theReportWaitsForThePressToFinish` for why that matters.
+
 		:param segmentPos: the pressed cell within the claim.
 		:return: what the reader was told.
 		"""
 		policy = GraphicsRoutingPolicy(self.mode)
 		policy.route(container=None, segmentNumber=0, segmentPos=segmentPos)
+		runQueuedFunctions()
 		return flashedMessages[-1] if flashedMessages else None
+
+	def test_theReportWaitsForThePressToFinish(self):
+		"""The fault this was found by, and it is NVDA's own rule rather than a bug in it.
+
+		`BrailleHandler.routeTo` runs the routing policy and then, if a message is up, dismisses
+		it — because a cursor routing key is how a reader dismisses a message. A message raised
+		from inside the policy arrives before that check and is read as the press's own
+		dismissal, so it vanished the instant it appeared: spoken, never in braille, and
+		invisible in any log.
+		"""
+		self.mode.enter(Drawing(PinBuffer.fromRows(["O.", ".."])), textLines=7)
+		self.driver.lastRoutingPin = (0, 35)
+		GraphicsRoutingPolicy(self.mode).route(container=None, segmentNumber=0, segmentPos=0)
+		self.assertEqual(flashedMessages, [], "the press said something before it had finished")
+		self.assertEqual(runQueuedFunctions(), 1)
+		self.assertIn("Raised at 0, 0", flashedMessages[-1])
 
 	def test_aPressInsideTheFigureBecomesASourceDot(self):
 		self.mode.enter(Drawing(PinBuffer.fromRows(["O..", "...", "..O"])), textLines=7)
@@ -855,7 +881,9 @@ class TestPointing(unittest.TestCase):
 		self.assertIsNotNone(self.press())
 
 	def test_aPressWithNoFigureUpSaysNothing(self):
-		self.press()
+		policy = GraphicsRoutingPolicy(self.mode)
+		policy.route(container=None, segmentNumber=0, segmentPos=0)
+		self.assertEqual(runQueuedFunctions(), 0)
 		self.assertEqual(flashedMessages, [])
 
 	def test_aPressIsAnsweredEvenWhenThePinIsOutsideTheClaim(self):

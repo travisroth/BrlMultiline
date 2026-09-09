@@ -278,6 +278,40 @@ class HeaderCellTracker:
 		self.listByRow.sort(reverse=True)
 
 
+class FakeSelection:
+	"""NVDA's `ExcelSelection`: what the focus becomes while a range is selected.
+
+	Shaped the way the app module reads one — a range of its own, a worksheet parent, and
+	the coordinates of its top left corner — and nothing more, because nothing more is
+	asked of it. Deliberately not a `FakeCell` and not a subclass of one: the whole point of
+	the real class is that it is *not* a cell, which is what made the seam vanish the moment
+	a reader selected something to chart.
+	"""
+
+	def __init__(self, worksheet, row=1, column=1, values=None):
+		"""
+		:param worksheet: the `FakeWorksheet` this selection is in.
+		:param row: the sheet row its top left corner is on.
+		:param column: the sheet column it is in.
+		:param values: what `Value2` answers for the range.
+		"""
+		self.excelRangeObject = FakeSelectedRange(worksheet, row, column, values)
+		self.excelWindowObject = object()
+		self.rowNumber = row
+		self.columnNumber = column
+		self.parent = worksheet
+
+
+class FakeSelectedRange:
+	"""Excel's own range, as much of it as a selection is asked for."""
+
+	def __init__(self, worksheet, row, column, values):
+		self.Row = row
+		self.Column = column
+		self.Value2 = values
+		self.Application = worksheet.excelWorksheetObject.Application
+
+
 def _install() -> None:
 	"""Register what the application module imports, and put the add-on on the path."""
 	if "nvdaBuiltin.appModules.excel" in sys.modules:
@@ -312,6 +346,10 @@ def _install() -> None:
 	nvdaExcel.convertAddressToLocal = lambda application, address: address
 	# The API class the module builds cells from, and the one it tells a COM model cell by.
 	nvdaExcel.ExcelCell = FakeCell
+	# The class NVDA swaps in while several cells are selected, and the one the module tells
+	# a selection by. A different branch of NVDA's hierarchy, which is exactly why the cell
+	# overlay does not apply to it and why the seam needed one of its own.
+	nvdaExcel.ExcelSelection = FakeSelection
 	sys.modules["NVDAObjects"] = objects
 	sys.modules["NVDAObjects.window"] = window
 	sys.modules["NVDAObjects.window.excel"] = nvdaExcel
@@ -1637,6 +1675,78 @@ class TestGoingToACell(unittest.TestCase):
 		found.setFocus()
 		self.assertTrue(found.excelCellObject.activated)
 		self.assertEqual(firedEvents, [("gainFocus", found)])
+
+
+class TestASelectedRangeOffersTheSeam(unittest.TestCase):
+	"""Selecting cells must not take the seam away.
+
+	NVDA builds an `ExcelSelection` rather than an `ExcelCell` for as long as more than one
+	cell is selected — a different class on a different branch, so the cell overlay does not
+	apply to it. The seam therefore vanished at exactly the moment a reader had selected
+	something to do with, and charting a selection failed on hardware with "charts need a
+	spreadsheet cell" *while the reader was in a spreadsheet with cells selected*.
+
+	The log line that found it is worth keeping in view:
+
+		BrlMultiline: charting from ExcelSelection role=TABLECELL
+		name='A1  June through B4  5000', grid=False
+	"""
+
+	def setUp(self):
+		self.sheet = FakeWorksheet(FakeWorksheetObject())
+
+	def test_aSelectionIsRecognised(self):
+		self.assertTrue(excelModule.isASelectedRange(FakeSelection(self.sheet)))
+
+	def test_aPlainCellIsNotASelection(self):
+		"""The two predicates must not both claim the same object, or the same overlay would
+		be offered twice and NVDA would be left with no object at all."""
+		cell = FakeCell(excelCellObject=self.sheet.excelWorksheetObject.cells(1, 1))
+		self.assertFalse(excelModule.isASelectedRange(cell))
+
+	def test_aSelectionIsNotOfferedTheCellOverlay(self):
+		"""`setFocus` on a selection is not a thing — a routing key lands on a cell — so the
+		cell overlay must keep away from it."""
+		self.assertFalse(excelModule.readsByCoordinate(FakeSelection(self.sheet)))
+
+	def test_theSelectionOverlayIsRegistered(self):
+		pairs = {overlay: belongs for overlay, belongs in excelModule.OVERLAYS}
+		self.assertIn(excelModule.SpreadsheetSelection, pairs)
+		self.assertIs(pairs[excelModule.SpreadsheetSelection], excelModule.isASelectedRange)
+
+	def test_theOverlayOffersTheSeamAndNotNavigation(self):
+		self.assertTrue(hasattr(excelModule.SpreadsheetSelection, "brlMultilineSheet"))
+		self.assertFalse(hasattr(excelModule.SpreadsheetSelection, "setFocus"))
+
+	def test_aSheetBuiltFromASelectionReachesExcel(self):
+		"""The one real difference between the two objects: a cell carries `excelCellObject`
+		and a selection carries `excelRangeObject`, and everything else on `ExcelSheet` already
+		worked from either."""
+		sheet = excelModule.ExcelSheet(FakeSelection(self.sheet, row=2, column=3))
+		self.assertEqual(sheet.where(), (2, 3))
+		self.assertIsNotNone(sheet._application())
+
+	def test_aSelectionsOwnRangeIsPreferredToAskingExcelWhatIsSelected(self):
+		"""They are the same range when they agree, and when they do not it is because the
+		selection moved after NVDA built the object — in which case the object the reader is on
+		is the one they meant."""
+		selection = FakeSelection(self.sheet, values=((1.0,), (2.0,)))
+		sheet = excelModule.ExcelSheet(selection)
+		self.assertIs(sheet._selectedRange(), selection.excelRangeObject)
+
+	def test_theValuesComeBackAsRowsOfTextAndNumber(self):
+		selection = FakeSelection(self.sheet, values=((5.0,), (10.0,)))
+		rows = excelModule.ExcelSheet(selection).selectedValues()
+		self.assertEqual(len(rows), 2)
+		self.assertEqual([cell[1] for row in rows for cell in row], [5.0, 10.0])
+		for row in rows:
+			for text, _value in row:
+				self.assertTrue(text)
+
+	def test_aSingleCellSelectionIsStillAGrid(self):
+		"""`Value2` answers a bare value rather than a tuple for one cell."""
+		rows = excelModule.ExcelSheet(FakeSelection(self.sheet, values=42.0)).selectedValues()
+		self.assertEqual([cell[1] for row in rows for cell in row], [42.0])
 
 
 if __name__ == "__main__":

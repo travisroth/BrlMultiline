@@ -291,7 +291,7 @@ def checkPlugin() -> list:
 
 	if GraphicsPanel is not reExported:
 		failures.append("views re-exports a different GraphicsPanel than panels defines")
-	if graphicsMode._labelCells("hi") == []:
+	if graphicsMode.labelCells("hi") == []:
 		failures.append("braille translation answered nothing, so a caption would be silent")
 	if not hasattr(plugin, "GlobalPlugin"):
 		failures.append("the plugin package has no GlobalPlugin")

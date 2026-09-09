@@ -1618,11 +1618,15 @@ cell's header is resolved by walking the worksheet's marked ranges.
 SHEET = "brlMultilineSheet"
 """What an object offers when it can hand over a grid to be read by coordinate.
 
-**The seam an application module joins the flow at**, and the whole of what the flow knows
+**The seam an application module joins the flow at**, and the whole of what the add-on knows
 about any particular application. An object that answers to this name is asked once, by
-`sheetOf`, and what comes back answers `Sheet`'s four questions. Nothing here imports an
+`sheetOf`, and what comes back answers `Sheet`'s questions. Nothing here imports an
 application's module, reads its object model, or knows that Excel exists; the code that does
 lives in `appModules/excel.py` and is loaded only while Excel is running.
+
+The same seam now serves the graphics side. A chart is drawn from `selectedValues`, which is
+one more question asked of the same object — so charting a spreadsheet selection needed no
+second seam, and a second application that offers one gets charts for free.
 
 Asked as one `getattr` of every object the band meets, which is what makes it affordable to
 ask at all — an object that does not answer costs one attribute lookup that fails.
@@ -1759,6 +1763,29 @@ class Sheet:
 		say" — which is read as showing, since a row nothing objects to is a row that stays.
 
 		:param row: the row asked about, one based.
+		"""
+		return None
+
+	def selectedValues(self):
+		"""What the reader has selected, as values rather than as text.
+
+		**Optional, and the only question here that is not about reading.** A chart needs
+		numbers, and numbers are the one thing the ordinary reading path deliberately does
+		not give: `textRow` answers what is *displayed*, because a column sized from a stored
+		value is a column sized for something the reader will never feel. A percentage shown
+		as "25%" is stored as 0.25 — the right number to chart and the wrong string to size a
+		column by — so the two answers are different questions and this is the second one.
+
+		Both halves come back together because a chart needs both: the value decides how tall
+		a bar is and the text decides what it is called. Splitting them into two calls would
+		mean two trips across the process boundary for one answer, and would let them
+		disagree if the selection moved between the two.
+
+		A grid that has no notion of a selection, or cannot read one, answers None, and the
+		reader is told charts are not available there rather than being given a wrong one.
+
+		:return: rows of `(text, value)` per selected cell, where `value` is a number or
+			None for a cell that holds no number; or None where this cannot be answered.
 		"""
 		return None
 

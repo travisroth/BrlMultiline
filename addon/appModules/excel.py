@@ -58,6 +58,7 @@ from NVDAObjects.window.excel import (
 	NVCELLINFOFLAG_COORDS,
 	NVCELLINFOFLAG_TEXT,
 	ExcelCell,
+	ExcelSelection,
 	convertAddressToLocal,
 	xlA1,
 )
@@ -207,6 +208,33 @@ class ExcelSheet:
 		`ExcelWorksheet._isEqual`, which is what stops a layout following the reader onto the
 		next sheet."""
 
+	def _application(self):
+		""":return: Excel itself, whichever kind of object this sheet was built from.
+
+		A worksheet cell carries `excelCellObject` and a selected range carries
+		`excelRangeObject`, and both are ranges as far as Excel is concerned. Everything else
+		on this class already works from either — `where` reads `rowNumber`, `_sheet` goes
+		through the parent worksheet — so this is the whole of the difference between them.
+		"""
+		range_ = getattr(self.cell, "excelCellObject", None)
+		if range_ is None:
+			range_ = self.cell.excelRangeObject
+		return range_.Application
+
+	def _selectedRange(self):
+		""":return: the range the reader has selected, or None.
+
+		**A selection object's own range, in preference to asking Excel what is selected.**
+		They are the same range when they agree, and when they do not it is because the
+		selection moved between NVDA building the object and this being asked — in which case
+		the object the reader is on is the one they meant, and Excel's idea of now is a
+		different question from the one being answered.
+		"""
+		range_ = getattr(self.cell, "excelRangeObject", None)
+		if range_ is not None:
+			return range_
+		return self._application().Selection
+
 	@property
 	def _sheet(self):
 		""":return: Excel's own worksheet object, which is what answers by coordinate."""
@@ -234,7 +262,16 @@ class ExcelSheet:
 		:param said: what NVDA calls it on the cell.
 		:param asked: what Excel calls it on the range.
 		"""
-		for thing, name in ((self.cell, said), (self.cell.excelCellObject, asked)):
+		# `getattr` for the range rather than the attribute directly, because a selection
+		# carries `excelRangeObject` where a cell carries `excelCellObject`. NVDA's own answer
+		# is first for both and is the one that almost always replies, so an object with
+		# neither name still gets its coordinate rather than raising on the way to the fallback.
+		range_ = getattr(self.cell, "excelCellObject", None) or getattr(
+			self.cell,
+			"excelRangeObject",
+			None,
+		)
+		for thing, name in ((self.cell, said), (range_, asked)):
 			try:
 				found = int(getattr(thing, name, 0) or 0)
 			except CallCancelled:
@@ -370,7 +407,7 @@ class ExcelSheet:
 			sheet = self._sheet
 			span = sheet.range(sheet.cells(row, first), sheet.cells(row, last))
 			address = convertAddressToLocal(
-				self.cell.excelCellObject.Application,
+				self._application(),
 				span.address(True, True, xlA1, True),
 			)
 			said = _cellInfosFor(self.cell, address, count)
@@ -473,6 +510,48 @@ class ExcelSheet:
 		if row < spans[0][0] or row > spans[-1][1]:
 			return None
 		return any(first <= row <= last for first, last in spans)
+
+	def selectedValues(self) -> Optional[list]:
+		"""What is selected in this sheet, as text and as numbers together.
+
+		Answers `flowObjectTable.Sheet.selectedValues`, which is what a chart is drawn from.
+		The Excel half of charting lives here and only here: the rest of the add-on asks the
+		sheet and never learns that Excel has an object model, exactly as it does for reading.
+
+		**`Value2` and not `Value`**, and it is the same choice `textRow` makes in the other
+		direction. `Value2` hands back what is stored — a date as a serial number, a percentage
+		as a fraction — which is the number a bar's height has to come from. A chart built from
+		displayed text instead is wrong in a way that looks entirely plausible.
+
+		**The text comes from `textRow` and not from `Range.Text`.** A range's `Text` is only
+		meaningful for a single cell: ask a multi-cell range and Excel answers Null, because
+		there is no one string to give. The first version of this asked anyway and would have
+		labelled every bar with a cell address while looking like it worked. `textRow` is the
+		batch fetch already tuned for this — one cross-process call per row, through NVDA's own
+		helper — and using it means the labels on a chart are the same strings the reader feels
+		when they read the sheet.
+
+		:return: rows of `(text, value)`, or None if Excel will not say.
+		"""
+		try:
+			selection = self._selectedRange()
+			values = _asGrid(selection.Value2)
+			firstRow = int(selection.Row)
+			firstColumn = int(selection.Column)
+		except CallCancelled:
+			# Not "there is no selection". See `sheetFor`.
+			raise
+		except Exception:
+			log.debugWarning("Could not read the Excel selection", exc_info=True)
+			return None
+		if not values:
+			return None
+		width = max(len(row) for row in values)
+		rows = []
+		for offset, valueRow in enumerate(values):
+			texts = self.textRow(firstRow + offset, firstColumn, firstColumn + width - 1)
+			rows.append(_pairUp(texts, valueRow, firstRow + offset, firstColumn))
+		return rows
 
 	def columnsShowing(self) -> Optional[set]:
 		""":return: the columns Excel is showing, or None where every column is showing.
@@ -773,6 +852,59 @@ def _cellInfosFor(cell, address: str, count: int) -> Optional[list]:
 	]
 
 
+def _asGrid(value) -> list:
+	"""Normalise what `Range.Value2` hands back into rows of cells.
+
+	A range of several cells answers a tuple of row tuples; a single cell answers the value
+	itself, with no tuple anywhere. Both have to be charted from, and a caller written for
+	one shape breaks on the other, so the shape is settled once here.
+
+	:param value: whatever the property returned.
+	:return: rows of cell values.
+	"""
+	if isinstance(value, tuple):
+		if value and isinstance(value[0], tuple):
+			return [list(row) for row in value]
+		return [list(value)]
+	return [[value]]
+
+
+def _pairUp(texts: Optional[list], values: list, row: int, firstColumn: int) -> list:
+	"""Put each cell's displayed text beside its stored value.
+
+	Where the text could not be had — `textRow` answers None for a row it cannot batch —
+	the cell's address stands in. A poor name for a bar and better than none, because a
+	reader told "B7" can go and look at it.
+
+	:param texts: what the row displays, or None.
+	:param values: what it stores.
+	:param row: which sheet row this is, for naming a cell that has no text.
+	:param firstColumn: the sheet column the selection starts at.
+	:return: `(text, value)` per cell.
+	"""
+	paired = []
+	for offset, value in enumerate(values):
+		text = texts[offset] if texts is not None and offset < len(texts) else None
+		if not text:
+			text = _cellName(row, firstColumn + offset)
+		paired.append((str(text), value))
+	return paired
+
+
+def _cellName(row: int, column: int) -> str:
+	"""Name a cell by its address, for a bar whose own cell displays nothing.
+
+	:param row: the sheet row, as Excel numbers it.
+	:param column: the sheet column, as Excel numbers it.
+	:return: an A1 style address.
+	"""
+	letters = ""
+	while column > 0:
+		column, remainder = divmod(column - 1, 26)
+		letters = chr(ord("A") + remainder) + letters
+	return f"{letters}{row}"
+
+
 def sheetFor(cell):
 	""":return: the worksheet a cell is in, or None if it cannot be read by coordinate.
 
@@ -968,6 +1100,30 @@ class SpreadsheetCell:
 		eventHandler.executeEvent("gainFocus", self)
 
 
+class SpreadsheetSelection:
+	"""The overlay on a selected range: it offers a sheet, and nothing else.
+
+	**Selecting a range replaces the focus object.** NVDA builds an `ExcelSelection` rather
+	than an `ExcelCell` for as long as more than one cell is selected — a different class on
+	a different branch, so the cell overlay does not apply to it and the seam vanished at
+	exactly the moment a reader had selected something to do with. Charting a selection
+	failed on hardware with "charts need a spreadsheet cell" *while the reader was in a
+	spreadsheet with cells selected*, which is the most confusing form a refusal can take.
+
+	It answers the seam because it can: NVDA gives it `rowNumber`, `columnNumber` and a
+	worksheet parent, which is everything `ExcelSheet` reads, and `excelRangeObject`, which
+	is the selection itself and better than asking Excel what is selected now.
+
+	`setFocus` is deliberately not offered, unlike `SpreadsheetCell`. Going to a selection
+	is not a thing — a routing key lands on a cell — and a `Select()` on the range would
+	reselect what is already selected while pretending to be navigation.
+	"""
+
+	def brlMultilineSheet(self):
+		""":return: the worksheet this selection is in, as `flowObjectTable.Sheet`, or None."""
+		return sheetFor(self)
+
+
 class CellOutlivingItsWorkbook:
 	"""A cell that answers None, rather than raising, once Excel has let go of what is behind it.
 
@@ -1021,6 +1177,23 @@ def isAWorksheetCell(obj) -> bool:
 	return isinstance(obj, ExcelCell)
 
 
+def isASelectedRange(obj) -> bool:
+	""":return: whether this object is a selection of several cells in the COM model.
+
+	The class NVDA swaps in while more than one cell is selected. Recognised so that the
+	seam survives a selection, which is when a reader is most likely to want something done
+	with one. See `SpreadsheetSelection`.
+
+	:param obj: the object NVDA has just built.
+	"""
+	if not isinstance(obj, ExcelSelection):
+		return False
+	# The same two questions `readsByCoordinate` asks, against the names a selection uses,
+	# and asked for the same reason: nothing here may reach for the parent, which would
+	# build a whole worksheet for every object NVDA constructs.
+	return hasattr(obj, "excelRangeObject") and hasattr(obj, "excelWindowObject")
+
+
 def readsByCoordinate(obj) -> bool:
 	""":return: whether this object is a worksheet cell that can be read by coordinate.
 
@@ -1048,6 +1221,7 @@ def readsByCoordinate(obj) -> bool:
 OVERLAYS = (
 	(HeadersInBraille, isAWorksheetCell),
 	(SpreadsheetCell, readsByCoordinate),
+	(SpreadsheetSelection, isASelectedRange),
 	(CellOutlivingItsWorkbook, isAWorksheetCell),
 )
 """The overlay classes this module adds, and what each of them is for.

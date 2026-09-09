@@ -410,10 +410,18 @@ device to justify it, not before.
 
 ### Phase 2, the graphics view
 
-Status: **built and unit tested, awaiting a hardware run.** All nine pieces below exist, 60
-tests cover them, and the modules import and answer correctly inside a real NVDA. What has
-not happened is a finger on a Monarch, which is the exit criterion at the end of this section
-and the only thing that can settle it.
+Status: **built, and largely confirmed on hardware.** All nine pieces below exist, 80 tests
+cover them, and the modules import and answer correctly inside a real NVDA.
+
+Confirmed by a finger on a Monarch: a figure shows in a claimed rectangle with a live braille
+line beside it; a routing press inside the figure reports what is under the finger, correctly,
+after two attempts at the geometry; and the braille line toggles away and back for a full
+panel drawing.
+
+Not yet confirmed, all of it built after the last hardware session: the priority ladder and
+the flow standing down while a figure is up, the fit-first zoom with its compression, and the
+new position wording. Nor has anyone yet checked the two quiet ones — that the reserved rows
+stay free of text, and that leaving restores ordinary braille exactly.
 
 The gate it was is open: `graphics.py` and `graphicsMode.py` consume `newGraphicsBuffer`,
 `setGraphicsOverlay`, `clearGraphicsOverlay` and `lastTouch`, so the driver's mechanism has a
@@ -723,9 +731,15 @@ which is the arrangement to prefer where the hardware allows it.
 
 #### Exit criterion
 
-Partly met. A figure shows, and pointing at it answers. Still to confirm: that the fixes above
-hold, that the reserved rows stay free of text, that zoom and pan read correctly under the
-hand, and that leaving restores ordinary braille.
+**Met, but for one re-run.** The hardware pass found:
+
+1. The flow gives its rows to a figure and comes back by itself on leaving.
+2. Fit shows the whole drawing with its thin border intact, and zoom reads correctly in and out.
+3. The rows under a figure carry no text, and the focus line is kept where it is wanted.
+
+One fault came out of it and is fixed but not yet re-run: the flow came back at the top of the
+document rather than where the reader had been. See "suspended, not stopped" above. That
+re-run is all that is left of phase 2.
 
 The Monarch showing a figure in a claimed rectangle with a live NVDA braille line underneath
 it, entered and left by command, ordinary braille intact on both sides, the reserved rows
@@ -748,11 +762,93 @@ lattice. It belongs with the cell path fallback if that is ever built.
 
 ### Phase 4, first real content
 
-Status: not started.
+Status: **built and unit tested, awaiting a hardware run.** Bar charts from an Excel selection,
+in `chart.py` and `chartSource.py`, with 30 tests. One source, built properly, as the plan
+asked.
 
-One source, built properly. The recommendation is bar charts from an Excel column range: the
-data path exists, the output is unambiguous to verify, and it demonstrates something the
-Monarch cannot currently do from live application data. Resist building three half sources.
+`chart.py` knows nothing about NVDA or Excel: labels, numbers, and a way to make a buffer in,
+a drawing out. `chartSource.py` is the Excel half and is the only thing that would be written
+again for a second application.
+
+Four decisions worth keeping:
+
+1. **Stored values for the bars, displayed text for the labels.** A percentage stored as 0.25
+   and shown as "25%" has to be charted as 0.25 or the bars are in the wrong proportion to each
+   other, and has to be *called* what the reader sees in the sheet. Getting that backwards
+   would produce a chart that is entirely plausible and entirely wrong.
+2. **A chart is drawn at the size of the space it is going into**, so the fitted view is its
+   natural one and zoom is for looking closer at a bar rather than for discovering what the
+   drawing was. This is what `fitScale` never magnifying is for.
+3. **A bar answers for itself.** `Drawing` gained an optional `describeAt`, and the graphics
+   mode asks it before looking for the nearest raised dot — so a routing press on a bar says
+   which bar and what it is worth, and the space above a short bar still belongs to that bar.
+   Without it a reader learns that one bar is taller than another and never learns what either
+   of them is, which would have made the whole path a demonstration rather than a tool.
+4. **Refusals carry a reason.** Not a spreadsheet, nothing numeric selected, more bars than the
+   panel holds — each is something the reader can act on, and a command that only said it had
+   failed would leave them guessing at which. Charting the first twenty of sixty values would
+   be a different chart drawn silently, which is worse than saying it does not fit.
+
+Two smaller ones that the tests exist to hold: a value too small to round to a pin still gets
+one **clear of the baseline**, because bare floor reads as a missing value rather than a small
+one; and a bar of zero does not punch a hole in the baseline, because a reader sweeping the
+floor should feel it continuous with bars standing on it.
+
+**What the first hardware press found: selecting cells takes the seam away.** Charting failed
+with "charts need a spreadsheet cell" while the reader was in a spreadsheet with cells
+selected, which is the most confusing form a refusal can take. NVDA builds an `ExcelSelection`
+rather than an `ExcelCell` for as long as more than one cell is selected — a different class on
+a different branch — so the cell overlay does not apply to it and `brlMultilineSheet` was not
+there. The seam vanished at exactly the moment a reader had selected something to do with.
+
+`SpreadsheetSelection` now offers it. The selection object can answer: NVDA gives it
+`rowNumber`, `columnNumber` and a worksheet parent, which is all `ExcelSheet` reads, plus
+`excelRangeObject` — the selection itself, and a better answer than asking Excel what is
+selected now. It offers the seam and not `setFocus`, because going to a selection is not a
+thing; a routing key lands on a cell.
+
+It was found by a log line rather than by reasoning, which is what the INFO logging was added
+for one press earlier:
+
+	BrlMultiline: charting from ExcelSelection role=TABLECELL
+	name='A1  June through B4  5000', grid=False
+
+**Bars alone were not enough, and hardware said so first.** A chart of bare bars says which
+is larger and nothing else: the reader can feel the shape of the data and has to point at every
+bar to learn what any of it is. So the chart is written on — values across the top, labels
+across the bottom, four pin rows each, which is one braille line. It reads in one pass now:
+the bottom for the categories, the top for the numbers, the middle for the shape, and pointing
+becomes the way to ask about one bar rather than the only way to read the chart at all.
+
+Three decisions in that:
+
+1. **Left aligned with the bar, not centred under it.** Centring is what a printed chart does
+   and it is the wrong choice for a finger: a reader following a bar downwards hits its label
+   where the bar's own left edge is, and a centred label would start somewhere that depends on
+   how long it happens to be.
+2. **A label that does not fit is cut; a value that does not fit is left out.** They are not
+   the same kind of thing. "Wednes" is recognisably Wednesday and is worth having, whereas
+   "330" for 33000 is a different number said with confidence — so a value is drawn whole or
+   not at all, and pointing still gives it.
+3. **A short chart is drawn bare.** Below about fourteen pin rows the writing would take so
+   much of the chart that the bars stop being comparable, which is the one thing a bar chart
+   is for.
+
+**A message raised from a routing press dismisses itself.** Reported from hardware: pointing
+at a bar spoke the answer and never showed it in braille, while ordinary flash messages worked
+normally. `BrailleHandler.routeTo` runs the routing policy and then, if a message is up,
+dismisses it — because a cursor routing key is how a reader dismisses a message, which NVDA's
+own docstring says outright. A message raised from *inside* the policy arrives before that
+check and is read as the press's own dismissal.
+
+So the report is queued onto the event queue and lands after the press has finished, when it is
+an ordinary message with an ordinary timeout. The tests now model the event queue rather than
+running queued work immediately, because *when* something runs was the whole of the fault: it
+passed every test until the queue was modelled, and no log would have shown it.
+
+Left for hardware: whether a chart of this size actually reads under a finger, how many bars
+are useful in practice against the 48 the panel can hold, and whether the labels want to be on
+the panel rather than only spoken.
 
 ### Phase 5, image import
 

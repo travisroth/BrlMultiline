@@ -31,6 +31,7 @@ from scriptHandler import script
 
 from . import bmConfig, panning, patches, tableArrows
 from .container import DisplayContainer
+from . import chart, chartSource, graphicsMode
 from .flowTableSource import wantsColumns
 from .graphicsMode import FIT as GRAPHICS_FIT, PANEL_NAME as GRAPHICS_PANEL_NAME, GraphicsMode
 from . import devices as devicesModule
@@ -524,12 +525,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _applyFlow(self) -> None:
 		"""Claim or give back the flow band, following the setting for this display and profile.
 
-		**A drawing outranks the flow, and this is where that is honoured.** The priority
-		ladder in `panels` decides who wins the cells, but letting the flow claim rows it is
-		going to lose would still cost a claim, an eviction and a teardown on every rebuild —
-		and the flow is on most of the time, so that is most rebuilds. So while a figure is up
-		the flow simply does not claim, and leaving the figure rebuilds the display and brings
-		it straight back.
+		**A drawing outranks the flow, and this leaves the flow entirely alone while one is
+		up.** The priority ladder in `panels` decides who wins the cells; this decides that
+		nothing here touches the flow's lifecycle meanwhile. The first version stopped the flow
+		and started it again afterwards, which worked and lost the reader's place: `stop`
+		discards the controller, and a fresh one begins at the top of the document rather than
+		where they had got to. Reported from hardware, and the reason for `onSuspended`.
 
 		Not conditioned on the two wanting the same rows, deliberately. Both default to the
 		tallest display — `devices.preferredDevice` with nothing named — so in practice they
@@ -548,7 +549,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if self._terminated or self._applyingFlow:
 			# Claiming the band rebuilds the display, which arrives back here. One pass does it.
 			return
-		wanted = bmConfig.shouldClaimFlowBand() and not self.graphicsMode.active
+		if self.graphicsMode.active:
+			# Hands off entirely while a figure is up. Not merely "do not claim": stopping the
+			# flow here would take its controller with it, and starting a fresh one on the way
+			# back put the reader at the top of the document rather than where they had got to.
+			# The claim stays in `_activePanels` and is simply outranked, so leaving the figure
+			# gives the rows back and `_carryOverFlow` redraws from the controller that survived.
+			return
+		wanted = bmConfig.shouldClaimFlowBand()
 		active = self.flowBand is not None
 		geometryChanged = False
 		if wanted and active:
@@ -610,12 +618,24 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		cells come back empty, with nothing telling its owner to redraw them. This is that
 		telling, and it is the first use of the lifecycle the claim contract was missing.
 
+		Three answers, not two. A band with its rows redraws. A band whose rows have gone for
+		good is evicted and the flow is over. A band whose rows have gone to a drawing is
+		*suspended*: it keeps its controller, and therefore the reader's place, until the
+		figure gives the rows back.
+
 		:param container: the container just installed.
 		"""
 		band = self.flowBand
 		if band is None:
 			return
 		if band.segment() is None:
+			if self.graphicsMode.active:
+				# Borrowed rather than lost. A drawing outranks the flow and has taken its rows
+				# for as long as it is up; the claim is still in `_activePanels` and gets them
+				# back when the figure goes. Keeping the band keeps its controller, and the
+				# controller is where the reader's place in the document lives.
+				band.onSuspended()
+				return
 			band.onEvicted()
 			self.flowBand = None
 			return
@@ -2521,6 +2541,45 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return
 		# Translators: reported when a drawing could not be shown. The placeholder is why.
 		ui.message(mode.lastError or _("The drawing could not be shown"))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Chart the selected cells"),
+		category=SCRIPT_CATEGORY,
+		gestures=["br(brlMultilineMonarch):space+dot5+dot7"],
+	)
+	def script_chartSelection(self, gesture):
+		"""Draw the numbers the reader has selected as a tactile bar chart.
+
+		The first real content the graphics mode has been given, and the thing the whole path
+		exists for: a chart drawn from live application data, on a display the reader can
+		point at. Pressing a routing key on a bar says which bar and what it is worth.
+
+		Every way this can fail carries a reason the reader can act on — not a spreadsheet,
+		nothing numeric selected, more bars than the display holds — because a command that
+		only said it had failed would leave them guessing at which.
+		"""
+		mode = self.graphicsMode
+		size = mode.drawingSize()
+		if size is None:
+			# Translators: reported when a drawing was asked for on a display that cannot draw.
+			ui.message(_("This display cannot show graphics"))
+			return
+		try:
+			series = chartSource.seriesFromFocus()
+			drawing = chart.barChart(mode.newBuffer, size[0], size[1], series, graphicsMode.labelCells)
+		except (chartSource.NoNumbers, chart.ChartRefused) as refusal:
+			ui.message(str(refusal))
+			return
+		except Exception:
+			log.error("BrlMultiline: could not chart the selection", exc_info=True)
+			# Translators: reported when charting failed for a reason worth a log entry.
+			ui.message(_("The chart could not be made, see the log"))
+			return
+		if not mode.enter(drawing):
+			ui.message(mode.lastError or _("The drawing could not be shown"))
+			return
+		ui.message(mode.describe())
 
 	@script(
 		# Translators: input help message for a command.

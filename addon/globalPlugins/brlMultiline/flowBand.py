@@ -2036,6 +2036,25 @@ class FlowBand(PanelOwner):
 		self._follow()
 		self.refresh(force=True)
 
+	def onSuspended(self) -> None:
+		"""The band's rows have gone to a claim that outranks it, for as long as that lasts.
+
+		Not the same as being evicted, and the difference is the whole of what the reader
+		notices. Eviction means the claim could not be honoured and the flow is over, so the
+		controller goes. This means a drawing has borrowed the rows and will give them back —
+		so **the controller stays**, and with it every block already read and the position each
+		was read from. Dropping it and building another on the way back put the reader at the
+		top of the document instead of where they had got to, which is what this exists to
+		stop.
+
+		The pending passes are cancelled, because there is no segment for them to draw into
+		and a settle or a live read arriving mid-suspension would be work done for nothing.
+		They are started again by whatever the reader does after the band comes back.
+		"""
+		self._cancelSettle()
+		self._cancelLiveRead()
+		self._cancelFill()
+
 	def onEvicted(self, keys: frozenset[str] = frozenset()) -> None:
 		"""The claim no longer fits, so there is nothing to draw into."""
 		log.debug("The flow band was evicted")
