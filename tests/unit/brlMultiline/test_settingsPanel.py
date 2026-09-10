@@ -161,6 +161,7 @@ class SegmentPanelTestCase(SettingsPanelTestCase):
 		self.panel.messageSegmentCtrl = FakeControl(-1)
 		self.panel.reverseScrollCtrl = FakeControl(False)
 		self.panel.documentLinesCtrl = FakeControl(False)
+		self.panel.glyphCtrl = FakeControl(False)
 		self.panel._showTarget(0)
 
 	def show(self, index):
@@ -175,6 +176,19 @@ class TestOrdinaryDisplay(SegmentPanelTestCase):
 
 	def test_thereIsNoChooser(self):
 		self.assertIsNone(self.panel.targetCtrl)
+
+	def test_drawingRolesAsShapesIsSaved(self):
+		"""A setting of the display and not of the flow. A menu bar in File Explorer is full
+		of buttons and never goes near browse mode, and the cells a shape gives back are worth
+		the same there.
+
+		Off until it is asked for: the words NVDA writes are a notation every braille reader
+		already has, and the shapes are this add-on's own.
+		"""
+		self.assertFalse(bmConfig.shouldDrawGlyphs(self.displayKey))
+		self.panel.glyphCtrl.SetValue(True)
+		self.panel.onSave()
+		self.assertTrue(bmConfig.shouldDrawGlyphs(self.displayKey))
 
 	def test_savingWritesTheOneSection(self):
 		self.panel.segmentCountCtrl.SetValue(3)
@@ -488,7 +502,6 @@ class FlowPanelTestCase(SettingsPanelTestCase):
 		self.panel.rowsCtrl = FakeControl(0)
 		self.panel.rowsHintCtrl = FakeControl()
 		self.panel.groundCtrl = FakeControl(True)
-		self.panel.glyphCtrl = FakeControl(False)
 		self.panel.writeByParagraphCtrl = FakeControl(True)
 		self.panel.indentStyleCtrl = FakeControl(0)
 		self.panel.lineFocusCtrl = FakeControl(True)
@@ -532,15 +545,6 @@ class TestFlowOnOneDisplay(FlowPanelTestCase):
 		self.panel.groundCtrl.SetValue(False)
 		self.panel.onSave()
 		self.assertFalse(self.sections[MONARCH_KEY]["flowGroundOnQuickNav"])
-
-	def test_drawingRolesAsShapesIsSaved(self):
-		"""Off until it is asked for. The words NVDA writes are a notation every braille
-		reader already has, and the shapes are this add-on's own.
-		"""
-		self.assertFalse(bmConfig.shouldDrawGlyphs(MONARCH_KEY))
-		self.panel.glyphCtrl.SetValue(True)
-		self.panel.onSave()
-		self.assertTrue(self.sections[MONARCH_KEY]["flowGlyphs"])
 
 	def test_followingNewContentIsSaved(self):
 		"""Per display and per profile, so a chat's profile can follow where a browser's does not."""

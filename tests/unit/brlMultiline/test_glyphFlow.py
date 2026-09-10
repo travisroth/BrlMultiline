@@ -75,7 +75,7 @@ class GlyphTestCase(unittest.TestCase):
 		self.display = FakeDisplay()
 		braille.handler.display = self.display
 		self.section = bmConfig.getDisplayConfig()
-		self.section["flowGlyphs"] = True
+		self.section["drawGlyphs"] = True
 
 	def region(self, text):
 		""":return: a region holding one line, one cell per character."""
@@ -135,6 +135,17 @@ class TestFindingThemInALine(GlyphTestCase):
 	def test_aRoleInTheMiddleIsFound(self):
 		found = glyphFlow.marksIn("Search btn now")
 		self.assertEqual([(start, end) for start, end, _glyph in found], [(7, 10)])
+
+	def test_eitherSideOfTheNameIsFound(self):
+		"""NVDA is not consistent about this: browse mode writes "btn Search" and an ordinary
+		window writes it the other way about. Matching whole words wherever they fall is what
+		makes that somebody else's problem rather than this module's.
+		"""
+		before = glyphFlow.marksIn("btn Search")
+		after = glyphFlow.marksIn("Search btn")
+		self.assertEqual(len(before), 1)
+		self.assertEqual(len(after), 1)
+		self.assertIs(before[0][2], after[0][2])
 
 	def test_aWordThatMerelyContainsOneIsNot(self):
 		self.assertEqual(glyphFlow.marksIn("obtnl"), [])
@@ -219,7 +230,7 @@ class TestWhenNothingShouldHappen(GlyphTestCase):
 		self.assertEqual(glyphFlow.marksOf(region), {})
 
 	def test_theSettingIsOff(self):
-		self.section["flowGlyphs"] = False
+		self.section["drawGlyphs"] = False
 		region = self.region("btn Search")
 		self.assertEqual(glyphFlow.compressRegion(region), {})
 		self.assertUntouched(region)
@@ -253,7 +264,7 @@ class TestWhenNothingShouldHappen(GlyphTestCase):
 		would otherwise carry marks naming cells that are no longer symbols."""
 		region = self.region("btn Search")
 		self.assertTrue(glyphFlow.compressRegion(region))
-		self.section["flowGlyphs"] = False
+		self.section["drawGlyphs"] = False
 		region.update()
 		self.assertEqual(glyphFlow.compressRegion(region), {})
 		self.assertEqual(glyphFlow.marksOf(region), {})
@@ -373,7 +384,7 @@ class TestABandThatDrawsThem(GlyphTestCase):
 		self.assertEqual(self.rowOf(self.band("btn Search now")), "b Search")
 
 	def test_withTheSettingOffTheWordsAreBack(self):
-		self.section["flowGlyphs"] = False
+		self.section["drawGlyphs"] = False
 		self.assertEqual(self.rowOf(self.band("btn Search now")), "btn Sear")
 
 	def test_theBandSaysWhereTheShapeIs(self):
@@ -477,6 +488,71 @@ class TestARegionReadAgainUnderTheRendering(GlyphTestCase):
 		region = self.region("Search now")
 		glyphFlow.keepCompressed(region)
 		self.assertEqual(bytes(region.brailleCells).decode(), "Search now")
+
+
+class TestAnOrdinarySegment(GlyphTestCase):
+	"""Not a flow feature. A feature of a display that can draw one.
+
+	A menu bar in File Explorer is full of buttons and never goes near browse mode; the three
+	cells NVDA spends saying "btn" cost the same there and the shape saves the same. So the
+	substitution is made in the one place every ordinary segment passes through — reading its
+	regions — rather than anywhere that knows what kind of content it is looking at.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		from brlMultiline.container import DisplayContainer
+		from brlMultiline.views import viewFromConfig
+
+		self.container = DisplayContainer(braille().handler, viewFromConfig(8, 32))
+		braille().handler.mainBuffer = braille().handler.buffer = self.container
+		self.segment = self.container.segments[0]
+
+	def showing(self, text):
+		""":return: the segment's cells after it has read one region."""
+		self.segment.append(self.region(text))
+		self.container.update()
+		return self.segment
+
+	def test_theWordIsCompressedWithoutAFlowAnywhere(self):
+		segment = self.showing("btn Search")
+		self.assertEqual(bytes(segment.brailleCells).decode(), "b Search")
+
+	def test_theSegmentSaysWhereTheShapeIs(self):
+		segment = self.showing("btn Search")
+		self.assertEqual(list(segment.cellGlyphs()), [0])
+
+	def test_aShapeFurtherAlongTheLineIsPlacedRight(self):
+		segment = self.showing("Search btn")
+		found = segment.cellGlyphs()
+		self.assertEqual(list(found), [7])
+		self.assertEqual(segment.brailleCells[7], ord("b"))
+
+	def test_theDisplayIsGivenIt(self):
+		self.showing("btn Search")
+		self.container.windowBrailleCells
+		rect = self.segment.rect
+		self.assertEqual(list(self.display.given), [rect.row * 32 + rect.col])
+
+	def test_withTheSettingOffTheWordsStay(self):
+		self.section["drawGlyphs"] = False
+		segment = self.showing("btn Search")
+		self.assertEqual(bytes(segment.brailleCells).decode(), "btn Search")
+		self.assertEqual(segment.cellGlyphs(), {})
+
+	def test_aBufferBuiltOnlyToLayTextOutDecidesNothingForItself(self):
+		"""The renderer builds one of these to cut a block into rows in, and a cell of a table
+		row is a place a shape must not go: its positions are packed with the column they came
+		from, so a mark naming one would never be found again."""
+		from brlMultiline.layout import SegmentRect
+		from brlMultiline.panels import SegmentSpec
+		from brlMultiline.segments import BrailleBufferSegment
+
+		spec = SegmentSpec(rect=SegmentRect(row=0, col=0, numRows=1, numCols=32), key="layout")
+		buffer = BrailleBufferSegment(braille().handler, None, spec)
+		buffer.append(self.region("btn Search"))
+		buffer.update()
+		self.assertEqual(bytes(buffer.brailleCells).decode(), "btn Search")
 
 
 def braille():

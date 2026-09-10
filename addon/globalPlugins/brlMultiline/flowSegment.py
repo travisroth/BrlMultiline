@@ -270,7 +270,9 @@ class FlowBufferSegment(BrailleBufferSegment):
 		container is what turns it into a place on the display.
 		"""
 		if self.controller is None:
-			return {}
+			# An unattached band is an ordinary segment and answers as one, which is what
+			# makes a band blank rather than broken while it waits for a flow.
+			return super().cellGlyphs()
 		try:
 			return self.controller.cellGlyphs()
 		except Exception:

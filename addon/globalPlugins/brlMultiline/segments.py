@@ -19,6 +19,7 @@ from braille.buffers import BrailleBuffer, _WindowRowPositions
 from braille.display import DisplayDimensions
 from braille.regions.base import Region
 
+from . import glyphFlow
 from .layout import SegmentRect, calculateFilledRowOffsets
 from .panels import SegmentSpec
 from .routing import RoutingPolicy
@@ -136,6 +137,14 @@ class BrailleBufferSegment(BrailleBuffer):
 		proxy.segment = self
 		self.spec = spec
 		self.rect = spec.rect
+		self.isOnDisplay = container is not None
+		"""Whether this segment is a place on the display rather than a place to lay text out.
+
+		The renderer builds buffers of this class with no container, to cut a block into rows
+		in — see `flowRender._layoutBuffer`. Those must not decide anything for themselves: the
+		caller has already decided whether a shape may be drawn in this block, and a cell of a
+		table row is one where it may not.
+		"""
 		self.fillRows = spec.fillRows
 		self.markCuts = spec.markCuts
 		self.isFocusBuffer = False
@@ -214,6 +223,43 @@ class BrailleBufferSegment(BrailleBuffer):
 		if not self.fillRows:
 			return super()._set_windowEndPos(endPos)
 		self.windowStartPos = max(0, endPos - self.handler.displaySize)
+
+	def update(self) -> None:
+		"""Read the regions, drawing what can be drawn as a shape rather than written.
+
+		**Before the buffer concatenates them**, because the cells a shape gives back have to be
+		cells the row cutting can use. This is the one place every ordinary segment passes
+		through, whatever is in it — an object, a document, a menu bar — which is why it is the
+		place the substitution is made rather than somewhere that knows what kind of content it
+		is looking at. It costs one attribute read per region when the reader has not asked for
+		shapes; see `glyphFlow.compressRegion`.
+
+		A segment built only to lay text out is left alone. Its caller has already decided.
+		"""
+		if self.isOnDisplay:
+			for region in self.visibleRegions:
+				glyphFlow.compressRegion(region)
+		super().update()
+
+	def cellGlyphs(self) -> dict:
+		""":return: `{position in this segment's window: the fitted glyph}`.
+
+		The regions carry their symbols against their own cells, which is where they were put;
+		this turns those into places on the segment, and the container turns those into places
+		on the display. A symbol that has been scrolled out of the window is simply not in the
+		answer, which is what `bufferPosToWindowPos` refusing means.
+		"""
+		found: dict = {}
+		start = 0
+		for region in self.visibleRegions:
+			cells = getattr(region, "brailleCells", None) or ()
+			for at, fitted in glyphFlow.marksOf(region).items():
+				try:
+					found[self.bufferPosToWindowPos(start + at)] = fitted
+				except LookupError:
+					continue
+			start += len(cells)
+		return found
 
 	def append(self, region: Region) -> None:
 		"""Add a region to this segment.

@@ -604,6 +604,17 @@ class BrailleBuffer(AutoPropertyObject):
 	def _get_windowRawText(self):
 		return self.rawText[self.windowStartPos : self.windowEndPos]
 
+	def bufferPosToWindowPos(self, bufferPos):
+		"""Where a cell of the buffer is within the window.
+
+		NVDA's own walks the window's rows; the window here is a flat slice, so this is the
+		same answer by subtraction. It raises the same `LookupError` for a position that has
+		been scrolled out of sight, which is what callers act on.
+		"""
+		if not self.windowStartPos <= bufferPos < self.windowEndPos:
+			raise LookupError("buffer pos not in window")
+		return bufferPos - self.windowStartPos
+
 	def _get_cursorWindowPos(self):
 		return self.cursorPos
 

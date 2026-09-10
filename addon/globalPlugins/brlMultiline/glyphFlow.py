@@ -26,16 +26,27 @@ Three things follow from doing it that way, and all three are the reason for doi
 3. **Failing means showing the word.** Every path out of here that cannot draw a shape leaves
    the line exactly as NVDA wrote it. A reader who loses a glyph loses nothing but the shape.
 
-**Where it happens.** A region is compressed after it has been read and before it is laid out —
-`flowRender._layoutBuffer` — so the cells the shape gave back are cells the wrapping can use.
-That is the difference between a symbol and a saving: compressing after the line was cut would
-shorten a row and change nothing about how much fits on it.
+**Everything the display shows, not only a flow.** A menu bar in File Explorer is full of
+buttons and never goes near browse mode; the three cells NVDA spends saying "btn" cost the same
+there and the shape saves the same. So the substitution is made where every region is read —
+`segments.BrailleBufferSegment.update` for an ordinary segment, `flowRender._layoutBuffer` for a
+block of a flow — rather than anywhere that knows what kind of content it is looking at.
 
-**Where it is drawn.** The marks left on the region say which of its cells are symbols;
-`flowControl.cellGlyphs` turns those into places on the band, and `container` turns those into
-places on the display and hands them to the driver. It is done afresh on every frame, because
-the driver retires a glyph the moment a frame arrives without its cells — which is what stops a
-symbol outliving the object it belonged to.
+**Position within the line does not matter.** NVDA is not consistent about which side of the
+name the word goes: browse mode writes "btn Search" and an ordinary window writes it the other
+way about. Matching whole words wherever they fall in the line is what makes that somebody
+else's problem rather than this module's.
+
+**Before the line is cut, in both places.** That is the difference between a symbol and a
+saving: compressing after the row was cut would shorten a row and change nothing about how much
+fits on it.
+
+**Where it is drawn.** The marks left on the region say which of its cells are symbols. An
+ordinary segment turns those into places on itself, a flow band asks its controller
+(`flowControl.cellGlyphs`), and `container` turns either into places on the display and hands
+them to the driver. It is done afresh on every frame, because the driver retires a glyph the
+moment a frame arrives without its cells — which is what stops a symbol outliving the object it
+belonged to.
 """
 
 from typing import NamedTuple, Optional

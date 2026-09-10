@@ -22,9 +22,14 @@ Added:
   spend. The cell one letter sits in is three pin columns by four, so a shape drawn in those
   twelve pins says the same thing in one cell — and the two cells it gives back go to the line,
   so more of the object's own name fits on a row. The shape sits where the word was, a routing
-  key on it reaches the same place, and turning it off brings the words straight back. Off by
-  default: the words are a notation you already know and the shapes are this add-on's own.
-  There is an unbound command that draws the whole vocabulary with the braille each shape
+  key on it reaches the same place, and turning it off brings the words straight back.
+
+  It applies to everything the display shows, not only to a flow: a menu bar in File Explorer
+  is full of buttons and never goes near browse mode. It also does not care which side of the
+  name NVDA puts the word on, which differs between browse mode and an ordinary window.
+
+  Off by default: the words are a notation you already know and the shapes are this add-on's
+  own. There is an unbound command that draws the whole vocabulary with the braille each shape
   replaces beside it, for learning them.
 
 - Divides a braille display into independent segments, each with its own content and its
