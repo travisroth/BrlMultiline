@@ -42,14 +42,19 @@ from logHandler import log
 
 __all__ = [
 	"BUTTON",
+	"COMBO",
 	"CHECKED",
 	"FOCUS",
 	"Glyph",
 	"PENDING",
 	"UNCHECKED",
+	"WIDE_BUTTON",
 	"VOCABULARY",
+	"Fitted",
 	"cellValue",
+	"compress",
 	"fittedGlyph",
+	"movedPosition",
 	"patternRows",
 	"supported",
 ]
@@ -121,9 +126,23 @@ class Glyph(NamedTuple):
 	the third column taken away, and said like this you can see that.
 	"""
 
+	carries: str = ""
+	"""The braille cell to leave in the buffer where the text was, when this compresses.
+
+	Dot numbers, one cell. It is what a display without glyphs would show and what the
+	driver matches on, so something related to the text is better than something arbitrary:
+	the default is the first cell of the text itself, which turns "btn" into "b" if the
+	drawing ever fails to happen. Set it where a better single cell exists.
+	"""
+
 	@property
-	def cells(self) -> int:
-		""":return: how many cells the shape covers."""
+	def width(self) -> int:
+		""":return: how many cells the shape is drawn in.
+
+		This against the width of the text is what decides whether the glyph compresses. One
+		group of dots over three cells of text gives two cells back to the line; three groups
+		over three cells is drawn in place and gives back nothing but legibility.
+		"""
 		return len(self.dots.split(GROUP))
 
 
@@ -201,54 +220,80 @@ The fallback is `flow.PENDING_CELL` — dots 7 and 8, the mark the flow already 
 costs nothing to adopt and changes nothing for a display that cannot draw it.
 """
 
-BUTTON = Glyph(dots="2,3,4,8,9,12|1,4,7,8,9,12|1,4,7,8,10,11", says="btn")
-"""A button: a wide slab with its corners cut, nine pins by four.
+BUTTON = Glyph(dots="2,3,5,6,10,11", says="btn")
+"""A button: a solid bar across the middle of one cell, where "btn" was.
+
+	...
+	OOO
+	OOO
+	...
+
+Two cells given back, and on a 32 cell Monarch that is a sixteenth of the line; on a 20 cell
+DotPad it is a tenth. A bar rather than a box, because the checkbox below is a box and the two
+are met in the same places — a symbol's first job is to not be another symbol.
+"""
+
+COMBO = Glyph(dots="1,4,9,5", says="cbo")
+"""A combo box: a wedge pointing down, where "cbo" was.
+
+	OOO
+	.O.
+	...
+	...
+
+Down because that is where its list comes from, which is the one thing about a combo box a
+reader wants reminding of.
+"""
+
+UNCHECKED = Glyph(dots="1,2,3,7,4,8,9,10,11,12", says="( )")
+"""An empty checkbox: a hollow box in one cell, where "( )" was.
+
+	OOO
+	O.O
+	O.O
+	OOO
+"""
+
+CHECKED = Glyph(dots="1,2,3,4,5,6,7,8,9,10,11,12", says="(x)")
+"""A ticked checkbox: the same box, filled.
+
+	OOO
+	OOO
+	OOO
+	OOO
+
+**Filled against hollow, not a drawn tick.** A tick inside a three by four cell is two or three
+dots a finger cannot separate from the box around them, where solid against hollow is the
+difference between a surface and an edge — the one distinction touch makes instantly and never
+doubts. It is also the pair that survives being met in a hurry, which is how a checkbox is
+usually met.
+
+Worth watching on hardware: this and `FOCUS` differ by one row, the fourth. They are met in
+quite different places, so it may never come up — and if it does, the fix is a row.
+"""
+
+WIDE_BUTTON = Glyph(dots="2,3,4,8,9,12|1,4,7,8,9,12|1,4,7,8,10,11", says="btn")
+"""The same button drawn in place, nine pins by four, giving no cells back.
 
 	.OOOOOOO.
 	O.......O
 	O.......O
 	.OOOOOOO.
 
-The width is the width of what NVDA already writes, which is the whole trick: three cells of
-"btn" become nine pins of drawing and nothing after them moves. Rounded rather than square so
-that it is not the same shape as a checkbox met at speed — the two are told apart by their
-corners and by their length, which is about as much as a fingertip can be asked to notice.
-"""
-
-UNCHECKED = Glyph(dots="1,2,3,4,7,8,9,12|1,4,5,6,7,8|", says="( )")
-"""An empty checkbox: a hard cornered square, outlined.
-
-	OOOOO....
-	O...O....
-	O...O....
-	OOOOO....
-
-Five pins of the nine, left aligned, because a box the reader has to find is better small and
-sharp than large and vague, and the space after it separates it from whatever follows. The
-third cell of the run is drawn blank, which is what the empty group at the end of the notation
-says.
-"""
-
-CHECKED = Glyph(dots="1,2,3,4,5,6,7,8,9,10,11,12|1,2,3,4,5,6,7,8|", says="(x)")
-"""A ticked checkbox: the same square, filled.
-
-	OOOOO....
-	OOOOO....
-	OOOOO....
-	OOOOO....
-
-**Filled against outlined, not a drawn tick.** A tick inside a five by four box is three or
-four dots that a finger cannot separate from the box around them, where solid against hollow
-is the difference between a surface and an edge — which is the one distinction touch makes
-instantly and never doubts.
+Here because the choice between the two is real and belongs to the reader rather than to this
+file. Compressing buys room and costs the certainty of three familiar letters; drawing in place
+buys legibility and costs nothing. Which is better is a question about a display's width and a
+reader's habits, and both answers are one line long.
 """
 
 VOCABULARY = {
 	"focus": FOCUS,
 	"pending": PENDING,
 	"button": BUTTON,
+	"combo": COMBO,
 	"unchecked": UNCHECKED,
 	"checked": CHECKED,
+	"wideButton": WIDE_BUTTON,
 }
 """Every symbol by name, for a caller that has a name rather than a reference.
 
@@ -275,37 +320,145 @@ def supported(driver) -> bool:
 		return False
 
 
-def fittedGlyph(driver, glyph: Glyph, translate: Optional[Callable] = None):
-	"""Build a glyph this driver can draw, for this reader's braille table.
+class Fitted(NamedTuple):
+	"""A vocabulary entry made ready for one display, one table and one place in the line."""
 
-	**The fallback is translated now, not when the vocabulary was written.** "btn" is three
-	cells in one table and might be two in another, and the driver matches on the exact bytes
-	the add-on wrote — so the cells have to come from the table in force.
+	drawn: object
+	"""The driver's own glyph, built over `cells` and matched against them."""
 
-	Which is also why a mismatch refuses. A shape drawn for three cells, over a fallback that
-	came out two cells long, would be clipped: half a symbol, in a place the reader has learned
-	to expect a whole one. The plain text is a better answer than a broken drawing, and it is
-	what a display without glyphs was going to show anyway.
+	cells: "list[int]"
+	"""What to write into the buffer where the text was: the text itself where the shape is
+	drawn in place, or the single carrier cell where it compresses."""
+
+	replaces: int
+	"""How many cells of the original text this takes the place of."""
+
+	@property
+	def saved(self) -> int:
+		""":return: cells given back to the line, which is zero for a shape drawn in place."""
+		return self.replaces - len(self.cells)
+
+
+def fittedGlyph(driver, glyph: Glyph, translate: Optional[Callable] = None) -> Optional[Fitted]:
+	"""Make a vocabulary entry ready for this driver and this reader's braille table.
+
+	**The text is translated now, not when the vocabulary was written.** "btn" is three cells in
+	one table and might be two in another, and both what the glyph replaces and what the driver
+	matches on have to come from the table in force.
+
+	Then the shape's own width decides what happens. Narrower than the text and it compresses:
+	one cell goes in the buffer, the rest of the room goes back to the line, and `compress` is
+	what keeps the position maps true. The same width and it is drawn in place over the text,
+	which changes no layout at all.
+
+	Wider than the text is refused. A shape needs the cells it is drawn in, and taking one it
+	was not given would paint over whatever came next — a symbol and half a letter, which is
+	neither.
 
 	:param driver: the live driver, for its `newGlyph` factory.
 	:param glyph: the vocabulary entry.
 	:param translate: turns a string into braille cells, or None for the reader's own table.
-	:return: the driver's glyph, or None if it should not be drawn.
+	:return: what to write and what to draw, or None if it should not be drawn.
 	"""
-	fallback = _fallbackCells(glyph, translate)
-	if not fallback:
+	text = _fallbackCells(glyph, translate)
+	if not text:
 		return None
-	if len(fallback) != glyph.cells:
+	if glyph.width > len(text):
 		log.debugWarning(
-			f"BrlMultiline: a glyph of {glyph.cells} cells stands over {len(fallback)} "
+			f"BrlMultiline: a glyph {glyph.width} cells wide stands over {len(text)} "
 			"cells of braille in this table, so the text is being left as it is",
 		)
 		return None
+	cells = text if glyph.width == len(text) else [_carrier(glyph, text)]
 	try:
-		return driver.newGlyph(patternRows(glyph.dots), fallback)
+		return Fitted(
+			drawn=driver.newGlyph(patternRows(glyph.dots), cells),
+			cells=cells,
+			replaces=len(text),
+		)
 	except Exception:
 		log.error("BrlMultiline: a glyph could not be built", exc_info=True)
 		return None
+
+
+def _carrier(glyph: Glyph, text: "list[int]") -> int:
+	""":return: the one cell a compressed glyph leaves behind.
+
+	The entry's own choice where it made one, and otherwise the first cell of the text — so a
+	drawing that fails to happen leaves "b" where "btn" was rather than something meaningless.
+
+	:param glyph: the vocabulary entry.
+	:param text: the cells it stands over.
+	"""
+	if not glyph.carries:
+		return text[0]
+	try:
+		return cellValue(glyph.carries)
+	except ValueError:
+		log.error(f"BrlMultiline: {glyph.carries} is not a braille cell", exc_info=True)
+		return text[0]
+
+
+def compress(
+	cells: "list[int]",
+	rawToBraille: "list[int]",
+	brailleToRaw: "list[int]",
+	at: int,
+	fitted: Fitted,
+) -> tuple:
+	"""Put a fitted glyph into a line, moving everything after it and keeping routing true.
+
+	This is the only fiddly part of compressing, and it is fiddly because a braille line is
+	three lists that have to agree. The cells are what the display shows. `brailleToRaw` says
+	which character each cell came from, and is what a routing press is answered through.
+	`rawToBraille` says where each character went, and is what puts the cursor in the right
+	place. Shorten the cells without moving the other two and a routing key in the second half
+	of the line reaches the wrong word — which is the kind of fault a reader meets long after
+	the change that caused it and cannot possibly attribute.
+
+	Every cell of the run keeps pointing at the character the run started on, which is what
+	makes a press anywhere on the symbol reach the object: the same thing NVDA already does for
+	the abbreviation this replaces, where a routing key on any cell of "btn Search" arrives at
+	the button.
+
+	:param cells: the line's cells.
+	:param rawToBraille: braille position per character.
+	:param brailleToRaw: character position per cell.
+	:param at: the cell the text starts on.
+	:param fitted: what to put there.
+	:return: the three lists again, shortened.
+	"""
+	after = at + fitted.replaces
+	newCells = list(cells[:at]) + list(fitted.cells) + list(cells[after:])
+	start = brailleToRaw[at] if at < len(brailleToRaw) else 0
+	newBrailleToRaw = (
+		list(brailleToRaw[:at]) + [start] * len(fitted.cells) + list(brailleToRaw[after:])
+	)
+	newRawToBraille = [
+		movedPosition(position, at, fitted.replaces, len(fitted.cells))
+		for position in rawToBraille
+	]
+	return newCells, newRawToBraille, newBrailleToRaw
+
+
+def movedPosition(position: int, at: int, replaces: int, into: int) -> int:
+	"""Where a braille position ends up once a run has been replaced by fewer cells.
+
+	Also for a cursor position, which a caller holds separately and which would otherwise be
+	left pointing past the end of a line that just got shorter.
+
+	:param position: the position before.
+	:param at: the cell the replaced run starts on.
+	:param replaces: how many cells it was.
+	:param into: how many it became.
+	:return: the position after.
+	"""
+	if position < at:
+		return position
+	if position >= at + replaces:
+		return position - (replaces - into)
+	# Inside the run. It is one symbol now, so every part of what it was points at its start.
+	return at
 
 
 def _fallbackCells(glyph: Glyph, translate: Optional[Callable]) -> "list[int]":

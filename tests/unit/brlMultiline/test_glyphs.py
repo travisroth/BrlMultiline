@@ -119,7 +119,7 @@ class TestTheVocabulary(unittest.TestCase):
 			with self.subTest(name):
 				rows = glyphs.patternRows(glyph.dots)
 				self.assertEqual(len(rows), glyphs.CELL_HEIGHT)
-				self.assertEqual(len(rows[0]), glyphs.CELL_WIDTH * glyph.cells)
+				self.assertEqual(len(rows[0]), glyphs.CELL_WIDTH * glyph.width)
 
 	def test_aShapeOverDotsCoversAsManyCellsAsItStandsOver(self):
 		"""Checkable here, unlike a shape over a wording, which depends on the reader's table
@@ -128,7 +128,7 @@ class TestTheVocabulary(unittest.TestCase):
 			if not glyph.fallbackDots:
 				continue
 			with self.subTest(name):
-				self.assertEqual(glyph.cells, len(glyph.fallbackDots.split(glyphs.GROUP)))
+				self.assertEqual(glyph.width, len(glyph.fallbackDots.split(glyphs.GROUP)))
 
 	def test_theFocusIndicatorIsMonarchsOwnSquare(self):
 		"""Easy to find precisely because it is square, and square needs three columns — which
@@ -146,8 +146,8 @@ class TestTheVocabulary(unittest.TestCase):
 		three dots a finger cannot separate from the box around them."""
 		checked = glyphs.patternRows(glyphs.CHECKED.dots)
 		unchecked = glyphs.patternRows(glyphs.UNCHECKED.dots)
-		self.assertEqual(checked[1].count("O"), 5)
-		self.assertEqual(unchecked[1].count("O"), 2)
+		self.assertEqual(checked[1], "OOO")
+		self.assertEqual(unchecked[1], "O.O")
 		self.assertEqual(checked[0], unchecked[0])
 
 
@@ -155,32 +155,64 @@ class TestFittingOneToADisplay(unittest.TestCase):
 	def setUp(self):
 		self.driver = FakeDriver()
 
-	def test_aWordingBecomesTheCellsTheReadersTableWrites(self):
-		"""Not cells decided when the vocabulary was written. The driver matches on the exact
-		bytes the add-on wrote, so they have to come from the table in force."""
-		glyphs.fittedGlyph(self.driver, glyphs.BUTTON, spell)
-		_rows, fallback = self.driver.built[0]
-		self.assertEqual(fallback, spell("btn"))
+	def test_aShapeNarrowerThanItsTextGivesTheRestOfTheLineBack(self):
+		"""The whole reason to have pins. A Monarch line is 32 cells and a DotPad's is 20, so
+		three of them spent saying "btn" is a tenth of the line gone before the button has a
+		name."""
+		fitted = glyphs.fittedGlyph(self.driver, glyphs.BUTTON, spell)
+		self.assertEqual(fitted.replaces, 3)
+		self.assertEqual(len(fitted.cells), 1)
+		self.assertEqual(fitted.saved, 2)
 
-	def test_aShapeIsBuiltAtTheWidthOfWhatItStandsOver(self):
-		glyphs.fittedGlyph(self.driver, glyphs.BUTTON, spell)
+	def test_theCellItLeavesBehindIsTheFirstOfTheTextItReplaced(self):
+		"""So that "btn" becomes "b" if the drawing ever fails to happen, which is a great deal
+		better than something arbitrary in the same place."""
+		fitted = glyphs.fittedGlyph(self.driver, glyphs.BUTTON, spell)
+		self.assertEqual(fitted.cells, spell("b"))
+
+	def test_anEntryMayChooseADifferentCellToLeaveBehind(self):
+		chooses = glyphs.Glyph(dots="1", says="btn", carries="1,2,3,4,5,6")
+		fitted = glyphs.fittedGlyph(self.driver, chooses, spell)
+		self.assertEqual(fitted.cells, [0x3F])
+
+	def test_aShapeAsWideAsItsTextIsDrawnInPlace(self):
+		"""Which changes no layout at all, and buys legibility rather than room. Which of the
+		two happens is decided by how wide the shape is drawn and nothing else."""
+		fitted = glyphs.fittedGlyph(self.driver, glyphs.WIDE_BUTTON, spell)
+		self.assertEqual(fitted.cells, spell("btn"))
+		self.assertEqual(fitted.saved, 0)
+
+	def test_theDriverMatchesOnWhatWasActuallyWritten(self):
+		"""Not on the text that used to be there. The cells in the buffer are the one carrier,
+		so that is what the glyph has to be registered against or it would never draw."""
+		fitted = glyphs.fittedGlyph(self.driver, glyphs.BUTTON, spell)
+		_rows, fallback = self.driver.built[0]
+		self.assertEqual(fallback, fitted.cells)
+
+	def test_aWordingBecomesTheCellsTheReadersTableWrites(self):
+		"""Not cells decided when the vocabulary was written: "btn" is three cells in one table
+		and might be two in another."""
+		fitted = glyphs.fittedGlyph(self.driver, glyphs.WIDE_BUTTON, spell)
+		self.assertEqual(fitted.replaces, len(spell("btn")))
+
+	def test_aShapeIsBuiltAtTheWidthItIsDrawnIn(self):
+		glyphs.fittedGlyph(self.driver, glyphs.WIDE_BUTTON, spell)
 		rows, _fallback = self.driver.built[0]
 		self.assertEqual(len(rows[0]), 9)
 
 	def test_aFallbackWrittenAsDotsNeedsNoTable(self):
-		glyphs.fittedGlyph(self.driver, glyphs.FOCUS, spell)
-		_rows, fallback = self.driver.built[0]
-		self.assertEqual(fallback, [0x3F])
+		fitted = glyphs.fittedGlyph(self.driver, glyphs.FOCUS, spell)
+		self.assertEqual(fitted.cells, [0x3F])
+		self.assertEqual(fitted.saved, 0)
 
-	def test_aShapeThatDoesNotFitItsWordingIsRefused(self):
-		"""A shape drawn for three cells over a fallback that came out two cells long would be
-		clipped: half a symbol, where the reader has learned to expect a whole one. The plain
-		word is a better answer, and it is what a display without glyphs was going to show."""
+	def test_aShapeWiderThanItsTextIsRefused(self):
+		"""A shape needs the cells it is drawn in, and taking one it was not given would paint
+		over whatever came next — a symbol and half a letter, which is neither."""
 
 		def contracted(text):
 			return [0b00000001, 0b00000010]
 
-		self.assertIsNone(glyphs.fittedGlyph(self.driver, glyphs.BUTTON, contracted))
+		self.assertIsNone(glyphs.fittedGlyph(self.driver, glyphs.WIDE_BUTTON, contracted))
 		self.assertEqual(self.driver.built, [])
 
 	def test_anEntryThatGivesBothIsRefused(self):
@@ -202,6 +234,92 @@ class TestFittingOneToADisplay(unittest.TestCase):
 				raise RuntimeError("no")
 
 		self.assertIsNone(glyphs.fittedGlyph(Refuses(), glyphs.FOCUS, spell))
+
+
+class TestShorteningALine(unittest.TestCase):
+	"""A braille line is three lists that have to agree, and this is where they are kept honest.
+
+	The cells are what the display shows. `brailleToRaw` says which character each cell came
+	from and is what a routing press is answered through. `rawToBraille` says where each
+	character went and is what puts the cursor in the right place. Shorten the cells without
+	moving the other two and a routing key in the second half of the line reaches the wrong
+	word — a fault a reader meets long after the change that caused it and cannot attribute.
+	"""
+
+	def setUp(self):
+		self.raw = "btn Search"
+		self.cells = spell(self.raw)
+		self.rawToBraille = list(range(len(self.raw)))
+		self.brailleToRaw = list(range(len(self.raw)))
+		self.fitted = glyphs.fittedGlyph(FakeDriver(), glyphs.BUTTON, spell)
+
+	def shortened(self, at=0):
+		""":return: the three lists after the glyph has gone in."""
+		return glyphs.compress(self.cells, self.rawToBraille, self.brailleToRaw, at, self.fitted)
+
+	def test_theLineGetsShorter(self):
+		cells, _rawToBraille, _brailleToRaw = self.shortened()
+		self.assertEqual(len(cells), len(self.cells) - 2)
+
+	def test_andTheRestOfItIsUntouched(self):
+		cells, _rawToBraille, _brailleToRaw = self.shortened()
+		self.assertEqual(cells[1:], self.cells[3:])
+
+	def test_aPressOnTheSymbolReachesWhatTheTextReached(self):
+		"""The same thing NVDA already does for the abbreviation this replaces: a routing key on
+		any cell of "btn Search" arrives at the button."""
+		_cells, _rawToBraille, brailleToRaw = self.shortened()
+		self.assertEqual(brailleToRaw[0], 0)
+
+	def test_everyCellAfterItPointsWhereItAlwaysDid(self):
+		_cells, _rawToBraille, brailleToRaw = self.shortened()
+		self.assertEqual(brailleToRaw[1:], self.brailleToRaw[3:])
+
+	def test_theCharactersAfterItMoveLeftByWhatWasSaved(self):
+		_cells, rawToBraille, _brailleToRaw = self.shortened()
+		self.assertEqual(rawToBraille[3], 1)
+		self.assertEqual(rawToBraille[-1], len(self.raw) - 1 - 2)
+
+	def test_theCharactersInsideItAllPointAtTheSymbol(self):
+		_cells, rawToBraille, _brailleToRaw = self.shortened()
+		self.assertEqual(rawToBraille[:3], [0, 0, 0])
+
+	def test_theMapsStayAsLongAsWhatTheyMap(self):
+		cells, rawToBraille, brailleToRaw = self.shortened()
+		self.assertEqual(len(brailleToRaw), len(cells))
+		self.assertEqual(len(rawToBraille), len(self.raw))
+
+	def test_aSymbolInTheMiddleOfALineMovesOnlyWhatFollowsIt(self):
+		cells, rawToBraille, brailleToRaw = self.shortened(at=4)
+		self.assertEqual(cells[:4], self.cells[:4])
+		self.assertEqual(rawToBraille[:4], [0, 1, 2, 3])
+		self.assertEqual(brailleToRaw[4], 4)
+
+	def test_aCursorAfterItComesBackWithTheLine(self):
+		"""Held separately by the caller, and it would otherwise be left pointing past the end
+		of a line that just got shorter."""
+		self.assertEqual(glyphs.movedPosition(9, at=0, replaces=3, into=1), 7)
+
+	def test_aCursorBeforeItDoesNotMove(self):
+		self.assertEqual(glyphs.movedPosition(2, at=4, replaces=3, into=1), 2)
+
+	def test_aCursorInsideItLandsOnIt(self):
+		self.assertEqual(glyphs.movedPosition(5, at=4, replaces=3, into=1), 4)
+
+	def test_aShapeDrawnInPlaceMovesNothing(self):
+		"""The other half of the rule: the same call, and the line comes back the length it
+		was."""
+		fitted = glyphs.fittedGlyph(FakeDriver(), glyphs.WIDE_BUTTON, spell)
+		cells, rawToBraille, brailleToRaw = glyphs.compress(
+			self.cells,
+			self.rawToBraille,
+			self.brailleToRaw,
+			0,
+			fitted,
+		)
+		self.assertEqual(len(cells), len(self.cells))
+		self.assertEqual(rawToBraille[3:], self.rawToBraille[3:])
+		self.assertEqual(brailleToRaw[:3], [0, 0, 0])
 
 
 class TestWhetherADisplayGainsAnything(unittest.TestCase):

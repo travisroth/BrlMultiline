@@ -236,18 +236,39 @@ as three groups of the numbers a braille reader already thinks in, rather than a
 four picture that has to be read four strings at a time and whose columns can be misaligned
 invisibly. That is a notation chosen for the person maintaining it.
 
-**A glyph spans a run of cells, and that turned out to be the whole point.** This said single
-cell only, on the grounds that a wider one would need a region the flow must not break. It was
-answered by the thing next to it: NVDA already writes short strings for roles and states —
-"btn", "cbo", three cells for a checkbox — and drawing those as symbols is the most useful
-thing a pin display can do with a braille line. Replacing three cells with one would shift
-everything after it and break routing; replacing three cells with a nine by four drawing
-changes nothing but what those pins say.
+**A glyph stands over a run of cells and is usually narrower than it, which turned out to be
+the whole point.** This said single cell only, on the grounds that a wider one would need a
+region the flow must not break. It was answered by the thing next to it: NVDA already writes
+short strings for roles and states — "btn", "cbo", three cells for a checkbox — and the most
+useful thing a pin display can do with a braille line is draw those as symbols and give the
+cells back.
+
+A Monarch line is 32 cells and a DotPad's is 20. Three of them spent saying "btn" is a tenth of
+a DotPad line gone before the button has a name; one cell drawn as a button says the same thing
+and returns two cells to the words. That is the case for pins in a sentence, and it was nearly
+missed by reasoning that a symbol must be as wide as the text it replaced.
+
+Nothing downstream minds, because NVDA already treats a role abbreviation as part of the object
+it belongs to: a routing key on any cell of "btn Search" reaches the same place, and the buffer
+scrolls by whatever the cells come to. Shortening the run means the line holds more, and the
+position maps that make routing work are three lists that move with it — `glyphs.compress` is
+that surgery and is the only fiddly part of the idea.
+
+A shape may also be drawn at the width of what it stands over, which changes no layout and buys
+legibility rather than room. **Which happens is decided by how wide the shape is drawn**, and
+by nothing else: one group of dots over three cells of text compresses, three groups over three
+cells is drawn in place. Both are one line in the vocabulary, so the choice stays the reader's.
 
 The region never had to be invented, because the fallback match already answers it. A run split
 across the end of a line is a run whose cells no longer sit together, and the driver skips it —
 so the reader gets the text wrapped, which is exactly what they would have got without glyphs
 at all. Graceful, and decided in the driver rather than imposed on the flow.
+
+**Compressing is for a display that can draw and for no other.** One cell standing for a button
+is a fine symbol on a Monarch and a cryptic letter on a Focus, so a caller asks `glyphs.supported`
+first and leaves the text alone where the answer is no — which is why the cell left behind is
+the first cell of the text it replaced. If a drawing ever fails to happen, "btn" reads as "b"
+rather than as something arbitrary.
 
 Two smaller rules come with it: overlapping runs are a caller's mistake with no sensible
 rendering, so the later one is dropped at registration; and every cell of the run must match,
