@@ -83,6 +83,46 @@ except ImportError:  # pragma: no cover - an NVDA without it answers no headings
 _UNASKED = object()
 """Stands for a question not yet put, where None is one of the answers."""
 
+MAX_SELECTED_ROWS = 500
+"""Rows of a selection that may be read, however many the reader selected.
+
+Ctrl+Space selects a whole column: 1,048,576 rows. Read without a ceiling that was a ten
+second freeze and a cancelled COM call, reported from hardware — and a ceiling that the
+caller could raise or forget would be no ceiling at all, so this one is not negotiable and
+sits beside the calls it protects. `ExcelSheet._clipToData` cuts the selection to the used
+range first, which is what makes a whole column selection into the rows that hold data; this
+is what stands behind that when the sheet will not say where its data is.
+
+Generous against what any chart can use — ninety-six pins cannot draw ninety-six distinguishable
+columns of anything — and small enough that reading it is quick.
+"""
+
+MAX_SELECTED_COLUMNS = 64
+"""Columns of a selection that may be read. Ctrl+Shift+Space selects 16,384 of them."""
+
+MAX_SELECTED_CELLS = 4000
+"""Cells of a selection that may be read, which is the ceiling the other two do not give.
+
+Rows and columns capped separately still multiply: five hundred by sixty-four is thirty-two
+thousand cells to fetch and an array to hold them in. And a wide selection is not far-fetched,
+because **Excel's used range lies large** — it grows to whatever has ever been written in or
+*formatted* and does not shrink — so a sheet with a fill once applied across it reports itself
+as sixteen thousand columns wide and the clip gives nothing back.
+
+**Rows come down to fit it, never columns.** The columns are which series there are, and a
+chart missing one is a different chart drawn silently; the rows are how long the series is, and
+a chart with fewer points is the same chart. Four thousand cells is four hundred points across
+ten columns, which is more of both than ninety-six pins can distinguish.
+"""
+
+MAX_ROWS_ONE_AT_A_TIME = 100
+"""Rows to read when the whole block could not be had in one call.
+
+Ten milliseconds a row was measured on hardware, so this is a second of reading. The block
+fetch is the fast path and this is what happens when it is not available; a chart of a hundred
+points is a chart, and four seconds of a stopped screen reader is not.
+"""
+
 MAX_COLUMNS = 250
 """How wide a sheet may be before it is left to NVDA's ordinary reading.
 
@@ -197,6 +237,10 @@ class ExcelSheet:
 
 		self._used = None
 		"""How far Excel considers this sheet used, asked once. See `shape`."""
+
+		self._usedCorners = _UNASKED
+		"""Where Excel considers this sheet used, all four corners, asked once.
+		See `_usedBox`, and `shape` for why that is a different question."""
 
 		self._shown = _UNASKED
 		"""What Excel is showing of this sheet, asked once: the runs of rows and the runs of
@@ -420,7 +464,7 @@ class ExcelSheet:
 			return None
 		texts = [""] * count
 		merged: dict = {}
-		for index, (column, text, address) in enumerate(said):
+		for index, (_row, column, text, address) in enumerate(said):
 			# By the coordinate it came back with, and by its place in the answer only where
 			# it came back without one. A cell that says which column it is in cannot be put
 			# in the wrong one by a reordered answer.
@@ -511,7 +555,7 @@ class ExcelSheet:
 			return None
 		return any(first <= row <= last for first, last in spans)
 
-	def selectedValues(self) -> Optional[list]:
+	def selectedValues(self, maxRows: int = 0, maxColumns: int = 0) -> Optional[list]:
 		"""What is selected in this sheet, as text and as numbers together.
 
 		Answers `flowObjectTable.Sheet.selectedValues`, which is what a chart is drawn from.
@@ -523,21 +567,37 @@ class ExcelSheet:
 		as a fraction — which is the number a bar's height has to come from. A chart built from
 		displayed text instead is wrong in a way that looks entirely plausible.
 
-		**The text comes from `textRow` and not from `Range.Text`.** A range's `Text` is only
+		**The text comes from the helper and not from `Range.Text`.** A range's `Text` is only
 		meaningful for a single cell: ask a multi-cell range and Excel answers Null, because
-		there is no one string to give. The first version of this asked anyway and would have
-		labelled every bar with a cell address while looking like it worked. `textRow` is the
-		batch fetch already tuned for this — one cross-process call per row, through NVDA's own
-		helper — and using it means the labels on a chart are the same strings the reader feels
+		there is no one string to give. `_textBlock` is the batch fetch already tuned for
+		this, and using it means the labels on a chart are the same strings the reader feels
 		when they read the sheet.
 
+		**The selection is clipped to the cells the sheet actually uses, and then capped.**
+		Ctrl+Space selects a whole column, which is what a reader should press rather than
+		arrowing down forty-eight rows — and a whole column is 1,048,576 cells. Asked for
+		those, this read a million rows of values and then started fetching a million rows of
+		text one row at a time; NVDA's watchdog reported a ten second freeze and cancelled the
+		call. See `_clipToData`, which turns that selection into the seventy-three rows that
+		have data in them.
+
+		:param maxRows: rows to read at most, or 0 for the ceiling here. A caller that knows
+			how many points its chart can use says so; the ceiling applies either way, because
+			no caller should be able to ask a question that stops NVDA.
+		:param maxColumns: columns to read at most, on the same terms.
 		:return: rows of `(text, value)`, or None if Excel will not say.
 		"""
 		try:
-			selection = self._selectedRange()
-			values = _asGrid(selection.Value2)
-			firstRow = int(selection.Row)
-			firstColumn = int(selection.Column)
+			box = self._clipToData(self._selectedRange(), maxRows, maxColumns)
+			if box is None:
+				return None
+			firstRow, firstColumn, lastRow, lastColumn = box
+			sheet = self._sheet
+			span = sheet.range(
+				sheet.cells(firstRow, firstColumn),
+				sheet.cells(lastRow, lastColumn),
+			)
+			values = _asGrid(span.Value2)
 		except CallCancelled:
 			# Not "there is no selection". See `sheetFor`.
 			raise
@@ -547,11 +607,155 @@ class ExcelSheet:
 		if not values:
 			return None
 		width = max(len(row) for row in values)
-		rows = []
-		for offset, valueRow in enumerate(values):
-			texts = self.textRow(firstRow + offset, firstColumn, firstColumn + width - 1)
-			rows.append(_pairUp(texts, valueRow, firstRow + offset, firstColumn))
-		return rows
+		texts = self._textBlock(firstRow, firstColumn, len(values), width)
+		if texts is None:
+			# One call for the whole block was not to be had, so it is a call per row — which
+			# is what this did before the block fetch existed, and is slow enough that the
+			# number of rows has to come down with it. Ten milliseconds a row was measured on
+			# hardware: four hundred rows that way is four seconds of a stopped screen reader.
+			values = values[:MAX_ROWS_ONE_AT_A_TIME]
+			texts = [
+				self.textRow(firstRow + offset, firstColumn, firstColumn + width - 1)
+				for offset in range(len(values))
+			]
+		return [
+			_pairUp(texts[offset], valueRow, firstRow + offset, firstColumn)
+			for offset, valueRow in enumerate(values)
+		]
+
+	def _clipToData(self, selection, maxRows: int, maxColumns: int) -> Optional[tuple]:
+		"""Cut a selection down to what can be read without stopping NVDA.
+
+		Two cuts, and they are different in kind.
+
+		**The clip to the used range is the one that makes whole column selections work.**
+		Ctrl+Space is how a reader selects a column without arrowing down it, and it selects
+		all 1,048,576 rows — of which perhaps seventy-three have anything in them. Excel's
+		used range is one call and says where the sheet stops, so the intersection of the two
+		is the data the reader was pointing at. Without it the selection is not merely slow to
+		read: it is a million rows of empty cells with the data lost among them, and no chart
+		could be made from it anyway.
+
+		**The cap is the guard, and it applies whether or not the clip worked.** A used range
+		that cannot be read must not leave the ceiling off, because the failure this is here to
+		prevent is a screen reader that stops for ten seconds — and that must not be reachable
+		by any selection, from any caller, however the sheet answers.
+
+		:param selection: Excel's own range.
+		:param maxRows: rows the caller can use, or 0 for the ceiling.
+		:param maxColumns: columns the caller can use, or 0 for the ceiling.
+		:return: (first row, first column, last row, last column), or None where the selection
+			holds none of the sheet's data.
+		"""
+		firstRow = int(selection.Row)
+		firstColumn = int(selection.Column)
+		lastRow = firstRow + int(selection.Rows.Count) - 1
+		lastColumn = firstColumn + int(selection.Columns.Count) - 1
+		used = self._usedBox()
+		if used is not None:
+			firstRow = max(firstRow, used[0])
+			firstColumn = max(firstColumn, used[1])
+			lastRow = min(lastRow, used[2])
+			lastColumn = min(lastColumn, used[3])
+			if lastRow < firstRow or lastColumn < firstColumn:
+				# The selection and the data do not overlap: a column to the right of
+				# everything written in, or rows below it.
+				return None
+		rows = min(maxRows or MAX_SELECTED_ROWS, MAX_SELECTED_ROWS)
+		columns = min(maxColumns or MAX_SELECTED_COLUMNS, MAX_SELECTED_COLUMNS)
+		lastColumn = min(lastColumn, firstColumn + columns - 1)
+		rows = min(rows, max(1, MAX_SELECTED_CELLS // (lastColumn - firstColumn + 1)))
+		lastRow = min(lastRow, firstRow + rows - 1)
+		log.info(
+			f"BrlMultiline: charting rows {firstRow} to {lastRow}, "
+			f"columns {firstColumn} to {lastColumn}",
+		)
+		return (firstRow, firstColumn, lastRow, lastColumn)
+
+	def _usedBox(self) -> Optional[tuple]:
+		""":return: the corners of the used range, or None where the sheet will not say.
+
+		All four corners, where `shape` wants only the far one: it measures from A1 so that a
+		row number here is Excel's row number, and this has to *intersect* with a selection, so
+		where the data starts matters as much as where it stops.
+
+		Its own read rather than one shared with `shape`, and its own failure too. `shape`
+		refuses the whole table when the sheet will not say how far it is used, because a
+		truncated sheet offered as the sheet is worse than no table; a chart can carry on
+		without the answer, on the cap alone, and refusing to chart would be the harsher of
+		the two mistakes. Asked once and kept, like everything else here.
+		"""
+		if self._usedCorners is _UNASKED:
+			self._usedCorners = None
+			try:
+				used = self._sheet.usedRange
+				firstRow = int(used.row)
+				firstColumn = int(used.column)
+				self._usedCorners = (
+					firstRow,
+					firstColumn,
+					firstRow + int(used.rows.count) - 1,
+					firstColumn + int(used.columns.count) - 1,
+				)
+			except CallCancelled:
+				raise
+			except Exception:
+				log.debugWarning("Could not ask a worksheet where its data is", exc_info=True)
+		return self._usedCorners
+
+	def _textBlock(self, firstRow: int, firstColumn: int, height: int, width: int) -> Optional[list]:
+		"""Read a rectangle's displayed text in one call.
+
+		`textRow` is this for one row, and one row at a time is the right shape for reading a
+		table a band at a time — a few rows, every column. A chart is the other shape: a few
+		columns, hundreds of rows, and a call per row is a call per *point*. The helper takes
+		an address and a count and does not care that the range is more than one row high, so
+		the whole selection is one call.
+
+		**Placed by the coordinates the helper reports, never by position in the answer.** A
+		row's worth of cells can be placed by counting along, because there is only one row to
+		be in; a rectangle cannot, and a range walked in a different order than assumed would
+		put every value under the wrong label while looking entirely correct. So a block that
+		comes back without coordinates is refused here, and the caller reads it a row at a
+		time instead.
+
+		:param firstRow: the top row of the rectangle.
+		:param firstColumn: its leftmost column.
+		:param height: how many rows.
+		:param width: how many columns.
+		:return: one list of strings per row, or None where the block could not be had whole.
+		"""
+		count = height * width
+		if count < 1:
+			return None
+		try:
+			sheet = self._sheet
+			span = sheet.range(
+				sheet.cells(firstRow, firstColumn),
+				sheet.cells(firstRow + height - 1, firstColumn + width - 1),
+			)
+			address = convertAddressToLocal(
+				self._application(),
+				span.address(True, True, xlA1, True),
+			)
+			said = _cellInfosFor(self.cell, address, count)
+		except CallCancelled:
+			raise
+		except Exception:
+			log.debugWarning("Could not read a selection in one call", exc_info=True)
+			return None
+		if said is None:
+			return None
+		texts = [[""] * width for _ in range(height)]
+		for row, column, text, _address in said:
+			if not row or not column:
+				return None
+			down = row - firstRow
+			across = column - firstColumn
+			if 0 <= down < height and 0 <= across < width:
+				# Stripped, because the object path strips — see `flowTableSource._textOf`.
+				texts[down][across] = (text or "").strip()
+		return texts
 
 	def columnsShowing(self) -> Optional[set]:
 		""":return: the columns Excel is showing, or None where every column is showing.
@@ -798,7 +1002,7 @@ class ExcelSheet:
 
 
 def _cellInfosFor(cell, address: str, count: int) -> Optional[list]:
-	""":return: the column and text of each cell of a range, in one call, or None.
+	""":return: where each cell of a range is, what it says, and its merge area, or None.
 
 	The call itself, kept apart from `ExcelSheet.textRow` because it is the only ctypes in
 	this file and because what it does is one sentence: hand NVDA's in-process helper an
@@ -815,8 +1019,13 @@ def _cellInfosFor(cell, address: str, count: int) -> Optional[list]:
 	:param cell: any cell of the sheet, for the window and the helper's binding handle.
 	:param address: the range, already in the application's own notation.
 	:param count: how many cells the range holds.
-	:return: one (column number, text, address) triple per cell of the range, or None for
-		anything short of the whole range.
+	:return: one (row number, column number, text, address) per cell of the range, or None
+		for anything short of the whole range.
+
+	The row number is there for the block read. One row's worth of cells can be placed by
+	counting along the answer, because there is only one row for them to be in; a
+	rectangle cannot, and a range walked in a different order than assumed would put every
+	value under the wrong label while looking entirely correct. See `ExcelSheet._textBlock`.
 
 	**Short is incomplete, not empty.** The helper walks the range with an enumerator and
 	stops at the first cell it cannot get — `IEnumVARIANT::Next` failing breaks the loop and
@@ -847,7 +1056,12 @@ def _cellInfosFor(cell, address: str, count: int) -> Optional[list]:
 			)
 		return None
 	return [
-		(int(infos[index].columnNumber or 0), infos[index].text or "", infos[index].address or "")
+		(
+			int(infos[index].rowNumber or 0),
+			int(infos[index].columnNumber or 0),
+			infos[index].text or "",
+			infos[index].address or "",
+		)
 		for index in range(count)
 	]
 

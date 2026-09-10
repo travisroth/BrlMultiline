@@ -952,6 +952,55 @@ also *name* every column that has numbers under it: a column with numbers below 
 above says the row was data, and taking it away would have dropped a point off the chart and
 said nothing.
 
+#### What the second hardware run found: Ctrl+Space froze NVDA
+
+Reported from a sheet built with `STOCKHISTORY`, charted after selecting a column with
+Ctrl+Space — which is the right key to press, and is what a reader should be pressing rather
+than arrowing down forty-eight rows. The log:
+
+	BrlMultiline: charting from ExcelSelection name='A1  4/1/2026 through B1048576  '
+	Starting freeze recovery after 10.045 seconds
+	exceptions.CallCancelled: COM call cancelled
+
+Ctrl+Space selects the whole column: 1,048,576 rows by two columns, two million cells. The
+read asked Excel for all of their values, got them, built a million Python rows out of them,
+and then began fetching the displayed text one row at a time — a COM call per row, a million of
+them. NVDA's watchdog cancelled the call ten seconds in and the command reported "nothing is
+selected to chart", which was true of nothing.
+
+Three fixes, and the first of them turns the fault into the feature that was asked for.
+
+1. **The selection is clipped to the used range.** Excel's used range is one call and says
+   where the sheet stops, so the intersection of it with the selection is the data the reader
+   was pointing at: a whole column selection becomes the seventy-three rows that have prices in
+   them. Both corners, not just the far one — a table starting at row 5 has four empty rows
+   above it, and clipping only the bottom would put four blank points in front of the data.
+   This is what makes Ctrl+Space the right key rather than a trap.
+2. **Ceilings behind it, which hold whether or not the clip worked.** Five hundred rows, sixty
+   four columns, and four thousand cells over both — because rows and columns capped separately
+   still multiply, and a wide selection is not far-fetched: Excel's used range grows to whatever
+   has ever been *formatted* and does not shrink, so a sheet with a fill once applied across it
+   reports itself sixteen thousand columns wide and the clip gives nothing back. Rows come down
+   to meet the cell budget and columns never do: the columns are which series there are, and a
+   chart missing one is a different chart drawn silently. The caller says how much it can use
+   and the ceiling applies either way, because a limit a caller can forget to pass is not a
+   limit — and what is being prevented is a screen reader that stops.
+3. **The text of a selection is read as one rectangle.** `textRow` is a call per row, which is
+   the right shape for reading a table a band at a time: a few rows, every column. A chart is
+   the other shape — a few columns, hundreds of rows — so a call per row is a call per *point*,
+   and ten milliseconds a row was measured on hardware. The helper takes an address and a count
+   and does not care that the range is more than one row high, so the whole selection is one
+   call. The cells are placed by the coordinates the helper reports and never by their position
+   in the answer: a row's worth can be counted along because there is only one row for them to
+   be in, a rectangle cannot, and a range walked in a different order than assumed would put
+   every value under the wrong label while looking entirely correct. A block that comes back
+   without coordinates is refused and read a row at a time instead — with a row budget of its
+   own, because that path is slow enough that the number of rows has to come down with it.
+
+**And a cancelled call is now told apart from an empty selection.** They arrived at the reader
+as the same sentence, and they are different things to do about: press again, against go and
+select something. NVDA giving up on Excel is not Excel having nothing to say.
+
 Left for hardware, and this is the whole point of building four types rather than one:
 
 1. Whether a four series line chart is readable at all at this pitch, or whether the useful

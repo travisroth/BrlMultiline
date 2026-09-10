@@ -1766,7 +1766,7 @@ class Sheet:
 		"""
 		return None
 
-	def selectedValues(self):
+	def selectedValues(self, maxRows: int = 0, maxColumns: int = 0):
 		"""What the reader has selected, as values rather than as text.
 
 		**Optional, and the only question here that is not about reading.** A chart needs
@@ -1784,6 +1784,16 @@ class Sheet:
 		A grid that has no notion of a selection, or cannot read one, answers None, and the
 		reader is told charts are not available there rather than being given a wrong one.
 
+		**A selection can be larger than anything worth reading**, and a grid that can be
+		asked for one has to be told where to stop. Ctrl+Space in a spreadsheet selects a
+		whole column — over a million cells — which is what a reader should press rather
+		than arrowing down forty-eight rows, and reading it whole froze NVDA for ten
+		seconds on hardware. So the caller says how much it can use, and a grid is
+		expected to have a ceiling of its own besides: a limit the caller can forget to
+		pass is not a limit.
+
+		:param maxRows: rows the caller can use at most, or 0 to leave it to the grid.
+		:param maxColumns: columns the caller can use at most, on the same terms.
 		:return: rows of `(text, value)` per selected cell, where `value` is a number or
 			None for a cell that holds no number; or None where this cannot be answered.
 		"""

@@ -27,6 +27,14 @@ from typing import NamedTuple, Optional
 
 from logHandler import log
 
+try:
+	from exceptions import CallCancelled
+except ImportError:  # Outside NVDA, and on an NVDA old enough not to have it.
+
+	class CallCancelled(Exception):  # type: ignore[no-redef]
+		"""Stand-in for NVDA's own, so this package imports where NVDA is not."""
+
+
 from .chartDraw import Series, numberText
 from .chartPrice import Period
 from .flowObjectTable import describeThing, sheetOf
@@ -96,7 +104,17 @@ def gridFromFocus() -> "list[list]":
 			_("Charts need a spreadsheet cell; this is {thing}").format(thing=describeThing(obj)),
 		)
 	try:
-		grid = sheet.selectedValues()
+		grid = sheet.selectedValues(maxRows=MAX_POINTS)
+	except CallCancelled:
+		# NVDA gave up on the application, which is not the same as the application
+		# having nothing to say. Told apart because they are different things for the
+		# reader to do about: press again, against go and select something.
+		log.error("BrlMultiline: the application did not answer in time to chart")
+		raise NoNumbers(
+			# Translators: reported when a chart was asked for and the application took so
+			# long to answer that NVDA gave up waiting for it.
+			_("The application did not answer in time; try again"),
+		) from None
 	except Exception:
 		log.error("BrlMultiline: a grid would not say what is selected", exc_info=True)
 		grid = None

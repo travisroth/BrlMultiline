@@ -264,3 +264,79 @@ class TestWhatIsOffered(unittest.TestCase):
 			spell,
 		)
 		self.assertIn("3 Jun", drawing.describeAt(0, 20))
+
+
+class FakeSheet:
+	"""A grid that answers what is selected, and remembers what it was asked for."""
+
+	def __init__(self, answer):
+		"""
+		:param answer: what to return, or an exception to raise.
+		"""
+		self.answer = answer
+		self.asked = None
+
+	def selectedValues(self, maxRows=0, maxColumns=0):
+		self.asked = (maxRows, maxColumns)
+		if isinstance(self.answer, Exception):
+			raise self.answer
+		return self.answer
+
+
+class TestReadingWhatIsSelected(unittest.TestCase):
+	"""What the command asks a grid for, and what it does with the ways that can fail.
+
+	The failures are the point. A selection can be enormous — Ctrl+Space is a million cells —
+	and a grid asked for one without a limit froze NVDA for ten seconds on hardware before the
+	COM call was cancelled out from under it. So the caller says how much it can use, and a
+	cancelled call is told apart from an empty selection, because they are different things for
+	the reader to do about: press again, against go and select something.
+	"""
+
+	def gridFrom(self, answer):
+		""":return: what `gridFromFocus` makes of a grid that answers this.
+
+		:param answer: what the grid returns, or an exception it raises.
+		"""
+		sheet = FakeSheet(answer)
+		original = chartSource._focusedSheet
+		chartSource._focusedSheet = lambda: (None, sheet)
+		try:
+			return sheet, chartSource.gridFromFocus()
+		finally:
+			chartSource._focusedSheet = original
+
+	def test_theCallerSaysHowManyRowsItCanUse(self):
+		"""Reading more than the chart can draw is time spent on numbers that get thrown away,
+		and on a whole column selection it is a great deal of time."""
+		asked, _grid = self.gridFrom(sheet(["Mon", 5], ["Tue", 10]))
+		self.assertEqual(asked.asked[0], chartSource.MAX_POINTS)
+
+	def test_aCancelledCallIsNotAnEmptySelection(self):
+		"""NVDA gave up on the application, which is not the application having nothing to say.
+		Reported as itself so the reader presses again rather than going to look at a selection
+		that was fine all along."""
+		with self.assertRaises(chartSource.NoNumbers) as caught:
+			self.gridFrom(chartSource.CallCancelled("COM call cancelled"))
+		self.assertIn("in time", str(caught.exception))
+
+	def test_aGridThatSimplyFailsIsNothingSelected(self):
+		with self.assertRaises(chartSource.NoNumbers) as caught:
+			self.gridFrom(RuntimeError("no"))
+		self.assertIn("selected", str(caught.exception))
+
+	def test_anEmptySelectionSaysSo(self):
+		with self.assertRaises(chartSource.NoNumbers):
+			self.gridFrom([])
+
+	def test_somewhereWithNoGridSaysWhatTheReaderIsOn(self):
+		"""A refusal that can name what they were on is one they can act on: "charts need a
+		spreadsheet cell; this is a list item" says where to go."""
+		original = chartSource._focusedSheet
+		chartSource._focusedSheet = lambda: (None, None)
+		try:
+			with self.assertRaises(chartSource.NoNumbers) as caught:
+				chartSource.gridFromFocus()
+		finally:
+			chartSource._focusedSheet = original
+		self.assertIn("spreadsheet", str(caught.exception))

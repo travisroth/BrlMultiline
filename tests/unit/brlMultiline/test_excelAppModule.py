@@ -88,6 +88,11 @@ def _getCellInfos(binding, window, address, flags, count, infos, fetched):
 		column, text = entry[0], entry[1]
 		infos[index].text = text
 		infos[index].columnNumber = column
+		# The row too, which is what lets a rectangle be placed rather than only a row.
+		# See `ExcelSheet._textBlock`: a block that comes back without coordinates is
+		# refused, because a range walked in an unexpected order would put every value
+		# under the wrong label while looking entirely correct.
+		infos[index].rowNumber = entry[3] if len(entry) > 3 else 1
 		# The merge area's address, which is what the real helper reports and what tells a
 		# merged cell from a blank one. Its own where a test does not say.
 		infos[index].address = entry[2] if len(entry) > 2 else f"R1C{column or index + 1}"
@@ -286,29 +291,69 @@ class FakeSelection:
 	asked of it. Deliberately not a `FakeCell` and not a subclass of one: the whole point of
 	the real class is that it is *not* a cell, which is what made the seam vanish the moment
 	a reader selected something to chart.
+
+	It can be told it covers more than it holds, which is what Ctrl+Space makes: a selection
+	of a million rows over a sheet with seventy-three of them.
 	"""
 
-	def __init__(self, worksheet, row=1, column=1, values=None):
+	def __init__(self, worksheet, row=1, column=1, values=None, rows=None, columns=None):
 		"""
 		:param worksheet: the `FakeWorksheet` this selection is in.
 		:param row: the sheet row its top left corner is on.
 		:param column: the sheet column it is in.
-		:param values: what `Value2` answers for the range.
+		:param values: what the cells hold, as rows, or a bare value for one cell.
+		:param rows: how many rows the selection covers, where that is more than it holds.
+		:param columns: how many columns, on the same terms.
 		"""
-		self.excelRangeObject = FakeSelectedRange(worksheet, row, column, values)
+		grid = _asRows(values)
+		if grid:
+			worksheet.excelWorksheetObject.putNumbers(grid, row, column)
+		self.excelRangeObject = FakeSelectedRange(
+			worksheet,
+			row,
+			column,
+			rows if rows is not None else max(1, len(grid)),
+			columns if columns is not None else max(1, max((len(one) for one in grid), default=1)),
+		)
 		self.excelWindowObject = object()
+		self.windowHandle = 42
+		self.appModule = types.SimpleNamespace(helperLocalBindingHandle=7)
+		"""How the batch fetch is reached. `ExcelSheet` reads a selection's text through
+		the same helper it reads a cell's through, because it is the same call over a
+		different range."""
+
 		self.rowNumber = row
 		self.columnNumber = column
 		self.parent = worksheet
 
 
-class FakeSelectedRange:
-	"""Excel's own range, as much of it as a selection is asked for."""
+def _asRows(values) -> list:
+	""":return: whatever a test gave as values, as rows of cells.
 
-	def __init__(self, worksheet, row, column, values):
+	:param values: rows, one row, a bare value, or None.
+	"""
+	if values is None:
+		return []
+	if not isinstance(values, tuple):
+		return [[values]]
+	if values and isinstance(values[0], tuple):
+		return [list(row) for row in values]
+	return [list(values)]
+
+
+class FakeSelectedRange:
+	"""Excel's own range, as much of it as a selection is asked for.
+
+	It says how far it reaches and not what it holds. That is the shape of the real thing and
+	it is the point: a whole column selection answers 1,048,576 rows without any of them
+	having been read, which is what makes clipping it to the used range cheap.
+	"""
+
+	def __init__(self, worksheet, row, column, rows, columns):
 		self.Row = row
 		self.Column = column
-		self.Value2 = values
+		self.Rows = types.SimpleNamespace(Count=rows)
+		self.Columns = types.SimpleNamespace(Count=columns)
 		self.Application = worksheet.excelWorksheetObject.Application
 
 
@@ -430,12 +475,33 @@ class FakeRange:
 class FakeSpan:
 	"""Several of Excel's cells at once, which is what a row is read through in one call."""
 
-	def __init__(self, first, last):
+	def __init__(self, first, last, worksheet=None):
 		self.first = first
 		self.last = last
+		self.worksheet = worksheet
+
+	@property
+	def Value2(self):
+		""":return: what the cells hold, shaped the way Excel shapes it.
+
+		A bare value for one cell and a tuple of row tuples for anything larger, which is
+		the difference `_asGrid` exists to settle and the reason a one cell selection is
+		worth its own test.
+			"""
+		held = self.worksheet.numbers if self.worksheet is not None else {}
+		rows = tuple(
+			tuple(
+				held.get((row, column))
+				for column in range(self.first.column, self.last.column + 1)
+			)
+			for row in range(self.first.row, self.last.row + 1)
+		)
+		if len(rows) == 1 and len(rows[0]) == 1:
+			return rows[0][0]
+		return rows
 
 	def address(self, rowAbsolute, columnAbsolute, style, external):
-		return f"Sheet1!R{self.first.row}C{self.first.column}:C{self.last.column}"
+		return f"Sheet1!R{self.first.row}C{self.first.column}:R{self.last.row}C{self.last.column}"
 
 
 class FakeVisibleRange:
@@ -491,12 +557,25 @@ class FakeUsedRange:
 class FakeWorksheetObject:
 	"""Excel's own worksheet: it answers by coordinate, and it records what it was asked."""
 
-	def __init__(self, values=None, used=None, name="Sheet1", book=r"C:\\books\\sales.xlsx"):
+	def __init__(
+		self,
+		values=None,
+		used=None,
+		name="Sheet1",
+		book=r"C:\\books\\sales.xlsx",
+		usedFails=False,
+	):
 		self.values = values if values is not None else SALES
 		self.used = used if used is not None else FakeUsedRange(1, 1, 3, 3)
+		self.numbers: dict = {}
+		"""What the cells hold, by coordinate, which is what `Value2` answers."""
+
 		self.asked: list = []
 		self.spans: list = []
 		self.timesAskedTheUsedRange = 0
+		self.usedFails = usedFails
+		"""Whether the sheet refuses to say where its data is, which is what the ceiling
+		in `selectedValues` has to hold up on its own."""
 		self.Application = "an Excel"
 		self.name = name
 		self.parent = types.SimpleNamespace(fullName=book, name="sales.xlsx")
@@ -504,13 +583,26 @@ class FakeWorksheetObject:
 		headings. See `ExcelSheet.whereIsIt`."""
 
 	def range(self, first, last):
-		"""Excel's `Range(cell1, cell2)`, which is the span a whole row is fetched over."""
+		"""Excel's `Range(cell1, cell2)`, which is the span a row or a block is read over."""
 		self.spans.append(((first.row, first.column), (last.row, last.column)))
-		return FakeSpan(first, last)
+		return FakeSpan(first, last, self)
+
+	def putNumbers(self, grid, row, column) -> None:
+		"""Write what the cells hold, so a span read over them answers it.
+
+		:param grid: rows of values.
+		:param row: the sheet row the first of them is on.
+		:param column: the sheet column.
+		"""
+		for down, line in enumerate(grid):
+			for across, value in enumerate(line):
+				self.numbers[(row + down, column + across)] = value
 
 	@property
 	def usedRange(self):
 		self.timesAskedTheUsedRange += 1
+		if self.usedFails:
+			raise COMError(-2146827864, None, (None, None, None, 0, None))
 		return self.used
 
 	def cells(self, row, column):
@@ -686,7 +778,7 @@ class TestReadingAWholeRowInOneCall(unittest.TestCase):
 		return excelModule.ExcelSheet(aCell(**kwargs))
 
 	def _address(self, row=1, first=1, last=3):
-		return f"Sheet1!R{row}C{first}:C{last}"
+		return f"Sheet1!R{row}C{first}:R{row}C{last}"
 
 	def test_theRowComesBackAsTextAndInOneFetch(self):
 		sheet = self._sheet()
@@ -904,7 +996,7 @@ class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
 
 	def test_aMarkedHeaderRowIsReadInOneCall(self):
 		sheet = self._sheet(headings=self.ACROSS)
-		batch["Sheet1!R1C1:C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
+		batch["Sheet1!R1C1:R1C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
 		self.assertEqual(sheet.columnHeaders(1, 3), {1: "Region", 2: "Q1", 3: "Q2"})
 		self.assertEqual(len(fetches), 1)
 
@@ -912,7 +1004,7 @@ class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
 		"""Which is the whole saving: one call rather than one cell object per column, three
 		times over for the columns that say nothing."""
 		sheet = self._sheet(headings=self.ACROSS)
-		batch["Sheet1!R1C1:C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
+		batch["Sheet1!R1C1:R1C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
 		before = len(FakeCell.made)
 		sheet.columnHeaders(1, 3)
 		self.assertEqual(len(FakeCell.made), before)
@@ -920,7 +1012,7 @@ class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
 	def test_andTheAnswerIsWorkedOutOnce(self):
 		"""Asking is a walk of every defined name in the workbook."""
 		sheet = self._sheet(headings=self.ACROSS)
-		batch["Sheet1!R1C1:C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
+		batch["Sheet1!R1C1:R1C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
 		sheet.columnHeaders(1, 3)
 		sheet.columnHeaders(1, 3)
 		sheet.columnHeaders(2, 3)
@@ -931,7 +1023,7 @@ class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
 		"""A heading marked from column two does not name column one — which is
 		`iterPossibleHeaderCellInfosFor`'s own rule, and the reader's partial header range."""
 		sheet = self._sheet(headings=[{"rowNumber": 1, "columnNumber": 2, "maxColumnNumber": 3}])
-		batch["Sheet1!R1C2:C3"] = [(2, "Q1"), (3, "Q2")]
+		batch["Sheet1!R1C2:R1C3"] = [(2, "Q1"), (3, "Q2")]
 		self.assertEqual(sheet.columnHeaders(1, 3), {2: "Q1", 3: "Q2"})
 
 	def test_aSheetNobodyHasMarkedSaysSoOutright(self):
@@ -953,7 +1045,7 @@ class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
 		a cell resolves its column's header through that very tracker. Filling one here finds
 		them."""
 		sheet = self._sheet(headings=self.ACROSS, poisoned=True)
-		batch["Sheet1!R1C1:C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
+		batch["Sheet1!R1C1:R1C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
 		self.assertEqual(sheet.obj.headerCellTracker.infosDict, {})
 		self.assertEqual(sheet.columnHeaders(1, 3), {1: "Region", 2: "Q1", 3: "Q2"})
 
@@ -961,7 +1053,7 @@ class TestWhatTheColumnsOfASheetAreCalled(unittest.TestCase):
 		"""The finished tracker is put where NVDA keeps its own, which is what every cell
 		built from this sheet resolves its column's header through."""
 		sheet = self._sheet(headings=self.ACROSS, poisoned=True)
-		batch["Sheet1!R1C1:C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
+		batch["Sheet1!R1C1:R1C3"] = [(1, "Region"), (2, "Q1"), (3, "Q2")]
 		self.assertIsNone(sheet.cellAt(3, 2).columnHeaderText)
 		sheet.columnHeaders(1, 3)
 		self.assertEqual(sheet.cellAt(3, 2).columnHeaderText, "Q1")
@@ -1747,6 +1839,245 @@ class TestASelectedRangeOffersTheSeam(unittest.TestCase):
 		"""`Value2` answers a bare value rather than a tuple for one cell."""
 		rows = excelModule.ExcelSheet(FakeSelection(self.sheet, values=42.0)).selectedValues()
 		self.assertEqual([cell[1] for row in rows for cell in row], [42.0])
+
+
+class TestReadingASelectionWithoutStoppingNVDA(unittest.TestCase):
+	"""The fault a hardware run found, and the feature that came out of it.
+
+	Ctrl+Space is how a reader selects a column without arrowing down forty-eight rows, and it
+	selects the whole column: 1,048,576 cells. Charting one read a million rows of values and
+	then began fetching a million rows of text one row at a time. NVDA's watchdog reported the
+	freeze and cancelled the call ten seconds in:
+
+		BrlMultiline: charting from ExcelSelection name='A1  4/1/2026 through B1048576  '
+		Starting freeze recovery after 10.045 seconds
+		exceptions.CallCancelled: COM call cancelled
+
+	Two answers, and both are needed. The selection is clipped to the used range, which is what
+	turns a whole column into the rows that hold data and makes Ctrl+Space the right key to
+	press. And a ceiling stands behind that whatever the sheet says, because the thing being
+	prevented is a screen reader that stops, and that must not be reachable by any selection
+	from any caller.
+	"""
+
+	def setUp(self):
+		fetches.clear()
+		batch.clear()
+		helperFails[0] = 0
+
+	def sheetOf(self, rows=3, columns=2, usedFails=False, first=1):
+		""":return: a worksheet holding a column of numbers, and its `ExcelSheet`.
+
+		:param rows: how many rows of data it has.
+		:param columns: how many columns.
+		:param usedFails: whether the sheet refuses to say where its data is.
+		:param first: the row the data starts on.
+		"""
+		worksheet = FakeWorksheetObject(
+			used=FakeUsedRange(first, 1, rows, columns),
+			usedFails=usedFails,
+		)
+		for row in range(rows):
+			for column in range(columns):
+				worksheet.numbers[(first + row, 1 + column)] = float(row * 10 + column)
+		return worksheet
+
+	def wholeColumn(self, worksheet):
+		""":return: what Ctrl+Space makes: every row of the sheet, selected."""
+		return excelModule.ExcelSheet(
+			FakeSelection(FakeWorksheet(worksheet), rows=1048576, columns=2),
+		)
+
+	def test_aWholeColumnSelectionIsClippedToTheRowsThatHoldData(self):
+		"""The whole point. Seventy-three rows of a stock history, selected with one keystroke,
+		read as seventy-three rows."""
+		worksheet = self.sheetOf(rows=3)
+		rows = self.wholeColumn(worksheet).selectedValues()
+		self.assertEqual(len(rows), 3)
+
+	def test_andTheMillionRowsAreNeverAskedFor(self):
+		"""Not merely cut afterwards. The value read and every text fetch has to be over the
+		clipped range, because asking Excel for a million cells is the freeze itself."""
+		worksheet = self.sheetOf(rows=3)
+		self.wholeColumn(worksheet).selectedValues()
+		for (_firstRow, _firstColumn), (lastRow, _lastColumn) in worksheet.spans:
+			self.assertLessEqual(lastRow, 3)
+
+	def test_dataThatDoesNotStartAtTheTopIsFoundWhereItIs(self):
+		"""A sheet whose table starts at row 5 has four empty rows above it, and a whole column
+		selection covers those too. Clipping to both corners of the used range leaves the data
+		rather than four blank points in front of it."""
+		worksheet = self.sheetOf(rows=3, first=5)
+		rows = self.wholeColumn(worksheet).selectedValues()
+		self.assertEqual(len(rows), 3)
+		self.assertEqual(worksheet.spans[0][0][0], 5)
+
+	def test_aWholeRowSelectionIsClippedTheSameWay(self):
+		"""Ctrl+Shift+Space selects 16,384 columns."""
+		worksheet = self.sheetOf(rows=3, columns=2)
+		sheet = excelModule.ExcelSheet(
+			FakeSelection(FakeWorksheet(worksheet), rows=1, columns=16384),
+		)
+		rows = sheet.selectedValues()
+		self.assertEqual(len(rows[0]), 2)
+
+	def test_theCeilingStandsWhenTheSheetWillNotSayWhereItsDataIs(self):
+		"""The guard has to hold on its own. A used range that cannot be read must not leave
+		the ceiling off, or the freeze comes back through the one path that failed."""
+		worksheet = self.sheetOf(rows=3, usedFails=True)
+		self.wholeColumn(worksheet).selectedValues()
+		self.assertEqual(worksheet.spans[0][1][0], excelModule.MAX_SELECTED_ROWS)
+
+	def test_theCallerSaysHowMuchItCanUse(self):
+		"""A chart knows how many points it can draw, and reading more than that is time spent
+		on numbers that will be thrown away."""
+		worksheet = self.sheetOf(rows=50)
+		rows = self.wholeColumn(worksheet).selectedValues(maxRows=10)
+		self.assertEqual(len(rows), 10)
+
+	def test_aCallerCannotRaiseTheCeiling(self):
+		"""A limit the caller can raise is not a limit."""
+		worksheet = self.sheetOf(rows=3, usedFails=True)
+		self.wholeColumn(worksheet).selectedValues(maxRows=100000)
+		self.assertEqual(worksheet.spans[0][1][0], excelModule.MAX_SELECTED_ROWS)
+
+	def test_aWideSelectionCostsRowsRatherThanColumns(self):
+		"""The two ceilings still multiply, and a wide selection is not far-fetched: Excel's
+		used range grows to whatever has ever been *formatted* and does not shrink, so a
+		sheet with a fill once applied across it reports itself sixteen thousand columns wide
+		and the clip gives nothing back.
+
+		Rows come down and columns do not, because the columns are which series there are —
+		a chart missing one is a different chart drawn silently — and the rows are how long
+		the series is.
+		"""
+		worksheet = FakeWorksheetObject(used=FakeUsedRange(1, 1, 100000, 40))
+		sheet = excelModule.ExcelSheet(
+			FakeSelection(FakeWorksheet(worksheet), rows=1048576, columns=16384),
+		)
+		sheet.selectedValues()
+		(firstRow, firstColumn), (lastRow, lastColumn) = worksheet.spans[0]
+		self.assertEqual(lastColumn - firstColumn + 1, 40)
+		cells = (lastRow - firstRow + 1) * (lastColumn - firstColumn + 1)
+		self.assertLessEqual(cells, excelModule.MAX_SELECTED_CELLS)
+
+	def test_aSelectionWithNoneOfTheDataInItIsNothing(self):
+		"""A column to the right of everything written in. Answering with a rectangle of empty
+		cells would be a chart of nothing offered as a chart."""
+		worksheet = self.sheetOf(rows=3, columns=2)
+		sheet = excelModule.ExcelSheet(
+			FakeSelection(FakeWorksheet(worksheet), row=1, column=40, rows=1048576, columns=1),
+		)
+		self.assertIsNone(sheet.selectedValues())
+
+	def test_theUsedRangeIsAskedOnce(self):
+		"""Like everything else here. A review once counted eight used range reads for one move
+		between cells."""
+		worksheet = self.sheetOf(rows=3)
+		sheet = self.wholeColumn(worksheet)
+		sheet.selectedValues()
+		sheet.selectedValues()
+		self.assertEqual(worksheet.timesAskedTheUsedRange, 1)
+
+
+class TestReadingTheTextOfASelection(unittest.TestCase):
+	"""One call for the whole rectangle, not one per row.
+
+	`textRow` is a call per row, which is the right shape for reading a table a band at a time:
+	a few rows, every column. A chart is the other shape — a few columns, hundreds of rows —
+	and a call per row is a call per point. Ten milliseconds a row was measured on hardware, so
+	four hundred points that way is four seconds of a stopped screen reader.
+	"""
+
+	def setUp(self):
+		fetches.clear()
+		batch.clear()
+		helperFails[0] = 0
+		self.worksheet = FakeWorksheetObject(used=FakeUsedRange(1, 1, 3, 2))
+		for row in range(1, 4):
+			for column in (1, 2):
+				self.worksheet.numbers[(row, column)] = float(row * 10 + column)
+
+	def selection(self, **kwargs):
+		""":return: an `ExcelSheet` over a selection of the whole small sheet."""
+		return excelModule.ExcelSheet(
+			FakeSelection(FakeWorksheet(self.worksheet), rows=3, columns=2, **kwargs),
+		)
+
+	def block(self, texts):
+		"""Register what the helper answers for the whole rectangle.
+
+		:param texts: (column, text, address, row) per cell, in the order it walks them.
+		"""
+		batch["Sheet1!R1C1:R3C2"] = texts
+
+	def test_theWholeSelectionIsOneFetch(self):
+		self.block(
+			[(column, f"r{row}c{column}", "", row) for row in (1, 2, 3) for column in (1, 2)],
+		)
+		rows = self.selection().selectedValues()
+		self.assertEqual(len(fetches), 1)
+		self.assertEqual(rows[0][0][0], "r1c1")
+		self.assertEqual(rows[2][1][0], "r3c2")
+
+	def test_theTextIsPlacedByTheCoordinatesItCameBackWith(self):
+		"""Never by counting along the answer. A row's cells can be counted along because there
+		is only one row for them to be in; a rectangle cannot, and a range walked in a different
+		order than assumed would put every value under the wrong label while looking entirely
+		correct."""
+		self.block(
+			[
+				(2, "r3c2", "", 3),
+				(1, "r1c1", "", 1),
+				(2, "r1c2", "", 1),
+				(1, "r2c1", "", 2),
+				(2, "r2c2", "", 2),
+				(1, "r3c1", "", 3),
+			],
+		)
+		rows = self.selection().selectedValues()
+		self.assertEqual(rows[0][0][0], "r1c1")
+		self.assertEqual(rows[2][0][0], "r3c1")
+
+	def test_aBlockThatCameBackWithoutCoordinatesIsRefused(self):
+		"""Rather than placed by position, which is the guess this cannot afford to make. The
+		caller reads it a row at a time instead, which is slow and right."""
+		self.block([(0, f"cell {index}", "", 0) for index in range(6)])
+		batch["Sheet1!R1C1:R1C2"] = [(1, "a", "", 1), (2, "b", "", 1)]
+		rows = self.selection().selectedValues()
+		self.assertEqual(rows[0][0][0], "a")
+
+	def test_aRowAtATimeIsStillTheFallback(self):
+		"""What this did before the block fetch existed. It has to keep working, because it is
+		what a helper that cannot answer for a rectangle leaves."""
+		for row in (1, 2, 3):
+			batch[f"Sheet1!R{row}C1:R{row}C2"] = [(1, f"a{row}", "", row), (2, f"b{row}", "", row)]
+		rows = self.selection().selectedValues()
+		self.assertEqual([row[0][0] for row in rows], ["a1", "a2", "a3"])
+
+	def test_theFallbackHasARowBudgetOfItsOwn(self):
+		"""A call per row is slow enough that the number of rows has to come down with it."""
+		worksheet = FakeWorksheetObject(used=FakeUsedRange(1, 1, 400, 1))
+		for row in range(1, 401):
+			worksheet.numbers[(row, 1)] = float(row)
+		sheet = excelModule.ExcelSheet(
+			FakeSelection(FakeWorksheet(worksheet), rows=400, columns=1),
+		)
+		rows = sheet.selectedValues(maxRows=400)
+		self.assertEqual(len(rows), excelModule.MAX_ROWS_ONE_AT_A_TIME)
+
+	def test_aCellWithNothingToShowIsNamedByItsAddress(self):
+		"""A poor name for a bar and better than none, because a reader told "B7" can go and
+		look at it."""
+		self.block([(column, "", "", row) for row in (1, 2, 3) for column in (1, 2)])
+		rows = self.selection().selectedValues()
+		self.assertEqual(rows[0][1][0], "B1")
+
+	def test_theStoredValuesComeBackWhateverTheTextDid(self):
+		"""The two halves are different questions, and a chart needs both: the value decides how
+		tall a bar is and the text decides what it is called."""
+		rows = self.selection().selectedValues()
+		self.assertEqual([cell[1] for cell in rows[0]], [11.0, 12.0])
 
 
 if __name__ == "__main__":
