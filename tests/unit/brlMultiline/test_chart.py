@@ -420,6 +420,20 @@ class TestTheSeamIsTheOnlyWayIn(unittest.TestCase):
 		self.assertFalse([name for name in names if name.startswith("appModules")])
 		self.assertNotIn("excelCellObject", self.attributeNames(self.parsed("globalPlugins", "brlMultiline", "chart.py")))
 
+	def test_noChartDrawingImportsAnythingOfNVDAsAtAll(self):
+		"""The rule holds for every chart type, not only the first one. Each of them takes
+		numbers and a buffer factory, and that is the whole of its world — which is what
+		lets a chart be drawn dot by dot in a test with no display and no spreadsheet.
+		"""
+		for module in ("chartDraw.py", "chartLine.py", "chartPrice.py", "chartMenu.py"):
+			tree = self.parsed("globalPlugins", "brlMultiline", module)
+			names = self.importedNames(tree)
+			self.assertFalse(
+				[name for name in names if name.startswith("appModules")],
+				module,
+			)
+			self.assertNotIn("excelCellObject", self.attributeNames(tree), module)
+
 	def test_theExcelModuleIsWhereTheObjectModelIsRead(self):
 		"""The other half of the rule: the knowledge has to live somewhere, and this is where."""
 		tree = self.parsed("appModules", "excel.py")

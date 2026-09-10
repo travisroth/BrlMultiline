@@ -32,7 +32,7 @@ from scriptHandler import script
 
 from . import bmConfig, panning, patches, tableArrows
 from .container import DisplayContainer
-from . import chart, chartSource, graphicsMode
+from . import chartDraw, chartMenu, chartSource, graphicsMode
 from .flowTableSource import wantsColumns
 from .graphicsMode import FIT as GRAPHICS_FIT, PANEL_NAME as GRAPHICS_PANEL_NAME, GraphicsMode
 from . import devices as devicesModule
@@ -204,6 +204,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		Built whether or not the display can draw: it answers `active` as False and reports
 		why when asked to show something, which is a better failure than a missing attribute
 		on hardware that has no pins to raise.
+		"""
+
+		self._lastChartKind = None
+		"""Which chart the reader picked last time, so the list opens on it.
+
+		A reader charting a sheet is usually charting it several times over — the same
+		columns, a different range — and asking them to find candlesticks in the list on
+		every one of those presses would be asking them to answer a question they have
+		already answered. Not remembered across sessions, because it is a convenience
+		within one piece of work rather than a preference.
 		"""
 
 		self._activePanels: list[BraillePanel] = []
@@ -2596,15 +2606,100 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		gestures=["br(brlMultilineMonarch):space+dot5+dot7"],
 	)
 	def script_chartSelection(self, gesture):
-		"""Draw the numbers the reader has selected as a tactile bar chart.
+		"""Draw what the reader has selected as a tactile chart, of a type they choose.
 
-		The first real content the graphics mode has been given, and the thing the whole path
-		exists for: a chart drawn from live application data, on a display the reader can
-		point at. Pressing a routing key on a bar says which bar and what it is worth.
+		The thing the whole graphics path exists for: a chart drawn from live application
+		data, on a display the reader can point at. Pressing a routing key on it says what
+		is under the finger — which bar, which series at which date, or a whole day's four
+		prices.
+
+		**It asks which chart rather than guessing.** Four columns of numbers with dates
+		down the side are four measurements over time or one instrument's trading, and
+		nothing in the cells says which; a wrong guess costs the reader a chart they then
+		have to undo. So the list of what can be drawn from this selection is put to them,
+		and it is short because it only ever contains charts that will actually draw.
 
 		Every way this can fail carries a reason the reader can act on — not a spreadsheet,
-		nothing numeric selected, more bars than the display holds — because a command that
-		only said it had failed would leave them guessing at which.
+		nothing numeric selected, more bars than the display holds, columns that are not
+		prices — because a command that only said it had failed would leave them guessing
+		at which.
+		"""
+		if self.graphicsMode.drawingSize() is None:
+			# Translators: reported when a drawing was asked for on a display that cannot draw.
+			ui.message(_("This display cannot show graphics"))
+			return
+		try:
+			offers = chartMenu.offersFor(chartSource.gridFromFocus())
+		except chartSource.NoNumbers as refusal:
+			ui.message(str(refusal))
+			return
+		except Exception:
+			log.error("BrlMultiline: could not read the selection to chart", exc_info=True)
+			# Translators: reported when charting failed for a reason worth a log entry.
+			ui.message(_("The chart could not be made, see the log"))
+			return
+		if not offers:
+			# Translators: reported when nothing selected can be drawn as any chart.
+			ui.message(_("There is nothing here that can be charted"))
+			return
+		if len(offers) == 1:
+			# Nothing to choose between, so nothing to ask. The prompt exists because a
+			# selection can mean several charts, not as a step on the way to every chart.
+			self.drawChart(offers[0])
+			return
+		self._chooseChart(offers)
+
+	def _chooseChart(self, offers: list) -> None:
+		"""Ask which of several charts to draw, then draw it.
+
+		The one seam wx is behind, exactly as `_chooseFocusDisplay` is: everything that
+		decides *what* is on offer is in `chartMenu` and is tested without an application.
+
+		:param offers: the charts that can be drawn, in the order to offer them.
+		"""
+		opening = 0
+		for index, offer in enumerate(offers):
+			if offer.key == self._lastChartKind:
+				opening = index
+				break
+
+		def ask():
+			# prePopup before the dialog is made and postPopup after it has gone, which is
+			# how NVDA opens one: it raises its own frame first so the dialog can take the
+			# focus, and puts things back afterwards.
+			gui.mainFrame.prePopup()
+			try:
+				dialog = wx.SingleChoiceDialog(
+					gui.mainFrame,
+					# Translators: the message of a dialog asking which kind of chart to draw
+					# from the cells the reader has selected.
+					_("Which chart?"),
+					# Translators: the title of a dialog asking which kind of chart to draw
+					# from the cells the reader has selected.
+					_("Chart the selection"),
+					[offer.label for offer in offers],
+				)
+				try:
+					dialog.SetSelection(opening)
+					if dialog.ShowModal() != wx.ID_OK:
+						return
+					chosen = dialog.GetSelection()
+				finally:
+					dialog.Destroy()
+			finally:
+				gui.mainFrame.postPopup()
+			if 0 <= chosen < len(offers):
+				self.drawChart(offers[chosen])
+
+		wx.CallAfter(ask)
+
+	def drawChart(self, offer) -> None:
+		"""Draw one of the charts on offer and put it on the display.
+
+		The size is asked for again here rather than carried in from the command, because
+		a dialog was open in between and a display can be unplugged while one is.
+
+		:param offer: what to draw, from `chartMenu.offersFor`.
 		"""
 		mode = self.graphicsMode
 		size = mode.drawingSize()
@@ -2613,9 +2708,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("This display cannot show graphics"))
 			return
 		try:
-			series = chartSource.seriesFromFocus()
-			drawing = chart.barChart(mode.newBuffer, size[0], size[1], series, graphicsMode.labelCells)
-		except (chartSource.NoNumbers, chart.ChartRefused) as refusal:
+			drawing = offer.draw(mode.newBuffer, size[0], size[1], graphicsMode.labelCells)
+		except (chartSource.NoNumbers, chartDraw.ChartRefused) as refusal:
 			ui.message(str(refusal))
 			return
 		except Exception:
@@ -2623,6 +2717,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when charting failed for a reason worth a log entry.
 			ui.message(_("The chart could not be made, see the log"))
 			return
+		self._lastChartKind = offer.key
 		if not mode.enter(drawing):
 			ui.message(mode.lastError or _("The drawing could not be shown"))
 			return

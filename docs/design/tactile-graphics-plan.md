@@ -850,6 +850,120 @@ Left for hardware: whether a chart of this size actually reads under a finger, h
 are useful in practice against the 48 the panel can hold, and whether the labels want to be on
 the panel rather than only spoken.
 
+### Phase 4b, the other chart types, and asking which one
+
+Status: **built and unit tested, awaiting a hardware run.** Line charts of up to four series,
+open-high-low-close bars, and candlesticks, in `chartLine.py` and `chartPrice.py`, with the
+vocabulary they share with bars split out into `chartDraw.py` and the reading half extended in
+`chartSource.py`. 113 more tests.
+
+The case that drove it is a stock chart: a closing price with a moving average through it and
+a pair of Bollinger bands around it, then the same instrument as OHLC bars. That one case
+forced five decisions.
+
+1. **One scale for every series on a line chart.** A band that is not on the same scale as the
+   price it bands is not a band, and four series each fitted to their own range would draw four
+   lines that all fill the panel and mean nothing against each other. This is the whole reason
+   they are drawn together rather than as four charts.
+2. **Lines are told apart by texture, not by weight.** There is no colour, no greyscale and no
+   line width to spend: every line is one pin thick. So each series gets a pattern along its
+   own path — solid, dashed, dotted, dash dot — which is what tactile graphics standards
+   already do, and which a finger reads as a difference in surface rather than in position. The
+   pattern runs along the path rather than across the drawing, so a steep line dashes at the
+   same rate as a flat one, and its phase carries across the joins between points; restarted at
+   each point, a chart with points three pins apart would draw the first dots of the pattern
+   over and over and every series would look solid.
+3. **Four series is the limit, and it is a real one.** It is how many textures can be told
+   apart by touch on a path that is often diagonal. A fifth would have to repeat one, and two
+   lines with the same texture crossing each other is a chart that lies. Refused with a count
+   rather than drawn.
+4. **A gap in a series is drawn as a gap.** A twenty day moving average has nineteen empty
+   cells at the top of its column. Read as zeroes, the chart draws the average diving to the
+   floor and climbing back out, which looks exactly like a crash and is entirely convincing —
+   the kind of wrong a chart can be while looking right. So a run of missing values breaks the
+   line, and the reader feels the average start where the data starts.
+5. **The frame is the same on every chart that has an axis.** The top line is the value range,
+   the bottom line is the period range, always. A drawn axis with ticks and numbers up the side
+   would cost a third of the width and say less, because at ninety-six pins a number beside a
+   tick has nowhere to be; four corners say what the top is worth, what the bottom is worth,
+   where the data starts and where it ends, and pointing covers everything in between.
+   Consistency between chart types is worth more here than on a screen: there is no glance, so
+   every convention the reader does not have to re-learn is time they get back.
+
+**Why the OHLC bar shape survives the translation to pins.** It is made of exactly the three
+strokes this resolution can carry: a vertical stem for the day's range, a tick left for the
+open, a tick right for the close. Three pins of bar and one of gap is the narrowest that can
+carry a stem with something on each side of it, so a ninety-six pin panel holds twenty-four
+periods — about a trading month. Nothing in it depends on colour or on line weight. The ticks
+point the way they do for a reason a finger can use: sweeping left to right along the row of
+stems, a tick met *before* its stem is an open and one met *after* it is a close.
+
+Candlesticks are the same four numbers with a different bet. The body is a mass rather than a
+stroke, which is easier to find and gives the size of the day's move directly; the cost is that
+rising and falling have to be told apart by the body being hollow rather than filled, and at
+three pins wide a hollow body is one column of gap. Whether that reads under a finger is a
+hardware question, which is why both are offered and the reader decides — and it is the one
+thing in this phase most likely to come back changed.
+
+The wick is what threatens the hollow. Drawn up the whole range with the body over it, it fills
+that one column and every candle reads as a falling one — a chart that is wrong about the
+direction of every day in it, and wrong invisibly. So the wick is drawn only above and below
+the body, which is how a candlestick is drawn anyway.
+
+**The chart is asked for rather than guessed at.** Four columns of numbers with dates down the
+side are four measurements over time if they are measurements and a candlestick chart if they
+are one instrument's trading, and nothing in the cells distinguishes those. So the command puts
+up a list of the charts that can actually be drawn from what is selected, each entry saying
+what it would draw — "Line chart, Close, MA20, Upper, Lower, 30 points" — and the list opens on
+whatever the reader picked last time, because charting a sheet is usually charting it several
+times over. With only one chart possible there is nothing to choose and nothing is asked.
+
+Two rules about the list itself, and they pull in opposite directions on purpose:
+
+- **Only what will work is offered.** A column of sales figures offers bars and a line and
+  nothing else, so the list is short and every entry in it is a chart the reader can have. A
+  chart type *setting* would have offered candlesticks over a column of sales and failed
+  afterwards, which is the same failure moved somewhere less useful.
+- **The refusal still arrives when it is useful.** A price chart is offered whenever there are
+  four numeric columns, and the check that they really are open, high, low and close happens
+  when it is drawn. Offered and then explained beats not offered and unexplained: a reader who
+  selected their columns in the wrong order is told which period gave it away, which is a thing
+  they can go and fix. A line chart of more than four columns goes the same way, and it is the
+  common case for a stock sheet — date, open, high, low, close and a moving average is five
+  series — so the reader picks the line chart, is told that five cannot be told apart and that
+  four fit, and selects the columns they actually wanted plotted. Worth watching on hardware:
+  if that costs a round trip often enough to grate, the answer is a shorter selection rather
+  than a chart that silently drops a series.
+
+**Two traps in reading the columns, both of which draw a convincing wrong chart.**
+
+The first is the date column. Excel stores 3 June as 45806, so a column of dates is numeric to
+anything that only looks at what is *stored* — and a stock chart whose first series is the
+dates would be a straight line climbing off the top of the panel, drawn with complete
+confidence. What tells them apart is that a date does not *display* as the number it holds, and
+the grid already carries both halves, so the test costs nothing. It is the same distinction
+that made `Value2` the right answer for a bar's height and the displayed text the right answer
+for its name; this is that decision paying for itself a second time.
+
+The second is the heading row. A row with no numbers in it is a heading row, which is right
+about every table a reader would think to select — except a first row whose only numeric column
+happens to be empty, which is data with a hole in it and looks identical. So a heading row must
+also *name* every column that has numbers under it: a column with numbers below and nothing
+above says the row was data, and taking it away would have dropped a point off the chart and
+said nothing.
+
+Left for hardware, and this is the whole point of building four types rather than one:
+
+1. Whether a four series line chart is readable at all at this pitch, or whether the useful
+   number is two or three. The textures are the variable to change if it is not.
+2. Whether a candlestick's hollow body reads as hollow at three pins wide, and whether the
+   body is in fact easier to find than a stem with two ticks on it.
+3. Whether twenty-four periods across the panel is too many to feel one at a time, and whether
+   a week or a fortnight is the useful span.
+4. Whether reading the height back as a value — pressing a blank part of a line chart to be
+   told what price that row stands for — is as useful in the hand as it looks on paper. It is
+   the one thing here that a printed tactile chart cannot do at all.
+
 ### Phase 5, image import
 
 Status: not started.

@@ -21,14 +21,25 @@ whole point of a chart on a display that can be pointed at, and it is the reason
 takes a `describeAt` rather than only a name: without it a reader can feel that one bar is
 taller than another and never learn what either of them is.
 
+The bar chart itself. The vocabulary it shares with the other chart types — the value to row
+mapping, the writing helpers, how many rows the writing costs — is in `chartDraw`, and the
+types that read numbers out of an application are in `chartSource`.
+
 This module knows nothing about NVDA or about Excel. It takes labels and numbers and a way to
 make a buffer, and gives back a drawing.
 """
 
 from typing import Callable, NamedTuple, Optional
 
-from logHandler import log
-
+from .chartDraw import (
+	CELL_COLUMNS,
+	GAP,
+	ChartRefused,
+	Series,
+	cellsFor,
+	numberText,
+	textRowsFor,
+)
 from .graphicsMode import Drawing
 
 __all__ = [
@@ -46,36 +57,6 @@ larger would be a different chart from the one asked for, and silently charting 
 twenty of sixty values would be worse than saying it does not fit.
 """
 
-GAP = 1
-"""Pins of clear space after each bar, so two full bars are not one solid block."""
-
-TEXT_ROWS = 4
-"""Pin rows one line of braille needs. A cell is four dot rows, dots 7 and 8 included.
-"""
-
-MIN_BAR_ROWS = 6
-"""Pin rows the bars must keep for text to be worth drawing at all.
-
-Below this the labels would have taken so much of the chart that the bars stop being
-comparable, which is the one thing a bar chart is for. A chart that small is drawn bare
-and the reader gets the labels by pointing at it instead.
-"""
-
-CELL_COLUMNS = 3
-"""Pin columns one braille cell needs, its gap column included.
-"""
-
-
-class Series(NamedTuple):
-	"""One labelled number."""
-
-	label: str
-	"""What to call it when the reader points at it."""
-
-	value: float
-	"""What it is worth."""
-
-
 class Bar(NamedTuple):
 	"""Where one series ended up on the drawing, so a touch can be traced back to it."""
 
@@ -90,15 +71,6 @@ class Bar(NamedTuple):
 	def right(self) -> int:
 		""":return: one past the last column the bar occupies."""
 		return self.left + self.width
-
-
-class ChartRefused(Exception):
-	"""There is a chart to be drawn but not in this space, or not from these numbers.
-
-	Raised rather than returning None, because every case carries a reason the reader can act
-	on — too many bars for the display, or nothing numeric in the selection — and a caller that
-	only knew it had failed could not tell them which.
-	"""
 
 
 def barChart(
@@ -146,7 +118,7 @@ def barChart(
 	if buffer is None:
 		# Translators: reported when the display would not provide a surface to draw on.
 		raise ChartRefused(_("The display would not provide a drawing surface"))
-	textRows = TEXT_ROWS if translate and height >= MIN_BAR_ROWS + 2 * TEXT_ROWS else 0
+	textRows = textRowsFor(height, translate)
 	barTop = textRows
 	barBottom = height - 1 - textRows
 	bars = _layout(series, slot, height)
@@ -263,29 +235,12 @@ def _write(buffer, bars: "list[Bar]", slot: int, translate: Callable, valueTop: 
 	if room < 1:
 		return
 	for bar in bars:
-		label = _cells(translate, bar.series.label)
+		label = cellsFor(translate, bar.series.label)
 		if label:
 			buffer.text(bar.left, labelTop, label[:room], cellStride=CELL_COLUMNS)
-		value = _cells(translate, _number(bar.series.value))
+		value = cellsFor(translate, numberText(bar.series.value))
 		if value and len(value) <= room:
 			buffer.text(bar.left, valueTop, value, cellStride=CELL_COLUMNS)
-
-
-def _cells(translate: Callable, text: str) -> list:
-	"""Turn a string into braille cells, tolerating a translator that cannot.
-
-	A chart with no writing on it is still a chart; one that failed to appear because the
-	braille tables were between states is not.
-
-	:param translate: the translator.
-	:param text: what to write.
-	:return: the cells, or an empty list.
-	"""
-	try:
-		return list(translate(text) or [])
-	except Exception:
-		log.debugWarning("BrlMultiline: could not write a chart label", exc_info=True)
-		return []
 
 
 def _describer(bars: "list[Bar]", baseline: int) -> Callable:
@@ -303,7 +258,7 @@ def _describer(bars: "list[Bar]", baseline: int) -> Callable:
 				# the bar is called and what it is worth.
 				return _("{label}, {value}").format(
 					label=bar.series.label,
-					value=_number(bar.series.value),
+					value=numberText(bar.series.value),
 				)
 		if y == baseline:
 			# Translators: reported for a touch on the zero line of a chart, between bars.
@@ -311,19 +266,6 @@ def _describer(bars: "list[Bar]", baseline: int) -> Callable:
 		return None
 
 	return describeAt
-
-
-def _number(value: float) -> str:
-	""":return: a number said the way a reader would write it.
-
-	Whole numbers without a decimal part, because a count of seventeen read as "17.0" is
-	seventeen said badly.
-
-	:param value: the number.
-	"""
-	if float(value).is_integer():
-		return str(int(value))
-	return f"{value:g}"
 
 
 def _chartName(series: "list[Series]") -> str:
