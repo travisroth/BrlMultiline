@@ -752,6 +752,191 @@ class TestRendering(unittest.TestCase):
 		self.assertEqual(self.mode.drawing.height, buffer.height * 2)
 
 
+class TestAFigureThatDrawsItselfAgain(unittest.TestCase):
+	"""Zoom on a chart is not magnification, and the difference was reported from hardware.
+
+	Magnifying is the only thing that can be done to a photograph: the dots are all there is.
+	Done to a chart it makes the braille labels into smears of enlarged dots, and the dates
+	written at the two ends go on naming the whole range while the reader is feeling a tenth of
+	it — so the one piece of writing that says where they are is the piece that lies.
+
+	A chart was composed for this panel out of numbers that are still to hand, so it can be
+	composed again: the same panel, fewer periods, drawn at full resolution with their own
+	dates. `Drawing.redraw` is how a figure says it can do that, asked of the figure rather
+	than of its type, exactly as `describeAt` is.
+	"""
+
+	def setUp(self):
+		self.driver = FakeDrawableDriver(numRows=8, numCols=32)
+		useDisplay(self.driver)
+		self.plugin = FakePlugin()
+		self.mode = GraphicsMode(self.plugin)
+		self.windows: list = []
+		"""Every window the mode asked for, so a test can say what it asked rather than only
+		what came back."""
+
+	def figure(self, points=32):
+		""":return: a drawing that redraws itself, standing in for a chart.
+
+		Each window is drawn as a solid block whose height is how many points are in it, which
+		is a shape a test can read back without a chart's arithmetic in the way.
+		"""
+
+		def redraw(offset, span, pinWidth, pinHeight):
+			self.windows.append((offset, span))
+			first = max(0, min(points - 1, int(round(offset * points))))
+			count = max(1, min(points - first, int(round(span * points))))
+			buffer = PinBuffer(pinWidth, pinHeight)
+			buffer.rect(0, 0, pinWidth, count, filled=True)
+			return Drawing(
+				buffer,
+				name=f"points {first} to {first + count - 1}",
+				describeAt=lambda x, y: f"point {first + x * count // pinWidth}",
+				redraw=redraw,
+				points=points,
+			)
+
+		return redraw(0.0, 1.0, 96, 35)
+
+	def shown(self):
+		""":return: the buffer the display was given."""
+		return self.driver.overlays[OVERLAY_KEY][2]
+
+	def height(self):
+		""":return: how many rows of the shown buffer are solid, which is the window's width in
+		points."""
+		return len([row for row in self.shown().rows() if row.count("O") == 96])
+
+	def test_theWholeFigureIsShownAtFirst(self):
+		self.mode.enter(self.figure())
+		self.assertEqual(self.height(), 32)
+
+	def test_zoomingInAsksForPartOfTheDataRatherThanMagnifying(self):
+		"""The point of the whole thing. Half the periods, drawn at the panel's own size, not
+		the same periods drawn twice as large."""
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		self.assertEqual(self.height(), 16)
+
+	def test_zoomingOutComesBackToTheWholeThing(self):
+		"""Every window is taken from the figure as it was given, never from the last window,
+		or zooming in and out again would drift."""
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(2)
+		self.mode.zoomBy(-2)
+		self.assertEqual(self.height(), 32)
+
+	def test_theFigureOnThePanelIsTheWindowAndNotTheWhole(self):
+		"""And the window is taken about the middle, not the corner: the reader's hand is
+		on the figure, and what they were feeling should still be under it afterwards. So
+		half of thirty-two points is the middle sixteen.
+		"""
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		self.assertEqual(self.mode.drawing.name, "points 8 to 23")
+
+	def test_panningMovesThroughTheDataAndNotOverTheDots(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		before = self.windows[-1][0]
+		self.mode.panBy(24, 0)
+		self.assertGreater(self.windows[-1][0], before)
+
+	def test_panningStopsAtTheEndOfTheData(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		for _ in range(20):
+			self.mode.panBy(24, 0)
+		offset, span = self.windows[-1]
+		self.assertLessEqual(offset + span, 1.0001)
+
+	def test_thereIsNothingToPanToWhileTheWholeThingIsShown(self):
+		self.mode.enter(self.figure())
+		self.assertFalse(self.mode.panBy(24, 0))
+
+	def test_thereIsNoUpAndDownToPanThrough(self):
+		"""A redrawn chart fits its value axis to whatever it is showing, so there is never
+		anything above or below the panel. Saying so is better than a command that moves
+		nothing and does not explain itself."""
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		self.assertFalse(self.mode.panBy(0, 8))
+
+	def test_theWindowIsNotComposedAgainForTheSameWindow(self):
+		"""An ordinary refresh — a rebuild, a settings change, the flow giving rows back —
+		must not cost a redraw of the chart."""
+		self.mode.enter(self.figure())
+		asked = len(self.windows)
+		self.mode.render()
+		self.mode.render()
+		self.assertEqual(len(self.windows), asked)
+
+	def test_theZoomStopsWhereTheDataDoes(self):
+		"""A chart of twenty periods magnified thirty-two times is a chart of half a period.
+		Refused rather than clamped, so that the zoom the reader is told matches the one they
+		are feeling."""
+		self.mode.enter(self.figure(points=8))
+		self.assertTrue(self.mode.zoomBy(1))
+		self.assertFalse(self.mode.zoomBy(MAX_ZOOM_STEP))
+		self.assertEqual(self.mode.zoom, 1)
+
+	def test_aPressAnswersAboutTheWindowUnderTheFinger(self):
+		"""The window is what is on the panel, so a pin is a dot of it. Putting the zoom and
+		the origin through as well would apply the window twice and answer about a period the
+		reader is not touching — worse than no answer, because it is a plausible one."""
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		self.mode.panBy(24, 0)
+		point = self.mode.pointForPin(0, 5)
+		self.assertEqual(point, (0, 0))
+		self.assertNotIn("point 0", self.mode.describePoint(point))
+
+	def test_aFigureThatCannotComposeAWindowKeepsTheOneItHad(self):
+		"""A blank panel for a window that happened to hold nothing chartable would be a worse
+		answer than the view the reader already had."""
+
+		def refuses(offset, span, pinWidth, pinHeight):
+			return None
+
+		buffer = PinBuffer(96, 35)
+		buffer.rect(0, 0, 96, 4, filled=True)
+		self.mode.enter(Drawing(buffer, name="fixture", redraw=refuses, points=32))
+		self.mode.zoomBy(1)
+		self.assertEqual(self.shown().rows()[0].count("O"), 96)
+
+	def test_aFigureThatRaisesWhileComposingIsNotAllowedToTakeTheDisplayDown(self):
+		def raises(offset, span, pinWidth, pinHeight):
+			raise RuntimeError("no")
+
+		buffer = PinBuffer(96, 35)
+		buffer.rect(0, 0, 96, 4, filled=True)
+		self.mode.enter(Drawing(buffer, name="fixture", redraw=raises, points=32))
+		self.assertTrue(self.mode.render())
+
+	def test_theWindowIsComposedForTheRectangleItIsGoingInto(self):
+		"""The rectangle can change under a figure that is already up: giving the whole
+		band to the drawing is a command, and one a reader uses mid-read. A window
+		composed for the old rectangle would be blitted into the new one with a row of it
+		cut off — the row its dates are written on.
+		"""
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		self.assertTrue(self.mode.setTextLines(0))
+		shown = self.shown()
+		self.assertEqual(
+			(self.mode.drawing.buffer.width, self.mode.drawing.buffer.height),
+			(shown.width, shown.height),
+		)
+
+	def test_aPictureIsStillMagnified(self):
+		"""The other half of the rule. A drawing with no `redraw` keeps the sampling, which is
+		the only thing that can be done to dots that are all there is."""
+		self.mode.enter(Drawing(PinBuffer.fromRows(["O.O", ".O.", "O.O"]), name="picture"))
+		self.mode.zoomBy(1)
+		self.assertGreater(self.mode.zoom, FIT)
+		self.assertIs(self.mode.drawing.name, "picture")
+
+
 class TestPointing(unittest.TestCase):
 	"""Pointing is a routing press, and these are about the two ways it can be answered.
 

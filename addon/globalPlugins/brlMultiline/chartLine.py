@@ -41,6 +41,7 @@ from .chartDraw import (
 	numberText,
 	roundedText,
 	textRowsFor,
+	windowOf,
 	writeFrame,
 )
 from .graphicsMode import Drawing
@@ -182,9 +183,60 @@ def lineChart(
 		)
 	return Drawing(
 		buffer,
-		name=_chartName(lines, count),
+		name=_chartName(lines, count, labels),
 		describeAt=_describer(lines, columns, scale, labels),
+		redraw=_reframer(newBuffer, width, height, lines, labels, translate),
+		points=count,
 	)
+
+
+def _reframer(
+	newBuffer: Callable,
+	width: int,
+	height: int,
+	lines: "list[Line]",
+	labels: Optional[list],
+	translate: Optional[Callable],
+) -> Callable:
+	"""Build the closure that draws this chart again for part of its period.
+
+	**Zoom on a chart is not magnification.** Magnifying is the only thing that can be done to
+	a photograph, and done to a chart it makes the braille labels into smears of enlarged dots
+	while the dates written at the two ends go on naming the whole range — so the reader is
+	looking at a tenth of the data with the wrong dates under it, which is what hardware
+	reported. The numbers are still to hand, so the chart is composed again instead: the same
+	panel, fewer days, drawn at full resolution with their own dates written under them.
+
+	:param newBuffer: makes a blank buffer.
+	:param width: the rectangle's width in pins.
+	:param height: its height in pins.
+	:param lines: the whole series.
+	:param labels: what each point is called.
+	:param translate: turns a string into braille cells.
+	:return: a function taking where the window starts and how wide it is as fractions,
+		and the size to compose for. The size comes with the window because the
+		rectangle can change under a figure that is already up: toggling the braille
+		line beside the drawing is a command.
+	"""
+	count = max(len(line.values) for line in lines)
+
+	def redraw(offset: float, span: float, pinWidth: int, pinHeight: int) -> Optional[Drawing]:
+		first, last = windowOf(count, offset, span, MIN_POINTS)
+		try:
+			return lineChart(
+				newBuffer,
+				pinWidth,
+				pinHeight,
+				[Line(line.name, line.values[first:last]) for line in lines],
+				labels[first:last] if labels else None,
+				translate,
+			)
+		except ChartRefused:
+			# None leaves the reader the view they had, which is a better answer than a blank
+			# panel for a window that happened to hold nothing chartable.
+			return None
+
+	return redraw
 
 
 def _columns(count: int, width: int) -> "list[int]":
@@ -373,7 +425,7 @@ def _nearestPoint(columns: "list[int]", x: int) -> int:
 	return best
 
 
-def _chartName(lines: "list[Line]", count: int) -> str:
+def _chartName(lines: "list[Line]", count: int, labels: Optional[list] = None) -> str:
 	""":return: what to call the chart, which is also its key.
 
 	Each series with the texture it was drawn in, because that mapping is the one thing the
@@ -381,6 +433,7 @@ def _chartName(lines: "list[Line]", count: int) -> str:
 
 	:param lines: the series drawn.
 	:param count: how many points they cover.
+	:param labels: what those points are called, or None.
 	"""
 	legend = ", ".join(
 		# Translators: one entry in a spoken key to a tactile line chart. Placeholders are the
@@ -389,5 +442,14 @@ def _chartName(lines: "list[Line]", count: int) -> str:
 		for index, line in enumerate(lines)
 	)
 	# Translators: the name of a line chart on the display. Placeholders are the key to which
-	# series is which line style, and how many points the chart covers.
+	# series is which line style, how many points the chart covers, and the first and last
+	# of those points.
+	if labels:
+		return _("line chart, {legend}, {count} points, {first} to {last}").format(
+			legend=legend,
+			count=count,
+			first=_labelAt(labels, 0),
+			last=_labelAt(labels, count - 1),
+		)
+	# Translators: the name of a line chart whose points have nothing to call them.
 	return _("line chart, {legend}, {count} points").format(legend=legend, count=count)

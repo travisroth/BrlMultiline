@@ -41,6 +41,7 @@ __all__ = [
 	"numberText",
 	"roundedText",
 	"textRowsFor",
+	"windowOf",
 	"writeAt",
 	"writeFrame",
 	"writeRightAt",
@@ -176,6 +177,25 @@ class Scale(NamedTuple):
 	def step(self) -> float:
 		""":return: how much value one row is worth, for saying `valueAt` to a sane precision."""
 		return self.span / self.rows if self.rows else 0.0
+
+
+def windowOf(count: int, offset: float, span: float, least: int) -> tuple:
+	"""Turn a fraction of a drawing into a run of data points.
+
+	The mode holds the zoom and the origin as a window in dots over a figure that is exactly
+	panel sized, so that window as a fraction of the whole is the part of the data the reader
+	is looking at. Fractions rather than indices because the mode must not learn that the data
+	is periods, or prices, or anything at all — the same reason `describeAt` takes dots.
+
+	:param count: how many points there are altogether.
+	:param offset: where the window starts, as a fraction of the whole.
+	:param span: how much of the whole is in it.
+	:param least: the fewest points the chart can be drawn from.
+	:return: (first, last) as a Python slice, never empty and never wider than the data.
+	"""
+	take = max(least, min(count, int(round(span * count))))
+	first = max(0, min(count - take, int(round(offset * count))))
+	return first, first + take
 
 
 def textRowsFor(height: int, translate: Optional[Callable], minPlot: int = MIN_PLOT_ROWS) -> int:

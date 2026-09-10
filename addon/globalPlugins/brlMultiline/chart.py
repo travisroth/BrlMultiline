@@ -39,6 +39,7 @@ from .chartDraw import (
 	cellsFor,
 	numberText,
 	textRowsFor,
+	windowOf,
 )
 from .graphicsMode import Drawing
 
@@ -130,7 +131,43 @@ def barChart(
 		buffer,
 		name=_chartName(series),
 		describeAt=_describer(bars, baseline),
+		redraw=_reframer(newBuffer, width, height, series, translate),
+		points=len(series),
 	)
+
+
+def _reframer(
+	newBuffer: Callable,
+	width: int,
+	height: int,
+	series: "list[Series]",
+	translate: Optional[Callable],
+) -> Callable:
+	"""Build the closure that draws this chart again for some of its bars.
+
+	Zooming a bar chart magnifies it into fatter bars with their labels smeared; drawn again it
+	is fewer bars, each wider, each with room for a label that is still braille. Forty bars are
+	two pins each and unlabelled; ten of them are nine pins each and named.
+
+	:param newBuffer: makes a blank buffer.
+	:param width: the rectangle's width in pins.
+	:param height: its height in pins.
+	:param series: all the numbers.
+	:param translate: turns a string into braille cells.
+	:return: a function taking where the window starts and how wide it is as fractions,
+		and the size to compose for. The size comes with the window because the
+		rectangle can change under a figure that is already up: toggling the braille
+		line beside the drawing is a command.
+	"""
+
+	def redraw(offset: float, span: float, pinWidth: int, pinHeight: int) -> Optional[Drawing]:
+		first, last = windowOf(len(series), offset, span, 1)
+		try:
+			return barChart(newBuffer, pinWidth, pinHeight, series[first:last], translate)
+		except ChartRefused:
+			return None
+
+	return redraw
 
 
 def _baselineRow(series: "list[Series]", top: int, bottom: int) -> int:

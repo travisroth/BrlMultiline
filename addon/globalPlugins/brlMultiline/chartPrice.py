@@ -38,6 +38,7 @@ from .chartDraw import (
 	Scale,
 	numberText,
 	textRowsFor,
+	windowOf,
 	writeFrame,
 )
 from .graphicsMode import Drawing
@@ -143,7 +144,7 @@ def _priceChart(
 	:param periods: what to draw.
 	:param translate: turns a string into braille cells.
 	:param drawOne: draws one period, given the buffer, the period and its slot.
-	:param name: says what the chart is called, given how many periods it has.
+	:param name: says what the chart is called, given the periods it holds.
 	:return: the drawing.
 	:raises ChartRefused: if there is nothing to chart or no room to chart it.
 	"""
@@ -181,8 +182,10 @@ def _priceChart(
 		writeFrame(buffer, translate, scale, periods[0].label, periods[-1].label)
 	return Drawing(
 		buffer,
-		name=name(len(periods)),
+		name=name(periods),
 		describeAt=_describer(periods, width),
+		redraw=_reframer(newBuffer, width, height, periods, translate, drawOne, name),
+		points=len(periods),
 	)
 
 
@@ -202,6 +205,53 @@ def _edges(count: int, width: int) -> "list[int]":
 	:return: the left edge of each period, and one past the last.
 	"""
 	return [index * width // count for index in range(count + 1)]
+
+
+def _reframer(
+	newBuffer: Callable,
+	width: int,
+	height: int,
+	periods: "list[Period]",
+	translate: Optional[Callable],
+	drawOne: Callable,
+	name: Callable,
+) -> Callable:
+	"""Build the closure that draws this chart again for part of its periods.
+
+	A month of days magnified twice is a fortnight of fat blobs; drawn again it is a fortnight
+	of bars, each with a stem and two ticks the reader can actually feel, and with the right
+	two dates written under the ends. The numbers never went anywhere, so there is no reason to
+	settle for the blobs.
+
+	:param newBuffer: makes a blank buffer.
+	:param width: the rectangle's width in pins.
+	:param height: its height in pins.
+	:param periods: all of them.
+	:param translate: turns a string into braille cells.
+	:param drawOne: draws one period.
+	:param name: says what the chart is called.
+	:return: a function taking where the window starts and how wide it is as fractions,
+		and the size to compose for. The size comes with the window because the
+		rectangle can change under a figure that is already up: toggling the braille
+		line beside the drawing is a command.
+	"""
+
+	def redraw(offset: float, span: float, pinWidth: int, pinHeight: int) -> Optional[Drawing]:
+		first, last = windowOf(len(periods), offset, span, 1)
+		try:
+			return _priceChart(
+				newBuffer,
+				pinWidth,
+				pinHeight,
+				periods[first:last],
+				translate,
+				drawOne,
+				name,
+			)
+		except ChartRefused:
+			return None
+
+	return redraw
 
 
 def _drawBar(buffer, period: Period, scale: Scale, left: int, barWidth: int) -> None:
@@ -280,21 +330,34 @@ def _describer(periods: "list[Period]", width: int) -> Callable:
 	return describeAt
 
 
-def _ohlcName(count: int) -> str:
+def _ohlcName(periods: "list[Period]") -> str:
 	""":return: what to call an open, high, low, close chart.
 
-	:param count: how many periods it has.
+	:param periods: what it holds.
 	"""
-	# Translators: the name of an open, high, low, close chart on the display. The placeholder
-	# is how many periods it covers.
-	return _("open, high, low, close chart, {count} periods").format(count=count)
+	# Translators: the name of an open, high, low, close chart on the display. Placeholders are
+	# how many periods it covers and the first and last of them.
+	return _("open, high, low, close chart, {count} periods, {first} to {last}").format(
+		count=len(periods),
+		first=periods[0].label,
+		last=periods[-1].label,
+	)
 
 
-def _candleName(count: int) -> str:
+def _candleName(periods: "list[Period]") -> str:
 	""":return: what to call a candlestick chart.
 
-	:param count: how many periods it has.
+	**The dates are in the name because the zoom moves them.** A redrawn window writes its own
+	two dates on the panel, and saying them as well is what tells the reader the zoom did
+	something: the shape under the hand changed, and the spoken range is the confirmation of
+	what it changed to.
+
+	:param periods: what it holds.
 	"""
-	# Translators: the name of a candlestick chart on the display. The placeholder is how many
-	# periods it covers.
-	return _("candlestick chart, {count} periods").format(count=count)
+	# Translators: the name of a candlestick chart on the display. Placeholders are how many
+	# periods it covers and the first and last of them.
+	return _("candlestick chart, {count} periods, {first} to {last}").format(
+		count=len(periods),
+		first=periods[0].label,
+		last=periods[-1].label,
+	)

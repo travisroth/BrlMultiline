@@ -1008,6 +1008,69 @@ Three fixes, and the first of them turns the fault into the feature that was ask
 as the same sentence, and they are different things to do about: press again, against go and
 select something. NVDA giving up on Excel is not Excel having nothing to say.
 
+#### Zoom on a chart is not magnification
+
+The third hardware run, and the question it raised is the interesting one: *"do we need to make
+zoom able to distinguish an image versus provided data so it knows, or somehow can we use the
+data to our advantage?"*
+
+What was reported: zooming a line chart narrowed the date range as expected, and the dates at
+the bottom of the panel stopped corresponding to what was on it. They could not have done
+anything else. Zoom was a raster operation — the drawing was sampled through a scale and an
+origin — so the writing was magnified along with everything else, which turns braille cells
+into smears of enlarged dots, and the two dates went on naming the whole range while the reader
+was feeling a tenth of it. The one piece of writing that says where you are was the piece that
+lied.
+
+**Magnification is the only thing that can be done to a photograph.** The dots are all there
+is; there is nothing else to consult. A chart is not like that. It was composed for this panel
+out of numbers that are still to hand, so a narrower window can be *composed again*: the same
+panel, fewer periods, drawn at full resolution, with their own two dates written under them and
+the value range refitted to what is actually showing.
+
+**The distinction is asked of the figure, not of its type.** `Drawing` gained a `redraw`
+alongside the `describeAt` it already had, and both are answers to the same shape of question:
+a drawing that knows what it is made of can do something a bag of dots cannot. Nothing checks
+what kind of figure it is, nothing branches on a chart type, and phase 5's imported images will
+simply not supply one and keep the sampling. A chart supplies both; a scanned picture supplies
+neither.
+
+The mechanism turned out to need almost nothing new, which is the sign the earlier design was
+holding up. The mode already tracks the zoom and origin as a window over the source in dots,
+already clamps it, already centres a zoom on what is under the reader's hand. A chart's source
+is exactly panel sized, so that window *as a fraction of the whole* is the part of the data
+being looked at — and handing over a fraction is what keeps the mode from learning that the
+data is periods, or prices, or anything at all. All that changed is what happens at the end:
+where a picture is sampled, a chart is asked to compose itself for that fraction and blitted
+one dot to one pin.
+
+Four consequences worth writing down:
+
+1. **A press answers about the window, not about the whole.** What is on the panel *is* the
+   drawing, so a pin is a dot of it, and putting the zoom and origin through the press as well
+   would apply the window twice and name a period the reader is not touching. Wrong in the
+   worst way available: plausibly.
+2. **There is no up and down.** A redrawn chart fits its value axis to whatever it is showing,
+   so there is never anything above or below the panel. Vertical panning says so rather than
+   moving nothing without explaining itself, and the position readout leaves the axis out
+   rather than reporting a meaningless "top edge".
+3. **The zoom stops where the data does.** A chart of twenty periods magnified thirty-two times
+   is a chart of half a period. Refused at three points rather than clamped silently, so the
+   zoom the reader is told matches the zoom they are feeling.
+4. **The window carries the size it is for.** The rectangle can change under a figure that is
+   already up — giving the whole band to the drawing is a command, and one a reader uses
+   mid-read — and a window composed for the old rectangle would be blitted into the new one
+   with a row cut off, which is the row the dates are written on.
+
+The visible range is now in the chart's own name as well as on the panel, so entering a chart
+or changing the zoom says it: "line chart, Close solid, 8 points, 14 Jun to 21 Jun, 4 times".
+The braille shows it and the speech confirms it, which is the right division: the panel is what
+the hand is reading and the speech is what tells the hand that something changed.
+
+Bar charts get the same treatment, and it is worth more there than it looks. Forty bars are two
+pins each with no room for a label; zoom in and it is ten bars of nine pins each, every one of
+them named.
+
 Left for hardware, and this is the whole point of building four types rather than one:
 
 1. Whether a four series line chart is readable at all at this pitch, or whether the useful
@@ -1017,8 +1080,8 @@ Left for hardware, and this is the whole point of building four types rather tha
 3. Whether twenty-four periods across the panel is too many to feel one at a time, and whether
    a week or a fortnight is the useful span.
 4. Whether reading the height back as a value — pressing a blank part of a line chart to be
-   told what price that row stands for — is as useful in the hand as it looks on paper. It is
-   the one thing here that a printed tactile chart cannot do at all.
+   told what price that row stands for — is as useful in the hand as it looks on paper. It and
+   the redrawn zoom are the two things here that a printed tactile chart cannot do at all.
 
 ### Phase 5, image import
 

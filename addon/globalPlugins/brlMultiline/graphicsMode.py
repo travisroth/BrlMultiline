@@ -86,6 +86,14 @@ that a single source dot is wider than a braille cell and the reader is feeling 
 magnification rather than the figure.
 """
 
+MIN_WINDOW_POINTS = 3
+"""Data points below which a redrawn figure will not be zoomed in any further.
+
+A chart of twenty periods magnified thirty-two times is a chart of half a period. Three is the
+least that still has a shape to feel — a rise and a fall — and refusing at that point keeps the
+zoom the reader is told matching the zoom they are feeling, which clamping silently would not.
+"""
+
 MAX_SCALE = 8.0
 """Pins per source dot, at the most magnified. See the zoom ladder."""
 
@@ -118,9 +126,25 @@ class Drawing:
 	The source, never the thing on the display. What reaches the display is this sampled
 	through the zoom and origin, which is why the source keeps its own size however far in the
 	reader has magnified it.
+
+	**A drawing that knows how it was made can be drawn again instead of magnified**, and that
+	is what `redraw` is for. Magnifying is the only thing that can be done to a photograph: the
+	dots are all there is, so zooming in makes each of them bigger and the parts that no longer
+	fit go off the edges. A chart is not like that. It was composed for this panel out of
+	numbers that are still to hand, so zooming into a date range can *recompose* it — the same
+	panel, fewer periods, drawn at full resolution with their own dates written under them.
+
+	The difference is not a nicety. Magnified, a chart's braille labels become smears of
+	enlarged dots and say nothing, and the dates written at the two ends go on naming the whole
+	range while the reader is looking at a tenth of it. Redrawn, the writing is writing and the
+	dates are the dates of what is actually under the hand. Reported from hardware, which is
+	where the two are told apart.
+
+	A picture supplies no `redraw` and keeps the sampling. Both work; they are answers to
+	different questions.
 	"""
 
-	def __init__(self, buffer, name: str = "", describeAt=None):
+	def __init__(self, buffer, name: str = "", describeAt=None, redraw=None, points: int = 0):
 		"""
 		:param buffer: the dots, a buffer from `GraphicsSurface.newBuffer`.
 		:param name: what to call this when the reader asks what is on the display.
@@ -129,10 +153,19 @@ class Drawing:
 			reader can feel and one they can interrogate: without it a press can only report a
 			dot, so a reader learns that one bar is taller than another and never learns what
 			either of them is. A chart supplies one; a scanned picture has nothing to say.
+		:param redraw: composes this drawing again for a part of itself, taking where that part
+			starts and how much of it there is, both as fractions of the whole, and giving back
+			the width and height to compose for, and giving back a `Drawing` of that size.
+			Optional, and the second thing only a drawing built from structure can offer. See
+			the note above on what it changes.
+		:param points: how many data points the whole drawing covers, for deciding how far in
+			the reader can usefully zoom. Zero where the drawing is not made of points.
 		"""
 		self.buffer = buffer
 		self.name = name
 		self.describeAt = describeAt
+		self.redraw = redraw
+		self.points = points
 
 	@property
 	def width(self) -> int:
@@ -266,7 +299,23 @@ class GraphicsMode(PanelOwner):
 		"""Why the figure could not be shown, for a command to report."""
 
 		self._drawing: Optional[Drawing] = None
-		"""The source. None means the mode is not up, and is the whole of that test."""
+		"""What is on the panel. None means the mode is not up, and is the whole of that test.
+
+		The same object as `_source` for a drawing that is magnified rather than redrawn,
+		and the current window's own drawing for one that redraws itself.
+		"""
+
+		self._source: Optional[Drawing] = None
+		"""The figure as it was given, which is what the zoom and origin are a window onto.
+
+		Kept apart from `_drawing` so that every window is computed from the whole rather
+		than from the last window: zooming in and out again has to arrive back where it
+		started, and a window taken of a window would drift.
+		"""
+
+		self._window: Optional[tuple] = None
+		"""Which part of the source `_drawing` was redrawn for, so it is not redrawn again
+		for the same part on every refresh."""
 
 		self._rect: Optional[SegmentRect] = None
 		"""The part of the display the drawing occupies, in NVDA's display coordinates.
@@ -324,7 +373,7 @@ class GraphicsMode(PanelOwner):
 		:param pins: the rectangle the drawing occupies.
 		:return: the scale, above zero and at most 1.
 		"""
-		source = self._drawing.buffer
+		source = self._source.buffer
 		if not source.width or not source.height:
 			return 1.0
 		return min(1.0, pins.width / source.width, pins.height / source.height) or 1.0
@@ -422,7 +471,9 @@ class GraphicsMode(PanelOwner):
 			log.debugWarning(f"BrlMultiline: the graphics claim {claim} was refused", exc_info=True)
 			self.lastError = _("The display could not give up those rows for a drawing")
 			return False
+		self._source = drawing
 		self._drawing = drawing
+		self._window = None
 		self._rect = rect
 		self._textLines = textLines
 		self._zoomStep = FIT
@@ -441,6 +492,8 @@ class GraphicsMode(PanelOwner):
 		if surface is not None:
 			surface.hide(OVERLAY_KEY)
 		self._drawing = None
+		self._source = None
+		self._window = None
 		self._rect = None
 		try:
 			self.plugin.deactivatePanel(PANEL_NAME)
@@ -529,6 +582,63 @@ class GraphicsMode(PanelOwner):
 
 	# --- Drawing ----------------------------------------------------------------------------
 
+	@property
+	def _windows(self) -> bool:
+		""":return: whether the figure redraws itself for a window rather than being magnified.
+
+		Asked of the figure rather than of a type or a flag, exactly as `describeAt` is: a
+		drawing either can do this or cannot, and what kind of thing it is is beside the point.
+		A chart can; a scanned picture cannot; anything later that can will say so the same way.
+		"""
+		return self._source is not None and self._source.redraw is not None
+
+	def _reframe(self, pins: PinRect) -> None:
+		"""Ask the figure to draw itself again for what is visible, if it can.
+
+		The origin and the zoom are already a window over the source in dots, and the source of
+		a redrawable figure is exactly panel sized — so that window, as a fraction of the whole,
+		is the part of the data the reader is looking at. Handing it over as a fraction keeps
+		this from knowing that the data is periods, or prices, or anything at all.
+
+		**The size goes with it**, because the rectangle can change under a figure that is
+		already up: toggling the braille line beside the drawing is a command, and a figure
+		composed for the old rectangle would be blitted into the new one with a row of it
+		cut off — the row its dates are written on.
+
+		Skipped when the window has not moved, so an ordinary refresh — a rebuild, a settings
+		change, the flow giving rows back — costs nothing.
+
+		:param pins: the rectangle the drawing occupies.
+		"""
+		if not self._windows:
+			return
+		source = self._source.buffer
+		if not source.width:
+			return
+		visibleX = min(self._visible(pins)[0], source.width)
+		window = (self._originX / source.width, visibleX / source.width, pins.width, pins.height)
+		if window == self._window and self._drawing is not None:
+			return
+		if window[:2] == (0.0, 1.0) and (source.width, source.height) == (pins.width, pins.height):
+			# The whole figure at the size it was drawn, which is the figure itself. Drawing
+			# it again would only produce a copy, and entering the mode is the commonest
+			# time this is asked.
+			self._drawing = self._source
+			self._window = window
+			return
+		try:
+			drawn = self._source.redraw(window[0], window[1], pins.width, pins.height)
+		except Exception:
+			log.error("BrlMultiline: a figure could not draw itself again", exc_info=True)
+			drawn = None
+		if drawn is None:
+			# The whole figure rather than nothing: a window that could not be composed is a
+			# worse answer than the view the reader already had, and the zoom will say what it
+			# says either way.
+			drawn = self._source
+		self._drawing = drawn
+		self._window = window
+
 	def render(self, surface: Optional[GraphicsSurface] = None) -> bool:
 		"""Sample the source through the zoom and origin and put it on the display.
 
@@ -551,7 +661,13 @@ class GraphicsMode(PanelOwner):
 		if buffer is None:
 			return False
 		self._clampOrigin(pins)
-		self._sample(buffer, pins)
+		self._reframe(pins)
+		if self._windows:
+			# Already composed for this panel at this window, so there is nothing to sample:
+			# a dot of it is a pin of the display.
+			buffer.blit(self._drawing.buffer)
+		else:
+			self._sample(buffer, pins)
 		return surface.show(OVERLAY_KEY, pins, buffer)
 
 	def _sample(self, buffer, pins: PinRect) -> None:
@@ -574,7 +690,7 @@ class GraphicsMode(PanelOwner):
 		:param buffer: the destination, the size of `pins`.
 		:param pins: the rectangle being filled, for its size.
 		"""
-		source = self._drawing.buffer
+		source = self._source.buffer
 		scale = self.scale(pins)
 		# How much source one pin covers. At least one dot, so a magnified pin still asks
 		# about the dot it is standing on rather than about an empty span.
@@ -634,7 +750,10 @@ class GraphicsMode(PanelOwner):
 		one edge, 100 hard against the other, and the ends are named rather than numbered
 		because hitting an edge is worth hearing as an edge. An axis with nothing to pan along
 		— a drawing wider than the display but not taller, say — is left out rather than
-		reported as a meaningless zero.
+		reported as a meaningless zero. A figure that redraws itself for its window has no
+		up and down to report at all: it fits its value axis to whatever it is showing, so
+		there is never anything above or below the panel and "top edge" would be a fact
+		about nothing.
 
 		:param surface: the display, or None to find it again.
 		:return: a short phrase, empty when nothing can move in either direction.
@@ -649,7 +768,7 @@ class GraphicsMode(PanelOwner):
 		if pins.isEmpty:
 			return ""
 		visibleX, visibleY = self._visible(pins)
-		source = self._drawing.buffer
+		source = self._source.buffer
 		parts = []
 		across = self._axisWords(
 			self._originX,
@@ -662,7 +781,7 @@ class GraphicsMode(PanelOwner):
 			# how far it can be moved. The placeholder is that percentage.
 			_("{percent} across"),
 		)
-		down = self._axisWords(
+		down = "" if self._windows else self._axisWords(
 			self._originY,
 			source.height - visibleY,
 			# Translators: the drawing is panned hard against its top edge.
@@ -705,7 +824,12 @@ class GraphicsMode(PanelOwner):
 		:return: whether nothing is off the panel.
 		"""
 		visibleX, visibleY = self._visible(pins)
-		source = self._drawing.buffer
+		source = self._source.buffer
+		if self._windows:
+			# A redrawn chart fits its value axis to whatever it is showing, so there is
+			# never anything above or below the panel to pan to. Only the period range is
+			# a window, and only it can have an edge.
+			return visibleX >= source.width
 		return visibleX >= source.width and visibleY >= source.height
 
 	def _clampOrigin(self, pins: PinRect) -> None:
@@ -713,10 +837,10 @@ class GraphicsMode(PanelOwner):
 
 		:param pins: the rectangle the drawing occupies.
 		"""
-		source = self._drawing.buffer
+		source = self._source.buffer
 		visibleX, visibleY = self._visible(pins)
 		self._originX = max(0, min(self._originX, max(0, source.width - visibleX)))
-		self._originY = max(0, min(self._originY, max(0, source.height - visibleY)))
+		self._originY = 0 if self._windows else max(0, min(self._originY, max(0, source.height - visibleY)))
 
 	# --- Zoom and pan -----------------------------------------------------------------------
 
@@ -740,6 +864,11 @@ class GraphicsMode(PanelOwner):
 		wanted = max(FIT, min(MAX_ZOOM_STEP, self._zoomStep + step))
 		if wanted == self._zoomStep:
 			return False
+		if wanted > self._zoomStep and self._tooFewPoints(wanted):
+			# A chart of twenty periods magnified thirty-two times is a chart of half a
+			# period, which is not a chart. Refused rather than clamped, so that the zoom
+			# the reader is told matches the one they are feeling.
+			return False
 		if wanted > self._zoomStep and self.scale(pins) >= MAX_SCALE:
 			# The ladder has steps left but the scale cap has been reached, which happens to a
 			# drawing that started near the panel's own size. Saying no here keeps the reported
@@ -754,6 +883,17 @@ class GraphicsMode(PanelOwner):
 		self._originY = centreY - visibleY // 2
 		self.render(surface)
 		return True
+
+	def _tooFewPoints(self, step: int) -> bool:
+		"""Whether zooming this far would leave too little of the data to be a chart.
+
+		:param step: the zoom step being asked for.
+		:return: whether it should be refused.
+		"""
+		points = self._source.points if self._source is not None else 0
+		if not self._windows or not points:
+			return False
+		return points / (ZOOM_FACTOR**step) < MIN_WINDOW_POINTS
 
 	def panBy(self, dx: int, dy: int) -> bool:
 		"""Move the window over the source, in source dots.
@@ -830,9 +970,16 @@ class GraphicsMode(PanelOwner):
 		insideY = pinY - pins.y
 		if not (0 <= insideX < pins.width and 0 <= insideY < pins.height):
 			return None
-		scale = self.scale(pins)
-		sourceX = self._originX + int(insideX / scale)
-		sourceY = self._originY + int(insideY / scale)
+		if self._windows:
+			# What is on the panel *is* the drawing, drawn for this window at this size, so
+			# a pin is a dot of it. Putting the zoom and the origin through here as well
+			# would apply the window twice and answer about a period the reader is not
+			# touching — which is worse than no answer, because it is a plausible one.
+			sourceX, sourceY = insideX, insideY
+		else:
+			scale = self.scale(pins)
+			sourceX = self._originX + int(insideX / scale)
+			sourceY = self._originY + int(insideY / scale)
 		source = self._drawing.buffer
 		if not (0 <= sourceX < source.width and 0 <= sourceY < source.height):
 			return None
@@ -925,8 +1072,11 @@ class GraphicsMode(PanelOwner):
 		if pins.isEmpty:
 			return 0
 		# In source dots, so it grows as the drawing is compressed — one pin then stands for
-		# several source dots and a finger covers more of the drawing, not less.
-		return max(0, int(((surface.pinsPerRow + 1) // 2) / self.scale(pins)))
+		# several source dots and a finger covers more of the drawing, not less. A redrawn
+		# figure is never compressed or magnified, whatever the zoom says: it is composed at
+		# the panel's own size for a narrower window, so a dot is always a pin.
+		scale = 1.0 if self._windows else self.scale(pins)
+		return max(0, int(((surface.pinsPerRow + 1) // 2) / scale))
 
 	def nearestDot(self, point: tuple, radius: int) -> Optional[tuple]:
 		"""Find the raised dot closest to a point of the source.
