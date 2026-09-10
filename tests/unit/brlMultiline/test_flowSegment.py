@@ -27,7 +27,7 @@ from brlMultiline.devices import DeviceInfo  # noqa: E402
 from brlMultiline.flowControl import FlowController  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
 from brlMultiline.flowSegment import FlowBufferSegment  # noqa: E402
-from brlMultiline.flowSources import DocumentFlowSource, regionFactoryFor  # noqa: E402
+from brlMultiline.flowSources import DocumentFlowSource, budgetForBand, regionFactoryFor  # noqa: E402
 from brlMultiline.layout import SegmentRect  # noqa: E402
 from brlMultiline.panels import FlowPanel, SinglePanel  # noqa: E402
 from brlMultiline.views import SegmentView  # noqa: E402
@@ -1491,6 +1491,116 @@ class TestPanningAFlowThatIsNotTheFocus(unittest.TestCase):
 		self.assertIsNone(getattr(segment, "controller", None))
 		# Panning it must not raise, and must not reach the focus segment's machinery.
 		container.scrollForward(container.numberForKey("pin"))
+
+
+class TestKeepingNvdaOnTheBlockTheBandDraws(unittest.TestCase):
+	"""**Every pass that rebuilds the band has to say so, including the one that drew nothing.**
+
+	NVDA reaches for `mainBuffer.regions[-1]`: `handleCaretMove` queues whatever it finds
+	there and `_handlePendingUpdate` re-reads that object a core cycle later. The band puts
+	the active block's own region there, and a re-read of the band builds new regions for
+	the blocks it read — so anything that re-reads without redrawing leaves NVDA holding an
+	object this band no longer draws. The re-read that follows lands on it, the replacement
+	is clean, and the update finds nothing to act on.
+
+	Under the fingers that is a letter arriving only once the next one has been typed, and
+	the second keystroke healing it, because by then the lists have been put back in step.
+	The pass that provokes it is the settle: it exists to run while nobody is typing.
+	"""
+
+	ROWS = 10
+	COLS = 32
+
+	def band(self, caretIndex=0):
+		""":return: a band over a document being written in, and its segment and controller."""
+		from brlMultiline.flowBand import FlowBand
+
+		handler = FakeHandler(self.ROWS, self.COLS)
+		container = containerWithBand(handler, numRows=self.ROWS, numCols=self.COLS)
+		handler.mainBuffer = handler.buffer = container
+		segment = container.segmentForKey("flow")
+		interceptor = FakeTreeInterceptor(documentLines(30), caretIndex=caretIndex)
+		source = DocumentFlowSource(
+			interceptor,
+			regionFactoryFor(CursorManagerRegion(interceptor), live=True),
+			generation=1,
+			interactive=True,
+		)
+		renderer = FlowRenderer(handler, numCols=self.COLS, fillRows=True)
+		control = FlowController(
+			source,
+			renderer,
+			numRows=self.ROWS,
+			live=True,
+		)
+		control.source.budget = budgetForBand(self.ROWS)
+		control.enterAtCursor()
+		band = FlowBand(FakePlugin(container))
+		band.controller = control
+		segment.attach(control)
+		segment.onSettle = band._scheduleSettle
+		return band, segment, control
+
+	def rowTexts(self, control):
+		cells = control.cells()
+		rows = []
+		for index in range(control.window.numRows):
+			row = cells[index * self.COLS : (index + 1) * self.COLS]
+			rows.append("".join(chr(cell) if cell else " " for cell in row))
+		return rows
+
+	def setUp(self):
+		callLaterQueue.pending.clear()
+		self.addCleanup(callLaterQueue.pending.clear)
+
+	def test_anUnchangedSettleStillPointsNvdaAtTheBandsOwnRegion(self):
+		band, segment, control = self.band()
+		before = control.cells()
+		band._settle()
+		self.assertEqual(control.cells(), before, "the settle was supposed to change nothing")
+		self.assertIs(segment.regions[-1], control.activeRegion())
+
+	def test_andTheFirstEditAfterItIsDisplayed(self):
+		for edited in ("line 0X", "liXne 0", "line "):
+			with self.subTest(edited=edited):
+				band, segment, control = self.band()
+				band._settle()
+				control.source.obj.lines[0] = edited
+				control.source.obj.caretOffset = min(6, len(edited))
+				# NVDA takes the region from `mainBuffer.regions[-1]`, updates it, and then
+				# updates the buffer. Asking the controller for its active region instead
+				# would be testing the repair rather than the path that broke.
+				segment.regions[-1].update()
+				segment.update()
+				self.assertEqual(self.rowTexts(control)[0].rstrip(), edited.rstrip())
+
+	def test_anUnchangedLiveRefreshPointsAtItToo(self):
+		band, segment, control = self.band()
+		control.source.writing = False
+		band._tableStillFits = lambda: True
+		band._rereadPinnedRow = lambda: None
+		band._scheduleLiveRead = lambda *args, **kwargs: None
+		before = control.cells()
+		band._refreshLiveContent()
+		self.assertEqual(control.cells(), before)
+		self.assertIs(segment.regions[-1], control.activeRegion())
+
+	def test_aReadingQueuedOnTheRetiredRegionIsCarriedOntoItsReplacement(self):
+		"""The other half, for the case the reconciliation cannot prevent.
+
+		NVDA queues a region on one core cycle and re-reads it on the next, and a settle can
+		land between the two. The reading was real news whichever object it happened to be
+		made on, so it moves with the block rather than being dropped with the object."""
+		band, segment, control = self.band()
+		retired = segment.regions[-1]
+		control.followCursor()
+		self.assertIsNot(control.activeRegion(), retired, "nothing was retired to carry from")
+		segment.regions = [retired]
+		retired.dirty = True
+		segment._syncRegions()
+		self.assertIs(segment.regions[-1], control.activeRegion())
+		self.assertTrue(segment.regions[-1].dirty)
+		self.assertFalse(retired.dirty)
 
 
 if __name__ == "__main__":

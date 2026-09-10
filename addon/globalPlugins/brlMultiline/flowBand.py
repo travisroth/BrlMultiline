@@ -409,15 +409,28 @@ class FlowBand(PanelOwner):
 			self._settleTimer = None
 
 	def _settle(self) -> None:
-		"""Read the edit again now that it has had a moment, and redraw if that changed anything."""
+		"""Read the edit again now that it has had a moment, and redraw if that changed anything.
+
+		**Whether the display is written and whether NVDA is pointed at the right region are
+		two questions.** They were one, and answering them together was the bug the reader
+		reported as a letter arriving only when the next one was typed: a settle re-reads the
+		band, which rebuilds its blocks and so replaces the region the active block is read
+		through, and a settle that found the cells unchanged returned without telling the
+		segment. NVDA went on holding the retired region, queued *that* for its next caret
+		move, re-read it, and handed the band a replacement region with nothing dirty on it.
+		The keystroke went nowhere, and the one after it healed the band by arriving after
+		the lists had been put back in step. So the reconciliation happens on every path out
+		of here, and only the writing to hardware is conditional.
+		"""
 		self._settleTimer = None
 		control = self.controller
 		if control is None:
 			return
+		segment = self.segment()
 		try:
-			before = control.cells()
+			before = control.displayFrame()
 			control.followCursor()
-			if control.cells() == before:
+			if control.displayFrame() == before:
 				# The band has settled, and the claim this pass made on the way must not
 				# outlive it. Reading again while writing arms `rereadWhileWriting` for the
 				# segment to turn into a settle pass, and the segment only ever sees it when
@@ -427,11 +440,16 @@ class FlowBand(PanelOwner):
 				# settled long ago.
 				control.rereadWhileWriting = False
 				return
-			segment = self.segment()
 			if segment is not None:
 				segment.refresh()
 		except Exception:
 			log.debugWarning("A flow settle pass failed", exc_info=True)
+		finally:
+			if segment is not None:
+				try:
+					segment.syncRegions()
+				except Exception:
+					log.debugWarning("A flow could not point NVDA at its active block", exc_info=True)
 
 	def documentChanged(self, document) -> None:
 		"""Answer NVDA saying that a browse mode document changed under it.
@@ -566,17 +584,25 @@ class FlowBand(PanelOwner):
 			self._scheduleLiveRead()
 			return
 		self.liveCounts[1] += 1
+		segment = self.segment()
 		try:
-			before = control.cells()
+			before = control.displayFrame()
 			self._rereadPinnedRow()
 			control.rereadContent()
-			if control.cells() != before:
+			if control.displayFrame() != before:
 				self.liveCounts[2] += 1
-				segment = self.segment()
 				if segment is not None:
 					segment.refresh()
 		except Exception:
 			log.debugWarning("A live table pass failed", exc_info=True)
+		finally:
+			# A re-read replaces the regions the band's blocks are read through, so NVDA is
+			# pointed at the replacements whether or not the cells moved. See `_settle`.
+			if segment is not None:
+				try:
+					segment.syncRegions()
+				except Exception:
+					log.debugWarning("A flow could not point NVDA at its active block", exc_info=True)
 		self._scheduleLiveRead()
 
 	def _rereadPinnedRow(self) -> None:

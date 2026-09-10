@@ -539,6 +539,16 @@ class FetchBudget:
 		self.clock = clock
 		self.blocks = 0
 		self.started = 0.0
+		self.operationStarted = 0.0
+		self.operationBlocks = 0
+		"""When the whole operation began, and what it had spent before its last renewal.
+
+		Kept beside `started` and `blocks` rather than instead of them, because the two
+		clocks answer different questions. The allowance is what `exhausted` compares itself
+		against and it is what `renew` resets; the operation is what the reader waited
+		through. A measurement that forgot the failed reach standing in front of the placing
+		reported a third of the latency it was asked about. See L{renew}."""
+
 		self.active = False
 		"""Whether an operation is under way.
 
@@ -590,6 +600,8 @@ class FetchBudget:
 		"""Begin an operation, whatever was under way before."""
 		self.blocks = 0
 		self.started = self.clock()
+		self.operationStarted = self.started
+		self.operationBlocks = 0
 		self.active = True
 		self.stopped = False
 
@@ -604,12 +616,14 @@ class FetchBudget:
 		block was two milliseconds and nine operations in a hundred stopped early".
 		"""
 		self.active = False
-		elapsed = max(0.0, self.clock() - self.started)
+		# The whole operation, renewals included. See L{renew}.
+		elapsed = max(0.0, self.clock() - self.operationStarted)
+		spent = self.operationBlocks + self.blocks
 		self.operations += 1
 		self.lastSeconds = elapsed
-		self.lastBlocks = self.blocks
+		self.lastBlocks = spent
 		self.worstSeconds = max(self.worstSeconds, elapsed)
-		self.worstBlocks = max(self.worstBlocks, self.blocks)
+		self.worstBlocks = max(self.worstBlocks, spent)
 		self.totalSeconds += elapsed
 		if self.stopped:
 			self.stops += 1
@@ -633,8 +647,15 @@ class FetchBudget:
 		feel it, and an operation that hid its own stop from the count would leave the numbers
 		saying the budget fits when it does not. What the renewal is worth is counted
 		separately, in L{renewals}.
+
+		**The allowance is renewed and the measurement is not.** Both were reset here, so an
+		arrival that spent two hundred milliseconds failing to reach the reader and a hundred
+		placing the band reported a hundred — and the reader had waited three. The number the
+		whole design is judged by was hiding the half of the latency this renewal exists
+		because of.
 		"""
 		self.renewals += 1
+		self.operationBlocks += self.blocks
 		self.blocks = 0
 		self.started = self.clock()
 
@@ -1125,13 +1146,17 @@ class DocumentFlowSource:
 		:return: whether the two overlap, and so whether to refuse the step.
 		"""
 		try:
-			found = start.copy()
-			found.expand(self.unit)
 			if forward:
 				# The block behind, expanded, must stop at or before the new one starts.
 				behind = origin.copy()
 				behind.expand(self.unit)
 				return behind.compareEndPoints(start, "endToStart") > 0
+			# Only the backward branch reads the found block's own extent. Expanding it
+			# before the branch expanded a unit the forward answer never looks at, and
+			# expanding a range is a call into the document — one per step of a walk that
+			# runs on every keystroke while writing.
+			found = start.copy()
+			found.expand(self.unit)
 			return found.compareEndPoints(origin, "endToStart") > 0
 		except Exception:
 			log.debugWarning("Could not tell whether two blocks overlap", exc_info=True)

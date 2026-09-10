@@ -369,6 +369,47 @@ def wrappedTree():
 	return control, index
 
 
+def tellingItsLastChild(control, index):
+	"""Let every container answer `lastChild`, as a real provider does.
+
+	The walk to the end of a branch asks before it walks, because asking is one call whatever
+	the branch holds. The stubs answer nothing by default, so the walk is what the other
+	tests here exercise; this is the other path.
+	"""
+	seen = [control, *index.values()]
+	for node in list(seen):
+		for child in list(getattr(node, "children", None) or ()):
+			if child not in seen:
+				seen.append(child)
+	for node in seen:
+		kids = list(getattr(node, "children", None) or ())
+		node.lastChild = kids[-1] if kids else None
+	return control, index
+
+
+class TestAskingAContainerWhereItsRowsEnd(unittest.TestCase):
+	"""Reading backward into a branch means finding the deepest last thing under it.
+
+	Walked from the branch's first child that is one call into the application per row, all
+	of them inside one step. A container knows its own last child, so it is asked — and
+	asked of the container that actually holds the rows, which behind a wrapper is the
+	wrapper rather than the node. Asking the node there gives back the wrapper itself, which
+	is scenery and not a row the reader can be put on.
+	"""
+
+	def test_theWalkBackIsUnchangedWhenTheTreeAnswers(self):
+		_control, index = tellingItsLastChild(*tree())
+		self.assertEqual(walkFrom(index["Archive"], forward=False), list(reversed(VISIBLE)))
+
+	def test_andBehindAWrapperToo(self):
+		_control, index = tellingItsLastChild(*wrappedTree())
+		self.assertEqual(walkFrom(index["Archive"], forward=False), list(reversed(VISIBLE)))
+
+	def test_andTheRowAboveASiblingIsStillTheDeepestThingUnderTheOneBeforeIt(self):
+		_control, index = tellingItsLastChild(*wrappedTree())
+		self.assertEqual(flowObjects.VISIBLE_TREE.previousOf(index["Personal"]).name, "Urgent")
+
+
 class TestASubtreeBehindAWrapper(unittest.TestCase):
 	"""A tree item's children are not always its direct children.
 

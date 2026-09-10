@@ -156,6 +156,96 @@ class TestWrapping(unittest.TestCase):
 		self.assertEqual(tuple(rendered.positions[1][:3]), (NO_POSITION,) * 3)
 
 
+class TestReachingIntoALongParagraph(unittest.TestCase):
+	"""**The rendering cap bounds what is kept, and used to bound nothing about the work.**
+
+	A rendering holds at most `CHUNK_ROWS` rows, and the tail of a long block was reached by
+	cutting every row in front of it and throwing them away. That is the right answer for
+	word wrapping, where a row's end genuinely depends on the row before it — and the wrong
+	one for the mode where every row is the buffer's width and carries straight on, which is
+	what a narrow band and every table cell use.
+
+	A reader typing at the end of a very long paragraph was paying for a re-cut of the whole
+	of it, on every keystroke, to be shown ten rows.
+	"""
+
+	COLS = 32
+
+	def _long(self, length):
+		return block("x" * length, name=f"long{length}")
+
+	def _cuts(self, draw):
+		""":return: a counter of how many times the buffer was asked to cut a window of rows."""
+		from brlMultiline.segments import BrailleBufferSegment
+
+		counted = [0]
+		original = BrailleBufferSegment._calculateWindowRowBufferOffsets
+
+		def cut(buffer, pos):
+			counted[0] += 1
+			return original(buffer, pos)
+
+		BrailleBufferSegment._calculateWindowRowBufferOffsets = cut
+		self.addCleanup(
+			setattr, BrailleBufferSegment, "_calculateWindowRowBufferOffsets", original
+		)
+		return counted
+
+	def test_theTailIsReachedWithoutCuttingWhatIsInFrontOfIt(self):
+		draw = renderer(numCols=self.COLS)
+		for length in (2048, 32768, 131072):
+			with self.subTest(length=length):
+				long = self._long(length)
+				rows = length // self.COLS
+				counted = self._cuts(draw)
+				rendered = draw.render(long, fromRow=rows - 10)
+				self.assertEqual(rendered.numRows, 10)
+				self.assertEqual(counted[0], 0, "the whole paragraph was cut to reach its tail")
+
+	def test_andTheRowsAreTheOnesTheWalkWouldHaveProduced(self):
+		"""The arithmetic replaces the walk; it does not replace what the walk was for."""
+		draw = renderer(numCols=8)
+		text = "".join(chr(ord("a") + index % 26) for index in range(200))
+		long = block(text, name="mixed")
+		rendered = draw.render(long, fromRow=3)
+		self.assertEqual(textOf(rendered.rows[0]), text[24:32])
+		self.assertEqual(rendered.positions[0], tuple(range(24, 32)))
+		self.assertEqual(rendered.rowOffset, 3)
+		# Twenty-five rows of eight cells, less the three skipped, and the last one short.
+		self.assertEqual(rendered.numRows, 22)
+		self.assertEqual(textOf(rendered.rows[-1]), text[192:200])
+		self.assertFalse(rendered.moreRows)
+
+	def test_andABlockTallerThanOneChunkSaysThereIsMore(self):
+		draw = renderer(numCols=8)
+		rendered = draw.render(self._long(8 * 100))
+		self.assertEqual(rendered.numRows, draw.maxRows)
+		self.assertTrue(rendered.moreRows)
+		last = draw.render(self._long(8 * 100), fromRow=100 - draw.maxRows)
+		self.assertFalse(last.moreRows)
+
+	def test_andAShortBlockStillEndsWhereItEnds(self):
+		draw = renderer(numCols=8)
+		rendered = draw.render(block("abcdefghij"), fromRow=1)
+		self.assertEqual([textOf(row) for row in rendered.rows], ["ij"])
+		self.assertFalse(rendered.moreRows)
+
+	def test_andABlankBlockIsStillOneRow(self):
+		rendered = renderer(numCols=8).render(block(""))
+		self.assertEqual(rendered.numRows, 1)
+
+	def test_aCaretsRowIsFoundWithoutCuttingEitherOfThem(self):
+		"""`renderAround` locates the caret's row before rendering it, and that lookup was a
+		second walk from the start of the block."""
+		draw = renderer(numCols=self.COLS)
+		long = self._long(131072)
+		counted = self._cuts(draw)
+		rendered = draw.renderAround(long, 131072 - 5, contextRows=9)
+		self.assertEqual(counted[0], 0)
+		self.assertTrue(rendered.rowOffset > 0)
+		self.assertIn(131072 - 5, rendered.positions[-1])
+
+
 class TestTheRenderKey(unittest.TestCase):
 	"""Two depths are two renderings, and one must never be served for the other."""
 

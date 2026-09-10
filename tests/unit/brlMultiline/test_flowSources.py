@@ -628,6 +628,39 @@ class TestWhatReadingCost(unittest.TestCase):
 		self.assertEqual(budget.worstBlocks, worst)
 		self.assertEqual(budget.lastBlocks, 0)
 
+	def test_aRenewalGivesAFreshAllowanceAndKeepsTheWholeMeasurement(self):
+		"""The reader waited through both halves of the keypress, so both are reported.
+
+		`renew` reset the measurement along with the allowance, so an arrival that spent two
+		hundred milliseconds failing to reach the reader and a hundred placing the band
+		reported a hundred — and the number the design is judged by was hiding the half of
+		the latency the renewal exists because of.
+		"""
+		clock = [0.0]
+		budget = FetchBudget(maxBlocks=1, maxSeconds=10.0, clock=lambda: clock[0])
+		budget.start()
+		budget.spend()
+		self.assertTrue(budget.exhausted)
+		clock[0] = 0.2
+		budget.renew()
+		self.assertFalse(budget.exhausted, "the renewal is supposed to buy a fresh allowance")
+		budget.spend()
+		clock[0] = 0.3
+		budget.finish()
+		self.assertAlmostEqual(budget.lastSeconds, 0.3)
+		self.assertEqual(budget.lastBlocks, 2)
+
+	def test_andAnOperationThatWasCutShortStillSaysSo(self):
+		clock = [0.0]
+		budget = FetchBudget(maxBlocks=1, maxSeconds=10.0, clock=lambda: clock[0])
+		budget.start()
+		budget.spend()
+		self.assertTrue(budget.refuseIfExhausted())
+		budget.renew()
+		budget.finish()
+		self.assertEqual(budget.stops, 1)
+		self.assertEqual(budget.renewals, 1)
+
 	def test_aRefusedFetchIsCounted(self):
 		# The number that says whether the budget is sized right: it means the reader was
 		# shown less than the band could hold.

@@ -176,18 +176,46 @@ class FlowBufferSegment(BrailleBufferSegment):
 		except Exception:
 			log.debugWarning("A flow could not check what it is reading", exc_info=True)
 
+	def syncRegions(self) -> None:
+		"""Point NVDA at the region this band is actually drawing, without redrawing anything.
+
+		Public because reconciling the two is not the same question as writing cells to
+		hardware, and every path that rebuilds the flow's blocks has to answer it. A pass
+		that re-read the band and found the cells unchanged used to return without either:
+		the reader saw the right thing, NVDA was left holding the region the re-read
+		retired, and the *next* keystroke went to a region this band no longer draws. See
+		`FlowBand._settle`.
+		"""
+		self._syncRegions()
+
 	def _syncRegions(self) -> None:
 		"""Put the active block's region where NVDA looks for the last one, and nothing else.
 
 		Cheap, and done twice per update on purpose: before reading it, because that is what
 		NVDA's commands act on, and after following, because that is what NVDA will queue
 		for the next event.
+
+		**A pending read is carried across the swap.** NVDA queues a region and comes back
+		to it a core cycle later — `handleCaretMove` takes `mainBuffer.regions[-1]`, and
+		`_handlePendingUpdate` re-reads it before updating the buffer. Anything that rebuilds
+		the band in between leaves that reading on a region nobody draws, and the replacement
+		is clean, so `_followIfRead` finds nothing to act on and the keystroke is lost. The
+		re-read was real news whichever object it landed on, so it moves with the block.
 		"""
 		if self.controller is None:
 			return
 		region = self.controller.activeRegion()
 		if self.regions[-1:] == [region]:
 			return
+		retired = self.regions[-1] if self.regions else None
+		if (
+			region is not None
+			and retired is not None
+			and getattr(retired, "dirty", False)
+			and not getattr(region, "dirty", False)
+		):
+			region.dirty = True
+			retired.dirty = False
 		self.regions = [region] if region is not None else []
 
 	def _followIfRead(self) -> None:

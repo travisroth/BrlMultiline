@@ -67,6 +67,20 @@ minified script in a code view — not how much of it can be read.
 """
 
 
+def _rowsAreFixedWidth(buffer: BrailleBufferSegment) -> bool:
+	""":return: whether every row of a buffer is exactly its width, so rows can be counted.
+
+	True for the fill mode with no continuation marks, which is what
+	`layout.calculateFilledRowOffsets` produces when it is given no cut test: each row is the
+	full width and the next one starts where it ended. A mark costs a row its last cell, and
+	word wrapping moves the cut to a boundary, so in either of those where a row ends depends
+	on where the one before it ended and the rows have to be walked.
+
+	:param buffer: the buffer a block is being laid out in.
+	"""
+	return bool(getattr(buffer, "fillRows", False)) and not getattr(buffer, "markCuts", False)
+
+
 class FlowRenderer:
 	"""Lays blocks out as rows for one band.
 
@@ -134,6 +148,20 @@ class FlowRenderer:
 		their place across the change.
 		"""
 		return self._keyWith(0)
+
+	def keyFor(self, block: SourceBlock) -> RenderKey:
+		""":return: the key a rendering of one block would carry if it were made now.
+
+		So that a caller holding a rendering can ask whether it is still the one this
+		renderer would produce, rather than producing it again to find out. The indent is
+		the block's own, which is what `render` puts in the key; a table row drawn at its
+		plan's offsets carries no indent, exactly as `_chunkOf` records.
+
+		:param block: the block in question.
+		"""
+		if not self.columnPlan.isEmpty and rowCellsOf(block.region) is not None:
+			return self._keyWith(0)
+		return self._keyWith(len(self.indentPlan.prefixFor(block.depth)))
 
 	def _keyWith(self, indent: int) -> RenderKey:
 		""":return: the render key for a block drawn with a given indent."""
@@ -467,6 +495,11 @@ class FlowRenderer:
 		buffer = self._layoutBuffer(block, width=self.numCols - len(rest) if rest else None)
 		if buffer is None:
 			return None
+		if _rowsAreFixedWidth(buffer):
+			cells = buffer.brailleCells
+			if not cells or not 0 <= position < len(cells):
+				return None
+			return position // max(1, buffer.rect.numCols)
 		seen = 0
 		cells = buffer.brailleCells
 		while True:
@@ -603,6 +636,8 @@ class FlowRenderer:
 		:return: the rows kept, their position maps, and whether the block continues past
 			them.
 		"""
+		if _rowsAreFixedWidth(buffer):
+			return self._filledLayout(buffer, fromRow)
 		rows: list[tuple[int, ...]] = []
 		positions: list[tuple[int, ...]] = []
 		seen = 0
@@ -640,6 +675,38 @@ class FlowRenderer:
 			if not buffer._nextWindow():
 				break
 		return rows, positions, False
+
+	def _filledLayout(self, buffer: BrailleBufferSegment, fromRow: int) -> tuple[list, list, bool]:
+		"""Cut a block into rows by arithmetic, for the mode where every row is the same width.
+
+		The same rows `_layout` walks to, without the walk. Filling a row means carrying
+		straight on at the width the buffer was given — see `layout.calculateFilledRowOffsets`
+		— so row *n* is the cells from `n * width`, and the tail of a long block can be
+		reached without cutting everything in front of it first.
+
+		The walk is not wasteful by accident: where a row ends genuinely depends on where the
+		one before it ended, which is why word wrapping still has to be walked. It is only
+		this mode that has nothing to remember, and this mode is what a narrow band and every
+		table cell use. A reader typing at the end of a very long paragraph was paying for a
+		re-cut of the whole of it on each keystroke to be shown ten rows.
+
+		:param buffer: the buffer holding the block.
+		:param fromRow: the first row of the block to keep.
+		:return: the rows kept, their position maps, and whether the block continues past
+			them.
+		"""
+		cells = buffer.brailleCells
+		width = max(1, buffer.rect.numCols)
+		# At least one, because a blank line is a row and has to occupy the one it deserves.
+		total = max(1, -(-len(cells) // width))
+		rows: list[tuple[int, ...]] = []
+		positions: list[tuple[int, ...]] = []
+		for index in range(max(0, fromRow), min(total, max(0, fromRow) + self.maxRows)):
+			start = index * width
+			end = min(len(cells), start + width)
+			rows.append(tuple(cells[start:end]))
+			positions.append(tuple(range(start, end)))
+		return rows, positions, max(0, fromRow) + len(rows) < total
 
 	def _rowFrom(self, cells: list, rowPositions) -> tuple[tuple[int, ...], tuple[int, ...]]:
 		"""Build one row and the map back to where each of its cells came from.

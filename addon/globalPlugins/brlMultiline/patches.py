@@ -53,7 +53,31 @@ Fast enough that a pinned clock or status line is not visibly stale, slow enough
 reading a document's text through a `TextInfo` is not being done on every core cycle.
 """
 
+MONITOR_SLICE_SECONDS = 0.03
+"""How long one core cycle may spend on pins before leaving the rest to the next one.
+
+The pins share it, and the rotation carries on from where it stopped, so what a cycle costs
+does not grow with the number of things pinned. It cannot shorten one slow pin — a single
+`TextInfo` read is as long as it is — but it stops the pin behind a slow one being read in
+the same cycle. See `GlobalPlugin.refreshMonitorsInTurn`.
+"""
+
+MONITOR_QUIET_AGE = 2.0
+"""How stale a pin may get while the reader is typing before it is refreshed regardless.
+
+The reader's own keystroke has the core cycle: a pin is something they asked to watch in a
+window they are not working in, and the window they *are* working in is the one under their
+fingers. Not a pause without an end, though — a pinned clock that stopped for as long as
+somebody was typing would be a pin that fails exactly when it is being relied on.
+"""
+
 _lastMonitorRefresh = 0.0
+_monitorsUnfinished = False
+"""Whether a slice ran out with pins still waiting, so the rest are due at once."""
+
+_monitorsRefreshedAt = 0.0
+"""When the pins were last all refreshed, which is what `MONITOR_QUIET_AGE` is measured
+against. Not `_lastMonitorRefresh`, which a part-finished rotation also moves."""
 
 
 def _applyFocusToHardLeft(handler: BrailleHandler, regions: list) -> None:
@@ -191,7 +215,7 @@ def _populateDocumentLines(container: DisplayContainer) -> None:
 		log.debugWarning("Could not show document lines", exc_info=True)
 
 
-def _refreshPinnedObjects() -> None:
+def _refreshPinnedObjects(busy: bool = False) -> None:
 	"""Re-read pinned objects, so that a pin shows the object as it is now.
 
 	A pin shows something in a window the user is not working in, and nothing NVDA does
@@ -201,21 +225,37 @@ def _refreshPinnedObjects() -> None:
 	already runs on every core cycle, which is far more often than any of this needs, hence
 	the interval. `ObjectMonitor.refresh` writes nothing when nothing has changed, so the
 	cost between changes is a read of each pinned object and no display traffic.
+
+	**Not in the same cycle as the reader's own keystroke, and not all of them at once.**
+	Both were true and both put background reading in front of foreground input: every pin
+	was refreshed synchronously on whichever core cycle the interval happened to expire on,
+	including the cycle that was carrying a caret update. Suppressing unchanged display
+	writes saved the hardware traffic and none of the reading. So a cycle NVDA has an update
+	pending on is left to it, and a cycle that does refresh spends an allowance rather than
+	however long the pins take.
+
+	:param busy: whether NVDA had an update of its own pending on this core cycle, which is
+		what a keystroke looks like from here.
 	"""
-	global _lastMonitorRefresh
+	global _lastMonitorRefresh, _monitorsUnfinished, _monitorsRefreshedAt
 	from . import getPlugin
 
 	plugin = getPlugin()
 	if plugin is None or not plugin.monitoredKeys:
 		return
 	now = time.monotonic()
-	if now - _lastMonitorRefresh < MONITOR_REFRESH_INTERVAL:
+	if not _monitorsUnfinished and now - _lastMonitorRefresh < MONITOR_REFRESH_INTERVAL:
+		return
+	if busy and now - _monitorsRefreshedAt < MONITOR_QUIET_AGE:
 		return
 	_lastMonitorRefresh = now
 	try:
-		plugin.refreshMonitors()
+		_monitorsUnfinished = bool(plugin.refreshMonitorsInTurn(MONITOR_SLICE_SECONDS))
 	except Exception:
 		log.debugWarning("Could not refresh pinned objects", exc_info=True)
+		_monitorsUnfinished = False
+	if not _monitorsUnfinished:
+		_monitorsRefreshedAt = now
 
 
 def _handleUpdateTellingTheBand(self) -> None:
@@ -276,7 +316,7 @@ def _handlePendingUpdateWithDocumentLines(self: BrailleHandler) -> None:
 	"""
 	hadPendingUpdate = bool(self._regionsPendingUpdate)
 	_originals["_handlePendingUpdate"](self)
-	_refreshPinnedObjects()
+	_refreshPinnedObjects(busy=hadPendingUpdate)
 	if not hadPendingUpdate:
 		return
 	container = self.mainBuffer

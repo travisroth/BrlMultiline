@@ -26,7 +26,13 @@ installStubs()
 from brlMultiline.flow import Edge, EdgeState, RowKind  # noqa: E402
 from brlMultiline.flowControl import FlowController  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
-from brlMultiline.flowSources import DocumentFlowSource, FetchBudget, regionFactoryFor  # noqa: E402
+from brlMultiline.flowSources import (  # noqa: E402
+	DocumentFlowSource,
+	FetchBudget,
+	FlowRegion,
+	budgetForBand,
+	regionFactoryFor,
+)
 
 
 class FakeClock:
@@ -467,8 +473,16 @@ class TestTheRowsAboveTheCaretWhileWriting(unittest.TestCase):
 		return control
 
 	def test_whatCouldNotBeAffordedIsWrittenDown(self):
+		"""The reader is left on the top row with the debt recorded.
+
+		Asked of the band rather than of the cache. A refused walk may still have reached a
+		row or two before it was refused — the allowance goes to the rows above the caret
+		before the rows below it, since those are the ones the reader already had — and what
+		must not happen is the band moving up by whatever one pass could afford. See
+		`FlowController._contextAboveTheCaret`.
+		"""
 		control = self._typedInto()
-		self.assertEqual(control.window.rowsAbove(), 0)
+		self.assertEqual(rowTexts(control)[0].strip(), "15")
 		self.assertEqual(control._owedAbove, control.window.numRows // 2)
 
 	def test_andThePassThatComesBackPaysWhatItCan(self):
@@ -1232,6 +1246,71 @@ class TestWritingReadsTheWholeBandAgain(unittest.TestCase):
 		self.assertEqual(rowTexts(control)[1].strip(), "two")
 
 
+class TestWhatOneKeystrokeCosts(unittest.TestCase):
+	"""A band of reads is the price of a writing re-read and is not in dispute — there is no
+	honest way to know which of the other rows survived an edit. What is in dispute is
+	reading rows the reader is never shown, and reading the same row three times over.
+	"""
+
+	ROWS = 10
+
+	def _reads(self, caretIndex):
+		""":return: the band, and which line each read was of, for one keystroke."""
+		control = controllerOver(
+			[f"line {number}" for number in range(30)],
+			caretIndex=caretIndex,
+			numRows=self.ROWS,
+			numCols=32,
+			live=True,
+			interactive=True,
+			budget=budgetForBand(self.ROWS),
+		)
+		reads = []
+		original = FlowRegion.update
+
+		def counted(region):
+			reads.append(region.position.index if region.position is not None else None)
+			return original(region)
+
+		FlowRegion.update = counted
+		try:
+			control.source.obj.lines[caretIndex] += "X"
+			control.followCursor()
+		finally:
+			FlowRegion.update = original
+		return control, reads
+
+	def _shown(self, control):
+		""":return: which lines the band ended up holding."""
+		return [block.blockId.bookmark.index for block in control.window.blocks]
+
+	def test_nothingIsReadThatTheReaderIsNotShown(self):
+		"""The band used to fill downward from the caret and *then* be put back under the row
+		the reader had, so half a band of rows was fetched and pushed straight off the
+		bottom before anything drew them."""
+		control, reads = self._reads(caretIndex=9)
+		shown = self._shown(control)
+		self.assertTrue(shown, "the fixture must leave something on the band")
+		for index in reads:
+			if index is None:
+				continue
+			self.assertIn(index, shown, f"line {index} was read and never shown")
+
+	def test_andTheCaretsOwnLineIsNotReadThreeTimesOver(self):
+		"""Fetching a block reads it, activating it reads it again for its cursor, and the
+		re-render that followed read it a third time — three calls into the document with
+		nothing between them that could have changed the answer."""
+		_control, reads = self._reads(caretIndex=9)
+		self.assertLessEqual(reads.count(9), 2)
+
+	def test_andTheReaderStillHasTheirContextAboveTheCaret(self):
+		"""Half a band of what they have already written, with their own line under it."""
+		control, _reads = self._reads(caretIndex=9)
+		shown = self._shown(control)
+		self.assertIn(4, shown)
+		self.assertIn(9, shown)
+
+
 class TestADocumentWithNoBookmarks(unittest.TestCase):
 	"""Chromium's editable text has none, and a bare position compares by identity.
 
@@ -1535,6 +1614,69 @@ class TestReadingTheBandAgain(unittest.TestCase):
 
 		flow.source = NoReReads()
 		self.assertFalse(flow.rereadContent())
+
+
+class TestAReReadIsBoundedLikeEverythingElse(unittest.TestCase):
+	"""A re-read is the one walk here nobody asked for by name: it runs on a timer, between
+	the reader's keystrokes, and it was the one walk with no gate between its blocks. The
+	operation was entered, the whole held window was fetched, and a table whose rows each
+	take longer than a whole operation is given spent many times its allowance every tick.
+	"""
+
+	def _slowFlow(self, count=10, seconds=0.05, cost=0.10):
+		""":return: a band, a clock, and the record of what it read again."""
+		flow = controllerOver([f"line {number}" for number in range(count)], numRows=count)
+		clock = [0.0]
+		flow.source.budget = FetchBudget(maxBlocks=1000, maxSeconds=seconds, clock=lambda: clock[0])
+		reads = []
+		original = flow.source.blockAt
+
+		def slowly(blockId):
+			reads.append(blockId)
+			clock[0] += cost
+			return original(blockId)
+
+		flow.source.blockAt = slowly
+		return flow, clock, reads
+
+	def test_theBlockAfterAnOverBudgetReadIsNotRead(self):
+		flow, clock, reads = self._slowFlow()
+		flow.rereadContent()
+		self.assertEqual(len(reads), 1)
+		self.assertLess(clock[0], 0.2)
+
+	def test_andTheNextPassCarriesOnRatherThanStartingAgain(self):
+		"""Or the rows at the end of the band would be re-read at a fraction of the rate of
+		the ones at the start, and on a slow table would never be re-read at all."""
+		flow, clock, reads = self._slowFlow()
+		flow.rereadContent()
+		first = list(reads)
+		clock[0] = 0.0
+		flow.rereadContent()
+		self.assertNotEqual(reads[len(first) :], first)
+
+	def test_aBandThatFitsIsStillReadRightThrough(self):
+		flow, _clock, reads = self._slowFlow(cost=0.0)
+		flow.rereadContent()
+		self.assertEqual(len(reads), len(flow.window.blocks))
+
+	def test_aBlockNobodyReReadIsNotLaidOutAgain(self):
+		"""Laying out a whole band to arrive at the cells already on it is the other half of
+		what a live pass costs, and it is not the source's to refuse."""
+		lines = ["first", "second", "third"]
+		flow = controllerOver(lines, caretIndex=0, numRows=3)
+		drawn = []
+		original = flow.renderer.render
+
+		def counted(block, fromRow=0):
+			drawn.append(block.blockId)
+			return original(block, fromRow=fromRow)
+
+		flow.renderer.render = counted
+		lines[2] = "changed"
+		flow.rereadContent()
+		self.assertIn("changed", " ".join(flow.describeRows()))
+		self.assertLess(len(drawn), len(flow.window.blocks))
 
 
 class TestPanningABandOneRowTall(unittest.TestCase):

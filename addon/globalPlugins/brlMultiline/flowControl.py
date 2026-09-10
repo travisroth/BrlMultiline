@@ -152,6 +152,22 @@ class FlowController(PanelOwner):
 		self.activeBlockId: Optional["BlockId"] = None
 		"""The block the cursor is in, and the only one that may show a cursor."""
 
+		self._activeIsFreshlyRead = False
+		"""Whether the active block's region has been read since it became the active one.
+
+		What stops one keystroke asking the application for the same line three times.
+		Fetching a block reads it, activating it reads it again for its cursor, and
+		`refreshActive` read it a third time immediately afterwards — three calls into the
+		document with nothing between them that could have changed the answer. See
+		`refreshActive`."""
+
+		self._rereadFrom = 0
+		"""Which of the window's blocks the next live re-read should carry on from.
+
+		A live re-read is bounded by the same allowance everything else is, and a pass that
+		always began at the top row would re-read the rows it could afford and never reach
+		the ones it could not. See `_rereadBlocks`."""
+
 		self.lastResult = None
 		"""The source's last answer, so a caller can say why nothing appeared."""
 
@@ -310,8 +326,15 @@ class FlowController(PanelOwner):
 		with self.operation():
 			return self._enterAtCursor(contextRows, atObject)
 
-	def _enterAtCursor(self, contextRows: int = 0, atObject=None) -> bool:
-		""":return: whether anything is now on the display. See `enterAtCursor`."""
+	def _enterAtCursor(self, contextRows: int = 0, atObject=None, fill: bool = True) -> bool:
+		"""
+		:param fill: whether to fill the band before returning. False for a caller that has
+			not chosen the window yet: a writing re-read enters at the caret and then puts
+			the band back under the row the reader had, and filling downward first read the
+			rows below the caret that the restore was about to push off the bottom. See
+			`_readAgainKeeping`.
+		:return: whether anything is now on the display. See `enterAtCursor`.
+		"""
 		# Whatever was owed was owed by the band being replaced here.
 		self._owedAbove = 0
 		result = self.source.blockAtCursor(atObject)
@@ -321,16 +344,22 @@ class FlowController(PanelOwner):
 			return False
 		self.window.blocks.clear()
 		self.blocks.clear()
+		self._rereadFrom = 0
 		self.window.setEdge(Edge.BEFORE, EdgeState.OPEN)
 		self.window.setEdge(Edge.AFTER, EdgeState.OPEN)
 		block = self._keep(result.block)
+		# Activated before the first rendering rather than after it. Whether a block holds
+		# the cursor decides how it is translated — NVDA expands the word at the cursor to
+		# computer braille — so a block laid out while it was still inactive had to be read
+		# and laid out again to come out right, and that second reading is a call into the
+		# application on every keystroke. The block being entered at is the active one by
+		# construction, so the question was already answered before it was asked.
+		self._setActive(block.blockId, freshlyRead=block is result.block)
 		self.window.appendBlock(self.renderer.render(block))
 		self.window.enterAt(block.blockId)
-		self._setActive(result.block.blockId)
-		# The first rendering was made before this block was active, so it was made before
-		# its live caret was known. Re-render now that the region can read the caret. This is
-		# also what selects the right chunk of an edit taller than the rendering work set.
-		self.refreshActive()
+		# Still asked, for the one thing the first rendering cannot know: a caret beyond the
+		# rendering work set belongs to a later chunk, which `_renderActiveChunk` locates.
+		self.refreshActive(reread=not self._activeIsFreshlyRead)
 		if contextRows > 0:
 			self._reachBack(contextRows)
 		elif result.block.isControl:
@@ -340,7 +369,8 @@ class FlowController(PanelOwner):
 			contextRows = self._labelContext(result.block.blockId)
 		if contextRows > 0:
 			self.window.enterAt(result.block.blockId, contextRows=contextRows)
-		self.fill()
+		if fill:
+			self.fill()
 		return True
 
 	def _labelContext(self, blockId: "BlockId") -> int:
@@ -581,8 +611,8 @@ class FlowController(PanelOwner):
 		if getattr(self.source, "blockAt", None) is None:
 			return False
 		with self.operation():
-			self._rereadBlocks()
-			self._redrawBlocks(why="the content changed under the band")
+			changed = self._rereadBlocks()
+			self._redrawBlocks(why="the content changed under the band", changed=changed)
 		return True
 
 	def runStillHoldsTheBand(self) -> bool:
@@ -740,7 +770,33 @@ class FlowController(PanelOwner):
 			log.debugWarning("Could not compare a block with its re-reading", exc_info=True)
 			return False
 
-	def _rereadBlocks(self) -> None:
+	def _rereadOrder(self, count: int) -> list[int]:
+		"""Which of the window's blocks to read again, and in what order.
+
+		A sweep begins at the reader's own row, because that is the one their hand is on, and
+		a sweep already under way carries on from where it was cut short, wrapping round to
+		the rows before it.
+
+		Those two are in tension and the resolution is the point. A pass that always began at
+		the top row re-read the rows it could afford and never once reached the rows it could
+		not, so on a table slow enough to be stopped the bottom of the band kept saying
+		whatever it said when the reader arrived. A pass that always began at the reader's
+		row does the same thing with a different row: with an allowance of one read, that row
+		is refreshed forever and nothing else ever is. So the reader's row leads each sweep
+		and the sweep then goes all the way round.
+
+		:param count: how many blocks the window holds.
+		:return: their indices, in the order to read them.
+		"""
+		if count <= 0:
+			return []
+		start = self._rereadFrom if 0 < self._rereadFrom < count else None
+		if start is None:
+			active = self._windowIndex(self.activeBlockId)
+			start = active if active is not None and 0 <= active < count else 0
+		return [(start + step) % count for step in range(count)]
+
+	def _rereadBlocks(self) -> list:
 		"""Read every block the band is holding again, keeping its identity.
 
 		Only sources that can be asked for a block by its identity answer this — a table by its
@@ -761,19 +817,33 @@ class FlowController(PanelOwner):
 		`cursorCell` asks the region. On hardware that was the cursor vanishing from a list
 		about two seconds after arriving in it: nothing logged, nothing moved, and on a flat
 		list there is no indent marker left to say which row is which. See `_setActive`.
+
+		**The allowance is checked between blocks, as it is everywhere else.** It was not,
+		and a re-read is the one walk here that nobody asked for by name: the operation was
+		entered, the whole held window was fetched without a gate, and a table whose rows
+		each took longer than a whole operation is given spent twenty times its allowance
+		on a timer, between the reader's keystrokes. Where it stops it says so, and the next
+		pass carries on from there rather than starting again at the top. See `_rereadOrder`.
+
+		:return: the ids of the blocks that came back saying something different, for the
+			redraw that follows. A block nobody re-read does not have to be laid out again.
 		"""
 		fetch = getattr(self.source, "blockAt", None)
 		if fetch is None:
-			return
+			return []
 		if getattr(self.source, "writing", False):
 			# The reader is typing into this content. Everything moves on every keystroke and
 			# the block they are in is the one being edited; re-reading under them would
 			# fight the editor rather than follow it.
-			return
-		lostTheCursor = False
+			return []
 		# The window's blocks rather than the whole cache: they are what `_redrawBlocks` is
 		# about to draw, and the cache is keyed by a bookmark that cannot be hashed or walked.
-		for rendered in list(self.window.blocks):
+		blocks = list(self.window.blocks)
+		lostTheCursor = False
+		changed: list = []
+		cutShort = False
+		for index in self._rereadOrder(len(blocks)):
+			rendered = blocks[index]
 			held = self.blocks.get(rendered.blockId)
 			if held is not None and getattr(held, "isControl", False):
 				# A control's block carries what it is as well as what it says — that it is a
@@ -781,22 +851,58 @@ class FlowController(PanelOwner):
 				# would give back neither. Its text is also the one thing on the band NVDA
 				# keeps fresh on its own account.
 				continue
+			if self.source.budget.refuseIfExhausted():
+				self._rereadFrom = index
+				cutShort = True
+				break
 			try:
 				result = fetch(rendered.blockId)
 			except Exception:
 				log.debugWarning(f"Could not read {rendered.blockId} again", exc_info=True)
 				continue
 			if result.kind is ResultKind.BLOCK and result.block is not None:
+				if not self._readsTheSame(held, result.block):
+					changed.append(rendered.blockId)
 				self._keep(result.block, replace=True)
 				if self.activeBlockId is not None and rendered.blockId == self.activeBlockId:
 					lostTheCursor = True
+		if not cutShort:
+			self._rereadFrom = 0
 		if lostTheCursor:
 			# Only when the reader's own block was one of the ones replaced. Every other
 			# re-read leaves the active region alone, and saying it again would re-read that
 			# region for nothing on every tick of the live timer.
 			self._setActive(self.activeBlockId)
+		return changed
 
-	def _redrawBlocks(self, why: str) -> None:
+	def _renderingStands(self, block, source, changed) -> bool:
+		""":return: whether a rendering already on the band is still the right one.
+
+		Asked only where the caller could say which blocks it re-read. A rendering depends on
+		the block's cells and on everything in its render key, so a block nobody re-read
+		whose key is unchanged comes out of the renderer exactly as it went in — and laying
+		out a whole band to arrive at the cells already on it is the one piece of work in a
+		live pass that nobody asked for.
+
+		**The cursor's own block is always drawn again.** Its cells depend on where within it
+		the cursor is, and that is not part of the key: NVDA expands the word at the cursor to
+		computer braille, and the caret moves without the block's text changing at all.
+
+		:param block: the rendering the band is holding.
+		:param source: the block behind it.
+		:param changed: the ids of the blocks that were just re-read and said something new.
+		"""
+		if self.activeBlockId is not None and block.blockId == self.activeBlockId:
+			return False
+		if any(block.blockId == blockId for blockId in changed):
+			return False
+		try:
+			return block.renderKey == self.renderer.keyFor(source)
+		except Exception:
+			log.debugWarning("Could not tell whether a rendering still stands", exc_info=True)
+			return False
+
+	def _redrawBlocks(self, why: str, changed=None) -> None:
 		"""Lay every block on the band out again, under whatever the renderer says now.
 
 		Shared by the things that change how the band is drawn without changing what it is
@@ -812,6 +918,11 @@ class FlowController(PanelOwner):
 		again. Every caller wanted every block, so there is nothing left to pass.
 
 		:param why: what asked, for the log.
+		:param changed: the ids of the blocks whose content was just re-read and came back
+			different, so that the rest can keep the rendering they already have. None for a
+			caller that changed how every block is drawn rather than what any of them says —
+			a rebased indent, a different page of columns — where every rendering is stale by
+			construction.
 		"""
 		rendered = list(self.window.blocks)
 		if not rendered:
@@ -824,6 +935,9 @@ class FlowController(PanelOwner):
 				# Rendered but no longer held, which `_trim` does not do to a window block.
 				# Kept as it is rather than dropped: a row drawn at the old indent is wrong by
 				# a few cells, and a row missing is wrong by a row.
+				fresh.append(block)
+				continue
+			if changed is not None and self._renderingStands(block, source, changed):
 				fresh.append(block)
 				continue
 			fresh.append(self.renderer.render(source, fromRow=block.rowOffset))
@@ -1459,12 +1573,17 @@ class FlowController(PanelOwner):
 		# a whole display of movement for a reader who had asked to move one item. Placing by
 		# a guessed direction is placing by a coin toss whenever the cursor leaves the window.
 		forward = self._isForward(blockId)
-		self._keep(result.block)
-		self._setActive(blockId)
+		held = self._keep(result.block)
+		self._setActive(blockId, freshlyRead=held is result.block)
 		# The active region may have followed a caret within an edit, or replaced the
 		# document-bound region with the edit's own. Lay that out before asking which cursor
 		# row is visible; otherwise a cached block answers with yesterday's cursor position.
-		self.refreshActive()
+		#
+		# The reading behind it is skipped only when there has just been one. `_keep` gives
+		# back the region it was already holding whenever that region still belongs to this
+		# block, and that region is the one this arrival came to refresh — so the fresh
+		# reading it discarded has to be taken again here.
+		self.refreshActive(reread=not self._activeIsFreshlyRead)
 		moved = (
 			self.groundAt(blockId)
 			if ground
@@ -1604,7 +1723,12 @@ class FlowController(PanelOwner):
 		# block is found again by value — a block id compares by where it starts, not by
 		# which reading produced it — which is what the restore below has always relied on.
 		self.source.forget()
-		if not self._enterAtCursor():
+		# Entered without filling, because the band is about to be moved. Filling here read
+		# downward from the caret, and the restore below then anchors the window a screen
+		# further back — so on a ten row band five of the rows just read were pushed off the
+		# bottom before anything drew them. The rows the reader gets are chosen first and
+		# fetched once, by the single `fill` at the end.
+		if not self._enterAtCursor(fill=False):
 			self._writingTop = None
 			return None
 		self.rereadWhileWriting = True
@@ -1700,16 +1824,20 @@ class FlowController(PanelOwner):
 		try:
 			self.window.enterAt(active)
 			rowsAbove = self.window.rowsAbove()
-			if rowsAbove > 0:
-				self.window.enterAt(active, contextRows=min(wanted, rowsAbove))
 			# What could not be afforded this time, for the pass that comes back with a fresh
-			# allowance. The rows above are read last and are the first thing a slow editor
-			# costs the reader; see `_owedAbove`.
-			self._owedAbove = (
-				wanted
-				if rowsAbove < wanted and self.window.edges[Edge.BEFORE] is EdgeState.DEFERRED
-				else 0
-			)
+			# allowance. The rows above are the first thing a slow editor costs the reader;
+			# see `_owedAbove`.
+			short = rowsAbove < wanted and self.window.edges[Edge.BEFORE] is EdgeState.DEFERRED
+			if rowsAbove > 0 and not short:
+				self.window.enterAt(active, contextRows=min(wanted, rowsAbove))
+			# **Nothing moves for a part payment**, which is the rule `_payWhatIsOwedAbove`
+			# already keeps and this had no occasion to until the fill below the caret stopped
+			# spending the allowance first. Moving the band up by whatever one pass could
+			# reach walks the display under a reading hand once per pass to arrive where one
+			# move gets it. A caret near the top of the document is not a part payment: there
+			# are simply fewer rows above it, the walk was answered rather than refused, and
+			# what there is goes above the caret now.
+			self._owedAbove = wanted if short else 0
 		except LookupError:
 			log.debugWarning("Could not anchor the band at the caret", exc_info=True)
 
@@ -2095,12 +2223,20 @@ class FlowController(PanelOwner):
 		self._setActive(topId)
 		self._takeCursor(topId)
 
-	def _setActive(self, blockId: "BlockId") -> None:
+	def _setActive(self, blockId: "BlockId", freshlyRead: bool = False) -> None:
 		"""Make one block the active one, and no other.
 
 		Every block holds a collapsed position, so every block looks to NVDA like it holds
 		a cursor. Only the active one is allowed to say so.
+
+		:param freshlyRead: whether the region now held for this block is a reading just
+			taken. What lets `refreshActive` skip a reading it would otherwise repeat: a
+			block fetched and then activated has been read twice in a row with nothing
+			between the two, and a reading is a call into the application. `_keep` may keep
+			the region it already had instead of the fresh one, which is why the caller says
+			rather than the fetch.
 		"""
+		self._activeIsFreshlyRead = freshlyRead
 		self.activeBlockId = blockId
 		for block in self.blocks.values():
 			region = getattr(block, "region", None)
@@ -2130,12 +2266,20 @@ class FlowController(PanelOwner):
 			return
 		# The flow asked for this reading, so it is not news to be acted on again.
 		region.dirty = False
+		# And it is a reading of the block as it is now, which is what `refreshActive` would
+		# otherwise go and take for itself a moment later.
+		self._activeIsFreshlyRead = True
 
-	def refreshActive(self) -> bool:
+	def refreshActive(self, reread: bool = True) -> bool:
 		"""Re-render the block the cursor is in, after it changed under the reader.
 
 		Only that block, because that is the one NVDA marks as pending on the core cycle.
 
+		:param reread: whether to ask the application for the block again first. False where
+			the caller knows the region was read since it became active — activating a block
+			reads it for its cursor, and the reading that followed was the same question
+			asked twice in a row. The re-rendering still happens, because that is what picks
+			the chunk of a long edit the caret is actually in.
 		:return: whether the rendering changed.
 		"""
 		if self.activeBlockId is None:
@@ -2143,15 +2287,17 @@ class FlowController(PanelOwner):
 		block = self.blocks.get(self.activeBlockId)
 		if block is None:
 			return False
-		try:
-			block.region.update()
-		except Exception:
-			log.debugWarning(f"Could not refresh {self.activeBlockId}", exc_info=True)
-			return False
-		if hasattr(block.region, "dirty"):
-			# This flow asked for the reading, so it is not news to be acted on again. See
-			# `_keep`, where the same rule is applied to a block a fetch has just built.
-			block.region.dirty = False
+		if reread:
+			try:
+				block.region.update()
+			except Exception:
+				log.debugWarning(f"Could not refresh {self.activeBlockId}", exc_info=True)
+				return False
+			if hasattr(block.region, "dirty"):
+				# This flow asked for the reading, so it is not news to be acted on again. See
+				# `_keep`, where the same rule is applied to a block a fetch has just built.
+				block.region.dirty = False
+			self._activeIsFreshlyRead = True
 		try:
 			before = self.window.blocks[self.window.blockIndex(self.activeBlockId)]
 		except LookupError:
@@ -2294,6 +2440,16 @@ class FlowController(PanelOwner):
 		else:
 			self._markLineFocus(cells)
 		return self._pinnedRow() + cells
+
+	def displayFrame(self) -> tuple:
+		""":return: everything a redraw would put on the display, for comparing two passes.
+
+		The cells and the cursor, because a pass that only moved the cursor has still changed
+		what is under the reader's fingers. Comparing the cells alone let a re-read that put
+		the caret on a different cell of the same line decide it had changed nothing, and the
+		display then carried a cursor a keystroke behind.
+		"""
+		return (tuple(self.cells()), self.cursorCell())
 
 	def _markLineFocus(self, cells: list[int]) -> None:
 		"""Mark the left of the rows the focus is on.

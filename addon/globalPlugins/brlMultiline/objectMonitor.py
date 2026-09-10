@@ -486,7 +486,11 @@ class ObjectMonitor:
 		if not attached:
 			segment.attach(control)
 		else:
-			segment.refresh()
+			# Drawn here and published below, rather than `refresh`, which does both. Two
+			# publications for one changed pin is two composites of every segment on the
+			# display and two frames to the hardware, and the second says exactly what the
+			# first did.
+			segment.update()
 		container.updateDisplay()
 
 	def _dropFlow(self, segment=None) -> None:

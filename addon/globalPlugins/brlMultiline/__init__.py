@@ -15,6 +15,7 @@ lost when the user saves a setting. Pinned objects are held by segment key, so a
 that keeps their segment keeps the pin.
 """
 
+import time
 from typing import NamedTuple
 
 import addonHandler
@@ -127,6 +128,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		Keyed rather than numbered so that a rebuild which keeps a segment keeps its pin.
 		"""
+
+		self._monitorTurn = 0
+		"""Which pin a timed refresh starts at, so that the rotation is fair.
+
+		See L{refreshMonitorsInTurn}."""
 
 		self._pinsInFlight: list[ObjectMonitor] = []
 		"""Pins a focus move is carrying, until the display it caused has settled.
@@ -1246,6 +1252,47 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return
 		for key, monitor in list(self._monitors.items()):
 			monitor.refresh(reveal=key == reveal)
+
+	def refreshMonitorsInTurn(self, allowance: float) -> bool:
+		"""Refresh the pins that a timer asked about, a slice of a core cycle at a time.
+
+		The other half of `refreshMonitors`, for the one caller that is not answering
+		anything the reader did. A pin has no event behind it, so it is re-read on a clock —
+		and re-reading every pin on that clock put the whole cost of every pin on one core
+		cycle, between the reader's keystrokes. A pin showing a flow can fill, look past its
+		tail and re-read its band in a single refresh, and there may be several of them.
+
+		So a pass is given an allowance and stops when it is spent, and the next pass carries
+		on from where it stopped rather than starting again at the first pin. The allowance
+		cannot shorten one slow pin — nothing here can, any more than `FetchBudget` can
+		shorten one slow block — but it stops the pin after it from being read in the same
+		cycle.
+
+		:param allowance: how long this pass may spend before leaving the rest for the next.
+		:return: whether any pin is still waiting, so the caller knows to come back at once
+			rather than after another whole interval.
+		"""
+		if bmConfig.isSpeechOutputMode():
+			# See `refreshMonitors`: a pin drawn beside speech has nothing to remove it.
+			return False
+		keys = list(self._monitors)
+		if not keys:
+			self._monitorTurn = 0
+			return False
+		start = self._monitorTurn if 0 <= self._monitorTurn < len(keys) else 0
+		began = time.monotonic()
+		for step in range(len(keys)):
+			index = (start + step) % len(keys)
+			monitor = self._monitors.get(keys[index])
+			if monitor is None:
+				# Unpinned while this pass was running.
+				continue
+			monitor.refresh()
+			if time.monotonic() - began >= allowance and step + 1 < len(keys):
+				self._monitorTurn = (index + 1) % len(keys)
+				return True
+		self._monitorTurn = 0
+		return False
 
 	# Scrolling
 

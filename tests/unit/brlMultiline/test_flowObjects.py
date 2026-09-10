@@ -2106,6 +2106,56 @@ class TestAListWhoseItemsAreGrouped(unittest.TestCase):
 		_list, _headings, items = self._inbox()
 		self.assertEqual(self._walk(items["a receipt"]), ["a receipt", "Last week", "an invitation"])
 
+	def _endlessDay(self):
+		""":return: a list whose first day the walk cannot reach the end of.
+
+		Its messages ring round, so the walk never meets a row that is not one of the day's
+		and runs to `MAX_GROUP_ITEMS` — which stands in here for a day holding more messages
+		than the walk is allowed."""
+		_list, headings, items = self._inbox()
+		ring = [items["a release note"], items["a meeting request"]]
+		for index, item in enumerate(ring):
+			item.next = ring[(index + 1) % len(ring)]
+		return headings, items
+
+	def test_theEndOfADayIsAskedForRatherThanWalkedTo(self):
+		"""Reading backward out of a day means finding the last message of the day before it.
+
+		Walked from that day's first message, that is one call into the application per
+		message, and all of them fall inside one step of a walk with no way to yield between
+		them. A container knows its own last child, and answering that is one call whatever
+		the day holds. See `flowObjects._lastChildOf`.
+		"""
+		# The ring makes the walk unable to answer, so a right answer can only be the
+		# container's own.
+		headings, items = self._endlessDay()
+		headings["Today"].lastChild = items["a meeting request"]
+		self.assertIs(flowObjects._lastInGroup(headings["Today"]), items["a meeting request"])
+
+	def test_andSomethingThatIsNotOneOfItsRowsIsNotBelieved(self):
+		"""A list that puts a footer or a loading placeholder after its rows would otherwise
+		offer that as the reader's next row."""
+		_list, headings, items = self._inbox()
+		headings["Today"].lastChild = FakeNavigatorObject("a status footer", role="STATICTEXT")
+		self.assertIs(
+			flowObjects._lastInGroup(headings["Today"]),
+			items["a meeting request"],
+			"the walk was supposed to answer instead",
+		)
+
+	def test_aDayTooLongToWalkSaysSoRatherThanGuessing(self):
+		"""The old walk stopped at five hundred and offered whatever it had reached as the
+		group's true end. On a day holding more than that, reading backward put the reader
+		short of where they should have landed with nothing at all to say so — so where the
+		walk runs out, the answer is that there is no answer. See `MAX_GROUP_ITEMS`."""
+		headings, _items = self._endlessDay()
+		self.assertIsNone(flowObjects._lastInGroup(headings["Today"]))
+
+	def test_andThenReadingBackLandsOnTheHeadingItself(self):
+		"""Which is a row of the list and is honest, where a guessed message is neither."""
+		headings, _items = self._endlessDay()
+		self.assertIs(flowObjects._groupedPrevious(headings["Yesterday"]), headings["Today"])
+
 	def test_aListItemWithNoGroupingAboveItIsNotThisShape(self):
 		"""A list box inside a pane is not a grouped list, and reading it as one would let the
 		walk out of the list and into whatever the pane holds next."""

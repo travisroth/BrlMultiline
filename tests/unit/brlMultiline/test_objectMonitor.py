@@ -17,6 +17,7 @@ claim 2 is tested against something that would fail if the pinned regions were n
 their own bookkeeping.
 """
 
+import time
 import unittest
 
 from ._stubs import (
@@ -297,10 +298,21 @@ class TestRefreshTimer(MonitorTestCase):
 	def setUp(self):
 		super().setUp()
 		self.refreshes = 0
-		self.plugin.refreshMonitors = self.countRefresh
+		self.waiting = False
+		self.plugin.refreshMonitorsInTurn = self.countRefresh
+		patches._lastMonitorRefresh = 0.0
+		patches._monitorsUnfinished = False
+		patches._monitorsRefreshedAt = 0.0
 
-	def countRefresh(self, reveal=None):
+	def tearDown(self):
+		patches._lastMonitorRefresh = 0.0
+		patches._monitorsUnfinished = False
+		patches._monitorsRefreshedAt = 0.0
+		super().tearDown()
+
+	def countRefresh(self, allowance=0.0):
 		self.refreshes += 1
+		return self.waiting
 
 	def pinAndCount(self):
 		"""Pin, then start counting: pinning draws the pin, which is not a tick."""
@@ -321,6 +333,34 @@ class TestRefreshTimer(MonitorTestCase):
 	def test_nothingIsReadWhenNothingIsPinned(self):
 		patches._refreshPinnedObjects()
 		self.assertEqual(self.refreshes, 0)
+
+	def test_aCycleCarryingTheReadersKeystrokeIsLeftToIt(self):
+		"""The one thing a pin must not do is read on the cycle the reader is typing on."""
+		self.pinAndCount()
+		# The pins are current, so there is nothing here that outweighs the keystroke.
+		patches._monitorsRefreshedAt = time.monotonic()
+		patches._refreshPinnedObjects(busy=True)
+		self.assertEqual(self.refreshes, 0)
+		patches._refreshPinnedObjects()
+		self.assertEqual(self.refreshes, 1)
+
+	def test_butTypingDoesNotPausePinsForever(self):
+		"""A pinned clock that stopped for as long as somebody typed would fail exactly when
+		it is being relied on. See `patches.MONITOR_QUIET_AGE`."""
+		self.pinAndCount()
+		patches._monitorsRefreshedAt = time.monotonic() - patches.MONITOR_QUIET_AGE
+		patches._refreshPinnedObjects(busy=True)
+		self.assertEqual(self.refreshes, 1)
+
+	def test_aSliceThatRanOutIsFinishedOnTheNextCycle(self):
+		"""Rather than after another whole interval, which would refresh the pins at the end
+		of the rotation at a fraction of the rate of the ones at the start."""
+		self.pinAndCount()
+		self.waiting = True
+		patches._refreshPinnedObjects()
+		self.assertEqual(self.refreshes, 1)
+		patches._refreshPinnedObjects()
+		self.assertEqual(self.refreshes, 2)
 
 
 class TestAPinTallEnoughToFlow(MonitorTestCase):

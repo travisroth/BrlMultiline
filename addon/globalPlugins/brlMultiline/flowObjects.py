@@ -172,6 +172,24 @@ worth, so failing to place the focus in a list longer than this costs the reader
 rather than costing them time.
 """
 
+MAX_GROUP_ITEMS = 2000
+"""How far the walk to the end of a group will go when the container will not say.
+
+A different question from `MAX_CHILDREN`, which is about placing the focus in a list and
+gives up cheaply because the flow only shows a band's worth either way. This one is about
+the row directly above a group heading, and giving up in the middle of a day's messages is
+not a cheaper answer to it — it is a wrong one. So the walk is only ever the fallback: a
+container is asked for its last child first, which is one call whatever the group holds,
+and a walk from the first child happens only where that was refused or came back with
+something that is not one of the group's rows.
+
+Reaching this means the application answers neither question, and what is returned then is
+nothing at all rather than whichever row the walk stopped on. Five hundred used to be the
+limit and it was reported as the true end of the group: a day holding six hundred messages
+put the reader ninety-nine rows from where reading backward should have landed them, with
+nothing to say so.
+"""
+
 MAX_RUN_SEARCH = 500
 """How many objects the search for a declared run may look at, all told.
 
@@ -429,16 +447,26 @@ def _lastVisibleDescendant(obj):
 		child = _firstVisibleChild(node)
 		if child is None:
 			return node
-		last = child
-		for _ in range(MAX_CHILDREN):
-			try:
-				following = getattr(last, "next", None)
-			except Exception:
-				log.debugWarning("Could not walk a node's children", exc_info=True)
-				break
-			if following is None:
-				break
-			last = following
+		# Asked of the container before its rows are walked, for the same reason the group
+		# walk asks: it is one call however many rows are open under a branch, and walking
+		# them is one call each. See `_lastChildOf`.
+		#
+		# Of the *first row's own* container rather than of the node, because they are not
+		# always the same one: several providers hang a tree item's rows off a grouping in
+		# between, and there `node.lastChild` is that grouping — scenery, not a row. Checked
+		# for being a row as well, since a container may end with something that is neither.
+		last = _lastChildOf(_containerOf(child))
+		if not _isTreeItem(last):
+			last = child
+			for _ in range(MAX_GROUP_ITEMS):
+				try:
+					following = getattr(last, "next", None)
+				except Exception:
+					log.debugWarning("Could not walk a node's children", exc_info=True)
+					break
+				if following is None:
+					break
+				last = following
 		node = last
 	return node
 
@@ -775,12 +803,57 @@ def _firstInGroup(group):
 	return found if _isRunMember(found) else None
 
 
+def _containerOf(obj):
+	""":return: the object's own parent, whatever that parent is, or None.
+
+	Not `_rowAbove`, which climbs past scenery to the nearest row. What is wanted here is the
+	thing that literally holds this one, because that is what can be asked for its last
+	child.
+	"""
+	if obj is None:
+		return None
+	try:
+		return getattr(obj, "parent", None)
+	except Exception:
+		log.debugWarning("Could not read an object's parent", exc_info=True)
+		return None
+
+
+def _lastChildOf(container):
+	""":return: a container's last child as it says itself, or None where it will not say.
+
+	One call whatever the container holds, which is the whole point: the alternative is
+	walking from the first child, and every step of that walk is a call into the
+	application. Not trusted blindly — the caller checks that what comes back belongs to
+	the run — because a list that puts a footer or a loading placeholder after its rows
+	would otherwise offer that as the reader's next row.
+	"""
+	if container is None:
+		return None
+	try:
+		return getattr(container, "lastChild", None)
+	except Exception:
+		log.debugWarning("Could not ask a container for its last child", exc_info=True)
+		return None
+
+
 def _lastInGroup(group):
-	""":return: the last item of a group, or None. See `_firstInGroup`."""
+	""":return: the last item of a group, or None. See `_firstInGroup`.
+
+	None also means "this could not be answered", which is not the same as the group being
+	empty and is treated the same way by the one caller: `_groupedPrevious` offers the group
+	heading instead. Reading backward out of a day lands on the heading above it rather than
+	partway into a day whose end was guessed at. See `MAX_GROUP_ITEMS`.
+	"""
 	found = _firstInGroup(group)
 	if found is None:
 		return None
-	for _ in range(MAX_CHILDREN):
+	last = _lastChildOf(group)
+	if last is found:
+		return found
+	if last is not None and _isRunMember(last):
+		return last
+	for _ in range(MAX_GROUP_ITEMS):
 		try:
 			after = getattr(found, "next", None)
 		except Exception:
@@ -789,7 +862,8 @@ def _lastInGroup(group):
 		if not _isRunMember(after):
 			return found
 		found = after
-	return found
+	log.debugWarning(f"A group held more than {MAX_GROUP_ITEMS} rows, so where it ends is unknown")
+	return None
 
 
 def _groupBeside(group, forward: bool):

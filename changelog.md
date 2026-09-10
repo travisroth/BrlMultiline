@@ -418,6 +418,48 @@ For add-on authors and component work:
 - Wrapping and cursor routing behaviour are per segment, so a claimed area can behave
   differently from the display around it. Neither is exposed in the settings dialog.
 
+Fixed, from a performance review of flow editing:
+
+- A letter typed after a pause appeared only once the next one had been typed. The pass
+  that re-reads an edit shortly after a keystroke rebuilds the band's blocks, and so
+  replaces the region NVDA reaches for at `mainBuffer.regions[-1]` — but a pass that found
+  the cells unchanged returned without telling the segment, so NVDA queued the retired
+  region, re-read it, and the band was handed a replacement with nothing marked as read.
+  Pointing NVDA at the block the band draws is now separate from deciding whether to write
+  the display, and happens on every path; a reading queued on a region that is replaced
+  before it is acted on moves with the block. The same fault, and the same repair, in the
+  live-content pass. A pass also now compares the cursor as well as the cells, so a re-read
+  that moved only the caret still redraws.
+- One keystroke while writing cost a third more reads of the document than it needed. The
+  caret's own line was fetched, read again for its cursor and then read a third time with
+  nothing in between; and the band filled downward from the caret before being put back
+  under the row the reader had, so on a ten row band half the rows fetched were pushed off
+  the bottom before anything drew them. The window is chosen first and filled once, and the
+  block is activated before its first translation rather than after it.
+- Reading backward out of a day in a grouped list — Outlook's inbox — could land the reader
+  short of the previous day's last message with nothing to say so, because the walk to the
+  end of a group stopped at five hundred and offered whatever it had reached as the true
+  end. The container is asked for its last row first, which is one call whatever the day
+  holds, and where nothing can answer the walk says so rather than guessing. The same for
+  the last visible row of a tree branch, including behind the grouping some providers put
+  between a node and its rows.
+- A live re-read of the band ignored its own allowance: the operation was entered and then
+  every held block was fetched without a gate between them. Each block is now gated, a pass
+  cut short carries on from where it stopped rather than starting again at the top, and a
+  block nobody re-read keeps the rendering it already has.
+- Reaching the tail of a very long paragraph cut every row in front of it and threw them
+  away, on each keystroke. Where every row is the band's width — a narrow band, every table
+  cell — the rows are now counted rather than walked. Word wrapping is unchanged, since
+  there a row's end really does depend on the row before it.
+- Pinned objects were all re-read on whichever core cycle their interval expired on,
+  including the cycle carrying the reader's keystroke. A cycle NVDA has an update pending on
+  is left to it, up to a maximum staleness, and a cycle that does refresh spends a small
+  allowance and rotates fairly between the pins. A changed pin also published its display
+  once rather than twice.
+- The cost command reported only the second half of an arrival that had to be given a
+  second allowance, so a slow reach in front of a placement was invisible in the very
+  numbers the budget is judged by.
+
 Verified on a Focus 80 so far: configuration, two segment layouts, focus and caret
 tracking, cursor routing, reversed panning, and pinning. Everything else is unverified. See
 `docs/design/port-plan.md`.
