@@ -462,6 +462,64 @@ class TestTheCatalogue(unittest.TestCase):
 		self.assertIsNone(describeAt)
 
 
+class TestTheListing(unittest.TestCase):
+	"""The vocabulary written out, each shape beside the braille it replaces.
+
+	A shape on its own cannot be judged: the question is never "is this a good drawing of a
+	button" but "is this better under a finger than the cells it takes the place of", and that
+	is a comparison. Which means the half showing what it replaces has to be right.
+	"""
+
+	def test_everySymbolIsWrittenOut(self):
+		text = glyphs.listing()
+		for name in glyphs.VOCABULARY:
+			with self.subTest(name):
+				self.assertIn(name, text)
+
+	def test_aWordingIsDrawnAndNotLeftToBeImagined(self):
+		text = glyphs.listing({"button": glyphs.BUTTON})
+		self.assertIn("1 cell in place of 3, saving 2", text)
+
+	def test_aNumberCostsItsNumericIndicator(self):
+		"""NVDA writes a heading as "h1", which is three cells of braille and not two: the digit
+		needs the numeric indicator in front of it. Drawing it as one letter and a blank made
+		the listing report a saving of one cell where the real one is two."""
+		text = glyphs.listing({"heading1": glyphs.HEADING_1})
+		self.assertIn("1 cell in place of 3, saving 2", text)
+
+	def test_aFallbackWrittenAsDotsIsCountedByItsCells(self):
+		text = glyphs.listing({"separator": glyphs.SEPARATOR})
+		self.assertIn("1 cell in place of 5, saving 4", text)
+
+	def test_theTotalIsTheSumOfWhatIsGivenBack(self):
+		text = glyphs.listing({"button": glyphs.BUTTON, "separator": glyphs.SEPARATOR})
+		self.assertIn("2 symbols, 6 cells given back.", text)
+
+
+class TestSpellingAWordingOut(unittest.TestCase):
+	"""For the listing only. What reaches a display is the reader's own table, asked for at the
+	moment of use — see `fittedGlyph`."""
+
+	def test_aLetterIsItsOwnCell(self):
+		self.assertEqual(glyphs._spelled("b"), [glyphs.ALPHABET["b"]])
+
+	def test_aRunOfDigitsTakesOneIndicator(self):
+		self.assertEqual(
+			glyphs._spelled("12"),
+			[glyphs.NUMBER, glyphs.DIGITS["1"], glyphs.DIGITS["2"]],
+		)
+
+	def test_aLetterAfterADigitEndsTheNumber(self):
+		self.assertEqual(
+			glyphs._spelled("1a1"),
+			[glyphs.NUMBER, glyphs.DIGITS["1"], glyphs.ALPHABET["a"], glyphs.NUMBER, glyphs.DIGITS["1"]],
+		)
+
+	def test_somethingTheAlphabetHasNoEntryForStillCostsACell(self):
+		"""Drawn blank rather than dropped, so the count still says what the wording costs."""
+		self.assertEqual(len(glyphs._spelled("a?")), 2)
+
+
 class TestWhetherADisplayGainsAnything(unittest.TestCase):
 	def test_aDisplayWithAGapColumnToReclaimDoes(self):
 		self.assertTrue(glyphs.supported(FakeDriver(glyphSize=(3, 4), cellSize=(2, 4))))

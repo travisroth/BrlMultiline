@@ -28,6 +28,13 @@ Added:
   is full of buttons and never goes near browse mode. It also does not care which side of the
   name NVDA puts the word on, which differs between browse mode and an ordinary window.
 
+  Twenty-six symbols, sixty-five cells given back between them. Buttons, toggle and radio
+  buttons, edit and password fields, combo boxes, lists, menu items, tables, graphics, progress
+  bars, separators, submenu markers, links, visited links, headings at the first three levels,
+  and the checked, half checked and pressed states with their absences. The words NVDA writes
+  for these are read out of NVDA at run time rather than written down here, so a reader running
+  it in another language gets the shapes over their own abbreviations.
+
   Off by default: the words are a notation you already know and the shapes are this add-on's
   own. There is an unbound command that draws the whole vocabulary with the braille each shape
   replaces beside it, for learning them.

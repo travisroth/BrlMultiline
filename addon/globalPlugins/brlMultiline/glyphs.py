@@ -550,6 +550,49 @@ PROGRESS = Glyph(
 	OOO
 """
 
+VISITED_LINK = Glyph(
+	dots="1,5,11",
+	says="vlnk",
+	stands="Role.LINK with State.VISITED",
+	describes="a stroke falling to the right, somewhere you have been",
+)
+"""A link already followed.
+
+The mirror of `LINK`. Two opposite diagonals is about the largest difference two shapes this
+sparse can have, which is what a pair distinguished by one fact rather than by kind wants: the
+rising stroke is going somewhere and the falling one is coming back.
+"""
+
+HEADING_1 = Glyph(
+	dots="1,4,7,9",
+	says="h1",
+	stands="Role.HEADING at level 1",
+	describes="a rule at the top with one dot under it",
+)
+HEADING_2 = Glyph(
+	dots="1,4,7,8,9",
+	says="h2",
+	stands="Role.HEADING at level 2",
+	describes="a rule at the top with two dots under it",
+)
+HEADING_3 = Glyph(
+	dots="1,4,7,8,9,12",
+	says="h3",
+	stands="Role.HEADING at level 3",
+	describes="a rule at the top with three dots under it",
+)
+"""The heading family: one roof, and the level counted along the bottom.
+
+Three levels and not six, because there are three places along the bottom row and counting
+dots is something a braille reader does without thinking. A deeper heading keeps NVDA's own
+"h4" and is the better for it: level four is rare, and a shape nobody meets often enough to
+learn is worse than three cells that spell it.
+
+The level is drawn as a count rather than as the height of the rule, which was the first idea
+and the wrong one — a rule at row three is `SEPARATOR`, and rows one to three filled is
+`FOCUS`. A family that collides with two other symbols is not a family.
+"""
+
 SEPARATOR = Glyph(
 	dots="3,6,11",
 	fallbackDots="3,6|3,6|3,6|3,6|3,6",
@@ -601,6 +644,10 @@ VOCABULARY = {
 	"combo": COMBO,
 	"submenu": SUBMENU,
 	"link": LINK,
+	"visitedLink": VISITED_LINK,
+	"heading1": HEADING_1,
+	"heading2": HEADING_2,
+	"heading3": HEADING_3,
 	"list": LIST,
 	"menuItem": MENU_ITEM,
 	"table": TABLE,
@@ -636,6 +683,21 @@ that the vocabulary can be written out and studied without a running NVDA, and b
 listing that showed a glyph and left the reader to imagine what it replaced was not showing
 them the thing they needed to compare.
 """
+
+DIGITS = {
+	"1": "1", "2": "1,2", "3": "1,4", "4": "1,4,5", "5": "1,5",
+	"6": "1,2,4", "7": "1,2,4,5", "8": "1,2,5", "9": "2,4", "0": "2,4,5",
+}
+"""The digits, which braille writes as the first ten letters after a numeric indicator.
+
+Here for the same reason as `ALPHABET` and with the same warning: the listing draws with it so
+that a vocabulary can be studied without a running NVDA. A heading is the entry that needs it —
+NVDA writes "h1", and drawing that as one letter and a blank made the listing report a saving
+of one cell where the real one is two.
+"""
+
+NUMBER = "3,4,5,6"
+"""The numeric indicator, which is why "h1" is three cells of braille and not two."""
 
 LISTING_GAP = 11
 """Characters the glyph column is padded to in `listing`, so the two halves line up.
@@ -705,13 +767,36 @@ def _replacedRows(glyph: Glyph) -> "list[str]":
 	if glyph.fallbackDots:
 		groups = glyph.fallbackDots.split(GROUP)
 	else:
-		groups = [ALPHABET.get(character.lower(), "") for character in glyph.says]
+		groups = _spelled(glyph.says)
 	raised = [[False] * (2 * len(groups)) for _ in range(CELL_HEIGHT)]
 	for cell, group in enumerate(groups):
 		for dot in _numbers(group):
 			column, row = CELL_DOTS[dot]
 			raised[row][cell * 2 + column] = True
 	return ["".join("O" if on else "." for on in row) for row in raised]
+
+
+def _spelled(says: str) -> "list[str]":
+	""":return: one cell's dots per cell a wording takes, for the listing to draw.
+
+	A numeric indicator goes in front of a run of digits, which is what braille does and what
+	makes "h1" three cells rather than two. Anything the alphabet has no entry for is drawn as a
+	blank cell rather than dropped, so the count still says how many cells the wording costs.
+
+	:param says: the wording, as NVDA writes it.
+	"""
+	groups = []
+	inNumber = False
+	for character in says:
+		if character in DIGITS:
+			if not inNumber:
+				groups.append(NUMBER)
+				inNumber = True
+			groups.append(DIGITS[character])
+			continue
+		inNumber = False
+		groups.append(ALPHABET.get(character.lower(), ""))
+	return groups
 
 
 SLOT = 2

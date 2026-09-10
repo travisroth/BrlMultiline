@@ -85,6 +85,13 @@ place, and turning the setting off brings the words straight back. A display tha
 a shape shows the words anyway, which is also what happens for anything the vocabulary has no
 shape for.
 
+There are twenty-six shapes: buttons, toggle and radio buttons, edit and password fields,
+combo boxes, lists, menu items, tables, graphics, progress bars, separators, submenu markers,
+links, visited links, headings at the first three levels, and the checked, half checked and
+pressed states with their absences. Between them they give sixty-five cells back. A heading
+below level three keeps its word, since a shape you rarely meet is worse than a word you can
+read.
+
 It is off by default because the words are a notation you already know and the shapes are
 this add-on's own. To learn them, assign a gesture to "Graphics: Show the glyph catalogue" in
 NVDA's Input Gestures — it is unbound, being a tool for learning the shapes rather than one

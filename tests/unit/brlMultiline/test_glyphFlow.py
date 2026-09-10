@@ -77,6 +77,11 @@ class GlyphTestCase(unittest.TestCase):
 		self.section = bmConfig.getDisplayConfig()
 		self.section["drawGlyphs"] = True
 
+	def given(self, table):
+		"""Put a table of made up labels in place of the one read out of NVDA."""
+		glyphFlow._TOKENS = dict(table)
+		glyphFlow._ORDERED = None
+
 	def region(self, text):
 		""":return: a region holding one line, one cell per character."""
 		built = Region()
@@ -120,6 +125,39 @@ class TestWhichWordsAShapeStandsOver(GlyphTestCase):
 		self.assertIsNot(glyphFlow.tokens().get("btn"), glyphs.WIDE_BUTTON)
 
 
+class TestTheWordsNVDABuildsRatherThanLooksUp(GlyphTestCase):
+	"""A visited link and a heading are not in `braille.labels`.
+
+	`getPropertiesBraille` composes them where it meets the role — a link carrying
+	`State.VISITED`, a heading with a level — so there is no dictionary to read them out of and
+	the message id goes through NVDA's own catalogue instead.
+	"""
+
+	def test_aVisitedLinkHasItsOwnShape(self):
+		self.assertIs(glyphFlow.tokens()["vlnk"], glyphs.VISITED_LINK)
+
+	def test_itIsNotTheShapeForALinkNotYetFollowed(self):
+		"""The mirror of it. The rising stroke is going somewhere and the falling one is coming
+		back, which is about the largest difference two shapes this sparse can carry."""
+		self.assertIsNot(glyphFlow.tokens()["vlnk"], glyphFlow.tokens()["lnk"])
+
+	def test_theFirstThreeHeadingLevelsHaveShapes(self):
+		table = glyphFlow.tokens()
+		self.assertIs(table["h1"], glyphs.HEADING_1)
+		self.assertIs(table["h2"], glyphs.HEADING_2)
+		self.assertIs(table["h3"], glyphs.HEADING_3)
+
+	def test_aDeeperHeadingKeepsItsWord(self):
+		"""Level four is rare, and a shape nobody meets often enough to learn is worse than
+		three cells that spell it."""
+		self.assertNotIn("h4", glyphFlow.tokens())
+
+	def test_aLevelIsNotFoundInsideALongerNumber(self):
+		self.assertEqual(glyphFlow.marksIn("h10 Something"), [])
+		found = glyphFlow.marksIn("h1 Favorites")
+		self.assertEqual([(start, end) for start, end, _glyph in found], [(0, 2)])
+
+
 class TestFindingThemInALine(GlyphTestCase):
 	"""Whole words only.
 
@@ -154,6 +192,21 @@ class TestFindingThemInALine(GlyphTestCase):
 	def test_severalAreFoundLeftToRight(self):
 		found = glyphFlow.marksIn("⣏⣿⣹ edt Name")
 		self.assertEqual([start for start, _end, _glyph in found], [0, 4])
+
+	def test_aLabelOfSeveralWordsIsMatchedWhole(self):
+		"""The labels are NVDA's translated ones, and nothing says a language has to render
+		a role in one word — NVDA's own "sorted asc" already does not. Splitting the line
+		into tokens and looking each one up would have found no such label at all.
+		"""
+		self.given({"two words": glyphs.BUTTON})
+		found = glyphFlow.marksIn("Search two words now")
+		self.assertEqual([(start, end) for start, end, _glyph in found], [(7, 16)])
+
+	def test_aLongerLabelWinsOverOneItBeginsWith(self):
+		self.given({"a": glyphs.BUTTON, "a b": glyphs.CHECKED})
+		found = glyphFlow.marksIn("a b")
+		self.assertEqual(len(found), 1)
+		self.assertIs(found[0][2], glyphs.CHECKED)
 
 	def test_aLineWithNothingInItFindsNothing(self):
 		self.assertEqual(glyphFlow.marksIn(""), [])

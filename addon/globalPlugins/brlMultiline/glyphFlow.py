@@ -127,6 +127,21 @@ NEGATIVE_GLYPHS = {
 }
 """Which entry stands over each state NVDA writes when the state is absent."""
 
+HEADING_LEVELS = (1, 2, 3)
+"""Which heading levels have a shape. See `glyphs.HEADING_1` for why it stops at three."""
+
+VISITED_LINK = "vlnk"
+"""NVDA's own message for a link already followed, as its catalogue lists it.
+
+Not in `braille.labels`: `getPropertiesBraille` composes it where it finds `State.VISITED` on
+a link, so there is no dictionary to read it out of. What is written here is the message id,
+and it goes through NVDA's own catalogue before it is used — see `_nvdaSays` — so this is not
+the English text being matched, it is the key that finds the reader's own.
+"""
+
+HEADING = "h%s"
+"""NVDA's own template for a heading, as its catalogue lists it. See `VISITED_LINK`."""
+
 try:
 	from braille.constants import TEXT_SEPARATOR as SEPARATOR
 except Exception:  # pragma: no cover - an NVDA that has moved it
@@ -140,6 +155,9 @@ what a whole word is if the constant ever moves. Whole words are the whole of th
 
 _TOKENS: Optional[dict] = None
 """The token table, built once. Cleared by `forget`."""
+
+_ORDERED: "Optional[list[str]]" = None
+"""Its labels, longest first, so that one beginning with another is not lost to it."""
 
 
 class Target(NamedTuple):
@@ -263,8 +281,9 @@ def forget() -> None:
 	Called when the display or the configuration changes. Cheap to rebuild and wrong to keep:
 	the labels are translated strings, and a profile switch can change the language.
 	"""
-	global _TOKENS
+	global _ORDERED, _TOKENS
 	_TOKENS = None
+	_ORDERED = None
 
 
 def tokens() -> dict:
@@ -283,10 +302,59 @@ def tokens() -> dict:
 def _buildTokens() -> dict:
 	""":return: the token table. See `tokens`."""
 	found = _fromNVDA()
-	if found:
-		return found
-	log.debugWarning("BrlMultiline: using this add-on's own wordings for glyphs, not NVDA's")
-	return _fromVocabulary()
+	if not found:
+		log.debugWarning("BrlMultiline: using this add-on's own wordings for glyphs, not NVDA's")
+		found = _fromVocabulary()
+	found.update(_fromComposition())
+	return found
+
+
+def _nvdaSays(message: str) -> str:
+	"""Put one of NVDA's own messages through NVDA's own catalogue.
+
+	**Deliberately not written as a call to this add-on's underscore.** The message ids it is
+	given are NVDA's, and translating them against this add-on's catalogue would find nothing
+	and hand back the English — the failure that looks exactly like the feature being off. It
+	would also offer them to this add-on's translators, who have no business being asked to
+	translate somebody else's strings.
+
+	NVDA installs its gettext into builtins, which is why it is reached that way rather than
+	imported. A build that has installed none leaves the message as it is, and the English is
+	then the honest answer rather than a crash.
+
+	:param message: the message id, exactly as NVDA's source writes it.
+	:return: what NVDA would put on the line.
+	"""
+	import builtins
+
+	translate = getattr(builtins, "_", None)
+	if not callable(translate):
+		return message
+	try:
+		return str(translate(message))
+	except Exception:
+		log.debugWarning(f"BrlMultiline: {message!r} could not be translated", exc_info=True)
+		return message
+
+
+def _fromComposition() -> dict:
+	""":return: the words NVDA builds rather than looks up, to the entry standing over each.
+
+	A visited link and a heading are not in `braille.labels`. `getPropertiesBraille` composes
+	them where it meets the role — a link carrying `State.VISITED`, a heading with a level — so
+	there is no dictionary to read, and the message is asked of NVDA's catalogue instead.
+	"""
+	found: dict = {}
+	_offer(found, _nvdaSays(VISITED_LINK), "visitedLink")
+	template = _nvdaSays(HEADING)
+	for level in HEADING_LEVELS:
+		try:
+			written = template % level
+		except Exception:
+			log.debugWarning(f"BrlMultiline: {template!r} is not a heading template", exc_info=True)
+			break
+		_offer(found, written, f"heading{level}")
+	return found
 
 
 def _fromNVDA() -> dict:
@@ -318,7 +386,8 @@ def _fromNVDA() -> dict:
 def _fromVocabulary() -> dict:
 	""":return: the token table built from the vocabulary's own wordings."""
 	found: dict = {}
-	for name in set(ROLE_GLYPHS.values()) | set(POSITIVE_GLYPHS.values()) | set(NEGATIVE_GLYPHS.values()):
+	named = set(ROLE_GLYPHS.values()) | set(POSITIVE_GLYPHS.values()) | set(NEGATIVE_GLYPHS.values())
+	for name in named:
 		glyph = glyphs.VOCABULARY.get(name)
 		if glyph is None:
 			continue
@@ -368,28 +437,74 @@ def _brailleText(glyph) -> str:
 
 
 def marksIn(rawText: str) -> "list[tuple]":
-	"""Find every word in a line that a shape stands over.
+	"""Find everything in a line that a shape stands over.
 
-	**Whole words only.** NVDA joins the things it says about an object with a single space, so
-	a role is always a token of its own; "btn" inside somebody's text is their text. Matching
-	anywhere in the line would have put a button on the middle of a word, which is the kind of
-	fault a reader meets as a shape that means nothing and has no way to trace.
+	**Whole words only, and nothing to do with which words they are.** NVDA joins the things it
+	says about an object with a single space, so what it wrote is always a token of its own;
+	"btn" inside somebody's text is their text. Matching anywhere in the line would have put a
+	button in the middle of a word, which reads as a shape that means nothing and cannot be
+	traced back.
+
+	**Nor with where in the line they fall.** NVDA is not consistent about which side of the
+	name the word goes: browse mode writes "btn Search" and an ordinary window writes it the
+	other way about. Scanning from every word boundary makes that somebody else's problem.
+
+	**A word here may be several.** The labels are NVDA's translated ones, and nothing says a
+	language has to render a role in one word — NVDA's own "sorted asc" already does not. So
+	the longest label that fits at a boundary wins, rather than one token being looked up.
 
 	:param rawText: the line as NVDA wrote it.
-	:return: (start, end, glyph) per word found, left to right.
+	:return: (start, end, glyph) per label found, left to right.
 	"""
 	table = tokens()
 	if not table or not rawText:
 		return []
+	labels = _byLength()
 	found = []
-	start = 0
-	for word in rawText.split(SEPARATOR):
-		end = start + len(word)
-		glyph = table.get(word)
-		if glyph is not None:
-			found.append((start, end, glyph))
-		start = end + len(SEPARATOR)
+	at = 0
+	length = len(rawText)
+	while at < length:
+		matched = _labelAt(rawText, at, labels, table)
+		if matched is not None:
+			found.append(matched)
+			at = matched[1] + len(SEPARATOR)
+			continue
+		nextWord = rawText.find(SEPARATOR, at)
+		if nextWord < 0:
+			break
+		at = nextWord + len(SEPARATOR)
 	return found
+
+
+def _labelAt(rawText: str, at: int, labels: "list[str]", table: dict):
+	""":return: (start, end, glyph) for the label starting here, or None.
+
+	Longest first, so a label that begins with another one is not lost to it. What follows has
+	to be a separator or the end of the line, which is what makes "h1" fail to match inside
+	"h10".
+
+	:param rawText: the line.
+	:param at: a word boundary in it.
+	:param labels: every label, longest first.
+	:param table: label to entry.
+	"""
+	length = len(rawText)
+	for label in labels:
+		end = at + len(label)
+		if end > length or not rawText.startswith(label, at):
+			continue
+		if end < length and rawText[end] != SEPARATOR:
+			continue
+		return at, end, table[label]
+	return None
+
+
+def _byLength() -> "list[str]":
+	""":return: every label, longest first. Built with the table and dropped with it."""
+	global _ORDERED
+	if _ORDERED is None:
+		_ORDERED = sorted(tokens(), key=len, reverse=True)
+	return _ORDERED
 
 
 def compressRegion(region) -> dict:
