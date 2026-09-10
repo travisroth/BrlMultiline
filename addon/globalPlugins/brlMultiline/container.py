@@ -458,10 +458,13 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 		"""
 		if self is not self.handler.buffer:
 			return
-		target = glyphFlow.glyphTarget()
-		if target is None:
+		targets = glyphFlow.glyphTargets()
+		if not targets:
 			return
-		found = {}
+		# One table per member, **including the empty ones**. Two displays driven as one are two
+		# pieces of hardware, each keeping its own registrations, and a member left unaddressed
+		# would go on drawing whatever it was last given until a frame happened to disturb it.
+		found = {id(target.driver): {} for target in targets}
 		for segment in self.segments:
 			ask = getattr(segment, "cellGlyphs", None)
 			if ask is None:
@@ -474,13 +477,16 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 			rect = segment.rect
 			for position, fitted in marks.items():
 				row, col = divmod(position, rect.numCols)
-				index = target.indexFor(rect.row + row, rect.col + col)
-				if index is not None:
-					found[index] = fitted.drawn
-		try:
-			target.driver.setCellGlyphs(found)
-		except Exception:
-			log.debugWarning("Could not give the display its glyphs", exc_info=True)
+				for target in targets:
+					index = target.indexFor(rect.row + row, rect.col + col)
+					if index is not None:
+						found[id(target.driver)][index] = fitted.drawn
+						break
+		for target in targets:
+			try:
+				target.driver.setCellGlyphs(found[id(target.driver)])
+			except Exception:
+				log.debugWarning("Could not give a display its glyphs", exc_info=True)
 
 	windowRawText: Any
 	"""The text of the whole display, in segment order."""

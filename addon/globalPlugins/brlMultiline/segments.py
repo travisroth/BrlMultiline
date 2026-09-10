@@ -16,6 +16,7 @@ per row word wrapping and continuation marks.
 from typing import TYPE_CHECKING, Any
 
 from braille.buffers import BrailleBuffer, _WindowRowPositions
+from logHandler import log
 from braille.display import DisplayDimensions
 from braille.regions.base import Region
 
@@ -236,10 +237,29 @@ class BrailleBufferSegment(BrailleBuffer):
 
 		A segment built only to lay text out is left alone. Its caller has already decided.
 		"""
+		target = self.glyphTarget()
 		if self.isOnDisplay:
 			for region in self.visibleRegions:
-				glyphFlow.compressRegion(region)
+				glyphFlow.compressRegion(region, target)
 		super().update()
+
+	def glyphTarget(self):
+		""":return: the display this segment is drawn on, if one piece of hardware can draw a
+		shape in a cell on every row of it.
+
+		Asked of the rows rather than of the arrangement, because two displays driven as one are
+		two pieces of hardware. A segment on the Focus half of a Focus and Monarch must keep its
+		words even though the Monarch is plugged in, and a segment straddling the join between
+		them can only have its shapes registered against one of the two, so it keeps its words
+		as well.
+		"""
+		if not self.isOnDisplay:
+			return None
+		try:
+			return glyphFlow.targetForRows(self.rect.row, self.rect.numRows)
+		except Exception:
+			log.debugWarning("Could not ask which display a segment is on", exc_info=True)
+			return None
 
 	def cellGlyphs(self) -> dict:
 		""":return: `{position in this segment's window: the fitted glyph}`.

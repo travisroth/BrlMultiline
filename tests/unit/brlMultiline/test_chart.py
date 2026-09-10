@@ -131,6 +131,73 @@ def spell(text):
 	return [0b00000001 for _ in text]
 
 
+class TestAChartWithNegativesInIt(unittest.TestCase):
+	"""One scale, and zero is one of the numbers it has to hold.
+
+	The chart used to place the zero line by the whole low-to-high range and then draw each bar
+	as a fraction of the largest magnitude. Those are two different scales whenever the positive
+	and negative extremes differ, and the reader has no way at all to tell: the drawing is
+	plausible, the labels are right, and the proportions are wrong.
+	"""
+
+	def barHeights(self, values, width=24, height=41):
+		""":return: (rows above the baseline, rows below) for each bar.
+
+		A Monarch is forty rows of pins, so the numbers below are the ones a hand would meet.
+		"""
+		series = [Series(chr(ord("a") + index), value) for index, value in enumerate(values)]
+		drawing = barChart(newBuffer, width, height, series)
+		text = rows(drawing)
+		slot = width // len(values)
+		baseline = next(y for y, row in enumerate(text) if all(cell == "O" for cell in row))
+		found = []
+		for index in range(len(values)):
+			column = index * slot
+			above = sum(1 for y in range(baseline) if text[y][column] == "O")
+			below = sum(1 for y in range(baseline + 1, height) if text[y][column] == "O")
+			found.append((above, below))
+		return baseline, found
+
+	def test_aPositiveBarFillsTheRoomAboveTheLine(self):
+		"""The failure this is here for: +25 beside −75 put zero a quarter of the way down,
+		correctly, and then drew the +25 bar as a third of that quarter."""
+		baseline, heights = self.barHeights([25.0, -75.0])
+		above, _below = heights[0]
+		self.assertEqual(above, baseline)
+
+	def test_aNegativeBarFillsTheRoomBelowIt(self):
+		baseline, heights = self.barHeights([25.0, -75.0])
+		_above, below = heights[1]
+		self.assertEqual(below, 40 - baseline)
+
+	def test_theOtherWayAboutIsTheSame(self):
+		baseline, heights = self.barHeights([75.0, -25.0])
+		self.assertEqual(heights[0][0], baseline)
+		self.assertEqual(heights[1][1], 40 - baseline)
+
+	def test_theLineSitsWhereZeroIs(self):
+		"""A quarter of the way down for +25 against −75, because that is where zero falls."""
+		baseline, _heights = self.barHeights([25.0, -75.0])
+		self.assertEqual(baseline, 10)
+
+	def test_barsKeepTheirRatioToEachOther(self):
+		"""Which is what a finger is actually comparing."""
+		_baseline, heights = self.barHeights([25.0, -75.0])
+		self.assertEqual(heights[1][1], 3 * heights[0][0])
+
+	def test_aSmallValueIsStillABarClearOfTheFloor(self):
+		"""Rounding it to nothing shows as bare floor, which reads as a missing value rather
+		than a small one."""
+		_baseline, heights = self.barHeights([1000.0, -1.0])
+		self.assertGreaterEqual(heights[1][1], 1)
+
+	def test_everyValueZeroLeavesTheFloorAtTheBottom(self):
+		"""A row of empty slots halfway up reads as a chart whose bars have been cut off; the
+		same row along the floor reads as nothing to show."""
+		baseline, _heights = self.barHeights([0.0, 0.0])
+		self.assertEqual(baseline, 40)
+
+
 class TestWritingOnTheChart(unittest.TestCase):
 	"""Labels under the bars and values over them.
 
@@ -255,6 +322,29 @@ class TestWhatAChartRefuses(unittest.TestCase):
 	def test_aDisplayThatWillNotProvideABuffer(self):
 		with self.assertRaises(ChartRefused):
 			barChart(lambda width, height: None, 20, 10, [Series("a", 1)])
+
+
+class TestAValueThatIsNotANumber(unittest.TestCase):
+	"""A cell holding an error, an overflow or a division by zero.
+
+	It used to reach the drawing and raise there — "cannot convert float NaN to integer" — with
+	nothing left to say which cell it came from. A refusal names the problem where the reader
+	can act on it.
+	"""
+
+	def test_aBarChartRefusesRatherThanCrashing(self):
+		"""Refused rather than skipped: a bar carries its own label, so leaving one out would
+		move every label after it and quietly rename the bars."""
+		with self.assertRaises(ChartRefused):
+			barChart(newBuffer, 24, 10, [Series("a", 1.0), Series("b", float("nan"))])
+
+	def test_infinityIsRefusedTheSameWay(self):
+		with self.assertRaises(ChartRefused):
+			barChart(newBuffer, 24, 10, [Series("a", 1.0), Series("b", float("inf"))])
+
+	def test_aSheetCellHoldingOneIsNotReadAsANumber(self):
+		self.assertIsNone(chartSource._asNumber(float("nan")))
+		self.assertIsNone(chartSource._asNumber(float("-inf")))
 
 
 class TestPointingAtABar(unittest.TestCase):

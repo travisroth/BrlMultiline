@@ -35,8 +35,10 @@ from .chartDraw import (
 	CELL_COLUMNS,
 	GAP,
 	ChartRefused,
+	Scale,
 	Series,
 	cellsFor,
+	isFinite,
 	numberText,
 	textRowsFor,
 	windowOf,
@@ -102,6 +104,12 @@ def barChart(
 	if not series:
 		# Translators: reported when a chart was asked for with no numbers to chart.
 		raise ChartRefused(_("There are no numbers here to chart"))
+	if not all(isFinite(entry.value) for entry in series):
+		# Refused rather than skipped: a bar carries its own label, so leaving one out would
+		# move every label after it and quietly rename the bars.
+		# Translators: reported when a chart was asked for over a cell holding an error, an
+		# overflow or a division by zero.
+		raise ChartRefused(_("There is a value here that is not a number"))
 	if width < MIN_SLOT or height < 2:
 		# Translators: reported when the space for a drawing is too small for a chart.
 		raise ChartRefused(_("There is not enough room here for a chart"))
@@ -123,8 +131,9 @@ def barChart(
 	barTop = textRows
 	barBottom = height - 1 - textRows
 	bars = _layout(series, slot, height)
-	baseline = _baselineRow(series, barTop, barBottom)
-	_draw(buffer, bars, baseline, barTop, barBottom)
+	scale = _scaleFor(series, barTop, barBottom)
+	baseline = _baselineRow(scale)
+	_draw(buffer, bars, scale, baseline)
 	if textRows:
 		_write(buffer, bars, slot, translate, valueTop=0, labelTop=height - textRows)
 	return Drawing(
@@ -170,7 +179,26 @@ def _reframer(
 	return redraw
 
 
-def _baselineRow(series: "list[Series]", top: int, bottom: int) -> int:
+def _scaleFor(series: "list[Series]", top: int, bottom: int) -> Scale:
+	"""Fit one scale to the bars and to zero.
+
+	**One scale, and zero is one of the numbers it has to hold.** Anything else and the chart
+	lies. It used to place the zero line by the whole low-to-high range and then draw each bar
+	as a fraction of the largest magnitude, which are two different scales whenever the
+	positive and negative extremes differ: a chart of +25 and −75 put zero a quarter of the way
+	down, correctly, and then drew the +25 bar as a third of that quarter rather than filling
+	it. The reader felt a bar an eighth of the height of its neighbour where the numbers say a
+	third, and nothing on the panel could have told them.
+
+	:param series: what is being charted.
+	:param top: the first row the bars may occupy.
+	:param bottom: the last row they may occupy.
+	:return: the scale, which holds every value and zero.
+	"""
+	return Scale.forValues([entry.value for entry in series] + [0.0], top, bottom)
+
+
+def _baselineRow(scale: Scale) -> int:
 	"""Work out which row zero sits on.
 
 	The bottom of the bar area where nothing is negative, which is the ordinary case and
@@ -179,24 +207,22 @@ def _baselineRow(series: "list[Series]", top: int, bottom: int) -> int:
 	up into the area so bars can grow downwards from it, at the cost of the floor no longer
 	meaning zero — which is why it is only done when the numbers demand it.
 
-	:param series: what is being charted.
-	:param top: the first row the bars may occupy.
-	:param bottom: the last row they may occupy.
+	:param scale: the chart's scale, which already holds zero.
 	:return: the row zero is drawn on.
 	"""
-	values = [entry.value for entry in series]
-	low = min(min(values), 0.0)
-	high = max(max(values), 0.0)
-	if low >= 0:
-		return bottom
-	if high <= 0:
-		return top
-	span = high - low
-	# Proportional, and never on the very edge of the area: a zero line against either end
-	# would leave one direction with no room to grow in and would read as a chart with no
-	# negatives in it.
-	row = top + int(round((bottom - top) * (high / span)))
-	return max(top + 1, min(bottom - 1, row))
+	if not scale.span or scale.low >= 0:
+		# Nothing below zero, or nothing at all. `Scale` draws a flat series through the middle,
+		# which is right for a line and wrong here: a row of empty slots halfway up reads as a
+		# chart whose bars have been cut off, where the same row along the floor reads as
+		# nothing to show.
+		return scale.bottom
+	if scale.high <= 0:
+		return scale.top
+	# Proportional, and never on the very edge: a zero line against either end leaves one
+	# direction with no room to grow in, and a bar that cannot be drawn reads as a value that
+	# is not there. A chart of 1000 and −1 is the case — zero rounds onto the floor and the
+	# small bar disappears through it.
+	return max(scale.top + 1, min(scale.bottom - 1, scale.row(0.0)))
 
 
 def _layout(series: "list[Series]", slot: int, height: int) -> "list[Bar]":
@@ -213,39 +239,59 @@ def _layout(series: "list[Series]", slot: int, height: int) -> "list[Bar]":
 	]
 
 
-def _draw(buffer, bars: "list[Bar]", baseline: int, top: int, bottom: int) -> None:
+def _draw(buffer, bars: "list[Bar]", scale: Scale, baseline: int) -> None:
 	"""Put the bars and the zero line on the buffer.
 
 	The zero line is drawn first and the bars over it, so a bar of zero still shows as the
 	line passing through its slot rather than as a gap. A reader sweeping the baseline
 	should feel a continuous floor with bars standing on it, not a dotted one.
 
+	Every bar's tip comes from the same scale the baseline did, so the rows between them are
+	the rows the value is worth. See `_scaleFor`.
+
 	:param buffer: what to draw on.
 	:param bars: where the bars go.
+	:param scale: the chart's scale.
 	:param baseline: the row zero sits on.
-	:param top: the first row the bars may occupy.
-	:param bottom: the last row they may occupy.
 	"""
 	buffer.line(0, baseline, buffer.width - 1, baseline)
-	values = [bar.series.value for bar in bars]
-	reach = max(abs(value) for value in values) or 1.0
-	upward = baseline - top
-	downward = bottom - baseline
 	for bar in bars:
 		value = bar.series.value
-		room = upward if value >= 0 else downward
-		pins = int(round(abs(value) / reach * room)) if room else 0
-		if value and not pins:
-			# A value too small to round to a pin still gets one, **clear of the baseline**.
-			# Rounding it to nothing shows as bare floor, which a reader reads as a missing
-			# value rather than a small one; and a bar one pin tall that happens to be the
-			# baseline row is the same thing said differently, because the baseline is drawn
-			# there already. So the least a non-zero value can be is one pin above the floor.
-			pins = 1
+		tip = _tipRow(scale, baseline, value)
+		first = min(tip, baseline)
 		# The bar spans from the floor to its tip inclusive, so a zero value is the floor
 		# alone and every other value is the floor plus its own height.
-		barTop = baseline - pins if value >= 0 else baseline
-		buffer.rect(bar.left, barTop, bar.width, pins + 1, filled=True)
+		buffer.rect(bar.left, first, bar.width, abs(tip - baseline) + 1, filled=True)
+
+
+def _tipRow(scale: Scale, baseline: int, value: float) -> int:
+	"""Where a bar's far end goes.
+
+	:param scale: the chart's scale.
+	:param baseline: the row zero sits on.
+	:param value: what the bar is worth.
+	:return: the row of its tip, which is the baseline for a value of zero.
+	"""
+	if not value:
+		return baseline
+	# Each side measured against its own extreme and its own room. That is one scale and not
+	# two, because the baseline was placed proportionally: the rows per unit come out the same
+	# above the line as below it. Saying it per side is what lets the line be nudged clear of
+	# an edge — see `_baselineRow` — without the other side losing its proportions.
+	if value > 0:
+		room, reach = baseline - scale.top, scale.high
+	else:
+		room, reach = scale.bottom - baseline, -scale.low
+	pins = int(round(abs(value) / reach * room)) if reach and room else 0
+	if pins:
+		return baseline - pins if value > 0 else baseline + pins
+	# A value too small to round to a pin still gets one, **clear of the baseline**.
+	# Rounding it to nothing shows as bare floor, which a reader reads as a missing value
+	# rather than a small one; and a bar one pin tall that happens to be the baseline row is
+	# the same thing said differently, because the baseline is drawn there already. So the
+	# least a non-zero value can be is one pin clear of the floor.
+	moved = baseline - 1 if value > 0 else baseline + 1
+	return max(scale.top, min(scale.bottom, moved))
 
 
 def _write(buffer, bars: "list[Bar]", slot: int, translate: Callable, valueTop: int, labelTop: int) -> None:

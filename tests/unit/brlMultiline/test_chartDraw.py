@@ -40,6 +40,7 @@ from pinBuffer import PinBuffer  # noqa: E402
 from brlMultiline.chartDraw import (  # noqa: E402
 	TEXT_ROWS,
 	Scale,
+	isFinite,
 	cellsFor,
 	numberText,
 	roundedText,
@@ -57,6 +58,36 @@ def spell(text):
 	helpers decide. What the cells say is liblouis's business and is tested by using it.
 	"""
 	return [0b00000001 for _ in text]
+
+
+class TestWhatCountsAsANumber(unittest.TestCase):
+	"""Not a number and infinity are floats and pass every type check.
+
+	What they fail is `int(round(...))`, several modules away from whatever produced them and
+	long after anything is left that could say which cell it came from. A sheet gets them from a
+	division by zero, from an overflow, and from a COM error code arriving where a number was
+	expected.
+	"""
+
+	def test_anOrdinaryNumberIs(self):
+		self.assertTrue(isFinite(1.5))
+		self.assertTrue(isFinite(0))
+		self.assertTrue(isFinite(-3))
+
+	def test_notANumberIsNot(self):
+		self.assertFalse(isFinite(float("nan")))
+
+	def test_infinityIsNot(self):
+		self.assertFalse(isFinite(float("inf")))
+		self.assertFalse(isFinite(float("-inf")))
+
+	def test_nothingIsNot(self):
+		self.assertFalse(isFinite(None))
+		self.assertFalse(isFinite("Search"))
+
+	def test_aScaleIgnoresThemRatherThanTakingThemAsItsExtreme(self):
+		scale = Scale.forValues([1.0, float("inf"), 3.0], top=0, bottom=10)
+		self.assertEqual((scale.low, scale.high), (1.0, 3.0))
 
 
 class TestTheScale(unittest.TestCase):

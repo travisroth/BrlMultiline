@@ -66,6 +66,22 @@ def chart(lines, labels=None, width=WIDTH, height=HEIGHT, translate=spell):
 	return lineChart(newBuffer, width, height, lines, labels, translate)
 
 
+class TestAValueThatIsNotANumber(unittest.TestCase):
+	"""A gap, which is what it is: a point the source could not give.
+
+	Drawn as a number an error cell would read as a price, and a reader following a line has no
+	way to tell one from the other. A gap breaks the line and reads as a break.
+	"""
+
+	def test_itBecomesAGapRatherThanAPoint(self):
+		drawing = lineChart(newBuffer, 24, 12, [Line("close", [1.0, float("nan"), 3.0])])
+		self.assertIsNotNone(drawing)
+
+	def test_aSeriesOfNothingButThoseIsNotASeries(self):
+		with self.assertRaises(ChartRefused):
+			lineChart(newBuffer, 24, 12, [Line("close", [float("nan"), float("inf")])])
+
+
 class TestTheLines(unittest.TestCase):
 	def test_aChartFillsTheRectangleItWasGiven(self):
 		drawing = chart([Line("a", [1, 2, 3])])

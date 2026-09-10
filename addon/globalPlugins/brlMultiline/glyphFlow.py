@@ -74,6 +74,18 @@ set of marks with an empty one. So the cells are the receipt: unchanged means th
 describe them, and a fresh `update` rebuilds them and invalidates it by construction.
 """
 
+BEFORE = "_brlMultilineBeforeGlyphs"
+"""Attribute holding the region exactly as NVDA left it, so it can be given back.
+
+Compression rewrites the cells and both position maps in place, and a region is not always
+read again before it is drawn again — a flow keeps the rendering it has when the text has not
+changed, and a display rebuild or a profile switch can hand the same region back. Without this
+the words could not return: turning the setting off left "b Search" on the line with no shape
+registered for it, which is a cell that means nothing.
+
+Restored only where the region is still the one that was compressed. See `_restore`.
+"""
+
 MOVED = ("brailleCursorPos", "brailleSelectionStart", "brailleSelectionEnd")
 """The region's other positions into its cells, which have to move when the cells do.
 
@@ -209,12 +221,19 @@ def canDraw(driver) -> bool:
 	return glyphs.supported(driver)
 
 
-def glyphTarget(display=None) -> Optional[Target]:
-	"""Find the display that can draw glyphs, whether or not it is behind a composite.
+def glyphTargets(display=None) -> "list[Target]":
+	"""Find every display that can draw glyphs, behind a composite or not.
+
+	**All of them, not the first.** Two displays driven as one are two pieces of hardware, and
+	a Monarch stacked with a Focus is the arrangement this add-on exists for. Taking the first
+	that could draw and treating it as *the* display meant a region bound for the Focus was
+	compressed because the Monarch was plugged in: the container then rightly refused to send
+	the shape to a row outside the Monarch, and the reader was left with "b Search", a word
+	with its middle removed and nothing drawn over it.
 
 	:param display: the display to look at, or None for the one NVDA is driving.
-	:return: the target, or None where nothing attached can draw one. Not an error: it is the
-		ordinary case on ordinary hardware, and the words stay on the line.
+	:return: one target per member that draws, in row order. Empty where nothing attached can,
+		which is the ordinary case on ordinary hardware and not an error.
 	"""
 	if display is None:
 		import braille
@@ -222,16 +241,18 @@ def glyphTarget(display=None) -> Optional[Target]:
 		handler = braille.handler
 		display = handler.display if handler is not None else None
 	if display is None:
-		return None
+		return []
 	if canDraw(display):
-		return _targetFor(display, rowStart=0)
+		found = _targetFor(display, rowStart=0)
+		return [found] if found is not None else []
 	if getattr(display, "name", None) != VIRTUAL_DISPLAY_NAME:
-		return None
+		return []
 	try:
 		slots = list(display.slots)
 	except Exception:
 		log.error("BrlMultiline: could not read the composite's members to find one that draws", exc_info=True)
-		return None
+		return []
+	targets = []
 	for slot in slots:
 		# A member the composite has given up on has had its rows taken out of the geometry, so
 		# a cell index against its band would name a cell that now belongs to someone else.
@@ -245,7 +266,44 @@ def glyphTarget(display=None) -> Optional[Target]:
 		except Exception:
 			log.error("BrlMultiline: a member that draws would not say where its band starts", exc_info=True)
 			continue
-		return _targetFor(driver, rowStart=rowStart)
+		found = _targetFor(driver, rowStart=rowStart)
+		if found is not None:
+			targets.append(found)
+	return sorted(targets, key=lambda target: target.rowStart)
+
+
+def glyphTarget(display=None) -> Optional[Target]:
+	""":return: any display that can draw glyphs, for asking whether one is attached at all.
+
+	The settings panel is what wants this: whether to offer the choice is a question about the
+	arrangement rather than about a place on it. Anything deciding what to *do* with a
+	particular region wants `targetForRows`, which asks which piece of hardware that region is
+	going to.
+
+	:param display: the display to look at, or None for the one NVDA is driving.
+	"""
+	targets = glyphTargets(display)
+	return targets[0] if targets else None
+
+
+def targetForRows(row: int, numRows: int, display=None) -> Optional[Target]:
+	"""Find the display a run of rows is on, if one piece of hardware holds all of them.
+
+	**All of them, or none.** A segment spanning the join between two displays is drawn partly
+	on each, and a shape can only be registered against one of them; compressing such a region
+	would take cells out of the half that cannot draw. Rare — segments are usually cut to a
+	display — and cheap to refuse.
+
+	:param row: the first row on NVDA's display.
+	:param numRows: how many rows.
+	:param display: the display to look at, or None for the one NVDA is driving.
+	:return: the target holding every one of those rows, or None.
+	"""
+	if numRows < 1:
+		return None
+	for target in glyphTargets(display):
+		if target.rowStart <= row and row + numRows <= target.rowStart + target.numRows:
+			return target
 	return None
 
 
@@ -295,7 +353,10 @@ def tokens() -> dict:
 	"""
 	global _TOKENS
 	if _TOKENS is None:
-		_TOKENS = _buildTokens()
+		# A word two shapes wanted is left in the table as None while it is built, so that a
+		# later offer cannot take it; it is dropped here, once, rather than checked for on
+		# every line of every frame.
+		_TOKENS = {label: glyph for label, glyph in _buildTokens().items() if glyph is not None}
 	return _TOKENS
 
 
@@ -396,11 +457,20 @@ def _fromVocabulary() -> dict:
 
 
 def _offer(found: dict, label: str, name: str) -> None:
-	"""Put one word in the table, if there is a shape for it that would save anything.
+	"""Put one word in the table.
 
-	A shape as wide as the word is refused here rather than at fitting time, so that a
-	vocabulary entry meant to be drawn in place — the wide button, which exists to be compared
-	with the narrow one — cannot claim the same word as the entry that compresses it.
+	**Whether it saves anything is not decided here.** How many cells a word costs is a
+	question about the reader's braille table and not about how many characters it has: "btn"
+	is three cells uncontracted and may be fewer contracted. `fittedOver` asks that question of
+	the cells actually on the line, at the moment of use, which is the only place it can be
+	answered truthfully.
+
+	**A word two shapes want is given to neither.** Two properties can translate to the same
+	abbreviation — nothing stops a language rendering two roles alike — and a table built by
+	overwriting would then draw whichever was offered last, silently, and differently in
+	different languages. Where they are the same shape there is nothing to argue about: NVDA
+	writes a switch that is on and a box that is checked as the same three cells, and this add-on
+	should not invent a difference NVDA does not make.
 
 	:param found: the table being built.
 	:param label: what NVDA writes.
@@ -410,7 +480,16 @@ def _offer(found: dict, label: str, name: str) -> None:
 	if glyph is None:
 		log.debugWarning(f"BrlMultiline: no glyph called {name}")
 		return
-	if glyph.width >= len(label):
+	if not label:
+		return
+	held = found.get(label)
+	if held is not None and held is not glyph:
+		log.debugWarning(
+			f"BrlMultiline: {label!r} is written for more than one thing, so it keeps its words",
+		)
+		found[label] = None
+		return
+	if label in found and found[label] is None:
 		return
 	found[label] = glyph
 
@@ -507,7 +586,7 @@ def _byLength() -> "list[str]":
 	return _ORDERED
 
 
-def compressRegion(region) -> dict:
+def compressRegion(region, target: Optional[Target] = None) -> dict:
 	"""Replace the words a shape stands over with the shape, in one region's cells.
 
 	Called after the region has been read and before it is laid out, which is what makes the
@@ -518,6 +597,10 @@ def compressRegion(region) -> dict:
 	the cut, and those are moved along with the cells.
 
 	:param region: the region to compress, which may be anything or nothing.
+	:param target: the display this region is going to. **None means it is not known and
+		nothing is compressed**, and any words already taken out are put back. Whoever knows
+		where the region is being drawn — a segment knows its rows — is who decides, because a
+		region bound for a display that cannot draw must keep its words.
 	:return: `{cell index: the fitted glyph}`, empty when nothing was drawn.
 	"""
 	if region is None:
@@ -528,18 +611,16 @@ def compressRegion(region) -> dict:
 	brailleToRaw = getattr(region, "brailleToRawPos", None)
 	if not cells or not rawText or rawToBraille is None or brailleToRaw is None:
 		return _forget(region)
-	if not enabled():
+	if target is None or not enabled():
 		return _forget(region)
 	held = getattr(region, MARKS, None)
 	if held is not None and getattr(region, STAMP, None) == tuple(cells):
 		# Laid out again at another width, with nothing read since. See `STAMP`.
 		return held
-	target = glyphTarget()
-	if target is None:
-		return _forget(region)
 	marks = marksIn(rawText)
 	if not marks:
 		return _forget(region)
+	before = _snapshot(region)
 	drawn: dict = {}
 	for start, end, glyph in reversed(marks):
 		at = rawToBraille[start] if start < len(rawToBraille) else None
@@ -562,7 +643,24 @@ def compressRegion(region) -> dict:
 	region.brailleToRawPos = brailleToRaw
 	setattr(region, MARKS, drawn)
 	setattr(region, STAMP, tuple(cells))
+	setattr(region, BEFORE, before)
 	return drawn
+
+
+def _snapshot(region) -> dict:
+	""":return: everything compression is about to change, so it can be put back.
+
+	:param region: the region about to be compressed.
+	"""
+	kept = {
+		"rawText": getattr(region, "rawText", ""),
+		"brailleCells": list(getattr(region, "brailleCells", None) or []),
+		"rawToBraillePos": list(getattr(region, "rawToBraillePos", None) or []),
+		"brailleToRawPos": list(getattr(region, "brailleToRawPos", None) or []),
+	}
+	for name in MOVED:
+		kept[name] = getattr(region, name, None)
+	return kept
 
 
 def _moveMarks(region, at: int, fitted) -> None:
@@ -583,25 +681,56 @@ def _moveMarks(region, at: int, fitted) -> None:
 
 
 def _forget(region) -> dict:
-	"""Leave a region with no marks on it, and say so.
+	"""Give a region its words back, and leave no marks on it.
 
 	Cleared rather than left alone, because a region that was compressed on one pass and is not
-	on the next — the setting turned off, the display unplugged — would otherwise carry marks
-	naming cells that are no longer symbols.
+	on the next — the setting turned off, the display unplugged, the profile switched — would
+	otherwise carry marks naming cells that are no longer symbols. **And the cells put back**,
+	because a region is not always read again in between: turning the setting off used to leave
+	"b Search" on the line with nothing registered to draw over it, which is a cell that means
+	nothing at all.
 
 	:param region: the region.
 	:return: an empty table, for the caller to return in turn.
 	"""
-	if getattr(region, MARKS, None) is not None:
-		try:
-			setattr(region, MARKS, None)
-			setattr(region, STAMP, None)
-		except Exception:
-			log.debugWarning("BrlMultiline: could not clear a region's glyphs", exc_info=True)
+	if getattr(region, MARKS, None) is None:
+		return {}
+	try:
+		_restore(region)
+		setattr(region, MARKS, None)
+		setattr(region, STAMP, None)
+		setattr(region, BEFORE, None)
+	except Exception:
+		log.debugWarning("BrlMultiline: could not clear a region's glyphs", exc_info=True)
 	return {}
 
 
-def keepCompressed(region) -> None:
+def _restore(region) -> None:
+	"""Put a compressed region back the way NVDA left it.
+
+	**Only where it is still the region that was compressed.** A re-read rebuilds the cells and
+	the maps from the text, so a snapshot taken before that is a description of something that
+	no longer exists, and writing it back would undo the re-reading. The stamp is what answers
+	that: it holds the cells compression produced, so cells that still match it are cells
+	nothing else has touched.
+
+	:param region: the region.
+	"""
+	before = getattr(region, BEFORE, None)
+	if not before:
+		return
+	cells = getattr(region, "brailleCells", None) or []
+	if tuple(cells) != getattr(region, STAMP, None) or before["rawText"] != getattr(region, "rawText", ""):
+		# Read again since. The region already holds its own uncompressed cells.
+		return
+	region.brailleCells = list(before["brailleCells"])
+	region.rawToBraillePos = list(before["rawToBraillePos"])
+	region.brailleToRawPos = list(before["brailleToRawPos"])
+	for name in MOVED:
+		setattr(region, name, before[name])
+
+
+def keepCompressed(region, target: Optional[Target] = None) -> None:
 	"""Put the shapes back on a region that has been read again since it was laid out.
 
 	**The reason this exists is a routing key reaching the wrong word.** NVDA re-reads the
@@ -617,12 +746,13 @@ def keepCompressed(region) -> None:
 	never carried a shape, which is nearly all of them.
 
 	:param region: the region about to be used, which may be anything or nothing.
+	:param target: the display it is going to, as `compressRegion` means it.
 	"""
 	if region is None or getattr(region, MARKS, None) is None:
 		return
 	if getattr(region, STAMP, None) == tuple(getattr(region, "brailleCells", None) or ()):
 		return
-	compressRegion(region)
+	compressRegion(region, target)
 
 
 def marksOf(region) -> dict:

@@ -38,6 +38,7 @@ from .chartDraw import (
 	NEAR_ROWS,
 	ChartRefused,
 	Scale,
+	isFinite,
 	numberText,
 	roundedText,
 	textRowsFor,
@@ -140,6 +141,10 @@ def lineChart(
 	:return: the drawing, which answers for each line and each point when pointed at.
 	:raises ChartRefused: if there is nothing to chart or no room to chart it.
 	"""
+	# A value that is not a number becomes a gap, which is what it is: a point the source could
+	# not give. A gap breaks the line and reads as one, where an error cell drawn as a number
+	# would read as a price.
+	lines = [Line(line.name, [value if isFinite(value) else None for value in line.values]) for line in lines]
 	lines = [line for line in lines if any(value is not None for value in line.values)]
 	if not lines:
 		# Translators: reported when a chart was asked for with no numbers to chart.

@@ -36,6 +36,7 @@ from .chartDraw import (
 	GAP,
 	ChartRefused,
 	Scale,
+	isFinite,
 	numberText,
 	textRowsFor,
 	windowOf,
@@ -151,6 +152,14 @@ def _priceChart(
 	if not periods:
 		# Translators: reported when a chart was asked for with no numbers to chart.
 		raise ChartRefused(_("There are no numbers here to chart"))
+	if not all(
+		isFinite(number) for period in periods for number in (period.open, period.high, period.low, period.close)
+	):
+		# Refused rather than skipped: a period is four numbers that have to agree, and one of
+		# them missing is not a shorter bar, it is a bar nobody can read.
+		# Translators: reported when a chart was asked for over a cell holding an error, an
+		# overflow or a division by zero.
+		raise ChartRefused(_("There is a value here that is not a number"))
 	if width < MIN_SLOT or height < MIN_PLOT:
 		# Translators: reported when the space for a drawing is too small for a chart.
 		raise ChartRefused(_("There is not enough room here for a chart"))

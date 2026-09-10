@@ -23,6 +23,7 @@ What is left here is the part that is not about any application: which column ho
 numbers, which holds the labels, and what to do when neither does.
 """
 
+import math
 from typing import NamedTuple, Optional
 
 from logHandler import log
@@ -177,14 +178,21 @@ def _asNumber(value) -> Optional[float]:
 	Booleans are refused deliberately. Excel stores TRUE as -1 and Python calls a bool an int,
 	so a column of flags would chart as bars of equal height and look like data.
 
+	**Not a number and infinity are refused too**, and they are the ones worth naming: they
+	are floats, they pass every type check, and they turn into `cannot convert float NaN to
+	integer` several modules later, at the moment of drawing, where nothing left says which
+	cell it came from. A sheet gets them from a division by zero, from an overflow, and from a
+	COM error code arriving where a number was expected.
+
 	:param value: one cell's stored value.
 	"""
 	if value is None or isinstance(value, bool):
 		return None
 	try:
-		return float(value)
-	except (TypeError, ValueError):
+		number = float(value)
+	except (TypeError, ValueError, OverflowError):
 		return None
+	return number if math.isfinite(number) else None
 
 
 def _column(grid: "list[list]", index: int) -> list:

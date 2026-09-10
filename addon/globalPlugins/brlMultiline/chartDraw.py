@@ -92,6 +92,22 @@ class Series(NamedTuple):
 	"""What it is worth."""
 
 
+def isFinite(value) -> bool:
+	""":return: whether a value is a number a row can be worked out from.
+
+	The second line of defence, and it is here rather than only at the reading end because a
+	chart may be handed its numbers by an app module or an add-on that never went through
+	`chartSource`. Not a number and infinity are floats and pass every type check; what they
+	fail is `int(round(...))`, several modules away from whatever produced them.
+
+	:param value: anything, including None.
+	"""
+	try:
+		return math.isfinite(float(value))
+	except (TypeError, ValueError, OverflowError):
+		return False
+
+
 class Scale(NamedTuple):
 	"""The mapping between the numbers and the rows they are drawn on.
 
@@ -128,7 +144,7 @@ class Scale(NamedTuple):
 		:param bottom: the last row it may use.
 		:return: the scale.
 		"""
-		numbers = [float(value) for value in values if value is not None]
+		numbers = [float(value) for value in values if isFinite(value)]
 		return cls(
 			low=min(numbers) if numbers else 0.0,
 			high=max(numbers) if numbers else 0.0,

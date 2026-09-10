@@ -919,12 +919,21 @@ def supported(driver) -> bool:
 	would be a braille cell drawn the long way round. Asked rather than assumed, so the answer
 	for hardware nobody here has is the honest one.
 
+	Compared per side rather than as tuples. `(3, 4) > (2, 8)` is true of tuples and false of
+	pins: a display whose cell is narrower but taller than the slot it reports would have been
+	told it had room it does not have, and a shape drawn into it would be clipped. Every side
+	has to be at least as big, and one of them bigger, or there is nothing to gain.
+
 	:param driver: the live driver, duck typed and never imported.
 	"""
 	try:
-		return tuple(driver.glyphSize) > tuple(driver.cellSize)
+		slot = tuple(int(side) for side in driver.glyphSize)
+		cell = tuple(int(side) for side in driver.cellSize)
 	except Exception:
 		return False
+	if len(slot) != len(cell) or not slot:
+		return False
+	return all(theirs >= ours for theirs, ours in zip(slot, cell)) and slot != cell
 
 
 class Fitted(NamedTuple):

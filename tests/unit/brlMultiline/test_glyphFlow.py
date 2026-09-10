@@ -77,6 +77,25 @@ class GlyphTestCase(unittest.TestCase):
 		self.section = bmConfig.getDisplayConfig()
 		self.section["drawGlyphs"] = True
 
+	def attach(self, display):
+		"""Put a display in place and ask for shapes on it.
+
+		Settings are stored per display, so swapping one in lands on a different section and
+		the answer to whether shapes are wanted has to be given again.
+		"""
+		braille().handler.display = display
+		self.section = bmConfig.getDisplayConfig()
+		self.section["drawGlyphs"] = True
+		glyphFlow.forget()
+
+	def target(self):
+		""":return: the display a region under test is going to.
+
+		Passed rather than looked up inside, because two displays driven as one are two
+		pieces of hardware and only the caller knows which one a region is bound for.
+		"""
+		return glyphFlow.glyphTarget()
+
 	def given(self, table):
 		"""Put a table of made up labels in place of the one read out of NVDA."""
 		glyphFlow._TOKENS = dict(table)
@@ -218,59 +237,59 @@ class TestShorteningALine(GlyphTestCase):
 
 	def test_theWordBecomesOneCell(self):
 		region = self.region("btn Search")
-		glyphFlow.compressRegion(region)
+		glyphFlow.compressRegion(region, self.target())
 		self.assertEqual(len(region.brailleCells), len("btn Search") - 2)
 
 	def test_theCellLeftBehindIsTheFirstOfTheWord(self):
 		"""So that a shape that fails to be drawn leaves "b" where "btn" was, rather than
 		something meaningless."""
 		region = self.region("btn Search")
-		glyphFlow.compressRegion(region)
+		glyphFlow.compressRegion(region, self.target())
 		self.assertEqual(region.brailleCells[0], ord("b"))
 
 	def test_theTextAfterItIsUnchanged(self):
 		region = self.region("btn Search")
-		glyphFlow.compressRegion(region)
+		glyphFlow.compressRegion(region, self.target())
 		self.assertEqual(bytes(region.brailleCells[1:]).decode(), " Search")
 
 	def test_aRoutingPressAnywhereOnTheShapeReachesTheObject(self):
 		"""Which is what NVDA already does: a press on any cell of "btn Search" arrives at the
 		button. The shape is one cell, so there is one place to press and it is that one."""
 		region = self.region("btn Search")
-		glyphFlow.compressRegion(region)
+		glyphFlow.compressRegion(region, self.target())
 		self.assertEqual(region.brailleToRawPos[0], 0)
 
 	def test_aRoutingPressAfterItReachesTheSameLetterAsBefore(self):
 		"""The fault this guards against is met long after the change that caused it and cannot
 		possibly be attributed: a press in the second half of the line reaching the wrong word."""
 		region = self.region("btn Search")
-		glyphFlow.compressRegion(region)
+		glyphFlow.compressRegion(region, self.target())
 		at = region.brailleCells.index(ord("S"))
 		self.assertEqual(region.rawText[region.brailleToRawPos[at]], "S")
 
 	def test_theCursorMovesWithTheCells(self):
 		region = self.region("btn Search")
 		region.brailleCursorPos = region.rawToBraillePos[4]
-		glyphFlow.compressRegion(region)
+		glyphFlow.compressRegion(region, self.target())
 		self.assertEqual(region.brailleCursorPos, region.rawToBraillePos[4])
 		self.assertEqual(region.brailleCells[region.brailleCursorPos], ord("S"))
 
 	def test_severalShapesOnOneLineAllLandRight(self):
 		region = self.region("⣏⣿⣹ edt Name")
-		marks = glyphFlow.compressRegion(region)
+		marks = glyphFlow.compressRegion(region, self.target())
 		self.assertEqual(sorted(marks), [0, 2])
 		self.assertEqual(bytes(region.brailleCells[2:]).decode(), "e Name")
 
 	def test_theMarkNamesTheCellTheShapeStartsOn(self):
 		region = self.region("btn Search")
-		marks = glyphFlow.compressRegion(region)
+		marks = glyphFlow.compressRegion(region, self.target())
 		self.assertEqual(list(marks), [0])
 		self.assertEqual(marks[0].cells, [ord("b")])
 		self.assertEqual(marks[0].saved, 2)
 
 	def test_theDriverIsAskedToBuildTheShape(self):
 		region = self.region("btn Search")
-		marks = glyphFlow.compressRegion(region)
+		marks = glyphFlow.compressRegion(region, self.target())
 		self.assertEqual(marks[0].drawn[0], "glyph")
 		self.assertEqual(marks[0].drawn[1], tuple(glyphs.patternRows(glyphs.BUTTON.dots)))
 
@@ -285,7 +304,7 @@ class TestWhenNothingShouldHappen(GlyphTestCase):
 	def test_theSettingIsOff(self):
 		self.section["drawGlyphs"] = False
 		region = self.region("btn Search")
-		self.assertEqual(glyphFlow.compressRegion(region), {})
+		self.assertEqual(glyphFlow.compressRegion(region, self.target()), {})
 		self.assertUntouched(region)
 
 	def test_theDisplayCannotDrawOne(self):
@@ -293,7 +312,7 @@ class TestWhenNothingShouldHappen(GlyphTestCase):
 
 		braille.handler.display = FakeDisplay(glyphSize=(2, 4), cellSize=(2, 4))
 		region = self.region("btn Search")
-		self.assertEqual(glyphFlow.compressRegion(region), {})
+		self.assertEqual(glyphFlow.compressRegion(region, self.target()), {})
 		self.assertUntouched(region)
 
 	def test_thereIsNoDisplayAtAll(self):
@@ -301,26 +320,108 @@ class TestWhenNothingShouldHappen(GlyphTestCase):
 
 		braille.handler.display = None
 		region = self.region("btn Search")
-		self.assertEqual(glyphFlow.compressRegion(region), {})
+		self.assertEqual(glyphFlow.compressRegion(region, self.target()), {})
 		self.assertUntouched(region)
 
 	def test_theLineHasNoRoleInIt(self):
 		region = self.region("Search now")
-		self.assertEqual(glyphFlow.compressRegion(region), {})
+		self.assertEqual(glyphFlow.compressRegion(region, self.target()), {})
 		self.assertUntouched(region)
 
 	def test_thereIsNoRegion(self):
-		self.assertEqual(glyphFlow.compressRegion(None), {})
+		self.assertEqual(glyphFlow.compressRegion(None, self.target()), {})
 
 	def test_marksLeftByAnEarlierPassAreTakenAwayAgain(self):
 		"""A region compressed while the setting was on and read again after it was turned off
-		would otherwise carry marks naming cells that are no longer symbols."""
+		would otherwise carry marks naming cells that are no longer symbols. The region is read
+		again here on purpose; `TestGivingTheWordsBack` is the case where it is not.
+		"""
 		region = self.region("btn Search")
-		self.assertTrue(glyphFlow.compressRegion(region))
+		self.assertTrue(glyphFlow.compressRegion(region, self.target()))
 		self.section["drawGlyphs"] = False
 		region.update()
-		self.assertEqual(glyphFlow.compressRegion(region), {})
+		self.assertEqual(glyphFlow.compressRegion(region, self.target()), {})
 		self.assertEqual(glyphFlow.marksOf(region), {})
+		self.assertEqual(bytes(region.brailleCells).decode(), "btn Search")
+
+
+class TestGivingTheWordsBack(GlyphTestCase):
+	"""Turning it off has to undo it, on the region as it stands.
+
+	Compression rewrites the cells and both maps in place, and a region is not always read again
+	before it is drawn again: a flow keeps the rendering it has when the text has not changed,
+	and a display rebuild or a profile switch hands the same region back. Clearing the marks
+	without putting the cells back left "b Search" on the line with nothing registered to draw
+	over it, which is a cell that means nothing at all.
+	"""
+
+	def compressed(self, text="btn Search"):
+		""":return: a region compressed while the setting was on."""
+		region = self.region(text)
+		self.assertTrue(glyphFlow.compressRegion(region, self.target()))
+		return region
+
+	def test_theWordComesBackWhenTheSettingIsTurnedOff(self):
+		region = self.compressed()
+		self.section["drawGlyphs"] = False
+		glyphFlow.compressRegion(region, self.target())
+		self.assertEqual(bytes(region.brailleCells).decode(), "btn Search")
+
+	def test_theWordComesBackWhenTheDisplayGoesAway(self):
+		import braille
+
+		region = self.compressed()
+		braille.handler.display = None
+		glyphFlow.compressRegion(region, self.target())
+		self.assertEqual(bytes(region.brailleCells).decode(), "btn Search")
+
+	def test_routingIsTrueAgainAfterwards(self):
+		region = self.compressed()
+		self.section["drawGlyphs"] = False
+		glyphFlow.compressRegion(region, self.target())
+		at = region.brailleCells.index(ord("S"))
+		self.assertEqual(region.rawText[region.brailleToRawPos[at]], "S")
+
+	def test_theCursorComesBackWithIt(self):
+		region = self.region("btn Search")
+		region.brailleCursorPos = 4
+		glyphFlow.compressRegion(region, self.target())
+		self.assertEqual(region.brailleCursorPos, 2)
+		self.section["drawGlyphs"] = False
+		glyphFlow.compressRegion(region, self.target())
+		self.assertEqual(region.brailleCursorPos, 4)
+
+	def test_noMarksAreLeftBehind(self):
+		region = self.compressed()
+		self.section["drawGlyphs"] = False
+		glyphFlow.compressRegion(region, self.target())
+		self.assertEqual(glyphFlow.marksOf(region), {})
+
+	def test_aRegionReadAgainSinceIsLeftAlone(self):
+		"""A re-read rebuilds the cells and the maps from the text, so the snapshot describes
+		something that no longer exists and writing it back would undo the reading."""
+		region = self.compressed()
+		region.rawText = "cbo Colour"
+		region.update()
+		self.section["drawGlyphs"] = False
+		glyphFlow.compressRegion(region, self.target())
+		self.assertEqual(bytes(region.brailleCells).decode(), "cbo Colour")
+
+	def test_aSegmentPutsThemBackToo(self):
+		"""The path a reader actually takes: the setting is turned off and the display redrawn,
+		with no region read in between."""
+		from brlMultiline.container import DisplayContainer
+		from brlMultiline.views import viewFromConfig
+
+		container = DisplayContainer(braille().handler, viewFromConfig(8, 32))
+		braille().handler.mainBuffer = braille().handler.buffer = container
+		segment = container.segments[0]
+		segment.append(self.region("btn Search"))
+		container.update()
+		self.assertEqual(bytes(segment.brailleCells).decode(), "b Search")
+		self.section["drawGlyphs"] = False
+		container.update()
+		self.assertEqual(bytes(segment.brailleCells).decode(), "btn Search")
 
 
 class TestBeingLaidOutMoreThanOnce(GlyphTestCase):
@@ -333,23 +434,23 @@ class TestBeingLaidOutMoreThanOnce(GlyphTestCase):
 
 	def test_theSecondPassKeepsTheMarks(self):
 		region = self.region("btn Search")
-		first = glyphFlow.compressRegion(region)
-		second = glyphFlow.compressRegion(region)
+		first = glyphFlow.compressRegion(region, self.target())
+		second = glyphFlow.compressRegion(region, self.target())
 		self.assertEqual(second, first)
 
 	def test_theSecondPassDoesNotShortenItAgain(self):
 		region = self.region("btn Search")
-		glyphFlow.compressRegion(region)
+		glyphFlow.compressRegion(region, self.target())
 		cells = list(region.brailleCells)
-		glyphFlow.compressRegion(region)
+		glyphFlow.compressRegion(region, self.target())
 		self.assertEqual(region.brailleCells, cells)
 
 	def test_readingItAgainWorksItOutAfresh(self):
 		region = self.region("btn Search")
-		glyphFlow.compressRegion(region)
+		glyphFlow.compressRegion(region, self.target())
 		region.rawText = "cbo Colour"
 		region.update()
-		marks = glyphFlow.compressRegion(region)
+		marks = glyphFlow.compressRegion(region, self.target())
 		self.assertEqual(list(marks), [0])
 		self.assertEqual(bytes(region.brailleCells).decode(), "c Colour")
 
@@ -388,6 +489,90 @@ class TestFindingTheDisplayThatDraws(GlyphTestCase):
 		self.assertIsNone(glyphFlow.glyphTarget(composite))
 
 
+class TestTwoDisplaysDrivenAsOne(GlyphTestCase):
+	"""Two pieces of hardware, and only one of them may be able to draw.
+
+	This is the arrangement the add-on exists for. Taking the first display that could draw and
+	treating it as *the* display meant a region bound for a Focus was compressed because a
+	Monarch was plugged in: the container then rightly refused to send the shape to a row
+	outside the Monarch, and the reader was left with "b Search" — a word with its middle
+	removed and nothing drawn over it.
+	"""
+
+	def stacked(self, plain=4, drawing=8):
+		"""Put a display that cannot draw above one that can, and return the pair."""
+		flat = FakeDisplay(numRows=plain, numCols=32, glyphSize=(2, 4), cellSize=(2, 4))
+		pins = FakeDisplay(numRows=drawing, numCols=32)
+		self.attach(FakeComposite([FakeBand(flat, rowStart=0), FakeBand(pins, rowStart=plain)]))
+		return flat, pins
+
+	def test_onlyTheOneThatCanDrawIsATarget(self):
+		_flat, pins = self.stacked()
+		self.assertEqual([target.driver for target in glyphFlow.glyphTargets()], [pins])
+
+	def test_aRowOnTheDisplayThatCannotDrawHasNoTarget(self):
+		self.stacked()
+		self.assertIsNone(glyphFlow.targetForRows(0, 1))
+
+	def test_aRowOnTheOneThatCanHasOne(self):
+		_flat, pins = self.stacked()
+		self.assertIs(glyphFlow.targetForRows(4, 4).driver, pins)
+
+	def test_aRunStraddlingTheJoinHasNone(self):
+		"""It is drawn partly on each, and a shape can only be registered against one of them.
+		Compressing it would take cells out of the half that cannot draw."""
+		self.stacked()
+		self.assertIsNone(glyphFlow.targetForRows(3, 2))
+
+	def test_aRegionBoundForTheDisplayThatCannotDrawKeepsItsWords(self):
+		self.stacked()
+		region = self.region("btn Search")
+		self.assertEqual(glyphFlow.compressRegion(region, glyphFlow.targetForRows(0, 1)), {})
+		self.assertEqual(bytes(region.brailleCells).decode(), "btn Search")
+
+	def test_aRegionBoundForTheOneThatCanIsCompressed(self):
+		self.stacked()
+		region = self.region("btn Search")
+		self.assertTrue(glyphFlow.compressRegion(region, glyphFlow.targetForRows(4, 1)))
+		self.assertEqual(bytes(region.brailleCells).decode(), "b Search")
+
+	def test_aSegmentAsksAboutItsOwnRows(self):
+		from brlMultiline.layout import SegmentRect
+		from brlMultiline.panels import SegmentSpec
+		from brlMultiline.segments import BrailleBufferSegment
+
+		self.stacked()
+		handler = braille().handler
+		held = object()
+		above = BrailleBufferSegment(
+			handler,
+			held,
+			SegmentSpec(rect=SegmentRect(row=0, col=0, numRows=2, numCols=32), key="above"),
+		)
+		below = BrailleBufferSegment(
+			handler,
+			held,
+			SegmentSpec(rect=SegmentRect(row=6, col=0, numRows=2, numCols=32), key="below"),
+		)
+		self.assertIsNone(above.glyphTarget())
+		self.assertIsNotNone(below.glyphTarget())
+
+	def test_everyMemberThatDrawsIsToldEachFrame(self):
+		"""Each keeps its own registrations, and a member left unaddressed would go on drawing
+		whatever it was last given."""
+		first = FakeDisplay(numRows=4, numCols=32)
+		second = FakeDisplay(numRows=4, numCols=32)
+		self.attach(FakeComposite([FakeBand(first, rowStart=0), FakeBand(second, rowStart=4)]))
+		from brlMultiline.container import DisplayContainer
+		from brlMultiline.views import viewFromConfig
+
+		container = DisplayContainer(braille().handler, viewFromConfig(8, 32))
+		braille().handler.mainBuffer = braille().handler.buffer = container
+		container.windowBrailleCells
+		self.assertEqual(first.given, {})
+		self.assertEqual(second.given, {})
+
+
 class TestWhereOnTheDisplayACellIs(unittest.TestCase):
 	"""A member of a composite knows nothing about the rows above it."""
 
@@ -423,10 +608,17 @@ class TestABandThatDrawsThem(GlyphTestCase):
 	"""
 
 	def band(self, line, numCols=8):
-		""":return: a controller over one line of a document, at a narrow band width."""
+		""":return: a controller over one line of a document, at a narrow band width.
+
+		The band is what tells its renderer which display it is on; there is no band here, so
+		the test says it instead.
+		"""
 		from .test_flowControl import controllerOver
 
-		return controllerOver([line], numCols=numCols, numRows=2)
+		control = controllerOver([line], numCols=numCols, numRows=2, enter=False)
+		control.renderer.glyphTarget = self.target()
+		control.enterAtCursor()
+		return control
 
 	def rowOf(self, control, numCols=8):
 		""":return: the band's first row as text."""
@@ -516,30 +708,30 @@ class TestARegionReadAgainUnderTheRendering(GlyphTestCase):
 
 	def test_theShapesGoBackOn(self):
 		region = self.region("btn Search")
-		glyphFlow.compressRegion(region)
+		glyphFlow.compressRegion(region, self.target())
 		region.update()
 		self.assertEqual(bytes(region.brailleCells).decode(), "btn Search")
-		glyphFlow.keepCompressed(region)
+		glyphFlow.keepCompressed(region, self.target())
 		self.assertEqual(bytes(region.brailleCells).decode(), "b Search")
 
 	def test_aRoutingPressStillReachesTheSameLetter(self):
 		region = self.region("btn Search")
-		glyphFlow.compressRegion(region)
+		glyphFlow.compressRegion(region, self.target())
 		region.update()
-		glyphFlow.keepCompressed(region)
+		glyphFlow.keepCompressed(region, self.target())
 		at = region.brailleCells.index(ord("S"))
 		self.assertEqual(region.rawText[region.brailleToRawPos[at]], "S")
 
 	def test_aRegionStillDescribedByItsMarksIsLeftAlone(self):
 		region = self.region("btn Search")
-		glyphFlow.compressRegion(region)
+		glyphFlow.compressRegion(region, self.target())
 		cells = list(region.brailleCells)
-		glyphFlow.keepCompressed(region)
+		glyphFlow.keepCompressed(region, self.target())
 		self.assertEqual(region.brailleCells, cells)
 
 	def test_aRegionThatNeverCarriedAShapeIsNotTouched(self):
 		region = self.region("Search now")
-		glyphFlow.keepCompressed(region)
+		glyphFlow.keepCompressed(region, self.target())
 		self.assertEqual(bytes(region.brailleCells).decode(), "Search now")
 
 

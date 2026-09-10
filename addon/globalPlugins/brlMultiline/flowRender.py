@@ -118,6 +118,14 @@ class FlowRenderer:
 		"""
 		if numCols < 1:
 			raise ValueError(f"A band needs at least one cell, got {numCols}")
+		self.glyphTarget = None
+		"""The display this band's blocks are being drawn on, or None if none of them draws.
+
+		Set by the band, because where the band is is not something a renderer can see and is
+		not fixed: the band can be moved between displays, and a member of a composite can be
+		unplugged. None means no shape is drawn and no word is taken out — which is what a
+		region bound for a display that cannot draw one must get. See `glyphFlow.targetForRows`.
+		"""
 		self.handler = handler
 		self.numCols = numCols
 		self.fillRows = fillRows
@@ -614,7 +622,7 @@ class FlowRenderer:
 			# cells the wrapping can use. Compressing afterwards would shorten a row and change
 			# nothing about how much fits on it. Does nothing at all unless the reader asked
 			# for it and the display can draw one; see `glyphFlow`.
-			glyphFlow.compressRegion(block.region)
+			glyphFlow.compressRegion(block.region, self.glyphTarget)
 		spec = SegmentSpec(
 			rect=SegmentRect(
 				row=0,

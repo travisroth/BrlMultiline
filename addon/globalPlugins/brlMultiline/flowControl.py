@@ -1253,7 +1253,7 @@ class FlowController(PanelOwner):
 		"""
 		block = self.blocks.get(blockId)
 		region = getattr(block, "region", None)
-		glyphFlow.keepCompressed(region)
+		glyphFlow.keepCompressed(region, self.renderer.glyphTarget)
 		return region
 
 	# Moving.
