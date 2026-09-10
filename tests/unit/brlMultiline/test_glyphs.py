@@ -121,14 +121,30 @@ class TestTheVocabulary(unittest.TestCase):
 				self.assertEqual(len(rows), glyphs.CELL_HEIGHT)
 				self.assertEqual(len(rows[0]), glyphs.CELL_WIDTH * glyph.width)
 
-	def test_aShapeOverDotsCoversAsManyCellsAsItStandsOver(self):
-		"""Checkable here, unlike a shape over a wording, which depends on the reader's table
-		and is checked when it is fitted."""
+	def test_noShapeOverDotsIsWiderThanWhatItStandsOver(self):
+		"""A shape needs the cells it is drawn in, and taking one it was not given would
+		paint over whatever came next. Checkable here, unlike a shape over a wording, whose
+		width depends on the reader's table and is checked when it is fitted.
+		"""
 		for name, glyph in glyphs.VOCABULARY.items():
 			if not glyph.fallbackDots:
 				continue
 			with self.subTest(name):
-				self.assertEqual(glyph.width, len(glyph.fallbackDots.split(glyphs.GROUP)))
+				over = len(glyph.fallbackDots.split(glyphs.GROUP))
+				self.assertLessEqual(glyph.width, over)
+
+	def test_theStatePatternsAreNvdasOwnDotsAndNotAGuessAtThem(self):
+		"""NVDA writes a checkbox state as three literal braille patterns rather than as an
+		abbreviation — a box drawn in dots 1 to 8, which is the same idea a glyph is, done
+		with what a braille line has. An earlier version of this file guessed at "(x)" and
+		"( )", which would simply never have matched and would have failed in silence.
+		"""
+		checked = [glyphs.cellValue(group) for group in glyphs.CHECKED.fallbackDots.split(glyphs.GROUP)]
+		self.assertEqual(checked, [ord(character) - 0x2800 for character in "⣏⣿⣹"])
+		unchecked = [
+			glyphs.cellValue(group) for group in glyphs.UNCHECKED.fallbackDots.split(glyphs.GROUP)
+		]
+		self.assertEqual(unchecked, [ord(character) - 0x2800 for character in "⣏⣀⣹"])
 
 	def test_theFocusIndicatorIsMonarchsOwnSquare(self):
 		"""Easy to find precisely because it is square, and square needs three columns — which
@@ -320,6 +336,91 @@ class TestShorteningALine(unittest.TestCase):
 		self.assertEqual(len(cells), len(self.cells))
 		self.assertEqual(rawToBraille[3:], self.rawToBraille[3:])
 		self.assertEqual(brailleToRaw[:3], [0, 0, 0])
+
+
+class Buffer:
+	"""A dot grid, as much of one as the catalogue draws on."""
+
+	def __init__(self, width, height):
+		self.width = width
+		self.height = height
+		self.dots = set()
+
+	def setDot(self, x, y):
+		self.dots.add((x, y))
+
+	def rows(self):
+		return [
+			"".join("O" if (x, y) in self.dots else "." for x in range(self.width))
+			for y in range(self.height)
+		]
+
+
+class TestTheCatalogue(unittest.TestCase):
+	"""Shapes cannot be chosen by looking at them.
+
+	A drawing that is obvious on a screen can be a smudge under a fingertip, two that look quite
+	different can feel the same, and there is no way to find that out except by putting them
+	side by side and running a hand along them. So the vocabulary comes with a way to feel all
+	of it at once.
+	"""
+
+	def laid(self, entries=None, width=96, height=35):
+		""":return: the catalogue drawn on a panel of a given size."""
+		return glyphs.catalogue(Buffer, width, height, entries)
+
+	def test_everySymbolIsPlaced(self):
+		_buffer, describeAt = self.laid()
+		for name in glyphs.VOCABULARY:
+			with self.subTest(name):
+				self.assertTrue(
+					any(
+						describeAt(x, y) == name
+						for y in range(0, 35, glyphs.LINE)
+						for x in range(0, 96, glyphs.CELL_WIDTH)
+					),
+					name,
+				)
+
+	def test_noTwoShapesTouch(self):
+		"""The question the catalogue answers is whether one shape is another, and shapes that
+		touch each other answer it wrongly."""
+		buffer, _describeAt = self.laid({"a": glyphs.CHECKED, "b": glyphs.CHECKED})
+		self.assertEqual(buffer.rows()[0][:9], "OOO...OOO")
+
+	def test_aPressSaysWhichSymbolItIs(self):
+		"""Which is most of what makes it a catalogue rather than a row of shapes: counting
+		along a line is holding the order in mind while judging the shapes."""
+		_buffer, describeAt = self.laid({"first": glyphs.CHECKED, "second": glyphs.UNCHECKED})
+		self.assertEqual(describeAt(0, 0), "first")
+		self.assertEqual(describeAt(6, 0), "second")
+
+	def test_aPressPastTheEndIsOnNothing(self):
+		_buffer, describeAt = self.laid({"only": glyphs.CHECKED})
+		self.assertIsNone(describeAt(50, 0))
+
+	def test_aRowThatIsFullStartsAnother(self):
+		entries = {str(index): glyphs.CHECKED for index in range(20)}
+		_buffer, describeAt = self.laid(entries)
+		self.assertEqual(describeAt(0, glyphs.LINE), "16")
+
+	def test_aPanelThatRunsOutStopsRatherThanOverwritingItself(self):
+		"""A catalogue that wrapped onto its own first row would read as a symbol nobody
+		wrote."""
+		entries = {str(index): glyphs.CHECKED for index in range(40)}
+		_buffer, describeAt = self.laid(entries, height=glyphs.CELL_HEIGHT)
+		self.assertIsNone(describeAt(0, glyphs.LINE))
+		self.assertEqual(describeAt(0, 0), "0")
+
+	def test_aWideSymbolTakesTheRoomItNeeds(self):
+		_buffer, describeAt = self.laid({"wide": glyphs.WIDE_BUTTON, "after": glyphs.CHECKED})
+		self.assertEqual(describeAt(6, 0), "wide")
+		self.assertEqual(describeAt(12, 0), "after")
+
+	def test_aDisplayThatWillNotProvideABufferIsNotACrash(self):
+		buffer, describeAt = glyphs.catalogue(lambda width, height: None, 96, 35)
+		self.assertIsNone(buffer)
+		self.assertIsNone(describeAt)
 
 
 class TestWhetherADisplayGainsAnything(unittest.TestCase):

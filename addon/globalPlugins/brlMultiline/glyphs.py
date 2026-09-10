@@ -41,16 +41,10 @@ from typing import Callable, NamedTuple, Optional
 from logHandler import log
 
 __all__ = [
-	"BUTTON",
-	"COMBO",
-	"CHECKED",
-	"FOCUS",
-	"Glyph",
-	"PENDING",
-	"UNCHECKED",
-	"WIDE_BUTTON",
-	"VOCABULARY",
 	"Fitted",
+	"Glyph",
+	"VOCABULARY",
+	"catalogue",
 	"cellValue",
 	"compress",
 	"fittedGlyph",
@@ -207,69 +201,256 @@ def _numbers(group: str) -> "list[int]":
 FOCUS = Glyph(dots="1,2,3,4,5,6,9,10,11", fallbackDots="1,2,3,4,5,6")
 """Where the focus is in a list, as Monarch's own firmware draws it.
 
+	OOO
+	OOO
+	OOO
+	...
+
 A solid three by three with the fourth row clear. It is easy to find precisely because it is
 square, and square needs three columns — which is why the add-on's present approximation is
 dots 3678 twice and does not read the same. The fallback is the shape with its third column
 taken away: a solid two by three, which stays recognisable on a Focus.
 """
 
-PENDING = Glyph(dots="3,6,7,8,11,12", fallbackDots="7,8")
+PENDING = Glyph(dots="9,10,11,12", fallbackDots="7,8")
 """There is content on this row the add-on has not fetched yet.
+
+	..O
+	..O
+	..O
+	..O
+
+A bar against the right hand edge of the cell, which is the direction the missing content is
+in. It was a low block, and that put it in a family with the edit field's baseline and the
+separator's rule — three low horizontals a finger has to count rows to tell apart.
 
 The fallback is `flow.PENDING_CELL` — dots 7 and 8, the mark the flow already writes — so this
 costs nothing to adopt and changes nothing for a display that cannot draw it.
 """
 
+# --- Controls, over the abbreviations NVDA writes for them ------------------------------------
+#
+# The saving is the point. "mnuitem" is seven cells of a twenty cell DotPad line before the menu
+# item has a name; drawn, it is one. The shapes are meant to look like what they stand for, on
+# the grounds that a reader who has met a hollow square and a hollow circle in the same places a
+# sighted user meets a checkbox and a radio button has one less arbitrary thing to memorise.
+#
+# The system across them, which matters more than any single shape:
+#
+#   hollow means off or empty, filled means on or checked
+#   a square is a checkbox, a circle is a radio button, a slab is a button
+#   a rule low in the cell is a place to type, a chevron points where a thing opens
+
 BUTTON = Glyph(dots="2,3,5,6,10,11", says="btn")
-"""A button: a solid bar across the middle of one cell, where "btn" was.
+"""A button: a slab across the middle of the cell.
 
 	...
 	OOO
 	OOO
 	...
-
-Two cells given back, and on a 32 cell Monarch that is a sixteenth of the line; on a 20 cell
-DotPad it is a tenth. A bar rather than a box, because the checkbox below is a box and the two
-are met in the same places — a symbol's first job is to not be another symbol.
 """
 
-COMBO = Glyph(dots="1,4,9,5", says="cbo")
-"""A combo box: a wedge pointing down, where "cbo" was.
+TOGGLE = Glyph(dots="2,3,10,11", says="tgbtn")
+"""A toggle button: two posts with the slab taken out, because it has two states.
+
+	...
+	O.O
+	O.O
+	...
+"""
+
+CHECKED = Glyph(
+	dots="1,2,3,4,5,6,7,8,9,10,11,12",
+	fallbackDots="1,2,3,4,7,8|1,2,3,4,5,6,7,8|1,4,5,6,7,8",
+)
+"""A ticked checkbox: a solid square.
+
+	OOO
+	OOO
+	OOO
+	OOO
+
+**The fallback is not text.** NVDA writes this state as three literal braille patterns rather
+than as an abbreviation — a box drawn in dots 1 to 8, which is the same idea this is, done with
+what a braille line has. So the fallback is given as dots, exactly, and does not depend on the
+reader's table at all.
+
+Which is also the argument for the glyph. NVDA's box has braille's blank column running through
+it, so a filled one reads `O.OO.O` across the middle and a finger meets a broken surface. Fill
+the gaps and it is a solid block; and drawn in one cell instead of three it costs two cells
+less.
+"""
+
+UNCHECKED = Glyph(
+	dots="1,2,3,4,7,8,9,10,11,12",
+	fallbackDots="1,2,3,4,7,8|7,8|1,4,5,6,7,8",
+)
+"""An empty checkbox: a hollow square.
+
+	OOO
+	O.O
+	O.O
+	OOO
+
+Solid against hollow is the difference between a surface and an edge, which is the one
+distinction touch makes instantly and never doubts. A tick drawn inside a three by four cell
+would be two dots a finger cannot separate from the box around them.
+"""
+
+HALF_CHECKED = Glyph(
+	dots="1,2,3,4,6,7,8,9,10,11,12",
+	fallbackDots="1,2,3,4,7,8|4,5,6,7,8|1,4,5,6,7,8",
+)
+"""A checkbox that is neither: the square filled from the middle down.
+
+	OOO
+	O.O
+	OOO
+	OOO
+"""
+
+PRESSED = Glyph(
+	dots="2,3,4,5,6,8,10,11",
+	fallbackDots="2,3,4,8|1,2,3,4,5,6,7,8|1,5,6,7",
+)
+"""A pressed toggle: a filled circle, matching the rounded box NVDA draws for this state.
+
+	.O.
+	OOO
+	OOO
+	.O.
+"""
+
+NOT_PRESSED = Glyph(
+	dots="2,3,4,8,10,11",
+	fallbackDots="2,3,4,8|7,8|1,5,6,7",
+)
+"""A toggle that is not pressed: the same circle, hollow.
+
+	.O.
+	O.O
+	O.O
+	.O.
+"""
+
+RADIO = Glyph(dots="2,4,6,10", says="rbtn")
+"""A radio button: a diamond, round-ish where a checkbox is square.
+
+	.O.
+	O.O
+	.O.
+	...
+
+Three rows rather than four, so that it is not the circle `NOT_PRESSED` uses. NVDA reports a
+radio button's state with the *checkbox* patterns, so a selected radio reads as a diamond
+followed by a solid square — which is NVDA's inconsistency rather than this file's, and is
+worth a finger before anything is done about it.
+"""
+
+EDIT = Glyph(dots="7,8,12", says="edt")
+"""An edit field: a rule along the bottom, which is where writing sits.
+
+	...
+	...
+	...
+	OOO
+"""
+
+PASSWORD = Glyph(dots="2,7,8,10,12", says="pwdedt")
+"""A password field: the same rule with two dots floating over it, for what it hides.
+
+	...
+	O.O
+	...
+	OOO
+
+Six cells saved, which is nearly a third of a DotPad line.
+"""
+
+COMBO = Glyph(dots="1,4,5,9", says="cbo")
+"""A combo box: a wedge pointing down, where its list comes from.
 
 	OOO
 	.O.
 	...
 	...
-
-Down because that is where its list comes from, which is the one thing about a combo box a
-reader wants reminding of.
 """
 
-UNCHECKED = Glyph(dots="1,2,3,7,4,8,9,10,11,12", says="( )")
-"""An empty checkbox: a hollow box in one cell, where "( )" was.
+SUBMENU = Glyph(dots="1,3,5", says="submnu")
+"""There is a submenu here: a chevron pointing right, where it opens.
+
+	O..
+	.O.
+	O..
+	...
+"""
+
+LINK = Glyph(dots="3,5,9", says="lnk")
+"""A link: a stroke rising to the right, going somewhere.
+
+	..O
+	.O.
+	O..
+	...
+"""
+
+LIST = Glyph(dots="1,3,4,6,9,11", says="lst")
+"""A list: two rules, one above the other.
+
+	OOO
+	...
+	OOO
+	...
+"""
+
+MENU_ITEM = Glyph(dots="1,2,3,5,10", says="mnuitem")
+"""One item of a menu: a rule with an upright at its left.
+
+	O..
+	OOO
+	O..
+	...
+
+Seven cells for one. The largest saving in the vocabulary, and menus are where a braille line
+runs out of room fastest.
+"""
+
+TABLE = Glyph(dots="1,2,3,4,6,7,9,10,11,12", says="tbl")
+"""A table: two cells stacked, which is what one is.
 
 	OOO
 	O.O
+	OOO
 	O.O
+"""
+
+GRAPHIC = Glyph(dots="5,3,6,11,7,8,12", says="gra")
+"""A graphic: a shape standing on the ground, which is what a picture of anything is.
+
+	...
+	.O.
+	OOO
 	OOO
 """
 
-CHECKED = Glyph(dots="1,2,3,4,5,6,7,8,9,10,11,12", says="(x)")
-"""A ticked checkbox: the same box, filled.
+PROGRESS = Glyph(dots="1,2,3,4,5,6,7,8,9,12", says="prgbar")
+"""A progress bar: a box filled from the left, which is what one does.
 
 	OOO
+	OO.
+	OO.
 	OOO
-	OOO
-	OOO
+"""
 
-**Filled against hollow, not a drawn tick.** A tick inside a three by four cell is two or three
-dots a finger cannot separate from the box around them, where solid against hollow is the
-difference between a surface and an edge — the one distinction touch makes instantly and never
-doubts. It is also the pair that survives being met in a hurry, which is how a checkbox is
-usually met.
+SEPARATOR = Glyph(dots="3,6,11", fallbackDots="3,6|3,6|3,6|3,6|3,6")
+"""A separator: one rule, where NVDA writes five cells of dashes.
 
-Worth watching on hardware: this and `FOCUS` differ by one row, the fourth. They are met in
-quite different places, so it may never come up — and if it does, the fix is a row.
+	...
+	...
+	OOO
+	...
+
+Four cells saved on a thing that carries no information beyond being there.
 """
 
 WIDE_BUTTON = Glyph(dots="2,3,4,8,9,12|1,4,7,8,9,12|1,4,7,8,10,11", says="btn")
@@ -290,9 +471,24 @@ VOCABULARY = {
 	"focus": FOCUS,
 	"pending": PENDING,
 	"button": BUTTON,
-	"combo": COMBO,
-	"unchecked": UNCHECKED,
+	"toggle": TOGGLE,
 	"checked": CHECKED,
+	"unchecked": UNCHECKED,
+	"halfChecked": HALF_CHECKED,
+	"pressed": PRESSED,
+	"notPressed": NOT_PRESSED,
+	"radio": RADIO,
+	"edit": EDIT,
+	"password": PASSWORD,
+	"combo": COMBO,
+	"submenu": SUBMENU,
+	"link": LINK,
+	"list": LIST,
+	"menuItem": MENU_ITEM,
+	"table": TABLE,
+	"graphic": GRAPHIC,
+	"progress": PROGRESS,
+	"separator": SEPARATOR,
 	"wideButton": WIDE_BUTTON,
 }
 """Every symbol by name, for a caller that has a name rather than a reference.
@@ -303,6 +499,85 @@ what survives being written in a settings file or sent across the seam.
 
 
 # --- Fitting one to a display and a reader ---------------------------------------------------
+
+
+SLOT = 2
+"""Cell slots each entry of the catalogue is given: one for the shape, one for air after it."""
+
+LINE = CELL_HEIGHT + 2
+"""Pin rows from one row of the catalogue to the next: a cell, and two rows of air."""
+
+
+def catalogue(newBuffer: Callable, width: int, height: int, entries: Optional[dict] = None):
+	"""Lay every symbol out on the panel so a finger can compare them.
+
+	**Shapes cannot be chosen by looking at them.** A drawing that is obvious on a screen can be
+	a smudge under a fingertip, two that look quite different can feel the same, and there is no
+	way to find that out except by putting them side by side and running a hand along them. So
+	the vocabulary comes with a way to feel all of it at once, and revising an entry afterwards
+	is one line.
+
+	Laid out with a blank slot after each, because the question is whether one shape is another
+	and shapes that touch each other answer it wrongly.
+
+	:param newBuffer: makes a blank buffer of a given width and height.
+	:param width: the panel's width in pins.
+	:param height: its height in pins.
+	:param entries: what to lay out, by name. None for the whole vocabulary.
+	:return: (buffer, describeAt), where `describeAt` names the symbol under a point.
+	"""
+	entries = VOCABULARY if entries is None else entries
+	buffer = newBuffer(width, height)
+	if buffer is None:
+		return None, None
+	placed = []
+	x, y = 0, 0
+	for name, glyph in entries.items():
+		span = (glyph.width + 1) * CELL_WIDTH
+		if x + span > width:
+			x, y = 0, y + LINE
+		if y + CELL_HEIGHT > height:
+			# Out of panel. Better a catalogue that stops than one that overwrites its own
+			# first row, which would read as a symbol nobody wrote.
+			break
+		_stamp(buffer, patternRows(glyph.dots), x, y)
+		placed.append((name, x, y, glyph.width * CELL_WIDTH))
+		x += span
+	return buffer, _namer(placed)
+
+
+def _stamp(buffer, rows: "list[str]", x: int, y: int) -> None:
+	"""Draw one shape at a place on the panel.
+
+	:param buffer: what to draw on.
+	:param rows: the shape.
+	:param x: its left edge.
+	:param y: its top row.
+	"""
+	for down, row in enumerate(rows):
+		for across, character in enumerate(row):
+			if character not in " .":
+				buffer.setDot(x + across, y + down)
+
+
+def _namer(placed: "list[tuple]") -> Callable:
+	"""Build the lookup from a point of the catalogue back to the symbol there.
+
+	Which is most of what makes the catalogue usable: a reader running a hand along a row of
+	shapes wants to know which one they have just met, and asking them to count is asking them
+	to hold the order in mind while judging the shapes.
+
+	:param placed: (name, x, y, width) per symbol drawn.
+	:return: a function taking a point and returning what is there.
+	"""
+
+	def describeAt(x: int, y: int) -> Optional[str]:
+		for name, left, top, width in placed:
+			if left <= x < left + width + CELL_WIDTH and top <= y < top + LINE:
+				return name
+		return None
+
+	return describeAt
 
 
 def supported(driver) -> bool:

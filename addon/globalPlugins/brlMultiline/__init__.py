@@ -32,7 +32,7 @@ from scriptHandler import script
 
 from . import bmConfig, panning, patches, tableArrows
 from .container import DisplayContainer
-from . import chartDraw, chartMenu, chartSource, graphicsMode
+from . import chartDraw, chartMenu, chartSource, glyphs, graphicsMode
 from .flowTableSource import wantsColumns
 from .graphicsMode import FIT as GRAPHICS_FIT, PANEL_NAME as GRAPHICS_PANEL_NAME, GraphicsMode
 from . import devices as devicesModule
@@ -2718,6 +2718,49 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("The chart could not be made, see the log"))
 			return
 		self._lastChartKind = offer.key
+		if not mode.enter(drawing):
+			ui.message(mode.lastError or _("The drawing could not be shown"))
+			return
+		ui.message(mode.describe())
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Show the glyph catalogue"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_glyphCatalogue(self, gesture):
+		"""Put every symbol the add-on knows on the panel, so a hand can compare them.
+
+		**Shapes cannot be chosen by looking at them.** A drawing that is obvious on a
+		screen can be a smudge under a fingertip, two that look quite different can feel
+		the same, and there is no way to find that out except by putting them side by side
+		and running a hand along them.
+
+		Pressing a routing key on one says which it is, which is what makes it a catalogue
+		rather than a row of shapes: the question a reader has is always "is this the one I
+		just felt", and counting along a line to answer it is holding the order in mind
+		while judging the shapes.
+
+		Unbound by default. It is a tool for choosing a vocabulary rather than something
+		used while reading, and the graphics chords are spent on things that are.
+		"""
+		mode = self.graphicsMode
+		size = mode.drawingSize()
+		if size is None:
+			# Translators: reported when a drawing was asked for on a display that cannot draw.
+			ui.message(_("This display cannot show graphics"))
+			return
+		buffer, describeAt = glyphs.catalogue(mode.newBuffer, size[0], size[1])
+		if buffer is None:
+			ui.message(mode.lastError or _("The drawing could not be shown"))
+			return
+		drawing = graphicsMode.Drawing(
+			buffer,
+			# Translators: the name of the glyph catalogue on the display. The placeholder is
+			# how many symbols it holds.
+			name=_("glyph catalogue, {count} symbols").format(count=len(glyphs.VOCABULARY)),
+			describeAt=describeAt,
+		)
 		if not mode.enter(drawing):
 			ui.message(mode.lastError or _("The drawing could not be shown"))
 			return
