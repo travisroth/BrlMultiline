@@ -460,6 +460,114 @@ class TestReadingASelection(unittest.TestCase):
 		self.assertEqual(len(chartSource.seriesFromGrid(grid)), chartSource.MAX_BARS)
 
 
+class TestWhatIsALabelAndWhatIsData(unittest.TestCase):
+	"""The split between what a sheet stores and what it shows, and where it misleads.
+
+	Excel stores a date as a serial number, so a column of dates is numeric to anything looking
+	only at what is stored, and a stock chart whose first series was the dates would climb off
+	the top of the panel. Telling them apart used to mean asking whether the cell showed
+	something other than its stored number — which is true of a date and also true of every
+	number the sheet has formatted, so a column of prices shown as "$1,000" was taken for labels
+	and dropped out of the chart entirely.
+	"""
+
+	def table(self, first, second):
+		""":return: a table read from two columns of (text, value) pairs."""
+		return chartSource.tableFromGrid([[a, b] for a, b in zip(first, second)])
+
+	def numbers(self, values):
+		return [(str(value), float(value)) for value in values]
+
+	def test_aColumnOfDatesIsLabels(self):
+		dates = [("2024-01-15", 45306.0), ("2024-01-16", 45307.0), ("2024-01-17", 45308.0)]
+		table = self.table(dates, self.numbers([10, 20, 30]))
+		self.assertEqual(table.labels, ["2024-01-15", "2024-01-16", "2024-01-17"])
+		self.assertEqual(len(table.columns), 1)
+
+	def test_aColumnOfPricesIsData(self):
+		"""The failure this is here for: two series read as one series and a column of labels."""
+		prices = [("$1,000", 1000.0), ("$2,000", 2000.0), ("$3,000", 3000.0)]
+		table = self.table(prices, self.numbers([10, 20, 30]))
+		self.assertIsNone(table.labels)
+		self.assertEqual([column.values for column in table.columns], [[1000.0, 2000.0, 3000.0], [10.0, 20.0, 30.0]])
+
+	def test_percentagesAreData(self):
+		percents = [("25%", 0.25), ("50%", 0.5), ("75%", 0.75)]
+		self.assertIsNone(self.table(percents, self.numbers([10, 20, 30])).labels)
+
+	def test_aRoundedNumberIsData(self):
+		"""Shown to two decimals and stored to five. It is still a number."""
+		rounded = [("1.23", 1.23456), ("2.35", 2.34567), ("3.46", 3.45678)]
+		self.assertIsNone(self.table(rounded, self.numbers([10, 20, 30])).labels)
+
+	def test_anAccountantsNegativeIsData(self):
+		negatives = [("(500)", -500.0), ("(600)", -600.0), ("(700)", -700.0)]
+		self.assertIsNone(self.table(negatives, self.numbers([10, 20, 30])).labels)
+
+	def test_textIsStillLabels(self):
+		names = [("North", None), ("South", None), ("East", None)]
+		self.assertEqual(self.table(names, self.numbers([10, 20, 30])).labels, ["North", "South", "East"])
+
+
+class TestWhetherTheFirstRowNamesTheColumns(unittest.TestCase):
+	"""A fact about the application, not about the numbers.
+
+	A table headed "Metric, 2025, 2026" over "Sales, 10, 20" is, cell for cell, indistinguishable
+	from a table of years and figures with no headings at all, and guessed wrong it charts 2025
+	and 2026 as data points. A spreadsheet knows, because a structured table declares its header
+	row — so it is asked, and the guessing is only what happens when nobody has said.
+	"""
+
+	def grid(self, rows, headings=None):
+		built = chartSource.Grid(rows)
+		built.headings = headings
+		return built
+
+	def yearsOverFigures(self):
+		return [
+			[("Metric", None), ("2025", 2025.0), ("2026", 2026.0)],
+			[("Sales", None), ("10", 10.0), ("20", 20.0)],
+			[("Costs", None), ("30", 30.0), ("40", 40.0)],
+		]
+
+	def test_toldYesTheYearsBecomeTheNames(self):
+		table = chartSource.tableFromGrid(self.grid(self.yearsOverFigures(), headings=True))
+		self.assertEqual([column.name for column in table.columns], ["2025", "2026"])
+		self.assertEqual([column.values for column in table.columns], [[10.0, 30.0], [20.0, 40.0]])
+
+	def test_toldNoTheyAreChartedAsData(self):
+		table = chartSource.tableFromGrid(self.grid(self.yearsOverFigures(), headings=False))
+		self.assertEqual([column.values for column in table.columns], [[2025.0, 10.0, 30.0], [2026.0, 20.0, 40.0]])
+
+	def test_toldNothingItGuessesAsItAlwaysDid(self):
+		"""And here it guesses that they are data, which is the case nothing in the values can
+		settle. The reader is not left without a way to say so: a structured table says it, and
+		this is a plain range."""
+		table = chartSource.tableFromGrid(self.grid(self.yearsOverFigures()))
+		self.assertEqual([column.values for column in table.columns], [[2025.0, 10.0, 30.0], [2026.0, 20.0, 40.0]])
+
+	def test_anOrdinaryHeadingRowStillNeedsNoTelling(self):
+		rows = [
+			[("Region", None), ("Sales", None)],
+			[("North", None), ("10", 10.0)],
+			[("South", None), ("20", 20.0)],
+		]
+		table = chartSource.tableFromGrid(self.grid(rows))
+		self.assertEqual([column.name for column in table.columns], ["Sales"])
+
+	def test_toldNoOverridesAGuessOfYes(self):
+		"""A row inside a table that Excel says is not its header row. The guess would have
+		taken it away, and taking a row away drops a point off the chart silently."""
+		rows = [
+			[("North", None), ("10", 10.0)],
+			[("South", None), ("20", 20.0)],
+			[("East", None), ("30", 30.0)],
+		]
+		table = chartSource.tableFromGrid(self.grid(rows, headings=False))
+		self.assertEqual(table.labels, ["North", "South", "East"])
+		self.assertEqual([column.values for column in table.columns], [[10.0, 20.0, 30.0]])
+
+
 class TestTheSeamIsTheOnlyWayIn(unittest.TestCase):
 	"""Nothing outside `appModules/excel.py` may know that Excel exists.
 

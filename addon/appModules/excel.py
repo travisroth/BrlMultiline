@@ -587,11 +587,16 @@ class ExcelSheet:
 		:param maxColumns: columns to read at most, on the same terms.
 		:return: rows of `(text, value)`, or None if Excel will not say.
 		"""
+		self._selectedBox = None
 		try:
 			box = self._clipToData(self._selectedRange(), maxRows, maxColumns)
 			if box is None:
 				return None
 			firstRow, firstColumn, lastRow, lastColumn = box
+			# Kept so that `selectedHeadings` can answer about the same cells. The clip is what
+			# turns Ctrl+Space into the rows that have data in them, so the first row of what
+			# came back is not the first row of what the reader selected.
+			self._selectedBox = box
 			sheet = self._sheet
 			span = sheet.range(
 				sheet.cells(firstRow, firstColumn),
@@ -622,6 +627,45 @@ class ExcelSheet:
 			_pairUp(texts[offset], valueRow, firstRow + offset, firstColumn)
 			for offset, valueRow in enumerate(values)
 		]
+
+	def selectedHeadings(self) -> Optional[bool]:
+		"""Whether the first row of the last selection read is a row of headings.
+
+		Answers `flowObjectTable.Sheet.selectedHeadings`, and Excel can answer it properly for a
+		structured table: `ListObject.HeaderRowRange` says which row that table's headings are
+		on, and comparing it with the first row read settles the question outright. Nothing in
+		the values could: "Metric, 2025, 2026" over "Sales, 10, 20" is cell for cell the same
+		shape as a table of years with no headings, and guessing wrong charts 2025 and 2026 as
+		data points.
+
+		**Only for a structured table.** A plain range is not one, and there Excel knows no more
+		than the reader can see, so the honest answer is None and the caller goes on guessing.
+
+		:return: True, False, or None where it cannot be settled.
+		"""
+		box = getattr(self, "_selectedBox", None)
+		if box is None:
+			return None
+		firstRow, firstColumn = box[0], box[1]
+		try:
+			table = self._sheet.cells(firstRow, firstColumn).ListObject
+			if table is None:
+				return None
+			header = table.HeaderRowRange
+		except CallCancelled:
+			raise
+		except Exception:
+			# Not in a table, or an Excel that will not say. Either way this settles nothing.
+			log.debug("Excel would not say whether the selection has headings", exc_info=True)
+			return None
+		if header is None:
+			# A table with its header row turned off. That is an answer: the first row is data.
+			return False
+		try:
+			return int(header.Row) == int(firstRow)
+		except Exception:
+			log.debugWarning("Could not read where an Excel table's headings are", exc_info=True)
+			return None
 
 	def _clipToData(self, selection, maxRows: int, maxColumns: int) -> Optional[tuple]:
 		"""Cut a selection down to what can be read without stopping NVDA.

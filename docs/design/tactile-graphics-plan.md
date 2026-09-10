@@ -425,8 +425,23 @@ stay free of text, and that leaving restores ordinary braille exactly.
 
 The gate it was is open: `graphics.py` and `graphicsMode.py` consume `newGraphicsBuffer`,
 `setGraphicsOverlay`, `clearGraphicsOverlay` and `lastTouch`, so the driver's mechanism has a
-caller at last. `newGlyph` and `setCellGlyphs` still have none — glyphs belong to the add-on's
-own vocabulary decision, not to a figure.
+caller at last.
+
+`newGlyph` and `setCellGlyphs` now have one too, and it is not a figure. **The glyph phase** is
+`glyphs.py`, which holds the shapes and the notation, and `glyphFlow.py`, which decides where
+one is drawn: over the short words NVDA already writes for a role or a state, and nowhere else.
+A word is a role because of where it came from — `TextInfoRegion._addFieldText` for a document,
+the object's own name and value and description for an object — never because of what it says.
+`segments.BrailleBufferSegment` compresses each region before the buffer cuts it into rows, so
+the cells a shape gives back are cells the wrapping can use, and `container` registers what
+landed where on each frame. Off by default, per display, under "Draw roles and states as shapes
+instead of words".
+
+Two limits worth naming. **A cell of a table row keeps its words**: those positions are packed
+with the column they came from — see `flowTable.cellPosition` — so a mark naming one would
+never be found again. And **a role NVDA composes rather than looks up is missed**: a list with a
+child count is written "lst5", and the matcher wants the bare label. A missing shape is the safe
+failure of the two.
 
 **Rewritten twice.** The original sketch was a `GraphicsPanel` tiling the display alongside
 ordinary flow, and full panel refresh ruled that out. The rewrite after phase 0 then said a
@@ -606,8 +621,9 @@ is recorded under the piece.
 
 The chart is phase 4 and image import is phase 5. Phase 2's content is a fixed test figure —
 a box, a diagonal, a marker, a caption — because the point is the enter, the claim, the
-transform and the leave, not the drawing. The glyph vocabulary stays out too; that is the
-add-on's separate decision about which app modules want which symbols.
+transform and the leave, not the drawing. The glyph vocabulary stayed out of phase 2 as well;
+it is a separate decision about what to draw over ordinary braille rather than over a panel,
+and it is now built. See the note above.
 
 #### What the first hardware run found
 

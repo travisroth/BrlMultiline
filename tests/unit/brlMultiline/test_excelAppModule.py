@@ -443,10 +443,25 @@ SALES = [
 class FakeRange:
 	"""Excel's own cell, which knows where it is and what it says."""
 
-	def __init__(self, row, column, text="", gone=False):
+	def __init__(self, row, column, text="", gone=False, listObject=None):
 		self.row = row
 		self.column = column
 		self.text = text
+		self.Row = row
+		self.Column = column
+		"""Excel's own casing for the same two. A real range answers to either, because the
+		lookup goes through IDispatch by name and Excel does not care; the add-on uses both
+		spellings in different places and a fake that answered only one would make which of
+		them was written a thing that mattered.
+		"""
+
+		self.ListObject = listObject
+		"""The structured table this cell is in, if it is in one.
+
+		A plain cell has none, and Excel raises rather than answering None for some of
+		them; both are the same answer to the add-on, which is that nobody has said whether
+		the first row of a selection names the columns.
+		"""
 		self.selected = False
 		self.activated = False
 		self.Application = "an Excel"
@@ -578,6 +593,9 @@ class FakeWorksheetObject:
 		in `selectedValues` has to hold up on its own."""
 		self.Application = "an Excel"
 		self.name = name
+		self.tables = {}
+		"""Which cells are inside a structured table, by coordinate. Excel's ListObject."""
+
 		self.parent = types.SimpleNamespace(fullName=book, name="sales.xlsx")
 		"""The workbook, which is what tells one worksheet from another with the same
 		headings. See `ExcelSheet.whereIsIt`."""
@@ -610,7 +628,7 @@ class FakeWorksheetObject:
 		said = ""
 		if 1 <= row <= len(self.values) and 1 <= column <= len(self.values[row - 1]):
 			said = self.values[row - 1][column - 1]
-		return FakeRange(row, column, said)
+		return FakeRange(row, column, said, listObject=self.tables.get((row, column)))
 
 
 class FakeWorksheet:
@@ -1978,6 +1996,88 @@ class TestReadingASelectionWithoutStoppingNVDA(unittest.TestCase):
 		sheet.selectedValues()
 		sheet.selectedValues()
 		self.assertEqual(worksheet.timesAskedTheUsedRange, 1)
+
+
+class FakeListObject:
+	"""Excel's structured table, as far as `selectedHeadings` reads it."""
+
+	def __init__(self, headerRow=None, fails=False):
+		self.headerRow = headerRow
+		self.fails = fails
+
+	@property
+	def HeaderRowRange(self):
+		if self.fails:
+			raise COMError(-2146827864, None, (None, None, None, 0, None))
+		if self.headerRow is None:
+			# A table with its header row turned off. Excel answers None, and that is an
+			# answer: the first row of the selection is data.
+			return None
+		return FakeRange(self.headerRow, 1)
+
+
+class TestWhetherASelectionBeginsWithHeadings(unittest.TestCase):
+	"""The one question about a selection that the numbers cannot settle.
+
+	A table headed "Metric, 2025, 2026" over "Sales, 10, 20" is, cell for cell, indistinguishable
+	from a table of years and figures with no headings, and guessed wrong it charts 2025 and 2026
+	as data points. Excel knows, because a structured table declares its header row — so it is
+	asked, and the guessing above is only what happens when nobody has said.
+	"""
+
+	def setUp(self):
+		fetches.clear()
+		batch.clear()
+		helperFails[0] = 0
+
+	def sheetOf(self, table=None, first=1, rows=3):
+		""":return: a worksheet of numbers, optionally inside a structured table."""
+		worksheet = FakeWorksheetObject(used=FakeUsedRange(first, 1, rows, 2))
+		for row in range(rows):
+			for column in range(2):
+				worksheet.numbers[(first + row, 1 + column)] = float(row * 10 + column)
+		if table is not None:
+			for row in range(rows):
+				for column in range(2):
+					worksheet.tables[(first + row, 1 + column)] = table
+		return worksheet
+
+	def readingOf(self, worksheet, rows=3, first=1):
+		""":return: the sheet, having read its selection, which is what leaves the box behind."""
+		sheet = excelModule.ExcelSheet(
+			FakeSelection(FakeWorksheet(worksheet), row=first, rows=rows, columns=2),
+		)
+		sheet.selectedValues()
+		return sheet
+
+	def test_aPlainRangeSettlesNothing(self):
+		"""Excel knows no more than the reader can see, so the honest answer is that it cannot
+		say and the caller goes on guessing."""
+		self.assertIsNone(self.readingOf(self.sheetOf()).selectedHeadings())
+
+	def test_aTableWhoseHeaderRowIsTheFirstRowRead(self):
+		table = FakeListObject(headerRow=1)
+		self.assertIs(self.readingOf(self.sheetOf(table=table)).selectedHeadings(), True)
+
+	def test_aTableWhoseHeaderRowIsAboveTheSelection(self):
+		"""The reader selected the body of a table. Its first row is data, and the guess would
+		have taken it away — which drops a point off the chart and says nothing about it."""
+		table = FakeListObject(headerRow=1)
+		worksheet = self.sheetOf(table=table, first=4)
+		self.assertIs(self.readingOf(worksheet, first=4).selectedHeadings(), False)
+
+	def test_aTableWithItsHeaderRowTurnedOff(self):
+		table = FakeListObject(headerRow=None)
+		self.assertIs(self.readingOf(self.sheetOf(table=table)).selectedHeadings(), False)
+
+	def test_anExcelThatWillNotSaySettlesNothing(self):
+		table = FakeListObject(fails=True)
+		self.assertIsNone(self.readingOf(self.sheetOf(table=table)).selectedHeadings())
+
+	def test_nothingReadYetSettlesNothing(self):
+		"""Asked about the last selection read, and there has not been one."""
+		sheet = excelModule.ExcelSheet(FakeSelection(FakeWorksheet(self.sheetOf()), rows=3, columns=2))
+		self.assertIsNone(sheet.selectedHeadings())
 
 
 class TestReadingTheTextOfASelection(unittest.TestCase):

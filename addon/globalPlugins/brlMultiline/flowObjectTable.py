@@ -1690,6 +1690,22 @@ class Sheet:
 		"""
 		return None
 
+	def selectedHeadings(self) -> Optional[bool]:
+		""":return: whether the first row of the last selection read is a row of headings.
+
+		Optional, and the answer is a fact about the application rather than about the numbers.
+		Nothing in a grid of values can settle it: a table headed "Metric, 2025, 2026" over
+		"Sales, 10, 20" is, cell for cell, indistinguishable from a table of years and figures
+		with no headings at all, and a reader charting one of them gets 2025 and 2026 drawn as
+		data points. A spreadsheet knows, because a structured table declares its header row.
+
+		True means the first row names the columns, False means it does not, and None means the
+		grid cannot say — in which case whoever asked falls back to guessing from the values,
+		which is what it did before this existed. Asked after `selectedValues` and about the
+		same cells, since that is what clipped the selection to the used range.
+		"""
+		return None
+
 	def whereIsIt(self) -> Optional[str]:
 		""":return: what names the place this grid is in, or None to be named the ordinary way.
 

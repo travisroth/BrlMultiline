@@ -81,7 +81,19 @@ def seriesFromFocus() -> "list[Series]":
 	return seriesFromGrid(gridFromFocus())
 
 
-def gridFromFocus() -> "list[list]":
+class Grid(list):
+	"""The cells of a selection, and what the application could say about them.
+
+	A list, because that is what every reader of it wants and what the seam promises. The extra
+	is one question the values cannot answer and the application sometimes can: whether the
+	first row names the columns. See `flowObjectTable.Sheet.selectedHeadings`.
+	"""
+
+	headings: Optional[bool] = None
+	"""True if the first row names the columns, False if it does not, None if nobody knows."""
+
+
+def gridFromFocus() -> "Grid":
 	"""Read what the reader has selected, without deciding what it means yet.
 
 	Separate from `seriesFromGrid` because there is more than one chart to be made from the
@@ -123,7 +135,33 @@ def gridFromFocus() -> "list[list]":
 	if not grid:
 		# Translators: reported when a chart is asked for and nothing chartable is selected.
 		raise NoNumbers(_("Nothing is selected to chart"))
-	return grid
+	return _withHeadings(grid, sheet)
+
+
+def _withHeadings(grid, sheet) -> Grid:
+	""":return: the selection, carrying what the grid could say about its first row.
+
+	Asked here rather than left to the reading rules, because whether a row names the
+	columns is a fact about the application and not about the numbers: a table headed
+	"Metric, 2025, 2026" is cell for cell the same shape as a table of years. Optional on
+	the seam, so a grid that does not offer it leaves the guessing exactly as it was.
+
+	:param grid: the rows read.
+	:param sheet: the grid they came from.
+	"""
+	told = None
+	ask = getattr(sheet, "selectedHeadings", None)
+	if ask is not None:
+		try:
+			told = ask()
+		except CallCancelled:
+			told = None
+		except Exception:
+			log.debugWarning("BrlMultiline: a grid would not say whether it has headings", exc_info=True)
+	rows = Grid(grid)
+	rows.headings = told if isinstance(told, bool) else None
+	log.info(f"BrlMultiline: the grid says its first row is headings: {rows.headings}")
+	return rows
 
 
 def _focusedSheet():
@@ -284,6 +322,14 @@ which is more history than ninety-six pins can say anything useful about and is 
 to stop turning cells into tuples.
 """
 
+FORMATTING = "$£€¥%,\u00a0\u202f "
+"""What a sheet may put around a number without making it something other than a number.
+
+Currency symbols, a percent sign, and the several spaces used as group separators. Not the
+decimal point, and not a minus sign, because those are part of the number itself. See
+`_readsAsANumber`.
+"""
+
 MIN_COLUMN_NUMBERS = 2
 """Numbers a column must have before it counts as data rather than as a stray figure."""
 
@@ -317,7 +363,8 @@ def tableFromGrid(grid: "list[list]") -> Table:
 	:raises NoNumbers: if no column of the selection is numeric.
 	"""
 	rows = grid[:MAX_POINTS]
-	names = _headerNames(rows)
+	told = getattr(grid, "headings", None)
+	names = None if told is False else _headerNames(rows, told)
 	if names:
 		rows = rows[1:]
 	width = max((len(row) for row in rows), default=0)
@@ -338,8 +385,13 @@ def tableFromGrid(grid: "list[list]") -> Table:
 	return Table(labels=labels, columns=columns)
 
 
-def _headerNames(rows: "list[list]") -> Optional[list]:
+def _headerNames(rows: "list[list]", told: Optional[bool] = None) -> Optional[list]:
 	"""Decide whether the first row names the columns.
+
+	**Where the application has said so, it is taken at its word.** A spreadsheet's structured
+	table declares its header row, and that settles a question the values cannot: a table headed
+	"Metric, 2025, 2026" is cell for cell the same shape as a table of years, and guessed wrong
+	it charts 2025 and 2026 as data points. What follows is what to do when nobody has said.
 
 	**A heading row has no numbers in it and names every column that does.** The first half
 	is the plain rule and is right about almost everything: a row of headings has no numbers
@@ -353,13 +405,16 @@ def _headerNames(rows: "list[list]") -> Optional[list]:
 	be a rule that works on the sheets it was written against.
 
 	:param rows: the selection.
+	:param told: what the application said, or None if it could not say.
 	:return: the headings, or None if the first row is data.
 	"""
 	if len(rows) < 2 or not rows[0]:
 		return None
+	names = [str(cell[0]).strip() for cell in rows[0]]
+	if told:
+		return names if any(names) else None
 	if any(_asNumber(cell[1]) is not None for cell in rows[0]):
 		return None
-	names = [str(cell[0]).strip() for cell in rows[0]]
 	if not any(names):
 		return None
 	body = rows[1:]
@@ -392,13 +447,17 @@ def _labelIndex(rows: "list[list]", width: int) -> Optional[int]:
 
 	**The leftmost, when it is not itself data.** Two ways it can fail to be data: it holds
 	text, which is the ordinary table of a name and its numbers; or it holds numbers that are
-	*displayed as something else*, which is what a date is. Excel stores a date as a serial
-	number, so a column of dates is numeric to anything that only looks at what is stored —
-	and a stock chart whose first series is the dates would be a straight line climbing off
-	the top of the panel, drawn confidently.
+	*not shown as numbers*, which is what a date is. Excel stores a date as a serial number, so
+	a column of dates is numeric to anything that only looks at what is stored — and a stock
+	chart whose first series is the dates would be a straight line climbing off the top of the
+	panel, drawn confidently.
 
-	Comparing what the cell shows against what its number would print as is what tells them
-	apart, and it costs nothing: the grid already carries both.
+	**Shown as a number, not shown as the same number.** This used to ask whether the displayed
+	text differed from what the stored value would print as, which is true of a date and also
+	true of every number the sheet has formatted: a column of prices shown as "$1,000" was taken
+	for labels and dropped out of the chart, and so was anything with a thousands separator, a
+	percent sign, or a rounded number of decimals. What separates a date from a formatted number
+	is that a date does not read as a number at all.
 
 	:param rows: the selection, headings removed.
 	:param width: how many columns it has.
@@ -409,19 +468,45 @@ def _labelIndex(rows: "list[list]", width: int) -> Optional[int]:
 	cells = _column(rows, 0)
 	if _dataColumn(cells) is None:
 		return 0
-	if any(_isDisplayedDifferently(cell) for cell in cells):
+	if any(_isShownAsSomethingElse(cell) for cell in cells):
 		return 0
 	return None
 
 
-def _isDisplayedDifferently(cell) -> bool:
-	""":return: whether a cell shows something other than the number it holds.
+def _isShownAsSomethingElse(cell) -> bool:
+	""":return: whether a cell holding a number shows something that is not a number.
 
 	:param cell: one `(text, value)` pair.
 	"""
 	value = _asNumber(cell[1])
 	text = str(cell[0]).strip()
-	return value is not None and bool(text) and text != numberText(value)
+	return value is not None and bool(text) and not _readsAsANumber(text)
+
+
+def _readsAsANumber(text: str) -> bool:
+	"""Whether displayed text is a number wearing a format.
+
+	Currency symbols, group separators, a percent sign, and the accountant's parentheses for a
+	negative are all formatting; what is left has to parse. A date does not: it carries slashes,
+	dashes or a month's name, and none of those survive into a number.
+
+	Deliberately generous about what counts as formatting, because the two mistakes are not
+	equal. Reading a formatted number as a date drops a whole series out of the chart and says
+	nothing about it. Reading a date as a number draws a line climbing off the panel, which is
+	visible the moment a finger touches it.
+
+	:param text: what the cell shows.
+	"""
+	stripped = text.strip().strip("()")
+	for character in FORMATTING:
+		stripped = stripped.replace(character, "")
+	if not stripped:
+		return False
+	try:
+		float(stripped)
+	except ValueError:
+		return False
+	return True
 
 
 def _dataColumn(cells: list) -> Optional[list]:

@@ -8,6 +8,19 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **A chart no longer takes a column of prices for a column of dates.** Excel stores a date as
+  a serial number, so the way a date is told from data is that the cell shows something other
+  than the number it holds — which is also true of every number the sheet has formatted. A
+  first column shown as "$1,000", or as a percentage, or rounded to two decimals, was therefore
+  read as labels and dropped out of the chart. A formatted number is still a number; a date is
+  what does not read as a number at all.
+
+- **A spreadsheet is asked whether the first row of a selection names the columns**, where it
+  is in a structured table and can answer. Nothing in the values can: a table headed
+  "Metric, 2025, 2026" over "Sales, 10, 20" is cell for cell the same shape as a table of years
+  and figures, and guessed wrong it charts 2025 and 2026 as data points. For a plain range the
+  guessing is unchanged.
+
 - **A line that fills the band exactly no longer skips the row after it.** Every reading unit
   NVDA hands over ends with a space it adds on purpose, in case the caret is at the end of the
   line. It is a cell like any other, so a link whose text filled all thirty-two cells needed
