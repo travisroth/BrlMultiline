@@ -198,14 +198,17 @@ class TestTheFrame(unittest.TestCase):
 		writeFrame(buffer, spell, scale, first, last)
 		return buffer.rows()
 
-	def test_theHighIsWrittenAtTheTopLeft(self):
+	def test_theRangeReadsLowToHighAcrossTheTop(self):
+		"""Ascending left to right, like the dates along the bottom, because that is the
+		only arrangement that does not have to be memorised. The high at the left was the
+		first arrangement — the top of a plot is its high — and that reasoning does not
+		survive the two of them being on the same line, where up and down mean nothing.
+		"""
 		rows = self.frame()
-		# "40" is two cells, so two dots three columns apart.
-		self.assertEqual(rows[0][:6], "O..O..")
-
-	def test_theLowIsWrittenAtTheTopRight(self):
-		rows = self.frame()
-		self.assertIn("O", rows[0][80:])
+		# The low is 5, one cell: one dot at the left and nothing beside it.
+		self.assertEqual(rows[0][:6], "O.....")
+		# The high is 40, two cells, right aligned to the panel.
+		self.assertEqual(rows[0][88:], "..O..O..")
 
 	def test_theFirstLabelIsWrittenAtTheBottomLeft(self):
 		rows = self.frame()

@@ -882,13 +882,20 @@ forced five decisions.
    floor and climbing back out, which looks exactly like a crash and is entirely convincing —
    the kind of wrong a chart can be while looking right. So a run of missing values breaks the
    line, and the reader feels the average start where the data starts.
-5. **The frame is the same on every chart that has an axis.** The top line is the value range,
-   the bottom line is the period range, always. A drawn axis with ticks and numbers up the side
+5. **The frame is the same on every chart that has an axis, and both lines ascend.** The top
+   line is the value range, the bottom line is the period range, always — and each reads left
+   to right in ascending order: lowest to highest, earliest to latest. A drawn axis with ticks and numbers up the side
    would cost a third of the width and say less, because at ninety-six pins a number beside a
    tick has nowhere to be; four corners say what the top is worth, what the bottom is worth,
    where the data starts and where it ends, and pointing covers everything in between.
    Consistency between chart types is worth more here than on a screen: there is no glance, so
    every convention the reader does not have to re-learn is time they get back.
+
+The order took a hardware run to get right. The high was written at the left, on the reasoning
+that the top of a plot is its high — which does not survive the two numbers being on the same
+line, where up and down mean nothing and only left and right are left. It read backwards, and
+the rule that replaced it is the one that does not have to be memorised: a range is said low to
+high, and the dates underneath already run earliest to latest.
 
 **Why the OHLC bar shape survives the translation to pins.** It is made of exactly the three
 strokes this resolution can carry: a vertical stem for the day's range, a tick left for the

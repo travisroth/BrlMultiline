@@ -13,10 +13,12 @@ chances for two charts to disagree about where the top of the plot is, which the
 feel as two charts that cannot be compared.
 
 **The frame is deliberately the same on every chart that has an axis.** The top line is the
-value range and the bottom line is the period range, always, so a reader who has learned to
-sweep the top of a line chart for its high and low knows where those are on a candlestick
-chart too. Consistency between chart types is worth more here than on a screen: there is no
-glance, so every convention a reader does not have to re-learn is time they get back.
+value range and the bottom line is the period range, always, and both read left to right in
+ascending order — lowest to highest, earliest to latest. So a reader who has learned to sweep
+the top of a line chart for its range knows where that is on a candlestick chart too, and knows
+which end of it they are touching. Consistency between chart types is worth more here than on a
+screen: there is no glance, so every convention a reader does not have to re-learn is time they
+get back.
 
 Knows nothing about NVDA, Excel, or any display. Numbers and a buffer to draw on.
 """
@@ -281,8 +283,18 @@ def writeFrame(
 	do, because at ninety-six pins a number beside a tick has nowhere to be.
 
 	Four corners, and each says something a reader would otherwise have to hunt for: what the
-	top of the plot is worth, what the bottom is worth, where the data starts and where it
-	ends. Everything between them is what pointing is for.
+	plot's range is, where the data starts and where it ends. Everything between them is what
+	pointing is for.
+
+	**Both lines read left to right in ascending order**, which is the only arrangement that
+	does not have to be memorised. The bottom line goes earliest to latest because that is
+	where the data is drawn; so the top line goes lowest to highest, and a finger sweeping
+	either of them is reading a range the way a range is said — "fifty to sixty".
+
+	The high at the left was the first arrangement, on the reasoning that the top of a plot
+	is its high. That reasoning does not survive the two of them being on the same line,
+	where up and down mean nothing and only left and right are left, and it read backwards on
+	hardware to the person who asked for it.
 
 	:param buffer: what to draw on.
 	:param translate: turns a string into braille cells.
@@ -294,8 +306,8 @@ def writeFrame(
 	if room < 1:
 		return
 	bottom = buffer.height - TEXT_ROWS
-	writeAt(buffer, 0, 0, translate, numberText(scale.high), room, whole=True)
-	writeRightAt(buffer, buffer.width - 1, 0, translate, numberText(scale.low), room, whole=True)
+	writeAt(buffer, 0, 0, translate, numberText(scale.low), room, whole=True)
+	writeRightAt(buffer, buffer.width - 1, 0, translate, numberText(scale.high), room, whole=True)
 	if firstLabel:
 		writeAt(buffer, 0, bottom, translate, firstLabel, room)
 	if lastLabel and lastLabel != firstLabel:
