@@ -135,6 +135,7 @@ configSpec = {
 			"flowRows": f"integer(default=0, min=0, max={MAX_FLOW_ROWS})",
 			"flowDisplay": 'string(default="")',
 			"flowGroundOnQuickNav": "boolean(default=True)",
+			"flowGlyphs": "boolean(default=False)",
 			"flowWriteByParagraph": "boolean(default=True)",
 			"flowIndentStyle": f'option({INDENT_STYLE_OPTIONS}, default="{DEFAULT_INDENT_STYLE}")',
 			"flowLineFocus": "boolean(default=True)",
@@ -188,6 +189,9 @@ configSpec = {
 - `flowDisplay`: the driver name of the physical display to put the band on, when several
 	are driven as one. Empty, the default, means the tallest of them.
 - `flowGroundOnQuickNav`: whether a browse mode jump by structure re-grounds the band.
+- `flowGlyphs`: whether the roles and states NVDA writes as short words are drawn as pin
+	shapes instead, on a display that can draw one. Off by default: the shapes are new and a
+	reader has to learn them before they are worth anything.
 - `flowWriteByParagraph`: whether a multi line edit being written in is cut into blocks by
 	paragraph rather than by the reader's own read by paragraph setting.
 - `flowIndentStyle`: how one level of depth is drawn, for content that has any. Per display
@@ -546,6 +550,27 @@ def shouldGroundOnQuickNav(displayKey: str | None = None) -> bool:
 	except Exception:
 		log.debugWarning("Could not read flowGroundOnQuickNav", exc_info=True)
 		return True
+
+
+def shouldDrawGlyphs(displayKey: str | None = None) -> bool:
+	""":return: whether roles and states are drawn as shapes rather than written as words.
+
+	NVDA writes "btn" before a button and three cells of braille for a checked box, because a
+	braille line has nothing else to spend. A display that raises pins individually has twelve
+	of them in the slot one letter sits in, and can draw a shape there instead — one cell for
+	"btn", which gives two back to the line.
+
+	Off by default, and that is not timidity. The words are a notation every braille reader
+	already knows and the shapes are this add-on's own; a reader has to learn them before they
+	are worth anything, and until they have, a symbol they cannot read is worse than the
+	abbreviation it replaced. See `glyphs` for the vocabulary and `glyphFlow` for where it is
+	applied.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["flowGlyphs"])
+	except Exception:
+		log.debugWarning("Could not read flowGlyphs", exc_info=True)
+		return False
 
 
 def shouldWriteByParagraph(displayKey: str | None = None) -> bool:

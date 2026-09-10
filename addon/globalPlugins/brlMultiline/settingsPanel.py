@@ -633,6 +633,25 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		groundLabel = _("Start reading afresh from what a &quick navigation key found")
 		self.groundCtrl = sHelper.addItem(wx.CheckBox(self, label=groundLabel))
 		self.groundCtrl.SetValue(bool(section["flowGroundOnQuickNav"]))
+		# Translators: label of a checkbox in settings. Roles and states are the short words
+		# NVDA writes before an object's name, such as "btn" for a button.
+		glyphLabel = _("Draw &roles and states as shapes instead of words")
+		self.glyphCtrl = sHelper.addItem(wx.CheckBox(self, label=glyphLabel))
+		self.glyphCtrl.SetValue(bool(section["flowGlyphs"]))
+		self.glyphCtrl.Enable(self._displayDrawsGlyphs())
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the checkbox above, explaining what it
+					# does. "btn" is what NVDA writes in braille before a button's name.
+					"On a display that raises pins one at a time, the three cells of \"btn\" "
+					"become one shape and the other two go back to the line. The words come "
+					"back the moment you turn this off, and any display that cannot draw a "
+					"shape shows them anyway.",
+				),
+			),
+		)
 		# Translators: label of a checkbox in settings. It governs how the text of an edit box
 		# the user is typing in is divided up for the flow.
 		paragraphLabel = _("In a multi-line edit &you are typing in, read a paragraph at a time")
@@ -895,6 +914,21 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				return index
 		return 0
 
+	def _displayDrawsGlyphs(self) -> bool:
+		""":return: whether the display in use can draw a shape in a cell.
+
+		Greyed out rather than hidden where it cannot, so that a reader who has heard of the
+		setting finds it and finds out why it is not available, rather than looking for
+		something that is not there.
+		"""
+		from . import glyphFlow
+
+		try:
+			return glyphFlow.glyphTarget() is not None
+		except Exception:
+			log.debugWarning("Could not ask whether the display draws glyphs", exc_info=True)
+			return False
+
 	def _targetIndex(self, driverName: str) -> int:
 		""":return: which entry of the chooser a stored driver name means, 0 for automatic."""
 		for index, target in enumerate(self.targets):
@@ -961,6 +995,7 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowDisplay"] = self._chosenTarget().driverName
 		section["flowRows"] = self.rowsCtrl.Value
 		section["flowGroundOnQuickNav"] = self.groundCtrl.IsChecked()
+		section["flowGlyphs"] = self.glyphCtrl.IsChecked()
 		section["flowWriteByParagraph"] = self.writeByParagraphCtrl.IsChecked()
 		section["flowScrollToNewContent"] = self.newContentCtrl.IsChecked()
 		section["flowIndentStyle"] = indentStyleChoices()[self.indentStyleCtrl.GetSelection()][0]

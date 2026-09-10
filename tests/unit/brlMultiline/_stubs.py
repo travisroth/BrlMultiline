@@ -424,6 +424,10 @@ class Region:
 			self.cursorPos is not None
 		)
 		self.brailleCells = [ord(character) & 0xFF for character in self.rawText]
+		# Rebuilt here as NVDA rebuilds them, so that a region re-read with different text
+		# does not keep the map the text before it had.
+		self.rawToBraillePos = list(range(len(self.rawText)))
+		self.brailleToRawPos = list(range(len(self.rawText)))
 
 	def routeTo(self, pos):
 		self.routedTo = pos
@@ -438,6 +442,83 @@ class TextRegion(Region):
 	One cell per character here, as `Region` is, so a drawn table row reads back as the
 	string it came from.
 	"""
+
+
+class BrailleLabel(enum.Enum):
+	"""A stand-in for the `controlTypes` members NVDA's braille labels are keyed on.
+
+	Only the name matters. `glyphFlow` reads NVDA's labels and asks each key what it is called,
+	rather than importing `controlTypes` and naming the members itself, so that a reader running
+	NVDA in another language still gets shapes over their own abbreviations.
+	"""
+
+	BUTTON = "BUTTON"
+	TOGGLEBUTTON = "TOGGLEBUTTON"
+	RADIOBUTTON = "RADIOBUTTON"
+	EDITABLETEXT = "EDITABLETEXT"
+	PASSWORDEDIT = "PASSWORDEDIT"
+	COMBOBOX = "COMBOBOX"
+	LINK = "LINK"
+	LIST = "LIST"
+	MENUITEM = "MENUITEM"
+	TABLE = "TABLE"
+	GRAPHIC = "GRAPHIC"
+	PROGRESSBAR = "PROGRESSBAR"
+	SEPARATOR = "SEPARATOR"
+	CHECKBOX = "CHECKBOX"
+	HEADING = "HEADING"
+	CHECKED = "CHECKED"
+	HALFCHECKED = "HALFCHECKED"
+	ON = "ON"
+	PRESSED = "PRESSED"
+	HASPOPUP = "HASPOPUP"
+	SELECTED = "SELECTED"
+
+
+ROLE_LABELS = {
+	BrailleLabel.BUTTON: "btn",
+	BrailleLabel.TOGGLEBUTTON: "tgbtn",
+	BrailleLabel.RADIOBUTTON: "rbtn",
+	BrailleLabel.EDITABLETEXT: "edt",
+	BrailleLabel.PASSWORDEDIT: "pwdedt",
+	BrailleLabel.COMBOBOX: "cbo",
+	BrailleLabel.LINK: "lnk",
+	BrailleLabel.LIST: "lst",
+	BrailleLabel.MENUITEM: "mnuitem",
+	BrailleLabel.TABLE: "tbl",
+	BrailleLabel.GRAPHIC: "gra",
+	BrailleLabel.PROGRESSBAR: "prgbar",
+	BrailleLabel.SEPARATOR: "⠤⠤⠤⠤⠤",
+	BrailleLabel.CHECKBOX: "chk",
+	BrailleLabel.HEADING: "hdng",
+}
+"""NVDA's `braille.labels.roleLabels`, as far as anything here reads it.
+
+The strings are NVDA's own, copied rather than guessed: a checkbox is "chk" and a separator is
+five cells of dashes. Roles with no shape are in the list on purpose, so that a test can say
+that a word nobody wrote a glyph for is left alone.
+"""
+
+POSITIVE_STATE_LABELS = {
+	BrailleLabel.SELECTED: "sel",
+	BrailleLabel.PRESSED: "⢎⣿⡱",
+	BrailleLabel.CHECKED: "⣏⣿⣹",
+	BrailleLabel.HALFCHECKED: "⣏⣸⣹",
+	BrailleLabel.ON: "⣏⣿⣹",
+	BrailleLabel.HASPOPUP: "submnu",
+}
+"""NVDA's `braille.labels.positiveStateLabels`.
+
+The states are written as literal braille pattern characters rather than as words, which is why
+the vocabulary records those three cells rather than a wording to translate."""
+
+NEGATIVE_STATE_LABELS = {
+	BrailleLabel.SELECTED: "nsel",
+	BrailleLabel.PRESSED: "⢎⣀⡱",
+	BrailleLabel.CHECKED: "⣏⣀⣹",
+	BrailleLabel.ON: "⣏⣀⣹",
+}
+"""NVDA's `braille.labels.negativeStateLabels`."""
 
 
 TEXT_SEPARATOR = " "
@@ -2904,6 +2985,12 @@ def _installPluginStubs() -> None:
 		TEXT_SEPARATOR=TEXT_SEPARATOR,
 	)
 	_module("braille.regions.focus", getFocusRegions=fakeGetFocusRegions)
+	_module(
+		"braille.labels",
+		roleLabels=ROLE_LABELS,
+		positiveStateLabels=POSITIVE_STATE_LABELS,
+		negativeStateLabels=NEGATIVE_STATE_LABELS,
+	)
 	_module("cursorManager", CursorManager=CursorManager)
 
 	class EditableText:

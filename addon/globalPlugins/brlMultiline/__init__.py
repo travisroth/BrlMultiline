@@ -32,7 +32,7 @@ from scriptHandler import script
 
 from . import bmConfig, panning, patches, tableArrows
 from .container import DisplayContainer
-from . import chartDraw, chartMenu, chartSource, glyphs, graphicsMode
+from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
 from .flowTableSource import wantsColumns
 from .graphicsMode import FIT as GRAPHICS_FIT, PANEL_NAME as GRAPHICS_PANEL_NAME, GraphicsMode
 from . import devices as devicesModule
@@ -936,6 +936,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		property, which has not finished updating its own cache yet, and reading those
 		dimensions again from here would re-enter it.
 		"""
+		glyphFlow.forget()
 		self._scheduleRebuild()
 
 	def _handleProfileSwitch(self, **kwargs) -> None:
@@ -945,7 +946,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		which is profile aware, so a profile switch can change them with no braille event
 		to announce it. Deferred for the same reason a display change is: the switch is
 		still being applied when this runs.
+
+		The glyph vocabulary's words are dropped as well. They are NVDA's own braille labels
+		and those are translated strings, so a profile that changes the language changes which
+		word a shape is standing over.
 		"""
+		glyphFlow.forget()
 		self._reportMemberDivergence()
 		self._scheduleRebuild()
 

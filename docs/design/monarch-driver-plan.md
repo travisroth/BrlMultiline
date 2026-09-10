@@ -437,9 +437,10 @@ In:
 
 Out:
 
-1. Deciding which objects get which symbol — where the flow introduces a glyph. The driver
-   supplies the mechanism and the add-on now has the vocabulary (`glyphs.py`); what remains is
-   the question of who asks for one and when.
+1. Nothing about which objects get which symbol. That is answered above the driver and now is:
+   `glyphFlow.py` matches the role and state words NVDA already writes, compresses them out of
+   the region before it is laid out, and the container hands the driver the cell indexes the
+   shapes landed on. The driver still learns no symbol's name.
 2. Nothing else. Multi cell glyphs were out and are now in; see above.
 3. A DotPad X driver. The seam is prepared, the device is not here.
 4. Any change to the virtual driver, including the coexistence check.

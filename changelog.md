@@ -8,6 +8,17 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **Roles and states drawn as shapes rather than written as words**, on a display that raises
+  pins one at a time. NVDA writes `btn` before a button's name, `cbo` before a combo box and
+  three cells of braille patterns for a checked box, because a braille line has nothing else to
+  spend. The cell one letter sits in is three pin columns by four, so a shape drawn in those
+  twelve pins says the same thing in one cell — and the two cells it gives back go to the line,
+  so more of the object's own name fits on a row. The shape sits where the word was, a routing
+  key on it reaches the same place, and turning it off brings the words straight back. Off by
+  default: the words are a notation you already know and the shapes are this add-on's own.
+  There is an unbound command that draws the whole vocabulary with the braille each shape
+  replaces beside it, for learning them.
+
 - Divides a braille display into independent segments, each with its own content and its
   own scrolling. Segments are groups of whole rows on a multi row display, and column
   slices on a single row display.

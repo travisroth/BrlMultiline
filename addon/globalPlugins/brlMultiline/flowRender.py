@@ -32,6 +32,7 @@ import config
 from braille.constants import CONTINUATION_SHAPE
 from logHandler import log
 
+from . import glyphFlow
 from .flow import BLANK_CELL, NO_POSITION, RenderedBlock, RenderKey, SourceBlock
 from .flowIndent import FLAT, IndentPlan
 from .flowTable import (
@@ -424,7 +425,7 @@ class FlowRenderer:
 		:return: its rows and their position maps.
 		"""
 		holder = SourceBlock(blockId=cell.index, region=cell.region)
-		buffer = self._layoutBuffer(holder, width=column.width)
+		buffer = self._layoutBuffer(holder, width=column.width, glyphs=False)
 		if buffer is None:
 			return [], []
 		rows, positions, _more = self._layout(buffer, fromRow=0)
@@ -439,7 +440,7 @@ class FlowRenderer:
 		if len(rows) <= 1:
 			return rows, positions
 		indent = column.indent
-		buffer = self._layoutBuffer(holder, width=max(1, column.width - indent))
+		buffer = self._layoutBuffer(holder, width=max(1, column.width - indent), glyphs=False)
 		if buffer is None:
 			return rows, positions
 		rows, positions, _more = self._layout(buffer, fromRow=0)
@@ -593,15 +594,27 @@ class FlowRenderer:
 		self,
 		block: SourceBlock,
 		width: Optional[int] = None,
+		glyphs: bool = True,
 	) -> Optional[BrailleBufferSegment]:
 		"""Build the buffer one block is laid out in.
 
 		:param block: the block to lay out.
 		:param width: how many cells wide to cut its rows, defaulting to the whole band. An
 			indented block is laid out in what its indent leaves.
+		:param glyphs: whether a role or state in this block may be drawn as a shape. False
+			for one cell of a table row: a cell's positions are packed with the column they
+			came from — see `flowTable.cellPosition` — so a mark naming one of its cells would
+			never be found again, and compressing it would leave the cell the shape was meant
+			to stand on with nothing drawn over it.
 		:return: the buffer, its window at the start of the block, or None if the block
 			could not be laid out at all.
 		"""
+		if glyphs:
+			# Before the buffer reads the region, so that the cells a symbol gives back are
+			# cells the wrapping can use. Compressing afterwards would shorten a row and change
+			# nothing about how much fits on it. Does nothing at all unless the reader asked
+			# for it and the display can draw one; see `glyphFlow`.
+			glyphFlow.compressRegion(block.region)
 		spec = SegmentSpec(
 			rect=SegmentRect(
 				row=0,

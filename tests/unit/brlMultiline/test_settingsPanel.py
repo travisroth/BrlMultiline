@@ -488,6 +488,7 @@ class FlowPanelTestCase(SettingsPanelTestCase):
 		self.panel.rowsCtrl = FakeControl(0)
 		self.panel.rowsHintCtrl = FakeControl()
 		self.panel.groundCtrl = FakeControl(True)
+		self.panel.glyphCtrl = FakeControl(False)
 		self.panel.writeByParagraphCtrl = FakeControl(True)
 		self.panel.indentStyleCtrl = FakeControl(0)
 		self.panel.lineFocusCtrl = FakeControl(True)
@@ -531,6 +532,15 @@ class TestFlowOnOneDisplay(FlowPanelTestCase):
 		self.panel.groundCtrl.SetValue(False)
 		self.panel.onSave()
 		self.assertFalse(self.sections[MONARCH_KEY]["flowGroundOnQuickNav"])
+
+	def test_drawingRolesAsShapesIsSaved(self):
+		"""Off until it is asked for. The words NVDA writes are a notation every braille
+		reader already has, and the shapes are this add-on's own.
+		"""
+		self.assertFalse(bmConfig.shouldDrawGlyphs(MONARCH_KEY))
+		self.panel.glyphCtrl.SetValue(True)
+		self.panel.onSave()
+		self.assertTrue(self.sections[MONARCH_KEY]["flowGlyphs"])
 
 	def test_followingNewContentIsSaved(self):
 		"""Per display and per profile, so a chat's profile can follow where a browser's does not."""

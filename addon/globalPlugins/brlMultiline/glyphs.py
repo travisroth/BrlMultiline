@@ -10,10 +10,14 @@ a combo box, three cells for a checkbox. They are abbreviations because a braill
 nothing else to spend — and a display that can raise individual pins does. The cell slot a
 letter sits in is three pin columns by four, and nothing says those twelve pins have to spell.
 
-So a glyph is a **drawing of the same width as the text it replaces**. "btn" is three cells,
-so its glyph is nine pins by four; the cell after it starts exactly where it did, and routing,
-wrapping and scrolling never learn that anything happened. Replacing three cells with one
-would have been the obvious idea and is the wrong one: it moves everything after it.
+So a glyph is a **drawing standing over the text it replaces**, and it may be narrower than
+that text. A shape the same width changes no layout at all: the cell after it starts exactly
+where it did. A shape one cell wide over "btn" gives two cells back to the line, which is the
+whole point — a Monarch has thirty-two cells and a DotPad twenty, and NVDA spends three of them
+saying "button" before the button's name. Moving everything after it is handled rather than
+avoided: `compress` shifts the position maps with the cells, so routing and the cursor stay
+true, and every cell of the run keeps pointing at the character the run started on — exactly
+what NVDA already does, where a routing press anywhere on "btn Search" reaches the button.
 
 Three things live here, and the order they are in is the order they are used.
 
@@ -32,8 +36,9 @@ caret overrides, because a reader needs the caret more than the symbol. Making i
 wording is one less thing to keep in step: the text is right whether or not the drawing
 happens.
 
-Knows nothing about which objects get which symbol. That question — where the flow introduces
-a glyph — is open, and this file is deliberately usable from any answer to it.
+Knows nothing about which objects get which symbol. `glyphFlow` is the module that answers
+that, by matching what NVDA actually wrote on the line; this file is deliberately usable from
+any other answer to it as well.
 """
 
 from typing import Callable, NamedTuple, Optional
@@ -48,6 +53,7 @@ __all__ = [
 	"cellValue",
 	"compress",
 	"fittedGlyph",
+	"fittedOver",
 	"listing",
 	"movedPosition",
 	"patternRows",
@@ -876,7 +882,23 @@ def fittedGlyph(driver, glyph: Glyph, translate: Optional[Callable] = None) -> O
 	:param translate: turns a string into braille cells, or None for the reader's own table.
 	:return: what to write and what to draw, or None if it should not be drawn.
 	"""
-	text = _fallbackCells(glyph, translate)
+	return fittedOver(driver, glyph, _fallbackCells(glyph, translate))
+
+
+def fittedOver(driver, glyph: Glyph, text: "list[int]") -> Optional[Fitted]:
+	"""Fit a glyph over the cells that are actually on the line.
+
+	The same rule as `fittedGlyph` and the same result, for the caller that has already found
+	the cells rather than needing them translated. `glyphFlow` is that caller: it locates the
+	wording in what NVDA wrote and takes the cells from the region's own buffer, which is truer
+	than translating the wording a second time — a contraction, a capital sign or a table that
+	renders the abbreviation unexpectedly is then accounted for by construction.
+
+	:param driver: the live driver, for its `newGlyph` factory.
+	:param glyph: the vocabulary entry.
+	:param text: the cells the shape would stand over.
+	:return: what to write and what to draw, or None if it should not be drawn.
+	"""
 	if not text:
 		return None
 	if glyph.width > len(text):
@@ -885,7 +907,7 @@ def fittedGlyph(driver, glyph: Glyph, translate: Optional[Callable] = None) -> O
 			"cells of braille in this table, so the text is being left as it is",
 		)
 		return None
-	cells = text if glyph.width == len(text) else [_carrier(glyph, text)]
+	cells = list(text) if glyph.width == len(text) else [_carrier(glyph, text)]
 	try:
 		return Fitted(
 			drawn=driver.newGlyph(patternRows(glyph.dots), cells),

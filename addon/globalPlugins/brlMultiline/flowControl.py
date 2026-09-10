@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Optional
 
 from logHandler import log
 
-from . import flowForms, flowIndent
+from . import flowForms, flowIndent, glyphFlow
 from .flow import (
 	BLANK_CELL,
 	NO_POSITION,
@@ -1245,9 +1245,16 @@ class FlowController(PanelOwner):
 				log.debugWarning("A flow could not redraw after a move", exc_info=True)
 
 	def regionFor(self, blockId: "BlockId"):
-		""":return: the region reading one block, or None if it is not held."""
+		""":return: the region reading one block, or None if it is not held.
+
+		The one door to a block's region, which is why the check that its shapes still describe
+		its cells is here: routing, the cursor and what NVDA's own commands act on all come
+		through it. See `glyphFlow.keepCompressed`, and the routing fault it is there for.
+		"""
 		block = self.blocks.get(blockId)
-		return getattr(block, "region", None)
+		region = getattr(block, "region", None)
+		glyphFlow.keepCompressed(region)
+		return region
 
 	# Moving.
 
@@ -2440,6 +2447,61 @@ class FlowController(PanelOwner):
 		else:
 			self._markLineFocus(cells)
 		return self._pinnedRow() + cells
+
+	def cellGlyphs(self) -> dict:
+		"""Where every symbol on the band is now, for the driver to draw.
+
+		Worked out afresh each frame rather than remembered, because a glyph is registered
+		against the cells it stands on and the driver retires it the moment a frame arrives
+		without them. Anything else would let a symbol outlive the object it belonged to — a
+		button drawn over a braille message, on the row the button used to be.
+
+		The band is walked and each cell asked where it came from, which is the same question
+		routing asks and the same answer: a mark is recorded against a cell of a block, and
+		this finds where that cell was drawn. Two hundred and fifty six lookups on a Monarch,
+		against a translation of the same content, so the walk is not where the time goes.
+
+		:return: `{band position: the fitted glyph}`, empty when there is nothing to draw.
+		"""
+		found: dict = {}
+		self._pinnedGlyphs(found)
+		numCols = self.renderer.numCols
+		# The last block rather than a table of them, because a bookmark is comparable and not
+		# hashable — NVDA's own are — and because a block's cells are consecutive, so one
+		# remembered answer serves the whole of it.
+		lastId = None
+		marks: dict = {}
+		for position in range(self.window.numRows * numCols):
+			source = cellSource(self.window, numCols, position)
+			if source is None:
+				continue
+			blockId, at = source
+			if blockId is not lastId:
+				lastId = blockId
+				marks = glyphFlow.marksOf(self.regionFor(blockId))
+			fitted = marks.get(at) if marks else None
+			if fitted is not None:
+				found[position + self.pinnedCells] = fitted
+		return found
+
+	def _pinnedGlyphs(self, found: dict) -> None:
+		"""Add the pinned row's symbols, which are not in the window and so are not walked.
+
+		The row is a rendering of one block, one row tall, and its position map is the same
+		kind of map every other row has. See `_pinnedCursor`, which asks the same question of
+		the same map.
+
+		:param found: the table being built, by band position.
+		"""
+		if self.pinned is None or self.pinnedBlock is None or not self.pinned.positions:
+			return
+		marks = glyphFlow.marksOf(self.pinnedBlock.region)
+		if not marks:
+			return
+		for column, where in enumerate(self.pinned.positions[0]):
+			fitted = marks.get(where)
+			if fitted is not None:
+				found[column] = fitted
 
 	def displayFrame(self) -> tuple:
 		""":return: everything a redraw would put on the display, for comparing two passes.

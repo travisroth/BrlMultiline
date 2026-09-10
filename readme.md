@@ -131,6 +131,26 @@ the thing it found is put on the top row and the document runs on from there. Tu
 if you would rather the display always kept the window you had and simply followed the
 cursor.
 
+**Draw roles and states as shapes instead of words.** Off by default, and only offered on a
+display that can raise pins one at a time, such as a Monarch. NVDA writes short words in
+braille to say what a thing is: `btn` before a button's name, `cbo` before a combo box, and
+three cells of braille patterns for a checked box. Those are abbreviations because a braille
+line has nothing else to spend — and a pin display does. The cell one letter sits in is three
+pin columns by four, and a shape drawn in those twelve pins can say "button" in one cell
+instead of three.
+
+Turned on, each of those words becomes a shape and the cells it was using go back to the
+line, so more of the object's own name fits on a row. Nothing else changes: the shape sits
+where the word was, a routing key on it reaches the same place, and turning the setting off
+brings the words straight back. A display that cannot draw a shape shows the words anyway,
+which is also what happens for anything the vocabulary has no shape for.
+
+It is off by default because the words are a notation you already know and the shapes are
+this add-on's own. To learn them, assign a gesture to "Graphics: Show the glyph catalogue" in
+NVDA's Input Gestures — it is unbound, being a tool for learning the shapes rather than one
+used while reading. It draws every symbol with the braille it replaces beside it, so a hand
+running along the panel reads the shape and then the word it stands for.
+
 **In a multi-line edit you are typing in, read a paragraph at a time.** On by default. In an
 edit box you are writing in, a paragraph is what you typed and a line is what the box's own
 wrapping made of it, and while you are writing you are thinking about the first. Turn this

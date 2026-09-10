@@ -262,6 +262,21 @@ class FlowBufferSegment(BrailleBufferSegment):
 			return cells + [0] * (size - len(cells))
 		return cells[:size]
 
+	def cellGlyphs(self) -> dict:
+		""":return: `{position in this segment: the fitted glyph}`, empty where there are none.
+
+		The band fills its rectangle and is written row major at the rectangle's width, so a
+		position on the band is a position in the segment and no arithmetic is needed here. The
+		container is what turns it into a place on the display.
+		"""
+		if self.controller is None:
+			return {}
+		try:
+			return self.controller.cellGlyphs()
+		except Exception:
+			log.debugWarning("A flow could not say where its glyphs are", exc_info=True)
+			return {}
+
 	def _get_windowBrailleCells(self) -> list:
 		if self.controller is None:
 			return super()._get_windowBrailleCells()

@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 import baseObject
 from logHandler import log
 
+from . import glyphFlow
 from .layout import SegmentRect, findSegmentAtWindowPos, segmentPosToWindowPos
 from .pinnedRegions import PinnedRegion
 from .segments import BrailleBufferSegment
@@ -438,7 +439,48 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 					break
 				row, col = divmod(position, rect.numCols)
 				cells[(rect.row + row) * self.numCols + rect.col + col] = cell
+		self._publishGlyphs()
 		return cells
+
+	def _publishGlyphs(self) -> None:
+		"""Tell the display which of the cells it is about to be given are symbols.
+
+		**Here because this is the last thing that happens before the frame is written.**
+		`BrailleHandler.update` reads this property and hands the result to the driver, and a
+		glyph has to be registered before the frame it belongs to arrives: the driver matches
+		each one against the cells that come in and retires the ones that do not appear. So
+		registering here is what scopes a symbol to the frame that carries it, and the same
+		call with nothing in it is what takes the last frame's symbols away.
+
+		Only for the buffer NVDA is actually showing. Every other buffer is a scratch one — a
+		message being measured, a segment being laid out — and a symbol registered from one of
+		those would name cells on a frame nobody is going to send.
+		"""
+		if self is not self.handler.buffer:
+			return
+		target = glyphFlow.glyphTarget()
+		if target is None:
+			return
+		found = {}
+		for segment in self.segments:
+			ask = getattr(segment, "cellGlyphs", None)
+			if ask is None:
+				continue
+			try:
+				marks = ask()
+			except Exception:
+				log.debugWarning("A segment could not say where its glyphs are", exc_info=True)
+				continue
+			rect = segment.rect
+			for position, fitted in marks.items():
+				row, col = divmod(position, rect.numCols)
+				index = target.indexFor(rect.row + row, rect.col + col)
+				if index is not None:
+					found[index] = fitted.drawn
+		try:
+			target.driver.setCellGlyphs(found)
+		except Exception:
+			log.debugWarning("Could not give the display its glyphs", exc_info=True)
 
 	windowRawText: Any
 	"""The text of the whole display, in segment order."""
