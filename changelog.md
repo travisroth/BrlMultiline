@@ -8,6 +8,14 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **A line that fills the band exactly no longer skips the row after it.** Every reading unit
+  NVDA hands over ends with a space it adds on purpose, in case the caret is at the end of the
+  line. It is a cell like any other, so a link whose text filled all thirty-two cells needed
+  thirty-three, and the wrap gave that one blank cell a row to itself — an eighth of a Monarch
+  spent on nothing, reading as a line skipped between two links as though the first were
+  continuing. That row is now dropped, unless the caret is actually parked on it, which is the
+  case the space was added for.
+
 - **Roles and states drawn as shapes rather than written as words**, on a display that raises
   pins one at a time. NVDA writes `btn` before a button's name, `cbo` before a combo box and
   three cells of braille patterns for a checked box, because a braille line has nothing else to

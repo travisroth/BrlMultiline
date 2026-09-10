@@ -570,6 +570,17 @@ class BrailleBuffer(AutoPropertyObject):
 	def update(self):
 		self.rawText = "".join(region.rawText for region in self.regions)
 		self.brailleCells = [cell for region in self.regions for cell in region.brailleCells]
+		# Where NVDA's own buffer puts it: a region's cursor, moved along by everything
+		# in front of it. A block laid out on its own is one region, so this is that
+		# region's cursor, which is how the renderer asks whether a caret is parked on
+		# the space at the end of a line.
+		self.cursorPos = None
+		start = 0
+		for region in self.regions:
+			at = getattr(region, 'brailleCursorPos', None)
+			if at is not None:
+				self.cursorPos = start + at
+			start += len(region.brailleCells)
 
 	def updateDisplay(self):
 		if self is self.handler.buffer:

@@ -682,12 +682,54 @@ class FlowRenderer:
 					# Not the end of the block, only the end of this chunk. The controller
 					# asks for the next one when the reader pans towards it.
 					more = buffer.windowEndPos < len(cells) or rowPositions.end < len(cells)
-					return rows, positions, more
+					return self._withoutAnEmptyLastRow(buffer, rows, positions, more)
 			if buffer.windowEndPos >= len(cells):
 				break
 			if not buffer._nextWindow():
 				break
-		return rows, positions, False
+		return self._withoutAnEmptyLastRow(buffer, rows, positions, False)
+
+	def _withoutAnEmptyLastRow(
+		self,
+		buffer: BrailleBufferSegment,
+		rows: list,
+		positions: list,
+		more: bool,
+	) -> tuple[list, list, bool]:
+		"""Drop a last row that holds nothing but blank cells.
+
+		**A row of the band is too expensive for the space NVDA parks a caret on.** Every
+		reading unit NVDA hands over ends with a space it added on purpose — see
+		`TextInfoRegion.update`, "in case the cursor is at the end of the reading unit" — and
+		that space is a cell like any other. A block whose content fills the band exactly
+		therefore needs one more cell than the row has, and the wrap put that one blank cell on
+		a row of its own. On an eight row band that is an eighth of the display spent on
+		nothing, and under the fingers it reads as a line skipped between two links, as though
+		the first were continuing.
+
+		**Unless the cursor is in it**, which is the case the space was added for. In a document
+		the caret sits on a character and never on that space, so the row goes; in an edit box
+		filled to exactly the width the caret does sit there, and a caret with no cell is worse
+		than a wasted row. The block is read again on every keystroke while it is being written
+		in, so the question is asked afresh exactly when the answer can change.
+
+		Only the last row, and only when the block ends here: a blank row in the middle of a
+		block is a blank line the document really has, and a chunk that stops short does not
+		know what follows it. A block that is nothing but a blank row keeps it, because that is
+		a blank line and a blank line is a row.
+
+		:param buffer: the buffer the block was laid out in, asked where its cursor is.
+		:param rows: the rows cut from it.
+		:param positions: where each of their cells came from.
+		:param more: whether the block continues past them.
+		:return: the same three, one row shorter where the row was worth nothing.
+		"""
+		if more or len(rows) < 2 or any(rows[-1]):
+			return rows, positions, more
+		cursor = getattr(buffer, "cursorPos", None)
+		if cursor is not None and cursor in positions[-1]:
+			return rows, positions, more
+		return rows[:-1], positions[:-1], more
 
 	def _filledLayout(self, buffer: BrailleBufferSegment, fromRow: int) -> tuple[list, list, bool]:
 		"""Cut a block into rows by arithmetic, for the mode where every row is the same width.
@@ -719,7 +761,8 @@ class FlowRenderer:
 			end = min(len(cells), start + width)
 			rows.append(tuple(cells[start:end]))
 			positions.append(tuple(range(start, end)))
-		return rows, positions, max(0, fromRow) + len(rows) < total
+		more = max(0, fromRow) + len(rows) < total
+		return self._withoutAnEmptyLastRow(buffer, rows, positions, more)
 
 	def _rowFrom(self, cells: list, rowPositions) -> tuple[tuple[int, ...], tuple[int, ...]]:
 		"""Build one row and the map back to where each of its cells came from.

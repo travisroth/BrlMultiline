@@ -54,6 +54,81 @@ def textOf(row) -> str:
 	return "".join(" " if cell == 0 else chr(cell) for cell in row)
 
 
+class BlankEndedRegion(Region):
+	"""A region whose spaces come out as blank cells, the way a braille table's do.
+
+	The harness translates a character to its own code, which makes a space cell 0x20 and a
+	row of spaces something a test cannot tell from text. Liblouis gives a space no dots at
+	all, and whether the last row of a block is blank is exactly the question below.
+	"""
+
+	def __init__(self, text=""):
+		super().__init__(text)
+		self._translate()
+
+	def update(self):
+		super().update()
+		self._translate()
+
+	def _translate(self):
+		self.brailleCells = [0 if character == " " else ord(character) & 0xFF for character in self.rawText]
+
+
+def blankEnded(text: str, name="b") -> SourceBlock:
+	""":return: a block whose spaces are blank cells."""
+	return SourceBlock(
+		blockId=BlockId(generation=1, bookmark=name, unit="line"),
+		region=BlankEndedRegion(text),
+	)
+
+
+class TestARowThatWouldHoldNothing(unittest.TestCase):
+	"""The space NVDA parks a caret on must not cost a row of the band.
+
+	Every reading unit NVDA hands over ends with a space it added on purpose — see
+	`TextInfoRegion.update`, "in case the cursor is at the end of the reading unit". It is a
+	cell like any other, so a line whose content fills the band exactly needs one cell more
+	than the row has, and the wrap gave that one blank cell a row to itself. On an eight row
+	band that is an eighth of the display spent on nothing, and under the fingers it reads as
+	a line skipped between two links, as though the first were continuing.
+	"""
+
+	def test_aLineThatFitsExactlyIsOneRow(self):
+		rendered = renderer(numCols=8).render(blankEnded("abcdefgh "))
+		self.assertEqual(len(rendered.rows), 1)
+		self.assertEqual(textOf(rendered.rows[0]), "abcdefgh")
+
+	def test_aLineThatOverflowsProperlyStillWraps(self):
+		rendered = renderer(numCols=8).render(blankEnded("abcdefghi "))
+		self.assertEqual([textOf(row) for row in rendered.rows], ["abcdefgh", "i "])
+
+	def test_aBlockThatIsNothingButABlankRowKeepsIt(self):
+		"""A blank line the document really has is a row, and reads as one."""
+		rendered = renderer(numCols=8).render(blankEnded(" "))
+		self.assertEqual(len(rendered.rows), 1)
+
+	def test_aCaretParkedOnThatSpaceKeepsItsRow(self):
+		"""The case the space was added for. A caret with no cell is worse than a wasted row,
+		and a block being written in is read again on every keystroke, so the question is asked
+		afresh exactly when the answer can change."""
+		source = blankEnded("abcdefgh ")
+		source.region.cursorPos = 8
+		source.region.brailleCursorPos = 8
+		rendered = renderer(numCols=8).render(source)
+		self.assertEqual(len(rendered.rows), 2)
+
+	def test_aCaretElsewhereInTheBlockDoesNotKeepIt(self):
+		source = blankEnded("abcdefgh ")
+		source.region.cursorPos = 0
+		source.region.brailleCursorPos = 0
+		rendered = renderer(numCols=8).render(source)
+		self.assertEqual(len(rendered.rows), 1)
+
+	def test_theRoutingMapLosesOnlyTheDroppedCell(self):
+		rendered = renderer(numCols=8).render(blankEnded("abcdefgh "))
+		self.assertEqual(rendered.positions[0], tuple(range(8)))
+
+
 class TestNoDepth(unittest.TestCase):
 	"""Prose must render exactly as it did before depth existed."""
 
