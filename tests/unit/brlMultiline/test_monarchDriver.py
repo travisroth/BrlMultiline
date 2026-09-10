@@ -296,6 +296,92 @@ class TestComposition(MonarchTestCase):
 		self.assertEqual([0x01] * 256, cells)
 
 
+class TestGlyphsOverARunOfCells(MonarchTestCase):
+	"""A glyph is as wide as the text it stands in for.
+
+	NVDA already writes short strings for roles and states — "btn", "cbo", three cells for a
+	checkbox — and the useful thing a pin display can do with them is draw a symbol instead of
+	spelling one. Replacing three cells with one would shift everything after it and break
+	routing; replacing three cells with a nine by four drawing changes nothing but what those
+	pins say.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		self.driver = self.makeDriver()
+
+	def wide(self, cells=("b", "t", "n")):
+		""":return: a three cell glyph over three given cell values, drawn as a solid slab."""
+		fallback = [0x03, 0x1E, 0x1D]
+		return self.driver.newGlyph(["#########"] * 4, fallback), fallback
+
+	def frame(self, fallback, at=0):
+		""":return: a frame carrying a run of cells at an index, blank elsewhere."""
+		cells = [0] * 256
+		cells[at : at + len(fallback)] = fallback
+		return cells
+
+	def test_aRunOfCellsIsReplacedByOneShape(self):
+		glyph, fallback = self.wide()
+		self.driver.setCellGlyphs({0: glyph})
+		self.driver.display(self.frame(fallback))
+		on = self.dotsOn(self.lastWrite(self.driver))
+		# Three slots of three columns, every pin of them, and nothing in the fourth slot.
+		for column in range(9):
+			self.assertIn((column, 0), on)
+		self.assertNotIn((9, 0), on)
+
+	def test_theCellAfterTheRunStartsWhereItAlwaysDid(self):
+		"""The whole reason a glyph is the width of its text rather than narrower."""
+		glyph, fallback = self.wide()
+		cells = self.frame(fallback)
+		cells[3] = 0x01
+		self.driver.setCellGlyphs({0: glyph})
+		self.driver.display(cells)
+		self.assertIn((9, 0), self.dotsOn(self.lastWrite(self.driver)))
+
+	def test_aRunIsRetiredWhenAnyCellOfItChanges(self):
+		"""Not only the first. A caret or-ed into the last cell of "btn" means the reader is on
+		it and needs the letters, and a symbol that ignored that would be hiding the caret."""
+		glyph, fallback = self.wide()
+		self.driver.setCellGlyphs({0: glyph})
+		self.driver.display(self.frame(fallback))
+		self.assertIn(0, self.driver._glyphs)
+		changed = self.frame(fallback)
+		changed[2] |= 0xC0
+		self.driver.display(changed)
+		self.assertEqual({}, self.driver._glyphs)
+
+	def test_aRunSplitAcrossTheEndOfALineIsNotDrawn(self):
+		"""The cells are still there and still say what they say, so the reader gets the text
+		wrapped — which is what they would have got without glyphs at all. Drawing it anyway
+		would paint one shape across two lines, which is the only bad answer available."""
+		glyph, fallback = self.wide()
+		self.driver.setCellGlyphs({30: glyph})
+		self.driver.display(self.frame(fallback, at=30))
+		on = self.dotsOn(self.lastWrite(self.driver))
+		# The third column of the slot is the glyph's alone, and braille never reaches it.
+		self.assertNotIn((30 * 3 + 2, 0), on)
+
+	def test_glyphsThatWouldTreadOnEachOtherAreNotBothKept(self):
+		"""Two symbols sharing a cell is a caller's mistake with no sensible rendering."""
+		first, _fallback = self.wide()
+		second, _also = self.wide()
+		self.driver.setCellGlyphs({0: first, 1: second})
+		self.assertEqual([0], list(self.driver._glyphs))
+
+	def test_aRunThatDoesNotOverlapIsKept(self):
+		first, fallback = self.wide()
+		second, _also = self.wide()
+		self.driver.setCellGlyphs({0: first, 3: second})
+		self.assertEqual([0, 3], sorted(self.driver._glyphs))
+
+	def test_aSingleValueIsStillAOneCellGlyph(self):
+		"""The shape the driver was built with, and callers written against it keep working."""
+		glyph = self.driver.newGlyph(["###", "###", "###", "..."], 0x3F)
+		self.assertEqual(1, glyph.cells)
+		self.assertEqual([0x3F], glyph.fallback)
+
 class TestGlyphs(MonarchTestCase):
 	"""A glyph fills the cell's gap column, and lives exactly as long as its content."""
 

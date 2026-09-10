@@ -121,26 +121,74 @@ def _stopTimer(timer) -> None:
 
 
 class CellGlyph:
-	"""A shape drawn in place of one braille cell, filling the cell's whole slot.
+	"""A shape drawn in place of a run of braille cells, filling their whole slots.
 
 	A braille cell is two dot columns and a blank one; the blank is there so a reader can tell
 	one cell from the next, not because the hardware needs it. A glyph fills all three, giving
-	3 by 4 instead of 2 by 4 without moving anything: the next cell still starts where it did,
-	so routing, layout and scrolling are untouched.
+	3 by 4 instead of 2 by 4 per cell without moving anything: the cell after the run still
+	starts where it did, so routing, layout and scrolling are untouched.
+
+	**A run rather than a single cell, because that is the shape of what it replaces.** NVDA
+	already writes short strings to stand for roles and states — "btn" for a button, "cbo" for
+	a combo box, three cells for a checkbox — and the useful thing a pin display can do is draw
+	those as a symbol instead of spelling them. Replacing three cells with one would shift
+	everything after it and break routing; replacing three cells with a nine by four drawing
+	changes nothing but what those pins say. So a glyph is exactly as wide as the text it
+	stands in for, and the fallback is that text's own cells.
 
 	Built through `BrailleDisplayDriver.newGlyph` rather than directly, so the add-on never
 	imports this package.
 	"""
 
-	def __init__(self, pattern: PinBuffer, fallbackCell: int):
+	def __init__(self, pattern: PinBuffer, fallback):
 		"""
-		:param pattern: the shape, clipped to the slot.
-		:param fallbackCell: the braille cell this stands in for, which the add-on has written
-			into the buffer at the same position. The glyph is drawn only while the cell there
-			still reads it.
+		:param pattern: the shape, clipped to the run's slots.
+		:param fallback: the braille cells this stands in for, which the add-on has written
+			into the buffer at the same position — a list, or one value for a single cell. The
+			glyph is drawn only while the cells there still read it, all of them.
 		"""
 		self.pattern = pattern
-		self.fallbackCell = fallbackCell
+		self.fallback = [fallback] if isinstance(fallback, int) else list(fallback)
+
+	@property
+	def cells(self) -> int:
+		""":return: how many cells the glyph occupies."""
+		return len(self.fallback)
+
+	def matches(self, cells: list[int], index: int) -> bool:
+		"""Whether the frame still carries the text this glyph stands in for.
+
+		:param cells: the frame.
+		:param index: where the run starts.
+		:return: whether every cell of the run reads what was registered.
+		"""
+		if index < 0 or index + self.cells > len(cells):
+			return False
+		return cells[index : index + self.cells] == self.fallback
+
+
+def _withoutOverlaps(glyphs: dict) -> dict:
+	""":return: the glyphs whose runs do not tread on one another.
+
+	Two symbols sharing a cell is a caller's mistake with no sensible rendering — the second
+	would be drawn over the first and neither would be readable — so the run that starts later
+	is dropped. Taken in index order so the answer does not depend on how the caller happened
+	to build its dictionary.
+
+	:param glyphs: the index of each glyph's first cell, to the glyph.
+	"""
+	kept: dict = {}
+	reach = -1
+	for index in sorted(glyphs):
+		glyph = glyphs[index]
+		if index <= reach:
+			log.debugWarning(
+				f"BrlMultiline: a glyph at cell {index} overlaps the one before it and was dropped",
+			)
+			continue
+		kept[index] = glyph
+		reach = index + glyph.cells - 1
+	return kept
 
 
 def _standardHidDriverName() -> str:
@@ -739,6 +787,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		gap to reclaim would report the same size as its cell and a glyph would gain nothing;
 		the add-on can compare this with `cellSize` to find out whether glyphs are worth using.
 
+		**Per cell.** A glyph standing in for three cells of text has three of these to draw
+		in, so nine by four, and the pattern handed to `newGlyph` is that wide.
+
 		:return: width and height in pins.
 		"""
 		return self._pitch.slotSize
@@ -748,7 +799,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		""":return: the pins a braille cell uses, for comparison with `glyphSize`."""
 		return self._pitch.cellCols, self._pitch.dotRows
 
-	def newGlyph(self, rows: list[str], fallbackCell: int) -> "CellGlyph":
+	def newGlyph(self, rows: list[str], fallback) -> "CellGlyph":
 		"""Build a glyph this driver can draw, without the caller importing anything.
 
 		The add-on reaches the driver as a live object and does not import the package — the
@@ -756,12 +807,13 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		imported there.
 
 		:param rows: the shape, one string per row, as `PinBuffer.fromRows` takes it. Anything
-			past the slot is clipped.
-		:param fallbackCell: the braille cell the add-on has put in the buffer at this
-			position. See `setCellGlyphs` for what it is for.
+			past the run's slots is clipped, so the shape for a three cell glyph is nine
+			columns wide: `glyphSize` gives the width of one.
+		:param fallback: the braille cells the add-on has put in the buffer at this position —
+			a list of cell values, or one value for a single cell glyph. See `setCellGlyphs`.
 		:return: the glyph.
 		"""
-		return CellGlyph(PinBuffer.fromRows(rows), fallbackCell)
+		return CellGlyph(PinBuffer.fromRows(rows), fallback)
 
 	def setCellGlyphs(self, glyphs: dict[int, "CellGlyph"]) -> None:
 		"""Replace the set of cells that are drawn as glyphs rather than as braille.
@@ -795,10 +847,15 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		comes back. That is the contract the add-on side is written to, and it is what stops a
 		glyph outliving the content it belonged to.
 
-		:param glyphs: cell index to glyph. Empty clears them.
+		**A glyph occupies a run of cells and the runs may not overlap.** Two symbols
+		sharing a cell is a caller's mistake with no sensible rendering, so the later of
+		them is dropped here rather than being drawn over the earlier one.
+
+		:param glyphs: the index of each glyph's first cell, to the glyph. Empty clears
+			them.
 		"""
 		with self._stateLock:
-			self._glyphs = dict(glyphs)
+			self._glyphs = _withoutOverlaps(glyphs)
 		self._scheduleRepaint()
 
 	def clearCellGlyphs(self) -> None:
@@ -808,9 +865,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _expireGlyphs(self, cells: list[int]) -> None:
 		"""Drop glyphs the incoming frame does not claim. Call with `_stateLock` held.
 
-		A glyph is registered against the cell the add-on put in the buffer for it, and lives
-		exactly as long as a frame keeps carrying that cell at that index. The first frame that
-		does not — different content, or a caret or-ed in — retires it.
+		A glyph is registered against the cells the add-on put in the buffer for it, and lives
+		exactly as long as a frame keeps carrying them at that index. The first frame that does
+		not — different content, or a caret or-ed into any cell of the run — retires it.
 
 		Retiring rather than merely skipping is the point. Skipping leaves the registration
 		standing, and some later frame with an unrelated 0x3F at the same index would then be
@@ -824,7 +881,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._glyphs = {
 			index: glyph
 			for index, glyph in self._glyphs.items()
-			if 0 <= index < len(cells) and cells[index] == glyph.fallbackCell
+			if glyph.matches(cells, index)
 		}
 
 	# --- Graphics overlays ---------------------------------------------------------------
@@ -1236,8 +1293,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		glyph replaces its cell rather than merging with it. Merging would be worse than
 		useless: a symbol or-ed with a letter is neither.
 
-		The match against `fallbackCell` is what makes a stale registration harmless. See
-		`setCellGlyphs`.
+		The match against the registered cells is what makes a stale registration harmless.
+		See `setCellGlyphs`.
 
 		:param buffer: the panel buffer.
 		:param rowCells: the line's cells.
@@ -1249,14 +1306,22 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		if not glyphs:
 			return
 		slotWidth, slotHeight = pitch.slotSize
-		for col, cell in enumerate(rowCells):
+		for col in range(len(rowCells)):
 			glyph = glyphs.get(start + col)
-			if glyph is None or cell != glyph.fallbackCell:
+			if glyph is None or not glyph.matches(rowCells, col):
+				continue
+			if col + glyph.cells > len(rowCells):
+				# The run is split across the end of this line. The cells are still there
+				# and still say what they say, so the reader gets the text wrapped — which
+				# is what they would have got without glyphs at all. Drawing it anyway
+				# would paint one shape across two lines, which is the only bad answer
+				# available here.
 				continue
 			x, y = monarch.cellOrigin(row, col, pitch)
-			buffer.clearRect(x, y, slotWidth, slotHeight)
+			width = slotWidth * glyph.cells
+			buffer.clearRect(x, y, width, slotHeight)
 			for dotY in range(min(slotHeight, glyph.pattern.height)):
-				for dotX in range(min(slotWidth, glyph.pattern.width)):
+				for dotX in range(min(width, glyph.pattern.width)):
 					if glyph.pattern.getDot(dotX, dotY):
 						buffer.setDot(x + dotX, y + dotY)
 

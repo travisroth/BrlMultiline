@@ -194,8 +194,8 @@ cell array**. There is no spare value to use as an escape either: all 256 are le
 braille. The position comes from the cell grid and the pattern arrives alongside, through
 `setCellGlyphs`, keyed by index into the flat cell array.
 
-Each glyph carries the braille cell it stands in for, and is drawn only while the cell at
-that index still reads it. One check, three properties:
+Each glyph carries the braille cells it stands in for, and is drawn only while the cells at
+that index still read them. One check, three properties:
 
 1. A frame the add-on did not compose — a braille message — cannot get a glyph painted over
    unrelated content. It is skipped and the ordinary cell shows.
@@ -228,10 +228,31 @@ a checkmark do not touch this file. `newGlyph` is a factory on the driver so the
 build one without importing the package, the way `devices.py` reads the live driver object
 rather than importing it.
 
-Single cell only. A glyph spanning several cells would need a region the flow must not break,
-and the add-on has only wrap and no-wrap today; that is a larger change than the idea is
-worth. An app module wanting a two cell symbol accepts that it can split, which readers of
-refreshable braille are used to.
+It now exists, in `globalPlugins/brlMultiline/glyphs.py`, and it is written in dot numbers
+rather than in ASCII art: dots 1 to 8 as braille has always numbered them, then 9 to 12
+continuing down the column braille leaves blank. Twelve dots is exactly one glyph slot at
+either pitch. Cells of a wider shape are separated by a bar, so a three cell symbol is written
+as three groups of the numbers a braille reader already thinks in, rather than as a nine by
+four picture that has to be read four strings at a time and whose columns can be misaligned
+invisibly. That is a notation chosen for the person maintaining it.
+
+**A glyph spans a run of cells, and that turned out to be the whole point.** This said single
+cell only, on the grounds that a wider one would need a region the flow must not break. It was
+answered by the thing next to it: NVDA already writes short strings for roles and states —
+"btn", "cbo", three cells for a checkbox — and drawing those as symbols is the most useful
+thing a pin display can do with a braille line. Replacing three cells with one would shift
+everything after it and break routing; replacing three cells with a nine by four drawing
+changes nothing but what those pins say.
+
+The region never had to be invented, because the fallback match already answers it. A run split
+across the end of a line is a run whose cells no longer sit together, and the driver skips it —
+so the reader gets the text wrapped, which is exactly what they would have got without glyphs
+at all. Graceful, and decided in the driver rather than imposed on the flow.
+
+Two smaller rules come with it: overlapping runs are a caller's mistake with no sensible
+rendering, so the later one is dropped at registration; and every cell of the run must match,
+so a caret or-ed into the last cell of "btn" retires the symbol and shows the letters, which is
+what a reader sitting on it needs.
 
 `glyphSize` and `cellSize` are both published so the add-on can tell whether a display has a
 gap to reclaim. A display whose cells are already gapless reports the same for both and
@@ -395,9 +416,10 @@ In:
 
 Out:
 
-1. The glyph vocabulary itself, and deciding which app modules want which symbols. The driver
-   supplies the mechanism; naming the shapes is the add-on's.
-2. Multi cell glyphs, which would need a region the flow must not break.
+1. Deciding which objects get which symbol — where the flow introduces a glyph. The driver
+   supplies the mechanism and the add-on now has the vocabulary (`glyphs.py`); what remains is
+   the question of who asks for one and when.
+2. Nothing else. Multi cell glyphs were out and are now in; see above.
 3. A DotPad X driver. The seam is prepared, the device is not here.
 4. Any change to the virtual driver, including the coexistence check.
 5. Anything above the driver: panels, views and a graphics segment are the tactile graphics
