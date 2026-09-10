@@ -382,18 +382,35 @@ class TestTheCatalogue(unittest.TestCase):
 					name,
 				)
 
-	def test_noTwoShapesTouch(self):
-		"""The question the catalogue answers is whether one shape is another, and shapes that
-		touch each other answer it wrongly."""
+	def test_eachShapeIsFollowedByTheBrailleItReplaces(self):
+		"""The whole point of the layout. A shape on its own cannot be judged: the question
+		is never "is this a good drawing of a checkbox" but "is this better under a finger
+		than the three cells it takes the place of", and that is a comparison.
+
+		It also means nothing has to be pointed at. The braille beside the shape spells the
+		thing the shape stands for, so a hand running along the panel is told.
+		"""
+		buffer, _describeAt = self.laid({"a": glyphs.CHECKED})
+		row = buffer.rows()[0]
+		# The glyph fills its slot; then NVDA's own box, a cell to a slot beside it.
+		self.assertEqual(row[:3], "OOO")
+		self.assertEqual(row[3:12], "OO.OO.OO.")
+
+	def test_noTwoEntriesTouch(self):
+		"""The question the catalogue answers is whether one shape is another, and shapes
+		that touch each other answer it wrongly."""
 		buffer, _describeAt = self.laid({"a": glyphs.CHECKED, "b": glyphs.CHECKED})
-		self.assertEqual(buffer.rows()[0][:9], "OOO...OOO")
+		row = buffer.rows()[0]
+		# One cell of glyph, three of braille, one of air: five slots, fifteen pins.
+		self.assertEqual(row[12:15], "...")
+		self.assertEqual(row[15:18], "OOO")
 
 	def test_aPressSaysWhichSymbolItIs(self):
 		"""Which is most of what makes it a catalogue rather than a row of shapes: counting
 		along a line is holding the order in mind while judging the shapes."""
 		_buffer, describeAt = self.laid({"first": glyphs.CHECKED, "second": glyphs.UNCHECKED})
 		self.assertTrue(describeAt(0, 0).startswith("first"))
-		self.assertTrue(describeAt(6, 0).startswith("second"))
+		self.assertTrue(describeAt(15, 0).startswith("second"))
 
 	def test_aPressSaysWhatTheShapeIsMeantToBe(self):
 		"""A name alone is a thing to look up. "radio, a diamond" is the shape and the
@@ -410,7 +427,9 @@ class TestTheCatalogue(unittest.TestCase):
 	def test_aRowThatIsFullStartsAnother(self):
 		entries = {str(index): glyphs.CHECKED for index in range(20)}
 		_buffer, describeAt = self.laid(entries)
-		self.assertTrue(describeAt(0, glyphs.LINE).startswith("16"))
+		# A checkbox is one slot of glyph, three of braille and one of air: six to a row of
+		# ninety-six pins.
+		self.assertTrue(describeAt(0, glyphs.LINE).startswith("6"))
 
 	def test_aPanelThatRunsOutStopsRatherThanOverwritingItself(self):
 		"""A catalogue that wrapped onto its own first row would read as a symbol nobody
@@ -423,7 +442,19 @@ class TestTheCatalogue(unittest.TestCase):
 	def test_aWideSymbolTakesTheRoomItNeeds(self):
 		_buffer, describeAt = self.laid({"wide": glyphs.WIDE_BUTTON, "after": glyphs.CHECKED})
 		self.assertTrue(describeAt(6, 0).startswith("wide"))
-		self.assertTrue(describeAt(12, 0).startswith("after"))
+		# Three slots of glyph and three of braille, then air: the next starts at seven.
+		self.assertTrue(describeAt(21, 0).startswith("after"))
+
+	def test_anAbbreviationIsDrawnAsBrailleAndNotLeftToBeImagined(self):
+		"""Most of the vocabulary stands over a wording rather than over a braille pattern,
+		and an earlier version of this drew nothing at all for those — which left the half
+		of the comparison that matters more to be guessed at.
+		"""
+		buffer, _describeAt = self.laid({"button": glyphs.BUTTON})
+		row = buffer.rows()[1]
+		# The slab, and then "btn" in dots: b is dots 1 and 2, so its second row is raised.
+		self.assertEqual(row[:3], "OOO")
+		self.assertIn("O", row[3:12])
 
 	def test_aDisplayThatWillNotProvideABufferIsNotACrash(self):
 		buffer, describeAt = glyphs.catalogue(lambda width, height: None, 96, 35)

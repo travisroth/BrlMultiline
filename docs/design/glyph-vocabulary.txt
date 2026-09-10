@@ -1,302 +1,246 @@
 BrlMultiline glyph vocabulary
 =============================
 
-One entry per symbol. Each gives what NVDA writes today, what the glyph is meant to
-look like, the dot numbers it is written in, and how many cells it gives back.
+Each symbol drawn beside the braille it stands in place of, on the same lines. The
+glyph is on the left, then a < marker, then what NVDA puts on the display today.
+
+The question is never whether a shape is a good drawing. It is whether the shape is
+better under a finger than the cells it is taking the place of, which is a comparison
+and needs both halves of it in view.
 
 The dot numbering: 1, 2, 3 down the left column and 7 at its foot; 4, 5, 6 down the
 middle and 8 at its foot -- braille's own. Then 9, 10, 11 down the third column, the
 one braille leaves blank, and 12 at its foot. Twelve dots is one whole cell slot.
 
 In the pictures, O is a raised pin and a full stop is a flat one. A glyph is three
-columns wide; the braille it replaces is two, which is the gap the drawing reclaims.
+columns to a cell; the braille it replaces is two, and that missing third column is
+the gap the drawing reclaims -- it is why NVDA's checkbox has a hole through its
+middle and the glyph does not.
 
-To feel these rather than read them, assign "Graphics: Show the glyph catalogue"
-in NVDA's Input Gestures under BrlMultiline. A routing key names the symbol under
-your finger.
+The braille shown for a wording is the uncontracted alphabet. What actually reaches
+the display is the reader's own table, asked for at the moment of use, and where a
+contracted table makes a wording shorter than the shape the glyph is not drawn.
 
 ----------------------------------------------------------------------
 
-focus
-    stands for: the add-on's own list focus mark
-    NVDA writes: a braille pattern, not text, 1 cells
-    drawn as: a solid square with the bottom row clear
-    dots: 1,2,3,4,5,6,9,10,11
-    cells saved: 0
-        OOO
-        OOO
-        OOO
-        ...
-    what it replaces, as braille:
-        OO
-        OO
-        OO
-        ..
+focus -- the add-on's own list focus mark
+    a solid square with the bottom row clear
+    dots 1,2,3,4,5,6,9,10,11
+    1 cell in place of 1, saving 0
+    NVDA writes braille patterns, not text
+    OOO        < OO
+    OOO        < OO
+    OOO        < OO
+    ...        < ..
 
-pending
-    stands for: the add-on's own not-yet-fetched mark
-    NVDA writes: a braille pattern, not text, 1 cells
-    drawn as: a bar against the right edge, where the missing content is
-    dots: 9,10,11,12
-    cells saved: 0
-        ..O
-        ..O
-        ..O
-        ..O
-    what it replaces, as braille:
-        ..
-        ..
-        ..
-        OO
+pending -- the add-on's own not-yet-fetched mark
+    a bar against the right edge, where the missing content is
+    dots 9,10,11,12
+    1 cell in place of 1, saving 0
+    NVDA writes braille patterns, not text
+    ..O        < ..
+    ..O        < ..
+    ..O        < ..
+    ..O        < OO
 
-button
-    stands for: Role.BUTTON
-    NVDA writes: "btn", 3 cells
-    drawn as: a solid slab across the middle, the face of a key
-    dots: 2,3,5,6,10,11
-    cells saved: 2
-        ...
-        OOO
-        OOO
-        ...
+button -- Role.BUTTON
+    a solid slab across the middle, the face of a key
+    dots 2,3,5,6,10,11
+    1 cell in place of 3, saving 2
+    NVDA writes "btn"
+    ...        < O..OOO
+    OOO        < O.OO.O
+    OOO        < ..O.O.
+    ...        < ......
 
-toggle
-    stands for: Role.TOGGLEBUTTON
-    NVDA writes: "tgbtn", 5 cells
-    drawn as: two posts with the slab taken out, a button with two states
-    dots: 2,3,10,11
-    cells saved: 4
-        ...
-        O.O
-        O.O
-        ...
+toggle -- Role.TOGGLEBUTTON
+    two posts with the slab taken out, a button with two states
+    dots 2,3,10,11
+    1 cell in place of 5, saving 4
+    NVDA writes "tgbtn"
+    ...        < .OOOO..OOO
+    O.O        < OOOOO.OO.O
+    O.O        < O.....O.O.
+    ...        < ..........
 
-checked
-    stands for: State.CHECKED, and State.ON
-    NVDA writes: a braille pattern, not text, 3 cells
-    drawn as: a solid square, a box with something in it
-    dots: 1,2,3,4,5,6,7,8,9,10,11,12
-    cells saved: 2
-        OOO
-        OOO
-        OOO
-        OOO
-    what it replaces, as braille:
-        OOOOOO
-        O.OO.O
-        O.OO.O
-        OOOOOO
+checked -- State.CHECKED, and State.ON
+    a solid square, a box with something in it
+    dots 1,2,3,4,5,6,7,8,9,10,11,12
+    1 cell in place of 3, saving 2
+    NVDA writes braille patterns, not text
+    OOO        < OOOOOO
+    OOO        < O.OO.O
+    OOO        < O.OO.O
+    OOO        < OOOOOO
 
-unchecked
-    stands for: State.CHECKED absent, and State.ON absent
-    NVDA writes: a braille pattern, not text, 3 cells
-    drawn as: a hollow square, an empty box
-    dots: 1,2,3,4,7,8,9,10,11,12
-    cells saved: 2
-        OOO
-        O.O
-        O.O
-        OOO
-    what it replaces, as braille:
-        OO..OO
-        O....O
-        O....O
-        OOOOOO
+unchecked -- State.CHECKED absent, and State.ON absent
+    a hollow square, an empty box
+    dots 1,2,3,4,7,8,9,10,11,12
+    1 cell in place of 3, saving 2
+    NVDA writes braille patterns, not text
+    OOO        < OO..OO
+    O.O        < O....O
+    O.O        < O....O
+    OOO        < OOOOOO
 
-halfChecked
-    stands for: State.HALFCHECKED
-    NVDA writes: a braille pattern, not text, 3 cells
-    drawn as: a square filled from the middle down, neither one thing nor the other
-    dots: 1,2,3,4,6,7,8,9,10,11,12
-    cells saved: 2
-        OOO
-        O.O
-        OOO
-        OOO
-    what it replaces, as braille:
-        OO.OOO
-        O..O.O
-        O..O.O
-        OOOOOO
+halfChecked -- State.HALFCHECKED
+    a square filled from the middle down, neither one thing nor the other
+    dots 1,2,3,4,6,7,8,9,10,11,12
+    1 cell in place of 3, saving 2
+    NVDA writes braille patterns, not text
+    OOO        < OO.OOO
+    O.O        < O..O.O
+    OOO        < O..O.O
+    OOO        < OOOOOO
 
-pressed
-    stands for: State.PRESSED
-    NVDA writes: a braille pattern, not text, 3 cells
-    drawn as: a filled circle, the rounded box NVDA draws for this
-    dots: 2,3,4,5,6,8,10,11
-    cells saved: 2
-        .O.
-        OOO
-        OOO
-        .O.
-    what it replaces, as braille:
-        .OOOO.
-        O.OO.O
-        O.OO.O
-        .OOOO.
+pressed -- State.PRESSED
+    a filled circle, the rounded box NVDA draws for this
+    dots 2,3,4,5,6,8,10,11
+    1 cell in place of 3, saving 2
+    NVDA writes braille patterns, not text
+    .O.        < .OOOO.
+    OOO        < O.OO.O
+    OOO        < O.OO.O
+    .O.        < .OOOO.
 
-notPressed
-    stands for: State.PRESSED absent
-    NVDA writes: a braille pattern, not text, 3 cells
-    drawn as: a hollow circle
-    dots: 2,3,4,8,10,11
-    cells saved: 2
-        .O.
-        O.O
-        O.O
-        .O.
-    what it replaces, as braille:
-        .O..O.
-        O....O
-        O....O
-        .OOOO.
+notPressed -- State.PRESSED absent
+    a hollow circle
+    dots 2,3,4,8,10,11
+    1 cell in place of 3, saving 2
+    NVDA writes braille patterns, not text
+    .O.        < .O..O.
+    O.O        < O....O
+    O.O        < O....O
+    .O.        < .OOOO.
 
-radio
-    stands for: Role.RADIOBUTTON
-    NVDA writes: "rbtn", 4 cells
-    drawn as: a diamond, round where a checkbox is square
-    dots: 2,4,6,10
-    cells saved: 3
-        .O.
-        O.O
-        .O.
-        ...
+radio -- Role.RADIOBUTTON
+    a diamond, round where a checkbox is square
+    dots 2,4,6,10
+    1 cell in place of 4, saving 3
+    NVDA writes "rbtn"
+    .O.        < O.O..OOO
+    O.O        < OOO.OO.O
+    .O.        < O...O.O.
+    ...        < ........
 
-edit
-    stands for: Role.EDITABLETEXT
-    NVDA writes: "edt", 3 cells
-    drawn as: a rule along the bottom, the line writing sits on
-    dots: 7,8,12
-    cells saved: 2
-        ...
-        ...
-        ...
-        OOO
+edit -- Role.EDITABLETEXT
+    a rule along the bottom, the line writing sits on
+    dots 7,8,12
+    1 cell in place of 3, saving 2
+    NVDA writes "edt"
+    ...        < O.OO.O
+    ...        < .O.OOO
+    ...        < ....O.
+    OOO        < ......
 
-password
-    stands for: Role.PASSWORDEDIT
-    NVDA writes: "pwdedt", 6 cells
-    drawn as: the writing rule with two dots over it, for what it hides
-    dots: 2,7,8,10,12
-    cells saved: 5
-        ...
-        O.O
-        ...
-        OOO
+password -- Role.PASSWORDEDIT
+    the writing rule with two dots over it, for what it hides
+    dots 2,7,8,10,12
+    1 cell in place of 6, saving 5
+    NVDA writes "pwdedt"
+    ...        < OO.OOOO.OO.O
+    O.O        < O.OO.O.O.OOO
+    ...        < O..O......O.
+    OOO        < ............
 
-combo
-    stands for: Role.COMBOBOX
-    NVDA writes: "cbo", 3 cells
-    drawn as: a wedge pointing down, where its list comes from
-    dots: 1,4,5,9
-    cells saved: 2
-        OOO
-        .O.
-        ...
-        ...
+combo -- Role.COMBOBOX
+    a wedge pointing down, where its list comes from
+    dots 1,4,5,9
+    1 cell in place of 3, saving 2
+    NVDA writes "cbo"
+    OOO        < OOO.O.
+    .O.        < ..O..O
+    ...        < ....O.
+    ...        < ......
 
-submenu
-    stands for: State.HASPOPUP
-    NVDA writes: "submnu", 6 cells
-    drawn as: a chevron pointing right, where the submenu opens
-    dots: 1,3,5
-    cells saved: 5
-        O..
-        .O.
-        O..
-        ...
+submenu -- State.HASPOPUP
+    a chevron pointing right, where the submenu opens
+    dots 1,3,5
+    1 cell in place of 6, saving 5
+    NVDA writes "submnu"
+    O..        < .OO.O.OOOOO.
+    .O.        < O...O....O..
+    O..        < O.OO..O.O.OO
+    ...        < ............
 
-link
-    stands for: Role.LINK
-    NVDA writes: "lnk", 3 cells
-    drawn as: a stroke rising to the right, going somewhere
-    dots: 3,5,9
-    cells saved: 2
-        ..O
-        .O.
-        O..
-        ...
+link -- Role.LINK
+    a stroke rising to the right, going somewhere
+    dots 3,5,9
+    1 cell in place of 3, saving 2
+    NVDA writes "lnk"
+    ..O        < O.OOO.
+    .O.        < O..O..
+    O..        < O.O.O.
+    ...        < ......
 
-list
-    stands for: Role.LIST
-    NVDA writes: "lst", 3 cells
-    drawn as: two rules stacked, items one above another
-    dots: 1,3,4,6,9,11
-    cells saved: 2
-        OOO
-        ...
-        OOO
-        ...
+list -- Role.LIST
+    two rules stacked, items one above another
+    dots 1,3,4,6,9,11
+    1 cell in place of 3, saving 2
+    NVDA writes "lst"
+    OOO        < O..O.O
+    ...        < O.O.OO
+    OOO        < O.O.O.
+    ...        < ......
 
-menuItem
-    stands for: Role.MENUITEM
-    NVDA writes: "mnuitem", 7 cells
-    drawn as: a rule with an upright at its left, one entry of a menu
-    dots: 1,2,3,5,10
-    cells saved: 6
-        O..
-        OOO
-        O..
-        ...
+menuItem -- Role.MENUITEM
+    a rule with an upright at its left, one entry of a menu
+    dots 1,2,3,5,10
+    1 cell in place of 7, saving 6
+    NVDA writes "mnuitem"
+    O..        < OOOOO..O.OO.OO
+    OOO        < ...O..O.OO.O..
+    O..        < O.O.OO..O...O.
+    ...        < ..............
 
-table
-    stands for: Role.TABLE
-    NVDA writes: "tbl", 3 cells
-    drawn as: two cells stacked with a rule between, a grid
-    dots: 1,2,3,4,6,7,9,10,11,12
-    cells saved: 2
-        OOO
-        O.O
-        OOO
-        O.O
+table -- Role.TABLE
+    two cells stacked with a rule between, a grid
+    dots 1,2,3,4,6,7,9,10,11,12
+    1 cell in place of 3, saving 2
+    NVDA writes "tbl"
+    OOO        < .OO.O.
+    O.O        < OOO.O.
+    OOO        < O...O.
+    O.O        < ......
 
-graphic
-    stands for: Role.GRAPHIC
-    NVDA writes: "gra", 3 cells
-    drawn as: a shape standing on the ground, a picture of something
-    dots: 3,5,6,7,8,11,12
-    cells saved: 2
-        ...
-        .O.
-        OOO
-        OOO
+graphic -- Role.GRAPHIC
+    a shape standing on the ground, a picture of something
+    dots 3,5,6,7,8,11,12
+    1 cell in place of 3, saving 2
+    NVDA writes "gra"
+    ...        < OOO.O.
+    .O.        < OOOO..
+    OOO        < ..O...
+    OOO        < ......
 
-progress
-    stands for: Role.PROGRESSBAR
-    NVDA writes: "prgbar", 6 cells
-    drawn as: a box filling from the left, which is what one does
-    dots: 1,2,3,4,5,6,7,8,9,12
-    cells saved: 5
-        OOO
-        OO.
-        OO.
-        OOO
+progress -- Role.PROGRESSBAR
+    a box filling from the left, which is what one does
+    dots 1,2,3,4,5,6,7,8,9,12
+    1 cell in place of 6, saving 5
+    NVDA writes "prgbar"
+    OOO        < OOO.OOO.O.O.
+    OO.        < O.OOOOO...OO
+    OO.        < O.O.......O.
+    OOO        < ............
 
-separator
-    stands for: Role.SEPARATOR
-    NVDA writes: a braille pattern, not text, 5 cells
-    drawn as: one rule where NVDA draws five cells of dashes
-    dots: 3,6,11
-    cells saved: 4
-        ...
-        ...
-        OOO
-        ...
-    what it replaces, as braille:
-        ..........
-        ..........
-        OOOOOOOOOO
-        ..........
+separator -- Role.SEPARATOR
+    one rule where NVDA draws five cells of dashes
+    dots 3,6,11
+    1 cell in place of 5, saving 4
+    NVDA writes braille patterns, not text
+    ...        < ..........
+    ...        < ..........
+    OOO        < OOOOOOOOOO
+    ...        < ..........
 
-wideButton
-    stands for: Role.BUTTON, drawn in place
-    NVDA writes: "btn", 3 cells
-    drawn as: a wide slab with its corners cut, three cells of drawing
-    dots: 2,3,4,8,9,12|1,4,7,8,9,12|1,4,7,8,10,11
-    cells saved: 0
-        .OOOOOOO.
-        O.......O
-        O.......O
-        .OOOOOOO.
+wideButton -- Role.BUTTON, drawn in place
+    a wide slab with its corners cut, three cells of drawing
+    dots 2,3,4,8,9,12|1,4,7,8,9,12|1,4,7,8,10,11
+    3 cells in place of 3, saving 0
+    NVDA writes "btn"
+    .OOOOOOO.  < O..OOO
+    O.......O  < O.OO.O
+    O.......O  < ..O.O.
+    .OOOOOOO.  < ......
 
 22 symbols, 56 cells given back.

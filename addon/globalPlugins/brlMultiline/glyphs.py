@@ -613,17 +613,44 @@ what survives being written in a settings file or sent across the seam.
 # --- Fitting one to a display and a reader ---------------------------------------------------
 
 
+ALPHABET = {
+	"a": "1", "b": "1,2", "c": "1,4", "d": "1,4,5", "e": "1,5",
+	"f": "1,2,4", "g": "1,2,4,5", "h": "1,2,5", "i": "2,4", "j": "2,4,5",
+	"k": "1,3", "l": "1,2,3", "m": "1,3,4", "n": "1,3,4,5", "o": "1,3,5",
+	"p": "1,2,3,4", "q": "1,2,3,4,5", "r": "1,2,3,5", "s": "2,3,4", "t": "2,3,4,5",
+	"u": "1,3,6", "v": "1,2,3,6", "w": "2,4,5,6", "x": "1,3,4,6", "y": "1,3,4,5,6",
+	"z": "1,3,5,6",
+}
+"""The uncontracted braille alphabet, for drawing an abbreviation in `listing`.
+
+**Only for the listing, and only to be looked at.** What actually goes on the display is the
+reader's own output table, asked for at the moment of use — see `fittedGlyph`, and the rule
+about a contracted table making a wording shorter than the shape drawn over it. This is here so
+that the vocabulary can be written out and studied without a running NVDA, and because a
+listing that showed a glyph and left the reader to imagine what it replaced was not showing
+them the thing they needed to compare.
+"""
+
+LISTING_GAP = 11
+"""Characters the glyph column is padded to in `listing`, so the two halves line up.
+
+The widest shape is three cells, which is nine, and two spaces after it. Fixed rather than
+fitted to each entry, because the point of the column is that a reader can run down it.
+"""
+
+
 def listing(entries: Optional[dict] = None) -> str:
-	"""The vocabulary written out, to be read and argued with.
+	"""The vocabulary written out, each glyph beside the braille it replaces.
 
-	The catalogue on the panel answers whether two shapes feel alike, which is the question no
-	amount of reading settles. This answers the other half — what each one is for, what NVDA
-	writes today, and what it costs — which is the question no amount of feeling settles. Both
-	are needed to choose a vocabulary and neither is enough.
+	**Both halves on the same lines.** A shape on its own cannot be judged: the question is
+	never "is this a good drawing of a button" but "is this better under a finger than the
+	three cells it is taking the place of", and that is a comparison, which needs the two
+	things next to each other. An earlier version of this printed them one after the other and
+	printed nothing at all for a wording, which left the more important half to be imagined.
 
-	The cell counts for anything given as a wording are what an uncontracted table produces. A
-	contracted one can be shorter, and where it is shorter than the shape the glyph is simply
-	not drawn; see `fittedGlyph`.
+	The cell counts and the braille for anything given as a wording are what an uncontracted
+	table produces. A contracted one can be shorter, and where it is shorter than the shape the
+	glyph is simply not drawn; see `fittedGlyph`.
 
 	:param entries: what to write out, by name. None for the whole vocabulary.
 	:return: the listing, as plain text.
@@ -632,21 +659,18 @@ def listing(entries: Optional[dict] = None) -> str:
 	lines = []
 	saved = 0
 	for name, glyph in entries.items():
-		over = len(glyph.says) if glyph.says else len(glyph.fallbackDots.split(GROUP))
+		was = _replacedRows(glyph)
+		over = len(was[0]) // 2
 		gain = max(0, over - glyph.width)
 		saved += gain
-		lines.append(name)
-		lines.append(f"    stands for: {glyph.stands or 'nothing named'}")
-		lines.append(f"    NVDA writes: {_written(glyph)}, {over} cells")
-		lines.append(f"    drawn as: {glyph.describes or 'undescribed'}")
-		lines.append(f"    dots: {glyph.dots}")
-		lines.append(f"    cells saved: {gain}")
-		for row in patternRows(glyph.dots):
-			lines.append(f"        {row}")
-		if glyph.fallbackDots:
-			lines.append("    what it replaces, as braille:")
-			for row in _brailleRows(glyph.fallbackDots):
-				lines.append(f"        {row}")
+		lines.append(f"{name} -- {glyph.stands or 'nothing named'}")
+		lines.append(f"    {glyph.describes or 'undescribed'}")
+		lines.append(f"    dots {glyph.dots}")
+		cells = "cell" if glyph.width == 1 else "cells"
+		lines.append(f"    {glyph.width} {cells} in place of {over}, saving {gain}")
+		lines.append(f"    {_written(glyph)}")
+		for drawn, before in zip(patternRows(glyph.dots), was):
+			lines.append(f"    {drawn:<{LISTING_GAP}}< {before}")
 		lines.append("")
 	lines.append(f"{len(entries)} symbols, {saved} cells given back.")
 	return "\n".join(lines)
@@ -658,21 +682,24 @@ def _written(glyph: Glyph) -> str:
 	:param glyph: the vocabulary entry.
 	"""
 	if glyph.says:
-		return f'"{glyph.says}"'
-	return "a braille pattern, not text"
+		return f'NVDA writes "{glyph.says}"'
+	return "NVDA writes braille patterns, not text"
 
 
-def _brailleRows(fallbackDots: str) -> "list[str]":
-	"""Draw a braille fallback as dots, so it can be compared with the shape replacing it.
+def _replacedRows(glyph: Glyph) -> "list[str]":
+	"""Draw what a glyph is standing in place of, whichever way it was written.
 
 	Two columns per cell rather than three, because that is what braille has — and seeing the
 	blank column missing from the picture is most of the argument for drawing the shape
 	instead. NVDA's checkbox is a box with a gap running through its middle.
 
-	:param fallbackDots: the cells, in this file's notation.
+	:param glyph: the vocabulary entry.
 	:return: one string per dot row.
 	"""
-	groups = fallbackDots.split(GROUP)
+	if glyph.fallbackDots:
+		groups = glyph.fallbackDots.split(GROUP)
+	else:
+		groups = [ALPHABET.get(character.lower(), "") for character in glyph.says]
 	raised = [[False] * (2 * len(groups)) for _ in range(CELL_HEIGHT)]
 	for cell, group in enumerate(groups):
 		for dot in _numbers(group):
@@ -697,8 +724,17 @@ def catalogue(newBuffer: Callable, width: int, height: int, entries: Optional[di
 	the vocabulary comes with a way to feel all of it at once, and revising an entry afterwards
 	is one line.
 
-	Laid out with a blank slot after each, because the question is whether one shape is another
-	and shapes that touch each other answer it wrongly.
+	**Each shape is followed by the braille it replaces**, so a hand running along the panel
+	reads the symbol and then the word it stands for, and nothing has to be pointed at to find
+	out what it was. That is also the comparison the catalogue is for: not whether a shape is a
+	good drawing, but whether it is better under a finger than the cells it is taking the place
+	of.
+
+	A blank slot after each pair, because the question is whether one shape is another and
+	shapes that touch each other answer it wrongly.
+
+	It holds what it holds. Twenty-two symbols with their braille beside them do not fit on a
+	Monarch, so this stops when the panel is full and `listing` is what has all of it.
 
 	:param newBuffer: makes a blank buffer of a given width and height.
 	:param width: the panel's width in pins.
@@ -713,15 +749,18 @@ def catalogue(newBuffer: Callable, width: int, height: int, entries: Optional[di
 	placed = []
 	x, y = 0, 0
 	for name, glyph in entries.items():
-		span = (glyph.width + 1) * CELL_WIDTH
+		was = _replacedRows(glyph)
+		span = (glyph.width + len(was[0]) // 2 + 1) * CELL_WIDTH
 		if x + span > width:
 			x, y = 0, y + LINE
 		if y + CELL_HEIGHT > height:
 			# Out of panel. Better a catalogue that stops than one that overwrites its own
-			# first row, which would read as a symbol nobody wrote.
+			# first row, which would read as a symbol nobody wrote. The listing is the one
+			# that holds everything; this is the one that can be felt.
 			break
 		_stamp(buffer, patternRows(glyph.dots), x, y)
-		placed.append((name, glyph, x, y, glyph.width * CELL_WIDTH))
+		_stamp(buffer, _spaced(was), x + glyph.width * CELL_WIDTH, y)
+		placed.append((name, glyph, x, y, span - CELL_WIDTH))
 		x += span
 	return buffer, _namer(placed)
 
@@ -738,6 +777,26 @@ def _stamp(buffer, rows: "list[str]", x: int, y: int) -> None:
 		for across, character in enumerate(row):
 			if character not in " .":
 				buffer.setDot(x + across, y + down)
+
+
+def _spaced(rows: "list[str]") -> "list[str]":
+	"""Space braille out to the pitch a glyph is drawn at.
+
+	A braille cell is two dot columns where a glyph slot is three, so a run of cells drawn two
+	columns apart would sit at a different pitch from the shape beside it and read as a
+	different kind of thing. This puts each cell in its own slot, which is where the display
+	would put it.
+
+	:param rows: the braille, two columns per cell.
+	:return: the same, three columns per cell.
+	"""
+	spaced = []
+	for row in rows:
+		out = []
+		for index in range(0, len(row), 2):
+			out.append(row[index : index + 2] + ".")
+		spaced.append("".join(out))
+	return spaced
 
 
 def _namer(placed: "list[tuple]") -> Callable:
