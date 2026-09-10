@@ -375,7 +375,7 @@ class TestTheCatalogue(unittest.TestCase):
 			with self.subTest(name):
 				self.assertTrue(
 					any(
-						describeAt(x, y) == name
+						(describeAt(x, y) or "").startswith(name)
 						for y in range(0, 35, glyphs.LINE)
 						for x in range(0, 96, glyphs.CELL_WIDTH)
 					),
@@ -392,8 +392,16 @@ class TestTheCatalogue(unittest.TestCase):
 		"""Which is most of what makes it a catalogue rather than a row of shapes: counting
 		along a line is holding the order in mind while judging the shapes."""
 		_buffer, describeAt = self.laid({"first": glyphs.CHECKED, "second": glyphs.UNCHECKED})
-		self.assertEqual(describeAt(0, 0), "first")
-		self.assertEqual(describeAt(6, 0), "second")
+		self.assertTrue(describeAt(0, 0).startswith("first"))
+		self.assertTrue(describeAt(6, 0).startswith("second"))
+
+	def test_aPressSaysWhatTheShapeIsMeantToBe(self):
+		"""A name alone is a thing to look up. "radio, a diamond" is the shape and the
+		reason for it in one sentence, which is what a reader comparing twenty symbols
+		needs and what nobody wants to hold in their head.
+		"""
+		_buffer, describeAt = self.laid({"radio": glyphs.RADIO})
+		self.assertIn("diamond", describeAt(0, 0))
 
 	def test_aPressPastTheEndIsOnNothing(self):
 		_buffer, describeAt = self.laid({"only": glyphs.CHECKED})
@@ -402,7 +410,7 @@ class TestTheCatalogue(unittest.TestCase):
 	def test_aRowThatIsFullStartsAnother(self):
 		entries = {str(index): glyphs.CHECKED for index in range(20)}
 		_buffer, describeAt = self.laid(entries)
-		self.assertEqual(describeAt(0, glyphs.LINE), "16")
+		self.assertTrue(describeAt(0, glyphs.LINE).startswith("16"))
 
 	def test_aPanelThatRunsOutStopsRatherThanOverwritingItself(self):
 		"""A catalogue that wrapped onto its own first row would read as a symbol nobody
@@ -410,12 +418,12 @@ class TestTheCatalogue(unittest.TestCase):
 		entries = {str(index): glyphs.CHECKED for index in range(40)}
 		_buffer, describeAt = self.laid(entries, height=glyphs.CELL_HEIGHT)
 		self.assertIsNone(describeAt(0, glyphs.LINE))
-		self.assertEqual(describeAt(0, 0), "0")
+		self.assertTrue(describeAt(0, 0).startswith("0"))
 
 	def test_aWideSymbolTakesTheRoomItNeeds(self):
 		_buffer, describeAt = self.laid({"wide": glyphs.WIDE_BUTTON, "after": glyphs.CHECKED})
-		self.assertEqual(describeAt(6, 0), "wide")
-		self.assertEqual(describeAt(12, 0), "after")
+		self.assertTrue(describeAt(6, 0).startswith("wide"))
+		self.assertTrue(describeAt(12, 0).startswith("after"))
 
 	def test_aDisplayThatWillNotProvideABufferIsNotACrash(self):
 		buffer, describeAt = glyphs.catalogue(lambda width, height: None, 96, 35)

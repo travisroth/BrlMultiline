@@ -48,6 +48,7 @@ __all__ = [
 	"cellValue",
 	"compress",
 	"fittedGlyph",
+	"listing",
 	"movedPosition",
 	"patternRows",
 	"supported",
@@ -118,6 +119,22 @@ class Glyph(NamedTuple):
 	12 have nowhere to be and are refused. Written in the same notation as `dots` so that the
 	relationship between the two is legible — a focus indicator's fallback is its shape with
 	the third column taken away, and said like this you can see that.
+	"""
+
+	stands: str = ""
+	"""What NVDA calls the thing this is drawn for: "Role.BUTTON", "State.CHECKED".
+
+	Documentary. Nothing reads it to decide anything, and it is here because a vocabulary
+	nobody can check against its source is a vocabulary that drifts from it — the checkbox
+	entries were written against a guess at NVDA's wording before anyone looked.
+	"""
+
+	describes: str = ""
+	"""What the shape is meant to depict, in a phrase.
+
+	Said aloud when a reader points at the catalogue, and printed beside the shape in
+	`listing`. A shape whose description is hard to write is usually a shape that will be
+	hard to recognise, so writing it is part of choosing it.
 	"""
 
 	carries: str = ""
@@ -198,7 +215,12 @@ def _numbers(group: str) -> "list[int]":
 # revising one after a hardware run is editing that line, which is the whole reason the
 # vocabulary is a table of numbers rather than code.
 
-FOCUS = Glyph(dots="1,2,3,4,5,6,9,10,11", fallbackDots="1,2,3,4,5,6")
+FOCUS = Glyph(
+	dots="1,2,3,4,5,6,9,10,11",
+	fallbackDots="1,2,3,4,5,6",
+	stands="the add-on's own list focus mark",
+	describes="a solid square with the bottom row clear",
+)
 """Where the focus is in a list, as Monarch's own firmware draws it.
 
 	OOO
@@ -212,7 +234,12 @@ dots 3678 twice and does not read the same. The fallback is the shape with its t
 taken away: a solid two by three, which stays recognisable on a Focus.
 """
 
-PENDING = Glyph(dots="9,10,11,12", fallbackDots="7,8")
+PENDING = Glyph(
+	dots="9,10,11,12",
+	fallbackDots="7,8",
+	stands="the add-on's own not-yet-fetched mark",
+	describes="a bar against the right edge, where the missing content is",
+)
 """There is content on this row the add-on has not fetched yet.
 
 	..O
@@ -241,7 +268,12 @@ costs nothing to adopt and changes nothing for a display that cannot draw it.
 #   a square is a checkbox, a circle is a radio button, a slab is a button
 #   a rule low in the cell is a place to type, a chevron points where a thing opens
 
-BUTTON = Glyph(dots="2,3,5,6,10,11", says="btn")
+BUTTON = Glyph(
+	dots="2,3,5,6,10,11",
+	says="btn",
+	stands="Role.BUTTON",
+	describes="a solid slab across the middle, the face of a key",
+)
 """A button: a slab across the middle of the cell.
 
 	...
@@ -250,7 +282,12 @@ BUTTON = Glyph(dots="2,3,5,6,10,11", says="btn")
 	...
 """
 
-TOGGLE = Glyph(dots="2,3,10,11", says="tgbtn")
+TOGGLE = Glyph(
+	dots="2,3,10,11",
+	says="tgbtn",
+	stands="Role.TOGGLEBUTTON",
+	describes="two posts with the slab taken out, a button with two states",
+)
 """A toggle button: two posts with the slab taken out, because it has two states.
 
 	...
@@ -262,6 +299,8 @@ TOGGLE = Glyph(dots="2,3,10,11", says="tgbtn")
 CHECKED = Glyph(
 	dots="1,2,3,4,5,6,7,8,9,10,11,12",
 	fallbackDots="1,2,3,4,7,8|1,2,3,4,5,6,7,8|1,4,5,6,7,8",
+	stands="State.CHECKED, and State.ON",
+	describes="a solid square, a box with something in it",
 )
 """A ticked checkbox: a solid square.
 
@@ -284,6 +323,8 @@ less.
 UNCHECKED = Glyph(
 	dots="1,2,3,4,7,8,9,10,11,12",
 	fallbackDots="1,2,3,4,7,8|7,8|1,4,5,6,7,8",
+	stands="State.CHECKED absent, and State.ON absent",
+	describes="a hollow square, an empty box",
 )
 """An empty checkbox: a hollow square.
 
@@ -300,6 +341,8 @@ would be two dots a finger cannot separate from the box around them.
 HALF_CHECKED = Glyph(
 	dots="1,2,3,4,6,7,8,9,10,11,12",
 	fallbackDots="1,2,3,4,7,8|4,5,6,7,8|1,4,5,6,7,8",
+	stands="State.HALFCHECKED",
+	describes="a square filled from the middle down, neither one thing nor the other",
 )
 """A checkbox that is neither: the square filled from the middle down.
 
@@ -312,6 +355,8 @@ HALF_CHECKED = Glyph(
 PRESSED = Glyph(
 	dots="2,3,4,5,6,8,10,11",
 	fallbackDots="2,3,4,8|1,2,3,4,5,6,7,8|1,5,6,7",
+	stands="State.PRESSED",
+	describes="a filled circle, the rounded box NVDA draws for this",
 )
 """A pressed toggle: a filled circle, matching the rounded box NVDA draws for this state.
 
@@ -324,6 +369,8 @@ PRESSED = Glyph(
 NOT_PRESSED = Glyph(
 	dots="2,3,4,8,10,11",
 	fallbackDots="2,3,4,8|7,8|1,5,6,7",
+	stands="State.PRESSED absent",
+	describes="a hollow circle",
 )
 """A toggle that is not pressed: the same circle, hollow.
 
@@ -333,7 +380,12 @@ NOT_PRESSED = Glyph(
 	.O.
 """
 
-RADIO = Glyph(dots="2,4,6,10", says="rbtn")
+RADIO = Glyph(
+	dots="2,4,6,10",
+	says="rbtn",
+	stands="Role.RADIOBUTTON",
+	describes="a diamond, round where a checkbox is square",
+)
 """A radio button: a diamond, round-ish where a checkbox is square.
 
 	.O.
@@ -347,7 +399,12 @@ followed by a solid square — which is NVDA's inconsistency rather than this fi
 worth a finger before anything is done about it.
 """
 
-EDIT = Glyph(dots="7,8,12", says="edt")
+EDIT = Glyph(
+	dots="7,8,12",
+	says="edt",
+	stands="Role.EDITABLETEXT",
+	describes="a rule along the bottom, the line writing sits on",
+)
 """An edit field: a rule along the bottom, which is where writing sits.
 
 	...
@@ -356,7 +413,12 @@ EDIT = Glyph(dots="7,8,12", says="edt")
 	OOO
 """
 
-PASSWORD = Glyph(dots="2,7,8,10,12", says="pwdedt")
+PASSWORD = Glyph(
+	dots="2,7,8,10,12",
+	says="pwdedt",
+	stands="Role.PASSWORDEDIT",
+	describes="the writing rule with two dots over it, for what it hides",
+)
 """A password field: the same rule with two dots floating over it, for what it hides.
 
 	...
@@ -367,7 +429,12 @@ PASSWORD = Glyph(dots="2,7,8,10,12", says="pwdedt")
 Six cells saved, which is nearly a third of a DotPad line.
 """
 
-COMBO = Glyph(dots="1,4,5,9", says="cbo")
+COMBO = Glyph(
+	dots="1,4,5,9",
+	says="cbo",
+	stands="Role.COMBOBOX",
+	describes="a wedge pointing down, where its list comes from",
+)
 """A combo box: a wedge pointing down, where its list comes from.
 
 	OOO
@@ -376,7 +443,12 @@ COMBO = Glyph(dots="1,4,5,9", says="cbo")
 	...
 """
 
-SUBMENU = Glyph(dots="1,3,5", says="submnu")
+SUBMENU = Glyph(
+	dots="1,3,5",
+	says="submnu",
+	stands="State.HASPOPUP",
+	describes="a chevron pointing right, where the submenu opens",
+)
 """There is a submenu here: a chevron pointing right, where it opens.
 
 	O..
@@ -385,7 +457,12 @@ SUBMENU = Glyph(dots="1,3,5", says="submnu")
 	...
 """
 
-LINK = Glyph(dots="3,5,9", says="lnk")
+LINK = Glyph(
+	dots="3,5,9",
+	says="lnk",
+	stands="Role.LINK",
+	describes="a stroke rising to the right, going somewhere",
+)
 """A link: a stroke rising to the right, going somewhere.
 
 	..O
@@ -394,7 +471,12 @@ LINK = Glyph(dots="3,5,9", says="lnk")
 	...
 """
 
-LIST = Glyph(dots="1,3,4,6,9,11", says="lst")
+LIST = Glyph(
+	dots="1,3,4,6,9,11",
+	says="lst",
+	stands="Role.LIST",
+	describes="two rules stacked, items one above another",
+)
 """A list: two rules, one above the other.
 
 	OOO
@@ -403,7 +485,12 @@ LIST = Glyph(dots="1,3,4,6,9,11", says="lst")
 	...
 """
 
-MENU_ITEM = Glyph(dots="1,2,3,5,10", says="mnuitem")
+MENU_ITEM = Glyph(
+	dots="1,2,3,5,10",
+	says="mnuitem",
+	stands="Role.MENUITEM",
+	describes="a rule with an upright at its left, one entry of a menu",
+)
 """One item of a menu: a rule with an upright at its left.
 
 	O..
@@ -415,7 +502,12 @@ Seven cells for one. The largest saving in the vocabulary, and menus are where a
 runs out of room fastest.
 """
 
-TABLE = Glyph(dots="1,2,3,4,6,7,9,10,11,12", says="tbl")
+TABLE = Glyph(
+	dots="1,2,3,4,6,7,9,10,11,12",
+	says="tbl",
+	stands="Role.TABLE",
+	describes="two cells stacked with a rule between, a grid",
+)
 """A table: two cells stacked, which is what one is.
 
 	OOO
@@ -424,7 +516,12 @@ TABLE = Glyph(dots="1,2,3,4,6,7,9,10,11,12", says="tbl")
 	O.O
 """
 
-GRAPHIC = Glyph(dots="5,3,6,11,7,8,12", says="gra")
+GRAPHIC = Glyph(
+	dots="3,5,6,7,8,11,12",
+	says="gra",
+	stands="Role.GRAPHIC",
+	describes="a shape standing on the ground, a picture of something",
+)
 """A graphic: a shape standing on the ground, which is what a picture of anything is.
 
 	...
@@ -433,7 +530,12 @@ GRAPHIC = Glyph(dots="5,3,6,11,7,8,12", says="gra")
 	OOO
 """
 
-PROGRESS = Glyph(dots="1,2,3,4,5,6,7,8,9,12", says="prgbar")
+PROGRESS = Glyph(
+	dots="1,2,3,4,5,6,7,8,9,12",
+	says="prgbar",
+	stands="Role.PROGRESSBAR",
+	describes="a box filling from the left, which is what one does",
+)
 """A progress bar: a box filled from the left, which is what one does.
 
 	OOO
@@ -442,7 +544,12 @@ PROGRESS = Glyph(dots="1,2,3,4,5,6,7,8,9,12", says="prgbar")
 	OOO
 """
 
-SEPARATOR = Glyph(dots="3,6,11", fallbackDots="3,6|3,6|3,6|3,6|3,6")
+SEPARATOR = Glyph(
+	dots="3,6,11",
+	fallbackDots="3,6|3,6|3,6|3,6|3,6",
+	stands="Role.SEPARATOR",
+	describes="one rule where NVDA draws five cells of dashes",
+)
 """A separator: one rule, where NVDA writes five cells of dashes.
 
 	...
@@ -453,7 +560,12 @@ SEPARATOR = Glyph(dots="3,6,11", fallbackDots="3,6|3,6|3,6|3,6|3,6")
 Four cells saved on a thing that carries no information beyond being there.
 """
 
-WIDE_BUTTON = Glyph(dots="2,3,4,8,9,12|1,4,7,8,9,12|1,4,7,8,10,11", says="btn")
+WIDE_BUTTON = Glyph(
+	dots="2,3,4,8,9,12|1,4,7,8,9,12|1,4,7,8,10,11",
+	says="btn",
+	stands="Role.BUTTON, drawn in place",
+	describes="a wide slab with its corners cut, three cells of drawing",
+)
 """The same button drawn in place, nine pins by four, giving no cells back.
 
 	.OOOOOOO.
@@ -501,6 +613,74 @@ what survives being written in a settings file or sent across the seam.
 # --- Fitting one to a display and a reader ---------------------------------------------------
 
 
+def listing(entries: Optional[dict] = None) -> str:
+	"""The vocabulary written out, to be read and argued with.
+
+	The catalogue on the panel answers whether two shapes feel alike, which is the question no
+	amount of reading settles. This answers the other half — what each one is for, what NVDA
+	writes today, and what it costs — which is the question no amount of feeling settles. Both
+	are needed to choose a vocabulary and neither is enough.
+
+	The cell counts for anything given as a wording are what an uncontracted table produces. A
+	contracted one can be shorter, and where it is shorter than the shape the glyph is simply
+	not drawn; see `fittedGlyph`.
+
+	:param entries: what to write out, by name. None for the whole vocabulary.
+	:return: the listing, as plain text.
+	"""
+	entries = VOCABULARY if entries is None else entries
+	lines = []
+	saved = 0
+	for name, glyph in entries.items():
+		over = len(glyph.says) if glyph.says else len(glyph.fallbackDots.split(GROUP))
+		gain = max(0, over - glyph.width)
+		saved += gain
+		lines.append(name)
+		lines.append(f"    stands for: {glyph.stands or 'nothing named'}")
+		lines.append(f"    NVDA writes: {_written(glyph)}, {over} cells")
+		lines.append(f"    drawn as: {glyph.describes or 'undescribed'}")
+		lines.append(f"    dots: {glyph.dots}")
+		lines.append(f"    cells saved: {gain}")
+		for row in patternRows(glyph.dots):
+			lines.append(f"        {row}")
+		if glyph.fallbackDots:
+			lines.append("    what it replaces, as braille:")
+			for row in _brailleRows(glyph.fallbackDots):
+				lines.append(f"        {row}")
+		lines.append("")
+	lines.append(f"{len(entries)} symbols, {saved} cells given back.")
+	return "\n".join(lines)
+
+
+def _written(glyph: Glyph) -> str:
+	""":return: how to describe what NVDA puts on the line for this.
+
+	:param glyph: the vocabulary entry.
+	"""
+	if glyph.says:
+		return f'"{glyph.says}"'
+	return "a braille pattern, not text"
+
+
+def _brailleRows(fallbackDots: str) -> "list[str]":
+	"""Draw a braille fallback as dots, so it can be compared with the shape replacing it.
+
+	Two columns per cell rather than three, because that is what braille has — and seeing the
+	blank column missing from the picture is most of the argument for drawing the shape
+	instead. NVDA's checkbox is a box with a gap running through its middle.
+
+	:param fallbackDots: the cells, in this file's notation.
+	:return: one string per dot row.
+	"""
+	groups = fallbackDots.split(GROUP)
+	raised = [[False] * (2 * len(groups)) for _ in range(CELL_HEIGHT)]
+	for cell, group in enumerate(groups):
+		for dot in _numbers(group):
+			column, row = CELL_DOTS[dot]
+			raised[row][cell * 2 + column] = True
+	return ["".join("O" if on else "." for on in row) for row in raised]
+
+
 SLOT = 2
 """Cell slots each entry of the catalogue is given: one for the shape, one for air after it."""
 
@@ -541,7 +721,7 @@ def catalogue(newBuffer: Callable, width: int, height: int, entries: Optional[di
 			# first row, which would read as a symbol nobody wrote.
 			break
 		_stamp(buffer, patternRows(glyph.dots), x, y)
-		placed.append((name, x, y, glyph.width * CELL_WIDTH))
+		placed.append((name, glyph, x, y, glyph.width * CELL_WIDTH))
 		x += span
 	return buffer, _namer(placed)
 
@@ -567,14 +747,16 @@ def _namer(placed: "list[tuple]") -> Callable:
 	shapes wants to know which one they have just met, and asking them to count is asking them
 	to hold the order in mind while judging the shapes.
 
-	:param placed: (name, x, y, width) per symbol drawn.
+	:param placed: (name, glyph, x, y, width) per symbol drawn.
 	:return: a function taking a point and returning what is there.
 	"""
 
 	def describeAt(x: int, y: int) -> Optional[str]:
-		for name, left, top, width in placed:
+		for name, glyph, left, top, width in placed:
 			if left <= x < left + width + CELL_WIDTH and top <= y < top + LINE:
-				return name
+				# Translators: reported for a touch on the glyph catalogue. Placeholders are
+				# the symbol's name and what its shape is meant to depict.
+				return _("{name}, {shape}").format(name=name, shape=glyph.describes or "")
 		return None
 
 	return describeAt
