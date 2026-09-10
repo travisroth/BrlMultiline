@@ -23,6 +23,21 @@ installStubs()
 from brlMultiline import bmConfig, glyphFlow, glyphs  # noqa: E402
 
 
+class FakeObject:
+	"""An object, as much of one as `getPropertiesBraille` reads."""
+
+	def __init__(self, name="", role="", description=None):
+		self.name = name
+		self.role = role
+		self.description = description
+		self.value = None
+		self.placeholder = None
+		self.keyboardShortcut = None
+		self.errorMessage = None
+		self.cellCoordsText = None
+		self.roleTextBraille = None
+
+
 class FakeDisplay:
 	"""A display that draws glyphs, as much of one as this module touches."""
 
@@ -102,10 +117,18 @@ class GlyphTestCase(unittest.TestCase):
 		glyphFlow._ORDERED = None
 
 	def region(self, text):
-		""":return: a region holding one line, one cell per character."""
+		""":return: a region whose whole line NVDA wrote, one cell per character.
+
+		A run of control fields and nothing else, which is what a line of a document reduces
+		to when the reader is on a link with no text beside it. Most of the tests below are
+		about what happens to NVDA's own words, so this is the shape they want; which words
+		are NVDA's in the first place is `TestWhoWroteTheWord`.
+		"""
 		built = Region()
 		built.rawText = text
 		built.update()
+		glyphFlow.restartFields(built)
+		glyphFlow.recordFieldText(built, 0, len(text))
 		return built
 
 
@@ -230,6 +253,174 @@ class TestFindingThemInALine(GlyphTestCase):
 	def test_aLineWithNothingInItFindsNothing(self):
 		self.assertEqual(glyphFlow.marksIn(""), [])
 		self.assertEqual(glyphFlow.marksIn("Search now"), [])
+
+
+class TestWhoWroteTheWord(GlyphTestCase):
+	"""The whole safety of the feature.
+
+	NVDA flattens everything it has to say about a line into one string joined by single spaces
+	— the document's own words, the roles, the states, an object's name, its description — and
+	nothing in the result says which is which. A line of prose containing "btn" is, to anything
+	reading the finished text, indistinguishable from a button, and replacing it would take the
+	middle out of a word somebody typed and draw a symbol over it.
+
+	No lexical rule can settle that. What settles it is where the text came from.
+	"""
+
+	def document(self, pieces):
+		""":return: a document region built from (text, isNVDAs) pieces.
+
+		Modelled on `TextInfoRegion`, which appends field text through one method and the
+		document's own words through another branch of the same loop. The patch on that method
+		is what records the difference; this is the same record made by hand.
+		"""
+		built = Region()
+		built.rawText = ""
+		glyphFlow.restartFields(built)
+		for text, isNVDAs in pieces:
+			start = len(built.rawText)
+			built.rawText += text
+			if isNVDAs:
+				glyphFlow.recordFieldText(built, start, len(built.rawText))
+		built.update()
+		return built
+
+	def composed(self, rawText, **words):
+		""":return: an object region whose whole line NVDA composed, said outright.
+
+		An object region is not a run of fields: `getPropertiesBraille` builds the whole line
+		from the object's name, its value, its states, its role and its description, and the
+		question is not which parts are NVDA's but which parts are the object's own. So the
+		line is stated here and the object is given the words it contributed.
+		"""
+		from ._stubs import NVDAObjectRegion, Region
+
+		class Composed(NVDAObjectRegion):
+			def update(inner):
+				Region.update(inner)
+
+		built = Composed(FakeObject(**words))
+		built.rawText = rawText
+		built.update()
+		return built
+
+	def test_aRoleInADocumentIsReplaced(self):
+		region = self.document([("lnk", True), (" Home", False)])
+		self.assertTrue(glyphFlow.compressRegion(region, self.target()))
+		self.assertEqual(bytes(region.brailleCells).decode(), "l Home")
+
+	def test_theSameLettersInSomebodysProseAreNot(self):
+		"""The failure this exists for. Typing "btn" into an edit field used to lose two of its
+		three letters and gain a symbol over what was left."""
+		region = self.document([("edt", True), (" btn h1 lnk edt", False)])
+		glyphFlow.compressRegion(region, self.target())
+		self.assertEqual(bytes(region.brailleCells).decode(), "e btn h1 lnk edt")
+
+	def test_aWholeLineOfProseIsUntouched(self):
+		region = self.document([("the btn is over there", False)])
+		self.assertEqual(glyphFlow.compressRegion(region, self.target()), {})
+		self.assertEqual(bytes(region.brailleCells).decode(), "the btn is over there")
+
+	def test_aRoleAfterTheProseIsStillFound(self):
+		"""NVDA is not consistent about which side of the name the word goes."""
+		region = self.document([("Search", False), (" btn", True)])
+		self.assertTrue(glyphFlow.compressRegion(region, self.target()))
+		self.assertEqual(bytes(region.brailleCells).decode(), "Search b")
+
+	def test_aLabelMayNotRunOffTheEndOfWhatNVDAWrote(self):
+		region = self.document([("h", True), ("1 Favorites", False)])
+		self.assertEqual(glyphFlow.compressRegion(region, self.target()), {})
+
+	def test_anObjectsRoleIsReplaced(self):
+		region = self.composed("Search btn", name="Search")
+		self.assertTrue(glyphFlow.compressRegion(region, self.target()))
+		self.assertEqual(bytes(region.brailleCells).decode(), "Search b")
+
+	def test_anObjectNamedAfterARoleKeepsItsName(self):
+		"""A button named "btn" reads as "btn btn" and there is nothing in the finished string
+		to say which of the two is the role. A lost symbol is a symbol; a mangled name is a
+		fault the reader cannot see."""
+		region = self.composed("btn btn", name="btn")
+		self.assertEqual(glyphFlow.compressRegion(region, self.target()), {})
+		self.assertEqual(bytes(region.brailleCells).decode(), "btn btn")
+
+	def test_anObjectsDescriptionIsItsOwnToo(self):
+		"""A description is the application's words as much as a name is."""
+		region = self.composed(
+			"Search press btn to go btn",
+			name="Search",
+			description="press btn to go",
+		)
+		self.assertEqual(list(glyphFlow.compressRegion(region, self.target())), [23])
+		self.assertEqual(bytes(region.brailleCells).decode(), "Search press btn to go b")
+
+	def test_aRegionThatCannotSayIsLeftAlone(self):
+		"""Neither a document nor an object: nothing says which words here are NVDA's, so the
+		line keeps every one of them."""
+		built = Region()
+		built.rawText = "btn Search"
+		built.update()
+		self.assertEqual(glyphFlow.compressRegion(built, self.target()), {})
+		self.assertEqual(bytes(built.brailleCells).decode(), "btn Search")
+
+
+class TestTheRecordingPatch(GlyphTestCase):
+	"""The patch that supplies the provenance, driven the way NVDA drives it.
+
+	`_addFieldText` is the one method every piece of control field text goes through, and
+	`update` is where a region begins its line again. Wrapping the pair is what lets everything
+	above know which words are NVDA's without any of it having to guess.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		from brlMultiline import patches
+
+		patches.install()
+		self.addCleanup(patches.remove)
+
+	def reading(self, line):
+		""":return: a document region that has read one line."""
+		from ._stubs import FakeNavigatorObject, TextInfoRegion
+
+		obj = FakeNavigatorObject(name="doc")
+		obj.lines = [line]
+		obj.caretIndex = 0
+		built = TextInfoRegion(obj)
+		built.update()
+		return built
+
+	def test_aLineOfProseRecordsNothing(self):
+		region = self.reading("the btn is over there")
+		self.assertEqual(glyphFlow.replaceableSpans(region), [])
+
+	def test_aFieldIsRecorded(self):
+		region = self.reading("Search")
+		region._addFieldText("lnk", 0)
+		self.assertEqual(glyphFlow.replaceableSpans(region), [(6, 10)])
+
+	def test_onlyTheFieldIsReplaced(self):
+		region = self.reading("the btn is over there")
+		region._addFieldText("lnk", 0)
+		region.brailleCells = [ord(character) & 0xFF for character in region.rawText]
+		region.rawToBraillePos = list(range(len(region.rawText)))
+		region.brailleToRawPos = list(range(len(region.rawText)))
+		self.assertTrue(glyphFlow.compressRegion(region, self.target()))
+		self.assertEqual(bytes(region.brailleCells).decode(), "the btn is over there l")
+
+	def test_readingAgainForgetsTheLastReadingsFields(self):
+		region = self.reading("Search")
+		region._addFieldText("lnk", 0)
+		region.update()
+		self.assertEqual(glyphFlow.replaceableSpans(region), [])
+
+	def test_takingThePatchBackLeavesNoProvenance(self):
+		"""Which means no shapes rather than shapes drawn on a guess."""
+		from brlMultiline import patches
+
+		patches.remove()
+		region = self.reading("Search")
+		self.assertIsNone(glyphFlow.replaceableSpans(region))
 
 
 class TestShorteningALine(GlyphTestCase):
@@ -620,24 +811,49 @@ class TestABandThatDrawsThem(GlyphTestCase):
 		control.enterAtCursor()
 		return control
 
+	def fields(self, control, words=3):
+		"""Say that the first few characters of every block were written by NVDA.
+
+		What the patch on `_addFieldText` records when a browse mode line begins with a role.
+		The harness's document region composes no control fields of its own, so a test that
+		wants one says so.
+		"""
+		for block in control.window.blocks:
+			region = control.regionFor(block.blockId)
+			if region is None:
+				continue
+			glyphFlow.restartFields(region)
+			glyphFlow.recordFieldText(region, 0, words)
+		control._redrawBlocks(why="the test said what NVDA wrote")
+
 	def rowOf(self, control, numCols=8):
 		""":return: the band's first row as text."""
 		cells = control.cells()
 		return bytes(cells[:numCols]).decode()
 
 	def test_theRowHoldsMoreOfTheLine(self):
-		self.assertEqual(self.rowOf(self.band("btn Search now")), "b Search")
+		control = self.band("lnk Search now")
+		self.fields(control)
+		self.assertEqual(self.rowOf(control), "l Search")
 
 	def test_withTheSettingOffTheWordsAreBack(self):
 		self.section["drawGlyphs"] = False
+		control = self.band("lnk Search now")
+		self.fields(control)
+		self.assertEqual(self.rowOf(control), "lnk Sear")
+
+	def test_aLineOfTheReadersOwnProseIsUntouched(self):
+		"""Nothing recorded it as NVDA's, so it keeps every word of it — including the ones
+		that happen to spell a role."""
 		self.assertEqual(self.rowOf(self.band("btn Search now")), "btn Sear")
 
 	def test_theBandSaysWhereTheShapeIs(self):
-		control = self.band("btn Search now")
+		control = self.band("lnk Search now")
+		self.fields(control)
 		control.cells()
 		found = control.cellGlyphs()
 		self.assertEqual(list(found), [0])
-		self.assertEqual(found[0].cells, [ord("b")])
+		self.assertEqual(found[0].cells, [ord("l")])
 
 	def test_aBandWithNoShapesOnItSaysSo(self):
 		control = self.band("Search now")

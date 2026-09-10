@@ -295,6 +295,25 @@ def checkPlugin() -> list:
 		failures.append("braille translation answered nothing, so a caption would be silent")
 	if not hasattr(plugin, "GlobalPlugin"):
 		failures.append("the plugin package has no GlobalPlugin")
+	failures.extend(_patchTargets())
+	return failures
+
+
+def _patchTargets() -> list:
+	""":return: every patch naming something the real class does not have.
+
+	The one thing a unit suite cannot check about a patch: the stubs have whatever this
+	add-on decided they should have. A method renamed in NVDA shows up here rather than as a
+	feature that silently stopped working — which is what a missing `_addFieldText` would be,
+	since without it a document simply gets no glyphs and says nothing about why.
+	"""
+	from brlMultiline import patches
+
+	failures = []
+	for name, (owner, _replacement) in patches._replacements().items():
+		attribute = patches._attributeFor(name)
+		if not hasattr(owner, attribute):
+			failures.append(f"{owner.__name__} has no {attribute} to patch, wanted for {name}")
 	return failures
 
 

@@ -86,6 +86,53 @@ registered for it, which is a cell that means nothing.
 Restored only where the region is still the one that was compressed. See `_restore`.
 """
 
+FIELDS = "_brlMultilineFieldSpans"
+"""Attribute a document region carries: which stretches of its text NVDA wrote itself.
+
+**The whole safety of the feature rests on this.** NVDA flattens everything it has to say
+about a line into one string joined by single spaces — the document's own words, the roles, the
+states, an object's name, its description — and nothing in the result says which is which. So a
+line of somebody's prose containing the word "btn" is, to anything reading the finished text,
+indistinguishable from a button. Replacing it would take the middle out of a word the writer
+typed and draw a symbol over it.
+
+`TextInfoRegion._addFieldText` is the one door every piece of control field text goes through;
+document content is appended by a different branch of the same loop. So a patch on that method
+records exactly what NVDA contributed, and everything else is left alone. See
+`patches._addFieldTextRecordingProvenance`.
+
+An empty list means the patch is in and this region had no fields — nothing to replace. The
+attribute missing altogether means no provenance is available, and then nothing is replaced at
+all.
+"""
+
+SAID = "_brlMultilineSaid"
+"""Attribute a region carries when it was read through a stand-in name rather than the object's.
+
+A table row read as one line is the case: the name in the composed text is the row's own cells,
+not `obj.name`, so the exclusions worked out from the object would not find it. See
+`flowObjects`.
+"""
+
+OBJECT_TEXT = (
+	"name",
+	"value",
+	"description",
+	"placeholder",
+	"keyboardShortcut",
+	"errorMessage",
+	"cellCoordsText",
+	"roleTextBraille",
+)
+"""What an object contributes to its own line that is not NVDA's own wording.
+
+Everything `getPropertiesBraille` is handed that came from the application rather than from
+NVDA's tables. A stretch of the line matching any of them is refused, whichever of them it
+matched: a button named "btn" reads as "btn btn" and there is nothing in the finished string to
+say which of the two is the role, so neither is replaced. A lost symbol is a symbol; a mangled
+name is a fault the reader cannot see.
+"""
+
 MOVED = ("brailleCursorPos", "brailleSelectionStart", "brailleSelectionEnd")
 """The region's other positions into its cells, which have to move when the cells do.
 
@@ -515,7 +562,128 @@ def _brailleText(glyph) -> str:
 		return ""
 
 
-def marksIn(rawText: str) -> "list[tuple]":
+def recordFieldText(region, start: int, end: int) -> None:
+	"""Note that NVDA wrote this stretch of a document region's text itself.
+
+	Called from the patch on `_addFieldText`, which is where every control field's text is
+	added. Nothing else appends to that list, so what is in it is exactly what NVDA said.
+
+	:param region: the region being built.
+	:param start: where its text stood before the field was added.
+	:param end: where it stands after.
+	"""
+	if end <= start:
+		return
+	spans = getattr(region, FIELDS, None)
+	if spans is None:
+		spans = []
+		try:
+			setattr(region, FIELDS, spans)
+		except Exception:
+			log.debugWarning("BrlMultiline: a region would not carry its field spans", exc_info=True)
+			return
+	spans.append((start, end))
+
+
+def restartFields(region) -> None:
+	"""Forget what was recorded, because the region is about to be read again.
+
+	Called from the patch on `TextInfoRegion.update`, which begins by emptying the text. An
+	empty list rather than no list at all: the difference between "the patch is in and this
+	region has no fields" and "there is no provenance here" is the difference between replacing
+	nothing and not knowing whether it would be safe to.
+
+	:param region: the region about to be read.
+	"""
+	try:
+		setattr(region, FIELDS, [])
+	except Exception:
+		log.debugWarning("BrlMultiline: a region would not carry its field spans", exc_info=True)
+
+
+def replaceableSpans(region) -> "Optional[list[tuple]]":
+	"""Work out which parts of a region's line NVDA wrote and which belong to somebody else.
+
+	:param region: the region.
+	:return: the stretches a shape may be drawn over, or None where that cannot be established
+		— in which case nothing is drawn and the line keeps every word of it.
+	"""
+	rawText = getattr(region, "rawText", "") or ""
+	if not rawText:
+		return None
+	spans = getattr(region, FIELDS, None)
+	if spans is not None:
+		# A document. Only what came through `_addFieldText`, clipped: the text is stripped of
+		# its line ending after the fields are added, and a field at the very end of the line
+		# can be left naming characters that are no longer there.
+		return [(start, min(end, len(rawText))) for start, end in spans if start < len(rawText)]
+	if _isObjectRegion(region):
+		return _outsideItsOwnWords(region, rawText)
+	return None
+
+
+def _isObjectRegion(region) -> bool:
+	""":return: whether a region's whole line is `getPropertiesBraille` output.
+
+	Asked by class rather than by duck typing, because the question is exactly "did NVDA compose
+	the whole of this", and a document region carries an object too.
+
+	:param region: the region.
+	"""
+	try:
+		from braille.regions.NVDAObject import NVDAObjectRegion
+	except Exception:
+		log.debugWarning("BrlMultiline: NVDA's object region could not be found", exc_info=True)
+		return False
+	return isinstance(region, NVDAObjectRegion)
+
+
+def _outsideItsOwnWords(region, rawText: str) -> "list[tuple]":
+	"""Everything in an object's line except what the application put there.
+
+	An object region's whole line is composed by NVDA, so the question is not which parts are
+	NVDA's but which parts are the object's own — its name, its value, its description. Those
+	are known, so every occurrence of each is cut out and what is left is NVDA's wording.
+
+	Every occurrence, not the likely one. "btn btn" is a button named "btn" and nothing in the
+	finished string says which is the role.
+
+	:param region: the object's region.
+	:param rawText: its line.
+	:return: the stretches a shape may be drawn over.
+	"""
+	obj = getattr(region, "obj", None)
+	forbidden = []
+	said = getattr(region, SAID, None)
+	for text in [said] + [getattr(obj, name, None) for name in OBJECT_TEXT]:
+		if not isinstance(text, str) or not text.strip():
+			continue
+		at = rawText.find(text)
+		while at >= 0:
+			forbidden.append((at, at + len(text)))
+			at = rawText.find(text, at + 1)
+	return _outside(forbidden, len(rawText))
+
+
+def _outside(forbidden: "list[tuple]", length: int) -> "list[tuple]":
+	"""Turn a set of stretches to avoid into the stretches that are left.
+
+	:param forbidden: (start, end) pairs, in any order and possibly overlapping.
+	:param length: how long the line is.
+	:return: what is not covered by any of them, left to right.
+	"""
+	spans = []
+	at = 0
+	for start, end in sorted(forbidden):
+		if start > at:
+			spans.append((at, start))
+		at = max(at, end)
+	if at < length:
+		spans.append((at, length))
+	return spans
+
+
+def marksIn(rawText: str, spans: "Optional[list[tuple]]" = None) -> "list[tuple]":
 	"""Find everything in a line that a shape stands over.
 
 	**Whole words only, and nothing to do with which words they are.** NVDA joins the things it
@@ -532,7 +700,12 @@ def marksIn(rawText: str) -> "list[tuple]":
 	language has to render a role in one word — NVDA's own "sorted asc" already does not. So
 	the longest label that fits at a boundary wins, rather than one token being looked up.
 
+	**And only where NVDA wrote the line.** See `replaceableSpans`: a word is a role because of
+	where it came from, never because of what it says.
+
 	:param rawText: the line as NVDA wrote it.
+	:param spans: the stretches that may be replaced. None means the whole line, which is for
+		asking what a piece of text says rather than for changing it.
 	:return: (start, end, glyph) per label found, left to right.
 	"""
 	table = tokens()
@@ -540,39 +713,54 @@ def marksIn(rawText: str) -> "list[tuple]":
 		return []
 	labels = _byLength()
 	found = []
-	at = 0
-	length = len(rawText)
-	while at < length:
-		matched = _labelAt(rawText, at, labels, table)
+	for spanStart, spanEnd in [(0, len(rawText))] if spans is None else spans:
+		found.extend(_marksBetween(rawText, spanStart, min(spanEnd, len(rawText)), labels, table))
+	found.sort()
+	return found
+
+
+def _marksBetween(rawText: str, start: int, end: int, labels: "list[str]", table: dict) -> "list[tuple]":
+	""":return: every label inside one stretch of a line.
+
+	:param rawText: the line.
+	:param start: where the stretch begins.
+	:param end: where it ends.
+	:param labels: every label, longest first.
+	:param table: label to entry.
+	"""
+	found = []
+	at = start
+	while at < end:
+		matched = _labelAt(rawText, at, labels, table, end)
 		if matched is not None:
 			found.append(matched)
 			at = matched[1] + len(SEPARATOR)
 			continue
-		nextWord = rawText.find(SEPARATOR, at)
+		nextWord = rawText.find(SEPARATOR, at, end)
 		if nextWord < 0:
 			break
 		at = nextWord + len(SEPARATOR)
 	return found
 
 
-def _labelAt(rawText: str, at: int, labels: "list[str]", table: dict):
+def _labelAt(rawText: str, at: int, labels: "list[str]", table: dict, limit: int):
 	""":return: (start, end, glyph) for the label starting here, or None.
 
 	Longest first, so a label that begins with another one is not lost to it. What follows has
-	to be a separator or the end of the line, which is what makes "h1" fail to match inside
-	"h10".
+	to be a separator or the end of what may be replaced, which is what makes "h1" fail to match
+	inside "h10" and what stops a label running off the end of NVDA's own words into somebody's.
 
 	:param rawText: the line.
 	:param at: a word boundary in it.
 	:param labels: every label, longest first.
 	:param table: label to entry.
+	:param limit: the end of the stretch being searched.
 	"""
-	length = len(rawText)
 	for label in labels:
 		end = at + len(label)
-		if end > length or not rawText.startswith(label, at):
+		if end > limit or not rawText.startswith(label, at):
 			continue
-		if end < length and rawText[end] != SEPARATOR:
+		if end < len(rawText) and rawText[end] != SEPARATOR:
 			continue
 		return at, end, table[label]
 	return None
@@ -617,7 +805,11 @@ def compressRegion(region, target: Optional[Target] = None) -> dict:
 	if held is not None and getattr(region, STAMP, None) == tuple(cells):
 		# Laid out again at another width, with nothing read since. See `STAMP`.
 		return held
-	marks = marksIn(rawText)
+	spans = replaceableSpans(region)
+	if spans is None:
+		# Nothing says which words here are NVDA's. See `replaceableSpans`.
+		return _forget(region)
+	marks = marksIn(rawText, spans)
 	if not marks:
 		return _forget(region)
 	before = _snapshot(region)

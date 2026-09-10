@@ -1427,6 +1427,19 @@ class TextInfoRegion(Region):
 	def _getDefaultRegionLanguage(self):
 		return "en"
 
+	def _addFieldText(self, text, contentPos, separate=True):
+		"""Add a control field's text, as NVDA's own does.
+
+		Reduced to what makes it the seam it is: **every** piece of text NVDA writes about a
+		control goes through this one method, and the document's own words go through a
+		different branch of the same loop. That is the only thing that can tell a role from a
+		reader's prose after the two have been joined into one string, and it is what
+		`patches._addFieldTextRecordingProvenance` wraps.
+		"""
+		if separate and self.rawText:
+			text = TEXT_SEPARATOR + text
+		self.rawText += text
+
 	def update(self):
 		info = self._readingInfo = self._getSelection()
 		# Expanded to the reading unit, as NVDA's `TextInfoRegion.update` expands it, so

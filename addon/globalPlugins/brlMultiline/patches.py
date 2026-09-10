@@ -14,6 +14,10 @@
 	of which NVDA has any reason to mark as needing an update.
 4. `VirtualBuffer._handleUpdate` is where NVDA learns that a browse mode document changed
 	under it. The band wants to know as well, and nothing else says so.
+5. `TextInfoRegion._addFieldText` and `TextInfoRegion.update` record which stretches of a
+	document's braille NVDA wrote itself. Nothing else can tell them apart afterwards — the
+	roles, the states and the document's own words are joined into one string by single
+	spaces — and a shape may only be drawn over NVDA's own. See `glyphFlow.FIELDS`.
 
 All are installed and removed symmetrically, so that disabling the add-on restores NVDA's own
 behaviour without a restart. Symmetrically, but not unconditionally: these are attributes of a
@@ -30,11 +34,27 @@ from braille.constants import CONTEXTPRES_CHANGEDCONTEXT
 from config.configFlags import TetherTo
 from logHandler import log
 
-from . import bmConfig, documentLines, panning
+from . import bmConfig, documentLines, glyphFlow, panning
 from .container import DisplayContainer
 
 _owners: dict[str, object] = {}
 """The class each patched name belongs to, since they are no longer all on one class."""
+
+_ATTRIBUTES = {"textInfoUpdate": "update"}
+"""Where an entry's key is not the name of the attribute it replaces.
+
+Two classes can perfectly well have a method of the same name, and one of them is called
+`update`, which is about as common a name as there is. The key stays unique and this says what
+it actually patches.
+"""
+
+
+def _attributeFor(name: str) -> str:
+	""":return: the attribute an entry replaces. Its own key unless `_ATTRIBUTES` says otherwise.
+
+	:param name: the entry's key.
+	"""
+	return _ATTRIBUTES.get(name, name)
 
 _originals: dict[str, object] = {}
 """NVDA's own methods, by the name each one is patched under.
@@ -379,6 +399,49 @@ def _scrollBackMaybeReversed(self: BrailleHandler) -> None:
 	return _nativeScroll(self, forward=False)
 
 
+def _addFieldTextRecordingProvenance(self, *args, **kwargs) -> None:
+	"""Note which stretch of a document's braille NVDA has just written itself.
+
+	Every piece of control field text a `TextInfoRegion` shows goes through this one method;
+	the document's own words are appended by a different branch of the same loop. That is the
+	whole reason a shape can be drawn over "btn" without ever being drawn over somebody's
+	prose, and there is no way to tell them apart after the fact.
+
+	Wrapped rather than reimplemented, and the recording done afterwards, so a build that
+	changes what the method does changes what is recorded rather than diverging from it.
+	"""
+	before = len(getattr(self, "rawText", "") or "")
+	_originals["_addFieldText"](self, *args, **kwargs)
+	glyphFlow.recordFieldText(self, before, len(getattr(self, "rawText", "") or ""))
+
+
+def _textInfoUpdateForgettingProvenance(self) -> None:
+	"""Forget the last reading's fields, because this one begins by emptying the text.
+
+	Emptied to a list rather than removed: an empty list says the recording is in place and this
+	region has no fields, which is a different thing from not knowing, and the two lead to
+	opposite decisions.
+	"""
+	glyphFlow.restartFields(self)
+	_originals["textInfoUpdate"](self)
+
+
+def _textInfoRegionClass():
+	""":return: NVDA's `TextInfoRegion`, or None where there is none to patch.
+
+	Imported here rather than at the top for the same reason the virtual buffer is: it is a
+	failure the rest of the patches must survive. Without it a document simply gets no shapes,
+	which is the safe half of the decision.
+	"""
+	try:
+		from braille.regions.textInfo import TextInfoRegion
+
+		return TextInfoRegion
+	except Exception:
+		log.debugWarning("No text region class to patch", exc_info=True)
+		return None
+
+
 def _virtualBufferClass():
 	""":return: NVDA's `VirtualBuffer`, or None where there is none to patch.
 
@@ -411,6 +474,10 @@ def _replacements() -> dict[str, tuple]:
 	buffers = _virtualBufferClass()
 	if buffers is not None:
 		entries["_handleUpdate"] = (buffers, _handleUpdateTellingTheBand)
+	regions = _textInfoRegionClass()
+	if regions is not None and hasattr(regions, "_addFieldText"):
+		entries["_addFieldText"] = (regions, _addFieldTextRecordingProvenance)
+		entries["textInfoUpdate"] = (regions, _textInfoUpdateForgettingProvenance)
 	return entries
 
 
@@ -449,10 +516,11 @@ def install() -> None:
 			# that calls it — a loop with no end.
 			log.debug(f"BrlMultiline: {name} is already patched")
 			continue
+		attribute = _attributeFor(name)
 		_owners[name] = owner
-		_originals[name] = getattr(owner, name)
+		_originals[name] = getattr(owner, attribute)
 		_installedMethods[name] = replacement
-		setattr(owner, name, replacement)
+		setattr(owner, attribute, replacement)
 	log.debug("BrlMultiline patches installed")
 
 
@@ -469,13 +537,14 @@ def remove() -> None:
 	"""
 	for name in list(_originals):
 		owner = _owners.get(name, BrailleHandler)
-		if getattr(owner, name, None) is not _installedMethods.get(name):
+		attribute = _attributeFor(name)
+		if getattr(owner, attribute, None) is not _installedMethods.get(name):
 			log.debugWarning(
 				f"BrlMultiline: {name} has been replaced since it was patched; "
 				"leaving it as it is rather than undoing whatever replaced it",
 			)
 			continue
-		setattr(owner, name, _originals.pop(name))
+		setattr(owner, attribute, _originals.pop(name))
 		_installedMethods.pop(name, None)
 		_owners.pop(name, None)
 	log.debug("BrlMultiline patches removed")

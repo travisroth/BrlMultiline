@@ -1327,7 +1327,14 @@ class TestPatchOwnership(PluginTestCase):
 
 	def test_everyPatchIsInstalled(self):
 		for name, (owner, replacement) in patches._replacements().items():
-			self.assertIs(getattr(owner, name), replacement)
+			self.assertIs(getattr(owner, patches._attributeFor(name)), replacement)
+
+	def test_anEntryMayPatchAnAttributeOfAnotherName(self):
+		"""Two classes can have a method of the same name, and one of them is `update`, which
+		is about as common a name as there is. The key stays unique and says what it patches.
+		"""
+		self.assertEqual(patches._attributeFor("textInfoUpdate"), "update")
+		self.assertEqual(patches._attributeFor("scrollForward"), "scrollForward")
 
 	def test_theyAreNotAllOnTheSameClass(self):
 		"""The document change patch is on NVDA's virtual buffer, not on its braille handler,
@@ -1339,7 +1346,8 @@ class TestPatchOwnership(PluginTestCase):
 		originals = dict(patches._originals)
 		patches.remove()
 		for name, original in originals.items():
-			self.assertIs(getattr(patches._replacements()[name][0], name), original)
+			owner = patches._replacements()[name][0]
+			self.assertIs(getattr(owner, patches._attributeFor(name)), original)
 
 	def test_removingLeavesAnotherAddOnsMethodAlone(self):
 		theirs = self.somebodyElseTakesOver("scrollForward")
