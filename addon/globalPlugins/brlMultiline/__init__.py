@@ -2831,12 +2831,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when a drawing was asked for on a display that cannot draw.
 			ui.message(_("This display cannot show graphics"))
 			return
+		# Held locally until the whole of this has worked. Assigned straight to `self._picture`
+		# it went wrong quietly: capture B succeeds, composing or claiming for B fails, picture
+		# A is still on the display -- and the cached pixels are now B while the drawing and
+		# the mode still hold A. The style key checks that the drawing on the display is the
+		# last picture drawing, which it is, so the next press would draw B over A.
+		captured = self._picture
 		try:
-			if not again or self._picture is None:
-				self._picture = imageSource.captureNavigator()
+			if not again or captured is None:
+				captured = imageSource.captureNavigator()
 			drawing = imageFigure.figureFor(
 				mode.newBuffer,
-				self._picture,
+				captured,
 				size[0],
 				size[1],
 				self._pictureStyle[0],
@@ -2853,9 +2859,28 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when drawing a picture failed for a reason worth a log entry.
 			ui.message(_("The picture could not be drawn, see the log"))
 			return
-		if not mode.enter(drawing, textLines=textLines):
+		# A change of style on the picture already up keeps the reader where they were. Going
+		# through `enter` would reset the zoom and both origins, so switching styles to compare
+		# them would move the reader off the part they were comparing.
+		keepingPlace = (
+			again
+			and mode.active
+			and captured is self._picture
+			and mode.source is self._pictureDrawing
+			and self._pictureDrawing is not None
+		)
+		if keepingPlace:
+			if not mode.replaceSource(drawing):
+				# Translators: reported when a picture will not draw in the style just asked
+				# for, at the part of it the reader has magnified.
+				ui.message(_("This style will not draw the part you are on"))
+				return
+		elif not mode.enter(drawing, textLines=textLines):
 			ui.message(mode.lastError or _("The drawing could not be shown"))
 			return
+		# Committed together, so the pixels and the drawing made from them can never be two
+		# different pictures.
+		self._picture = captured
 		self._pictureDrawing = drawing
 		ui.message(mode.describe())
 

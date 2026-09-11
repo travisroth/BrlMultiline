@@ -418,6 +418,172 @@ class TestNothingHereAnswersTheSameWayEveryTime(unittest.TestCase):
 		self.assertTrue(found.raised)
 
 
+class TestThinningAStep(unittest.TestCase):
+	"""One transition should answer once.
+
+	Separate from the doubled contour of a thick stroke, which is two real edges. This is one
+	edge coming back as two columns because the suppression kept a cell that merely equalled
+	its neighbour, and a plateau of equals kept all of itself.
+	"""
+
+	def step(self, width=12, height=8, at=6):
+		""":return: a picture that is light to the left of `at` and dark from there on."""
+		greys = bytearray(255 if x < at else 0 for _y in range(height) for x in range(width))
+		return greys, width, height
+
+	def columns(self, greys, width, height):
+		found = imagePins.edgePins(greys, width, height)
+		return sorted({place % width for place, pin in enumerate(found.pins) if pin})
+
+	def test_aSingleStepRaisesOneColumn(self):
+		self.assertEqual(len(self.columns(*self.step())), 1)
+
+	def test_theSameOnALargerGrid(self):
+		self.assertEqual(len(self.columns(*self.step(40, 40, 20))), 1)
+
+	def test_aHorizontalStepRaisesOneRow(self):
+		width = height = 16
+		greys = bytearray(255 if y < 8 else 0 for y in range(height) for _x in range(width))
+		found = imagePins.edgePins(greys, width, height)
+		rows = sorted({place // width for place, pin in enumerate(found.pins) if pin})
+		self.assertEqual(len(rows), 1)
+
+
+class TestKeepingContoursWhole(unittest.TestCase):
+	"""A ceiling applied pin by pin undoes the hysteresis that just ran.
+
+	Ranking every chosen cell and keeping the strongest is the obvious way to fit a budget and
+	the one thing this must not do: a dense diagram came back as one connected edge map turned
+	into hundreds of fragments. A hand following a line through that finds it stop, start again
+	further on, and stop again, which says something about the picture that is not true.
+	"""
+
+	def drawn(self, greys, side=200, mode=imagePins.EDGES):
+		picture = imagePins.Picture(greys, side, side, "dense")
+		found = imagePins.render(picture, (0, 0, side, side), 96, 40, mode)
+		places = {place for place, pin in enumerate(found.pins) if pin}
+		return found, imagePins._components(places, found.width, found.height)
+
+	def plan(self, side=200, every=100):
+		""":return: walls on a plain ground.
+
+		`every` decides whether the drawing fits the panel at all: walls every hundred pixels
+		come to about 160 pins of contour against a ceiling of 256, and every fifty to well
+		over it. Both are worth having, because they are the two answers this has to give.
+		"""
+		greys = bytearray([255]) * (side * side)
+		for y in range(side):
+			for x in range(side):
+				if x % every == 0 or y % every == 0:
+					greys[y * side + x] = 0
+		return greys
+
+	def test_theWallsComeBackAsWholeLines(self):
+		found, groups = self.drawn(self.plan())
+		self.assertLessEqual(found.raised, 256)
+		self.assertFalse(found.crowded)
+		biggest = max(len(group) for group in groups)
+		self.assertGreater(biggest, 30, f"the longest contour is only {biggest} pins")
+
+	def test_aPlanWithMoreWallsThanPinsSaysSoRatherThanFragmentingQuietly(self):
+		"""The other answer. There is no honest way to draw more contour than the panel has
+		pins, so what is drawn is a texture and the reader is told to magnify."""
+		found, _groups = self.drawn(self.plan(every=50))
+		self.assertTrue(found.crowded)
+
+	def test_aPictureTooDenseToDrawSaysSo(self):
+		"""When no threshold and no whole contour will fit, what is drawn is a texture. That
+		is an honest account of a texture and a dishonest one of a drawing, and a hand cannot
+		tell them apart -- so it is said rather than left to be discovered."""
+		side = 200
+		greys = bytearray([255]) * (side * side)
+		for y in range(side):
+			for x in range(side):
+				if x % 4 == 0 or y % 4 == 0:
+					greys[y * side + x] = 0
+		found, _groups = self.drawn(greys)
+		self.assertTrue(found.crowded)
+
+	def test_anOrdinaryDrawingIsNotCalledCrowded(self):
+		side = 200
+		greys = bytearray([255]) * (side * side)
+		for y in range(side):
+			for x in range(side):
+				if 40 <= x < 160 and 40 <= y < 160 and (x in (40, 159) or y in (40, 159)):
+					greys[y * side + x] = 0
+		found, groups = self.drawn(greys)
+		self.assertFalse(found.crowded)
+		self.assertLessEqual(len(groups), 4)
+
+
+class TestOneDarkSpeckDoesNotSpoilThePicture(unittest.TestCase):
+	"""The reference has to survive the rest of the picture.
+
+	Taken as the single strongest gradient, one four pixel speck of pure black set the yardstick
+	for everything else in the capture -- and a genuine feature twenty-five tones below its
+	surroundings was then refused as background in both styles. Photographs, maps and charts
+	all routinely hold one very dark thing and a lot of softer ones.
+	"""
+
+	def mixed(self, side=240, speck=True):
+		""":return: a soft feature, with or without an unrelated very dark speck elsewhere."""
+		greys = bytearray([200]) * (side * side)
+		for y in range(120, 200):
+			for x in range(120, 200):
+				greys[y * side + x] = 175
+		if speck:
+			for y in range(10, 22):
+				for x in range(10, 22):
+					greys[y * side + x] = 0
+		return imagePins.Picture(greys, side, side, "mixed")
+
+	def softWindow(self, picture, mode):
+		box = imagePins.windowOf(picture, (0, 0, picture.width, picture.height), 0.45, 0.45, 0.45, 0.45)
+		return imagePins.render(picture, box, 96, 40, mode, False, False)
+
+	def test_theSoftFeatureIsDrawnDespiteTheSpeck(self):
+		for mode in (imagePins.EDGES, imagePins.BRIGHTNESS):
+			with self.subTest(mode=mode):
+				found = self.softWindow(self.mixed(), mode)
+				self.assertFalse(found.barren)
+				self.assertTrue(found.raised)
+
+	def test_andIsDrawnWithoutItToo(self):
+		"""The control. If this failed the test above would prove nothing about the speck."""
+		found = self.softWindow(self.mixed(speck=False), imagePins.EDGES)
+		self.assertFalse(found.barren)
+
+	def test_realBackgroundIsStillRecognised(self):
+		"""The floor must not let everything through. Flat ground is still flat ground."""
+		picture = self.mixed()
+		box = imagePins.windowOf(picture, (0, 0, 240, 240), 0.55, 0.05, 0.3, 0.3)
+		self.assertTrue(imagePins.render(picture, box, 96, 40, imagePins.EDGES, False, False).barren)
+
+
+class TestABoxThatReachesOutside(unittest.TestCase):
+	"""Clipping has to cut a rectangle, not slide it.
+
+	Moving the near edge and then measuring the size from there keeps the width, so a box
+	starting outside the picture came back covering more of it than the box did.
+	"""
+
+	def test_aBoxStartingLeftOfThePictureKeepsOnlyTheOverlap(self):
+		spot = imagePins.place(flat(10, 10), (-5, 0, 10, 10), 96, 40)
+		self.assertEqual(spot.source, (0, 0, 5, 10))
+
+	def test_aBoxRunningOffTheRightIsCutToo(self):
+		spot = imagePins.place(flat(10, 10), (6, 0, 10, 10), 96, 40)
+		self.assertEqual(spot.source, (6, 0, 4, 10))
+
+	def test_aBoxEntirelyPastThePictureIsNothing(self):
+		spot = imagePins.place(flat(10, 10), (40, 0, 10, 10), 96, 40)
+		self.assertEqual((spot.width, spot.height), (0, 0))
+
+	def test_aBoxCoveringEverythingIsTheWholePicture(self):
+		spot = imagePins.place(flat(10, 10), (-20, -20, 100, 100), 96, 40)
+		self.assertEqual(spot.source, (0, 0, 10, 10))
+
+
 class TestWindowing(unittest.TestCase):
 	"""Narrowing the source box to a fraction, which is what zoom hands over."""
 

@@ -1278,6 +1278,76 @@ middle needs to hear why they are feeling nothing on every step, not only on the
 them there. Zoom in on the hexagon and the panel is blank and says "only background here"; pan
 once and a side arrives with 34 pins; pan again and the vertex arrives with 116.
 
+#### A second review, and the shape of what it found
+
+Nine findings, and two things worth naming about the set of them rather than about any one.
+
+The first is that most of these fail by **permitting** rather than by refusing, which is why
+none of them announced itself. The reference a window is judged against collapsed on the short
+axis for any wide picture, so the background check measured every window against nought and
+passed it — on a toolbar, a menu bar, a tab strip, most of what a reader points at. The
+strongest-gradient reference let one four-pixel speck of black set the yardstick for a whole
+photograph, so genuine features softer than it were called background. Nothing looked wrong in
+either case; the checks simply never said no.
+
+The second is that **a refusal is a move that does not happen**, and that turns a local
+judgement into a navigation barrier. Three separate paths refused a window that held nothing —
+flat tone, below the strength floor, too sparse after detection — and which one noticed first
+decided whether the reader could move at all. They now answer the same way, because the rule is
+about who is asking rather than about which test fired: a whole picture with nothing in it is
+refused, a window with nothing in it is drawn blank and announced.
+
+The individual repairs:
+
+- **Two rectangles, transactional.** `setTextLines` claimed the new shape, recorded it and
+  returned success without looking at whether the figure had drawn — so a figure that refused
+  the new size left the old overlay on the display while the mode reported a full panel. The
+  same disagreement the zoom rollback was written to end, reached through a different door.
+  A rebuild that cannot recompose now falls back to fit and, failing that, gives the drawing up
+  rather than leaving an overlay composed for somewhere else.
+- **The cached pixels and the drawing are committed together.** Capturing a new picture
+  assigned the pixels before composition had succeeded, so a failed draw left the pixels as B
+  while the display held A — and the style key, which checks that the drawing on the display is
+  the last picture drawing, would then compose B from the cache and put it over A.
+- **A style change keeps the reader's place.** It went through `enter`, which resets the zoom
+  and both origins, so switching from outlines to brightness to compare them moved the reader
+  off the part they were comparing. `replaceSource` swaps the figure and recomposes the current
+  window, and refuses without moving anything if the new style will not draw it.
+- **A ceiling may not take a contour to pieces.** Ranking every chosen cell and keeping the
+  strongest fits a budget and undoes the hysteresis that just ran: one connected edge map came
+  back as hundreds of fragments, and a hand following a line through that finds it stop and
+  start again. Density is now bought by asking for fewer edges — raise the threshold, regrow
+  the contours — and failing that by dropping whole contours strongest first. A contour is a
+  thing; half of one is a lie.
+- **A picture too dense to draw says so.** When neither of those fits, what is drawn is an even
+  scattering, which is an honest account of a texture and a dishonest one of a drawing. So it
+  is announced: too detailed to draw whole, magnify to read it.
+- **Suppression answers once.** A cell that merely equalled its neighbour survived, so a single
+  clean light-to-dark step came back as two columns. That is not the doubled contour of a thick
+  stroke — it is one edge drawn twice.
+- **Clipping cuts rather than slides.** `place` moved the near edge and then measured the width
+  from there, so a box starting outside the picture came back covering more of it than the box
+  did, and a box entirely past the end came back as a one-pixel strip.
+- **The virtual screen is a bounding box, not a shape.** Two monitors that are not aligned leave
+  ground inside the box that belongs to neither. The real monitors are enumerated now, and a
+  rectangle keeps its full extent only when every pixel of it lands on one.
+
+#### One step past a pixel a pin
+
+The zoom ladder stopped exactly where a pin stood on a source pixel, on the grounds that past
+that there is no more detail in the file and the reader would be feeling the magnification.
+Correct about detail and wrong about hands: a pin is a small thing to read a shape with, and a
+reader magnifying a toolbar that has run out of pixels is asking for the shape to get bigger,
+not for new detail to appear. One step past gives them that and costs nothing true — the
+picture is no longer gaining information, but it was not losing any either. Two steps would be
+feeling the reduction rather than the picture, so it is one.
+
+The refusal that follows says which of the three reasons it is: the ladder has run out, the
+drawing is already as large as the pins can show, or there is no more detail to show. For a
+picture it adds the capture size, because that is the whole answer to the commonest confusion
+about one — a toolbar with six icons plainly visible on screen that will not magnify is a
+toolbar 160 pixels wide across 96 pins, already under two pixels to a pin.
+
 #### Thinning, and the limit of thinning
 
 Non-maximum suppression reduces a broad Sobel response to the crest of its ridge, and hysteresis

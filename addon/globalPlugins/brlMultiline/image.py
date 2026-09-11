@@ -25,7 +25,7 @@ from typing import Optional
 
 from logHandler import log
 
-from .graphicsMode import MIN_WINDOW_POINTS, Drawing
+from .graphicsMode import MIN_WINDOW_POINTS, ZOOM_FACTOR, Drawing
 from .imagePins import (
 	BRIGHTNESS,
 	EDGES,
@@ -100,14 +100,21 @@ def zoomPoints(picture: Picture, width: int, height: int) -> int:
 	"""How much there is to zoom into, in the vocabulary the graphics mode already has.
 
 	The mode refuses a zoom that would leave fewer than `MIN_WINDOW_POINTS` of whatever the
-	figure is made of — for a chart, periods. A picture is made of captured pixels, and the
-	point past which zooming stops being worth anything is the one where a pin is standing on a
-	single pixel: after that the reader is feeling the magnification rather than the picture,
-	which is the thing keeping the pixels was meant to avoid.
+	figure is made of -- for a chart, periods. A picture is made of captured pixels, and the
+	natural place to stop is where a pin stands on a single pixel, since past that there is no
+	more detail in the file to find.
 
-	So the count is scaled to put the refusal exactly there. It is arithmetic against the
-	mode's constant rather than a number chosen to feel right, which is why it is written as
-	one: a change to `MIN_WINDOW_POINTS` should move this and not silently mean something else.
+	**One step is allowed past it anyway**, which is what the `ZOOM_FACTOR` here is. Stopping
+	exactly at a pixel a pin is right about detail and wrong about hands: a pin is a small
+	thing to read a shape with, and a reader asking to magnify a toolbar that has run out of
+	pixels is asking for the shape to get bigger, not for new detail to appear. Half a pixel a
+	pin gives them that and costs nothing true -- the picture is no longer gaining information,
+	but it was not losing any either. Two steps past would be feeling the reduction rather than
+	the picture, so it is one.
+
+	It is arithmetic against the mode's own constants rather than a number chosen to feel
+	right, which is why it is written as one: a change to `MIN_WINDOW_POINTS` or to
+	`ZOOM_FACTOR` should move this and not silently mean something else.
 
 	:param picture: the capture.
 	:param width: pins across the panel.
@@ -118,7 +125,7 @@ def zoomPoints(picture: Picture, width: int, height: int) -> int:
 	if width <= 0 or height <= 0:
 		return MIN_WINDOW_POINTS
 	perPin = max(picture.width / width, picture.height / height)
-	return max(MIN_WINDOW_POINTS, int(MIN_WINDOW_POINTS * perPin))
+	return max(MIN_WINDOW_POINTS, int(MIN_WINDOW_POINTS * perPin * ZOOM_FACTOR))
 
 
 def _describer(picture: Picture, spot: Placement):
@@ -209,10 +216,17 @@ def _compose(newBuffer, picture, box, width, height, mode, invert, whole: bool) 
 		raise ImageRefused(_("The display would not provide a drawing surface"))
 	rendering.draw(buffer)
 	name = _nameOf(picture, mode, invert, whole)
-	# Translators: said of a magnified part of a picture that has nothing in it, so that a
-	# reader feeling an empty panel knows the picture is blank here rather than that the
-	# display has stopped working. They can keep panning to reach the part that is not.
-	note = _("only background here") if rendering.barren else ""
+	note = ""
+	if rendering.barren:
+		# Translators: said of a magnified part of a picture that has nothing in it, so that a
+		# reader feeling an empty panel knows the picture is blank here rather than that the
+		# display has stopped working. They can keep panning to reach the part that is not.
+		note = _("only background here")
+	elif rendering.crowded:
+		# Translators: said when a picture holds more detail than the pins can carry, so what
+		# is drawn is an even texture rather than its lines. Magnifying shows less of the
+		# picture at a time and lets its lines come apart from each other.
+		note = _("too detailed to draw whole; magnify to read it")
 	if not whole:
 		return Drawing(buffer, name=name, describeAt=_describer(picture, spot), note=note)
 	return Drawing(

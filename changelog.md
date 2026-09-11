@@ -24,6 +24,24 @@ Added:
   be drawn, and a zoom into a part of a picture that holds only background says so instead of
   filling the panel with texture.
 
+- **Magnifying goes one step further.** The zoom used to stop exactly where a pin stood on a
+  single captured pixel. A pin is a small thing to read a shape with, so it now goes one step
+  past that: no new detail appears, because there is none left in the capture, but the shape
+  under your hand gets bigger.
+
+- **Contours are not taken to pieces to fit the panel.** Where a picture holds more edge than
+  the pins can carry, the detector asks for fewer edges rather than deleting parts of the ones
+  it found — a line that stops and starts again says something about the picture that is not
+  true. A picture too dense for that to work says so and suggests magnifying.
+
+- **Changing the style keeps your place.** Switching between outlines and brightness used to
+  put you back at the whole picture, which is the opposite of useful when the reason to switch
+  is to feel the same part drawn both ways.
+
+- **Giving the drawing the whole panel is all or nothing.** If the figure will not draw at the
+  new size, the braille line stays where it was rather than the display reporting one thing
+  and showing another.
+
 - **A zoom that will not happen says why.** Pressing zoom and hearing the same sentence back
   is indistinguishable from a key that is not wired up. A refused zoom now names the reason —
   the magnification ladder has run out, the drawing is already as large as the pins can show,

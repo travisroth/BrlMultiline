@@ -44,6 +44,7 @@ from pinBuffer import PinBuffer  # noqa: E402
 import api  # noqa: E402
 
 from brlMultiline import image as imageFigure, imagePins, imageSource  # noqa: E402
+from brlMultiline.graphicsMode import MIN_WINDOW_POINTS  # noqa: E402
 
 
 PANEL = (48, 20)
@@ -235,6 +236,64 @@ class TestWhatIsActuallyOnTheScreen(ScreenCapture):
 
 	def test_anObjectThatWillNotSayItsStatesIsDrawnAnyway(self):
 		"""Refusing on a question nobody answered would refuse the ordinary case."""
+		self.assertTrue(imageSource.captureNavigator().width)
+
+
+class TestGroundThatBelongsToNoMonitor(ScreenCapture):
+	"""The virtual screen is a bounding box, and a bounding box is not a shape.
+
+	Two monitors that are not aligned leave ground inside the box belonging to neither: put one
+	above and right of the other and the corners between them are inside the box and on
+	nothing. A window cannot be there, but a stale or wrong object rectangle can, and a clip
+	against the box alone called it visible and captured whatever the graphics card had.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		self._realScreen = imageSource._visibleScreen
+		self._realMonitors = imageSource._monitors
+		# One monitor at the origin, a second above and to the right of it. The virtual screen
+		# spans both; the lower right and upper left corners of that span are on neither.
+		imageSource._visibleScreen = lambda: (0, -600, 3520, 1680)
+		imageSource._monitors = lambda: [(0, 0, 1920, 1080), (1920, -600, 1600, 900)]
+		self.addCleanup(self.putTheScreenBack)
+
+	def putTheScreenBack(self):
+		imageSource._visibleScreen = self._realScreen
+		imageSource._monitors = self._realMonitors
+
+	def test_somethingInTheGapIsRefused(self):
+		"""Inside the virtual screen, on no monitor at all: the second screen stops at y 300
+		and the first never reaches x 1920, so this rectangle is over nothing."""
+		self.navigator.location = (2200, 500, 400, 300)
+		with self.assertRaises(imagePins.ImageRefused) as refused:
+			imageSource.captureNavigator()
+		self.assertIn("screen", str(refused.exception))
+
+	def test_somethingOnOneMonitorIsKeptWhole(self):
+		self.navigator.location = (100, 100, 400, 300)
+		imageSource.captureNavigator()
+		self.assertEqual(FakeScreenBitmap.asked[0][:4], (100, 100, 400, 300))
+
+	def test_somethingSpanningTwoTouchingMonitorsKeepsBoth(self):
+		"""Adjacent screens are not a gap. The rectangle is covered by the pair of them, so
+		cutting it down to one would throw away half of what the reader can see."""
+		self.navigator.location = (1800, 0, 400, 300)
+		imageSource.captureNavigator()
+		self.assertEqual(FakeScreenBitmap.asked[0][:4], (1800, 0, 400, 300))
+
+	def test_somethingHalfOnAMonitorAndHalfInTheGapKeepsTheHalfThatShows(self):
+		self.navigator.location = (1600, 1000, 600, 200)
+		imageSource.captureNavigator()
+		left, top, width, height = FakeScreenBitmap.asked[0][:4]
+		self.assertEqual((left, top), (1600, 1000))
+		self.assertEqual((width, height), (320, 80))
+
+	def test_monitorsThatWillNotEnumerateFallBackToTheBoundingBox(self):
+		"""Not clipping is the safer failure, exactly as it is for the screen itself: a wrong
+		clip refuses pictures that would have worked."""
+		imageSource._monitors = lambda: None
+		self.navigator.location = (2200, 500, 400, 300)
 		self.assertTrue(imageSource.captureNavigator().width)
 
 
@@ -561,6 +620,24 @@ class TestZoomingIntoTheCapture(unittest.TestCase):
 		window = figure.redraw(0.0, 0.02, PANEL[0], PANEL[1], top=0.0, down=0.02)
 		self.assertIsNotNone(window, "the mode would read None as a zoom that cannot happen")
 		self.assertTrue(window.note, "a blank panel with nothing said about it reads as a fault")
+
+	def test_zoomingGoesOneStepPastAPixelAPin(self):
+		"""Stopping exactly where the pixels run out is right about detail and wrong about
+		hands. A pin is a small thing to read a shape with, and a reader magnifying a toolbar
+		that has run out of pixels is asking for the shape to get bigger rather than for new
+		detail to appear. One step past gives them that and costs nothing true.
+		"""
+		capture = picture(PANEL[0], PANEL[1])
+		self.assertGreaterEqual(
+			imageFigure.zoomPoints(capture, *PANEL),
+			MIN_WINDOW_POINTS * 2,
+			"a capture at the panel's own size should still have one step in it",
+		)
+
+	def test_butNotTwoStepsPast(self):
+		"""Two would be feeling the reduction rather than the picture."""
+		capture = picture(PANEL[0], PANEL[1])
+		self.assertLess(imageFigure.zoomPoints(capture, *PANEL), MIN_WINDOW_POINTS * 4)
 
 	def test_aBigCaptureHasFurtherToZoomThanASmallOne(self):
 		big = imageFigure.zoomPoints(picture(960, 400), *PANEL)

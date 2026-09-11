@@ -1024,6 +1024,203 @@ class TestAFigureWithAnUpAndADown(unittest.TestCase):
 		self.assertEqual(len(self.windows[-1]), 2)
 
 
+class TestChangingTheBrailleLineBeside(unittest.TestCase):
+	"""Giving the drawing the whole panel has to be all or nothing.
+
+	It used to claim the new rectangle, record the new size, call `render` and return True
+	without looking at what `render` said. A figure that would not compose for the new shape
+	left the old overlay on the display -- the old drawing, at the old row -- while the mode
+	reported no braille line and a full panel rectangle, and the command announced "full panel,
+	no braille line" over a drawing that had not moved. The same disagreement between the panel
+	and the words that the zoom rollback was written to end.
+	"""
+
+	def setUp(self):
+		self.driver = FakeDrawableDriver(numRows=10, numCols=32)
+		useDisplay(self.driver)
+		self.plugin = FakePlugin()
+		self.mode = GraphicsMode(self.plugin)
+		self.refuseHeights = set()
+		"""Pin heights the figure will not compose for, set after the figure is up so that
+		putting it up is not itself the thing being refused."""
+
+	def figure(self):
+		""":return: a figure that refuses to compose for particular heights."""
+
+		def redraw(offset, span, pinWidth, pinHeight, top=0.0, down=1.0):
+			if pinHeight in self.refuseHeights:
+				return None
+			return Drawing(PinBuffer(pinWidth, pinHeight), name="a window", windowsVertically=True)
+
+		buffer = PinBuffer(240, 120)
+		buffer.rect(0, 0, 240, 120)
+		return Drawing(buffer, name="picture", redraw=redraw, points=400, windowsVertically=True)
+
+	def upWithOneLine(self):
+		""":return: the figure, shown with a braille line beside it, and the taller rectangle
+		it would be given if that line went away."""
+		self.mode.enter(self.figure(), textLines=1)
+		was = self.mode.drawingSize(1)
+		whole = self.mode.drawingSize(0)
+		self.assertNotEqual(was, whole, "the braille line has to cost the drawing some rows")
+		self.refuseHeights = {whole[1]}
+		return whole
+
+	def test_aRefusedChangeSaysSo(self):
+		self.upWithOneLine()
+		self.assertFalse(self.mode.setTextLines(0))
+
+	def test_aRefusedChangeLeavesTheTextLinesWhereTheyWere(self):
+		self.upWithOneLine()
+		self.mode.setTextLines(0)
+		self.assertEqual(self.mode.textLines, 1)
+
+	def test_aRefusedChangeLeavesThePanelAlone(self):
+		"""The display is the only witness, so the test asks the display.
+
+		Compared by what is on it rather than by object identity: putting the old claim back
+		draws it again, which is a redraw of the same thing and not a change to it.
+		"""
+		self.mode.enter(self.figure(), textLines=1)
+		before = self.shown()
+		self.refuseHeights = {self.mode.drawingSize(0)[1]}
+		self.mode.setTextLines(0)
+		self.assertEqual(self.shown(), before)
+
+	def shown(self):
+		""":return: where the overlay sits and what is on it."""
+		x, y, buffer = self.driver.overlays[OVERLAY_KEY]
+		return x, y, buffer.rows()
+
+	def test_aChangeThatDoesComposeStillWorks(self):
+		"""The rollback must not have made every change suspect."""
+		self.mode.enter(self.figure(), textLines=1)
+		self.assertTrue(self.mode.setTextLines(0))
+		self.assertEqual(self.mode.textLines, 0)
+
+
+class TestPuttingADrawingBackAfterARebuild(unittest.TestCase):
+	"""A rebuild that cannot recompose must not leave the old overlay under new geometry."""
+
+	def setUp(self):
+		self.driver = FakeDrawableDriver(numRows=10, numCols=32)
+		useDisplay(self.driver)
+		self.plugin = FakePlugin()
+		self.mode = GraphicsMode(self.plugin)
+		self.refuse = False
+		self.onlyWhole = False
+		"""Turned on after the reader has zoomed, which is the shape of the real case: the
+		window was composable where the drawing was and is not where the rebuild put it."""
+
+	def figure(self):
+		""":return: a figure that either composes anything, or only the whole of itself.
+
+		`self.onlyWhole` is the case worth having: a rebuild lands the claim somewhere the
+		current window cannot be composed for, while the whole figure still can. That is what
+		the fallback to fit exists for.
+		"""
+
+		def redraw(offset, span, pinWidth, pinHeight, top=0.0, down=1.0):
+			if self.refuse:
+				return None
+			if self.onlyWhole and (span < 1.0 or down < 1.0):
+				return None
+			return Drawing(PinBuffer(pinWidth, pinHeight), name="a window", windowsVertically=True)
+
+		buffer = PinBuffer(240, 120)
+		buffer.rect(0, 0, 240, 120)
+		return Drawing(buffer, name="picture", redraw=redraw, points=400, windowsVertically=True)
+
+	def rebuildOnADifferentDisplay(self):
+		"""A rebuild that actually changes the geometry, which is the only kind that makes the
+		mode recompose anything: an unchanged window is not redrawn at all."""
+		useDisplay(FakeDrawableDriver(numRows=6, numCols=32))
+		self.mode.onRebuilt()
+
+	def test_aWindowThatWillNotRecomposeFallsBackToTheWholeFigure(self):
+		"""Fit is the one view every figure can always compose, so it is worth one try before
+		giving up on the drawing altogether."""
+		self.mode.enter(self.figure())
+		self.assertTrue(self.mode.zoomBy(1))
+		self.onlyWhole = True
+		self.rebuildOnADifferentDisplay()
+		self.assertTrue(self.mode.active)
+		self.assertEqual(self.mode.zoom, FIT)
+
+	def test_aDrawingThatWillNotDrawAtAllIsGivenUpRatherThanLeftStale(self):
+		"""An overlay composed for somewhere else is worse than no overlay: it is a picture of
+		the wrong part, in a rectangle the mode is now describing differently."""
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		self.refuse = True
+		self.rebuildOnADifferentDisplay()
+		self.assertFalse(self.mode.active)
+
+
+class TestSwappingTheFigureWithoutLosingThePlace(unittest.TestCase):
+	"""What a change of style needs, and what `enter` cannot give it.
+
+	`enter` claims the panel again and resets the zoom and both origins, so a reader who had
+	magnified a corner of a diagram and switched from outlines to brightness was put back at
+	the whole picture. That defeats having two styles: the way to tell which reads better is
+	to feel the same part of the picture in both.
+	"""
+
+	def setUp(self):
+		self.driver = FakeDrawableDriver(numRows=10, numCols=32)
+		useDisplay(self.driver)
+		self.mode = GraphicsMode(FakePlugin())
+
+	def figure(self, name="picture", refuse=False):
+		def redraw(offset, span, pinWidth, pinHeight, top=0.0, down=1.0):
+			if refuse:
+				return None
+			return Drawing(PinBuffer(pinWidth, pinHeight), name=name + " part", windowsVertically=True)
+
+		buffer = PinBuffer(240, 120)
+		buffer.rect(0, 0, 240, 120)
+		return Drawing(buffer, name=name, redraw=redraw, points=400, windowsVertically=True)
+
+	def test_theZoomSurvivesTheSwap(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(2)
+		was = self.mode.zoom
+		self.assertTrue(self.mode.replaceSource(self.figure("other")))
+		self.assertEqual(self.mode.zoom, was)
+
+	def test_andSoDoesWhereTheReaderHadPanned(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(2)
+		self.mode.panBy(*self.mode.panStep())
+		where = self.mode.positionWords()
+		self.mode.replaceSource(self.figure("other"))
+		self.assertEqual(self.mode.positionWords(), where)
+
+	def test_theNewFigureIsTheOneOnTheDisplay(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		self.mode.replaceSource(self.figure("other"))
+		self.assertEqual(self.mode.source.name, "other")
+
+	def test_aStyleThatWillNotDrawTheCurrentWindowIsRefused(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		self.assertFalse(self.mode.replaceSource(self.figure("other", refuse=True)))
+
+	def test_andLeavesTheOldOneExactlyWhereItWas(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		before = self.driver.overlays[OVERLAY_KEY]
+		where = self.mode.positionWords()
+		self.mode.replaceSource(self.figure("other", refuse=True))
+		self.assertEqual(self.mode.source.name, "picture")
+		self.assertEqual(self.mode.positionWords(), where)
+		self.assertIs(self.driver.overlays[OVERLAY_KEY], before)
+
+	def test_swappingWithNothingUpDoesNothing(self):
+		self.assertFalse(GraphicsMode(FakePlugin()).replaceSource(self.figure()))
+
+
 class TestWhyAZoomDidNotHappen(unittest.TestCase):
 	"""A refusal a reader cannot account for is the same as a broken key.
 

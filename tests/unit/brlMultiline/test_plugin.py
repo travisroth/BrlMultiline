@@ -162,6 +162,9 @@ class TestDrawingThePictureHere(unittest.TestCase):
 			self.textLines = 1
 			self.askedFor = []
 			"""Every text line count `drawingSize` was asked about."""
+			self.refuseReplace = False
+			"""Whether a style change should be refused, as one that will not compose the
+			window the reader is on would be."""
 
 		def drawingSize(self, textLines=None):
 			self.askedFor.append(textLines)
@@ -181,12 +184,66 @@ class TestDrawingThePictureHere(unittest.TestCase):
 			self.textLines = textLines if textLines is not None else 1
 			return True
 
+		def replaceSource(self, drawing):
+			"""Swap the figure without touching the view, which is what a style change does.
+
+			Modelled as its own call rather than as another `enter`, because the difference is
+			the whole point: `enter` resets the zoom and both origins, so a reader comparing
+			two styles of the same diagram would be moved off the part they were comparing.
+			"""
+			if not self.active or self.refuseReplace:
+				return False
+			self.shown.append(drawing)
+			self.source = drawing
+			return True
+
 		def leave(self):
 			self.active = False
 			self.source = None
 
 		def describe(self):
 			return self.shown[-1].name if self.shown else ""
+
+	def test_aPictureThatWillNotGoUpDoesNotReplaceTheOneThatIs(self):
+		"""The cached pixels and the drawing made from them have to be one thing.
+
+		Assigned separately, capturing B and then failing to show it left the pixels as B while
+		the drawing and the mode still held A. The style key checks that the drawing on the
+		display is the last picture drawing -- which it was -- so the next press composed B
+		from the cached pixels and put it over A, on a command that says it changes the style.
+		"""
+		self.plugin.script_drawPicture(None)
+		first = self.plugin._picture
+		self.assertIsNotNone(first)
+		self.mode.enter = lambda drawing=None, textLines=None: False
+		self.plugin.script_drawPicture(None)
+		self.assertIs(self.plugin._picture, first)
+
+	def test_andTheStyleKeyStillDrawsTheOneOnTheDisplay(self):
+		"""What the divergence actually cost: the next style press drew the wrong picture."""
+		self.plugin.script_drawPicture(None)
+		wasShowing = self.mode.source
+		self.mode.enter = lambda drawing=None, textLines=None: False
+		self.plugin.script_drawPicture(None)
+		self.plugin.script_pictureStyle(None)
+		self.assertIs(self.plugin._pictureDrawing, self.mode.source)
+		self.assertIsNot(self.mode.source, wasShowing)
+
+	def test_changingTheStyleKeepsTheReaderWhereTheyWere(self):
+		"""It goes through `replaceSource` rather than `enter`, because `enter` resets the zoom
+		and both origins -- and comparing two styles means feeling the same part in both."""
+		self.plugin.script_drawPicture(None)
+		self.plugin.script_pictureStyle(None)
+		self.assertEqual(len(self.mode.shown), 2)
+		self.assertEqual(self.mode.askedFor.count(None), 0)
+
+	def test_aStyleThatWillNotDrawTheCurrentWindowSaysSo(self):
+		self.plugin.script_drawPicture(None)
+		showing = self.mode.source
+		self.mode.refuseReplace = True
+		self.plugin.script_pictureStyle(None)
+		self.assertIs(self.mode.source, showing)
+		self.assertTrue(any("style" in said for said in flashedMessages))
 
 	def setUp(self):
 		resetPluginState()

@@ -92,7 +92,9 @@ and it is the number most worth changing on the evidence of a finger.
 BRIGHTNESS_MOST = 0.55
 """The most of the panel a silhouette may raise.
 
-A ceiling and deliberately no floor, which is the opposite of what the outline budget does.
+A ceiling and deliberately no floor, which is what `EDGE_COVERAGE` is too. It was not always:
+outlines used to meet a quota, and the difference cost a reader a hexagon whose sides had been
+widened until they met. Both are now limits on how much may be raised and neither is a target.
 
 **No floor**, because the only way to raise more pins than the subject has is to raise pins the
 subject is not on, and background raised to meet a quota is a lie about where the thing is. A
@@ -129,6 +131,27 @@ equal. Measured on a line drawing with a faint hatched background: ink reads 128
 hatch 68, five per cent of it. Refusing a window that had something in it costs a reader one
 keypress and a sentence saying why; drawing one that had nothing costs them a panel they will
 read as the picture.
+"""
+
+SUBJECT_TONES = 20
+"""A tone difference this size is something a picture is saying, whatever else is in it.
+
+The escape hatch from judging a window only against the rest of the picture. One tiny patch of
+pure black in a corner should not make the rest of a photograph look like background, and with
+a purely relative test it does: a feature twenty-five levels darker than its surroundings was
+refused in both styles because something unrelated elsewhere was two hundred levels darker.
+
+Twice `PLAIN`, so it sits just above what this module already calls flat, and stated in tones
+so that both styles can express their own floor in terms of it.
+"""
+
+REFERENCE_SHARE = 0.02
+"""How much of the picture the strength reference is taken from, strongest first.
+
+Not the single strongest gradient, which is one cell and therefore one accident: a four pixel
+speck of pure black anywhere in a capture set the yardstick for everything else in it. The
+strongest fiftieth is still firmly inside the picture's real structure and no longer moves when
+one cell does.
 """
 
 REFERENCE_CELLS = 48
@@ -245,6 +268,19 @@ class Rendering(NamedTuple):
 	So it is drawn, and it is announced. What must not happen is that it is drawn silently.
 	"""
 
+	crowded: bool = False
+	"""Whether the picture holds more edge than the panel can carry, so this is a texture.
+
+	A floor plan, a grid, a page of small print: the structure is real and there is simply more
+	of it than the pins can say. Neither raising the threshold nor dropping whole contours gets
+	it under the ceiling, so what is drawn is an even scattering -- which is an honest account
+	of a dense texture and a dishonest one of a contour, and a hand cannot tell those apart.
+
+	So it is announced, for the same reason `barren` is. The reader is told the picture is too
+	detailed at this size, which is also what to do about it: magnify, and the same pins then
+	cover less of the picture until its lines come apart from each other.
+	"""
+
 	@property
 	def coverage(self) -> float:
 		""":return: the fraction of the picture's own pins that are raised.
@@ -291,6 +327,22 @@ def greysFromPixels(rows, width: int, height: int) -> bytearray:
 			greys[at] = int(0.299 * pixel.rgbRed + 0.587 * pixel.rgbGreen + 0.114 * pixel.rgbBlue)
 			at += 1
 	return greys
+
+
+def _topOf(values, share: float = REFERENCE_SHARE) -> int:
+	""":return: the value at the top `share` of a list, or 0 if it is empty.
+
+	A percentile written out, so that a reference cannot be moved by a single cell. With the
+	default share and a forty-eight square reference grid this is about the fortieth strongest
+	gradient in the picture.
+
+	:param values: the measurements.
+	:param share: how much of the top to look past.
+	"""
+	if not values:
+		return 0
+	ordered = sorted(values, reverse=True)
+	return ordered[min(len(ordered) - 1, int(len(ordered) * share))]
 
 
 class Picture:
@@ -364,6 +416,9 @@ class Picture:
 	def _measure(self) -> Strength:
 		""":return: the picture own strength, at `REFERENCE_CELLS`.
 
+		**Taken from the strongest fiftieth rather than from the strongest cell**, because one
+		cell is one accident. See `REFERENCE_SHARE`.
+
 		**The short axis is never allowed to collapse.** Keeping the proportions and putting
 		`REFERENCE_CELLS` on the long side gives a toolbar 900 by 36 a reference grid two rows
 		tall, and a Sobel needs three -- so the strongest gradient in the picture came back as
@@ -388,7 +443,7 @@ class Picture:
 		down = max(down, min(3, self.height))
 		greys = self.reduce((0, 0, self.width, self.height), across, down)
 		cells = _gradients(greys, across, down)
-		return Strength(max((cell[0] for cell in cells), default=0), _separation(greys))
+		return Strength(_topOf([cell[0] for cell in cells]), _separation(greys))
 
 	def reduce(self, box, outWidth: int, outHeight: int, background: "int | None" = None) -> bytearray:
 		"""Average a rectangle of the pixels down to a grid of the given size.
@@ -600,7 +655,13 @@ def _thin(cells, width: int, height: int) -> list:
 			before = magnitudes[place - stepY * width - stepX]
 		if 0 <= x + stepX < width and 0 <= y + stepY < height:
 			after = magnitudes[place + stepY * width + stepX]
-		if magnitude >= before and magnitude >= after:
+		# Strictly greater on one side and merely not less on the other. Equal on both sides
+		# kept them both, so a single clean light-to-dark step came back as two raised columns
+		# rather than one -- which is not the doubled contour of a thick stroke, it is one edge
+		# drawn twice. The asymmetry breaks a plateau deterministically in favour of its first
+		# cell along the gradient, which is a choice rather than an answer, but a plateau has
+		# no true crest to find and drawing one of them beats drawing all of them.
+		if magnitude > before and magnitude >= after:
 			kept.append((magnitude, place))
 	return kept
 
@@ -648,6 +709,88 @@ def _followEdges(kept, cut: int, width: int, height: int) -> set:
 	return strong
 
 
+def _components(places, width: int, height: int) -> list:
+	""":return: the connected groups among a set of raised places.
+
+	Touching counted diagonally, because a contour on a pin lattice climbs in steps and a
+	staircase that only counted as connected orthogonally would be in pieces.
+
+	:param places: which cells are raised.
+	:param width: cells across.
+	:param height: cells down.
+	"""
+	left = set(places)
+	groups = []
+	while left:
+		frontier = [left.pop()]
+		group = set(frontier)
+		while frontier:
+			place = frontier.pop()
+			x = place % width
+			y = place // width
+			for stepY in (-1, 0, 1):
+				for stepX in (-1, 0, 1):
+					nearX = x + stepX
+					nearY = y + stepY
+					if 0 <= nearX < width and 0 <= nearY < height:
+						near = nearY * width + nearX
+						if near in left:
+							left.remove(near)
+							group.add(near)
+							frontier.append(near)
+		groups.append(group)
+	return groups
+
+
+def _fitEdges(kept, cut: int, width: int, height: int, ceiling: int):
+	"""Bring an edge map under the ceiling without taking a contour to pieces.
+
+	**A ceiling applied pin by pin undoes the hysteresis that just ran.** Ranking every chosen
+	cell and keeping the strongest of them is the obvious way to fit a budget and it is the one
+	thing this must not do: on a dense diagram it turned one connected edge map of 2,612 pins
+	into 614 pins in 207 pieces. A hand following a line through that finds it stop, start
+	again a little further on, and stop again -- which says something about the picture that is
+	not true, and is worse than a line that was never drawn.
+
+	So density is bought by asking for fewer edges, not by deleting parts of the edges there
+	are: the threshold is raised and the contours regrown, until what survives fits. Failing
+	that, whole contours are dropped strongest first. A contour is a thing; half of one is a
+	lie.
+
+	:param kept: magnitude and place, from `_thin`, in raster order.
+	:param cut: the threshold the data chose, which is the lowest that will be tried.
+	:param width: cells across.
+	:param height: cells down.
+	:param ceiling: the most that may be raised.
+	:return: the places to raise, or None if no contour will fit at all.
+	"""
+	steps = sorted({magnitude for magnitude, _place in kept if magnitude >= cut})
+	# A bounded sweep rather than a search: growing is not strictly monotonic in the threshold,
+	# since raising it moves the weak band up as well as the strong one, so a bisection could
+	# settle on the wrong side of a step it never looked at.
+	tried = set()
+	for n in range(24):
+		at = steps[min(len(steps) - 1, n * len(steps) // 24)] if steps else cut
+		if at in tried:
+			continue
+		tried.add(at)
+		grown = _followEdges(kept, at, width, height)
+		if len(grown) <= ceiling:
+			return grown
+	strongest = {place: magnitude for magnitude, place in kept}
+	grown = _followEdges(kept, cut, width, height)
+	groups = sorted(
+		_components(grown, width, height),
+		key=lambda group: max(strongest.get(place, 0) for place in group),
+		reverse=True,
+	)
+	out = set()
+	for group in groups:
+		if len(out) + len(group) <= ceiling:
+			out |= group
+	return out or None
+
+
 def edgePins(greys, width: int, height: int, coverage: float = EDGE_COVERAGE) -> Rendering:
 	"""Raise a pin wherever the picture changes fastest.
 
@@ -682,17 +825,25 @@ def edgePins(greys, width: int, height: int, coverage: float = EDGE_COVERAGE) ->
 	kept = _thin(cells, width, height)
 	if not kept:
 		return Rendering(pins, width, height, 0)
-	chosen = _followEdges(kept, _otsuOver([magnitude for magnitude, _place in kept]), width, height)
+	cut = _otsuOver([magnitude for magnitude, _place in kept])
+	chosen = _followEdges(kept, cut, width, height)
 	if not chosen:
 		return Rendering(pins, width, height, 0)
 	ceiling = max(1, int(round(width * height * coverage)))
-	if len(chosen) <= ceiling:
+	if len(chosen) > ceiling:
+		chosen = _fitEdges(kept, cut, width, height, ceiling)
+	if chosen:
 		for place in chosen:
 			pins[place] = 1
 		return Rendering(pins, width, height, len(chosen))
-	values = [magnitude for magnitude, place in kept if place in chosen]
-	places = [place for _magnitude, place in kept if place in chosen]
-	return Rendering(pins, width, height, _raiseTopmost(values, places, ceiling, pins))
+	# Edge everywhere and no single contour small enough to keep whole -- a texture rather
+	# than a drawing. Nothing can be both truthful and within the budget here, so the budget
+	# wins and the result is an even scattering, which is an honest account of a texture. What
+	# would not be honest is letting it pass for a drawing, so it is marked and said.
+	values = [magnitude for magnitude, _place in kept]
+	places = [place for _magnitude, place in kept]
+	raised = _raiseTopmost(values, places, ceiling, pins)
+	return Rendering(pins, width, height, raised, crowded=True)
 
 
 def _otsu(greys) -> int:
@@ -704,9 +855,12 @@ def _otsu(greys) -> int:
 	the thing that actually matters here — which is that a picture's own two tones are rarely
 	either side of 128.
 
-	What it is used for is the polarity rather than the cut: which side of the split is the
-	subject. The cut itself comes from the coverage budget, because how much of the panel may
-	be raised is a fact about a hand and not about a histogram.
+	Used for both the polarity and the cut: which side of the split is the subject, and where
+	the split is. It used to be asked only for the polarity, with the cut coming from the
+	coverage budget -- which meant a window of faint background had a subject side too, so the
+	count came back positive and the darkest of the backdrop went up to fill the quota. What
+	the histogram cannot say is how much of a panel a hand can read, and that is what the
+	ceiling in `brightnessPins` is still for.
 
 	:param greys: brightnesses.
 	:return: the threshold. Pixels below it are the dark class.
@@ -879,11 +1033,20 @@ def place(picture: Picture, box, width: int, height: int) -> Placement:
 	:param height: pins down.
 	:return: the source rectangle and where its reduction sits.
 	"""
+	# Intersected with the picture rather than clamped into it. Moving the near edge and then
+	# measuring from there slides a rectangle instead of cutting it: a box starting five pixels
+	# left of a ten pixel picture came back as the whole picture rather than as the five
+	# columns of it that the box actually covered, and a box entirely past the end came back as
+	# a one pixel strip at the last pixel rather than as nothing.
 	left, top, across, down = box
-	left = max(0, min(int(left), max(0, picture.width - 1)))
-	top = max(0, min(int(top), max(0, picture.height - 1)))
-	across = min(int(across), picture.width - left)
-	down = min(int(down), picture.height - top)
+	right = int(left) + int(across)
+	bottom = int(top) + int(down)
+	left = max(0, int(left))
+	top = max(0, int(top))
+	right = min(picture.width, right)
+	bottom = min(picture.height, bottom)
+	across = right - left
+	down = bottom - top
 	if width <= 0 or height <= 0 or across <= 0 or down <= 0:
 		return Placement((left, top, max(0, across), max(0, down)), 0, 0, 0, 0)
 	if across * height >= down * width:
@@ -954,6 +1117,7 @@ def renderAt(
 				rows=min(spot.width, spot.height),
 			),
 		)
+
 	def nothingHere(why: str) -> Rendering:
 		"""Refuse the whole picture, or hand back a blank window that says so.
 
@@ -971,9 +1135,9 @@ def renderAt(
 			spot.width,
 			spot.height,
 			0,
-			spot.left,
-			spot.top,
-			True,
+			left=spot.left,
+			top=spot.top,
+			barren=True,
 		)
 
 	greys = picture.reduce(spot.source, spot.width, spot.height)
@@ -983,12 +1147,19 @@ def renderAt(
 		# indistinguishable by touch from a display that has stopped working.
 		# Translators: reported when a picture has nothing in it to feel.
 		return nothingHere(_("There is nothing in this picture to draw"))
+	# Relative to the picture, or above a floor that stands on its own. The relative test is
+	# what tells a subject from a backdrop; the floor is what stops one small very dark thing
+	# elsewhere in the capture from making everything softer than itself look like backdrop.
+	# See `SUBJECT_TONES`.
 	strength = picture.strength
 	if mode == BRIGHTNESS:
-		found = _separation(greys) >= strength.separation * MEANINGFUL
+		apart = _separation(greys)
+		found = apart >= strength.separation * MEANINGFUL or apart >= SUBJECT_TONES
 	else:
 		cells = _gradients(greys, spot.width, spot.height)
-		found = max((cell[0] for cell in cells), default=0) >= strength.gradient * MEANINGFUL
+		strongest = max((cell[0] for cell in cells), default=0)
+		# Four times, because a clean step of n tones answers as 4n through a Sobel.
+		found = strongest >= strength.gradient * MEANINGFUL or strongest >= 4 * SUBJECT_TONES
 	if not found:
 		# Translators: reported when what was pointed at holds nothing that can be drawn.
 		return nothingHere(_("There is only background in this picture"))

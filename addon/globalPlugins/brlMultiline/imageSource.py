@@ -104,6 +104,62 @@ def _visibleScreen() -> "tuple | None":
 	return bounds if bounds[2] > 0 and bounds[3] > 0 else None
 
 
+def _monitors() -> "list | None":
+	""":return: every monitor rectangle, or None if Windows will not enumerate them.
+
+	The virtual screen is a bounding box, and a bounding box of two monitors that are not
+	aligned contains ground that belongs to neither: put one screen above and right of the
+	other and the two corners between them are inside the box and on nothing. A window cannot
+	be there, but a stale or wrong object rectangle can, and clipping to the box alone said it
+	was visible.
+	"""
+	try:
+		import ctypes
+		from ctypes import wintypes
+
+		try:
+			from winBindings import user32
+		except ImportError:
+			user32 = ctypes.windll.user32
+		found = []
+
+		def collect(_monitor, _context, rect, _data):
+			bounds = rect.contents
+			found.append(
+				(
+					bounds.left,
+					bounds.top,
+					bounds.right - bounds.left,
+					bounds.bottom - bounds.top,
+				),
+			)
+			return 1
+
+		callback = ctypes.WINFUNCTYPE(
+			ctypes.c_int,
+			ctypes.c_void_p,
+			ctypes.c_void_p,
+			ctypes.POINTER(wintypes.RECT),
+			ctypes.c_void_p,
+		)(collect)
+		user32.EnumDisplayMonitors(None, None, callback, 0)
+	except Exception:
+		log.debugWarning("BrlMultiline: could not enumerate the monitors", exc_info=True)
+		return None
+	return [rect for rect in found if rect[2] > 0 and rect[3] > 0] or None
+
+
+def _overlap(first, second) -> "tuple | None":
+	""":return: the rectangle common to two, or None if they do not meet."""
+	left = max(first[0], second[0])
+	top = max(first[1], second[1])
+	right = min(first[0] + first[2], second[0] + second[2])
+	bottom = min(first[1] + first[3], second[1] + second[3])
+	if right <= left or bottom <= top:
+		return None
+	return left, top, right - left, bottom - top
+
+
 def _onScreen(left: int, top: int, width: int, height: int) -> "tuple | None":
 	"""Cut a rectangle down to the part of it that is actually on a monitor.
 
@@ -119,6 +175,12 @@ def _onScreen(left: int, top: int, width: int, height: int) -> "tuple | None":
 	picture of part of the thing, which is what the reader can see and is worth having; it is
 	also why the size check below runs on what came back from here.
 
+	**The virtual screen is a bounding box and not a shape.** Two monitors that are not
+	aligned leave ground inside the box that belongs to neither, and a rectangle sitting there
+	passed a clip against the box while being on nothing at all. So the real monitors are
+	enumerated and the rectangle is measured against them; it keeps its full clipped extent
+	only when every pixel of it lands on some monitor.
+
 	**Occlusion is not solved by this and cannot be.** A window sitting over the object is
 	copied instead of it, because a screen grab is a grab of the screen. Documented rather than
 	worked around.
@@ -128,14 +190,25 @@ def _onScreen(left: int, top: int, width: int, height: int) -> "tuple | None":
 	screen = _visibleScreen()
 	if screen is None:
 		return left, top, width, height
-	screenLeft, screenTop, screenWidth, screenHeight = screen
-	visibleLeft = max(left, screenLeft)
-	visibleTop = max(top, screenTop)
-	visibleRight = min(left + width, screenLeft + screenWidth)
-	visibleBottom = min(top + height, screenTop + screenHeight)
-	if visibleRight <= visibleLeft or visibleBottom <= visibleTop:
+	clipped = _overlap((left, top, width, height), screen)
+	if clipped is None:
 		return None
-	return visibleLeft, visibleTop, visibleRight - visibleLeft, visibleBottom - visibleTop
+	monitors = _monitors()
+	if not monitors:
+		return clipped
+	# Monitors never overlap each other on the virtual desktop, so the parts of the rectangle
+	# that fall on one add up. Adding to the whole of it means every pixel is on some monitor,
+	# gaps included in the answer only if there are none.
+	parts = [found for found in (_overlap(clipped, monitor) for monitor in monitors) if found]
+	if not parts:
+		return None
+	covered = sum(part[2] * part[3] for part in parts)
+	if covered >= clipped[2] * clipped[3]:
+		return clipped
+	# Some of it is over a gap between monitors, or off the end of one. The largest piece that
+	# is genuinely on a single screen is the honest answer: stitching the pieces back into one
+	# rectangle would put the gap back in, which is the thing being avoided.
+	return max(parts, key=lambda part: part[2] * part[3])
 
 
 def _isOffScreen(obj) -> bool:

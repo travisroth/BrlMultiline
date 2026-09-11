@@ -538,6 +538,38 @@ class GraphicsMode(PanelOwner):
 		":return: braille lines kept beside the figure."
 		return self._textLines
 
+	def replaceSource(self, drawing: Drawing) -> bool:
+		"""Show a different figure of the same thing, without losing the view.
+
+		What a change of style needs. Going through `enter` claims the panel again and resets
+		the zoom and both origins, so a reader who had magnified a corner of a diagram and
+		switched from outlines to brightness was put back at the whole picture -- which
+		defeats the purpose of having two styles, since the way to tell which reads better is
+		to feel the same part of the picture in both.
+
+		The window is kept and recomposed from the new figure. `_window` is cleared so that
+		the recomposition actually happens, and `_drawing` is deliberately left alone: a
+		figure that will not compose the current window has to be a refusal, and `_reframe`
+		treats a null drawing as "nothing composed yet" and falls back to the whole figure.
+
+		:param drawing: the new figure, which must be of the same thing at the same size.
+		:return: whether it is up. False leaves the previous figure exactly as it was.
+		"""
+		if not self.active or drawing is None:
+			return False
+		surface = findSurface()
+		if surface is None:
+			return False
+		was = self._source
+		restore = self._state()
+		self._source = drawing
+		self._window = None
+		if self.render(surface):
+			return True
+		self._source = was
+		self._restore(restore)
+		return False
+
 	def setTextLines(self, lines: int) -> bool:
 		"""Change how much of the band stays braille, keeping the figure and where it is read.
 
@@ -550,6 +582,17 @@ class GraphicsMode(PanelOwner):
 		cost — NVDA's focus braille has nowhere to go and is dropped rather than drawn under
 		the figure — so it is a thing the reader asks for and can undo with the same command,
 		and the caller is expected to say so.
+
+		**Transactional, for the same reason zoom is.** It used to claim the new rectangle,
+		record the new size, call `render` and return True without looking at what `render`
+		said. A figure that would not compose for the new shape then left the old overlay on
+		the display -- the old 96 by 35 drawing, still at pin row 5 -- while the mode reported
+		no braille line and a full panel rectangle, and the command announced "full panel, no
+		braille line" over a drawing that had not moved. That is the same disagreement between
+		the panel and the words that the zoom rollback was written to end, reached through a
+		different door.
+
+		So the old claim and the old state are both put back when the new composition fails.
 
 		:param lines: braille lines to keep, zero for the whole band.
 		:return: whether the display took it. False leaves the figure exactly as it was.
@@ -569,6 +612,9 @@ class GraphicsMode(PanelOwner):
 			textRows=wanted,
 			drawingRoutingPolicy=GraphicsRoutingPolicy(self),
 		)
+		wasLines = self._textLines
+		wasRect = self._rect
+		restore = self._state()
 		try:
 			self.plugin.activatePanel(panel)
 		except (ValueError, LookupError):
@@ -581,6 +627,42 @@ class GraphicsMode(PanelOwner):
 		self._rect = panel.drawingRect
 		# The window is kept where it was, and only pulled back inside if the figure grew
 		# past what the source has left. A reader gaining a row should not lose their place.
+		if self.render(surface):
+			return True
+		self._textLines = wasLines
+		self._rect = wasRect
+		self._restore(restore)
+		self._reclaim(surface, wasLines)
+		return False
+
+	def _reclaim(self, surface: GraphicsSurface, textLines: int) -> bool:
+		"""Put the previous claim back after a change of shape that would not draw.
+
+		Rebuilt from `_claimFor` rather than kept as an object, because the claim is a
+		function of the surface and the number of text lines and nothing else -- holding the
+		old one would be holding a second copy of something already derivable, and the copy is
+		the thing that goes stale.
+
+		:param surface: the drawable display.
+		:param textLines: how many braille lines the old claim left.
+		:return: whether the display took it back.
+		"""
+		claim = self._claimFor(surface, textLines)
+		if claim is None:
+			log.error("BrlMultiline: the previous graphics claim can no longer be made")
+			return False
+		try:
+			self.plugin.activatePanel(
+				GraphicsPanel(
+					PANEL_NAME,
+					claim,
+					textRows=textLines,
+					drawingRoutingPolicy=GraphicsRoutingPolicy(self),
+				),
+			)
+		except (ValueError, LookupError):
+			log.error("BrlMultiline: the previous graphics claim was refused", exc_info=True)
+			return False
 		self.render(surface)
 		return True
 
@@ -1360,7 +1442,22 @@ class GraphicsMode(PanelOwner):
 		if surface is None or self._rect is None or surface.pinRectForCells(self._rect).isEmpty:
 			self.onEvicted()
 			return
-		self.render(surface)
+		if self.render(surface):
+			return
+		# The figure will not draw for where the claim has landed. Falling back to the whole
+		# figure is worth one try, since a window is the thing most likely to have become
+		# impossible and fit is the one view every figure can always compose.
+		self._zoomStep = FIT
+		self._originX = 0
+		self._originY = 0
+		self._window = None
+		if self.render(surface):
+			return
+		# It cannot be drawn at all here, and an overlay composed for somewhere else is worse
+		# than no overlay: it is a picture of the wrong part of the wrong size, in a rectangle
+		# the mode is now describing differently.
+		log.debugWarning("BrlMultiline: a drawing could not be recomposed after a rebuild")
+		self.onEvicted()
 
 	def onEvicted(self, keys: frozenset = frozenset()) -> None:
 		"""The claim is gone. Stop showing a figure over rows that belong to someone else.
