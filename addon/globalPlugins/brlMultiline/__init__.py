@@ -2930,12 +2930,44 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when a drawing command is used with no drawing on the display.
 			ui.message(_("No drawing"))
 			return
-		mode.zoomBy(step)
+		moved = mode.zoomBy(step)
 		# Reported whether or not it moved: at the ends of the ladder the useful answer is
 		# still where the reader now is, and silence would read as the command having missed.
 		# `describe` says "whole drawing" at the bottom of the ladder rather than a number,
 		# because a magnification figure for a compressed drawing means nothing to a reader.
-		ui.message(mode.describe())
+		said = mode.describe()
+		if not moved:
+			# And when it did not move, why. Without this the answer to a refused zoom is the
+			# same sentence as the answer to the zoom before it, which is indistinguishable
+			# from a key that does nothing -- and was reported as one.
+			why = mode.zoomRefusal(step)
+			if why:
+				said += ", " + why
+				said += self._captureSizeWords(mode)
+		ui.message(said)
+
+	def _captureSizeWords(self, mode) -> str:
+		""":return: how big the capture was, when that is what answered the reader question.
+
+		Said only on a refused zoom of a picture, and it is the whole answer to the commonest
+		confusion about one: a toolbar with six icons plainly visible on the screen will not
+		magnify, and nothing on the panel says why. What limits it is not the display and not
+		the drawing but how many screen pixels the thing was in the first place -- a toolbar
+		160 pixels wide across 96 pins is already under two pixels to a pin, so magnifying it
+		would enlarge the pins and show nothing that was not already there.
+
+		Empty unless the drawing on the display is the captured picture, since a chart is
+		limited by its periods rather than by any number of pixels.
+		"""
+		if self._picture is None or mode.source is not self._pictureDrawing:
+			return ""
+		size = imageSource.sizeWords(self._picture)
+		if not size:
+			return ""
+		# Translators: added when a picture will not magnify any further, saying how many
+		# screen pixels were captured, which is what limits it. The placeholder is a size
+		# such as "160 by 24".
+		return ", " + _("captured at {size}").format(size=size)
 
 	@script(
 		# Translators: input help message for a command.

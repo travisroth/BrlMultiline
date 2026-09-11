@@ -1024,6 +1024,90 @@ class TestAFigureWithAnUpAndADown(unittest.TestCase):
 		self.assertEqual(len(self.windows[-1]), 2)
 
 
+class TestWhyAZoomDidNotHappen(unittest.TestCase):
+	"""A refusal a reader cannot account for is the same as a broken key.
+
+	Every guard on zoom was written with a reason and none of them said it. The announcement
+	after a zoom reports where the reader now is, so a refused zoom reported where they already
+	were, in the same words, however many times they pressed -- which is exactly what a command
+	that is not wired up sounds like. It was reported as one, on a toolbar whose capture simply
+	had no more detail in it.
+	"""
+
+	def setUp(self):
+		self.driver = FakeDrawableDriver(numRows=8, numCols=32)
+		useDisplay(self.driver)
+		self.mode = GraphicsMode(FakePlugin())
+
+	def figure(self, points=0, refuse=False, size=(96, 35)):
+		""":return: a windowing figure with a given amount of data behind it.
+
+		`size` is the source buffer. A figure no larger than the panel reaches the scale cap
+		before the ladder runs out, so the test that wants the end of the ladder has to bring
+		a drawing several times the size of the display -- which is the ordinary case for a
+		real capture anyway.
+		"""
+
+		def redraw(offset, span, pinWidth, pinHeight, top=0.0, down=1.0):
+			if refuse:
+				return None
+			return Drawing(PinBuffer(pinWidth, pinHeight), name="a window", windowsVertically=True)
+
+		buffer = PinBuffer(*size)
+		buffer.rect(0, 0, size[0], size[1])
+		return Drawing(
+			buffer,
+			name="picture",
+			redraw=redraw,
+			points=points,
+			windowsVertically=True,
+		)
+
+	def test_aPictureWithNothingLeftToShowSaysThat(self):
+		"""The toolbar. Four points cannot survive a halving twice over."""
+		self.mode.enter(self.figure(points=4))
+		self.assertFalse(self.mode.zoomBy(1))
+		self.assertEqual(self.mode.zoomRefusal(1), "no more detail to show")
+
+	def test_theTopOfTheLadderSaysSomethingElse(self):
+		"""A different reason, because it is a different fact: there is detail left and the
+		ladder has run out, rather than the other way round."""
+		self.mode.enter(self.figure(points=1000, size=(768, 256)))
+		for _ in range(MAX_ZOOM_STEP):
+			self.mode.zoomBy(1)
+		self.assertEqual(self.mode.zoom, MAX_ZOOM_STEP)
+		self.assertFalse(self.mode.zoomBy(1))
+		self.assertEqual(self.mode.zoomRefusal(1), "closest view")
+
+	def test_aDrawingAlreadyAsLargeAsThePinsAllowSaysThat(self):
+		"""The third reason, and the one the test above used to hit by accident: a figure that
+		started at the panel's own size runs into the scale cap long before the ladder ends."""
+		self.mode.enter(self.figure(points=1000))
+		while self.mode.zoomBy(1):
+			pass
+		self.assertLess(self.mode.zoom, MAX_ZOOM_STEP)
+		self.assertEqual(self.mode.zoomRefusal(1), "as large as the pins can show")
+
+	def test_aFigureThatWillNotDrawTheWindowSaysThat(self):
+		self.mode.enter(self.figure(points=1000, refuse=True))
+		self.assertFalse(self.mode.zoomBy(1))
+		self.assertEqual(self.mode.zoomRefusal(1), "this part will not draw")
+
+	def test_aZoomThatWorkedHasNothingToExplain(self):
+		self.mode.enter(self.figure(points=1000))
+		self.assertTrue(self.mode.zoomBy(1))
+		self.assertEqual(self.mode.zoomRefusal(0), "")
+
+	def test_shrinkingAtTheBottomOfTheLadderIsNotARefusal(self):
+		"""The whole drawing is on the panel and the announcement already says so. Adding a
+		reason there would be explaining something that is not a failure."""
+		self.mode.enter(self.figure(points=1000))
+		self.assertEqual(self.mode.zoomRefusal(-1), "")
+
+	def test_noDrawingMeansNothingToSay(self):
+		self.assertEqual(GraphicsMode(FakePlugin()).zoomRefusal(1), "")
+
+
 class TestADrawingThatIsBlankOnPurpose(unittest.TestCase):
 	"""A blank panel has to be accounted for, and the panel cannot do it.
 

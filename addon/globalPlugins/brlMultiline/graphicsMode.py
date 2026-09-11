@@ -969,6 +969,50 @@ class GraphicsMode(PanelOwner):
 			return False
 		return True
 
+	def zoomRefusal(self, step: int) -> str:
+		""":return: why a zoom did not happen, for a reader who pressed the key and felt
+		nothing change. Empty if nothing is in the way.
+
+		**A refusal a reader cannot account for is the same as a broken key.** Every guard
+		below was written with a reason and none of them said it out loud: the announcement
+		after a zoom reports where the reader now is, so a refused zoom reported where they
+		already were, in the same words, however many times they pressed. That reads exactly
+		like a command that is not wired up -- and it was reported as one, on a toolbar whose
+		capture simply had no more detail in it.
+
+		Recomputed from the same guards rather than recorded by `zoomBy`, so that there is no
+		second piece of state to fall out of step with the first.
+
+		:param step: the step that was asked for, negative for out.
+		"""
+		if not self.active or self._rect is None:
+			return ""
+		surface = findSurface()
+		if surface is None:
+			return ""
+		pins = surface.pinRectForCells(self._rect)
+		if pins.isEmpty:
+			return ""
+		wanted = max(FIT, min(MAX_ZOOM_STEP, self._zoomStep + step))
+		if wanted == self._zoomStep:
+			if step > 0:
+				# Translators: reported when the drawing cannot be magnified any further
+				# because the magnification ladder has no steps left.
+				return _("closest view")
+			return ""
+		if step > 0 and self._tooFewPoints(wanted):
+			# Translators: reported when magnifying further would show no more than it
+			# already does, because the picture or chart has run out of detail rather than
+			# because the display has run out of room.
+			return _("no more detail to show")
+		if step > 0 and self.scale(pins) >= MAX_SCALE:
+			# Translators: reported when the drawing is already as large as the pins can make
+			# it, so a further step would change the number and not the panel.
+			return _("as large as the pins can show")
+		# Translators: reported when the figure would not draw the part that was asked for,
+		# so the view the reader already had was kept.
+		return _("this part will not draw")
+
 	def _tooFewPoints(self, step: int) -> bool:
 		"""Whether zooming this far would leave too little of the data to be a chart.
 

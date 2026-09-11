@@ -24,6 +24,12 @@ Added:
   be drawn, and a zoom into a part of a picture that holds only background says so instead of
   filling the panel with texture.
 
+- **A zoom that will not happen says why.** Pressing zoom and hearing the same sentence back
+  is indistinguishable from a key that is not wired up. A refused zoom now names the reason —
+  the magnification ladder has run out, the drawing is already as large as the pins can show,
+  or there is no more detail in it — and for a picture it adds how many screen pixels were
+  captured, which is the thing that actually limits how far a small toolbar can be magnified.
+
 - **Wide pictures are measured properly.** A toolbar or a menu bar is far wider than it is
   tall, and the yardstick a picture is judged against was collapsing on the short side for
   anything that shape — so the check that tells a part of a picture with something in it from
