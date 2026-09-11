@@ -107,8 +107,9 @@ class TestReducing(unittest.TestCase):
 		self.assertEqual(list(picture(rows).reduce((0, 0, 4, 2), 2, 1)), [0, 255])
 
 	def test_aBoxOutsideThePictureIsClipped(self):
-		"""What `fitBox` hands over for a picture that is not the panel's shape. The extra is
-		background rather than a stretched edge."""
+		"""Nothing asks for this any more, since `place` keeps the source inside the picture,
+		but the padding behaviour is kept: a caller that does reach outside gets background
+		rather than a stretched edge."""
 		reduced = flat(4, 4, 100).reduce((-10, -10, 40, 40), 2, 2)
 		self.assertEqual(len(reduced), 4)
 
@@ -269,25 +270,42 @@ class TestFittingToThePanel(unittest.TestCase):
 	reader has no way at all to know it happened.
 	"""
 
-	def test_aSquarePictureOnAWidePanelGrowsSideways(self):
-		box = imagePins.fitBox(flat(100, 100), 96, 40)
-		left, top, width, height = box
-		self.assertEqual((top, height), (0, 100))
-		self.assertGreater(width, 100)
-		self.assertLess(left, 0)
+	def test_aSquarePictureOnAWidePanelIsGivenASquareOfIt(self):
+		spot = imagePins.place(flat(100, 100), (0, 0, 100, 100), 96, 40)
+		self.assertEqual((spot.width, spot.height), (40, 40))
 
-	def test_aWidePictureOnAWidePanelGrowsDownwards(self):
-		box = imagePins.fitBox(flat(400, 50), 96, 40)
-		left, top, width, height = box
-		self.assertEqual((left, width), (0, 400))
-		self.assertGreater(height, 50)
+	def test_andIsCentredInIt(self):
+		spot = imagePins.place(flat(100, 100), (0, 0, 100, 100), 96, 40)
+		self.assertEqual((spot.left, spot.top), (28, 0))
+
+	def test_theSourceStaysInsideThePicture(self):
+		"""The whole point of the two rectangles: the detector is never handed a pixel the
+		add-on invented. See `Placement`."""
+		spot = imagePins.place(flat(100, 100), (0, 0, 100, 100), 96, 40)
+		self.assertEqual(spot.source, (0, 0, 100, 100))
+
+	def test_aWidePictureGetsTheFullWidthAndMarginAboveAndBelow(self):
+		spot = imagePins.place(flat(400, 50), (0, 0, 400, 50), 96, 40)
+		self.assertEqual((spot.left, spot.width), (0, 96))
+		self.assertEqual(spot.height, 12)
+		self.assertEqual(spot.top, 14)
 
 	def test_theProportionsCameOutRight(self):
-		_, _, width, height = imagePins.fitBox(flat(100, 100), 96, 40)
-		self.assertAlmostEqual(width / height, 96 / 40, places=1)
+		spot = imagePins.place(flat(100, 100), (0, 0, 100, 100), 96, 40)
+		self.assertAlmostEqual(spot.width / spot.height, 1.0, places=1)
+
+	def test_aPictureAlreadyThePanelShapeGetsTheWholePanel(self):
+		spot = imagePins.place(flat(240, 100), (0, 0, 240, 100), 96, 40)
+		self.assertEqual((spot.left, spot.top, spot.width, spot.height), (0, 0, 96, 40))
+
+	def test_theContentAreaIsWhatACoverageLimitIsAFractionOf(self):
+		"""Not the panel. A square picture that raised every pin it owns would otherwise be
+		under a sixth of the panel and so never reach any ceiling at all."""
+		self.assertEqual(imagePins.place(flat(100, 100), (0, 0, 100, 100), 96, 40).area, 1600)
 
 	def test_nothingToFitIsNotAnError(self):
-		self.assertEqual(imagePins.fitBox(flat(0, 0) if False else picture([]), 96, 40), (0, 0, 0, 0))
+		spot = imagePins.place(picture([]), (0, 0, 0, 0), 96, 40)
+		self.assertEqual((spot.width, spot.height), (0, 0))
 
 
 class TestWindowing(unittest.TestCase):
@@ -308,8 +326,8 @@ class TestWindowing(unittest.TestCase):
 		self.assertEqual((width, height), (1, 1))
 
 	def test_aWindowOfAnOffsetBoxKeepsTheOffset(self):
-		"""`fitBox` can start above or left of the picture, and a window of it has to stay
-		in the same coordinates or the reader's zoom would jump."""
+		"""A window has to stay in the same coordinates as the box it came from, or the
+		reader zoom would jump."""
 		self.assertEqual(
 			imagePins.windowOf(flat(100, 100), (-20, 10, 140, 60), 0.5, 0.0, 0.5, 1.0),
 			(50, 10, 70, 60),
@@ -321,24 +339,23 @@ class TestOneWholePicture(unittest.TestCase):
 	pieces above agree with each other about coordinates."""
 
 	def test_aBlobDrawsAsABlob(self):
-		found = imagePins.render(
-			blob(96, 96), imagePins.fitBox(blob(96, 96), 48, 20), 48, 20, imagePins.BRIGHTNESS
-		)
+		source = blob(96, 96)
+		found = imagePins.render(source, (0, 0, 96, 96), 48, 20, imagePins.BRIGHTNESS)
 		self.assertTrue(found.raised)
 		self.assertLess(found.coverage, 0.6)
 
 	def test_theSameBlobHasOutlinesToo(self):
 		source = blob(96, 96)
-		found = imagePins.render(source, imagePins.fitBox(source, 48, 20), 48, 20, imagePins.EDGES)
+		found = imagePins.render(source, (0, 0, 96, 96), 48, 20, imagePins.EDGES)
 		self.assertTrue(found.raised)
 		self.assertLess(found.coverage, 0.35)
 
 	def test_aWindowOfItIsStillReadable(self):
 		"""The property that makes zoom worth having: a quarter of the picture reduced from
-		its own pixels comes back with a readable density rather than four pins where one was."""
+		its own pixels comes back with a readable density rather than four pins where one
+		was."""
 		source = blob(96, 96)
-		box = imagePins.fitBox(source, 48, 20)
-		window = imagePins.windowOf(source, box, 0.25, 0.25, 0.5, 0.5)
+		window = imagePins.windowOf(source, (0, 0, 96, 96), 0.2, 0.2, 0.6, 0.6)
 		found = imagePins.render(source, window, 48, 20, imagePins.EDGES)
 		self.assertTrue(found.raised)
 		self.assertLess(found.coverage, 0.35)

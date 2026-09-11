@@ -325,7 +325,7 @@ class TestWhereAPressSaysItIs(unittest.TestCase):
 	"""
 
 	def panelShaped(self):
-		""":return: a picture with the panel's proportions, so `fitBox` adds no margin."""
+		""":return: a picture with the panel's proportions, so there is no margin."""
 		return picture(PANEL[0] * 5, PANEL[1] * 5)
 
 	def percentages(self, said):
@@ -374,16 +374,16 @@ class TestWhereAPressSaysItIs(unittest.TestCase):
 
 
 class TestAPictureKeepsItsShape(unittest.TestCase):
-	"""The fault a test of `fitBox` alone cannot see.
+	"""A square has to come out square, and no test of the fitting alone can see that it did.
 
-	`fitBox` grows the source box on the short axis until it has the panel's proportions, and
-	it was doing that correctly — but `Picture.reduce` then clipped the growth away again
-	before reducing, so the whole picture was resized to the whole panel. A square feature came
-	out 33 pins wide by 14 high, which makes a circle an ellipse and every geometric
-	relationship in a diagram a lie. Nothing in the drawing says it happened.
+	The fitting arithmetic was right and the reduction then undid it: the source box was grown
+	on the short axis until it had the panel proportions, and `Picture.reduce` clipped the
+	growth away again before reducing, so the whole picture was resized to the whole panel. A
+	square feature came out 33 pins wide by 14 high, which makes a circle an ellipse and every
+	geometric relationship in a diagram a lie, and nothing in the drawing says it happened.
 
-	So the check is on the rendered pins rather than on the box: draw a square, measure what
-	came out, and require it to still be square.
+	So the check is on the rendered pins rather than on any rectangle: draw a square, measure
+	what was actually raised, and require it to still be square.
 	"""
 
 	def square(self, side=120, feature=40):
@@ -395,44 +395,101 @@ class TestAPictureKeepsItsShape(unittest.TestCase):
 				greys.append(0 if (left <= x < left + feature and top <= y < top + feature) else 255)
 		return imagePins.Picture(greys, side, side, "a square")
 
-	def drawnBounds(self, source, width, height, mode=imagePins.BRIGHTNESS):
-		""":return: the bounding box of what was raised, as width and height in pins."""
-		found = imagePins.render(source, imagePins.fitBox(source, width, height), width, height, mode)
-		columns = [at % width for at, pin in enumerate(found.pins) if pin]
-		rows = [at // width for at, pin in enumerate(found.pins) if pin]
-		self.assertTrue(columns, "nothing was drawn, so there is nothing to measure")
-		return max(columns) - min(columns) + 1, max(rows) - min(rows) + 1
-
-	def test_aSquareIsStillSquareOnAPanelTwiceAsWideAsItIsTall(self):
-		width, height = self.drawnBounds(self.square(), 96, 40)
-		self.assertAlmostEqual(width / height, 1.0, delta=0.2)
-
-	def test_aSquareIsStillSquareInOutlinesToo(self):
-		width, height = self.drawnBounds(self.square(), 96, 40, imagePins.EDGES)
-		self.assertAlmostEqual(width / height, 1.0, delta=0.2)
-
-	def test_aWidePictureIsNotSquashedEither(self):
-		"""The other direction: a picture wider than the panel gets margin above and below."""
+	def wide(self):
+		""":return: a picture wider than the panel, with a feature twice as wide as it is
+		tall."""
 		side, feature = 240, 80
 		greys = bytearray()
 		for y in range(60):
 			for x in range(side):
 				greys.append(0 if (80 <= x < 80 + feature and 10 <= y < 10 + 40) else 255)
-		source = imagePins.Picture(greys, side, 60, "wide")
-		width, height = self.drawnBounds(source, 96, 40)
+		return imagePins.Picture(greys, side, 60, "wide")
+
+	def drawn(self, source, width, height, mode=imagePins.BRIGHTNESS):
+		""":return: which panel pins were raised, as a set of coordinates.
+
+		Panel coordinates rather than the rendering own, since what is being checked is where
+		the picture landed on the display a hand is on.
+		"""
+		found = imagePins.render(source, (0, 0, source.width, source.height), width, height, mode)
+		return {
+			(found.left + at % found.width, found.top + at // found.width)
+			for at, pin in enumerate(found.pins)
+			if pin
+		}
+
+	def bounds(self, raised):
+		""":return: the width and height of what was raised, in pins."""
+		self.assertTrue(raised, "nothing was drawn, so there is nothing to measure")
+		columns = [x for x, _y in raised]
+		rows = [y for _x, y in raised]
+		return max(columns) - min(columns) + 1, max(rows) - min(rows) + 1
+
+	def test_aSquareIsStillSquareOnAPanelTwiceAsWideAsItIsTall(self):
+		width, height = self.bounds(self.drawn(self.square(), 96, 40))
+		self.assertAlmostEqual(width / height, 1.0, delta=0.2)
+
+	def test_aSquareIsStillSquareInOutlinesToo(self):
+		width, height = self.bounds(self.drawn(self.square(), 96, 40, imagePins.EDGES))
+		self.assertAlmostEqual(width / height, 1.0, delta=0.2)
+
+	def test_aWidePictureIsNotSquashedEither(self):
+		"""The other direction: a picture wider than the panel gets margin above and below."""
+		width, height = self.bounds(self.drawn(self.wide(), 96, 40))
 		self.assertAlmostEqual(width / height, 2.0, delta=0.4)
 
-	def test_theMarginDoesNotDrawAFrame(self):
-		"""Padding with a constant would put a hard step all the way round a picture whose own
-		border is any other tone, and the edge detector would spend a good part of its budget
-		drawing a rectangle that is not there."""
+	def test_nothingIsEverDrawnInTheMargin(self):
+		"""The margin is not part of the picture, so nothing in it can be part of the answer.
+
+		Guaranteed by construction now rather than by a threshold: the detector is only ever
+		shown the content rectangle. Asserted anyway, because the whole fault this replaced
+		was a detector being handed pins the add-on had invented and believing them.
+		"""
 		source = self.square()
-		found = imagePins.render(source, imagePins.fitBox(source, 96, 40), 96, 40, imagePins.EDGES)
-		columns = [at % 96 for at, pin in enumerate(found.pins) if pin]
-		# Everything raised is in the middle third, where the picture is, rather than out at
-		# the edges of the panel where only margin can be.
-		self.assertGreater(min(columns), 20)
-		self.assertLess(max(columns), 76)
+		spot = imagePins.place(source, (0, 0, source.width, source.height), 96, 40)
+		inside = {
+			(x, y)
+			for x in range(spot.left, spot.left + spot.width)
+			for y in range(spot.top, spot.top + spot.height)
+		}
+		self.assertFalse(self.drawn(source, 96, 40, imagePins.EDGES) - inside)
+
+	def test_theSeamBetweenPictureAndMarginIsNotDrawn(self):
+		"""The two vertical lines, which were a real report from a real panel.
+
+		A picture whose background texture runs out to its own boundary meets the letterbox
+		along a seam measuring about one per cent of a real edge. Under a coverage quota that
+		had run out of genuine edges, that seam was promoted to two full height vertical lines
+		down a panel which had no such lines anywhere in it -- and a reader has no way to tell
+		an invented line from a drawn one.
+		"""
+		side = 120
+		greys = bytearray()
+		for y in range(side):
+			for x in range(side):
+				if 40 <= x < 80 and 40 <= y < 80:
+					greys.append(0)
+				else:
+					# A faint diagonal hatch, reaching the picture own edge.
+					greys.append(243 if (x + y) % 7 < 2 else 255)
+		source = imagePins.Picture(greys, side, side, "hatched")
+		raised = self.drawn(source, 96, 40, imagePins.EDGES)
+		columns = [x for x, _y in raised]
+		tall = [x for x in set(columns) if columns.count(x) >= 30]
+		self.assertFalse(tall, f"columns drawn nearly top to bottom: {sorted(tall)}")
+
+	def test_aSubjectTouchingTheSourceEdgeIsKept(self):
+		"""The reason no border is trimmed away. An object may legitimately reach its own
+		boundary, and nothing can tell that apart from a capture that overshot."""
+		side = 120
+		greys = bytearray()
+		for y in range(side):
+			for x in range(side):
+				greys.append(0 if y < 40 and x < 8 else 255)
+		source = imagePins.Picture(greys, side, side, "touching the edge")
+		spot = imagePins.place(source, (0, 0, side, side), 96, 40)
+		raised = self.drawn(source, 96, 40, imagePins.BRIGHTNESS)
+		self.assertTrue([x for x, _y in raised if x <= spot.left + 2])
 
 
 class TestTheStyles(unittest.TestCase):

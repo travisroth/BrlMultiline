@@ -16,6 +16,14 @@ Added:
   than a role would. Good for line art, logos, diagrams and maps; adequate for high contrast
   photographs; poor for everything else, and it says so rather than being tuned forever.
 
+- **A picture is drawn from what is in it, not to a fixed density.** The amount of the panel a
+  picture may raise is a ceiling now rather than a target, so a drawing with one shape in it
+  comes back as that shape instead of having its outline widened until the panel was a sixth
+  full. Outlines are thinned to a single pin and grown back along themselves so that a contour
+  is never broken, the margin beside a letterboxed picture is never examined and so can never
+  be drawn, and a zoom into a part of a picture that holds only background says so instead of
+  filling the panel with texture.
+
 - **One key cycles outlines, brightness, and brightness reversed.** None of the three can be
   chosen in advance — the same picture drawn two ways is two entirely different panels — so the
   answer is a key to press rather than a question nobody could answer. It re-draws the pixels

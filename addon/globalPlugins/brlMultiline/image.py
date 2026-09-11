@@ -31,8 +31,9 @@ from .imagePins import (
 	EDGES,
 	ImageRefused,
 	Picture,
-	fitBox,
-	render,
+	Placement,
+	place,
+	renderAt,
 	windowOf,
 )
 
@@ -120,43 +121,44 @@ def zoomPoints(picture: Picture, width: int, height: int) -> int:
 	return max(MIN_WINDOW_POINTS, int(MIN_WINDOW_POINTS * perPin))
 
 
-def _describer(picture: Picture, box, width: int, height: int):
+def _describer(picture: Picture, spot: Placement):
 	"""Build what a routing press on the picture answers with.
 
-	A picture cannot say what is at a point the way a bar chart can — that is the machinery
-	that comes later — but it can say *where* the point is, which is more than nothing and is
+	A picture cannot say what is at a point the way a bar chart can -- that is the machinery
+	that comes later -- but it can say *where* the point is, which is more than nothing and is
 	the thing a reader loses first when both hands are on a panel with no edges to count from.
 
-	**Where in the picture, not where on the panel.** The pin is put back through the box it
-	was drawn from, so the answer is a percentage of the whole capture however far in the
-	reader has zoomed. Read off the panel instead — which is what an earlier version did, since
-	it took the box and never used it — the left edge says nought across while the hand is
-	three quarters of the way along the picture, and the number is wrong exactly when the
-	reader has most need of it: they zoomed in because they had lost the place.
+	**Where in the picture, not where on the panel.** The pin is put back through the
+	placement it was drawn from, so the answer is a percentage of the whole capture however
+	far in the reader has zoomed. Read off the panel instead -- which is what an earlier
+	version did, since it took a box and never used it -- the left edge says nought across
+	while the hand is three quarters of the way along the picture, and the number is wrong
+	exactly when the reader has most need of it: they zoomed in because they had lost the
+	place.
 
 	**A press in the margin says so.** A square picture on a panel over twice as wide has
 	margin on a third of it, and there is nothing there. Reporting the nearest edge as though
 	it were the picture would be a fact about the letterbox, so the margin is named instead.
 
 	:param picture: the capture, for its size.
-	:param box: the part of it being shown, which may reach outside it.
-	:param width: pins across.
-	:param height: pins down.
+	:param spot: the part of it being shown and where that part sits on the panel.
 	:return: a function taking panel coordinates and returning a phrase.
 	"""
-	left, top, across, down = box
+	left, top, across, down = spot.source
 
 	def describeAt(x: int, y: int) -> Optional[str]:
-		if width <= 0 or height <= 0 or not picture.width or not picture.height:
+		if spot.width <= 0 or spot.height <= 0 or not picture.width or not picture.height:
 			return None
-		# The middle of the pin rather than its corner: a pin covers a span of the picture,
-		# and its corner is the boundary between it and the one before it.
-		atX = left + (x + 0.5) * across / width
-		atY = top + (y + 0.5) * down / height
-		if not (0 <= atX < picture.width and 0 <= atY < picture.height):
+		insideX = x - spot.left
+		insideY = y - spot.top
+		if not (0 <= insideX < spot.width and 0 <= insideY < spot.height):
 			# Translators: reported when a routing press lands beside a drawn picture rather
 			# than on it, which happens where the picture does not fill the panel.
 			return _("outside the picture")
+		# The middle of the pin rather than its corner: a pin covers a span of the picture,
+		# and its corner is the boundary between it and the one before it.
+		atX = left + (insideX + 0.5) * across / spot.width
+		atY = top + (insideY + 0.5) * down / spot.height
 		# Translators: where a finger is on a drawn picture. Placeholders are percentages
 		# across from the left and down from the top.
 		return _("{across} across, {down} down").format(
@@ -186,7 +188,7 @@ def figureFor(
 	:return: the figure.
 	:raises ImageRefused: if there is nothing here to draw.
 	"""
-	box = fitBox(picture, width, height)
+	box = (0, 0, picture.width, picture.height)
 	return _compose(newBuffer, picture, box, width, height, mode, invert, whole=True)
 
 
@@ -199,7 +201,8 @@ def _compose(newBuffer, picture, box, width, height, mode, invert, whole: bool) 
 	:return: the figure.
 	:raises ImageRefused: if there is nothing in this part of the picture.
 	"""
-	rendering = render(picture, box, width, height, mode, invert)
+	spot = place(picture, box, width, height)
+	rendering = renderAt(picture, spot, mode, invert)
 	buffer = newBuffer(width, height)
 	if buffer is None:
 		# Translators: reported when the display would not give a surface to draw on.
@@ -207,11 +210,11 @@ def _compose(newBuffer, picture, box, width, height, mode, invert, whole: bool) 
 	rendering.draw(buffer)
 	name = _nameOf(picture, mode, invert, whole)
 	if not whole:
-		return Drawing(buffer, name=name, describeAt=_describer(picture, box, width, height))
+		return Drawing(buffer, name=name, describeAt=_describer(picture, spot))
 	return Drawing(
 		buffer,
 		name=name,
-		describeAt=_describer(picture, box, width, height),
+		describeAt=_describer(picture, spot),
 		redraw=_reframer(newBuffer, picture, box, mode, invert),
 		points=zoomPoints(picture, width, height),
 		windowsVertically=True,

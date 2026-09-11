@@ -1168,29 +1168,111 @@ has to know whether it is drawing the whole picture or a tenth of it.
 The cost is that detail below a pin is gone before the detector sees it. That is not a loss: it
 was never going to survive onto a pin. It is the reason zoom redraws from pixels.
 
-#### A coverage budget, not a threshold
+#### A coverage ceiling, not a quota — and it was a quota first
 
-The question "which pixels are edge enough to raise a pin" has no answer in the pixels. It has
-one in the hand: **a panel more than about a fifth raised stops being a picture and becomes a
-texture**, and a panel with a dozen pins up says nothing at all. So the threshold is not chosen
-as a magnitude at all. The gradient magnitudes are sorted and the cut is taken at whatever
-value leaves the target fraction of pins raised.
+The question "which pixels are edge enough to raise a pin" has no answer in the pixels, and the
+first answer here was to stop asking it. **A panel more than about a fifth raised stops being a
+picture and becomes a texture**, and a panel with a dozen pins up says nothing at all — so no
+cut was chosen as a magnitude. The gradients were sorted and the cut fell wherever it left a
+sixth of the panel raised.
 
-This is the same move as drawing a chart at the size of the space it is going into, and it
-matters for the same reason. A fixed threshold on a high contrast logo raises everything and on
-a soft photograph raises nothing, and the reader cannot tell those two failures apart by
-touch — both are a panel that says nothing. Aiming at the coverage means a picture of any
-contrast arrives at a readable density, and what varies between pictures is *which* pins those
-are, which is the part that carries the information.
+That reasoning is sound for a photograph. Nobody can know a photograph's edge density in
+advance, a fixed threshold raises everything on a high contrast logo and nothing on a soft
+picture, and a reader cannot tell those two failures apart by touch. It is wrong for everything
+else, and wrong in a way that is specific and worth stating plainly: **a quota has to be met.**
+A picture without that much in it gets the shortfall made up out of whatever came next.
 
-Brightness works the same way with a different measure: the cut is the one that leaves the
-target fraction of the panel raised, so a silhouette is a silhouette whether the subject is
-dark on light or light on dark.
+A reader loaded a hexagon and reported what the panel felt like. Every part of the report was
+true, and none of it was in the picture:
 
-**Polarity follows from the same budget.** Whichever side of the cut is the minority is the
-subject, and the minority is what gets raised. A black logo on white and a white logo on black
-both come out as the logo raised, without asking anybody. An image that is genuinely mostly
-subject reads inverted, which is what the manual invert is for.
+1. **Two vertical lines.** The seam where the picture met the letterbox the add-on had drawn
+   around it. On a drawing whose faint background texture runs out to its own boundary, that
+   seam measures about one per cent of a real edge — and the quota, having run out of real
+   edges, promoted it to two full height lines. Reproduced from the file with no capture
+   overshoot at all: columns 28 and 67, raised on 33 and 35 of the 40 rows.
+2. **An outline four dots wide.** The hexagon has about 110 pins of perimeter. The quota wanted
+   614. The difference went into widening the only shape in the picture until the corners
+   rounded off and the sides met at the vertices — and counting the sides is the whole of what a
+   hexagon has to say.
+3. **Stipple appearing on zoom.** A window in the middle of the hexagon contains nothing: its
+   strongest gradient is 68 against 1282 for ink. The quota filled the panel with the
+   background hatch, resolved by the reduction as the window narrowed.
+
+One cause, three shapes, and each drawn as confidently as something real.
+
+So: the cut now comes from the data — Otsu over the gradient magnitudes for outlines, class
+membership for brightness — and **the coverage may only ever remove pins.** What is lost is the
+guarantee of a constant density. What is gained is that the density means something, because it
+is now how much was found rather than how much was demanded.
+
+**Polarity still follows from the split.** Whichever side is the minority is the subject and
+gets raised, so a black logo on white and a white logo on black both come out as the logo,
+without asking anybody. An image genuinely mostly subject reads inverted, which is what the
+manual invert is for. What changed is that membership decides what is raised: an earlier version
+counted the subject and then raised that many of the darkest cells, the same answer whenever the
+split is clean and a different one when it is not — a window of faint background has a subject
+side too, so the count came back positive and the darkest of the backdrop went up to meet it.
+
+#### Two rectangles, so that no margin is ever detected
+
+The fix for the vertical lines is structural rather than a better threshold, and it is worth
+separating from the coverage change because it stands on its own.
+
+Fitting a square picture onto a panel two and a half times as wide means a letterbox. That was
+done by growing the *source* box outwards past the edge of the capture and filling the overhang
+with the picture's own border tone. The arithmetic was right and the margin still ended up
+somewhere it did not belong: **in front of the detector.** Matching the border tone makes the
+seam faint; it does not make it zero, because a textured edge is not its own average.
+
+So fitting is now two rectangles. The source rectangle always lies inside the capture. The
+destination rectangle says where its reduction sits on the panel. The detector is shown the
+content and nothing else, the margins are blitted blank afterwards, and **the coverage limit is
+a fraction of the content area rather than of the panel** — sixteen per cent of 40 by 40 is 256
+pins, not the 614 that a sixth of the whole panel allowed.
+
+The alternative considered and rejected was trimming a uniform border off the capture. It does
+not survive contact with the general case: an object may legitimately reach its own boundary,
+nothing can tell that apart from a capture that overshot, and a tolerant trim would cut the
+vertices off this very hexagon. If overshoot is ever demonstrated from a saved capture it gets
+its own fix and its own evidence.
+
+#### A window is judged against the picture, not against itself
+
+Both detectors return a best answer for whatever they are handed, and blank paper has a best
+answer too. That is the third symptom and neither of the changes above reaches it, because a
+zoomed window has no margin to exclude and its own local contrast is real.
+
+So each style is asked the question it can answer — how strong is the strongest edge here, how
+far apart are the two tones here — and the answer is compared against the same measurement taken
+once over the whole capture. Below a sixth of it, the window is refused in words. The gap that
+has to be straddled is wide: on the hexagon, ink measures 1282 and the hatch 68.
+
+The two mistakes do not cost the same. Refusing a window that had something in it costs a reader
+one keypress and a sentence saying why. Drawing one that had nothing costs them a panel they
+will read as the picture.
+
+#### Thinning, and the limit of thinning
+
+Non-maximum suppression reduces a broad Sobel response to the crest of its ridge, and hysteresis
+grows the strong parts of a contour back along themselves through the weak ones. The second is
+not optional with the first: a contour does not have one strength along its length, a single
+threshold breaks it exactly where it fades, and **a break is the one artefact a hand cannot work
+around.** A reader following a line to a corner and finding it stop has been told something
+false about the shape and has nowhere to pick it up again. A thick line can be followed; a
+broken one cannot.
+
+What thinning does not do is merge two edges into one. A black stroke on a light page has two
+genuine transitions, light to dark going in and dark to light coming out, with opposite
+gradient. A reader feeling an outlined shape is feeling the outline of the outline. Getting a
+single centreline would mean segmentation and skeletonisation, and it is probably not worth it,
+because the style that draws the ink itself already exists: **brightness renders this hexagon as
+one connected stroke of 195 pins**, and it is the better answer for dark-stroke-on-light
+drawings.
+
+That is a fact about this kind of drawing rather than about line art generally. Outlines remain
+the right style for filled shapes, photographs, multitone diagrams, very light lines, and
+anything whose internal boundaries matter. Neither can be chosen in advance, which is why the
+style is a key that cycles rather than a question the reader has no way to answer.
 
 #### What a review found, and the three shapes it was the same fault in
 
