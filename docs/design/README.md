@@ -29,18 +29,19 @@ Read the files in this order:
 7. [structured-presentation-plan.md](structured-presentation-plan.md) — the design for
    showing content that has a shape: trees with depth, tables with columns, and the
    recognition step that decides how a particular thing is presented rather than merely
-   whether it flows. Nothing in it is built yet; read it before extending `flowObjects.py`
-   or `flowRender.py`.
+   whether it flows. Trees and tables are built and on hardware, and tables are feature
+   complete for now — recognised, laid out in columns, paged, arranged, saved, and applied
+   again by themselves. Read it before extending `flowObjects.py` or `flowRender.py`.
 8. [tactile-graphics-plan.md](tactile-graphics-plan.md) — feasibility findings and the plan
    for drawing on the Monarch through the HID braille connection the add-on already has.
    Covers what the HID standard does and does not offer, the Monarch's pin geometry, why the
    DotPad's approach is the inverse of the one we need, and the hardware runs that found an
-   undocumented 480 byte output report matching the Monarch's pin count exactly. Phase 0 is
-   complete on hardware; phases 1 and 3 are delivered as `pinBuffer.py` in the Monarch driver;
-   phase 2, the graphics mode, is built and unit tested and awaits a hardware run — see
-   `graphics.py` and `graphicsMode.py` in the plugin. Phases 4 and 5, real content and image
-   import, are not started. Read it before writing any code that sets dots rather than
-   characters.
+   undocumented 480 byte output report matching the Monarch's pin count exactly. Phases 0 to 4
+   are on hardware: the pin report, the drawing API in `pinBuffer.py`, the graphics mode in
+   `graphics.py` and `graphicsMode.py`, bar charts from an Excel selection, and the glyph
+   phase that draws a role or a state as a shape in an ordinary braille line. Of phase 4b's
+   other chart types only a single line series has been read; phase 5, image import, is not
+   started. Read it before writing any code that sets dots rather than characters.
 9. [monarch-driver-plan.md](monarch-driver-plan.md) — the design of `brlMultilineMonarch`, a
    braille display driver that subclasses NVDA's HID braille driver and drives the Monarch
    through its pin report instead of its cell reports. Gives graphics, a choice of 8 or 10

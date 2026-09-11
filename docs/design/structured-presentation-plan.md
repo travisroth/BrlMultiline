@@ -14,10 +14,13 @@ So this plan adds a second axis. Alongside "what to read" there is now "how this
 thing is shown", and the second is chosen from what the reader is actually looking at
 rather than from a role alone.
 
-**Status: M0, M1, M2a, M3 (a to d), M4, M6 and most of M5 are built and on hardware.**
-M5's list views and message list are read as tables on hardware; its Excel third is not
-started. M7 (arranging a table) is built and not yet on hardware. What is not built: M1's
-orientation note, M2b (the presentation registry) and M6b (applying a saved layout by name).
+**Status: tables are feature complete for now.** M0, M1, M2a, M3 (a to d), M4, M5, M6 and M7
+are built and on hardware: a table is recognised, laid out in columns with its headings pinned,
+paged, arranged by command or by dialog, saved, and applied again by itself when that table comes
+back. All three shapes of source are read — browse mode, list views and the message list, and
+Excel through the add-on's first application module. What is not built: M1's orientation note,
+M2b (the presentation registry) and M6b (applying a saved layout by name), which is deferred
+rather than pending — see its entry for why.
 The milestones below say which,
 and where the built shape differs from what was planned the decision records both. Read this
 before extending `flowObjects.py` or `flowRender.py`.
@@ -1189,11 +1192,13 @@ away by a type check. A list view has no header *row* to borrow, so what is pinn
 its cells declare, and a table that declares nothing pins nothing rather than pinning its
 first file. Still not done: any notion of a header that is not row one and is not declared.
 
-**M5 — tables as objects.** Excel, list views, the message list. Same vocabulary, second
-source. **List views and the message list are on hardware**: File Explorer's Details view and
-Outlook's inbox both lay out in columns, with the headings their cells declare pinned above
-them. **Excel is built and not yet on hardware** — a third shape of table object, read by
-coordinate, reached through the add-on's first application module. See below.
+**M5 — tables as objects.** BUILT, ON HARDWARE, all three sources. Excel, list views, the
+message list. Same vocabulary, second source. File Explorer's Details view and Outlook's inbox
+both lay out in columns, with the headings their cells declare pinned above them. **Excel is on
+hardware too** — a third shape of table object, read by coordinate, reached through the add-on's
+first application module, and read again by `chartSource.py` when a chart is drawn from a
+selection. Several sheets and a long debugging pass went into it; what they found is written up
+below.
 
 Getting there took five hardware readings and a review, and what they found was never the
 column arithmetic: it was which object is the row (Outlook's rows carry the cell properties
@@ -2554,9 +2559,19 @@ the adapter, both objects, their roles and their parents whenever a run ends, be
 of a run is a normal answer and a reader cannot tell "the list ends here" from "panning is
 broken" without it.
 
-**M6b — applying a favourite.** Not started. Choosing a saved layout by name while sitting in
-a table that has none, which is the escape hatch for a table nothing can recognise and the way
-a layout reaches a second table that should read like the first.
+**M6b — applying a favourite.** DEFERRED, and not merely unstarted. Choosing a saved layout by
+name while sitting in a table that has none.
+
+Two things are wrong with it as designed. There is no way to *give* a layout a name — layouts are
+saved against the table they were made for, not typed in — so the thing being chosen from has no
+names to show. And the case it was for has not appeared in practice: a reader who meets a table
+nothing recognises reaches for the band commands and makes a layout, temporary or otherwise, for
+that table. Borrowing another table's arrangement turns out to be a worse fit than arranging the
+one in front of you, because the columns are not the same columns.
+
+Left in the plan rather than struck out, because the underlying question — how a layout reaches a
+second table that should read like the first — is real even if this answer to it is not. It wants
+a reader who has actually wanted it to say what they wanted.
 
 ### What a layout can hold: the shape of M7
 
@@ -2640,8 +2655,10 @@ existing `columns` field already uses, so the shape is `{"2": {"cut": "end"}}` r
 list by position — and a column the table no longer has is dropped on reading, exactly as a
 named column already is.
 
-**M7 — arranging a table.** BUILT, NOT YET ON HARDWARE. The vocabulary, the commands on the
-band, and the dialog.
+**M7 — arranging a table.** BUILT, ON HARDWARE. The vocabulary, the commands on the band, and
+the dialog. With M6 behind it this is what makes tables feature complete for now: a layout can be
+made from the band or from the dialog, saved, and applied by itself when that table is met
+again.
 
 **Three commands and a dialog, because they answer different questions.** The commands are for
 the first minute in a table nobody has arranged — hide the column the cursor is in, cycle how

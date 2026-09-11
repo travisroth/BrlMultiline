@@ -427,7 +427,9 @@ The gate it was is open: `graphics.py` and `graphicsMode.py` consume `newGraphic
 `setGraphicsOverlay`, `clearGraphicsOverlay` and `lastTouch`, so the driver's mechanism has a
 caller at last.
 
-`newGlyph` and `setCellGlyphs` now have one too, and it is not a figure. **The glyph phase** is
+`newGlyph` and `setCellGlyphs` now have one too, and it is not a figure. **The glyph phase is
+complete and on hardware**: the shapes are read under a finger in browse mode and in ordinary
+application windows, and the cells they give back are used by the wrapping. It is
 `glyphs.py`, which holds the shapes and the notation, and `glyphFlow.py`, which decides where
 one is drawn: over the short words NVDA already writes for a role or a state, and nowhere else.
 A word is a role because of where it came from — `TextInfoRegion._addFieldText` for a document,
@@ -747,15 +749,18 @@ which is the arrangement to prefer where the hardware allows it.
 
 #### Exit criterion
 
-**Met, but for one re-run.** The hardware pass found:
+**Met.** The hardware pass found:
 
 1. The flow gives its rows to a figure and comes back by itself on leaving.
 2. Fit shows the whole drawing with its thin border intact, and zoom reads correctly in and out.
 3. The rows under a figure carry no text, and the focus line is kept where it is wanted.
 
-One fault came out of it and is fixed but not yet re-run: the flow came back at the top of the
-document rather than where the reader had been. See "suspended, not stopped" above. That
-re-run is all that is left of phase 2.
+One fault came out of it — the flow came back at the top of the document rather than where the
+reader had been — and the fix has since been read on hardware. See "suspended, not stopped"
+above. **It is better rather than perfect**, and deliberately left there: where the reader comes
+back to depends on what the application did with the focus while the figure was up, which is not
+wholly ours to decide. Good enough to close the phase on, and worth revisiting only if a
+particular application is found to lose the place badly.
 
 The Monarch showing a figure in a claimed rectangle with a live NVDA braille line underneath
 it, entered and left by command, ordinary braille intact on both sides, the reserved rows
@@ -778,9 +783,8 @@ lattice. It belongs with the cell path fallback if that is ever built.
 
 ### Phase 4, first real content
 
-Status: **built and unit tested, awaiting a hardware run.** Bar charts from an Excel selection,
-in `chart.py` and `chartSource.py`, with 30 tests. One source, built properly, as the plan
-asked.
+Status: **on hardware, and read.** Bar charts from an Excel selection, in `chart.py` and
+`chartSource.py`, with 30 tests. One source, built properly, as the plan asked.
 
 `chart.py` knows nothing about NVDA or Excel: labels, numbers, and a way to make a buffer in,
 a drawing out. `chartSource.py` is the Excel half and is the only thing that would be written
@@ -862,14 +866,19 @@ an ordinary message with an ordinary timeout. The tests now model the event queu
 running queued work immediately, because *when* something runs was the whole of the fault: it
 passed every test until the queue was modelled, and no log would have shown it.
 
-Left for hardware: whether a chart of this size actually reads under a finger, how many bars
-are useful in practice against the 48 the panel can hold, and whether the labels want to be on
-the panel rather than only spoken.
+**What the hardware said, and it was not what the panel could hold.** A bar chart of this size
+reads under a finger, and the useful number of bars per page is not set by the 48 the panel can
+carry but by the labels — the same constraint a table has. About four named bars to a page is
+what a reader can actually work with, and beyond that the answer is to turn the page rather than
+to draw narrower bars. Which is what the redrawn zoom already does, and is the argument for it:
+forty bars two pins wide with no room for a name is not a chart anyone can read, and ten bars of
+nine pins each, every one named, is.
 
 ### Phase 4b, the other chart types, and asking which one
 
-Status: **built and unit tested, awaiting a hardware run.** Line charts of up to four series,
-open-high-low-close bars, and candlesticks, in `chartLine.py` and `chartPrice.py`, with the
+Status: **one series of a line chart is on hardware and reads; the rest awaits a run.** Line
+charts of up to four series, open-high-low-close bars, and candlesticks, in `chartLine.py` and
+`chartPrice.py`, with the
 vocabulary they share with bars split out into `chartDraw.py` and the reading half extended in
 `chartSource.py`. 113 more tests.
 
@@ -1087,10 +1096,14 @@ Bar charts get the same treatment, and it is worth more there than it looks. For
 pins each with no room for a label; zoom in and it is ten bars of nine pins each, every one of
 them named.
 
-Left for hardware, and this is the whole point of building four types rather than one:
+Left for hardware, and this is the whole point of building four types rather than one. A single
+series reads, which settles the frame, the corners and the path drawing; every question below is
+about what the type adds on top of that:
 
 1. Whether a four series line chart is readable at all at this pitch, or whether the useful
-   number is two or three. The textures are the variable to change if it is not.
+   number is two or three. The textures are the variable to change if it is not. One series is
+   read; two is the next thing to try, since it is where a texture first has to be told from
+   another texture rather than from blank panel.
 2. Whether a candlestick's hollow body reads as hollow at three pins wide, and whether the
    body is in fact easier to find than a stem with two ticks on it.
 3. Whether twenty-four periods across the panel is too many to feel one at a time, and whether

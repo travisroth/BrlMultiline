@@ -23,10 +23,14 @@ Multi row display support (`DisplayDimensions`, `numRows`/`numCols`) is older an
 8. Milestone 8, lifecycle defects and the plugin harness — CODE COMPLETE, UNVERIFIED ON HARDWARE
 
 What "code complete" means here: the add-on builds to an installable `.nvda-addon`, ruff
-passes clean, and 289 unit tests over geometry, panels, views, the container, the document
-line regions and the global plugin pass. Nothing has been run inside NVDA or against a display. Do not
-treat any of it as working until the list under "Verification owed" has been worked
-through. That list is the next task.
+passes clean, and the unit tests over geometry, panels, views, the container, the document
+line regions and the global plugin pass. It does **not** mean a milestone above has been read
+on a display — the list under "Verification owed" and the hardware log below say what has.
+
+**This file is about the original port only, and it is no longer where most of the work is.**
+The flow, the structured presentation of trees and tables, tactile graphics and the Monarch
+driver each have their own plan, each is largely on hardware, and each keeps its own status.
+Do not read the list above as the state of the add-on.
 
 ## Milestone 1 — Scaffold
 
