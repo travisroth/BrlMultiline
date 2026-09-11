@@ -8,6 +8,34 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **Pictures from the screen, drawn on the pins.** Point at something — on a web page, the
+  graphic NVDA just told you about — and press the key: its rectangle is copied off the screen
+  and comes back as outlines or as a silhouette. Not restricted to things NVDA calls a graphic,
+  since a diagram in a canvas, a map and a chart published as a picture all report roles that
+  say nothing, and a reader who has pointed at something has said what they want more clearly
+  than a role would. Good for line art, logos, diagrams and maps; adequate for high contrast
+  photographs; poor for everything else, and it says so rather than being tuned forever.
+
+- **One key cycles outlines, brightness, and brightness reversed.** None of the three can be
+  chosen in advance — the same picture drawn two ways is two entirely different panels — so the
+  answer is a key to press rather than a question nobody could answer. It re-draws the pixels
+  already captured rather than copying the screen again, so a page scrolling underneath you
+  does not silently become the picture you are reading.
+
+- **How much of the panel a picture raises is decided by the hand, not by the pixels.** A fixed
+  threshold raises everything on a high contrast logo and nothing on a soft photograph, and a
+  reader cannot tell those two failures apart: both are a panel that says nothing. So the cut is
+  taken wherever it leaves a readable fraction of the pins raised, whatever the picture's
+  contrast. Which side of a silhouette is the subject is worked out rather than assumed, so a
+  white logo on a dark header comes out as the logo and not as a hole.
+
+- **A picture zoomed in is composed again from its pixels rather than magnified.** The capture
+  is kept at its own resolution, so a quarter of a picture is that quarter reduced from its own
+  pixels — genuinely more detail, as far as the capture goes and no further. It is the first
+  drawing with an up and a down: a chart refits its value axis to whatever it is showing, so it
+  never has anything above or below the panel, while half a photograph is still half a
+  photograph.
+
 - **A chart no longer takes a column of prices for a column of dates.** Excel stores a date as
   a serial number, so the way a date is told from data is that the cell shows something other
   than the number it holds — which is also true of every number the sheet has formatted. A

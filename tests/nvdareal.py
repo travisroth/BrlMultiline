@@ -296,6 +296,36 @@ def checkPlugin() -> list:
 	if not hasattr(plugin, "GlobalPlugin"):
 		failures.append("the plugin package has no GlobalPlugin")
 	failures.extend(_patchTargets())
+	failures.extend(_captureTargets())
+	return failures
+
+
+def _captureTargets() -> list:
+	""":return: what the image path reaches for in NVDA and did not find.
+
+	The same argument as `_patchTargets`, for the other thing a stub suite cannot see. The
+	capture is three calls into NVDA — the navigator object, `ScreenBitmap`, and the pixel
+	fields it hands back — and a rename in any of them would reach a reader as a picture
+	command that refuses everything, which looks exactly like pointing at the wrong thing.
+	"""
+	failures = []
+	import api
+	import screenBitmap
+
+	if not hasattr(api, "getNavigatorObject"):
+		failures.append("api has no getNavigatorObject, so there is nothing to draw")
+	grabber = getattr(screenBitmap, "ScreenBitmap", None)
+	if grabber is None:
+		failures.append("screenBitmap has no ScreenBitmap, so the screen cannot be copied")
+		return failures
+	try:
+		pixels = grabber(2, 2).captureImage(0, 0, 2, 2)
+		pixel = pixels[0][0]
+		for field in ("rgbRed", "rgbGreen", "rgbBlue"):
+			if not hasattr(pixel, field):
+				failures.append(f"a captured pixel has no {field}, so brightness cannot be read")
+	except Exception as reason:
+		failures.append(f"the screen would not be captured: {reason}")
 	return failures
 
 

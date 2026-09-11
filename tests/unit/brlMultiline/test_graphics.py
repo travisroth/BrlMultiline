@@ -937,6 +937,93 @@ class TestAFigureThatDrawsItselfAgain(unittest.TestCase):
 		self.assertIs(self.mode.drawing.name, "picture")
 
 
+class TestAFigureWithAnUpAndADown(unittest.TestCase):
+	"""The second kind of redrawable figure, and the reason the window grew a second axis.
+
+	Every redrawable figure before this one was a chart, and a chart refits its value axis to
+	whatever periods are showing — so there is never anything above or below its panel, and the
+	window that was handed to it could be a stretch of one line. A picture is not like that:
+	half of it is still half of it, and the other half is up or down.
+
+	So the figure is asked rather than assumed, the same way it is asked whether it can redraw
+	at all. The vertical half of the window is passed by keyword and only to a figure that says
+	it has one — a chart's closure does not take it, which is the point: offering it would
+	invite a chart to honour it, and a chart that scrolled its values would be showing a range
+	its own axis no longer named.
+	"""
+
+	def setUp(self):
+		self.driver = FakeDrawableDriver(numRows=8, numCols=32)
+		useDisplay(self.driver)
+		self.plugin = FakePlugin()
+		self.mode = GraphicsMode(self.plugin)
+		self.windows: list = []
+
+	def figure(self):
+		""":return: a drawing that windows in both directions, standing in for a picture."""
+
+		def redraw(offset, span, pinWidth, pinHeight, top=0.0, down=1.0):
+			self.windows.append((offset, top, span, down))
+			buffer = PinBuffer(pinWidth, pinHeight)
+			# A block whose position says which window it was drawn for, so a test can read
+			# back what it asked for without a picture's arithmetic in the way.
+			buffer.rect(int(offset * pinWidth), int(top * pinHeight), 4, 4, filled=True)
+			return Drawing(buffer, name="part", windowsVertically=True)
+
+		buffer = PinBuffer(96, 35)
+		buffer.rect(0, 0, 96, 35)
+		return Drawing(buffer, name="picture", redraw=redraw, windowsVertically=True)
+
+	def test_itCanBePannedUpAndDown(self):
+		"""The thing a chart refuses. Magnified, a picture has as much off the top and bottom
+		of the panel as it has off the sides."""
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		self.assertTrue(self.mode.panBy(0, 8))
+
+	def test_theVerticalWindowReachesTheFigure(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		self.mode.panBy(0, 8)
+		self.assertGreater(self.windows[-1][1], 0.0)
+		self.assertLess(self.windows[-1][3], 1.0)
+
+	def test_theWholeThingIsStillTheWholeThing(self):
+		"""At fit there is nothing off any edge, and panning says so rather than reporting an
+		edge that is not there."""
+		self.mode.enter(self.figure())
+		self.assertFalse(self.mode.panBy(0, 8))
+
+	def test_thePositionSaysHowFarDownAsWellAsAcross(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		self.mode.panBy(0, 8)
+		self.assertIn("down", self.mode.positionWords())
+
+	def test_theSameWindowIsNotComposedTwice(self):
+		self.mode.enter(self.figure())
+		asked = len(self.windows)
+		self.mode.render()
+		self.mode.render()
+		self.assertEqual(len(self.windows), asked)
+
+	def test_aChartIsNeverOfferedTheVerticalWindow(self):
+		"""Its closure does not take the keyword, so offering it would be an exception on
+		every zoom. The flag is what keeps that from happening rather than a try and a hope."""
+
+		def redraw(offset, span, pinWidth, pinHeight):
+			self.windows.append((offset, span))
+			buffer = PinBuffer(pinWidth, pinHeight)
+			buffer.rect(0, 0, pinWidth, 4, filled=True)
+			return Drawing(buffer, name="a chart window")
+
+		buffer = PinBuffer(96, 35)
+		buffer.rect(0, 0, 96, 35)
+		self.mode.enter(Drawing(buffer, name="chart", redraw=redraw, points=32))
+		self.assertTrue(self.mode.zoomBy(1))
+		self.assertEqual(len(self.windows[-1]), 2)
+
+
 class TestPointing(unittest.TestCase):
 	"""Pointing is a routing press, and these are about the two ways it can be answered.
 

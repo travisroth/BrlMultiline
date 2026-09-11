@@ -1060,6 +1060,10 @@ what kind of figure it is, nothing branches on a chart type, and phase 5's impor
 simply not supply one and keep the sampling. A chart supplies both; a scanned picture supplies
 neither.
 
+A captured picture supplies one too, and the plan was wrong to say it would not. See phase 5:
+its source is the pixels rather than the pins, so a window is reduced from its own pixels at
+full detail. What has no `redraw` is a drawing whose dots really are all there is.
+
 The mechanism turned out to need almost nothing new, which is the sign the earlier design was
 holding up. The mode already tracks the zoom and origin as a window over the source in dots,
 already clamps it, already centres a zoom on what is under the reader's hand. A chart's source
@@ -1112,13 +1116,113 @@ about what the type adds on top of that:
    told what price that row stands for — is as useful in the hand as it looks on paper. It and
    the redrawn zoom are the two things here that a printed tactile chart cannot do at all.
 
-### Phase 5, image import
+### Phase 5, images from the screen
 
-Status: not started.
+Status: **5a built and unit tested, awaiting a hardware run.** `imageSource.py` finds the
+object and copies its rectangle, `imagePins.py` is the arithmetic, `image.py` composes a
+`Drawing`, and two commands drive it. Getting a picture off the screen and onto the pins, by
+brightness and by edges. Everything cleverer than that — finding the subject, dropping the background, saying
+what the picture is of — comes later and comes on top of this, not instead of it.
 
-Threshold, edge detect, downsample. Useful for tactile image library content and eBRF
-embedded graphics. Expect it to be poor for photographs and adequate for line art, and
-document that rather than tuning forever.
+**The picture is the one NVDA just found.** The reader is arrowing a web page, NVDA says
+"graphic", and that is the moment the command has to work in. So the source is the navigator
+object, which is what every other capture in NVDA uses and which, in browse mode, is the
+graphic itself: arrowing sets the review position, that clears the navigator object, and the
+next read of it comes back from the review position as the object under the caret. Nothing has
+to be aimed, and nothing new has to be taught to the reader.
+
+Not restricted to things NVDA calls a graphic. A diagram drawn in a canvas, a map, a chart
+somebody published as a picture, and a table of an image are all worth a hand, and half of them
+report a role that says nothing. What is refused is what cannot work: an object with no
+location, one clipped to nothing, and one too small on screen to hold a picture. Each refusal
+says which, because "that did not work" leaves a reader guessing at whether to move and try
+again.
+
+**Captured larger than the panel, deliberately.** A screen grab straight down to 96 by 40 would
+make the panel the whole of what was ever known about the picture, and zooming could then only
+make dots bigger. So the object's own screen rectangle is captured near its natural size, held,
+and reduced *for each view*. That is what lets an imported picture supply the `redraw` the plan
+said it would not: the source is not the pins, it is the pixels, and a reader zooming to a
+quarter of the picture gets that quarter reduced from its own pixels at full detail rather than
+four pins where one was. The limit is the capture, not the panel — an image 800 pixels wide
+holds about eight useful magnifications, and past that it is honestly refused.
+
+#### Reduce first, then detect
+
+The order is the whole of the image processing design, and it is not the obvious one.
+
+Detecting edges at capture resolution and then shrinking the edge map is what suggests itself,
+and it is wrong here: a 400 pixel wide picture reduced to 96 pins is four pixels to a pin, and
+an edge map reduced by "was there an edge in these four" turns every textured region into solid
+raised pins. Reduced by averaging instead, a one pixel line becomes a quarter-grey that then
+fails any threshold. Either way the fine edges that were detected so carefully are destroyed by
+the reduction that follows.
+
+So: greyscale, **reduce by area average to exactly the size being drawn**, and detect on that.
+Area averaging is a low-pass filter, which is precisely what belongs in front of a derivative,
+and this is the textbook order rather than a compromise. The edges that come out are one pin
+thick because the image they were found in was one pin per pixel. And it makes zoom uniform —
+a window is a crop of the pixels, reduced to the panel, detected — so nothing in the pipeline
+has to know whether it is drawing the whole picture or a tenth of it.
+
+The cost is that detail below a pin is gone before the detector sees it. That is not a loss: it
+was never going to survive onto a pin. It is the reason zoom redraws from pixels.
+
+#### A coverage budget, not a threshold
+
+The question "which pixels are edge enough to raise a pin" has no answer in the pixels. It has
+one in the hand: **a panel more than about a fifth raised stops being a picture and becomes a
+texture**, and a panel with a dozen pins up says nothing at all. So the threshold is not chosen
+as a magnitude at all. The gradient magnitudes are sorted and the cut is taken at whatever
+value leaves the target fraction of pins raised.
+
+This is the same move as drawing a chart at the size of the space it is going into, and it
+matters for the same reason. A fixed threshold on a high contrast logo raises everything and on
+a soft photograph raises nothing, and the reader cannot tell those two failures apart by
+touch — both are a panel that says nothing. Aiming at the coverage means a picture of any
+contrast arrives at a readable density, and what varies between pictures is *which* pins those
+are, which is the part that carries the information.
+
+Brightness works the same way with a different measure: the cut is the one that leaves the
+target fraction of the panel raised, so a silhouette is a silhouette whether the subject is
+dark on light or light on dark.
+
+**Polarity follows from the same budget.** Whichever side of the cut is the minority is the
+subject, and the minority is what gets raised. A black logo on white and a white logo on black
+both come out as the logo raised, without asking anybody. An image that is genuinely mostly
+subject reads inverted, which is what the manual invert is for.
+
+#### Refusals a hand can act on
+
+A blank panel is the one outcome that must never happen silently: a reader running a hand over
+nothing cannot tell "captured nothing", "the picture is blank", and "the display is broken"
+apart. So a result with almost no pins raised, or almost all of them, is refused with what it
+was — not shown.
+
+#### Pure Python, and why it is worth it
+
+No numpy, no Pillow. They are in NVDA's build environment and not in what ships, so an add-on
+that imported them would work for whoever built NVDA from source and fail for everyone else —
+the worst shape of dependency. The arithmetic is a reduction over the captured pixels and a
+Sobel over a few thousand, which is milliseconds, and the module stays testable on a list of
+numbers with no NVDA in the room.
+
+#### What this is not, and what comes after
+
+This gets a picture onto the pins. It does not decide what in the picture matters. A photograph
+of a person in front of a bookcase will come out as a person and a bookcase, and the bookcase
+has more edges. That is the known and stated limit, and the next things on top of it are:
+
+1. **Finding the subject** and drawing it alone — the background is the thing that makes a
+   photograph unreadable, far more than the resolution is.
+2. **Object identification**, which turns a picture into something that can also be *described*
+   under the finger, the way a chart's bars answer for themselves through `describeAt`.
+3. **Simplification** — straightening, closing and dropping strokes so that what is left is
+   what a tactile graphics standard would have had a person draw by hand.
+
+Each is a separate piece of machinery and each needs this one working first. Expect brightness
+and edges to be good for line art, logos, diagrams and maps, adequate for high contrast
+photographs, and poor for everything else — and say so rather than tuning forever.
 
 ### Long game
 

@@ -450,6 +450,49 @@ segment. You cannot pin an object to the segment that follows the focus.
 
 **Stops showing an object in segment N.** Unpins and clears that segment.
 
+### Drawings
+
+These need a display that can raise pins one at a time, such as a Monarch, and they are the
+only commands in the add-on that come with keys already assigned — on the Monarch's own
+keyboard, because a drawing is something you reach for with your hands already on the display.
+Everything here is reported in speech as well, since the panel is what your hands are reading
+and speech is what tells you something changed.
+
+**Draws the picture here.** Copies whatever you are pointing at off the screen and puts it on
+the pins. On a web page, that is the graphic NVDA just told you about: arrow onto it and press
+this. It is not restricted to things NVDA calls a graphic — a diagram, a map, a floor plan, a
+chart somebody published as a picture all work, and half of them report no useful role. If it
+cannot be drawn you are told which reason: not showing on the screen, too small to be a
+picture, or nothing in it to feel.
+
+Expect it to be good for line art, logos, diagrams and maps, adequate for high contrast
+photographs, and poor for everything else. It draws what is in the picture; it does not yet
+decide what in the picture matters, so a photograph of somebody in front of a bookcase comes
+out as a person and a bookcase.
+
+**Changes how a picture is drawn.** Cycles outlines, brightness, and brightness reversed, and
+says which. None of the three can be chosen in advance — the same picture drawn two ways is two
+entirely different panels — so press it and feel. It re-draws the pixels it already has rather
+than copying the screen again, so the page moving underneath you does not change the picture
+you are reading.
+
+**Charts the selected cells.** Draws a spreadsheet selection as a tactile bar, line, open high
+low close or candlestick chart, asking which when the numbers could be more than one of them.
+A routing press on a bar or a point says what it is worth.
+
+**Magnifies, shrinks and moves the drawing.** A chart or a picture zoomed in is composed again
+rather than enlarged, so a chart gets fewer bars each wide enough to be named, and a picture
+gets that part of it drawn from the pixels rather than the pins. Reports where you are as a
+percentage across and down.
+
+**Shows or hides the braille line beside the drawing**, and **shows or hides the drawing**
+itself. With two displays, put the focus on the other one and give the whole panel to the
+drawing: eight rows instead of six is the difference between a shape a hand can follow and one
+it cannot.
+
+**Shows the glyph catalogue.** Unbound, and a tool for learning the role and state shapes
+rather than one used while reading. See "Draw roles and states as shapes instead of words".
+
 ## Notes and limitations
 
 The number of segments is capped at 8, which is the row count of a Monarch.

@@ -33,6 +33,7 @@ from scriptHandler import script
 from . import bmConfig, panning, patches, tableArrows
 from .container import DisplayContainer
 from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
+from . import image as imageFigure, imagePins, imageSource
 from .flowTableSource import wantsColumns
 from .graphicsMode import FIT as GRAPHICS_FIT, PANEL_NAME as GRAPHICS_PANEL_NAME, GraphicsMode
 from . import devices as devicesModule
@@ -214,6 +215,24 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		every one of those presses would be asking them to answer a question they have
 		already answered. Not remembered across sessions, because it is a convenience
 		within one piece of work rather than a preference.
+		"""
+
+		self._picture = None
+		"""The pixels of the last thing the reader asked to be drawn, or None.
+
+		Held so that changing how it is drawn does not re-copy the screen. It would be
+		copying something else by then: the reader has moved on, the page has scrolled, and
+		a command that said it was changing the style would quietly have changed the picture
+		as well.
+		"""
+
+		self._pictureStyle = imageFigure.STYLES[0]
+		"""How pictures are being drawn, as a mode and whether it is reversed.
+
+		Carried from one picture to the next within a session. A reader who has found that
+		brightness works for the diagrams on a page is reading a page of diagrams, and making
+		them press the style key again on each one would be asking a question they have
+		already answered.
 		"""
 
 		self._activePanels: list[BraillePanel] = []
@@ -2724,6 +2743,96 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("The chart could not be made, see the log"))
 			return
 		self._lastChartKind = offer.key
+		if not mode.enter(drawing):
+			ui.message(mode.lastError or _("The drawing could not be shown"))
+			return
+		ui.message(mode.describe())
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Draw the picture here"),
+		category=SCRIPT_CATEGORY,
+		gestures=["br(brlMultilineMonarch):space+dot1+dot4+dot7"],
+	)
+	def script_drawPicture(self, gesture):
+		"""Put whatever the reader is pointing at on the pins as a tactile picture.
+
+		**The picture is the one NVDA just found.** A reader arrowing a web page hears
+		"graphic", and this is the command for that moment: it takes the navigator object,
+		which in browse mode is that graphic, and copies its rectangle off the screen.
+		Nothing has to be aimed first.
+
+		Deliberately not restricted to things NVDA calls a graphic. A diagram in a canvas,
+		a map, a floor plan and a chart somebody published as a picture are all worth a
+		hand, and half of them report a role that says nothing. A reader who has pointed at
+		something and pressed this has said what they want more clearly than a role would.
+		"""
+		self._drawPicture(again=False)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Change how a picture is drawn"),
+		category=SCRIPT_CATEGORY,
+		gestures=["br(brlMultilineMonarch):space+dot1+dot4+dot8"],
+	)
+	def script_pictureStyle(self, gesture):
+		"""Draw the same picture the other way, without copying the screen again.
+
+		Outlines, brightness, brightness reversed. None of the three can be chosen in
+		advance — the same picture as outlines and as brightness are two entirely different
+		panels, and which one reads depends on the picture — so the answer is a key that
+		cycles rather than a question nobody can answer before feeling it.
+
+		The pixels are kept from the first press, which is what makes this a change of style
+		rather than a fresh capture. Copying again would be copying something else: the page
+		has scrolled, the focus has moved, and a command that said it was changing the style
+		would have changed the picture too.
+		"""
+		if self._picture is None:
+			# Translators: reported when the style key was pressed and no picture is up.
+			ui.message(_("There is no picture to change"))
+			return
+		self._pictureStyle = imageFigure.nextStyle(*self._pictureStyle)
+		self._drawPicture(again=True)
+
+	def _drawPicture(self, again: bool) -> None:
+		"""Capture if needed, compose, and put a picture on the display.
+
+		The size is asked for here rather than carried in, because the rectangle a drawing
+		gets can change between one press and the next — the braille line beside it is a
+		command — and composing for the old one would cut a row off.
+
+		:param again: whether to re-use the pixels already captured rather than copying the
+			screen. True for a change of style, False for a new picture.
+		"""
+		mode = self.graphicsMode
+		size = mode.drawingSize()
+		if size is None:
+			# Translators: reported when a drawing was asked for on a display that cannot draw.
+			ui.message(_("This display cannot show graphics"))
+			return
+		try:
+			if not again or self._picture is None:
+				self._picture = imageSource.captureNavigator()
+			drawing = imageFigure.figureFor(
+				mode.newBuffer,
+				self._picture,
+				size[0],
+				size[1],
+				self._pictureStyle[0],
+				self._pictureStyle[1],
+			)
+		except imagePins.ImageRefused as refusal:
+			# Every refusal here names what went wrong — too small, not on the screen, nothing
+			# in it to feel — because a reader told only that it failed cannot tell whether to
+			# move, to change the style, or to give up.
+			ui.message(str(refusal))
+			return
+		except Exception:
+			log.error("BrlMultiline: could not draw the picture", exc_info=True)
+			# Translators: reported when drawing a picture failed for a reason worth a log entry.
+			ui.message(_("The picture could not be drawn, see the log"))
+			return
 		if not mode.enter(drawing):
 			ui.message(mode.lastError or _("The drawing could not be shown"))
 			return

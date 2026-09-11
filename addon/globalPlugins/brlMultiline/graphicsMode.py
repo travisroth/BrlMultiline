@@ -144,7 +144,15 @@ class Drawing:
 	different questions.
 	"""
 
-	def __init__(self, buffer, name: str = "", describeAt=None, redraw=None, points: int = 0):
+	def __init__(
+		self,
+		buffer,
+		name: str = "",
+		describeAt=None,
+		redraw=None,
+		points: int = 0,
+		windowsVertically: bool = False,
+	):
 		"""
 		:param buffer: the dots, a buffer from `GraphicsSurface.newBuffer`.
 		:param name: what to call this when the reader asks what is on the display.
@@ -160,12 +168,21 @@ class Drawing:
 			the note above on what it changes.
 		:param points: how many data points the whole drawing covers, for deciding how far in
 			the reader can usefully zoom. Zero where the drawing is not made of points.
+		:param windowsVertically: whether this figure has a vertical extent to window over as
+			well as a horizontal one. False for a chart and True for a picture, and the
+			difference is real rather than a convenience: a chart refits its value axis to
+			whatever periods it is showing, so there is never anything above or below the
+			panel to pan to, while half of a photograph is still half of a photograph. Only a
+			figure that says yes is offered the vertical part of the window, because a chart
+			handed one might honour it, and a chart that scrolled its values would be showing
+			a range whose own axis no longer named it.
 		"""
 		self.buffer = buffer
 		self.name = name
 		self.describeAt = describeAt
 		self.redraw = redraw
 		self.points = points
+		self.windowsVertically = windowsVertically
 
 	@property
 	def width(self) -> int:
@@ -592,6 +609,16 @@ class GraphicsMode(PanelOwner):
 		"""
 		return self._source is not None and self._source.redraw is not None
 
+	@property
+	def _windowsVertically(self) -> bool:
+		""":return: whether the figure windows up and down as well as left and right.
+
+		Asked of the figure for the same reason `_windows` is. A picture has a top and a
+		bottom that stay where they are; a chart's value axis is refitted to whatever is
+		showing, so it has neither.
+		"""
+		return self._windows and bool(getattr(self._source, "windowsVertically", False))
+
 	def _reframe(self, pins: PinRect) -> None:
 		"""Ask the figure to draw itself again for what is visible, if it can.
 
@@ -613,13 +640,25 @@ class GraphicsMode(PanelOwner):
 		if not self._windows:
 			return
 		source = self._source.buffer
-		if not source.width:
+		if not source.width or not source.height:
 			return
-		visibleX = min(self._visible(pins)[0], source.width)
-		window = (self._originX / source.width, visibleX / source.width, pins.width, pins.height)
+		visibleX, visibleY = self._visible(pins)
+		visibleX = min(visibleX, source.width)
+		visibleY = min(visibleY, source.height)
+		vertical = self._windowsVertically
+		down = (self._originY / source.height, visibleY / source.height) if vertical else (0.0, 1.0)
+		window = (
+			self._originX / source.width,
+			visibleX / source.width,
+			pins.width,
+			pins.height,
+			down[0],
+			down[1],
+		)
 		if window == self._window and self._drawing is not None:
 			return
-		if window[:2] == (0.0, 1.0) and (source.width, source.height) == (pins.width, pins.height):
+		whole = window[:2] == (0.0, 1.0) and down == (0.0, 1.0)
+		if whole and (source.width, source.height) == (pins.width, pins.height):
 			# The whole figure at the size it was drawn, which is the figure itself. Drawing
 			# it again would only produce a copy, and entering the mode is the commonest
 			# time this is asked.
@@ -627,7 +666,11 @@ class GraphicsMode(PanelOwner):
 			self._window = window
 			return
 		try:
-			drawn = self._source.redraw(window[0], window[1], pins.width, pins.height)
+			# The vertical half is passed by keyword and only to a figure that asked for it.
+			# A chart's closure does not take it, and that is the point: the horizontal window
+			# is something every redrawable figure has, and the vertical one is not.
+			extra = {"top": down[0], "down": down[1]} if vertical else {}
+			drawn = self._source.redraw(window[0], window[1], pins.width, pins.height, **extra)
 		except Exception:
 			log.error("BrlMultiline: a figure could not draw itself again", exc_info=True)
 			drawn = None
@@ -753,7 +796,8 @@ class GraphicsMode(PanelOwner):
 		reported as a meaningless zero. A figure that redraws itself for its window has no
 		up and down to report at all: it fits its value axis to whatever it is showing, so
 		there is never anything above or below the panel and "top edge" would be a fact
-		about nothing.
+		about nothing. A picture redraws itself too and does have an up and a down, so it
+		is asked rather than assumed — see `Drawing.windowsVertically`.
 
 		:param surface: the display, or None to find it again.
 		:return: a short phrase, empty when nothing can move in either direction.
@@ -781,7 +825,7 @@ class GraphicsMode(PanelOwner):
 			# how far it can be moved. The placeholder is that percentage.
 			_("{percent} across"),
 		)
-		down = "" if self._windows else self._axisWords(
+		down = "" if (self._windows and not self._windowsVertically) else self._axisWords(
 			self._originY,
 			source.height - visibleY,
 			# Translators: the drawing is panned hard against its top edge.
@@ -825,10 +869,11 @@ class GraphicsMode(PanelOwner):
 		"""
 		visibleX, visibleY = self._visible(pins)
 		source = self._source.buffer
-		if self._windows:
+		if self._windows and not self._windowsVertically:
 			# A redrawn chart fits its value axis to whatever it is showing, so there is
 			# never anything above or below the panel to pan to. Only the period range is
-			# a window, and only it can have an edge.
+			# a window, and only it can have an edge. A picture is not like that: half of it
+			# is still half of it, and the other half is up or down.
 			return visibleX >= source.width
 		return visibleX >= source.width and visibleY >= source.height
 
@@ -840,7 +885,10 @@ class GraphicsMode(PanelOwner):
 		source = self._source.buffer
 		visibleX, visibleY = self._visible(pins)
 		self._originX = max(0, min(self._originX, max(0, source.width - visibleX)))
-		self._originY = 0 if self._windows else max(0, min(self._originY, max(0, source.height - visibleY)))
+		if self._windows and not self._windowsVertically:
+			self._originY = 0
+		else:
+			self._originY = max(0, min(self._originY, max(0, source.height - visibleY)))
 
 	# --- Zoom and pan -----------------------------------------------------------------------
 

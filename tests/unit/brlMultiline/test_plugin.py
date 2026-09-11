@@ -35,6 +35,7 @@ from ._stubs import (
 	displaySizeChanged,
 	fakeGetFocusRegions,
 	fakeVirtualDisplay,
+	flashedMessages,
 	installStubs,
 	log,
 	loadPlugin,
@@ -55,6 +56,7 @@ import config  # noqa: E402
 from braille.brailleHandler import BrailleHandler  # noqa: E402
 
 from brlMultiline import patches  # noqa: E402
+from brlMultiline import imagePins, imageSource  # noqa: E402
 from brlMultiline import flowObjects  # noqa: E402
 from brlMultiline.container import PLACEMENT_KEY_ATTRIBUTE, DisplayContainer  # noqa: E402
 from brlMultiline.layout import SegmentRect  # noqa: E402
@@ -115,6 +117,134 @@ class TestEveryCommandCanBeAssignedAKey(unittest.TestCase):
 		it is indistinguishable from a duplicate command."""
 		described = [(script.__doc__ or "").strip() for script in self._scripts().values()]
 		self.assertEqual(len(set(described)), len(described))
+
+
+class TestDrawingThePictureHere(unittest.TestCase):
+	"""The two commands that put a picture from the screen on the pins.
+
+	Only one decision lives at this level and it is worth a test of its own: changing how a
+	picture is drawn must not copy the screen again. By the time a reader presses the style key
+	the page may have scrolled and the focus may have moved, so a fresh capture would be a
+	capture of something else — and the command that said it was changing the style would
+	quietly have changed the picture too, which the reader would experience as the display
+	losing what they were reading.
+	"""
+
+	class Dots:
+		"""A drawing surface, reduced to what a rendering stamps onto."""
+
+		def __init__(self, width, height):
+			self.width = width
+			self.height = height
+			self.raised = set()
+
+		def setDot(self, x, y):
+			self.raised.add((x, y))
+
+		def rows(self):
+			return tuple(sorted(self.raised))
+
+	class FakeMode:
+		"""The graphics mode, reduced to what `_drawPicture` asks of it."""
+
+		def __init__(self, size=(48, 20)):
+			self.size = size
+			self.shown = []
+			self.lastError = ""
+
+		def drawingSize(self, textLines=None):
+			return self.size
+
+		def newBuffer(self, width, height):
+			return TestDrawingThePictureHere.Dots(width, height)
+
+		def enter(self, drawing=None, textLines=None):
+			self.shown.append(drawing)
+			return True
+
+		def describe(self):
+			return self.shown[-1].name if self.shown else ""
+
+	def setUp(self):
+		resetPluginState()
+		self.handler = FakeHandler(MONARCH_ROWS, MONARCH_COLS)
+		braille.handler = self.handler
+		self.plugin = GlobalPlugin()
+		self.addCleanup(self.tidy)
+		self.mode = self.FakeMode()
+		self.plugin.graphicsMode = self.mode
+		self.captures = []
+		self._realCapture = imageSource.captureNavigator
+		imageSource.captureNavigator = self._capture
+		flashedMessages.clear()
+
+	def tidy(self):
+		imageSource.captureNavigator = self._realCapture
+		try:
+			if not self.plugin._terminated:
+				self.plugin.terminate()
+		except Exception:
+			pass
+
+	def _capture(self):
+		"""A dark square on a light field, and a note that the screen was read."""
+		self.captures.append(True)
+		width = height = 90
+		greys = bytearray()
+		for y in range(height):
+			for x in range(width):
+				greys.append(0 if (30 <= x < 60 and 30 <= y < 60) else 255)
+		return imagePins.Picture(greys, width, height, "a picture")
+
+	def test_theFirstPressCopiesTheScreenAndShowsIt(self):
+		self.plugin.script_drawPicture(None)
+		self.assertEqual(len(self.captures), 1)
+		self.assertEqual(len(self.mode.shown), 1)
+
+	def test_changingTheStyleDrawsTheSamePixelsAgain(self):
+		self.plugin.script_drawPicture(None)
+		self.plugin.script_pictureStyle(None)
+		self.assertEqual(len(self.captures), 1)
+		self.assertEqual(len(self.mode.shown), 2)
+		self.assertNotEqual(self.mode.shown[0].buffer.rows(), self.mode.shown[1].buffer.rows())
+
+	def test_drawingAgainDoesCopyTheScreen(self):
+		"""The other half of the rule: the picture command is always a fresh look."""
+		self.plugin.script_drawPicture(None)
+		self.plugin.script_drawPicture(None)
+		self.assertEqual(len(self.captures), 2)
+
+	def test_theStyleKeyWithNoPictureSaysSoRatherThanDoingNothing(self):
+		self.plugin.script_pictureStyle(None)
+		self.assertFalse(self.mode.shown)
+		self.assertTrue(flashedMessages)
+
+	def test_theStyleIsKeptFromOnePictureToTheNext(self):
+		"""A reader who has found that brightness works for the diagrams on a page is reading
+		a page of diagrams."""
+		self.plugin.script_drawPicture(None)
+		self.plugin.script_pictureStyle(None)
+		chosen = self.plugin._pictureStyle
+		self.plugin.script_drawPicture(None)
+		self.assertEqual(self.plugin._pictureStyle, chosen)
+
+	def test_aRefusalReachesTheReaderAsWords(self):
+		"""Every refusal names what went wrong, because a reader told only that it failed
+		cannot tell whether to move, change the style, or give up."""
+
+		def refuse():
+			raise imagePins.ImageRefused("too small to draw")
+
+		imageSource.captureNavigator = refuse
+		self.plugin.script_drawPicture(None)
+		self.assertFalse(self.mode.shown)
+		self.assertIn("too small to draw", flashedMessages)
+
+	def test_aDisplayThatCannotDrawSaysSo(self):
+		self.mode.size = None
+		self.plugin.script_drawPicture(None)
+		self.assertFalse(self.captures)
+		self.assertTrue(flashedMessages)
 
 
 class PluginTestCase(unittest.TestCase):

@@ -18,10 +18,10 @@ Read the files in this order:
    when deciding whether an old idea is worth revisiting.
 5. [virtual-display-plan.md](virtual-display-plan.md) — feasibility findings and the plan
    for driving several physical displays as one, so that a second display can serve as a
-   segment. Phase 0 passed on hardware; the driver, its gestures and the add-on's
-   arrangement of a composite display are code complete and awaiting a hardware run. Read it
-   before touching braille display drivers, and keep its phase markers current rather than
-   repeating them here.
+   segment. All of it — the driver, its gestures and the add-on's arrangement of a composite
+   display — is in daily use on a Monarch and a Focus 80 together, which is the configuration
+   the rest of the work assumes. Read it before touching braille display drivers, and keep its
+   phase markers current rather than repeating them here.
 6. [spatial-reading-plan.md](spatial-reading-plan.md) — the design for presenting a document
    across the rows as one flow rather than a line per segment, and the open questions it
    still has. Every milestone in it is built and unit tested, and milestones 0 to 3 and 5

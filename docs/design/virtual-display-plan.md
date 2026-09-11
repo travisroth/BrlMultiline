@@ -10,8 +10,19 @@ writing. Line numbers are from that tree and will drift.
 
 ## Verdict
 
-It is possible. Nothing in NVDA prevents a braille display driver from owning several
-sub-drivers, and none of the machinery is private in a way that blocks this.
+It is possible, it is built, and it is what the author reads on: a Monarch and a Focus 80
+driven as one display, every day. Nothing in NVDA prevents a braille display driver from
+owning several sub-drivers, and none of the machinery is private in a way that blocks this.
+
+**And it turned out to matter most for graphics, which was not why it was built.** A figure
+can share the Monarch with a braille line — the driver composites an overlay over text in one
+write, so a drawing takes a rectangle and the rest of the panel goes on being braille. But the
+better arrangement is the one only two displays allow: put the focus line on the Focus 80 and
+give the *whole* Monarch to the drawing. Eight rows of figure instead of six or seven is not a
+refinement at ninety-six by forty pins; it is the difference between a shape a hand can follow
+and one it cannot. The cost the graphics plan records for a single display — the drawing
+segment hosting the focus itself, and being `exclusive` so NVDA's focus regions are dropped —
+is simply not paid here.
 
 The reason it works is that NVDA's single display assumption lives almost entirely in
 `BrailleHandler`, and `BrailleHandler` talks to hardware through a narrow interface. Read
@@ -464,7 +475,7 @@ One incidental finding, which belongs to Phase 4:
   single attempt — as does any handover between NVDA owning a display and the virtual driver
   owning it.
 
-**Phase 1, the driver — CODE COMPLETE, UNVERIFIED ON HARDWARE.** Config section, device
+**Phase 1, the driver — IN DAILY USE ON HARDWARE.** Config section, device
 slots, geometry, fan out writes with per device change detection, per device write queue,
 terminate. Per device ack pacing is staged out of this phase; see the acknowledgement
 section for what to build now and what to build only on evidence. Success looks like: both
@@ -637,7 +648,7 @@ Then choose "BrlMultiline: several displays as one" in NVDA's braille display li
 top first, so that example puts the Monarch above the Focus, giving 9 rows of 80 with the
 Monarch's 48 dead columns per row reported as a warning in the log.
 
-**Phase 2, gestures — CODE COMPLETE, UNVERIFIED ON HARDWARE.** Decider translation, gesture
+**Phase 2, gestures — IN DAILY USE ON HARDWARE.** Decider translation, gesture
 map, script delegation, modifier gestures. Success looks like: routing on the secondary
 routes to the right character, and the primary's own display specific commands still work.
 
@@ -758,7 +769,7 @@ drive it from NVDA. Recorded so the decision does not have to be made twice.
 496 tests, one expected failure. The three covering the install window were checked against
 the unfixed code and fail there, which is the only way to know a regression test regresses.
 
-**Phase 3, add-on integration — CODE COMPLETE, UNVERIFIED ON HARDWARE.** The device map
+**Phase 3, add-on integration — IN DAILY USE ON HARDWARE.** The device map
 becomes a base view with one panel per band and blank masking of dead columns. Settings panel
 for choosing members and their order. Success looks like: the secondary display holds a
 pinned object while focus moves on the primary — with no new code in `objectMonitor.py`,
