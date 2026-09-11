@@ -308,6 +308,116 @@ class TestFittingToThePanel(unittest.TestCase):
 		self.assertEqual((spot.width, spot.height), (0, 0))
 
 
+class TestWhatAWidePictureIsMeasuredAgainst(unittest.TestCase):
+	"""A toolbar is nine hundred pixels by thirty-six, and that broke the yardstick.
+
+	The reference grid kept the picture proportions and put 48 cells on the long side, which
+	left two rows on the short one. A Sobel needs three. So the strongest gradient in the
+	picture came back as nought, every window compared itself against nought and passed, and
+	the check meant to catch a window of pure background was off for every wide picture on the
+	screen -- a toolbar, a menu bar, a tab strip, most of what a reader points at.
+
+	It went unnoticed because its failure mode is to permit. Nothing looked wrong; the check
+	simply never said no.
+	"""
+
+	def bar(self, width=900, height=36):
+		""":return: a strip of small dark icons on a plain bar."""
+		greys = bytearray([235]) * (width * height)
+		for n in range(12):
+			middle = 40 + n * 70
+			for y in range(10, 26):
+				for x in range(middle - 8, middle + 8):
+					if 0 <= x < width and abs(x - middle) + abs(y - 18) < 9:
+						greys[y * width + x] = 30
+		return imagePins.Picture(greys, width, height, "toolbar")
+
+	def test_theReferenceIsMeasurableAtAll(self):
+		self.assertGreater(self.bar().strength.gradient, 0)
+
+	def test_soAWindowOfBareBarIsRecognisedAsBackground(self):
+		"""The whole point of measuring it. Off the end of the icons there is nothing, and
+		without a reference to compare against nothing is what gets drawn as something."""
+		picture = self.bar()
+		whole = (0, 0, picture.width, picture.height)
+		window = imagePins.windowOf(picture, whole, 0.93, 0.0, 0.07, 1.0)
+		found = imagePins.render(picture, window, 96, 40, imagePins.EDGES, False, False)
+		self.assertTrue(found.barren)
+
+	def test_andAWindowOnTheIconsIsNot(self):
+		"""The other half, or the test above would pass on a pipeline that refused
+		everything."""
+		picture = self.bar()
+		whole = (0, 0, picture.width, picture.height)
+		window = imagePins.windowOf(picture, whole, 0.0, 0.0, 0.2, 1.0)
+		found = imagePins.render(picture, window, 96, 40, imagePins.EDGES, False, False)
+		self.assertFalse(found.barren)
+		self.assertTrue(found.raised)
+
+	def test_aSquarePictureIsUnaffected(self):
+		"""The floor must not distort the ordinary case."""
+		greys = bytearray(
+			0 if 30 <= x < 70 and 30 <= y < 70 else 255 for y in range(100) for x in range(100)
+		)
+		self.assertGreater(imagePins.Picture(greys, 100, 100, "square").strength.gradient, 0)
+
+	def test_somethingTooThinToDrawSaysThatRatherThanSomethingElse(self):
+		"""Sixteen hundred by twenty fits onto the panel as a strip one pin deep. Nothing can
+		be drawn in that, and the reader should hear what is wrong with the shape rather than
+		a count of how few pins came out."""
+		greys = bytearray([240]) * (1600 * 20)
+		for y in range(6, 14):
+			for x in range(100, 140):
+				greys[y * 1600 + x] = 20
+		picture = imagePins.Picture(greys, 1600, 20, "a rule")
+		with self.assertRaises(imagePins.ImageRefused) as refused:
+			imagePins.render(picture, (0, 0, 1600, 20), 96, 40, imagePins.EDGES)
+		self.assertIn("thin", str(refused.exception))
+
+
+class TestNothingHereAnswersTheSameWayEveryTime(unittest.TestCase):
+	"""Three ways of finding nothing, and they used to disagree with each other.
+
+	A window of flat tone raised one exception, a window below the strength floor came back
+	blank and marked, and a window that detected too little raised a different exception. Two
+	of those three stop the zoom, because a window that will not compose is a move that does
+	not happen -- so which check happened to notice decided whether the reader could move.
+	"""
+
+	def picture(self):
+		""":return: a small dark square on a large light field, with room around it."""
+		greys = bytearray(
+			0 if 10 <= x < 30 and 10 <= y < 30 else 250 for y in range(200) for x in range(200)
+		)
+		return imagePins.Picture(greys, 200, 200, "a corner mark")
+
+	def emptyCorner(self, mode):
+		""":return: a window on the far corner, where there is nothing at all."""
+		picture = self.picture()
+		window = imagePins.windowOf(picture, (0, 0, 200, 200), 0.6, 0.6, 0.3, 0.3)
+		return imagePins.render(picture, window, 96, 40, mode, False, False)
+
+	def test_aFlatWindowIsBlankRatherThanRefused(self):
+		for mode in (imagePins.EDGES, imagePins.BRIGHTNESS):
+			with self.subTest(mode=mode):
+				found = self.emptyCorner(mode)
+				self.assertTrue(found.barren)
+				self.assertEqual(found.raised, 0)
+
+	def test_butAFlatWholePictureIsStillRefused(self):
+		flat = imagePins.Picture(bytearray([250] * (200 * 200)), 200, 200, "nothing")
+		with self.assertRaises(imagePins.ImageRefused):
+			imagePins.render(flat, (0, 0, 200, 200), 96, 40, imagePins.EDGES)
+
+	def test_aWindowIsNeverRefusedForBeingSparse(self):
+		"""A few true pins are worth more to a reader panning about than a refusal that stops
+		them moving. The display has already proved itself by drawing the whole picture."""
+		picture = self.picture()
+		window = imagePins.windowOf(picture, (0, 0, 200, 200), 0.0, 0.0, 0.9, 0.9)
+		found = imagePins.render(picture, window, 96, 40, imagePins.EDGES, False, False)
+		self.assertTrue(found.raised)
+
+
 class TestWindowing(unittest.TestCase):
 	"""Narrowing the source box to a fraction, which is what zoom hands over."""
 

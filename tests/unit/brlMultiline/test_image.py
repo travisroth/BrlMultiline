@@ -549,11 +549,18 @@ class TestZoomingIntoTheCapture(unittest.TestCase):
 		figure = imageFigure.figureFor(newBuffer, picture(), *PANEL)
 		self.assertIsNone(figure.redraw(0.25, 0.5, PANEL[0], PANEL[1], top=0.0, down=1.0).redraw)
 
-	def test_aWindowWithNothingInItKeepsTheViewRatherThanBlanking(self):
-		"""None comes back, and the mode keeps what the reader already had. A blank panel
-		would say the picture had gone."""
+	def test_aWindowWithNothingInItIsDrawnBlankAndSaysSo(self):
+		"""It used to come back as None, so the mode kept the previous view and the zoom did
+		not happen. That is right for a figure that cannot compose a window and wrong for a
+		picture that composed one perfectly well and found nothing in it: the middle of an
+		outlined shape is empty, zoom keeps what is under the hand under the hand, and so the
+		zoom key did nothing at all on a picture with plenty to magnify. The reader has to be
+		able to pass through the empty part to reach the rim.
+		"""
 		figure = imageFigure.figureFor(newBuffer, picture(), *PANEL)
-		self.assertIsNone(figure.redraw(0.0, 0.02, PANEL[0], PANEL[1], top=0.0, down=0.02))
+		window = figure.redraw(0.0, 0.02, PANEL[0], PANEL[1], top=0.0, down=0.02)
+		self.assertIsNotNone(window, "the mode would read None as a zoom that cannot happen")
+		self.assertTrue(window.note, "a blank panel with nothing said about it reads as a fault")
 
 	def test_aBigCaptureHasFurtherToZoomThanASmallOne(self):
 		big = imageFigure.zoomPoints(picture(960, 400), *PANEL)

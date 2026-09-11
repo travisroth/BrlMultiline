@@ -362,7 +362,20 @@ class Picture:
 		return self._strength
 
 	def _measure(self) -> Strength:
-		""":return: the picture's own strength, at `REFERENCE_CELLS`."""
+		""":return: the picture own strength, at `REFERENCE_CELLS`.
+
+		**The short axis is never allowed to collapse.** Keeping the proportions and putting
+		`REFERENCE_CELLS` on the long side gives a toolbar 900 by 36 a reference grid two rows
+		tall, and a Sobel needs three -- so the strongest gradient in the picture came back as
+		nought, every window compared itself against nought and passed, and the check that was
+		supposed to catch a window of pure background was silently off for every wide picture
+		on the screen. It did not announce itself as a failure because its failure mode is to
+		permit, which is exactly the kind of broken that gets shipped.
+
+		So the short axis is floored at three cells, or at whatever the picture has if it has
+		fewer. That distorts the reference grid for a very wide picture, which costs nothing:
+		this is one number to hold windows against, not something anybody feels.
+		"""
 		if not self.greys or self.width < 2 or self.height < 2:
 			return Strength(0, 0)
 		if self.width >= self.height:
@@ -371,6 +384,8 @@ class Picture:
 		else:
 			down = min(REFERENCE_CELLS, self.height)
 			across = max(1, round(down * self.width / self.height))
+		across = max(across, min(3, self.width))
+		down = max(down, min(3, self.height))
 		greys = self.reduce((0, 0, self.width, self.height), across, down)
 		cells = _gradients(greys, across, down)
 		return Strength(max((cell[0] for cell in cells), default=0), _separation(greys))
@@ -927,23 +942,30 @@ def renderAt(
 	if spot.width <= 0 or spot.height <= 0:
 		# Translators: reported when a picture was asked for in no space at all.
 		raise ImageRefused(_("There is no room here for a picture"))
-	greys = picture.reduce(spot.source, spot.width, spot.height)
-	if not greys or (max(greys) - min(greys)) < PLAIN:
-		# Refused rather than drawn. Every threshold below would be arbitrary on a flat field,
-		# and both ways it could go -- an empty panel and a solid one -- are indistinguishable
-		# by touch from a display that has stopped working.
-		# Translators: reported when a picture has nothing in it to feel.
-		raise ImageRefused(_("There is nothing in this picture to draw"))
-	strength = picture.strength
-	if mode == BRIGHTNESS:
-		found = _separation(greys) >= strength.separation * MEANINGFUL
-	else:
-		cells = _gradients(greys, spot.width, spot.height)
-		found = max((cell[0] for cell in cells), default=0) >= strength.gradient * MEANINGFUL
-	if not found:
+	if min(spot.width, spot.height) < 3:
+		# Something long and thin -- a rule, a divider, a one line toolbar -- fitted onto the
+		# panel without being squashed leaves a strip a pin or two deep. Nothing can be drawn
+		# in that, and saying so beats the refusal further down, which would report how few
+		# pins came out and leave the reader wondering what was wrong with the picture.
+		# Translators: reported when something is too long and thin to draw on the pins. The
+		# placeholder is how many pin rows deep it would be.
+		raise ImageRefused(
+			_("This is too thin to draw; it would be {rows} rows deep").format(
+				rows=min(spot.width, spot.height),
+			),
+		)
+	def nothingHere(why: str) -> Rendering:
+		"""Refuse the whole picture, or hand back a blank window that says so.
+
+		Every way of finding nothing arrives here, and they must all answer the same way.
+		Three of them did not: a window of flat tone, a window below the strength floor and a
+		window that came out too sparse each had their own exit, two of them refusing -- and a
+		refused window is a zoom that does not happen, which is how a reader ended up with a
+		zoom key that did nothing on a picture with plenty in it. The rule is about who is
+		asking, not about which check noticed.
+		"""
 		if whole:
-			# Translators: reported when what was pointed at holds nothing that can be drawn.
-			raise ImageRefused(_("There is only background in this picture"))
+			raise ImageRefused(why)
 		return Rendering(
 			bytearray(spot.width * spot.height),
 			spot.width,
@@ -953,11 +975,32 @@ def renderAt(
 			spot.top,
 			True,
 		)
+
+	greys = picture.reduce(spot.source, spot.width, spot.height)
+	if not greys or (max(greys) - min(greys)) < PLAIN:
+		# A flat field. Every threshold below would be arbitrary on it, and for a whole
+		# picture both ways it could go -- an empty panel and a solid one -- are
+		# indistinguishable by touch from a display that has stopped working.
+		# Translators: reported when a picture has nothing in it to feel.
+		return nothingHere(_("There is nothing in this picture to draw"))
+	strength = picture.strength
+	if mode == BRIGHTNESS:
+		found = _separation(greys) >= strength.separation * MEANINGFUL
+	else:
+		cells = _gradients(greys, spot.width, spot.height)
+		found = max((cell[0] for cell in cells), default=0) >= strength.gradient * MEANINGFUL
+	if not found:
+		# Translators: reported when what was pointed at holds nothing that can be drawn.
+		return nothingHere(_("There is only background in this picture"))
 	if mode == BRIGHTNESS:
 		rendering = brightnessPins(greys, spot.width, spot.height, invert=invert)
 	else:
 		rendering = edgePins(greys, spot.width, spot.height)
-	if rendering.coverage < SPARSE:
+	if whole and rendering.coverage < SPARSE:
+		# Only of a whole picture. A window this sparse has found a little of something real,
+		# and a few true pins are worth more to a reader panning across a drawing than a
+		# refusal that stops them moving -- the display has already proved itself by drawing
+		# the whole picture, so there is nothing here to mistake for a fault.
 		# Translators: reported when a picture came out as too few raised dots to feel.
 		raise ImageRefused(_("There is too little in this picture to feel"))
 	return rendering._replace(left=spot.left, top=spot.top)

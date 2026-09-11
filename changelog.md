@@ -24,6 +24,11 @@ Added:
   be drawn, and a zoom into a part of a picture that holds only background says so instead of
   filling the panel with texture.
 
+- **Wide pictures are measured properly.** A toolbar or a menu bar is far wider than it is
+  tall, and the yardstick a picture is judged against was collapsing on the short side for
+  anything that shape — so the check that tells a part of a picture with something in it from
+  a part with only background was silently doing nothing on most of what a reader points at.
+
 - **Zooming through an empty part of a picture works.** The middle of an outlined shape has
   nothing in it, and zoom keeps what is under your hand under your hand, so zooming into a
   hexagon lands on nothing. That part of the picture is now drawn as what it is — blank — and
