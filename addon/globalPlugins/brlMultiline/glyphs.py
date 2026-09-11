@@ -29,7 +29,7 @@ Three things live here, and the order they are in is the order they are used.
 3. **The fitting.** Turning a vocabulary entry into something a particular driver can draw
    against a particular reader's braille table.
 
-**The fallback is not a spare tyre.** It is what the add-on writes into the ordinary cell
+**The fallback is not extra.** It is what the add-on writes into the ordinary cell
 buffer, so one composed frame serves a Monarch and a Focus 80 alike; it is the key the driver
 matches on, which is what scopes a glyph's life to the content it belongs to; and it is what a
 caret overrides, because a reader needs the caret more than the symbol. Making it NVDA's own
@@ -79,8 +79,7 @@ CELL_DOTS = {
 **Dots 1 to 8 are exactly braille's own**, and 9 to 12 continue the same rule into the column
 braille leaves blank: down the left, down the middle, down the right, with the fourth row last
 in each. There is no standard for a three column tactile cell to follow, so this is ours — and
-starting from the numbering every braille reader already has is the only sensible place to
-start.
+starting from the numbering every braille reader already has.
 
 Twelve dots is the whole slot at either pitch: `slotSize` is the cell stride by the cell's dot
 rows, which is 3 by 4 whether the display is set to 8 rows or 10.
@@ -450,7 +449,7 @@ COMBO = Glyph(
 """
 
 SUBMENU = Glyph(
-	dots="1,3,5",
+	dots="1,3,5,10",
 	says="submnu",
 	stands="State.HASPOPUP",
 	describes="a chevron pointing right, where the submenu opens",
@@ -458,13 +457,13 @@ SUBMENU = Glyph(
 """There is a submenu here: a chevron pointing right, where it opens.
 
 	O..
-	.O.
+	.Oo
 	O..
 	...
 """
 
 LINK = Glyph(
-	dots="3,5,9",
+	dots="4,6,9,10",
 	says="lnk",
 	stands="Role.LINK",
 	describes="a stroke rising to the right, going somewhere",
@@ -472,9 +471,9 @@ LINK = Glyph(
 """A link: a stroke rising to the right, going somewhere.
 
 	..O
-	.O.
-	O..
-	...
+	..o
+	.o.
+	o..
 """
 
 LIST = Glyph(
@@ -551,7 +550,7 @@ PROGRESS = Glyph(
 """
 
 VISITED_LINK = Glyph(
-	dots="1,5,11",
+	dots="1,5,11,12", 
 	says="vlnk",
 	stands="Role.LINK with State.VISITED",
 	describes="a stroke falling to the right, somewhere you have been",
@@ -588,9 +587,6 @@ dots is something a braille reader does without thinking. A deeper heading keeps
 "h4" and is the better for it: level four is rare, and a shape nobody meets often enough to
 learn is worse than three cells that spell it.
 
-The level is drawn as a count rather than as the height of the rule, which was the first idea
-and the wrong one — a rule at row three is `SEPARATOR`, and rows one to three filled is
-`FOCUS`. A family that collides with two other symbols is not a family.
 """
 
 SEPARATOR = Glyph(
