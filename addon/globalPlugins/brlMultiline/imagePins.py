@@ -231,6 +231,20 @@ class Rendering(NamedTuple):
 	top: int = 0
 	"""Panel row to stamp it at."""
 
+	barren: bool = False
+	"""Whether this is deliberately empty, because the picture is empty here.
+
+	Only ever true of a *window* of a picture that drew. The distinction is the whole reason
+	this exists: a blank panel a reader cannot account for is indistinguishable by touch from
+	a display that has stopped working, so an empty capture is still refused outright. But
+	once the whole picture has drawn, the display has demonstrated that it works, and a blank
+	window is then a fact about the picture rather than a possible fault -- the middle of a
+	hexagon really is empty, and a reader zooming towards an edge has to be able to pass
+	through it to get there.
+
+	So it is drawn, and it is announced. What must not happen is that it is drawn silently.
+	"""
+
 	@property
 	def coverage(self) -> float:
 		""":return: the fraction of the picture's own pins that are raised.
@@ -873,7 +887,13 @@ def place(picture: Picture, box, width: int, height: int) -> Placement:
 	)
 
 
-def renderAt(picture: Picture, spot: Placement, mode: str = EDGES, invert: bool = False) -> Rendering:
+def renderAt(
+	picture: Picture,
+	spot: Placement,
+	mode: str = EDGES,
+	invert: bool = False,
+	whole: bool = True,
+) -> Rendering:
 	"""Work a placement out into pins.
 
 	The one place the refusals live, so that every caller -- the first view, a zoom, a change
@@ -886,12 +906,23 @@ def renderAt(picture: Picture, spot: Placement, mode: str = EDGES, invert: bool 
 	strong is the strongest edge here, how far apart are the two tones here -- and the answer
 	is compared with the same measurement over the whole capture. See `MEANINGFUL`.
 
+	**What happens when the answer is no depends on whether this is the whole picture.** A
+	capture with nothing in it is refused: the reader pointed at something that is not a
+	picture, and a blank panel would leave them unable to tell that from a display that had
+	stopped working. A *window* with nothing in it is drawn empty and marked, because by then
+	the whole picture has already drawn and the display has proved itself -- and because
+	refusing it strands the reader. Zoom keeps what is under the hand under the hand, the
+	middle of an outlined shape is empty, so every zoom from fit was refused and the rim,
+	which is the part worth magnifying, could not be reached at all: no zoom, therefore no
+	pan, therefore no way in. See `Rendering.barren`.
+
 	:param picture: the captured pixels.
 	:param spot: which of them, and where they land.
 	:param mode: `EDGES` or `BRIGHTNESS`.
 	:param invert: swap which side of a silhouette is raised.
+	:param whole: whether this is the entire picture rather than a window of it.
 	:return: the pins, positioned on the panel.
-	:raises ImageRefused: if there is nothing in this part of the picture to draw.
+	:raises ImageRefused: if there is nothing here to draw and nothing to pan towards.
 	"""
 	if spot.width <= 0 or spot.height <= 0:
 		# Translators: reported when a picture was asked for in no space at all.
@@ -905,20 +936,26 @@ def renderAt(picture: Picture, spot: Placement, mode: str = EDGES, invert: bool 
 		raise ImageRefused(_("There is nothing in this picture to draw"))
 	strength = picture.strength
 	if mode == BRIGHTNESS:
-		if _separation(greys) < strength.separation * MEANINGFUL:
-			# Translators: reported when the part of a picture being shown holds only
-			# background, so that drawing it would put a texture under the reader hands and
-			# nothing of the subject.
-			raise ImageRefused(_("There is only background in this part of the picture"))
-		rendering = brightnessPins(greys, spot.width, spot.height, invert=invert)
+		found = _separation(greys) >= strength.separation * MEANINGFUL
 	else:
 		cells = _gradients(greys, spot.width, spot.height)
-		strongest = max((cell[0] for cell in cells), default=0)
-		if strongest < strength.gradient * MEANINGFUL:
-			# Translators: reported when the part of a picture being shown holds only
-			# background, so that drawing it would put a texture under the reader hands and
-			# nothing of the subject.
-			raise ImageRefused(_("There is only background in this part of the picture"))
+		found = max((cell[0] for cell in cells), default=0) >= strength.gradient * MEANINGFUL
+	if not found:
+		if whole:
+			# Translators: reported when what was pointed at holds nothing that can be drawn.
+			raise ImageRefused(_("There is only background in this picture"))
+		return Rendering(
+			bytearray(spot.width * spot.height),
+			spot.width,
+			spot.height,
+			0,
+			spot.left,
+			spot.top,
+			True,
+		)
+	if mode == BRIGHTNESS:
+		rendering = brightnessPins(greys, spot.width, spot.height, invert=invert)
+	else:
 		rendering = edgePins(greys, spot.width, spot.height)
 	if rendering.coverage < SPARSE:
 		# Translators: reported when a picture came out as too few raised dots to feel.
@@ -933,6 +970,7 @@ def render(
 	height: int,
 	mode: str = EDGES,
 	invert: bool = False,
+	whole: bool = True,
 ) -> Rendering:
 	"""Work one rectangle of a picture out for one rectangle of pins.
 
@@ -948,7 +986,7 @@ def render(
 	:return: the pins, positioned on the panel.
 	:raises ImageRefused: if there is nothing in this part of the picture to draw.
 	"""
-	return renderAt(picture, place(picture, box, width, height), mode, invert)
+	return renderAt(picture, place(picture, box, width, height), mode, invert, whole)
 
 
 def windowOf(picture: Picture, box, left: float, top: float, across: float, down: float) -> tuple:

@@ -202,15 +202,19 @@ def _compose(newBuffer, picture, box, width, height, mode, invert, whole: bool) 
 	:raises ImageRefused: if there is nothing in this part of the picture.
 	"""
 	spot = place(picture, box, width, height)
-	rendering = renderAt(picture, spot, mode, invert)
+	rendering = renderAt(picture, spot, mode, invert, whole)
 	buffer = newBuffer(width, height)
 	if buffer is None:
 		# Translators: reported when the display would not give a surface to draw on.
 		raise ImageRefused(_("The display would not provide a drawing surface"))
 	rendering.draw(buffer)
 	name = _nameOf(picture, mode, invert, whole)
+	# Translators: said of a magnified part of a picture that has nothing in it, so that a
+	# reader feeling an empty panel knows the picture is blank here rather than that the
+	# display has stopped working. They can keep panning to reach the part that is not.
+	note = _("only background here") if rendering.barren else ""
 	if not whole:
-		return Drawing(buffer, name=name, describeAt=_describer(picture, spot))
+		return Drawing(buffer, name=name, describeAt=_describer(picture, spot), note=note)
 	return Drawing(
 		buffer,
 		name=name,
@@ -218,6 +222,7 @@ def _compose(newBuffer, picture, box, width, height, mode, invert, whole: bool) 
 		redraw=_reframer(newBuffer, picture, box, mode, invert),
 		points=zoomPoints(picture, width, height),
 		windowsVertically=True,
+		note=note,
 	)
 
 

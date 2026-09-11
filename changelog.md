@@ -24,6 +24,13 @@ Added:
   be drawn, and a zoom into a part of a picture that holds only background says so instead of
   filling the panel with texture.
 
+- **Zooming through an empty part of a picture works.** The middle of an outlined shape has
+  nothing in it, and zoom keeps what is under your hand under your hand, so zooming into a
+  hexagon lands on nothing. That part of the picture is now drawn as what it is — blank — and
+  the display says "only background here" on the zoom and on every pan that stays in it, so
+  you can carry on panning until an edge arrives. Only a window may be blank this way; a
+  capture with nothing in it at all is still refused outright.
+
 - **One key cycles outlines, brightness, and brightness reversed.** None of the three can be
   chosen in advance — the same picture drawn two ways is two entirely different panels — so the
   answer is a key to press rather than a question nobody could answer. It re-draws the pixels

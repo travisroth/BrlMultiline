@@ -1251,6 +1251,33 @@ The two mistakes do not cost the same. Refusing a window that had something in i
 one keypress and a sentence saying why. Drawing one that had nothing costs them a panel they
 will read as the picture.
 
+#### A blank window is drawn and announced, and refusing it was worse
+
+The first version of that refusal refused the window too, and hardware found the flaw within
+minutes. **Zoom keeps what is under the hand under the hand**, which is right in general. The
+middle of an outlined shape is empty. So every zoom from fit landed on nothing and was refused,
+and since a move that cannot be drawn is not a move, the zoom key did nothing at all — no zoom,
+therefore no pan, therefore no way to reach the rim, which is the entire thing worth magnifying.
+Measured on the hexagon: fit draws, and zoom steps 1 through 5 were all refused, while the same
+window moved hard left holds 107 pins of real outline. Each refusal was individually correct and
+collectively useless, and the reader reported it as zoom being broken.
+
+So the rule is split by what the failure can mean:
+
+- **The whole picture holds nothing:** refused. The reader pointed at something that is not a
+  picture, and a blank panel would leave them unable to tell that from a display that had
+  stopped working.
+- **A window holds nothing:** drawn, blank, and announced. By then the whole picture has already
+  drawn, so the display has demonstrated that it works, and the blank is a fact about the
+  picture — the middle of a hexagon really is empty.
+
+The rule it looks like it breaks is the one about blank panels, and it does not: that rule is
+that a blank panel must never happen **silently**. So `Drawing` carries a note, the zoom
+announcement appends it, and panning appends it too — because a reader panning across an empty
+middle needs to hear why they are feeling nothing on every step, not only on the one that took
+them there. Zoom in on the hexagon and the panel is blank and says "only background here"; pan
+once and a side arrives with 34 pins; pan again and the vertex arrives with 116.
+
 #### Thinning, and the limit of thinning
 
 Non-maximum suppression reduces a broad Sobel response to the crest of its ridge, and hysteresis

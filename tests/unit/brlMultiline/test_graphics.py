@@ -1024,6 +1024,55 @@ class TestAFigureWithAnUpAndADown(unittest.TestCase):
 		self.assertEqual(len(self.windows[-1]), 2)
 
 
+class TestADrawingThatIsBlankOnPurpose(unittest.TestCase):
+	"""A blank panel has to be accounted for, and the panel cannot do it.
+
+	The one drawing allowed to be empty is a window on a part of a picture that is empty --
+	the middle of an outlined shape, which a reader has to be able to pass through to reach
+	the rim. What makes that safe rather than indistinguishable from a broken display is that
+	it is said, every time it is under a hand: on the zoom that produced it, and again on each
+	pan that stays in it.
+	"""
+
+	def setUp(self):
+		self.driver = FakeDrawableDriver(numRows=8, numCols=32)
+		useDisplay(self.driver)
+		self.plugin = FakePlugin()
+		self.mode = GraphicsMode(self.plugin)
+
+	def figure(self):
+		""":return: a figure whose windows are blank and say so."""
+
+		def redraw(offset, span, pinWidth, pinHeight, top=0.0, down=1.0):
+			return Drawing(
+				PinBuffer(pinWidth, pinHeight),
+				name="a window",
+				note="only background here",
+				windowsVertically=True,
+			)
+
+		buffer = PinBuffer(96, 35)
+		buffer.rect(0, 0, 96, 35)
+		return Drawing(buffer, name="picture", redraw=redraw, windowsVertically=True)
+
+	def test_theWholeDrawingHasNothingToSay(self):
+		self.mode.enter(self.figure())
+		self.assertEqual(self.mode.note, "")
+
+	def test_aBlankWindowSaysWhyItIsBlank(self):
+		self.mode.enter(self.figure())
+		self.assertTrue(self.mode.zoomBy(1))
+		self.assertEqual(self.mode.note, "only background here")
+
+	def test_andItIsInWhatTheZoomAnnounces(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		self.assertIn("only background here", self.mode.describe())
+
+	def test_aModeWithNoDrawingSaysNothingRatherThanFailing(self):
+		self.assertEqual(GraphicsMode(FakePlugin()).note, "")
+
+
 class TestAWindowTheFigureWillNotDraw(unittest.TestCase):
 	"""What the panel shows and what the mode reports have to be the same thing.
 

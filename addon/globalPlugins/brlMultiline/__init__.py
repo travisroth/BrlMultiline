@@ -3003,7 +3003,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Said as a fraction of how far the window can move rather than as a source dot: the
 		# dot number depends on how large the drawing happens to be, which is a fact about the
 		# file and not about what the reader is feeling. See `GraphicsMode.positionWords`.
-		ui.message(mode.positionWords())
+		# The note goes with it because a blank panel has to be accounted for every time it is
+		# under a hand, not only on the zoom that first produced it.
+		said = mode.positionWords()
+		note = mode.note
+		ui.message(", ".join(part for part in (said, note) if part))
 
 	@script(
 		# Translators: input help message for a command.

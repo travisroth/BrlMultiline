@@ -25,6 +25,7 @@ What it pins down, in the order the reader met them:
 """
 
 import os
+import sys
 import unittest
 
 from ._png import greysOf
@@ -32,7 +33,25 @@ from ._stubs import installStubs
 
 installStubs()
 
-from brlMultiline import imagePins  # noqa: E402
+sys.path.insert(
+	0,
+	os.path.join(
+		os.path.dirname(__file__),
+		"..",
+		"..",
+		"..",
+		"addon",
+		"brailleDisplayDrivers",
+		"brlMultilineMonarch",
+	),
+)
+
+from brlMultiline import image as imageFigure, imagePins  # noqa: E402
+from pinBuffer import PinBuffer  # noqa: E402
+
+
+def newBuffer(width, height):
+	return PinBuffer(width, height)
 
 PANEL = (96, 40)
 """The Monarch, when the whole of it is given to a picture."""
@@ -231,31 +250,94 @@ class TestZoomingIntoNothing(HexagonTestCase):
 	"""The reader third report: stripes appearing in the middle of the hexagon on zoom.
 
 	The middle of this hexagon is empty. What the reader was feeling was the background hatch,
-	resolved by the reduction as the window narrowed and then promoted to fill a quota. The
-	honest answer is that there is nothing in this part of the picture, and now that is what is
-	said.
+	resolved by the reduction as the window narrowed and then promoted to fill a coverage
+	quota. So the hatch is no longer drawn -- but the window is, blank, and it says so.
+
+	**Refusing the window instead was tried on hardware and was worse.** Zoom keeps what is
+	under the hand under the hand, the middle of an outlined shape is empty, and so every zoom
+	from fit was refused: no zoom, therefore no pan, therefore no way to reach the rim, which
+	is the whole of what there is to magnify. The reader reported it as zoom being broken. A
+	blank panel that says why is a panel a reader can pass through.
 	"""
 
-	def test_theMiddleOfTheHexagonHoldsNothingToDraw(self):
+	def windowAt(self, offset, top=0.25, fraction=0.5, mode=imagePins.EDGES):
+		""":return: what a window of the picture came back as, drawn as a part rather than as
+		the whole."""
+		box = imagePins.windowOf(self.picture, self.whole, offset, top, fraction, fraction)
+		return imagePins.render(self.picture, box, *PANEL, mode, False, False)
+
+	def test_theMiddleOfTheHexagonDrawsNothing(self):
+		"""Which is correct: there is nothing there. The hatch used to fill it."""
 		for fraction in (0.5, 0.25):
 			for mode in (imagePins.EDGES, imagePins.BRIGHTNESS):
 				with self.subTest(fraction=fraction, mode=mode):
-					with self.assertRaises(imagePins.ImageRefused):
-						imagePins.render(self.picture, self.window(fraction), *PANEL, mode)
+					edge = (1 - fraction) / 2
+					found = self.windowAt(edge, edge, fraction, mode)
+					self.assertEqual(found.raised, 0)
 
-	def test_theRefusalSaysWhatIsWrong(self):
-		"""A reader who has just zoomed needs to know the picture has not gone."""
-		with self.assertRaises(imagePins.ImageRefused) as refused:
-			imagePins.render(self.picture, self.window(0.25), *PANEL, imagePins.EDGES)
-		self.assertIn("background", str(refused.exception))
+	def test_andSaysThatIsWhyItIsBlank(self):
+		"""The panel cannot speak for itself here, so something else has to."""
+		edge = (1 - 0.5) / 2
+		self.assertTrue(self.windowAt(edge, edge, 0.5).barren)
+
+	def test_theRimIsStillThereToPanTo(self):
+		"""The point of letting the zoom through. The same window moved to either side of the
+		picture finds the sides of the hexagon, which is what a reader zoomed in to feel."""
+		for offset in (0.0, 0.5):
+			with self.subTest(offset=offset):
+				found = self.windowAt(offset)
+				self.assertGreater(found.raised, 50)
+				self.assertFalse(found.barren)
+
+	def test_aPictureThatIsAllBackgroundIsStillRefused(self):
+		"""The distinction that makes the blank window safe. A capture with nothing in it is
+		a reader pointing at something that is not a picture, and drawing that blank would be
+		indistinguishable by touch from a display that had stopped working."""
+		flat = imagePins.Picture(bytearray([200] * (80 * 80)), 80, 80, "nothing")
+		with self.assertRaises(imagePins.ImageRefused):
+			imagePins.render(flat, (0, 0, 80, 80), *PANEL, imagePins.EDGES)
 
 	def test_theWholePictureIsStillDrawnHappily(self):
-		"""The refusal has to be about the window and not about the picture, or the test above
-		would pass on a pipeline that had simply stopped working."""
+		"""The blank window has to be about the window and not about the picture, or the tests
+		above would pass on a pipeline that had simply stopped working."""
 		self.assertTrue(self.drawn(imagePins.EDGES))
 
-	def test_aWindowWithAnEdgeInItIsStillDrawn(self):
-		"""Off to one side, where a side of the hexagon runs. Refusing this would be the other
-		failure: a reader who zoomed towards something real and was told there was nothing."""
-		box = imagePins.windowOf(self.picture, self.whole, 0.0, 0.25, 0.5, 0.5)
-		self.assertTrue(imagePins.render(self.picture, box, *PANEL, imagePins.EDGES).raised)
+
+class TestZoomingThroughTheMiddle(HexagonTestCase):
+	"""End to end, because the fault the reader met was in the joins.
+
+	Every piece was behaving correctly on its own: the detector said there was nothing there,
+	the reframer passed that on as a refusal, and the mode declined to move on a window it
+	could not draw. The reader got a zoom key that did nothing, on a picture with plenty to
+	magnify.
+	"""
+
+	def figure(self, mode=imagePins.EDGES):
+		return imageFigure.figureFor(newBuffer, self.picture, *PANEL, mode)
+
+	def test_theFirstZoomComposesInsteadOfRefusing(self):
+		window = self.figure().redraw(0.25, 0.5, *PANEL, top=0.25, down=0.5)
+		self.assertIsNotNone(window, "the mode would treat None as a zoom that cannot happen")
+
+	def test_andCarriesTheNoteSoSomethingCanBeSaid(self):
+		window = self.figure().redraw(0.25, 0.5, *PANEL, top=0.25, down=0.5)
+		self.assertIn("background", window.note)
+
+	def test_panningFromThereReachesTheOutline(self):
+		"""The sequence the reader could not perform: in, then across."""
+		window = self.figure().redraw(0.0, 0.5, *PANEL, top=0.25, down=0.5)
+		self.assertIsNotNone(window)
+		self.assertFalse(window.note)
+		self.assertTrue(
+			any(
+				window.buffer.getDot(x, y)
+				for y in range(window.buffer.height)
+				for x in range(window.buffer.width)
+			)
+		)
+
+	def test_aWindowWithAnEdgeInItHasNoNote(self):
+		"""The note has to be worth hearing, which means it must not be said of a panel that
+		has something on it."""
+		window = self.figure().redraw(0.5, 0.5, *PANEL, top=0.25, down=0.5)
+		self.assertFalse(window.note)

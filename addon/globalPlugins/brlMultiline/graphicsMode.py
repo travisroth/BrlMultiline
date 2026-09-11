@@ -152,6 +152,7 @@ class Drawing:
 		redraw=None,
 		points: int = 0,
 		windowsVertically: bool = False,
+		note: str = "",
 	):
 		"""
 		:param buffer: the dots, a buffer from `GraphicsSurface.newBuffer`.
@@ -176,9 +177,14 @@ class Drawing:
 			figure that says yes is offered the vertical part of the window, because a chart
 			handed one might honour it, and a chart that scrolled its values would be showing
 			a range whose own axis no longer named it.
+		:param note: something about this drawing a reader has to be told rather than left to
+			work out from the panel. Empty for almost everything. The case it exists for is a
+			drawing that is legitimately blank -- a window on the empty middle of a shape --
+			where the panel has nothing to say and silence would read as a fault.
 		"""
 		self.buffer = buffer
 		self.name = name
+		self.note = note
 		self.describeAt = describeAt
 		self.redraw = redraw
 		self.points = points
@@ -1273,11 +1279,25 @@ class GraphicsMode(PanelOwner):
 				times=ZOOM_FACTOR**self._zoomStep,
 				position=self.positionWords(),
 			)
+		if self.note:
+			description += ", " + self.note
 		if not self._textLines:
 			# Translators: added when a drawing has taken the whole display and there is no
 			# braille line left beside it.
 			description += ", " + _("full panel, no braille line")
 		return description
+
+	@property
+	def note(self) -> str:
+		""":return: anything the reader has to be told about the drawing itself.
+
+		Almost always empty. It carries the one case where the panel cannot speak for itself:
+		a window that is blank because the picture is blank there. Exposed separately from
+		`describe` because panning reports only a position, and a reader panning across the
+		empty middle of a shape needs to hear why they are feeling nothing every time, not
+		only on the zoom that took them there.
+		"""
+		return getattr(self._drawing, "note", "") if self.active and self._drawing else ""
 
 	# --- Lifecycle --------------------------------------------------------------------------
 
