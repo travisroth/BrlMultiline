@@ -56,6 +56,22 @@ dev = [
 	{ include-group = "lint" },
 ]
 
+[tool.setuptools]
+# Nothing here is a library. `addon` is what gets zipped into the .nvda-addon and `spikes` is
+# throwaway hardware probes, and setuptools, left to discover packages for itself, finds both
+# at the top level and refuses to choose — which fails `uv sync` on a fresh checkout with an
+# error about package discovery, so the first thing a new contributor meets reads as the
+# project being broken rather than as the project not being a package.
+packages = []
+
+[tool.uv]
+# This project is a set of tools for building an NVDA add-on, not a library to install.
+# Without this, `uv sync` runs the build backend, setuptools goes looking for packages, and
+# finds two top level ones — `addon` and `spikes` — which it refuses to choose between. The
+# error is about packaging and arrives during setup, so it reads as the project being broken
+# rather than as the project not being a package at all.
+package = false
+
 [tool.ruff]
 line-length = 110
 

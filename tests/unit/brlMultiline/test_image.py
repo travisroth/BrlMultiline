@@ -17,6 +17,7 @@ still half a photograph, and the other half is above or below it.
 """
 
 import os
+import re
 import sys
 import types
 import unittest
@@ -173,6 +174,70 @@ class TestFindingSomethingToDraw(ScreenCapture):
 		self.assertTrue(imageSource.captureNavigator().width)
 
 
+class TestWhatIsActuallyOnTheScreen(ScreenCapture):
+	"""An object's location is where it would be, not where it can be seen.
+
+	A graphic scrolled off the bottom of a page keeps an ordinary rectangle with a y coordinate
+	past the end of the screen, and copying that rectangle succeeds — it comes back as whatever
+	the graphics card has there. The reader is then handed a picture that is not of the thing
+	they pointed at, drawn as confidently as a real one. The size check alone does not catch it,
+	because a large off-screen object is still large.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		self._realScreen = imageSource._visibleScreen
+		imageSource._visibleScreen = lambda: (0, 0, 1920, 1080)
+		self.addCleanup(self.putTheScreenBack)
+
+	def putTheScreenBack(self):
+		imageSource._visibleScreen = self._realScreen
+
+	def test_somethingEntirelyOffScreenIsRefused(self):
+		self.navigator.location = (0, 4000, 400, 300)
+		with self.assertRaises(imagePins.ImageRefused) as refused:
+			imageSource.captureNavigator()
+		self.assertIn("screen", str(refused.exception))
+
+	def test_somethingPartlyOffScreenIsClippedToWhatShows(self):
+		"""Part of the thing is worth having: it is what the reader can see."""
+		self.navigator.location = (1800, 100, 400, 300)
+		imageSource.captureNavigator()
+		self.assertEqual(FakeScreenBitmap.asked[0][:4], (1800, 100, 120, 300))
+
+	def test_aBigThingWithASliverShowingIsRefusedAsTooSmall(self):
+		"""Measured after the clip, so it is refused as what it is rather than passed as what
+		it would be if it were all there."""
+		self.navigator.location = (1915, 100, 800, 600)
+		with self.assertRaises(imagePins.ImageRefused) as refused:
+			imageSource.captureNavigator()
+		self.assertIn("small", str(refused.exception))
+
+	def test_aScreenThatWillNotBeMeasuredDoesNotRefuseEverything(self):
+		"""Not clipping is the safer failure: a wrong clip refuses pictures that would have
+		worked, where no clip only fails to catch one that would not."""
+		imageSource._visibleScreen = lambda: None
+		self.navigator.location = (0, 4000, 400, 300)
+		self.assertTrue(imageSource.captureNavigator().width)
+
+	def test_somethingThatSaysItIsNotInViewIsRefused(self):
+		"""The clip and the state catch different things. A control scrolled out of a pane
+		keeps a location that is still over the window it is in, so the rectangle looks fine
+		and the capture comes back as the rows that did scroll into view."""
+		import controlTypes
+
+		controlTypes.State = types.SimpleNamespace(OFFSCREEN="offscreen")
+		self.addCleanup(lambda: delattr(controlTypes, "State"))
+		self.navigator.states = {"offscreen"}
+		with self.assertRaises(imagePins.ImageRefused) as refused:
+			imageSource.captureNavigator()
+		self.assertIn("view", str(refused.exception))
+
+	def test_anObjectThatWillNotSayItsStatesIsDrawnAnyway(self):
+		"""Refusing on a question nobody answered would refuse the ordinary case."""
+		self.assertTrue(imageSource.captureNavigator().width)
+
+
 class TestWhatThePictureIsCalled(ScreenCapture):
 	"""The object's own words first, because that is what the reader was just told."""
 
@@ -245,7 +310,129 @@ class TestComposingAFigure(unittest.TestCase):
 		after this — but where the point is, is the thing a reader loses first with both hands
 		on a panel that has no edges to count from."""
 		figure = imageFigure.figureFor(newBuffer, picture(), *PANEL)
-		self.assertIn("across", figure.describeAt(0, 0))
+		self.assertIn("across", figure.describeAt(PANEL[0] // 2, PANEL[1] // 2))
+
+
+class TestWhereAPressSaysItIs(unittest.TestCase):
+	"""In the picture, not on the panel.
+
+	Read off the panel the left edge says nought across however far in the reader has zoomed —
+	so the number is wrong exactly when they have most need of it, since zooming in is what
+	somebody does when they have lost the place.
+
+	The picture here is the panel's own shape, so there is no margin to reason about at the
+	same time. `TestAPictureKeepsItsShape` covers the letterbox.
+	"""
+
+	def panelShaped(self):
+		""":return: a picture with the panel's proportions, so `fitBox` adds no margin."""
+		return picture(PANEL[0] * 5, PANEL[1] * 5)
+
+	def percentages(self, said):
+		""":return: the two numbers a press reported."""
+		self.assertNotEqual(said, "outside the picture", "the press landed beside the picture")
+		return [int(number) for number in re.findall(r"\d+", said)]
+
+	def middleOf(self, figure):
+		return self.percentages(figure.describeAt(PANEL[0] // 2, PANEL[1] // 2))
+
+	def test_theMiddleOfThePanelIsTheMiddleOfThePicture(self):
+		across, down = self.middleOf(imageFigure.figureFor(newBuffer, self.panelShaped(), *PANEL))
+		self.assertAlmostEqual(across, 50, delta=3)
+		self.assertAlmostEqual(down, 50, delta=3)
+
+	def test_zoomingIntoTheRightHalfReportsTheRightHalf(self):
+		"""The fault this is here for. The panel position is the same, the place in the
+		picture is not, and the reader zoomed in because they had lost the place."""
+		figure = imageFigure.figureFor(newBuffer, self.panelShaped(), *PANEL)
+		window = figure.redraw(0.5, 0.5, PANEL[0], PANEL[1], top=0.0, down=1.0)
+		across, _down = self.middleOf(window)
+		self.assertAlmostEqual(across, 75, delta=4)
+
+	def test_zoomingIntoTheBottomHalfReportsTheBottomHalf(self):
+		figure = imageFigure.figureFor(newBuffer, self.panelShaped(), *PANEL)
+		window = figure.redraw(0.0, 1.0, PANEL[0], PANEL[1], top=0.5, down=0.5)
+		_across, down = self.middleOf(window)
+		self.assertAlmostEqual(down, 75, delta=4)
+
+	def test_theSamePinSaysSomethingElseAfterZooming(self):
+		figure = imageFigure.figureFor(newBuffer, self.panelShaped(), *PANEL)
+		window = figure.redraw(0.5, 0.5, PANEL[0], PANEL[1], top=0.0, down=1.0)
+		self.assertNotEqual(self.middleOf(figure), self.middleOf(window))
+
+	def test_theTwoEndsAreTheTwoEnds(self):
+		figure = imageFigure.figureFor(newBuffer, self.panelShaped(), *PANEL)
+		self.assertLess(self.percentages(figure.describeAt(0, 0))[0], 5)
+		self.assertGreater(self.percentages(figure.describeAt(PANEL[0] - 1, 0))[0], 95)
+
+	def test_aPressBesideThePictureSaysSo(self):
+		"""A square picture on a panel over twice as wide has margin on a third of it, and
+		there is nothing there. Reporting the nearest edge would be a fact about the letterbox
+		rather than about the picture."""
+		figure = imageFigure.figureFor(newBuffer, picture(96, 96), *PANEL)
+		self.assertEqual(figure.describeAt(0, PANEL[1] // 2), "outside the picture")
+
+
+class TestAPictureKeepsItsShape(unittest.TestCase):
+	"""The fault a test of `fitBox` alone cannot see.
+
+	`fitBox` grows the source box on the short axis until it has the panel's proportions, and
+	it was doing that correctly — but `Picture.reduce` then clipped the growth away again
+	before reducing, so the whole picture was resized to the whole panel. A square feature came
+	out 33 pins wide by 14 high, which makes a circle an ellipse and every geometric
+	relationship in a diagram a lie. Nothing in the drawing says it happened.
+
+	So the check is on the rendered pins rather than on the box: draw a square, measure what
+	came out, and require it to still be square.
+	"""
+
+	def square(self, side=120, feature=40):
+		""":return: a picture of a centred square on a plain field."""
+		left = top = (side - feature) // 2
+		greys = bytearray()
+		for y in range(side):
+			for x in range(side):
+				greys.append(0 if (left <= x < left + feature and top <= y < top + feature) else 255)
+		return imagePins.Picture(greys, side, side, "a square")
+
+	def drawnBounds(self, source, width, height, mode=imagePins.BRIGHTNESS):
+		""":return: the bounding box of what was raised, as width and height in pins."""
+		found = imagePins.render(source, imagePins.fitBox(source, width, height), width, height, mode)
+		columns = [at % width for at, pin in enumerate(found.pins) if pin]
+		rows = [at // width for at, pin in enumerate(found.pins) if pin]
+		self.assertTrue(columns, "nothing was drawn, so there is nothing to measure")
+		return max(columns) - min(columns) + 1, max(rows) - min(rows) + 1
+
+	def test_aSquareIsStillSquareOnAPanelTwiceAsWideAsItIsTall(self):
+		width, height = self.drawnBounds(self.square(), 96, 40)
+		self.assertAlmostEqual(width / height, 1.0, delta=0.2)
+
+	def test_aSquareIsStillSquareInOutlinesToo(self):
+		width, height = self.drawnBounds(self.square(), 96, 40, imagePins.EDGES)
+		self.assertAlmostEqual(width / height, 1.0, delta=0.2)
+
+	def test_aWidePictureIsNotSquashedEither(self):
+		"""The other direction: a picture wider than the panel gets margin above and below."""
+		side, feature = 240, 80
+		greys = bytearray()
+		for y in range(60):
+			for x in range(side):
+				greys.append(0 if (80 <= x < 80 + feature and 10 <= y < 10 + 40) else 255)
+		source = imagePins.Picture(greys, side, 60, "wide")
+		width, height = self.drawnBounds(source, 96, 40)
+		self.assertAlmostEqual(width / height, 2.0, delta=0.4)
+
+	def test_theMarginDoesNotDrawAFrame(self):
+		"""Padding with a constant would put a hard step all the way round a picture whose own
+		border is any other tone, and the edge detector would spend a good part of its budget
+		drawing a rectangle that is not there."""
+		source = self.square()
+		found = imagePins.render(source, imagePins.fitBox(source, 96, 40), 96, 40, imagePins.EDGES)
+		columns = [at % 96 for at, pin in enumerate(found.pins) if pin]
+		# Everything raised is in the middle third, where the picture is, rather than out at
+		# the edges of the panel where only margin can be.
+		self.assertGreater(min(columns), 20)
+		self.assertLess(max(columns), 76)
 
 
 class TestTheStyles(unittest.TestCase):

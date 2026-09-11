@@ -1192,12 +1192,63 @@ subject, and the minority is what gets raised. A black logo on white and a white
 both come out as the logo raised, without asking anybody. An image that is genuinely mostly
 subject reads inverted, which is what the manual invert is for.
 
+#### What a review found, and the three shapes it was the same fault in
+
+Each of these put a confident, wrong fact in front of a reader who had no way to check it, and
+all three came of the same habit: a piece of the pipeline doing something reasonable in
+isolation while quietly contradicting the piece before it.
+
+**A picture was stretched to the panel.** `fitBox` grows the source box on the short axis until
+it has the panel's proportions, which is right, and `Picture.reduce` clipped that growth away
+again before reducing, which is also defensible on its own — so the whole picture was resized to
+the whole panel. A square feature came out 33 pins wide by 14 high. A circle was an ellipse,
+every geometric relationship in a diagram was a lie, and nothing in the drawing said so. Worth
+noting how it survived a test suite: there *was* a test of the proportions, and it tested
+`fitBox`, which was giving the right answer to a question the next stage declined to be asked.
+The test now measures the bounding box of what was actually raised.
+
+The margin is filled with the picture's own border tone rather than with a constant. Padding
+with white puts a hard step all the way round a dark photograph, and the edge detector, asked
+for the strongest sixth of the panel, would spend a good part of it drawing a frame that is not
+in the picture.
+
+**A refused window changed the reported state.** When a figure would not compose a window,
+`_reframe` fell back to the whole figure and recorded the refused window as though it had been
+drawn. The zoom said 1, the origin said 24 by 8, the position said "50 across, 47 down" — and
+the whole picture was under the reader's hands. Every number agreed with every other number and
+all of them were wrong. So a move that cannot be drawn is now not a move: `_reframe` answers
+False, `render` writes nothing, and `zoomBy` and `panBy` put the state back and say no.
+
+**A press reported where it was on the panel, not where it was in the picture.** So after
+zooming into the right-hand quarter, the left edge said nought across — wrong exactly when the
+reader most needs it, since zooming in is what somebody does when they have lost the place. The
+pin now goes back through the box it was drawn from. A press on the margin says so rather than
+reporting the nearest edge as though it were the picture.
+
+Two smaller ones of the same kind. The style key was tied to having pixels in hand rather than
+to the picture being what the display is showing, so leaving the drawing and pressing it put the
+old picture back over a chart. And a style change asked for the default braille line rather than
+the one in force, so a reader who had given the whole panel to a picture got the line back and a
+smaller drawing, from a command that said it was changing the style.
+
 #### Refusals a hand can act on
 
 A blank panel is the one outcome that must never happen silently: a reader running a hand over
 nothing cannot tell "captured nothing", "the picture is blank", and "the display is broken"
 apart. So a result with almost no pins raised, or almost all of them, is refused with what it
 was — not shown.
+
+**An object's location is where it would be, not where it can be seen.** A graphic scrolled off
+the page keeps an ordinary rectangle whose coordinates are simply past the edge of the screen,
+and copying it succeeds: it comes back as whatever the graphics card has there. So the rectangle
+is cut down to the part of it on a monitor and refused if none of it is, and an object that
+reports itself off screen is refused before that — the two catch different things, since a
+control scrolled out of a pane keeps a location still over the window it is in. A partly visible
+object is clipped to what shows rather than refused, and the minimum size is measured after the
+clip so that a large object with a sliver showing is refused as what it is.
+
+Occlusion is the limit none of that reaches. A window over the thing being captured is copied
+instead of it, because a screen grab is a grab of the screen and there is nothing else to ask.
 
 #### Pure Python, and why it is worth it
 

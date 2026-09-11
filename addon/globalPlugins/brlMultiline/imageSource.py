@@ -20,7 +20,12 @@ aimed and nothing new has to be learned.
 a chart somebody published as a picture — half of them report a role that says nothing useful,
 and a reader who has pointed at something and asked for it to be drawn has said what they want
 more clearly than a role ever will. What is refused is only what cannot work: no location, a
-location clipped to nothing, and something too small on screen to be a picture at all.
+location with nothing of it on a monitor, an object that says it is not in view, and something
+too small on screen to be a picture at all.
+
+**Occlusion is the limit this cannot reach.** A window sitting over the thing being captured is
+copied instead of it, because a screen grab is a grab of the screen and there is nothing else
+to ask. Nothing here can detect it; it is written down rather than worked around.
 """
 
 from typing import Optional
@@ -70,6 +75,84 @@ def _screenCurtainIsUp() -> bool:
 		return screenCurtain is not None and screenCurtain.enabled
 	except Exception:
 		# An NVDA without it, or one that has not started it. Either way it is not up.
+		return False
+
+
+def _visibleScreen() -> "tuple | None":
+	""":return: the whole desktop across every monitor, or None if Windows will not say.
+
+	The virtual screen rather than the primary monitor, because a reader with two of them has
+	windows on the second one and those are as real as anything else.
+
+	None rather than a guess when the metrics cannot be read: not clipping is the safer
+	failure. A capture that should have been refused gives a picture that is wrong; a clip
+	against a wrong rectangle refuses pictures that would have worked.
+	"""
+	try:
+		from winAPI.winUser.constants import SystemMetrics
+		from winBindings import user32
+
+		bounds = (
+			user32.GetSystemMetrics(SystemMetrics.X_VIRTUAL_SCREEN),
+			user32.GetSystemMetrics(SystemMetrics.Y_VIRTUAL_SCREEN),
+			user32.GetSystemMetrics(SystemMetrics.CX_VIRTUAL_SCREEN),
+			user32.GetSystemMetrics(SystemMetrics.CY_VIRTUAL_SCREEN),
+		)
+	except Exception:
+		log.debugWarning("BrlMultiline: could not measure the screen to clip a capture to", exc_info=True)
+		return None
+	return bounds if bounds[2] > 0 and bounds[3] > 0 else None
+
+
+def _onScreen(left: int, top: int, width: int, height: int) -> "tuple | None":
+	"""Cut a rectangle down to the part of it that is actually on a monitor.
+
+	**An object's location is where it would be, not where it can be seen.** A graphic scrolled
+	off the bottom of a page keeps a perfectly ordinary rectangle with a y coordinate past the
+	end of the screen, and copying that rectangle succeeds: it comes back as whatever the
+	graphics card has there, which is black, or the desktop, or another window. The reader is
+	then handed a picture that is not of the thing they pointed at, drawn as confidently as a
+	real one — and the size check alone will not catch it, since a large off-screen object is
+	still large.
+
+	A partly visible object is clipped to its visible part rather than refused. That is a
+	picture of part of the thing, which is what the reader can see and is worth having; it is
+	also why the size check below runs on what came back from here.
+
+	**Occlusion is not solved by this and cannot be.** A window sitting over the object is
+	copied instead of it, because a screen grab is a grab of the screen. Documented rather than
+	worked around.
+
+	:return: the visible rectangle, or None if none of it is on a monitor.
+	"""
+	screen = _visibleScreen()
+	if screen is None:
+		return left, top, width, height
+	screenLeft, screenTop, screenWidth, screenHeight = screen
+	visibleLeft = max(left, screenLeft)
+	visibleTop = max(top, screenTop)
+	visibleRight = min(left + width, screenLeft + screenWidth)
+	visibleBottom = min(top + height, screenTop + screenHeight)
+	if visibleRight <= visibleLeft or visibleBottom <= visibleTop:
+		return None
+	return visibleLeft, visibleTop, visibleRight - visibleLeft, visibleBottom - visibleTop
+
+
+def _isOffScreen(obj) -> bool:
+	""":return: whether the object itself says it is not being shown.
+
+	Asked as well as the rectangle being clipped, because the two catch different things. A
+	control scrolled out of a pane can keep a location that is still over the window it is in,
+	so the clip finds nothing wrong and the capture comes back as whatever is drawn there
+	instead — the rows that did scroll into view.
+	"""
+	try:
+		import controlTypes
+
+		return controlTypes.State.OFFSCREEN in obj.states
+	except Exception:
+		# An object that will not say is treated as showing. Refusing on a question nobody
+		# answered would refuse the ordinary case.
 		return False
 
 
@@ -142,6 +225,17 @@ def captureNavigator() -> Picture:
 		log.debugWarning(f"BrlMultiline: object to draw returned location {location!r}")
 		# Translators: reported when a picture was asked for over something not on the screen.
 		raise ImageRefused(_("This is not showing on the screen"))
+	if _isOffScreen(obj):
+		# Translators: reported when a picture was asked for over something scrolled out of
+		# view, which would otherwise be copied as whatever is drawn in its place.
+		raise ImageRefused(_("This is not in view; scroll to it and try again"))
+	visible = _onScreen(int(left), int(top), int(width), int(height))
+	if visible is None:
+		# Translators: reported when a picture was asked for over something not on the screen.
+		raise ImageRefused(_("This is not showing on the screen"))
+	left, top, width, height = visible
+	# Measured after the clip, so that a large object with a few pixels showing is refused as
+	# what it is rather than passed as what it would be if it were all there.
 	if width < MIN_SIDE or height < MIN_SIDE:
 		raise ImageRefused(
 			# Translators: reported when a picture is too small on screen to draw. The

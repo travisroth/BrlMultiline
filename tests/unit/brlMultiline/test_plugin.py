@@ -145,22 +145,45 @@ class TestDrawingThePictureHere(unittest.TestCase):
 			return tuple(sorted(self.raised))
 
 	class FakeMode:
-		"""The graphics mode, reduced to what `_drawPicture` asks of it."""
+		"""The graphics mode, reduced to what `_drawPicture` asks of it.
+
+		Models the three things the commands read back — whether it is active, what it is
+		showing, and how much braille is kept beside it — because all three are questions the
+		picture commands have to ask and getting any of them wrong is invisible from inside
+		the plugin.
+		"""
 
 		def __init__(self, size=(48, 20)):
 			self.size = size
 			self.shown = []
 			self.lastError = ""
+			self.active = False
+			self.source = None
+			self.textLines = 1
+			self.askedFor = []
+			"""Every text line count `drawingSize` was asked about."""
 
 		def drawingSize(self, textLines=None):
-			return self.size
+			self.askedFor.append(textLines)
+			if self.size is None:
+				return None
+			# A line of braille costs the drawing rows, which is the whole reason the count
+			# has to be carried through a style change.
+			return (self.size[0], self.size[1] - 5 * (textLines or 0))
 
 		def newBuffer(self, width, height):
 			return TestDrawingThePictureHere.Dots(width, height)
 
 		def enter(self, drawing=None, textLines=None):
 			self.shown.append(drawing)
+			self.source = drawing
+			self.active = True
+			self.textLines = textLines if textLines is not None else 1
 			return True
+
+		def leave(self):
+			self.active = False
+			self.source = None
 
 		def describe(self):
 			return self.shown[-1].name if self.shown else ""
@@ -245,6 +268,43 @@ class TestDrawingThePictureHere(unittest.TestCase):
 		self.plugin.script_drawPicture(None)
 		self.assertFalse(self.captures)
 		self.assertTrue(flashedMessages)
+
+	def test_theStyleKeyDoesNothingOnceTheDrawingHasGone(self):
+		"""The pixels outlive the figure. A reader who drew a picture and then left the
+		drawing must not have it put back by a key that says it changes how something is
+		drawn."""
+		self.plugin.script_drawPicture(None)
+		self.mode.leave()
+		self.plugin.script_pictureStyle(None)
+		self.assertEqual(len(self.mode.shown), 1)
+
+	def test_theStyleKeyDoesNothingOnceSomethingElseIsUp(self):
+		"""A chart, or the glyph catalogue. Same fault, and this is the way round a reader
+		would actually meet it."""
+		self.plugin.script_drawPicture(None)
+		self.mode.enter(types.SimpleNamespace(name="a chart", buffer=None))
+		self.plugin.script_pictureStyle(None)
+		self.assertEqual(self.mode.source.name, "a chart")
+
+	def test_givingTheWholePanelToAPictureSurvivesAStyleChange(self):
+		"""Both the size asked for and the size entered with. Asking for the default instead
+		would put the braille line back and shrink the drawing, while claiming only to have
+		changed its style."""
+		self.plugin.script_drawPicture(None)
+		self.mode.textLines = 0
+		self.mode.askedFor = []
+		self.plugin.script_pictureStyle(None)
+		self.assertEqual(self.mode.askedFor, [0])
+		self.assertEqual(self.mode.textLines, 0)
+		self.assertEqual(self.mode.shown[-1].width, 48)
+		self.assertEqual(self.mode.shown[-1].height, 20)
+
+	def test_aNewPictureKeepsThePanelTheReaderAskedFor(self):
+		"""Same argument. Drawing a second picture is not a decision about the braille line."""
+		self.plugin.script_drawPicture(None)
+		self.mode.textLines = 0
+		self.plugin.script_drawPicture(None)
+		self.assertEqual(self.mode.textLines, 0)
 
 
 class PluginTestCase(unittest.TestCase):

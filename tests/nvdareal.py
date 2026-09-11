@@ -401,6 +401,9 @@ def checkGestures() -> list:
 		"graphicsPanDown",
 		"graphicsPanLeft",
 		"graphicsPanRight",
+		"chartSelection",
+		"drawPicture",
+		"pictureStyle",
 	}
 	missing = wanted - set(bound.values())
 	if missing:

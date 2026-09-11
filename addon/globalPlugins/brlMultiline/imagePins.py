@@ -200,7 +200,32 @@ class Picture:
 		""":return: darkest to lightest, out of 255. See `PLAIN`."""
 		return (max(self.greys) - min(self.greys)) if self.greys else 0
 
-	def reduce(self, box, outWidth: int, outHeight: int) -> bytearray:
+	@property
+	def border(self) -> int:
+		""":return: the average brightness around the edge of the picture.
+
+		What the margin outside the picture is filled with when the box asked for reaches
+		beyond it. **The value matters, and a constant would be wrong.** Padding with white
+		puts a hard step all the way round a dark photograph, and the edge detector, asked for
+		the strongest sixth of the panel, would spend a good deal of it drawing a rectangle
+		that is not in the picture — a frame the reader would feel as confidently as anything
+		real. Matching the picture's own border means the margin has no gradient against it,
+		so nothing is found there and the shape of the picture is what is left.
+
+		Sampled from the outermost row and column on each side rather than from the whole
+		picture, because it is the boundary the margin has to be continuous with.
+		"""
+		if not self.greys or not self.width or not self.height:
+			return 0
+		last = (self.height - 1) * self.width
+		edge = list(self.greys[0 : self.width]) + list(self.greys[last : last + self.width])
+		for y in range(self.height):
+			base = y * self.width
+			edge.append(self.greys[base])
+			edge.append(self.greys[base + self.width - 1])
+		return sum(edge) // len(edge)
+
+	def reduce(self, box, outWidth: int, outHeight: int, background: "int | None" = None) -> bytearray:
 		"""Average a rectangle of the pixels down to a grid of the given size.
 
 		Area average rather than point sampling, and the difference is not subtle at these
@@ -208,40 +233,60 @@ class Picture:
 		between the samples, so a diagram's strokes come and go along their own length —
 		visibly wrong to a hand, and wrong differently each time the window moves.
 
+		**The box may reach outside the picture, and what is outside it is margin.** This is
+		what keeps a picture from being stretched, and getting it wrong is invisible from
+		inside: `fitBox` grows the box on the short axis until it has the panel's proportions,
+		and an earlier version of this clipped that growth away again before reducing — so the
+		whole picture was resized to the whole panel, a square feature came out 33 pins by 14,
+		and a circle was an ellipse. Nothing in the drawing says it happened and no test of
+		`fitBox` alone can see it, since `fitBox` was giving the right answer to a question
+		this then declined to be asked.
+
+		So the box is honoured as given. Each output cell averages whatever part of it falls on
+		the picture, and counts the rest at the background value — which is why the count is
+		over the cell's whole area rather than over the pixels found in it.
+
 		The inner sum is taken over a slice so that the per-pixel work happens below Python.
 		A capture of a few hundred thousand pixels reduces in milliseconds that way and in a
 		noticeable pause without it.
 
-		:param box: the source rectangle, `(left, top, width, height)` in pixels. Clipped.
+		:param box: the source rectangle, `(left, top, width, height)` in pixels. May lie
+			partly or wholly outside the picture.
 		:param outWidth: columns wanted.
 		:param outHeight: rows wanted.
+		:param background: what to count the margin as, or None for the picture's own border.
 		:return: one average per output cell, row major.
 		"""
 		left, top, width, height = box
-		left = max(0, min(left, self.width - 1)) if self.width else 0
-		top = max(0, min(top, self.height - 1)) if self.height else 0
-		width = max(1, min(width, self.width - left))
-		height = max(1, min(height, self.height - top))
+		width = max(1, width)
+		height = max(1, height)
 		out = bytearray(max(0, outWidth) * max(0, outHeight))
 		if outWidth <= 0 or outHeight <= 0:
 			return out
+		if background is None:
+			background = self.border
 		greys = self.greys
 		for oy in range(outHeight):
 			y0 = top + oy * height // outHeight
 			y1 = max(y0 + 1, top + (oy + 1) * height // outHeight)
-			y1 = min(y1, self.height)
+			insideY0 = max(0, y0)
+			insideY1 = min(y1, self.height)
 			rowOut = oy * outWidth
 			for ox in range(outWidth):
 				x0 = left + ox * width // outWidth
 				x1 = max(x0 + 1, left + (ox + 1) * width // outWidth)
-				x1 = min(x1, self.width)
+				area = (x1 - x0) * (y1 - y0)
+				insideX0 = max(0, x0)
+				insideX1 = min(x1, self.width)
 				total = 0
-				count = 0
-				for y in range(y0, y1):
-					base = y * self.width
-					total += sum(greys[base + x0 : base + x1])
-					count += x1 - x0
-				out[rowOut + ox] = total // count if count else 0
+				found = 0
+				if insideX1 > insideX0 and insideY1 > insideY0:
+					for y in range(insideY0, insideY1):
+						base = y * self.width
+						total += sum(greys[base + insideX0 : base + insideX1])
+					found = (insideX1 - insideX0) * (insideY1 - insideY0)
+				total += background * (area - found)
+				out[rowOut + ox] = min(255, total // area) if area else background
 		return out
 
 
@@ -494,8 +539,10 @@ def fitBox(picture: Picture, width: int, height: int) -> tuple:
 
 	Answered by enlarging the *source* box rather than by shrinking the drawing: the box is
 	grown on the short axis until it has the panel's proportions, which keeps the whole picture
-	in view with blank pixels beside it, and blank pixels reduce to a background the detectors
-	then find nothing in.
+	in view with margin beside it, and the margin reduces to the picture's own border tone,
+	which the detectors then find nothing in. `Picture.reduce` is where that happens and it has
+	to honour a box that reaches outside the picture for any of this to be true — see the note
+	there about the version that did not.
 
 	:param picture: the captured pixels.
 	:param width: pins across.

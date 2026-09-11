@@ -518,6 +518,16 @@ class GraphicsMode(PanelOwner):
 			log.error("BrlMultiline: could not give back the graphics claim", exc_info=True)
 
 	@property
+	def source(self) -> Optional[Drawing]:
+		""":return: the figure that was entered, rather than the window of it being shown.
+
+		What a caller holding a figure asks to find out whether it is still the one on the
+		display. `drawing` is the window; this is the thing the window is of, and it is the
+		one that does not change as the reader zooms.
+		"""
+		return self._source
+
+	@property
 	def textLines(self) -> int:
 		":return: braille lines kept beside the figure."
 		return self._textLines
@@ -619,7 +629,7 @@ class GraphicsMode(PanelOwner):
 		"""
 		return self._windows and bool(getattr(self._source, "windowsVertically", False))
 
-	def _reframe(self, pins: PinRect) -> None:
+	def _reframe(self, pins: PinRect) -> bool:
 		"""Ask the figure to draw itself again for what is visible, if it can.
 
 		The origin and the zoom are already a window over the source in dots, and the source of
@@ -635,13 +645,22 @@ class GraphicsMode(PanelOwner):
 		Skipped when the window has not moved, so an ordinary refresh — a rebuild, a settings
 		change, the flow giving rows back — costs nothing.
 
+		**A figure that will not compose the window says no, and nothing here pretends
+		otherwise.** It used to fall back to the whole figure and record the refused window as
+		though it had been drawn, which left the panel showing one thing and the zoom, the
+		origin and the spoken position describing another — a reader told "50 across, 47 down"
+		with the whole picture under their hands. Wrong in the worst way available: confidently.
+		So it answers False and the caller that moved is the one that puts it back.
+
 		:param pins: the rectangle the drawing occupies.
+		:return: whether the drawing now matches the window. False only where the figure
+			refused to compose one, which leaves the previous drawing in place untouched.
 		"""
 		if not self._windows:
-			return
+			return True
 		source = self._source.buffer
 		if not source.width or not source.height:
-			return
+			return True
 		visibleX, visibleY = self._visible(pins)
 		visibleX = min(visibleX, source.width)
 		visibleY = min(visibleY, source.height)
@@ -656,7 +675,7 @@ class GraphicsMode(PanelOwner):
 			down[1],
 		)
 		if window == self._window and self._drawing is not None:
-			return
+			return True
 		whole = window[:2] == (0.0, 1.0) and down == (0.0, 1.0)
 		if whole and (source.width, source.height) == (pins.width, pins.height):
 			# The whole figure at the size it was drawn, which is the figure itself. Drawing
@@ -664,7 +683,7 @@ class GraphicsMode(PanelOwner):
 			# time this is asked.
 			self._drawing = self._source
 			self._window = window
-			return
+			return True
 		try:
 			# The vertical half is passed by keyword and only to a figure that asked for it.
 			# A chart's closure does not take it, and that is the point: the horizontal window
@@ -675,12 +694,16 @@ class GraphicsMode(PanelOwner):
 			log.error("BrlMultiline: a figure could not draw itself again", exc_info=True)
 			drawn = None
 		if drawn is None:
-			# The whole figure rather than nothing: a window that could not be composed is a
-			# worse answer than the view the reader already had, and the zoom will say what it
-			# says either way.
-			drawn = self._source
+			if self._drawing is None:
+				# Nothing has been composed yet, so there is no previous view to keep and the
+				# figure itself is a better answer than a blank panel.
+				self._drawing = self._source
+				self._window = window
+				return True
+			return False
 		self._drawing = drawn
 		self._window = window
+		return True
 
 	def render(self, surface: Optional[GraphicsSurface] = None) -> bool:
 		"""Sample the source through the zoom and origin and put it on the display.
@@ -704,7 +727,12 @@ class GraphicsMode(PanelOwner):
 		if buffer is None:
 			return False
 		self._clampOrigin(pins)
-		self._reframe(pins)
+		if not self._reframe(pins):
+			# The figure would not compose this window. The overlay already on the display is
+			# the last one that was composed and is still correct for the state the caller is
+			# about to put back, so it is left alone rather than rewritten with something that
+			# does not match what is being reported.
+			return False
 		if self._windows:
 			# Already composed for this panel at this window, so there is nothing to sample:
 			# a dot of it is a pin of the display.
@@ -925,11 +953,14 @@ class GraphicsMode(PanelOwner):
 		visibleX, visibleY = self._visible(pins)
 		centreX = self._originX + visibleX // 2
 		centreY = self._originY + visibleY // 2
+		restore = self._state()
 		self._zoomStep = wanted
 		visibleX, visibleY = self._visible(pins)
 		self._originX = centreX - visibleX // 2
 		self._originY = centreY - visibleY // 2
-		self.render(surface)
+		if not self.render(surface):
+			self._restore(restore)
+			return False
 		return True
 
 	def _tooFewPoints(self, step: int) -> bool:
@@ -961,13 +992,37 @@ class GraphicsMode(PanelOwner):
 		if self.showsWholeDrawing(pins):
 			return False
 		before = (self._originX, self._originY)
+		restore = self._state()
 		self._originX += dx
 		self._originY += dy
 		self._clampOrigin(pins)
 		if (self._originX, self._originY) == before:
 			return False
-		self.render(surface)
+		if not self.render(surface):
+			self._restore(restore)
+			return False
 		return True
+
+	def _state(self) -> tuple:
+		""":return: everything a refused window has to be able to put back.
+
+		Zoom, origin, which window was last composed and what was composed for it. Taken before
+		a move rather than reconstructed afterwards, because the composed drawing cannot be
+		reconstructed at all: the figure has already said it will not make that window, and
+		asking it again for the one before would be a second composition of something the
+		display is already showing.
+		"""
+		return (self._zoomStep, self._originX, self._originY, self._window, self._drawing)
+
+	def _restore(self, state: tuple) -> None:
+		"""Put back what `_state` took.
+
+		Nothing is written to the display here, and that is the point: the overlay on it was
+		never replaced, so it already agrees with what is being put back.
+
+		:param state: from `_state`.
+		"""
+		self._zoomStep, self._originX, self._originY, self._window, self._drawing = state
 
 	def panStep(self) -> tuple:
 		""":return: a sensible pan distance across and down, in source dots.

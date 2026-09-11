@@ -226,6 +226,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		as well.
 		"""
 
+		self._pictureDrawing = None
+		"""The figure last made from `_picture`, so the style key can tell whether it is still
+		what the display is showing.
+
+		Cached pixels outliving the figure they were drawn as is the whole difficulty: a reader
+		who drew a picture, left the drawing, charted a spreadsheet and then pressed the style
+		key would have had the old picture put back over the chart — a command that says it is
+		changing how something is drawn, changing what is drawn. Holding the figure rather than
+		a flag is what makes the question answerable, since leaving the mode does not tell
+		anybody here that it happened.
+		"""
+
 		self._pictureStyle = imageFigure.STYLES[0]
 		"""How pictures are being drawn, as a mode and whether it is reversed.
 
@@ -2788,7 +2800,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		has scrolled, the focus has moved, and a command that said it was changing the style
 		would have changed the picture too.
 		"""
-		if self._picture is None:
+		mode = self.graphicsMode
+		if self._picture is None or not mode.active or mode.source is not self._pictureDrawing:
+			# Not "is there a picture in hand" but "is the picture in hand the thing being
+			# read". The pixels outlive the figure, so a reader who left the drawing or put a
+			# chart up would otherwise have the old picture put back over it.
 			# Translators: reported when the style key was pressed and no picture is up.
 			ui.message(_("There is no picture to change"))
 			return
@@ -2806,7 +2822,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			screen. True for a change of style, False for a new picture.
 		"""
 		mode = self.graphicsMode
-		size = mode.drawingSize()
+		# Whatever the reader has already decided about the braille line beside the drawing.
+		# Asking for the default instead would put the line back on a panel they had given
+		# whole to the picture, and shrink the drawing, while claiming to change its style.
+		textLines = mode.textLines if mode.active else graphicsMode.DEFAULT_TEXT_LINES
+		size = mode.drawingSize(textLines)
 		if size is None:
 			# Translators: reported when a drawing was asked for on a display that cannot draw.
 			ui.message(_("This display cannot show graphics"))
@@ -2833,9 +2853,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when drawing a picture failed for a reason worth a log entry.
 			ui.message(_("The picture could not be drawn, see the log"))
 			return
-		if not mode.enter(drawing):
+		if not mode.enter(drawing, textLines=textLines):
 			ui.message(mode.lastError or _("The drawing could not be shown"))
 			return
+		self._pictureDrawing = drawing
 		ui.message(mode.describe())
 
 	@script(

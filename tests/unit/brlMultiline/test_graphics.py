@@ -1024,6 +1024,81 @@ class TestAFigureWithAnUpAndADown(unittest.TestCase):
 		self.assertEqual(len(self.windows[-1]), 2)
 
 
+class TestAWindowTheFigureWillNotDraw(unittest.TestCase):
+	"""What the panel shows and what the mode reports have to be the same thing.
+
+	A refused window used to leave the whole figure on the display and record the refused
+	window as though it had been composed. So the zoom said 1, the origin said 24 by 8 and the
+	position said "50 across, 47 down", while the hand was on the whole picture — every number
+	a reader could ask for, wrong, and all of them agreeing with each other. There is no way to
+	feel that; the display is the only witness and it says nothing.
+
+	So a move that cannot be drawn is not a move. The state goes back, the overlay is never
+	rewritten, and the command answers False so it can say that this part cannot be drawn.
+	"""
+
+	def setUp(self):
+		self.driver = FakeDrawableDriver(numRows=8, numCols=32)
+		useDisplay(self.driver)
+		self.plugin = FakePlugin()
+		self.mode = GraphicsMode(self.plugin)
+		self.asked = 0
+
+	def figure(self, refuseAfter=0):
+		""":return: a figure that composes `refuseAfter` windows and then declines.
+
+		Declining from the first window is the empty-zoom case; declining later is the reader
+		who has zoomed in twice and met the end of what there is.
+		"""
+
+		def redraw(offset, span, pinWidth, pinHeight, top=0.0, down=1.0):
+			self.asked += 1
+			if self.asked > refuseAfter:
+				return None
+			buffer = PinBuffer(pinWidth, pinHeight)
+			buffer.rect(0, 0, pinWidth, 6, filled=True)
+			return Drawing(buffer, name="a window", windowsVertically=True)
+
+		buffer = PinBuffer(96, 35)
+		buffer.rect(0, 0, 96, 35)
+		return Drawing(buffer, name="picture", redraw=redraw, windowsVertically=True)
+
+	def test_aRefusedZoomSaysSo(self):
+		self.mode.enter(self.figure())
+		self.assertFalse(self.mode.zoomBy(1))
+
+	def test_aRefusedZoomLeavesTheZoomWhereItWas(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		self.assertEqual(self.mode.zoom, FIT)
+
+	def test_aRefusedZoomLeavesTheOriginWhereItWas(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(1)
+		self.assertEqual(self.mode.positionWords(), "")
+
+	def test_aRefusedZoomLeavesThePanelAlone(self):
+		self.mode.enter(self.figure())
+		before = self.driver.overlays[OVERLAY_KEY]
+		self.mode.zoomBy(1)
+		self.assertIs(self.driver.overlays[OVERLAY_KEY], before)
+
+	def test_aRefusedPanSaysSoAndPutsTheOriginBack(self):
+		"""One zoom composes, then the pan is refused. The reader is left where they were
+		rather than told they moved somewhere the panel is not showing."""
+		self.mode.enter(self.figure(refuseAfter=1))
+		self.assertTrue(self.mode.zoomBy(1))
+		where = self.mode.positionWords()
+		self.assertFalse(self.mode.panBy(self.mode.panStep()[0], 0))
+		self.assertEqual(self.mode.positionWords(), where)
+
+	def test_aZoomThatDoesComposeStillWorks(self):
+		"""The refusal must not have made every window suspect."""
+		self.mode.enter(self.figure(refuseAfter=5))
+		self.assertTrue(self.mode.zoomBy(1))
+		self.assertEqual(self.mode.drawing.name, "a window")
+
+
 class TestPointing(unittest.TestCase):
 	"""Pointing is a routing press, and these are about the two ways it can be answered.
 
