@@ -1201,11 +1201,21 @@ was — not shown.
 
 #### Pure Python, and why it is worth it
 
-No numpy, no Pillow. They are in NVDA's build environment and not in what ships, so an add-on
-that imported them would work for whoever built NVDA from source and fail for everyone else —
-the worst shape of dependency. The arithmetic is a reduction over the captured pixels and a
-Sobel over a few thousand, which is milliseconds, and the module stays testable on a list of
-numbers with no NVDA in the room.
+No numpy, no Pillow.
+
+**numpy imports fine in the NVDA Python console and is not there for anybody else**, which is
+the trap worth writing down rather than merely avoiding. It is in the build environment as an
+optional dependency of comtypes, so it is importable in any NVDA run from source — and
+`source/setup.py` lists it under `excludes` with the comment "numpy is an optional dependency
+of comtypes but we don't require it", so py2exe leaves it out of what is shipped. An add-on
+that imported it would be tested by its author in a console that has it and would fail on
+every installed NVDA, which is the worst shape a dependency can take: it works everywhere it
+is checked and nowhere it is used. Pillow is not present on either path.
+
+The arithmetic does not need either of them. It is one reduction over the captured pixels —
+taken as slice sums, so the per-pixel work happens below Python — and a Sobel over a few
+thousand cells, which is milliseconds on a capture of a third of a megapixel. What it buys
+besides safety is that the module stays testable on a list of numbers with no NVDA in the room.
 
 #### What this is not, and what comes after
 

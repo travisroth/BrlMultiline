@@ -34,6 +34,13 @@ threshold raises everything on a high contrast logo and nothing on a soft photog
 reader cannot tell those two failures apart by touch — both are a panel that says nothing.
 Aiming at the coverage means a picture of any contrast arrives at a readable density, and what
 differs between pictures is *which* pins those are, which is the part carrying the information.
+
+**No numpy, and it is importable while you check.** It is in NVDA's build environment as an
+optional dependency of comtypes, so it works in the Python console of any NVDA run from
+source — and `source/setup.py` lists it under `excludes`, so py2exe leaves it out of what is
+shipped. Importing it here would pass every test the author could run and fail on every
+installed NVDA. Pillow is on neither path. The work is a reduction taken as slice sums and a
+Sobel over a few thousand cells, which is milliseconds and wants nothing.
 """
 
 from typing import NamedTuple
