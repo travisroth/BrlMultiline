@@ -21,6 +21,11 @@ It is useful in two situations:
 2. On a large single line display such as a Focus 80, where 80 cells is enough to be
    worth splitting into two 40 cell working areas.
 
+It has since grown two further parts, each with its own section below. A document can be read
+as one continuous flow across the rows of a display instead of one line at a time, and a
+display that can raise pins one at a time can be given a tactile drawing: a chart from a
+spreadsheet selection, or a picture copied off the screen.
+
 This is development software. It patches parts of NVDA's braille handling, and has not
 yet been through a full round of hardware testing.
 
@@ -231,7 +236,7 @@ Things worth knowing:
   in, for the first minute in a table nobody has arranged: hide it (or show it again), change
   what happens when its values do not fit — wrapped, cut keeping the start, cut keeping the end
   — and give the table back as it comes if an experiment goes wrong. A fourth opens a dialog
-  for a table you come back to, where the columns are a checked list — ticked means drawn —
+  for a table you come back to, where the columns are a checked list — checked means drawn —
   that you move up and down, and each one
   can be given a name of your own, a floor and a ceiling on how many cells it may have, which
   end of its heading survives, whether a page of columns begins at it, and whether it is
@@ -240,8 +245,8 @@ Things worth knowing:
   is what a table does when you have named none — as is "no column repeated", which is this
   table's own decision rather than the setting that turns the repeat off for all of them. Each per-column question also has "follow the
   table setting", which names what the table is currently doing, so nothing in the dialog
-  claims a decision you did not make. Ticking "remember this arrangement" saves it against the
-  table; unticking it on a table you had remembered deletes what was saved. Cutting from the
+  claims a decision you did not make. Checking "remember this arrangement" saves it against the
+  table; unchecking it on a table you had remembered deletes what was saved. Cutting from the
   end is for a column whose values begin with something nobody wrote for reading, and a name
   of your own is for a heading that does the same.
 
@@ -284,9 +289,9 @@ Things worth knowing:
   you are on, so one memory serves a Monarch and a Focus 80 — and a column that was empty
   when you saved comes back when it has something in it. Turning the columns off leaves the
   memory alone until you
-  come back; the forget command drops it for good. Tables on web pages are recognised by the
+  come back; the forget command drops it for good. Tables on web pages are recognized by the
   page's address together with what their columns are called, so a watchlist that is
-  regenerated is still the same table; a list view is recognised by the application and
+  regenerated is still the same table; a list view is recognized by the application and
   window it belongs to, which means File Explorer's Details view is one table whichever
   folder is open.
 
@@ -303,7 +308,7 @@ browse mode — the arrow keys read the table itself:
 There is nothing to turn on and nothing to turn off. Being in a table is the whole of the
 state, and no key is ever swallowed: when there is no cell in the direction you pressed, the
 key does exactly what it does anywhere else on the page. The down arrow on the last row
-leaves the table, the up arrow on the first row leaves it upwards, and the right arrow in
+leaves the table, the up arrow on the first row leaves it upward, and the right arrow in
 the last cell of a row carries on into whatever follows the table. Nothing announces an edge,
 because from where you are sitting there is not one.
 
@@ -389,109 +394,394 @@ Things worth knowing:
   settings does that for you; changing it from the Python console does not, and the log says
   so if the two disagree.
 
+## Drawings and charts
+
+Some braille displays can raise pins one at a time rather than only whole braille cells. On
+one of those, this add-on can put a tactile figure on the display: a chart drawn from the
+cells you have selected in a spreadsheet, or a picture copied off the screen. The figure and
+your braille line share the panel, with no mode to switch into and nothing suspended, and a
+routing press on the figure says what is under your finger.
+
+This is the newest part of the add-on and the part with the least hardware time behind it.
+Treat it as experimental. What it does well and badly is stated below rather than left for
+you to discover, because a drawing is the one thing on a braille display you cannot check
+against anything.
+
+### A display that can draw
+
+The add-on ships its own driver for the Humanware Monarch, **"BrlMultiline: Humanware
+Monarch (pin mode)"**, and you have to choose it in NVDA's Braille settings to get any of
+this. NVDA's own Monarch support writes through the display's braille cell reports, which
+reach about half the panel's pins and leave a blank column between every pair of them. This
+driver writes the whole 96 by 40 pin panel as one report instead, which is what makes a
+drawing possible.
+
+Three other things come with it, and they are worth having whether or not you ever draw
+anything:
+
+- **A choice of how many braille rows.** A "Braille rows" setting appears with the driver's
+  other settings in NVDA's Braille settings: 8 rows with a blank row between them, which is
+  the default and what the Monarch normally gives you, or 10 rows without. All eight dots are
+  drawn either way, so a cursor and an eight dot table read correctly in both.
+- **Touch at pin resolution.** The Monarch reports which pin a finger landed on, and NVDA
+  discards that. This driver keeps it, which is what lets you point at part of a drawing.
+- **Bluetooth that survives a dropout**, the same recovery the combined display uses.
+
+Nothing above the driver knows that a Monarch is what it is talking to. The add-on asks the
+braille display driver in use whether it can raise pins and draw on them, so another display
+whose driver offers the same thing would work without a change here — but the add-on's Monarch
+driver is the only one that offers it today. A display that cannot draw says so when you press
+one of these commands, rather than doing nothing, since "nothing happened" is the one answer
+you cannot act on.
+
+### Charting a spreadsheet selection
+
+**Graphics: Chart the selected cells** draws what you have selected in a spreadsheet as a
+tactile chart. This is the thing the whole drawing path was built for: a chart from live
+application data, on a display you can point at. Excel is the application supported today.
+
+Four kinds of chart can be drawn:
+
+- A **bar chart** — one column of numbers standing on a baseline.
+- A **line chart** — up to four columns over a shared period, each with its own texture:
+  solid, dashed, dotted, dash dot. The textures are read out in speech rather than drawn as a
+  key, since a key on the panel would cost a quarter of the drawing to say what one sentence
+  says once.
+- **Open, high, low, close bars** — four columns as price bars.
+- **Candlesticks** — the same four columns drawn the other way.
+
+**It asks which one rather than guessing.** Four columns of numbers with dates down the side
+are four measurements over time if they are measurements and one instrument's trading if they
+are prices, and nothing in the cells tells them apart. So a "Which chart?" dialog offers what
+can actually be drawn from this selection, with what you chose last time selected for you. A
+selection that can only be one thing is drawn without asking, because the question exists for
+selections that are ambiguous and not as a step on the way to every chart.
+
+A chart is composed for the space it is going into rather than shrunk to fit it, so the
+whole-drawing view is the natural one. Magnifying a chart composes it again with fewer bars,
+each wide enough to be named, rather than enlarging the dots it already drew.
+
+Every way this can fail says which way: not a spreadsheet, nothing selected, no numbers in
+the selection, a value that is not a number, more bars or periods than the display can hold,
+more series than can be told apart, or four columns that turn out not to be prices. A command
+that only said it had failed would leave you to guess at which.
+
+### Drawing a picture off the screen
+
+**Graphics: Draw the picture here** copies whatever you are pointing at off the screen and
+puts it on the pins. On a web page that is the graphic NVDA just told you about: arrow onto
+it and press this, with nothing to aim first.
+
+It is deliberately not restricted to things NVDA calls a graphic. A diagram in a canvas, a
+map, a floor plan and a chart somebody published as a picture are all worth a hand, and half
+of them report a role that says nothing useful.
+
+Expect it to be good for line art, logos, diagrams and maps, adequate for high contrast
+photographs, and poor for everything else. It draws what is in the picture; it does not
+decide what in the picture matters, so a photograph of somebody standing in front of a
+bookcase comes out as a person and a bookcase.
+
+**Graphics: Change how a picture is drawn** cycles three styles and says which you are on:
+
+- **Outlines** — the edges the picture holds, thinned to one dot where the picture has one
+  edge. A thick stroke has two real edges, an outer and an inner, and comes out as a double
+  line; that is the picture being reported accurately rather than a fault, and no amount of
+  tuning will merge them.
+- **Brightness** — the dark parts of the picture raised. This is the style that draws the ink
+  itself rather than its edges, so it is the one to try on a shape whose inside matters.
+- **Brightness reversed** — the light parts raised instead. Worth pressing on anything drawn
+  light on dark.
+
+None of the three can be chosen in advance, because the same picture drawn two ways gives two
+entirely different panels. Press it and feel. It redraws the pixels it already has rather than
+copying the screen again, so the page moving underneath you cannot change the picture you are
+reading.
+
+A picture that cannot be drawn tells you why: the screen curtain is on, there is nothing
+there, it is not showing on the screen, it is not in view and wants scrolling to, it is too
+small on screen to be a picture, or it could not be copied off the screen at all.
+
+### Reading a drawing with your hands
+
+Press a routing key where your finger already is. The display reports which pin you touched
+and the add-on says what is there — that is the whole gesture, with no second command and
+nothing to hold.
+
+- On a **chart**, it names what is under you: which bar and what it is worth, which series at
+  which date, or a whole period's open, high, low and close.
+- On a **picture**, it says where you are as a percentage across and down, which is the fact
+  that stays true whatever the picture happens to be.
+- Anywhere else on a figure, it says "raised at" or "blank at" with the position inside the
+  drawing, counted from its top left corner.
+
+It reports the **nearest raised dot** rather than the exact pin you pressed, within about half
+a braille line. A fingertip is far wider than a pin, and a border one dot wide touched
+squarely reads as blank whenever the display's idea of the contact center lands a pin to
+either side of the ridge your finger is actually on — which is most of the time. That search
+distance follows the magnification: it grows as a drawing is compressed, where one pin stands
+for several dots of the original, and falls away as you magnify, where a finger can be placed
+exactly.
+
+A press beside the figure rather than on it says "outside the picture", so a press that found
+nothing is never confused with a part of the drawing that holds nothing.
+
+### Magnifying and moving
+
+**Graphics: Magnify the drawing** and **Graphics: Shrink the drawing** work a ladder of
+doublings, and **Graphics: Move the drawing view** up, down, left and right move what is
+visible once you are past the bottom of it.
+
+The bottom of the ladder shows **all** of the drawing, compressed as far as it needs to be.
+That is the view you want first: the shape of the thing, then the detail. Nothing is off the
+edge there, so panning reports that the whole drawing is showing rather than claiming an edge
+that is not there. Fitting only ever shrinks — a drawing smaller than the panel is shown at
+the size it was drawn rather than blown up to fill the panel, so magnification is always
+something you asked for.
+
+Above that are five doublings, capped where a single dot of the original is wider than a
+braille cell and you would be feeling the magnification rather than the figure. A picture goes
+one step past the point where one pin stands on one captured pixel: no new detail appears,
+because there is none left in what was captured, but the shape under your hand gets bigger,
+and a pin is a small thing to read a shape with.
+
+When a picture is compressed, **a pin is raised if any dot it covers is raised**, rather than
+sampling the middle one. Compression is where a tactile drawing is most easily ruined: a line
+one dot wide reduced to a quarter is missed by three sample points out of four and comes out
+dashed or gone altogether. Taking any dot keeps every line the drawing had, at the cost of
+thickening a busy area into a solid one — which is the right way round, because you can feel
+that a region is busy and cannot feel a line that is not there.
+
+**Where you are is said as a percentage of how far you can move**, with 0 hard against one
+edge and 100 hard against the other, and the ends named rather than numbered: "25 across, 51
+down", then "left edge, 51 down". An axis that cannot move is left out rather than reported as
+a meaningless zero. The origin is held internally as a dot of the original, which is the right
+thing to compute with and the wrong thing to say — how far across a picture you are is a fact
+about what you are feeling, and "at 48, 18" is a fact about how large the picture happens to
+be.
+
+A zoom that does not move says why, rather than leaving you pressing a key that seems dead:
+the closest view, no more detail to show, as large as the pins can show, or this part will not
+draw. For a picture it adds the size it was captured at, which is the whole answer to the
+commonest confusion about one — a toolbar with six icons plainly visible on screen that will
+not magnify is a toolbar 160 pixels wide spread across 96 pins, already under two pixels to a
+pin.
+
+Two things a drawing may tell you about itself, and both are said every time you pan rather
+than only on the command that caused them:
+
+- **"Only background here"** — you have magnified into a part of the picture that holds
+  nothing. The empty middle of a shape is a real answer, so it is drawn blank and named,
+  rather than refused. Refusing it would strand you: a refusal is a move that does not
+  happen, so you could never pan across an empty middle to reach the far rim.
+- **"Too detailed to draw whole; magnify to read it"** — the picture holds more edge than the
+  pins can carry. What gets drawn in that case is an even scattering, which is an honest
+  account of a texture and a dishonest one of a drawing, and a hand cannot tell the two apart.
+  So it is said rather than left to be discovered.
+
+### The braille line beside it
+
+**Graphics: Show or hide the braille line beside the drawing** decides how much of the panel
+the figure gets. On a Monarch at the default 8 rows, a figure is 96 by 35 pins with a braille
+line kept beside it and 96 by 40 without — a seventh more, across the middle of the panel where
+your hands already are, which is often the difference between a shape a hand can follow and one
+it cannot. The switch works without leaving the figure, so your magnification and position
+survive it.
+
+Giving the figure the whole panel has a real cost on a single display: the rows the focus was
+using are handed over, so NVDA's focus output is dropped while the figure is there. That is
+stated when it happens and undone by the same command. With two displays you do not pay it —
+put the focus on the other display and give the whole panel to the drawing, which is the
+arrangement to prefer where the hardware allows it.
+
+### While a drawing is up
+
+A drawing outranks everything else that wants those rows, including the flow. That is
+deliberate: a drawing is something you turn on, read, and turn off, while the flow is a
+standing preference that should come back by itself afterward, and does. While a figure is up
+the flow does not claim rows at all, and leaving the figure brings it straight back.
+
+**Graphics: Show or hide a drawing on the display** takes the figure off, and puts it back.
+Pressed with nothing to show it puts up a test figure sized to the panel, which is how to
+check that a display can draw at all.
+
+**Graphics: Reports the drawing on the display** says what is there, how far it is magnified
+and where in it you are, without changing anything.
+
+### What a drawing can and cannot do
+
+- A figure and your braille line are composed onto one surface. There is no mode to switch
+  into, nothing is suspended, and the cursor goes on working in the braille line beside the
+  drawing.
+- The panel is a diagram surface, not a screen. The whole of it is 3,840 pins, which is fewer
+  dots than any picture worth drawing has pixels, so a picture arrives having already lost most
+  of itself before anything else is done to it. That is why line art works and photographs
+  mostly do not.
+- **Nothing can tell that a window was in the way.** A picture is copied from the screen, so
+  what another window was covering is what gets drawn, and there is no way to detect that from
+  the copy. If a drawing makes no sense, check that nothing is over it.
+- The screen curtain and a drawing cannot both be on, because there is nothing to copy with
+  the curtain on.
+- Sub-cell touch precision is a starting point set from a handful of deliberate touches on
+  hardware rather than a calibration. If naming a bar by pointing at it misses consistently,
+  that number is the thing to report.
+- No image library is used and none is needed. Everything a picture goes through — decoding,
+  reduction, edge detection, thresholding — is plain Python in the add-on, so there is nothing
+  to install and nothing that can fail to load.
+
 ## Commands
 
-None of the add-on's commands have a default key. Assign the ones you want under NVDA
-menu, Preferences, Input Gestures, in the BrlMultiline category. They are most
-useful assigned to keys on the display itself.
+Every command is in the **BrlMultiline** category under NVDA menu, Preferences, Input
+Gestures. Most are unassigned: pick the ones you want and give them keys, ideally keys on the
+display itself. The drawing commands are the exception and arrive with keys on the Monarch's
+own keyboard, because a drawing is something you reach for with your hands already on the
+display.
+
+The names are prefixed by what they act on — Graphics, Table, Navigation, Monitoring, Misc,
+Debug — so that related commands sort together in a long list. The prefix is part of the name
+you are looking for in Input Gestures.
+
+### Getting around the add-on
 
 **Opens the BrlMultiline settings.** Goes straight to the settings category.
 
-**Reads the whole display as one flowing document.** Turns the flow on or off, and
-remembers the answer in the profile in force, so it is the same switch as the one in the
-settings. See "Reading as a flow" above.
+**Turns the BrlMultiline segment layout on or off.** The whole division of the display, off
+and on again, without going into the settings.
 
-**Reports what the flow on the display has cost so far.** Says how long the slowest piece of
-reading took and how often the flow ran out of its allowance and showed you less than the
-display could hold. If a page feels slow, or you feel the marker meaning "there is more I
-have not read", press this and send the log: it is a great deal more use than "it felt
-slow".
+**Misc: Reports the BrlMultiline segment layout.** Says how many segments there are, which one
+is following the focus, and what is on the display. Useful for confirming a layout took effect,
+and the first thing to press when the display is not showing what you expect.
 
-**Moves the focus onto another of the combined braille displays.** If a pinned object is
-sitting where the focus is going, the two trade places: the object moves to the segment the
-focus is leaving, and moving the focus back trades them back. You are told it happened, and
-nothing asks you anything, because that is what you meant. If there is nowhere to put what
-is in the way, or more than one thing is, you are asked which to keep — and you can cancel,
-which is the answer when you had forgotten the pin was there. Keeping more than there is
-room for is a matter of dividing a segment further first; even a single row display can be
-divided, which gets crowded fast and is your call. Only does anything when
+**Moves the focus onto another of the combined braille displays.** Only does anything when
 several displays are driven as one. With two, pressing it moves the segment that follows the
 system focus from the one to the other, so you can put the focus where your hands are without
-working out a segment number. With more than two, it opens a list to choose from. It keeps
-how far down its display the focus segment was, so on two displays divided alike pressing it
-twice puts you back where you started. The answer is stored in the profile in force, like
-every other setting here, so it survives a rebuild and a restart.
+working out a segment number. With more than two, it opens a list to choose from. It keeps how
+far down its display the focus segment was, so on two displays divided alike, pressing it twice
+puts you back where you started. The answer is stored in the profile in force, like every other
+setting here, so it survives a rebuild and a restart.
 
-**Reports the BrlMultiline segment layout.** Says how many segments there are and
-which one is following the focus. Useful for confirming a layout took effect.
+If a pinned object is sitting where the focus is going, the two trade places: the object moves
+to the segment the focus is leaving, and moving the focus back trades them back. You are told
+it happened, and nothing asks you anything, because that is what you meant. If there is nowhere
+to put what is in the way, or more than one thing is, you are asked which to keep — and you can
+cancel, which is the answer when you had forgotten the pin was there. Keeping more than there
+is room for is a matter of dividing a segment further first; even a single row display can be
+divided, which gets crowded fast and is your call.
 
-**Scrolls segment N of the first / second / third display forward / back.** Pans a segment named by which display
-it is on and how far down that display it sits. Prefer these: a segment's plain number
-counts across the whole display and moves whenever the layout changes, so a key bound to
-"segment 5" quietly starts panning something else. "The second display's first segment"
-does not move. On one display, the first display is that display, so these keep working
-when you unplug the second one.
+### Panning segments
 
-**Scrolls segment N forward / back.** Pans one segment, whether or not it is the segment
-following the focus. There is a pair of these for each segment. These count across the
-whole display, so they can reach a segment the display relative commands cannot, at the
-cost of moving when the layout does.
+**Navigation: Scrolls segment N of the first / second / third display forward / back.** Pans a
+segment named by which display it is on and how far down that display it sits. Prefer these: a
+segment's plain number counts across the whole display and moves whenever the layout changes,
+so a key bound to "segment 5" quietly starts panning something else. "The second display's
+first segment" does not move. On one display, the first display is that display, so these keep
+working when you unplug the second one.
 
-A segment that is not following the focus is panned within the content it already has. It
-will not move to the next or previous line of a document, because doing so would move the
-caret in something you are only reading, and drag the focus with it.
+**Navigation: Scrolls segment N forward / back.** Pans one segment, whether or not it is the
+segment following the focus. There is a pair of these for each segment. These count across the
+whole display, so they can reach a segment the display relative commands cannot, at the cost of
+moving when the layout does.
 
-**Shows the navigator object in segment N of the first / second / third display.** Pins the current navigator
-object to a segment named by display, for the same reason as the panning commands above.
+A segment that is not following the focus is panned within the content it already has. It will
+not move to the next or previous line of a document, because doing so would move the caret in
+something you are only reading, and drag the focus with it.
 
-**Shows the navigator object in segment N.** Pins the current navigator object to that
-segment, so it stays there while you move around elsewhere. There is one of these for each
-segment. You cannot pin an object to the segment that follows the focus.
+### Keeping an object on the display
+
+**Monitoring: Shows the navigator object in segment N of the first / second / third display.**
+Pins the current navigator object to a segment named by display, for the same reason as the
+panning commands above.
+
+**Monitoring: Stops showing an object in segment N of the first / second / third display.**
+Unpins and clears that segment.
+
+**Shows the navigator object in segment N.** Pins the current navigator object to that segment,
+so it stays there while you move around elsewhere. There is one of these for each segment. You
+cannot pin an object to the segment that follows the focus.
 
 **Stops showing an object in segment N.** Unpins and clears that segment.
 
-### Drawings
+### Reading as a flow
 
-These need a display that can raise pins one at a time, such as a Monarch, and they are the
-only commands in the add-on that come with keys already assigned — on the Monarch's own
-keyboard, because a drawing is something you reach for with your hands already on the display.
-Everything here is reported in speech as well, since the panel is what your hands are reading
-and speech is what tells you something changed.
+**Toggle reading the whole display as one flowing document.** Turns the flow on or off, and
+remembers the answer in the profile in force, so it is the same switch as the one in the
+settings. See "Reading as a flow" above.
 
-**Draws the picture here.** Copies whatever you are pointing at off the screen and puts it on
-the pins. On a web page, that is the graphic NVDA just told you about: arrow onto it and press
-this. It is not restricted to things NVDA calls a graphic — a diagram, a map, a floor plan, a
-chart somebody published as a picture all work, and half of them report no useful role. If it
-cannot be drawn you are told which reason: not showing on the screen, too small to be a
-picture, or nothing in it to feel.
+### Tables
 
-Expect it to be good for line art, logos, diagrams and maps, adequate for high contrast
-photographs, and poor for everything else. It draws what is in the picture; it does not yet
-decide what in the picture matters, so a photograph of somebody in front of a bookcase comes
-out as a person and a bookcase.
+These act on the table your cursor is in. See "Reading as a flow" above for what a table laid
+out in columns is and what is remembered about one.
 
-**Changes how a picture is drawn.** Cycles outlines, brightness, and brightness reversed, and
-says which. None of the three can be chosen in advance — the same picture drawn two ways is two
-entirely different panels — so press it and feel. It re-draws the pixels it already has rather
-than copying the screen again, so the page moving underneath you does not change the picture
-you are reading.
+**Table: Toggle table columns on or off.** Lays the table out in columns on the display, or
+stops.
 
-**Charts the selected cells.** Draws a spreadsheet selection as a tactile bar, line, open high
-low close or candlestick chart, asking which when the numbers could be more than one of them.
-A routing press on a bar or a point says what it is worth.
+**Table: Next columns** and **Table: Previous columns.** Move across a table too wide to show
+at once, without moving the cursor.
 
-**Magnifies, shrinks and moves the drawing.** A chart or a picture zoomed in is composed again
-rather than enlarged, so a chart gets fewer bars each wide enough to be named, and a picture
-gets that part of it drawn from the pixels rather than the pins. Reports where you are as a
-percentage across and down.
+**Table: Show/Hide the current column.** Takes the column your cursor is in out of the layout,
+or puts it back. What you press while exploring a table nobody has arranged.
 
-**Shows or hides the braille line beside the drawing**, and **shows or hides the drawing**
-itself. With two displays, put the focus on the other one and give the whole panel to the
-drawing: eight rows instead of six is the difference between a shape a hand can follow and one
-it cannot.
+**Table: Changes how the column you are in is trimmed when it does not fit.** Cycles that one
+column between wrapping, cut keeping the start, and cut keeping the end. Cutting from the end
+is for a column whose values all begin with something nobody wrote for reading.
 
-**Shows the glyph catalogue.** Unbound, and a tool for learning the role and state shapes
-rather than one used while reading. See "Draw roles and states as shapes instead of words".
+**Table: Open table layout designer for the current table.** The dialog for a table you come
+back to, where each column can be named, sized, trimmed and hidden. See "Reading as a flow".
+
+**Table: Undo custom table layout.** Gives the table back as it comes, without touching what
+was saved for it. The way out of an experiment.
+
+**Table: Save table layout.** Remembers this arrangement against this table, so it comes up
+laid out the next time you are in it.
+
+**Table: Delete saved table layout.** Drops what was remembered for this table, for good, so it
+reads as the page around it again.
+
+### Drawings and charts
+
+These need a display that can raise pins one at a time, and they are the only commands in the
+add-on that come with keys already assigned. The keys are on the Monarch's own keyboard and
+arrive with the add-on's Monarch driver; they can be reassigned like anything else. Everything
+here is reported in speech as well, since the panel is what your hands are reading and speech is
+what tells you something changed.
+
+See "Drawings and charts" above for what each of these does and what to expect of it.
+
+These have keys already:
+
+- **Graphics: Draw the picture here** — space with dots 1, 4 and 7.
+- **Graphics: Change how a picture is drawn** — space with dots 1, 4 and 8.
+- **Graphics: Chart the selected cells** — space with dots 5 and 7.
+- **Graphics: Magnify the drawing** — space with dot 8.
+- **Graphics: Shrink the drawing** — space with dot 7.
+- **Graphics: Move the drawing view up** — space with dots 1 and 7.
+- **Graphics: Move the drawing view down** — space with dots 4 and 7.
+- **Graphics: Move the drawing view left** — space with dots 3 and 7.
+- **Graphics: Move the drawing view right** — space with dots 6 and 7.
+- **Graphics: Show or hide the braille line beside the drawing** — space with dots 2 and 7.
+- **Graphics: Show or hide a drawing on the display** — space with dots 7 and 8.
+
+These two have none:
+
+- **Graphics: Reports the drawing on the display** — says what is on the display, how far it is
+  magnified and where in it you are, without changing anything.
+- **Graphics: Show the glyph catalogue** — see below.
+
+**Graphics: Show the glyph catalogue** is unassigned on purpose: it is a tool for learning the
+role and state shapes rather than one used while reading. It draws every symbol with the braille
+it replaces beside it, so a hand running along the panel reads the shape and then the word it
+stands for. See "Draw roles and states as shapes instead of words".
+
+### Diagnostics
+
+**Debug: Reports what the flow on the display has cost, and copies the detail.** Says how long
+the slowest piece of reading took and how often the flow ran out of its allowance and showed you
+less than the display could hold, and writes the detail to the log. If a page feels slow, or you
+feel the marker meaning "there is more I have not read", press this and send the log: it is a
+great deal more use than "it felt slow".
+
+**Debug: Copies what a flowed reading of this object would show to the clipboard.** Reads the
+object under the navigator as a flow, onto the clipboard, without moving anything or putting
+anything on the display. For reporting what a flow made of something.
 
 ## Notes and limitations
 
