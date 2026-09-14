@@ -263,6 +263,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Layered keys. Reads each device's layers and passes every key through while no layer
 		# is on. See `keyLayerDispatch`.
 		keyLayerDispatch.install()
+		self._keyLayersMenuItem = self._addKeyLayersMenuItem()
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(BrailleMultilineSettingsPanel)
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(FlowSettingsPanel)
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(VirtualDisplaySettingsPanel)
@@ -303,6 +304,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			panning.remove()
 			tableArrows.remove()
 			keyLayerDispatch.remove()
+			self._removeKeyLayersMenuItem()
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(BrailleMultilineSettingsPanel)
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(FlowSettingsPanel)
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(VirtualDisplaySettingsPanel)
@@ -3179,6 +3181,57 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._layerEndsToSay.extend(words)
 		else:
 			ui.message(", ".join(words))
+
+	def _addKeyLayersMenuItem(self):
+		"""Put the layered keys dialog in NVDA's Preferences menu, after Input Gestures.
+
+		Appended, and Input Gestures is the last item NVDA puts there, so it lands beside it. No menu
+		at all in a secure session, where NVDA leaves Input Gestures out too.
+
+		:return: the menu item, or None if there is no menu to add it to.
+		"""
+		try:
+			import globalVars
+
+			if globalVars.appArgs.secure:
+				return None
+			tray = gui.mainFrame.sysTrayIcon
+			item = tray.preferencesMenu.Append(
+				wx.ID_ANY,
+				# Translators: the item in NVDA's Preferences menu that opens the layered keys dialog.
+				_("BrlMultiline &layered keys..."),
+			)
+			tray.Bind(wx.EVT_MENU, self._onKeyLayersMenu, item)
+			return item
+		except Exception:
+			log.debugWarning("BrlMultiline: could not add the layered keys menu item", exc_info=True)
+			return None
+
+	def _removeKeyLayersMenuItem(self) -> None:
+		item = getattr(self, "_keyLayersMenuItem", None)
+		if item is None:
+			return
+		self._keyLayersMenuItem = None
+		try:
+			gui.mainFrame.sysTrayIcon.preferencesMenu.Remove(item)
+		except Exception:
+			log.debugWarning("BrlMultiline: could not remove the layered keys menu item", exc_info=True)
+
+	def _onKeyLayersMenu(self, event) -> None:
+		from . import keyLayerDialog
+
+		keyLayerDialog.openDialog()
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Layered keys: Opens the layered keys dialog"),
+		category=SCRIPT_CATEGORY,
+	)
+	@gui.blockAction.when(gui.blockAction.Context.MODAL_DIALOG_OPEN)
+	def script_keyLayerDialog(self, gesture):
+		from . import keyLayerDialog
+
+		wx.CallAfter(keyLayerDialog.openDialog)
 
 	def toggleKeyLayer(self, device: str | None) -> None:
 		"""Turn a device's layer off, or turn on the one for what is on the display, and say which.

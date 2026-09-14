@@ -336,6 +336,15 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Translators: the button in BrlMultiline settings that opens the layered keys dialog.
+		keyLayersButton = sHelper.addItem(wx.Button(self, label=_("Layered &keys...")))
+		keyLayersButton.Bind(wx.EVT_BUTTON, self._onKeyLayers)
+
+	def _onKeyLayers(self, event) -> None:
+		"""Open the layered keys dialog over this one. Modal, as NVDA's own settings open a sub-dialog."""
+		from . import keyLayerDialog
+
+		keyLayerDialog.openDialog(self, modal=True)
 
 	def _displayDrawsGlyphs(self) -> bool:
 		""":return: whether the display in use can draw a shape in a cell.

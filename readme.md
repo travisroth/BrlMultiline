@@ -780,7 +780,7 @@ stands for. See "Draw roles and states as shapes instead of words".
 
 ### Layered keys
 
-Experimental, and without its settings dialog yet. A layer gives a display's keys, or the
+Experimental. A layer gives a display's keys, or the
 keyboard's, other commands while it is on: with a drawing up, the Monarch's left d-pad can pan it
 while the right d-pad goes on being the arrow keys. Each display and the keyboard has its own
 layers, and turning one on changes nothing on the others. A key a layer does not use does what it
@@ -793,6 +793,7 @@ always does, so typing and reading carry on inside a layer.
 - **Layered keys: Chooses which layer is on for the device it is pressed on** — unassigned.
 - **Layered keys: Reports which layers are on** — unassigned.
 - **Layered keys: Turns every layer off** — unassigned.
+- **Layered keys: Opens the layered keys dialog** — unassigned.
 - **Layered keys: Turns the layer on or off for the first, second or third display** — unassigned,
   for turning a display's layer on from the keyboard.
 
@@ -808,7 +809,32 @@ The Monarch and the keyboard come with layers already:
 - **Keyboard, graphics layer.** The keypad's arrows move the Monarch's drawing, keypad plus and
   minus magnify and shrink it, and keypad 5 says the line.
 
-Other displays start with an empty default layer until the settings dialog can edit them.
+Other displays start with an empty default layer.
+
+#### The layered keys dialog
+
+Open it from the NVDA menu, Preferences, BrlMultiline layered keys, from the Layered keys button
+in BrlMultiline's settings, or with its command. It works like NVDA's Input Gestures dialog: a
+filter, a tree of categories and commands with the keys under each, and Add, Change and Remove.
+Above the tree, choose the device and the layer to edit. Changes are saved in the configuration
+profile in use when you press OK.
+
+- **Add** waits for a key on the device being edited. A key on another display is refused and
+  said so, and escape on the keyboard stops waiting.
+- A key that already does something else in the layer asks before it is moved.
+- The key that turns layers on and off, and a layer's exit keys, cannot be given to a command.
+- A keyboard key for one of BrlMultiline's commands, or a braille command, asks which display it
+  acts for, so a keypad key can move the Monarch's drawing.
+- **Does nothing in this layer**, under BrlMultiline, blocks a key while the layer is on.
+- **New layer**, **Rename**, **Delete layer** and **Properties** manage the layers. Properties
+  sets what the layer is for, whether it stays on or is one shot, its exit keys, and which layer
+  keys it does not have come from.
+- **Only show commands with keys in this layer** turns the tree into a list of what the layer does.
+- **Clear this layer** removes its keys. **Reset to factory defaults** puts back the layers the
+  device shipped with.
+- Commands are gathered from where you were when you opened the dialog, as Input Gestures gathers
+  them, so open it from a web page to bind browse mode commands. A key for a command not available
+  from there is listed under "Unavailable from here", so it can still be removed.
 
 ### Diagnostics
 

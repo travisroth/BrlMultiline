@@ -421,7 +421,7 @@ Top to bottom:
 6. **Add, Change, Remove** buttons, the context menu, and Delete on a key, as Input Gestures
    has them. **Reset to factory defaults**, as Input Gestures names it, puts the device's
    shipped layers back; "Clear this layer" empties the one selected.
-7. **OK, Cancel, Apply.**
+7. **OK and Cancel.** No Apply, as Input Gestures has none: its accelerator would be Add's.
 
 ### Differences from Input Gestures, each for a reason
 
@@ -438,14 +438,26 @@ Top to bottom:
 5. **Commands not available from here.** A layer may hold a binding to a browse mode command
    while the dialog was opened from the desktop. It appears under an "Unavailable from here"
    category rather than disappearing, so it can still be removed.
+6. **Escape on the keyboard stops waiting for a display's key.** Input Gestures takes whatever
+   is pressed next, and a reader editing a display layer who cannot reach the display, or who
+   changed their mind, would otherwise be stuck. A key from the wrong device says so and says
+   escape stops waiting.
+7. **"Does nothing in this layer" is a command** in the BrlMultiline category, which is how a
+   key is blocked.
+8. **A keyboard key for a command that can ask which display it is for asks which display it
+   acts for**: this add-on's commands, a braille display driver's, and NVDA's braille commands,
+   when a display is connected. "No display" is first. Other commands never ask.
+9. **A combined display's members' own commands are listed**, each named with its display,
+   because NVDA's gathering sees only the virtual display and not what is behind it.
 
 ### A view model, so it can be tested
 
 NVDA's dialog separates `_InputGesturesViewModel` from the wx tree, and that separation is
 worth copying rather than the classes themselves, which are private. `keyLayerDialog.py`
-holds a view model with no wx in it — categories, commands, pending captures, commit to a
-layer set — and the dialog over it. The view model gets the tests; the dialog is checked on
-hardware.
+holds `LayerEditor`, with no wx in it — categories, commands, the prompt while a key is awaited,
+refusals and conflicts, layers and their properties, commit — and the dialog over it, the split
+`flowTableDesigner` makes. The editor gets the unit tests; the dialog is built and driven with
+real wx by `tests/nvdareal.py --dialog`, and read with NVDA on hardware.
 
 ## Default layers
 
@@ -803,10 +815,60 @@ layers as shipped.
 
 ### Phase 2, the dialog
 
+**Built, 14 September 2026.** On hardware so far: adding a key works, and a key already bound to
+another command asks before it is moved. The rest of "How to run phase 2" has not been reported.
+
 The view model with tests, then the dialog, including acts for on keyboard bindings and
 members' own commands in the tree. Exit criterion: a reader builds a layer for a display and
 for the keyboard from nothing without reading documentation, and the dialog reads with NVDA
 the way Input Gestures does.
+
+#### What phase 2 built
+
+- `keyLayerDialog.py`: `LayerEditor` and the dialog over it, as "The layered keys dialog"
+  describes, with the differences from Input Gestures listed there.
+- **Opened three ways**: NVDA menu, Preferences, "BrlMultiline layered keys...", appended after
+  Input Gestures and left out in a secure session as Input Gestures is; the command "Layered
+  keys: Opens the layered keys dialog", unassigned; and a "Layered keys..." button in the
+  BrlMultiline settings panel, which opens it modally over the settings, as NVDA's own panels
+  open their sub-dialogs.
+- **Saving** goes through `keyLayerDispatch.save`, into the profile in force, and only for the
+  devices changed. A device that cannot be saved, such as one whose layers fall through in a
+  circle, is named and the dialog stays open.
+- The fall through labels, "from Graphics layer", stay in phase 3 with the rest of context.
+
+Two bugs found building it. An emulated key, once a key was bound to it, was listed as a command
+not available from here: an emulated key is always available. And the dialog's editor was made
+before wx had made the dialog, which wx does not allow; it is made in `makeSettings` now.
+
+A third found on hardware: Add raised an `IndexError` selecting the "Enter input gesture" prompt
+under a command the tree had not expanded, since a virtual tree has no rows for an unexpanded
+item's children. The key was still added. The prompt is now selected like any key, after its
+command is expanded, and the `--dialog` check collapses the tree before adding, which it did not
+before, which is why it passed.
+
+Also seen working on that run: a key already bound to another command asked before moving.
+
+42 unit tests for the editor and the gathering. `tests/nvdareal.py --dialog`, opt in because it
+makes a wx application, builds the real dialog and its properties dialog and drives the tree,
+the prompt, and a layer and device change.
+
+#### How to run phase 2
+
+1. Open NVDA menu, Preferences, BrlMultiline layered keys. The title names the profile. Device
+   is the Monarch, layer is Default, and the tree reads as Input Gestures does.
+2. Check "Only show commands with keys in this layer": the four reading commands the Monarch's
+   default layer ships with, each with its left d-pad key.
+3. Layer, Graphics: the pan and zoom commands with their keys.
+4. New layer, "Reading". Filter by "say all", select it, Add, press right d-pad down on the
+   Monarch. Press a Focus 80 key while it waits and check it says the key is on the wrong device.
+5. Properties on Reading: one shot, space with z listed as an exit key.
+6. Device, Keyboard. Find a BrlMultiline graphics command, Add, press a keypad key: it should ask
+   which display the key acts for.
+7. OK, then use the new Reading layer with the choose a layer command, and the keyboard key.
+8. Reopen and Reset to factory defaults on the Monarch, OK: the Reading layer is gone and the
+   shipped layers are back.
+9. Open the dialog from the BrlMultiline settings panel's button, and with its command.
 
 ### Phase 3, context
 

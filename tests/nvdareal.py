@@ -597,13 +597,95 @@ CHECKS = (
 )
 
 
+def checkKeyLayerDialog() -> list:
+	"""Build the layered keys dialog against NVDA's own wx and gui, and drive it without showing it.
+
+	Opt in, with `--dialog`, because it is the one check here that makes a wx application: it opens
+	no window on screen, but it needs a desktop session to create one in. The editor behind the
+	dialog is unit tested; this is for what only wx can get wrong — a sizer that will not take a
+	control, a tree that will not index, a base class that wants an argument it did not get.
+
+	What gathering commands from a running NVDA needs cannot be had here, so the dialog is given an
+	editor with two commands and two layers instead of the one `_makeEditor` builds.
+
+	:return: what is wrong, empty if nothing.
+	"""
+	import types
+
+	failures = []
+	loadPlugin()
+	import inputCore
+	import wx
+
+	app = wx.App(False)  # noqa: F841 - kept alive for the dialogs below.
+	from brlMultiline import keyLayerDialog as kd
+	from brlMultiline.keyLayers import DEFAULT_ID, KEYBOARD, MONARCH, LayerSet, Target, newLayer, normalize
+
+	pan = kd.Command("BrlMultiline", "Move the drawing up", Target.script("brlMultiline", "GlobalPlugin", "graphicsPanUp"))
+	say = kd.Command("System caret", "Report the line", Target.script("globalCommands", "GlobalCommands", "reportCurrentLine"))
+	upKey = normalize(f"br({MONARCH}):leftDpadUp")
+	stored = {
+		MONARCH: LayerSet(
+			MONARCH,
+			(
+				newLayer(MONARCH, DEFAULT_ID, bindings={upKey: say.target}),
+				newLayer(MONARCH, "graphics", "Graphics", "graphics", bindings={upKey: pan.target}),
+			),
+		),
+	}
+	kd._makeEditor = lambda: kd.LayerEditor(
+		[kd.Device(MONARCH, "Monarch", True), kd.Device(KEYBOARD, "Keyboard", True)],
+		lambda device: stored.get(device, LayerSet(device)),
+		LayerSet,
+		[pan, say],
+	)
+	if inputCore.manager is None:
+		inputCore.manager = types.SimpleNamespace(_captureFunc=None, isInputHelpActive=False)
+	dialog = kd.KeyLayersDialog(None)
+	try:
+		if not dialog.nodes:
+			failures.append("the tree has no categories")
+		if dialog.layerCtrl.GetItems() != ["Default", "Graphics"]:
+			failures.append(f"the layer choice lists {dialog.layerCtrl.GetItems()}")
+		dialog._refresh(focus=(kd.identity(say.target), upKey))
+		_category, command, key = dialog.tree.selection()
+		if key is None or key.identifier != upKey:
+			failures.append(f"selecting a key selected {command}, {key}")
+		elif not dialog.removeButton.IsEnabled():
+			failures.append("a selected key cannot be removed")
+		# Collapsed first: selecting the prompt under a command the tree has not expanded was the
+		# hardware run's IndexError, and a check that had expanded it already could not see it.
+		dialog.tree.CollapseAll()
+		dialog._startAdding(pan)
+		_category, command, key = dialog.tree.selection()
+		if dialog._captor is None or key is None or key.identifier is not None:
+			failures.append("adding a key does not wait with the prompt selected")
+		dialog._stopCapture()
+		dialog._cancelledCapture()
+		dialog.layerCtrl.SetSelection(1)
+		dialog._onLayer(None)
+		dialog.editor.selectLayer("graphics")
+		properties = kd._PropertiesDialog(dialog)
+		if properties.exitCtrl.GetCount() != 1:
+			failures.append("a Monarch layer's properties do not list space with z to leave")
+		properties.Destroy()
+	finally:
+		dialog._stopCapture()
+		dialog.Destroy()
+	return failures
+
+
+CHECKS_TO_RUN = list(CHECKS)
+"""The checks a run makes: every check in L{CHECKS}, and the opt in ones asked for."""
+
+
 def runChecks() -> int:
 	"""Run every check and report.
 
 	:return: a process exit code, 0 if everything passed.
 	"""
 	failed = 0
-	for name, check in CHECKS:
+	for name, check in CHECKS_TO_RUN:
 		try:
 			failures = check()
 		except Exception as error:  # noqa: BLE001 - the report is the point, not the traceback.
@@ -635,11 +717,18 @@ def main(argv: "list[str] | None" = None) -> int:
 	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	parser.add_argument("--log", nargs="?", type=int, const=40, help="print the last N lines of NVDA's log")
 	parser.add_argument("--displays", action="store_true", help="list the braille hardware NVDA can see")
+	parser.add_argument(
+		"--dialog",
+		action="store_true",
+		help="build the layered keys dialog with wx, as well as the other checks",
+	)
 	args = parser.parse_args(argv)
 	if args.log is not None:
 		print(f"--- {logPath()} ---")
 		print(tailLog(args.log))
 		return 0
+	if args.dialog:
+		CHECKS_TO_RUN.append(("key layer dialog", checkKeyLayerDialog))
 	if args.displays:
 		print("matched by bdDetect:")
 		for entry in connectedBrailleDisplays():

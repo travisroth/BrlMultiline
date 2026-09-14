@@ -31,6 +31,8 @@ established there.
   while one is on, the stored form and the default layers. NVDA free. See
   [layered-keys-plan.md](layered-keys-plan.md).
 - `keyLayerContexts.py` — which contexts are on the display, for the context aware layer key.
+- `keyLayerDialog.py` — the layered keys dialog, and `LayerEditor`, the NVDA free editor it is a
+  shell over.
 - `keyLayerDispatch.py` — layered keys, the NVDA side: reads each device's layers, keeps which is
   on, and gives a key its layer's command before NVDA looks.
 - `bmConfig.py` — per display configuration. Named to avoid shadowing NVDA's `config`.
