@@ -69,6 +69,13 @@ class DeviceSlot:
 		self._lastCells: list[int] | None = None
 		self._queuedWrite: list[int] | None = None
 		self._writeLock = threading.Lock()
+		"""Guards the queued write, `failed`, and `_displaying`, and every move between them.
+
+		They are one piece of state. A member given up on while a frame is queued, or while one
+		is being taken off the queue, must not receive it: that frame is exactly the next write
+		to a display that has just stopped answering, and on a stuck display costs another
+		whole `MEMBER_WRITE_TIMEOUT` of every other display's writes.
+		"""
 		self._guard = guard if guard is not None else memberGuard.guard
 		self._displaying = False
 		"""Whether a call to the driver's `display` is in progress. See L{terminate}."""
@@ -195,6 +202,8 @@ class DeviceSlot:
 		with self._writeLock:
 			cells = self._queuedWrite
 			self._queuedWrite = None
+			if self.failed:
+				return
 		if not cells:
 			return
 		self._displayNow(cells)
@@ -204,8 +213,15 @@ class DeviceSlot:
 
 		A write that never returns is given up on by the guard, which fails this member and
 		then cancels the write, so the thread comes back and nothing more is sent here.
+
+		`failed` is checked again, under the lock, as `_displaying` is set: the member may have
+		been given up on after the frame was taken off the queue, by a read failure or by the
+		guard rescuing a write to it on another thread.
 		"""
-		self._displaying = True
+		with self._writeLock:
+			if self.failed:
+				return
+			self._displaying = True
 		try:
 			with self._guard.watching(
 				f"{self.driverName} writing",
@@ -218,7 +234,8 @@ class DeviceSlot:
 			log.error(f"BrlMultiline: {self.driverName} failed while displaying, dropping it", exc_info=True)
 			self.fail()
 		finally:
-			self._displaying = False
+			with self._writeLock:
+				self._displaying = False
 
 	def fail(self) -> None:
 		"""Stop writing to this member, and tell the composite it has one fewer display.
@@ -230,10 +247,15 @@ class DeviceSlot:
 		The callback runs on whichever thread noticed — the I/O thread for a read failure, and
 		either thread for a write — so what it must not do here is touch NVDA. The composite
 		marshals to the main thread; see `BrailleDisplayDriver._memberFailed`.
+
+		A frame still queued is dropped in the same step as the member is marked failed, so no
+		executor can take it off the queue in between and send it.
 		"""
-		if self.failed:
-			return
-		self.failed = True
+		with self._writeLock:
+			if self.failed:
+				return
+			self.failed = True
+			self._queuedWrite = None
 		self.invalidate()
 		self.stopWatching()
 		if self._onFailure is None:
@@ -265,9 +287,10 @@ class DeviceSlot:
 		"""
 		with self._writeLock:
 			self._queuedWrite = None
+			busy = self._displaying
 		self.invalidate()
 		self.stopWatching()
-		if suppressDisplayClear or self.failed or self._displaying:
+		if suppressDisplayClear or self.failed or busy:
 			self.driver._suppressDisplayClear = True
 		try:
 			with self._guard.watching(

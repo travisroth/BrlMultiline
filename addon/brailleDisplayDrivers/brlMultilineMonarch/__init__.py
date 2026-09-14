@@ -84,6 +84,15 @@ has taken it. So this is not a latency budget. It is the longest a stuck device 
 NVDA's I/O thread, and through it every other display's writes. See `hidWrite`.
 """
 
+ABANDONED_WRITE_LIMIT = 3
+"""How many writes Windows may be holding past their cancellation before reconnecting stops.
+
+Such a write keeps its buffer and an event handle until it completes, which may be never. Each
+automatic reconnection probes the device with a write, so without a limit a device that ignores
+cancellation would leak one of each a minute for as long as NVDA ran. Past the limit the
+reader has to reselect the display or restart NVDA, which is a retry a person chose to make.
+"""
+
 
 def _callLater(milliseconds: int, work, *args):
 	"""Schedule something, from whichever thread this is.
@@ -261,6 +270,17 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._pollGeneration = 0
 		self._retryDelay = POLL_INTERVAL
 		self._reopening = False
+		self._writesSuspended = False
+		"""Set, under `_writeLock`, by the write that finds the device lost.
+
+		Until a new handle is installed no write is attempted, because the handle that is there
+		has just failed one and the next would fail the same way: a hung device would hold NVDA's
+		I/O thread for another `WRITE_TIMEOUT` for every frame and repaint already queued. Nothing
+		is lost by dropping them. The cells, glyphs and overlays are all kept, and the repaint
+		after reconnecting draws from them.
+		"""
+		self._gaveUp = False
+		"""Whether reconnection was stopped at `ABANDONED_WRITE_LIMIT`. Writes stay suspended."""
 		self._terminated = False
 		self._port = port
 
@@ -1410,15 +1430,20 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		A write that gets through puts the reconnect wait back to its shortest. That is the
 		only proof a device is really back: see `_poll`.
 
+		A write that fails suspends writing before it lets the lock go, so a write already
+		waiting for the lock finds the device lost and does not try it. See `_writesSuspended`.
+		The first write after a reconnection is therefore the only one that probes the new
+		handle: if it fails, writing is suspended again at once.
+
 		:param buffer: the whole panel.
 		"""
-		if self._pinCap is None or self._terminated:
+		if self._pinCap is None or self._terminated or self._writesSuspended:
 			return
 		payload = monarch.packPins(buffer)
 		lost = False
 		with self._writeLock:
 			device = self._dev
-			if device is None or self._terminated or self._pinCap is None:
+			if device is None or self._terminated or self._pinCap is None or self._writesSuspended:
 				return
 			try:
 				report = hwIo.hid.HidOutputReport(device, reportID=monarch.PIN_REPORT_ID)
@@ -1427,14 +1452,18 @@ class BrailleDisplayDriver(HidBrailleDriver):
 				data[1 : 1 + min(room, len(payload))] = payload[:room]
 				self._sendReport(device, bytes(data))
 			except hidWrite.WriteTimedOut:
+				stranded = hidWrite.outstanding()
 				log.warning(
 					f"BrlMultiline: the Monarch did not take a pin report within {WRITE_TIMEOUT} seconds; "
-					"treating it as disconnected",
+					"treating it as disconnected"
+					+ (f". Writes Windows has not let go of: {stranded}" if stranded else ""),
 				)
 				lost = True
+				self._writesSuspended = True
 			except Exception:
 				log.debugWarning("BrlMultiline: Monarch pin write failed", exc_info=True)
 				lost = True
+				self._writesSuspended = True
 		if lost:
 			self._onDeviceLost()
 			return
@@ -1516,6 +1545,14 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		at once and returned, and a virtual display holding this member kept a display that was
 		never coming back.
 
+		When nothing could be scheduled, writing is resumed as well. Nothing is going to install
+		a new handle, so a suspension would never end, and the next write failing is what tries
+		to schedule recovery again.
+
+		Reconnection is refused once Windows is holding `ABANDONED_WRITE_LIMIT` writes it never
+		let go of, and then writing is *not* resumed: every probe of that device can strand
+		another.
+
 		:return: whether recovery is now running, which is what the read error hook reports
 			upward. Saying True when nothing is actually retrying would have a virtual display
 			keep a member that is never coming back.
@@ -1525,6 +1562,15 @@ class BrailleDisplayDriver(HidBrailleDriver):
 				return False
 			if self._reopening:
 				return True
+			if hidWrite.outstanding() >= ABANDONED_WRITE_LIMIT:
+				if not self._gaveUp:
+					log.error(
+						f"BrlMultiline: the Monarch has {ABANDONED_WRITE_LIMIT} writes Windows will not let go "
+						"of, so it is no longer being reconnected automatically. Unplug it and plug it back "
+						"in, then select the braille display again or restart NVDA.",
+					)
+				self._gaveUp = True
+				return False
 			self._reopening = True
 			# Not reset to the shortest wait: a device that reopened and failed again has not
 			# been proven back, and `_poll` has already lengthened the wait for it.
@@ -1533,6 +1579,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			return True
 		with self._lifecycleLock:
 			self._reopening = False
+		with self._writeLock:
+			self._writesSuspended = False
 		return False
 
 	def _startPolling(self, delay: float) -> bool:
@@ -1679,6 +1727,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 				if not stale:
 					self._dev = device
 					self._pinCap = pinCap
+					self._writesSuspended = False
 					self._resetInputSession()
 			if stale:
 				log.debug("BrlMultiline: the Monarch was terminated while reopening; letting go again")

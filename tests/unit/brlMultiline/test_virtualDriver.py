@@ -15,6 +15,7 @@ virtual display tries to open it. That is the situation `handover` exists for, a
 reproduced here rather than described.
 """
 
+import threading
 import types
 import unittest
 
@@ -961,31 +962,42 @@ class TestMemberSettings(VirtualDriverTestCase):
 
 
 class TestAMemberThatStopsAnswering(VirtualDriverTestCase):
-	"""A display whose driver never returns, as a hung Focus under NVDA's own driver would."""
+	"""A display whose driver never returns, as a hung Focus under NVDA's own driver would.
+
+	The watchdog runs for real, on its own thread, with its limits cut to a tenth of a second.
+	A stuck call waits on an event that only the fake cancellation sets, so it comes back
+	exactly when a cancelled write would.
+	"""
 
 	def setUp(self):
 		super().setUp()
-		self.clock = [0.0]
+		self.release = threading.Event()
+		self.addCleanup(self.release.set)
 		self.cancelled = []
-		self.guard = memberGuard.MemberGuard(
-			clock=lambda: self.clock[0],
-			cancel=lambda driver, threadId: self.cancelled.append(driver) or True,
-			runThread=False,
-		)
+		for name in ("MEMBER_WRITE_TIMEOUT", "MEMBER_OPEN_TIMEOUT"):
+			self.addCleanup(setattr, memberGuard, name, getattr(memberGuard, name))
+			setattr(memberGuard, name, 0.1)
 		realGuard = memberGuard.guard
-		memberGuard.guard = self.guard
+		memberGuard.guard = memberGuard.MemberGuard(cancel=self.cancel, interval=0.01)
 		self.addCleanup(setattr, memberGuard, "guard", realGuard)
 
+	def cancel(self, driver, threadId):
+		self.cancelled.append(driver)
+		self.release.set()
+		return True
+
 	def hang(self, *args, **kwargs):
-		self.clock[0] += memberGuard.MEMBER_OPEN_TIMEOUT + 1
-		self.guard.check()
+		self.assertTrue(self.release.wait(5), "the guard never rescued the call")
 
 	def test_theOthersGoOnBeingWrittenTo(self):
 		display = self.build(MONARCH, FOCUS)
 		focus = self.focus.instances[0]
 		focus.display = self.hang
 		display.display([1] * display.numCells)
-		bgThread.flush()
+		# On a thread of its own, as NVDA's I/O thread is, so the watchdog can reach it.
+		ioThread = threading.Thread(target=bgThread.flush, daemon=True)
+		ioThread.start()
+		ioThread.join(5)
 		callAfterQueue.flush()
 		self.assertEqual([slot.driverName for slot in display.slots if not slot.failed], [MONARCH])
 		self.assertEqual([focus], self.cancelled)

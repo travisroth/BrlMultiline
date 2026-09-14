@@ -27,6 +27,13 @@ and the reconnect poll brings it back when it answers.
 What cancelling cannot free is a driver stuck on something other than I/O on its device — a
 lock, a loop. That is logged as an error, because the thread it holds is not coming back.
 
+**The rescue and the call are synchronised.** Cancellation only asks; it does not wait for
+the call to end. So a rescue waits a grace period for the watched call to actually return,
+and reports a thread that did not as stuck, whatever the cancellation said. And the watched
+thread, once its call returns, is held at the end of `watching` until the rescue has
+finished. Otherwise it could go straight on to its next call — on NVDA's shared I/O thread,
+another member's — while the watchdog was still cancelling I/O against that thread.
+
 Imports of NVDA are kept to the log.
 """
 
@@ -56,6 +63,17 @@ hardware: a driver may try several ports and give each one time to answer."""
 CHECK_INTERVAL = 0.5
 """How often the watchdog looks, while anything is being watched."""
 
+RESCUE_GRACE = 1.0
+"""Seconds a rescue waits for a cancelled call to return before calling its thread lost."""
+
+RESCUE_HOLD_LIMIT = 10.0
+"""The longest a returned call is held waiting for its rescue to finish.
+
+A rescue is bounded by `RESCUE_GRACE` and a couple of kernel calls, so this is never reached
+in practice. It exists so that a bug in a rescue cannot turn into the very freeze the guard
+is for.
+"""
+
 THREAD_TERMINATE = 0x0001
 _INVALID_HANDLES = {0, -1, ctypes.c_void_p(-1).value}
 
@@ -63,7 +81,17 @@ _INVALID_HANDLES = {0, -1, ctypes.c_void_p(-1).value}
 class Watch:
 	"""One call in progress."""
 
-	__slots__ = ("label", "driver", "timeout", "threadId", "started", "onOverdue", "fired")
+	__slots__ = (
+		"label",
+		"driver",
+		"timeout",
+		"threadId",
+		"started",
+		"onOverdue",
+		"fired",
+		"returned",
+		"rescueFinished",
+	)
 
 	def __init__(self, label: str, driver, timeout: float, threadId: int, started: float, onOverdue):
 		self.label = label
@@ -75,6 +103,10 @@ class Watch:
 		self.fired = False
 		"""Whether this call was given up on. A caller whose call returns with this set got
 		a result from a device that was cancelled underneath it, and must not trust it."""
+		self.returned = threading.Event()
+		"""Set when the watched call has returned, or raised."""
+		self.rescueFinished = threading.Event()
+		"""Set when a rescue of this call has done everything it is going to do."""
 
 
 class MemberGuard:
@@ -86,19 +118,22 @@ class MemberGuard:
 		cancel: Callable[[object, int], bool] | None = None,
 		runThread: bool = True,
 		interval: float = CHECK_INTERVAL,
+		grace: float = RESCUE_GRACE,
 	):
 		"""
 		:param clock: the time source, replaceable so a test can make a call overdue.
 		:param cancel: frees a stuck call, given the driver and the thread; `cancelMemberIo`
 			by default.
 		:param runThread: whether to start the watchdog thread. A test that calls L{check}
-			itself says no.
+			from another thread itself says no.
 		:param interval: how often the watchdog looks.
+		:param grace: how long a rescue waits for the cancelled call to return.
 		"""
 		self._clock = clock
 		self._cancel = cancel if cancel is not None else cancelMemberIo
 		self._runThread = runThread
 		self._interval = interval
+		self._grace = grace
 		self._condition = threading.Condition()
 		self._watches: set[Watch] = set()
 		self._thread: threading.Thread | None = None
@@ -126,8 +161,16 @@ class MemberGuard:
 		try:
 			yield watch
 		finally:
+			# Leaving the set and reading `fired` happen under the lock `check` fires under, so
+			# exactly one of two things is true: the watch left before it could be fired, and
+			# nothing will be done to this thread; or it was fired, and this thread waits here
+			# until the rescue is over.
 			with self._condition:
 				self._watches.discard(watch)
+				fired = watch.fired
+			watch.returned.set()
+			if fired and not watch.rescueFinished.wait(RESCUE_HOLD_LIMIT):
+				log.error(f"BrlMultiline: the rescue of {watch.label} did not finish; carrying on")
 
 	@property
 	def watches(self) -> tuple[Watch, ...]:
@@ -150,25 +193,37 @@ class MemberGuard:
 		return overdue
 
 	def _rescue(self, watch: Watch, elapsed: float) -> None:
-		log.warning(
-			f"BrlMultiline: {watch.label} has not returned after {elapsed:.1f} seconds; "
-			"giving the display up and cancelling its I/O",
-		)
-		if watch.onOverdue is not None:
-			try:
-				watch.onOverdue()
-			except Exception:
-				log.error(f"BrlMultiline: error giving up {watch.label}", exc_info=True)
+		"""Give the member up, cancel its I/O, and wait to see whether that freed the thread.
+
+		Whether the thread came back is judged by the call returning, not by what the
+		cancellation reported: a successful `CancelIoEx` has only asked. `rescueFinished` is
+		set however this ends, because the watched thread is waiting for it.
+		"""
 		try:
-			freed = self._cancel(watch.driver, watch.threadId)
-		except Exception:
-			log.error(f"BrlMultiline: error cancelling {watch.label}", exc_info=True)
-			return
-		if not freed:
-			log.error(
-				f"BrlMultiline: {watch.label} had no I/O to cancel, so the thread it holds is not "
-				"coming back. Braille may not work again until NVDA is restarted.",
+			log.warning(
+				f"BrlMultiline: {watch.label} has not returned after {elapsed:.1f} seconds; "
+				"giving the display up and cancelling its I/O",
 			)
+			if watch.onOverdue is not None:
+				try:
+					watch.onOverdue()
+				except Exception:
+					log.error(f"BrlMultiline: error giving up {watch.label}", exc_info=True)
+			try:
+				requested = self._cancel(watch.driver, watch.threadId)
+			except Exception:
+				log.error(f"BrlMultiline: error cancelling {watch.label}", exc_info=True)
+				requested = False
+			if watch.returned.wait(self._grace):
+				log.info(f"BrlMultiline: {watch.label} returned once its I/O was cancelled")
+				return
+			reason = "its I/O was cancelled but it still has not returned" if requested else "it had no I/O to cancel"
+			log.error(
+				f"BrlMultiline: {watch.label} is stuck: {reason}, so the thread it holds is not coming "
+				"back. Braille may not work again until NVDA is restarted.",
+			)
+		finally:
+			watch.rescueFinished.set()
 
 	def _ensureThread(self) -> None:
 		"""Start the watchdog if it is not running. Call with `_condition` held."""

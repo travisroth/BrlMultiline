@@ -654,6 +654,70 @@ class TestReconnection(MonarchTestCase):
 			bgThread.flush()
 		self.assertEqual([5000, 10000, 20000, 40000, 60000], delays)
 
+	def test_nothingMoreIsWrittenToADeviceThatHasJustHung(self):
+		"""Each frame and repaint already queued would hold the I/O thread for another whole
+		timeout, and every other display with it."""
+		device = self.driver._dev
+		device.writeHangs = True
+		self.driver.display([0] * 256)
+		for index in range(3):
+			self.driver.display([index + 1] * 256)
+			self.driver.setGraphicsOverlay(f"o{index}", 0, 0, PinBuffer(2, 2))
+			callAfterQueue.flush()
+			bgThread.flush()
+		self.assertEqual(1, device.writeAttempts)
+
+	def test_whatWasAskedForWhileSuspendedIsDrawnOnReconnecting(self):
+		"""Dropping the writes loses nothing: the state is kept, and the repaint draws it."""
+		self.driver.display([0x3F] * 256)
+		wanted = self.dotsOn(self.lastWrite(self.driver))
+		self.driver.display([0] * 256)
+		self.driver._dev.writeHangs = True
+		self.driver.display([1] * 256)
+		self.driver.display([0x3F] * 256)
+		replacement = FakeHid()
+		hidDevices.append(replacement)
+		callLaterQueue.fire()
+		bgThread.flush()
+		self.assertEqual(1, len(replacement.written))
+		self.assertEqual(wanted, self.dotsOn(replacement.written[-1][1:]))
+
+	def test_onlyOneWriteProbesAReopenedDevice(self):
+		self.driver._dev.writeHangs = True
+		self.driver.display([0] * 256)
+		replacement = FakeHid(writeHangs=True)
+		hidDevices.append(replacement)
+		callLaterQueue.fire()
+		self.driver.display([1] * 256)
+		self.driver.display([2] * 256)
+		bgThread.flush()
+		self.assertEqual(1, replacement.writeAttempts)
+
+	def test_writingResumesWhenNothingCanReconnect(self):
+		"""A suspension nothing will end would leave the panel dead for good. The next write
+		failing is what tries to schedule recovery again."""
+		scheduling.fails = True
+		device = self.driver._dev
+		device.writeFails = True
+		self.driver.display([0] * 256)
+		self.driver.display([1] * 256)
+		self.assertEqual(2, device.writeAttempts)
+
+	def test_reconnectingStopsWhenWindowsHoldsTooManyWrites(self):
+		"""Every probe of a device that ignores cancellation can strand another write."""
+		realOutstanding = driverModule.hidWrite.outstanding
+		driverModule.hidWrite.outstanding = lambda: driverModule.ABANDONED_WRITE_LIMIT
+		self.addCleanup(setattr, driverModule.hidWrite, "outstanding", realOutstanding)
+		device = self.driver._dev
+		device.writeHangs = True
+		self.driver.display([0] * 256)
+		self.assertFalse(self.driver._reopening)
+		self.assertEqual([], callLaterQueue.pending)
+		self.driver.display([1] * 256)
+		self.assertEqual(1, device.writeAttempts, "a device past the limit was written to again")
+		errors = [message for level, message in log.messages if level == "error"]
+		self.assertTrue(any("Unplug it" in message for message in errors), errors)
+
 	def test_aWriteThatGetsThroughMakesTheNextLossQuickToRecover(self):
 		self.driver._dev._onReadError(1167)
 		hidDevices.append(FakeHid())

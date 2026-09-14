@@ -10,6 +10,7 @@ arriving while another is queued must replace it rather than queue a second, whi
 behaviour `BrailleHandler` has and the reason it collapses a burst into its last frame.
 """
 
+import threading
 import unittest
 
 from ._virtualStubs import FakeDevice, FakeDriver, bgThread, installVirtualStubs, log, resetStubs
@@ -303,78 +304,92 @@ class TestTerminate(DeviceSlotTestCase):
 
 
 
-class HangingDriver(FakeDriver):
-	"""A driver whose calls run past the guard's limit, as a display that stopped answering.
+class BlockingDriver(FakeDriver):
+	"""A driver whose calls do not return until released, as a display that stopped answering.
 
-	The guard's watchdog is a thread; here the check is made from inside the call instead,
-	with the clock moved on first, which is the same moment deterministically.
+	The guard's fake cancellation is what releases it, so a call comes back exactly when a real
+	cancelled write would, and on the thread that made it.
 	"""
 
-	def __init__(self, guard, clock, **kwargs):
+	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
-		self.guard = guard
-		self.clock = clock
-		self.hangOnDisplay = True
-		self.hangOnTerminate = False
+		self.release = threading.Event()
+		self.entered = threading.Event()
+		self.blockDisplay = True
+		self.blockTerminate = False
+		self.calls = 0
 		self.suppressedAtTerminate = None
-		self.slot = None
-		self.terminateDuringDisplay = False
-
-	def _hang(self):
-		self.clock[0] += memberGuard.MEMBER_WRITE_TIMEOUT + 1
-		self.guard.check()
 
 	def display(self, cells):
-		if self.terminateDuringDisplay:
-			self.slot.terminate()
-		if self.hangOnDisplay:
-			self._hang()
+		self.calls += 1
+		self.entered.set()
+		if self.blockDisplay:
+			self.release.wait(5)
 		super().display(cells)
 
 	def terminate(self):
 		self.suppressedAtTerminate = self._suppressDisplayClear
-		if self.hangOnTerminate:
-			self._hang()
+		if self.blockTerminate:
+			self.release.wait(5)
 		super().terminate()
 
 
 class TestAMemberThatStopsAnswering(unittest.TestCase):
 	"""A write that never returns holds NVDA's shared I/O thread, and every other display's
-	writes and keys with it. The member is given up on and its write cancelled."""
+	writes and keys with it. The member is given up on and its write cancelled.
+
+	The watchdog runs for real here, on its own thread, with the limit cut to a tenth of a
+	second, and the queued writes run on another thread standing in for NVDA's I/O thread.
+	"""
 
 	def setUp(self):
 		resetStubs()
-		self.clock = [0.0]
+		realTimeout = memberGuard.MEMBER_WRITE_TIMEOUT
+		memberGuard.MEMBER_WRITE_TIMEOUT = 0.1
+		self.addCleanup(setattr, memberGuard, "MEMBER_WRITE_TIMEOUT", realTimeout)
 		self.cancelled = []
-		self.guard = memberGuard.MemberGuard(
-			clock=lambda: self.clock[0],
-			cancel=lambda driver, threadId: self.cancelled.append(driver) or True,
-			runThread=False,
-		)
+		self.guard = memberGuard.MemberGuard(cancel=self.cancel, interval=0.01)
 		self.failures = []
-		self.driver = HangingDriver(self.guard, self.clock)
+		self.driver = BlockingDriver()
+		self.addCleanup(self.driver.release.set)
 		self.slot = DeviceSlot(SPEC, self.driver, BAND, onFailure=self.failures.append, guard=self.guard)
-		self.driver.slot = self.slot
+
+	def cancel(self, driver, threadId):
+		self.cancelled.append(driver)
+		driver.release.set()
+		return True
+
+	def runQueuedWritesOnAnotherThread(self) -> threading.Thread:
+		thread = threading.Thread(target=bgThread.flush, daemon=True)
+		thread.start()
+		return thread
 
 	def test_aWriteThatNeverReturnsGivesTheMemberUp(self):
 		self.slot.write([1, 2, 3, 4])
-		bgThread.flush()
+		self.runQueuedWritesOnAnotherThread().join(5)
 		self.assertTrue(self.slot.failed)
 		self.assertEqual([self.slot], self.failures)
-
-	def test_theStuckWriteIsCancelled(self):
-		self.slot.write([1, 2, 3, 4])
-		bgThread.flush()
 		self.assertEqual([self.driver], self.cancelled)
+
+	def test_aFrameQueuedDuringTheStuckWriteIsNeverSent(self):
+		"""It would be the next write to a display that has just stopped answering, and cost
+		another whole timeout of every other display's writes."""
+		self.slot.write([1, 2, 3, 4])
+		ioThread = self.runQueuedWritesOnAnotherThread()
+		self.assertTrue(self.driver.entered.wait(5))
+		self.slot.write([5, 6, 7, 8])
+		ioThread.join(5)
+		bgThread.flush()
+		self.assertEqual(1, self.driver.calls)
 
 	def test_nothingMoreIsSentToIt(self):
 		self.slot.write([1, 2, 3, 4])
-		bgThread.flush()
+		self.runQueuedWritesOnAnotherThread().join(5)
 		self.assertFalse(self.slot.write([5, 6, 7, 8]))
 		self.assertEqual([], bgThread.queued)
 
 	def test_aHealthyWriteIsLeftAlone(self):
-		self.driver.hangOnDisplay = False
+		self.driver.blockDisplay = False
 		self.slot.write([1, 2, 3, 4])
 		bgThread.flush()
 		self.assertFalse(self.slot.failed)
@@ -382,22 +397,49 @@ class TestAMemberThatStopsAnswering(unittest.TestCase):
 
 	def test_aStuckCloseIsCancelled(self):
 		"""Blanking on the way out is a write from the main thread."""
-		self.driver.hangOnTerminate = True
+		self.driver.blockTerminate = True
 		self.slot.terminate()
 		self.assertEqual([self.driver], self.cancelled)
 		self.assertTrue(self.driver.terminated)
 
 	def test_aMemberStillWritingIsNotBlankedAsItCloses(self):
 		"""The blank would be a second write on the same OVERLAPPED, behind a stuck one."""
-		self.driver.hangOnDisplay = False
-		self.driver.terminateDuringDisplay = True
+		memberGuard.MEMBER_WRITE_TIMEOUT = 5.0
 		self.slot.write([1, 2, 3, 4])
-		bgThread.flush()
+		ioThread = self.runQueuedWritesOnAnotherThread()
+		self.assertTrue(self.driver.entered.wait(5))
+		self.slot.terminate()
+		self.driver.release.set()
+		ioThread.join(5)
 		self.assertTrue(self.driver.suppressedAtTerminate)
 
 	def test_anIdleMemberIsStillBlankedAsItCloses(self):
 		self.slot.terminate()
 		self.assertFalse(self.driver.suppressedAtTerminate)
+
+
+class TestNothingReachesAFailedMember(DeviceSlotTestCase):
+	"""Whichever way the loss was noticed, and wherever the frame was when it was."""
+
+	def test_aQueuedFrameIsDroppedWhenTheMemberFails(self):
+		self.slot.write([1, 2, 3, 4])
+		self.slot.fail()
+		bgThread.flush()
+		self.assertEqual([], self.driver.written)
+
+	def test_aFrameAlreadyTakenOffTheQueueIsNotSent(self):
+		"""A read failure can land after the executor took the frame and before the driver
+		call, and the call is where the check has to be."""
+		self.slot.fail()
+		self.slot._displayNow([1, 2, 3, 4])
+		self.assertEqual([], self.driver.written)
+
+	def test_failingTwiceReportsOnce(self):
+		failures = []
+		slot = DeviceSlot(SPEC, self.driver, BAND, onFailure=failures.append)
+		slot.fail()
+		slot.fail()
+		self.assertEqual([slot], failures)
 
 
 if __name__ == "__main__":

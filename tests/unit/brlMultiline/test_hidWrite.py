@@ -141,6 +141,19 @@ class TestWriteWithin(unittest.TestCase):
 		self.hidWrite.writeWithin(self.writer, self.buffer, PAYLOAD, 10.0)
 		reader.join(5)
 
+	def test_aParkedWriteIsLetGoOnceItFinishes(self):
+		"""Parked writes are the kernel's until their event is signalled, and not a moment
+		longer, or a device that ignores cancellation leaks a handle for every probe."""
+		kernel32 = self.hidWrite._api()
+		event = kernel32.CreateEventW(None, True, False, None)
+		self.hidWrite._abandoned.append((self.hidWrite._OVERLAPPED(), self.buffer, event))
+		self.addCleanup(self.hidWrite._abandoned.clear)
+		self.assertEqual(1, self.hidWrite.outstanding())
+		setEvent = ctypes.WinDLL("kernel32").SetEvent
+		setEvent.argtypes = (wintypes.HANDLE,)
+		setEvent(event)
+		self.assertEqual(0, self.hidWrite.outstanding())
+
 	def test_aWriteThatFailsOutrightIsNotATimeout(self):
 		"""A closed far end is a lost device too, but not a hung one, and must say so at once."""
 		self.kernel32.CloseHandle(self.reader)

@@ -34,51 +34,170 @@ class FakeClock:
 		return self.now
 
 
+class StuckCall:
+	"""A watched call running on its own thread, which does not return until released.
+
+	The watchdog is a separate thread in NVDA, and what goes wrong goes wrong between the two:
+	the call returning while the rescue is still at work. So the call is on a thread of its own
+	here, and the test thread plays the watchdog, with the clock under its control.
+	"""
+
+	def __init__(self, guard, driver, label="fake writing", timeout=6.0, onOverdue=None, order=None):
+		self.release = threading.Event()
+		self.entered = threading.Event()
+		self.left = threading.Event()
+		self.watch = None
+		self.threadId = None
+		self._order = order
+
+		def run():
+			with guard.watching(label, driver, timeout, onOverdue) as watch:
+				self.watch = watch
+				self.threadId = threading.get_native_id()
+				self.entered.set()
+				self.release.wait(5)
+			if self._order is not None:
+				self._order.append("the call left")
+			self.left.set()
+
+		self.thread = threading.Thread(target=run, daemon=True)
+		self.thread.start()
+		assert self.entered.wait(5), "the call never started"
+
+	def finish(self) -> None:
+		self.release.set()
+		self.thread.join(5)
+
+
 class GuardTestCase(unittest.TestCase):
 	def setUp(self):
 		resetStubs()
 		self.clock = FakeClock()
 		self.events: list = []
 		self.cancelResult = True
-		self.guard = MemberGuard(clock=self.clock, cancel=self.cancel, runThread=False)
+		self.cancelFrees = True
+		self.calls: list[StuckCall] = []
 		self.driver = object()
+		self.useGuard()
+
+	def tearDown(self):
+		for call in self.calls:
+			call.finish()
+
+	def useGuard(self, grace: float = 5.0) -> None:
+		self.guard = MemberGuard(clock=self.clock, cancel=self.cancel, runThread=False, grace=grace)
+
+	def start(self, **kwargs) -> StuckCall:
+		call = StuckCall(self.guard, kwargs.pop("driver", self.driver), **kwargs)
+		self.calls.append(call)
+		return call
 
 	def cancel(self, driver, threadId):
 		self.events.append(("cancel", driver, threadId))
+		if self.cancelFrees:
+			for call in self.calls:
+				if call.threadId == threadId:
+					call.release.set()
 		return self.cancelResult
 
 	def giveUp(self):
 		self.events.append(("gave up",))
 
+	def messages(self, level: str) -> list[str]:
+		return [message for each, message in log.messages if each == level]
+
 
 class TestRescuing(GuardTestCase):
 	def test_aCallWithinItsLimitIsLeftAlone(self):
-		with self.guard.watching("fake writing", self.driver, 6.0, onOverdue=self.giveUp) as watch:
-			self.clock.now += 5.9
-			self.assertEqual([], self.guard.check())
-		self.assertFalse(watch.fired)
+		call = self.start(onOverdue=self.giveUp)
+		self.clock.now += 5.9
+		self.assertEqual([], self.guard.check())
+		call.finish()
+		self.assertFalse(call.watch.fired)
 		self.assertEqual([], self.events)
 
 	def test_aCallPastItsLimitIsGivenUpAndCancelled(self):
-		with self.guard.watching("fake writing", self.driver, 6.0, onOverdue=self.giveUp) as watch:
-			self.clock.now += 6.0
-			self.guard.check()
-		self.assertTrue(watch.fired)
-		self.assertEqual([("gave up",), ("cancel", self.driver, threading.get_native_id())], self.events)
+		call = self.start(onOverdue=self.giveUp)
+		self.clock.now += 6.0
+		self.guard.check()
+		self.assertTrue(call.left.wait(5))
+		self.assertTrue(call.watch.fired)
+		self.assertEqual([("gave up",), ("cancel", self.driver, call.threadId)], self.events)
 
 	def test_theMemberIsGivenUpBeforeItsThreadIsFreed(self):
 		"""Freed first, the thread would go straight on to the next write queued for it."""
-		with self.guard.watching("fake writing", self.driver, 1.0, onOverdue=self.giveUp):
-			self.clock.now += 2
-			self.guard.check()
+		self.start(timeout=1.0, onOverdue=self.giveUp)
+		self.clock.now += 2
+		self.guard.check()
 		self.assertEqual(["gave up", "cancel"], [event[0] for event in self.events])
 
+	def test_aRescuedCallIsHeldUntilTheRescueHasFinished(self):
+		"""Cancellation only asks. Were the call let go at once, the thread — NVDA's shared I/O
+		thread — could start another member's write while this rescue was still cancelling I/O
+		against it."""
+		order: list[str] = []
+
+		def cancel(driver, threadId):
+			self.calls[0].release.set()
+			# Long enough for the call to have left, if nothing held it.
+			self.assertFalse(self.calls[0].left.wait(0.2), "the call left before the rescue finished")
+			order.append("the rescue finished cancelling")
+			return True
+
+		self.guard = MemberGuard(clock=self.clock, cancel=cancel, runThread=False, grace=5.0)
+		call = self.start(timeout=1.0, order=order)
+		self.clock.now += 2
+		self.guard.check()
+		self.assertTrue(call.left.wait(5))
+		self.assertEqual(["the rescue finished cancelling", "the call left"], order)
+
+	def test_aCallThatReturnsOnceCancelledIsReportedFreed(self):
+		call = self.start(timeout=1.0)
+		self.clock.now += 2
+		self.guard.check()
+		self.assertTrue(call.left.wait(5))
+		self.assertEqual([], self.messages("error"))
+
+	def test_aCallStillStuckAfterASuccessfulCancelIsReportedStuck(self):
+		"""What the cancellation returned proves nothing; only the call returning does."""
+		self.cancelFrees = False
+		self.useGuard(grace=0.05)
+		self.start(timeout=1.0)
+		self.clock.now += 2
+		self.guard.check()
+		errors = self.messages("error")
+		self.assertTrue(any("still has not returned" in message for message in errors), errors)
+		self.assertTrue(any("restarted" in message for message in errors), errors)
+
+	def test_aCallWithNothingToCancelSaysBrailleMayNotComeBack(self):
+		"""A driver stuck on a lock cannot be freed, and the user needs to know to restart."""
+		self.cancelFrees = False
+		self.cancelResult = False
+		self.useGuard(grace=0.05)
+		self.start(timeout=1.0)
+		self.clock.now += 2
+		self.guard.check()
+		errors = self.messages("error")
+		self.assertTrue(any("no I/O to cancel" in message for message in errors), errors)
+
+	def test_aStuckCallIsStillLetGoWhenItFinallyReturns(self):
+		"""Its rescue has finished, so nothing is left to hold it for."""
+		self.cancelFrees = False
+		self.useGuard(grace=0.05)
+		call = self.start(timeout=1.0)
+		self.clock.now += 2
+		self.guard.check()
+		call.release.set()
+		self.assertTrue(call.left.wait(5))
+
 	def test_eachCallIsRescuedOnce(self):
-		with self.guard.watching("fake writing", self.driver, 1.0, onOverdue=self.giveUp):
-			self.clock.now += 2
-			self.guard.check()
-			self.clock.now += 2
-			self.assertEqual([], self.guard.check())
+		self.cancelFrees = False
+		self.useGuard(grace=0.05)
+		self.start(timeout=1.0, onOverdue=self.giveUp)
+		self.clock.now += 2
+		self.guard.check()
+		self.clock.now += 2
+		self.assertEqual([], self.guard.check())
 		self.assertEqual(2, len(self.events))
 
 	def test_aFinishedCallIsNoLongerWatched(self):
@@ -94,38 +213,29 @@ class TestRescuing(GuardTestCase):
 		self.assertEqual((), self.guard.watches)
 
 	def test_theRescueIsLogged(self):
-		with self.guard.watching("freedomScientific writing", self.driver, 1.0):
-			self.clock.now += 7
-			self.guard.check()
-		warnings = [message for level, message in log.messages if level == "warning"]
+		self.start(label="freedomScientific writing", timeout=1.0)
+		self.clock.now += 7
+		self.guard.check()
+		warnings = self.messages("warning")
 		self.assertTrue(any("freedomScientific writing" in message for message in warnings), warnings)
-
-	def test_aCallWithNothingToCancelSaysBrailleMayNotComeBack(self):
-		"""A driver stuck on a lock cannot be freed, and the user needs to know to restart."""
-		self.cancelResult = False
-		with self.guard.watching("fake writing", self.driver, 1.0):
-			self.clock.now += 2
-			self.guard.check()
-		errors = [message for level, message in log.messages if level == "error"]
-		self.assertTrue(any("restarted" in message for message in errors), errors)
 
 	def test_givingUpThatRaisesStillFreesTheThread(self):
 		def explode():
 			raise RuntimeError("layout is unwell")
 
-		with self.guard.watching("fake writing", self.driver, 1.0, onOverdue=explode):
-			self.clock.now += 2
-			self.guard.check()
+		call = self.start(timeout=1.0, onOverdue=explode)
+		self.clock.now += 2
+		self.guard.check()
 		self.assertEqual("cancel", self.events[-1][0])
+		self.assertTrue(call.left.wait(5))
 
 	def test_onlyTheOverdueCallIsRescued(self):
-		stuck = object()
-		with self.guard.watching("stuck writing", stuck, 1.0):
-			self.clock.now += 5
-			with self.guard.watching("healthy writing", self.driver, 1.0) as healthy:
-				rescued = self.guard.check()
+		self.start(label="stuck writing", driver=object(), timeout=1.0)
+		self.clock.now += 5
+		healthy = self.start(label="healthy writing", timeout=1.0)
+		rescued = self.guard.check()
 		self.assertEqual(["stuck writing"], [watch.label for watch in rescued])
-		self.assertFalse(healthy.fired)
+		self.assertFalse(healthy.watch.fired)
 
 
 class TestTheWatchdogThread(unittest.TestCase):

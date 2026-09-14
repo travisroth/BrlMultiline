@@ -22,6 +22,7 @@ types declared here cannot disturb anyone else's use of `ctypes.windll.kernel32`
 """
 
 import ctypes
+import threading
 from ctypes import wintypes
 
 ERROR_IO_PENDING = 997
@@ -56,7 +57,12 @@ A write that ignored its cancellation still owns its OVERLAPPED structure and it
 will write into both when it does complete. Freeing them would turn a hung device into memory
 corruption, so they are parked here instead. Each one costs a report's worth of bytes and
 an event handle, and there is at most one per failed write.
+
+Parked, not leaked: each is let go by `_reap` once its event says the write has finished, and
+`outstanding` is how a caller limits how many more it risks.
 """
+
+_abandonedLock = threading.Lock()
 
 _kernel32 = None
 
@@ -98,6 +104,34 @@ def _milliseconds(seconds: float) -> int:
 	return max(0, int(seconds * 1000))
 
 
+def _reap() -> None:
+	"""Let go of every parked write whose operation has since finished.
+
+	The event is the OVERLAPPED's, signalled by the kernel when the write completes or is
+	finally cancelled. Until then the kernel may still write into the structure and the buffer,
+	which is why nothing is freed on any other evidence.
+	"""
+	with _abandonedLock:
+		if not _abandoned:
+			return
+		kernel32 = _api()
+		waiting = []
+		for entry in _abandoned:
+			event = entry[2]
+			if kernel32.WaitForSingleObject(event, 0) == WAIT_OBJECT_0:
+				kernel32.CloseHandle(event)
+			else:
+				waiting.append(entry)
+		_abandoned[:] = waiting
+
+
+def outstanding() -> int:
+	""":return: how many writes the kernel is still holding after they were given up on."""
+	_reap()
+	with _abandonedLock:
+		return len(_abandoned)
+
+
 def writeWithin(handle, buffer, size: int, timeout: float) -> None:
 	"""Write a buffer to an overlapped handle, giving up after `timeout` seconds.
 
@@ -109,6 +143,7 @@ def writeWithin(handle, buffer, size: int, timeout: float) -> None:
 	:raises WriteTimedOut: if it did not, in which case the write has been cancelled.
 	:raises OSError: if the write failed outright.
 	"""
+	_reap()
 	kernel32 = _api()
 	event = kernel32.CreateEventW(None, True, False, None)
 	if not event:
@@ -124,7 +159,8 @@ def writeWithin(handle, buffer, size: int, timeout: float) -> None:
 		if kernel32.WaitForSingleObject(event, _milliseconds(timeout)) != WAIT_OBJECT_0:
 			kernel32.CancelIoEx(handle, ctypes.byref(overlapped))
 			if kernel32.WaitForSingleObject(event, _milliseconds(CANCEL_GRACE)) != WAIT_OBJECT_0:
-				_abandoned.append((overlapped, buffer, event))
+				with _abandonedLock:
+					_abandoned.append((overlapped, buffer, event))
 				raise WriteTimedOut(f"the device did not take a write in {timeout} seconds, nor let it go")
 			# Finished while being cancelled. It may have completed rather than been aborted,
 			# and a write that got there is a write that got there.

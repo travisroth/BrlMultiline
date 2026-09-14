@@ -178,9 +178,12 @@ class FakeHid:
 		self._onReceive = None
 		self._onReadError = None
 		self.written: list[bytes] = []
+		self.writeAttempts = 0
+		"""Every write tried, including the ones that failed or hung."""
 		self.closed = 0
 
 	def write(self, data: bytes) -> None:
+		self.writeAttempts += 1
 		if self.writeHangs:
 			from brlMultilineMonarch.hidWrite import WriteTimedOut
 
