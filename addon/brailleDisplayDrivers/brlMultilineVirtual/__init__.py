@@ -42,7 +42,7 @@ import extensionPoints
 from braille.display import _getDisplayDriver
 from logHandler import log
 
-from . import ackPatch, events, gestures, handover, vdConfig
+from . import ackPatch, events, gestures, handover, memberGuard, vdConfig
 from .deviceSlot import DeviceSlot
 from .virtualLayout import (
 	DEFAULT_PORT,
@@ -985,7 +985,10 @@ def _terminateQuietly(driver: braille.display.driver.BrailleDisplayDriver, parti
 		# closes the handle, which is the whole point of coming here.
 		driver._suppressDisplayClear = True
 	try:
-		driver.terminate()
+		# Watched, because blanking is a write and a display that did not open properly is the
+		# likeliest of all not to take one.
+		with memberGuard.guard.watching(f"{name} closing", driver, memberGuard.MEMBER_WRITE_TIMEOUT):
+			driver.terminate()
 	except Exception:
 		if partial:
 			log.debugWarning(f"BrlMultiline: {name} raised while releasing a failed attempt", exc_info=True)
@@ -1016,6 +1019,11 @@ def _openDriver(
 		few seconds for a display left switched off is noise in the one file a user is asked
 		to send when something is wrong.
 	:return: the live driver, or None if it could not be opened.
+
+	Construction is watched by `memberGuard`, because a constructor talks to its display and
+	runs on the main thread: a display that has stopped answering, being reopened by the poll,
+	would otherwise freeze NVDA every time it was tried. A constructor the guard had to rescue
+	is not retried and not kept, whatever it returned: it was answered by a cancelled device.
 	"""
 	attempts = OPEN_ATTEMPTS if attempts is None else attempts
 	try:
@@ -1026,11 +1034,21 @@ def _openDriver(
 
 	for attempt in range(1, attempts + 1):
 		driver = None
+		watch = None
 		try:
 			driver = driverClass.__new__(driverClass)
-			extensionPoints.callWithSupportedKwargs(driver.__init__, port=spec.port)
-			driver.initSettings()
+			with memberGuard.guard.watching(
+				f"{spec.driverName} opening",
+				driver,
+				memberGuard.MEMBER_OPEN_TIMEOUT,
+			) as watch:
+				extensionPoints.callWithSupportedKwargs(driver.__init__, port=spec.port)
+				driver.initSettings()
 		except Exception:
+			if watch is not None and watch.fired:
+				_terminateQuietly(driver, partial=True)
+				log.debugWarning(f"BrlMultiline: {spec.driverName} did not answer while opening", exc_info=True)
+				return None
 			# A constructor that raises may still have opened the device: both target
 			# drivers assign `self._dev` before they are finished, and `initSettings` runs
 			# after the device is open in every case. Their own failure paths close it, but
@@ -1053,6 +1071,9 @@ def _openDriver(
 			)
 			time.sleep(OPEN_RETRY_DELAY)
 		else:
+			if watch.fired:
+				_terminateQuietly(driver, partial=True)
+				return None
 			log.debug(f"BrlMultiline: opened {spec.driverName} on attempt {attempt}")
 			return driver
 	return None

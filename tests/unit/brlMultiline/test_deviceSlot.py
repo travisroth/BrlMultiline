@@ -16,6 +16,7 @@ from ._virtualStubs import FakeDevice, FakeDriver, bgThread, installVirtualStubs
 
 installVirtualStubs()
 
+from brlMultilineVirtual import memberGuard  # noqa: E402
 from brlMultilineVirtual.deviceSlot import DeviceSlot  # noqa: E402
 from brlMultilineVirtual.virtualLayout import DeviceBand, DeviceSpec  # noqa: E402
 
@@ -299,6 +300,104 @@ class TestTerminate(DeviceSlotTestCase):
 		self.driver.terminate = raiseOnTerminate
 		self.slot.terminate()
 		self.assertTrue(any(level == "error" for level, _message in log.messages))
+
+
+
+class HangingDriver(FakeDriver):
+	"""A driver whose calls run past the guard's limit, as a display that stopped answering.
+
+	The guard's watchdog is a thread; here the check is made from inside the call instead,
+	with the clock moved on first, which is the same moment deterministically.
+	"""
+
+	def __init__(self, guard, clock, **kwargs):
+		super().__init__(**kwargs)
+		self.guard = guard
+		self.clock = clock
+		self.hangOnDisplay = True
+		self.hangOnTerminate = False
+		self.suppressedAtTerminate = None
+		self.slot = None
+		self.terminateDuringDisplay = False
+
+	def _hang(self):
+		self.clock[0] += memberGuard.MEMBER_WRITE_TIMEOUT + 1
+		self.guard.check()
+
+	def display(self, cells):
+		if self.terminateDuringDisplay:
+			self.slot.terminate()
+		if self.hangOnDisplay:
+			self._hang()
+		super().display(cells)
+
+	def terminate(self):
+		self.suppressedAtTerminate = self._suppressDisplayClear
+		if self.hangOnTerminate:
+			self._hang()
+		super().terminate()
+
+
+class TestAMemberThatStopsAnswering(unittest.TestCase):
+	"""A write that never returns holds NVDA's shared I/O thread, and every other display's
+	writes and keys with it. The member is given up on and its write cancelled."""
+
+	def setUp(self):
+		resetStubs()
+		self.clock = [0.0]
+		self.cancelled = []
+		self.guard = memberGuard.MemberGuard(
+			clock=lambda: self.clock[0],
+			cancel=lambda driver, threadId: self.cancelled.append(driver) or True,
+			runThread=False,
+		)
+		self.failures = []
+		self.driver = HangingDriver(self.guard, self.clock)
+		self.slot = DeviceSlot(SPEC, self.driver, BAND, onFailure=self.failures.append, guard=self.guard)
+		self.driver.slot = self.slot
+
+	def test_aWriteThatNeverReturnsGivesTheMemberUp(self):
+		self.slot.write([1, 2, 3, 4])
+		bgThread.flush()
+		self.assertTrue(self.slot.failed)
+		self.assertEqual([self.slot], self.failures)
+
+	def test_theStuckWriteIsCancelled(self):
+		self.slot.write([1, 2, 3, 4])
+		bgThread.flush()
+		self.assertEqual([self.driver], self.cancelled)
+
+	def test_nothingMoreIsSentToIt(self):
+		self.slot.write([1, 2, 3, 4])
+		bgThread.flush()
+		self.assertFalse(self.slot.write([5, 6, 7, 8]))
+		self.assertEqual([], bgThread.queued)
+
+	def test_aHealthyWriteIsLeftAlone(self):
+		self.driver.hangOnDisplay = False
+		self.slot.write([1, 2, 3, 4])
+		bgThread.flush()
+		self.assertFalse(self.slot.failed)
+		self.assertEqual([], self.cancelled)
+
+	def test_aStuckCloseIsCancelled(self):
+		"""Blanking on the way out is a write from the main thread."""
+		self.driver.hangOnTerminate = True
+		self.slot.terminate()
+		self.assertEqual([self.driver], self.cancelled)
+		self.assertTrue(self.driver.terminated)
+
+	def test_aMemberStillWritingIsNotBlankedAsItCloses(self):
+		"""The blank would be a second write on the same OVERLAPPED, behind a stuck one."""
+		self.driver.hangOnDisplay = False
+		self.driver.terminateDuringDisplay = True
+		self.slot.write([1, 2, 3, 4])
+		bgThread.flush()
+		self.assertTrue(self.driver.suppressedAtTerminate)
+
+	def test_anIdleMemberIsStillBlankedAsItCloses(self):
+		self.slot.terminate()
+		self.assertFalse(self.driver.suppressedAtTerminate)
 
 
 if __name__ == "__main__":

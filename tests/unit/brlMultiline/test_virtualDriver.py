@@ -38,7 +38,7 @@ installVirtualStubs()
 
 import braille  # noqa: E402
 
-from brlMultilineVirtual import ackPatch, events, handover, vdConfig  # noqa: E402
+from brlMultilineVirtual import ackPatch, events, handover, memberGuard, vdConfig  # noqa: E402
 from brlMultilineVirtual.virtualLayout import DeviceSpec  # noqa: E402
 
 driverModule = loadDriver()
@@ -958,6 +958,56 @@ class TestMemberSettings(VirtualDriverTestCase):
 	def test_ordinaryAttributesAreUntouched(self):
 		self.display.numRows = 3
 		self.assertEqual(self.display.numRows, 3)
+
+
+class TestAMemberThatStopsAnswering(VirtualDriverTestCase):
+	"""A display whose driver never returns, as a hung Focus under NVDA's own driver would."""
+
+	def setUp(self):
+		super().setUp()
+		self.clock = [0.0]
+		self.cancelled = []
+		self.guard = memberGuard.MemberGuard(
+			clock=lambda: self.clock[0],
+			cancel=lambda driver, threadId: self.cancelled.append(driver) or True,
+			runThread=False,
+		)
+		realGuard = memberGuard.guard
+		memberGuard.guard = self.guard
+		self.addCleanup(setattr, memberGuard, "guard", realGuard)
+
+	def hang(self, *args, **kwargs):
+		self.clock[0] += memberGuard.MEMBER_OPEN_TIMEOUT + 1
+		self.guard.check()
+
+	def test_theOthersGoOnBeingWrittenTo(self):
+		display = self.build(MONARCH, FOCUS)
+		focus = self.focus.instances[0]
+		focus.display = self.hang
+		display.display([1] * display.numCells)
+		bgThread.flush()
+		callAfterQueue.flush()
+		self.assertEqual([slot.driverName for slot in display.slots if not slot.failed], [MONARCH])
+		self.assertEqual([focus], self.cancelled)
+		self.monarch.instances[0].written.clear()
+		display.display([2] * display.numCells)
+		bgThread.flush()
+		self.assertEqual([[2] * 256], self.monarch.instances[0].written)
+
+	def test_aConstructorThatNeverReturnsIsNotKept(self):
+		"""The reconnect poll opens on the main thread, so this would freeze NVDA on every try."""
+		realInit = self.focus.__init__
+
+		def hangingInit(driver, port=None):
+			realInit(driver, port)
+			self.hang()
+
+		self.focus.__init__ = hangingInit
+		display = self.build(MONARCH, FOCUS)
+		self.assertEqual([slot.driverName for slot in display.slots], [MONARCH])
+		self.assertEqual(1, self.focus.openAttempts, "a rescued constructor was retried")
+		self.assertEqual(1, self.focus.attempted[0].terminated)
+		self.assertEqual([self.focus.attempted[0]], self.cancelled)
 
 
 class TestTerminate(VirtualDriverTestCase):

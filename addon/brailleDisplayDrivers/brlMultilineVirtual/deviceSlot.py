@@ -22,6 +22,10 @@ meant to avoid cannot occur, and that what remains is a member never being told 
 See the acknowledgement section of `docs/design/virtual-display-plan.md`. Pacing is staged
 until an ack driven member is shown to drop frames under sustained writing.
 
+And one addition: every call into the driver that can wait on its hardware is watched by
+`memberGuard`, so a display that stops answering is given up on and its I/O cancelled rather
+than holding a shared thread for good.
+
 Imports of NVDA are kept to the log and the background I/O thread, so that the scheduling
 can be tested with very little standing in for NVDA.
 """
@@ -34,13 +38,14 @@ from typing import Sequence
 import hwIo
 from logHandler import log
 
+from . import memberGuard
 from .virtualLayout import DeviceBand, DeviceSpec
 
 
 class DeviceSlot:
 	"""One physical display within the virtual one."""
 
-	def __init__(self, spec: DeviceSpec, driver, band: DeviceBand, onFailure=None):
+	def __init__(self, spec: DeviceSpec, driver, band: DeviceBand, onFailure=None, guard=None):
 		"""
 		:param spec: the configuration this member was opened from.
 		:param driver: the live `BrailleDisplayDriver` instance.
@@ -48,6 +53,7 @@ class DeviceSlot:
 		:param onFailure: called with this slot, once, when the member is given up on. The
 			composite uses it to lay itself out again around what is left. Called from
 			whichever thread noticed, which is why the composite marshals from there.
+		:param guard: what watches calls into the driver; `memberGuard.guard` by default.
 		"""
 		self.spec = spec
 		self.driver = driver
@@ -63,6 +69,9 @@ class DeviceSlot:
 		self._lastCells: list[int] | None = None
 		self._queuedWrite: list[int] | None = None
 		self._writeLock = threading.Lock()
+		self._guard = guard if guard is not None else memberGuard.guard
+		self._displaying = False
+		"""Whether a call to the driver's `display` is in progress. See L{terminate}."""
 		self._watched: tuple | None = None
 		"""The device being watched, its own read error hook, and ours. See L{stopWatching}."""
 		self.watchForDisconnect()
@@ -191,12 +200,25 @@ class DeviceSlot:
 		self._displayNow(cells)
 
 	def _displayNow(self, cells: list[int]) -> None:
-		"""Hand cells to the driver, marking the member failed if it raises."""
+		"""Hand cells to the driver, marking the member failed if it raises or never returns.
+
+		A write that never returns is given up on by the guard, which fails this member and
+		then cancels the write, so the thread comes back and nothing more is sent here.
+		"""
+		self._displaying = True
 		try:
-			self.driver.display(cells)
+			with self._guard.watching(
+				f"{self.driverName} writing",
+				self.driver,
+				memberGuard.MEMBER_WRITE_TIMEOUT,
+				onOverdue=self.fail,
+			):
+				self.driver.display(cells)
 		except Exception:
 			log.error(f"BrlMultiline: {self.driverName} failed while displaying, dropping it", exc_info=True)
 			self.fail()
+		finally:
+			self._displaying = False
 
 	def fail(self) -> None:
 		"""Stop writing to this member, and tell the composite it has one fewer display.
@@ -231,6 +253,12 @@ class DeviceSlot:
 		the composite come back. The device handle is still closed, which is what closing a
 		member is for.
 
+		Nor is a member blanked while a write to it is still in progress. That write is using
+		the device's one write OVERLAPPED, so a second write on it is undefined, and if the
+		first is stuck the blank would be stuck behind it on the main thread. Closing the handle
+		ends the pending write instead. And the close itself is watched, since blanking is a
+		write from the main thread and a display can stop answering between writes.
+
 		:param suppressDisplayClear: leave whatever is on the device rather than blanking
 			it. NVDA sets this on the way to the secure desktop, where clearing the display
 			is both pointless and slow.
@@ -239,9 +267,14 @@ class DeviceSlot:
 			self._queuedWrite = None
 		self.invalidate()
 		self.stopWatching()
-		if suppressDisplayClear or self.failed:
+		if suppressDisplayClear or self.failed or self._displaying:
 			self.driver._suppressDisplayClear = True
 		try:
-			self.driver.terminate()
+			with self._guard.watching(
+				f"{self.driverName} closing",
+				self.driver,
+				memberGuard.MEMBER_WRITE_TIMEOUT,
+			):
+				self.driver.terminate()
 		except Exception:
 			log.error(f"BrlMultiline: error terminating {self.driverName}", exc_info=True)
