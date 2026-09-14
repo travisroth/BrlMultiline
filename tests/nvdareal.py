@@ -519,7 +519,6 @@ def checkKeyLayers() -> list:
 
 	failures = []
 	plugin = loadPlugin()
-	import globalCommands
 	import inputCore
 	from braille.display.gesture import BrailleDisplayGesture
 
@@ -566,11 +565,15 @@ def checkKeyLayers() -> list:
 	for device in (keyLayers.MONARCH, keyLayers.KEYBOARD):
 		for layer in keyLayers.defaultLayers(device, "brlMultiline"):
 			for identifier, target in layer.bindings.items():
-				owner = (
-					plugin.GlobalPlugin
-					if target.moduleName == "brlMultiline"
-					else getattr(globalCommands, target.className, None)
-				)
+				if target.moduleName == "brlMultiline":
+					owner = plugin.GlobalPlugin
+				else:
+					# Each by its own module: NVDA's global commands, and browse mode's table navigation for
+					# the Monarch's table layer.
+					try:
+						owner = getattr(importlib.import_module(target.moduleName), target.className, None)
+					except ImportError:
+						owner = None
 				if owner is None or not hasattr(owner, f"script_{target.scriptName}"):
 					failures.append(
 						f"the default {layer.id} layer for {device} binds {identifier} to "

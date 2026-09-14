@@ -259,14 +259,18 @@ a table is somewhere the caret passes through, and keys that change meaning as t
 crosses a boundary are a mode the reader did not ask for and must track. The table context
 is honoured when the reader presses the layer key, and not otherwise.
 
+Nor is a table layer turned off when the caret leaves the table, for the same reason: that would
+mean reading the caret on every key. It stays on until the reader turns it off, as a layer they
+chose does. Built this way in phase 3.
+
 **A layer goes with its context.** Built 14 September 2026, ahead of the rest of this section,
 after the phase 1 hardware run found a graphics layer still on with the drawing gone. However a
 layer with a context was turned on, by the layer key or from the list, it turns off when that
 context goes. `GraphicsMode` tells the plugin whenever a figure goes up, comes down, is replaced
 or is evicted, but not at shutdown, and the plugin ends every layer whose context is no longer
 present and says so. Taking the drawing off with its command says both in one message: "Drawing
-off, Graphics layer off". A layer for a context that cannot be detected yet, tables until this
-phase, is never ended this way, since its context cannot be seen to go. A hook on the plugin
+off, Graphics layer off". A layer for a context that is not followed, tables, is never ended this way,
+since its context is not watched going. A hook on the plugin
 rather than an extension point, since the plugin is the only listener and owns the mode.
 
 **A reader who turns an auto layer off keeps it off** until the context goes away and comes
@@ -387,6 +391,15 @@ The stored form carries a version number. Identifiers are stored normalized, thr
 `inputCore.normalizeGestureIdentifier`. A binding to a class or script that no longer
 exists is kept, not dropped, and shown in the editor as unavailable; an add-on that is
 disabled for a week should not cost the reader their bindings.
+
+**Saved layers replace the shipped ones whole, so they do not get later improvements.** Decided
+with the reader, 14 September 2026, to leave as it is for now. Once a device's layers are saved, its
+default layers are not read for it at all, so a change to what ships — a new layer, a new key, a
+setting such as a layer coming on by itself — never reaches a reader who saved before it. Found on
+the phase 3 hardware run: the Monarch's layers had been saved during phase 2's run, before the
+graphics layer came on by itself, and so it did not. Reset to factory defaults brings a device up
+to date, at the cost of the reader's own changes; setting the one property by hand is the other
+way. The fix, storing only a reader's differences from what ships, is in phase 4's list.
 
 **Which layer is on is not stored.** It is session state. On `post_configProfileSwitch`,
 which the plugin already handles, the layer sets are read again; a device whose active layer
@@ -556,7 +569,8 @@ their names and keep their numbers.
 1. **Monarch, graphics.** The left d-pad pans in four directions. Zoom in (`brailleUsage544`)
    magnifies and zoom out (`brailleUsage545`) shrinks. The right d-pad is left transparent, so it
    is still the arrow keys while a drawing is up. Space with z leaves. Graphics mode's existing
-   chords stay where they are.
+   chords stay where they are. **Comes on by itself** with a drawing, since phase 3: putting a
+   drawing up is already asking for it, which is what the reader said at the start.
 
    There is no centre press to report the drawing with. The Monarch's d-pads have none:
    pressing the middle gives two directions at once, such as `leftDpadLeft+leftDpadUp`, and
@@ -565,10 +579,10 @@ their names and keep their numbers.
    says the line, down says all, left reports the focus, right reports the window title.
 3. **Keyboard.** A one shot default layer with keypad 5 saying the line, and a graphics layer in
    which the keypad pans and zooms acting for the Monarch.
-4. **Not yet: Monarch, table.** Waits for the table context in phase 3. Zoom in turns to the next page of columns and zoom out to the
-   previous one, as the author already has them bound globally, and one d-pad moves by table cell
-   with NVDA's own table navigation commands, the ones control+alt+arrows run. Most use
-   when the reader has not bound the zoom keys globally.
+4. **Monarch, table.** Shipped in phase 3. Stays on, from the layer key only. The left d-pad
+   moves by table cell with NVDA's own table navigation, the commands control+alt+arrows run;
+   zoom in turns to the next page of columns and zoom out to the previous one, as the author
+   already has them bound globally.
 
 ### Names for the zoom keys
 
@@ -835,7 +849,7 @@ the way Input Gestures does.
 - **Saving** goes through `keyLayerDispatch.save`, into the profile in force, and only for the
   devices changed. A device that cannot be saved, such as one whose layers fall through in a
   circle, is named and the dialog stays open.
-- The fall through labels, "from Graphics layer", stay in phase 3 with the rest of context.
+- The fall through labels, "from Graphics layer", were left for phase 3 with the rest of context.
 
 Two bugs found building it. An emulated key, once a key was bound to it, was listed as a command
 not available from here: an emulated key is always available. And the dialog's editor was made
@@ -878,6 +892,54 @@ chart layer and a graphics layer defined, the layer key picks the chart layer on
 the graphics layer on a picture, the chart layer gets pan and zoom from the graphics layer,
 and an auto layer on the Monarch and one on the keyboard both follow drawings on and off.
 
+**Built, 14 September 2026, partly tested on hardware.** A drawing going up turned the Monarch's
+graphics layer on by itself, once that layer was set to come on by itself in the dialog's
+Properties: the reader's layers had been saved in phase 2, before the default changed, so the new
+default did not reach them. See "Saved layers replace the shipped ones whole". Setting it by hand
+also exercised Properties. The rest of "How to run phase 3" has not been reported.
+
+The context aware layer key for the
+graphics contexts, and layers going with their context, came earlier; see phase 1 and "A layer
+goes with its context".
+
+#### What phase 3 built
+
+- **The table context**, in `keyLayerContexts`: a table laid out in columns on the display, or the
+  browse mode caret in a table cell, asked the way `tableArrows` asks. Looked for only when the
+  layer key is pressed. Graphics mode changes do not read the caret.
+- **Layers come on by themselves**, in `keyLayerDispatch.autoEnable`, whenever graphics mode
+  changes: on every connected display and the keyboard, for each device with no layer on, the layer
+  marked to come on by itself for the most specific context present. It stays on whatever its
+  style, since its context is what ends it.
+- **Turned off by the reader, it stays off** until its context goes and comes back: by the layer
+  key, an exit key, all layers off, or choosing another layer. Not when it goes with its drawing.
+- **What is said.** The drawing command says it once: "a chart of ..., Graphics layer on", and
+  "Drawing off, Graphics layer off". A drawing changed by any other command has its layers named
+  after that command's own message, not before it.
+- **Shipped.** The Monarch's graphics layer comes on by itself. The keyboard's does not: the keypad
+  is the review cursor on a desktop layout, and a drawing going up is no reason to take it. The
+  Monarch has a table layer, from the layer key only.
+- **The dialog shows keys from further down the chain** under their commands, "(from Graphics
+  layer)". Change is for the layer's own keys. Remove on a key from below offers to make it do
+  nothing in this layer instead, since removing it where it is would change that layer too. Adding
+  a key that comes from below says where it comes from before overriding it here.
+
+#### How to run phase 3
+
+1. Put a drawing up: "..., Graphics layer on". The left d-pad pans with no layer key pressed.
+   Take it off: "Drawing off, Graphics layer off".
+2. Put it up, turn the layer off with the layer key, then change the picture style: the layer stays
+   off. Take the drawing off and put it up again: the layer comes back.
+3. In the dialog, make a Chart layer for charts that comes on by itself and falls through to
+   Graphics, with one key of its own. Its tree shows the pan keys "(from Graphics layer)". Chart a
+   selection: "Chart layer on", the most specific layer that comes on by itself, and the d-pad
+   still pans. Draw a picture instead: "Graphics layer on". With a chart up and no layer on, the
+   layer key also chooses Chart; with a layer already on, it turns that layer off, as always.
+4. On a web page with the caret in a table, press the layer key: "Table layer on". The left d-pad
+   moves by cell, and the zoom keys turn column pages where a table is laid out in columns.
+5. Make the keyboard's graphics layer come on by itself in Properties, and put a drawing up: both
+   layers come on, named once.
+
 ### Phase 4, only if wanted
 
 1. Per layer activation keys, so a layer can be reached directly without the context
@@ -885,6 +947,9 @@ and an auto layer on the Monarch and one on the keyboard both follow drawings on
 2. Export and import of a device's layer set to a file, to share a Monarch setup.
 3. A layer indicator on the display itself, perhaps a glyph in the status cells.
 4. Turning a layer off after a period with no key pressed.
+5. Storing only a reader's differences from the shipped layers, so an improvement to what ships
+   reaches a reader who has saved layers of their own. See "Saved layers replace the shipped ones
+   whole". It changes the stored form, and what clearing a layer and deleting one mean.
 
 ## Decided with the reader, 14 September 2026
 

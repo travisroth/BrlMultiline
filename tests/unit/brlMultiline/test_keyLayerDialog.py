@@ -193,12 +193,12 @@ class TestKeys(EditorTestCase):
 
 	def test_aKeyAlreadyRunningSomethingElseAsksFirst(self):
 		check = self.editor.check(PAN_UP, monarch("leftDpadDown"))
-		self.assertEqual((None, SAY_LINE.name), check)
+		self.assertEqual(dialog.Check(conflict=SAY_LINE.name), check)
 		self.editor.add(PAN_UP, monarch("leftDpadDown"))
 		self.assertEqual(PAN_UP.target, self.editor.layer.bindings[monarch("leftDpadDown")])
 
 	def test_theSameCommandAgainIsNoConflict(self):
-		self.assertEqual((None, None), self.editor.check(SAY_LINE, monarch("leftDpadDown")))
+		self.assertEqual(dialog.Check(), self.editor.check(SAY_LINE, monarch("leftDpadDown")))
 
 	def test_removingAKey(self):
 		self.editor.remove(monarch("leftDpadDown"))
@@ -228,6 +228,53 @@ class TestKeys(EditorTestCase):
 	def test_noDisplayToNameNeverAsks(self):
 		editor = LayerEditor([Device(KEYBOARD, "Keyboard", True)], LayerSet, LayerSet, COMMANDS)
 		self.assertFalse(editor.needsDisplay(PAN_UP))
+
+
+class TestKeysFromBelow(EditorTestCase):
+	"""A layer answers to keys further down its chain, and the dialog has to show them."""
+
+	def setUp(self):
+		super().setUp()
+		self.editor.nameLayer = lambda layer: "Default" if layer.isDefault else layer.name
+		self.editor.newLayer("Chart")
+		self.editor.setProperties("Chart", "chart", False, STAYS_ON, "graphics", ())
+		self.editor.add(SAY_LINE, monarch("zoomIn"))
+
+	def test_keysFromBelowAreListedWithWhereTheyComeFrom(self):
+		pan = self.node(PAN_UP.name).keys
+		self.assertEqual(
+			[(monarch("leftDpadUp"), "Graphics")], [(key.identifier, key.fromLayer) for key in pan]
+		)
+		self.assertEqual(f"<{monarch('leftDpadUp')}> (from Graphics layer)", pan[0].name)
+		say = {key.identifier: key.fromLayer for key in self.node(SAY_LINE.name).keys}
+		self.assertEqual({monarch("zoomIn"): None, monarch("leftDpadDown"): "Default"}, say)
+
+	def test_theDefaultLayerHasNothingFromBelow(self):
+		self.editor.selectLayer(DEFAULT_ID)
+		self.assertFalse(
+			any(
+				key.fromLayer
+				for category in self.editor.categories()
+				for node in category.commands
+				for key in node.keys
+			)
+		)
+
+	def test_aKeyFromBelowTakenForAnotherCommandSaysWhereItCameFrom(self):
+		check = self.editor.check(SAY_LINE, monarch("leftDpadUp"))
+		self.assertEqual(dialog.Check(conflict=PAN_UP.name, conflictLayer="Graphics"), check)
+
+	def test_givingItAnotherCommandOverridesItHereOnly(self):
+		self.editor.add(SAY_LINE, monarch("leftDpadUp"))
+		self.assertEqual(SAY_LINE.target, self.editor.layer.bindings[monarch("leftDpadUp")])
+		self.assertEqual(PAN_UP.target, self.editor.layers.get("graphics").bindings[monarch("leftDpadUp")])
+		self.assertEqual([], self.node(PAN_UP.name).keys)
+
+	def test_blockingAKeyFromBelowLeavesTheOtherLayerAlone(self):
+		self.editor.block(monarch("leftDpadUp"))
+		self.assertEqual(Target.blocked(), self.editor.layer.bindings[monarch("leftDpadUp")])
+		self.assertIn(monarch("leftDpadUp"), self.editor.layers.get("graphics").bindings)
+		self.assertEqual([None], [key.fromLayer for key in self.node("Does nothing in this layer").keys])
 
 
 class TestLayers(EditorTestCase):

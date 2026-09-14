@@ -2649,19 +2649,23 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"nothing happened" is the one answer a reader cannot act on.
 		"""
 		mode = self.graphicsMode
-		if mode.active:
-			# Collected rather than spoken, so the layers the drawing took with it are said in the
-			# same message as the drawing going, once.
-			self._layerEndsToSay = []
-			try:
+		# Collected rather than spoken, so the layers the drawing brought or took with it are said in
+		# the same message as the drawing, once.
+		self._layerChangesToSay = []
+		try:
+			if mode.active:
 				mode.leave()
-			finally:
-				ended, self._layerEndsToSay = self._layerEndsToSay, None
+				entered = None
+			else:
+				entered = mode.enter()
+		finally:
+			changes, self._layerChangesToSay = self._layerChangesToSay, None
+		if entered is None:
 			# Translators: reported when a drawing is taken off the display.
-			ui.message(", ".join([_("Drawing off"), *ended]))
+			ui.message(", ".join([_("Drawing off"), *changes]))
 			return
-		if mode.enter():
-			ui.message(mode.describe())
+		if entered:
+			ui.message(", ".join([mode.describe(), *changes]))
 			return
 		# Translators: reported when a drawing could not be shown. The placeholder is why.
 		ui.message(mode.lastError or _("The drawing could not be shown"))
@@ -3153,21 +3157,23 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_keyLayerToggle(self, gesture):
 		self.toggleKeyLayer(keyLayerDispatch.deviceFor(gesture))
 
-	_layerEndsToSay: list | None = None
-	"""While a command is taking a drawing off, the layers that went with it, to say in its message."""
+	_layerChangesToSay: list | None = None
+	"""While a command is putting a drawing up or taking it off, the layers that came or went with it,
+	to say in its message."""
 
 	def onGraphicsChanged(self) -> None:
-		"""What is drawn changed, so turn off any layer of keys whose drawing has gone, and say so.
+		"""What is drawn changed: turn off the layers whose drawing has gone, turn on the ones that come
+		on by themselves for what is drawn now, and say so.
 
-		Called by `GraphicsMode` whenever a figure goes up, comes down or is replaced.
+		Called by `GraphicsMode` whenever a figure goes up, comes down, is replaced or is evicted. Tables
+		are not looked for here; see `keyLayerContexts`.
 		"""
 		try:
-			ended = keyLayerDispatch.endLayersOutOfContext(
-				keyLayerContexts.presentContexts(self),
-				keyLayerContexts.DETECTED,
-			)
+			present = keyLayerContexts.presentContexts(self, tables=False)
+			ended = keyLayerDispatch.endLayersOutOfContext(present, keyLayerContexts.DETECTED)
+			started = keyLayerDispatch.autoEnable(present, self.keyLayerDevices(), keyLayerContexts.DETECTED)
 		except Exception:
-			log.error("BrlMultiline: could not end the layers of a drawing that went", exc_info=True)
+			log.error("BrlMultiline: could not change the layers for a drawing", exc_info=True)
 			return
 		words = []
 		for _device, layer in ended:
@@ -3175,12 +3181,28 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			said = _("{name} layer off").format(name=keyLayerDispatch.layerName(layer))
 			if said not in words:
 				words.append(said)
+		for _device, layer in started:
+			# Translators: reported when a layer of keys is turned on. The placeholder is its name.
+			said = _("{name} layer on").format(name=keyLayerDispatch.layerName(layer))
+			if said not in words:
+				words.append(said)
 		if not words:
 			return
-		if self._layerEndsToSay is not None:
-			self._layerEndsToSay.extend(words)
+		if self._layerChangesToSay is not None:
+			self._layerChangesToSay.extend(words)
 		else:
-			ui.message(", ".join(words))
+			# After whatever the command that changed the drawing says, rather than before it: a chart
+			# is described and then its layer is named, not the other way round.
+			wx.CallAfter(ui.message, ", ".join(words))
+
+	def keyLayerDevices(self) -> list[str]:
+		""":return: the devices a layer can come on for: every connected braille display, and the keyboard."""
+		names = [info.driverName for info in deviceMap()]
+		if not names:
+			display = braille.handler.display if braille.handler else None
+			if display is not None and display.name != "noBraille":
+				names = [display.name]
+		return [*names, keyLayers.KEYBOARD]
 
 	def _addKeyLayersMenuItem(self):
 		"""Put the layered keys dialog in NVDA's Preferences menu, after Input Gestures.

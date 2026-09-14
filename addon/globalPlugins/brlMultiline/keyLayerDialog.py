@@ -63,6 +63,8 @@ class KeyNode(NamedTuple):
 	"""None for the prompt shown while a key is being waited for."""
 
 	name: str
+	fromLayer: Optional[str] = None
+	"""The name of the layer further down the chain the key comes from, or None for this layer's own."""
 
 
 class CommandNode(NamedTuple):
@@ -120,6 +122,10 @@ class Check(NamedTuple):
 	conflict: Optional[str] = None
 	"""The command the key already runs in this layer, to ask before moving it."""
 
+	conflictLayer: Optional[str] = None
+	"""Where the key's command comes from when that is a layer further down, whose key is not moved but
+	overridden in this one."""
+
 
 class LayerEditor:
 	"""The working copy of every device's layers, and everything the dialog does to them."""
@@ -131,6 +137,7 @@ class LayerEditor:
 		factoryLayers: Callable[[str], LayerSet],
 		commands: Iterable[Command],
 		describeKey: Callable[[str], str] = lambda identifier: identifier,
+		nameLayer: Callable[[Layer], str] = lambda layer: layer.name or layer.id,
 		emulatedCategory: str = "Emulated system keyboard keys",
 		blockedCategory: str = "BrlMultiline",
 		reservedKeys: Iterable[str] = (),
@@ -142,6 +149,7 @@ class LayerEditor:
 		:param factoryLayers: a device's shipped layers, for resetting to factory defaults.
 		:param commands: every command the tree offers.
 		:param describeKey: a key's name as Input Gestures gives it.
+		:param nameLayer: a layer's name as it is spoken, `keyLayerDispatch.layerName`.
 		:param emulatedCategory: NVDA's category for emulated keyboard keys.
 		:param blockedCategory: where the command that does nothing is listed.
 		:param reservedKeys: keys bound to the layered keys commands, which a layer may not take.
@@ -154,6 +162,7 @@ class LayerEditor:
 		self._factoryLayers = factoryLayers
 		self.commands = list(commands)
 		self.describeKey = describeKey
+		self.nameLayer = nameLayer
 		self.emulatedCategory = emulatedCategory
 		self.blockedCategory = blockedCategory
 		self.reservedKeys = frozenset(keyLayers.normalize(key) for key in reservedKeys)
@@ -213,10 +222,17 @@ class LayerEditor:
 	# The tree
 
 	def categories(self) -> list:
-		""":return: the tree for the layer being edited, filtered as the reader has asked."""
+		""":return: the tree for the layer being edited, filtered as the reader has asked.
+
+		Keys the layer gets from further down its chain are listed under their commands too, each saying
+		which layer it comes from, because a stack the reader cannot see is one they have to hold in their
+		head. Every key the layer answers to is in the tree, and nothing it does not answer to is.
+		"""
 		bound: dict = {}
 		for identifier, target in sorted(self.layer.bindings.items()):
-			bound.setdefault(identity(target), []).append((identifier, target))
+			bound.setdefault(identity(target), []).append((identifier, target, None))
+		for identifier, (target, below) in sorted(self.layers.inherited(self.layer.id).items()):
+			bound.setdefault(identity(target), []).append((identifier, target, below))
 		known = {}
 		for command in self._allCommands():
 			known.setdefault(identity(command.target), command)
@@ -233,8 +249,7 @@ class LayerEditor:
 		byCategory: dict = {}
 		for key, command in known.items():
 			keys = [
-				KeyNode(identifier, self._keyName(identifier, target))
-				for identifier, target in bound.get(key, [])
+				self._keyNode(identifier, target, below) for identifier, target, below in bound.get(key, [])
 			]
 			if self.pending == key:
 				keys.append(KeyNode(None, PROMPT))
@@ -263,6 +278,17 @@ class LayerEditor:
 		words = [re.escape(word) for word in self.filterText.split()]
 		return re.compile("".join(f"(?=.*?{word})" for word in words), re.IGNORECASE)
 
+	def _keyNode(self, identifier: str, target: Target, below: Optional[Layer]) -> KeyNode:
+		name = self._keyName(identifier, target)
+		if below is None:
+			return KeyNode(identifier, name)
+		fromLayer = self.nameLayer(below)
+		# Translators: a key in the layered keys dialog that the layer being edited gets from a layer further
+		# down. Placeholders are the key's name and that layer's name.
+		return KeyNode(
+			identifier, _("{key} (from {layer} layer)").format(key=name, layer=fromLayer), fromLayer
+		)
+
 	def _keyName(self, identifier: str, target: Target) -> str:
 		name = self.describeKey(identifier)
 		if target.actsFor:
@@ -290,6 +316,9 @@ class LayerEditor:
 		existing = self.layer.bindings.get(identifier)
 		if existing is not None and identity(existing) != identity(command.target):
 			return Check(conflict=self._nameOf(existing))
+		inherited = self.layers.inherited(self.layer.id).get(identifier)
+		if inherited is not None and identity(inherited[0]) != identity(command.target):
+			return Check(conflict=self._nameOf(inherited[0]), conflictLayer=self.nameLayer(inherited[1]))
 		return Check()
 
 	def _nameOf(self, target: Target) -> str:
@@ -322,6 +351,16 @@ class LayerEditor:
 		bindings = dict(self.layer.bindings)
 		if bindings.pop(keyLayers.normalize(identifier), None) is not None:
 			self._keep(replace_(self.layer, bindings=bindings))
+
+	def block(self, identifier: str) -> None:
+		"""Make a key do nothing in the layer being edited: how a key from further down is taken away here.
+
+		A key from another layer cannot be removed from this one, because it is not in it; removing it
+		from where it is would change that layer too. So it is overridden instead.
+		"""
+		bindings = dict(self.layer.bindings)
+		bindings[keyLayers.normalize(identifier)] = Target.blocked()
+		self._keep(replace_(self.layer, bindings=bindings))
 
 	def addEmulatedKey(self, key: str) -> Command:
 		""":return: the command for pressing a keyboard key, listed until a key is bound to it."""
@@ -758,7 +797,9 @@ if wx is not None:
 				category is not None and command is None and category.name == self.editor.emulatedCategory
 			)
 			self.addButton.Enable(canPress and (command is not None and key is None or emulated))
-			self.changeButton.Enable(canPress and key is not None and key.identifier is not None)
+			self.changeButton.Enable(
+				canPress and key is not None and key.identifier is not None and key.fromLayer is None,
+			)
 			self.removeButton.Enable(not capturing and key is not None and key.identifier is not None)
 
 		# Capturing a key
@@ -870,7 +911,27 @@ if wx is not None:
 				gui.messageBox(check.refusal, self.title, wx.OK | wx.ICON_INFORMATION, self)
 				self._refresh(focus=(identity(command.target), None))
 				return
-			if check.conflict:
+			if check.conflict and check.conflictLayer:
+				answer = gui.messageBox(
+					# Translators: asked when a key added in the layered keys dialog already runs another command
+					# that the layer gets from a layer further down. Placeholders are the key, that command, the
+					# layer it comes from, and the command the key is being added to.
+					_(
+						"{key} is {existing}, from the {layer} layer. Use it for {command} in this layer instead?"
+					).format(
+						key=self.editor.describeKey(identifier),
+						existing=check.conflict,
+						layer=check.conflictLayer,
+						command=command.name,
+					),
+					self.title,
+					wx.YES_NO | wx.ICON_QUESTION,
+					self,
+				)
+				if answer != wx.YES:
+					self._refresh(focus=(identity(command.target), None))
+					return
+			elif check.conflict:
 				answer = gui.messageBox(
 					# Translators: asked when a key added in the layered keys dialog already runs another command
 					# in the layer. Placeholders are the key, the command it runs, and the command it is added to.
@@ -907,6 +968,22 @@ if wx is not None:
 		def _onRemove(self, event) -> None:
 			category, command, key = self.tree.selection()
 			if command is None or key is None or key.identifier is None:
+				return
+			if key.fromLayer is not None:
+				answer = gui.messageBox(
+					# Translators: asked when removing a key the layer being edited gets from a layer further
+					# down. Placeholders are the key and the layer it comes from.
+					_(
+						"{key} comes from the {layer} layer, and removing it there would change that layer too. "
+						"Make it do nothing in this layer instead?",
+					).format(key=self.editor.describeKey(key.identifier), layer=key.fromLayer),
+					self.title,
+					wx.YES_NO | wx.ICON_QUESTION,
+					self,
+				)
+				if answer == wx.YES:
+					self.editor.block(key.identifier)
+					self._refresh(focus=(identity(command.command.target), None))
 				return
 			self.editor.remove(key.identifier)
 			self._refresh(focus=(identity(command.command.target), None))
@@ -1216,6 +1293,7 @@ if wx is not None:
 			factory,
 			commands,
 			describeKey=_describeKey,
+			nameLayer=keyLayerDispatch.layerName,
 			emulatedCategory=inputCore.SCRCAT_KBEMU,
 			blockedCategory=SCRIPT_CATEGORY,
 			reservedKeys=reservedFromMappings(mappings, keyLayerDispatch.LAYER_COMMAND_PREFIX),

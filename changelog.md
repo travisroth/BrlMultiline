@@ -13,7 +13,8 @@ Added:
   with its graphics layer on and reads again when it is off, and the Focus 80 is not affected. A
   key a layer does not use does what it always does. The layer key turns on the layer for what is
   on the display. The Monarch and the keyboard ship with a reading layer and a graphics layer,
-  and a layered keys dialog, modelled on Input Gestures, edits them.
+  and a layered keys dialog, modelled on Input Gestures, edits them. The Monarch's graphics layer
+  comes on by itself with a drawing, and a table layer moves by cell from the Monarch's d-pad.
 
 - **The Monarch's two d-pads can be bound separately, and its zoom keys have names.** NVDA
   names a key by what it is and not by where it is, so both pads arrived as `dpadUp` and could

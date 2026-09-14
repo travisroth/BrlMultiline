@@ -339,6 +339,39 @@ class TestDecide(unittest.TestCase):
 		self.assertEqual(PASS, self.decide(monarchLayers(), "gone", "leftDpadUp").action)
 
 
+class TestAutomaticAndInherited(unittest.TestCase):
+	def layers(self):
+		return (
+			monarchLayers()
+			.withLayer(replace_(monarchLayers().get("graphics"), autoEnable=True))
+			.withLayer(
+				replace_(monarchLayers().get("chart"), autoEnable=True),
+			)
+		)
+
+	def test_theMostSpecificAutomaticLayerPresentComesOn(self):
+		self.assertEqual("chart", self.layers().autoLayerFor(["chart", "graphics"]).id)
+		self.assertEqual("graphics", self.layers().autoLayerFor(["picture", "graphics"]).id)
+		self.assertIsNone(self.layers().autoLayerFor([]))
+
+	def test_aLayerThatDoesNotComeOnByItselfNeverDoes(self):
+		self.assertIsNone(monarchLayers().autoLayerFor(["chart", "graphics"]))
+
+	def test_aDeclinedContextIsSkipped(self):
+		self.assertEqual("graphics", self.layers().autoLayerFor(["chart", "graphics"], declined=["chart"]).id)
+		self.assertIsNone(self.layers().autoLayerFor(["graphics"], declined=["graphics"]))
+
+	def test_keysFromBelowAreTheNearestAndNotTheLayersOwn(self):
+		layers = monarchLayers()
+		inherited = layers.inherited("chart")
+		self.assertEqual(
+			{monarch("leftDpadUp"): (PAN_UP, "graphics"), monarch("leftDpadDown"): (SAY_LINE, DEFAULT_ID)},
+			{key: (target, layer.id) for key, (target, layer) in inherited.items()},
+		)
+		self.assertNotIn(monarch("zoomIn"), inherited)
+		self.assertEqual({}, layers.inherited(DEFAULT_ID))
+
+
 class TestDefaultLayers(unittest.TestCase):
 	"""What the add-on ships: the Monarch works out of the box, and reset puts this back."""
 
@@ -350,6 +383,24 @@ class TestDefaultLayers(unittest.TestCase):
 		self.assertEqual((STAYS_ON, "graphics"), (graphics.style, graphics.context))
 		self.assertEqual("graphicsPanUp", graphics.bindings[monarch("leftDpadUp")].scriptName)
 		self.assertEqual("graphicsZoomIn", graphics.bindings[monarch("zoomIn")].scriptName)
+
+	def test_theMonarchsGraphicsLayerComesOnByItselfAndTheKeyboardsDoesNot(self):
+		"""Putting a drawing up is asking for it; the keypad is the review cursor on a desktop layout."""
+		monarchGraphics = LayerSet(MONARCH, tuple(keyLayers.defaultLayers(MONARCH, PLUGIN))).get("graphics")
+		keyboardGraphics = LayerSet(KEYBOARD, tuple(keyLayers.defaultLayers(KEYBOARD, PLUGIN))).get(
+			"graphics"
+		)
+		self.assertTrue(monarchGraphics.autoEnable)
+		self.assertFalse(keyboardGraphics.autoEnable)
+
+	def test_theMonarchHasATableLayerForTheLayerKeyOnly(self):
+		tables = LayerSet(MONARCH, tuple(keyLayers.defaultLayers(MONARCH, PLUGIN))).get("table")
+		self.assertEqual(("table", STAYS_ON, False), (tables.context, tables.style, tables.autoEnable))
+		self.assertEqual(
+			("documentBase", "DocumentWithTableNavigation", "nextRow"),
+			tuple(tables.bindings[monarch("leftDpadDown")][1:4]),
+		)
+		self.assertEqual("flowNextColumns", tables.bindings[monarch("zoomIn")].scriptName)
 
 	def test_theRightPadAndTheCentreAreNeverBound(self):
 		"""The right pad stays the arrow keys; the centre is not a key at all."""

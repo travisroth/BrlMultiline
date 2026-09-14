@@ -534,6 +534,65 @@ class TestContextGoing(DispatchTestCase):
 		self.assertEqual([], dispatch.endLayersOutOfContext([], ("chart", "picture", "graphics")))
 
 
+class TestComingOnByItself(DispatchTestCase):
+	DETECTED = ("chart", "picture", "graphics")
+
+	def setUp(self):
+		super().setUp()
+		layers = dispatch.layerSet(MONARCH)
+		dispatch.save(layers.withLayer(replace(layers.get("graphics"), autoEnable=True, style=ONE_SHOT)))
+		keyboard = dispatch.layerSet(KEYBOARD)
+		dispatch.save(keyboard.withLayer(replace(keyboard.get("graphics"), autoEnable=True)))
+
+	def auto(self, present, devices=(MONARCH, KEYBOARD, "freedomScientific")):
+		return [(device, layer.id) for device, layer in dispatch.autoEnable(present, devices, self.DETECTED)]
+
+	def test_aDrawingBringsEachDevicesLayerOn(self):
+		self.assertEqual([(MONARCH, "graphics"), (KEYBOARD, "graphics")], self.auto(["graphics"]))
+		self.assertTrue(dispatch.isAutomatic(MONARCH))
+
+	def test_aDeviceWithALayerAlreadyOnKeepsIt(self):
+		dispatch.activate(MONARCH, "reading")
+		self.assertEqual([(KEYBOARD, "graphics")], self.auto(["graphics"]))
+		self.assertEqual("reading", dispatch.activeLayer(MONARCH).id)
+
+	def test_anAutomaticLayerStaysOnWhateverItsStyle(self):
+		"""Its context ends it. The Monarch's is set one shot above, and a key must not end it."""
+		self.auto(["graphics"])
+		self.decide(BrailleKey(MONARCH, "leftDpadUp"))
+		self.decide(BrailleKey(MONARCH, "dot1", ordinaryScript))
+		self.assertIsNotNone(dispatch.activeLayer(MONARCH))
+
+	def test_turnedOffByTheReaderItStaysOffUntilTheDrawingGoesAndComesBack(self):
+		self.auto(["graphics"])
+		dispatch.toggle(MONARCH)
+		self.assertEqual([], [pair for pair in self.auto(["graphics"]) if pair[0] == MONARCH])
+		dispatch.endLayersOutOfContext([], self.DETECTED)
+		self.auto([])
+		self.assertIn((MONARCH, "graphics"), self.auto(["graphics"]))
+
+	def test_aLayerThatGoesWithItsDrawingIsNotDeclined(self):
+		self.auto(["graphics"])
+		dispatch.endLayersOutOfContext([], self.DETECTED)
+		self.assertIn((MONARCH, "graphics"), self.auto(["graphics"]))
+
+	def test_allOffDeclinesToo(self):
+		self.auto(["graphics"])
+		dispatch.allOff()
+		self.assertEqual([], self.auto(["graphics"]))
+
+	def test_leavingWithAnExitKeyDeclines(self):
+		self.auto(["graphics"])
+		gesture = BrailleKey(MONARCH, "space+dot1+dot3+dot5+dot6")
+		self.decide(gesture)(gesture)
+		self.assertNotIn(MONARCH, [device for device, _layer in self.auto(["graphics"])])
+
+	def test_choosingALayerIsNoLongerAutomatic(self):
+		self.auto(["graphics"])
+		dispatch.activate(MONARCH, "reading")
+		self.assertFalse(dispatch.isAutomatic(MONARCH))
+
+
 class TestInstall(unittest.TestCase):
 	def test_installAndRemove(self):
 		dispatch.install()

@@ -8,6 +8,7 @@ reader presses, and the commands that used to read a gesture's source and now as
 a key is for.
 """
 
+import sys
 import types
 import unittest
 
@@ -15,6 +16,7 @@ from ._stubs import (
 	BrailleDisplayGesture,
 	FakeHandler,
 	KeyboardInputGesture,
+	callAfterQueue,
 	flashedMessages,
 	installStubs,
 	loadPlugin,
@@ -23,6 +25,7 @@ from ._stubs import (
 
 installStubs()
 
+import api  # noqa: E402
 import braille  # noqa: E402
 
 from brlMultiline import bmConfig, keyLayerContexts, keyLayerDispatch, keyLayers, panning  # noqa: E402
@@ -34,10 +37,23 @@ KEYBOARD = keyLayers.KEYBOARD
 
 
 class FakeMode:
-	def __init__(self, active=True, source=None, plugin=None):
+	def __init__(self, active=True, source=None, plugin=None, drawing=None):
 		self.active = active
 		self.source = source
 		self.plugin = plugin
+		self.drawing = drawing
+		"""What `enter` puts up."""
+
+	def enter(self, drawing=None):
+		"""As `GraphicsMode.enter` does: put the figure up, then tell the plugin."""
+		self.active = True
+		self.source = drawing or self.drawing
+		if self.plugin is not None:
+			self.plugin.onGraphicsChanged()
+		return True
+
+	def describe(self):
+		return "a drawing"
 
 	def leave(self):
 		"""As `GraphicsMode.leave` does: take the figure down, then tell the plugin."""
@@ -73,6 +89,39 @@ class TestContexts(unittest.TestCase):
 		host = types.SimpleNamespace(graphicsMode=FakeMode(source=chart), _pictureDrawing=None)
 		present = keyLayerContexts.presentContexts(host)
 		self.assertEqual(present, [context for context in keyLayers.CONTEXTS if context in present])
+
+	def test_aTableLaidOutInColumnsIsATable(self):
+		host = types.SimpleNamespace(graphicsMode=None, tablesInColumns=lambda: {"segment": object()})
+		self.assertEqual(["table"], keyLayerContexts.presentContexts(host))
+		self.assertEqual([], keyLayerContexts.presentContexts(host, tables=False))
+
+	def test_theBrowseModeCaretInATableCellIsATable(self):
+		class DocumentWithTableNavigation:
+			isReady = True
+			passThrough = False
+			selection = "the caret"
+			inCell = True
+
+			def _getTableCellCoords(self, info):
+				if not self.inCell:
+					raise LookupError("not in a table")
+				return (1, 1)
+
+		document = DocumentWithTableNavigation()
+		sys.modules["documentBase"] = types.SimpleNamespace(
+			DocumentWithTableNavigation=DocumentWithTableNavigation
+		)
+		original = api.getFocusObject
+		api.getFocusObject = lambda: types.SimpleNamespace(treeInterceptor=document)
+		self.addCleanup(setattr, api, "getFocusObject", original)
+		self.addCleanup(sys.modules.pop, "documentBase", None)
+		host = types.SimpleNamespace(graphicsMode=None)
+		self.assertEqual(["table"], keyLayerContexts.presentContexts(host))
+		document.inCell = False
+		self.assertEqual([], keyLayerContexts.presentContexts(host))
+		document.inCell = True
+		document.passThrough = True
+		self.assertEqual([], keyLayerContexts.presentContexts(host), "focus mode is not reading a table")
 
 	def test_aModeThatCannotBeReadIsNoContext(self):
 		class Broken:
@@ -212,9 +261,12 @@ class TestDrawingGoing(PluginTestCase):
 		self.plugin.script_toggleGraphics(None)
 		self.assertEqual("Drawing off", flashedMessages[-1])
 
-	def test_aDrawingThatGoesByItselfSaysItsLayerWentOnItsOwn(self):
+	def test_aDrawingThatGoesByItselfSaysItsLayerWentAfterwards(self):
+		"""After whatever the command that changed the drawing said."""
 		self.plugin.script_keyLayerToggle(GestureFrom(MONARCH))
 		self.plugin.graphicsMode.leave()
+		self.assertEqual("Graphics layer on", flashedMessages[-1])
+		callAfterQueue.flush()
 		self.assertEqual("Graphics layer off", flashedMessages[-1])
 
 	def test_theDefaultLayerStaysWhenTheDrawingGoes(self):
@@ -222,6 +274,51 @@ class TestDrawingGoing(PluginTestCase):
 		self.plugin.script_keyLayerToggle(GestureFrom(MONARCH))
 		self.plugin.onGraphicsChanged()
 		self.assertEqual("Default", keyLayerDispatch.layerName(keyLayerDispatch.activeLayer(MONARCH)))
+
+
+class TestDrawingComing(PluginTestCase):
+	def setUp(self):
+		super().setUp()
+		braille.handler.display = types.SimpleNamespace(name=MONARCH)
+		chart = types.SimpleNamespace(redraw=lambda *args: None)
+		self.plugin.graphicsMode = FakeMode(active=False, plugin=self.plugin, drawing=chart)
+
+	def test_theMonarchsShippedGraphicsLayerComesOnWithTheDrawingAndSaysSoOnce(self):
+		self.plugin.script_toggleGraphics(None)
+		self.assertEqual("a drawing, Graphics layer on", flashedMessages[-1])
+		self.assertTrue(keyLayerDispatch.isAutomatic(MONARCH))
+		self.assertIsNone(keyLayerDispatch.activeLayer(KEYBOARD), "the keyboard's does not come on by itself")
+		self.plugin.script_toggleGraphics(None)
+		self.assertEqual("Drawing off, Graphics layer off", flashedMessages[-1])
+
+	def test_aKeyboardLayerMadeToComeOnByItselfFollowsTheDrawingToo(self):
+		keyboard = keyLayerDispatch.layerSet(KEYBOARD)
+		from dataclasses import replace
+
+		keyLayerDispatch.save(keyboard.withLayer(replace(keyboard.get("graphics"), autoEnable=True)))
+		self.plugin.script_toggleGraphics(None)
+		self.assertEqual({MONARCH, KEYBOARD}, {device for device, _layer in keyLayerDispatch.activeLayers()})
+		self.assertEqual("a drawing, Graphics layer on", flashedMessages[-1], "one name, said once")
+		self.plugin.script_toggleGraphics(None)
+		self.assertEqual([], keyLayerDispatch.activeLayers())
+
+	def test_theReaderTurningItOffKeepsItOffWhileTheDrawingStays(self):
+		self.plugin.script_toggleGraphics(None)
+		self.plugin.script_keyLayerToggle(GestureFrom(MONARCH))
+		self.plugin.onGraphicsChanged()
+		self.assertIsNone(keyLayerDispatch.activeLayer(MONARCH))
+		self.plugin.script_toggleGraphics(None)
+		self.plugin.script_toggleGraphics(None)
+		self.assertIsNotNone(keyLayerDispatch.activeLayer(MONARCH))
+
+	def test_theLayerKeyInATableTakesTheShippedTableLayer(self):
+		self.plugin.graphicsMode = FakeMode(active=False, plugin=self.plugin)
+		self.plugin.tablesInColumns = lambda: {"segment": object()}
+		self.plugin.script_keyLayerToggle(GestureFrom(MONARCH))
+		self.assertEqual("Table layer on", flashedMessages[-1])
+
+	def test_theDevicesALayerCanComeOnFor(self):
+		self.assertEqual([MONARCH, KEYBOARD], self.plugin.keyLayerDevices())
 
 
 class TestWhichDisplay(unittest.TestCase):

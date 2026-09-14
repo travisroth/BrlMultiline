@@ -341,6 +341,37 @@ class LayerSet:
 					return layer
 		return self.default
 
+	def autoLayerFor(self, present: Iterable[str], declined: Iterable[str] = ()) -> Optional[Layer]:
+		""":return: the layer that comes on by itself for the most specific context present, or None.
+
+		:param present: the contexts present now, most specific first.
+		:param declined: contexts whose automatic layer the reader turned off while they were present,
+			which stay off until the context goes and comes back.
+		"""
+		declined = set(declined)
+		for context in present:
+			if context in declined:
+				continue
+			for layer in self.layers:
+				if layer.autoEnable and layer.context == context:
+					return layer
+		return None
+
+	def inherited(self, id: str) -> dict:
+		""":return: identifier to (target, layer) for every key a layer gets from further down its chain.
+
+		What a key the layer does not bind would run: the nearest layer below that binds it. A key the
+		layer binds itself is not here, since it is not inherited. Empty for the default layer.
+		"""
+		layer = self.get(id)
+		own = set(layer.bindings) if layer is not None else set()
+		found: dict = {}
+		for below in self.chain(id)[1:]:
+			for identifier, target in below.bindings.items():
+				if identifier not in own and identifier not in found:
+					found[identifier] = (target, below)
+		return found
+
 	def withLayer(self, layer: Layer) -> "LayerSet":
 		""":return: this set with a layer added, or replacing the one with its id."""
 		layers = [existing for existing in self.layers if existing.id != layer.id]
@@ -487,10 +518,16 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 	"""The layers a device ships with: what it has until the reader saves layers of their own.
 
 	The Monarch's default layer is one shot and reads: the layer key, then a direction on the left
-	d-pad. Its graphics layer stays on and pans with the left d-pad and zooms with the zoom keys. The
-	right d-pad is in neither, so it stays the arrow keys, and the d-pad centre is not a key at all.
+	d-pad. Its graphics layer stays on, pans with the left d-pad and zooms with the zoom keys, and
+	comes on by itself with a drawing, since putting a drawing up is already asking for it. Its table
+	layer stays on and moves by table cell with the left d-pad, and turns column pages with the zoom
+	keys; it comes on only from the layer key, since a table is somewhere the caret passes through.
+	The right d-pad is in none of them, so it stays the arrow keys, and the d-pad centre is not a key.
+
 	The keyboard's graphics layer does the same from the keypad, acting for the Monarch; a command
-	that does not ask which display it is for ignores that, so it is harmless without one.
+	that does not ask which display it is for ignores that, so it is harmless without one. It does not
+	come on by itself: the keypad is the review cursor on a desktop layout, and a drawing going up is
+	no reason to take it away.
 
 	:param device: the device.
 	:param pluginModule: this add-on's plugin module, which is `globalPlugins.brlMultiline` in NVDA.
@@ -523,13 +560,30 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 			"graphics",
 			"Graphics",
 			"graphics",
+			autoEnable=True,
 			bindings={
 				**{normalize(key): plugin(f"graphicsPan{direction}") for key, direction in pad.items()},
 				normalize(f"br({MONARCH}):zoomIn"): plugin("graphicsZoomIn"),
 				normalize(f"br({MONARCH}):zoomOut"): plugin("graphicsZoomOut"),
 			},
 		)
-		return [default, graphics]
+
+		def table(name):
+			return Target.script("documentBase", "DocumentWithTableNavigation", name)
+
+		cells = {"Up": "previousRow", "Down": "nextRow", "Left": "previousColumn", "Right": "nextColumn"}
+		tables = newLayer(
+			device,
+			"table",
+			"Table",
+			"table",
+			bindings={
+				**{normalize(key): table(cells[direction]) for key, direction in pad.items()},
+				normalize(f"br({MONARCH}):zoomIn"): plugin("flowNextColumns"),
+				normalize(f"br({MONARCH}):zoomOut"): plugin("flowPreviousColumns"),
+			},
+		)
+		return [default, graphics, tables]
 	if device == KEYBOARD:
 
 		def keypad(names, target):

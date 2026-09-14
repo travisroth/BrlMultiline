@@ -803,13 +803,24 @@ The Monarch and the keyboard come with layers already:
 
 - **Monarch, default layer.** The layer key, then the left d-pad: up says the line, down says
   all, left reports the focus, right reports the window title.
-- **Monarch, graphics layer.** The left d-pad moves the drawing and the zoom keys magnify and
-  shrink it. The right d-pad goes on being the arrow keys.
+- **Monarch, graphics layer.** Comes on by itself when a drawing goes up, and goes when it comes
+  down. The left d-pad moves the drawing and the zoom keys magnify and shrink it. The right d-pad
+  goes on being the arrow keys. Turn it off with the layer key and it stays off until the drawing
+  is taken down and put up again.
+- **Monarch, table layer.** With the caret in a table on a web page, or a table laid out in columns
+  on the display, the layer key turns it on. The left d-pad moves by table cell, and the zoom keys
+  turn to the next and previous page of columns. It stays on until you turn it off.
 - **Keyboard, default layer.** The layer key, then keypad 5 says the line.
 - **Keyboard, graphics layer.** The keypad's arrows move the Monarch's drawing, keypad plus and
-  minus magnify and shrink it, and keypad 5 says the line.
+  minus magnify and shrink it, and keypad 5 says the line. Turned on with the layer key; it does not
+  come on by itself, so the keypad stays the review cursor, unless you set it to in Properties.
 
 Other displays start with an empty default layer.
+
+Once you save a device's layers in the dialog, your saved layers are used instead of the ones it
+came with, as a whole. A later version of the add-on that improves the shipped layers will not
+change yours: use Reset to factory defaults in the dialog to take the new ones, which also drops
+your own changes for that device.
 
 #### The layered keys dialog
 
@@ -827,8 +838,10 @@ profile in use when you press OK.
   acts for, so a keypad key can move the Monarch's drawing.
 - **Does nothing in this layer**, under BrlMultiline, blocks a key while the layer is on.
 - **New layer**, **Rename**, **Delete layer** and **Properties** manage the layers. Properties
-  sets what the layer is for, whether it stays on or is one shot, its exit keys, and which layer
-  keys it does not have come from.
+  sets what the layer is for, whether it comes on by itself when that appears (drawings only),
+  whether it stays on or is one shot, its exit keys, and which layer keys it does not have come
+  from. Keys a layer gets from that layer are listed under their commands, "from Graphics layer";
+  Remove on one makes it do nothing in this layer instead of removing it from the other.
 - **Only show commands with keys in this layer** turns the tree into a list of what the layer does.
 - **Clear this layer** removes its keys. **Reset to factory defaults** puts back the layers the
   device shipped with.

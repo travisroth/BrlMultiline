@@ -68,6 +68,15 @@ _sets: dict = {}
 _active: dict = {}
 """Device to the id of the layer that is on for it."""
 
+_automatic: set = set()
+"""The devices whose layer came on by itself. Such a layer stays on whatever its style, since its
+context is what ends it, and turning it off by hand is remembered. See L{autoEnable}."""
+
+_declined: dict = {}
+"""Device to the contexts whose automatic layer the reader turned off while the context was there.
+A declined context stays declined until it goes: turning a layer back on under a reader the next
+time a drawing is redrawn would be overruling them."""
+
 _scripts: dict = {}
 """The scripts made for emulated and blocked keys, kept so a repeated key is the same script."""
 
@@ -94,6 +103,8 @@ def remove() -> None:
 		inputCore.decide_executeGesture.unregister(_decide)
 		_installed = False
 	_active.clear()
+	_automatic.clear()
+	_declined.clear()
 	_sets.clear()
 
 
@@ -112,6 +123,7 @@ def reload() -> list:
 	for device, layerId in list(_active.items()):
 		if _sets[device].get(layerId) is None:
 			del _active[device]
+			_automatic.discard(device)
 			was = previous.get(device)
 			gone.append((device, (was.get(layerId) if was is not None else None) or Layer(id=layerId)))
 			log.info(f"{LOG_PREFIX}{device} layer {layerId!r} is not in this profile, so it is off")
@@ -146,6 +158,7 @@ def save(layers: LayerSet) -> None:
 	activeId = _active.get(layers.device)
 	if activeId is not None and layers.get(activeId) is None:
 		del _active[layers.device]
+		_automatic.discard(layers.device)
 
 
 # Which layer is on
@@ -162,21 +175,66 @@ def activeLayers() -> list:
 
 
 def activate(device: str, layerId: str) -> Optional[Layer]:
-	""":return: the layer now on, or None if the device has no such layer."""
+	""":return: the layer now on, or None if the device has no such layer. Turned on by the reader."""
 	layer = layerSet(device).get(layerId)
 	if layer is None:
 		return None
 	_active[device] = layer.id
+	_automatic.discard(device)
 	log.info(f"{LOG_PREFIX}{device} layer {layer.id!r} on, {layer.style}")
 	return layer
 
 
-def deactivate(device: str) -> Optional[Layer]:
-	""":return: the layer that was on, now off, or None if none was."""
+def deactivate(device: str, byReader: bool = True) -> Optional[Layer]:
+	""":return: the layer that was on, now off, or None if none was.
+
+	:param byReader: whether the reader turned it off. An automatic layer the reader turns off keeps
+		its context declined until the context goes. See L{_declined}.
+	"""
 	layer = activeLayer(device)
 	if _active.pop(device, None) is not None:
 		log.info(f"{LOG_PREFIX}{device} layer off")
+	if device in _automatic:
+		_automatic.discard(device)
+		if byReader and layer is not None and layer.context:
+			_declined.setdefault(device, set()).add(layer.context)
+			log.info(f"{LOG_PREFIX}{device} {layer.context} context declined until it goes")
 	return layer
+
+
+def isAutomatic(device: str) -> bool:
+	return device in _automatic
+
+
+def autoEnable(present, devices, detected) -> list:
+	"""Turn on the layer that comes on by itself for what is on the display, on each device with none on.
+
+	A device that already has a layer on keeps it: the reader chose that, and a drawing going up is not
+	a reason to take it away. A context the reader declined is skipped until it goes.
+
+	:param present: the contexts present now, most specific first.
+	:param devices: the devices to consider: the connected displays and the keyboard.
+	:param detected: the contexts followed as they change. A context declined and no longer present
+		is forgotten here, so it comes back next time.
+	:return: (device, layer) for each layer turned on.
+	"""
+	present = list(present)
+	for device, contexts in list(_declined.items()):
+		contexts.difference_update(context for context in detected if context not in present)
+		if not contexts:
+			del _declined[device]
+	started = []
+	for device in devices:
+		if device in _active:
+			continue
+		layer = layerSet(device).autoLayerFor(present, _declined.get(device, ()))
+		if layer is None:
+			continue
+		_active[device] = layer.id
+		_automatic.add(device)
+		started.append((device, layer))
+		log.info(f"{LOG_PREFIX}{device} layer {layer.id!r} on by itself, for its {layer.context} context")
+	return started
 
 
 def toggle(device: str, contexts=()) -> tuple:
@@ -194,8 +252,8 @@ def endLayersOutOfContext(present, detected) -> list:
 	"""Turn off each layer whose context has gone: a graphics layer once the drawing is off.
 
 	A layer with a context is for that context, so it has nothing left to do when the context
-	goes, whether it was turned on by the layer key or chosen from the list. Phase 3's automatic
-	enabling adds the other half, turning one on when its context arrives.
+	goes, whether it was turned on by the layer key, chosen from the list or came on by itself.
+	L{autoEnable} is the other half.
 
 	:param present: the contexts present now.
 	:param detected: the contexts that can be told present at all. A layer for another context is
@@ -207,7 +265,7 @@ def endLayersOutOfContext(present, detected) -> list:
 		layer = activeLayer(device)
 		if layer is None or not layer.context or layer.context not in detected or layer.context in present:
 			continue
-		deactivate(device)
+		deactivate(device, byReader=False)
 		ended.append((device, layer))
 		log.info(f"{LOG_PREFIX}{device} layer {layer.id!r} off, its {layer.context} context has gone")
 	return ended
@@ -216,6 +274,8 @@ def endLayersOutOfContext(present, detected) -> list:
 def allOff() -> list:
 	""":return: (device, layer) for each layer that was on."""
 	was = activeLayers()
+	for device, _layer in was:
+		deactivate(device)
 	_active.clear()
 	if was:
 		log.info(f"{LOG_PREFIX}all layers off")
@@ -332,7 +392,12 @@ def _decide(gesture=None, **kwargs) -> bool:
 			log.info(f"{LOG_PREFIX}{key} on {device} leaves the {decision.layer.id!r} layer")
 		else:
 			log.debug(f"{LOG_PREFIX}{key} on {device} passes through")
-		if decision.endsOneShot and not _capturing() and _active.get(device) == activeId:
+		if (
+			decision.endsOneShot
+			and device not in _automatic
+			and not _capturing()
+			and _active.get(device) == activeId
+		):
 			del _active[device]
 			log.info(f"{LOG_PREFIX}{device} one shot layer {activeId!r} used, so off")
 	except Exception:
