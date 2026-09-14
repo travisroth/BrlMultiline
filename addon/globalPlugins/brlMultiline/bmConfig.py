@@ -121,6 +121,11 @@ def flowModeKey(mode: str) -> str:
 
 configSpec = {
 	"tableLayouts": 'string(default="")',
+	"keyLayerDevices": {
+		"__many__": {
+			"layers": 'string(default="")',
+		},
+	},
 	"displays": {
 		"__many__": {
 			"segmentsEnabled": "boolean(default=True)",
@@ -271,6 +276,64 @@ def setTableLayouts(said: str) -> None:
 	:param said: the JSON to store. See `flowTableLayouts`.
 	"""
 	config.conf[CONFIG_SECTION]["tableLayouts"] = said
+
+
+KEY_LAYER_SPEC = {"layers": 'string(default="")'}
+"""The specification of one device's layered keys section. See L{keyLayerText}."""
+
+
+def _keyLayerSection(device: str):
+	devices = config.conf[CONFIG_SECTION]["keyLayerDevices"]
+	if not devices.isSet(device):
+		devices[device] = {}
+	section = devices[device]
+	section.spec.update(KEY_LAYER_SPEC)
+	return section
+
+
+def keyLayerText(device: str) -> str:
+	""":return: one device's layered keys, as the JSON `keyLayers.LayerSet` stores them.
+
+	**Keyed by driver name, not by display key**, unlike the rest of this module's per display
+	settings. A layout is a fact about a display's geometry; which key is the arrow key is a fact
+	about its hardware, and the Monarch's geometry changes with its row pitch. Keyed by display
+	key, changing pitch would lose every layer. The keyboard is the device `keyboard`.
+
+	One JSON string per device rather than a nest of sections, for the reason `tableLayouts`
+	gives: the keys are gesture identifiers and module paths. One section per device rather than
+	one string for all, so a profile can give the Monarch different layers without restating the
+	Focus 80's.
+
+	:param device: a braille display's driver name, or `keyboard`.
+	:return: the stored text, or an empty string when there is none or it cannot be read.
+	"""
+	try:
+		return str(_keyLayerSection(device)["layers"] or "")
+	except Exception:
+		log.debugWarning(f"Could not read the layered keys for {device}", exc_info=True)
+		return ""
+
+
+def setKeyLayerText(device: str, text: str) -> None:
+	"""Store one device's layered keys, in the profile in force.
+
+	:param device: a braille display's driver name, or `keyboard`.
+	:param text: from `keyLayers.LayerSet.toText`.
+	"""
+	_keyLayerSection(device)["layers"] = text
+
+
+def keyLayerDevices() -> list[str]:
+	""":return: every device with a layered keys section.
+
+	Iterated rather than asked for `keys()`, which NVDA's `AggregatedSection` does not have; its
+	iteration also yields the specification's `__many__`, which names no device.
+	"""
+	try:
+		return sorted(key for key in config.conf[CONFIG_SECTION]["keyLayerDevices"] if key != "__many__")
+	except Exception:
+		log.debugWarning("Could not list the devices with layered keys", exc_info=True)
+		return []
 
 
 def getDisplayKey() -> str:

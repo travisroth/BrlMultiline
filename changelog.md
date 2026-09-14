@@ -8,6 +8,12 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **Layered keys, experimental.** A key on a display or the keyboard can mean something else
+  while a layer is on, per display and independently: the Monarch's left d-pad pans a drawing
+  with its graphics layer on and reads again when it is off, and the Focus 80 is not affected. A
+  key a layer does not use does what it always does. The layer key turns on the layer for what is
+  on the display. The Monarch and the keyboard ship with a reading layer and a graphics layer.
+
 - **The Monarch's two d-pads can be bound separately, and its zoom keys have names.** NVDA
   names a key by what it is and not by where it is, so both pads arrived as `dpadUp` and could
   only ever do the same thing. The Monarch driver now adds `leftDpadUp`, `rightDpadUp` and the

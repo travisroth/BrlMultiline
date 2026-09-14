@@ -3117,7 +3117,8 @@ def installStubs() -> None:
 		"config",
 		conf=FakeConf(
 			{
-				"BrlMultiline": {"displays": DisplaysSection()},
+				# Layered keys use the same on-demand sections as displays, keyed by driver name.
+				"BrlMultiline": {"displays": DisplaysSection(), "keyLayerDevices": DisplaysSection()},
 				"BrlMultilineVirtualDisplay": {"devices": []},
 				"braille": BRAILLE_CONFIG,
 				"documentFormatting": FORMAT_CONFIG,
@@ -3314,6 +3315,7 @@ def resetConfig() -> None:
 def resetPluginState() -> None:
 	"""Clear everything the plugin stubs accumulate between tests."""
 	resetConfig()
+	sys.modules["config"].conf["BrlMultiline"]["keyLayerDevices"].clear()
 	callAfterQueue.discard()
 	callLaterQueue.pending.clear()
 	dialogAnswers.reset()

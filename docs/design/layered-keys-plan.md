@@ -187,14 +187,16 @@ harmful key as blocked than by making every unbound key leave.
 ### Escape leaves
 
 Whatever the style, pressing escape turns the layer off and the escape goes no further.
-Escape means the device's escape, recognised two ways:
+Escape means the device's escape, recognised three ways:
 
-1. **The ordinary script is escape.** A key whose normal lookup, run only for keys the chain
-   does not bind, finds the emulated `kb:escape`. On a keyboard that is the escape key; on a
-   braille display it is whatever chord that display's gesture map or the reader's own map
-   gives escape. `scriptHandler._makeKbEmulateScript` names such a script `script_kb:escape`,
-   which is what the check reads.
-2. **Space with z.** Dots 1, 3, 5 and 6 with space is escape on most braille displays, but
+1. **The keyboard's escape key.** `kb:escape`, with no modifiers. A rule of its own, found on
+   hardware in phase 1: the first draft expected the next rule to cover it, but the escape key
+   has no NVDA command, it goes straight to Windows, so there is no ordinary script to find.
+2. **The ordinary script is escape.** A key whose normal lookup, run only for keys the chain
+   does not bind, finds the emulated `kb:escape`: on a braille display, whatever chord that
+   display's gesture map or the reader's own map gives escape. `scriptHandler._makeKbEmulateScript`
+   names such a script `script_kb:escape`, which is what the check reads.
+3. **Space with z.** Dots 1, 3, 5 and 6 with space is escape on most braille displays, but
    `hidBrailleStandard` maps escape to space with e, so a Monarch would not be caught by the
    first rule. Space with z is added as an exit key on every braille device's new layers,
    and can be removed in Properties like any other exit key.
@@ -407,7 +409,8 @@ Top to bottom:
    the Emulated system keyboard keys category. Key names formatted as Input Gestures formats
    them, main part then source.
 6. **Add, Change, Remove** buttons, the context menu, and Delete on a key, as Input Gestures
-   has them. **Reset** offers "Clear this layer" and, where one exists, "Use suggested keys".
+   has them. **Reset to factory defaults**, as Input Gestures names it, puts the device's
+   shipped layers back; "Clear this layer" empties the one selected.
 7. **OK, Cancel, Apply.**
 
 ### Differences from Input Gestures, each for a reason
@@ -434,11 +437,14 @@ holds a view model with no wx in it — categories, commands, pending captures, 
 layer set — and the dialog over it. The view model gets the tests; the dialog is checked on
 hardware.
 
-## Suggested layers
+## Default layers
 
-The reader's requirement is that mappings are theirs, and nothing is bound until they bind
-it. But an empty dialog is a poor first experience, so a device may have **suggested keys**
-for a context that the Reset button offers, never applied by themselves.
+**The add-on ships layers for the Monarch and the keyboard.** Decided with the reader,
+14 September 2026, replacing the earlier plan of suggestions offered from Reset and never
+applied: BrlMultiline should work on a Monarch out of the box, and the layout can be tuned from
+there. A device has its default layers until the reader saves layers of their own, and reset to
+factory defaults puts them back. A display this add-on has no layout for starts with an empty
+default layer. They are `keyLayers.defaultLayers`.
 
 ### The Monarch's keys that are made for this
 
@@ -523,17 +529,21 @@ each side names correctly; a usage declared once is not renamed; dots, spaces an
 untouched; every old identifier form is still offered, in order; and the zoom keys have
 their names and keep their numbers.
 
-### Suggestions
+### What ships
 
-1. **Monarch, graphics.** One d-pad pans in four directions. Zoom in (`brailleUsage544`) magnifies and zoom out (`brailleUsage545`) shrinks.
-   The other d-pad is left transparent, so it is still the arrow keys while a drawing is up.
-   Which pad pans is the reader's choice when they apply it; the suggestion names the left.
-   Space with z leaves. Graphics mode's existing chords stay where they are.
+1. **Monarch, graphics.** The left d-pad pans in four directions. Zoom in (`brailleUsage544`)
+   magnifies and zoom out (`brailleUsage545`) shrinks. The right d-pad is left transparent, so it
+   is still the arrow keys while a drawing is up. Space with z leaves. Graphics mode's existing
+   chords stay where they are.
 
    There is no centre press to report the drawing with. The Monarch's d-pads have none:
    pressing the middle gives two directions at once, such as `leftDpadLeft+leftDpadUp`, and
    which two depends on where the finger lands. It is not a key and should not be offered as one.
-2. **Monarch, table.** Zoom in turns to the next page of columns and zoom out to the
+2. **Monarch, default layer.** One shot, and it reads: the layer key, then up on the left d-pad
+   says the line, down says all, left reports the focus, right reports the window title.
+3. **Keyboard.** A one shot default layer with keypad 5 saying the line, and a graphics layer in
+   which the keypad pans and zooms acting for the Monarch.
+4. **Not yet: Monarch, table.** Waits for the table context in phase 3. Zoom in turns to the next page of columns and zoom out to the
    previous one, as the author already has them bound globally, and one d-pad moves by table cell
    with NVDA's own table navigation commands, the ones control+alt+arrows run. Most use
    when the reader has not bound the zoom keys globally.
@@ -652,7 +662,7 @@ With the Monarch and the Focus 80 combined, and a drawing up so panning has some
    own global commands: a command `bindGesture` could never have reached. The double press was
    not recorded separately; the unit tests hold that the script assigned is the command's own
    bound method, which is what `executeScript` compares to count a repeat. The original test,
-   the d-pad centre, turned out not to be a key; see "Suggestions".
+   the d-pad centre, turned out not to be a key; see "What ships".
 3. **Yes.** Input help named `graphicsPanUp` and the rest for the left d-pad and the keypad,
    and the log shows the decider ran first for each, as the stand aside rule intends.
 4. **Yes.** With the Monarch's layer on, the Focus 80's rocker and advance bars ran their usual
@@ -670,10 +680,12 @@ stale state, though no key was pressed hard on the heels of a toggle to try.
 
 ### Phase 1, layers without an editor
 
+**Done, 14 September 2026, except the lock screen.** See "What the phase 1 hardware run found" below.
+
 The model, storage, dispatch, transparency down to the default layer, both styles, the
 escape rule, routing exemptions, acts for, commands, profile switch handling, and the zoom
-key names in the Monarch driver. The Monarch graphics suggestion applied through a temporary
-command so there is something to use.
+key names in the Monarch driver. The Monarch and keyboard layers shipped as defaults, so there is
+something to use with no editor.
 
 Unit tests for the decision function cover both styles against a key bound in the layer,
 bound further down the chain, bound nowhere, a routing key, escape found by its ordinary
@@ -685,6 +697,97 @@ and from the keypad, type a dot chord without leaving the layer, say line from i
 by the layer key and by space with z, use a one shot layer, and switch profile with a layer
 on. And phase 0's lock screen question answered on hardware, on a machine where NVDA runs
 there.
+
+#### What phase 1 built
+
+- `keyLayers.py`, the model, NVDA free: `Target` (a script, an emulated key, or blocked, with
+  acts for), `Layer`, `LayerSet` with the fall through chain, the stored form, the default
+  layers, and `decide`, which is every rule above as one pure function.
+- `keyLayerContexts.py`: chart, picture and graphics, read off graphics mode.
+- `keyLayerDispatch.py`, rewritten from phase 0's: reads each device's layers, keeps which one is
+  on, carries out a decision, and answers `displayFor`.
+- `bmConfig`: a `keyLayerDevices` section per driver name, holding the JSON. Nothing stored, or
+  something stored that cannot be read at all, reads as the device's default layers.
+- `panning.py` and the table column paging ask `displayFor` instead of reading `gesture.source`,
+  so a keyboard key acting for the Monarch pans and pages the Monarch.
+- Commands, replacing phase 0's two: the layer key (space with l and dot 7 on the Monarch,
+  NVDA+control+shift+l on the keyboard, unchanged), one per display position for the keyboard,
+  choose a layer, report layers, and all layers off. A command that added suggested layers was
+  built and then removed the same day, when the layouts became defaults instead.
+- The profile switch reads the layers again, keeps a layer on by id, and says which went.
+
+The default layers, which a device has until the reader saves its own:
+
+- **Monarch, default layer, one shot:** the left d-pad reads. Up says the line, down says all,
+  left reports the focus, right reports the window title. So the layer key and then a direction
+  is a reading command, and the layer is off again.
+- **Monarch, graphics layer, stays on:** the left d-pad pans and the zoom keys zoom.
+- **Keyboard, default layer, one shot:** keypad 5 says the line.
+- **Keyboard, graphics layer, stays on:** the keypad pans and zooms acting for the Monarch, and
+  keypad 5 says the line.
+
+**Three decisions made while building it.**
+
+1. **The context aware layer key came forward from phase 3**, for the three graphics contexts
+   only. Without it the graphics layer, a stays on layer, could only be reached through the
+   choose command's list, and a reader panning a drawing would have had to open a dialog to start.
+   Tables, automatic enabling and the dialog's "from Graphics layer" labels stay in phase 3.
+2. **A one shot layer ends when its key is decided**, the one exception to state changing only in
+   scripts. The key it waits for may have no script of this add-on's to end it from: an unbound
+   key passing through to Windows has none at all, and wrapping every script NVDA runs would cost
+   the repeat count. It is not ended while any capture function is set, so input help does not
+   spend the shot.
+3. **Every layered keys command is named `script_keyLayer...`**, which is how the decider knows a
+   key's ordinary command is one of them and lets it through without ending a layer. A test on
+   the plugin and a check against the real NVDA hold every command to it.
+
+The fall through chain is complete in the model and used at runtime; only its presentation waits
+for the dialog. 100 unit tests between the model, the dispatch and the plugin, and
+`tests/nvdareal.py` checks that every command a default layer names exists, that the layer key
+keeps its gestures, and that layers store and list against NVDA's real configuration. That last
+one caught a bug the stubs could not: NVDA's `AggregatedSection` has no `keys()`, so the device
+list came back empty. Layers still loaded when first used, so nothing visible broke, but phase 2's
+device list is built on it.
+
+#### How to run phase 1
+
+With the Monarch and the Focus 80 combined:
+
+1. Nothing to set up: the default layers are there.
+2. With nothing drawn, press space with l and dot 7: "Default layer on". Press left d-pad up: it
+   says the line, and the layer is off. (One shot.)
+3. Put a drawing up and press the layer key: "Graphics layer on". Pan with the left d-pad, zoom
+   with the zoom keys, type a dot chord and check the layer is still on, then press the layer key
+   again: "Graphics layer off".
+4. Turn it on again and leave it with space with z.
+5. Turn on the keyboard's graphics layer with NVDA+control+shift+l while a drawing is up, and pan
+   and zoom from the keypad.
+6. With a layer on, switch profile: the layer stays on, because both profiles read the default
+   layers and the layer is still there by id. That a profile with different layers turns a missing
+   one off and says so is covered by unit tests until the dialog can save such a profile.
+7. The lock screen, carried over from phase 0, on a machine where NVDA runs there.
+
+#### What the phase 1 hardware run found
+
+14 September 2026, a Monarch and a Focus 80 combined, the laptop keyboard layout, the default
+layers as shipped.
+
+1. **The one shot default layers work.** On the Monarch, the layer key then left d-pad up said the
+   line and left d-pad right reported the title, and the layer was off after each. On the
+   keyboard, the layer key then keypad 5 said the line.
+2. **The graphics layer works.** With a drawing up the layer key chose it, the left d-pad panned,
+   zoom in zoomed, and the layer key and space with z each turned it off.
+3. **The keypad works, acting for the Monarch.** Keypad 4, 5 and 6 ran their commands from the
+   keyboard's graphics layer, logged as acting for the Monarch.
+4. **Escape did not leave a keyboard layer.** Fixed the same day; see "Escape leaves". The escape
+   key has no NVDA command, so the rule that recognised escape by its ordinary command could never
+   find it. Confirmed fixed on hardware.
+5. **A profile switch with a layer on keeps it on**, when both profiles have the layer: with the
+   shipped defaults, every profile does. A profile without the layer turning it off is unit tested;
+   it can be tried by hand by saving an empty layer set into a profile from the Python console.
+6. **The lock screen was not tried**, still, for the reason phase 0 gives.
+
+Not observed in the log, so not claimed: typing a dot chord with the graphics layer on.
 
 ### Phase 2, the dialog
 
@@ -718,9 +821,9 @@ and an auto layer on the Monarch and one on the keyboard both follow drawings on
    exception, and space with z counts as escape on a braille display.
 3. **Keyboard layers can bind display and BrlMultiline commands**, acting for a named
    display where the command needs one.
-4. **Suggested keys are offered from Reset, never applied.** The Monarch's d-pads and zoom
-   keys are the first suggestions, and the zoom keys' existing use for table pages is the
-   table suggestion.
+4. **The Monarch and keyboard layouts ship as defaults**, and reset to factory defaults in the
+   dialog puts them back. This replaced the first answer, suggested keys offered from Reset and
+   never applied, later the same day: BrlMultiline should work on a Monarch out of the box.
 5. **The default layer never has a context.** The bottom of every chain is always the same
    layer.
 6. **The Monarch's second d-pad stays transparent in graphics.** No finer pan step for now.

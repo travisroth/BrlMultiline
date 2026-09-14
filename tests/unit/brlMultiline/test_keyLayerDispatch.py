@@ -1,20 +1,22 @@
 # Copyright (C) 2026 Travis Roth
 # This file is covered by the GNU General Public License version 2.
 
-"""Tests for layered keys, phase 0: choosing a key's command before NVDA looks for one.
+"""Tests for layered keys on the NVDA side: which layer is on, and carrying a decision out.
 
-What is held to here is what the hardware run cannot show cheaply: that a key outside the
-layer is never touched, that another display's keys are never touched, that the decider never
-changes state, and that the lock screen rule `findScript` applies is applied here too. Whether
-NVDA then runs what was chosen is the hardware's question, and `docs/design/layered-keys-plan.md`
-lists it.
+The rules themselves are tested in `test_keyLayers`. What is held to here is what only this side
+can get wrong: that a key outside the layer and another display's keys are never touched, that
+the decider changes state only for a one shot layer's key and never while something is capturing,
+that the lock screen rule `findScript` applies is applied here too, that the stored layers are
+read on the main thread and survive a profile switch by id, and that a command is found on the
+object NVDA would have run it on.
 """
 
 import sys
 import types
 import unittest
+from dataclasses import replace
 
-from ._stubs import BrailleDisplayGesture, KeyboardInputGesture, installStubs, loadPlugin, log, spokenMessages
+from ._stubs import BrailleDisplayGesture, KeyboardInputGesture, installStubs, log, spokenMessages
 
 installStubs()
 
@@ -23,18 +25,26 @@ import braille  # noqa: E402
 import globalPluginHandler  # noqa: E402
 import inputCore  # noqa: E402
 
-from brlMultiline import keyLayerDispatch as layers  # noqa: E402
-from brlMultiline.keyLayerDispatch import Binding, normalize  # noqa: E402
+from brlMultiline import bmConfig  # noqa: E402
+from brlMultiline import keyLayerDispatch as dispatch  # noqa: E402
+from brlMultiline.keyLayers import (  # noqa: E402
+	DEFAULT_ID,
+	KEYBOARD,
+	MONARCH,
+	ONE_SHOT,
+	STAYS_ON,
+	LayerSet,
+	Target,
+	newLayer,
+	normalize,
+)
 
-MONARCH = layers.MONARCH
-KEYBOARD = layers.KEYBOARD
 MODULE = "_keyLayerTargets"
 
 
 class Plugin:
 	def script_panUp(self, gesture):
 		"""Moves the drawing up"""
-		self.ran = gesture
 
 
 class Commands:
@@ -47,6 +57,7 @@ class Commands:
 
 class Document:
 	passThrough = False
+	isReady = True
 
 	def script_nextHeading(self, gesture):
 		"""Moves to the next heading"""
@@ -73,15 +84,20 @@ for cls in (Plugin, Commands, Document, Ancestor, Member):
 sys.modules[MODULE] = targets
 
 
-def bound(className, scriptName, actsFor=None):
-	return Binding(MODULE, className, scriptName, actsFor)
+def script(className, scriptName, actsFor=None):
+	return Target.script(MODULE, className, scriptName, actsFor)
+
+
+def monarch(key):
+	return normalize(f"br({MONARCH}):{key}")
 
 
 class BrailleKey(BrailleDisplayGesture):
-	def __init__(self, source, key, ordinary=None):
+	def __init__(self, source, key, ordinary=None, cellIndexes=None):
 		self.source = source
 		self.identifiers = [f"br({source}):{key}"]
 		self.script = ordinary
+		self.cellIndexes = cellIndexes
 
 
 class Key(KeyboardInputGesture):
@@ -102,17 +118,63 @@ def escapeScript(gesture):
 escapeScript.__name__ = "script_kb:escape"
 
 
-class KeyLayerTestCase(unittest.TestCase):
+def toggleScript(gesture):
+	"""The layer key."""
+
+
+toggleScript.__name__ = "script_keyLayerToggle"
+
+
+def monarchSet():
+	default = newLayer(MONARCH, DEFAULT_ID, bindings={monarch("leftDpadDown"): script("Commands", "sayLine")})
+	graphics = newLayer(
+		MONARCH,
+		"graphics",
+		"Graphics",
+		"graphics",
+		bindings={
+			monarch("leftDpadUp"): script("Plugin", "panUp"),
+			monarch("space+dot1"): script("Document", "nextHeading"),
+			monarch("space+dot2"): Target.key("kb:downArrow"),
+			monarch("space+dot3"): Target.blocked(),
+		},
+	)
+	reading = newLayer(
+		MONARCH,
+		"reading",
+		"Reading",
+		bindings={monarch("leftDpadUp"): script("Commands", "sayLine")},
+	)
+	return LayerSet(MONARCH, (default, graphics, reading))
+
+
+def keyboardSet():
+	graphics = newLayer(
+		KEYBOARD,
+		"graphics",
+		"Graphics",
+		"graphics",
+		bindings={normalize("kb:numpad8"): script("Plugin", "panUp", MONARCH)},
+	)
+	return LayerSet(KEYBOARD, (graphics,))
+
+
+class DispatchTestCase(unittest.TestCase):
 	def setUp(self):
-		self.saved = (
-			layers.TEST_LAYERS,
-			layers.EXIT_KEYS,
-			globalPluginHandler.__dict__.get("runningPlugins"),
-			api.__dict__.get("getFocusObject"),
-			api.__dict__.get("getFocusAncestors"),
-			braille.handler,
-			sys.modules["globalCommands"].commands,
-		)
+		self.stored = {MONARCH: monarchSet().toText(), KEYBOARD: keyboardSet().toText()}
+		self.saved = {
+			"keyLayerText": bmConfig.keyLayerText,
+			"setKeyLayerText": bmConfig.setKeyLayerText,
+			"keyLayerDevices": bmConfig.keyLayerDevices,
+			"runningPlugins": globalPluginHandler.__dict__.get("runningPlugins"),
+			"getFocusObject": api.__dict__.get("getFocusObject"),
+			"getFocusAncestors": api.__dict__.get("getFocusAncestors"),
+			"handler": braille.handler,
+			"commands": sys.modules["globalCommands"].commands,
+		}
+		bmConfig.keyLayerText = lambda device: self.stored.get(device, "")
+		bmConfig.setKeyLayerText = self.stored.__setitem__
+		bmConfig.keyLayerDevices = lambda: sorted(self.stored)
 		self.plugin = Plugin()
 		self.commands = Commands()
 		self.focus = types.SimpleNamespace(appModule=None, treeInterceptor=None)
@@ -122,115 +184,138 @@ class KeyLayerTestCase(unittest.TestCase):
 		api.getFocusAncestors = lambda: self.ancestors
 		sys.modules["globalCommands"].commands = self.commands
 		braille.handler = None
-		layers.TEST_LAYERS = {
-			MONARCH: {
-				normalize(f"br({MONARCH}):leftDpadUp"): bound("Plugin", "panUp"),
-				normalize(f"br({MONARCH}):zoomIn"): bound("Commands", "sayLine"),
-				normalize(f"br({MONARCH}):space+dot1"): bound("Document", "nextHeading"),
-			},
-			KEYBOARD: {
-				normalize("kb:numpad8"): bound("Plugin", "panUp", MONARCH),
-			},
-		}
-		layers.EXIT_KEYS = {
-			MONARCH: frozenset({normalize(f"br({MONARCH}):space+dot1+dot3+dot5+dot6")}),
-			KEYBOARD: frozenset({normalize("kb:escape")}),
-		}
-		layers._active.clear()
 		inputCore.manager._captureFunc = None
 		inputCore.manager.isInputHelpActive = False
+		dispatch.remove()
+		dispatch._scripts.clear()
+		dispatch.install()
 		spokenMessages.clear()
 		log.messages.clear()
 
 	def tearDown(self):
-		(
-			layers.TEST_LAYERS,
-			layers.EXIT_KEYS,
-			runningPlugins,
-			getFocusObject,
-			getFocusAncestors,
-			braille.handler,
-			sys.modules["globalCommands"].commands,
-		) = self.saved
-		globalPluginHandler.runningPlugins = runningPlugins or []
-		if getFocusObject is not None:
-			api.getFocusObject = getFocusObject
-		if getFocusAncestors is None:
+		dispatch.remove()
+		bmConfig.keyLayerText = self.saved["keyLayerText"]
+		bmConfig.setKeyLayerText = self.saved["setKeyLayerText"]
+		bmConfig.keyLayerDevices = self.saved["keyLayerDevices"]
+		globalPluginHandler.runningPlugins = self.saved["runningPlugins"] or []
+		if self.saved["getFocusObject"] is not None:
+			api.getFocusObject = self.saved["getFocusObject"]
+		if self.saved["getFocusAncestors"] is None:
 			api.__dict__.pop("getFocusAncestors", None)
 		else:
-			api.getFocusAncestors = getFocusAncestors
-		layers._active.clear()
+			api.getFocusAncestors = self.saved["getFocusAncestors"]
+		braille.handler = self.saved["handler"]
+		sys.modules["globalCommands"].commands = self.saved["commands"]
 		inputCore.manager._captureFunc = None
 		for name in ("winAPI", "winAPI.sessionTracking", "utils", "utils.security"):
 			sys.modules.pop(name, None)
 
 	def decide(self, gesture):
-		self.assertTrue(layers._decide(gesture=gesture), "a layer must never drop a gesture")
+		self.assertTrue(dispatch._decide(gesture=gesture), "a layer must never drop a gesture")
 		return gesture.script
 
 
-class TestChoosing(KeyLayerTestCase):
+class TestChoosing(DispatchTestCase):
 	def test_nothingIsTouchedWhileNoLayerIsOn(self):
-		gesture = BrailleKey(MONARCH, "leftDpadUp", ordinaryScript)
-		self.assertIs(ordinaryScript, self.decide(gesture))
+		self.assertIs(ordinaryScript, self.decide(BrailleKey(MONARCH, "leftDpadUp", ordinaryScript)))
 
-	def test_aBoundKeyRunsTheLayersCommandOnTheLiveObject(self):
-		layers.toggle(MONARCH)
-		script = self.decide(BrailleKey(MONARCH, "leftDpadUp", ordinaryScript))
-		self.assertEqual(self.plugin.script_panUp, script)
+	def test_aBoundKeyRunsTheCommandOnTheLiveObject(self):
+		dispatch.activate(MONARCH, "graphics")
+		found = self.decide(BrailleKey(MONARCH, "leftDpadUp", ordinaryScript))
+		self.assertEqual(self.plugin.script_panUp, found)
 
-	def test_theScriptIsTheTargetsOwnBoundMethodSoRepeatsCount(self):
-		"""`executeScript` counts a repeat by comparing `script.__func__`. A wrapper would never repeat."""
-		layers.toggle(MONARCH)
-		script = self.decide(BrailleKey(MONARCH, "zoomIn"))
-		self.assertIs(Commands.script_sayLine, script.__func__)
-		self.assertIs(self.commands, script.__self__)
+	def test_theScriptIsTheCommandsOwnBoundMethodSoRepeatsCount(self):
+		dispatch.activate(MONARCH, "graphics")
+		found = self.decide(BrailleKey(MONARCH, "leftDpadDown"))
+		self.assertIs(Commands.script_sayLine, found.__func__)
+		self.assertIs(self.commands, found.__self__)
 
-	def test_anUnboundKeyIsLeftToNvda(self):
-		"""Transparent: the right d-pad is still the arrow keys, and dot chords still type."""
-		layers.toggle(MONARCH)
+	def test_anUnboundKeyIsLeftToNvdaAndTheLayerStaysOn(self):
+		dispatch.activate(MONARCH, "graphics")
 		self.assertIs(ordinaryScript, self.decide(BrailleKey(MONARCH, "rightDpadUp", ordinaryScript)))
-		self.assertTrue(layers.isActive(MONARCH))
+		self.assertIsNotNone(dispatch.activeLayer(MONARCH))
 
 	def test_anotherDisplaysKeysAreNeverTouched(self):
-		layers.toggle(MONARCH)
+		dispatch.activate(MONARCH, "graphics")
 		gesture = BrailleKey("freedomScientific", "leftDpadUp", ordinaryScript)
 		self.assertIs(ordinaryScript, self.decide(gesture))
 
 	def test_theKeyboardIsItsOwnDevice(self):
-		layers.toggle(MONARCH)
+		dispatch.activate(MONARCH, "graphics")
 		self.assertIs(ordinaryScript, self.decide(Key("numpad8", ordinaryScript)))
-		layers.toggle(KEYBOARD)
+		dispatch.activate(KEYBOARD, "graphics")
 		self.assertEqual(self.plugin.script_panUp, self.decide(Key("numpad8", ordinaryScript)))
 
 	def test_aKeyboardBindingActsForItsDisplay(self):
-		layers.toggle(KEYBOARD)
+		dispatch.activate(KEYBOARD, "graphics")
 		gesture = Key("numpad8")
 		self.decide(gesture)
-		self.assertEqual(MONARCH, layers.deviceFor(gesture))
-		self.assertEqual(KEYBOARD, layers.deviceOf(gesture))
+		self.assertEqual(MONARCH, dispatch.deviceFor(gesture))
+		self.assertEqual(MONARCH, dispatch.displayFor(gesture))
+		self.assertEqual(KEYBOARD, dispatch.deviceOf(gesture))
 
-	def test_aBrailleKeyIsForItsOwnDisplay(self):
-		self.assertEqual(MONARCH, layers.deviceFor(BrailleKey(MONARCH, "leftDpadUp")))
+	def test_displayForIsNoneForAPlainKeyboardKey(self):
+		"""What panning used to get from a keyboard gesture's missing source."""
+		self.assertIsNone(dispatch.displayFor(Key("a")))
+		self.assertEqual(MONARCH, dispatch.displayFor(BrailleKey(MONARCH, "a")))
+		self.assertIsNone(dispatch.displayFor(None))
 
-	def test_theDeciderNeverChangesWhichLayersAreOn(self):
-		"""State changes in scripts, on the main thread, where a gesture is not abandoned."""
-		layers.toggle(MONARCH)
-		gesture = BrailleKey(MONARCH, "space+dot1+dot3+dot5+dot6")
-		self.decide(gesture)
-		self.assertTrue(layers.isActive(MONARCH))
-		gesture.script(gesture)
-		self.assertFalse(layers.isActive(MONARCH))
-		self.assertIn("Test layer off", spokenMessages)
+	def test_anEmulatedKeyIsTheSameScriptEachTime(self):
+		"""So a repeated press counts as a repeat, as NVDA's own emulated keys do."""
+		dispatch.activate(MONARCH, "graphics")
+		first = self.decide(BrailleKey(MONARCH, "space+dot2"))
+		second = self.decide(BrailleKey(MONARCH, "space+dot2"))
+		self.assertIs(first, second)
+		self.assertEqual("script_kb:downArrow", first.__name__)
+
+	def test_aBlockedKeyDoesNothing(self):
+		dispatch.activate(MONARCH, "graphics")
+		blocked = self.decide(BrailleKey(MONARCH, "space+dot3", ordinaryScript))
+		self.assertIsNot(ordinaryScript, blocked)
+		blocked(None)
+		self.assertEqual([], spokenMessages)
 
 
-class TestStandingAside(KeyLayerTestCase):
+class TestOneShot(DispatchTestCase):
 	def setUp(self):
 		super().setUp()
-		layers.toggle(MONARCH)
+		dispatch.activate(MONARCH, "reading")
+
+	def test_itIsOneShot(self):
+		self.assertEqual(ONE_SHOT, dispatch.activeLayer(MONARCH).style)
+
+	def test_theNextKeyRunsAndEndsTheLayer(self):
+		self.assertEqual(self.commands.script_sayLine, self.decide(BrailleKey(MONARCH, "leftDpadUp")))
+		self.assertIsNone(dispatch.activeLayer(MONARCH))
+		self.assertIs(ordinaryScript, self.decide(BrailleKey(MONARCH, "leftDpadUp", ordinaryScript)))
+
+	def test_anUnboundKeyPassesAndEndsTheLayer(self):
+		self.assertIs(ordinaryScript, self.decide(BrailleKey(MONARCH, "dot1", ordinaryScript)))
+		self.assertIsNone(dispatch.activeLayer(MONARCH))
+
+	def test_routingDoesNotSpendTheShot(self):
+		self.decide(BrailleKey(MONARCH, "routerSet1_routerKey", ordinaryScript, cellIndexes=[4]))
+		self.assertIsNotNone(dispatch.activeLayer(MONARCH))
+
+	def test_inputHelpDoesNotSpendTheShot(self):
+		inputCore.manager._captureFunc = lambda gesture: False
+		inputCore.manager.isInputHelpActive = True
+		self.assertEqual(self.commands.script_sayLine, self.decide(BrailleKey(MONARCH, "leftDpadUp")))
+		self.assertIsNotNone(dispatch.activeLayer(MONARCH))
+
+	def test_theLayerKeyIsLeftToTurnItOff(self):
+		gesture = BrailleKey(MONARCH, "space+dot1+dot2+dot3+dot7", toggleScript)
+		self.assertIs(toggleScript, self.decide(gesture))
+		self.assertIsNotNone(dispatch.activeLayer(MONARCH))
+
+
+class TestStandingAside(DispatchTestCase):
+	def setUp(self):
+		super().setUp()
+		dispatch.activate(MONARCH, "graphics")
 
 	def test_aModifierIsLeftAlone(self):
-		layers.toggle(KEYBOARD)
+		dispatch.activate(KEYBOARD, "graphics")
 		self.assertIs(ordinaryScript, self.decide(Key("numpad8", ordinaryScript, isModifier=True)))
 
 	def test_aDialogWaitingForAKeyGetsTheKey(self):
@@ -249,89 +334,83 @@ class TestStandingAside(KeyLayerTestCase):
 		self.assertTrue(any(level == "error" for level, _message in log.messages))
 
 
-class TestLeaving(KeyLayerTestCase):
+class TestLeaving(DispatchTestCase):
 	def setUp(self):
 		super().setUp()
-		layers.toggle(MONARCH)
-		layers.toggle(KEYBOARD)
+		dispatch.activate(MONARCH, "graphics")
+		dispatch.activate(KEYBOARD, "graphics")
 
-	def test_spaceWithZLeaves(self):
+	def test_spaceWithZLeavesInTheScriptNotTheDecider(self):
 		gesture = BrailleKey(MONARCH, "dot6+dot5+space+dot3+dot1", ordinaryScript)
-		script = self.decide(gesture)
-		self.assertIsNot(ordinaryScript, script)
-		script(gesture)
-		self.assertFalse(layers.isActive(MONARCH))
-		self.assertTrue(layers.isActive(KEYBOARD))
+		leave = self.decide(gesture)
+		self.assertIsNotNone(dispatch.activeLayer(MONARCH))
+		leave(gesture)
+		self.assertIsNone(dispatch.activeLayer(MONARCH))
+		self.assertIsNotNone(dispatch.activeLayer(KEYBOARD))
+		self.assertIn("Graphics layer off", spokenMessages)
+
+	def test_theKeyboardsEscapeLeavesOnlyTheKeyboardsLayer(self):
+		gesture = Key("escape")
+		leave = self.decide(gesture)
+		self.assertIsNotNone(leave, "escape has no command of its own, so the layer has to give it one")
+		leave(gesture)
+		self.assertIsNone(dispatch.activeLayer(KEYBOARD))
+		self.assertIsNotNone(dispatch.activeLayer(MONARCH))
+		self.assertIn("Graphics layer off", spokenMessages)
 
 	def test_aKeyWhoseOrdinaryCommandIsEscapeLeaves(self):
-		"""The display's own escape chord, whatever its gesture map makes it."""
 		gesture = BrailleKey(MONARCH, "space+dot1+dot5", escapeScript)
-		script = self.decide(gesture)
-		self.assertIsNot(escapeScript, script)
-		script(gesture)
-		self.assertFalse(layers.isActive(MONARCH))
-
-	def test_escapeOnTheKeyboardLeavesOnlyTheKeyboardsLayer(self):
-		gesture = Key("escape")
-		self.decide(gesture).__call__(gesture)
-		self.assertFalse(layers.isActive(KEYBOARD))
-		self.assertTrue(layers.isActive(MONARCH))
+		leave = self.decide(gesture)
+		self.assertIsNot(escapeScript, leave)
+		leave(gesture)
+		self.assertIsNone(dispatch.activeLayer(MONARCH))
 
 
-class TestFinding(KeyLayerTestCase):
+class TestFinding(DispatchTestCase):
 	def setUp(self):
 		super().setUp()
-		layers.toggle(MONARCH)
+		dispatch.activate(MONARCH, "graphics")
 
 	def test_aCommandWithNoObjectHereSaysSo(self):
 		gesture = BrailleKey(MONARCH, "space+dot1", ordinaryScript)
-		script = self.decide(gesture)
-		self.assertIsNot(ordinaryScript, script)
-		script(gesture)
+		unavailable = self.decide(gesture)
+		self.assertIsNot(ordinaryScript, unavailable)
+		unavailable(gesture)
 		self.assertIn("Moves to the next heading is not available here", spokenMessages)
 
 	def test_aTreeInterceptorCommandIsFound(self):
 		self.focus.treeInterceptor = Document()
-		self.focus.treeInterceptor.isReady = True
-		script = self.decide(BrailleKey(MONARCH, "space+dot1"))
-		self.assertEqual(self.focus.treeInterceptor.script_nextHeading, script)
+		found = self.decide(BrailleKey(MONARCH, "space+dot1"))
+		self.assertEqual(self.focus.treeInterceptor.script_nextHeading, found)
 
 	def test_notInFocusMode(self):
-		"""NVDA's own rule: a tree interceptor's commands do not run while it passes keys through."""
 		document = Document()
-		document.isReady = True
 		document.passThrough = True
 		self.focus.treeInterceptor = document
-		script, found = layers.resolve(bound("Document", "nextHeading"), BrailleKey(MONARCH, "space+dot1"))
-		self.assertIsNone(script)
+		self.assertIsNone(dispatch.resolve(script("Document", "nextHeading"), BrailleKey(MONARCH, "x"))[0])
 
 	def test_anAncestorOnlyOffersCommandsThatPropagate(self):
 		self.ancestors = [Ancestor()]
 		gesture = BrailleKey(MONARCH, "x")
-		self.assertIsNotNone(layers.resolve(bound("Ancestor", "propagates"), gesture)[0])
-		self.assertIsNone(layers.resolve(bound("Ancestor", "staysPut"), gesture)[0])
+		self.assertIsNotNone(dispatch.resolve(script("Ancestor", "propagates"), gesture)[0])
+		self.assertIsNone(dispatch.resolve(script("Ancestor", "staysPut"), gesture)[0])
 
 	def test_aMembersOwnCommandIsFoundOnTheMember(self):
-		"""The virtual display is not an instance of the member's class, so it has to be offered."""
 		member = Member()
 		slots = {"freedomScientific": types.SimpleNamespace(driver=member)}
 		braille.handler = types.SimpleNamespace(display=types.SimpleNamespace(slotForDriverName=slots.get))
-		binding = bound("Member", "wizWheel", "freedomScientific")
-		script, found = layers.resolve(binding, Key("numpad8"))
+		found = dispatch.resolve(script("Member", "wizWheel", "freedomScientific"), Key("numpad8"))[1]
 		self.assertIs(member, found)
 
-	def test_anUnknownClassFindsNothing(self):
-		self.assertEqual((None, None), layers.resolve(Binding(MODULE, "Nope", "x"), BrailleKey(MONARCH, "x")))
 
-
-class TestLockScreen(KeyLayerTestCase):
+class TestLockScreen(DispatchTestCase):
 	def setUp(self):
 		super().setUp()
-		layers.toggle(MONARCH)
+		dispatch.activate(MONARCH, "graphics")
 		self.locked = True
 		sys.modules["winAPI"] = types.ModuleType("winAPI")
 		sys.modules["winAPI.sessionTracking"] = types.SimpleNamespace(
-			isLockScreenModeActive=lambda: self.locked
+			isLockScreenModeActive=lambda: self.locked,
 		)
 		sys.modules["utils"] = types.ModuleType("utils")
 		sys.modules["utils.security"] = types.SimpleNamespace(
@@ -339,12 +418,17 @@ class TestLockScreen(KeyLayerTestCase):
 		)
 
 	def test_anUnsafeCommandIsRefusedAndTheKeyLeftToNvda(self):
-		"""Assigning a script skips `findScript`, which is where NVDA applies this rule."""
-		gesture = BrailleKey(MONARCH, "leftDpadUp", ordinaryScript)
-		self.assertIs(ordinaryScript, self.decide(gesture))
+		self.assertIs(ordinaryScript, self.decide(BrailleKey(MONARCH, "leftDpadUp", ordinaryScript)))
+
+	def test_anEmulatedKeyIsRefusedToo(self):
+		self.assertIs(ordinaryScript, self.decide(BrailleKey(MONARCH, "space+dot2", ordinaryScript)))
 
 	def test_aSafeCommandRuns(self):
-		layers.TEST_LAYERS[MONARCH][normalize(f"br({MONARCH}):leftDpadUp")] = bound("Commands", "dateTime")
+		layers = dispatch.layerSet(MONARCH)
+		graphics = layers.get("graphics")
+		bindings = dict(graphics.bindings)
+		bindings[monarch("leftDpadUp")] = script("Commands", "dateTime")
+		dispatch.save(layers.withLayer(replace(graphics, bindings=bindings)))
 		self.assertEqual(self.commands.script_dateTime, self.decide(BrailleKey(MONARCH, "leftDpadUp")))
 
 	def test_unlockedEverythingRuns(self):
@@ -352,47 +436,87 @@ class TestLockScreen(KeyLayerTestCase):
 		self.assertEqual(self.plugin.script_panUp, self.decide(BrailleKey(MONARCH, "leftDpadUp")))
 
 
-class TestTheTestLayer(unittest.TestCase):
-	"""The real phase 0 tables, against the real plugin."""
+class TestLayersOnAndOff(DispatchTestCase):
+	def test_theLayerKeyTakesTheLayerForWhatIsOnTheDisplay(self):
+		self.assertEqual((True, "graphics"), self.toggled(MONARCH, ["chart", "graphics"]))
+		self.assertEqual((False, "graphics"), self.toggled(MONARCH, ["chart", "graphics"]))
 
-	def test_everyPluginCommandExists(self):
-		plugin = loadPlugin()
-		saved = layers.TEST_LAYERS
-		for device, layer in saved.items():
-			for identifier, binding in layer.items():
-				if binding.moduleName == layers._PLUGIN[0]:
-					self.assertTrue(
-						hasattr(plugin.GlobalPlugin, f"script_{binding.scriptName}"),
-						f"{identifier} on {device} names {binding.scriptName}, which the plugin does not have",
-					)
+	def toggled(self, device, contexts):
+		isOn, layer = dispatch.toggle(device, contexts)
+		return isOn, layer.id
 
-	def test_theRightPadIsLeftAlone(self):
-		monarch = layers.TEST_LAYERS[MONARCH]
-		self.assertIn(normalize(f"br({MONARCH}):leftDpadUp"), monarch)
-		self.assertFalse(any("rightdpad" in identifier for identifier in monarch))
+	def test_withNothingOnTheDisplayItTakesTheDefaultLayer(self):
+		self.assertEqual((True, DEFAULT_ID), self.toggled(MONARCH, []))
+		self.assertEqual("Default", dispatch.layerName(dispatch.activeLayer(MONARCH)))
 
-	def test_keypadBindingsActForTheMonarch(self):
-		for identifier, binding in layers.TEST_LAYERS[KEYBOARD].items():
-			if binding.moduleName == layers._PLUGIN[0]:
-				self.assertEqual(MONARCH, binding.actsFor, identifier)
+	def test_aDeviceWithNothingStoredStillHasADefaultLayer(self):
+		self.assertEqual((True, DEFAULT_ID), self.toggled("freedomScientific", []))
 
-	def test_identifiersAreNormalized(self):
-		for layer in layers.TEST_LAYERS.values():
-			for identifier in layer:
-				self.assertEqual(normalize(identifier), identifier)
+	def test_allOffSaysWhatWasOn(self):
+		dispatch.activate(MONARCH, "graphics")
+		dispatch.activate(KEYBOARD, "graphics")
+		self.assertEqual({MONARCH, KEYBOARD}, {device for device, _layer in dispatch.allOff()})
+		self.assertEqual([], dispatch.activeLayers())
 
-	def test_normalizeSortsTheKeys(self):
-		self.assertEqual("br(x):dot1+space", normalize("br(X):Space+DOT1"))
+	def test_anUnknownLayerIsNotTurnedOn(self):
+		self.assertIsNone(dispatch.activate(MONARCH, "nope"))
 
+	def test_aStaysOnLayerStaysOn(self):
+		self.assertEqual(STAYS_ON, dispatch.activate(MONARCH, "graphics").style)
+
+
+class TestProfiles(DispatchTestCase):
+	def test_aLayerStillThereByIdStaysOn(self):
+		dispatch.activate(MONARCH, "graphics")
+		pictures = newLayer(MONARCH, "graphics", "Pictures", "graphics")
+		self.stored[MONARCH] = LayerSet(MONARCH, (pictures,)).toText()
+		self.assertEqual([], dispatch.reload())
+		self.assertEqual("Pictures", dispatch.activeLayer(MONARCH).name)
+
+	def test_aLayerThatIsGoneIsTurnedOffAndNamed(self):
+		dispatch.activate(MONARCH, "graphics")
+		self.stored[MONARCH] = LayerSet(MONARCH).toText()
+		gone = dispatch.reload()
+		self.assertEqual([(MONARCH, "Graphics")], [(device, layer.name) for device, layer in gone])
+		self.assertIsNone(dispatch.activeLayer(MONARCH))
+
+	def test_theDeciderReadsWhatWasLoadedNotTheConfiguration(self):
+		"""It runs on a driver's thread, where `config.conf` is not to be touched."""
+		dispatch.activate(MONARCH, "graphics")
+
+		def mustNotRead(device):
+			raise AssertionError("the decider read the configuration")
+
+		bmConfig.keyLayerText = mustNotRead
+		self.assertEqual(self.plugin.script_panUp, self.decide(BrailleKey(MONARCH, "leftDpadUp")))
+
+	def test_aDeviceWithNothingStoredHasItsDefaultLayers(self):
+		self.stored.clear()
+		dispatch.reload()
+		self.assertEqual(
+			"reportCurrentLine", dispatch.layerSet(MONARCH).default.bindings[monarch("leftDpadUp")].scriptName
+		)
+		self.assertIsNotNone(dispatch.layerSet(KEYBOARD).get("graphics"))
+		self.assertEqual(
+			dispatch.PLUGIN_MODULE,
+			dispatch.layerSet(MONARCH).get("graphics").bindings[monarch("zoomIn")].moduleName,
+		)
+
+	def test_savingASetWithoutTheLayerThatIsOnTurnsItOff(self):
+		dispatch.activate(MONARCH, "reading")
+		dispatch.save(LayerSet(MONARCH))
+		self.assertIsNone(dispatch.activeLayer(MONARCH))
+
+
+class TestInstall(unittest.TestCase):
 	def test_installAndRemove(self):
-		layers.install()
+		dispatch.install()
 		try:
-			self.assertIn(layers._decide, inputCore.decide_executeGesture.handlers)
-			layers.toggle(MONARCH)
+			self.assertIn(dispatch._decide, inputCore.decide_executeGesture.handlers)
 		finally:
-			layers.remove()
-		self.assertNotIn(layers._decide, inputCore.decide_executeGesture.handlers)
-		self.assertFalse(layers.isActive(MONARCH))
+			dispatch.remove()
+		self.assertNotIn(dispatch._decide, inputCore.decide_executeGesture.handlers)
+		self.assertEqual({}, dispatch._active)
 
 
 if __name__ == "__main__":

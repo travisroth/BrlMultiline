@@ -778,6 +778,38 @@ role and state shapes rather than one used while reading. It draws every symbol 
 it replaces beside it, so a hand running along the panel reads the shape and then the word it
 stands for. See "Draw roles and states as shapes instead of words".
 
+### Layered keys
+
+Experimental, and without its settings dialog yet. A layer gives a display's keys, or the
+keyboard's, other commands while it is on: with a drawing up, the Monarch's left d-pad can pan it
+while the right d-pad goes on being the arrow keys. Each display and the keyboard has its own
+layers, and turning one on changes nothing on the others. A key a layer does not use does what it
+always does, so typing and reading carry on inside a layer.
+
+- **Layered keys: Turns the layer on or off for the device it is pressed on** — space with dots 1,
+  2, 3 and 7 on the Monarch, NVDA+control+shift+l on the keyboard. With a drawing up it turns on
+  the graphics layer, otherwise the default layer. The default layer is one shot: it is off again
+  after the next key.
+- **Layered keys: Chooses which layer is on for the device it is pressed on** — unassigned.
+- **Layered keys: Reports which layers are on** — unassigned.
+- **Layered keys: Turns every layer off** — unassigned.
+- **Layered keys: Turns the layer on or off for the first, second or third display** — unassigned,
+  for turning a display's layer on from the keyboard.
+
+Space with z, or escape, turns a layer off.
+
+The Monarch and the keyboard come with layers already:
+
+- **Monarch, default layer.** The layer key, then the left d-pad: up says the line, down says
+  all, left reports the focus, right reports the window title.
+- **Monarch, graphics layer.** The left d-pad moves the drawing and the zoom keys magnify and
+  shrink it. The right d-pad goes on being the arrow keys.
+- **Keyboard, default layer.** The layer key, then keypad 5 says the line.
+- **Keyboard, graphics layer.** The keypad's arrows move the Monarch's drawing, keypad plus and
+  minus magnify and shrink it, and keypad 5 says the line.
+
+Other displays start with an empty default layer until the settings dialog can edit them.
+
 ### Diagnostics
 
 **Debug: Reports what the flow on the display has cost, and copies the detail.** Says how long

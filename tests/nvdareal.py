@@ -522,7 +522,6 @@ def checkKeyLayers() -> list:
 	import globalCommands
 	import inputCore
 	from braille.display.gesture import BrailleDisplayGesture
-	from brlMultiline import keyLayerDispatch
 
 	class Gesture(BrailleDisplayGesture):
 		source = "brlMultilineMonarch"
@@ -536,7 +535,8 @@ def checkKeyLayers() -> list:
 	if gesture.script is not chosen:
 		failures.append("assigning gesture.script no longer overrides NVDA's own lookup")
 	body = inspect.getsource(inputCore.InputManager.executeGesture)
-	positions = [body.find(marker) for marker in ("decide_executeGesture.decide", "gesture.script", "_captureFunc(")]
+	markers = ("decide_executeGesture.decide", "gesture.script", "_captureFunc(")
+	positions = [body.find(marker) for marker in markers]
 	if -1 in positions or positions != sorted(positions):
 		failures.append(
 			"executeGesture no longer decides, then reads the script, then captures, in that order",
@@ -550,15 +550,40 @@ def checkKeyLayers() -> list:
 		from winAPI.sessionTracking import isLockScreenModeActive  # noqa: F401
 	except ImportError as error:
 		failures.append(f"the lock screen rule has moved: {error}")
-	for device, layer in keyLayerDispatch.TEST_LAYERS.items():
-		for identifier, binding in layer.items():
-			owner = (
-				plugin.GlobalPlugin
-				if binding.moduleName == keyLayerDispatch._PLUGIN[0]
-				else getattr(globalCommands, binding.className, None)
-			)
-			if owner is None or not hasattr(owner, f"script_{binding.scriptName}"):
-				failures.append(f"{identifier} on {device} names {binding.scriptName}, which does not exist")
+	from brlMultiline import bmConfig, keyLayers
+
+	# Stored against NVDA's real configuration, which is where a stub agreed with a `keys()` that
+	# NVDA's aggregated sections do not have. In memory only: the bootstrap never saves.
+	bmConfig.initialize()
+	device = keyLayers.MONARCH
+	bmConfig.setKeyLayerText(device, '{"version": 1, "layers": []}')
+	if bmConfig.keyLayerText(device) != '{"version": 1, "layers": []}':
+		failures.append("layered keys stored for a device do not read back")
+	if bmConfig.keyLayerDevices() != [device]:
+		failures.append(f"the devices with layered keys read as {bmConfig.keyLayerDevices()}")
+	# The default layers name their commands by string, so a rename on either side would ship a
+	# layout that says "not available here" on every key.
+	for device in (keyLayers.MONARCH, keyLayers.KEYBOARD):
+		for layer in keyLayers.defaultLayers(device, "brlMultiline"):
+			for identifier, target in layer.bindings.items():
+				owner = (
+					plugin.GlobalPlugin
+					if target.moduleName == "brlMultiline"
+					else getattr(globalCommands, target.className, None)
+				)
+				if owner is None or not hasattr(owner, f"script_{target.scriptName}"):
+					failures.append(
+						f"the default {layer.id} layer for {device} binds {identifier} to "
+						f"{target.scriptName}, which does not exist",
+					)
+	# The layer key's defaults, and the naming every layer relies on to let its keys through.
+	bound = getattr(plugin.GlobalPlugin, "_GlobalPlugin__gestures", {})
+	for gesture in ("br(brlMultilineMonarch):space+dot1+dot2+dot3+dot7", "kb:NVDA+control+shift+l"):
+		if bound.get(gesture) != "keyLayerToggle":
+			failures.append(f"{gesture} is not bound to the layer key")
+	for name in dir(plugin.GlobalPlugin):
+		if name.startswith("script_") and "Layer" in name and not name.startswith("script_keyLayer"):
+			failures.append(f"{name} is a layered keys command a layer would not let through")
 	return failures
 
 

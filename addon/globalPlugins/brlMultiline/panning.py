@@ -88,7 +88,9 @@ def _withSource(original):
 		# Restored rather than cleared, because a script that sends its gesture on can end up
 		# running another script inside this one.
 		previous = _activeSource
-		_activeSource = getattr(gesture, "source", None)
+		# Through the layered keys helper, so a keyboard key a layer says acts for a display pans
+		# that display. A display's own key is answered with its source, as before.
+		_activeSource = _displayFor(gesture)
 		try:
 			return original(commands, gesture)
 		finally:
@@ -196,7 +198,18 @@ def shouldReverseForGesture(gesture) -> bool:
 
 	:param gesture: the gesture that ran the command, or None if there is not one.
 	"""
-	return shouldReverseForSource(getattr(gesture, "source", None))
+	return shouldReverseForSource(_displayFor(gesture))
+
+
+def _displayFor(gesture) -> str | None:
+	""":return: the display a gesture is for. See `keyLayerDispatch.displayFor`."""
+	from . import keyLayerDispatch
+
+	try:
+		return keyLayerDispatch.displayFor(gesture)
+	except Exception:
+		log.debugWarning("BrlMultiline: could not tell which display a gesture is for", exc_info=True)
+		return getattr(gesture, "source", None)
 
 
 def nativeSegmentForSource(source: str | None, container) -> int | None:
