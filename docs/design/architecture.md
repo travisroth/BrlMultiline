@@ -27,6 +27,9 @@ established there.
 - `panning.py` — which physical display's panning key is running the scroll happening now,
   and therefore whose panning direction and whose segment apply. See the module docstring for
   why it wraps NVDA's two panning commands rather than watching gestures pass.
+- `keyLayerDispatch.py` — layered keys: choosing a key's command from the layer that is on for
+  the device that raised it, before NVDA looks. Phase 0, one hard coded layer per device. See
+  [layered-keys-plan.md](layered-keys-plan.md).
 - `bmConfig.py` — per display configuration. Named to avoid shadowing NVDA's `config`.
 - `settingsPanel.py` — the NVDA settings category.
 - `__init__.py` — the global plugin: lifetime, claims, commands, and object monitor state.

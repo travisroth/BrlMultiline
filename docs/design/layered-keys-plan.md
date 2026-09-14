@@ -525,11 +525,14 @@ their names and keep their numbers.
 
 ### Suggestions
 
-1. **Monarch, graphics.** One d-pad pans in four directions and its centre reports the
-   drawing. Zoom in (`brailleUsage544`) magnifies and zoom out (`brailleUsage545`) shrinks.
+1. **Monarch, graphics.** One d-pad pans in four directions. Zoom in (`brailleUsage544`) magnifies and zoom out (`brailleUsage545`) shrinks.
    The other d-pad is left transparent, so it is still the arrow keys while a drawing is up.
-   Which pad pans is the reader's choice when they apply it; the suggestion names the left. Space with z leaves. Graphics mode's
-   existing chords stay where they are.
+   Which pad pans is the reader's choice when they apply it; the suggestion names the left.
+   Space with z leaves. Graphics mode's existing chords stay where they are.
+
+   There is no centre press to report the drawing with. The Monarch's d-pads have none:
+   pressing the middle gives two directions at once, such as `leftDpadLeft+leftDpadUp`, and
+   which two depends on where the finger lands. It is not a key and should not be offered as one.
 2. **Monarch, table.** Zoom in turns to the next page of columns and zoom out to the
    previous one, as the author already has them bound globally, and one d-pad moves by table cell
    with NVDA's own table navigation commands, the ones control+alt+arrows run. Most use
@@ -566,13 +569,15 @@ identifiers, so it gets its own test that every old form still matches.
 
 ### Phase 0, the mechanism on hardware
 
+**Done, 14 September 2026, except the lock screen.** See "What the hardware run found" below.
+
 A layer hard coded in `keyLayerDispatch.py`: one of the Monarch's d-pads pans a drawing and
 the zoom keys zoom. No model, no storage, no dialog. Answers, on a Monarch and a Focus 80
 driven together:
 
 1. Does assigning `gesture.script` in the decider run the target, for a braille key from a
    member and for a keyboard key?
-2. Does say line bound in the layer spell on a double press?
+2. Does say line bound in the layer run, and spell on a double press?
 3. Does input help report the layer's command?
 4. Does the Focus 80 stay entirely unaffected while the Monarch's layer is on?
 5. **Answered:** both d-pads report `dpadUp` and the rest to NVDA, but the raw reports
@@ -582,6 +587,86 @@ driven together:
 8. Does the lock screen refuse an unsafe layer command?
 
 Exit criterion: all eight answered on hardware, and the answers written here.
+
+#### What phase 0 built
+
+`keyLayerDispatch.py`, 14 September 2026. A decider registered at plugin start that does
+nothing while no layer is on, two hard coded layers, and two commands:
+
+1. **Layered keys: toggle the test layer**, bound to space with l and dot 7 on the Monarch
+   and NVDA+control+shift+l on the keyboard. It toggles the layer of the device it was pressed
+   on.
+2. **Layered keys: report which test layers are on**, unbound.
+
+The Monarch's layer: the left d-pad pans, zoom in and zoom out zoom.
+The right d-pad is unbound and stays the arrow keys. The keyboard's layer: keypad 8, 2, 4 and 6
+pan, keypad plus and minus zoom, all acting for the Monarch, and keypad 5 is say line. Both
+spellings of each keypad key are bound, num lock off and on. Space with z leaves the Monarch's
+layer, escape leaves the keyboard's, and so does any key whose ordinary command is escape.
+
+Built beyond the hard coding, because phase 1 needs them unchanged: finding the live object
+in NVDA's order, including a member display and NVDA's tree interceptor and ancestor rules;
+"not available here"; the lock screen rule; standing aside for Input Gestures while keeping
+input help; acts for.
+
+**One design point settled while building it.** State changes only in scripts. The decider
+runs on the thread the driver dispatched from, the script later on the main thread, and input
+help or sleep mode can abandon a gesture in between, which is how `panning.py` went wrong when
+it recorded things at decision time. The price is that a key pressed before the toggle's script
+has run is decided against the old state. Watch for it on hardware; it has not been seen.
+
+Every decision is logged at info, starting `BrlMultiline key layers:`, naming the key, the
+command, and the object it ran on. Keys the layer does not bind are logged at debug only.
+
+31 unit tests. `tests/nvdareal.py` checks against the real NVDA that an assigned script
+overrides the lookup, that `executeGesture` decides before it reads the script and before it
+captures, and that the capture function, input help and lock screen rule are where this reads
+them.
+
+#### How to run it
+
+With the Monarch and the Focus 80 combined, and a drawing up so panning has something to move:
+
+1. Press space with l and dot 7 on the Monarch: "Test layer on". Pan with the left d-pad, zoom
+   with the zoom keys, and check the right d-pad still moves like arrow keys. (Question 1, a
+   member's key.)
+2. Press keypad 5 twice quickly on a line of text, with the keyboard's layer on; it should
+   spell. (Question 2.)
+3. Turn input help on and press the left d-pad: it should name the pan command. (Question 3.)
+4. Use the Focus 80's keys, including its panning keys, with the Monarch's layer on; nothing
+   should differ. (Question 4.)
+5. Press NVDA+control+shift+l on the keyboard, then keypad 8, 2, 4 and 6: the Monarch's drawing
+   pans, and the log says "acting for brlMultilineMonarch". (Questions 1 and 7.)
+6. With the Monarch's layer on, lock Windows and press the left d-pad on the lock screen. The
+   log should say "refused on the lock screen" and nothing should pan. (Question 8.)
+7. Space with z, and escape on the keyboard, each turn their own layer off.
+
+#### What the hardware run found
+
+14 September 2026, a Monarch and a Focus 80 combined, NVDA's laptop keyboard layout.
+
+1. **Yes, for both.** The Monarch's left d-pad ran the four pan commands and its zoom keys the
+   two zoom commands on the plugin, through the virtual display. The keypad ran the same
+   commands. The log named each command and the object it ran on.
+2. **Say line runs from the layer.** Keypad 5 ran `GlobalCommands.reportCurrentLine` on NVDA's
+   own global commands: a command `bindGesture` could never have reached. The double press was
+   not recorded separately; the unit tests hold that the script assigned is the command's own
+   bound method, which is what `executeScript` compares to count a repeat. The original test,
+   the d-pad centre, turned out not to be a key; see "Suggestions".
+3. **Yes.** Input help named `graphicsPanUp` and the rest for the left d-pad and the keypad,
+   and the log shows the decider ran first for each, as the stand aside rule intends.
+4. **Yes.** With the Monarch's layer on, the Focus 80's rocker and advance bars ran their usual
+   commands, and the right d-pad stayed the up and down arrows.
+7. **Yes.** Every keypad pan logged "acting for brlMultilineMonarch" and moved the Monarch's
+   drawing.
+8. **Not run.** JAWS is set to run on the lock screen on this machine, so NVDA was not there
+   to test. The rule is unit tested, and `tests/nvdareal.py` checks it is where it is read
+   from. Carried into phase 1's exit criterion.
+
+Also seen: space with z left the Monarch's layer and keyboard escape left the keyboard's, each
+leaving the other's layer on; the keyboard's escape arrived as `kb(laptop):escape` and matched
+the layout free `kb:escape`, as normalized identifiers should. Nothing was decided against a
+stale state, though no key was pressed hard on the heels of a toggle to try.
 
 ### Phase 1, layers without an editor
 
@@ -598,7 +683,8 @@ screen and capture rules, and every old identifier form of the zoom keys still m
 Exit criterion: a reader can toggle a Monarch layer, pan and zoom a drawing from the Monarch
 and from the keypad, type a dot chord without leaving the layer, say line from it, leave it
 by the layer key and by space with z, use a one shot layer, and switch profile with a layer
-on.
+on. And phase 0's lock screen question answered on hardware, on a machine where NVDA runs
+there.
 
 ### Phase 2, the dialog
 

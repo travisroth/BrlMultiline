@@ -1781,6 +1781,12 @@ class BrailleDisplayGesture:
 	source = ""
 
 
+class KeyboardInputGesture:
+	"""The base every keyboard gesture is tested against with `isinstance`. It has no source."""
+
+	isModifier = False
+
+
 class Action:
 	"""Stands in for an NVDA extension point, recording who is listening."""
 
@@ -3005,7 +3011,7 @@ def _installPluginStubs() -> None:
 		isScriptWaiting=lambda: SCRIPT_STATE["waiting"],
 		willSayAllResume=lambda gesture: SCRIPT_STATE["sayAllResuming"],
 	)
-	_module("keyboardHandler", keyCounter=0)
+	_module("keyboardHandler", keyCounter=0, KeyboardInputGesture=KeyboardInputGesture)
 	_module(
 		"controlTypes",
 		Role=lambda role: types.SimpleNamespace(displayString=str(role)),

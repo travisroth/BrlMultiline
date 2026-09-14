@@ -30,7 +30,7 @@ from braille.extensions import displayChanged, displaySizeChanged
 from logHandler import log
 from scriptHandler import script
 
-from . import bmConfig, panning, patches, tableArrows
+from . import bmConfig, keyLayerDispatch, panning, patches, tableArrows
 from .container import DisplayContainer
 from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
 from . import image as imageFigure, imagePins, imageSource
@@ -260,6 +260,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# The arrow keys inside a browse mode table, which is a way of reading rather than a
 		# way of displaying and so is not waited on a flow. See `tableArrows`.
 		tableArrows.install()
+		# Layered keys, phase 0: a hard coded test layer. Passes every key through while no
+		# layer is on. See `keyLayerDispatch`.
+		keyLayerDispatch.install()
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(BrailleMultilineSettingsPanel)
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(FlowSettingsPanel)
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(VirtualDisplaySettingsPanel)
@@ -299,6 +302,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			patches.remove()
 			panning.remove()
 			tableArrows.remove()
+			keyLayerDispatch.remove()
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(BrailleMultilineSettingsPanel)
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(FlowSettingsPanel)
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(VirtualDisplaySettingsPanel)
@@ -3108,6 +3112,45 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	)
 	def script_reportGraphics(self, gesture):
 		ui.message(self.graphicsMode.describe())
+
+	# Layered keys, phase 0. See `keyLayerDispatch` and docs/design/layered-keys-plan.md. The
+	# Monarch chord is l with dot 7, in the space the HID standard map leaves empty; the keyboard
+	# one is not bound by NVDA.
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Layered keys: Turns the test layer on or off for the device it is pressed on"),
+		category=SCRIPT_CATEGORY,
+		gestures=["br(brlMultilineMonarch):space+dot1+dot2+dot3+dot7", "kb:NVDA+control+shift+l"],
+	)
+	def script_toggleTestKeyLayer(self, gesture):
+		device = keyLayerDispatch.deviceFor(gesture)
+		if not keyLayerDispatch.hasLayer(device):
+			# Translators: reported when the test layer of key commands is asked for on a display
+			# that has none.
+			ui.message(_("No test layer for this display"))
+			return
+		if keyLayerDispatch.toggle(device):
+			# Translators: reported when a layer of key commands is turned on.
+			ui.message(_("Test layer on"))
+		else:
+			# Translators: reported when a layer of key commands is turned off.
+			ui.message(_("Test layer off"))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Layered keys: Reports which test layers are on"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_reportTestKeyLayers(self, gesture):
+		devices = keyLayerDispatch.activeDevices()
+		if not devices:
+			# Translators: reported when no layer of key commands is on.
+			ui.message(_("No layers on"))
+			return
+		# Translators: reports which devices have a layer of key commands on. The placeholder is
+		# the list of them, by driver name, or keyboard.
+		ui.message(_("Layers on: {devices}").format(devices=", ".join(devices)))
 
 	@script(
 		# Translators: input help message for a command.

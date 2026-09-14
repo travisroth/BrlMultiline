@@ -504,12 +504,71 @@ def checkKeyNames() -> list:
 	return failures
 
 
+def checkKeyLayers() -> list:
+	"""Check what layered keys rely on in NVDA that is not public API.
+
+	Three things, each marked FRAGILE in `docs/design/layered-keys-plan.md`: that a script
+	assigned to a gesture shadows the cached property NVDA would otherwise look up; that
+	`executeGesture` asks its deciders before it reads the script and before the capture function
+	sees the gesture; and that the capture function and the lock screen rule live where
+	`keyLayerDispatch` reads them. Plus the phase 0 layer's own targets, which are named by string.
+
+	:return: what is wrong, empty if nothing.
+	"""
+	import inspect
+
+	failures = []
+	plugin = loadPlugin()
+	import globalCommands
+	import inputCore
+	from braille.display.gesture import BrailleDisplayGesture
+	from brlMultiline import keyLayerDispatch
+
+	class Gesture(BrailleDisplayGesture):
+		source = "brlMultilineMonarch"
+		id = "leftDpadUp"
+
+	def chosen(gesture):
+		"""A script chosen by a layer."""
+
+	gesture = Gesture()
+	gesture.script = chosen
+	if gesture.script is not chosen:
+		failures.append("assigning gesture.script no longer overrides NVDA's own lookup")
+	body = inspect.getsource(inputCore.InputManager.executeGesture)
+	positions = [body.find(marker) for marker in ("decide_executeGesture.decide", "gesture.script", "_captureFunc(")]
+	if -1 in positions or positions != sorted(positions):
+		failures.append(
+			"executeGesture no longer decides, then reads the script, then captures, in that order",
+		)
+	if not hasattr(inputCore.InputManager, "isInputHelpActive"):
+		failures.append("inputCore.InputManager has no isInputHelpActive")
+	if "_captureFunc" not in inspect.getsource(inputCore.InputManager.__init__):
+		failures.append("inputCore.InputManager no longer keeps _captureFunc")
+	try:
+		from utils.security import getSafeScripts  # noqa: F401
+		from winAPI.sessionTracking import isLockScreenModeActive  # noqa: F401
+	except ImportError as error:
+		failures.append(f"the lock screen rule has moved: {error}")
+	for device, layer in keyLayerDispatch.TEST_LAYERS.items():
+		for identifier, binding in layer.items():
+			owner = (
+				plugin.GlobalPlugin
+				if binding.moduleName == keyLayerDispatch._PLUGIN[0]
+				else getattr(globalCommands, binding.className, None)
+			)
+			if owner is None or not hasattr(owner, f"script_{binding.scriptName}"):
+				failures.append(f"{identifier} on {device} names {binding.scriptName}, which does not exist")
+	return failures
+
+
 CHECKS = (
 	("drivers", checkDrivers),
 	("plugin", checkPlugin),
 	("geometry", checkGeometry),
 	("gestures", checkGestures),
 	("key names", checkKeyNames),
+	("key layers", checkKeyLayers),
 )
 
 
