@@ -162,11 +162,15 @@ class FakeHid:
 		writeFails: bool = False,
 		inputValueCaps=None,
 		inputButtonCaps=None,
+		writeHangs: bool = False,
 	):
 		self.path = path
 		self.usagePage = usagePage
 		self.pinCap = FakeButtonCap() if pinCap is None else pinCap
 		self.writeFails = writeFails
+		self.writeHangs = writeHangs
+		"""Never take a write, as the Monarch did on 2026-09-14. The bounded write gives up, so
+		what the driver sees is `WriteTimedOut`."""
 		self.caps = FakeCaps()
 		self._pd = object()
 		self.inputValueCaps = list(inputValueCaps or [])
@@ -177,6 +181,10 @@ class FakeHid:
 		self.closed = 0
 
 	def write(self, data: bytes) -> None:
+		if self.writeHangs:
+			from brlMultilineMonarch.hidWrite import WriteTimedOut
+
+			raise WriteTimedOut("the device did not take a write")
 		if self.writeFails:
 			raise OSError(1167, "The device is not connected")
 		self.written.append(bytes(data))
@@ -576,6 +584,10 @@ def makeDriverClass(driverModule):
 	decision that method reaches, `_isPinCap`, is a pure function of one capability and is
 	tested directly rather than through this.
 
+	`_sendReport` is the other. It hands a Windows handle to `hidWrite.writeWithin`, which is
+	tested on a real handle in `test_hidWrite`; here the report goes to the fake device, whose
+	`writeHangs` raises what `writeWithin` raises when a device never takes a write.
+
 	Nothing else is overridden. The point of these tests is the driver's own code, so
 	anything replaced here is a thing they no longer cover.
 
@@ -588,5 +600,8 @@ def makeDriverClass(driverModule):
 			# A falsy answer is None: a fake device saying it has no pin array must reach the
 			# driver as "not a Monarch", not as a capability object that happens to be False.
 			return getattr(device, "pinCap", None) or None
+
+		def _sendReport(self, device, data):
+			device.write(data)
 
 	return TestableMonarchDriver

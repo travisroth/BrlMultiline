@@ -49,7 +49,7 @@ from brailleDisplayDrivers.hidBrailleStandard import (
 )
 from logHandler import log
 
-from . import monarch
+from . import hidWrite, monarch
 from .pinBuffer import PinBuffer
 
 if TYPE_CHECKING:
@@ -75,6 +75,14 @@ Both numbers are `brlMultilineVirtual`'s, established on hardware there. See its
 POLL_INTERVAL = 5.0
 POLL_BACKOFF_LIMIT = 60.0
 """How often to look for a device that has dropped, and how far apart that may grow."""
+
+WRITE_TIMEOUT = 3.0
+"""Seconds the Monarch has to take a pin report before it is treated as gone.
+
+A report is 481 bytes on a USB link, which takes milliseconds; the pins move after the device
+has taken it. So this is not a latency budget. It is the longest a stuck device may hold
+NVDA's I/O thread, and through it every other display's writes. See `hidWrite`.
+"""
 
 
 def _callLater(milliseconds: int, work, *args):
@@ -749,6 +757,28 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			log.debugWarning("BrlMultiline: no main thread to defer to; working here", exc_info=True)
 			work()
 
+	@staticmethod
+	def _onIoThread(work) -> None:
+		"""Run something on NVDA's background I/O thread, where writes to the device belong.
+
+		Nothing that writes may run on the main thread. A write can take up to
+		`WRITE_TIMEOUT`, and one in progress holds `_writeLock` that long, so a main thread
+		write is a frozen NVDA whenever the device is slow. That is how a hung Monarch stopped
+		NVDA starting: the main thread sat in a repaint waiting for the lock. The handler
+		already writes from this thread.
+
+		The thread holds bound methods weakly, which is what should happen: a driver that has
+		gone has nothing left to write.
+
+		:param work: what to run, taking the APC's parameter.
+		"""
+		thread = getattr(hwIo, "bgThread", None)
+		if thread is None:
+			# Before NVDA has started its I/O thread, or after it has stopped it.
+			work()
+			return
+		thread.queueAsApc(work)
+
 	@property
 	def graphicsSize(self) -> tuple[int, int]:
 		"""The published capability the add-on looks for.
@@ -1218,8 +1248,11 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			buffer.blit(overlay, x, y)
 		return buffer
 
-	def _repaint(self) -> None:
-		"""Compose the panel from the current state and write it, now."""
+	def _repaint(self, param: int = 0) -> None:
+		"""Compose the panel from the current state and write it, now.
+
+		:param param: unused; there because this is queued as an APC.
+		"""
 		with self._stateLock:
 			self._repaintPending = False
 			snapshot = self._snapshot()
@@ -1236,15 +1269,26 @@ class BrailleDisplayDriver(HidBrailleDriver):
 
 		So the request is marked and handed to the main thread, and whichever comes first —
 		that deferred flush or an ordinary `display` — publishes everything pending.
+
+		Two hops, and both are needed. The main thread is what batches: its turn comes after
+		the caller has finished setting overlays. The write then goes to the I/O thread,
+		because a main thread waiting on the device is a frozen NVDA. See `_onIoThread`.
 		"""
 		with self._stateLock:
 			if self._repaintPending:
 				return
 			self._repaintPending = True
-		self._onMainThread(self._flushRepaint)
+		self._onMainThread(self._handOffRepaint)
 
-	def _flushRepaint(self) -> None:
-		"""Draw a repaint that `_scheduleRepaint` asked for, unless a frame got there first."""
+	def _handOffRepaint(self) -> None:
+		"""Pass a batched repaint from the main thread to the I/O thread to be written."""
+		self._onIoThread(self._flushRepaint)
+
+	def _flushRepaint(self, param: int = 0) -> None:
+		"""Draw a repaint that `_scheduleRepaint` asked for, unless a frame got there first.
+
+		:param param: unused; there because this is queued as an APC.
+		"""
 		with self._stateLock:
 			if not self._repaintPending:
 				return
@@ -1360,6 +1404,12 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		lock, and reporting from in here would be `_writeLock` then `_lifecycleLock` while a
 		reconnection holds them the other way round.
 
+		A device that does not take the report within `WRITE_TIMEOUT` is a failure like any
+		other. It used to be waited for without limit, holding `_writeLock` all the while.
+
+		A write that gets through puts the reconnect wait back to its shortest. That is the
+		only proof a device is really back: see `_poll`.
+
 		:param buffer: the whole panel.
 		"""
 		if self._pinCap is None or self._terminated:
@@ -1375,12 +1425,36 @@ class BrailleDisplayDriver(HidBrailleDriver):
 				data = bytearray(report.data)
 				room = len(data) - 1
 				data[1 : 1 + min(room, len(payload))] = payload[:room]
-				device.write(bytes(data))
+				self._sendReport(device, bytes(data))
+			except hidWrite.WriteTimedOut:
+				log.warning(
+					f"BrlMultiline: the Monarch did not take a pin report within {WRITE_TIMEOUT} seconds; "
+					"treating it as disconnected",
+				)
+				lost = True
 			except Exception:
 				log.debugWarning("BrlMultiline: Monarch pin write failed", exc_info=True)
 				lost = True
 		if lost:
 			self._onDeviceLost()
+			return
+		with self._lifecycleLock:
+			self._retryDelay = POLL_INTERVAL
+
+	def _sendReport(self, device, data: bytes) -> None:
+		"""Write one output report, giving up if the device does not take it in time.
+
+		Not `device.write`, which waits for the write to finish however long that takes.
+		The buffer comes from the device's own `_prepareWriteBuffer`, so it is the size Windows
+		expects for this device's output reports, exactly as `write` would have sent it.
+
+		:param device: the open `hwIo.hid.Hid`.
+		:param data: the report, ID in the first byte.
+		:raises hidWrite.WriteTimedOut: if the device did not take it within `WRITE_TIMEOUT`.
+		:raises OSError: if the write failed.
+		"""
+		size, buffer = device._prepareWriteBuffer(data)
+		hidWrite.writeWithin(device._writeFile, buffer, size, WRITE_TIMEOUT)
 
 	# --- Staying connected -------------------------------------------------------------
 
@@ -1452,8 +1526,10 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			if self._reopening:
 				return True
 			self._reopening = True
-			self._retryDelay = POLL_INTERVAL
-		if self._startPolling(POLL_INTERVAL):
+			# Not reset to the shortest wait: a device that reopened and failed again has not
+			# been proven back, and `_poll` has already lengthened the wait for it.
+			delay = self._retryDelay
+		if self._startPolling(delay):
 			return True
 		with self._lifecycleLock:
 			self._reopening = False
@@ -1537,9 +1613,13 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		if reopened:
 			with self._lifecycleLock:
 				self._reopening = False
-				self._retryDelay = POLL_INTERVAL
+				# Opening is not proof the device works. A hung Monarch opens at once and then
+				# takes no writes, and resetting the wait here would reopen it every few seconds,
+				# each time holding the I/O thread for a whole `WRITE_TIMEOUT`. So the wait
+				# keeps growing until a write gets through, which is what resets it.
+				self._retryDelay = min(self._retryDelay * 2, POLL_BACKOFF_LIMIT)
 			log.info("BrlMultiline: the Monarch is back")
-			self._repaint()
+			self._onIoThread(self._repaint)
 			return
 		with self._lifecycleLock:
 			if self._terminated or not self._reopening:

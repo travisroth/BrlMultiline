@@ -37,6 +37,7 @@ from ._monarchStubs import (
 	usbDrivers,
 )
 from ._stubs import callAfterQueue, callLaterQueue, log
+from ._virtualStubs import bgThread
 
 installMonarchStubs()
 
@@ -259,6 +260,7 @@ class TestComposition(MonarchTestCase):
 		self.driver.display([0] * 256)
 		self.driver.setGraphicsOverlay("chart", 40, 8, overlay)
 		callAfterQueue.flush()
+		bgThread.flush()
 		on = self.dotsOn(self.lastWrite(self.driver))
 		self.assertIn((40, 8), on)
 		self.assertIn((43, 11), on)
@@ -271,7 +273,19 @@ class TestComposition(MonarchTestCase):
 			self.driver.setGraphicsOverlay(f"o{index}", index * 8, 0, PinBuffer(2, 2))
 		self.assertEqual(before, len(self.driver._dev.written), "an overlay wrote immediately")
 		self.assertEqual(1, callAfterQueue.flush())
+		self.assertEqual(1, bgThread.flush())
 		self.assertEqual(before + 1, len(self.driver._dev.written))
+
+	def test_aRepaintIsNotWrittenOnTheMainThread(self):
+		"""A main thread waiting on the device is a frozen NVDA. On 2026-09-14 a hung Monarch
+		held the write lock from the I/O thread and the main thread sat behind it in a repaint,
+		so NVDA started and never spoke."""
+		self.driver.display([0] * 256)
+		before = len(self.driver._dev.written)
+		self.driver.setGraphicsOverlay("chart", 0, 0, PinBuffer(2, 2))
+		callAfterQueue.flush()
+		self.assertEqual(before, len(self.driver._dev.written), "the main thread wrote")
+		self.assertEqual(1, len(bgThread.queued))
 
 	def test_aFramePublishesWhateverWasPending(self):
 		"""A frame is about to be drawn anyway, so the deferred write would be a second one."""
@@ -279,6 +293,7 @@ class TestComposition(MonarchTestCase):
 		self.driver.display([0] * 256)
 		writes = len(self.driver._dev.written)
 		callAfterQueue.flush()
+		bgThread.flush()
 		self.assertEqual(writes, len(self.driver._dev.written))
 
 	def test_composingSurvivesAnOverlayAppearingMidFrame(self):
@@ -614,6 +629,39 @@ class TestReconnection(MonarchTestCase):
 		self.assertTrue(self.driver._reopening)
 		self.assertEqual(1, len(callLaterQueue.pending))
 
+	def test_aWriteTheDeviceNeverTakesStartsRecovery(self):
+		"""Rather than waiting for it forever with the write lock held, which is what froze
+		NVDA on 2026-09-14."""
+		self.driver._dev.writeHangs = True
+		self.driver.display([0] * 256)
+		self.assertTrue(self.driver._reopening)
+		self.assertEqual(1, len(callLaterQueue.pending))
+		self.assertTrue(
+			any("did not take a pin report" in message for level, message in log.messages if level == "warning"),
+			log.messages,
+		)
+
+	def test_aDeviceThatReopensButTakesNoWritesIsTriedLessAndLessOften(self):
+		"""A hung Monarch opens at once. Counting that as recovered reopened it every five
+		seconds, each time holding the I/O thread for a whole write timeout."""
+		self.driver._dev.writeHangs = True
+		self.driver.display([0] * 256)
+		delays = []
+		for _ in range(5):
+			delays.append(callLaterQueue.pending[0].milliseconds)
+			hidDevices.append(FakeHid(writeHangs=True))
+			callLaterQueue.fire()
+			bgThread.flush()
+		self.assertEqual([5000, 10000, 20000, 40000, 60000], delays)
+
+	def test_aWriteThatGetsThroughMakesTheNextLossQuickToRecover(self):
+		self.driver._dev._onReadError(1167)
+		hidDevices.append(FakeHid())
+		callLaterQueue.fire()
+		bgThread.flush()
+		self.driver._dev._onReadError(1167)
+		self.assertEqual(5000, callLaterQueue.pending[0].milliseconds)
+
 	def test_aReadErrorIsReportedAsHandledOnlyWhenSomethingIsRetrying(self):
 		"""Inside a virtual display, False is taken at its word: the member is dropped and
 		the in place reconnection this driver promises never gets its chance."""
@@ -650,6 +698,8 @@ class TestReconnection(MonarchTestCase):
 		callLaterQueue.fire()
 		self.assertIs(replacement, self.driver._dev)
 		self.assertFalse(self.driver._reopening)
+		self.assertEqual([], replacement.written, "the reconnect timer wrote on the main thread")
+		bgThread.flush()
 		self.assertEqual(wanted, self.dotsOn(self.lastWrite(self.driver)))
 
 	def test_closesTheDeadHandleBeforeOpeningAnother(self):
