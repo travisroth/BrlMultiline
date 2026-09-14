@@ -190,6 +190,29 @@ def toggle(device: str, contexts=()) -> tuple:
 	return True, activate(device, layerSet(device).forContexts(contexts).id)
 
 
+def endLayersOutOfContext(present, detected) -> list:
+	"""Turn off each layer whose context has gone: a graphics layer once the drawing is off.
+
+	A layer with a context is for that context, so it has nothing left to do when the context
+	goes, whether it was turned on by the layer key or chosen from the list. Phase 3's automatic
+	enabling adds the other half, turning one on when its context arrives.
+
+	:param present: the contexts present now.
+	:param detected: the contexts that can be told present at all. A layer for another context is
+		left alone, since its context cannot be seen to have gone.
+	:return: (device, layer) for each layer turned off.
+	"""
+	ended = []
+	for device in sorted(_active):
+		layer = activeLayer(device)
+		if layer is None or not layer.context or layer.context not in detected or layer.context in present:
+			continue
+		deactivate(device)
+		ended.append((device, layer))
+		log.info(f"{LOG_PREFIX}{device} layer {layer.id!r} off, its {layer.context} context has gone")
+	return ended
+
+
 def allOff() -> list:
 	""":return: (device, layer) for each layer that was on."""
 	was = activeLayers()

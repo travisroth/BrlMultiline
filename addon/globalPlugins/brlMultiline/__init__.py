@@ -2648,9 +2648,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""
 		mode = self.graphicsMode
 		if mode.active:
-			mode.leave()
+			# Collected rather than spoken, so the layers the drawing took with it are said in the
+			# same message as the drawing going, once.
+			self._layerEndsToSay = []
+			try:
+				mode.leave()
+			finally:
+				ended, self._layerEndsToSay = self._layerEndsToSay, None
 			# Translators: reported when a drawing is taken off the display.
-			ui.message(_("Drawing off"))
+			ui.message(", ".join([_("Drawing off"), *ended]))
 			return
 		if mode.enter():
 			ui.message(mode.describe())
@@ -3144,6 +3150,35 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	)
 	def script_keyLayerToggle(self, gesture):
 		self.toggleKeyLayer(keyLayerDispatch.deviceFor(gesture))
+
+	_layerEndsToSay: list | None = None
+	"""While a command is taking a drawing off, the layers that went with it, to say in its message."""
+
+	def onGraphicsChanged(self) -> None:
+		"""What is drawn changed, so turn off any layer of keys whose drawing has gone, and say so.
+
+		Called by `GraphicsMode` whenever a figure goes up, comes down or is replaced.
+		"""
+		try:
+			ended = keyLayerDispatch.endLayersOutOfContext(
+				keyLayerContexts.presentContexts(self),
+				keyLayerContexts.DETECTED,
+			)
+		except Exception:
+			log.error("BrlMultiline: could not end the layers of a drawing that went", exc_info=True)
+			return
+		words = []
+		for _device, layer in ended:
+			# Translators: reported when a layer of keys is turned off. The placeholder is its name.
+			said = _("{name} layer off").format(name=keyLayerDispatch.layerName(layer))
+			if said not in words:
+				words.append(said)
+		if not words:
+			return
+		if self._layerEndsToSay is not None:
+			self._layerEndsToSay.extend(words)
+		else:
+			ui.message(", ".join(words))
 
 	def toggleKeyLayer(self, device: str | None) -> None:
 		"""Turn a device's layer off, or turn on the one for what is on the display, and say which.

@@ -34,9 +34,17 @@ KEYBOARD = keyLayers.KEYBOARD
 
 
 class FakeMode:
-	def __init__(self, active=True, source=None):
+	def __init__(self, active=True, source=None, plugin=None):
 		self.active = active
 		self.source = source
+		self.plugin = plugin
+
+	def leave(self):
+		"""As `GraphicsMode.leave` does: take the figure down, then tell the plugin."""
+		self.active = False
+		self.source = None
+		if self.plugin is not None:
+			self.plugin.onGraphicsChanged()
 
 
 class TestContexts(unittest.TestCase):
@@ -185,6 +193,35 @@ class TestCommands(PluginTestCase):
 		bmConfig.setKeyLayerText(MONARCH, keyLayers.LayerSet(MONARCH).toText())
 		self.plugin._reloadKeyLayers()
 		self.assertEqual("Graphics layer off", flashedMessages[-1])
+
+
+class TestDrawingGoing(PluginTestCase):
+	def setUp(self):
+		super().setUp()
+		chart = types.SimpleNamespace(redraw=lambda *args: None)
+		self.plugin.graphicsMode = FakeMode(source=chart, plugin=self.plugin)
+
+	def test_takingTheDrawingOffTakesItsLayerAndSaysBothOnce(self):
+		self.plugin.script_keyLayerToggle(GestureFrom(MONARCH))
+		self.plugin.script_keyLayerToggle(KeyFrom())
+		self.plugin.script_toggleGraphics(None)
+		self.assertEqual("Drawing off, Graphics layer off", flashedMessages[-1])
+		self.assertEqual([], keyLayerDispatch.activeLayers())
+
+	def test_takingTheDrawingOffWithNoLayerOnSaysOnlyThat(self):
+		self.plugin.script_toggleGraphics(None)
+		self.assertEqual("Drawing off", flashedMessages[-1])
+
+	def test_aDrawingThatGoesByItselfSaysItsLayerWentOnItsOwn(self):
+		self.plugin.script_keyLayerToggle(GestureFrom(MONARCH))
+		self.plugin.graphicsMode.leave()
+		self.assertEqual("Graphics layer off", flashedMessages[-1])
+
+	def test_theDefaultLayerStaysWhenTheDrawingGoes(self):
+		self.plugin.graphicsMode = FakeMode(active=False, plugin=self.plugin)
+		self.plugin.script_keyLayerToggle(GestureFrom(MONARCH))
+		self.plugin.onGraphicsChanged()
+		self.assertEqual("Default", keyLayerDispatch.layerName(keyLayerDispatch.activeLayer(MONARCH)))
 
 
 class TestWhichDisplay(unittest.TestCase):

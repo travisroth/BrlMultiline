@@ -259,6 +259,16 @@ a table is somewhere the caret passes through, and keys that change meaning as t
 crosses a boundary are a mode the reader did not ask for and must track. The table context
 is honoured when the reader presses the layer key, and not otherwise.
 
+**A layer goes with its context.** Built 14 September 2026, ahead of the rest of this section,
+after the phase 1 hardware run found a graphics layer still on with the drawing gone. However a
+layer with a context was turned on, by the layer key or from the list, it turns off when that
+context goes. `GraphicsMode` tells the plugin whenever a figure goes up, comes down, is replaced
+or is evicted, but not at shutdown, and the plugin ends every layer whose context is no longer
+present and says so. Taking the drawing off with its command says both in one message: "Drawing
+off, Graphics layer off". A layer for a context that cannot be detected yet, tables until this
+phase, is never ended this way, since its context cannot be seen to go. A hook on the plugin
+rather than an extension point, since the plugin is the only listener and owns the mode.
+
 **A reader who turns an auto layer off keeps it off** until the context goes away and comes
 back. Turning it back on under them the next time a drawing is redrawn would be the add-on
 overruling them.
@@ -787,7 +797,9 @@ layers as shipped.
    it can be tried by hand by saving an empty layer set into a profile from the Python console.
 6. **The lock screen was not tried**, still, for the reason phase 0 gives.
 
-Not observed in the log, so not claimed: typing a dot chord with the graphics layer on.
+7. **Dot chords pass through** with the graphics layer on, and the layer stays on. Checked by hand.
+8. **Taking the drawing off left the graphics layer on**, with nothing left for it to do. Fixed
+   the same day, ahead of phase 3; see "A layer goes with its context".
 
 ### Phase 2, the dialog
 

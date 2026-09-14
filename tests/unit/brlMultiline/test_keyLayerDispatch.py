@@ -508,6 +508,32 @@ class TestProfiles(DispatchTestCase):
 		self.assertIsNone(dispatch.activeLayer(MONARCH))
 
 
+class TestContextGoing(DispatchTestCase):
+	def test_aLayerWhoseDrawingHasGoneIsTurnedOff(self):
+		dispatch.activate(MONARCH, "graphics")
+		dispatch.activate(KEYBOARD, "graphics")
+		ended = dispatch.endLayersOutOfContext([], ("chart", "picture", "graphics"))
+		self.assertEqual({MONARCH, KEYBOARD}, {device for device, _layer in ended})
+		self.assertEqual([], dispatch.activeLayers())
+
+	def test_aLayerWhoseContextIsStillHereStaysOn(self):
+		dispatch.activate(MONARCH, "graphics")
+		self.assertEqual([], dispatch.endLayersOutOfContext(["chart", "graphics"], ("chart", "graphics")))
+		self.assertIsNotNone(dispatch.activeLayer(MONARCH))
+
+	def test_aLayerWithNoContextIsNeverTurnedOffForOne(self):
+		dispatch.activate(MONARCH, "reading")
+		self.assertEqual([], dispatch.endLayersOutOfContext([], ("graphics",)))
+		self.assertIsNotNone(dispatch.activeLayer(MONARCH))
+
+	def test_aContextThatCannotBeSeenIsNeverSeenToGo(self):
+		"""Tables are not detected until phase 3, so a table layer must not end on every drawing."""
+		tables = newLayer(MONARCH, "tables", "Tables", "table")
+		dispatch.save(dispatch.layerSet(MONARCH).withLayer(tables))
+		dispatch.activate(MONARCH, "tables")
+		self.assertEqual([], dispatch.endLayersOutOfContext([], ("chart", "picture", "graphics")))
+
+
 class TestInstall(unittest.TestCase):
 	def test_installAndRemove(self):
 		dispatch.install()

@@ -20,6 +20,10 @@ layer key has to work whatever else on the display has gone wrong.
 
 from logHandler import log
 
+DETECTED = ("chart", "picture", "graphics")
+"""The contexts this module can tell are present. A layer for any other is never turned off for
+its context having gone, since there is no telling whether it has."""
+
 
 def presentContexts(plugin) -> list:
 	""":return: the contexts present now, most specific first.

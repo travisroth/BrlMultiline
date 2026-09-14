@@ -503,7 +503,22 @@ class GraphicsMode(PanelOwner):
 		self._originX = 0
 		self._originY = 0
 		self.render(surface)
+		self._notifyChanged()
 		return True
+
+	def _notifyChanged(self) -> None:
+		"""Tell the plugin what is drawn has changed, so layers of keys for a drawing can follow it.
+
+		A hook on the plugin rather than an extension point, because the plugin is the one listener
+		there is and it already owns this mode. Failing to tell it must not cost the drawing.
+		"""
+		notify = getattr(self.plugin, "onGraphicsChanged", None)
+		if notify is None:
+			return
+		try:
+			notify()
+		except Exception:
+			log.error("BrlMultiline: could not tell the plugin the drawing changed", exc_info=True)
 
 	def leave(self) -> None:
 		"""Take the figure off the display and give the rows back."""
@@ -522,6 +537,7 @@ class GraphicsMode(PanelOwner):
 			self.plugin.deactivatePanel(PANEL_NAME)
 		except Exception:
 			log.error("BrlMultiline: could not give back the graphics claim", exc_info=True)
+		self._notifyChanged()
 
 	@property
 	def source(self) -> Optional[Drawing]:
@@ -565,6 +581,7 @@ class GraphicsMode(PanelOwner):
 		self._source = drawing
 		self._window = None
 		if self.render(surface):
+			self._notifyChanged()
 			return True
 		self._source = was
 		self._restore(restore)
@@ -1469,6 +1486,12 @@ class GraphicsMode(PanelOwner):
 
 		:param keys: unused, as for `onRebuilt`.
 		"""
+		wasActive = self.active
+		self._hide()
+		if wasActive:
+			self._notifyChanged()
+
+	def _hide(self) -> None:
 		surface = findSurface()
 		if surface is not None:
 			surface.hide(OVERLAY_KEY)
@@ -1476,5 +1499,5 @@ class GraphicsMode(PanelOwner):
 		self._rect = None
 
 	def onTerminate(self) -> None:
-		"""The add-on is shutting down. Leave nothing on the hardware."""
-		self.onEvicted()
+		"""The add-on is shutting down. Leave nothing on the hardware, and announce nothing."""
+		self._hide()

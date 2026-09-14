@@ -147,6 +147,12 @@ class FakePlugin:
 	def deactivatePanel(self, name):
 		self.panels = [each for each in self.panels if each.name != name]
 
+	changes = 0
+	"""How many times the mode said what is drawn changed. See `GraphicsMode._notifyChanged`."""
+
+	def onGraphicsChanged(self):
+		self.changes += 1
+
 
 def useDisplay(display):
 	"""Put a display behind `braille.handler`, the way the add-on finds it."""
@@ -414,6 +420,32 @@ class TestTheClaim(unittest.TestCase):
 	def panel(self):
 		":return: the claim the mode made."
 		return self.plugin.panels[0]
+
+	def test_thePluginIsToldWhenADrawingGoesUpAndComesDown(self):
+		"""So a layer of keys for a drawing can go with it."""
+		self.assertTrue(self.mode.enter())
+		self.assertEqual(1, self.plugin.changes)
+		self.mode.leave()
+		self.assertEqual(2, self.plugin.changes)
+		self.mode.leave()
+		self.assertEqual(2, self.plugin.changes, "nothing was up to take down")
+
+	def test_thePluginIsToldWhenTheDrawingIsEvictedButNotAtShutdown(self):
+		self.mode.enter()
+		self.mode.onEvicted()
+		self.assertEqual(2, self.plugin.changes)
+		self.mode.enter()
+		self.mode.onTerminate()
+		self.assertEqual(3, self.plugin.changes)
+		self.assertFalse(self.mode.active)
+
+	def test_aPluginThatFailsToListenCostsNothing(self):
+		def broken():
+			raise RuntimeError("no")
+
+		self.plugin.onGraphicsChanged = broken
+		self.assertTrue(self.mode.enter())
+		self.assertTrue(self.mode.active)
 
 	def test_theClaimIsTheWholeBandOfTheDrawableDisplay(self):
 		self.assertTrue(self.mode.enter())
