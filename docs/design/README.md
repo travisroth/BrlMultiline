@@ -48,6 +48,10 @@ Read the files in this order:
    line pitch, touch at pin resolution, and Bluetooth that survives a dropout. Built, and
    confirmed on hardware: it opens the device, draws through report 0x21, and routes
    correctly at both pitches. Read it before touching that driver package.
+10. [layered-keys-plan.md](layered-keys-plan.md) — the plan for layers of key bindings per
+   braille display and for the keyboard, turned on by a key and chosen by what is on the
+   display, with an editor modelled on NVDA's Input Gestures dialog. Not started. Read it
+   before adding any command that changes what a key does while something is on.
 
 ## Project background
 

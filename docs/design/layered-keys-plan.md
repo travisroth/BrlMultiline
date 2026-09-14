@@ -1,0 +1,648 @@
+# Layered keys
+
+Plan for giving each braille display, and the keyboard, layers of key bindings the reader
+turns on and off: the Monarch's arrow keys pan a drawing while its graphics layer is on and
+go back to being NVDA's arrow keys when it is off, and none of that touches the Focus 80
+sitting beside it.
+
+Read [nvda-api-notes.md](nvda-api-notes.md) and the gesture section of
+[virtual-display-plan.md](virtual-display-plan.md) first. This document assumes how NVDA
+resolves a gesture to a script and how a member display's keys reach NVDA through
+`brlMultilineVirtual`, and it leans on both.
+
+Named "key layers" in code and "layered keys" to the reader, never plain "layers". The word
+layer is already taken in [architecture.md](architecture.md), where views, panels and
+segments are called layers of the display, and a module called `layers.py` would be read as
+belonging to that.
+
+## Verdict
+
+Worth doing, and the hard part is not the dispatch. NVDA already offers a way to decide, per
+keypress and before any lookup, which script a gesture runs; the add-on already uses the
+same trick to rewrite a gesture's cell indexes in flight. What makes this larger than other
+add-ons' layer code is the rest of the requirement:
+
+1. **Nothing is predefined.** Every display names its keys differently and the add-on does
+   not know which of them a reader has free, so the bindings are the reader's, and that
+   means an editor.
+2. **Any NVDA command, not only this add-on's.** Say line, a browse mode command, an
+   emulated keyboard key. `bindGesture` cannot do that, which rules out the usual approach.
+3. **Per device, at the same time.** Two displays driven as one are two keyboards, each with
+   its own layer state.
+4. **Context.** The layer that comes up should depend on what is on the display.
+5. **Profiles.** A layer set for Excel can differ from the one for a browser.
+
+## Why not `bindGesture` and `clearGestureBindings`
+
+The usual pattern is to call `bindGestures` on the global plugin when a layer comes on and
+`clearGestureBindings` when it goes off. It fails three of the requirements here, and it
+is worth writing down why so that nobody reaches for it later:
+
+1. **It can only bind the object's own scripts.** `ScriptableObject.bindGesture` looks the
+   script up with `getattr(self.__class__, "script_" + name)` and raises `LookupError`
+   otherwise. A layer on the plugin cannot reach `globalCommands.GlobalCommands.sayLine`,
+   and a reader asked for exactly that.
+2. **It loses to the reader's own gesture map.** `scriptHandler._getObjScript` walks the
+   global gesture maps before it asks `obj.getScript`, and the braille display driver's own
+   map is one of them. A Monarch arrow key that `hidBrailleStandard` binds to review
+   navigation is found there first for any object whose class matches, so a binding made
+   with `bindGesture` is not guaranteed to run.
+3. **`clearGestureBindings` clears everything.** Every default gesture from every
+   `@script` decorator on the plugin goes with it and has to be bound again on the way out,
+   on every toggle.
+
+And a fourth, specific to this add-on: bindings made that way show up in NVDA's Input
+Gestures dialog as if they were permanent while the layer is on, and vanish when it is off.
+
+## The mechanism: choose the script before NVDA looks
+
+`inputCore.InputManager.executeGesture` does this, in order:
+
+1. Asks every handler registered on `inputCore.decide_executeGesture`. Any `False` drops the
+   gesture.
+2. Reads `gesture.script`, which is an auto property whose getter calls
+   `scriptHandler.findScript` and caches the answer on the instance.
+3. Sleep mode, say all, speech cancel, the capture function (input help, and the Input
+   Gestures dialog when it is waiting for a key), speak command keys.
+4. Queues the script, or raises `NoInputGestureAction` so the key goes to Windows.
+
+The `script` getter is a non data descriptor — `baseObject.Getter` defines only `__get__`,
+which is the same fact `_rebaseCellIndexes` in the virtual driver relies on — so **an
+instance attribute assigned in step 1 shadows it**. A decider that finds a layer binding
+assigns `gesture.script` and returns `True`. Everything after that runs exactly as it would
+for a key bound in Input Gestures:
+
+1. Input help reports the layer's command by its own description, because
+   `_inputHelpCaptor` reads `gesture.script`.
+2. Pressing a key twice counts as a repeat, so say line pressed twice spells, provided the
+   script assigned is the target's own bound method rather than a wrapper. `executeScript`
+   compares `script.__func__`.
+3. Sleep mode, speech cancel and say all resume behave as NVDA intends.
+4. The reader's gesture map, the display driver's map, and the add-on's own `@script`
+   gestures are all bypassed for that one keypress and untouched otherwise. Nothing is
+   bound or cleared, so there is nothing to put back.
+
+A key nothing in the layer's chain binds is left alone: the decider returns `True` without
+assigning, and NVDA's lookup happens as it always does.
+
+**FRAGILE.** Three things this depends on that are not public API. Re-check them on every
+NVDA update:
+
+1. `gesture.script` being settable by assignment before `executeGesture` reads it.
+2. The order in `executeGesture`: decider before `gesture.script` before `_captureFunc`.
+3. `inputCore.manager._captureFunc`, read to stand aside while a dialog is capturing.
+
+### Safety checks the decider must repeat
+
+`scriptHandler.findScript` does one thing beyond lookup, and assigning the script skips it:
+on the Windows lock screen it refuses any script not in `utils.security.getSafeScripts()`.
+The decider must apply the same rule, or a layer becomes a way round the lock screen. It is
+one line and it gets a test.
+
+It also stands aside, doing nothing at all, when:
+
+1. The gesture is a modifier.
+2. A capture function is set and it is not input help. That is NVDA's Input Gestures dialog,
+   or this add-on's layer editor, waiting for a key. A layer that answered then would bind
+   the wrong thing, and a one shot layer would spend its key on the capture.
+3. `watchdog.isAttemptingRecovery`, which `executeGesture` checks before the decider anyway.
+
+## Which device pressed the key
+
+`BrailleDisplayGesture.source` is the driver name. Through the virtual display a member's
+gestures arrive carrying their own driver's name, which the virtual display plan confirmed
+on hardware, so the decider needs no knowledge of composites at all: `brlMultilineMonarch`
+and `freedomScientific` are two sources and have two layer states.
+
+A keyboard gesture has no source; it is the device `keyboard`. Anything else, touch or a
+future input type, is ignored.
+
+**Layers are keyed by driver name, not by display key.** Everything else per display in
+`bmConfig` is keyed `driver_RxC`, because a layout is a fact about geometry. Which key is
+the arrow key is a fact about hardware, and the Monarch's geometry changes with its 8 or 10
+row pitch setting. Keyed by display key, switching pitch would lose every layer.
+
+## The model
+
+NVDA free, in `keyLayers.py`, so it unit tests like `layout.py` does.
+
+**A binding** maps one normalized gesture identifier to one of:
+
+1. A script, as NVDA's gesture maps name one: the full module and class name, and the script
+   name without `script_`. `globalCommands.GlobalCommands` and `sayLine`. The same form
+   `gesture.ini` uses, so anyone who has read one understands the other.
+2. An emulated key, `kb:downArrow`, exactly as the Input Gestures dialog's "Emulated system
+   keyboard keys" category stores it.
+3. Blocked: the key does nothing while the layer is on. For a key that is too easy to hit by
+   accident in a mode where it would do harm.
+
+One target per key within a layer. NVDA's global maps allow one gesture to name scripts on
+several classes, because they are resolved against whichever object is present; a layer is
+the reader saying "this key means this", and a second target would be a conflict the editor
+should ask about rather than keep.
+
+**A layer** has:
+
+1. An id, stable, and a name the reader chose.
+2. A context, or none. See below.
+3. Whether it comes on by itself when its context appears.
+4. How long it stays on, one of the two styles below.
+5. Exit keys: extra gestures that turn it off, beyond the escape rule below.
+6. Optionally a layer it falls through to for keys it does not bind.
+7. Its bindings.
+
+**A device** has a default layer, always present and with no context, plus any number of
+the reader's own. Only one layer per device is on at a time, but a layer that is on brings
+its fall through chain with it, down to the default layer. See below.
+
+### Keys a layer does not bind are transparent
+
+Decided with the reader, 14 September 2026. An unbound key is never a reason to leave a
+layer. It is looked up in the next layer down, and the next, all the way to the device's
+default layer, and if nothing in the chain binds it, it goes to NVDA untouched and does what
+it always does.
+
+That settles braille typing without a special case. A dot chord the graphics layer does not
+bind types, or runs its ordinary command, and the layer stays on. The mechanical keyboard
+name for this is a transparent key; here every unbound key is one.
+
+### How long a layer stays on
+
+Two styles, per layer:
+
+1. **One shot.** The next key runs what the chain binds, or passes through to NVDA if
+   nothing does, and the layer turns off after that one key either way. **The default for
+   a layer with no context.** It is the cheapest way to put twenty extra commands behind
+   one key: layer key, then the command, and the reader is back where they were without
+   having to remember to leave.
+2. **Stays on.** Keys run what the chain binds or pass through, and the layer stays on
+   until the layer key, the escape rule, or one of its exit keys turns it off. **The default
+   for a layer with a context**, because graphics is somewhere the reader stays for a while
+   and still reads while they are there.
+
+An earlier draft had "pass through and leave" and "swallow and leave" styles as well. The
+first is what transparent keys replace; the second is better served by binding the one
+harmful key as blocked than by making every unbound key leave.
+
+### Escape leaves
+
+Whatever the style, pressing escape turns the layer off and the escape goes no further.
+Escape means the device's escape, recognised two ways:
+
+1. **The ordinary script is escape.** A key whose normal lookup, run only for keys the chain
+   does not bind, finds the emulated `kb:escape`. On a keyboard that is the escape key; on a
+   braille display it is whatever chord that display's gesture map or the reader's own map
+   gives escape. `scriptHandler._makeKbEmulateScript` names such a script `script_kb:escape`,
+   which is what the check reads.
+2. **Space with z.** Dots 1, 3, 5 and 6 with space is escape on most braille displays, but
+   `hidBrailleStandard` maps escape to space with e, so a Monarch would not be caught by the
+   first rule. Space with z is added as an exit key on every braille device's new layers,
+   and can be removed in Properties like any other exit key.
+
+A layer that binds escape itself takes the key, and says so in the dialog, because the
+reader chose that.
+
+**Routing keys never cause an exit** either, under any style. In graphics a routing press
+asks what is under the finger. A one shot layer therefore ignores a routing press when
+counting its one key, unless the layer binds routing explicitly. Same for the virtual
+display's panning keys, since `panning.py` already decides whose segment they move.
+
+### The fall through chain
+
+Every layer's chain ends at its device's default layer. A layer may name one layer to fall
+through to before that: a chart layer that binds only the chart's own commands and gets pan
+and zoom from the graphics layer is less to set up and cannot drift. That layer may name
+another. Cycles are refused when saving, and the default layer falls through to nothing but
+NVDA.
+
+The worry with a stack is that the reader has to hold it in their head with nothing to look
+at. The dialog answers that: a command whose key comes from further down the chain is shown
+with where it came from, "Space dot 1 (from Graphics layer)", and Change on it offers to
+override it in this layer rather than editing the other one.
+
+## Context
+
+`keyLayerContexts.py` holds a short fixed list, from most to least specific:
+
+1. **chart** — graphics mode is showing a chart drawing.
+2. **picture** — graphics mode is showing a captured picture.
+3. **graphics** — graphics mode is on, whatever it shows. Covers the glyph catalogue and the
+   test figure.
+4. **table** — the focus segment is showing a table the flow recognised, or the browse mode
+   caret is in a table cell.
+5. none.
+
+Each entry says how to test for it against the plugin. Graphics mode already knows its
+source drawing, so the first three are cheap attribute reads.
+
+**The layer key is context aware.** When a device has no layer on, pressing it finds the
+most specific context present that the device has a layer for, and turns that on. With
+nothing matching, it turns on the default layer. Pressing it with a layer on turns that
+layer off. So a reader with a chart on the Monarch and a chart layer defined gets the chart
+layer, and the same key on a web page gets the default. A chart with no chart layer of its
+own falls back along the list to graphics.
+
+**Auto enable is for modes, not for places.** Graphics mode is a mode: the reader asked for
+it with a command, and the layer coming up with it is answering the same request.
+`GraphicsMode.enter`, `leave` and `replaceSource` notify an `extensionPoints.Action` the
+layer manager registers on. A layer marked auto enable comes on with its context and goes
+off with it, and an auto layer is always one that stays on, whatever style it was given.
+
+Contexts are per device, like everything else here. A keyboard layer with the graphics
+context and auto enable follows the drawing exactly as the Monarch's does, and the two are
+on together, independently.
+
+Tables do not get auto enable, and the reason is already written down in `tableArrows.py`:
+a table is somewhere the caret passes through, and keys that change meaning as the caret
+crosses a boundary are a mode the reader did not ask for and must track. The table context
+is honoured when the reader presses the layer key, and not otherwise.
+
+**A reader who turns an auto layer off keeps it off** until the context goes away and comes
+back. Turning it back on under them the next time a drawing is redrawn would be the add-on
+overruling them.
+
+## Finding the script to run
+
+A binding names a class and a script. The decider has to find a live object of that class
+to call it on. It walks the same objects `scriptHandler._yieldObjectsForFindScript` does, in
+the same order, and takes the first that is an instance of the class:
+
+1. Global plugins.
+2. The focus's app module.
+3. The braille display. Through the virtual display, also the member that raised the
+   gesture, because a Focus 80's own wiz wheel scripts live on the member and
+   `gestures.scriptForMember` already explains why the virtual display fails `isinstance`.
+4. Vision enhancement providers.
+5. The tree interceptor, subject to NVDA's own rule that its scripts do not run in focus
+   mode unless marked to.
+6. The focus object, then focus ancestors for scripts that can propagate.
+7. `globalCommands.configProfileActivationCommands`, then `globalCommands.commands`.
+
+Written as a copy of that order rather than by calling the private generator, so an
+upstream rename breaks a unit test here rather than every layer at runtime. It is short.
+
+**When no object matches**, the command is not available here: a browse mode command bound
+in a layer and pressed in Notepad. The key is consumed and the reader is told, naming the
+command: "Next heading is not available here." Silence would read as a broken key, which
+is the lesson the zoom refusal messages already learned.
+
+An emulated key is run as `scriptHandler._makeKbEmulateScript` runs one, through
+`inputCore.manager.emulateGesture`, with the same description so input help says the same
+thing.
+
+## Keyboard layers can act for a display
+
+Decided with the reader, 14 September 2026. A keyboard layer can bind any command a display
+layer can, including this add-on's graphics commands and a display driver's own. The case
+that asked for it: one hand on the tactile area and the other on a numeric keypad, panning
+and zooming from the keypad while the finger stays where it is.
+
+Most of that needs nothing, because a script is a script whichever key ran it. Three things
+do need care:
+
+1. **Commands that ask which display was pressed.** Several of this add-on's commands read
+   `gesture.source`: panning, to know whose direction and whose segment apply; the layer
+   key, to know whose layer to toggle. A keypad key has no source, so a keyboard binding may
+   name a display it **acts for**, set in the dialog when the key is added. The dispatcher
+   records that on the gesture object as a private attribute, because the script runs later
+   from NVDA's queue with that same object, and a helper in `keyLayerDispatch` answers
+   "which display is this for" from the recorded one or the gesture's own source. Commands
+   here that read `source` move to the helper. `source` itself is not assigned on a
+   keyboard gesture: keyboard gestures do not have one, and code outside this add-on may
+   reasonably take its presence to mean a braille display sent the key.
+2. **A display driver's own commands.** Found on the member the binding acts for, the same
+   way `gestures.scriptForMember` finds them for a key the member raised. With no display
+   named, the first connected member of the right class.
+3. **The dialog has to offer them.** NVDA's command gathering asks only
+   `braille.handler.display`, which through a composite is the virtual display, so the
+   Focus 80's own commands never appear. The keyboard layer's tree adds every connected
+   member's commands, each labelled with its display.
+
+With acts for, the layer key bound in a keyboard layer toggles the named display's layer, so
+a keypad key can bring up the Monarch's graphics layer without a hand leaving the keypad.
+
+## Commands
+
+Scripts on the plugin, in the BrlMultiline category of Input Gestures, like every other
+command here:
+
+1. **Layered keys: toggle the layer for this device.** The layer key. Uses the source of the
+   gesture that ran it, so one script bound to a Monarch chord and a keyboard shortcut
+   toggles the Monarch's layer from the one and the keyboard's from the other. Context aware.
+2. **Layered keys: toggle the layer on the first, second, third display.** Generated per
+   display ordinal, as the scrolling commands are, for a keyboard user who wants to toggle a
+   display's layer without touching the display.
+3. **Layered keys: choose a layer.** A list of this device's layers, for when context is not
+   the answer.
+4. **Layered keys: report layers.** Which layer is on for each device, and on which
+   contexts.
+5. **Layered keys: all layers off.**
+6. **Layered keys: open the layered keys dialog.**
+
+While a layer is on, a key whose ordinary script is one of these always reaches it. The
+decider checks this only for an unbound key, after the layer lookup, so the common path pays
+nothing.
+
+**Feedback.** Turning a layer on or off says its name: "Graphics layer on." A one shot layer
+turning off after its key is quiet by design, since the command it ran is already speaking,
+with an optional low tone in settings. When a layer goes off because its drawing did, that is said once alongside
+"Drawing off" rather than as a second message.
+
+## Storage and profiles
+
+In `bmConfig`, where all configuration access lives:
+
+```
+"keyLayerDevices": {
+	"__many__": {
+		"layers": 'string(default="")',
+	},
+},
+```
+
+One section per device, named by driver name or `keyboard`, holding the layer set as JSON.
+JSON for the reason `tableLayouts` gives: the keys are gesture identifiers and module paths,
+and a nest of `configobj` sections keyed on them is fragile. A section per device rather
+than one string for all of them, because a profile overrides single values: an Excel profile
+can give the Monarch a different layer set without restating the Focus 80's.
+
+The unit a profile replaces is therefore a device's whole layer set. Merging layers across
+profiles key by key was considered and rejected: a reader who opened the dialog in the Excel
+profile and saw a mixture of two profiles' bindings would have no way to tell which came from
+where.
+
+The stored form carries a version number. Identifiers are stored normalized, through
+`inputCore.normalizeGestureIdentifier`. A binding to a class or script that no longer
+exists is kept, not dropped, and shown in the editor as unavailable; an add-on that is
+disabled for a week should not cost the reader their bindings.
+
+**Which layer is on is not stored.** It is session state. On `post_configProfileSwitch`,
+which the plugin already handles, the layer sets are read again; a device whose active layer
+still exists by id keeps it on, and one whose layer has gone turns it off and says so.
+
+## The layered keys dialog
+
+Built to look and work like NVDA's Input Gestures dialog, because that is the dialog every
+reader already knows for this job. A `gui.settingsDialogs.SettingsDialog`, opened from the
+NVDA menu under Preferences beside Input Gestures, from the command above, and from a
+button in the BrlMultiline settings panel. The title names the profile being edited, as
+NVDA's settings dialog does.
+
+Top to bottom:
+
+1. **Device** combo box. Every member of the composite, or the one display, plus Keyboard,
+   plus devices that have saved layers but are not connected, marked as such. A device that
+   is not connected can be reviewed and cleared but not given new keys, since there is
+   nothing to press.
+2. **Layer** combo box, with New, Rename, Delete and Properties buttons beside it.
+   Properties opens a small dialog: name, context, comes on by itself, one shot or stays
+   on, exit keys, falls through to. The default layer cannot be deleted or renamed.
+3. **Filter by** edit, exactly as Input Gestures has it.
+4. **Only show commands with keys in this layer** check box. Off by default, so the dialog
+   opens looking like the one the reader knows; on, it is the review view.
+5. **The tree.** Categories, then commands, then the keys bound to each command in this
+   layer. The same categories and the same command names as Input Gestures, gathered the
+   same way: `inputCore.manager.getAllGestureMappings` against `gui.mainFrame.prevFocus`, so
+   app module and browse mode commands appear when the dialog is opened from there. Plus
+   the Emulated system keyboard keys category. Key names formatted as Input Gestures formats
+   them, main part then source.
+6. **Add, Change, Remove** buttons, the context menu, and Delete on a key, as Input Gestures
+   has them. **Reset** offers "Clear this layer" and, where one exists, "Use suggested keys".
+7. **OK, Cancel, Apply.**
+
+### Differences from Input Gestures, each for a reason
+
+1. **Capture only takes keys from the device being edited.** A press from another display
+   says "That key is on the Focus 80. This layer is for the Monarch" and keeps waiting.
+2. **No identifier choice for a display.** A Monarch press offers both
+   `br(brlMultilineMonarch)` and `br(hidBrailleStandard)` forms, and Input Gestures asks
+   which. In a layer the device is already fixed, so the specific one is stored without
+   asking. The keyboard still offers its layout choice, since that choice means something.
+3. **A key already bound in this layer asks before moving.** "Space dot 1 is Next heading
+   in this layer. Use it for Say line instead?" Input Gestures allows the duplicate because
+   a global map resolves by class; a layer does not.
+4. **The layer key and exit keys cannot be bound as commands.** Refused with the reason.
+5. **Commands not available from here.** A layer may hold a binding to a browse mode command
+   while the dialog was opened from the desktop. It appears under an "Unavailable from here"
+   category rather than disappearing, so it can still be removed.
+
+### A view model, so it can be tested
+
+NVDA's dialog separates `_InputGesturesViewModel` from the wx tree, and that separation is
+worth copying rather than the classes themselves, which are private. `keyLayerDialog.py`
+holds a view model with no wx in it — categories, commands, pending captures, commit to a
+layer set — and the dialog over it. The view model gets the tests; the dialog is checked on
+hardware.
+
+## Suggested layers
+
+The reader's requirement is that mappings are theirs, and nothing is bound until they bind
+it. But an empty dialog is a poor first experience, so a device may have **suggested keys**
+for a context that the Reset button offers, never applied by themselves.
+
+### The Monarch's keys that are made for this
+
+The Monarch has two d-pads and two keys its own software uses for zoom. The zoom keys reach
+NVDA as braille usages 0x220 and 0x221, one past the last usage `hidBrailleStandard` has a
+name for, so they arrive as `brailleUsage544` and `brailleUsage545`. The author's own gesture
+map already binds them to `flowNextColumns` and `flowPreviousColumns`, which turns a table's
+pages. That is the layering case in one pair of keys: outside a layer they turn table pages,
+and in the graphics layer they zoom.
+
+**What input help showed, 14 September 2026.** `brailleUsage544` is zoom in, and the author
+already has it turning to the next page of columns; `brailleUsage545` is zoom out, turning
+back. Both d-pads report the same four identifiers, `dpadUp`, `dpadDown`, `dpadLeft` and
+`dpadRight`, and `hidBrailleStandard` binds all four to the emulated arrow keys.
+
+### Telling the two d-pads apart
+
+**They can be, and the Monarch already does.** A raw report run on 14 September 2026, up on
+one pad then up on the other through the virtual display:
+
+	report 0x20: 20 00 80 00 ...   usage 0x216  data index 18, collection 3 (link usage 0x20D)
+	report 0x20: 20 00 08 00 ...   usage 0x216  data index 14, collection 2 (link usage 0x20E)
+
+Same usage, `BRAILLE_DPAD_UP`, declared twice: once under left controls (0x20D) and once
+under right controls (0x20E), each with its own data index. The firmware says which pad is
+which. NVDA throws that away: `hidBrailleStandard.InputGesture` names a key from its usage
+alone and only puts the collection into routing key names. JAWS telling them apart is
+therefore no mystery.
+
+Still to confirm by hand: that the pad reported under left controls is the one physically on
+the left.
+
+### Naming the Monarch's keys properly
+
+**Built, 14 September 2026.** See "Key names" in
+[monarch-driver-plan.md](monarch-driver-plan.md) for where it lives; the design below is what
+was built. Confirmed by hand that the pad under left controls is the one on the left, and on
+hardware the same day: input help reported `leftDpadUp` and `rightDpadUp`, both still bound to
+the up arrow, and `zoomIn` and `zoomOut` still paging table columns.
+
+A change to `brlMultilineMonarch`, independent of layers and worth landing first, because
+Input Gestures benefits from it straight away: the two pads can be bound separately there
+today, with no layer involved.
+
+1. **When the device opens**, next to where the driver already builds
+   `_inputButtonCapsByDataIndex`, find every braille page usage that is declared in more than
+   one link collection and note a side for each of its data indices from the collection's
+   link usage: left controls 0x20D, right controls 0x20E, top controls 0x20F, face controls
+   0x20C. Worked out from the descriptor rather than hard coded to the d-pad, so a joystick
+   or rocker declared twice gets the same treatment, and a key declared once is never renamed.
+2. **Dots and spaces are never renamed** (usages 0x201 to 0x20B), whatever the descriptor
+   says, because braille input identifiers and every chord in NVDA's map depend on them.
+   Routing keys are left alone too, since they already carry their collection.
+3. **Usages 0x220 and 0x221 are named** `zoomIn` and `zoomOut`.
+4. **In `InputGesture`**, a key with a side is named `leftDpadUp` or `rightDpadUp`, and a
+   gesture containing any renamed key gets a named id alongside the plain one NVDA would
+   have built. Identifiers are offered most specific first:
+   1. `br(brlMultilineMonarch):rightDpadUp`
+   2. `br(brlMultilineMonarch):dpadUp`
+   3. `br(hidBrailleStandard):dpadUp`
+
+   The standard driver never produces a side name, so no `hidBrailleStandard` form of one is
+   offered. A chord gets the same treatment, since a gesture's id is its keys joined:
+   `space+rightDpadUp` first, `space+dpadUp` after it.
+
+**Nothing that works today stops working.** `scriptHandler.getGlobalMapScripts` searches the
+user's map with every identifier, then the locale map, then the driver's, so:
+
+1. Both pads stay the arrow keys through `hidBrailleStandard`'s `dpadUp` entries, until the
+   reader binds a side.
+2. A binding the reader makes to `rightDpadUp` is found before the driver's `dpadUp`,
+   because the user's map is searched first.
+3. Existing bindings to `dpadUp`, or to `brailleUsage544` like the author's column paging,
+   keep matching.
+
+Input Gestures' capture offers the choice of identifiers when a pad is pressed, as it already
+does for the `hidBrailleStandard` alias, so a reader chooses "this pad" or "either pad". The
+layer editor, which does not ask, stores the most specific.
+
+Unit tests, in `test_monarchDriver.py` with a descriptor stub declaring the d-pad twice:
+each side names correctly; a usage declared once is not renamed; dots, spaces and routing are
+untouched; every old identifier form is still offered, in order; and the zoom keys have
+their names and keep their numbers.
+
+### Suggestions
+
+1. **Monarch, graphics.** One d-pad pans in four directions and its centre reports the
+   drawing. Zoom in (`brailleUsage544`) magnifies and zoom out (`brailleUsage545`) shrinks.
+   The other d-pad is left transparent, so it is still the arrow keys while a drawing is up.
+   Which pad pans is the reader's choice when they apply it; the suggestion names the left. Space with z leaves. Graphics mode's
+   existing chords stay where they are.
+2. **Monarch, table.** Zoom in turns to the next page of columns and zoom out to the
+   previous one, as the author already has them bound globally, and one d-pad moves by table cell
+   with NVDA's own table navigation commands, the ones control+alt+arrows run. Most use
+   when the reader has not bound the zoom keys globally.
+
+### Names for the zoom keys
+
+"brailleUsage544 (Monarch)" in the dialog is a number, not a name. `brlMultilineMonarch`
+already offers extra identifiers on its gestures, the `hidBrailleStandard` aliases after its
+own, and the same mechanism can offer `zoomIn` for usage 544 and `zoomOut` for usage 545
+**first**, with the usage
+number forms kept after them. Existing bindings such as the ones in the author's gesture map
+keep matching, because lookup tries every identifier a gesture offers; new bindings, and the
+dialog, use the name. Confined to the driver package and small, but it changes a driver's
+identifiers, so it gets its own test that every old form still matches.
+
+## Module map
+
+1. `keyLayers.py` — the model, parsing, validation, and the pure decision: given a device's
+   layer state and a gesture's identifiers, what happens. NVDA free.
+2. `keyLayerContexts.py` — the context list and the tests for each.
+3. `keyLayerDispatch.py` — the decider, the runtime state per device, finding the live
+   script, emulated keys, announcements, profile switches, graphics mode notifications.
+4. `keyLayerDialog.py` — the view model and the dialog.
+5. `bmConfig.py` — the specification and accessors.
+6. `__init__.py` — the commands, the menu item, installing and removing the decider with
+   the other patches.
+7. `graphicsMode.py` — the change notification.
+8. `brlMultilineMonarch` — names for the zoom keys and for each d-pad, landed before phase 0.
+9. `panning.py` and the layer key — reading the display through the acts for helper rather
+   than `gesture.source`.
+
+## Plan
+
+### Phase 0, the mechanism on hardware
+
+A layer hard coded in `keyLayerDispatch.py`: one of the Monarch's d-pads pans a drawing and
+the zoom keys zoom. No model, no storage, no dialog. Answers, on a Monarch and a Focus 80
+driven together:
+
+1. Does assigning `gesture.script` in the decider run the target, for a braille key from a
+   member and for a keyboard key?
+2. Does say line bound in the layer spell on a double press?
+3. Does input help report the layer's command?
+4. Does the Focus 80 stay entirely unaffected while the Monarch's layer is on?
+5. **Answered:** both d-pads report `dpadUp` and the rest to NVDA, but the raw reports
+   differ by collection, so the driver can name them. See "Naming the Monarch's keys properly".
+6. **Answered:** `brailleUsage544` is zoom in and `brailleUsage545` is zoom out.
+7. Does a keypad key bound to pan, acting for the Monarch, pan the Monarch's drawing?
+8. Does the lock screen refuse an unsafe layer command?
+
+Exit criterion: all eight answered on hardware, and the answers written here.
+
+### Phase 1, layers without an editor
+
+The model, storage, dispatch, transparency down to the default layer, both styles, the
+escape rule, routing exemptions, acts for, commands, profile switch handling, and the zoom
+key names in the Monarch driver. The Monarch graphics suggestion applied through a temporary
+command so there is something to use.
+
+Unit tests for the decision function cover both styles against a key bound in the layer,
+bound further down the chain, bound nowhere, a routing key, escape found by its ordinary
+script, space with z, a layer that binds escape itself, and the layer key; plus the lock
+screen and capture rules, and every old identifier form of the zoom keys still matching.
+
+Exit criterion: a reader can toggle a Monarch layer, pan and zoom a drawing from the Monarch
+and from the keypad, type a dot chord without leaving the layer, say line from it, leave it
+by the layer key and by space with z, use a one shot layer, and switch profile with a layer
+on.
+
+### Phase 2, the dialog
+
+The view model with tests, then the dialog, including acts for on keyboard bindings and
+members' own commands in the tree. Exit criterion: a reader builds a layer for a display and
+for the keyboard from nothing without reading documentation, and the dialog reads with NVDA
+the way Input Gestures does.
+
+### Phase 3, context
+
+The context list, the context aware layer key, auto enable on graphics mode, named fall
+through layers and the "from Graphics layer" labels in the dialog. Exit criterion: with a
+chart layer and a graphics layer defined, the layer key picks the chart layer on a chart and
+the graphics layer on a picture, the chart layer gets pan and zoom from the graphics layer,
+and an auto layer on the Monarch and one on the keyboard both follow drawings on and off.
+
+### Phase 4, only if wanted
+
+1. Per layer activation keys, so a layer can be reached directly without the context
+   deciding.
+2. Export and import of a device's layer set to a file, to share a Monarch setup.
+3. A layer indicator on the display itself, perhaps a glyph in the status cells.
+4. Turning a layer off after a period with no key pressed.
+
+## Decided with the reader, 14 September 2026
+
+1. **A new layer with no context is one shot**: the next key runs its binding or passes
+   through, and the layer leaves either way. A layer with a context stays on.
+2. **Unbound keys are transparent**, down the chain to the default layer and then to NVDA,
+   and never turn a layer off. Braille typing needs no special case. Escape is the
+   exception, and space with z counts as escape on a braille display.
+3. **Keyboard layers can bind display and BrlMultiline commands**, acting for a named
+   display where the command needs one.
+4. **Suggested keys are offered from Reset, never applied.** The Monarch's d-pads and zoom
+   keys are the first suggestions, and the zoom keys' existing use for table pages is the
+   table suggestion.
+5. **The default layer never has a context.** The bottom of every chain is always the same
+   layer.
+6. **The Monarch's second d-pad stays transparent in graphics.** No finer pan step for now.
+7. **Escape only leaves the layer**, in a one shot layer as in one that stays on. It is never
+   also sent on, because that would close a dialog the reader only meant to back out of the
+   layer from.
+
+## Open questions
+
+None at present. Which pad is physically left was confirmed by hand: the pad reported under
+left controls is the left one.
