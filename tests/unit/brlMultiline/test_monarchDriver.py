@@ -616,6 +616,113 @@ class TestTouchAndRouting(MonarchTestCase):
 		self.assertTrue(any(i.startswith("br(hidBrailleStandard):") for i in identifiers))
 
 
+class TestKeyNames(MonarchTestCase):
+	"""The two d-pads told apart, and the zoom keys named, without losing a binding.
+
+	Declared as the hardware reported them on 14 September 2026: up on the left pad is data
+	index 18 under left controls, up on the right pad is data index 14 under right controls.
+	"""
+
+	LEFT_UP = 18
+	RIGHT_UP = 14
+	ZOOM_IN = 30
+	SPACE = 9
+
+	def setUp(self):
+		super().setUp()
+		caps = [
+			self.cap(0x216, self.LEFT_UP, 3, 0x20D),
+			self.cap(0x216, self.RIGHT_UP, 2, 0x20E),
+			self.cap(0x209, self.SPACE, 4, 0x200),
+			self.cap(0x220, self.ZOOM_IN, 5, 0x20F),
+		]
+		self.driver = self.makeDriver(FakeHid(inputButtonCaps=caps))
+
+	@staticmethod
+	def cap(usage, dataIndex, linkCollection, linkUsage):
+		return FakeButtonCap(
+			usage=usage,
+			dataIndex=dataIndex,
+			linkCollection=linkCollection,
+			linkUsage=linkUsage,
+			reportCount=1,
+		)
+
+	def press(self, dataIndices, nvdaNames):
+		self.driver.pendingCellIndexes = []
+		self.driver.pendingKeyNames = list(nvdaNames)
+		return InputGesture(self.driver, dataIndices)
+
+	def test_thePadsHaveTheirOwnNamesFirstAndNvdasAfter(self):
+		gesture = self.press([self.RIGHT_UP], ["dpadUp"])
+		self.assertEqual(
+			[
+				"br(brlMultilineMonarch):rightDpadUp",
+				"br(brlMultilineMonarch):dpadUp",
+				"br(hidBrailleStandard):dpadUp",
+			],
+			gesture._get_identifiers(),
+		)
+		leftUp = self.press([self.LEFT_UP], ["dpadUp"])._get_identifiers()
+		self.assertEqual("br(brlMultilineMonarch):leftDpadUp", leftUp[0])
+
+	def test_noStandardFormOfANameOfOurOwn(self):
+		"""`hidBrailleStandard` never produces one, so it could only be a binding nobody made."""
+		identifiers = self.press([self.RIGHT_UP], ["dpadUp"])._get_identifiers()
+		self.assertNotIn("br(hidBrailleStandard):rightDpadUp", identifiers)
+
+	def test_aChordKeepsBothForms(self):
+		identifiers = self.press([self.SPACE, self.RIGHT_UP], ["space", "dpadUp"])._get_identifiers()
+		self.assertEqual("br(brlMultilineMonarch):space+rightDpadUp", identifiers[0])
+		self.assertIn("br(brlMultilineMonarch):space+dpadUp", identifiers)
+		self.assertIn("br(hidBrailleStandard):space+dpadUp", identifiers)
+
+	def test_theZoomKeyKeepsItsNumberForExistingBindings(self):
+		"""The author's own gesture map pages table columns with `brailleusage544`."""
+		identifiers = self.press([self.ZOOM_IN], ["brailleUsage544"])._get_identifiers()
+		self.assertEqual("br(brlMultilineMonarch):zoomIn", identifiers[0])
+		self.assertIn("br(hidBrailleStandard):brailleUsage544", identifiers)
+
+	def test_aGestureWithNothingToNameIsAsBefore(self):
+		identifiers = self.press([self.SPACE], ["space"])._get_identifiers()
+		self.assertEqual(["br(brlMultilineMonarch):space", "br(hidBrailleStandard):space"], identifiers)
+
+	def test_namesThatDoNotLineUpRenameNothing(self):
+		"""If NVDA's constructor ever names keys differently, the key keeps NVDA's name alone."""
+		gesture = self.press([self.RIGHT_UP], ["somethingElse"])
+		self.assertIsNone(gesture._nvdaId)
+		self.assertEqual("br(brlMultilineMonarch):somethingElse", gesture._get_identifiers()[0])
+
+	def test_aReconnectNamesTheNewDevicesKeys(self):
+		"""Data indexes belong to a descriptor; names from the old device would be the old numbering."""
+		self.assertIn(self.RIGHT_UP, self.driver._keyNames)
+		hidDevices.append(FakeHid(inputButtonCaps=[]))
+		self.driver._reopenDevice()
+		self.assertEqual({}, self.driver._keyNames)
+
+	def test_aNamingFailureCostsNamesNotKeys(self):
+		original = driverModule.keyNames.declarationsFromCaps
+
+		def broken(caps):
+			raise ValueError("an unreadable descriptor")
+
+		driverModule.keyNames.declarationsFromCaps = broken
+		try:
+			buttons = self.driver._collectInputButtonCapsByDataIndex()
+		finally:
+			driverModule.keyNames.declarationsFromCaps = original
+		self.assertIn(self.RIGHT_UP, buttons)
+		self.assertEqual({}, self.driver._keyNames)
+		errors = [message for level, message in log.messages if level == "error"]
+		self.assertTrue(any("could not name" in message for message in errors))
+
+	def test_aDescriptorThatCannotBeReadLeavesNoOldNames(self):
+		"""The keys of the previous device must not keep names on a device whose keys are unknown."""
+		self.driver._dev.inputButtonCaps = [object()]
+		self.driver._resetInputSession()
+		self.assertEqual({}, self.driver._keyNames)
+
+
 class TestReconnection(MonarchTestCase):
 	"""Losing the device and getting it back, without NVDA ever being told."""
 

@@ -8,6 +8,13 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **The Monarch's two d-pads can be bound separately, and its zoom keys have names.** NVDA
+  names a key by what it is and not by where it is, so both pads arrived as `dpadUp` and could
+  only ever do the same thing. The Monarch driver now adds `leftDpadUp`, `rightDpadUp` and the
+  rest, and `zoomIn` and `zoomOut` for the keys NVDA called `brailleUsage544` and
+  `brailleUsage545`. NVDA's own names are still offered after them, so every existing binding
+  keeps working and both pads stay the arrow keys until you bind one.
+
 - **Pictures from the screen, drawn on the pins.** Point at something — on a web page, the
   graphic NVDA just told you about — and press the key: its rectangle is copied off the screen
   and comes back as outlines or as a silhouette. Not restricted to things NVDA calls a graphic,

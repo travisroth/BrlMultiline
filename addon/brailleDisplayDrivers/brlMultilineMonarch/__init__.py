@@ -49,7 +49,7 @@ from brailleDisplayDrivers.hidBrailleStandard import (
 )
 from logHandler import log
 
-from . import hidWrite, monarch
+from . import hidWrite, keyNames, monarch
 from .pinBuffer import PinBuffer
 
 if TYPE_CHECKING:
@@ -1172,6 +1172,44 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		# so they should be ignored.
 		self._ignoreKeyReleases = True
 
+	_keyNames: dict = {}
+	"""Data index to the name a key gets beyond NVDA's. See `keyNames`. Empty until a device opens."""
+
+	_routingDataIndices: frozenset = frozenset()
+	"""The data indices NVDA folds into a routing name, needed to line names up with keys."""
+
+	def _collectInputButtonCapsByDataIndex(self):
+		"""Build NVDA's button map, and alongside it the names NVDA's map cannot give.
+
+		Hooked here because this is the one place both the inherited constructor and a reconnect
+		read the descriptor, so the names can never describe a different device from the keys.
+
+		:return: the inherited map, unchanged.
+		"""
+		# Forgotten before anything is read, so that if reading this descriptor fails, the previous
+		# device's names do not survive onto this one's keys.
+		self._keyNames = {}
+		self._routingDataIndices = frozenset()
+		capsByDataIndex = super()._collectInputButtonCapsByDataIndex()
+		try:
+			declarations = keyNames.declarationsFromCaps(self._dev.inputButtonCaps)
+			self._keyNames = keyNames.namesByDataIndex(declarations)
+			self._routingDataIndices = keyNames.routingDataIndices(declarations)
+		except Exception:
+			# Names are a nicety on top of keys that already work. Losing them must not lose the keys.
+			log.error("BrlMultiline: could not name the Monarch's keys", exc_info=True)
+			self._keyNames = {}
+			self._routingDataIndices = frozenset()
+		if self._keyNames:
+			log.debug(
+				"BrlMultiline: Monarch keys named beyond NVDA's names: "
+				+ ", ".join(
+					f"{name.ours} (data index {index}, NVDA calls it {name.nvda})"
+					for index, name in sorted(self._keyNames.items())
+				),
+			)
+		return capsByDataIndex
+
 	def _inputUsageForDataIndex(self, dataIndex: int) -> Optional[int]:
 		"""Map an input data index to its usage, building the map once.
 
@@ -1842,6 +1880,12 @@ class InputGesture(HidInputGesture):
 	matters: the specific identifier is offered first, so a Monarch-only binding can be made
 	without disturbing the shared one.
 
+	**Names.** A key NVDA cannot tell from another — the two d-pads, both `dpadUp` to NVDA — or
+	has no real name for — the zoom keys, `brailleUsage544` and `brailleUsage545` — is given one
+	from `keyNames`: `leftDpadUp`, `rightDpadUp`, `zoomIn`, `zoomOut`. The name is offered
+	*first* and NVDA's straight after it, so a binding can be made to one pad without disturbing
+	the other, and every binding to NVDA's name keeps matching. See `_get_identifiers`.
+
 	**Routing.** Only a single press can be corrected for the pitch, because the panel reports
 	one touched pin. At a non native pitch a press that cannot be corrected is *cancelled*
 	rather than passed through — see `BrailleDisplayDriver._routingDecision` — and `cancelled`
@@ -1853,16 +1897,40 @@ class InputGesture(HidInputGesture):
 	cancelled = False
 	"""Whether this gesture should be dropped rather than dispatched."""
 
+	_nvdaId: Optional[str] = None
+	"""The id NVDA built, when `id` has been given names of our own. None when it has not."""
+
 	def _get_identifiers(self):
-		"""Our own identifiers, then the standard HID ones they replace.
+		"""Our own identifiers, then NVDA's names for the same keys, then the standard HID ones.
+
+		For the right d-pad's up key, in this order:
+
+		1. `br(brlMultilineMonarch):rightDpadUp`
+		2. `br(brlMultilineMonarch):dpadUp`
+		3. `br(hidBrailleStandard):dpadUp`
+
+		NVDA searches the user's gesture map with every identifier before it searches the
+		locale's or the driver's, so a binding the user makes to one pad wins, and until they
+		make one both pads reach `hidBrailleStandard`'s arrow keys exactly as before. No
+		`hidBrailleStandard` form of a name of our own is offered: that driver never produces one,
+		so it could only ever be a binding nobody could have made.
 
 		:return: identifiers most specific first.
 		"""
 		ids = super()._get_identifiers()
 		ours = f"br({self.source}):"
 		theirs = f"br({HidBrailleDriver.name}):"
-		aliases = [identifier.replace(ours, theirs, 1) for identifier in ids if identifier.startswith(ours)]
-		return ids + aliases
+		mine = [identifier for identifier in ids if identifier.startswith(ours)]
+		rest = [identifier for identifier in ids if not identifier.startswith(ours)]
+		nvdaForms: list[str] = []
+		if self._nvdaId is not None:
+			nvdaForms = [
+				identifier
+				for identifier in (_withId(identifier, self.id, self._nvdaId) for identifier in mine)
+				if identifier not in mine
+			]
+		aliases = [identifier.replace(ours, theirs, 1) for identifier in nvdaForms or mine]
+		return mine + nvdaForms + rest + aliases
 
 	def __init__(self, driver, dataIndices):
 		"""
@@ -1870,6 +1938,7 @@ class InputGesture(HidInputGesture):
 		:param dataIndices: the data indices of the keys that were down.
 		"""
 		super().__init__(driver, dataIndices)
+		self._nameKeys(driver, dataIndices)
 		if not self.cellIndexes:
 			return
 		# Kept before anything replaces it. Recording `cellIndexes` after the correction meant
@@ -1899,6 +1968,47 @@ class InputGesture(HidInputGesture):
 				)
 			except Exception:
 				log.debugWarning("BrlMultiline: could not record the routing decision", exc_info=True)
+
+	def _nameKeys(self, driver, dataIndices) -> None:
+		"""Give the keys NVDA names poorly names of their own, keeping NVDA's id to offer after.
+
+		:param driver: the Monarch driver, which read the names from the descriptor.
+		:param dataIndices: the data indices, in the order the inherited constructor walked them.
+		"""
+		names = getattr(driver, "_keyNames", None)
+		nvdaNames = getattr(self, "keyNames", None)
+		if not names or not nvdaNames:
+			return
+		try:
+			specific = keyNames.specificId(
+				nvdaNames,
+				dataIndices,
+				getattr(driver, "_routingDataIndices", frozenset()),
+				names,
+			)
+		except Exception:
+			log.error("BrlMultiline: could not name a Monarch gesture's keys", exc_info=True)
+			return
+		# NVDA's id is its key names joined, the routing name among them. Anything else means the
+		# inherited constructor has changed how it builds one, and a name attached on the old
+		# understanding could land on the wrong key.
+		if specific is None or self.id != "+".join(nvdaNames):
+			return
+		self._nvdaId = self.id
+		self.id = specific
+
+
+def _withId(identifier: str, current: str, replacement: str) -> str:
+	""":return: an identifier with its gesture id swapped, leaving the source and any cell suffix.
+
+	:param identifier: such as `br(brlMultilineMonarch):rightDpadUp`.
+	:param current: the id it carries now.
+	:param replacement: the id to carry instead.
+	"""
+	prefix, _, main = identifier.partition(":")
+	if not main.startswith(current):
+		return identifier
+	return f"{prefix}:{replacement}{main[len(current) :]}"
 
 
 # Re-exported so callers can name usages without importing NVDA's HID driver themselves.

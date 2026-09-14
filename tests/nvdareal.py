@@ -414,11 +414,102 @@ def checkGestures() -> list:
 	return failures
 
 
+def checkKeyNames() -> list:
+	"""Check the Monarch's key names against NVDA's real HID gesture, not the stub's idea of it.
+
+	The names are attached by lining up NVDA's `keyNames` with the data indices, and by
+	swapping the id NVDA built. Both depend on how `hidBrailleStandard.InputGesture` builds
+	those, which only the real class can answer. The descriptor is the two d-pad ups as the
+	hardware reported them on 14 September 2026, with space and zoom in beside them.
+
+	:return: what is wrong, empty if nothing.
+	"""
+	failures = []
+	drivers = loadDrivers(["brlMultilineMonarch"])
+	module = drivers["brlMultilineMonarch"]
+	import hidpi
+	from brailleDisplayDrivers import hidBrailleStandard
+
+	def cap(usage, dataIndex, linkCollection, linkUsage):
+		built = hidpi.HIDP_BUTTON_CAPS()
+		built.UsagePage = hidBrailleStandard.HID_USAGE_PAGE_BRAILLE
+		built.LinkCollection = linkCollection
+		built.LinkUsage = linkUsage
+		built.LinkUsagePage = hidBrailleStandard.HID_USAGE_PAGE_BRAILLE
+		built.IsRange = False
+		built.u1.NotRange.Usage = usage
+		built.u1.NotRange.DataIndex = dataIndex
+		return built
+
+	caps = [
+		cap(0x216, 18, 3, 0x20D),
+		cap(0x216, 14, 2, 0x20E),
+		cap(0x209, 9, 4, 0x200),
+		cap(0x220, 30, 5, 0x20F),
+	]
+
+	class Driver:
+		KEEP_ROUTING = "keep"
+		_inputButtonCapsByDataIndex = {
+			c.u1.NotRange.DataIndex: hidBrailleStandard.ButtonCapsInfo(c) for c in caps
+		}
+		declarations = module.keyNames.declarationsFromCaps(caps)
+		_keyNames = module.keyNames.namesByDataIndex(declarations)
+		_routingDataIndices = module.keyNames.routingDataIndices(declarations)
+
+	def identifiers(dataIndices):
+		return module.InputGesture(Driver(), dataIndices).identifiers
+
+	expected = {
+		(18,): [
+			"br(brlMultilineMonarch):leftDpadUp",
+			"br(brlMultilineMonarch):dpadUp",
+			"br(hidBrailleStandard):dpadUp",
+		],
+		(14,): [
+			"br(brlMultilineMonarch):rightDpadUp",
+			"br(brlMultilineMonarch):dpadUp",
+			"br(hidBrailleStandard):dpadUp",
+		],
+		(30,): [
+			"br(brlMultilineMonarch):zoomIn",
+			"br(brlMultilineMonarch):brailleUsage544",
+			"br(hidBrailleStandard):brailleUsage544",
+		],
+	}
+	for dataIndices, wanted in expected.items():
+		got = identifiers(list(dataIndices))
+		if got[: len(wanted)] != wanted:
+			failures.append(f"data indices {dataIndices} gave identifiers {got}, wanted {wanted} first")
+	chord = identifiers([9, 14])
+	if (
+		not chord
+		or not chord[0].endswith("rightDpadUp")
+		or not any(identifier.endswith(":space+dpadUp") for identifier in chord)
+	):
+		failures.append(f"space with the right pad gave {chord}")
+	# Both pads must still be the arrow keys through NVDA's own map, until someone binds a side.
+	# Read from the map's entries rather than `getScriptsForGesture`, which silently yields
+	# nothing for a class whose module is not imported yet — and `globalCommands` is not, here.
+	entries = hidBrailleStandard.HidBrailleDriver.gestureMap._map
+	for dataIndices in ((18,), (14,)):
+		gesture = module.InputGesture(Driver(), list(dataIndices))
+		scripts = [
+			scriptName
+			for identifier in gesture.normalizedIdentifiers
+			for _module, _cls, scriptName in entries.get(identifier, ())
+		]
+		if "kb:upArrow" not in scripts:
+			failures.append(f"data indices {dataIndices} no longer reach NVDA's up arrow: {scripts}")
+	return failures
+
+
 CHECKS = (
 	("drivers", checkDrivers),
 	("plugin", checkPlugin),
 	("geometry", checkGeometry),
 	("gestures", checkGestures),
+	("key names", checkKeyNames),
 )
 
 

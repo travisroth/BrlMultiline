@@ -342,7 +342,7 @@ class StubHidInputGesture:
 	"""`hidBrailleStandard.InputGesture`, as far as the Monarch's subclass uses one.
 
 	`cellIndexes` comes from the driver's `pendingCellIndexes`, which stands in for decoding
-	routing keys out of the data indexes. What the subclass does with them afterwards is the
+	routing keys out of the data indexes, and `keyNames` from `pendingKeyNames` likewise. What the subclass does with them afterwards is the
 	thing under test.
 	"""
 
@@ -353,6 +353,12 @@ class StubHidInputGesture:
 		self.driver = driver
 		self.dataIndices = list(dataIndices)
 		self.cellIndexes = list(getattr(driver, "pendingCellIndexes", []) or [])
+		# What NVDA would have called the keys, set by the test the way `pendingCellIndexes` is.
+		# The real constructor builds `id` by joining these, which is the contract the driver's
+		# naming checks before it renames anything.
+		self.keyNames = list(getattr(driver, "pendingKeyNames", []) or [])
+		if self.keyNames:
+			self.id = "+".join(self.keyNames)
 
 	def _get_identifiers(self):
 		ids = []

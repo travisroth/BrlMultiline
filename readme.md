@@ -426,6 +426,13 @@ anything:
 - **Touch at pin resolution.** The Monarch reports which pin a finger landed on, and NVDA
   discards that. This driver keeps it, which is what lets you point at part of a drawing.
 - **Bluetooth that survives a dropout**, the same recovery the combined display uses.
+- **Keys with names of their own.** NVDA calls both of the Monarch's d-pads `dpadUp`,
+  `dpadDown` and so on, and calls its zoom keys `brailleUsage544` and `brailleUsage545`. This
+  driver adds `leftDpadUp` and `rightDpadUp` and the rest for the two pads, and `zoomIn` and
+  `zoomOut` for the zoom keys. NVDA's names still work, so both pads are still the arrow keys
+  until you bind one of them to something else. When you press a pad in Input Gestures, NVDA
+  asks which name to bind: choose the left or right name to bind that pad alone, or the plain
+  `dpadUp` form to bind both.
 
 Nothing above the driver knows that a Monarch is what it is talking to. The add-on asks the
 braille display driver in use whether it can raise pins and draw on them, so another display

@@ -172,16 +172,29 @@ def _display() -> Optional[Any]:
 	return display
 
 
-def _device() -> Optional[Any]:
-	""":return: the `hwIo.hid.Hid` the current driver opened, or None."""
+def _hidDriver() -> Optional[Any]:
+	""":return: the HID braille driver to inspect, or None with a complaint printed.
+
+	The display itself when NVDA drives it directly. Through `brlMultilineVirtual` the display
+	is the composite, which has no device of its own, so the HID member behind it is used.
+	"""
 	display = _display()
 	if display is None:
 		return None
-	device = getattr(display, "_dev", None)
-	if device is None:
-		_say(f"{display.name} is not a HID driver, or does not keep its device as _dev.")
-		return None
-	return device
+	if hasattr(getattr(display, "_dev", None), "caps"):
+		return display
+	for slot in getattr(display, "slots", ()):
+		if hasattr(getattr(slot.driver, "_dev", None), "caps"):
+			_say(f"Using {slot.driverName}, a member of {display.name}.")
+			return slot.driver
+	_say(f"{display.name} is not a HID driver, and has no HID member.")
+	return None
+
+
+def _device() -> Optional[Any]:
+	""":return: the `hwIo.hid.Hid` the current driver opened, or None."""
+	driver = _hidDriver()
+	return None if driver is None else driver._dev
 
 
 def _usagePageName(page: int) -> str:
@@ -1115,31 +1128,43 @@ def _pristineOnReceive(display: Any) -> Optional[Any]:
 	return getattr(display, "_hidOnReceive", None)
 
 
-def _inputUsageByDataIndex(device: Any) -> dict[int, tuple[int, int, str]]:
+def _inputUsageByDataIndex(device: Any) -> dict[int, tuple[int, int, str, str]]:
 	"""Map every input data index to the usage it carries.
 
 	Both buttons and values, because the question is which of the two the Monarch answers a
 	finger with. Ranges are expanded, so a routing usage can be recovered from the index the
 	report actually carries.
 
+	Where each one sits is kept too: the data index and the link collection. NVDA names a key
+	by its usage alone, so two keys declaring the same usage in different collections — the
+	Monarch's two d-pads both arrive as `dpadUp` — can only be told apart here.
+
 	:param device: the `hwIo.hid.Hid` the driver opened.
-	:return: data index to usage page, usage, and "button" or "value".
+	:return: data index to usage page, usage, "button" or "value", and where it is declared.
 	"""
-	byIndex: dict[int, tuple[int, int, str]] = {}
+	byIndex: dict[int, tuple[int, int, str, str]] = {}
+
+	def where(cap: Any, index: int) -> str:
+		return f"data index {index}, collection {cap.LinkCollection} (link usage 0x{cap.LinkUsage:X})"
+
 	for cap in _buttonCaps(device, hidpi.HIDP_REPORT_TYPE.INPUT):
 		if cap.IsRange:
 			r = cap.u1.Range
 			for index in range(r.DataIndexMin, r.DataIndexMax + 1):
-				byIndex[index] = (cap.UsagePage, r.UsageMin + (index - r.DataIndexMin), "button")
+				usage = r.UsageMin + (index - r.DataIndexMin)
+				byIndex[index] = (cap.UsagePage, usage, "button", where(cap, index))
 		else:
-			byIndex[cap.u1.NotRange.DataIndex] = (cap.UsagePage, cap.u1.NotRange.Usage, "button")
+			index = cap.u1.NotRange.DataIndex
+			byIndex[index] = (cap.UsagePage, cap.u1.NotRange.Usage, "button", where(cap, index))
 	for cap in _valueCaps(device, hidpi.HIDP_REPORT_TYPE.INPUT):
 		if cap.IsRange:
 			r = cap.u1.Range
 			for index in range(r.DataIndexMin, r.DataIndexMax + 1):
-				byIndex[index] = (cap.UsagePage, r.UsageMin + (index - r.DataIndexMin), "value")
+				usage = r.UsageMin + (index - r.DataIndexMin)
+				byIndex[index] = (cap.UsagePage, usage, "value", where(cap, index))
 		else:
-			byIndex[cap.u1.NotRange.DataIndex] = (cap.UsagePage, cap.u1.NotRange.Usage, "value")
+			index = cap.u1.NotRange.DataIndex
+			byIndex[index] = (cap.UsagePage, cap.u1.NotRange.Usage, "value", where(cap, index))
 	return byIndex
 
 
@@ -1225,8 +1250,8 @@ def watchInput(recordEmpty: bool = False) -> None:
 
 	:param recordEmpty: keep the empty reports too, for judging how chatty the panel is.
 	"""
-	device = _device()
-	display = _display()
+	display = _hidDriver()
+	device = None if display is None else display._dev
 	if device is None or display is None:
 		return
 	original = _pristineOnReceive(display)
@@ -1243,11 +1268,14 @@ def watchInput(recordEmpty: bool = False) -> None:
 			decoded = []
 			report = HidInputReport(device, data)
 			for item in report.getDataItems():
-				page, usage, kind = byIndex.get(item.DataIndex, (0, 0, "unknown"))
+				page, usage, kind, place = byIndex.get(
+					item.DataIndex,
+					(0, 0, "unknown", f"data index {item.DataIndex}, undeclared"),
+				)
 				value = item.u1.On if kind == "button" else item.u1.RawValue
 				if kind == "button" and not value:
 					continue
-				decoded.append(_describeInputUsage(usage, int(value)))
+				decoded.append(f"{_describeInputUsage(usage, int(value))}  [{place}]")
 			if decoded or recordEmpty:
 				_inputEvents.append(
 					{
@@ -1280,8 +1308,8 @@ def unwatchInput() -> None:
 	Sets the device back to `display._hidOnReceive` rather than to a remembered value, so it
 	repairs a stacked or recursive chain as readily as it removes a clean wrapper.
 	"""
-	device = _device()
-	display = _display()
+	display = _hidDriver()
+	device = None if display is None else display._dev
 	if device is None or display is None:
 		return
 	original = _pristineOnReceive(display)

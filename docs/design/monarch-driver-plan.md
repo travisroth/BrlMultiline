@@ -408,6 +408,34 @@ should be off when this is used, or it will be baked into the cells underneath.
 
 Not in v1. The API for it is the overlay API, which is.
 
+### Key names
+
+Added 14 September 2026, in `keyNames.py`, for the layered keys plan but useful without it.
+
+`hidBrailleStandard.InputGesture` names a key from its usage alone. The Monarch declares the
+d-pad usages twice, under left controls (0x20D) and right controls (0x20E), with a data index
+each, so NVDA gave both pads the same names; a raw report run through the graphics spike showed
+the difference was there all along. Its zoom keys are usages 0x220 and 0x221, past the end of
+the braille page, so NVDA called them `brailleUsage544` and `brailleUsage545`.
+
+When the descriptor is read, in `_collectInputButtonCapsByDataIndex` so that a reconnect names
+the new device's keys, any braille page usage declared in more than one control collection is
+given that collection's side, and the two zoom usages their names. Dots, spaces and routing are
+never renamed. The gesture then offers `br(brlMultilineMonarch):rightDpadUp`, then
+`br(brlMultilineMonarch):dpadUp`, then `br(hidBrailleStandard):dpadUp`. NVDA searches the
+user's map with every identifier before the driver's, so a binding to one pad wins and, until
+there is one, both pads reach the inherited map's arrow keys.
+
+Two guards, because the names are attached by lining up NVDA's `keyNames` with the data
+indices and that is NVDA's internal arrangement: every name replaced is first checked to be the
+one NVDA gave that key, and the id must be those names joined. Either failing renames nothing.
+`tests/nvdareal.py` checks the whole arrangement against the real `hidBrailleStandard`.
+
+Confirmed on hardware the same day. Input help named `leftDpadUp`, `rightDpadUp` and
+`leftDpadDown`, each still bound to its arrow key through the inherited map, and `zoomIn` and
+`zoomOut` still reached the author's column paging bindings, which were made to the usage
+numbers.
+
 ## Coexistence
 
 Two drivers must never hold the Monarch at once. `hwIo.hid.Hid` opens exclusively, so the
