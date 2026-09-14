@@ -530,6 +530,24 @@ class FlowController(PanelOwner):
 		self.renderer.indentPlan = plan
 		self._redrawBlocks(why="a rebased indent")
 
+	def drawGlyphsOn(self, target) -> None:
+		"""Say which display the band is on, and lay it out again if that is news.
+
+		**Every block already on the band was laid out without it.** A controller is built and
+		entered before any band holds it, so the renderer has no display to compress for and
+		every block it reads on the way in keeps its words. Those renderings then stand — a
+		block nobody re-read is not laid out again — and only the block under the caret, which
+		NVDA re-reads on every move, ever got its shapes. On a page of links that was one
+		symbol on the band and the rest written out. The same is true of a band moved to
+		another display, in either direction.
+
+		:param target: the display the band is drawn on, as `glyphFlow.targetForRows` gives it.
+		"""
+		if target == self.renderer.glyphTarget:
+			return
+		self.renderer.glyphTarget = target
+		self._redrawBlocks(why="a different display to draw glyphs on")
+
 	def useColumnPage(self, plan) -> bool:
 		"""Show a page of columns, and read what the page needs.
 

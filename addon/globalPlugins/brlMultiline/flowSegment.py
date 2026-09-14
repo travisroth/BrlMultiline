@@ -145,7 +145,9 @@ class FlowBufferSegment(BrailleBufferSegment):
 		# The renderer compresses a block while laying it out and cannot ask where the band is;
 		# this is where that is known. Read afresh each pass because the band can move between
 		# displays — the settings offer that — and because a member of a composite can go away.
-		self.controller.renderer.glyphTarget = self.glyphTarget()
+		# Through the controller, so that what was laid out before the band knew is laid out
+		# again rather than left with its words. See `FlowController.drawGlyphsOn`.
+		self.controller.drawGlyphsOn(self.glyphTarget())
 		self._checkWhatIsRead()
 		if self.controller is None:
 			# The owner found it was reading the wrong thing and gave the band back.

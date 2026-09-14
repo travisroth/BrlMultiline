@@ -855,6 +855,20 @@ class TestABandThatDrawsThem(GlyphTestCase):
 		self.assertEqual(list(found), [0])
 		self.assertEqual(found[0].cells, [ord("l")])
 
+	def test_aBandToldWhereItIsOnlyAfterItWasEnteredStillDrawsThem(self):
+		"""The order it happens in on hardware: built and entered first, placed on a band after.
+
+		Every block read on the way in was laid out with no display to draw on, and nothing
+		re-reads a block the caret is not in, so those renderings used to stand for good.
+		"""
+		from .test_flowControl import controllerOver
+
+		control = controllerOver(["lnk Search now"], numCols=8, numRows=2)
+		self.fields(control)
+		self.assertEqual(self.rowOf(control), "lnk Sear")
+		control.drawGlyphsOn(self.target())
+		self.assertEqual(self.rowOf(control), "l Search")
+
 	def test_aBandWithNoShapesOnItSaysSo(self):
 		control = self.band("Search now")
 		control.cells()
