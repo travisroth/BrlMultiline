@@ -373,9 +373,18 @@ class LayerSet:
 		return found
 
 	def withLayer(self, layer: Layer) -> "LayerSet":
-		""":return: this set with a layer added, or replacing the one with its id."""
-		layers = [existing for existing in self.layers if existing.id != layer.id]
-		layers.append(layer)
+		""":return: this set with a layer replacing the one with its id where that one was, or added last.
+
+		In place, because the order is what the Choose layer list shows and which layer a context takes
+		when two are for it: the first. An edit that moved a layer to the end would change both.
+		"""
+		layers = list(self.layers)
+		for index, existing in enumerate(layers):
+			if existing.id == layer.id:
+				layers[index] = layer
+				break
+		else:
+			layers.append(layer)
 		return LayerSet(self.device, tuple(layers))
 
 	def problems(self) -> list:

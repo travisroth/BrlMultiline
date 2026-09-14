@@ -311,6 +311,18 @@ class TestDrawingComing(PluginTestCase):
 		self.plugin.script_toggleGraphics(None)
 		self.assertIsNotNone(keyLayerDispatch.activeLayer(MONARCH))
 
+	def test_aDisplayReconnectingWithTheDrawingUpBringsItsLayerOn(self):
+		"""The drawing does not change, so only the rebuild after the display change can see it."""
+		self.plugin.graphicsMode = FakeMode(
+			source=types.SimpleNamespace(redraw=lambda *args: None), plugin=self.plugin
+		)
+		self.assertIsNone(keyLayerDispatch.activeLayer(MONARCH))
+		self.plugin._rebuildPending = True
+		self.plugin._deferredRebuild()
+		self.assertTrue(keyLayerDispatch.isAutomatic(MONARCH))
+		callAfterQueue.flush()
+		self.assertEqual("Graphics layer on", flashedMessages[-1])
+
 	def test_theLayerKeyInATableTakesTheShippedTableLayer(self):
 		self.plugin.graphicsMode = FakeMode(active=False, plugin=self.plugin)
 		self.plugin.tablesInColumns = lambda: {"segment": object()}

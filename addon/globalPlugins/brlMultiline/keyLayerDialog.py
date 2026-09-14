@@ -327,9 +327,17 @@ class LayerEditor:
 				return command.name
 		return self._unavailableName(target)
 
-	def add(self, command: Command, identifier: str, actsFor: Optional[str] = None) -> None:
+	def add(
+		self,
+		command: Command,
+		identifier: str,
+		actsFor: Optional[str] = None,
+		replacing: Optional[str] = None,
+	) -> None:
 		"""Bind a key to a command in the layer being edited, replacing what it did in this layer.
 
+		:param replacing: the key this one takes the place of, for Change. Removed in the same edit, so
+			a Change that is cancelled or refused before it gets here leaves the old key where it was.
 		:raises ValueError: if L{check} refuses the key. Ask first; this does not.
 		"""
 		identifier = keyLayers.normalize(identifier)
@@ -337,6 +345,8 @@ class LayerEditor:
 		if refusal:
 			raise ValueError(refusal)
 		bindings = dict(self.layer.bindings)
+		if replacing is not None:
+			bindings.pop(keyLayers.normalize(replacing), None)
 		bindings[identifier] = replace_(command.target, actsFor=actsFor or None)
 		self._keep(replace_(self.layer, bindings=bindings))
 		self.pending = None
@@ -548,11 +558,18 @@ def commandsFromMappings(mappings: dict, emulatedCategory: str) -> list:
 
 
 def reservedFromMappings(mappings: dict, prefix: str) -> list:
-	""":return: the keys bound to the layer key command, which no layer may take."""
+	""":return: the keys bound to a layer key command, which no layer may take.
+
+	The layer key, and the generated ones that turn layers on and off for a display by its position,
+	`keyLayerToggleDisplay0` and on. A layer that bound one of those keys would win over the command
+	meant to turn it off.
+	"""
+	toggle = f"{prefix}Toggle"
 	keys = []
 	for scripts in mappings.values():
 		for info in scripts.values():
-			if getattr(info, "scriptName", "") == f"{prefix}Toggle":
+			name = getattr(info, "scriptName", "") or ""
+			if name == toggle or (name.startswith(f"{toggle}Display") and name[len(toggle) + 7 :].isdigit()):
 				keys.extend(getattr(info, "gestures", ()) or ())
 	return keys
 
@@ -885,13 +902,14 @@ if wx is not None:
 				return
 			self._startAdding(command.command)
 
-		def _startAdding(self, command: Command) -> None:
+		def _startAdding(self, command: Command, replacing: Optional[str] = None) -> None:
+			""":param replacing: the key being changed, which stays until its replacement is accepted."""
 			self.editor.pending = identity(command.target)
 			# Through `_refresh`, which expands the command before selecting a key row under it. Selecting
 			# the prompt directly failed on a collapsed command: a virtual tree has no rows for the children
 			# of an item it has not expanded, and the lookup ran off the end. Found on hardware.
 			self._refresh(focus=(identity(command.target), PROMPT_FOCUS))
-			self._capture(lambda gesture: self._finishAdding(command, gesture))
+			self._capture(lambda gesture: self._finishAdding(command, gesture, replacing))
 
 		def _addEmulated(self, gesture) -> None:
 			identifiers = list(gesture.normalizedIdentifiers)
@@ -900,7 +918,10 @@ if wx is not None:
 			command = self.editor.addEmulatedKey(identifiers[-1])
 			self._refresh(focus=(identity(command.target), None))
 
-		def _finishAdding(self, command: Command, gesture) -> None:
+		def _finishAdding(self, command: Command, gesture, replacing: Optional[str] = None) -> None:
+			if not self:
+				# Closed between the key and this running.
+				return
 			identifier = self._identifierFor(gesture)
 			self.editor.pending = None
 			if identifier is None:
@@ -955,15 +976,15 @@ if wx is not None:
 					[None] + [each.name for each in displays],
 					[_("No display")] + [each.label for each in displays],
 				)
-			self.editor.add(command, identifier, actsFor)
+			self.editor.add(command, identifier, actsFor, replacing=replacing)
 			self._refresh(focus=(identity(command.target), keyLayers.normalize(identifier)))
 
 		def _onChange(self, event) -> None:
 			category, command, key = self.tree.selection()
 			if command is None or key is None or key.identifier is None:
 				return
-			self.editor.remove(key.identifier)
-			self._startAdding(command.command)
+			# Not removed yet: escape, a refused key or a declined question must leave it where it was.
+			self._startAdding(command.command, replacing=key.identifier)
 
 		def _onRemove(self, event) -> None:
 			category, command, key = self.tree.selection()
@@ -1077,8 +1098,13 @@ if wx is not None:
 
 		def _onProperties(self, event) -> None:
 			self._stopCapture()
-			with _PropertiesDialog(self) as dialog:
-				dialog.ShowModal()
+			try:
+				with _PropertiesDialog(self) as dialog:
+					dialog.ShowModal()
+			finally:
+				# However Properties closed, OK, Cancel or its close box, while Add exit key was waiting:
+				# a capture left behind would swallow every key NVDA gets.
+				self._stopCapture()
 			self._fillLayers()
 			self._refresh()
 
@@ -1228,6 +1254,9 @@ if wx is not None:
 			self.owner._capture(self._addExit)
 
 		def _addExit(self, gesture) -> None:
+			if not self:
+				# Properties closed between the key and this running.
+				return
 			identifiers = list(gesture.normalizedIdentifiers)
 			if identifiers and identifiers[0] not in self.exitKeys:
 				self.exitKeys.append(identifiers[0])

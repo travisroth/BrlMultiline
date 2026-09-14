@@ -672,6 +672,16 @@ def checkKeyLayerDialog() -> list:
 		if properties.exitCtrl.GetCount() != 1:
 			failures.append("a Monarch layer's properties do not list space with z to leave")
 		properties.Destroy()
+		# Properties cancelled while Add exit key waits: the capture must not outlive it, or every key
+		# NVDA gets is swallowed. Shown modally it would wait for a person, so ShowModal is stood in for.
+		showModal = kd._PropertiesDialog.ShowModal
+		kd._PropertiesDialog.ShowModal = lambda self: (self._onAddExit(None), wx.ID_CANCEL)[1]
+		try:
+			dialog._onProperties(None)
+		finally:
+			kd._PropertiesDialog.ShowModal = showModal
+		if inputCore.manager._captureFunc is not None or dialog._captor is not None:
+			failures.append("cancelling Properties while it waited for an exit key left the capture on")
 	finally:
 		dialog._stopCapture()
 		dialog.Destroy()

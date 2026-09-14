@@ -431,6 +431,10 @@ class TestLockScreen(DispatchTestCase):
 		dispatch.save(layers.withLayer(replace(graphics, bindings=bindings)))
 		self.assertEqual(self.commands.script_dateTime, self.decide(BrailleKey(MONARCH, "leftDpadUp")))
 
+	def test_aKeyThatDoesNothingStillDoesNothing(self):
+		"""Refused, it would be left to NVDA, which could run its ordinary command if that were safe."""
+		self.assertIsNot(ordinaryScript, self.decide(BrailleKey(MONARCH, "space+dot3", ordinaryScript)))
+
 	def test_unlockedEverythingRuns(self):
 		self.locked = False
 		self.assertEqual(self.plugin.script_panUp, self.decide(BrailleKey(MONARCH, "leftDpadUp")))
@@ -591,6 +595,58 @@ class TestComingOnByItself(DispatchTestCase):
 		self.auto(["graphics"])
 		dispatch.activate(MONARCH, "reading")
 		self.assertFalse(dispatch.isAutomatic(MONARCH))
+
+	def test_choosingAnotherLayerDeclinesTheOneThatCameOnByItself(self):
+		"""The whole sequence: chosen away, then turned off, with the drawing still up."""
+		self.auto(["graphics"])
+		dispatch.activate(MONARCH, "reading")
+		dispatch.toggle(MONARCH)
+		self.assertNotIn(MONARCH, [device for device, _layer in self.auto(["graphics"])])
+		dispatch.endLayersOutOfContext([], self.DETECTED)
+		self.auto([])
+		self.assertIn((MONARCH, "graphics"), self.auto(["graphics"]))
+
+	def test_choosingTheSameLayerOnlyMakesItTheReaders(self):
+		self.auto(["graphics"])
+		dispatch.activate(MONARCH, "graphics")
+		self.assertFalse(dispatch.isAutomatic(MONARCH))
+		dispatch.toggle(MONARCH)
+		self.assertIn((MONARCH, "graphics"), self.auto(["graphics"]), "never declined, so it comes back")
+
+
+class TestReconciling(TestComingOnByItself):
+	def reconcile(self, present):
+		ended, started = dispatch.reconcile(present, (MONARCH, KEYBOARD), self.DETECTED)
+		return [(device, layer.id) for device, layer in ended], [(device, layer.id) for device, layer in started]
+
+	def test_aProfileWhoseLayerComesOnByItselfBringsItOnWithTheDrawingAlreadyUp(self):
+		self.stored[MONARCH] = monarchSet().toText()
+		dispatch.reload()
+		self.reconcile(["graphics"])
+		self.assertIsNone(dispatch.activeLayer(MONARCH))
+		self.stored[MONARCH] = monarchSet().withLayer(replace(monarchSet().get("graphics"), autoEnable=True)).toText()
+		dispatch.reload()
+		self.assertEqual(([], [(MONARCH, "graphics")]), self.reconcile(["graphics"]))
+
+	def test_aLayerThatNoLongerComesOnByItselfGoes(self):
+		self.auto(["graphics"])
+		layers = dispatch.layerSet(MONARCH)
+		dispatch.save(layers.withLayer(replace(layers.get("graphics"), autoEnable=False)))
+		ended, started = self.reconcile(["graphics"])
+		self.assertIn((MONARCH, "graphics"), ended)
+		self.assertIsNone(dispatch.activeLayer(MONARCH))
+		self.assertNotIn(MONARCH, [device for device, _layer in started])
+
+	def test_aLayerTheReaderChoseIsLeftAlone(self):
+		dispatch.activate(KEYBOARD, "graphics")
+		layers = dispatch.layerSet(MONARCH)
+		dispatch.save(layers.withLayer(replace(layers.get("graphics"), autoEnable=False)))
+		self.reconcile(["graphics"])
+		self.assertEqual("graphics", dispatch.activeLayer(KEYBOARD).id)
+
+	def test_nothingChangedChangesNothing(self):
+		self.reconcile(["graphics"])
+		self.assertEqual(([], []), self.reconcile(["graphics"]))
 
 
 class TestInstall(unittest.TestCase):

@@ -940,6 +940,45 @@ goes with its context".
 5. Make the keyboard's graphics layer come on by itself in Properties, and put a drawing up: both
    layers come on, named once.
 
+#### What the code review after phase 3 found
+
+A review of phases 0 to 3, the same day. Fixed:
+
+1. **Cancelling Properties while Add exit key waited left NVDA's capture on**, so every key NVDA
+   got was swallowed. The capture now stops however Properties closes. `nvdareal.py --dialog`
+   checks it, and failed before the fix.
+2. **Change removed the old key before a new one was accepted**, so escape, a refused key or a
+   declined question lost it. The old key now goes in the same edit that adds the new one.
+3. **Choosing another layer did not decline the one that came on by itself.** It does now, as
+   pressing the layer key does. Choosing the same layer only makes it the reader's.
+4. **Layers that come on by themselves were decided only when the drawing changed.** A profile
+   switch that read other layers, or a display reconnecting with a drawing up, could leave the
+   wrong layer on or off. `keyLayerDispatch.reconcile` decides it in one place, after the drawing
+   changes and after every rebuild, which a profile switch and a reconnect both cause. A layer
+   that came on by itself and is no longer marked to goes.
+5. **Editing a layer moved it to the end of the list**, which changed the Choose layer list and,
+   with two layers for one context, which one wins. `LayerSet.withLayer` now replaces in place.
+6. **The keys of the per display layer key commands, `keyLayerToggleDisplay0` and on, were not
+   reserved**, so a layer could take the key meant to turn it off.
+7. **A key that does nothing in a layer was refused on the lock screen**, as it is not on NVDA's
+   safe list, and the key was left to NVDA, which could run its ordinary command. It is safe
+   anywhere, so it is no longer asked about.
+8. **The Preferences menu item's handler was not unbound** when the add-on unloaded, which kept
+   the old plugin alive. It is unbound and the item destroyed.
+
+Found and left:
+
+1. **The Monarch's side specific names are not used as keyboard modifiers.** NVDA combines a
+   braille key bound to an emulated modifier, such as a d-pad bound to control, with the other
+   keys pressed through `gesture.keyNames`, and the Monarch driver changes the gesture's id to
+   `rightDpadUp` but keeps NVDA's `dpadUp` in `keyNames`. A d-pad bound as a modifier under its
+   NVDA name works, on both pads; under its side specific name it does not. Setting `keyNames` to
+   the new names would break the first, so a fix means an alias aware override of the gesture's
+   script lookup. Nobody binds a d-pad as a modifier today.
+2. **Two layers for one context have no priority but their order.** The first in the list wins,
+   for the layer key and for coming on by itself. Stable now that editing keeps the order, but
+   the dialog cannot reorder layers. See phase 4.
+
 ### Phase 4, only if wanted
 
 1. Per layer activation keys, so a layer can be reached directly without the context
@@ -950,6 +989,10 @@ goes with its context".
 5. Storing only a reader's differences from the shipped layers, so an improvement to what ships
    reaches a reader who has saved layers of their own. See "Saved layers replace the shipped ones
    whole". It changes the stored form, and what clearing a layer and deleting one mean.
+6. Either one layer per context, enforced in Properties, or a way to order layers in the dialog,
+   so which of two layers for a context wins is the reader's choice rather than the order they
+   were made in.
+7. The Monarch's side specific key names as emulated modifiers. See the code review after phase 3.
 
 ## Decided with the reader, 14 September 2026
 

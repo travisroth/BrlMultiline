@@ -131,6 +131,14 @@ class TestLayers(unittest.TestCase):
 		self.assertIsNotNone(layers.get("chart"))
 		self.assertEqual(3, len(layers.layers))
 
+	def test_withLayerKeepsAnEditedLayerWhereItWas(self):
+		"""The order is the Choose layer list's, and which of two layers for a context wins."""
+		before = [layer.id for layer in monarchLayers().layers]
+		edited = monarchLayers().withLayer(replace_(monarchLayers().layers[1], name="Renamed"))
+		self.assertEqual(before, [layer.id for layer in edited.layers])
+		added = monarchLayers().withLayer(newLayer(MONARCH, "brandNew", "New"))
+		self.assertEqual([*before, "brandNew"], [layer.id for layer in added.layers])
+
 
 def replace_(layer, **changes):
 	from dataclasses import replace

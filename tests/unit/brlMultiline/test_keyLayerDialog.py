@@ -200,6 +200,21 @@ class TestKeys(EditorTestCase):
 	def test_theSameCommandAgainIsNoConflict(self):
 		self.assertEqual(dialog.Check(), self.editor.check(SAY_LINE, monarch("leftDpadDown")))
 
+	def test_changingAKeyRemovesTheOldOneInTheSameEdit(self):
+		self.editor.add(SAY_LINE, monarch("rightDpadDown"), replacing=monarch("leftDpadDown"))
+		self.assertEqual({monarch("rightDpadDown"): SAY_LINE.target}, self.editor.layer.bindings)
+
+	def test_aChangeToTheSameKeyKeepsIt(self):
+		self.editor.add(SAY_LINE, monarch("leftDpadDown"), replacing=monarch("leftDpadDown"))
+		self.assertEqual({monarch("leftDpadDown"): SAY_LINE.target}, self.editor.layer.bindings)
+
+	def test_aRefusedChangeLeavesTheOldKey(self):
+		with self.assertRaises(ValueError):
+			self.editor.add(
+				SAY_LINE, monarch("space+dot1+dot2+dot3+dot7"), replacing=monarch("leftDpadDown")
+			)
+		self.assertIn(monarch("leftDpadDown"), self.editor.layer.bindings)
+
 	def test_removingAKey(self):
 		self.editor.remove(monarch("leftDpadDown"))
 		self.assertEqual({}, self.editor.layer.bindings)
@@ -407,6 +422,14 @@ class TestGathering(unittest.TestCase):
 		self.assertEqual(
 			["kb:nvda+control+shift+l"],
 			dialog.reservedFromMappings({"a": {"t": toggle, "o": other}}, "keyLayer"),
+		)
+
+	def test_theKeysOfTheLayerKeyForEachDisplayAreReservedToo(self):
+		byPosition = types.SimpleNamespace(scriptName="keyLayerToggleDisplay0", gestures=["kb:nvda+alt+1"])
+		lookalike = types.SimpleNamespace(scriptName="keyLayerToggleDisplayed", gestures=["kb:nvda+alt+2"])
+		self.assertEqual(
+			["kb:nvda+alt+1"],
+			dialog.reservedFromMappings({"a": {"t": byPosition, "l": lookalike}}, "keyLayer"),
 		)
 
 	def test_aMembersOwnCommandsAreListedWithItsName(self):

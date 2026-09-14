@@ -1076,6 +1076,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Cleared last, so that reading the dimensions during the rebuild cannot
 			# schedule a second one for the change now being handled.
 			self._rebuildPending = False
+		# A display that reconnected while a drawing is up, or a profile whose layers were just read,
+		# can each change which layers should be on without the drawing changing. Both come here.
+		self.reconcileKeyLayers()
 
 	# Object monitoring
 
@@ -3162,16 +3165,22 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	to say in its message."""
 
 	def onGraphicsChanged(self) -> None:
-		"""What is drawn changed: turn off the layers whose drawing has gone, turn on the ones that come
-		on by themselves for what is drawn now, and say so.
+		"""What is drawn changed. Called by `GraphicsMode` whenever a figure goes up, comes down, is
+		replaced or is evicted."""
+		self.reconcileKeyLayers()
 
-		Called by `GraphicsMode` whenever a figure goes up, comes down, is replaced or is evicted. Tables
-		are not looked for here; see `keyLayerContexts`.
+	def reconcileKeyLayers(self) -> None:
+		"""Turn off the layers whose drawing has gone, turn on the ones that come on by themselves for
+		what is drawn now, and say so. See `keyLayerDispatch.reconcile`.
+
+		Also after a profile switch and a display reconnecting, which is why it is not only for graphics
+		changes. Tables are not looked for here; see `keyLayerContexts`.
 		"""
 		try:
 			present = keyLayerContexts.presentContexts(self, tables=False)
-			ended = keyLayerDispatch.endLayersOutOfContext(present, keyLayerContexts.DETECTED)
-			started = keyLayerDispatch.autoEnable(present, self.keyLayerDevices(), keyLayerContexts.DETECTED)
+			ended, started = keyLayerDispatch.reconcile(
+				present, self.keyLayerDevices(), keyLayerContexts.DETECTED
+			)
 		except Exception:
 			log.error("BrlMultiline: could not change the layers for a drawing", exc_info=True)
 			return
@@ -3235,7 +3244,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return
 		self._keyLayersMenuItem = None
 		try:
-			gui.mainFrame.sysTrayIcon.preferencesMenu.Remove(item)
+			tray = gui.mainFrame.sysTrayIcon
+			# Unbound as well as removed: a binding left on the tray icon keeps this plugin alive after
+			# the add-on reloads, and would call it if wx gave the id to another item.
+			tray.Unbind(wx.EVT_MENU, source=item, handler=self._onKeyLayersMenu)
+			tray.preferencesMenu.DestroyItem(item)
 		except Exception:
 			log.debugWarning("BrlMultiline: could not remove the layered keys menu item", exc_info=True)
 

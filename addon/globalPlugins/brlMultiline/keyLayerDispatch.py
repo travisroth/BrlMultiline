@@ -175,10 +175,17 @@ def activeLayers() -> list:
 
 
 def activate(device: str, layerId: str) -> Optional[Layer]:
-	""":return: the layer now on, or None if the device has no such layer. Turned on by the reader."""
+	""":return: the layer now on, or None if the device has no such layer. Turned on by the reader.
+
+	Choosing another layer in place of one that came on by itself turns that one off by the reader's
+	hand, so its context is declined as if they had pressed the layer key. Choosing the same layer
+	only makes it theirs.
+	"""
 	layer = layerSet(device).get(layerId)
 	if layer is None:
 		return None
+	if device in _automatic and _active.get(device) != layer.id:
+		deactivate(device)
 	_active[device] = layer.id
 	_automatic.discard(device)
 	log.info(f"{LOG_PREFIX}{device} layer {layer.id!r} on, {layer.style}")
@@ -269,6 +276,35 @@ def endLayersOutOfContext(present, detected) -> list:
 		ended.append((device, layer))
 		log.info(f"{LOG_PREFIX}{device} layer {layer.id!r} off, its {layer.context} context has gone")
 	return ended
+
+
+def reconcile(present, devices, detected) -> tuple:
+	"""Bring the layers into line with what is on the display: the one place that decides it.
+
+	Called whenever something that decides it may have changed without the drawing changing: the
+	drawing itself, a profile switch that read other layers, and a display reconnecting. Each of those
+	alone left a layer on that should have gone, or off that should have come on.
+
+	1. A layer that came on by itself and is no longer marked to, since a profile or an edit changed
+	   it, goes. Nothing the reader chose is touched.
+	2. A layer whose context has gone goes. See L{endLayersOutOfContext}.
+	3. Each device with no layer on takes the one that comes on by itself for what is there. See
+	   L{autoEnable}.
+
+	:return: (ended, started), each (device, layer) pairs.
+	"""
+	ended = []
+	for device in sorted(_automatic):
+		layer = activeLayer(device)
+		if layer is not None and layer.autoEnable:
+			continue
+		deactivate(device, byReader=False)
+		if layer is not None:
+			ended.append((device, layer))
+			log.info(f"{LOG_PREFIX}{device} layer {layer.id!r} off, it no longer comes on by itself")
+	ended.extend(endLayersOutOfContext(present, detected))
+	started = autoEnable(present, devices, detected)
+	return ended, started
 
 
 def allOff() -> list:
@@ -408,7 +444,9 @@ def _decide(gesture=None, **kwargs) -> bool:
 def _run(gesture, device: str, key: str, decision) -> None:
 	target: Target = decision.target
 	script, found = scriptFor(target, gesture)
-	if not allowedOnLockScreen(script):
+	# A key that does nothing is safe anywhere. Refusing it would leave the key to NVDA, which could
+	# run its ordinary command, and "does nothing in this layer" has to hold on the lock screen too.
+	if target.kind != keyLayers.BLOCKED and not allowedOnLockScreen(script):
 		# Left to NVDA, whose own lookup applies the same rule to whatever the key ordinarily does.
 		log.info(f"{LOG_PREFIX}{key} on {device}: {target.describe()} refused on the lock screen")
 		return
