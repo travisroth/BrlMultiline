@@ -383,6 +383,14 @@ class TestAZoomedWindowIsSpacedEvenly(unittest.TestCase):
 	def test_aWindowAtTheEndStaysInsideTheData(self):
 		self.assertIn("d202 to d249", self.window(238, 40).name)
 
+	def test_aWindowAgainstTheEndIsWidenedBackwardsNotOffTheEnd(self):
+		"""Widened about its middle, a window ending on the last day came back a day short of it, and
+		the last close could not be panned to. Found on hardware at one pin per point."""
+		self.assertTrue(self.window(156, 94).name.endswith("d154 to d249"))
+
+	def test_aWindowAgainstTheStartIsWidenedForwards(self):
+		self.assertIn("d0 to d95", self.window(0, 94).name)
+
 	def test_aCompressedWindowIsLeftAsItIs(self):
 		"""No spacing makes two hundred points across ninety-six pins even."""
 		window = self.window(0, 200)

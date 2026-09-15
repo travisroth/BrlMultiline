@@ -45,10 +45,30 @@ from brlMultiline.chartDraw import (  # noqa: E402
 	numberText,
 	roundedText,
 	textRowsFor,
+	windowOf,
 	writeAt,
 	writeFrame,
 	writeRightAt,
 )
+
+
+class TestAWindowOfTheData(unittest.TestCase):
+	"""The mode's window, in fractions of a figure, turned into the points a chart draws."""
+
+	def test_aWindowAgainstTheEndEndsAtTheLastPoint(self):
+		"""A year of prices panned hard right stopped a day short of the end, because the start and
+		the width were each rounded and came to one point less than the data. Found on hardware."""
+		for count in range(100, 400):
+			for visible in range(8, 96):
+				offset, span = (96 - visible) / 96, visible / 96
+				with self.subTest(count=count, visible=visible):
+					self.assertEqual(count, windowOf(count, offset, span, 2)[1])
+
+	def test_aWindowAgainstTheStartStartsAtTheFirstPoint(self):
+		self.assertEqual(0, windowOf(260, 0.0, 37 / 96, 2)[0])
+
+	def test_aWindowInTheMiddleIsWhereItWasAskedFor(self):
+		self.assertEqual((100, 150), windowOf(1000, 0.1, 0.05, 2))
 
 
 def spell(text):
@@ -184,7 +204,7 @@ class TestWriting(unittest.TestCase):
 		self.assertEqual(writeAt(buffer, 0, 0, spell, "abcdef", room=2), 2)
 
 	def test_aNumberIsWrittenWholeOrNotAtAll(self):
-		""""330" for 33000 is a different number said with confidence, so it is left out and the
+		""" "330" for 33000 is a different number said with confidence, so it is left out and the
 		reader gets it by pointing at the chart instead."""
 		buffer = self.buffer()
 		self.assertEqual(writeAt(buffer, 0, 0, spell, "33000", room=3, whole=True), 0)

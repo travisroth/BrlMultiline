@@ -218,11 +218,25 @@ def windowOf(count: int, offset: float, span: float, least: int) -> tuple:
 	:param offset: where the window starts, as a fraction of the whole.
 	:param span: how much of the whole is in it.
 	:param least: the fewest points the chart can be drawn from.
-	:return: (first, last) as a Python slice, never empty and never wider than the data.
+	:return: (first, last) as a Python slice, never empty and never wider than the data. A window
+		the mode has against the right hand edge ends at the last point.
 	"""
 	take = max(least, min(count, int(round(span * count))))
+	if offset + span >= 1 - EDGE_TOLERANCE:
+		# Against the end, so it ends at the end. Rounded separately, the start and the width could
+		# come to a point short of it, and panning right stopped a day before the data did: a year of
+		# prices whose last close could not be reached. Found on hardware.
+		return count - take, count
 	first = max(0, min(count - take, int(round(offset * count))))
 	return first, first + take
+
+
+EDGE_TOLERANCE = 1e-6
+"""How close to the end of a drawing, as a fraction of it, a window counts as against the end.
+
+The mode's window is whole dots of a figure a panel wide, so a window against the end is exactly
+one; this only absorbs the float division that says so.
+"""
 
 
 def textRowsFor(height: int, translate: Optional[Callable], minPlot: int = MIN_PLOT_ROWS) -> int:

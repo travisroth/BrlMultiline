@@ -372,7 +372,10 @@ def _reframer(
 def _snapped(count: int, first: int, last: int, width: int) -> tuple:
 	"""Adjust a window so its points are a whole number of pins apart.
 
-	About the window's middle, which is where the mode keeps the reader's place.
+	About the window's middle, which is where the mode keeps the reader's place, except at an end of
+	the data. A window against an end stays against it: widened or narrowed about its middle, one
+	that ended on the last day came back a day short of it, and no amount of panning reached the
+	last close. Found on hardware, a year of prices at one pin per point.
 
 	:param count: how many points the whole chart has.
 	:param first: the window's first point.
@@ -390,6 +393,10 @@ def _snapped(count: int, first: int, last: int, width: int) -> tuple:
 	fits = (width - 1) // pitch + 1
 	if fits > count:
 		return first, last, None
+	if last >= count:
+		return count - fits, count, pitch
+	if first <= 0:
+		return 0, fits, pitch
 	middle = first + take / 2
 	first = max(0, min(count - fits, int(round(middle - fits / 2))))
 	return first, first + fits, pitch

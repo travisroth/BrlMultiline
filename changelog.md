@@ -15,6 +15,11 @@ Added:
   fingertip, two columns and three rows each way, and reads every line inside it at the same
   day, where before it could miss a line a column away.
 
+- **Panning a zoomed chart reaches the last point.** Panned hard right, a chart could stop one
+  period short of the end of its data, so a year of prices never showed its last close. It
+  depended on how the rounding fell for that many points, and bar and price charts could lose the
+  last period the same way.
+
 - **Graphics keys moved into layers, freeing the Monarch's keyboard.** Only show or hide a drawing,
   chart the selection and draw the picture are still bound for good. Magnify, shrink, pan and the
   braille line keep their space with dot 7 and dot 8 chords but only in the graphics layer, which

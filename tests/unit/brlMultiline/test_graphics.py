@@ -1761,6 +1761,28 @@ class TestZoomingToOnePinPerPoint(unittest.TestCase):
 		self.assertIn("1 pin per point", self.mode.drawing.name)
 		self.assertIn(f"{PIN_WIDTH} points", self.mode.drawing.name)
 
+	def test_panningReachesTheFirstAndLastPointsAtOnePinPerPoint(self):
+		"""A year of daily prices, panned hard right, stopped a day before the data did. Checked over
+		a spread of lengths, since whether a point was lost depended on how the rounding fell."""
+		from brlMultiline.chartLine import Line, lineChart
+
+		width, height = self.mode.drawingSize()
+		for count in (200, 207, 233, 260, 261, 999):
+			with self.subTest(count=count):
+				labels = [f"d{index}" for index in range(count)]
+				values = [index % 7 for index in range(count)]
+				self.mode.enter(
+					lineChart(self.mode.newBuffer, width, height, [Line("Close", values)], labels)
+				)
+				self.assertTrue(self.mode.zoomToPoints())
+				step = self.mode.panStep()
+				while self.mode.panBy(*step):
+					pass
+				self.assertTrue(self.mode.drawing.name.endswith(f"to d{count - 1}"), self.mode.drawing.name)
+				while self.mode.panBy(-step[0], 0):
+					pass
+				self.assertIn(", d0 to", self.mode.drawing.name)
+
 
 class TestAFigureShownAnotherWay(unittest.TestCase):
 	"""A chart showing some of its lines, with the zoom and the place kept.
