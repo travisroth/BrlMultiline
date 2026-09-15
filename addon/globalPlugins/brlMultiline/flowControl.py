@@ -419,7 +419,7 @@ class FlowController(PanelOwner):
 			if self.window.rowsAbove() >= rows:
 				return
 			if self.source.budget.refuseIfExhausted():
-				self.window.setEdge(Edge.BEFORE, EdgeState.DEFERRED)
+				self._deferEdge(Edge.BEFORE)
 				return
 			if not self._fetchOne(Edge.BEFORE):
 				return
@@ -541,12 +541,19 @@ class FlowController(PanelOwner):
 		symbol on the band and the rest written out. The same is true of a band moved to
 		another display, in either direction.
 
+		**An operation, like every other redraw.** A symbol shortens a row, so the band can come
+		out short and fetch the block below — and a fetch outside an operation starts the
+		budget with nothing to finish it. Every pan after that ran inside one endless
+		operation, and a quarter second later every fetch was refused: a band of rows saying
+		there was more that would not pan to it.
+
 		:param target: the display the band is drawn on, as `glyphFlow.targetForRows` gives it.
 		"""
 		if target == self.renderer.glyphTarget:
 			return
 		self.renderer.glyphTarget = target
-		self._redrawBlocks(why="a different display to draw glyphs on")
+		with self.operation():
+			self._redrawBlocks(why="a different display to draw glyphs on")
 
 	def useColumnPage(self, plan) -> bool:
 		"""Show a page of columns, and read what the page needs.
@@ -1038,13 +1045,28 @@ class FlowController(PanelOwner):
 			if self.source.budget.refuseIfExhausted():
 				# Out of budget, not out of document. Said so on the display, so that the
 				# rows the reader cannot see yet do not read as the end of the page.
-				self.window.setEdge(edge, EdgeState.DEFERRED)
+				self._deferEdge(edge)
 				return added
 			if not self._fetchOne(edge):
 				return added
 			added = True
 		log.debugWarning(f"A flow stopped fetching {edge.value} after {MAX_FETCHES} blocks")
 		return added
+
+	def _deferEdge(self, edge: Edge) -> None:
+		"""Close one end of the band for want of budget, and say which budget.
+
+		The reason is recorded here as well as the state. Only the source's own answers used to
+		record one, so a budget stop reported whatever an earlier answer had said: a band
+		stalled for time was diagnosed as "this block already holds the line that follows it",
+		which sent the search to the wrong module.
+
+		:param edge: which end ran out.
+		"""
+		budget = self.source.budget
+		self.window.setEdge(edge, EdgeState.DEFERRED)
+		spent = "blocks" if budget.blocks >= budget.maxBlocks else "time"
+		self.edgeReasons[edge] = f"the operation ran out of {spent}"
 
 	def _fetchOne(self, edge: Edge) -> bool:
 		"""Ask the source for one more block at one end.
@@ -1061,7 +1083,7 @@ class FlowController(PanelOwner):
 			# Every path that fetches — filling, panning, cursor reach and long-block
 			# continuation — comes through here. Keeping the gate at that shared boundary
 			# prevents a caller from accidentally turning a per-operation budget into a hint.
-			self.window.setEdge(edge, EdgeState.DEFERRED)
+			self._deferEdge(edge)
 			return False
 		if self._continueBlock(edge):
 			# The block at this end has more rows of its own. They come before the next

@@ -463,7 +463,7 @@ SUBMENU = Glyph(
 """
 
 LINK = Glyph(
-	dots="4,6,10,12",
+	dots="7,6,10,12",
 	says="lnk",
 	stands="Role.LINK",
 	describes="a stroke rising to the right, going somewhere",

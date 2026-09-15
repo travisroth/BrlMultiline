@@ -824,7 +824,8 @@ class TestABandThatDrawsThem(GlyphTestCase):
 				continue
 			glyphFlow.restartFields(region)
 			glyphFlow.recordFieldText(region, 0, words)
-		control._redrawBlocks(why="the test said what NVDA wrote")
+		with control.operation():
+			control._redrawBlocks(why="the test said what NVDA wrote")
 
 	def rowOf(self, control, numCols=8):
 		""":return: the band's first row as text."""
@@ -868,6 +869,26 @@ class TestABandThatDrawsThem(GlyphTestCase):
 		self.assertEqual(self.rowOf(control), "lnk Sear")
 		control.drawGlyphsOn(self.target())
 		self.assertEqual(self.rowOf(control), "l Search")
+
+	def test_placingTheBandOnADisplayLeavesNoOperationRunning(self):
+		"""Laying the band out again is an operation, and has to end like one.
+
+		A symbol shortens a row, so the redraw can leave the band short and fetch the block
+		below. Outside an operation that fetch started the budget and nothing finished it:
+		every later pan ran inside that one endless operation, and once its quarter second
+		was spent every fetch was refused. On hardware that was a band of "more, not fetched"
+		rows that would not pan, reading Claude's reply in Chrome.
+		"""
+		from .test_flowControl import controllerOver
+
+		control = controllerOver(["lnk abcde", "second", "third"], numCols=8, numRows=2)
+		self.fields(control)
+		budget = control.source.budget
+		finished = budget.operations
+		control.drawGlyphsOn(self.target())
+		self.assertEqual(self.rowOf(control, numCols=7), "l abcde")
+		self.assertFalse(budget.active)
+		self.assertEqual(budget.operations, finished + 1)
 
 	def test_aBandWithNoShapesOnItSaysSo(self):
 		control = self.band("Search now")
