@@ -33,6 +33,7 @@ __all__ = [
 	"ChartRefused",
 	"GAP",
 	"MIN_PLOT_ROWS",
+	"NEAR_COLUMNS",
 	"NEAR_ROWS",
 	"Scale",
 	"Series",
@@ -70,6 +71,16 @@ NEAR_ROWS = 3
 A fingertip is several pins wide, so an exact hit on a one pin line is not something a reader
 can be asked for. Three rows is a little under one braille line, which is about the pad of a
 finger at this pitch.
+"""
+
+NEAR_COLUMNS = 2
+"""How far to either side of a press a line may pass and still count as under the finger.
+
+The other half of the finger. Asked for from hardware after a line that was plainly under a
+fingertip answered with the height instead: the press was checked only against the one data
+point nearest it, so a steep stretch of line a column or two over, or a point sharing a
+column with its neighbours, was never looked at. Two columns each way and three rows each
+way is about the pad of a finger resting on the panel.
 """
 
 

@@ -49,11 +49,20 @@ def _graphics(plugin) -> list:
 			return present
 		source = mode.source
 		picture = getattr(plugin, "_pictureDrawing", None)
-		if source is not None and picture is not None and source is picture:
+		redraws = source is not None and getattr(source, "redraw", None) is not None
+		if source is not None and (
+			(picture is not None and source is picture)
+			or (redraws and bool(getattr(source, "windowsVertically", False)))
+		):
+			# Asked of the drawing as well as of the plugin, because the plugin records its picture
+			# only once the drawing is up, and the layers are chosen while it goes up. A picture
+			# redraws itself too, so by the plugin's record alone a new picture, or a change of its
+			# style, read as a chart and brought the chart layer. A picture is the drawing with an up
+			# and a down to window over; a chart refits its values and has none.
 			present.append("picture")
-		elif source is not None and getattr(source, "redraw", None) is not None:
-			# Only a drawing composed from numbers can be composed again, and a chart is the one
-			# kind that is. See `graphicsMode.Drawing`.
+		elif redraws:
+			# Only a drawing composed from numbers can be composed again for part of itself without
+			# an up and a down, and a chart is the one kind that is. See `graphicsMode.Drawing`.
 			present.append("chart")
 		present.append("graphics")
 	except Exception:

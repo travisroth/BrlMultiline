@@ -75,6 +75,45 @@ found a keyboard layer that escape did not leave. With modifiers it is another k
 escape is left to NVDA.
 """
 
+SHIPPED = 2
+"""Which additions to the shipped layers a stored set has already been given. See L{SHIPPED_ADDITIONS}.
+
+Written with every set saved. A set stored before this was written has none, and reads as 1.
+"""
+
+SHIPPED_ADDITIONS = {
+	2: {
+		"layers": ("chart", "picture"),
+		"bindings": {
+			"graphics": (
+				"space+dot1+dot7",
+				"space+dot4+dot7",
+				"space+dot3+dot7",
+				"space+dot6+dot7",
+				"space+dot8",
+				"space+dot7",
+				"space+dot2+dot7",
+			),
+		},
+	},
+}
+"""What each revision of the shipped layers added, for sets saved before it.
+
+**Saved layers replace the shipped ones as a whole**, which is right for everything a reader
+changed and wrong for something the add-on moved. On 15 September 2026 zoom, pan and the braille
+line came out of NVDA's gesture map and into the graphics layer, and the chart and picture layers
+were added for the keys that came with them. A reader who had saved their layers the day before
+lost the chords and never got the layers: their saved set was read exactly as saved, so a chart
+came up with the graphics layer and nothing the chart keys were bound to. Found on hardware.
+
+So a set saved before a revision is given what that revision added, once: a shipped layer it has
+no layer of that id or context for, and a shipped key its layer of that id does not already bind.
+Nothing the reader changed is touched. Saving the set records the revision, so a layer the reader
+removes afterwards stays removed.
+
+Layers by id, bindings by layer id and key without the device, which is added per device.
+"""
+
 NEVER_END_A_LAYER = frozenset(
 	{
 		"braille_routeTo",
@@ -351,7 +390,10 @@ class LayerSet:
 		declined = set(declined)
 		for context in present:
 			if context in declined:
-				continue
+				# Nothing less specific either. A chart is also graphics, so a reader who turned the
+				# chart layer off would otherwise get the graphics layer on by itself in its place,
+				# which is overruling them with a different name.
+				return None
 			for layer in self.layers:
 				if layer.autoEnable and layer.context == context:
 					return layer
@@ -419,7 +461,8 @@ class LayerSet:
 		if problems:
 			raise LayerSetError("; ".join(problems))
 		return json.dumps(
-			{"version": VERSION, "layers": [layer.toStored() for layer in self.layers]}, sort_keys=True
+			{"version": VERSION, "shipped": SHIPPED, "layers": [layer.toStored() for layer in self.layers]},
+			sort_keys=True,
 		)
 
 	@classmethod
@@ -456,7 +499,63 @@ class LayerSet:
 			if layer.isDefault:
 				layer = replace(layer, context=None, fallsThrough=None, autoEnable=False)
 			layers.append(layer)
-		return cls(device, tuple(layers)), problem
+		read = cls(device, tuple(layers))
+		shipped = stored.get("shipped", 1)
+		if isinstance(shipped, int) and shipped < SHIPPED:
+			read, _added = withShippedAdditions(read, factory, shipped)
+		return read, problem
+
+
+def withShippedAdditions(layers: LayerSet, factory: Iterable, since: int) -> tuple:
+	"""Give a stored set what the shipped layers gained after it was saved. See L{SHIPPED_ADDITIONS}.
+
+	:param layers: the set as stored.
+	:param factory: the layers the device ships with now.
+	:param since: the revision the set was saved at.
+	:return: the set with the additions, and a short description of each thing added.
+	"""
+	shipped = {layer.id: layer for layer in factory}
+	added = []
+	for revision in range(since + 1, SHIPPED + 1):
+		additions = SHIPPED_ADDITIONS.get(revision, {})
+		for layerId in additions.get("layers", ()):
+			layer = shipped.get(layerId)
+			if layer is None or layers.get(layerId) is not None:
+				continue
+			if layer.context and any(own.context == layer.context for own in layers.layers):
+				# The reader made a layer for this already, and theirs is the one they want.
+				continue
+			if layer.fallsThrough and layers.get(layer.fallsThrough) is None:
+				layer = replace(layer, fallsThrough=None)
+			layers = layers.withLayer(layer)
+			added.append(f"the {layer.name or layer.id} layer")
+		for layerId, keys in additions.get("bindings", {}).items():
+			own = layers.get(layerId)
+			layer = shipped.get(layerId)
+			if own is None or layer is None:
+				continue
+			new = {}
+			for key in keys:
+				identifier = normalize(f"br({layers.device}):{key}")
+				if identifier in layer.bindings and identifier not in own.bindings:
+					new[identifier] = layer.bindings[identifier]
+			if new:
+				layers = layers.withLayer(replace(own, bindings={**own.bindings, **new}))
+				added.append(f"{len(new)} keys in the {own.name or own.id} layer")
+	return layers, added
+
+
+def storedShipped(text: str) -> int:
+	""":return: the shipped revision a stored text was saved at, 1 for one saved before revisions,
+	and L{SHIPPED} for nothing stored or text that cannot be read, which get the shipped layers whole."""
+	if not text:
+		return SHIPPED
+	try:
+		stored = json.loads(text)
+	except ValueError:
+		return SHIPPED
+	shipped = stored.get("shipped", 1) if isinstance(stored, dict) else SHIPPED
+	return shipped if isinstance(shipped, int) else SHIPPED
 
 
 # The decision
@@ -528,7 +627,12 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 
 	The Monarch's default layer is one shot and reads: the layer key, then a direction on the left
 	d-pad. Its graphics layer stays on, pans with the left d-pad and zooms with the zoom keys, and
-	comes on by itself with a drawing, since putting a drawing up is already asking for it. Its table
+	comes on by itself with a drawing, since putting a drawing up is already asking for it. It also
+	holds the space with dot 7 and dot 8 chords that pan, zoom and give the drawing the braille line,
+	which were global until 15 September 2026. Its chart layer and picture layer come on by themselves
+	instead of it for a chart or a picture, fall through to it for panning and zooming, and add plain
+	letters: on a chart o for one pin per point and v for the next set of lines, with dot 7 for the
+	previous; on a picture o for outlines, b for brightness and r for brightness reversed. Its table
 	layer stays on and moves by table cell with the left d-pad, and turns column pages with the zoom
 	keys; it comes on only from the layer key, since a table is somewhere the caret passes through.
 	The right d-pad is in none of them, so it stays the arrow keys, and the d-pad centre is not a key.
@@ -564,6 +668,18 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 			DEFAULT_ID,
 			bindings={normalize(key): command(reading[direction]) for key, direction in pad.items()},
 		)
+		# The chords these commands had when they were bound for good, kept in the layer so a reader
+		# who learned them keeps them: dot 7 on the arrow chords pans, dot 8 and dot 7 zoom, and dot 2
+		# with dot 7 gives the drawing the braille line.
+		chords = {
+			"space+dot1+dot7": "graphicsPanUp",
+			"space+dot4+dot7": "graphicsPanDown",
+			"space+dot3+dot7": "graphicsPanLeft",
+			"space+dot6+dot7": "graphicsPanRight",
+			"space+dot8": "graphicsZoomIn",
+			"space+dot7": "graphicsZoomOut",
+			"space+dot2+dot7": "toggleGraphicsTextLine",
+		}
 		graphics = newLayer(
 			device,
 			"graphics",
@@ -574,6 +690,36 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 				**{normalize(key): plugin(f"graphicsPan{direction}") for key, direction in pad.items()},
 				normalize(f"br({MONARCH}):zoomIn"): plugin("graphicsZoomIn"),
 				normalize(f"br({MONARCH}):zoomOut"): plugin("graphicsZoomOut"),
+				**{normalize(f"br({MONARCH}):{chord}"): plugin(name) for chord, name in chords.items()},
+			},
+		)
+		# Plain letters, which is what a layer for a kind of drawing can afford: nothing is typed into
+		# a chart or a picture, and the letter stops being a letter only while one is up.
+		charts = newLayer(
+			device,
+			"chart",
+			"Chart",
+			"chart",
+			autoEnable=True,
+			fallsThrough="graphics",
+			bindings={
+				normalize(f"br({MONARCH}):dot1+dot3+dot5"): plugin("graphicsZoomToPoints"),
+				normalize(f"br({MONARCH}):dot1+dot2+dot3+dot6"): plugin("graphicsNextView"),
+				normalize(f"br({MONARCH}):dot1+dot2+dot3+dot6+dot7"): plugin("graphicsPreviousView"),
+			},
+		)
+		pictures = newLayer(
+			device,
+			"picture",
+			"Picture",
+			"picture",
+			autoEnable=True,
+			fallsThrough="graphics",
+			bindings={
+				normalize(f"br({MONARCH}):dot1+dot3+dot5"): plugin("pictureOutlines"),
+				normalize(f"br({MONARCH}):dot1+dot2"): plugin("pictureBrightness"),
+				normalize(f"br({MONARCH}):dot1+dot2+dot3+dot5"): plugin("pictureReversed"),
+				normalize(f"br({MONARCH}):space+dot1+dot4+dot8"): plugin("pictureStyle"),
 			},
 		)
 
@@ -592,7 +738,7 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 				normalize(f"br({MONARCH}):zoomOut"): plugin("flowPreviousColumns"),
 			},
 		)
-		return [default, graphics, tables]
+		return [default, graphics, charts, pictures, tables]
 	if device == KEYBOARD:
 
 		def keypad(names, target):

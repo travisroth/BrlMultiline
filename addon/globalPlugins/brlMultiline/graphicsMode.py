@@ -153,6 +153,8 @@ class Drawing:
 		points: int = 0,
 		windowsVertically: bool = False,
 		note: str = "",
+		nextView=None,
+		pinsPerPoint: int = 0,
 	):
 		"""
 		:param buffer: the dots, a buffer from `GraphicsSurface.newBuffer`.
@@ -181,6 +183,13 @@ class Drawing:
 			work out from the panel. Empty for almost everything. The case it exists for is a
 			drawing that is legitimately blank -- a window on the empty middle of a shape --
 			where the panel has nothing to say and silence would read as a fault.
+		:param nextView: draws the whole of this figure shown another way, taking 1 for the
+			next way and -1 for the previous, and giving back a `Drawing`. Optional. A line
+			chart supplies one to show some of its lines and put the others aside; the figure
+			decides what its views are, and the mode only keeps the reader's place across them.
+		:param pinsPerPoint: how many pins across one point needs to be felt on its own, for a
+			figure whose zoom is counted in points. One for a line chart. Zero where there is
+			no such thing, which is everything a zoom to one pin per point means nothing for.
 		"""
 		self.buffer = buffer
 		self.name = name
@@ -189,6 +198,8 @@ class Drawing:
 		self.redraw = redraw
 		self.points = points
 		self.windowsVertically = windowsVertically
+		self.nextView = nextView
+		self.pinsPerPoint = pinsPerPoint
 
 	@property
 	def width(self) -> int:
@@ -376,8 +387,12 @@ class GraphicsMode(PanelOwner):
 		return self._drawing
 
 	@property
-	def zoom(self) -> int:
-		""":return: how many steps out from the whole drawing, 0 showing all of it."""
+	def zoom(self) -> float:
+		""":return: how many steps out from the whole drawing, 0 showing all of it.
+
+		A whole number on the ladder, and usually between two of them after a zoom to one pin
+		per point.
+		"""
 		return self._zoomStep
 
 	def fitScale(self, pins: PinRect) -> float:
@@ -408,7 +423,21 @@ class GraphicsMode(PanelOwner):
 		:return: the scale. One means a source dot is a pin; below one the drawing is
 			compressed to fit; above one it is magnified.
 		"""
-		return min(MAX_SCALE, self.fitScale(pins) * (ZOOM_FACTOR**self._zoomStep))
+		scale = self.fitScale(pins) * (ZOOM_FACTOR**self._zoomStep)
+		if self._countsPoints:
+			# `MAX_SCALE` is about a dot growing wider than a finger, and a figure that counts
+			# its zoom in points never grows a dot: it is composed again at the panel's own
+			# size for fewer points. Its limit is running out of points, which `_tooFewPoints`
+			# already says. Capped, a chart of a thousand days could never be zoomed closer
+			# than an eighth of them, which is still several days to a pin.
+			return scale
+		return min(MAX_SCALE, scale)
+
+	@property
+	def _countsPoints(self) -> bool:
+		""":return: whether the figure's zoom is measured in its points rather than its dots."""
+		source = self._source
+		return self._windows and source is not None and bool(source.pinsPerPoint) and bool(source.points)
 
 	@property
 	def origin(self) -> tuple:
@@ -586,6 +615,33 @@ class GraphicsMode(PanelOwner):
 		self._source = was
 		self._restore(restore)
 		return False
+
+	@property
+	def hasViews(self) -> bool:
+		""":return: whether the figure up can be shown another way. See `Drawing.nextView`."""
+		return self.active and getattr(self._source, "nextView", None) is not None
+
+	def changeView(self, direction: int) -> bool:
+		"""Show the figure the next or previous way it offers, keeping the zoom and the place.
+
+		Through `replaceSource`, for the reason it exists: the way to tell what one line of a
+		chart is doing is to feel the same days with and without the others, and a view change
+		that put the reader back at the whole chart would take them off those days.
+
+		:param direction: 1 for the next view, -1 for the previous.
+		:return: whether the new view is up. False leaves the old one exactly as it was.
+		"""
+		nextView = getattr(self._source, "nextView", None) if self.active else None
+		if nextView is None:
+			return False
+		try:
+			drawing = nextView(direction)
+		except Exception:
+			# A figure refusing a view says so by raising, with its reason; this knows nothing
+			# about charts, so it cannot tell a refusal from a fault and does not try.
+			log.debugWarning("BrlMultiline: a figure would not draw another view", exc_info=True)
+			return False
+		return self.replaceSource(drawing)
 
 	def setTextLines(self, lines: int) -> bool:
 		"""Change how much of the band stays braille, keeping the figure and where it is read.
@@ -1042,7 +1098,7 @@ class GraphicsMode(PanelOwner):
 		pins = surface.pinRectForCells(self._rect)
 		if pins.isEmpty:
 			return False
-		wanted = max(FIT, min(MAX_ZOOM_STEP, self._zoomStep + step))
+		wanted = self._stepFrom(step)
 		if wanted == self._zoomStep:
 			return False
 		if wanted > self._zoomStep and self._tooFewPoints(wanted):
@@ -1050,11 +1106,51 @@ class GraphicsMode(PanelOwner):
 			# period, which is not a chart. Refused rather than clamped, so that the zoom
 			# the reader is told matches the one they are feeling.
 			return False
-		if wanted > self._zoomStep and self.scale(pins) >= MAX_SCALE:
+		if wanted > self._zoomStep and self._atScaleCap(pins):
 			# The ladder has steps left but the scale cap has been reached, which happens to a
 			# drawing that started near the panel's own size. Saying no here keeps the reported
 			# zoom honest: a step that changes nothing on the panel should not change the number.
 			return False
+		return self._zoomTo(wanted, pins, surface)
+
+	def _stepFrom(self, step: int) -> float:
+		"""The ladder step a zoom key goes to from here.
+
+		From a step on the ladder that is simply the next one. From a zoom to one pin per
+		point, which is usually between two of them, it is the rung on the side the key points
+		to, so magnifying from 2.6 times goes to 4 and shrinking goes to 2, and the ladder is
+		back on its own numbers after one press rather than drifting at 5.2 and 1.3.
+
+		Past the top of the ladder, which only a zoom to one pin per point reaches, magnifying
+		stays where it is rather than going back down to the top rung.
+
+		:param step: how many levels in, negative for out.
+		:return: the step, which may be the current one where there is nowhere to go.
+		"""
+		here = self._zoomStep
+		if step > 0:
+			wanted = math.floor(here) + step
+		elif step < 0:
+			wanted = math.ceil(here) + step
+		else:
+			return here
+		return max(FIT, min(max(MAX_ZOOM_STEP, here), wanted))
+
+	def _atScaleCap(self, pins: PinRect) -> bool:
+		""":return: whether the drawing is already as large as the pins may make it.
+
+		:param pins: the rectangle the drawing occupies.
+		"""
+		return not self._countsPoints and self.scale(pins) >= MAX_SCALE
+
+	def _zoomTo(self, wanted: float, pins: PinRect, surface: GraphicsSurface) -> bool:
+		"""Go to a zoom step about the middle of the view, or stay put if it will not draw.
+
+		:param wanted: the step.
+		:param pins: the rectangle the drawing occupies.
+		:param surface: the display.
+		:return: whether the zoom changed.
+		"""
 		visibleX, visibleY = self._visible(pins)
 		centreX = self._originX + visibleX // 2
 		centreY = self._originY + visibleY // 2
@@ -1092,7 +1188,7 @@ class GraphicsMode(PanelOwner):
 		pins = surface.pinRectForCells(self._rect)
 		if pins.isEmpty:
 			return ""
-		wanted = max(FIT, min(MAX_ZOOM_STEP, self._zoomStep + step))
+		wanted = self._stepFrom(step)
 		if wanted == self._zoomStep:
 			if step > 0:
 				# Translators: reported when the drawing cannot be magnified any further
@@ -1104,7 +1200,7 @@ class GraphicsMode(PanelOwner):
 			# already does, because the picture or chart has run out of detail rather than
 			# because the display has run out of room.
 			return _("no more detail to show")
-		if step > 0 and self.scale(pins) >= MAX_SCALE:
+		if step > 0 and self._atScaleCap(pins):
 			# Translators: reported when the drawing is already as large as the pins can make
 			# it, so a further step would change the number and not the panel.
 			return _("as large as the pins can show")
@@ -1112,7 +1208,65 @@ class GraphicsMode(PanelOwner):
 		# so the view the reader already had was kept.
 		return _("this part will not draw")
 
-	def _tooFewPoints(self, step: int) -> bool:
+	def pointZoomRefusal(self) -> str:
+		""":return: why a zoom to one pin per point cannot happen, empty if it can.
+
+		Asked before the zoom rather than after it, unlike `zoomRefusal`, because both of these
+		are facts about the figure and the panel and neither depends on trying.
+		"""
+		if not self.active or self._rect is None:
+			return ""
+		source = self._source
+		if source is None or not self._countsPoints:
+			# Translators: reported when a zoom to one pin per point is asked for on a drawing
+			# that is not made of points, such as a picture.
+			return _("this drawing has no points to zoom to")
+		surface = findSurface()
+		if surface is None:
+			return ""
+		pins = surface.pinRectForCells(self._rect)
+		if pins.isEmpty:
+			return ""
+		if source.points * source.pinsPerPoint <= pins.width:
+			# Translators: reported when a zoom to one pin per point is asked for on a chart
+			# whose points already each have a pin or more in the whole-chart view.
+			return _("every point already has its own pin")
+		return ""
+
+	def zoomToPoints(self) -> bool:
+		"""Zoom a figure made of points to where each point has its own pin, and no more.
+
+		The view a ladder of doublings almost never lands on. Two hundred and fifty days across
+		ninety-six pins is 2.6 days to a pin whole and 1.3 at the first doubling, which is still
+		two days sharing a pin somewhere, and 0.65 at the next, which is every day a pin and a
+		half wide and a third of the panel's width given to spacing. The number that matters is
+		the one where nothing is shared and nothing is spent, and it is a fact about the data
+		and the panel rather than a power of two.
+
+		About the middle of the view, as every zoom is. The figure is then left to space the
+		points exactly, since the window a dot of origin can express is only close.
+
+		:return: whether the view is now at one pin per point. True where it already was.
+		"""
+		source = self._source
+		if source is None or self._rect is None or self.pointZoomRefusal():
+			return False
+		surface = findSurface()
+		if surface is None:
+			return False
+		pins = surface.pinRectForCells(self._rect)
+		if pins.isEmpty:
+			return False
+		across = max(MIN_WINDOW_POINTS, pins.width // source.pinsPerPoint)
+		# The window is `pins.width / scale` dots of a source `source.buffer.width` wide, and it
+		# should hold `across` of `source.points` points.
+		scale = pins.width * source.points / (across * source.buffer.width)
+		wanted = math.log2(scale / self.fitScale(pins)) / math.log2(ZOOM_FACTOR)
+		if abs(wanted - self._zoomStep) < 1e-9:
+			return True
+		return self._zoomTo(wanted, pins, surface)
+
+	def _tooFewPoints(self, step: float) -> bool:
 		"""Whether zooming this far would leave too little of the data to be a chart.
 
 		:param step: the zoom step being asked for.
@@ -1417,9 +1571,11 @@ class GraphicsMode(PanelOwner):
 			# Translators: reports a magnified drawing. Placeholders are what it is called, how
 			# many times larger than the whole-drawing view it is, and where in it the visible
 			# part sits.
+			# One decimal place, for a zoom to one pin per point that fell between two rungs of
+			# the ladder. "2.6041666 times" is a precision nobody can feel.
 			description = _("{name}, {times} times, {position}").format(
 				name=name,
-				times=ZOOM_FACTOR**self._zoomStep,
+				times=f"{round(ZOOM_FACTOR**self._zoomStep, 1):g}",
 				position=self.positionWords(),
 			)
 		if self.note:

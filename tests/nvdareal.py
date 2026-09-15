@@ -393,17 +393,12 @@ def checkGestures() -> list:
 	failures = []
 	plugin = loadPlugin()
 	bound = getattr(plugin.GlobalPlugin, "_GlobalPlugin__gestures", {})
+	# Only the commands that put a drawing up. Zoom, pan, the braille line, chart views and picture
+	# styles live in the Monarch's graphics, chart and picture layers; see `keyLayers.defaultLayers`.
 	wanted = {
 		"toggleGraphics",
-		"graphicsZoomIn",
-		"graphicsZoomOut",
-		"graphicsPanUp",
-		"graphicsPanDown",
-		"graphicsPanLeft",
-		"graphicsPanRight",
 		"chartSelection",
 		"drawPicture",
-		"pictureStyle",
 	}
 	missing = wanted - set(bound.values())
 	if missing:

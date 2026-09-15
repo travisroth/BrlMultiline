@@ -356,12 +356,122 @@ class TestDrawingThePictureHere(unittest.TestCase):
 		self.assertEqual(self.mode.shown[-1].width, 48)
 		self.assertEqual(self.mode.shown[-1].height, 20)
 
+	def test_eachStyleHasAKeyOfItsOwn(self):
+		"""Once a reader knows brightness reads a kind of picture, cycling through outlines to
+		reach it is a panel of something they already know they do not want."""
+		from brlMultiline import image as imageFigure
+
+		self.plugin.script_drawPicture(None)
+		self.plugin.script_pictureReversed(None)
+		self.assertEqual(self.plugin._pictureStyle, imageFigure.STYLES[2])
+		self.plugin.script_pictureBrightness(None)
+		self.assertEqual(self.plugin._pictureStyle, imageFigure.STYLES[1])
+		self.plugin.script_pictureOutlines(None)
+		self.assertEqual(self.plugin._pictureStyle, imageFigure.STYLES[0])
+		self.assertEqual(len(self.mode.shown), 4)
+		self.assertEqual(len(self.captures), 1, "a change of style copies nothing off the screen")
+
+	def test_theStyleAlreadyUpIsNotDrawnAgain(self):
+		self.plugin.script_drawPicture(None)
+		self.plugin.script_pictureOutlines(None)
+		self.assertEqual(len(self.mode.shown), 1)
+
+	def test_aStyleKeyWithNoPictureUpSaysSo(self):
+		self.plugin.script_pictureBrightness(None)
+		self.assertIn("There is no picture to change", flashedMessages)
+
 	def test_aNewPictureKeepsThePanelTheReaderAskedFor(self):
 		"""Same argument. Drawing a second picture is not a decision about the braille line."""
 		self.plugin.script_drawPicture(None)
 		self.mode.textLines = 0
 		self.plugin.script_drawPicture(None)
 		self.assertEqual(self.mode.textLines, 0)
+
+
+class TestTheChartKeys(unittest.TestCase):
+	"""The zoom to one pin per point and the view keys, which say why whenever they do nothing.
+
+	A key that does nothing and says nothing is indistinguishable from one that is not bound.
+	"""
+
+	class FakeMode:
+		def __init__(self, active=True, hasViews=True, pointRefusal="", zooms=True, changes=True):
+			self.active = active
+			self.hasViews = hasViews
+			self.pointRefusal = pointRefusal
+			self.zooms = zooms
+			self.changes = changes
+			self.directions = []
+
+		def pointZoomRefusal(self):
+			return self.pointRefusal
+
+		def zoomToPoints(self):
+			return self.zooms
+
+		def changeView(self, direction):
+			self.directions.append(direction)
+			return self.changes
+
+		def describe(self):
+			return "the chart now"
+
+	def setUp(self):
+		resetPluginState()
+		braille.handler = FakeHandler(MONARCH_ROWS, MONARCH_COLS)
+		self.plugin = GlobalPlugin()
+		self.addCleanup(self.tidy)
+		flashedMessages.clear()
+
+	def tidy(self):
+		try:
+			if not self.plugin._terminated:
+				self.plugin.terminate()
+		except Exception:
+			pass
+
+	def use(self, **kwargs):
+		self.plugin.graphicsMode = self.FakeMode(**kwargs)
+		return self.plugin.graphicsMode
+
+	def test_aZoomToOnePinPerPointSaysWhereItNowIs(self):
+		self.use()
+		self.plugin.script_graphicsZoomToPoints(None)
+		self.assertEqual(flashedMessages[-1], "the chart now")
+
+	def test_aZoomThatCannotHappenSaysWhy(self):
+		self.use(pointRefusal="every point already has its own pin")
+		self.plugin.script_graphicsZoomToPoints(None)
+		self.assertEqual(flashedMessages[-1], "every point already has its own pin")
+
+	def test_aZoomThatWillNotDrawSaysSo(self):
+		self.use(zooms=False)
+		self.plugin.script_graphicsZoomToPoints(None)
+		self.assertIn("will not draw", flashedMessages[-1])
+
+	def test_theViewKeysGoBothWays(self):
+		mode = self.use()
+		self.plugin.script_graphicsNextView(None)
+		self.plugin.script_graphicsPreviousView(None)
+		self.assertEqual(mode.directions, [1, -1])
+		self.assertEqual(flashedMessages[-1], "the chart now")
+
+	def test_aDrawingWithOneViewSaysSo(self):
+		mode = self.use(hasViews=False)
+		self.plugin.script_graphicsNextView(None)
+		self.assertEqual(mode.directions, [])
+		self.assertIn("only one view", flashedMessages[-1])
+
+	def test_aViewThatWillNotDrawSaysSo(self):
+		self.use(changes=False)
+		self.plugin.script_graphicsNextView(None)
+		self.assertIn("will not draw", flashedMessages[-1])
+
+	def test_withNoDrawingTheKeysSaySo(self):
+		self.use(active=False)
+		self.plugin.script_graphicsZoomToPoints(None)
+		self.plugin.script_graphicsNextView(None)
+		self.assertEqual(flashedMessages[-2:], ["No drawing", "No drawing"])
 
 
 class PluginTestCase(unittest.TestCase):

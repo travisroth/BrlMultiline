@@ -2620,19 +2620,23 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	# --- Graphics ------------------------------------------------------------------------
 	#
-	# The only commands in this add-on that arrive bound, and the reason is where the
-	# reader's hands are. Everything else is unbound on purpose: a reader assigns what they
-	# want, and an add-on helping itself to keystrokes is a nuisance. A drawing is different.
-	# The reader is at the display with a hand on the panel, and a command that needs the
-	# keyboard means taking that hand off the figure — which for zoom and pan is exactly the
-	# wrong moment, since what they are keeping track of is where their finger was.
+	# Only the commands that put a drawing up arrive bound here: show or hide a drawing, chart
+	# the selection, draw the picture. Everything else in this add-on is unbound on purpose, a
+	# reader assigns what they want, and an add-on helping itself to keystrokes is a nuisance.
+	# Those three are different because the reader is at the display with a hand on the panel,
+	# and a command that needs the keyboard means taking that hand off the figure.
 	#
-	# The chords are chosen to be collision free rather than mnemonic. `hidBrailleStandard`'s
+	# **Everything used while a drawing is up lives in a layer instead**, in
+	# `keyLayers.defaultLayers`: zoom, pan, the braille line, the chart's views and the picture's
+	# styles. They were global chords once, which took eleven chords off the Monarch's keyboard
+	# for good to serve something that is only on the display some of the time. A layer comes
+	# on with the drawing and goes with it, so the same keys are free the rest of the time, and
+	# a chart layer or a picture layer can use plain letters because nobody is typing into the
+	# drawing.
+	#
+	# The chords that remain are collision free rather than mnemonic. `hidBrailleStandard`'s
 	# gesture map, which the Monarch driver inherits whole, uses no chord containing dot 7 or
-	# dot 8 anywhere, so every chord here sits in space the standard map left empty and none
-	# of them shadows an existing binding. Dot 7 added to the four arrow chords that map
-	# already defines — dots 1, 4, 3 and 6 — pans, which is the one piece of mnemonic going:
-	# the arrow you already know, with a modifier on it.
+	# dot 8 anywhere, so they sit in space the standard map left empty.
 	#
 	# Named for the Monarch driver rather than for `hidBrailleStandard`, deliberately. The
 	# gesture offers both identifiers, and binding the standard one would take these chords
@@ -2822,7 +2826,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Translators: input help message for a command.
 		description=_("Graphics: Change how a picture is drawn"),
 		category=SCRIPT_CATEGORY,
-		gestures=["br(brlMultilineMonarch):space+dot1+dot4+dot8"],
 	)
 	def script_pictureStyle(self, gesture):
 		"""Draw the same picture the other way, without copying the screen again.
@@ -2837,6 +2840,41 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		has scrolled, the focus has moved, and a command that said it was changing the style
 		would have changed the picture too.
 		"""
+		self._choosePictureStyle(imageFigure.nextStyle(*self._pictureStyle))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Draw the picture as outlines"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_pictureOutlines(self, gesture):
+		self._choosePictureStyle(imageFigure.STYLES[0])
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Draw the picture by brightness"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_pictureBrightness(self, gesture):
+		self._choosePictureStyle(imageFigure.STYLES[1])
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Draw the picture by brightness, reversed"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_pictureReversed(self, gesture):
+		self._choosePictureStyle(imageFigure.STYLES[2])
+
+	def _choosePictureStyle(self, style: tuple) -> None:
+		"""Draw the picture up in one style, the one the cycling key or a direct key asked for.
+
+		A key for each as well as one that cycles, because once a reader has learned which style
+		reads a kind of picture, cycling through the other two to reach it is two panels of
+		something they already know they do not want.
+
+		:param style: one of `image.STYLES`.
+		"""
 		mode = self.graphicsMode
 		if self._picture is None or not mode.active or mode.source is not self._pictureDrawing:
 			# Not "is there a picture in hand" but "is the picture in hand the thing being
@@ -2845,7 +2883,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when the style key was pressed and no picture is up.
 			ui.message(_("There is no picture to change"))
 			return
-		self._pictureStyle = imageFigure.nextStyle(*self._pictureStyle)
+		if tuple(style) == tuple(self._pictureStyle):
+			# Already drawn that way. Composing it again would cost a moment and change nothing
+			# under the hand, so this only says what is there.
+			ui.message(mode.describe())
+			return
+		self._pictureStyle = tuple(style)
 		self._drawPicture(again=True)
 
 	def _drawPicture(self, again: bool) -> None:
@@ -2968,7 +3011,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Translators: input help message for a command.
 		description=_("Graphics: Magnify the drawing"),
 		category=SCRIPT_CATEGORY,
-		gestures=["br(brlMultilineMonarch):space+dot8"],
 	)
 	def script_graphicsZoomIn(self, gesture):
 		self._zoomGraphics(1)
@@ -2977,7 +3019,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Translators: input help message for a command.
 		description=_("Graphics: Shrink the drawing"),
 		category=SCRIPT_CATEGORY,
-		gestures=["br(brlMultilineMonarch):space+dot7"],
 	)
 	def script_graphicsZoomOut(self, gesture):
 		self._zoomGraphics(-1)
@@ -3033,9 +3074,74 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
+		description=_("Graphics: Zoom a chart to one pin per point"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_graphicsZoomToPoints(self, gesture):
+		"""Zoom a line chart to exactly where every point has a pin column of its own.
+
+		Its own key rather than a rung on the zoom ladder, because it is almost never a
+		doubling: it depends on how many points there are and how wide the panel is. O in the
+		Monarch's chart layer, for one.
+		"""
+		mode = self.graphicsMode
+		if not mode.active:
+			ui.message(_("No drawing"))
+			return
+		why = mode.pointZoomRefusal()
+		if why:
+			ui.message(why)
+			return
+		if not mode.zoomToPoints():
+			ui.message(", ".join((mode.describe(), _("this part will not draw"))))
+			return
+		ui.message(mode.describe())
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Show the next set of lines on a chart"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_graphicsNextView(self, gesture):
+		self._changeGraphicsView(1)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Show the previous set of lines on a chart"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_graphicsPreviousView(self, gesture):
+		self._changeGraphicsView(-1)
+
+	def _changeGraphicsView(self, direction: int) -> None:
+		"""Step through a chart's views, and say which lines are now showing.
+
+		V for view in the Monarch's chart layer, with dot 7 added to go back. The whole chart, each
+		line alone, then the first line with each of the others; see `chartLine.viewsFor`. The
+		zoom and the place are kept, so the same days can be felt with and without the rest.
+
+		:param direction: 1 for the next view, -1 for the previous.
+		"""
+		mode = self.graphicsMode
+		if not mode.active:
+			ui.message(_("No drawing"))
+			return
+		if not mode.hasViews:
+			# Translators: reported when the chart view keys are used on a drawing that can
+			# only be shown one way, such as a picture or a chart of a single line.
+			ui.message(_("This drawing has only one view"))
+			return
+		if not mode.changeView(direction):
+			# Translators: reported when a chart will not draw the lines just asked for at the
+			# part of it the reader has zoomed into, so the lines they had are kept.
+			ui.message(_("Those lines will not draw here"))
+			return
+		ui.message(mode.describe())
+
+	@script(
+		# Translators: input help message for a command.
 		description=_("Graphics: Move the drawing view up"),
 		category=SCRIPT_CATEGORY,
-		gestures=["br(brlMultilineMonarch):space+dot1+dot7"],
 	)
 	def script_graphicsPanUp(self, gesture):
 		self._panGraphics(0, -1)
@@ -3044,7 +3150,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Translators: input help message for a command.
 		description=_("Graphics: Move the drawing view down"),
 		category=SCRIPT_CATEGORY,
-		gestures=["br(brlMultilineMonarch):space+dot4+dot7"],
 	)
 	def script_graphicsPanDown(self, gesture):
 		self._panGraphics(0, 1)
@@ -3053,7 +3158,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Translators: input help message for a command.
 		description=_("Graphics: Move the drawing view left"),
 		category=SCRIPT_CATEGORY,
-		gestures=["br(brlMultilineMonarch):space+dot3+dot7"],
 	)
 	def script_graphicsPanLeft(self, gesture):
 		self._panGraphics(-1, 0)
@@ -3062,7 +3166,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Translators: input help message for a command.
 		description=_("Graphics: Move the drawing view right"),
 		category=SCRIPT_CATEGORY,
-		gestures=["br(brlMultilineMonarch):space+dot6+dot7"],
 	)
 	def script_graphicsPanRight(self, gesture):
 		self._panGraphics(1, 0)
@@ -3107,7 +3210,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Translators: input help message for a command.
 		description=_("Graphics: Show or hide the braille line beside the drawing"),
 		category=SCRIPT_CATEGORY,
-		gestures=["br(brlMultilineMonarch):space+dot2+dot7"],
 	)
 	def script_toggleGraphicsTextLine(self, gesture):
 		"""Give the drawing the whole display, or give the braille line back.

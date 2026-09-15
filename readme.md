@@ -453,7 +453,8 @@ Four kinds of chart can be drawn:
 - A **line chart** — up to four columns over a shared period, each with its own texture:
   solid, dashed, dotted, dash dot. The textures are read out in speech rather than drawn as a
   key, since a key on the panel would cost a quarter of the drawing to say what one sentence
-  says once.
+  says once. With three or four lines the first one is drawn two pins thick, because it is the
+  one you came for and the one you lose first where the textures cross.
 - **Open, high, low, close bars** — four columns as price bars.
 - **Candlesticks** — the same four columns drawn the other way.
 
@@ -467,6 +468,29 @@ selections that are ambiguous and not as a step on the way to every chart.
 A chart is composed for the space it is going into rather than shrunk to fit it, so the
 whole-drawing view is the natural one. Magnifying a chart composes it again with fewer bars,
 each wide enough to be named, rather than enlarging the dots it already drew.
+
+A zoomed line chart spaces its points a whole number of pins apart: one, two or three. Forty
+points spread exactly across 96 pins would sit 2.4 pins apart and come out as uneven gaps a
+finger feels as a wobble, so the window is widened or narrowed slightly until the spacing is
+even. The whole chart is never adjusted, since it has to show every point. The chart's name
+says how the points sit on the pins: "2.6 points per pin" when some share a column, "1 pin per
+point" when each has its own.
+
+**Graphics: Zoom a chart to one pin per point** goes straight to the view where every point has
+its own pin column, about the middle of what you are reading. With 250 points on a 96 pin panel
+that is 2.6 times, which no doubling reaches. Magnify and shrink from there go to the doublings
+either side of it.
+
+**Graphics: Show the next set of lines on a chart** and **Graphics: Show the previous set of
+lines on a chart** step through the whole chart, each line alone, and then, with three or more
+lines, the first line with each of the others. The zoom and your place are kept, every line
+keeps its texture, and the lines put aside still set the scale, so a line alone sits at exactly
+the height it had with the others.
+
+Pressing a routing key on a line chart answers for the line as drawn, anywhere within two
+columns and three rows of the press, which is about the pad of a finger. Every line inside that
+area is read, nearest first, at the one point under your finger: "Close 96.3, Lower 98.5, day
+149". Away from every line, it reads the height as a value instead.
 
 Every way this can fail says which way: not a spreadsheet, nothing selected, no numbers in
 the selection, a value that is not a number, more bars or periods than the display can hold,
@@ -753,19 +777,29 @@ what tells you something changed.
 
 See "Drawings and charts" above for what each of these does and what to expect of it.
 
-These have keys already:
+Only the commands that put a drawing up have keys of their own, so the Monarch's keyboard is not
+tied up while there is no drawing:
 
 - **Graphics: Draw the picture here** — space with dots 1, 4 and 7.
-- **Graphics: Change how a picture is drawn** — space with dots 1, 4 and 8.
 - **Graphics: Chart the selected cells** — space with dots 5 and 7.
-- **Graphics: Magnify the drawing** — space with dot 8.
-- **Graphics: Shrink the drawing** — space with dot 7.
-- **Graphics: Move the drawing view up** — space with dots 1 and 7.
-- **Graphics: Move the drawing view down** — space with dots 4 and 7.
-- **Graphics: Move the drawing view left** — space with dots 3 and 7.
-- **Graphics: Move the drawing view right** — space with dots 6 and 7.
-- **Graphics: Show or hide the braille line beside the drawing** — space with dots 2 and 7.
 - **Graphics: Show or hide a drawing on the display** — space with dots 7 and 8.
+
+Everything used while a drawing is up is in the Monarch's graphics, chart and picture layers,
+which come on by themselves with the drawing; see "Layered keys" below. With the layer on:
+
+- **Graphics: Magnify the drawing** — the zoom in key, or space with dot 8.
+- **Graphics: Shrink the drawing** — the zoom out key, or space with dot 7.
+- **Graphics: Move the drawing view up, down, left and right** — the left d-pad, or space with
+  dots 1, 4, 3 or 6, each with dot 7.
+- **Graphics: Show or hide the braille line beside the drawing** — space with dots 2 and 7.
+- **Graphics: Zoom a chart to one pin per point** — o, on a chart.
+- **Graphics: Show the next set of lines on a chart** — v, on a chart.
+- **Graphics: Show the previous set of lines on a chart** — v with dot 7, on a chart.
+- **Graphics: Draw the picture as outlines** — o, on a picture.
+- **Graphics: Draw the picture by brightness** — b, on a picture.
+- **Graphics: Draw the picture by brightness, reversed** — r, on a picture.
+- **Graphics: Change how a picture is drawn** — space with dots 1, 4 and 8, on a picture, which
+  cycles through the three.
 
 These two have none:
 
@@ -788,7 +822,7 @@ always does, so typing and reading carry on inside a layer.
 
 - **Layered keys: Turns the layer on or off for the device it is pressed on** — space with dots 1,
   2, 3 and 7 on the Monarch, NVDA+control+shift+l on the keyboard. With a drawing up it turns on
-  the graphics layer, otherwise the default layer. The default layer is one shot: it is off again
+  the chart, picture or graphics layer, whichever fits the drawing, otherwise the default layer. The default layer is one shot: it is off again
   after the next key.
 - **Layered keys: Chooses which layer is on for the device it is pressed on** — unassigned.
 - **Layered keys: Reports which layers are on** — unassigned.
@@ -804,9 +838,15 @@ The Monarch and the keyboard come with layers already:
 - **Monarch, default layer.** The layer key, then the left d-pad: up says the line, down says
   all, left reports the focus, right reports the window title.
 - **Monarch, graphics layer.** Comes on by itself when a drawing goes up, and goes when it comes
-  down. The left d-pad moves the drawing and the zoom keys magnify and shrink it. The right d-pad
-  goes on being the arrow keys. Turn it off with the layer key and it stays off until the drawing
-  is taken down and put up again.
+  down. The left d-pad moves the drawing and the zoom keys magnify and shrink it, and the space
+  with dot 7 and dot 8 chords do the same, along with space with dots 2 and 7 for the braille line.
+  The right d-pad goes on being the arrow keys. Turn it off with the layer key and it stays off
+  until the drawing is taken down and put up again.
+- **Monarch, chart layer.** Comes on by itself instead of the graphics layer when the drawing is a
+  chart, and gets every graphics layer key from it. Adds o to zoom to one pin per point, and v and
+  v with dot 7 for the next and previous set of lines. Other letters still type.
+- **Monarch, picture layer.** The same for a picture from the screen. Adds o for outlines, b for
+  brightness and r for brightness reversed, and space with dots 1, 4 and 8 to cycle through them.
 - **Monarch, table layer.** With the caret in a table on a web page, or a table laid out in columns
   on the display, the layer key turns it on. The left d-pad moves by table cell, and the zoom keys
   turn to the next and previous page of columns. It stays on until you turn it off.
@@ -818,9 +858,13 @@ The Monarch and the keyboard come with layers already:
 Other displays start with an empty default layer.
 
 Once you save a device's layers in the dialog, your saved layers are used instead of the ones it
-came with, as a whole. A later version of the add-on that improves the shipped layers will not
-change yours: use Reset to factory defaults in the dialog to take the new ones, which also drops
-your own changes for that device.
+came with, as a whole. A later version of the add-on that improves the shipped layers does not
+change what you changed. The exception is keys the add-on moved: when graphics keys came out of
+the global gestures on 15 September 2026, layers saved before then are given the chart and picture
+layers and the graphics layer's new chords, once, unless you already had a layer of your own for
+that kind of drawing or had used that key for something else. Remove one of them and save, and it
+stays removed. Use Reset to factory defaults in the dialog to take everything the add-on ships,
+which also drops your own changes for that device.
 
 #### The layered keys dialog
 

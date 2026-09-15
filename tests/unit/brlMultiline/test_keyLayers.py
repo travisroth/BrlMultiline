@@ -365,9 +365,16 @@ class TestAutomaticAndInherited(unittest.TestCase):
 	def test_aLayerThatDoesNotComeOnByItselfNeverDoes(self):
 		self.assertIsNone(monarchLayers().autoLayerFor(["chart", "graphics"]))
 
-	def test_aDeclinedContextIsSkipped(self):
-		self.assertEqual("graphics", self.layers().autoLayerFor(["chart", "graphics"], declined=["chart"]).id)
+	def test_aDeclinedContextBringsNothingOnByItself(self):
+		"""Nor anything less specific. A chart is also graphics, so skipping on to the graphics layer
+		would turn a layer on under a reader who had just turned the chart layer off."""
+		self.assertIsNone(self.layers().autoLayerFor(["chart", "graphics"], declined=["chart"]))
 		self.assertIsNone(self.layers().autoLayerFor(["graphics"], declined=["graphics"]))
+
+	def test_aNewMoreSpecificContextIsNotDeclinedByALessSpecificOne(self):
+		"""A reader who turned the graphics layer off on a picture and then charts something has put
+		up a different kind of drawing, and its layer comes on."""
+		self.assertEqual("chart", self.layers().autoLayerFor(["chart", "graphics"], declined=["graphics"]).id)
 
 	def test_keysFromBelowAreTheNearestAndNotTheLayersOwn(self):
 		layers = monarchLayers()
@@ -410,6 +417,64 @@ class TestDefaultLayers(unittest.TestCase):
 		)
 		self.assertEqual("flowNextColumns", tables.bindings[monarch("zoomIn")].scriptName)
 
+	def test_thePanZoomAndBrailleLineChordsLiveInTheGraphicsLayer(self):
+		"""They were global chords, which kept eleven chords of the Monarch's keyboard for good."""
+		graphics = LayerSet(MONARCH, tuple(keyLayers.defaultLayers(MONARCH, PLUGIN))).get("graphics")
+		self.assertEqual(
+			{
+				"space+dot1+dot7": "graphicsPanUp",
+				"space+dot4+dot7": "graphicsPanDown",
+				"space+dot3+dot7": "graphicsPanLeft",
+				"space+dot6+dot7": "graphicsPanRight",
+				"space+dot8": "graphicsZoomIn",
+				"space+dot7": "graphicsZoomOut",
+				"space+dot2+dot7": "toggleGraphicsTextLine",
+			},
+			{
+				chord: graphics.bindings[monarch(chord)].scriptName
+				for chord in (
+					"space+dot1+dot7",
+					"space+dot4+dot7",
+					"space+dot3+dot7",
+					"space+dot6+dot7",
+					"space+dot8",
+					"space+dot7",
+					"space+dot2+dot7",
+				)
+			},
+		)
+
+	def test_theChartLayerUsesLettersAndPansFromTheGraphicsLayer(self):
+		layers = LayerSet(MONARCH, tuple(keyLayers.defaultLayers(MONARCH, PLUGIN)))
+		chart = layers.get("chart")
+		self.assertEqual(
+			("chart", STAYS_ON, True, "graphics"),
+			(chart.context, chart.style, chart.autoEnable, chart.fallsThrough),
+		)
+		self.assertEqual("graphicsZoomToPoints", chart.bindings[monarch("dot1+dot3+dot5")].scriptName)
+		self.assertEqual("graphicsNextView", chart.bindings[monarch("dot1+dot2+dot3+dot6")].scriptName)
+		self.assertEqual(
+			"graphicsPreviousView", chart.bindings[monarch("dot1+dot2+dot3+dot6+dot7")].scriptName
+		)
+		target, found = layers.lookup("chart", [monarch("leftDpadUp")])
+		self.assertEqual(("graphicsPanUp", "graphics"), (target.scriptName, found.id))
+
+	def test_aLetterTheChartLayerDoesNotBindStillTypes(self):
+		layers = LayerSet(MONARCH, tuple(keyLayers.defaultLayers(MONARCH, PLUGIN)))
+		self.assertEqual(PASS, decide(layers, "chart", [monarch("dot1+dot4")], nothing).action)
+		self.assertEqual(RUN, decide(layers, "chart", [monarch("dot1+dot3+dot5")], nothing).action)
+
+	def test_thePictureLayerHasAKeyForEachStyleAndStillCycles(self):
+		layers = LayerSet(MONARCH, tuple(keyLayers.defaultLayers(MONARCH, PLUGIN)))
+		picture = layers.get("picture")
+		self.assertEqual(
+			("picture", True, "graphics"), (picture.context, picture.autoEnable, picture.fallsThrough)
+		)
+		self.assertEqual("pictureOutlines", picture.bindings[monarch("dot1+dot3+dot5")].scriptName)
+		self.assertEqual("pictureBrightness", picture.bindings[monarch("dot1+dot2")].scriptName)
+		self.assertEqual("pictureReversed", picture.bindings[monarch("dot1+dot2+dot3+dot5")].scriptName)
+		self.assertEqual("pictureStyle", picture.bindings[monarch("space+dot1+dot4+dot8")].scriptName)
+
 	def test_theRightPadAndTheCentreAreNeverBound(self):
 		"""The right pad stays the arrow keys; the centre is not a key at all."""
 		for layer in keyLayers.defaultLayers(MONARCH, PLUGIN):
@@ -451,6 +516,73 @@ class TestDefaultLayers(unittest.TestCase):
 		for device in (MONARCH, KEYBOARD):
 			layers = LayerSet(device, tuple(keyLayers.defaultLayers(device, PLUGIN)))
 			self.assertEqual(layers, LayerSet.fromText(device, layers.toText())[0])
+
+
+class TestLayersSavedBeforeTheShippedOnesChanged(unittest.TestCase):
+	"""Saved layers replace the shipped ones as a whole, which lost a reader the keys the add-on moved.
+
+	Zoom, pan and the braille line came out of NVDA's gesture map into the graphics layer, with new
+	chart and picture layers. A set saved the day before was read exactly as saved: no chart layer
+	came on with a chart and the chords did nothing. Found on hardware.
+	"""
+
+	def savedBefore(self):
+		""":return: the stored text of a Monarch set as it was saved before the change, with a
+		change of the reader's own in its default layer."""
+		default = newLayer(MONARCH, DEFAULT_ID, bindings={monarch("leftDpadDown"): SAY_LINE})
+		graphics = newLayer(
+			MONARCH,
+			"graphics",
+			"Graphics",
+			"graphics",
+			autoEnable=True,
+			bindings={monarch("leftDpadUp"): PAN_UP, monarch("space+dot8"): SAY_LINE},
+		)
+		stored = json.loads(LayerSet(MONARCH, (default, graphics)).toText())
+		del stored["shipped"]
+		return json.dumps(stored)
+
+	def read(self, text):
+		return LayerSet.fromText(MONARCH, text, keyLayers.defaultLayers(MONARCH, PLUGIN))[0]
+
+	def test_itIsGivenTheChartAndPictureLayers(self):
+		layers = self.read(self.savedBefore())
+		self.assertEqual("chart", layers.autoLayerFor(["chart", "graphics"]).id)
+		self.assertEqual("picture", layers.autoLayerFor(["picture", "graphics"]).id)
+		self.assertEqual("graphics", layers.get("chart").fallsThrough)
+
+	def test_itsGraphicsLayerIsGivenTheChordsItDoesNotBind(self):
+		graphics = self.read(self.savedBefore()).get("graphics")
+		self.assertEqual("graphicsPanUp", graphics.bindings[monarch("space+dot1+dot7")].scriptName)
+		self.assertEqual("toggleGraphicsTextLine", graphics.bindings[monarch("space+dot2+dot7")].scriptName)
+
+	def test_nothingTheReaderChangedIsTouched(self):
+		layers = self.read(self.savedBefore())
+		self.assertEqual(SAY_LINE, layers.default.bindings[monarch("leftDpadDown")])
+		self.assertEqual(SAY_LINE, layers.get("graphics").bindings[monarch("space+dot8")])
+
+	def test_aLayerTheReaderMadeForTheContextIsKeptInsteadOfOurs(self):
+		stored = json.loads(self.savedBefore())
+		stored["layers"].append(
+			newLayer(MONARCH, "myCharts", "My charts", "chart", autoEnable=True).toStored()
+		)
+		layers = self.read(json.dumps(stored))
+		self.assertIsNone(layers.get("chart"))
+		self.assertEqual("myCharts", layers.autoLayerFor(["chart", "graphics"]).id)
+
+	def test_aSetSavedAfterTheChangeIsReadAsSaved(self):
+		"""So a shipped layer the reader removes stays removed."""
+		layers = self.read(self.savedBefore())
+		withoutChart = LayerSet(MONARCH, tuple(layer for layer in layers.layers if layer.id != "chart"))
+		self.assertIsNone(self.read(withoutChart.toText()).get("chart"))
+
+	def test_theKeyboardIsGivenNoneOfTheMonarchsChords(self):
+		keyboard = LayerSet(KEYBOARD, (newLayer(KEYBOARD, "graphics", "Graphics", "graphics"),))
+		stored = json.loads(keyboard.toText())
+		del stored["shipped"]
+		read = LayerSet.fromText(KEYBOARD, json.dumps(stored), keyLayers.defaultLayers(KEYBOARD, PLUGIN))[0]
+		self.assertEqual({}, read.get("graphics").bindings)
+		self.assertIsNone(read.get("chart"))
 
 
 class TestNormalize(unittest.TestCase):

@@ -8,6 +8,23 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **Line charts are easier to read with several lines.** With three or four lines the first is
+  drawn two pins thick. A new key zooms to exactly one pin per point, and any zoom spaces its
+  points evenly instead of in uneven gaps. Two keys step through each line alone and the first
+  line with each of the others, keeping the zoom and your place. A press now covers about a
+  fingertip, two columns and three rows each way, and reads every line inside it at the same
+  day, where before it could miss a line a column away.
+
+- **Graphics keys moved into layers, freeing the Monarch's keyboard.** Only show or hide a drawing,
+  chart the selection and draw the picture are still bound for good. Magnify, shrink, pan and the
+  braille line keep their space with dot 7 and dot 8 chords but only in the graphics layer, which
+  comes on with a drawing. New chart and picture layers come on instead of it for those drawings
+  and add plain letters: o, v and v with dot 7 on a chart; o for outlines, b for brightness and r
+  for reversed on a picture, each style now reachable directly as well as by cycling. Turning the
+  chart layer off no longer brings the graphics layer on in its place. Layers you saved before
+  this are given the new layers and chords once, keeping everything you changed, and a picture is
+  no longer taken for a chart when its layer is chosen.
+
 - **Layered keys, experimental.** A key on a display or the keyboard can mean something else
   while a layer is on, per display and independently: the Monarch's left d-pad pans a drawing
   with its graphics layer on and reads again when it is off, and the Focus 80 is not affected. A

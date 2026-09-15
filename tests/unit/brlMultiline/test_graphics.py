@@ -1651,6 +1651,191 @@ class TestLifecycle(unittest.TestCase):
 		self.assertEqual(len(self.plugin.panels), 1)
 
 
+class TestZoomingToOnePinPerPoint(unittest.TestCase):
+	"""The view the doubling ladder almost never lands on.
+
+	Two hundred and fifty points across ninety-six pins is 2.6 to a pin whole, 1.3 at the first
+	doubling and 0.65 at the second. The zoom where nothing shares a pin and nothing is spent on
+	spacing depends on the data and the panel, so it is its own command.
+	"""
+
+	def setUp(self):
+		self.driver = FakeDrawableDriver(numRows=8, numCols=32)
+		useDisplay(self.driver)
+		self.mode = GraphicsMode(FakePlugin())
+		self.windows: list = []
+
+	def figure(self, points=250, pinsPerPoint=1):
+		""":return: a figure made of points, recording every window it is asked for."""
+		width, height = self.mode.drawingSize()
+
+		def redraw(offset, span, pinWidth, pinHeight):
+			self.windows.append((offset, span))
+			return Drawing(PinBuffer(pinWidth, pinHeight), name="a window")
+
+		return Drawing(
+			PinBuffer(width, height),
+			name="chart",
+			redraw=redraw,
+			points=points,
+			pinsPerPoint=pinsPerPoint,
+		)
+
+	def test_theWindowHoldsAboutAPanelsWidthOfPoints(self):
+		self.mode.enter(self.figure())
+		self.assertTrue(self.mode.zoomToPoints())
+		offset, span = self.windows[-1]
+		self.assertAlmostEqual(span * 250, PIN_WIDTH, delta=3)
+
+	def test_itKeepsTheMiddleOfTheView(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomToPoints()
+		offset, span = self.windows[-1]
+		self.assertAlmostEqual(offset + span / 2, 0.5, delta=0.02)
+
+	def test_itSaysHowFarInItIsToOneDecimalPlace(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomToPoints()
+		self.assertIn("2.6 times", self.mode.describe())
+
+	def test_magnifyingFromThereGoesToTheNextRung(self):
+		"""Not to 5.2 times: one press puts the ladder back on its own numbers."""
+		self.mode.enter(self.figure())
+		self.mode.zoomToPoints()
+		self.assertTrue(self.mode.zoomBy(1))
+		self.assertEqual(self.mode.zoom, 2)
+
+	def test_shrinkingFromThereGoesToTheRungBelow(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomToPoints()
+		self.assertTrue(self.mode.zoomBy(-1))
+		self.assertEqual(self.mode.zoom, 1)
+
+	def test_panningStillMovesThroughTheData(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomToPoints()
+		before = self.windows[-1][0]
+		self.assertTrue(self.mode.panBy(*self.mode.panStep()))
+		self.assertGreater(self.windows[-1][0], before)
+
+	def test_aDrawingNotMadeOfPointsSaysSo(self):
+		self.mode.enter(self.figure(pinsPerPoint=0))
+		self.assertFalse(self.mode.zoomToPoints())
+		self.assertEqual(self.mode.pointZoomRefusal(), "this drawing has no points to zoom to")
+
+	def test_aPictureSaysSoToo(self):
+		self.mode.enter(Drawing(PinBuffer.fromRows(["O.O", ".O.", "O.O"]), name="picture"))
+		self.assertEqual(self.mode.pointZoomRefusal(), "this drawing has no points to zoom to")
+
+	def test_aChartWhosePointsAlreadyFitSaysSo(self):
+		self.mode.enter(self.figure(points=60))
+		self.assertFalse(self.mode.zoomToPoints())
+		self.assertEqual(self.mode.pointZoomRefusal(), "every point already has its own pin")
+
+	def test_aLongChartIsNotStoppedByTheLadderOrTheScaleCap(self):
+		"""Five thousand points need fifty-two times, past both the top of the ladder and the
+		cap on how large a dot may grow. Neither is about a chart, which is composed again at
+		the panel's own size and never grows a dot."""
+		self.mode.enter(self.figure(points=5000))
+		self.assertTrue(self.mode.zoomToPoints())
+		offset, span = self.windows[-1]
+		self.assertLessEqual(span * 5000, PIN_WIDTH * 2)
+		self.assertGreater(self.mode.zoom, MAX_ZOOM_STEP)
+
+	def test_magnifyingPastTheLadderSaysItIsTheClosestView(self):
+		self.mode.enter(self.figure(points=5000))
+		self.mode.zoomToPoints()
+		self.assertFalse(self.mode.zoomBy(1))
+		self.assertEqual(self.mode.zoomRefusal(1), "closest view")
+
+	def test_aRealLineChartArrivesAtOnePinPerPoint(self):
+		"""The mode can only ask for a window to a dot of its origin, and the chart spaces its
+		points exactly. Together they have to land on it."""
+		from brlMultiline.chartLine import Line, lineChart
+
+		width, height = self.mode.drawingSize()
+		values = [index % 7 for index in range(250)]
+		drawing = lineChart(self.mode.newBuffer, width, height, [Line("Close", values)])
+		self.mode.enter(drawing)
+		self.assertTrue(self.mode.zoomToPoints())
+		self.assertIn("1 pin per point", self.mode.drawing.name)
+		self.assertIn(f"{PIN_WIDTH} points", self.mode.drawing.name)
+
+
+class TestAFigureShownAnotherWay(unittest.TestCase):
+	"""A chart showing some of its lines, with the zoom and the place kept.
+
+	The way to tell what one line is doing is to feel the same days with and without the others,
+	so a view change that put the reader back at the whole chart would take them off those days.
+	"""
+
+	def setUp(self):
+		self.driver = FakeDrawableDriver(numRows=8, numCols=32)
+		useDisplay(self.driver)
+		self.mode = GraphicsMode(FakePlugin())
+
+	def figure(self, view=0, raises=False):
+		""":return: a windowing figure with numbered views."""
+		width, height = self.mode.drawingSize()
+
+		def redraw(offset, span, pinWidth, pinHeight):
+			return Drawing(PinBuffer(pinWidth, pinHeight), name=f"view {view} window")
+
+		def nextView(direction):
+			if raises:
+				raise RuntimeError("no")
+			return self.figure(view + direction)
+
+		return Drawing(
+			PinBuffer(width, height),
+			name=f"view {view}",
+			redraw=redraw,
+			points=250,
+			nextView=nextView,
+			pinsPerPoint=1,
+		)
+
+	def test_theNextViewIsUp(self):
+		self.mode.enter(self.figure())
+		self.assertTrue(self.mode.changeView(1))
+		self.assertEqual(self.mode.source.name, "view 1")
+
+	def test_theZoomAndThePlaceAreKept(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomToPoints()
+		self.mode.panBy(*self.mode.panStep())
+		zoom = self.mode.zoom
+		where = self.mode.positionWords()
+		self.mode.changeView(1)
+		self.assertEqual(self.mode.zoom, zoom)
+		self.assertEqual(self.mode.positionWords(), where)
+		self.assertEqual(self.mode.drawing.name, "view 1 window")
+
+	def test_aFigureWithOneViewHasNoOthers(self):
+		self.mode.enter(Drawing(PinBuffer(96, 35), name="picture"))
+		self.assertFalse(self.mode.hasViews)
+		self.assertFalse(self.mode.changeView(1))
+
+	def test_aViewThatWillNotDrawLeavesTheOldOne(self):
+		self.mode.enter(self.figure(raises=True))
+		self.assertFalse(self.mode.changeView(1))
+		self.assertEqual(self.mode.source.name, "view 0")
+
+	def test_nothingUpHasNoViews(self):
+		self.assertFalse(self.mode.hasViews)
+
+	def test_aRealLineChartKeepsOnePinPerPointAcrossAView(self):
+		from brlMultiline.chartLine import Line, lineChart
+
+		width, height = self.mode.drawingSize()
+		lines = [Line("Close", [index % 7 for index in range(250)]), Line("MA", [3] * 250)]
+		self.mode.enter(lineChart(self.mode.newBuffer, width, height, lines))
+		self.mode.zoomToPoints()
+		self.assertTrue(self.mode.changeView(1))
+		self.assertIn("1 pin per point", self.mode.drawing.name)
+		self.assertIn("1 of 2 lines", self.mode.drawing.name)
+
+
 class TestTheTestFigure(unittest.TestCase):
 	def test_itDrawsSomethingAtEveryEdge(self):
 		useDisplay(FakeDrawableDriver())

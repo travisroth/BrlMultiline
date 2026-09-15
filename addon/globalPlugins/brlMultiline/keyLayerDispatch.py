@@ -132,9 +132,19 @@ def reload() -> list:
 
 def _read(device: str) -> LayerSet:
 	factory = keyLayers.defaultLayers(device, PLUGIN_MODULE)
-	layers, problem = LayerSet.fromText(device, bmConfig.keyLayerText(device), factory)
+	text = bmConfig.keyLayerText(device)
+	layers, problem = LayerSet.fromText(device, text, factory)
 	if problem:
 		log.warning(f"{LOG_PREFIX}{device}: {problem}")
+	since = keyLayers.storedShipped(text)
+	if since < keyLayers.SHIPPED:
+		saved = LayerSet.fromText(device, text)[0]
+		_layers, added = keyLayers.withShippedAdditions(saved, factory, since)
+		if added:
+			log.info(
+				f"{LOG_PREFIX}{device}: saved layers predate shipped revision {keyLayers.SHIPPED}, "
+				f"so given {', '.join(added)}"
+			)
 	return layers
 
 

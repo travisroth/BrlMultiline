@@ -36,6 +36,10 @@ MONARCH = keyLayers.MONARCH
 KEYBOARD = keyLayers.KEYBOARD
 
 
+FIGURE = types.SimpleNamespace(redraw=None)
+"""A drawing that is neither a chart nor the picture, such as the glyph catalogue: graphics alone."""
+
+
 class FakeMode:
 	def __init__(self, active=True, source=None, plugin=None, drawing=None):
 		self.active = active
@@ -76,6 +80,14 @@ class TestContexts(unittest.TestCase):
 	def test_aPictureIsAPictureAndGraphics(self):
 		picture = types.SimpleNamespace(redraw=None)
 		host = types.SimpleNamespace(graphicsMode=FakeMode(source=picture), _pictureDrawing=picture)
+		self.assertEqual(["picture", "graphics"], keyLayerContexts.presentContexts(host))
+
+	def test_aPictureGoingUpIsAPictureBeforeThePluginHasRecordedIt(self):
+		"""The layers are chosen while the drawing goes up, and the plugin records its picture after.
+		A picture redraws itself too, so by the record alone it read as a chart and got the chart
+		layer, and a change of style swapped the picture layer for the chart layer."""
+		picture = types.SimpleNamespace(redraw=lambda *args: None, windowsVertically=True)
+		host = types.SimpleNamespace(graphicsMode=FakeMode(source=picture), _pictureDrawing=None)
 		self.assertEqual(["picture", "graphics"], keyLayerContexts.presentContexts(host))
 
 	def test_anythingElseDrawnIsGraphics(self):
@@ -194,9 +206,14 @@ class TestCommands(PluginTestCase):
 		self.plugin.script_keyLayerToggle(GestureFrom(MONARCH))
 		self.assertEqual("Default layer off", flashedMessages[-1])
 
-	def test_theLayerKeyOnAChartTakesTheShippedGraphicsLayer(self):
+	def test_theLayerKeyOnAChartTakesTheShippedChartLayer(self):
 		chart = types.SimpleNamespace(redraw=lambda *args: None)
 		self.plugin.graphicsMode = FakeMode(source=chart)
+		self.plugin.script_keyLayerToggle(GestureFrom(MONARCH))
+		self.assertEqual("Chart layer on", flashedMessages[-1])
+
+	def test_theLayerKeyOnAnyOtherDrawingTakesTheShippedGraphicsLayer(self):
+		self.plugin.graphicsMode = FakeMode(source=FIGURE)
 		self.plugin.script_keyLayerToggle(GestureFrom(MONARCH))
 		self.assertEqual("Graphics layer on", flashedMessages[-1])
 
@@ -247,8 +264,7 @@ class TestCommands(PluginTestCase):
 class TestDrawingGoing(PluginTestCase):
 	def setUp(self):
 		super().setUp()
-		chart = types.SimpleNamespace(redraw=lambda *args: None)
-		self.plugin.graphicsMode = FakeMode(source=chart, plugin=self.plugin)
+		self.plugin.graphicsMode = FakeMode(source=FIGURE, plugin=self.plugin)
 
 	def test_takingTheDrawingOffTakesItsLayerAndSaysBothOnce(self):
 		self.plugin.script_keyLayerToggle(GestureFrom(MONARCH))
@@ -280,8 +296,7 @@ class TestDrawingComing(PluginTestCase):
 	def setUp(self):
 		super().setUp()
 		braille.handler.display = types.SimpleNamespace(name=MONARCH)
-		chart = types.SimpleNamespace(redraw=lambda *args: None)
-		self.plugin.graphicsMode = FakeMode(active=False, plugin=self.plugin, drawing=chart)
+		self.plugin.graphicsMode = FakeMode(active=False, plugin=self.plugin, drawing=FIGURE)
 
 	def test_theMonarchsShippedGraphicsLayerComesOnWithTheDrawingAndSaysSoOnce(self):
 		self.plugin.script_toggleGraphics(None)
@@ -313,15 +328,30 @@ class TestDrawingComing(PluginTestCase):
 
 	def test_aDisplayReconnectingWithTheDrawingUpBringsItsLayerOn(self):
 		"""The drawing does not change, so only the rebuild after the display change can see it."""
-		self.plugin.graphicsMode = FakeMode(
-			source=types.SimpleNamespace(redraw=lambda *args: None), plugin=self.plugin
-		)
+		self.plugin.graphicsMode = FakeMode(source=FIGURE, plugin=self.plugin)
 		self.assertIsNone(keyLayerDispatch.activeLayer(MONARCH))
 		self.plugin._rebuildPending = True
 		self.plugin._deferredRebuild()
 		self.assertTrue(keyLayerDispatch.isAutomatic(MONARCH))
 		callAfterQueue.flush()
 		self.assertEqual("Graphics layer on", flashedMessages[-1])
+
+	def test_aChartBringsTheChartLayerInsteadOfTheGraphicsLayer(self):
+		chart = types.SimpleNamespace(redraw=lambda *args: None)
+		self.plugin.graphicsMode = FakeMode(active=False, plugin=self.plugin, drawing=chart)
+		self.plugin.script_toggleGraphics(None)
+		self.assertEqual("a drawing, Chart layer on", flashedMessages[-1])
+		self.assertEqual("chart", keyLayerDispatch.activeLayer(MONARCH).id)
+
+	def test_turningTheChartLayerOffDoesNotBringTheGraphicsLayerOnInstead(self):
+		"""A chart is also graphics. Declining the chart layer skipped on to the graphics layer, which
+		came on under a reader who had just turned a layer off."""
+		chart = types.SimpleNamespace(redraw=lambda *args: None)
+		self.plugin.graphicsMode = FakeMode(active=False, plugin=self.plugin, drawing=chart)
+		self.plugin.script_toggleGraphics(None)
+		self.plugin.script_keyLayerToggle(GestureFrom(MONARCH))
+		self.plugin.onGraphicsChanged()
+		self.assertIsNone(keyLayerDispatch.activeLayer(MONARCH))
 
 	def test_theLayerKeyInATableTakesTheShippedTableLayer(self):
 		self.plugin.graphicsMode = FakeMode(active=False, plugin=self.plugin)
