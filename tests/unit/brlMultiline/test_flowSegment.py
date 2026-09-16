@@ -565,6 +565,25 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self.assertTrue(self.segment.acceptFocusRegions(self._focusRegionsFor(page)))
 		self.assertIs(self.band.controller, control)
 
+	def test_aRebuildInTheSameDocumentPutsTheFlowOnTheNewBand(self):
+		# A profile switch rebuilds the display, and the rebuilt band is a new segment holding
+		# NVDA's regions for the focus. Reported from VS Code, which has a profile of its own:
+		# out to NVDA's menu and back, and the band showed only the focused line, because the
+		# reader was still in the same document and the controller was kept without being put
+		# on the new segment.
+		page, _ = self._document(documentLines())
+		self._start(page)
+		control = self.band.controller
+		rebuilt = containerWithBand(self.handler)
+		self.handler.mainBuffer = self.handler.buffer = rebuilt
+		self.plugin.container = rebuilt
+		segment = rebuilt.segmentForKey("flow")
+		segment.regions = self._focusRegionsFor(page)
+		self.band.onRebuilt()
+		self.assertIs(self.band.controller, control)
+		self.assertIs(segment.controller, control)
+		self.assertTrue(segment.isFlowing)
+
 	def test_anotherDocumentGetsItsOwnGeneration(self):
 		# A bookmark is a position within one document and says nothing about which, so a
 		# stale anchor must never match a block in the document now being read.

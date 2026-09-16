@@ -1040,7 +1040,7 @@ class FlowBand(PanelOwner):
 			# moment. See `FlowController.rereadArrival`.
 			self.controller.rereadArrival()
 			self.controller.followCursor()
-			segment.refresh()
+			self._redraw(segment)
 			return True
 		target = self._resolve(obj)
 		if target is not None and self._isCurrentDocument(target):
@@ -1048,7 +1048,7 @@ class FlowBand(PanelOwner):
 			# focus change is a jump, so the window is placed afresh at the cursor, but the
 			# blocks already read and the positions they were read from are still good.
 			changedEdit = self._setInteractiveObject(obj, target, focusRegions)
-			if not force and self.obj is obj and not changedEdit:
+			if not force and self.obj is obj and not changedEdit and segment.controller is self.controller:
 				return True
 			self.obj = obj
 			# Taken whether or not it is acted on, so that a jump the reader made before the
@@ -1060,7 +1060,7 @@ class FlowBand(PanelOwner):
 				self.controller
 				and self.controller.arriveAt(atObject=self._arrival(obj, target), ground=ground)
 			)
-			segment.refresh()
+			self._redraw(segment)
 			return showing
 		control = buildController(
 			obj=obj,
@@ -1089,6 +1089,24 @@ class FlowBand(PanelOwner):
 		flowQuickNav.forget()
 		self._attach(segment, control)
 		return True
+
+	def _redraw(self, segment) -> None:
+		"""Draw the kept controller, putting it on the band first if the band is a new one.
+
+		**A rebuild makes a new segment, and a kept controller is not on it.** Every path that
+		keeps the controller — the same document, the same run — used to refresh the segment
+		and nothing more, which draws whatever the segment is holding. After a rebuild that is
+		NVDA's regions for the focus, and the reader felt only the focused line. Reported from
+		VS Code, which has a profile of its own: out to NVDA's menu and back switches profile
+		twice, the switch rebuilds the display, and the reader is still in the same editor. A
+		browser without a profile never rebuilt, which is why it looked like VS Code's fault.
+
+		:param segment: the band's segment.
+		"""
+		if self.controller is not None and segment.controller is not self.controller:
+			self._attach(segment, self.controller)
+			return
+		segment.refresh()
 
 	# Tables.
 
@@ -1733,7 +1751,7 @@ class FlowBand(PanelOwner):
 				# across the columns.
 				self._showColumn(handle.col)
 				self.controller.followCursor()
-				segment.refresh()
+				self._redraw(segment)
 				return True
 			# The table has stopped showing a row the band is holding, which on a worksheet is
 			# the reader filtering it. Everything below is the reading made again — the rows
