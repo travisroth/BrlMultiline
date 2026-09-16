@@ -8,6 +8,16 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **Saved table layouts can be managed.** A new command lists every saved layout, the ones for
+  the table you are in first, with its name, address, how strictly it matches and when it was last
+  used, and can point one at the table you are in, copy it there, rename it, edit its address or
+  delete it. Found when a watchlist stopped coming up laid out because the site changed its
+  address, and nothing could say which saved layout had been its own. Web layouts now match by
+  site and path whatever the query string says, column settings follow a column the site moves,
+  every layout lives in the base configuration whatever profile is active, and a layout that does
+  not apply says why in the log. Layouts saved before are kept and named the next time their table
+  is seen.
+
 - **Line charts are easier to read with several lines.** With three or four lines the first is
   drawn two pins thick. A new key zooms to exactly one pin per point, and any zoom spaces its
   points evenly instead of in uneven gaps. Two keys step through each line alone and the first

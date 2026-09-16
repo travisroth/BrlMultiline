@@ -554,3 +554,42 @@ class TestASettingThatUsedToBeACheckbox(unittest.TestCase):
 		self.stack({"flowTablePinKeyMode": bmConfig.ALWAYS}, {"flowTablePinKey": False})
 		FORMAT_CONFIG["reportTableHeaders"] = ReportTableHeaders.ROWS_AND_COLUMNS.value
 		self.assertFalse(bmConfig.shouldPinKeyColumn())
+
+
+class TestSavedTableLayoutsLiveInTheBaseConfiguration(ConfigTestCase):
+	"""One string, so a profile holding it hid every layout in the base while that profile was on.
+	Decided with the reader, 16 September 2026: one store, whatever profile is active."""
+
+	class Profile(dict):
+		"""An activated profile, which upstream is a `ConfigObj` carrying its name."""
+
+		def __init__(self, name, values):
+			super().__init__(values)
+			self.name = name
+
+	def setUp(self):
+		super().setUp()
+		self.addCleanup(
+			lambda: config.conf.profiles[0].get(bmConfig.CONFIG_SECTION, {}).pop("tableLayouts", None)
+		)
+
+	def test_writingWithAProfileActiveWritesTheBase(self):
+		config.conf.profiles.append(self.Profile("outlook", {}))
+		realBmConfig["setTableLayouts"]("the store")
+		self.assertEqual("the store", config.conf.profiles[0][bmConfig.CONFIG_SECTION]["tableLayouts"])
+		self.assertNotIn(bmConfig.CONFIG_SECTION, config.conf.profiles[-1])
+
+	def test_readingWithAProfileActiveReadsTheBase(self):
+		realBmConfig["setTableLayouts"]("the store")
+		config.conf.profiles.append(
+			self.Profile("outlook", {bmConfig.CONFIG_SECTION: {"tableLayouts": "hidden"}})
+		)
+		self.assertEqual("the store", realBmConfig["tableLayouts"]())
+
+	def test_aProfileHoldingLayoutsOfItsOwnIsFoundAndCanBeEmptied(self):
+		config.conf.profiles.append(
+			self.Profile("outlook", {bmConfig.CONFIG_SECTION: {"tableLayouts": "held"}})
+		)
+		self.assertEqual([("outlook", "held")], realBmConfig["tableLayoutsInProfiles"]())
+		realBmConfig["clearTableLayoutsInProfile"]("outlook")
+		self.assertEqual([], realBmConfig["tableLayoutsInProfiles"]())

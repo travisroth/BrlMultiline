@@ -82,6 +82,9 @@ _scripts: dict = {}
 
 _installed = False
 
+_upgradesSaid: set = set()
+"""(device, stored text) whose shipped additions have been logged, so they are logged once."""
+
 
 # Lifetime
 
@@ -137,7 +140,11 @@ def _read(device: str) -> LayerSet:
 	if problem:
 		log.warning(f"{LOG_PREFIX}{device}: {problem}")
 	since = keyLayers.storedShipped(text)
-	if since < keyLayers.SHIPPED:
+	if since < keyLayers.SHIPPED and (device, text) not in _upgradesSaid:
+		# Once per saved set a session. Layers are read again on every profile switch, which is
+		# every change of application for a reader with application profiles, and this filled
+		# the log.
+		_upgradesSaid.add((device, text))
 		saved = LayerSet.fromText(device, text)[0]
 		_layers, added = keyLayers.withShippedAdditions(saved, factory, since)
 		if added:

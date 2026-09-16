@@ -683,6 +683,75 @@ def checkKeyLayerDialog() -> list:
 	return failures
 
 
+def checkLayoutManagerDialog() -> list:
+	"""Build the saved table layouts manager against NVDA's own wx and gui, and drive it without showing it.
+
+	Opt in with `--dialog`, like the layered keys dialog. The manager behind it is unit tested; this is
+	for what only wx can get wrong. Given a layout from before names were kept, one for a site whose
+	address changed, and the table the reader is in, it presses Use for this table and changes a match.
+
+	:return: what is wrong, empty if nothing.
+	"""
+	failures = []
+	loadPlugin()
+	import wx
+
+	app = wx.App(False)  # noqa: F841 - kept alive for the dialog below.
+	from brlMultiline import flowTableManager as fm
+	from brlMultiline.flowTableLayouts import MATCH_EXACT, MATCH_PATH, SavedLayout
+
+	here = fm.Here("https://www.barchart.com/my/watchlist?viewName=122002", ("Symbol", "Last", "Change"))
+	manager = fm.LayoutManager(
+		[
+			SavedLayout(
+				id="legacy",
+				layout={"columns": [2]},
+				saved=1756800000,
+				used=1756800000,
+				legacyWhere="0123456789abcdef",
+				legacyWhat="",
+			),
+			SavedLayout(
+				id="old",
+				name="Watchlist",
+				where="https://www.barchart.com/watchlist/main",
+				match=MATCH_PATH,
+				headings=("Symbol", "Last", "Change"),
+				layout={"columns": [1, 3], "headings": {"1": "Symbol", "3": "Change"}},
+				saved=1756800000,
+				used=1757000000,
+			),
+		],
+		here,
+	)
+	dialog = fm.LayoutManagerDialog(None, manager)
+	try:
+		if dialog.layoutList.GetCount() != 2:
+			failures.append(f"the list holds {dialog.layoutList.GetCount()} layouts")
+		dialog.layoutList.SetSelection(manager.indexOf("old"))
+		dialog._showLayout()
+		if dialog.matchCtrl.GetCount() != 3:
+			failures.append(f"a web layout offers {dialog.matchCtrl.GetCount()} matches")
+		dialog._onUse(None)
+		if manager.appliedId != "old":
+			failures.append("Use for this table did not make the layout apply")
+		if "applies here" not in dialog.layoutList.GetString(dialog.layoutList.GetSelection()):
+			failures.append("the list does not say the layout applies here after Use for this table")
+		dialog.matchCtrl.SetSelection(1)
+		dialog._onMatch(None)
+		if manager.at(manager.indexOf("old")).match != MATCH_EXACT:
+			failures.append("choosing exact did not change the match")
+		dialog.layoutList.SetSelection(manager.indexOf("legacy"))
+		dialog._showLayout()
+		if dialog.matchCtrl.IsEnabled():
+			failures.append("a layout with no address offers a match")
+		if not dialog.detailsCtrl.GetValue().startswith("Name: Unnamed layout saved"):
+			failures.append(f"the details of an unnamed layout read {dialog.detailsCtrl.GetValue()[:60]!r}")
+	finally:
+		dialog.Destroy()
+	return failures
+
+
 CHECKS_TO_RUN = list(CHECKS)
 """The checks a run makes: every check in L{CHECKS}, and the opt in ones asked for."""
 
@@ -728,7 +797,7 @@ def main(argv: "list[str] | None" = None) -> int:
 	parser.add_argument(
 		"--dialog",
 		action="store_true",
-		help="build the layered keys dialog with wx, as well as the other checks",
+		help="build the layered keys and layout manager dialogs with wx, as well as the other checks",
 	)
 	args = parser.parse_args(argv)
 	if args.log is not None:
@@ -737,6 +806,7 @@ def main(argv: "list[str] | None" = None) -> int:
 		return 0
 	if args.dialog:
 		CHECKS_TO_RUN.append(("key layer dialog", checkKeyLayerDialog))
+		CHECKS_TO_RUN.append(("layout manager dialog", checkLayoutManagerDialog))
 	if args.displays:
 		print("matched by bdDetect:")
 		for entry in connectedBrailleDisplays():

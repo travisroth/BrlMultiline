@@ -290,10 +290,31 @@ Things worth knowing:
   when you saved comes back when it has something in it. Turning the columns off leaves the
   memory alone until you
   come back; the forget command drops it for good. Tables on web pages are recognized by the
-  page's address together with what their columns are called, so a watchlist that is
+  page's address together with what their first columns are called, so a watchlist that is
   regenerated is still the same table; a list view is recognized by the application and
   window it belongs to, which means File Explorer's Details view is one table whichever
   folder is open.
+
+  A web page matches by its site and path, whatever follows the question mark in its address,
+  because that part is what sites change: a watchlist view renumbered, a parameter added. A
+  column the site inserts or moves is followed by its heading, so what you decided about it
+  stays with it rather than landing on its neighbour. Every saved layout is kept in your base
+  configuration and applies whichever NVDA profile is active. When a saved layout does not
+  apply, the NVDA log says why, once: no layout for this address, or none for these headings.
+
+- **Table: Manage saved table layouts** lists every layout you have saved, the ones for the
+  table you are in first, each with its name, where it applies, how strictly its address
+  matches, how many columns it shows and when it was last used. Opened from a table, it says
+  which layout applies there, if any. For the one selected you can:
+  - **Use for this table**, which points it at the table you are in, its address and headings.
+    This is the fix for a site that changed its address.
+  - **Also use for this table**, which copies it there and leaves the original where it was.
+  - Change **Match**: this page with any query, this exact address, or anywhere on this site.
+  - Untick **Only for a table with these headings**, for a site that renames a column.
+  - Rename it, edit its address, or delete it, which is what a layout for a page that is gone wants.
+
+  Nothing is saved until OK. Layouts saved before names were kept show as "Unnamed layout saved"
+  with a date, and are named from their address the next time their table is seen.
 
 ## Arrow keys in a table
 
@@ -766,6 +787,9 @@ laid out the next time you are in it.
 
 **Table: Delete saved table layout.** Drops what was remembered for this table, for good, so it
 reads as the page around it again.
+
+**Table: Manage saved table layouts.** Lists every saved layout, to rename, delete, point at the
+table you are in, or change how strictly its address matches. See "Reading as a flow".
 
 ### Drawings and charts
 

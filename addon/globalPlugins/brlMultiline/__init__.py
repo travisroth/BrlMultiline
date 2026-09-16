@@ -2249,9 +2249,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			(
 				position
 				for position, (overflow, keep, _said) in enumerate(order)
-				if drawn is not None
-				and overflow == drawn.overflow
-				and (not keep or keep == drawn.keep)
+				if drawn is not None and overflow == drawn.overflow and (not keep or keep == drawn.keep)
 			),
 			-1,
 		)
@@ -2384,6 +2382,39 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self.tableRefused = None
 		# Translators: reported when a table's saved layout is dropped.
 		ui.message(_("Table layout deleted"))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Table: Manage saved table layouts"),
+		category=SCRIPT_CATEGORY,
+	)
+	@gui.blockAction.when(gui.blockAction.Context.MODAL_DIALOG_OPEN)
+	def script_manageTableLayouts(self, gesture):
+		"""List every saved table layout, and fix the ones that stopped applying.
+
+		Opened over the table the reader is in, if they are in one, so that a layout whose site changed
+		its address can be pointed at this table with one button. Works outside a table too, for
+		renaming and deleting. See `flowTableManager`.
+		"""
+		from . import flowTableManager
+
+		try:
+			flowTableManager.manageLayouts(self._tableHere(), afterwards=self._takeUpSavedLayouts)
+		except Exception:
+			log.debugWarning("Could not open the saved table layouts", exc_info=True)
+
+	def _takeUpSavedLayouts(self) -> None:
+		"""Show the table the reader is in the way the saved layouts now say, after the manager changed them.
+
+		The band offers a saved layout once per table, so without this a layout just pointed at this
+		table would not come up until the reader left the table and came back.
+		"""
+		band = self.flowBand
+		if band is None:
+			return
+		band._layoutOffered = None
+		if not band.clearTable():
+			band.refresh(force=True)
 
 	def _tableHere(self):
 		""":return: the table the reader is in, or None, without disturbing anything.
@@ -3542,8 +3573,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 def _rectWords(rect) -> str:
 	":return: a rectangle as rows and columns, counted from 1 as a reader counts them."
 	return (
-		f"rows {rect.row + 1} to {rect.row + rect.numRows}, "
-		f"cols {rect.col + 1} to {rect.col + rect.numCols}"
+		f"rows {rect.row + 1} to {rect.row + rect.numRows}, cols {rect.col + 1} to {rect.col + rect.numCols}"
 	)
 
 
@@ -3579,8 +3609,7 @@ def _layoutLines(container, claims: list) -> list[str]:
 		if spec.hostsSystemFocus:
 			notes.append("hosts system focus")
 		lines.append(
-			f"    {number} {spec.key}: {_rectWords(spec.rect)}"
-			+ (f"  [{', '.join(notes)}]" if notes else "")
+			f"    {number} {spec.key}: {_rectWords(spec.rect)}" + (f"  [{', '.join(notes)}]" if notes else "")
 		)
 	if claims:
 		lines.append(f"  claims laid over the configured view: {', '.join(sorted(claimed))}")

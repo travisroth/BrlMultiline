@@ -10,6 +10,7 @@ the reader decided that is not a record of how wide the cells came out on the di
 decided it on.
 """
 
+import dataclasses
 import json
 import unittest
 
@@ -19,6 +20,7 @@ from ._stubs import (
 	FakeNavigatorObject,
 	FakeTableDocument,
 	installStubs,
+	log,
 	resetConfig,
 )
 
@@ -45,10 +47,10 @@ class LayoutTestCase(unittest.TestCase):
 		resetConfig()
 		self.addCleanup(resetConfig)
 
-	def page(self, url="https://example.com/watchlist", headers=None):
+	def page(self, url="https://example.com/watchlist", headers=None, rows=None):
 		""":return: a table on a web page, which knows its own URL as NVDA knows it."""
 		document = FakeTableDocument(
-			[list(row) for row in WATCHLIST],
+			[list(row) for row in (rows or WATCHLIST)],
 			columnHeaders=headers or {1: "Symbol", 2: "Last", 3: "Change"},
 		)
 		document.documentConstantIdentifier = url
@@ -164,9 +166,7 @@ class TestWhatOnePressOfRememberSaves(LayoutTestCase):
 		"""A column plan, in the one attribute the command reads off it."""
 
 		def __init__(self, columns):
-			self.columns = tuple(
-				type("Column", (), {"index": index})() for index in columns
-			)
+			self.columns = tuple(type("Column", (), {"index": index})() for index in columns)
 
 	def test_theRecordNamesNoColumns(self):
 		layout = flowTableLayouts.layoutFrom(self.Plan((2, 3, 4)))
@@ -201,7 +201,7 @@ class TestAStoreSomebodyElseWrote(LayoutTestCase):
 
 	def test_aScalarIsNotAStore(self):
 		self.storedIs("1")
-		self.assertEqual(flowTableLayouts.stored(), {})
+		self.assertEqual(flowTableLayouts.stored(), [])
 		self.assertIsNone(flowTableLayouts.layoutFor(self.page()))
 
 	def test_norIsAString(self):
@@ -359,6 +359,41 @@ class TestRememberingAndFindingOne(LayoutTestCase):
 		self.assertTrue(flowTableLayouts.forget(self.page()))
 		self.assertIsNone(flowTableLayouts.layoutFor(self.page()))
 
+	def missesLogged(self):
+		return [said for level, said in log.messages if "saved table layout not applied" in said]
+
+	def test_aPageWhoseAddressChangedSaysSoInTheLog(self):
+		"""A saved layout that stops applying was silent, so a watchlist that stopped coming up laid
+		out left nothing to say whether the address or the headings had moved. Reported from hardware."""
+		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1, 3)))
+		flowTableLayouts._explained.clear()
+		log.messages.clear()
+		flowTableLayouts.layoutFor(self.page(url="https://example.com/my/watchlist"))
+		self.assertEqual(1, len(self.missesLogged()))
+		self.assertIn("https://example.com/my/watchlist", self.missesLogged()[0])
+
+	def test_aTableWhoseHeadingsChangedSaysWhichHeadings(self):
+		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1, 3)))
+		flowTableLayouts._explained.clear()
+		log.messages.clear()
+		flowTableLayouts.layoutFor(self.page(headers={1: "Symbol", 2: "Price", 3: "Change"}))
+		self.assertEqual(1, len(self.missesLogged()))
+		self.assertIn("Price", self.missesLogged()[0])
+
+	def test_aMissIsSaidOnceNotOnEveryRedraw(self):
+		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1, 3)))
+		flowTableLayouts._explained.clear()
+		log.messages.clear()
+		for _ in range(5):
+			flowTableLayouts.layoutFor(self.page(url="https://example.com/moved"))
+		self.assertEqual(1, len(self.missesLogged()))
+
+	def test_aLayoutThatAppliesLogsNothing(self):
+		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1, 3)))
+		log.messages.clear()
+		self.assertIsNotNone(flowTableLayouts.layoutFor(self.page()))
+		self.assertEqual([], self.missesLogged())
+
 	def test_forgettingWhatWasNeverSavedSaysSo(self):
 		self.assertFalse(flowTableLayouts.forget(self.page()))
 
@@ -386,21 +421,20 @@ class TestRememberingAndFindingOne(LayoutTestCase):
 				self.page(url=f"https://example.com/{number}"),
 				flowTableLayouts.TableLayout(columns=(1,)),
 			)
-		stored = flowTableLayouts.stored()
-		self.assertLessEqual(sum(len(inner) for inner in stored.values()), flowTableLayouts.MAX_SAVED)
+		self.assertLessEqual(len(flowTableLayouts.stored()), flowTableLayouts.MAX_SAVED)
 
 	def test_whatIsStoredIsTextTheProfileCanHold(self):
 		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1, 3)))
 		self.assertIsInstance(CONFIG["tableLayouts"], str)
 		self.assertIn("columns", CONFIG["tableLayouts"])
 
-	def test_andTheReadersOwnUrlIsNotInIt(self):
-		"""Raised by review. An identity is a URL with its query string, a file path, or the
-		headings of a table they have open, and the store goes wherever a profile goes. The
-		digest matches exactly as the text did and says nothing about what was matched."""
+	def test_theAddressAndHeadingsAreKeptReadably(self):
+		"""Reversed on 16 September 2026. A store of digests could not say which saved layout had been
+		a watchlist's once the site changed its address, nor be pointed at the new one, so the reader
+		chose to keep the full address, knowing the file then carries it."""
 		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1, 3)))
-		self.assertNotIn("example.com", CONFIG["tableLayouts"])
-		self.assertNotIn("Symbol", CONFIG["tableLayouts"])
+		self.assertIn("https://example.com/watchlist", CONFIG["tableLayouts"])
+		self.assertIn("Symbol", CONFIG["tableLayouts"])
 
 	def test_andItIsStillFoundAgain(self):
 		"""Which is the only thing the key has to do."""
@@ -412,3 +446,242 @@ class TestRememberingAndFindingOne(LayoutTestCase):
 		`layoutFor` looks for that exact key."""
 		self.assertEqual(flowTableLayouts.keyFor(""), "")
 		self.assertNotEqual(flowTableLayouts.keyFor("a place"), "")
+
+
+class TestLayoutsSavedBeforeNamesWereKept(LayoutTestCase):
+	"""The first store kept digests. A reader's layouts in it must go on working, and become
+	readable the first time their table is seen, which is the only time what they belong to is known."""
+
+	def versionOne(self, url="https://example.com/watchlist", signature="Symbol␟Last␟Change", record=None):
+		CONFIG["tableLayouts"] = json.dumps(
+			{
+				flowTableLayouts.keyFor(url): {
+					flowTableLayouts.keyFor(signature): record or {"columns": [1, 3], "used": 1756800000},
+				},
+			},
+		)
+
+	def test_itStillApplies(self):
+		self.versionOne()
+		self.assertEqual(flowTableLayouts.layoutFor(self.page()).columns, (1, 3))
+
+	def test_andIsWrittenDownReadablyWhenItDoes(self):
+		self.versionOne()
+		flowTableLayouts.layoutFor(self.page())
+		saved = json.loads(CONFIG["tableLayouts"])
+		self.assertEqual(flowTableLayouts.STORE_VERSION, saved["version"])
+		(layout,) = saved["layouts"]
+		self.assertEqual("https://example.com/watchlist", layout["where"])
+		self.assertEqual(["Symbol", "Last", "Change"], layout["headings"])
+		self.assertEqual(flowTableLayouts.MATCH_PATH, layout["match"])
+		self.assertIn("example.com/watchlist", layout["name"])
+
+	def test_oneNotSeenYetIsKeptAsItWas(self):
+		"""Until its table is seen nothing can say what it belongs to, and dropping it would lose it."""
+		self.versionOne(url="https://example.com/elsewhere")
+		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(2,)))
+		layouts = flowTableLayouts.stored()
+		self.assertEqual(2, len(layouts))
+		self.assertEqual(1, sum(saved.isLegacy for saved in layouts))
+
+	def test_itsSavedDateIsKept(self):
+		self.versionOne()
+		(saved,) = flowTableLayouts.stored()
+		self.assertEqual(1756800000, saved.saved)
+
+
+class TestHowStrictlyAnAddressMatches(LayoutTestCase):
+	"""A site changes its query string and nothing else: a view renumbered, a parameter added. The
+	barchart watchlist stopped coming up laid out when it did. So a web page matches by site and path
+	by default, and the reader can make any one layout stricter or looser."""
+
+	URL = "https://www.example.com/my/watchlist?viewName=1"
+
+	def saveAt(self, url=URL, match=None):
+		flowTableLayouts.remember(self.page(url=url), flowTableLayouts.TableLayout(columns=(1, 3)))
+		if match is not None:
+			(saved,) = flowTableLayouts.stored()
+			flowTableLayouts.replaceAll([dataclasses.replace(saved, match=match)])
+
+	def found(self, url):
+		return flowTableLayouts.layoutFor(self.page(url=url)) is not None
+
+	def test_aNewWebLayoutIgnoresTheQueryString(self):
+		self.saveAt()
+		self.assertTrue(self.found("https://www.example.com/my/watchlist?viewName=122002"))
+		self.assertTrue(self.found("https://www.example.com/my/watchlist/"))
+
+	def test_butNotAnotherPath(self):
+		self.saveAt()
+		self.assertFalse(self.found("https://www.example.com/my/portfolio"))
+
+	def test_exactlyMeansExactly(self):
+		self.saveAt(match=flowTableLayouts.MATCH_EXACT)
+		self.assertTrue(self.found(self.URL))
+		self.assertFalse(self.found("https://www.example.com/my/watchlist?viewName=2"))
+
+	def test_anywhereOnTheSiteMeansAnyPathThere(self):
+		self.saveAt(match=flowTableLayouts.MATCH_SITE)
+		self.assertTrue(self.found("https://example.com/other/page"))
+		self.assertFalse(self.found("https://www.example.org/my/watchlist"))
+
+	def test_somethingThatIsNotAWebPageMatchesExactly(self):
+		flowTableLayouts.remember(self.fileList(), flowTableLayouts.TableLayout(columns=(1,)))
+		(saved,) = flowTableLayouts.stored()
+		self.assertEqual(flowTableLayouts.MATCH_EXACT, saved.match)
+
+	def test_theMostParticularLayoutWins(self):
+		self.saveAt()
+		(loose,) = flowTableLayouts.stored()
+		exact = dataclasses.replace(
+			loose, id="exact", match=flowTableLayouts.MATCH_EXACT, layout={"columns": [3]}
+		)
+		flowTableLayouts.replaceAll([loose, exact])
+		self.assertEqual((3,), flowTableLayouts.layoutFor(self.page(url=self.URL)).columns)
+		self.assertEqual((1, 3), flowTableLayouts.layoutFor(self.page(url=self.URL + "0")).columns)
+
+	def test_savingAgainChangesTheLayoutThatAppliesRatherThanAddingOne(self):
+		"""Or the second would compete with the first, and whichever won would look like a fault."""
+		self.saveAt()
+		(saved,) = flowTableLayouts.stored()
+		flowTableLayouts.replaceAll([dataclasses.replace(saved, name="My watchlist")])
+		flowTableLayouts.remember(
+			self.page(url="https://www.example.com/my/watchlist?viewName=9"),
+			flowTableLayouts.TableLayout(columns=(3,)),
+		)
+		(saved,) = flowTableLayouts.stored()
+		self.assertEqual("My watchlist", saved.name)
+		self.assertEqual(self.URL, saved.where)
+		self.assertEqual({"columns": [3], "headings": {"3": "Change"}}, saved.layout)
+
+
+WITH_A_NAME = [
+	["Symbol", "Name", "Last", "Change"],
+	["AAPL", "Apple", "182.50", "+1.25"],
+	["F", "Ford", "9.10", "-0.05"],
+]
+
+
+class TestTheHeadingsATableIsKnownBy(LayoutTestCase):
+	def inserted(self):
+		return self.page(headers={1: "Symbol", 2: "Name", 3: "Last", 4: "Change"}, rows=WITH_A_NAME)
+
+	def test_aLayoutCanBeToldNotToMindThem(self):
+		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1, 3)))
+		(saved,) = flowTableLayouts.stored()
+		flowTableLayouts.replaceAll([dataclasses.replace(saved, requireHeadings=False)])
+		other = self.page(headers={1: "Criterion", 2: "Level", 3: "Remarks"})
+		self.assertIsNotNone(flowTableLayouts.layoutFor(other))
+
+	def test_aColumnInsertedAmongThemIsStillTheSameTable(self):
+		"""The sequence changed, the table did not: every heading saved is still there."""
+		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1, 3)))
+		self.assertIsNotNone(flowTableLayouts.layoutFor(self.inserted()))
+
+
+class TestColumnsFollowTheirHeadings(LayoutTestCase):
+	"""A record names columns by number, so a site that inserts one moved every decision onto its
+	neighbour, silently, while looking as though the layout had applied."""
+
+	def setUp(self):
+		super().setUp()
+		from brlMultiline import flowTable
+
+		self.choice = flowTable.ColumnChoice(plainCase=True)
+		flowTableLayouts.remember(
+			self.page(),
+			flowTableLayouts.TableLayout(columns=(2, 3), keyColumn=1, perColumn={3: self.choice}),
+		)
+		log.messages.clear()
+		flowTableLayouts._explained.clear()
+
+	def inserted(self):
+		return self.page(headers={1: "Symbol", 2: "Name", 3: "Last", 4: "Change"}, rows=WITH_A_NAME)
+
+	def test_theHeadingsOfTheColumnsItNamesAreSaved(self):
+		(saved,) = flowTableLayouts.stored()
+		self.assertEqual({"1": "Symbol", "2": "Last", "3": "Change"}, saved.layout["headings"])
+
+	def test_aColumnInsertedBeforeThemMovesEveryDecisionWithIt(self):
+		layout = flowTableLayouts.layoutFor(self.inserted())
+		self.assertEqual((3, 4), layout.columns)
+		self.assertEqual(1, layout.keyColumn)
+		self.assertEqual({4: self.choice}, layout.perColumn)
+
+	def test_andSaysSoInTheLogOnce(self):
+		inserted = self.inserted()
+		for _ in range(3):
+			flowTableLayouts.layoutFor(inserted)
+		said = [message for _level, message in log.messages if "have moved" in message]
+		self.assertEqual(1, len(said))
+		self.assertIn("'Last' from column 2 to 3", said[0])
+
+	def test_aColumnThatHasNotMovedIsNotReadAgainForEveryColumn(self):
+		"""Asked on every redraw, so the table is only searched when a heading is not where it was."""
+		from brlMultiline import flowTableSource
+
+		page = self.page()
+		asked = []
+		real = flowTableSource.declaredHeaders
+		flowTableSource.declaredHeaders = lambda handle, columns, *args, **kwargs: (
+			asked.append(list(columns)) or real(handle, columns, *args, **kwargs)
+		)
+		try:
+			flowTableLayouts.layoutFor(page)
+			first = len(asked)
+			flowTableLayouts.layoutFor(page)
+		finally:
+			flowTableSource.declaredHeaders = real
+		# The second lookup reads the table's identity, as every lookup does, and nothing more.
+		self.assertEqual(1, len(asked) - first)
+
+	def test_aColumnWhoseHeadingIsNowhereKeepsItsNumber(self):
+		"""Right for a column the site renamed, and logged either way."""
+		renamed = self.page(headers={1: "Symbol", 2: "Last price", 3: "Change"})
+		(saved,) = flowTableLayouts.stored()
+		flowTableLayouts.replaceAll([dataclasses.replace(saved, requireHeadings=False)])
+		self.assertEqual((2, 3), flowTableLayouts.layoutFor(renamed).columns)
+		self.assertTrue(any("no longer found" in message for _level, message in log.messages))
+
+
+class TestWhenALayoutWasLastUsed(LayoutTestCase):
+	"""What tells a layout still in use from one whose page has gone."""
+
+	def test_applyingItWritesTheDateAtMostOnceADay(self):
+		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1,)))
+		real = flowTableLayouts._now
+		try:
+			start = real()
+			flowTableLayouts._now = lambda: start + 60
+			flowTableLayouts.layoutFor(self.page())
+			self.assertEqual(start, flowTableLayouts.stored()[0].used)
+			flowTableLayouts._now = lambda: start + flowTableLayouts.USED_EVERY + 60
+			flowTableLayouts.layoutFor(self.page())
+			self.assertEqual(start + flowTableLayouts.USED_EVERY + 60, flowTableLayouts.stored()[0].used)
+		finally:
+			flowTableLayouts._now = real
+
+	def test_theLeastRecentlyUsedGoFirst(self):
+		layouts = [
+			flowTableLayouts.SavedLayout(id=str(number), where=f"https://example.com/{number}", used=number)
+			for number in range(flowTableLayouts.MAX_SAVED + 5)
+		]
+		flowTableLayouts.replaceAll(layouts)
+		kept = {saved.id for saved in flowTableLayouts.stored()}
+		self.assertNotIn("0", kept)
+		self.assertIn(str(flowTableLayouts.MAX_SAVED + 4), kept)
+
+
+class TestLayoutsAProfileHeld(LayoutTestCase):
+	"""Written through NVDA's configuration, a layout saved while an application's profile was on went
+	into that profile and hid every other layout while it was on. They are moved into the one store."""
+
+	def test_theyAreMovedIntoTheStoreAndOutOfTheProfile(self):
+		from ._stubs import PROFILE_TABLE_LAYOUTS
+
+		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1,)))
+		held = flowTableLayouts.SavedLayout(id="outlook", where="outlook/SUPERGRID", layout={"columns": [2]})
+		PROFILE_TABLE_LAYOUTS["outlook"] = json.dumps({"version": 2, "layouts": [held.asStored()]})
+		self.assertEqual(2, len(flowTableLayouts.stored()))
+		self.assertEqual({}, PROFILE_TABLE_LAYOUTS)
+		self.assertIn("outlook/SUPERGRID", CONFIG["tableLayouts"])

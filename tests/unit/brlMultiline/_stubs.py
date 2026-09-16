@@ -3190,6 +3190,10 @@ def installStubs() -> None:
 				"areSegmentsEnabled",
 				"setLayout",
 				"setSegmentsEnabled",
+				"tableLayouts",
+				"setTableLayouts",
+				"tableLayoutsInProfiles",
+				"clearTableLayoutsInProfile",
 			)
 		},
 	)
@@ -3220,6 +3224,10 @@ def installStubs() -> None:
 	# directly, and `resetConfig` empties them between tests as it empties everything else.
 	bmConfig.tableLayouts = lambda: CONFIG["tableLayouts"]
 	bmConfig.setTableLayouts = setTableLayouts
+	# Layouts an active profile holds of its own. None in the ordinary test; a test about moving them
+	# out puts some in L{PROFILE_TABLE_LAYOUTS}.
+	bmConfig.tableLayoutsInProfiles = lambda: list(PROFILE_TABLE_LAYOUTS.items())
+	bmConfig.clearTableLayoutsInProfile = lambda name: PROFILE_TABLE_LAYOUTS.pop(name, None)
 
 
 def loadPlugin():
@@ -3259,8 +3267,13 @@ def loadPlugin():
 	return module
 
 
+PROFILE_TABLE_LAYOUTS: dict = {}
+"""Profile name to the table layouts JSON it holds of its own, as `bmConfig.tableLayoutsInProfiles` reads."""
+
+
 def resetConfig() -> None:
 	"""Put the stub configuration back to its defaults, for a test that changed it."""
+	PROFILE_TABLE_LAYOUTS.clear()
 	CONFIG.clear()
 	CONFIG.profiles = None
 	CONFIG.update(

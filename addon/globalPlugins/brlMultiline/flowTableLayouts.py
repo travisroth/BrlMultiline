@@ -23,14 +23,42 @@ that change to reach this table too. So an unset field means "whatever the setti
 only what the reader chose *for this table* is written down. That is also what keeps a record
 from silently freezing a default the add-on later improves.
 
-Stored as one JSON string per configuration profile, keyed by `flowTableIdentity`. JSON
-rather than a nest of `configobj` sections, because the keys are URLs and window classes and
-a configuration key is not allowed to be either.
+**A saved layout is something the reader can find again, name and move.** The first store kept
+each table only as a digest of its address and its headings, so that the configuration file
+carried no URLs. It worked until a site changed its address: the watchlist stopped coming up
+laid out, nothing could say which saved layout had been its own, and nothing could point that
+layout at the new address. Found on hardware, 16 September 2026. So each layout is now a
+`SavedLayout` that keeps, readably, the reader's name for it, the address it was saved at, how
+strictly that address has to match, and the table's headings — which is what the layout
+manager, `flowTableManager`, lists and edits. The reader chose to keep the full address,
+query string and all, knowing the file then carries it.
+
+**How strictly an address matches is the reader's to set, per layout.** A web page is matched
+by its site and path by default, ignoring the query string, because the query string is what a
+site changes: a view renumbered, a parameter added. The headings still have to match, which is
+what keeps two tables on one path apart. Exactly, or anywhere on the site, are the other two
+answers.
+
+**Column settings follow their column by heading.** A record names columns by number, and a
+site that inserts one moves every column after it — so each decision would land silently on
+its neighbour. The heading of each column the record names is saved beside it, and a column
+whose heading has moved is followed to where it went.
+
+**One store, in the base configuration, whatever profile is active.** Written through NVDA's
+ordinary configuration it went into whichever profile was active, and a layout saved while an
+application's profile was on was hidden everywhere else. See `bmConfig.tableLayouts`.
+
+Stored as one JSON string, because the keys would be URLs and window classes and a
+configuration key is not allowed to be either.
 """
 
 import dataclasses
+import datetime
 import hashlib
 import json
+
+import urllib.parse
+import uuid
 from typing import Any, Optional
 
 from logHandler import log
@@ -43,26 +71,43 @@ FOLLOW = ""
 YES = "yes"
 NO = "no"
 
-KEY_LENGTH = 16
-"""How much of a digest names one table in the store.
+STORE_VERSION = 2
+"""The stored form. Version 1 had no version: a mapping of digests. See `_fromStoredText`."""
 
-Sixty-four bits. The store holds at most `MAX_SAVED` entries, so a collision is not a thing
-that happens; what it buys is that the file does not carry the reader's URLs around.
+MATCH_EXACT = "exact"
+"""The address has to be the one saved, character for character."""
+
+MATCH_PATH = "path"
+"""The same site and path, whatever the query string and fragment say. The default for a web page."""
+
+MATCH_SITE = "site"
+"""Any page on the same site. The headings still have to match."""
+
+MATCHES = (MATCH_PATH, MATCH_EXACT, MATCH_SITE)
+
+KEY_LENGTH = 16
+"""How much of a digest named one table in the version 1 store. Kept to read that store."""
+
+FOLLOW_COLUMNS = 64
+"""How many of a table's columns are read to find a column that has moved, or a heading that has.
+
+Only read when a saved column's heading is not where it was, which is a site having changed its
+table rather than anything that happens on an ordinary redraw.
+"""
+
+USED_EVERY = 24 * 60 * 60
+"""How often, in seconds, applying a layout writes down that it was used.
+
+Once a day is enough to tell a layout still in use from one whose page has gone, which is what
+the date is for, and it keeps the configuration from being written on every redraw.
 """
 
 
 def keyFor(said: str) -> str:
-	""":return: how one half of an identity is written down.
+	""":return: the digest the version 1 store named one half of an identity by.
 
-	**A digest rather than the thing itself.** An identity is a URL — with its query string,
-	which is where a session token lives — or a local file path, or the headings of a table the
-	reader has open; the store is a file in their configuration folder that goes wherever a
-	profile goes. A digest matches exactly as the text did and says nothing about what was
-	matched. Nothing reads these keys back for meaning: the lookup compares them and that is
-	all, and the log still names tables in full, where it is the reader's own screen.
-
-	Empty stays empty, since "" is a real answer — a list view that declares no headings has
-	only its place to be known by, and `layoutFor` looks for that exact key.
+	Only for reading that store, and for matching a layout carried over from it until it is next
+	seen and can be written down readably. See `SavedLayout.legacyWhere`.
 
 	:param said: a part of an identity, from `flowTableIdentity`.
 	"""
@@ -72,17 +117,12 @@ def keyFor(said: str) -> str:
 
 
 MAX_SAVED = 200
-"""How many tables may be remembered before the oldest is dropped.
+"""How many tables may be remembered before the least recently used is dropped.
 
 A bound on the configuration file rather than on the reader: two hundred tables is more than
 anyone lays out by hand, and a store that grows without limit is a file that eventually
-cannot be written.
-
-**Dropped by age of last *saving*, not of last reading**, which a review pointed out is not
-what "least recently used" means. It is deliberate: a lookup happens every time the reader
-walks into a table, and writing the configuration file from a braille refresh to record that
-they read one is a cost paid constantly to improve an eviction that happens once in two
-hundred layouts. The reader whose watchlist is evicted saves it again with one keystroke.
+cannot be written. Ranked by when each was last used, which is written down at most once a day;
+see `USED_EVERY`.
 """
 
 
@@ -124,6 +164,13 @@ class TableLayout:
 	holds; a column named here that the table has not got is dropped on reading, exactly as a
 	named column already is."""
 
+	columnHeadings: dict = dataclasses.field(default_factory=dict, compare=False)
+	"""The heading each column this layout names had when it was saved, by column number.
+
+	What lets a decision follow its column when a site inserts or moves one; see `_followColumns`.
+	Not a decision, so it neither makes a layout worth saving nor makes two layouts that decide the
+	same thing different. Filled in by `remember`, which is the one place that reads the table."""
+
 	def asRecord(self) -> dict:
 		""":return: this layout as the plain data that goes into the store.
 
@@ -148,12 +195,25 @@ class TableLayout:
 			said = getattr(self, name)
 			if said in (YES, NO):
 				record[name] = said
+		if record and self.columnHeadings:
+			record["headings"] = {
+				str(column): heading for column, heading in sorted(self.columnHeadings.items()) if heading
+			}
 		return record
 
 	@property
 	def isEmpty(self) -> bool:
 		""":return: whether this decides nothing, which is a layout not worth saving."""
-		return not self.asRecord()
+		return not dataclasses.replace(self, columnHeadings={}).asRecord()
+
+	@property
+	def namedColumns(self) -> set:
+		""":return: every column this layout decides something about, by the table's own number."""
+		named = {column for column in self.columns if column > 0}
+		named.update(column for column in (self.perColumn or {}) if column > 0)
+		if self.keyColumn:
+			named.add(self.keyColumn)
+		return named
 
 	def rowHeightOr(self, setting: int) -> int:
 		""":return: the row height to use, this layout's or the reader's setting."""
@@ -211,11 +271,21 @@ def fromRecord(record: Any) -> TableLayout:
 		keyColumn = int(record.get("keyColumn") or 0)
 	except (TypeError, ValueError):
 		keyColumn = 0
+	headings = {}
+	rawHeadings = record.get("headings")
+	for column, heading in rawHeadings.items() if isinstance(rawHeadings, dict) else ():
+		try:
+			number = int(column)
+		except (TypeError, ValueError):
+			continue
+		if number > 0 and isinstance(heading, str) and heading.strip():
+			headings[number] = heading
 	return TableLayout(
 		columns=tuple(columns),
 		rowHeight=max(0, rowHeight),
 		keyColumn=max(0, keyColumn),
 		perColumn=_perColumnFrom(record.get("perColumn")),
+		columnHeadings=headings,
 		**said,
 	)
 
@@ -290,149 +360,749 @@ def _choiceFrom(record: dict):
 	)
 
 
-def stored() -> dict:
-	""":return: every saved layout, by where the table is and then by its signature.
+@dataclasses.dataclass(frozen=True)
+class SavedLayout:
+	"""One saved layout, and what it is saved against.
 
-	Two levels, because that is what makes the lookup cheap: the outer key is one attribute
-	read of the table in front of the reader, and the inner one costs a read per column and is
-	only asked for when the outer key is in here at all.
+	Frozen, and changed with `dataclasses.replace`, because the manager edits a working copy of the
+	store and a record changed in place would be changed in the store it was read from too.
 	"""
+
+	id: str
+	"""What names this record in the store, whatever its name and address become."""
+
+	name: str = ""
+	"""What the reader calls it. Made up from the address and headings when it is first saved, and
+	empty for a layout carried over from the version 1 store until it is next seen."""
+
+	where: str = ""
+	"""The address it applies at, as `flowTableIdentity.whereOf` says it: a page's URL, a workbook's
+	path, or an application and window class. Empty only for a layout from the version 1 store that
+	has not been seen since, which is matched by `legacyWhere` instead."""
+
+	match: str = MATCH_EXACT
+	"""How strictly `where` has to match. One of `MATCHES`; anything but exact is for an address."""
+
+	headings: tuple = ()
+	"""The table's first headings when it was saved, which is what tells two tables in one place apart."""
+
+	requireHeadings: bool = True
+	"""Whether `headings` have to match. The manager can let a layout apply to whatever table is at
+	its address, which is the answer for a site that renames a column in its first few."""
+
+	layout: dict = dataclasses.field(default_factory=dict)
+	"""The layout itself, as `TableLayout.asRecord` writes it."""
+
+	saved: int = 0
+	"""When it was last saved, in seconds."""
+
+	used: int = 0
+	"""When it was last applied, to within `USED_EVERY`, or when it was saved if it has not been since."""
+
+	legacyWhere: str = ""
+	"""The version 1 store's digest of the address, for a layout carried over from it."""
+
+	legacyWhat: str = ""
+	"""The version 1 store's digest of the headings, likewise. Empty meant "any table at the address"."""
+
+	@property
+	def isLegacy(self) -> bool:
+		""":return: whether this is a layout from the version 1 store that has not been seen since."""
+		return not self.where and bool(self.legacyWhere)
+
+	@property
+	def tableLayout(self) -> TableLayout:
+		return fromRecord(self.layout)
+
+	def asStored(self) -> dict:
+		stored: dict = {"id": self.id, "layout": dict(self.layout), "saved": self.saved, "used": self.used}
+		if self.name:
+			stored["name"] = self.name
+		if self.where:
+			stored["where"] = self.where
+			stored["match"] = self.match
+		if self.headings:
+			stored["headings"] = list(self.headings)
+		if not self.requireHeadings:
+			stored["requireHeadings"] = False
+		if self.isLegacy:
+			stored["legacyWhere"] = self.legacyWhere
+			stored["legacyWhat"] = self.legacyWhat
+		return stored
+
+	@classmethod
+	def fromStored(cls, stored: Any) -> Optional["SavedLayout"]:
+		""":return: a record read back, or None for something that is not one.
+
+		As forgiving as `fromRecord`, for the same reason: the file is edited by hand and written by
+		other versions, and one bad entry should cost that entry.
+		"""
+		if not isinstance(stored, dict) or not isinstance(stored.get("id"), str) or not stored["id"]:
+			return None
+		layout = stored.get("layout")
+		if not isinstance(layout, dict):
+			return None
+		where = stored.get("where") if isinstance(stored.get("where"), str) else ""
+		legacyWhere = stored.get("legacyWhere") if isinstance(stored.get("legacyWhere"), str) else ""
+		if not where and not legacyWhere:
+			return None
+		headings = stored.get("headings")
+		match = stored.get("match")
+		return cls(
+			id=stored["id"],
+			name=stored.get("name") if isinstance(stored.get("name"), str) else "",
+			where=where,
+			match=match
+			if match in MATCHES and (match == MATCH_EXACT or isAddress(where))
+			else defaultMatchFor(where),
+			headings=tuple(str(heading) for heading in headings) if isinstance(headings, list) else (),
+			requireHeadings=stored.get("requireHeadings") is not False,
+			layout=layout,
+			saved=_seconds(stored.get("saved")),
+			used=_seconds(stored.get("used")),
+			legacyWhere="" if where else legacyWhere,
+			legacyWhat=""
+			if where
+			else (stored.get("legacyWhat") if isinstance(stored.get("legacyWhat"), str) else ""),
+		)
+
+
+def _seconds(said: Any) -> int:
 	try:
-		read = json.loads(bmConfig.tableLayouts() or "{}")
+		return max(0, int(said or 0))
+	except (TypeError, ValueError):
+		return 0
+
+
+def newId() -> str:
+	""":return: a name for a new record in the store."""
+	return uuid.uuid4().hex[:12]
+
+
+# Addresses
+
+
+def _address(where: str) -> Optional[tuple]:
+	""":return: (site, path) for a web address, or None for anything else — a workbook, a control.
+
+	The site is the host in lower case, with its port if it has one. The path loses a trailing
+	slash, which a site adds and drops without meaning anything by it.
+	"""
+	if not where:
+		return None
+	try:
+		parts = urllib.parse.urlsplit(where)
+		if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+			return None
+		site = parts.hostname.lower()
+		if parts.port:
+			site = f"{site}:{parts.port}"
+	except ValueError:
+		return None
+	return site, parts.path.rstrip("/") or "/"
+
+
+def isAddress(where: str) -> bool:
+	""":return: whether this is a web address, which is what a match other than exact is for."""
+	return _address(where) is not None
+
+
+def _site(site: str) -> str:
+	""":return: a site without its www, which a site answers to with and without."""
+	return site[4:] if site.startswith("www.") else site
+
+
+def sameSite(where: str, other: str) -> bool:
+	""":return: whether two addresses are web pages on the same site, www or not."""
+	mine, theirs = _address(where), _address(other)
+	return bool(mine and theirs and _site(mine[0]) == _site(theirs[0]))
+
+
+def defaultMatchFor(where: str) -> str:
+	""":return: how strictly a new layout saved at this address matches. See `MATCH_PATH`."""
+	return MATCH_PATH if isAddress(where) else MATCH_EXACT
+
+
+def placeMatches(saved: SavedLayout, where: str) -> bool:
+	""":return: whether a saved layout applies at this address, before its headings are asked about.
+
+	:param saved: the layout.
+	:param where: where the table is, as `flowTableIdentity.whereOf` says.
+	"""
+	if not where:
+		return False
+	if saved.isLegacy:
+		return keyFor(where) == saved.legacyWhere
+	if saved.match == MATCH_EXACT:
+		return saved.where == where
+	mine, theirs = _address(saved.where), _address(where)
+	if mine is None or theirs is None:
+		return saved.where == where
+	if saved.match == MATCH_SITE:
+		return _site(mine[0]) == _site(theirs[0])
+	return mine == theirs
+
+
+def _specificity(saved: SavedLayout) -> int:
+	""":return: how particular a layout is about its address, so the most particular one wins."""
+	if saved.isLegacy or saved.match == MATCH_EXACT:
+		return 3
+	return 2 if saved.match == MATCH_PATH else 1
+
+
+def defaultNameFor(where: str, headings) -> str:
+	""":return: what a new layout is called until the reader renames it.
+
+	The address as a reader would say it, and the first few headings, since two tables on one page
+	share the first half.
+	"""
+	address = _address(where)
+	if address is not None:
+		place = _site(address[0]) + ("" if address[1] == "/" else address[1])
+	else:
+		place = where
+	said = [heading for heading in headings if heading][:3]
+	return ", ".join([place, *said]) if said else place
+
+
+def _normal(heading: Any) -> str:
+	return " ".join(str(heading or "").split())
+
+
+# Reading the table
+
+
+class _Headings:
+	"""A table's headings, read only as far as a question needs and each column once.
+
+	`flowTableSource.declaredHeaders` is a read per column, made where the reader is waiting, so
+	nothing here reads a heading nobody asked about.
+	"""
+
+	def __init__(self, handle):
+		self.handle = handle
+		self._signature: Optional[str] = None
+		self._columns: dict = {}
+
+	@property
+	def signature(self) -> str:
+		""":return: the first headings as `flowTableIdentity.signatureOf` joins them."""
+		if self._signature is None:
+			self._signature = flowTableIdentity.signatureOf(self.handle)
+		return self._signature
+
+	@property
+	def first(self) -> tuple:
+		""":return: the first headings, one per column, "" for a column that declares none."""
+		said = self.signature
+		return tuple(said.split(flowTableIdentity.SEPARATOR)) if said else ()
+
+	def of(self, columns) -> dict:
+		""":return: the heading of each column asked about that declares one, by column number."""
+		from . import flowTableSource
+
+		wanted = [column for column in columns if column not in self._columns]
+		if wanted:
+			try:
+				said = flowTableSource.declaredHeaders(self.handle, wanted)
+			except flowTableIdentity.CallCancelled:
+				raise
+			except Exception:
+				log.debugWarning("Could not read a table's headings", exc_info=True)
+				said = {}
+			for column in wanted:
+				self._columns[column] = _normal(said.get(column))
+		return {column: self._columns[column] for column in columns if self._columns.get(column)}
+
+	def everything(self) -> dict:
+		""":return: every column's heading, to `FOLLOW_COLUMNS`."""
+		count = min(int(getattr(self.handle, "numCols", 0) or 0), FOLLOW_COLUMNS)
+		return self.of(range(1, count + 1))
+
+
+class KnownHeadings:
+	"""Headings already read, answering what `_Headings` answers without a table to read.
+
+	For the manager, which asks which layout would apply after an edit and has only what it read of
+	the table when it opened. So a heading beyond the first few is not known, and an inserted column
+	is judged on those alone.
+	"""
+
+	def __init__(self, first):
+		self.first = tuple(first)
+		self.signature = flowTableIdentity.SEPARATOR.join(self.first) if any(self.first) else ""
+
+	def of(self, columns) -> dict:
+		return {
+			column: self.first[column - 1]
+			for column in columns
+			if 0 < column <= len(self.first) and self.first[column - 1]
+		}
+
+	def everything(self) -> dict:
+		return self.of(range(1, len(self.first) + 1))
+
+
+def headingsOf(handle) -> tuple:
+	""":return: a table's first headings, one per column, "" for a column that declares none."""
+	return _Headings(handle).first if handle is not None else ()
+
+
+def headingsMatch(saved: SavedLayout, headings, candidates: int = 1) -> bool:
+	""":return: whether a table's headings are the ones a layout was saved against.
+
+	The first headings in order, which is what they were saved as. Failing that, every saved heading
+	still somewhere in the table: a site that inserts a column among the first few has changed the
+	sequence and not the table, and the layout's own columns follow by heading. See `_followColumns`.
+
+	:param saved: a layout whose address already matched.
+	:param headings: the table's.
+	:param candidates: how many version 1 layouts share the address, for the rule they had.
+	"""
+	if saved.isLegacy:
+		if keyFor(headings.signature) == saved.legacyWhat:
+			return True
+		# One layout saved for this place and nothing to tell tables apart by. A list view that
+		# declares no headings is the case: it has only its place to be known by.
+		return saved.legacyWhat == "" and candidates == 1
+	wanted = [_normal(heading) for heading in saved.headings]
+	if not saved.requireHeadings or not any(wanted):
+		return True
+	here = [_normal(heading) for heading in headings.first]
+	if here == wanted:
+		return True
+	present = set(headings.everything().values())
+	return all(heading in present for heading in wanted if heading)
+
+
+# The store
+
+
+_parsed: tuple = (None, [])
+"""The last store text read and what it read as, since `stored` is asked on every redraw."""
+
+
+def stored() -> list:
+	""":return: every saved layout.
+
+	Brings in any layouts an active configuration profile holds, which is where the first store put
+	a layout saved while that profile was on. See `bmConfig.tableLayoutsInProfiles`.
+	"""
+	global _parsed
+	try:
+		text = bmConfig.tableLayouts()
 	except Exception:
 		log.debugWarning("Could not read the saved table layouts", exc_info=True)
-		return {}
-	return _asStore(read)
+		return []
+	if text != _parsed[0]:
+		_parsed = (text, _fromStoredText(text))
+	layouts = list(_parsed[1])
+	try:
+		elsewhere = bmConfig.tableLayoutsInProfiles()
+	except Exception:
+		log.debugWarning("Could not read the table layouts in the active profiles", exc_info=True)
+		elsewhere = []
+	if elsewhere:
+		known = {saved.id for saved in layouts}
+		for profile, said in elsewhere:
+			brought = [saved for saved in _fromStoredText(said) if saved.id not in known]
+			known.update(saved.id for saved in brought)
+			layouts.extend(brought)
+			log.info(f"BrlMultiline: moved {len(brought)} saved table layouts out of the profile {profile!r}")
+			bmConfig.clearTableLayoutsInProfile(profile)
+		_write(layouts)
+	return layouts
 
 
-def _asStore(read: Any) -> dict:
-	""":return: what was read, with anything that is not the shape of a store left out.
+def _fromStoredText(text: str) -> list:
+	""":return: the layouts a stored text holds, in either version, leaving out what cannot be read.
 
-	**Forgiving all the way down, and it was not.** `fromRecord` is careful about a record it
-	cannot read, and everything above it took the file on trust: a stored `1`, or a place whose
-	value is a string, reached `layoutFor` and raised there — in the middle of the reader
-	walking into a table, which is a braille refresh that stops rather than an error anybody
-	sees. The module says outright that it reads a file a reader may have edited and a record
-	another version wrote, so the whole shape has to be checked, not the innermost part of it.
-
-	One bad entry costs that entry. Dropping the store because one place in it is malformed
-	would lose every layout the reader has.
-
-	:param read: whatever the configuration held.
+	**Forgiving all the way down.** A stored `1`, or a place whose value is a string, once reached
+	the lookup and raised there — in the middle of the reader walking into a table, which is a
+	braille refresh that stops rather than an error anybody sees. One bad entry costs that entry.
 	"""
+	if not text:
+		return []
+	try:
+		read = json.loads(text)
+	except ValueError:
+		log.debugWarning("Could not read the saved table layouts", exc_info=True)
+		return []
 	if not isinstance(read, dict):
 		log.debugWarning(f"The saved table layouts are not a store but a {type(read).__name__}")
-		return {}
-	store: dict = {}
+		return []
+	if "version" not in read:
+		return _fromVersionOne(read)
+	layouts = []
+	for stored in read.get("layouts") if isinstance(read.get("layouts"), list) else ():
+		saved = SavedLayout.fromStored(stored)
+		if saved is None:
+			log.debugWarning("A saved table layout could not be read and was left out")
+			continue
+		layouts.append(saved)
+	return layouts
+
+
+def _fromVersionOne(read: dict) -> list:
+	""":return: the layouts of the first store: address digest, then headings digest, then a record.
+
+	Named by their digests until they are next seen, which is when the address and headings they
+	belong to become known and are written down. See `find`.
+	"""
+	layouts = []
 	for where, inner in read.items():
 		if not isinstance(where, str) or not isinstance(inner, dict):
 			log.debugWarning(f"A saved table layout is not kept where one would be: {where!r}")
 			continue
-		kept = {
-			what: record
-			for what, record in inner.items()
-			if isinstance(what, str) and isinstance(record, dict)
-		}
-		if len(kept) != len(inner):
-			log.debugWarning(f"A saved table layout under {where!r} is not a record")
-		if kept:
-			store[where] = kept
-	return store
-
-
-def _write(layouts: dict) -> None:
-	"""Put the store back, dropping the least recently used if it has grown too large."""
-	try:
-		bmConfig.setTableLayouts(json.dumps(_trimmed(layouts), separators=(",", ":")))
-	except Exception:
-		log.debugWarning("Could not save the table layouts", exc_info=True)
-
-
-def _trimmed(layouts: dict) -> dict:
-	""":return: the store, with the oldest entries dropped if it is over `MAX_SAVED`."""
-	total = sum(len(inner or {}) for inner in layouts.values())
-	if total <= MAX_SAVED:
-		return layouts
-	ranked = [
-		(inner.get(what, {}).get("used", 0), where, what)
-		for where, inner in layouts.items()
-		for what in list(inner or {})
-	]
-	ranked.sort()
-	for _used, where, what in ranked[: total - MAX_SAVED]:
-		layouts[where].pop(what, None)
-		if not layouts[where]:
-			layouts.pop(where, None)
+		for what, record in inner.items():
+			if not isinstance(what, str) or not isinstance(record, dict):
+				log.debugWarning(f"A saved table layout under {where!r} is not a record")
+				continue
+			layout = {name: value for name, value in record.items() if name != "used"}
+			used = _seconds(record.get("used"))
+			layouts.append(
+				SavedLayout(
+					id=f"{where}{what}"[:24] or newId(),
+					layout=layout,
+					saved=used,
+					used=used,
+					legacyWhere=where,
+					legacyWhat=what,
+				),
+			)
 	return layouts
 
 
-def layoutFor(handle) -> Optional[TableLayout]:
-	""":return: the layout saved for this table, or None if there is none.
+def replaceAll(layouts) -> None:
+	"""Store exactly these layouts, as the manager does when the reader presses OK.
 
-	**Cheap when there is nothing saved**, which is every table until the reader saves one:
-	the outer key is one attribute read, and a place that is not in the store ends the lookup
-	there. Only a place that has something under it is worth reading the headings for.
+	:param layouts: every layout to keep.
+	"""
+	_write(list(layouts))
+
+
+def _write(layouts: list) -> None:
+	"""Put the store back, dropping the least recently used if it has grown too large."""
+	global _parsed
+	kept = _trimmed(layouts)
+	text = json.dumps(
+		{"version": STORE_VERSION, "layouts": [saved.asStored() for saved in kept]},
+		separators=(",", ":"),
+	)
+	try:
+		bmConfig.setTableLayouts(text)
+	except Exception:
+		log.debugWarning("Could not save the table layouts", exc_info=True)
+		return
+	_parsed = (text, kept)
+
+
+def _trimmed(layouts: list) -> list:
+	""":return: the store, with the least recently used dropped if it is over `MAX_SAVED`."""
+	if len(layouts) <= MAX_SAVED:
+		return list(layouts)
+	keep = sorted(layouts, key=lambda saved: (saved.used, saved.saved), reverse=True)[:MAX_SAVED]
+	kept = {id(saved) for saved in keep}
+	return [saved for saved in layouts if id(saved) in kept]
+
+
+def _withChanged(layouts: list, changed: SavedLayout) -> list:
+	return [changed if saved.id == changed.id else saved for saved in layouts]
+
+
+# Finding the layout for a table
+
+
+@dataclasses.dataclass(frozen=True)
+class Found:
+	"""What `find` made of the table in front of the reader."""
+
+	where: str
+	"""Where the table is. Empty for a table that cannot be named."""
+
+	headings: tuple = ()
+	"""Its first headings, where anything was saved at its address to make reading them worth it."""
+
+	saved: Optional[SavedLayout] = None
+	"""The layout that applies, or None."""
+
+	reason: str = ""
+	"""Why none applies, for the log and the manager. Empty when one does."""
+
+
+def find(
+	handle,
+	layouts: Optional[list] = None,
+	headings: Optional["_Headings"] = None,
+	where: Optional[str] = None,
+) -> Found:
+	""":return: which saved layout applies to this table, and why not if none does.
+
+	**Cheap where nothing is saved at the address**, which is every table until the reader saves one:
+	the address is one attribute read and its headings are not read at all. Among the layouts that
+	match, the one most particular about its address wins, then one that asks for headings over one
+	that does not, then the one used most recently.
+
+	:param handle: the table, as `flowTableSource.tableAt` returned it.
+	:param layouts: the store, to look in something other than what is saved.
+	:param headings: the table's headings, where a caller has already been reading them.
+	:param where: where the table is, for a caller that already knows. See `KnownHeadings`.
+	"""
+	layouts = stored() if layouts is None else layouts
+	if where is None:
+		where = flowTableIdentity.whereOf(handle) if handle is not None else ""
+	if not where:
+		return Found("", reason="this table cannot be named")
+	here = [saved for saved in layouts if placeMatches(saved, where)]
+	if not here:
+		return Found(where, reason=f"no layout is saved for this place: {where!r}")
+	headings = headings if headings is not None else _Headings(handle)
+	legacy = {}
+	for saved in here:
+		if saved.isLegacy:
+			legacy[saved.legacyWhere] = legacy.get(saved.legacyWhere, 0) + 1
+	matching = [saved for saved in here if headingsMatch(saved, headings, legacy.get(saved.legacyWhere, 0))]
+	if not matching:
+		return Found(
+			where,
+			headings.first,
+			reason=(
+				f"a layout is saved for {where!r}, but not for a table with these headings: "
+				f"{list(headings.first)!r}"
+			),
+		)
+	return Found(where, headings.first, bestOf(matching))
+
+
+def bestOf(matching: list) -> SavedLayout:
+	""":return: the one of several matching layouts that applies. See `find`."""
+	return max(
+		matching,
+		key=lambda saved: (
+			_specificity(saved),
+			saved.requireHeadings and any(saved.headings),
+			saved.used,
+			saved.saved,
+		),
+	)
+
+
+def layoutFor(handle) -> Optional[TableLayout]:
+	""":return: the layout saved for this table, with its columns followed to where they are now, or None.
+
+	Asked on every redraw of a table, so what it writes it writes seldom: a layout from the version 1
+	store is written down readably the first time it is seen, and the date a layout was used at most
+	once a day. See `USED_EVERY`.
 
 	:param handle: the table, as `flowTableSource.tableAt` returned it.
 	"""
 	layouts = stored()
-	if not layouts:
+	if not layouts or handle is None:
 		return None
-	where = flowTableIdentity.whereOf(handle)
-	inner = layouts.get(keyFor(where)) if where else None
-	if not inner:
+	headings = _Headings(handle)
+	found = find(handle, layouts, headings)
+	if found.saved is None:
+		if found.where:
+			_explainMiss(found.reason, (found.where, found.headings))
 		return None
-	record = inner.get(keyFor(flowTableIdentity.signatureOf(handle)))
-	if record is None and len(inner) == 1 and "" in inner:
-		# One layout saved for this place and nothing to tell tables apart by. A list view
-		# that declares no headings is the case: it has only its place to be known by, and
-		# refusing the reader their own layout because of that would be refusing them the
-		# feature in the control they saved it from.
-		record = inner[""]
-	return fromRecord(record) if record is not None else None
+	saved = found.saved
+	now = _now()
+	changed = saved
+	if saved.isLegacy:
+		changed = dataclasses.replace(
+			saved,
+			name=defaultNameFor(found.where, found.headings),
+			where=found.where,
+			match=defaultMatchFor(found.where),
+			headings=found.headings,
+			legacyWhere="",
+			legacyWhat="",
+		)
+		log.info(f"BrlMultiline: a saved table layout from before names were kept is now {changed.name!r}")
+	if now - saved.used >= USED_EVERY:
+		changed = dataclasses.replace(changed, used=now)
+	if changed is not saved:
+		_write(_withChanged(layouts, changed))
+	return _followColumns(changed, found.where, headings)
+
+
+_followed: dict = {}
+"""Layouts already followed to where their columns are, by what they were followed for."""
+
+
+def _followColumns(saved: SavedLayout, where: str, headings: _Headings) -> TableLayout:
+	""":return: a saved layout with every column it names moved to where that column's heading is now.
+
+	A column whose heading is where it was stays. One whose heading is now under another number is
+	followed there, if exactly one column has it. One whose heading is nowhere keeps its number, which
+	is right for a column the site renamed and a guess for one it removed, and is logged either way.
+
+	**Remembered per table**, since this is asked on every redraw and reading the saved columns'
+	headings each time would be a read per column the reader is waiting through.
+
+	:param saved: the layout that applies.
+	:param where: where the table is.
+	:param headings: the table's headings.
+	"""
+	layout = saved.tableLayout
+	named = {
+		column: heading for column, heading in layout.columnHeadings.items() if column in layout.namedColumns
+	}
+	if not named:
+		return layout
+	remembered = (saved.id, json.dumps(saved.layout, sort_keys=True), where, headings.signature)
+	if remembered in _followed:
+		return _followed[remembered]
+	now = headings.of(sorted(named))
+	moved = {column: heading for column, heading in named.items() if now.get(column) != _normal(heading)}
+	result = layout
+	if moved:
+		everywhere = headings.everything()
+		mapping = {}
+		lost = []
+		for column, heading in moved.items():
+			places = [number for number, said in everywhere.items() if said == _normal(heading)]
+			if len(places) == 1:
+				mapping[column] = places[0]
+			else:
+				lost.append(column)
+		taken = set(mapping.values())
+
+		def to(column: int) -> Optional[int]:
+			if column in mapping:
+				return mapping[column]
+			if column in taken and column not in moved:
+				# Its number now belongs to a column that moved there, so it cannot keep it.
+				return None
+			return column
+
+		columns = tuple(number for number in (to(column) for column in layout.columns) if number)
+		result = dataclasses.replace(
+			layout,
+			columns=columns,
+			perColumn={to(column): choice for column, choice in layout.perColumn.items() if to(column)},
+			keyColumn=(to(layout.keyColumn) or 0) if layout.keyColumn else 0,
+			columnHeadings={
+				to(column): heading for column, heading in layout.columnHeadings.items() if to(column)
+			},
+		)
+		said = [
+			f"{named[column]!r} from column {column} to {number}"
+			for column, number in sorted(mapping.items())
+		]
+		said += [
+			f"{named[column]!r} is no longer found, so kept at column {column}" for column in sorted(lost)
+		]
+		_explainMiss(
+			f"columns of {saved.name or where!r} have moved: {'; '.join(said)}", ("moved", remembered)
+		)
+	if len(_followed) > MAX_SAVED:
+		_followed.clear()
+	_followed[remembered] = result
+	return result
+
+
+_explained: set = set()
+"""What `_explainMiss` has already said this session, so a table walked through twice says it once."""
+
+
+def _explainMiss(said: str, about) -> None:
+	"""Say in the log why a table was not laid out as saved, once for each place and table.
+
+	**A saved layout that stops applying was silent.** A site that adds a query string to its
+	address or renames a column has changed what a layout is matched on without the reader doing
+	anything. Reported from hardware as a watchlist that stopped coming up laid out, with nothing in
+	the log to say which half had moved.
+
+	:param said: why.
+	:param about: what it was about, so the same miss is said once.
+	"""
+	if about in _explained:
+		return
+	if len(_explained) > MAX_SAVED:
+		_explained.clear()
+	_explained.add(about)
+	if said.startswith("columns of"):
+		log.info(f"BrlMultiline: saved table layout applied, but {said}")
+	else:
+		log.info(f"BrlMultiline: saved table layout not applied, {said}")
 
 
 def remember(handle, layout: TableLayout) -> bool:
 	"""Save a layout against the table in front of the reader.
 
+	**Into the layout that already applies here, where one does**, keeping its name, its address and
+	how strictly that matches. Saving again after arranging a column is changing that layout, not
+	making a second one beside it that the first would then compete with.
+
+	The headings of the columns it names are read and written down with it, which is what lets those
+	columns be followed if the site moves them. See `_followColumns`.
+
 	:param handle: the table.
 	:param layout: what they decided.
 	:return: whether anything was saved, which is no for a table that cannot be named.
 	"""
-	identity = flowTableIdentity.identityOf(handle)
-	if not identity.isKnown:
-		return False
 	layouts = stored()
-	where = keyFor(identity.where)
-	inner = dict(layouts.get(where) or {})
-	record = layout.asRecord()
-	record["used"] = _now()
-	inner[keyFor(identity.what)] = record
-	layouts[where] = inner
+	headings = _Headings(handle)
+	found = find(handle, layouts, headings)
+	if not found.where:
+		return False
+	named = sorted(layout.namedColumns)
+	record = dataclasses.replace(layout, columnHeadings=headings.of(named) if named else {}).asRecord()
+	now = _now()
+	first = headings.first
+	if found.saved is not None:
+		saved = found.saved
+		changed = dataclasses.replace(saved, layout=record, saved=now, used=now)
+		if saved.isLegacy:
+			changed = dataclasses.replace(
+				changed,
+				name=defaultNameFor(found.where, first),
+				where=found.where,
+				match=defaultMatchFor(found.where),
+				headings=first,
+				legacyWhere="",
+				legacyWhat="",
+			)
+		_write(_withChanged(layouts, changed))
+		return True
+	layouts.append(
+		SavedLayout(
+			id=newId(),
+			name=defaultNameFor(found.where, first),
+			where=found.where,
+			match=defaultMatchFor(found.where),
+			headings=first,
+			layout=record,
+			saved=now,
+			used=now,
+		),
+	)
 	_write(layouts)
 	return True
 
 
 def forget(handle) -> bool:
-	"""Drop the layout saved for this table.
+	"""Drop the layout that applies to this table.
 
 	:param handle: the table.
 	:return: whether there was one to drop.
 	"""
-	identity = flowTableIdentity.identityOf(handle)
 	layouts = stored()
-	where = keyFor(identity.where)
-	inner = layouts.get(where) if identity.isKnown else None
-	if not inner:
+	found = find(handle, layouts)
+	if found.saved is None:
 		return False
-	if inner.pop(keyFor(identity.what), None) is None and inner.pop("", None) is None:
-		return False
-	if inner:
-		layouts[where] = inner
-	else:
-		layouts.pop(where, None)
-	_write(layouts)
+	_write([saved for saved in layouts if saved.id != found.saved.id])
 	return True
+
+
+def dateWords(seconds: int) -> str:
+	""":return: a date as a reader says it, or "never" for none. For the manager's list."""
+	if not seconds:
+		# Translators: said in place of a date for a saved table layout that has no record of it.
+		return _("never")
+	day = datetime.date.fromtimestamp(seconds)
+	return f"{day.strftime('%B')} {day.day}, {day.year}"
 
 
 def layoutFrom(plan, handle=None, arranged: Optional[TableLayout] = None) -> TableLayout:
@@ -474,13 +1144,31 @@ def _now() -> int:
 
 __all__ = [
 	"FOLLOW",
+	"MATCHES",
+	"MATCH_EXACT",
+	"MATCH_PATH",
+	"MATCH_SITE",
 	"NO",
+	"Found",
+	"SavedLayout",
 	"TableLayout",
 	"YES",
+	"dateWords",
+	"defaultMatchFor",
+	"defaultNameFor",
+	"KnownHeadings",
+	"bestOf",
+	"find",
 	"forget",
+	"headingsMatch",
+	"headingsOf",
 	"fromRecord",
+	"isAddress",
 	"layoutFor",
 	"layoutFrom",
+	"placeMatches",
 	"remember",
+	"replaceAll",
+	"sameSite",
 	"stored",
 ]
