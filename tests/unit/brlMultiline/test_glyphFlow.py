@@ -478,6 +478,21 @@ class TestShorteningALine(GlyphTestCase):
 		self.assertEqual(marks[0].cells, [ord("b")])
 		self.assertEqual(marks[0].saved, 2)
 
+	def test_aRegionMovedToAnotherDisplayHasItsShapesBuiltByThatDisplay(self):
+		"""Found by review. The receipt was the cells alone, so the second display was handed shapes the
+		first one's driver had built, which mean nothing to it."""
+
+		class Other(FakeDisplay):
+			def newGlyph(self, rows, fallback):
+				return ("other", tuple(rows), tuple(fallback))
+
+		region = self.region("btn Search")
+		self.assertEqual("glyph", glyphFlow.compressRegion(region, self.target())[0].drawn[0])
+		there = glyphFlow.Target(driver=Other(), rowStart=0, numRows=8, numCols=32)
+		marks = glyphFlow.compressRegion(region, there)
+		self.assertEqual("other", marks[0].drawn[0])
+		self.assertEqual(bytes(region.brailleCells).decode(), "b Search")
+
 	def test_theDriverIsAskedToBuildTheShape(self):
 		region = self.region("btn Search")
 		marks = glyphFlow.compressRegion(region, self.target())
@@ -889,6 +904,27 @@ class TestABandThatDrawsThem(GlyphTestCase):
 		self.assertEqual(self.rowOf(control, numCols=7), "l abcde")
 		self.assertFalse(budget.active)
 		self.assertEqual(budget.operations, finished + 1)
+
+	def test_turningTheSettingOffOnABandAlreadyDrawnGivesTheWordsBack(self):
+		"""Found by review. Only the display was compared, so a band that stayed on the same display
+		kept its shapes after the reader asked for the words."""
+		control = self.band("lnk Search now")
+		self.fields(control)
+		control.drawGlyphsOn(self.target())
+		self.assertEqual(self.rowOf(control), "l Search")
+		self.section["drawGlyphs"] = False
+		control.drawGlyphsOn(self.target())
+		self.assertEqual(self.rowOf(control), "lnk Sear")
+
+	def test_turningItOnOnABandAlreadyDrawnDrawsThem(self):
+		self.section["drawGlyphs"] = False
+		control = self.band("lnk Search now")
+		self.fields(control)
+		control.drawGlyphsOn(self.target())
+		self.assertEqual(self.rowOf(control), "lnk Sear")
+		self.section["drawGlyphs"] = True
+		control.drawGlyphsOn(self.target())
+		self.assertEqual(self.rowOf(control), "l Search")
 
 	def test_aBandWithNoShapesOnItSaysSo(self):
 		control = self.band("Search now")

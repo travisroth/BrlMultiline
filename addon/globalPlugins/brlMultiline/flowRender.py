@@ -126,6 +126,13 @@ class FlowRenderer:
 		unplugged. None means no shape is drawn and no word is taken out — which is what a
 		region bound for a display that cannot draw one must get. See `glyphFlow.targetForRows`.
 		"""
+		self.glyphsWanted = False
+		"""Whether the reader's setting asked for shapes when the band was last laid out for them.
+
+		Kept beside `glyphTarget` because both decide what a block looks like, and a review found the
+		setting turned off on a band that stayed on the same display leaving every shape in place. See
+		`FlowController.drawGlyphsOn`.
+		"""
 		self.handler = handler
 		self.numCols = numCols
 		self.fillRows = fillRows

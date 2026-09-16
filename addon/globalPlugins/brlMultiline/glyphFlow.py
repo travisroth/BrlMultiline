@@ -74,6 +74,16 @@ set of marks with an empty one. So the cells are the receipt: unchanged means th
 describe them, and a fresh `update` rebuilds them and invalidates it by construction.
 """
 
+DRIVER = "_brlMultilineGlyphDriver"
+"""Attribute holding the driver that built a region's shapes.
+
+**A shape belongs to the driver that built it.** `glyphs.fittedOver` asks the driver for each one, and
+what comes back is that driver's own and means nothing to another. The receipt was the cells alone, so
+a band moved from one display that draws to another handed the second the first one's shapes, laid out
+again over unchanged cells. Found by review. Held beside `STAMP`, and a different driver is a different
+receipt.
+"""
+
 BEFORE = "_brlMultilineBeforeGlyphs"
 """Attribute holding the region exactly as NVDA left it, so it can be given back.
 
@@ -803,8 +813,18 @@ def compressRegion(region, target: Optional[Target] = None) -> dict:
 		return _forget(region)
 	held = getattr(region, MARKS, None)
 	if held is not None and getattr(region, STAMP, None) == tuple(cells):
-		# Laid out again at another width, with nothing read since. See `STAMP`.
-		return held
+		if getattr(region, DRIVER, None) is target.driver:
+			# Laid out again at another width, with nothing read since. See `STAMP`.
+			return held
+		# Built by another display's driver. The words go back, and the shapes are fitted again for
+		# this one from the region as NVDA left it. See `DRIVER`.
+		_forget(region)
+		cells = getattr(region, "brailleCells", None)
+		rawText = getattr(region, "rawText", "") or ""
+		rawToBraille = getattr(region, "rawToBraillePos", None)
+		brailleToRaw = getattr(region, "brailleToRawPos", None)
+		if not cells or not rawText or rawToBraille is None or brailleToRaw is None:
+			return {}
 	spans = replaceableSpans(region)
 	if spans is None:
 		# Nothing says which words here are NVDA's. See `replaceableSpans`.
@@ -835,6 +855,7 @@ def compressRegion(region, target: Optional[Target] = None) -> dict:
 	region.brailleToRawPos = brailleToRaw
 	setattr(region, MARKS, drawn)
 	setattr(region, STAMP, tuple(cells))
+	setattr(region, DRIVER, target.driver)
 	setattr(region, BEFORE, before)
 	return drawn
 
@@ -891,6 +912,7 @@ def _forget(region) -> dict:
 		_restore(region)
 		setattr(region, MARKS, None)
 		setattr(region, STAMP, None)
+		setattr(region, DRIVER, None)
 		setattr(region, BEFORE, None)
 	except Exception:
 		log.debugWarning("BrlMultiline: could not clear a region's glyphs", exc_info=True)

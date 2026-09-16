@@ -2771,7 +2771,9 @@ class TestATableThatLaysItselfOut(TableBandTestCase):
 		realTable = flowTableSource.tableAt
 		realLayout = flowTableLayouts.layoutFor
 		flowTableSource.tableAt = lambda obj: asked.append(obj) or realTable(obj)
-		flowBand.flowTableLayouts.layoutFor = lambda handle: lookedUp.append(handle) or realLayout(handle)
+		flowBand.flowTableLayouts.layoutFor = lambda handle, follow=True: (
+			lookedUp.append(handle) or realLayout(handle, follow=follow)
+		)
 		try:
 			# The build itself, rather than a whole redraw: a redraw also asks
 			# `_recheckTable` whether the caret is still in the table, which is a different

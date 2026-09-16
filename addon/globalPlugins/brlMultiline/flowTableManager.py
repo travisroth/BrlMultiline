@@ -91,15 +91,23 @@ class LayoutManager:
 		self._applied: Optional[tuple] = None
 		"""(the layouts it was worked out for, the layout that applies here), since every line of the
 		list asks."""
-		self._layouts.sort(key=self._rank)
+		# Worked out before sorting and handed to the ranking, not asked for inside it: while a list is
+		# being sorted it reads as empty, so the ranking found nothing applying and a review saw a layout
+		# for other headings put first, where the dialog selects it.
+		applied = self.appliedId
+		self._layouts.sort(key=lambda saved: self._rank(saved, applied))
 
 	# Reading
 
-	def _rank(self, saved: SavedLayout) -> tuple:
+	def _rank(self, saved: SavedLayout, applied: Optional[str]) -> tuple:
 		""":return: where a layout goes in the list: the one that applies here, then others at this
-		address, then others on this site, then the rest, most recently used first."""
+		address, then others on this site, then the rest, most recently used first.
+
+		:param saved: the layout.
+		:param applied: the id of the layout that applies here, worked out before the sort.
+		"""
 		if self.here is not None:
-			if saved.id == self.appliedId:
+			if saved.id == applied:
 				nearness = 0
 			elif flowTableLayouts.placeMatches(saved, self.here.where):
 				nearness = 1
@@ -336,6 +344,14 @@ class LayoutManager:
 		How strictly the address matches is kept, unless it is a layout from before addresses were
 		kept, which gets the default for this address, or a looser match no longer means anything here.
 
+		**Only if it then applies.** A layout more particular about this address — an exact one, where
+		this matches the whole site — goes on winning, and a review found this reporting success for a
+		change the table would never show. So the change is tried against the list as it would be and
+		refused, naming the layout in the way, where it would not apply.
+
+		Given the date as now, since pointing a layout at a table is using it, and a date of months ago
+		would put it first in line to be dropped when the store is full.
+
 		:return: why not, or "" when it was done.
 		"""
 		saved = self.at(index)
@@ -350,28 +366,41 @@ class LayoutManager:
 			match = flowTableLayouts.defaultMatchFor(self.here.where)
 		elif match != MATCH_EXACT and not flowTableLayouts.isAddress(self.here.where):
 			match = MATCH_EXACT
-		self._replace(
-			index,
-			dataclasses.replace(
-				saved,
-				name=saved.name or flowTableLayouts.defaultNameFor(self.here.where, self.here.headings),
-				where=self.here.where,
-				match=match,
-				headings=self.here.headings,
-				legacyWhere="",
-				legacyWhat="",
-			),
+		now = flowTableLayouts._now()
+		pointed = dataclasses.replace(
+			saved,
+			name=saved.name or flowTableLayouts.defaultNameFor(self.here.where, self.here.headings),
+			where=self.here.where,
+			match=match,
+			headings=self.here.headings,
+			legacyWhere="",
+			legacyWhat="",
+			saved=now,
+			used=now,
 		)
+		why = self._wouldNotApply(index, pointed)
+		if why:
+			return why
+		self._replace(index, pointed)
 		return ""
 
-	def alsoUseHere(self, index: int) -> int:
+	def alsoUseHere(self, index: int) -> tuple:
 		"""Copy a layout, pointed at the table the reader was in, leaving the original where it was.
 
-		:return: where the copy is in the list, or -1 if there is no table to point it at.
+		Refused for a layout that already applies here, which would only make a second copy of what the
+		table already shows, and where the copy would not apply, for the reason `useHere` gives.
+
+		:return: (where the copy is in the list, or -1; why not, or "").
 		"""
 		saved = self.at(index)
-		if saved is None or self.here is None:
-			return -1
+		if saved is None:
+			return -1, ""
+		if self.here is None:
+			return -1, _("Open this from a table to use a layout for it")
+		if saved.id == self.appliedId:
+			# Translators: reported when a saved table layout is copied for the table it already applies to.
+			return -1, _("This layout already applies to this table")
+		now = flowTableLayouts._now()
 		copy = dataclasses.replace(
 			saved,
 			id=flowTableLayouts.newId(),
@@ -379,12 +408,45 @@ class LayoutManager:
 			where=self.here.where,
 			match=flowTableLayouts.defaultMatchFor(self.here.where),
 			headings=self.here.headings,
+			requireHeadings=True,
 			legacyWhere="",
 			legacyWhat="",
+			saved=now,
+			used=now,
 		)
+		why = self._wouldNotApply(index + 1, copy, insert=True)
+		if why:
+			return -1, why
 		self._layouts.insert(index + 1, copy)
 		self.changed = True
-		return index + 1
+		return index + 1, ""
+
+	def _wouldNotApply(self, index: int, changed: SavedLayout, insert: bool = False) -> str:
+		""":return: why a changed or added layout would not apply to the reader's table, or "" if it would.
+
+		:param index: where it would be in the list.
+		:param changed: the layout.
+		:param insert: whether it is added there rather than replacing what is there.
+		"""
+		trial = list(self._layouts)
+		if insert:
+			trial.insert(index, changed)
+		else:
+			trial[index] = changed
+		headings = flowTableLayouts.KnownHeadings(self.here.headings)
+		found = flowTableLayouts.find(None, trial, headings, where=self.here.where)
+		if found.saved is not None and found.saved.id == changed.id:
+			return ""
+		if found.saved is not None:
+			return _(
+				# Translators: reported when a saved table layout cannot be used for this table because
+				# another layout is more particular about this address. The placeholder is its name.
+				"{name} would still apply here, because it is more particular about this address. "
+				"Change how it matches, or delete it, first."
+			).format(name=self.nameOf(found.saved))
+		# Translators: reported when a saved table layout would still not apply to this table after being
+		# pointed at it, which a layout from a different kind of table can do.
+		return _("That layout would still not apply to this table")
 
 	def delete(self, index: int) -> None:
 		if self.at(index) is None:
@@ -393,7 +455,11 @@ class LayoutManager:
 		self.changed = True
 
 	def commit(self) -> bool:
-		""":return: whether anything was written. Nothing is, when nothing was changed."""
+		""":return: whether anything was written. Nothing is, when nothing was changed.
+
+		:raises flowTableLayouts.LayoutsNotSaved: if the configuration would not take them, in which case
+			the manager still holds its changes and says so.
+		"""
 		if not self.changed:
 			return False
 		flowTableLayouts.replaceAll(self._layouts)
@@ -432,7 +498,17 @@ def _show(manager: LayoutManager, afterwards) -> None:
 				dialog.Destroy()
 		finally:
 			gui.mainFrame.postPopup()
-		if manager.commit() and afterwards is not None:
+		try:
+			committed = manager.commit()
+		except flowTableLayouts.LayoutsNotSaved:
+			gui.messageBox(
+				# Translators: reported when the saved table layouts manager could not write its changes.
+				_("The changes to saved table layouts could not be saved. See the NVDA log."),
+				_("Saved table layouts"),
+				wx.OK | wx.ICON_ERROR,
+			)
+			return
+		if committed and afterwards is not None:
 			afterwards()
 	except Exception:
 		log.debugWarning("Could not manage the saved table layouts", exc_info=True)
@@ -609,7 +685,10 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 			self.layoutList.SetFocus()
 
 		def _onAlso(self, event) -> None:
-			at = self.manager.alsoUseHere(self._index())
+			at, why = self.manager.alsoUseHere(self._index())
+			if why:
+				gui.messageBox(why, _("Saved table layouts"), wx.OK | wx.ICON_ERROR, self)
+				return
 			if at >= 0:
 				self._refresh(at)
 				self.layoutList.SetFocus()

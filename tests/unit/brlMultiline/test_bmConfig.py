@@ -585,11 +585,3 @@ class TestSavedTableLayoutsLiveInTheBaseConfiguration(ConfigTestCase):
 			self.Profile("outlook", {bmConfig.CONFIG_SECTION: {"tableLayouts": "hidden"}})
 		)
 		self.assertEqual("the store", realBmConfig["tableLayouts"]())
-
-	def test_aProfileHoldingLayoutsOfItsOwnIsFoundAndCanBeEmptied(self):
-		config.conf.profiles.append(
-			self.Profile("outlook", {bmConfig.CONFIG_SECTION: {"tableLayouts": "held"}})
-		)
-		self.assertEqual([("outlook", "held")], realBmConfig["tableLayoutsInProfiles"]())
-		realBmConfig["clearTableLayoutsInProfile"]("outlook")
-		self.assertEqual([], realBmConfig["tableLayoutsInProfiles"]())

@@ -2344,7 +2344,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("Not in a table"))
 			return
 		arranged = band.tableLayoutInForce
-		if not flowTableLayouts.remember(handle, flowTableLayouts.layoutFrom(plan, handle, arranged)):
+		try:
+			saved = flowTableLayouts.remember(handle, flowTableLayouts.layoutFrom(plan, handle, arranged))
+		except flowTableLayouts.LayoutsNotSaved:
+			ui.message(
+				# Translators: reported when saving table layouts to the configuration failed.
+				_("The table layout could not be saved, see the log"),
+			)
+			return
+		if not saved:
 			ui.message(
 				# Translators: reported when a table's layout cannot be saved because nothing
 				# about the table or its window is stable enough to recognise it again.
@@ -2371,7 +2379,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when a command needs the cursor to be in a table.
 			ui.message(_("Not in a table"))
 			return
-		if not flowTableLayouts.forget(handle):
+		try:
+			forgotten = flowTableLayouts.forget(handle)
+		except flowTableLayouts.LayoutsNotSaved:
+			# Translators: reported when deleting a saved table layout from the configuration failed.
+			ui.message(_("The table layout could not be deleted, see the log"))
+			return
+		if not forgotten:
 			# Translators: reported when a table has no saved layout to forget.
 			ui.message(_("This table has no saved layout"))
 			return

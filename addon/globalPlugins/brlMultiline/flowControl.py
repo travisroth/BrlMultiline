@@ -547,13 +547,28 @@ class FlowController(PanelOwner):
 		operation, and a quarter second later every fetch was refused: a band of rows saying
 		there was more that would not pan to it.
 
+		**And whether the setting still asks for them.** Only the display was compared, so turning
+		the setting off or on — or a profile switch that changed it — on a band that stayed on the
+		same display laid nothing out again: "l Search" stayed on the line after the words had been
+		asked for back. Found by review. Both are the state a layout was drawn in, and a change to
+		either draws it again.
+
 		:param target: the display the band is drawn on, as `glyphFlow.targetForRows` gives it.
 		"""
-		if target == self.renderer.glyphTarget:
+		from . import glyphFlow
+
+		wanted = target is not None and glyphFlow.enabled()
+		if target == self.renderer.glyphTarget and wanted == self.renderer.glyphsWanted:
 			return
+		why = (
+			"a different display to draw glyphs on"
+			if target != self.renderer.glyphTarget
+			else "glyphs turned on or off"
+		)
 		self.renderer.glyphTarget = target
+		self.renderer.glyphsWanted = wanted
 		with self.operation():
-			self._redrawBlocks(why="a different display to draw glyphs on")
+			self._redrawBlocks(why=why)
 
 	def useColumnPage(self, plan) -> bool:
 		"""Show a page of columns, and read what the page needs.

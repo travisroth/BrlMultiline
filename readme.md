@@ -307,7 +307,8 @@ Things worth knowing:
   matches, how many columns it shows and when it was last used. Opened from a table, it says
   which layout applies there, if any. For the one selected you can:
   - **Use for this table**, which points it at the table you are in, its address and headings.
-    This is the fix for a site that changed its address.
+    This is the fix for a site that changed its address. If another layout is more particular
+    about this address and would still apply, it says which one instead of pretending to work.
   - **Also use for this table**, which copies it there and leaves the original where it was.
   - Change **Match**: this page with any query, this exact address, or anywhere on this site.
   - Untick **Only for a table with these headings**, for a site that renames a column.

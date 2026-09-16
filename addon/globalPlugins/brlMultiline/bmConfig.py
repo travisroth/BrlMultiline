@@ -266,8 +266,12 @@ def tableLayouts() -> str:
 	**From the base configuration, whatever profile is active.** Read and written through
 	`config.conf` it went to whichever profile was active, and being one string, a profile holding
 	it hid every layout in the base: a layout saved while an application's profile was on existed
-	only there. Decided with the reader, 16 September 2026: one store, everywhere. Layouts an
-	earlier version left in a profile are moved out by `flowTableLayouts.stored`.
+	only there. Decided with the reader, 16 September 2026: one store, everywhere.
+
+	**A layout an earlier version left in a profile is not looked for.** Moving them out was written
+	and then taken out on review: the reader's own profiles held none, layouts are only ever written
+	to the base now, and the merge could lose a newer copy to an older one or clear a profile before
+	the base had been written.
 	"""
 	try:
 		section = config.conf.profiles[0].get(CONFIG_SECTION)
@@ -290,39 +294,6 @@ def setTableLayouts(said: str) -> None:
 	if CONFIG_SECTION not in base:
 		base[CONFIG_SECTION] = {}
 	base[CONFIG_SECTION]["tableLayouts"] = said
-	_forgetCachedTableLayouts()
-
-
-def tableLayoutsInProfiles() -> list:
-	""":return: (profile name, JSON) for each active profile holding table layouts of its own.
-
-	Only active profiles, since those are the ones loaded; a profile is looked at again whenever it
-	is next active, which is when its layouts could otherwise have hidden the base's.
-	"""
-	found = []
-	for profile in list(config.conf.profiles)[1:]:
-		section = profile.get(CONFIG_SECTION) if profile else None
-		if section and section.get("tableLayouts"):
-			found.append((getattr(profile, "name", ""), str(section["tableLayouts"])))
-	return found
-
-
-def clearTableLayoutsInProfile(name: str) -> None:
-	"""Take the table layouts out of an active profile, once they are in the base configuration.
-
-	:param name: the profile, as `tableLayoutsInProfiles` named it.
-	"""
-	for profile in list(config.conf.profiles)[1:]:
-		if getattr(profile, "name", "") != name:
-			continue
-		section = profile.get(CONFIG_SECTION) if profile else None
-		if section and "tableLayouts" in section:
-			del section["tableLayouts"]
-			try:
-				# A profile is only written when it is marked, and this is the one way it changed.
-				config.conf._dirtyProfiles.add(name)
-			except Exception:
-				log.debugWarning("Could not mark a profile as changed", exc_info=True)
 	_forgetCachedTableLayouts()
 
 

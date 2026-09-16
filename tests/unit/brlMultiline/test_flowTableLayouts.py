@@ -616,8 +616,8 @@ class TestColumnsFollowTheirHeadings(LayoutTestCase):
 		self.assertEqual(1, len(said))
 		self.assertIn("'Last' from column 2 to 3", said[0])
 
-	def test_aColumnThatHasNotMovedIsNotReadAgainForEveryColumn(self):
-		"""Asked on every redraw, so the table is only searched when a heading is not where it was."""
+	def test_askingOnlyWhetherALayoutAppliesReadsNoColumnsHeadings(self):
+		"""The band asks that on every redraw, and follows the columns only when it builds the table."""
 		from brlMultiline import flowTableSource
 
 		page = self.page()
@@ -627,13 +627,59 @@ class TestColumnsFollowTheirHeadings(LayoutTestCase):
 			asked.append(list(columns)) or real(handle, columns, *args, **kwargs)
 		)
 		try:
-			flowTableLayouts.layoutFor(page)
-			first = len(asked)
+			self.assertIsNotNone(flowTableLayouts.layoutFor(page, follow=False))
+			identity = len(asked)
 			flowTableLayouts.layoutFor(page)
 		finally:
 			flowTableSource.declaredHeaders = real
-		# The second lookup reads the table's identity, as every lookup does, and nothing more.
-		self.assertEqual(1, len(asked) - first)
+		# The table's first headings, which every lookup reads to know which table it is.
+		self.assertEqual(1, identity)
+		# Those again, and then the headings of the columns the layout names.
+		self.assertEqual(2, len(asked) - identity)
+
+	def test_nothingFollowedIsKeptForTheNextTable(self):
+		"""Found by review: a following remembered by address and first headings was handed to another
+		load of the page whose later columns had moved again."""
+		wide = [[f"h{number}" for number in range(1, 13)], [str(number) for number in range(1, 13)]]
+		headers = {number: f"h{number}" for number in range(1, 13)}
+		page = self.page(url="https://example.com/wide", headers=headers, rows=wide)
+		flowTableLayouts.remember(page, flowTableLayouts.TableLayout(columns=(9,)))
+		once = {**headers, 9: "x9", 10: "h9", 11: "h10", 12: "h11"}
+		twice = {**headers, 9: "x9", 10: "y10", 11: "h9", 12: "h10"}
+		first = self.page(url="https://example.com/wide", headers=once, rows=wide)
+		second = self.page(url="https://example.com/wide", headers=twice, rows=wide)
+		self.assertEqual((10,), flowTableLayouts.layoutFor(first).columns)
+		self.assertEqual((11,), flowTableLayouts.layoutFor(second).columns)
+
+	def test_twoSavedColumnsWithOneHeadingAreNotFollowedOntoOneColumn(self):
+		"""Found by review: both went to the one column the table had with that heading, and what was
+		decided about one overwrote the other."""
+		from brlMultiline import flowTable
+
+		rows = [["Symbol", "Value", "Value", "Note"], ["A", "1", "2", "n"]]
+		headers = {1: "Symbol", 2: "Value", 3: "Value", 4: "Note"}
+		page = self.page(url="https://example.com/values", headers=headers, rows=rows)
+		first, second = flowTable.ColumnChoice(plainCase=True), flowTable.ColumnChoice(label="Other")
+		flowTableLayouts.remember(
+			page, flowTableLayouts.TableLayout(columns=(2, 3), perColumn={2: first, 3: second})
+		)
+		layouts = flowTableLayouts.stored()
+		flowTableLayouts.replaceAll(
+			[
+				dataclasses.replace(saved, requireHeadings=False)
+				if saved.where.endswith("/values")
+				else saved
+				for saved in layouts
+			],
+		)
+		moved = self.page(
+			url="https://example.com/values",
+			headers={1: "Symbol", 2: "Note", 3: "Value", 4: "Other"},
+			rows=rows,
+		)
+		layout = flowTableLayouts.layoutFor(moved)
+		self.assertEqual(len(set(layout.columns)), len(layout.columns))
+		self.assertEqual(2, len(layout.perColumn))
 
 	def test_aColumnWhoseHeadingIsNowhereKeepsItsNumber(self):
 		"""Right for a column the site renamed, and logged either way."""
@@ -641,7 +687,7 @@ class TestColumnsFollowTheirHeadings(LayoutTestCase):
 		(saved,) = flowTableLayouts.stored()
 		flowTableLayouts.replaceAll([dataclasses.replace(saved, requireHeadings=False)])
 		self.assertEqual((2, 3), flowTableLayouts.layoutFor(renamed).columns)
-		self.assertTrue(any("no longer found" in message for _level, message in log.messages))
+		self.assertTrue(any("cannot be found in one place" in message for _level, message in log.messages))
 
 
 class TestWhenALayoutWasLastUsed(LayoutTestCase):
@@ -672,16 +718,40 @@ class TestWhenALayoutWasLastUsed(LayoutTestCase):
 		self.assertIn(str(flowTableLayouts.MAX_SAVED + 4), kept)
 
 
-class TestLayoutsAProfileHeld(LayoutTestCase):
-	"""Written through NVDA's configuration, a layout saved while an application's profile was on went
-	into that profile and hid every other layout while it was on. They are moved into the one store."""
+class TestAStoreTheConfigurationWillNotTake(LayoutTestCase):
+	"""Found by review: a write that failed was logged and forgotten, and the reader told it had worked."""
 
-	def test_theyAreMovedIntoTheStoreAndOutOfTheProfile(self):
-		from ._stubs import PROFILE_TABLE_LAYOUTS
+	def setUp(self):
+		super().setUp()
+		from brlMultiline import bmConfig
 
+		real = bmConfig.setTableLayouts
+
+		def refuse(said):
+			raise OSError("read only")
+
+		bmConfig.setTableLayouts = refuse
+		self.addCleanup(setattr, bmConfig, "setTableLayouts", real)
+
+	def test_savingSaysSo(self):
+		with self.assertRaises(flowTableLayouts.LayoutsNotSaved):
+			flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1,)))
+
+	def test_andNothingIsTakenToBeSaved(self):
+		with self.assertRaises(flowTableLayouts.LayoutsNotSaved):
+			flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1,)))
+		self.assertEqual([], flowTableLayouts.stored())
+
+	def test_readingATableStillWorksWhenOnlyTheDateCouldNotBeWritten(self):
+		from brlMultiline import bmConfig
+
+		refuse = bmConfig.setTableLayouts
+		bmConfig.setTableLayouts = lambda said: CONFIG.__setitem__("tableLayouts", said)
 		flowTableLayouts.remember(self.page(), flowTableLayouts.TableLayout(columns=(1,)))
-		held = flowTableLayouts.SavedLayout(id="outlook", where="outlook/SUPERGRID", layout={"columns": [2]})
-		PROFILE_TABLE_LAYOUTS["outlook"] = json.dumps({"version": 2, "layouts": [held.asStored()]})
-		self.assertEqual(2, len(flowTableLayouts.stored()))
-		self.assertEqual({}, PROFILE_TABLE_LAYOUTS)
-		self.assertIn("outlook/SUPERGRID", CONFIG["tableLayouts"])
+		bmConfig.setTableLayouts = refuse
+		real = flowTableLayouts._now
+		flowTableLayouts._now = lambda: real() + flowTableLayouts.USED_EVERY * 2
+		try:
+			self.assertEqual((1,), flowTableLayouts.layoutFor(self.page()).columns)
+		finally:
+			flowTableLayouts._now = real

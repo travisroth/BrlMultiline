@@ -683,11 +683,7 @@ _parsed: tuple = (None, [])
 
 
 def stored() -> list:
-	""":return: every saved layout.
-
-	Brings in any layouts an active configuration profile holds, which is where the first store put
-	a layout saved while that profile was on. See `bmConfig.tableLayoutsInProfiles`.
-	"""
+	""":return: every saved layout."""
 	global _parsed
 	try:
 		text = bmConfig.tableLayouts()
@@ -696,22 +692,7 @@ def stored() -> list:
 		return []
 	if text != _parsed[0]:
 		_parsed = (text, _fromStoredText(text))
-	layouts = list(_parsed[1])
-	try:
-		elsewhere = bmConfig.tableLayoutsInProfiles()
-	except Exception:
-		log.debugWarning("Could not read the table layouts in the active profiles", exc_info=True)
-		elsewhere = []
-	if elsewhere:
-		known = {saved.id for saved in layouts}
-		for profile, said in elsewhere:
-			brought = [saved for saved in _fromStoredText(said) if saved.id not in known]
-			known.update(saved.id for saved in brought)
-			layouts.extend(brought)
-			log.info(f"BrlMultiline: moved {len(brought)} saved table layouts out of the profile {profile!r}")
-			bmConfig.clearTableLayoutsInProfile(profile)
-		_write(layouts)
-	return layouts
+	return list(_parsed[1])
 
 
 def _fromStoredText(text: str) -> list:
@@ -777,12 +758,25 @@ def replaceAll(layouts) -> None:
 	"""Store exactly these layouts, as the manager does when the reader presses OK.
 
 	:param layouts: every layout to keep.
+	:raises LayoutsNotSaved: if the configuration would not take them.
 	"""
 	_write(list(layouts))
 
 
+class LayoutsNotSaved(Exception):
+	"""The configuration would not take the saved layouts, so nothing asked for was saved.
+
+	Raised rather than logged and swallowed, which is what the store did: a review found the reader
+	told "saved" and "deleted" of changes that were never written, and the manager forgetting it had
+	anything left to write.
+	"""
+
+
 def _write(layouts: list) -> None:
-	"""Put the store back, dropping the least recently used if it has grown too large."""
+	"""Put the store back, dropping the least recently used if it has grown too large.
+
+	:raises LayoutsNotSaved: if the configuration would not take it. Nothing is changed then.
+	"""
 	global _parsed
 	kept = _trimmed(layouts)
 	text = json.dumps(
@@ -791,9 +785,9 @@ def _write(layouts: list) -> None:
 	)
 	try:
 		bmConfig.setTableLayouts(text)
-	except Exception:
-		log.debugWarning("Could not save the table layouts", exc_info=True)
-		return
+	except Exception as error:
+		log.error("BrlMultiline: could not save the table layouts", exc_info=True)
+		raise LayoutsNotSaved(str(error)) from error
 	_parsed = (text, kept)
 
 
@@ -887,14 +881,20 @@ def bestOf(matching: list) -> SavedLayout:
 	)
 
 
-def layoutFor(handle) -> Optional[TableLayout]:
+def layoutFor(handle, follow: bool = True) -> Optional[TableLayout]:
 	""":return: the layout saved for this table, with its columns followed to where they are now, or None.
 
-	Asked on every redraw of a table, so what it writes it writes seldom: a layout from the version 1
-	store is written down readably the first time it is seen, and the date a layout was used at most
-	once a day. See `USED_EVERY`.
+	What it writes it writes seldom: a layout from the version 1 store is written down readably the
+	first time it is seen, and the date a layout was used at most once a day. See `USED_EVERY`. A
+	write that fails is logged and costs nothing else, since the layout is still the one to read with.
 
 	:param handle: the table, as `flowTableSource.tableAt` returned it.
+	:param follow: whether to follow the columns it names to where they are now. **Only for a caller
+		about to read the table with it**, since following reads the headings of those columns, and the
+		band asks on every redraw only whether a layout applies. So columns are followed once per table
+		the band builds, and nothing followed is kept to go stale: a review found a remembered following
+		carried to the next page load of a table whose first headings were the same and whose later
+		columns had moved again.
 	"""
 	layouts = stored()
 	if not layouts or handle is None:
@@ -922,23 +922,26 @@ def layoutFor(handle) -> Optional[TableLayout]:
 	if now - saved.used >= USED_EVERY:
 		changed = dataclasses.replace(changed, used=now)
 	if changed is not saved:
-		_write(_withChanged(layouts, changed))
+		try:
+			_write(_withChanged(layouts, changed))
+		except LayoutsNotSaved:
+			pass
+	if not follow:
+		return changed.tableLayout
 	return _followColumns(changed, found.where, headings)
-
-
-_followed: dict = {}
-"""Layouts already followed to where their columns are, by what they were followed for."""
 
 
 def _followColumns(saved: SavedLayout, where: str, headings: _Headings) -> TableLayout:
 	""":return: a saved layout with every column it names moved to where that column's heading is now.
 
 	A column whose heading is where it was stays. One whose heading is now under another number is
-	followed there, if exactly one column has it. One whose heading is nowhere keeps its number, which
-	is right for a column the site renamed and a guess for one it removed, and is logged either way.
-
-	**Remembered per table**, since this is asked on every redraw and reading the saved columns'
-	headings each time would be a read per column the reader is waiting through.
+	followed there — **only where that is the one place it can have gone**: its heading is not shared
+	with another column the layout names, exactly one column of the table has it now, and no other
+	column has already been given that place. A review found two saved columns both called "Value"
+	followed onto the one "Value" the table had, and what was decided about one silently overwriting
+	the other. Anything that cannot be followed keeps its number, which is right for a column the site
+	renamed and a guess for one it removed, unless another column was followed onto that number, in
+	which case it is left out rather than drawn twice. Either way it is logged.
 
 	:param saved: the layout that applies.
 	:param where: where the table is.
@@ -946,59 +949,63 @@ def _followColumns(saved: SavedLayout, where: str, headings: _Headings) -> Table
 	"""
 	layout = saved.tableLayout
 	named = {
-		column: heading for column, heading in layout.columnHeadings.items() if column in layout.namedColumns
+		column: _normal(heading)
+		for column, heading in layout.columnHeadings.items()
+		if column in layout.namedColumns and _normal(heading)
 	}
 	if not named:
 		return layout
-	remembered = (saved.id, json.dumps(saved.layout, sort_keys=True), where, headings.signature)
-	if remembered in _followed:
-		return _followed[remembered]
 	now = headings.of(sorted(named))
-	moved = {column: heading for column, heading in named.items() if now.get(column) != _normal(heading)}
-	result = layout
-	if moved:
-		everywhere = headings.everything()
-		mapping = {}
-		lost = []
-		for column, heading in moved.items():
-			places = [number for number, said in everywhere.items() if said == _normal(heading)]
-			if len(places) == 1:
-				mapping[column] = places[0]
-			else:
-				lost.append(column)
-		taken = set(mapping.values())
+	moved = {column: heading for column, heading in named.items() if now.get(column) != heading}
+	if not moved:
+		return layout
+	everywhere = headings.everything()
+	sharedBySaved = {heading for heading in named.values() if list(named.values()).count(heading) > 1}
+	taken = {column for column in named if column not in moved}
+	mapping = {}
+	lost = []
+	for column, heading in sorted(moved.items()):
+		places = [number for number, said in everywhere.items() if said == heading]
+		if heading not in sharedBySaved and len(places) == 1 and places[0] not in taken:
+			mapping[column] = places[0]
+			taken.add(places[0])
+		else:
+			lost.append(column)
+	destinations = set(mapping.values())
 
-		def to(column: int) -> Optional[int]:
-			if column in mapping:
-				return mapping[column]
-			if column in taken and column not in moved:
-				# Its number now belongs to a column that moved there, so it cannot keep it.
-				return None
-			return column
+	def to(column: int) -> Optional[int]:
+		if column in mapping:
+			return mapping[column]
+		if column in moved and column in destinations:
+			# Could not be followed, and its number now belongs to a column that was.
+			return None
+		return column
 
-		columns = tuple(number for number in (to(column) for column in layout.columns) if number)
-		result = dataclasses.replace(
-			layout,
-			columns=columns,
-			perColumn={to(column): choice for column, choice in layout.perColumn.items() if to(column)},
-			keyColumn=(to(layout.keyColumn) or 0) if layout.keyColumn else 0,
-			columnHeadings={
-				to(column): heading for column, heading in layout.columnHeadings.items() if to(column)
-			},
-		)
-		said = [
-			f"{named[column]!r} from column {column} to {number}"
-			for column, number in sorted(mapping.items())
-		]
-		said += [
-			f"{named[column]!r} is no longer found, so kept at column {column}" for column in sorted(lost)
-		]
-		_explainMiss(
-			f"columns of {saved.name or where!r} have moved: {'; '.join(said)}", ("moved", remembered)
-		)
-	if len(_followed) > MAX_SAVED:
-		_followed.clear()
-	_followed[remembered] = result
+	columns = []
+	for number in (to(column) for column in layout.columns):
+		if number and number not in columns:
+			columns.append(number)
+	result = dataclasses.replace(
+		layout,
+		columns=tuple(columns),
+		perColumn={to(column): choice for column, choice in layout.perColumn.items() if to(column)},
+		keyColumn=(to(layout.keyColumn) or 0) if layout.keyColumn else 0,
+		columnHeadings={
+			to(column): heading for column, heading in layout.columnHeadings.items() if to(column)
+		},
+	)
+	said = [
+		f"{named[column]!r} from column {column} to {number}" for column, number in sorted(mapping.items())
+	]
+	said += [
+		f"{named[column]!r} cannot be found in one place, so "
+		+ (f"kept at column {column}" if to(column) else "left out")
+		for column in sorted(lost)
+	]
+	_explainMiss(
+		f"columns of {saved.name or where!r} have moved: {'; '.join(said)}",
+		("moved", saved.id, where, tuple(sorted(mapping.items())), tuple(lost)),
+	)
 	return result
 
 
@@ -1041,6 +1048,7 @@ def remember(handle, layout: TableLayout) -> bool:
 	:param handle: the table.
 	:param layout: what they decided.
 	:return: whether anything was saved, which is no for a table that cannot be named.
+	:raises LayoutsNotSaved: if the configuration would not take it.
 	"""
 	layouts = stored()
 	headings = _Headings(handle)
@@ -1087,6 +1095,7 @@ def forget(handle) -> bool:
 
 	:param handle: the table.
 	:return: whether there was one to drop.
+	:raises LayoutsNotSaved: if the configuration would not take the store without it.
 	"""
 	layouts = stored()
 	found = find(handle, layouts)
@@ -1157,6 +1166,7 @@ __all__ = [
 	"defaultMatchFor",
 	"defaultNameFor",
 	"KnownHeadings",
+	"LayoutsNotSaved",
 	"bestOf",
 	"find",
 	"forget",

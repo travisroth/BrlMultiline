@@ -764,16 +764,20 @@ def _keepOrDrop(handle, layout, remembered: bool, keepIt: bool) -> None:
 	"""
 	import ui
 
-	if keepIt:
-		if handle is not None and flowTableLayouts.remember(handle, layout):
+	try:
+		if keepIt:
+			if handle is not None and flowTableLayouts.remember(handle, layout):
+				return
+			# Translators: reported when a table's arrangement cannot be saved because nothing
+			# about the table is stable enough to find it by later.
+			ui.message(_("This table cannot be recognised again, so the arrangement was not saved"))
 			return
-		# Translators: reported when a table's arrangement cannot be saved because nothing
-		# about the table is stable enough to find it by later.
-		ui.message(_("This table cannot be recognised again, so the arrangement was not saved"))
-		return
-	if remembered and handle is not None and flowTableLayouts.forget(handle):
-		# Translators: reported when the reader unticks the box that remembers a table.
-		ui.message(_("Table layout deleted"))
+		if remembered and handle is not None and flowTableLayouts.forget(handle):
+			# Translators: reported when the reader unticks the box that remembers a table.
+			ui.message(_("Table layout deleted"))
+	except flowTableLayouts.LayoutsNotSaved:
+		# Translators: reported when saving table layouts to the configuration failed.
+		ui.message(_("The table layout could not be saved, see the log"))
 
 
 CAN_DRAW = wx is not None and gui is not None and hasattr(wx, "Dialog")

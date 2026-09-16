@@ -90,7 +90,8 @@ class TestTheWatchlistWhoseAddressChanged(ManagerTestCase):
 
 	def test_alsoUseForThisTableLeavesTheOriginalWhereItWas(self):
 		manager = self.manager([self.old], page())
-		copied = manager.alsoUseHere(0)
+		copied, why = manager.alsoUseHere(0)
+		self.assertEqual("", why)
 		self.assertEqual(2, len(manager))
 		self.assertEqual(NEW_ADDRESS, manager.at(copied).where)
 		self.assertEqual("https://www.barchart.com/watchlist/main", manager.at(manager.indexOf("old")).where)
@@ -206,8 +207,78 @@ class TestWhatOkWrites(ManagerTestCase):
 		manager = self.manager([layout("a", where="https://example.com/x")])
 		self.assertIsNone(manager.here)
 		self.assertTrue(manager.useHere(0))
-		self.assertEqual(-1, manager.alsoUseHere(0))
+		self.assertEqual(-1, manager.alsoUseHere(0)[0])
 		self.assertIn("Not in a table", manager.hereWords())
+
+
+class TestFindingsFromReview(ManagerTestCase):
+	def test_theLayoutThatAppliesIsFirstEvenWhenItIsOlder(self):
+		"""While a list is sorted it reads as empty, so the ranking found nothing applying and put a newer
+		layout for other headings first, which is the row the dialog selects."""
+		applies = layout(
+			"applies", where=NEW_ADDRESS, match=MATCH_PATH, headings=("Symbol", "Last", "Change"), used=100
+		)
+		other = layout(
+			"other", where=NEW_ADDRESS, match=MATCH_PATH, headings=("Criterion", "Level"), used=999
+		)
+		manager = self.manager([other, applies], page())
+		self.assertEqual("applies", manager.at(0).id)
+
+	def test_useForThisTableIsRefusedWhereAMoreParticularLayoutWouldStillApply(self):
+		exact = layout(
+			"exact", where=NEW_ADDRESS, match=MATCH_EXACT, headings=("Symbol", "Last", "Change"), name="Exact"
+		)
+		loose = layout(
+			"loose", where="https://www.barchart.com/other", match=MATCH_SITE, headings=("Symbol",)
+		)
+		manager = self.manager([exact, loose], page())
+		why = manager.useHere(manager.indexOf("loose"))
+		self.assertIn("Exact would still apply", why)
+		self.assertEqual("https://www.barchart.com/other", manager.at(manager.indexOf("loose")).where)
+		self.assertFalse(manager.changed)
+
+	def test_alsoUseForThisTableIsRefusedForTheLayoutThatAlreadyApplies(self):
+		applies = layout(
+			"applies", where=NEW_ADDRESS, match=MATCH_PATH, headings=("Symbol", "Last", "Change")
+		)
+		manager = self.manager([applies], page())
+		at, why = manager.alsoUseHere(0)
+		self.assertEqual(-1, at)
+		self.assertIn("already applies", why)
+		self.assertEqual(1, len(manager))
+
+	def test_aLayoutPointedHereOrCopiedHereIsDatedNow(self):
+		"""With the original's dates, a copy near the store's limit was the first thing dropped."""
+		old = layout(
+			"old",
+			where="https://www.barchart.com/watchlist/main",
+			match=MATCH_PATH,
+			headings=("Symbol", "Last", "Change"),
+		)
+		manager = self.manager([old], page())
+		at, _why = manager.alsoUseHere(0)
+		self.assertGreater(manager.at(at).used, 100)
+		manager.useHere(manager.indexOf("old"))
+		self.assertGreater(manager.at(manager.indexOf("old")).saved, 100)
+
+	def test_aSaveThatFailsKeepsTheChangesToSaveAgain(self):
+		from brlMultiline import bmConfig
+
+		manager = self.manager([layout("a", where="https://example.com/x")])
+		manager.rename(0, "Renamed")
+		real = bmConfig.setTableLayouts
+
+		def refuse(said):
+			raise OSError("read only")
+
+		bmConfig.setTableLayouts = refuse
+		try:
+			with self.assertRaises(flowTableLayouts.LayoutsNotSaved):
+				manager.commit()
+		finally:
+			bmConfig.setTableLayouts = real
+		self.assertTrue(manager.changed)
+		self.assertTrue(manager.commit())
 
 
 if __name__ == "__main__":

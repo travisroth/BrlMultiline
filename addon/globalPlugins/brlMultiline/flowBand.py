@@ -857,7 +857,9 @@ class FlowBand(PanelOwner):
 		"""
 		if not flowTableLayouts.stored():
 			return False
-		handle, _layout = self._savedLayoutHere(self._target())
+		# Whether one applies, and nothing more: the layout is looked up again, its columns followed,
+		# when the table is built. See `flowTableLayouts.layoutFor`.
+		handle, _layout = self._savedLayoutHere(self._target(), follow=False)
 		if handle is None:
 			self._layoutOffered = None
 			return False
@@ -1787,7 +1789,7 @@ class FlowBand(PanelOwner):
 			return inForce
 		return offered if offered is not None else flowTableLayouts.layoutFor(handle)
 
-	def _savedLayoutHere(self, obj: Any):
+	def _savedLayoutHere(self, obj: Any, follow: bool = True):
 		""":return: the table the reader has already laid out and what they saved for it.
 
 		**The whole point of saving one.** A layout that has to be asked for by name every
@@ -1804,6 +1806,8 @@ class FlowBand(PanelOwner):
 		are reads of the document, and the caller needs the same two a moment later.
 
 		:param obj: what the reader is now on.
+		:param follow: whether to follow the saved columns to where they are now, which reads their
+			headings. See `flowTableLayouts.layoutFor`.
 		:return: the table and its layout, or (None, None) where there is nothing saved for
 			what the reader is in.
 		"""
@@ -1812,7 +1816,7 @@ class FlowBand(PanelOwner):
 		handle = flowTableSource.tableAt(obj)
 		if handle is None:
 			return (None, None)
-		layout = flowTableLayouts.layoutFor(handle)
+		layout = flowTableLayouts.layoutFor(handle, follow=follow)
 		return (handle, layout) if layout is not None else (None, None)
 
 	def _refusedTable(self, obj: Any) -> bool:
