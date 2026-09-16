@@ -53,6 +53,7 @@ from .flowBuild import (
 	interactiveRegionFactory,
 	isTreeInterceptor,
 	objectAdapterFor,
+	readingUnitFor,
 )
 from .devices import DeviceInfo, deviceMap, preferredDevice
 from .flowSegment import FlowBufferSegment
@@ -1026,6 +1027,16 @@ class FlowBand(PanelOwner):
 			self.obj = None
 			segment.detach()
 			return False
+		if (
+			self.controller is not None
+			and segment.controller is not self.controller
+			and not self._keptControllerFits(segment)
+		):
+			# The display was rebuilt under a controller that cannot be carried onto it, so the
+			# reading is made again, from the cursor. See `_keptControllerFits`.
+			self.controller = None
+			self.obj = None
+			force = True
 		if self._isCurrentRun(obj):
 			# The same run of objects. In a list the focus changes on every arrow key, so this
 			# is the ordinary move rather than a jump: the window tracks the reader by the
@@ -1110,12 +1121,50 @@ class FlowBand(PanelOwner):
 		twice, the switch rebuilds the display, and the reader is still in the same editor. A
 		browser without a profile never rebuilt, which is why it looked like VS Code's fault.
 
+		**And the settings it was drawn under are asked about again**, because a profile switch is
+		what rebuilt it and a profile can draw the band differently. See
+		`FlowController.reconfigure`. What cannot be redrawn is refused before this, by
+		`_keptControllerFits`.
+
 		:param segment: the band's segment.
 		"""
 		if self.controller is not None and segment.controller is not self.controller:
+			try:
+				self.controller.reconfigure(bmConfig.flowIndentStyle(), bmConfig.shouldMarkLineFocus())
+			except Exception:
+				log.debugWarning("Could not draw a kept flow under the settings now in force", exc_info=True)
 			self._attach(segment, self.controller)
 			return
 		segment.refresh()
+
+	def _keptControllerFits(self, segment) -> bool:
+		"""Whether a controller kept across a rebuild can be put on the band that replaced it.
+
+		Not if the band is a different size, which a profile with a different number of rows
+		makes it, since the window and every rendering were cut for the old one; and not if a
+		document is now cut into different blocks, since every block the controller holds is named
+		by the unit it was read in. Either way the new reading starts from the cursor, so the
+		reader keeps their place in the document and loses only the window around it. What only
+		changes how the band is drawn keeps the controller; see `FlowController.reconfigure`.
+
+		A table is not asked here: it has its own test of whether it still fits, and a pinned header
+		makes its window a row shorter than the band on purpose.
+
+		:param segment: the rebuilt band's segment.
+		"""
+		control = self.controller
+		if control is None or self._readingATable():
+			return True
+		try:
+			if (control.window.numRows, control.renderer.numCols) != self._bandSize(segment):
+				return False
+			source = control.source
+			if type(source) is DocumentFlowSource and source.unit != readingUnitFor(source.obj):
+				return False
+		except Exception:
+			log.debugWarning("Could not tell whether a kept flow fits the rebuilt band", exc_info=True)
+			return False
+		return True
 
 	# Unwrapped lines.
 

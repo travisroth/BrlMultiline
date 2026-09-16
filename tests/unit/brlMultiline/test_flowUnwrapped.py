@@ -240,6 +240,61 @@ class TestTheCaretAcross(unittest.TestCase):
 		self.assertIsNone(control.cursorCell())
 
 
+class TestAPageNothingShows(unittest.TestCase):
+	"""Found in review: two ways the band was left on a page it had no business being on."""
+
+	def _caretAt(self, control, index, offset):
+		interceptor = control.source.obj
+		interceptor.caretIndex = index
+		interceptor.caretOffset = offset
+		control.followCursor()
+
+	def test_aCaretMovedBackToWhereThePanLeftItIsStillFollowed(self):
+		"""Pan right, walk the caret into the panned part of the line, press Home. The caret is
+		back where the pan left it, but it moved in between, so the display follows it."""
+		control = controllerOver(CODE, caretIndex=1)
+		control.setUnwrapped(True)
+		control.panAcross(1)
+		self._caretAt(control, 1, 10)
+		self.assertFalse(control.followCaretAcross())
+		self.assertEqual(control.pageAcross, 1)
+		self._caretAt(control, 1, 0)
+		self.assertTrue(control.followCaretAcross())
+		self.assertEqual(control.pageAcross, 0)
+		self.assertIsNotNone(control.cursorCell())
+
+	def test_panningDownOntoShortLinesComesBackToAPageTheyReach(self):
+		"""A flow that pans without moving its cursor, as a run of objects does."""
+		lines = ["a" * 20] * 4 + ["b"] * 8
+		control = controllerOver(lines, numRows=4, live=False)
+		control.setUnwrapped(True)
+		control.panAcross(2)
+		self.assertEqual(control.pageAcross, 2)
+		control.panForward()
+		self.assertTrue(control.followCaretAcross())
+		self.assertEqual(control.pageAcross, 0)
+		self.assertIn("b", rowTexts(control)[0])
+
+	def test_aLineThatGetsShorterBringsThePageBack(self):
+		lines = list(CODE)
+		control = controllerOver(lines)
+		control.setUnwrapped(True)
+		control.panAcross(2)
+		self.assertEqual(control.pageAcross, 2)
+		lines[1] = "    return 0"
+		control.rereadContent()
+		self.assertTrue(control.followCaretAcross())
+		self.assertEqual(control.pageAcross, 1)
+		self.assertEqual(rowTexts(control)[1].strip(), "rn 0")
+
+	def test_aPageALineStillReachesIsKept(self):
+		control = controllerOver(CODE)
+		control.setUnwrapped(True)
+		control.panAcross(1)
+		self.assertFalse(control.followCaretAcross())
+		self.assertEqual(control.pageAcross, 1)
+
+
 class TestTheBandsChoice(unittest.TestCase):
 	"""The setting, and the command that turns it over for the time being."""
 

@@ -37,6 +37,8 @@ Added:
   going to NVDA's menu or a settings dialog and back left the band showing only the focused line
   until you switched applications. The switch rebuilds the display, and the flow that was kept
   was never put back on it. A browser without a profile never rebuilt, so it came back at once.
+  It now also comes back drawn the way the new profile says, with its indent style and focus mark,
+  and is read afresh from the cursor if that profile gives the band a different number of rows.
 
 - **Panning a zoomed chart reaches the last point.** Panned hard right, a chart could stop one
   period short of the end of its data, so a year of prices never showed its last close. It

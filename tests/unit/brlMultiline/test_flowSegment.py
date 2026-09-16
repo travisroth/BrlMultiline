@@ -584,6 +584,49 @@ class TestFollowingTheFocus(unittest.TestCase):
 		self.assertIs(segment.controller, control)
 		self.assertTrue(segment.isFlowing)
 
+	def _rebuild(self, page, numRows=ROWS):
+		"""Rebuild the display as a profile switch does, with the reader still in the page."""
+		if numRows != ROWS:
+			import braille
+
+			# Another size of band is another display, as a profile with fewer flow rows makes it.
+			self.handler = FakeHandler(numRows, COLS)
+			braille.handler = self.handler
+		rebuilt = containerWithBand(self.handler, numRows=numRows)
+		self.handler.mainBuffer = self.handler.buffer = rebuilt
+		self.plugin.container = rebuilt
+		segment = rebuilt.segmentForKey("flow")
+		segment.regions = self._focusRegionsFor(page)
+		self.band.onRebuilt()
+		return segment
+
+	def test_aRebuildDrawsAKeptFlowUnderTheSettingsNowInForce(self):
+		# Found in review: the kept controller went on marking the focus and indenting as the
+		# profile it was built under said, whatever the profile the switch brought in says.
+		from ._stubs import CONFIG
+
+		page, _ = self._document(documentLines())
+		self._start(page)
+		control = self.band.controller
+		self.assertTrue(control.lineFocus)
+		CONFIG["flowLineFocus"] = False
+		CONFIG["flowIndentStyle"] = "oneSpace"
+		segment = self._rebuild(page)
+		self.assertIs(self.band.controller, control)
+		self.assertIs(segment.controller, control)
+		self.assertFalse(control.lineFocus)
+		self.assertEqual(control.indentStyle, "oneSpace")
+
+	def test_aRebuildToABandOfAnotherSizeReadsAfresh(self):
+		# The window and every rendering were cut for the old band, so they cannot be carried.
+		page, _ = self._document(documentLines())
+		self._start(page)
+		control = self.band.controller
+		segment = self._rebuild(page, numRows=ROWS - 1)
+		self.assertIsNot(self.band.controller, control)
+		self.assertIs(segment.controller, self.band.controller)
+		self.assertEqual(self.band.controller.window.numRows, ROWS - 1)
+
 	def test_anotherDocumentGetsItsOwnGeneration(self):
 		# A bookmark is a position within one document and says nothing about which, so a
 		# stale anchor must never match a block in the document now being read.

@@ -146,6 +146,9 @@ class FlowController(PanelOwner):
 		self.lineFocus = lineFocus
 		"""Whether the focused row is marked at the left. See `_markLineFocus`."""
 
+		self._presentation = self._presentationFor(indentStyle, lineFocus)
+		"""The settings the band was last drawn under. See `reconfigure`."""
+
 		self._following = False
 		"""Guards against following a cursor move that this controller made itself."""
 
@@ -641,6 +644,50 @@ class FlowController(PanelOwner):
 			self._redrawBlocks(why="a different page of columns")
 		return True
 
+	def _presentationFor(self, indentStyle: str, lineFocus: bool) -> tuple:
+		""":return: the settings that change how the band is drawn and not what it reads."""
+		setting = self.renderer._setting
+		return (
+			indentStyle,
+			lineFocus,
+			setting("translationTable"),
+			setting("textWrap"),
+			setting("expandAtCursor"),
+		)
+
+	def reconfigure(self, indentStyle: str, lineFocus: bool) -> bool:
+		"""Draw the band again under settings that may have changed while it was kept.
+
+		**A controller outlives a profile switch, and what it was built with does not.** The band
+		keeps its controller across a rebuild so the reader keeps their place, but the indent
+		style and the focus mark were read when it was built, and every rendering it holds was
+		made under the braille table, wrapping and cursor expansion in force then. A profile for
+		one application with a different indent went on drawing the other profile's. Found in
+		review.
+
+		Only what changes how blocks are drawn is answered here. What changes what a block *is* —
+		the reading unit, the band's size — cannot be, and the band builds a new controller for
+		it instead. See `FlowBand._keptControllerFits`.
+
+		:param indentStyle: the indent style in force now.
+		:param lineFocus: whether the focus mark is wanted now.
+		:return: whether anything changed and the band was drawn again.
+		"""
+		presentation = self._presentationFor(indentStyle, lineFocus)
+		if presentation == self._presentation:
+			return False
+		self._presentation = presentation
+		self.lineFocus = lineFocus
+		with self.operation():
+			if indentStyle != self.indentStyle:
+				self.indentStyle = indentStyle
+				depths = self._visibleDepths(list(self.window.blocks))
+				if depths:
+					self.renderer.indentPlan = flowIndent.planFor(depths, self.renderer.numCols, style=indentStyle)
+			self._redrawBlocks(why="settings changed while the band was kept")
+			self.syncToCursor(why="settings changed while the band was kept")
+		return True
+
 	# Unwrapped lines.
 
 	@property
@@ -701,7 +748,7 @@ class FlowController(PanelOwner):
 		wanted = max(0, page + by)
 		if wanted == page:
 			return False
-		if wanted > page and wanted * self.renderer.numCols >= self._widestVisibleLine():
+		if wanted > page and wanted * self.renderer.numCols >= (self._widestVisibleLine() or 0):
 			return False
 		with self.operation():
 			self.renderer.unwrappedPage = wanted
@@ -721,21 +768,51 @@ class FlowController(PanelOwner):
 		redraw would take it away from them. The same bargain `_panIsTheReadersChoice` makes
 		for rows, and `FlowBand._showColumn` makes for a table's columns.
 
+		**The pan stops being theirs the moment the caret moves, wherever it moves to.** Asked
+		only when the caret had left the page, a caret moved onto the page the reader panned to
+		kept the mark from before, and moving it back to where it started — Home, after walking
+		into the panned part of the line — matched that mark, read as a caret that had never
+		moved, and left the display where the cursor was not. Found in review.
+
+		**And the page is never further across than anything on the band reaches.** Panning
+		right stops at the longest line, but what is on the band changes afterwards: a run of
+		objects pans down without moving its selection, and a live line can get shorter. A page
+		past every line is a blank band, so it comes back to the last page a line reaches. Found
+		in review.
+
 		:return: whether the page changed.
 		"""
 		page = self.renderer.unwrappedPage
 		if page is None:
 			return False
+		if self._acrossCaret is not None:
+			if self._acrossCaret == self._caretMark():
+				return self._keepAPageSomethingReaches(page)
+			self._acrossCaret = None
 		wanted = self._caretPageAcross()
 		if wanted is None or wanted == page:
-			return False
-		if self._acrossCaret is not None and self._acrossCaret == self._caretMark():
-			return False
-		self._acrossCaret = None
+			return self._keepAPageSomethingReaches(page)
 		with self.operation():
 			self.renderer.unwrappedPage = wanted
 			self._redrawBlocks(why="the caret moved to another page across")
 		self._note(f"the caret moving across: now at page {wanted}")
+		return True
+
+	def _keepAPageSomethingReaches(self, page: int) -> bool:
+		""":return: whether the page was brought back to the last one a line on the band reaches.
+
+		:param page: the page across the band is at.
+		"""
+		widest = self._widestVisibleLine()
+		if widest is None or page == 0:
+			return False
+		last = max(0, widest - 1) // max(1, self.renderer.numCols)
+		if page <= last:
+			return False
+		with self.operation():
+			self.renderer.unwrappedPage = last
+			self._redrawBlocks(why="no line on the band reached the page across")
+		self._note(f"no line reaches that far across: now at page {last}")
 		return True
 
 	def describeAcross(self) -> Optional[tuple[int, int, int]]:
@@ -745,7 +822,7 @@ class FlowController(PanelOwner):
 		if page is None:
 			return None
 		first = page * self.renderer.numCols + 1
-		return first, first + self.renderer.numCols - 1, self._widestVisibleLine()
+		return first, first + self.renderer.numCols - 1, self._widestVisibleLine() or 0
 
 	def _caretPageAcross(self) -> Optional[int]:
 		""":return: which page across the caret's cell is on, or None if there is no caret on
@@ -762,12 +839,13 @@ class FlowController(PanelOwner):
 		indent = getattr(rendered.renderKey, "indent", 0)
 		return max(0, at + indent) // max(1, self.renderer.numCols)
 
-	def _widestVisibleLine(self) -> int:
-		""":return: how many cells the longest line on the band holds."""
+	def _widestVisibleLine(self) -> Optional[int]:
+		""":return: how many cells the longest line on the band holds, or None if the band cannot
+		say what it is showing."""
 		try:
 			rows = self.window.visibleRows()
 		except LookupError:
-			return 0
+			return None
 		widest = 0
 		for row in rows:
 			if row.kind is not RowKind.CONTENT or row.blockId is None:
