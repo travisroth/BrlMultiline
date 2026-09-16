@@ -216,6 +216,10 @@ class FlowBand(PanelOwner):
 		self._fillTimer = None
 		"""The pending pass to finish a fill the budget cut short. See L{_scheduleFill}."""
 
+		self._unwrapTurnedOver: Optional[tuple[bool, bool]] = None
+		"""The setting when the reader last turned unwrapped lines over, and what they chose, or
+		None. See L{unwrapLines}."""
+
 
 		self.liveCounts = [0, 0, 0]
 		"""Changes heard, passes run, passes that redrew. For the dry run, and it earns its
@@ -528,6 +532,8 @@ class FlowBand(PanelOwner):
 		:param segment: the band's segment.
 		:param control: the controller to show.
 		"""
+		# Before attaching, so the first thing drawn is drawn the way the reader wants it.
+		self._applyUnwrap(control)
 		segment.attach(control)
 		# The pending pass belongs to whatever was being read before this. Its delay was
 		# chosen for that content and its first act would be to read this instead.
@@ -804,6 +810,9 @@ class FlowBand(PanelOwner):
 		"""
 		if self._rechecking or self.controller is None:
 			return
+		# Every redraw, because a profile switch changes the setting and says nothing to the band.
+		# Costs a configuration read when nothing has changed.
+		self._applyUnwrap(self.controller)
 		# Before the questions below, and cheap: one attribute. A band left short by the
 		# budget must be finished whatever else this redraw concludes.
 		self._scheduleFill()
@@ -1107,6 +1116,75 @@ class FlowBand(PanelOwner):
 			self._attach(segment, self.controller)
 			return
 		segment.refresh()
+
+	# Unwrapped lines.
+
+	def unwrapLines(self) -> bool:
+		"""Whether each line is drawn on one row and the band pans across it.
+
+		What the setting says, unless the reader has turned it over since, and the turning over
+		lasts **until the setting itself changes**. The same file wants it both ways: code to
+		feel the indent of, and a comment or a table of text to read as prose. A command that
+		changed the setting would write to whichever profile is in force, and saving the
+		configuration would keep it there. A turning over that outlived a change of setting
+		would be worse: a profile made for an editor that unwraps would be overruled by a
+		command pressed in some other application an hour ago. Going to NVDA's menu and back
+		switches profile twice and changes nothing, so the reader's choice survives that.
+
+		:return: whether lines are wanted unwrapped.
+		"""
+		setting = bmConfig.shouldUnwrapLines()
+		if self._unwrapTurnedOver is not None:
+			wasSetting, wanted = self._unwrapTurnedOver
+			if wasSetting == setting:
+				return wanted
+			self._unwrapTurnedOver = None
+		return setting
+
+	def toggleUnwrapLines(self) -> bool:
+		"""Turn unwrapped lines over for the time being, and draw the band the new way.
+
+		:return: whether lines are now unwrapped.
+		"""
+		setting = bmConfig.shouldUnwrapLines()
+		wanted = not self.unwrapLines()
+		self._unwrapTurnedOver = None if wanted == setting else (setting, wanted)
+		if self.controller is not None and self._applyUnwrap(self.controller):
+			segment = self.segment()
+			if segment is not None:
+				segment.refresh()
+		return wanted
+
+	def _applyUnwrap(self, control) -> bool:
+		""":return: whether the controller changed how it draws lines, to match `unwrapLines`."""
+		try:
+			return control.setUnwrapped(self.unwrapLines())
+		except Exception:
+			log.debugWarning("Could not unwrap or wrap the lines on the band", exc_info=True)
+			return False
+
+	def panAcross(self, by: int) -> bool:
+		"""Move the band across unwrapped lines by its own width, leaving the caret where it is.
+
+		:param by: how many widths, negative for back towards the start of the lines.
+		:return: whether the band moved. False when lines wrap, or at either end.
+		"""
+		if self.controller is None or not self.controller.isUnwrapped:
+			return False
+		moved = self.controller.panAcross(by)
+		if moved:
+			segment = self.segment()
+			if segment is not None:
+				segment.refresh()
+		return moved
+
+	def isShowingUnwrapped(self) -> bool:
+		""":return: whether the band is claimed and draws its lines unwrapped, whatever is on it.
+
+		Claimed rather than flowing, so that the keys for it do not come and go as the reader
+		moves between the editor and a dialog. See `keyLayerContexts`.
+		"""
+		return self.isClaimed and self.unwrapLines()
 
 	# Tables.
 

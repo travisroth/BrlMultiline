@@ -697,6 +697,25 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Translators: label of a checkbox in settings. Unwrapped means a long line is not
+		# continued on the next row of the display.
+		unwrapLabel = _("Show every line on one row, &unwrapped, and pan across it")
+		self.unwrapLinesCtrl = sHelper.addItem(wx.CheckBox(self, label=unwrapLabel))
+		self.unwrapLinesCtrl.SetValue(bool(section["flowUnwrapLines"]))
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the checkbox above, explaining what it
+					# does.
+					"For code, where the indent at the start of each line is worth feeling down "
+					"the left of the display. The rest of a long line is a display's width across, "
+					"reached with the pan across commands, and a line too short to reach there is "
+					"blank. A command turns this over for the time being without changing the "
+					"setting.",
+				),
+			),
+		)
 		# Translators: label of a combo box in settings, choosing how the depth of an item in a
 		# tree or a nested list is shown on the display.
 		indentLabel = _("Show how deep an item &sits with:")
@@ -1009,6 +1028,7 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowRows"] = self.rowsCtrl.Value
 		section["flowGroundOnQuickNav"] = self.groundCtrl.IsChecked()
 		section["flowWriteByParagraph"] = self.writeByParagraphCtrl.IsChecked()
+		section["flowUnwrapLines"] = self.unwrapLinesCtrl.IsChecked()
 		section["flowScrollToNewContent"] = self.newContentCtrl.IsChecked()
 		section["flowIndentStyle"] = indentStyleChoices()[self.indentStyleCtrl.GetSelection()][0]
 		section["flowLineFocus"] = self.lineFocusCtrl.IsChecked()

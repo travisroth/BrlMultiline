@@ -8,6 +8,14 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **Lines can be shown unwrapped, one to a row, for code.** A new flow setting, which a profile can
+  hold, draws every line of the document on one row however long it is, so the indents down the
+  left of the display stay with their lines. Two commands pan every row across by the display's
+  width together, and a line too short for that part goes blank; on the Monarch the zoom keys do
+  it, from a layer that comes on by itself while lines are unwrapped. A caret moved to a part of a
+  line that is not showing brings the display to it. A third command turns it over for the time
+  being, since one file wants both, and that choice lasts until the setting itself changes.
+
 - **Saved table layouts can be managed.** A new command lists every saved layout, the ones for
   the table you are in first, with its name, address, how strictly it matches and when it was last
   used, and can point one at the table you are in, copy it there, rename it, edit its address or

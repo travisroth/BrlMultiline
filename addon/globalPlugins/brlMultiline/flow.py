@@ -215,6 +215,15 @@ class RenderedBlock:
 	the source, which is what the indent baseline is computed from. See `flowIndent`.
 	"""
 
+	lineCells: int = 0
+	"""How many cells the whole line holds, where lines are unwrapped, and 0 otherwise.
+
+	An unwrapped block is drawn as the one row of it the band's page across reaches, so its
+	rows say nothing about how far across there is still something to show. This does, and it
+	is what stops panning across at the end of the longest line. See
+	`FlowRenderer.unwrappedPage`.
+	"""
+
 	@property
 	def numRows(self) -> int:
 		""":return: how many rows this rendering holds, not counting its gaps."""

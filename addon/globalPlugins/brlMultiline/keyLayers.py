@@ -56,7 +56,7 @@ ONE_SHOT = "oneShot"
 STAYS_ON = "staysOn"
 STYLES = (ONE_SHOT, STAYS_ON)
 
-CONTEXTS = ("chart", "picture", "graphics", "table")
+CONTEXTS = ("chart", "picture", "graphics", "table", "unwrapped")
 """Every context a layer can be for, most specific first. See `keyLayerContexts`."""
 
 SPACE_WITH_Z = "dot1+dot3+dot5+dot6+space"
@@ -75,7 +75,7 @@ found a keyboard layer that escape did not leave. With modifiers it is another k
 escape is left to NVDA.
 """
 
-SHIPPED = 2
+SHIPPED = 3
 """Which additions to the shipped layers a stored set has already been given. See L{SHIPPED_ADDITIONS}.
 
 Written with every set saved. A set stored before this was written has none, and reads as 1.
@@ -95,6 +95,9 @@ SHIPPED_ADDITIONS = {
 				"space+dot2+dot7",
 			),
 		},
+	},
+	3: {
+		"layers": ("unwrapped",),
 	},
 }
 """What each revision of the shipped layers added, for sets saved before it.
@@ -635,6 +638,8 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 	previous; on a picture o for outlines, b for brightness and r for brightness reversed. Its table
 	layer stays on and moves by table cell with the left d-pad, and turns column pages with the zoom
 	keys; it comes on only from the layer key, since a table is somewhere the caret passes through.
+	Its unwrapped layer comes on by itself while the band shows lines unwrapped, and pans across them
+	with the zoom keys; nothing else in it, so every other key is what it always was.
 	The right d-pad is in none of them, so it stays the arrow keys, and the d-pad centre is not a key.
 
 	The keyboard's graphics layer does the same from the keypad, acting for the Monarch; a command
@@ -738,7 +743,20 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 				normalize(f"br({MONARCH}):zoomOut"): plugin("flowPreviousColumns"),
 			},
 		)
-		return [default, graphics, charts, pictures, tables]
+		# Only the zoom keys, because this layer is on for as long as a reader is writing code, and
+		# a layer that took the d-pads for that long would take them from everything else.
+		unwrapped = newLayer(
+			device,
+			"unwrapped",
+			"Unwrapped lines",
+			"unwrapped",
+			autoEnable=True,
+			bindings={
+				normalize(f"br({MONARCH}):zoomIn"): plugin("flowPanLinesRight"),
+				normalize(f"br({MONARCH}):zoomOut"): plugin("flowPanLinesLeft"),
+			},
+		)
+		return [default, graphics, charts, pictures, tables, unwrapped]
 	if device == KEYBOARD:
 
 		def keypad(names, target):

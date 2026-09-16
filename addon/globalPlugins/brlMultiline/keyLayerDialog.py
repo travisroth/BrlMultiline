@@ -103,6 +103,8 @@ CONTEXT_LABELS = {
 	"graphics": _("Graphics"),
 	# Translators: a layer of keys that is for a table.
 	"table": _("Table"),
+	# Translators: a layer of keys that is for lines shown unwrapped, one to a row, and panned across.
+	"unwrapped": _("Unwrapped lines"),
 }
 
 STYLE_LABELS = {

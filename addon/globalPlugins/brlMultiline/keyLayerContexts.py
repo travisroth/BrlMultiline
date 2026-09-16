@@ -5,9 +5,9 @@
 
 """Which contexts are present, most specific first, for the context aware layer key.
 
-The list is `keyLayers.CONTEXTS`: chart, picture, graphics, table. A chart is also graphics, so
-both are present while one is on the display, and the layer key takes the most specific one the
-device has a layer for.
+The list is `keyLayers.CONTEXTS`: chart, picture, graphics, table, unwrapped. A chart is also
+graphics, so both are present while one is on the display, and the layer key takes the most specific
+one the device has a layer for.
 
 **Graphics is followed; a table is only looked for.** The three graphics contexts are cheap
 attribute reads on graphics mode, and graphics mode says when they change, so a layer for one comes
@@ -17,13 +17,16 @@ not something to do on every change, and a table is somewhere the caret passes t
 that changed meaning as it crossed a table's edge would be a mode the reader never asked for. That
 is `tableArrows`' argument, and it holds here. See `docs/design/layered-keys-plan.md`.
 
+**Unwrapped lines are followed too**, and are last because they are the least specific: a way of
+reading the whole band, which a drawing or a table on it is more particular than.
+
 Every test here is guarded: a context that cannot be read is absent, never an error, because the
 layer key has to work whatever else on the display has gone wrong.
 """
 
 from logHandler import log
 
-DETECTED = ("chart", "picture", "graphics")
+DETECTED = ("chart", "picture", "graphics", "unwrapped")
 """The contexts followed as they change. A layer for any other is never turned on or off for its
 context arriving or going, since the change is not watched for."""
 
@@ -38,7 +41,26 @@ def presentContexts(plugin, tables: bool = True) -> list:
 	present = _graphics(plugin)
 	if tables and _inTable(plugin):
 		present.append("table")
+	if _unwrapped(plugin):
+		present.append("unwrapped")
 	return present
+
+
+def _unwrapped(plugin) -> bool:
+	""":return: whether the flow band draws its lines unwrapped.
+
+	**Followed, unlike a table**, because it is a way of reading the reader chose rather than
+	somewhere the caret passes through: it changes with the setting, a profile switch, or the
+	command that turns it over, and each of those asks for the layers to be reconciled. It is asked
+	of the band's claim rather than of what it is showing, so the keys stay put while the reader goes
+	to a dialog and back.
+	"""
+	try:
+		band = getattr(plugin, "flowBand", None)
+		return band is not None and bool(band.isShowingUnwrapped())
+	except Exception:
+		log.debugWarning("BrlMultiline key layers: could not ask about unwrapped lines", exc_info=True)
+		return False
 
 
 def _graphics(plugin) -> list:

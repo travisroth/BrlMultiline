@@ -2019,6 +2019,86 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
+		description=_("Flow: Toggles showing every line on one row, unwrapped, and panning across it"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_flowToggleUnwrapLines(self, gesture):
+		"""Unwrap the lines on the band, or wrap them again, for the time being.
+
+		Not the setting, which stays as it is: the same file wants both, code to feel the indent of
+		and prose to read, and a command that wrote to the profile in force would leave the choice
+		behind in it. See `FlowBand.unwrapLines` for how long the choice lasts.
+		"""
+		band = self.flowBand
+		if band is None:
+			# Translators: reported when a command needs the flow and it is off or cannot be shown.
+			ui.message(_("The flow is not on"))
+			return
+		unwrapped = band.toggleUnwrapLines()
+		self.reportAboutTheDisplay(
+			# Translators: reported when every line is shown on one row, and the display pans across
+			# it by its width rather than a long line continuing on the next row.
+			_("Lines unwrapped")
+			if unwrapped
+			# Translators: reported when long lines continue on the next row of the display again.
+			else _("Lines wrap"),
+		)
+		# Its layer of keys comes and goes with it. See `keyLayerContexts`.
+		self.reconcileKeyLayers()
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Flow: Pans unwrapped lines right by the width of the display"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_flowPanLinesRight(self, gesture):
+		self._panLinesAcross(1)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Flow: Pans unwrapped lines left by the width of the display"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_flowPanLinesLeft(self, gesture):
+		self._panLinesAcross(-1)
+
+	def _panLinesAcross(self, by: int) -> None:
+		"""Pan the band across its unwrapped lines, and say which cell of the lines is at the left.
+
+		Said, because every page of code feels like code: nothing on the display says how far
+		across the lines it is. Spoken only, for the reason `reportAboutTheDisplay` gives.
+
+		:param by: how many widths to move, negative for left.
+		"""
+		band = self.flowBand
+		control = band.controller if band is not None else None
+		if control is None or not control.isUnwrapped:
+			# Translators: reported when a command pans across unwrapped lines and the lines on the
+			# display wrap.
+			ui.message(_("Lines are not unwrapped"))
+			return
+		moved = band.panAcross(by)
+		where = control.describeAcross()
+		if where is None:
+			return
+		first, _last, widest = where
+		if moved:
+			# Translators: reported after panning across unwrapped lines. The placeholder is the
+			# column of the lines now at the left of the display, counted from 1.
+			self.reportAboutTheDisplay(_("Column {column}").format(column=first))
+		elif by < 0:
+			# Translators: reported when panning left across unwrapped lines that are already at
+			# their start.
+			self.reportAboutTheDisplay(_("Start of the lines"))
+		else:
+			self.reportAboutTheDisplay(
+				# Translators: reported when panning right across unwrapped lines and no line on the
+				# display goes on any further. The placeholder is the column now at the left.
+				_("Column {column}, no line goes further").format(column=first),
+			)
+
+	@script(
+		# Translators: input help message for a command.
 		description=_("Table: Toggle table columns on or off"),
 		category=SCRIPT_CATEGORY,
 	)

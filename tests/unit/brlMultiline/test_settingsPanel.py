@@ -503,6 +503,7 @@ class FlowPanelTestCase(SettingsPanelTestCase):
 		self.panel.rowsHintCtrl = FakeControl()
 		self.panel.groundCtrl = FakeControl(True)
 		self.panel.writeByParagraphCtrl = FakeControl(True)
+		self.panel.unwrapLinesCtrl = FakeControl(False)
 		self.panel.indentStyleCtrl = FakeControl(0)
 		self.panel.lineFocusCtrl = FakeControl(True)
 		self.panel.tableRowsCtrl = FakeControl(1)
@@ -619,6 +620,11 @@ class TestFlowOnOneDisplay(FlowPanelTestCase):
 		self.panel.writeByParagraphCtrl.SetValue(False)
 		self.panel.onSave()
 		self.assertFalse(self.sections[MONARCH_KEY]["flowWriteByParagraph"])
+
+	def test_unwrappingLinesIsSaved(self):
+		self.panel.unwrapLinesCtrl.SetValue(True)
+		self.panel.onSave()
+		self.assertTrue(self.sections[MONARCH_KEY]["flowUnwrapLines"])
 
 	def test_moreRowsThanTheDisplayHasIsRefused(self):
 		self.panel.enabledCtrl.SetValue(True)

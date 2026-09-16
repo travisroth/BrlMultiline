@@ -152,6 +152,7 @@ CONFIG = DisplaySection(
 		"flowGroundOnQuickNav": True,
 		"flowScrollToNewContent": True,
 		"flowWriteByParagraph": True,
+		"flowUnwrapLines": False,
 		"flowIndentStyle": "twoSpaces",
 		"tableLayouts": "",
 	},
@@ -196,6 +197,7 @@ def setBandConfig(displayKey: str, **values) -> None:
 			"flowGroundOnQuickNav": True,
 			"flowScrollToNewContent": True,
 			"flowWriteByParagraph": True,
+		"flowUnwrapLines": False,
 			"flowIndentStyle": "twoSpaces",
 		},
 	)
@@ -3280,6 +3282,7 @@ def resetConfig() -> None:
 		flowDisplay="",
 		flowGroundOnQuickNav=True,
 		flowWriteByParagraph=True,
+		flowUnwrapLines=False,
 		flowScrollToNewContent=True,
 		flowIndentStyle="twoSpaces",
 		# The two that may defer to NVDA. Spelled out rather than left missing, because

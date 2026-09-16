@@ -250,6 +250,13 @@ class FlowController(PanelOwner):
 		self._writingTop = None
 		"""The last top block the reader was shown that was not the caret's own. See L{_stableTop}."""
 
+		self._acrossCaret = None
+		"""Where the caret was when the reader last panned across unwrapped lines, or None.
+
+		The across twin of `_pannedAt`: while the caret is still there, the page is the
+		reader's and a caret off it is one they left behind on purpose. See
+		`followCaretAcross`."""
+
 		self._pannedCaret: tuple = ()
 		"""Where the caret counts as being if nothing has been typed since the reader panned.
 
@@ -633,6 +640,144 @@ class FlowController(PanelOwner):
 				self._rereadBlocks()
 			self._redrawBlocks(why="a different page of columns")
 		return True
+
+	# Unwrapped lines.
+
+	@property
+	def isUnwrapped(self) -> bool:
+		""":return: whether every block is drawn as one row, panned across by pages."""
+		return self.renderer.unwrappedPage is not None
+
+	@property
+	def pageAcross(self) -> Optional[int]:
+		""":return: which page across the band is at, 0 for the start of every line, or None
+		when lines wrap."""
+		return self.renderer.unwrappedPage
+
+	def setUnwrapped(self, unwrapped: bool) -> bool:
+		"""Draw each block as one row the band's width, or wrap them again.
+
+		Turned on at the page the caret is in, so the reader's cursor is under their hand
+		whichever way they were looking. Turned off, the page is forgotten: the next time lines
+		are unwrapped, starting at a page chosen for a caret that has since moved would put the
+		reader somewhere they never were.
+
+		:param unwrapped: True to unwrap, False to wrap.
+		:return: whether anything changed.
+		"""
+		if unwrapped == self.isUnwrapped:
+			return False
+		with self.operation():
+			self.renderer.unwrappedPage = 0 if unwrapped else None
+			self._acrossCaret = None
+			if unwrapped:
+				page = self._caretPageAcross()
+				if page:
+					self.renderer.unwrappedPage = page
+			self._redrawBlocks(why="lines unwrapped" if unwrapped else "lines wrapped again")
+			# A block that was several rows tall is one row now, or the other way about, so the
+			# caret's row may have moved off the band or onto it.
+			self.syncToCursor(why="lines unwrapped or wrapped")
+		self._note(f"lines {'unwrapped' if unwrapped else 'wrapped'}")
+		return True
+
+	def panAcross(self, by: int) -> bool:
+		"""Move every line of the band across by pages the band's width, leaving the caret alone.
+
+		Looking along the lines rather than going anywhere, as turning a table's page of
+		columns is, so the caret stays where it is and a caret that then moves somewhere the
+		page does not show brings the band back to it. See `followCaretAcross`.
+
+		Stops at the end of the longest line on the band, rather than at the end of the one the
+		caret is on: what the reader is feeling for is whatever is still to the right of *any*
+		line under their hands. Lines shorter than the page go blank until the band comes back.
+
+		:param by: how many pages to move, negative for back towards the start of the lines.
+		:return: whether the band moved. False when lines are not unwrapped, and at either end.
+		"""
+		page = self.renderer.unwrappedPage
+		if page is None or by == 0:
+			return False
+		wanted = max(0, page + by)
+		if wanted == page:
+			return False
+		if wanted > page and wanted * self.renderer.numCols >= self._widestVisibleLine():
+			return False
+		with self.operation():
+			self.renderer.unwrappedPage = wanted
+			self._redrawBlocks(why="a different page across")
+		# After the move, so the caret this remembers is the one the reader left where it was.
+		self._acrossCaret = self._caretMark()
+		self._note(f"the reader panning across: now at page {wanted}")
+		return True
+
+	def followCaretAcross(self) -> bool:
+		"""Bring the page across back to the caret, if the caret has moved somewhere it does not
+		show.
+
+		**Brought back, not dragged back.** A caret already on the page moves nothing, and nor
+		does one that has stayed exactly where it was since the reader panned away from it:
+		that is the reader reading the rest of a line, and snapping the band back at the next
+		redraw would take it away from them. The same bargain `_panIsTheReadersChoice` makes
+		for rows, and `FlowBand._showColumn` makes for a table's columns.
+
+		:return: whether the page changed.
+		"""
+		page = self.renderer.unwrappedPage
+		if page is None:
+			return False
+		wanted = self._caretPageAcross()
+		if wanted is None or wanted == page:
+			return False
+		if self._acrossCaret is not None and self._acrossCaret == self._caretMark():
+			return False
+		self._acrossCaret = None
+		with self.operation():
+			self.renderer.unwrappedPage = wanted
+			self._redrawBlocks(why="the caret moved to another page across")
+		self._note(f"the caret moving across: now at page {wanted}")
+		return True
+
+	def describeAcross(self) -> Optional[tuple[int, int, int]]:
+		""":return: the first and last cells across the band shows, counted from 1, and how many
+		cells the longest line on the band holds; or None when lines are not unwrapped."""
+		page = self.renderer.unwrappedPage
+		if page is None:
+			return None
+		first = page * self.renderer.numCols + 1
+		return first, first + self.renderer.numCols - 1, self._widestVisibleLine()
+
+	def _caretPageAcross(self) -> Optional[int]:
+		""":return: which page across the caret's cell is on, or None if there is no caret on
+		the band to ask about."""
+		if self.activeBlockId is None:
+			return None
+		at = getattr(self.regionFor(self.activeBlockId), "brailleCursorPos", None)
+		if at is None:
+			return None
+		try:
+			rendered = self.window.blocks[self.window.blockIndex(self.activeBlockId)]
+		except LookupError:
+			return None
+		indent = getattr(rendered.renderKey, "indent", 0)
+		return max(0, at + indent) // max(1, self.renderer.numCols)
+
+	def _widestVisibleLine(self) -> int:
+		""":return: how many cells the longest line on the band holds."""
+		try:
+			rows = self.window.visibleRows()
+		except LookupError:
+			return 0
+		widest = 0
+		for row in rows:
+			if row.kind is not RowKind.CONTENT or row.blockId is None:
+				continue
+			try:
+				block = self.window.blocks[self.window.blockIndex(row.blockId)]
+			except LookupError:
+				continue
+			widest = max(widest, block.lineCells)
+		return widest
 
 	def rereadContent(self) -> bool:
 		"""Read the blocks on the band again, in place, and draw what comes back.
@@ -2394,7 +2539,9 @@ class FlowController(PanelOwner):
 		"""
 		at = getattr(block.region, "brailleCursorPos", None)
 		rendered = self.renderer.render(block, fromRow=before.rowOffset)
-		if at is None or any(at in row for row in rendered.positions):
+		if at is None or self.isUnwrapped or any(at in row for row in rendered.positions):
+			# Unwrapped, a block is one row and there is no other chunk to find: a caret that is
+			# not in it is on another page across, which is `followCaretAcross`'s to answer.
 			return rendered
 		return self.renderer.renderAround(
 			block,

@@ -126,6 +126,18 @@ class FlowRenderer:
 		unplugged. None means no shape is drawn and no word is taken out — which is what a
 		region bound for a display that cannot draw one must get. See `glyphFlow.targetForRows`.
 		"""
+		self.unwrappedPage: Optional[int] = None
+		"""Which page across of unwrapped lines to draw, or None to wrap as ever.
+
+		Unwrapped, every block is one row whatever its length: the line laid out end to end and
+		cut into pages the band's width, of which only this one is drawn. A line too short to
+		reach it is a blank row, and still its own row, so a hand running down the left margin
+		meets every line of the document where it would in the editor. What code wants: the
+		indent at the start of each line is only worth anything while each line starts a row.
+
+		A table row laid out in columns is not affected, because it has pages of its own. See
+		`FlowController.setUnwrapped`.
+		"""
 		self.glyphsWanted = False
 		"""Whether the reader's setting asked for shapes when the band was last laid out for them.
 
@@ -194,6 +206,8 @@ class FlowRenderer:
 				# `indent` because that is what `settings` is for: one more thing the cells
 				# depend on, added without changing the key's shape.
 				self.columnPlan,
+				# The page across, so that a line drawn at one page is never served for another.
+				self.unwrappedPage,
 			),
 			indent=indent,
 		)
@@ -218,6 +232,8 @@ class FlowRenderer:
 		columns = self._asColumns(block, fromRow)
 		if columns is not None:
 			return columns
+		if self.unwrappedPage is not None:
+			return self._unwrapped(block)
 		first = self.indentPlan.prefixFor(block.depth)
 		rest = self.indentPlan.continuationPrefixFor(block.depth)
 		rows, positions, more = self._indented(block, fromRow, first, rest)
@@ -481,6 +497,58 @@ class FlowRenderer:
 				out.append(tuple(line))
 				where.append(tuple(marks))
 		return out, where
+
+	def _unwrapped(self, block: SourceBlock) -> RenderedBlock:
+		"""Lay a block out as one line, and draw the page of it the band is across at.
+
+		Filled rather than wrapped whatever the band's own rule, because a page across has to be
+		exactly the band's width: then page *n* of every line starts at the same cell of the
+		line, and panning moves the whole band across by the same distance. Word wrapping cuts
+		each line at its own places, and no continuation mark is spent, since the next page is
+		where the rest of the line is.
+
+		The indent, where a block has depth, is put in front of the whole line before it is cut,
+		so a nested item's text keeps its place relative to its parent's on every page rather
+		than only on the first.
+
+		:param block: the block to draw.
+		:return: one row, possibly blank, with `lineCells` saying how long the whole line is.
+		"""
+		prefix = self.indentPlan.prefixFor(block.depth)
+		fillRows, markCuts = self.fillRows, self.markCuts
+		self.fillRows, self.markCuts = True, False
+		try:
+			buffer = self._layoutBuffer(block)
+		finally:
+			self.fillRows, self.markCuts = fillRows, markCuts
+		cells: tuple = prefix
+		where: tuple = (NO_POSITION,) * len(prefix)
+		if buffer is not None:
+			content = tuple(buffer.brailleCells)
+			if content and not content[-1] and getattr(buffer, "cursorPos", None) != len(content) - 1:
+				# The space NVDA parks a caret on at the end of every reading unit, with no caret
+				# on it. Counted, it made a line ending exactly at a page's edge reach a page
+				# further across, with nothing on it. See `_withoutAnEmptyLastRow`.
+				content = content[:-1]
+			cells += content
+			where += tuple(range(len(content)))
+		start = max(0, self.unwrappedPage) * self.numCols
+		row = cells[start : start + self.numCols]
+		positions = where[start : start + self.numCols]
+		return RenderedBlock(
+			blockId=block.blockId,
+			rows=(row,),
+			positions=(positions,),
+			renderKey=self._keyWith(len(prefix)),
+			depth=block.depth,
+			moreRows=False,
+			rawText=getattr(block.region, "rawText", ""),
+			gapBefore=block.gapBefore,
+			gapAfter=block.gapAfter,
+			isBlank=block.isBlank,
+			isDecoration=block.isDecoration,
+			lineCells=len(cells),
+		)
 
 	def renderAround(self, block: SourceBlock, position: int, contextRows: int = 0) -> RenderedBlock:
 		"""Lay out the chunk containing one braille position.

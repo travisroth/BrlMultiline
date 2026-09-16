@@ -177,6 +177,19 @@ single character for a moment after each Enter, and asking for the paragraph giv
 you are on every time. That is the right answer there and may not be everywhere, which is
 why it is a switch: if an editor reads oddly, try it off before reporting it.
 
+**Show every line on one row, unwrapped, and pan across it.** Off by default. For code. Wrapped,
+a long line takes several rows and pushes the lines under it down, so the indents down the left
+of the display stop lining up with the lines they belong to. Unwrapped, every line of the
+document gets exactly one row, and a line longer than the display goes on a display's width to
+the right. Pan right and every row moves across together, showing the next part of each line; a
+line too short to reach that far is blank. Panning stops at the end of the longest line on the
+display. Moving the caret to a part of a line the display is not showing brings the display
+back to it, but panning across and then not moving the caret leaves the display where you put
+it. It can be set in a profile like everything here, and a command turns it over for the time
+being without changing the setting, since one file often wants both: code to feel the indents
+of, and prose to read. What the command chose lasts until the setting itself changes, so going
+to NVDA's menu and back keeps it.
+
 **Scroll new content into view while you are at the end.** On by default. For something
 pinned to a segment that is still being written — a chat, a log, a build — a new message
 scrolls onto a full display and the oldest row moves off, the way a terminal follows a log.
@@ -759,6 +772,14 @@ cannot pin an object to the segment that follows the focus.
 remembers the answer in the profile in force, so it is the same switch as the one in the
 settings. See "Reading as a flow" above.
 
+**Flow: Toggles showing every line on one row, unwrapped, and panning across it.** Turns
+unwrapped lines on or off for now, without changing the setting. Unassigned.
+
+**Flow: Pans unwrapped lines right by the width of the display** and **Flow: Pans unwrapped
+lines left by the width of the display.** Move every line across together, without moving the
+caret, and say which column of the lines is now at the left. On the Monarch these are the zoom
+keys while lines are unwrapped; see "Layered keys".
+
 ### Tables
 
 These act on the table your cursor is in. See "Reading as a flow" above for what a table laid
@@ -875,6 +896,9 @@ The Monarch and the keyboard come with layers already:
 - **Monarch, table layer.** With the caret in a table on a web page, or a table laid out in columns
   on the display, the layer key turns it on. The left d-pad moves by table cell, and the zoom keys
   turn to the next and previous page of columns. It stays on until you turn it off.
+- **Monarch, unwrapped lines layer.** Comes on by itself while the display shows lines unwrapped,
+  and goes when they wrap again. The zoom keys pan across the lines; every other key does what it
+  always does. Turn it off with the layer key and it stays off until lines wrap again.
 - **Keyboard, default layer.** The layer key, then keypad 5 says the line.
 - **Keyboard, graphics layer.** The keypad's arrows move the Monarch's drawing, keypad plus and
   minus magnify and shrink it, and keypad 5 says the line. Turned on with the layer key; it does not
@@ -887,7 +911,8 @@ came with, as a whole. A later version of the add-on that improves the shipped l
 change what you changed. The exception is keys the add-on moved: when graphics keys came out of
 the global gestures on 15 September 2026, layers saved before then are given the chart and picture
 layers and the graphics layer's new chords, once, unless you already had a layer of your own for
-that kind of drawing or had used that key for something else. Remove one of them and save, and it
+that kind of drawing or had used that key for something else. Layers saved before unwrapped
+lines existed are given the unwrapped lines layer the same way. Remove one of them and save, and it
 stays removed. Use Reset to factory defaults in the dialog to take everything the add-on ships,
 which also drops your own changes for that device.
 

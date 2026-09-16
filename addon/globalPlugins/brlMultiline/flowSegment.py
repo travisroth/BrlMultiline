@@ -154,6 +154,11 @@ class FlowBufferSegment(BrailleBufferSegment):
 			return super().update()
 		self._syncRegions()
 		self._followIfRead()
+		try:
+			# After following, so the caret asked about is the one this update is showing.
+			self.controller.followCaretAcross()
+		except Exception:
+			log.debugWarning("A flow could not bring its page across to the caret", exc_info=True)
 		# Again, because following may have made a different block active. NVDA queues the
 		# region it finds *here* — `handleCaretMove` takes `mainBuffer.regions[-1]` — so a
 		# list left holding the block the reader has just left means the next caret move

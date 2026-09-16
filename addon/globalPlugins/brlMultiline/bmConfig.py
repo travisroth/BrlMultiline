@@ -142,6 +142,7 @@ configSpec = {
 			"flowDisplay": 'string(default="")',
 			"flowGroundOnQuickNav": "boolean(default=True)",
 			"flowWriteByParagraph": "boolean(default=True)",
+			"flowUnwrapLines": "boolean(default=False)",
 			"flowIndentStyle": f'option({INDENT_STYLE_OPTIONS}, default="{DEFAULT_INDENT_STYLE}")',
 			"flowLineFocus": "boolean(default=True)",
 			"flowTableRowHeight": f"integer(default={flowTable.DEFAULT_MAX_ROWS}, min=1, max={flowTable.MAX_TABLE_ROWS})",
@@ -200,6 +201,10 @@ configSpec = {
 - `flowGroundOnQuickNav`: whether a browse mode jump by structure re-grounds the band.
 - `flowWriteByParagraph`: whether a multi line edit being written in is cut into blocks by
 	paragraph rather than by the reader's own read by paragraph setting.
+- `flowUnwrapLines`: whether every line is drawn on one row, however long, with the band panned
+	across by its own width rather than the line wrapped. For code, where the indent at the left
+	of each line is the structure. Off by default. A command turns it over for the time being;
+	see `FlowBand.unwrapLines`.
 - `flowIndentStyle`: how one level of depth is drawn, for content that has any. Per display
 	and per profile like everything else here, because the answer depends on how many cells
 	the row has: two spaces on a Monarch's 32 is a different proposition from two on 80.
@@ -690,6 +695,19 @@ def shouldWriteByParagraph(displayKey: str | None = None) -> bool:
 	except Exception:
 		log.debugWarning("Could not read flowWriteByParagraph", exc_info=True)
 		return True
+
+
+def shouldUnwrapLines(displayKey: str | None = None) -> bool:
+	""":return: whether the band draws each line on one row and pans across rather than wrapping.
+
+	What the settings and the profile in force say. The reader can turn it over for the time being
+	without changing either; what the band actually does is `FlowBand.unwrapLines`.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["flowUnwrapLines"])
+	except Exception:
+		log.debugWarning("Could not read flowUnwrapLines", exc_info=True)
+		return False
 
 
 def shouldScrollToNewContent(displayKey: str | None = None) -> bool:
