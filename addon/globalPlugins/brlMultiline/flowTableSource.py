@@ -7,8 +7,7 @@
 
 Everything about finding the cells is NVDA's. `documentBase.DocumentWithTableNavigation`
 already knows how to say which cell a position is in, how big the table is, and how to fetch
-the cell at any coordinate — it is what NVDA's own control+alt+arrows move through, and what
-the Easy Table Navigator add-on binds the plain arrow keys to. This module walks that API and
+the cell at any coordinate — it is what NVDA's own control+alt+arrows move through. This module walks that API and
 turns its answers into blocks. It reimplements none of it, and the one place it was tempted
 to — deriving the table's shape by reading fields itself — is exactly what `_getTableDimensions`
 already does better.
@@ -89,7 +88,7 @@ def tableDocumentFor(obj) -> Optional[Any]:
 
 	The tree interceptor where there is one and browse mode is presenting the page, the object
 	itself where it navigates its own tables, and otherwise a list view presented as though it
-	did. Taken from Easy Table Navigator, which uses the same dispatch for the same reason:
+	did. Borrowed from Easy Table Navigator (https://github.com/josephsl/easyTableNavigator), which uses the same dispatch for the same reason:
 	it is what makes a list view the same code as a web page, and the bet it was making turned
 	out to be worth making — everything above this line is unchanged by the message list
 	arriving.
@@ -169,7 +168,7 @@ class TableHandle:
 def tableAt(obj) -> Optional[TableHandle]:
 	"""Whether the reader is in a table, and which one.
 
-	The test Easy Table Navigator uses, for the reason it uses it: `_getTableCellCoords`
+	The test Easy Table Navigator (https://github.com/josephsl/easyTableNavigator) uses, for the reason it uses it: `_getTableCellCoords`
 	answers the question by doing the work, so a test that agreed with it would be a second
 	implementation to keep in step and a test that disagreed would offer a layout the fetches
 	then could not fill.
