@@ -94,6 +94,11 @@ PROMPT_FOCUS = "<prompt>"
 row like any other and so needs its command expanded like any other. A value no key identifier can
 be, since identifiers always carry a source and a colon."""
 
+EMULATED_PROMPT = Target(keyLayers.KEY, scriptName=PROMPT_FOCUS)
+"""The command row the prompt is while a keyboard key to emulate is waited for: Input Gestures shows
+that prompt as a new entry at the end of its emulated keys, not under an existing one. Put in
+`LayerEditor.pending` by its identity, as a command waiting for a key is."""
+
 CONTEXT_LABELS = {
 	# Translators: a layer of keys that is for a chart on the display.
 	"chart": _("Chart"),
@@ -260,8 +265,19 @@ class LayerEditor:
 			if pattern is not None and not pattern.search(command.name):
 				continue
 			byCategory.setdefault(command.category, []).append(CommandNode(command, keys))
+		if self.pending == identity(EMULATED_PROMPT):
+			# Past the filter, which would otherwise hide the very row the reader is put on.
+			byCategory.setdefault(self.emulatedCategory, []).append(
+				CommandNode(Command(self.emulatedCategory, PROMPT, EMULATED_PROMPT), [])
+			)
 		return [
-			CategoryNode(name, sorted(nodes, key=lambda node: node.command.name.casefold()))
+			CategoryNode(
+				name,
+				sorted(
+					nodes,
+					key=lambda node: (node.command.target == EMULATED_PROMPT, node.command.name.casefold()),
+				),
+			)
 			for name, nodes in sorted(byCategory.items(), key=lambda item: item[0].casefold())
 		]
 
@@ -797,6 +813,10 @@ if wx is not None:
 				index = self._indexOf(focus)
 				if index is not None:
 					self.tree.SelectItem(self.tree.GetItemByIndex(index))
+				# To the row just selected, as Input Gestures does. Left on Add, the reader went wherever
+				# Windows sent them when waiting for a key disabled it: the next button, with nothing to
+				# say a key was wanted.
+				self.tree.SetFocus()
 			self._refreshButtons()
 
 		def _indexOf(self, focus: tuple) -> Optional[tuple]:
@@ -862,8 +882,21 @@ if wx is not None:
 			self._captor = None
 
 		def _cancelledCapture(self) -> None:
+			pending = self.editor.pending
 			self.editor.pending = None
-			self._refresh()
+			if pending is None:
+				# An exit key for Properties, which has the focus and keeps it.
+				self._refresh()
+				return
+			if pending == identity(EMULATED_PROMPT):
+				# Back to the emulated keys category Add was pressed on.
+				self._refresh()
+				for index, category in enumerate(self.nodes):
+					if category.name == self.editor.emulatedCategory:
+						self.tree.SelectItem(self.tree.GetItemByIndex((index,)))
+						self.tree.SetFocus()
+				return
+			self._refresh(focus=(pending, None))
 
 		def _wrongDevice(self, source: Optional[str], wanted: str) -> None:
 			import ui
@@ -904,6 +937,8 @@ if wx is not None:
 		def _onAdd(self, event) -> None:
 			category, command, key = self.tree.selection()
 			if command is None and category is not None and category.name == self.editor.emulatedCategory:
+				self.editor.pending = identity(EMULATED_PROMPT)
+				self._refresh(focus=(identity(EMULATED_PROMPT), None))
 				self._capture(self._addEmulated, keyboardOnly=True)
 				return
 			if command is None:
@@ -920,9 +955,14 @@ if wx is not None:
 			self._capture(lambda gesture: self._finishAdding(command, gesture, replacing))
 
 		def _addEmulated(self, gesture) -> None:
+			if not self:
+				# Closed between the key and this running.
+				return
 			identifiers = list(gesture.normalizedIdentifiers)
 			if not identifiers:
+				self._cancelledCapture()
 				return
+			self.editor.pending = None
 			command = self.editor.addEmulatedKey(identifiers[-1])
 			self._refresh(focus=(identity(command.target), None))
 

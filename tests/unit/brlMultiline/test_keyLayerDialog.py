@@ -169,6 +169,23 @@ class TestTree(EditorTestCase):
 		self.assertEqual([None], [key.identifier for key in self.node(PAN_UP.name).keys])
 		self.assertEqual(dialog.PROMPT, self.node(PAN_UP.name).keys[0].name)
 
+	def test_thePromptForAnEmulatedKeyIsTheLastEmulatedKey(self):
+		"""As Input Gestures shows it, and even when the filter would hide it."""
+		self.editor.addEmulatedKey("kb:downArrow")
+		self.editor.filterText = "view drawing"
+		self.editor.pending = identity(dialog.EMULATED_PROMPT)
+		emulated = next(
+			category for category in self.editor.categories() if category.name == self.editor.emulatedCategory
+		)
+		self.assertEqual([dialog.PROMPT], [node.command.name for node in emulated.commands])
+		self.editor.filterText = ""
+		emulated = next(
+			category for category in self.editor.categories() if category.name == self.editor.emulatedCategory
+		)
+		self.assertEqual(
+			["<kb:downarrow>", dialog.PROMPT], [node.command.name for node in emulated.commands]
+		)
+
 	def test_aKeyActingForADisplaySaysWhich(self):
 		self.editor.selectDevice(KEYBOARD)
 		self.editor.add(PAN_UP, "kb:numpad8", actsFor=MONARCH)
