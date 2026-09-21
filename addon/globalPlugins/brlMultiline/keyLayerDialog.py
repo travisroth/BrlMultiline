@@ -624,13 +624,19 @@ if wx is not None:
 	class _Tree(VirtualTree, wx.TreeCtrl):
 		"""The categories, commands and keys, as NVDA's Input Gestures tree shows them."""
 
-		def __init__(self, parent, dialog):
-			self.dialog = dialog
+		def __init__(self, dialog):
 			super().__init__(
-				parent,
+				dialog,
 				size=wx.Size(600, 400),
 				style=wx.TR_HAS_BUTTONS | wx.TR_HIDE_ROOT | wx.TR_LINES_AT_ROOT | wx.TR_SINGLE,
 			)
+
+		@property
+		def dialog(self) -> "KeyLayersDialog":
+			# Asked of wx rather than kept: the dialog keeps this tree, and a tree keeping the dialog back is
+			# a cycle only the garbage collector frees. Until it runs, NVDA sees the closed dialog still
+			# alive and refuses to open it again.
+			return self.GetParent()
 
 		def OnGetChildrenCount(self, index):
 			nodes = self.dialog.nodes
@@ -730,7 +736,7 @@ if wx is not None:
 			)
 			self.onlyBoundCtrl.Bind(wx.EVT_CHECKBOX, self._onOnlyBound)
 
-			self.tree = _Tree(self, self)
+			self.tree = _Tree(self)
 			self.tree.Bind(wx.EVT_TREE_SEL_CHANGED, self._onSelect)
 			self.tree.Bind(wx.EVT_CHAR_HOOK, self._onTreeKey)
 			self.tree.Bind(wx.EVT_CONTEXT_MENU, self._onContextMenu)
