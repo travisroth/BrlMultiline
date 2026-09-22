@@ -18,6 +18,8 @@
 	document's braille NVDA wrote itself. Nothing else can tell them apart afterwards — the
 	roles, the states and the document's own words are joined into one string by single
 	spaces — and a shape may only be drawn over NVDA's own. See `glyphFlow.FIELDS`.
+	`TextInfoRegion.update` is also where a browse mode region is adopted to read a table's row
+	on one line, while the reader has asked for that. See `tableRowLine`.
 
 All are installed and removed symmetrically, so that disabling the add-on restores NVDA's own
 behaviour without a restart. Symmetrically, but not unconditionally: these are attributes of a
@@ -34,7 +36,7 @@ from braille.constants import CONTEXTPRES_CHANGEDCONTEXT
 from config.configFlags import TetherTo
 from logHandler import log
 
-from . import bmConfig, documentLines, glyphFlow, panning
+from . import bmConfig, documentLines, glyphFlow, panning, tableRowLine
 from .container import DisplayContainer
 
 _owners: dict[str, object] = {}
@@ -423,6 +425,11 @@ def _textInfoUpdateForgettingProvenance(self) -> None:
 	opposite decisions.
 	"""
 	glyphFlow.restartFields(self)
+	if tableRowLine.adopt(self):
+		# Now a region that reads a table row where one was asked for, and NVDA's own line
+		# everywhere else. Updated again as what it has become. See `tableRowLine`.
+		self.update()
+		return
 	_originals["textInfoUpdate"](self)
 
 

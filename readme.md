@@ -360,6 +360,36 @@ your layout table setting behave exactly as they do with NVDA's table commands, 
 announced when you arrive in a cell is what NVDA announces. If you have set "report tables"
 to off in NVDA's Document Formatting settings, the arrow keys are left alone entirely.
 
+## A table's rows on one line
+
+On a display of one row, such as a Focus 80, there is no room to lay a table out in columns,
+and NVDA shows a table one cell at a time: its header, then its value. **Table: Toggle showing
+the table's rows on one line** puts the whole row the cursor is in on the line instead, its
+cells divided by bars:
+
+    AAPL | 310.34 | +1.2 | 48,201,300
+
+Press it with the cursor in a browse mode table. From then on that table reads this way
+whenever you are in it; the rest of the page reads as it always has. Press it again in the
+table, or anywhere outside a table, to go back to NVDA's own line. The command has no key of
+its own; give it one in NVDA's Input Gestures, under BrlMultiline, or in a key layer.
+
+- The arrow keys move as described above. Up and down change the row and the display keeps
+  its place across the line, so the column you were reading is still under your fingers.
+- The line is as long as the row, and the panning keys move across it. Panning on past the
+  end of a row goes to the first cell of the next one, and panning back past the start goes
+  to the last cell of the row before. From the last row or the first, panning carries on out
+  of the table.
+- The cursor sits at the start of the cell you are in. A routing key over another cell moves
+  you to it; over the cell you are already in, it activates it, as routing onto the cursor
+  always does.
+- An empty cell keeps its place between two bars, so you can count the columns.
+- If you have saved a layout for the table, the line shows the columns it shows, in its
+  order.
+
+This works in tables NVDA reads in browse mode. A list view or an Excel worksheet is shown by
+NVDA through its own lines, which this does not change.
+
 ## Using two displays at once
 
 The add-on can drive several braille displays as one, stacked one above another, so that a

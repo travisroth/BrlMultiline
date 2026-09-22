@@ -30,7 +30,7 @@ from braille.extensions import displayChanged, displaySizeChanged
 from logHandler import log
 from scriptHandler import script
 
-from . import bmConfig, keyLayerContexts, keyLayerDispatch, keyLayers, panning, patches, tableArrows
+from . import bmConfig, keyLayerContexts, keyLayerDispatch, keyLayers, panning, patches, tableArrows, tableRowLine
 from .container import DisplayContainer
 from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
 from . import image as imageFigure, imagePins, imageSource
@@ -300,6 +300,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self.graphicsMode.onTerminate()
 			self.stopAllMonitoring()
 			self._restoreOriginalBuffer()
+			# Before the patches go, so a region already reading a row reads NVDA's line again.
+			tableRowLine.clear()
 			patches.remove()
 			panning.remove()
 			tableArrows.remove()
@@ -2220,6 +2222,57 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				),
 			)
 		self.reportAboutTheDisplay(", ".join(said))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Table: Toggle showing the table's rows on one line, cells divided by bars"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_tableRowLine(self, gesture):
+		"""Read the table the caret is in a row at a time on NVDA's one line, or stop.
+
+		For a display with no band, which is every display of one row: there a table is read
+		through NVDA's own line, and that line is one cell. See `tableRowLine`.
+
+		Off when the request is about where the reader is standing, or when they are not in a
+		table at all, which is how a request left behind is cleared — the same rule the column
+		command keeps. In a different table it means that table instead.
+		"""
+		from . import flowObjectTable, flowTableLayouts
+		from .flowTableSource import sameTable
+
+		handle = self._tableHere()
+		asked = tableRowLine.wanted()
+		if asked is not None and (handle is None or sameTable(handle.key, asked.key)):
+			tableRowLine.clear()
+			tableRowLine.redraw(braille.handler)
+			# Translators: reported when a table stops being read a row at a time on one line.
+			self.reportAboutTheDisplay(_("Table rows off"))
+			return
+		if handle is None:
+			# Translators: reported when a command needs the cursor to be in a table.
+			ui.message(_("Not in a table"))
+			return
+		if isinstance(handle.document, flowObjectTable.ObjectTable):
+			# A list or a worksheet is shown by NVDA a cell or an item at a time through regions
+			# of its own, not through the browse mode line this replaces.
+			ui.message(
+				# Translators: reported when rows on one line are asked for in a table that is not
+				# on a web page or in a document read in browse mode.
+				_("Rows on one line are for tables in browse mode"),
+			)
+			return
+		try:
+			layout = flowTableLayouts.layoutFor(handle)
+		except Exception:
+			log.debugWarning("Could not look for a saved layout for this table", exc_info=True)
+			layout = None
+		# A saved layout's choice of columns and their order, where the reader made one, so
+		# that the line says what the columns would. Everything else about a layout is widths.
+		tableRowLine.request(handle, layout.columns if layout is not None else ())
+		tableRowLine.redraw(braille.handler)
+		# Translators: reported when a table starts being read a row at a time on one line.
+		self.reportAboutTheDisplay(_("Table rows on one line"))
 
 	def _columnUnderTheCursor(self):
 		""":return: the band and the table column the cursor is in, or (None, 0).

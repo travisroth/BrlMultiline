@@ -27,6 +27,10 @@ established there.
 - `panning.py` — which physical display's panning key is running the scroll happening now,
   and therefore whose panning direction and whose segment apply. See the module docstring for
   why it wraps NVDA's two panning commands rather than watching gestures pass.
+- `tableRowLine.py` — a browse mode table's row on NVDA's one line, cells divided by bars, for a
+  display with no band. Adopts NVDA's own `CursorManagerRegion` from the patch on
+  `TextInfoRegion.update` while the reader has asked for a table, and is NVDA's line everywhere
+  else.
 - `keyLayers.py` — layered keys, the model: layers, the fall through chain, what a key does
   while one is on, the stored form and the default layers. NVDA free. See
   [layered-keys-plan.md](layered-keys-plan.md).

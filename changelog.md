@@ -8,6 +8,13 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **A table's row can be read on one line, cells divided by bars.** For a display of one row,
+  where there is no room for columns and NVDA shows one cell at a time. A new command, pressed in
+  a browse mode table, puts the whole row the cursor is in on the line — `AAPL | 310.34 | +1.2` —
+  whenever you are in that table. The arrow keys move by cell and row as before, panning crosses
+  the row and then moves to the next or previous one, and a routing key moves to a cell. A saved
+  table layout's columns and order are kept. Pressing it again, or outside a table, stops.
+
 - **Lines can be shown unwrapped, one to a row, for code.** A new flow setting, which a profile can
   hold, draws every line of the document on one row however long it is, so the indents down the
   left of the display stay with their lines. Two commands pan every row across by the display's
