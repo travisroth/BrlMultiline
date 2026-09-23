@@ -778,7 +778,8 @@ if wx is not None:
 			self._refresh()
 
 		def postInit(self):
-			self.tree.SetFocus()
+			#self.tree.SetFocus() #tree is the gestures list but going here first the user can't check what device and layer is selected
+			self.deviceCtrl.SetFocus()
 
 		# Showing
 
