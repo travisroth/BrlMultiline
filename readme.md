@@ -1,1005 +1,1226 @@
 # BrlMultiline
 
 * Author: Travis Roth
-* NVDA compatibility: 2026.3 and later. 2026.3 is not yet released, so for now this means
+* NVDA compatibility: 2026.3 and later. 2026.3 is not released yet, so for now this means
   an NVDA alpha snapshot. The add-on uses NVDA's `braille` package, which replaced the old
   single `braille.py` module after 2026.2 branched.
 * Download: development version
 
-BrlMultiline divides a braille display into several independent segments. Each
-segment holds its own content and scrolls on its own.
+BrlMultiline is an NVDA add-on for getting more out of a multi-line braille display, or out
+of two or more displays used together.
 
-NVDA was designed around single line displays: one thing is shown at a time, following
-the focus. NVDA 2026.1 can flow that one thing across the rows of a multi line display,
-but it is still one thing. This add-on lets different parts of the display show different
-things at once.
+NVDA was designed around single-line displays: it shows one thing at a time, and that thing
+follows the focus. NVDA 2026.1 introduced flowing that one thing across the rows of a
+multi-line display, but it is still one thing. This add-on uses the extra space in two ways:
 
-It is useful in two situations:
+1. **Reading as a flow.** A web page, a document, a list, or a chat fills the display the way
+   a printed page would: a heading with the text that follows it, a paragraph across as many
+   rows as it needs, the items around the one you are on. Tables can be laid out in columns.
+2. **Showing different things in different places.** A display, or several displays combined,
+   can be divided into segments. One segment follows the focus as usual, while another keeps
+   something in view, such as a chat or a status line.
 
-1. On a multi line display such as the Humanware Monarch, where the extra rows can show
-   the lines around the caret, or hold an object you want to keep an eye on.
-2. On a large single line display such as a Focus 80, where 80 cells is enough to be
-   worth splitting into two 40 cell working areas.
+There is also an experimental part for displays that can raise individual pins, such as the
+Humanware Monarch: tactile charts drawn from a spreadsheet selection, and pictures copied off
+the screen.
 
-It has since grown two further parts, each with its own section below. A document can be read
-as one continuous flow across the rows of a display instead of one line at a time, and a
-display that can raise pins one at a time can be given a tactile drawing: a chart from a
-spreadsheet selection, or a picture copied off the screen.
+The add-on works with:
 
-This is development software. It patches parts of NVDA's braille handling, and has not
-yet been through a full round of hardware testing.
+1. A multi-line display such as the Humanware Monarch.
+2. A large single-line display such as a Focus 80, which can be split into two 40-cell areas.
+3. Two or three displays combined, such as a Monarch with a Focus 80 below it.
+
+This is development software. It patches parts of NVDA's braille handling.
+
+### Why I built this
+
+The main goal of this add-on is to give braille readers a multi-line, spatial experience. A
+picture is worth a thousand words, and having something real to try may help people imagine
+what is possible. I hope it sparks more ideas about how spatial information can make braille
+more efficient, more useful, and more pleasant to use.
+
+I started out wanting a prototype that showed what multi-line braille could be like: a list
+that shows more than the focused item, a web page that shows more than one link, a heading
+with the text after it for context. Tables are where I think multi-line braille can be a real
+asset, showing several rows and columns at once. That part took on a life of its own. Even on
+a multi-line display, space is at a premium, so the add-on gained ways to lay out a table the
+way you want it: show these columns, pan by columns, and keep the headers in view so you know
+where you are.
+
+I don't claim any of this is the best way to present information. It is one way. Likewise,
+the add-on's code is meant to show what is possible, and may or may not be the best way to
+build this into NVDA itself.
 
 ## Getting started
 
-Everything is configured per display, under NVDA menu, Preferences, Settings, Braille
-Multiline. Connect the display you want to configure first: the panel shows which display
-its settings apply to, and a different display keeps its own.
+Installing the add-on changes nothing by itself. Each feature is off until you turn it on,
+and settings are kept per display, so a display you haven't set up behaves the way it always
+has.
 
-By default the display is left as one segment, so installing the add-on changes nothing
-until you configure it.
+The settings are in three panels under NVDA menu, Preferences, Settings:
 
-### Settings
+1. **BrlMultiline flow**: reading as a flow.
+2. **BrlMultiline displays**: combining two or more displays.
+3. **BrlMultiline**: dividing a display into segments, and a few per-display options.
+
+Most commands have no key assigned. You'll find them all in NVDA menu, Preferences, Input
+Gestures, in the BrlMultiline category.
+
+### Step 1: Turn on reading as a flow
+
+Flow is the main feature of the add-on and the best place to start.
+
+1. Connect your multi-line display.
+2. Optional: create an NVDA configuration profile for your web browser (NVDA menu,
+   Configuration profiles), and make sure you are editing it before the next step. Flow
+   settings are saved in whichever profile you are editing, so the flow will then turn on and
+   off by itself as you move between your browser and other applications.
+3. Open NVDA menu, Preferences, Settings, BrlMultiline flow.
+4. Check "Read this display as a flowing document."
+5. Under "Use it for," Browse mode is already checked. Check "Lists and menus" and "Editable
+   text" as well if you want those read as a flow. (These work outside of browse mode.)
+6. Press OK and open a web page.
+
+The page now fills the display. Here is what to expect:
+
+- Panning moves a full display at a time, and panning back returns you to exactly where you
+  were.
+- Moving the cursor within what is already on the display does not move the display, so you
+  keep your place while you read.
+- Quick navigation keys, such as h for the next heading, put what they found on the top row,
+  with the page continuing below it.
+- In a dialog, or in an application the flow doesn't handle, the display shows the focus the
+  same way NVDA normally does. The flow picks up again when you return to a document.
+- A flow needs at least two rows. On a single-line display, braille works the way NVDA
+  normally shows it, with the flow on or off.
+
+To turn the flow on and off without opening settings, assign a key to "Toggle reading the
+whole display as one flowing document" in Input Gestures.
+
+See [Reading as a flow](#reading-as-a-flow) for every setting, and for how tables work.
+
+### Step 2: Two displays, one for reading and one for keeping watch
+
+With two displays connected, you can use them together: read and work on one as usual, and
+pin something to the other so it stays in view. A typical setup is a Monarch for reading,
+with a single line below it showing a Microsoft Teams chat, so new messages appear there while
+you work elsewhere.
+
+**Combine the displays.**
+
+1. Connect both displays.
+2. Open NVDA menu, Preferences, Settings, BrlMultiline displays. Add the displays you want and
+   put them in order, top first.
+3. In NVDA's own Braille settings, choose "BrlMultiline: several displays as one" as the
+   braille display.
+
+NVDA now treats the two as one tall display. The keys on both displays work as usual.
+
+**Choose which display follows the focus.** By default, the focus is shown in the last
+segment, which is on the bottom display. With the Monarch on top, that puts the focus on the
+single line display. To move it, assign a key to "Moves the focus onto another of the combined braille
+displays" and press it; each press moves the focus to the other display.
+
+If the flow is turned on, it goes on whichever display has the focus, and moves with the focus
+when you switch displays. A flow needs at least two rows, so when the focus is on a single-line
+display like the Focus 80, that display shows braille the way NVDA normally does. Move the
+focus back to the Monarch and the flow returns. To keep the flow on the Monarch no matter where
+the focus is, choose it in "Display the flow appears on" in the BrlMultiline flow settings.
+
+**Pin something to the other display.**
+
+1. In Input Gestures, under BrlMultiline, assign keys to "Monitoring: Shows the navigator
+   object in segment 0 of the second display" and "Monitoring: Stops showing an object in
+   segment 0 of the second display." Segments are numbered from 0 on each display. Use the
+   "first display" versions instead if the display you want to pin to is on top.
+2. Move to what you want to keep in view, such as the chat message list in Teams. NVDA's
+   navigator object follows the focus, so moving the focus there is usually enough; object
+   navigation works too.
+3. Press your pin key.
+
+What you pinned stays on that display while you go back to work on the other one. To pan it,
+use that display's own panning keys, or assign keys to "Navigation: Scrolls segment 0 of the
+second display forward" and "back."
+
+A pinned chat, list, or menu needs only one row: each item is one line, and panning moves to
+the next item. That makes a single-line display a good chat monitor. When you are at the end
+of a pinned chat, new messages scroll into view as they arrive. If you have panned back to
+read earlier messages, nothing moves until you pan to the end again.
+
+For Teams specifically, install the
+[Microsoft Teams add-on for NVDA](https://github.com/travisroth/ms-teams). It tells
+BrlMultiline how Teams' chat history is put together, so a pinned chat starts at the newest
+message and pans message by message. Without it, Teams' chat history cannot be read as a flow.
+
+See [Using two displays at once](#using-two-displays-at-once) for more detail.
+
+### Dividing a single display into segments
+
+You can also divide one display into segments, without a second display. For example, the
+bottom row of a Monarch can hold a pinned object while the rest follows the focus, or a Focus
+80 can be split into two 40-cell halves. The settings are in NVDA menu, Preferences, Settings,
+BrlMultiline. Connect the display you want to set up first: the panel shows which display its
+settings apply to, and each display keeps its own.
+
+By default a display is left as one segment.
 
 **Number of segments.** How many pieces to divide the display into. The division is even,
 with any remainder going to the earlier segments. On a display with more than one row,
-segments are groups of whole rows: a Monarch with 8 rows divided into 4 gives four
-segments of 2 rows each. On a single row display, segments are slices of that row: a
-Focus 80 divided into 2 gives two 40 cell halves.
+segments are groups of whole rows: a Monarch with 8 rows divided into 4 gives four segments
+of 2 rows each. On a single-row display, segments are slices of that row: a Focus 80 divided
+into 2 gives two 40-cell halves.
 
 **Segment sizes.** Leave this blank to divide evenly. To make segments of different sizes,
-type them separated by commas. The units are rows on a multi row display and cells on a
-single row display, and the sizes must add up to the whole display. For example, `1, 5, 2`
-on a Monarch gives a one row segment, then a five row segment, then a two row segment.
+type them separated by commas. The units are rows on a multi-row display and cells on a
+single-row display, and the sizes must add up to the whole display. For example, `1, 5, 2`
+on a Monarch gives a one-row segment, then a five-row segment, then a two-row segment.
 
-**Segment that follows the focus.** Which segment behaves the way NVDA normally does,
-showing whatever has focus. Segments are numbered from 0. Enter -1 for the last segment,
-which is the default.
+**Segment that follows the focus.** Which segment shows whatever has focus, the way NVDA
+normally does. Segments are numbered from 0. Enter -1, the default, for the last segment.
 
-**Segment that flash messages appear in.** Where NVDA's brief messages go — the time, a
-setting you just changed, "selected". Enter -1, the default, to put them wherever the focus
-is, which is where they appear on an undivided display. Choosing a segment is most useful
-with two displays combined, where you can keep messages off the display you are reading.
+**Segment that flash messages appear in.** Where NVDA's brief messages go, such as the time,
+a setting you just changed, or "selected." Enter -1, the default, to show them wherever the
+focus is. Choosing a specific segment is most useful with two displays combined, to keep
+messages off the display you are reading.
 
-**Reverse the panning keys on this display.** Swaps the effect of the panning keys, so the
-key that normally scrolls back scrolls forward instead. This is stored per display, which
-is the point of it: on a Focus 80 the left hand key is the comfortable one for moving
-forward, while on a Monarch you may want the normal arrangement. NVDA itself has no such
-setting.
+**Reverse the panning keys on this display.** Swaps the panning keys, so the key that
+normally scrolls back scrolls forward instead. Because it is stored per display, you can have
+it reversed on a Focus 80, where the left-hand key is more comfortable for moving forward,
+and normal on a Monarch. NVDA itself has no such setting.
 
-With two displays combined, this applies to whichever display you are using: it belongs to
-the keys rather than to what is on the display, so pressing the Monarch's panning key uses
-the Monarch's setting even when the segment that moves is on the other display. Use the
-"Segment settings for" box to set it for each. If you had reversed the keys for a combined
-display in an earlier version, when it was one setting for the pair, that choice is carried
-onto each display you have not already set it for yourself.
+With two displays combined, this follows the keys you press rather than what is on the
+display: pressing the Monarch's panning key uses the Monarch's setting, even when the segment
+that moves is on the other display. Use the "Segment settings for" box to set it for each. If
+you had reversed the keys for a combined display in an earlier version, when it was one
+setting for the pair, that choice is carried over to each display you have not set yourself.
 
 **Draw roles and states as shapes instead of words.** Off by default, and only offered on a
-display that can raise pins one at a time, such as a Monarch. NVDA writes short words in
-braille to say what a thing is: `btn` before a button's name, `cbo` before a combo box, and
-three cells of braille patterns for a checked box. Those are abbreviations because a braille
-line has nothing else to spend — and a pin display does. The cell one letter sits in is three
-pin columns by four, and a shape drawn in those twelve pins can say "button" in one cell
-instead of three.
+display that can raise pins one at a time, such as a Monarch. Important: the display driver
+has to support tactile drawing, and NVDA's built-in HID Standard driver does not. See
+[A display that can draw](#a-display-that-can-draw).
 
-Turned on, each of those words becomes a shape and the cells it was using go back to the
-line, so more of the object's own name fits on a row. It applies to everything the display
-shows — a menu bar in File Explorer as much as a web page — and it does not care which side
-of the name NVDA puts the word on, which differs between browse mode and an ordinary window.
-Nothing else changes: the shape sits where the word was, a routing key on it reaches the same
-place, and turning the setting off brings the words straight back. A display that cannot draw
-a shape shows the words anyway, which is also what happens for anything the vocabulary has no
-shape for.
+NVDA writes short words in braille to say what something is: `btn` before a button's name,
+`cbo` before a combo box, and three cells of braille for a checked box. On a pin display, the
+space one braille cell takes up is a grid of three pins by four, and a shape drawn in those
+twelve pins can say "button" in one cell instead of three.
+
+With this on, each of those words becomes a shape, and the cells it was using go back to the
+line, so more of the object's own name fits on a row. It applies everywhere, from a web page
+to the menu bar in File Explorer. The shape sits where the word was, and a routing key on it
+does the same thing. Turning the setting off brings the words back. Anything without a shape,
+or a display that cannot draw, shows the words as usual.
 
 There are twenty-six shapes: buttons, toggle and radio buttons, edit and password fields,
 combo boxes, lists, menu items, tables, graphics, progress bars, separators, submenu markers,
-links, visited links, headings at the first three levels, and the checked, half checked and
-pressed states with their absences. Between them they give sixty-five cells back. A heading
-below level three keeps its word, since a shape you rarely meet is worse than a word you can
-read.
+links, visited links, headings at levels one through three, and the checked, half checked,
+and pressed states and their opposites. Together they save sixty-five cells. Headings below
+level three keep their word, since a shape you rarely meet is harder to recognize than a
+word.
 
-It is off by default because the words are a notation you already know and the shapes are
-this add-on's own. To learn them, assign a gesture to "Graphics: Show the glyph catalogue" in
-NVDA's Input Gestures — it is unbound, being a tool for learning the shapes rather than one
-used while reading. It draws every symbol with the braille it replaces beside it, so a hand
-running along the panel reads the shape and then the word it stands for.
+It is off by default because the words are a notation you already know, and the shapes are
+new. To learn them, assign a key to "Graphics: Show the glyph catalogue" in Input Gestures. It
+draws every shape with the braille it replaces beside it, so you can read the shape and then
+the word it stands for.
 
+<!-- (Flow does a better job than this so this may be removed)
 **Show the document lines around the caret in the other segments.** When you are in a
 document, fills the segments around the focus segment with the lines above and below the
 line the caret is on. The segment immediately above the focus segment shows the previous
 line, the one above that shows the line before it, and so on. Segments holding a pinned
 object are left alone. Segments run past the start or end of the document show as blank.
+-->
 
 ## Reading as a flow
 
-This is the newest part of the add-on, and the part that most needs your report of how it
-behaves. Treat it as experimental.
+Normally a braille display shows one thing: the line the cursor is on, or the object with
+focus. On a display with several rows, that can leave a heading alone on the top row with the
+rest of the display blank, or make a long paragraph pan one line at a time through rows that
+could have held all of it.
 
-Ordinarily a braille display shows one thing: the line the cursor is in, or the object with
-focus. On a display with several rows that leaves a heading sitting alone on the top row
-with the rest of the display blank, and it makes a long paragraph pan a line at a time
-through rows that could have held all of it.
+Reading as a flow presents a document as one continuous piece instead. A heading is followed
+by whatever comes after it on the page, a paragraph runs across as many rows as it needs, and
+panning moves a full display at a time, so panning back puts you exactly where you were.
+Moving the cursor within what is already on the display does not move the display, so you
+keep your place while you read. Pressing a quick navigation key, such as `h` for the next
+heading, puts what it found at the top, with the document continuing from there.
 
-Reading as a flow presents a document as one continuous piece instead. A heading is
-followed by whatever comes after it in the page, a paragraph runs on across as many rows as
-it needs, and panning moves the whole display's worth at a time — so panning back puts you
-where panning forward brought you from, which reading a line at a time never quite managed.
-Moving the cursor within what is already on the display moves nothing, so you keep your
-place while you read; pressing a quick navigation key such as `h` for the next heading sets
-you down at what it found, with the document running on from there.
+The settings are in NVDA menu, Preferences, Settings, BrlMultiline flow. They are saved in
+the configuration profile you are editing, so you can make a profile for your browser, turn
+the flow on there, and leave your normal configuration alone. The flow then turns on and off
+as you switch applications, with nothing to press.
 
-Set it up under NVDA menu, Preferences, Settings, BrlMultiline flow.
+### Flow settings
 
-**Read this display as a flowing document.** The switch. Off until you turn it on, so
-installing the add-on changes nothing.
+**Read this display as a flowing document.** The main switch. Off by default.
 
-**Use it for.** Which kinds of content are read this way.
+**Use it for.** Which kinds of content are read as a flow.
 
-*Browse mode* — web pages, and documents NVDA reads like one. On by default once the flow
-is on.
+- *Browse mode*: web pages, and documents NVDA reads like one. On by default once the flow is
+  on.
+- *Lists and menus*: a list box, a menu, a tree view, or the choices of an open combo box. The
+  display shows the items around the one you are on, instead of that one item alone. Off by
+  default, because it changes how dialogs read. It never moves your selection: the arrow keys
+  still decide where you are. A routing key on the item you are already on does what it
+  always did; on any other item, it moves you there without activating it.
+- *Editable text*: editors and edit fields outside browse mode, such as Notepad. The lines
+  around the caret are laid out the same way as a page, while typing, selecting, and cursor
+  routing still go to the real edit control. Off by default, so turning on flow for web
+  pages doesn't change how every editor reads.
 
-*Lists and menus* — a list box, a menu, a tree, the choices of a combo box you have opened:
-the items around the one you are on, instead of that one item alone. Off by default, because
-it is the newest part and it changes how dialogs read. Nothing in it ever moves your
-selection: the display shows the items around you and the arrow keys still decide where you
-are. A routing key on the item you are already on does what it always did; on any other item
-it moves you there rather than activating it.
+Everything else is shown by NVDA as usual, in the same rows, so nothing disappears when you
+leave a page.
 
-*Editable text* — editors and fields outside browse mode, including ordinary Notepad-style
-documents. The lines around the caret use the same spatial flow as a page, while the caret
-remains owned by the real edit control so typing, selection and routing continue through
-NVDA. Off by default, separately from lists and menus.
-
-Everything else goes on being presented by NVDA as it always has, in the same band, so
-nothing disappears when you leave a page.
-
-**Display the flow appears on.** Only shown when several displays are driven as one. A flow
-must sit on one piece of hardware, so this says which. Left on the automatic setting it goes
-to the display with the most rows, since rows are what a flow has to spend.
+**Display the flow appears on.** Only shown when several displays are combined. A flow has to
+stay on one display, and this says which. The automatic choice, "Automatic: the display with
+the focus," puts the flow on whichever display the focus is on, and names that display. When
+you move the focus to another display, the flow goes with it. Choose a specific display to
+keep the flow there instead.
 
 **Rows it uses.** How many rows of that display the flow takes, counted from the top. Leave
-it at 0 for all of them. Giving it four rows of a Monarch leaves the other four to your
-segment layout, so you can read a page as a flow and keep an eye on something else below it.
+it at 0 to use all of them. Giving it four rows of a Monarch leaves the other four for your
+segments, so you can read a page as a flow and keep an eye on something else below it.
 
-**Start reading afresh from what a quick navigation key found.** On by default. When you
-press a quick navigation key that skips a section — a heading, a table, a landmark, a list —
-the thing it found is put on the top row and the document runs on from there. Turn this off
-if you would rather the display always kept the window you had and simply followed the
-cursor.
+A flow needs at least two rows. If the display it would go on has only one row, or this is
+set to 1, the flow isn't shown, and braille there works the way NVDA normally does. The note
+under this setting says when that is the case.
+
+**Start reading afresh from what a quick navigation key found.** On by default. When you press
+a quick navigation key that jumps past a section, such as a heading, table, landmark, or
+list, what it found goes on the top row with the document continuing below. Turn this off if
+you would rather the display keep its current position and simply follow the cursor.
 
 **In a multi-line edit you are typing in, read a paragraph at a time.** On by default. In an
-edit box you are writing in, a paragraph is what you typed and a line is what the box's own
-wrapping made of it, and while you are writing you are thinking about the first. Turn this
-off and an edit box is cut up the same way a page is, by NVDA's own read by paragraph
-setting in its braille settings.
+edit box you are writing in, a paragraph is what you typed, and a line is how the box
+happened to wrap it. Turn this off to split an edit box by line, following NVDA's own "read
+by paragraph" braille setting.
 
-The default comes from one rich editor, where asking what the line at the caret is gives a
-single character for a moment after each Enter, and asking for the paragraph gives the line
-you are on every time. That is the right answer there and may not be everywhere, which is
-why it is a switch: if an editor reads oddly, try it off before reporting it.
+The default was chosen because of one rich editor where asking for the line at the caret
+briefly returns a single character after each Enter, while asking for the paragraph always
+returns the right text. That may not hold everywhere, so if an editor reads oddly, try turning
+this off before reporting it.
 
-**Show every line on one row, unwrapped, and pan across it.** Off by default. For code. Wrapped,
-a long line takes several rows and pushes the lines under it down, so the indents down the left
-of the display stop lining up with the lines they belong to. Unwrapped, every line of the
-document gets exactly one row, and a line longer than the display goes on a display's width to
-the right. Pan right and every row moves across together, showing the next part of each line; a
-line too short to reach that far is blank. Panning stops at the end of the longest line on the
-display. Moving the caret to a part of a line the display is not showing brings the display
-back to it, but panning across and then not moving the caret leaves the display where you put
-it. It can be set in a profile like everything here, and a command turns it over for the time
-being without changing the setting, since one file often wants both: code to feel the indents
-of, and prose to read. What the command chose lasts until the setting itself changes, so going
-to NVDA's menu and back keeps it.
+**Show every line on one row, unwrapped, and pan across it.** Off by default. Meant for code.
+When lines wrap, a long line takes several rows, and the indentation down the left side no
+longer lines up. Unwrapped, every line gets exactly one row, and anything past the width of
+the display continues to the right. Pan right and every row moves across together, showing
+the next part of each line; a line too short to reach that far is blank. Panning stops at the
+end of the longest line on the display. Moving the caret to a part of a line that isn't
+showing brings the display to it, but if you pan across without moving the caret, the display
+stays where you put it.
 
-**Scroll new content into view while you are at the end.** On by default. For something
-pinned to a segment that is still being written — a chat, a log, a build — a new message
-scrolls onto a full display and the oldest row moves off, the way a terminal follows a log.
-Turn it off and what arrives waits below the display until you pan to it, which is what
-everything else in a flow does: the window is yours and nothing moves it.
+There is also a command to turn unwrapped lines on or off for the moment without changing the
+setting, since one file can hold both code and prose. What the command chose lasts until the
+setting itself changes, so opening NVDA's menu and coming back keeps it.
 
-Two things are not settings, because they are what make this bearable. Nothing moves while
-you have panned back into the history, and reaching the end again resumes it. And nothing
-follows something that is merely longer than the display: the end has to have been reached
-once, so a pinned page never walks itself through a document while your hands are on it.
+**Show how deep an item sits with.** For tree views and other controls that report how deeply
+their items are nested. Choose two spaces per level (the default), one space per level, or
+dots 7 and 8 per level. Depth is shown relative to the shallowest item on the display, so a
+deep tree still leaves room for the items themselves.
 
-These settings are part of the configuration profile you are editing. That is the useful
-part: make a profile for the browser you want to read this way, turn the flow on in it, and
-leave the normal configuration alone. The flow then comes and goes as you switch between
-applications, with nothing to press.
+**Mark the item you are on with dots 3678 at the left of its row.** On by default. The mark is
+in the same place on every row, so you can find your item by running a hand down the left
+edge instead of reading each row. It is drawn in the item's indent, so it takes no extra
+space. An item at the left margin has no indent, so it gets no mark.
 
-Things worth knowing:
+**Rows of the display to spread a table's columns across.** How many display rows one table
+row may use. The default is 1, which fits the most table rows on the display. Raise it to fit
+more columns on a page at readable widths, at the cost of fewer table rows at once.
 
-- The band is claimed for as long as the flow is turned on, and it takes those rows from
-  your segment layout. Where there is nothing to read as a flow — a dialog, an application
-  the flow does not know yet — the band presents the focus exactly as an undivided display
-  would, and starts flowing again by itself when you reach a document.
-- Panning moves the browse mode cursor to what is now at the top of the band, so speech and
-  braille stay together and your arrow keys carry on from what is under your hands.
-- A control you have entered inside a page still reads as part of that page. Its active row
-  comes from the real edit control, so the caret and newly typed value stay live while the
-  label and the content after it continue to come from the page.
-- On a form, the page context before the field is put above it rather than left behind, and
-  a field is separated from the next prompt by a blank row. A field you tab to is shown the
-  way browse mode shows it, with its name, its role and its state, whether that name comes
-  from a visible label or from the page's markup. Once you are typing in it — once browse
-  mode has stood aside — the active row comes from the edit itself and follows its real
-  caret, while the label above it and the content after it still come from the page.
-- A multi line edit you are writing in — a comment box, a message, a post — is read as a
+**Cut table cells that are too long, instead of wrapping them.** Off by default. Off, a table
+row grows as tall as its longest cell needs, and every value is shown in full. On, each table
+row stays within its rows and long values are cut. Useful for a table you know well, where
+the first few characters of a value are enough to recognize it.
+
+**Repeat the first column on every page of a wide table.** A table too wide for the display is
+shown one page of columns at a time. With this on, the first column is repeated at the left of
+every page, shortened to fit, so you can still tell which row you are on. Choose Always,
+Never, or "As set in NVDA's Document Formatting," the default, which follows NVDA's setting for
+reporting row headers.
+
+**Keep a table's header row on the display.** With this on, the top row of the display holds
+the table's column headers wherever you are in the table. It costs one row. Turn it off on a
+short display, or for a table whose first row is not headers. The choices are the same as the
+setting above, and the default follows NVDA's setting for reporting column headers.
+
+**Follow a page that changes while you are reading it.** On by default. NVDA refreshes only the
+line the cursor is on. This display shows several lines at once, so the rest are read again
+when the page reports a change, such as a price on a watchlist, a score, or a status. Only
+what is on the display is read again from the dynamic page to optimize API calls and keep the display feeling responsive.
+
+**Also re-read every (seconds).** At 0, the default, the display is updated only when the page
+reports a change. Set a number of seconds for a page that changes without reporting it. The
+display is only rewritten when something actually changed.
+
+**Scroll new content into view while you are at the end.** On by default. For something pinned
+to a segment that is still being written, such as a chat, a log, or a build. A new message
+scrolls onto a full display and the oldest row moves off. Turn it off and new content waits
+below the display until you pan to it.
+
+Two rules always apply. Nothing moves while you have panned back into earlier content, and
+reaching the end again resumes following. And something that is merely longer than the
+display does not scroll by itself: you have to have reached the end once, so a pinned page
+never moves while you are reading it.
+
+### What to expect
+
+- The flow's rows are reserved for as long as the flow is on, and are taken from your segment
+  layout. Where there is nothing to read as a flow, such as a dialog, those rows show the
+  focus exactly as an undivided display would, and the flow starts again when you reach a
+  document.
+- Panning moves the browse mode cursor to what is at the top of the display, so speech and
+  braille stay together, and the arrow keys continue from what is under your hands.
+- A control inside a page is still read as part of that page. When you type into it, the
+  row you are on comes from the real edit control, so the caret and the new text stay current,
+  while the label and the content after it still come from the page.
+- On a form, the page content before a field is shown above it, and a blank row separates a
+  field from the next prompt. A field you tab to is shown the way browse mode shows it: its
+  name, role, and state.
+- A multi-line edit you are writing in, such as a comment box or a message, is read as a
   document of its own, so the lines around the one you are on are on the display and the
-  cursor follows what you type. Leaving it gives the page back.
-- Quick navigation keys all move the display. A heading, a table, a landmark or a list puts
-  what you jumped to on the top row with the document running on from it; everything else —
-  a field, a button, a link — brings it onto the display without disturbing the rest of what
-  is under your hands.
-- A list, a menu or a combo box's choices can be read the same way, showing the items
-  around the one you are on. Turn "Lists and menus" on to try it.
-- A pinned list, menu or chat needs only one row of the display: one row is one item, and
-  panning moves to the next, which makes a single row display a usable monitor for a
-  conversation. A pinned document or table needs two, since what those are for is the shape
-  they make across rows.
-- An editor outside browse mode can be read as a flow too. Turn "Editable text" on to use
-  this in applications such as Notepad; it is separate so enabling page flows does not
-  unexpectedly change every editor.
-- A wide table is dealt into pages of columns, and the commands for the next and previous
-  page move across it, without moving the cursor. The page you turn to stays there while you
-  read down the rows: with the first column repeated at the left of every page, the cell you
-  are in is still on the display, so nothing pulls the page back. Move to a column the page
-  does not show and the display comes back to your cursor, the way braille tethering brings
-  it back to the focus.
-- The columns of a table can be **arranged**. Three commands work on the column your cursor is
-  in, for the first minute in a table nobody has arranged: hide it (or show it again), change
-  what happens when its values do not fit — wrapped, cut keeping the start, cut keeping the end
-  — and give the table back as it comes if an experiment goes wrong. A fourth opens a dialog
-  for a table you come back to, where the columns are a checked list — checked means drawn —
-  that you move up and down, and each one
-  can be given a name of your own, a floor and a ceiling on how many cells it may have, which
-  end of its heading survives, whether a page of columns begins at it, and whether it is
-  drawn without capital signs. One column can be the
-  one repeated on every page, and "the first column shown" is one of the answers, since that
-  is what a table does when you have named none — as is "no column repeated", which is this
-  table's own decision rather than the setting that turns the repeat off for all of them. Each per-column question also has "follow the
-  table setting", which names what the table is currently doing, so nothing in the dialog
-  claims a decision you did not make. Checking "remember this arrangement" saves it against the
-  table; unchecking it on a table you had remembered deletes what was saved. Cutting from the
-  end is for a column whose values begin with something nobody wrote for reading, and a name
-  of your own is for a heading that does the same.
+  cursor follows what you type. Leaving it brings the page back.
+- Every quick navigation key moves the display. A heading, table, landmark, or list puts what
+  you jumped to on the top row with the document continuing below it. A field, button, or link
+  is brought onto the display without disturbing the rest.
+- A pinned list, menu, or chat needs only one row: one row is one item, and panning moves to
+  the next. A pinned document or table needs at least two rows, since its layout across rows
+  is the point.
+- NVDA's **"Expand to computer braille for the word at the cursor"** setting applies only to
+  the row your cursor is on. Applied to every row, it would expand the first word of every
+  line. All other rows use the braille table you chose.
 
-- NVDA's **"expand to computer braille for the word at the cursor"** applies to the row your
-  cursor is on and to no other. The setting is what makes routing into a word to edit it line
-  up, and it is worth having; applied to every row of a band it wrote out the first word of
-  every line uncontracted, which is eight expansions where one was wanted. Everything but your
-  own row is drawn in whatever table and contraction you chose.
+### Tables in a flow
 
-- A column can be drawn **without capital signs**. In a six dot table an all-capitals word
-  carries the capitals-word indicator in front of it, so `AAPL` takes six cells and `aapl`
-  takes four; `BRK.B` takes eight against five. On a column sized for a stock symbol that is
-  the difference between the value fitting and being cut. It applies to the column's heading
-  as well as its values, since both are cut to the same width. Nothing else changes: the
-  contractions are the same ones, and a column set this way is measured the way it is drawn,
-  so the cells it saves are cells you get back. There is nothing to gain from it on an eight
-  dot computer braille table, where a capital is a dot inside the cell and costs nothing.
+A table can be laid out in columns on the display. Use "Table: Toggle table columns on or off"
+with the cursor in a table.
 
-- An **Excel worksheet** reads in columns like any other table. The sheet's extent is
-  whatever Excel considers used, and the row and column numbers are Excel's own, so what the
-  display says a cell is matches what Excel says it is. A spreadsheet has no headings of its
-  own, so what is pinned above the columns is the header row or column you marked with NVDA's
-  own commands, and nothing is pinned until you mark one. This uses NVDA's default way of
-  reaching Excel; if you have turned on "use UI Automation to access Microsoft Excel
-  spreadsheet controls when available" in NVDA's advanced settings, cells are read the
-  ordinary way instead.
+**Wide tables.** A table too wide for the display is split into pages of columns. "Table: Next
+columns" and "Table: Previous columns" move across it without moving the cursor. The page you
+turn to stays put while you read down the rows. With the first column repeated at the left of
+every page, the cell you are in is still on the display. If you move to a column the current
+page doesn't show, the display returns to your cursor.
 
-- On an Excel cell, **the header you marked is shown in NVDA's ordinary one line braille**,
-  after the cell's coordinates. NVDA speaks it there and did not braille it, which left the
-  braille reader with the cell reference and no column name. It follows NVDA's own "report
-  table headers" setting, so turning headers off in Document Formatting turns this off too,
-  and it stays on the display for every cell of the column rather than being announced once.
-  This is nothing to do with reading the sheet in columns; it applies to any cell you land on.
+**Arranging columns.** Three commands work on the column your cursor is in, for quick changes
+while exploring a table:
 
-- A table can be laid out in columns, with a command, and the layout can be **remembered**:
-  press the remember command while a table is on the display and that table comes up laid
-  out the next time you are in it, on the same page or in the same list — including when you
-  arrow out of the table and back into it. What is remembered is that this table is read in
-  columns; which columns fit and how wide they are is worked out afresh for whatever display
-  you are on, so one memory serves a Monarch and a Focus 80 — and a column that was empty
-  when you saved comes back when it has something in it. Turning the columns off leaves the
-  memory alone until you
-  come back; the forget command drops it for good. Tables on web pages are recognized by the
-  page's address together with what their first columns are called, so a watchlist that is
-  regenerated is still the same table; a list view is recognized by the application and
-  window it belongs to, which means File Explorer's Details view is one table whichever
-  folder is open.
+1. "Table: Show/Hide the current column" hides the column, or shows it again.
+2. "Table: Changes how the column you are in is trimmed when it does not fit" cycles between
+   wrapped, cut keeping the start, and cut keeping the end. Cutting from the end is useful for
+   a column whose values all begin with the same code or prefix.
+3. "Table: Undo custom table layout" restores the table's original layout if an experiment
+   goes wrong.
 
-  A web page matches by its site and path, whatever follows the question mark in its address,
-  because that part is what sites change: a watchlist view renumbered, a parameter added. A
-  column the site inserts or moves is followed by its heading, so what you decided about it
-  stays with it rather than landing on its neighbour. Every saved layout is kept in your base
-  configuration and applies whichever NVDA profile is active. When a saved layout does not
-  apply, the NVDA log says why, once: no layout for this address, or none for these headings.
+For a table you come back to, "Table: Open table layout designer for the current table" opens
+a dialog. The columns are a checked list, where checked means shown, and you can move them up
+and down. For each column you can set:
 
-- **Table: Manage saved table layouts** lists every layout you have saved, the ones for the
-  table you are in first, each with its name, where it applies, how strictly its address
-  matches, how many columns it shows and when it was last used. Opened from a table, it says
-  which layout applies there, if any. For the one selected you can:
-  - **Use for this table**, which points it at the table you are in, its address and headings.
-    This is the fix for a site that changed its address. If another layout is more particular
-    about this address and would still apply, it says which one instead of pretending to work.
-  - **Also use for this table**, which copies it there and leaves the original where it was.
-  - Change **Match**: this page with any query, this exact address, or anywhere on this site.
-  - Untick **Only for a table with these headings**, for a site that renames a column.
-  - Rename it, edit its address, or delete it, which is what a layout for a page that is gone wants.
+- A name of your own, useful when the table's own heading is unhelpful.
+- The fewest and most cells it may use.
+- Which end of its heading to keep when the heading is cut.
+- Whether a new page of columns starts at it.
+- Whether it is drawn without capital signs (see below).
 
-  Nothing is saved until OK. Layouts saved before names were kept show as "Unnamed layout saved"
-  with a date, and are named from their address the next time their table is seen.
+One column can be chosen to repeat on every page. "The first column shown" is one choice, and
+is what happens if you choose none. "No column repeated" turns the repeat off for this table
+only. Each per-column option also has "follow the table setting," which shows what the table
+is currently doing. Check "remember this arrangement" to save it for this table; unchecking it
+on a table you had saved deletes the saved layout.
+
+**Columns without capital signs.** In a six-dot braille table, an all-capitals word has a
+capitals indicator in front of it, so `AAPL` takes six cells and `aapl` takes four; `BRK.B`
+takes eight cells instead of five. In a column sized for stock symbols, that can decide whether
+the value fits. It applies to the column's heading as well as its values. Contractions don't
+change, and the column is measured the way it is drawn, so the cells saved are cells you get
+back. It makes no difference on an eight-dot computer braille table, where a capital is a dot
+inside the cell.
+
+**Remembering a layout.** Press "Table: Save table layout" while a table is on the display, and
+that table is laid out in columns the next time you are in it, on the same page or in the same
+list, including when you arrow out of the table and back in. What is saved is the arrangement.
+Which columns fit, and how wide they are, is worked out again for the display you are using, so
+one saved layout works on both a Monarch and a DotPad. A column that was empty when you saved
+comes back when it has something in it. Turning columns off leaves the saved layout alone;
+"Table: Delete saved table layout" removes it.
+
+Tables on web pages are recognized by the page's address together with the names of their
+first columns, so a watchlist that is regenerated is still the same table. A list view is
+recognized by its application and window, so File Explorer's Details view is one table no
+matter which folder is open.
+
+A web page matches by its site and path, ignoring anything after the question mark in its
+address, since sites change that part often. A column the site adds or moves is tracked by its
+heading, so your choices for it stay with it. Saved layouts are kept in your normal
+configuration and apply in every NVDA profile. When a saved layout does not apply, the NVDA log
+says why, once: no layout for this address, or none for these headings.
+
+**Managing saved layouts.** "Table: Manage saved table layouts" lists every layout you have
+saved, with the ones for the current table first. Each shows its name, where it applies, how
+strictly its address matches, how many columns it shows, and when it was last used. Opened from
+a table, it says which layout applies there, if any. For the selected layout you can:
+
+- **Use for this table**, which points it at the table you are in. This fixes a layout after a
+  site changes its address. If another layout matches this address more closely and would still
+  apply, it tells you which one.
+- **Also use for this table**, which copies it to the current table and leaves the original.
+- Change **Match**: this page with any query, this exact address, or anywhere on this site.
+- Uncheck **Only for a table with these headings**, for a site that renames a column.
+- Rename it, edit its address, or delete it.
+
+Nothing is saved until you press OK. 
+
+**Excel.** An Excel worksheet reads in columns like any other table. The sheet's extent is
+whatever Excel considers used, and the row and column numbers are Excel's own. A spreadsheet has
+no headings of its own, so the headers shown above the columns are the header row or column you
+marked with NVDA's own commands; nothing is shown until you mark one. This uses NVDA's default
+way of accessing Excel. If you have turned on "Use UI Automation to access Microsoft Excel
+spreadsheet controls when available" in NVDA's Advanced settings, cells are read the ordinary
+way instead.
+
+Separately from the flow: on any Excel cell, the header you marked is shown in NVDA's ordinary
+braille line, after the cell's coordinates. NVDA speaks this header but did not show it in
+braille. It follows NVDA's setting for reporting table headers in Document Formatting, and stays on the
+display for every cell in the column rather than being shown once.
 
 ## Arrow keys in a table
 
-Inside a browse mode table — a web page, a message in your mail, anything NVDA reads in
-browse mode — the arrow keys read the table itself:
+Inside a browse mode table, such as on a web page or in an email message, the arrow keys move
+by table cell:
 
-- Up and down move a row and stay in the column, so you can read down a column of figures
-  without reading every row on the way.
-- Left and right move a cell and stay in the row.
-- Home and end move to the first and last cell of the row.
+- Up and down arrow move one row and stay in the same column, so you can read down a column of
+  figures without reading every row along the way.
+- Left and right arrow move one cell and stay in the same row.
+- Home and End move to the first and last cell of the row.
 
-There is nothing to turn on and nothing to turn off. Being in a table is the whole of the
-state, and no key is ever swallowed: when there is no cell in the direction you pressed, the
-key does exactly what it does anywhere else on the page. The down arrow on the last row
-leaves the table, the up arrow on the first row leaves it upward, and the right arrow in
-the last cell of a row carries on into whatever follows the table. Nothing announces an edge,
-because from where you are sitting there is not one.
+There is nothing to turn on or off. When there is no cell in the direction you pressed, the key
+does what it does anywhere else on the page: down arrow on the last row leaves the table, up
+arrow on the first row leaves it upward, and right arrow in the last cell of a row continues
+into whatever follows the table. No edge is announced.
 
-This is independent of laying a table out in columns on the display; it applies whether or
-not the table is showing as a flow.
+This works whether or not the table is laid out in columns on the display.
 
-Shift with the arrows still selects, and control with the arrows still moves by word and by
-paragraph, so a long cell can still be read a word at a time and say all still reads
-everything. What you give up is moving line by line *within* a tall cell with the down arrow,
-which is the trade a table reading mode is.
+Shift with the arrow keys still selects, and Control with the arrow keys still moves by word
+and by paragraph, so a long cell can still be read a word at a time, and Say All still reads
+everything. What you give up is moving line by line within a tall cell with the down arrow.
 
-The movement itself is NVDA's own, the same one control+alt+arrow uses, so merged cells and
-your layout table setting behave exactly as they do with NVDA's table commands, and what is
-announced when you arrive in a cell is what NVDA announces. If you have set "report tables"
-to off in NVDA's Document Formatting settings, the arrow keys are left alone entirely.
+The movement is NVDA's own, the same as Control+Alt+arrow, so merged cells and NVDA's layout
+table setting behave exactly as they do with NVDA's table commands, and what is announced in a
+new cell is what NVDA normally announces. If "Tables" is turned off in NVDA's Document
+Formatting settings, the arrow keys are left alone entirely.
 
 ## A table's rows on one line
 
-On a display of one row, such as a Focus 80, there is no room to lay a table out in columns,
-and NVDA shows a table one cell at a time: its header, then its value. **Table: Toggle showing
-the table's rows on one line** puts the whole row the cursor is in on the line instead, its
-cells divided by bars:
+On a single-row display, such as a Focus 80, there is no room to lay a table out in columns,
+and NVDA shows a table one cell at a time. "Table: Toggle showing the table's rows on one line"
+shows the whole row the cursor is in on the line instead, with the cells separated by bars:
 
     AAPL | 310.34 | +1.2 | 48,201,300
 
-Press it with the cursor in a browse mode table. From then on that table reads this way
-whenever you are in it; the rest of the page reads as it always has. Press it again in the
-table, or anywhere outside a table, to go back to NVDA's own line. The command has no key of
-its own; give it one in NVDA's Input Gestures, under BrlMultiline, or in a key layer.
+Press it with the cursor in a browse mode table. From then on, that table reads this way
+whenever you are in it; the rest of the page reads as usual. Press it again in the table, or
+anywhere outside a table, to go back to NVDA's normal line. The command has no key by default;
+assign one in Input Gestures, under BrlMultiline, or in a key layer.
 
-- The arrow keys move as described above. Up and down change the row and the display keeps
-  its place across the line, so the column you were reading is still under your fingers.
-- The line is as long as the row, and the panning keys move across it. Panning on past the
-  end of a row goes to the first cell of the next one, and panning back past the start goes
-  to the last cell of the row before. From the last row or the first, panning carries on out
-  of the table.
-- The cursor sits at the start of the cell you are in. A routing key over another cell moves
-  you to it; over the cell you are already in, it activates it, as routing onto the cursor
-  always does.
-- An empty cell keeps its place between two bars, so you can count the columns.
-- If you have saved a layout for the table, the line shows the columns it shows, in its
+- The arrow keys move as described above. Up and down arrow change the row, and the display
+  keeps its position along the line, so the column you were reading is still under your
+  fingers.
+- The line is as long as the row, and the panning keys move across it. Panning past the end of
+  a row goes to the first cell of the next row, and panning back past the start goes to the
+  last cell of the previous row. From the first or last row, panning continues out of the table.
+- The cursor sits at the start of the cell you are in. A routing key over another cell moves you
+  there; over the cell you are in, it activates it.
+- An empty cell keeps its place between two bars, so you can count columns.
+- If you have saved a layout for the table, the line shows the columns the layout shows, in its
   order.
 
-This works in tables NVDA reads in browse mode. A list view or an Excel worksheet is shown by
-NVDA through its own lines, which this does not change.
+This works in tables NVDA reads in browse mode. List views and Excel worksheets are not
+affected.
 
 ## Using two displays at once
 
-The add-on can drive several braille displays as one, stacked one above another, so that a
-second display becomes segments of its own. NVDA goes on believing it has a single display,
-so everything else about it works as usual, including the keys on both displays.
+The add-on can combine two or three braille displays into one, stacked top to bottom, so that
+each display becomes its own set of segments. NVDA still sees a single display, so everything
+else works as usual, including the keys on both displays. See
+[Step 2](#step-2-two-displays-one-for-reading-and-one-for-keeping-watch) in Getting started for
+setup.
 
-This is new and has not yet been used for long. Treat it as experimental.
+A Monarch above a Focus 80 makes a display of 9 rows: the Monarch's 8, then the Focus 80 as
+the ninth. Each display is divided into segments by its own settings, the same ones it uses on
+its own, so there is usually nothing more to set up. To change them, open the BrlMultiline
+settings while the combined display is connected, and use the "Segment settings for" box to
+choose which display you are changing.
 
-Set it up under NVDA menu, Preferences, Settings, BrlMultiline displays. Choose the displays
-you want and put them in order, top first. Then, in NVDA's own Braille settings, choose
-"BrlMultiline: several displays as one" as the braille display.
+Details:
 
-A Monarch above a Focus 80 gives a display of 9 rows: the Monarch's 8, then the Focus as the
-ninth. Each display is divided into segments by its own settings, the ones it has when you
-use it on its own, so there is usually nothing further to set up. To change them, open the
-BrlMultiline settings while the combined display is connected and use the "Segment settings
-for" box to choose which display you are changing.
-
-Things worth knowing:
-
-- The displays do not have to be the same width. The combined display is as wide as the
-  widest one, and the cells past a narrower display's edge are kept blank so nothing is
-  written where you could not read it.
-- One display per driver. Two displays of the same make cannot be told apart, so only one of
-  each can be used.
-- No segment spans two displays. Each display is divided by its own settings, within its own
-  rows, so a line of braille never continues from the bottom of one display onto another.
-- Each display's own panning keys pan that display: the segment following the focus if that
-  display holds it, otherwise that display's first segment. So the Monarch's keys move what
-  is on the Monarch while the Focus goes on following the focus.
-- Flash messages follow the focus by default, as they do on one display. "Segment that flash
-  messages appear in" moves them, which is worth setting if you want the second display left
-  alone while you read. A message changes only the segment it is in: everything else stays as
-  it was, and a display the message is not on is not written to at all.
-- Each display is detected when it is opened, so a display that is switched off is simply
-  left out and the others are used. It is looked for while you work, and joins the combined
-  display when it appears — switch it on, or bring it back into range, and it takes its place
-  in the order you chose within a few seconds.
-- A display that goes away is dropped and the rest carry on. The combined display shrinks to
-  what is left, so the focus moves onto a display you still have rather than onto rows that
-  are no longer there. An object you had pinned to the display that went moves to a free
-  segment if there is one; if the only segment left is the one following the focus, the pin is
-  released rather than taking the focus's place.
-- While the combined display is in use, the list under "BrlMultiline displays" says which of
-  the chosen displays it is driving: in use, not connected, or not responding.
+- The displays don't have to be the same width. The combined display is as wide as the widest
+  one, and cells past a narrower display's edge are left blank.
+- One display per driver. Two displays of the same make can't be told apart, so only one of each
+  can be used.
+- No segment spans two displays, so a line of braille never continues from the bottom of one
+  display onto the next.
+- Each display's panning keys pan that display: the segment following the focus if that display
+  has it, otherwise that display's first segment. So the Monarch's keys move what is on the
+  Monarch while the Focus 80 keeps following the focus.
+- Flash messages follow the focus by default. Set "Segment that flash messages appear in" to keep
+  them off the display you are reading. A message changes only the segment it appears in, and a
+  display it isn't on is not written to.
+- A display that is off when you start is left out, and the others are used. When you turn it on
+  or bring it back in range, it joins in the position you chose within a few seconds.
+- A display that disconnects is dropped, and the rest carry on. The combined display shrinks to
+  what is left, and the focus moves onto a display you still have. Anything pinned to the
+  display that left moves to a free segment if there is one. If the only segment left is the one
+  following the focus, the pin is released.
+- While the combined display is in use, the list in "BrlMultiline displays" shows the status of
+  each chosen display: in use, not connected, or not responding.
 - NVDA's automatic braille display detection is off while the combined display is selected,
-  because it works by choosing the display for you and that choice is already made.
-- Settings that belong to one of the displays themselves, such as dot firmness or a Focus's
-  wiz wheel action, appear in NVDA's Braille settings named after the display they belong to.
-  Changing one changes that display's own setting, so it is still there when you use that
-  display on its own.
-- A display driver's own commands still work on their default keys, but do not appear in the
-  Input Gestures dialog while the combined display is in use, so they cannot be rebound there.
-  Only three drivers are affected, because only three describe their commands: Alva ("Toggles
-  HID keyboard simulation"), HandyTech ("Toggle braille input") and Eurobraille ("Toggle HID
-  keyboard simulation"). A HandyTech used as one of the combined displays keeps its braille
-  input toggle on space with dots 1, 3 and 4; you just cannot move it. Nothing on a Focus or a
-  Monarch is affected, since neither describes any command of its own.
-- The add-on has to be enabled. With it disabled and the combined display still selected,
-  NVDA writes across the full width of every row, and anything landing past a narrower
-  display's edge is lost.
-- The list of combined displays is not part of a configuration profile. It describes which
-  pieces of hardware are wired together, so it is stored once and applies everywhere,
-  whichever profile is active. A list stored under a profile by an earlier version of the
-  add-on is moved across the first time this one runs.
-- A changed list takes effect when the combined display is opened again. Saving it in the
-  settings does that for you; changing it from the Python console does not, and the log says
-  so if the two disagree.
+  since the displays have already been chosen.
+- Settings that belong to one of the displays, such as dot firmness or a Focus's wiz wheel
+  action, appear in NVDA's Braille settings labeled with the display they belong to. Changing
+  one changes that display's own setting, so it is still there when you use the display on its
+  own.
+- A display driver's own commands still work on their default keys, but don't appear in Input
+  Gestures while the combined display is in use, so they can't be reassigned there. Only three
+  drivers are affected: Alva ("Toggles HID keyboard simulation"), HandyTech ("Toggle braille
+  input"), and Eurobraille ("Toggle HID keyboard simulation"). A HandyTech used as part of the
+  combined display keeps its braille input toggle on Space with dots 1, 3, and 4; you just can't
+  change it. Focus and Monarch displays are not affected.
+- The add-on has to be enabled. If it is disabled while the combined display is still selected,
+  NVDA writes across the full width of every row, and anything past a narrower display's edge is
+  lost.
+- The list of combined displays is not part of a configuration profile. It describes your
+  hardware, so it is stored once and applies in every profile.
 
 ## Drawings and charts
 
-Some braille displays can raise pins one at a time rather than only whole braille cells. On
-one of those, this add-on can put a tactile figure on the display: a chart drawn from the
-cells you have selected in a spreadsheet, or a picture copied off the screen. The figure and
-your braille line share the panel, with no mode to switch into and nothing suspended, and a
-routing press on the figure says what is under your finger.
+Some braille displays can raise pins one at a time rather than only whole braille cells. On one
+of those, this add-on can put a tactile image on the display: a chart drawn from cells you have
+selected in a spreadsheet, or a picture copied off the screen. The image and your braille line
+share the display, with no separate mode to switch into, and pressing a routing key on the image
+tells you what is under your finger.
 
-This is the newest part of the add-on and the part with the least hardware time behind it.
-Treat it as experimental. What it does well and badly is stated below rather than left for
-you to discover, because a drawing is the one thing on a braille display you cannot check
-against anything.
+This is the newest part of the add-on and has had the least testing on hardware. Treat it as
+experimental. The sections below describe what it does well and what it doesn't.
 
 ### A display that can draw
 
-The add-on ships its own driver for the Humanware Monarch, **"BrlMultiline: Humanware
-Monarch (pin mode)"**, and you have to choose it in NVDA's Braille settings to get any of
-this. NVDA's own Monarch support writes through the display's braille cell reports, which
-reach about half the panel's pins and leave a blank column between every pair of them. This
-driver writes the whole 96 by 40 pin panel as one report instead, which is what makes a
-drawing possible.
+The add-on includes its own driver for the Humanware Monarch, **"BrlMultiline: Humanware
+Monarch (pin mode)"**. Choose it in NVDA's Braille settings to use any of the features in this
+section. NVDA's built-in Monarch support writes braille cells, which reach only about half the
+display's pins and leave a blank column between each pair of cells. This driver writes the whole
+96 by 40 pin surface at once, which is what makes drawing possible.
 
-Three other things come with it, and they are worth having whether or not you ever draw
-anything:
+The driver has other benefits, even if you never draw anything:
 
-- **A choice of how many braille rows.** A "Braille rows" setting appears with the driver's
-  other settings in NVDA's Braille settings: 8 rows with a blank row between them, which is
-  the default and what the Monarch normally gives you, or 10 rows without. All eight dots are
-  drawn either way, so a cursor and an eight dot table read correctly in both.
-- **Touch at pin resolution.** The Monarch reports which pin a finger landed on, and NVDA
-  discards that. This driver keeps it, which is what lets you point at part of a drawing.
-- **Bluetooth that survives a dropout**, the same recovery the combined display uses.
-- **Keys with names of their own.** NVDA calls both of the Monarch's d-pads `dpadUp`,
-  `dpadDown` and so on, and calls its zoom keys `brailleUsage544` and `brailleUsage545`. This
-  driver adds `leftDpadUp` and `rightDpadUp` and the rest for the two pads, and `zoomIn` and
-  `zoomOut` for the zoom keys. NVDA's names still work, so both pads are still the arrow keys
-  until you bind one of them to something else. When you press a pad in Input Gestures, NVDA
-  asks which name to bind: choose the left or right name to bind that pad alone, or the plain
-  `dpadUp` form to bind both.
+- **A choice of braille rows.** A "Braille rows" setting appears with the driver's other
+  settings in NVDA's Braille settings: 8 rows with a blank row between them (the default, and
+  what the Monarch normally gives you), or 10 rows without. All eight dots are shown either way,
+  so the cursor and eight-dot braille read correctly in both.
+- **Touch at pin resolution.** The Monarch reports which pin a finger touched, and NVDA
+  discards that. This driver keeps it, which lets you point at part of a drawing.
+- **Bluetooth that recovers from a dropout**, the same recovery the combined display uses.
+- **Separate names for keys.** NVDA calls both of the Monarch's d-pads `dpadUp`, `dpadDown`, and
+  so on, and calls its zoom keys `brailleUsage544` and `brailleUsage545`. This driver adds
+  `leftDpadUp`, `rightDpadUp`, and so on for the two pads, and `zoomIn` and `zoomOut` for the
+  zoom keys. NVDA's names still work, so both pads are still the arrow keys until you assign one
+  of them to something else. When you press a pad in Input Gestures, NVDA asks which name to
+  use: choose the left or right name to assign that pad alone, or plain `dpadUp` to assign both.
 
-Nothing above the driver knows that a Monarch is what it is talking to. The add-on asks the
-braille display driver in use whether it can raise pins and draw on them, so another display
-whose driver offers the same thing would work without a change here — but the add-on's Monarch
-driver is the only one that offers it today. A display that cannot draw says so when you press
-one of these commands, rather than doing nothing, since "nothing happened" is the one answer
-you cannot act on.
+The add-on doesn't check for a Monarch specifically. It asks the braille display driver whether
+it can raise individual pins, so another display whose driver offers this would work with no
+changes here. Today the add-on's Monarch driver is the only one that does. On a display that
+can't draw, these commands say so rather than doing nothing.
 
 ### Charting a spreadsheet selection
 
-**Graphics: Chart the selected cells** draws what you have selected in a spreadsheet as a
-tactile chart. This is the thing the whole drawing path was built for: a chart from live
-application data, on a display you can point at. Excel is the application supported today.
+**Graphics: Chart the selected cells** draws your spreadsheet selection as a tactile chart.
+Excel is supported today.
 
 Four kinds of chart can be drawn:
 
-- A **bar chart** — one column of numbers standing on a baseline.
-- A **line chart** — up to four columns over a shared period, each with its own texture:
-  solid, dashed, dotted, dash dot. The textures are read out in speech rather than drawn as a
-  key, since a key on the panel would cost a quarter of the drawing to say what one sentence
-  says once. With three or four lines the first one is drawn two pins thick, because it is the
-  one you came for and the one you lose first where the textures cross.
-- **Open, high, low, close bars** — four columns as price bars.
-- **Candlesticks** — the same four columns drawn the other way.
+- A **bar chart**: one column of numbers, as bars standing on a baseline.
+- A **line chart**: up to four columns over a shared period, each with its own texture: solid,
+  dashed, dotted, and dash-dot. The textures are announced in speech instead of drawn as a key,
+  since a key would take up a quarter of the drawing. With three or four lines, the first line
+  is drawn two pins thick so it stays easy to follow where lines cross.
+- **Open, high, low, close bars**: four columns drawn as price bars.
+- **Candlesticks**: the same four columns drawn as candlesticks.
 
-**It asks which one rather than guessing.** Four columns of numbers with dates down the side
-are four measurements over time if they are measurements and one instrument's trading if they
-are prices, and nothing in the cells tells them apart. So a "Which chart?" dialog offers what
-can actually be drawn from this selection, with what you chose last time selected for you. A
-selection that can only be one thing is drawn without asking, because the question exists for
-selections that are ambiguous and not as a step on the way to every chart.
+**It asks which kind.** Four columns of numbers with dates down the side could be four separate
+measurements or one stock's trading prices, and the cells alone don't say which. So a "Which
+chart?" dialog offers the kinds that can be drawn from your selection, with your last choice
+selected. If only one kind fits, it is drawn without asking.
 
-A chart is composed for the space it is going into rather than shrunk to fit it, so the
-whole-drawing view is the natural one. Magnifying a chart composes it again with fewer bars,
-each wide enough to be named, rather than enlarging the dots it already drew.
+A chart is laid out for the space available rather than shrunk to fit, so the whole-chart view
+is the natural starting point. Magnifying a chart lays it out again with fewer bars, each wide
+enough to identify, rather than enlarging the dots already drawn.
 
-A zoomed line chart spaces its points a whole number of pins apart: one, two or three. Forty
-points spread exactly across 96 pins would sit 2.4 pins apart and come out as uneven gaps a
-finger feels as a wobble, so the window is widened or narrowed slightly until the spacing is
-even. The whole chart is never adjusted, since it has to show every point. The chart's name
-says how the points sit on the pins: "2.6 points per pin" when some share a column, "1 pin per
-point" when each has its own.
+A zoomed line chart spaces its points a whole number of pins apart: one, two, or three. Forty
+points spread across 96 pins would sit 2.4 pins apart, and the uneven gaps feel like a wobble,
+so the view is widened or narrowed slightly until the spacing is even. The whole-chart view is
+never adjusted, since it has to show every point. The chart's name says how points map to pins:
+"2.6 points per pin" when some share a column, "1 pin per point" when each has its own.
 
 **Graphics: Zoom a chart to one pin per point** goes straight to the view where every point has
-its own pin column, about the middle of what you are reading. With 250 points on a 96 pin panel
-that is 2.6 times, which no doubling reaches. Magnify and shrink from there go to the doublings
-either side of it.
+its own pin column, centered on what you are reading. With 250 points on a 96-pin display, that
+is 2.6 times, which doubling alone can't reach. Magnify and shrink then go to the doublings on
+either side.
 
 **Graphics: Show the next set of lines on a chart** and **Graphics: Show the previous set of
-lines on a chart** step through the whole chart, each line alone, and then, with three or more
-lines, the first line with each of the others. The zoom and your place are kept, every line
-keeps its texture, and the lines put aside still set the scale, so a line alone sits at exactly
-the height it had with the others.
+lines on a chart** step through the chart one line at a time, and then, with three or more
+lines, the first line paired with each of the others. The zoom and your position are kept, each
+line keeps its texture, and the hidden lines still set the scale, so a line shown alone is at
+the same height it had with the others.
 
-Pressing a routing key on a line chart answers for the line as drawn, anywhere within two
-columns and three rows of the press, which is about the pad of a finger. Every line inside that
-area is read, nearest first, at the one point under your finger: "Close 96.3, Lower 98.5, day
-149". Away from every line, it reads the height as a value instead.
+Pressing a routing key on a line chart reports any line within two columns and three rows of
+the press, about the width of a fingertip. Every line in that area is read, nearest first, at
+the point under your finger: "Close 96.3, Lower 98.5, day 149." Away from all lines, it reads
+the height as a value instead.
 
-Every way this can fail says which way: not a spreadsheet, nothing selected, no numbers in
-the selection, a value that is not a number, more bars or periods than the display can hold,
-more series than can be told apart, or four columns that turn out not to be prices. A command
-that only said it had failed would leave you to guess at which.
+If a chart can't be drawn, you are told why: not a spreadsheet, nothing selected, no numbers in
+the selection, a value that isn't a number, more bars or periods than the display can hold,
+more series than can be told apart, or four columns that aren't prices.
 
 ### Drawing a picture off the screen
 
-**Graphics: Draw the picture here** copies whatever you are pointing at off the screen and
-puts it on the pins. On a web page that is the graphic NVDA just told you about: arrow onto
-it and press this, with nothing to aim first.
+**Graphics: Draw the picture here** copies whatever NVDA's navigator object is on from the
+screen and puts it on the pins. On a web page, that is the graphic NVDA just announced: arrow to
+it and press this command.
 
-It is deliberately not restricted to things NVDA calls a graphic. A diagram in a canvas, a
-map, a floor plan and a chart somebody published as a picture are all worth a hand, and half
-of them report a role that says nothing useful.
+It works on anything, not just objects NVDA calls a graphic. A diagram in a canvas, a map, a
+floor plan, or a chart published as an image may all be worth exploring, and many of them don't
+report a useful role.
 
-Expect it to be good for line art, logos, diagrams and maps, adequate for high contrast
-photographs, and poor for everything else. It draws what is in the picture; it does not
-decide what in the picture matters, so a photograph of somebody standing in front of a
-bookcase comes out as a person and a bookcase.
+Expect good results for line art, logos, diagrams, and maps; fair results for high-contrast
+photos; and poor results for everything else. It draws what is in the picture without deciding
+what matters, so a photo of a person in front of a bookcase comes out as a person and a
+bookcase.
 
-**Graphics: Change how a picture is drawn** cycles three styles and says which you are on:
+**Graphics: Change how a picture is drawn** cycles through three styles and announces which one
+you are on:
 
-- **Outlines** — the edges the picture holds, thinned to one dot where the picture has one
-  edge. A thick stroke has two real edges, an outer and an inner, and comes out as a double
-  line; that is the picture being reported accurately rather than a fault, and no amount of
-  tuning will merge them.
-- **Brightness** — the dark parts of the picture raised. This is the style that draws the ink
-  itself rather than its edges, so it is the one to try on a shape whose inside matters.
-- **Brightness reversed** — the light parts raised instead. Worth pressing on anything drawn
-  light on dark.
+- **Outlines**: the edges in the picture, thinned to one dot. A thick stroke has two edges, an
+  outer and an inner, so it shows as a double line.
+- **Brightness**: the dark parts of the picture raised. This draws the ink itself rather than
+  its edges, so try it on a shape whose inside matters.
+- **Brightness reversed**: the light parts raised instead. Try it on anything drawn light on
+  dark.
 
-None of the three can be chosen in advance, because the same picture drawn two ways gives two
-entirely different panels. Press it and feel. It redraws the pixels it already has rather than
-copying the screen again, so the page moving underneath you cannot change the picture you are
-reading.
+There's no way to know ahead of time which style works best for a picture, so try each one.
+Changing styles redraws the image already captured rather than copying the screen again, so the
+page changing underneath doesn't change the picture you are reading.
 
-A picture that cannot be drawn tells you why: the screen curtain is on, there is nothing
-there, it is not showing on the screen, it is not in view and wants scrolling to, it is too
-small on screen to be a picture, or it could not be copied off the screen at all.
+If a picture can't be drawn, you are told why: the screen curtain is on, there is nothing there,
+it isn't visible on screen, it needs to be scrolled into view, it is too small to be a picture,
+or it couldn't be copied from the screen.
 
-### Reading a drawing with your hands
+### Exploring a drawing
 
-Press a routing key where your finger already is. The display reports which pin you touched
-and the add-on says what is there — that is the whole gesture, with no second command and
-nothing to hold.
+Press the routing key where your finger already is. The display reports which pin you touched,
+and the add-on tells you what is there. There is no second command and nothing to hold.
 
-- On a **chart**, it names what is under you: which bar and what it is worth, which series at
-  which date, or a whole period's open, high, low and close.
-- On a **picture**, it says where you are as a percentage across and down, which is the fact
-  that stays true whatever the picture happens to be.
-- Anywhere else on a figure, it says "raised at" or "blank at" with the position inside the
-  drawing, counted from its top left corner.
+- On a **chart**, it names what is under your finger: which bar and its value, which series at
+  which date, or a period's open, high, low, and close.
+- On a **picture**, it tells you where you are as a percentage across and down.
+- Anywhere else on an image, it says "raised at" or "blank at" with the position in the drawing,
+  counted from its top left corner.
 
-It reports the **nearest raised dot** rather than the exact pin you pressed, within about half
-a braille line. A fingertip is far wider than a pin, and a border one dot wide touched
-squarely reads as blank whenever the display's idea of the contact center lands a pin to
-either side of the ridge your finger is actually on — which is most of the time. That search
-distance follows the magnification: it grows as a drawing is compressed, where one pin stands
-for several dots of the original, and falls away as you magnify, where a finger can be placed
-exactly.
+It reports the **nearest raised dot** within about half a braille line, rather than the exact pin
+you pressed. A fingertip is much wider than a pin, and a line one dot wide often reads as blank
+if the display's idea of the contact point lands a pin to either side. The search distance
+follows the magnification: it grows when a drawing is compressed and shrinks as you magnify.
 
-A press beside the figure rather than on it says "outside the picture", so a press that found
-nothing is never confused with a part of the drawing that holds nothing.
+A press outside the image says "outside the picture," so it isn't confused with an empty part
+of the drawing.
 
 ### Magnifying and moving
 
-**Graphics: Magnify the drawing** and **Graphics: Shrink the drawing** work a ladder of
-doublings, and **Graphics: Move the drawing view** up, down, left and right move what is
-visible once you are past the bottom of it.
+**Graphics: Magnify the drawing** and **Graphics: Shrink the drawing** zoom in and out in
+doublings, and **Graphics: Move the drawing view** up, down, left, and right moves the view once
+you have zoomed in.
 
-The bottom of the ladder shows **all** of the drawing, compressed as far as it needs to be.
-That is the view you want first: the shape of the thing, then the detail. Nothing is off the
-edge there, so panning reports that the whole drawing is showing rather than claiming an edge
-that is not there. Fitting only ever shrinks — a drawing smaller than the panel is shown at
-the size it was drawn rather than blown up to fill the panel, so magnification is always
-something you asked for.
+The most zoomed-out view shows **all** of the drawing, compressed as much as needed. That is the
+view to start with: the overall shape first, then the detail. Nothing is off the edge in that
+view, so moving the view reports that the whole drawing is showing. A drawing smaller than the
+display is shown at its own size rather than enlarged, so magnification only happens when you
+ask for it.
 
-Above that are five doublings, capped where a single dot of the original is wider than a
-braille cell and you would be feeling the magnification rather than the figure. A picture goes
-one step past the point where one pin stands on one captured pixel: no new detail appears,
-because there is none left in what was captured, but the shape under your hand gets bigger,
-and a pin is a small thing to read a shape with.
+Above that are five doublings, stopping where one dot of the original would be wider than a
+braille cell. A picture can go one step past the point where one pin matches one captured
+pixel. No new detail appears, but the shape gets bigger and easier to feel.
 
-When a picture is compressed, **a pin is raised if any dot it covers is raised**, rather than
-sampling the middle one. Compression is where a tactile drawing is most easily ruined: a line
-one dot wide reduced to a quarter is missed by three sample points out of four and comes out
-dashed or gone altogether. Taking any dot keeps every line the drawing had, at the cost of
-thickening a busy area into a solid one — which is the right way round, because you can feel
-that a region is busy and cannot feel a line that is not there.
+When a picture is compressed, **a pin is raised if any dot it covers is raised**. This keeps
+thin lines from breaking up or disappearing, at the cost of making busy areas solid. You can
+feel that an area is busy, but you can't feel a line that isn't there.
 
-**Where you are is said as a percentage of how far you can move**, with 0 hard against one
-edge and 100 hard against the other, and the ends named rather than numbered: "25 across, 51
-down", then "left edge, 51 down". An axis that cannot move is left out rather than reported as
-a meaningless zero. The origin is held internally as a dot of the original, which is the right
-thing to compute with and the wrong thing to say — how far across a picture you are is a fact
-about what you are feeling, and "at 48, 18" is a fact about how large the picture happens to
-be.
+**Your position is given as a percentage of how far you can move**, with 0 at one edge and 100
+at the other, and the edges named: "25 across, 51 down," then "left edge, 51 down." A direction
+you can't move in is left out.
 
-A zoom that does not move says why, rather than leaving you pressing a key that seems dead:
-the closest view, no more detail to show, as large as the pins can show, or this part will not
-draw. For a picture it adds the size it was captured at, which is the whole answer to the
-commonest confusion about one — a toolbar with six icons plainly visible on screen that will
-not magnify is a toolbar 160 pixels wide spread across 96 pins, already under two pixels to a
-pin.
+If a zoom doesn't change anything, you are told why: the most zoomed-out view, no more detail to
+show, as large as the pins can show, or this part won't draw. For a picture, it also gives the
+size it was captured at. For example, a toolbar that looks wide on screen may be only 160 pixels
+wide, already less than two pixels per pin on a 96-pin display.
 
-Two things a drawing may tell you about itself, and both are said every time you pan rather
-than only on the command that caused them:
+Two messages may be announced each time you move the view:
 
-- **"Only background here"** — you have magnified into a part of the picture that holds
-  nothing. The empty middle of a shape is a real answer, so it is drawn blank and named,
-  rather than refused. Refusing it would strand you: a refusal is a move that does not
-  happen, so you could never pan across an empty middle to reach the far rim.
-- **"Too detailed to draw whole; magnify to read it"** — the picture holds more edge than the
-  pins can carry. What gets drawn in that case is an even scattering, which is an honest
-  account of a texture and a dishonest one of a drawing, and a hand cannot tell the two apart.
-  So it is said rather than left to be discovered.
+- **"Only background here"**: you have zoomed into an empty part of the picture. It is drawn
+  blank rather than refused, so you can move across an empty middle to reach the far side.
+- **"Too detailed to draw whole; magnify to read it"**: the picture has more edges than the pins
+  can show, and what is drawn would feel like an even texture. Zoom in to read it.
 
 ### The braille line beside it
 
-**Graphics: Show or hide the braille line beside the drawing** decides how much of the panel
-the figure gets. On a Monarch at the default 8 rows, a figure is 96 by 35 pins with a braille
-line kept beside it and 96 by 40 without — a seventh more, across the middle of the panel where
-your hands already are, which is often the difference between a shape a hand can follow and one
-it cannot. The switch works without leaving the figure, so your magnification and position
-survive it.
+**Graphics: Show or hide the braille line beside the drawing** decides how much of the display
+the image gets. On a Monarch at the default 8 rows, an image is 96 by 35 pins with a braille line
+beside it, or 96 by 40 without. The switch keeps your magnification and position.
 
-Giving the figure the whole panel has a real cost on a single display: the rows the focus was
-using are handed over, so NVDA's focus output is dropped while the figure is there. That is
-stated when it happens and undone by the same command. With two displays you do not pay it —
-put the focus on the other display and give the whole panel to the drawing, which is the
-arrangement to prefer where the hardware allows it.
+Giving the image the whole display has a cost on a single display: NVDA's focus is not shown
+while the image is up. You are told when this happens, and the same command undoes it. With two
+displays combined, you can put the focus on the other display and give the whole Monarch to the
+drawing.
 
 ### While a drawing is up
 
-A drawing outranks everything else that wants those rows, including the flow. That is
-deliberate: a drawing is something you turn on, read, and turn off, while the flow is a
-standing preference that should come back by itself afterward, and does. While a figure is up
-the flow does not claim rows at all, and leaving the figure brings it straight back.
+A drawing takes priority over everything else that wants those rows, including the flow. The
+flow steps aside while a drawing is showing and comes back by itself when the drawing is taken
+down.
 
-**Graphics: Show or hide a drawing on the display** takes the figure off, and puts it back.
-Pressed with nothing to show it puts up a test figure sized to the panel, which is how to
+**Graphics: Show or hide a drawing on the display** takes the drawing off, and puts it back.
+Pressed with nothing to show, it shows a test pattern sized to the display, which is how to
 check that a display can draw at all.
 
-**Graphics: Reports the drawing on the display** says what is there, how far it is magnified
-and where in it you are, without changing anything.
+**Graphics: Reports the drawing on the display** tells you what is showing, how far it is
+magnified, and where you are in it, without changing anything.
 
-### What a drawing can and cannot do
+### Limitations of drawings
 
-- A figure and your braille line are composed onto one surface. There is no mode to switch
-  into, nothing is suspended, and the cursor goes on working in the braille line beside the
-  drawing.
-- The panel is a diagram surface, not a screen. The whole of it is 3,840 pins, which is fewer
-  dots than any picture worth drawing has pixels, so a picture arrives having already lost most
-  of itself before anything else is done to it. That is why line art works and photographs
-  mostly do not.
-- **Nothing can tell that a window was in the way.** A picture is copied from the screen, so
-  what another window was covering is what gets drawn, and there is no way to detect that from
-  the copy. If a drawing makes no sense, check that nothing is over it.
-- The screen curtain and a drawing cannot both be on, because there is nothing to copy with
-  the curtain on.
-- Sub-cell touch precision is a starting point set from a handful of deliberate touches on
-  hardware rather than a calibration. If naming a bar by pointing at it misses consistently,
-  that number is the thing to report.
-- No image library is used and none is needed. Everything a picture goes through — decoding,
-  reduction, edge detection, thresholding — is plain Python in the add-on, so there is nothing
-  to install and nothing that can fail to load.
+- An image and your braille line are drawn together on one surface. There is no mode to switch
+  into, and the cursor keeps working in the braille line beside the drawing.
+- The whole Monarch surface is 3,840 pins, far fewer than the pixels in most pictures, so a
+  picture loses most of its detail before anything else is done to it. That is why line art
+  works and photos mostly don't.
+- **A window in the way can't be detected.** A picture is copied from the screen, so if another
+  window was covering it, that window is what gets drawn. If a drawing makes no sense, check
+  that nothing is on top of it.
+- The screen curtain and a drawing can't both be on, since there is nothing to copy with the
+  curtain on.
+- Touch precision is based on a small number of tests on hardware, not a calibration. If
+  pointing at a bar consistently names the wrong one, please report it.
+- No image library is needed. All image processing is done in plain Python inside the add-on,
+  so there is nothing extra to install.
 
 ## Commands
 
-Every command is in the **BrlMultiline** category under NVDA menu, Preferences, Input
-Gestures. Most are unassigned: pick the ones you want and give them keys, ideally keys on the
-display itself. The drawing commands are the exception and arrive with keys on the Monarch's
-own keyboard, because a drawing is something you reach for with your hands already on the
-display.
+Every command is in the **BrlMultiline** category in NVDA menu, Preferences, Input Gestures.
+Most have no key assigned: choose the ones you want and assign keys, ideally on the display
+itself. The drawing commands are the exception, and come with keys on the Monarch's keyboard.
 
-The names are prefixed by what they act on — Graphics, Table, Navigation, Monitoring, Misc,
-Debug — so that related commands sort together in a long list. The prefix is part of the name
-you are looking for in Input Gestures.
+Command names start with what they act on, such as Graphics, Table, Navigation, Monitoring,
+Misc, or Debug, so related commands are grouped together. Include the prefix when searching in
+Input Gestures.
 
-### Getting around the add-on
+### General
 
-**Opens the BrlMultiline settings.** Goes straight to the settings category.
+**Opens the BrlMultiline settings.** Goes straight to the BrlMultiline settings panel.
 
-**Turns the BrlMultiline segment layout on or off.** The whole division of the display, off
-and on again, without going into the settings.
+**Turns the BrlMultiline segment layout on or off.** Turns the division of the display into
+segments off and on again, without opening settings.
 
-**Misc: Reports the BrlMultiline segment layout.** Says how many segments there are, which one
-is following the focus, and what is on the display. Useful for confirming a layout took effect,
-and the first thing to press when the display is not showing what you expect.
+**Misc: Reports the BrlMultiline segment layout.** Says how many segments there are, which one is
+following the focus, and what is on the display. Useful for confirming a layout took effect, and
+the first thing to check when the display isn't showing what you expect.
 
-**Moves the focus onto another of the combined braille displays.** Only does anything when
-several displays are driven as one. With two, pressing it moves the segment that follows the
-system focus from the one to the other, so you can put the focus where your hands are without
-working out a segment number. With more than two, it opens a list to choose from. It keeps how
-far down its display the focus segment was, so on two displays divided alike, pressing it twice
-puts you back where you started. The answer is stored in the profile in force, like every other
-setting here, so it survives a rebuild and a restart.
+**Moves the focus onto another of the combined braille displays.** Only does something when
+several displays are combined. With two displays, each press moves the segment that follows the
+focus to the other display. With more than two, it opens a list to choose from. It keeps the
+focus segment at the same position down its display, so on two displays divided the same way,
+pressing it twice puts you back where you started. The choice is saved in the current profile,
+so it survives a restart.
 
-If a pinned object is sitting where the focus is going, the two trade places: the object moves
+If something is pinned where the focus is going, the two trade places: the pinned object moves
 to the segment the focus is leaving, and moving the focus back trades them back. You are told
-it happened, and nothing asks you anything, because that is what you meant. If there is nowhere
-to put what is in the way, or more than one thing is, you are asked which to keep — and you can
-cancel, which is the answer when you had forgotten the pin was there. Keeping more than there
-is room for is a matter of dividing a segment further first; even a single row display can be
-divided, which gets crowded fast and is your call.
+when this happens. If there is nowhere to put the pinned object, or more than one is in the way,
+you are asked which to keep, and you can cancel. To keep more pins than there is room for,
+divide a display into more segments first.
 
 ### Panning segments
 
 **Navigation: Scrolls segment N of the first / second / third display forward / back.** Pans a
-segment named by which display it is on and how far down that display it sits. Prefer these: a
-segment's plain number counts across the whole display and moves whenever the layout changes,
-so a key bound to "segment 5" quietly starts panning something else. "The second display's
-first segment" does not move. On one display, the first display is that display, so these keep
-working when you unplug the second one.
+segment identified by its display and its position on that display, counting from 0. These are
+the recommended panning commands: a key assigned to one keeps panning the same segment even if
+you change the layout. With one display connected, "the first display" is that display, so
+these keep working when you unplug the second one.
 
-**Navigation: Scrolls segment N forward / back.** Pans one segment, whether or not it is the
-segment following the focus. There is a pair of these for each segment. These count across the
-whole display, so they can reach a segment the display relative commands cannot, at the cost of
-moving when the layout does.
+**Navigation: Scrolls segment N forward / back.** Pans one segment, numbered across the whole
+display. These can reach segments the display-specific commands can't, but the numbering changes
+whenever the layout does.
 
-A segment that is not following the focus is panned within the content it already has. It will
-not move to the next or previous line of a document, because doing so would move the caret in
-something you are only reading, and drag the focus with it.
+A segment that isn't following the focus is panned within the content it already has. It won't
+move to the next or previous line of a document, because that would move the caret, and the
+focus with it, in something you are only reading.
 
 ### Keeping an object on the display
 
 **Monitoring: Shows the navigator object in segment N of the first / second / third display.**
-Pins the current navigator object to a segment named by display, for the same reason as the
-panning commands above.
+Pins the current navigator object to a segment identified by its display, so it stays there
+while you work elsewhere. Like the panning commands above, a key assigned to one keeps pointing
+at the same segment when the layout changes.
 
 **Monitoring: Stops showing an object in segment N of the first / second / third display.**
 Unpins and clears that segment.
 
-**Shows the navigator object in segment N.** Pins the current navigator object to that segment,
-so it stays there while you move around elsewhere. There is one of these for each segment. You
-cannot pin an object to the segment that follows the focus.
+**Shows the navigator object in segment N.** Pins the current navigator object to a segment
+numbered across the whole display. You can't pin an object to the segment that follows the
+focus.
 
 **Stops showing an object in segment N.** Unpins and clears that segment.
 
 ### Reading as a flow
 
-**Toggle reading the whole display as one flowing document.** Turns the flow on or off, and
-remembers the answer in the profile in force, so it is the same switch as the one in the
-settings. See "Reading as a flow" above.
+**Toggle reading the whole display as one flowing document.** Turns the flow on or off, and saves
+the choice in the current profile. It is the same switch as the one in settings.
 
 **Flow: Toggles showing every line on one row, unwrapped, and panning across it.** Turns
-unwrapped lines on or off for now, without changing the setting. Unassigned.
+unwrapped lines on or off for now, without changing the setting. No key by default.
 
-**Flow: Pans unwrapped lines right by the width of the display** and **Flow: Pans unwrapped
-lines left by the width of the display.** Move every line across together, without moving the
-caret, and say which column of the lines is now at the left. On the Monarch these are the zoom
-keys while lines are unwrapped; see "Layered keys".
+**Flow: Pans unwrapped lines right by the width of the display** and **Flow: Pans unwrapped lines
+left by the width of the display.** Move every line across together without moving the caret, and
+say which column is now at the left. On the Monarch, these are the zoom keys while lines are
+unwrapped; see [Layered keys](#layered-keys).
 
 ### Tables
 
-These act on the table your cursor is in. See "Reading as a flow" above for what a table laid
-out in columns is and what is remembered about one.
+These act on the table your cursor is in. See [Tables in a flow](#tables-in-a-flow) for details.
 
 **Table: Toggle table columns on or off.** Lays the table out in columns on the display, or
 stops.
 
-**Table: Next columns** and **Table: Previous columns.** Move across a table too wide to show
-at once, without moving the cursor.
+**Table: Next columns** and **Table: Previous columns.** Move across a table too wide to show at
+once, without moving the cursor.
 
-**Table: Show/Hide the current column.** Takes the column your cursor is in out of the layout,
-or puts it back. What you press while exploring a table nobody has arranged.
+**Table: Show/Hide the current column.** Hides the column your cursor is in, or shows it again.
 
-**Table: Changes how the column you are in is trimmed when it does not fit.** Cycles that one
-column between wrapping, cut keeping the start, and cut keeping the end. Cutting from the end
-is for a column whose values all begin with something nobody wrote for reading.
+**Table: Changes how the column you are in is trimmed when it does not fit.** Cycles that column
+between wrapped, cut keeping the start, and cut keeping the end.
 
-**Table: Open table layout designer for the current table.** The dialog for a table you come
-back to, where each column can be named, sized, trimmed and hidden. See "Reading as a flow".
+**Table: Open table layout designer for the current table.** Opens the dialog where each column
+can be named, sized, trimmed, and hidden.
 
-**Table: Undo custom table layout.** Gives the table back as it comes, without touching what
-was saved for it. The way out of an experiment.
+**Table: Undo custom table layout.** Restores the table's original layout, without changing
+what was saved for it.
 
-**Table: Save table layout.** Remembers this arrangement against this table, so it comes up
-laid out the next time you are in it.
+**Table: Save table layout.** Saves this arrangement for this table, so it is laid out the same
+way the next time you are in it.
 
-**Table: Delete saved table layout.** Drops what was remembered for this table, for good, so it
-reads as the page around it again.
+**Table: Delete saved table layout.** Deletes the saved layout for this table.
 
 **Table: Manage saved table layouts.** Lists every saved layout, to rename, delete, point at the
-table you are in, or change how strictly its address matches. See "Reading as a flow".
+table you are in, or change how strictly its address matches.
+
+**Table: Toggle showing the table's rows on one line.** See
+[A table's rows on one line](#a-tables-rows-on-one-line).
 
 ### Drawings and charts
 
-These need a display that can raise pins one at a time, and they are the only commands in the
-add-on that come with keys already assigned. The keys are on the Monarch's own keyboard and
-arrive with the add-on's Monarch driver; they can be reassigned like anything else. Everything
-here is reported in speech as well, since the panel is what your hands are reading and speech is
-what tells you something changed.
+These need a display that can raise pins one at a time, and they are the only commands that come
+with keys already assigned. The keys are on the Monarch's keyboard and come with the add-on's
+Monarch driver; you can reassign them like any other command. Everything here is also announced
+in speech, so you know when something changed.
 
-See "Drawings and charts" above for what each of these does and what to expect of it.
+See [Drawings and charts](#drawings-and-charts) for what each command does.
 
-Only the commands that put a drawing up have keys of their own, so the Monarch's keyboard is not
-tied up while there is no drawing:
+Only the commands that put a drawing up have keys of their own, so the Monarch's keyboard is
+free when no drawing is showing:
 
-- **Graphics: Draw the picture here** — space with dots 1, 4 and 7.
-- **Graphics: Chart the selected cells** — space with dots 5 and 7.
-- **Graphics: Show or hide a drawing on the display** — space with dots 7 and 8.
+- **Graphics: Draw the picture here**: Space with dots 1, 4, and 7.
+- **Graphics: Chart the selected cells**: Space with dots 5 and 7.
+- **Graphics: Show or hide a drawing on the display**: Space with dots 7 and 8.
 
-Everything used while a drawing is up is in the Monarch's graphics, chart and picture layers,
-which come on by themselves with the drawing; see "Layered keys" below. With the layer on:
+Commands used while a drawing is up are in the Monarch's graphics, chart, and picture layers,
+which turn on by themselves with the drawing; see [Layered keys](#layered-keys). With the layer
+on:
 
-- **Graphics: Magnify the drawing** — the zoom in key, or space with dot 8.
-- **Graphics: Shrink the drawing** — the zoom out key, or space with dot 7.
-- **Graphics: Move the drawing view up, down, left and right** — the left d-pad, or space with
-  dots 1, 4, 3 or 6, each with dot 7.
-- **Graphics: Show or hide the braille line beside the drawing** — space with dots 2 and 7.
-- **Graphics: Zoom a chart to one pin per point** — o, on a chart.
-- **Graphics: Show the next set of lines on a chart** — v, on a chart.
-- **Graphics: Show the previous set of lines on a chart** — v with dot 7, on a chart.
-- **Graphics: Draw the picture as outlines** — o, on a picture.
-- **Graphics: Draw the picture by brightness** — b, on a picture.
-- **Graphics: Draw the picture by brightness, reversed** — r, on a picture.
-- **Graphics: Change how a picture is drawn** — space with dots 1, 4 and 8, on a picture, which
-  cycles through the three.
+- **Graphics: Magnify the drawing**: the zoom in key, or Space with dot 8.
+- **Graphics: Shrink the drawing**: the zoom out key, or Space with dot 7.
+- **Graphics: Move the drawing view up, down, left and right**: the left d-pad, or Space with
+  dots 1, 4, 3, or 6, each with dot 7.
+- **Graphics: Show or hide the braille line beside the drawing**: Space with dots 2 and 7.
+- **Graphics: Zoom a chart to one pin per point**: o, on a chart.
+- **Graphics: Show the next set of lines on a chart**: v, on a chart.
+- **Graphics: Show the previous set of lines on a chart**: v with dot 7, on a chart.
+- **Graphics: Draw the picture as outlines**: o, on a picture.
+- **Graphics: Draw the picture by brightness**: b, on a picture.
+- **Graphics: Draw the picture by brightness, reversed**: r, on a picture.
+- **Graphics: Change how a picture is drawn**: Space with dots 1, 4, and 8, on a picture. Cycles
+  through the three styles.
 
-These two have none:
+These two have no key:
 
-- **Graphics: Reports the drawing on the display** — says what is on the display, how far it is
-  magnified and where in it you are, without changing anything.
-- **Graphics: Show the glyph catalogue** — see below.
-
-**Graphics: Show the glyph catalogue** is unassigned on purpose: it is a tool for learning the
-role and state shapes rather than one used while reading. It draws every symbol with the braille
-it replaces beside it, so a hand running along the panel reads the shape and then the word it
-stands for. See "Draw roles and states as shapes instead of words".
+- **Graphics: Reports the drawing on the display**: tells you what is showing, how far it is
+  magnified, and where you are in it, without changing anything.
+- **Graphics: Show the glyph catalogue**: draws every role and state shape with the braille it
+  replaces beside it, for learning the shapes. See "Draw roles and states as shapes instead of
+  words" in [Dividing a single display into segments](#dividing-a-single-display-into-segments).
 
 ### Layered keys
 
-Experimental. A layer gives a display's keys, or the
-keyboard's, other commands while it is on: with a drawing up, the Monarch's left d-pad can pan it
-while the right d-pad goes on being the arrow keys. Each display and the keyboard has its own
-layers, and turning one on changes nothing on the others. A key a layer does not use does what it
-always does, so typing and reading carry on inside a layer.
+Experimental. A layer gives a display's keys, or the keyboard's, different commands while it is
+on. For example, with a drawing up, the Monarch's left d-pad can move the drawing while the
+right d-pad stays the arrow keys. The keyboard and each display have their own layers, and
+turning one on doesn't affect the others. A key the layer doesn't use does what it always does,
+so you can still type and read inside a layer.
 
-- **Layered keys: Turns the layer on or off for the device it is pressed on** — space with dots 1,
-  2, 3 and 7 on the Monarch, NVDA+control+shift+l on the keyboard. With a drawing up it turns on
-  the chart, picture or graphics layer, whichever fits the drawing, otherwise the default layer. The default layer is one shot: it is off again
-  after the next key.
-- **Layered keys: Chooses which layer is on for the device it is pressed on** — unassigned.
-- **Layered keys: Reports which layers are on** — unassigned.
-- **Layered keys: Turns every layer off** — unassigned.
-- **Layered keys: Opens the layered keys dialog** — unassigned.
-- **Layered keys: Turns the layer on or off for the first, second or third display** — unassigned,
-  for turning a display's layer on from the keyboard.
+- **Layered keys: Turns the layer on or off for the device it is pressed on**: Space with dots 1,
+  2, 3, and 7 on the Monarch; NVDA+Control+Shift+L on the keyboard. With a drawing up, it turns on
+  the chart, picture, or graphics layer, whichever fits the drawing; otherwise, the default layer.
+  The default layer is one-shot: it turns off after the next key.
+- **Layered keys: Chooses which layer is on for the device it is pressed on**: no key by default.
+- **Layered keys: Reports which layers are on**: no key by default.
+- **Layered keys: Turns every layer off**: no key by default.
+- **Layered keys: Opens the layered keys dialog**: no key by default.
+- **Layered keys: Turns the layer on or off for the first, second or third display**: no key by
+  default. For turning on a display's layer from the keyboard.
 
-Space with z, or escape, turns a layer off.
+Space with z, or Escape, turns a layer off.
 
-The Monarch and the keyboard come with layers already:
+The Monarch and the keyboard come with these layers:
 
-- **Monarch, default layer.** The layer key, then the left d-pad: up says the line, down says
-  all, left reports the focus, right reports the window title.
-- **Monarch, graphics layer.** Comes on by itself when a drawing goes up, and goes when it comes
-  down. The left d-pad moves the drawing and the zoom keys magnify and shrink it, and the space
-  with dot 7 and dot 8 chords do the same, along with space with dots 2 and 7 for the braille line.
-  The right d-pad goes on being the arrow keys. Turn it off with the layer key and it stays off
-  until the drawing is taken down and put up again.
-- **Monarch, chart layer.** Comes on by itself instead of the graphics layer when the drawing is a
-  chart, and gets every graphics layer key from it. Adds o to zoom to one pin per point, and v and
-  v with dot 7 for the next and previous set of lines. Other letters still type.
-- **Monarch, picture layer.** The same for a picture from the screen. Adds o for outlines, b for
-  brightness and r for brightness reversed, and space with dots 1, 4 and 8 to cycle through them.
-- **Monarch, table layer.** With the caret in a table on a web page, or a table laid out in columns
-  on the display, the layer key turns it on. The left d-pad moves by table cell, and the zoom keys
-  turn to the next and previous page of columns. It stays on until you turn it off.
-- **Monarch, unwrapped lines layer.** Comes on by itself while the display shows lines unwrapped,
-  and goes when they wrap again. The zoom keys pan across the lines; every other key does what it
-  always does. Turn it off with the layer key and it stays off until lines wrap again.
-- **Keyboard, default layer.** The layer key, then keypad 5 says the line.
-- **Keyboard, graphics layer.** The keypad's arrows move the Monarch's drawing, keypad plus and
-  minus magnify and shrink it, and keypad 5 says the line. Turned on with the layer key; it does not
-  come on by itself, so the keypad stays the review cursor, unless you set it to in Properties.
+- **Monarch, default layer.** Press the layer key, then the left d-pad: up reads the current
+  line, down starts Say All, left reports the focus, right reports the window title.
+- **Monarch, graphics layer.** Turns on by itself when a drawing goes up, and off when it comes
+  down. The left d-pad moves the drawing, and the zoom keys magnify and shrink it. Space with dot
+  7 and Space with dot 8 also shrink and magnify, and Space with dots 2 and 7 shows or hides the
+  braille line. The right d-pad stays the arrow keys. If you turn the layer off with the layer
+  key, it stays off until the drawing is taken down and put up again.
+- **Monarch, chart layer.** Turns on instead of the graphics layer when the drawing is a chart,
+  and includes all the graphics layer keys. Adds o to zoom to one pin per point, and v and v with
+  dot 7 for the next and previous set of lines. Other letters still type.
+- **Monarch, picture layer.** The same, for a picture from the screen. Adds o for outlines, b for
+  brightness, r for brightness reversed, and Space with dots 1, 4, and 8 to cycle through them.
+- **Monarch, table layer.** With the caret in a table on a web page, or in a table laid out in
+  columns, press the layer key to turn it on. The left d-pad moves by table cell, and the zoom
+  keys go to the next and previous page of columns. It stays on until you turn it off.
+- **Monarch, unwrapped lines layer.** Turns on by itself while lines are shown unwrapped, and off
+  when they wrap again. The zoom keys pan across the lines; every other key works as usual. If you
+  turn it off with the layer key, it stays off until lines wrap again.
+- **Keyboard, default layer.** Press the layer key, then numpad 5 reads the current line.
+- **Keyboard, graphics layer.** The numpad arrows move the Monarch's drawing, numpad plus and
+  minus magnify and shrink it, and numpad 5 reads the current line. Turn it on with the layer key.
+  It doesn't turn on by itself, so the numpad stays the review cursor unless you change that in
+  Properties.
 
 Other displays start with an empty default layer.
 
-Once you save a device's layers in the dialog, your saved layers are used instead of the ones it
-came with, as a whole. A later version of the add-on that improves the shipped layers does not
-change what you changed. The exception is keys the add-on moved: when graphics keys came out of
-the global gestures on 15 September 2026, layers saved before then are given the chart and picture
-layers and the graphics layer's new chords, once, unless you already had a layer of your own for
-that kind of drawing or had used that key for something else. Layers saved before unwrapped
-lines existed are given the unwrapped lines layer the same way. Remove one of them and save, and it
-stays removed. Use Reset to factory defaults in the dialog to take everything the add-on ships,
-which also drops your own changes for that device.
+Once you save a device's layers in the dialog, your saved layers replace the ones it came with,
+as a whole. A later version of the add-on that improves the built-in layers won't change what you
+changed. The exception is keys the add-on moved: when the graphics keys were moved out of the
+global commands on September 15, 2026, layers saved before then were given the chart and picture
+layers and the graphics layer's new key combinations, once, unless you already had your own
+layer for that kind of drawing or had used that key for something else. Layers saved before
+unwrapped lines existed are given the unwrapped lines layer the same way. If you remove one of
+these and save, it stays removed. Use "Reset to factory defaults" in the dialog to restore
+everything the add-on includes, which also removes your own changes for that device.
 
 #### The layered keys dialog
 
-Open it from the NVDA menu, Preferences, BrlMultiline layered keys, from the Layered keys button
-in BrlMultiline's settings, or with its command. It works like NVDA's Input Gestures dialog: a
-filter, a tree of categories and commands with the keys under each, and Add, Change and Remove.
-Above the tree, choose the device and the layer to edit. Changes are saved in the configuration
-profile in use when you press OK.
+Open it from NVDA menu, Preferences, BrlMultiline layered keys; from the Layered keys button in
+the BrlMultiline settings panel; or with its command. It works like NVDA's Input Gestures
+dialog: a filter, a tree of categories and commands with the keys under each, and Add, Change,
+and Remove buttons. Above the tree, choose the device and the layer to edit. Changes are saved in
+the configuration profile in use when you press OK.
 
-- **Add** waits for a key on the device being edited. A key on another display is refused and
-  said so, and escape on the keyboard stops waiting.
-- A key that already does something else in the layer asks before it is moved.
-- The key that turns layers on and off, and a layer's exit keys, cannot be given to a command.
-- A keyboard key for one of BrlMultiline's commands, or a braille command, asks which display it
-  acts for, so a keypad key can move the Monarch's drawing.
+- **Add** waits for a key on the device being edited. A key on a different display is refused
+  with a message, and Escape on the keyboard stops waiting.
+- If a key already does something else in the layer, you are asked before it is moved.
+- The key that turns layers on and off, and a layer's exit keys, can't be assigned to a command.
+- When you assign a keyboard key to a BrlMultiline command or a braille command, you are asked
+  which display it acts on, so a numpad key can move the Monarch's drawing.
 - **Does nothing in this layer**, under BrlMultiline, blocks a key while the layer is on.
-- **New layer**, **Rename**, **Delete layer** and **Properties** manage the layers. Properties
-  sets what the layer is for, whether it comes on by itself when that appears (drawings only),
-  whether it stays on or is one shot, its exit keys, and which layer keys it does not have come
-  from. Keys a layer gets from that layer are listed under their commands, "from Graphics layer";
-  Remove on one makes it do nothing in this layer instead of removing it from the other.
-- **Only show commands with keys in this layer** turns the tree into a list of what the layer does.
-- **Clear this layer** removes its keys. **Reset to factory defaults** puts back the layers the
-  device shipped with.
-- Commands are gathered from where you were when you opened the dialog, as Input Gestures gathers
-  them, so open it from a web page to bind browse mode commands. A key for a command not available
-  from there is listed under "Unavailable from here", so it can still be removed.
+- **New layer**, **Rename**, **Delete layer**, and **Properties** manage the layers. Properties
+  sets what the layer is for, whether it turns on by itself when that thing appears (drawings
+  only), whether it stays on or is one-shot, its exit keys, and which layer it gets keys from.
+  Keys that come from another layer are listed under their commands as "from Graphics layer";
+  Remove on one of them makes it do nothing in this layer, without removing it from the other.
+- **Only show commands with keys in this layer** turns the tree into a list of what the layer
+  does.
+- **Clear this layer** removes its keys. **Reset to factory defaults** restores the layers the
+  device came with.
+- Commands are gathered from where you were when you opened the dialog, the same way Input
+  Gestures does it, so open it from a web page to assign browse mode commands. A key for a
+  command that isn't available from there is listed under "Unavailable from here," so you can
+  still remove it.
 
 ### Diagnostics
 
-**Debug: Reports what the flow on the display has cost, and copies the detail.** Says how long
-the slowest piece of reading took and how often the flow ran out of its allowance and showed you
-less than the display could hold, and writes the detail to the log. If a page feels slow, or you
-feel the marker meaning "there is more I have not read", press this and send the log: it is a
-great deal more use than "it felt slow".
+**Debug: Reports what the flow on the display has cost, and copies the detail.** Says how long the
+slowest part of reading took, and how often the flow ran out of time and showed less than the
+display could hold, and writes the details to the log. If a page feels slow, or you notice the
+marker meaning "there is more not yet read," press this and send the log with your report.
 
 **Debug: Copies what a flowed reading of this object would show to the clipboard.** Reads the
-object under the navigator as a flow, onto the clipboard, without moving anything or putting
-anything on the display. For reporting what a flow made of something.
+navigator object as a flow and copies the result to the clipboard, without moving anything or
+changing the display. Useful for reporting how the flow presented something.
 
 ## Notes and limitations
 
-The number of segments is capped at 8, which is the row count of a Monarch.
+The number of segments is limited to 8, the default row count of a Monarch.
 
-Cursor routing keys work per segment: pressing a routing key over a segment routes within
-that segment's own content.
+Cursor routing keys work per segment: pressing a routing key over a segment routes within that
+segment's own content.
 
-Only the segment that follows the focus shows a cursor, because NVDA tracks a single
-cursor position.
+Only the segment that follows the focus shows a cursor, because NVDA tracks a single cursor
+position.
 
-A single row display cannot be made to simulate a multi row one. Telling NVDA that a Focus
-80 has two rows of 40 causes NVDA to write only the first row to the display and blank the
-rest, because it reshapes its output to the physical row count of the hardware. Splitting a
-single row into column segments, as this add-on does, is a different and working
-arrangement.
+A single-row display can't be made to act like a multi-row one. Telling NVDA that a Focus 80 has
+two rows of 40 makes NVDA write only the first row and leave the rest blank, because it shapes
+its output to the hardware's physical row count. Splitting a single row into side-by-side
+segments, as this add-on does, is a different arrangement that does work.
+
+## For add-on developers: making your application's content flow
+
+The flow already knows how to read web pages, documents, editors, lists, menus, and tree views.
+Some applications present content in a way it can't figure out on its own. A chat history is the
+common case: the messages look like a list to a person, but the accessibility tree doesn't
+connect them the way a list is connected.
+
+An NVDA app module can tell BrlMultiline how to read such content by setting a few attributes on
+an overlay class. There is nothing to import and nothing to register. BrlMultiline looks for these
+names on the objects it reads; nothing in NVDA reads them. So your app module works exactly the
+same whether BrlMultiline is installed, disabled, or an older version that doesn't know about
+them.
+
+### The attributes
+
+On the class for each item (for example, one message):
+
+1. `brlMultilineFlowRun = True`. Declares that this object is one item in a run that can be read
+   as a flow. This is the only required attribute.
+2. `brlMultilineFlowNext(self)`. Optional. Returns the next item in the run, or `None` at the end.
+3. `brlMultilineFlowPrevious(self)`. Optional. Returns the previous item, or `None` at the start.
+4. `brlMultilineFlowAdmits(self, other)`. Optional and rarely needed. Returns whether `other`
+   belongs to the same run. By default, any object that also has `brlMultilineFlowRun` belongs.
+   Only supply this if two different runs can sit next to each other.
+
+If you don't supply `brlMultilineFlowNext` and `brlMultilineFlowPrevious`, BrlMultiline assumes
+the items are siblings and steps with `next` and `previous`. If a step lands on something outside
+the run, or your method raises an exception, the run simply ends there. You may get a shorter run
+than expected, but never the wrong content.
+
+On the class for the container that holds the run (for example, the message list), which is
+needed for pinning:
+
+1. `brlMultilineFlowRunContainer = True`. Declares that the run is somewhere inside this object.
+   When a user pins the container, BrlMultiline reads the run instead of just the container.
+2. `brlMultilineFlowRunStart(self)`. Returns the item to start reading at, or `None`. Recommended.
+   Without it, BrlMultiline searches inside the container, within a limit, and starts at the first
+   item it finds. That is right for a list, but for a chat you probably want the newest message.
+
+When the user is already on an item in the run, reading starts there, no matter what
+`brlMultilineFlowRunStart` returns. The container's answer is only used when nothing else says
+where to start, such as when the user pins the list from somewhere else.
+
+### Example: Microsoft Teams
+
+The [Microsoft Teams add-on](https://github.com/travisroth/ms-teams) is a working example. In
+Teams' chat history, each message has the role GROUPING and sits in its own wrapper element, next
+to a timestamp and an unnamed element. No two messages are siblings, so stepping with `next`
+doesn't reach the next message, and NVDA's `simpleNext` leaves the history entirely and lands on
+the compose box. Only the app module knows how to get from one message to the next.
+
+Here is a simplified version of what it adds. The helper functions `_isMessageObject`,
+`_isMessageListObject`, and `_findMessageWithin` identify messages and the message list by their
+DOM ids, and look a few levels down inside a wrapper for the message it holds. See
+`addon/appModules/ms-teams.py` in that repository for the full code.
+
+```python
+import appModuleHandler
+import controlTypes
+from NVDAObjects import NVDAObject
+
+# Keep each step cheap: these run while the user is panning.
+_SIBLING_LIMIT = 12
+_DESCENT_DEPTH = 3
+
+
+class TeamsMessage(NVDAObject):
+	"""One message in the chat history."""
+
+	role = controlTypes.Role.LISTITEM
+
+	# Declare that messages form a run BrlMultiline can flow across.
+	brlMultilineFlowRun = True
+
+	def _flowStep(self, forward: bool):
+		# Messages are not siblings: climb to this message's wrapper, move to the
+		# next or previous wrapper, and look inside it for a message. Skip wrappers
+		# that hold no message, up to a limit.
+		wrapper = self.parent
+		for _ in range(_SIBLING_LIMIT):
+			if wrapper is None:
+				return None
+			wrapper = wrapper.next if forward else wrapper.previous
+			message = _findMessageWithin(wrapper, _DESCENT_DEPTH)
+			if message is not None and message != self:
+				return message
+		return None
+
+	def brlMultilineFlowNext(self):
+		return self._flowStep(forward=True)
+
+	def brlMultilineFlowPrevious(self):
+		return self._flowStep(forward=False)
+
+
+class TeamsMessageList(NVDAObject):
+	"""The container holding the whole chat history."""
+
+	# Declare that a run is inside, so the list can be pinned.
+	brlMultilineFlowRunContainer = True
+
+	def brlMultilineFlowRunStart(self):
+		# Start at the newest message: walk back from the last wrapper.
+		wrapper = self.lastChild
+		for _ in range(_SIBLING_LIMIT):
+			if wrapper is None:
+				return None
+			message = _findMessageWithin(wrapper, _DESCENT_DEPTH)
+			if message is not None:
+				return message
+			wrapper = wrapper.previous
+		return None
+
+
+class AppModule(appModuleHandler.AppModule):
+	def chooseNVDAObjectOverlayClasses(self, obj, clsList):
+		if _isMessageObject(obj):
+			clsList.insert(0, TeamsMessage)
+		elif _isMessageListObject(obj):
+			clsList.insert(0, TeamsMessageList)
+```
+
+The real add-on also wraps each property access in `try` and `except`, since a COM call into
+Teams can fail at any time, and logs the failure instead of letting it escape.
+
+### Tips
+
+- Derive your overlay classes from `NVDAObject`, or from another NVDA class. NVDA only turns
+  `_get_` methods into properties on classes built on its own base, and an overlay class with no
+  NVDA base is silently ignored.
+- Keep each step fast and bounded. `brlMultilineFlowNext` and `brlMultilineFlowPrevious` are
+  called while the user pans, so they should never scan the whole document. Set a limit on how
+  many siblings and how many levels deep you search, as the Teams example does.
+- Never move the focus, change the selection, or otherwise change the application's state in
+  these methods. BrlMultiline calls them just to read.
+- Give items a sensible role and name. The flow shows each item the way NVDA would show it in
+  braille, so an item with the right role and a good name reads well. In Teams, changing messages
+  from GROUPING to LISTITEM also removed the role text NVDA put in front of every message.
+- Content that is still being added to, such as a chat, is handled for you. When the user is at
+  the end of a pinned run, BrlMultiline asks for the next item again as time passes, so new
+  messages appear without any event from your code.
+- To see what BrlMultiline makes of your objects, move the navigator object to one and use
+  "Debug: Copies what a flowed reading of this object would show to the clipboard."
+
+BrlMultiline also has a `register` function for code that wants to supply a complete adapter for
+controls it doesn't own. That requires importing from this add-on, which creates a load-order
+dependency, so the attributes above are the recommended approach for app modules.
 
 ## Building from source
 
@@ -1025,21 +1246,21 @@ python -m uv run python -m unittest discover -s tests
 
 ### Checking against a real NVDA
 
-The unit suite runs against stubs, which is fast and needs no NVDA, and which therefore
-cannot notice when NVDA's own API moves underneath the add-on. `tests/nvdareal.py` is the
-other half: it brings a real NVDA up from a source checkout, imports the add-on into it the
-way NVDA does at runtime, and checks that what the add-on calls is still there and still
-behaves as it thinks. It runs safely while NVDA is running, touches no configuration and no
-hardware, and needs NVDA's own interpreter rather than this project's:
+The unit tests run against stubs, which is fast and needs no NVDA, but can't notice when NVDA's
+own API changes underneath the add-on. `tests/nvdareal.py` covers that: it starts a real NVDA
+from a source checkout, imports the add-on into it the way NVDA does at runtime, and checks that
+what the add-on calls is still there and still behaves as expected. It is safe to run while NVDA
+is running, touches no configuration or hardware, and needs NVDA's own Python interpreter rather
+than this project's:
 
 ```bash
 C:/code/nvda/.venv/Scripts/python.exe tests/nvdareal.py
 ```
 
 Set `BRLMULTILINE_NVDA` if the NVDA source is somewhere other than `C:\code\nvda`. Add
-`--displays` to see what braille hardware NVDA can find, or `--log` to read the tail of the
-log NVDA writes when it is run from source. Read the file's own docstring before relying on
-what it reports; it is explicit about what it does and does not prove.
+`--displays` to see what braille hardware NVDA can find, or `--log` to read the end of the log
+NVDA writes when run from source. Read the file's docstring before relying on its results; it
+explains what it does and does not prove.
 
 Design documentation, including notes on the parts of NVDA this add-on depends on, is in
 `docs/design/`.

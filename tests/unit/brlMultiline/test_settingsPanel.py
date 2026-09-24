@@ -659,10 +659,30 @@ class TestFlowOnACompositeDisplay(FlowPanelTestCase):
 			["", MONARCH.driverName, FOCUS.driverName],
 		)
 
-	def test_theAutomaticChoiceIsTheTallest(self):
-		"""Rows are what a flow spends, so eight rows of thirty-two beat one of eighty."""
-		self.assertEqual(self.panel.targets[0].numRows, 8)
-		self.assertIn(MONARCH.driverName, self.panel.targets[0].label)
+	def test_theAutomaticChoiceIsTheDisplayWithTheFocus(self):
+		"""The last segment follows the focus by default, and here that is the Focus 80's."""
+		self.assertEqual(self.panel.targets[0].numRows, 1)
+		self.assertIn(FOCUS.driverName, self.panel.targets[0].label)
+
+	def test_theAutomaticChoiceFollowsTheFocusSegment(self):
+		# The first segment, which is the Monarch's. The stubs answer this from their own
+		# configuration rather than through `getDisplayConfig`.
+		self.addCleanup(setattr, bmConfig, "getFocusSegment", bmConfig.getFocusSegment)
+		bmConfig.getFocusSegment = lambda displayKey=None: 0
+		targets = self.panel._bandTargets()
+		self.assertEqual(targets[0].numRows, 8)
+		self.assertIn(MONARCH.driverName, targets[0].label)
+
+	def test_oneRowSaysNVDAsOwnBrailleIsWhatYouGet(self):
+		"""A band under two rows is never claimed, which the reader should not have to guess."""
+		self.panel._updateRowsHint()
+		self.assertIn("at least two", self.panel.rowsHintCtrl.label)
+
+	def test_askingForOneRowSaysTheSame(self):
+		self.panel.bandDisplayCtrl.SetSelection(1)
+		self.panel.rowsCtrl.SetValue(1)
+		self.panel._updateRowsHint()
+		self.assertIn("at least two", self.panel.rowsHintCtrl.label)
 
 	def test_namingADisplayIsSaved(self):
 		self.panel.enabledCtrl.SetValue(True)

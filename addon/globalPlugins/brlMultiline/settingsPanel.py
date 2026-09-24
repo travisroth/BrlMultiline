@@ -35,6 +35,7 @@ from logHandler import log
 
 from . import bmConfig, devices, flowIndent, flowTable
 from .layout import calculateSegmentRects
+from .views import focusDisplayDriver
 
 addonHandler.initTranslation()
 
@@ -599,7 +600,7 @@ class _BandTarget(NamedTuple):
 	"""One place the flow band can be put."""
 
 	driverName: str
-	"""The display's driver, or empty for "whichever is tallest"."""
+	"""The display's driver, or empty for "whichever the focus is on"."""
 
 	label: str
 	"""What to call it in the chooser."""
@@ -663,6 +664,19 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			)
 			self.bandDisplayCtrl.SetSelection(self._targetIndex(str(section["flowDisplay"] or "")))
 			self.bandDisplayCtrl.Bind(wx.EVT_CHOICE, self._onBandDisplayChanged)
+			sHelper.addItem(
+				wx.StaticText(
+					self,
+					label=_(
+						# Translators: shown in settings under the choice of which combined display
+						# the flow appears on.
+						"Automatic puts the flow on whichever display the focus is on, so moving "
+						"the focus to another display takes the flow with it. A flow needs at "
+						"least two rows. On a display with fewer, braille works the way NVDA "
+						"normally shows it.",
+					),
+				),
+			)
 		else:
 			self.bandDisplayCtrl = None
 		# Translators: label of a spin control in settings, saying how tall the flow band is.
@@ -674,6 +688,7 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			max=bmConfig.MAX_FLOW_ROWS,
 			initial=int(section["flowRows"]),
 		)
+		self.rowsCtrl.Bind(wx.EVT_SPINCTRL, self._onRowsChanged)
 		self.rowsHintCtrl = sHelper.addItem(wx.StaticText(self, label=""))
 		# Translators: label of a checkbox in settings. Quick navigation keys are the single
 		# letters that move to the next heading, table or landmark in browse mode.
@@ -922,16 +937,28 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		if not self.devices:
 			return [_BandTarget(driverName="", label=self.displayKey, numRows=dimensions.numRows)]
 		names = displayDescriptions()
-		tallest = devices.preferredDevice("", self.devices)
+		# The same answer `FlowBand` reaches with nothing named: the display the focus is on,
+		# and the tallest only when that cannot be told.
+		try:
+			focused = focusDisplayDriver(
+				self.devices,
+				dimensions.numCols,
+				bmConfig.getFocusSegment(self.displayKey),
+			)
+		except Exception:
+			log.debugWarning("Could not tell which display the focus is on", exc_info=True)
+			focused = None
+		automatic = devices.preferredDevice(focused or "", self.devices)
 		targets = [
 			_BandTarget(
 				driverName="",
 				# Translators: the automatic entry in the settings chooser of which combined
-				# display the flow appears on. The placeholder is the display chosen for it.
-				label=_("Whichever has the most rows (now {display})").format(
-					display=names.get(tallest.driverName, tallest.driverName),
+				# display the flow appears on. The placeholder is the display the focus is on
+				# now, which is where the flow would appear.
+				label=_("Automatic: the display with the focus (now {display})").format(
+					display=names.get(automatic.driverName, automatic.driverName),
 				),
-				numRows=tallest.numRows,
+				numRows=automatic.numRows,
 			),
 		]
 		for device in self.devices:
@@ -980,19 +1007,35 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 	def _onBandDisplayChanged(self, event) -> None:
 		self._updateRowsHint()
 
+	def _onRowsChanged(self, event) -> None:
+		self._updateRowsHint()
+
 	def _updateRowsHint(self) -> None:
-		"""Say how many rows the chosen display has, since that is what bounds the band."""
+		"""Say how many rows the chosen display has, and whether a flow fits in what it is given.
+
+		A band under `flowBand.MIN_BAND_ROWS` is never claimed, so NVDA's own braille is what
+		the reader gets there. Said here because otherwise the flow simply does not appear.
+		"""
 		target = self._chosenTarget()
-		if target.numRows > 1:
+		asked = self.rowsCtrl.Value
+		if target.numRows < 2:
+			hint = _(
+				# Translators: shown in settings when the display the flow would appear on has
+				# only one row. A flow is not shown there at all.
+				"That display has one row. A flow needs at least two, so braille there works the "
+				"way NVDA normally shows it.",
+			)
+		elif asked == 1:
+			hint = _(
+				# Translators: shown in settings when the flow is set to use one row. The
+				# placeholder is how many rows the display it appears on has.
+				"That display has {rows} rows. A flow needs at least two, so with one row "
+				"braille works the way NVDA normally shows it.",
+			).format(rows=target.numRows)
+		else:
 			# Translators: shown in settings under the number of rows the flow uses. The
 			# placeholder is how many rows the display it appears on has.
 			hint = _("That display has {rows} rows.").format(rows=target.numRows)
-		else:
-			hint = _(
-				# Translators: shown in settings when the display the flow would appear on has
-				# only one row, where a flow can show no more than an ordinary segment.
-				"That display has one row, so a flow shows no more of the document than a single line does.",
-			)
 		self.rowsHintCtrl.SetLabel(hint)
 
 	# Saving.
