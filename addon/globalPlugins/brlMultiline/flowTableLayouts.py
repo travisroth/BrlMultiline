@@ -71,6 +71,21 @@ FOLLOW = ""
 YES = "yes"
 NO = "no"
 
+SPEAK_OFF = "off"
+"""Speech says none of the table's headers."""
+
+SPEAK_ROWS = "rows"
+"""Speech says the table's row headers and not its column headers."""
+
+SPEAK_COLUMNS = "columns"
+"""Speech says the table's column headers and not its row headers."""
+
+SPEAK_HEADERS = (FOLLOW, SPEAK_OFF, SPEAK_ROWS, SPEAK_COLUMNS)
+"""What `TableLayout.speakHeaders` can say. `FOLLOW` is NVDA's own "report table headers".
+
+Each of the others can only take headers away from what NVDA's setting reports, never add one:
+NVDA does not read a header its setting has turned off. See `tableHeaderSpeech`."""
+
 STORE_VERSION = 2
 """The stored form. Version 1 had no version: a mapping of digests. See `_fromStoredText`."""
 
@@ -156,6 +171,22 @@ class TableLayout:
 	The first is the row's own label in most tables — the symbol, the criterion, the date — and
 	an icon in some, which is why the reader can say."""
 
+	speakHeaders: str = FOLLOW
+	"""Which of the table's headers speech says. One of `SPEAK_HEADERS`.
+
+	About speech, not the display, and so read whether or not a flow is running: a reader on a one
+	row display, with no band at all, silences a table's help-text headers the same way. See
+	`tableHeaderSpeech`."""
+
+	speechOnly: bool = False
+	"""Whether this layout was saved for its header speech alone, and does not ask for columns.
+
+	A saved layout, even an empty one, has always meant "lay this table out in columns", which is
+	what saving one from the band says. A reader who saves only how a table's headers are spoken has
+	asked for nothing on the display, so a layout made that way says so, and the band leaves the
+	table as it would any other. Saving the table's columns into it later makes it an ordinary
+	layout. See `rememberHeaderSpeech` and `remember`."""
+
 	perColumn: dict = dataclasses.field(default_factory=dict)
 	"""What they decided about individual columns, by the table's own column number.
 
@@ -195,6 +226,10 @@ class TableLayout:
 			said = getattr(self, name)
 			if said in (YES, NO):
 				record[name] = said
+		if self.speakHeaders in SPEAK_HEADERS and self.speakHeaders != FOLLOW:
+			record["speakHeaders"] = self.speakHeaders
+		if self.speechOnly:
+			record["speechOnly"] = True
 		if record and self.columnHeadings:
 			record["headings"] = {
 				str(column): heading for column, heading in sorted(self.columnHeadings.items()) if heading
@@ -214,6 +249,11 @@ class TableLayout:
 		if self.keyColumn:
 			named.add(self.keyColumn)
 		return named
+
+	@property
+	def laysOut(self) -> bool:
+		""":return: whether this layout asks for its table to be laid out in columns. See `speechOnly`."""
+		return not self.speechOnly
 
 	def rowHeightOr(self, setting: int) -> int:
 		""":return: the row height to use, this layout's or the reader's setting."""
@@ -267,6 +307,8 @@ def fromRecord(record: Any) -> TableLayout:
 	for name in ("truncate", "pinKey", "headers"):
 		value = record.get(name)
 		said[name] = value if value in (YES, NO) else FOLLOW
+	speakHeaders = record.get("speakHeaders")
+	said["speakHeaders"] = speakHeaders if speakHeaders in SPEAK_HEADERS else FOLLOW
 	try:
 		keyColumn = int(record.get("keyColumn") or 0)
 	except (TypeError, ValueError):
@@ -286,6 +328,7 @@ def fromRecord(record: Any) -> TableLayout:
 		keyColumn=max(0, keyColumn),
 		perColumn=_perColumnFrom(record.get("perColumn")),
 		columnHeadings=headings,
+		speechOnly=record.get("speechOnly") is True,
 		**said,
 	)
 
@@ -1055,23 +1098,21 @@ def remember(handle, layout: TableLayout) -> bool:
 	found = find(handle, layouts, headings)
 	if not found.where:
 		return False
+	# How the headers are spoken is not the band's to decide: the band's layout was read from this
+	# record before the reader may have changed it with `rememberHeaderSpeech`, so what is saved
+	# stays. And saving from the band is asking for columns, whatever the record was saved for.
+	layout = dataclasses.replace(
+		layout,
+		speechOnly=False,
+		speakHeaders=found.saved.tableLayout.speakHeaders if found.saved is not None else layout.speakHeaders,
+	)
 	named = sorted(layout.namedColumns)
 	record = dataclasses.replace(layout, columnHeadings=headings.of(named) if named else {}).asRecord()
 	now = _now()
 	first = headings.first
 	if found.saved is not None:
 		saved = found.saved
-		changed = dataclasses.replace(saved, layout=record, saved=now, used=now)
-		if saved.isLegacy:
-			changed = dataclasses.replace(
-				changed,
-				name=defaultNameFor(found.where, first),
-				where=found.where,
-				match=defaultMatchFor(found.where),
-				headings=first,
-				legacyWhere="",
-				legacyWhat="",
-			)
+		changed = _readably(dataclasses.replace(saved, layout=record, saved=now, used=now), found.where, first)
 		_write(_withChanged(layouts, changed))
 		return True
 	layouts.append(
@@ -1088,6 +1129,88 @@ def remember(handle, layout: TableLayout) -> bool:
 	)
 	_write(layouts)
 	return True
+
+
+def _readably(saved: SavedLayout, where: str, first: tuple) -> SavedLayout:
+	""":return: a layout from the version 1 store written down with its address and headings, or it as it is.
+
+	:param where: where its table is.
+	:param first: its table's first headings.
+	"""
+	if not saved.isLegacy:
+		return saved
+	return dataclasses.replace(
+		saved,
+		name=defaultNameFor(where, first),
+		where=where,
+		match=defaultMatchFor(where),
+		headings=first,
+		legacyWhere="",
+		legacyWhat="",
+	)
+
+
+def rememberHeaderSpeech(handle, speakHeaders: str) -> bool:
+	"""Save which of this table's headers speech says, and nothing else about it.
+
+	**Into the layout that already applies here, where one does**, changing that one field. Where
+	none does, a layout is made for it that asks for nothing on the display, so a table saved this
+	way on a one row display is not laid out in columns the day a flow reads it. See
+	`TableLayout.speechOnly`. Saving `FOLLOW` into such a layout leaves it deciding nothing, and it is
+	deleted rather than kept.
+
+	:param handle: the table, as `flowTableSource.tableAt` returned it.
+	:param speakHeaders: one of `SPEAK_HEADERS`.
+	:return: whether it was saved, which is no for a table that cannot be named.
+	:raises LayoutsNotSaved: if the configuration would not take it.
+	"""
+	if speakHeaders not in SPEAK_HEADERS:
+		raise ValueError(f"not a way of speaking headers: {speakHeaders!r}")
+	layouts = stored()
+	headings = _Headings(handle)
+	found = find(handle, layouts, headings)
+	if not found.where:
+		return False
+	now = _now()
+	if found.saved is not None:
+		saved = found.saved
+		layout = dataclasses.replace(saved.tableLayout, speakHeaders=speakHeaders)
+		if layout.speechOnly and speakHeaders == FOLLOW:
+			_write([other for other in layouts if other.id != saved.id])
+			return True
+		changed = dataclasses.replace(saved, layout=layout.asRecord(), saved=now, used=now)
+		_write(_withChanged(layouts, _readably(changed, found.where, headings.first)))
+		return True
+	if speakHeaders == FOLLOW:
+		# What a table with nothing saved does already.
+		return True
+	first = headings.first
+	layouts.append(
+		SavedLayout(
+			id=newId(),
+			name=defaultNameFor(found.where, first),
+			where=found.where,
+			match=defaultMatchFor(found.where),
+			headings=first,
+			layout=TableLayout(speakHeaders=speakHeaders, speechOnly=True).asRecord(),
+			saved=now,
+			used=now,
+		),
+	)
+	_write(layouts)
+	return True
+
+
+def decidesHeaderSpeech() -> bool:
+	""":return: whether any saved layout says how its table's headers are spoken.
+
+	What speech asks first, on every table cell it describes, so that a reader who has never saved
+	one pays for nothing more than reading the store. The store is parsed once per change of its
+	text; see `stored`.
+	"""
+	return any(
+		saved.layout.get("speakHeaders") in (SPEAK_OFF, SPEAK_ROWS, SPEAK_COLUMNS) for saved in stored()
+	)
 
 
 def forget(handle) -> bool:

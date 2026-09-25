@@ -13,6 +13,9 @@ Added:
   that table's row and column headers until the page is loaded again; pressing it again speaks
   them. Braille, NVDA's own setting and your profiles are unchanged, and it works with or without
   a flow, on a single-row display too, and in list views, grids and Excel as well as on the web.
+  A second command saves it into the table's saved layout, so the table is heard that way every
+  visit, and the layout manager can set it to none, row headers only or column headers only. A
+  layout saved only for this does not lay the table out in columns.
 
 - **A table's row can be read on one line, cells divided by bars.** For a display of one row,
   where there is no room for columns and NVDA shows one cell at a time. A new command, pressed in

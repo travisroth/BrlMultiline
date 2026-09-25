@@ -2660,6 +2660,18 @@ class TestATableThatLaysItselfOut(TableBandTestCase):
 		self.band.refresh(force=True)
 		self.assertTrue(self._readingATable())
 
+	def test_aLayoutSavedOnlyForHeaderSpeechIsLeftAlone(self):
+		"""Saved on a one row display to silence its headers, it asked for nothing on the display.
+		See `flowTableLayouts.TableLayout.speechOnly`."""
+		from brlMultiline import flowTableLayouts, flowTableSource
+
+		self._watchlist()
+		handle = flowTableSource.tableAt(self.api.getNavigatorObject())
+		flowTableLayouts.rememberHeaderSpeech(handle, flowTableLayouts.SPEAK_OFF)
+		self.band.clearTable()
+		self.band.refresh(force=True)
+		self.assertFalse(self._readingATable())
+
 	def test_andItIsTheColumnsThatWereSaved(self):
 		self._watchlist()
 		self._save(columns=(2, 4))

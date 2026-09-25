@@ -553,6 +553,25 @@ BrlMultiline, or in a key layer.
   until NVDA restarts.
 - It can only silence headers. If NVDA is set to report no table headers, the command says so.
 
+**Saving it for a table.** "Table: Saves whether the headers of the table at the cursor are
+spoken" saves the table's current state into its saved table layout, so it is heard that way
+every time you come back, even after the page reloads. Silence the headers with the command
+above, then save. To hear them again, press the toggle, then save again. Like the toggle, this
+command has no key by default.
+
+- If the table already has a saved layout, only this one setting in it changes.
+- If it has none, a layout is saved for the headers alone. That layout does not lay the table out
+  in columns when you read as a flow. If you later save the table's columns, the header setting is
+  kept.
+- In "Table: Manage saved table layouts", the "Headers spoken" choice sets it for any saved
+  layout: as NVDA says, none, row headers only, or column headers only. Row headers only and
+  column headers only can only narrow what NVDA's own setting reports.
+- On a table whose saved layout silences its headers, the toggle speaks them until the page is
+  loaded again.
+- A saved setting is found from the table the cursor is in. During say all, a table read before
+  the cursor reaches it has its headers spoken. In focus mode inside a web page, the saved setting
+  does not apply; the toggle still works there.
+
 ## Using two displays at once
 
 The add-on can combine two or three braille displays into one, stacked top to bottom, so that
@@ -938,6 +957,9 @@ table you are in, or change how strictly its address matches.
 [A table's rows on one line](#a-tables-rows-on-one-line).
 
 **Table: Toggles whether the headers of the table at the cursor are spoken.** See
+[Not speaking a table's headers](#not-speaking-a-tables-headers).
+
+**Table: Saves whether the headers of the table at the cursor are spoken.** See
 [Not speaking a table's headers](#not-speaking-a-tables-headers).
 
 ### Drawings and charts

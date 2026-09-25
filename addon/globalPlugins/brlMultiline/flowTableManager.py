@@ -34,7 +34,17 @@ from typing import Optional
 from logHandler import log
 
 from . import flowTableLayouts
-from .flowTableLayouts import MATCH_EXACT, MATCH_PATH, MATCH_SITE, SavedLayout
+from .flowTableLayouts import (
+	FOLLOW,
+	MATCH_EXACT,
+	MATCH_PATH,
+	MATCH_SITE,
+	SPEAK_COLUMNS,
+	SPEAK_HEADERS,
+	SPEAK_OFF,
+	SPEAK_ROWS,
+	SavedLayout,
+)
 
 try:
 	import wx
@@ -183,12 +193,36 @@ class LayoutManager:
 	@staticmethod
 	def columnsWords(saved: SavedLayout) -> str:
 		layout = saved.tableLayout
+		if not layout.laysOut:
+			# Translators: said of a saved table layout that was saved only for how its table's headers
+			# are spoken, and does not lay the table out in columns.
+			return _("not laid out in columns")
 		if not layout.columns:
 			# Translators: said of a saved table layout that shows every column of its table.
 			return _("all columns")
 		# Translators: said of a saved table layout that shows some of its table's columns. The
 		# placeholder is how many.
 		return _("{count} columns").format(count=len(layout.columns))
+
+	@staticmethod
+	def headerSpeechWords(speakHeaders: str) -> str:
+		""":return: how a layout's table has its headers spoken, as the list, the details and the choice say it."""
+		if speakHeaders == SPEAK_OFF:
+			# Translators: said of a saved table layout whose table has none of its headers spoken.
+			return _("no headers spoken")
+		if speakHeaders == SPEAK_ROWS:
+			# Translators: said of a saved table layout whose table has only its row headers spoken.
+			return _("row headers only spoken")
+		if speakHeaders == SPEAK_COLUMNS:
+			# Translators: said of a saved table layout whose table has only its column headers spoken.
+			return _("column headers only spoken")
+		# Translators: said of a saved table layout whose table has its headers spoken as NVDA's
+		# document formatting settings say.
+		return _("headers spoken as NVDA says")
+
+	def speakHeadersChoices(self) -> list:
+		""":return: (speakHeaders, label) for each way a layout's table can have its headers spoken."""
+		return [(speakHeaders, self.headerSpeechWords(speakHeaders)) for speakHeaders in SPEAK_HEADERS]
 
 	def label(self, index: int) -> str:
 		""":return: one line for the list, saying everything a reader choosing among them needs.
@@ -209,6 +243,9 @@ class LayoutManager:
 			parts.append(_("at this address, other headings"))
 		parts.append(self.matchWords(saved))
 		parts.append(self.columnsWords(saved))
+		speakHeaders = saved.tableLayout.speakHeaders
+		if speakHeaders != FOLLOW:
+			parts.append(self.headerSpeechWords(speakHeaders))
 		# Translators: when a saved table layout was last used. The placeholder is a date.
 		parts.append(_("last used {date}").format(date=flowTableLayouts.dateWords(saved.used)))
 		return ", ".join(parts)
@@ -249,6 +286,11 @@ class LayoutManager:
 			lines.append(_("Columns shown: {columns}").format(columns=", ".join(named)))
 		else:
 			lines.append(_("Columns shown: {columns}").format(columns=self.columnsWords(saved)))
+		lines.append(
+			# Translators: a line of the details of a saved table layout: which of its table's headers
+			# speech says.
+			_("Spoken headers: {how}").format(how=self.headerSpeechWords(layout.speakHeaders)),
+		)
 		# Translators: a line of the details of a saved table layout. The placeholder is a date.
 		lines.append(_("Saved: {date}").format(date=flowTableLayouts.dateWords(saved.saved)))
 		# Translators: a line of the details of a saved table layout. The placeholder is a date.
@@ -331,6 +373,17 @@ class LayoutManager:
 		if saved is None or match == saved.match or match not in dict(self.matchChoices(index)):
 			return
 		self._replace(index, dataclasses.replace(saved, match=match))
+
+	def setSpeakHeaders(self, index: int, speakHeaders: str) -> None:
+		"""Say which of a layout's table's headers speech says. See `tableHeaderSpeech`."""
+		saved = self.at(index)
+		if saved is None or speakHeaders not in SPEAK_HEADERS:
+			return
+		layout = saved.tableLayout
+		if speakHeaders == layout.speakHeaders:
+			return
+		changed = dataclasses.replace(layout, speakHeaders=speakHeaders)
+		self._replace(index, dataclasses.replace(saved, layout=changed.asRecord()))
 
 	def setRequireHeadings(self, index: int, require: bool) -> None:
 		saved = self.at(index)
@@ -570,6 +623,13 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 				wx.CheckBox(self, label=_("Only for a table with these &headings")),
 			)
 			self.headingsCtrl.Bind(wx.EVT_CHECKBOX, self._onHeadings)
+			self.speakHeadersCtrl = helper.addLabeledControl(
+				# Translators: the label of the choice of which of a saved layout's table's headers are spoken.
+				_("Headers s&poken:"),
+				wx.Choice,
+				choices=[label for _speakHeaders, label in manager.speakHeadersChoices()],
+			)
+			self.speakHeadersCtrl.Bind(wx.EVT_CHOICE, self._onSpeakHeaders)
 			buttons = guiHelper.ButtonHelper(wx.HORIZONTAL)
 			# Translators: a button that points the selected saved layout at the reader's table.
 			self.useButton = buttons.addButton(self, label=_("&Use for this table"))
@@ -611,6 +671,7 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 				self.whereCtrl,
 				self.matchCtrl,
 				self.headingsCtrl,
+				self.speakHeadersCtrl,
 				self.deleteButton,
 			):
 				control.Enable(saved is not None)
@@ -631,6 +692,8 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 				self.matchCtrl.SetSelection(keys.index(saved.match))
 			self.headingsCtrl.SetValue(saved.requireHeadings)
 			self.headingsCtrl.Enable(any(saved.headings))
+			ways = [speakHeaders for speakHeaders, _label in self.manager.speakHeadersChoices()]
+			self.speakHeadersCtrl.SetSelection(ways.index(saved.tableLayout.speakHeaders))
 
 		def _keepSelected(self, layoutId: str) -> None:
 			self._refresh(self.manager.indexOf(layoutId))
@@ -671,6 +734,15 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 			if saved is None:
 				return
 			self.manager.setRequireHeadings(self._index(), self.headingsCtrl.GetValue())
+			self._keepSelected(saved.id)
+
+		def _onSpeakHeaders(self, event) -> None:
+			saved = self.manager.at(self._index())
+			choices = self.manager.speakHeadersChoices()
+			chosen = self.speakHeadersCtrl.GetSelection()
+			if saved is None or not 0 <= chosen < len(choices):
+				return
+			self.manager.setSpeakHeaders(self._index(), choices[chosen][0])
 			self._keepSelected(saved.id)
 
 		def _onUse(self, event) -> None:

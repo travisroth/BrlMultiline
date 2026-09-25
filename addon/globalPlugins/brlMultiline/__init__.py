@@ -2120,6 +2120,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
+		description=_("Table: Saves whether the headers of the table at the cursor are spoken"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_saveTableHeaderSpeech(self, gesture):
+		"""Save what the command above left for this table, so that it is heard that way every time.
+
+		Into the table's saved layout, or a layout made for it that asks for nothing on the display.
+		Works with or without a flow. See `tableHeaderSpeech.save`.
+		"""
+		ui.message(tableHeaderSpeech.save())
+
+	@script(
+		# Translators: input help message for a command.
 		description=_("Table: Toggle table columns on or off"),
 		category=SCRIPT_CATEGORY,
 	)

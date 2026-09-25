@@ -1962,7 +1962,9 @@ class FlowBand(PanelOwner):
 		if handle is None:
 			return (None, None)
 		layout = flowTableLayouts.layoutFor(handle, follow=follow)
-		return (handle, layout) if layout is not None else (None, None)
+		# A layout saved for how the table's headers are spoken asks for nothing on the display.
+		# See `flowTableLayouts.TableLayout.speechOnly`.
+		return (handle, layout) if layout is not None and layout.laysOut else (None, None)
 
 	def _refusedTable(self, obj: Any) -> bool:
 		""":return: whether the reader has just taken this table's layout away.
