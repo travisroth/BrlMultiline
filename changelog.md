@@ -8,6 +8,12 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **One table's headers can be left out of speech.** For the table whose headers are a paragraph
+  of help text, without a profile for its site. A new command, pressed in a table, stops speaking
+  that table's row and column headers until the page is loaded again; pressing it again speaks
+  them. Braille, NVDA's own setting and your profiles are unchanged, and it works with or without
+  a flow, on a single-row display too, and in list views, grids and Excel as well as on the web.
+
 - **A table's row can be read on one line, cells divided by bars.** For a display of one row,
   where there is no room for columns and NVDA shows one cell at a time. A new command, pressed in
   a browse mode table, puts the whole row the cursor is in on the line — `AAPL | 310.34 | +1.2` —

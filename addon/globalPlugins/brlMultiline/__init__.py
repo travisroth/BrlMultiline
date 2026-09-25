@@ -31,6 +31,7 @@ from logHandler import log
 from scriptHandler import script
 
 from . import bmConfig, keyLayerContexts, keyLayerDispatch, keyLayers, panning, patches, tableArrows, tableRowLine
+from . import tableHeaderSpeech
 from .container import DisplayContainer
 from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
 from . import image as imageFigure, imagePins, imageSource
@@ -260,6 +261,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# The arrow keys inside a browse mode table, which is a way of reading rather than a
 		# way of displaying and so is not waited on a flow. See `tableArrows`.
 		tableArrows.install()
+		# Which tables' headers are not spoken, which is also how a table is read rather than
+		# displayed, and so is not waited on a flow either. See `tableHeaderSpeech`.
+		tableHeaderSpeech.install()
 		# Layered keys. Reads each device's layers and passes every key through while no layer
 		# is on. See `keyLayerDispatch`.
 		keyLayerDispatch.install()
@@ -305,6 +309,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			patches.remove()
 			panning.remove()
 			tableArrows.remove()
+			tableHeaderSpeech.remove()
 			keyLayerDispatch.remove()
 			self._removeKeyLayersMenuItem()
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(BrailleMultilineSettingsPanel)
@@ -2098,6 +2103,20 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				# display goes on any further. The placeholder is the column now at the left.
 				_("Column {column}, no line goes further").format(column=first),
 			)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Table: Toggles whether the headers of the table at the cursor are spoken"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_toggleTableHeaderSpeech(self, gesture):
+		"""Stop speaking the headers of the table the reader is in, or speak them again.
+
+		For the table whose headers are a paragraph of help text, without a profile for its
+		site. Speech only: braille shows the headers as it did. Works with or without a flow.
+		See `tableHeaderSpeech`.
+		"""
+		ui.message(tableHeaderSpeech.toggle())
 
 	@script(
 		# Translators: input help message for a command.

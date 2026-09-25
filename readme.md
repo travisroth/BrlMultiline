@@ -534,6 +534,25 @@ assign one in Input Gestures, under BrlMultiline, or in a key layer.
 This works in tables NVDA reads in browse mode. List views and Excel worksheets are not
 affected.
 
+## Not speaking a table's headers
+
+Some tables on the web have short, useful headers, and some put a paragraph of help text in
+every one. NVDA's "Report table headers" setting applies to every table, so turning it off for
+one site means a profile for that site. "Table: Toggles whether the headers of the table at the
+cursor are spoken" silences the headers of just the table you are in. Press it again in the same
+table to hear them again. The command has no key by default; assign one in Input Gestures, under
+BrlMultiline, or in a key layer.
+
+- Only speech changes. Braille shows the headers as before, including a pinned header row or a
+  repeated key column, and NVDA's own setting and your profiles are not changed.
+- It works with or without reading as a flow, and on a single-row display.
+- The rest of the cell is spoken as usual: its content, and its row and column number if you
+  have those turned on.
+- In browse mode it applies to the table the cursor is in until the page is loaded again. For a
+  table that has focus, such as a list view, a grid in focus mode or an Excel worksheet, it lasts
+  until NVDA restarts.
+- It can only silence headers. If NVDA is set to report no table headers, the command says so.
+
 ## Using two displays at once
 
 The add-on can combine two or three braille displays into one, stacked top to bottom, so that
@@ -917,6 +936,9 @@ table you are in, or change how strictly its address matches.
 
 **Table: Toggle showing the table's rows on one line.** See
 [A table's rows on one line](#a-tables-rows-on-one-line).
+
+**Table: Toggles whether the headers of the table at the cursor are spoken.** See
+[Not speaking a table's headers](#not-speaking-a-tables-headers).
 
 ### Drawings and charts
 
