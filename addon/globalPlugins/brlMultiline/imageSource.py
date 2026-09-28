@@ -28,16 +28,26 @@ copied instead of it, because a screen grab is a grab of the screen and there is
 to ask. Nothing here can detect it; it is written down rather than worked around.
 """
 
+import os
 from typing import Optional
 
 import api
 from logHandler import log
 
-from .imagePins import ImageRefused, Picture, greysFromPixels, hasPillow, pictureFromBgrx
+from .imagePins import (
+	ImageRefused,
+	Picture,
+	greysFromPixels,
+	hasPillow,
+	pictureFromBgrx,
+	pictureFromImage,
+)
 
 __all__ = [
 	"MIN_SIDE",
+	"captureClipboard",
 	"captureNavigator",
+	"keepPixels",
 	"nameFor",
 ]
 
@@ -52,18 +62,29 @@ so is better than drawing them a blur they then have to interpret.
 """
 
 MAX_PIXELS = 360000
-"""How many pixels are worth keeping, whatever the thing's size on screen.
+"""How many pixels are worth keeping without Pillow, whatever the thing's size on screen.
 
 Six hundred square. The capture is held so that zooming can reduce from pixels rather than
-magnify pins, and past about eight pixels to a pin there is nothing left for zoom to reach —
-the panel runs out first. Capturing a four megapixel image would cost the reader a pause for
-detail no finger will ever arrive at.
+magnify pins, and every doubling of the pixels kept is one more doubling of zoom before a pin
+stands on a single pixel. The limit is time, not usefulness: this is about what Python reduces
+without a pause a reader would notice, which is why `PILLOW_PIXELS` is larger.
+"""
+
+PILLOW_PIXELS = 1440000
+"""How many pixels are worth keeping when Pillow does the work: twelve hundred square.
+
+Four times `MAX_PIXELS`, which is one more doubling of zoom before a pin stands on a single
+pixel. With Pillow a reduction to the panel takes well under a millisecond. The dearest style
+is single lines, whose ink reduction took about 35 milliseconds for a whole picture this size
+on the development machine, and under 50 for the whole drawing; a zoomed window is smaller and
+quicker. Worth most for an image from the clipboard or a file, which is often far larger than
+anything on the screen.
 """
 
 GRAB_PIXELS = 2000000
-"""How many pixels to copy off the screen when Pillow will shrink them to `MAX_PIXELS`.
+"""How many pixels to copy off the screen when Pillow will shrink them to `PILLOW_PIXELS`.
 
-What is kept is still `MAX_PIXELS`. This is how much is copied so that the shrink to it can be
+What is kept is `PILLOW_PIXELS`. This is how much is copied so that the shrink to it can be
 done properly: Windows can shrink while it copies, but in the mode NVDA's `ScreenBitmap` leaves
 it in, the pixels it drops are combined by a bitwise AND of their colours -- see
 `imagePins.pictureFromBgrx`. Two megapixels is a full HD screen, so nearly everything is copied
@@ -240,7 +261,12 @@ def _isOffScreen(obj) -> bool:
 		return False
 
 
-def _captureSize(width: int, height: int, most: int = MAX_PIXELS) -> "tuple[int, int]":
+def keepPixels() -> int:
+	""":return: how many pixels a picture may keep, which depends on whether Pillow is here."""
+	return PILLOW_PIXELS if hasPillow() else MAX_PIXELS
+
+
+def _captureSize(width: int, height: int, most: "int | None" = None) -> "tuple[int, int]":
 	"""Choose how many pixels to keep for something of this size on screen.
 
 	Never enlarged. Upscaling a small image before reducing it adds no detail and costs the
@@ -248,9 +274,11 @@ def _captureSize(width: int, height: int, most: int = MAX_PIXELS) -> "tuple[int,
 
 	:param width: its width on screen.
 	:param height: its height on screen.
-	:param most: the most pixels to allow.
+	:param most: the most pixels to allow, `keepPixels` if None.
 	:return: the capture size.
 	"""
+	if most is None:
+		most = keepPixels()
 	if width * height <= most:
 		return width, height
 	# Shrunk on both axes by the same factor, because the shape has to survive: a picture
@@ -307,7 +335,7 @@ def nameFor(obj) -> str:
 def captureNavigator() -> Picture:
 	"""Take a picture of whatever the reader is pointing at.
 
-	:return: the pixels, greyscale, at or below `MAX_PIXELS`.
+	:return: the pixels, at or below `keepPixels`.
 	:raises ImageRefused: with a reason the reader can act on.
 	"""
 	if _screenCurtainIsUp():
@@ -351,6 +379,82 @@ def captureNavigator() -> Picture:
 	return capture(left, top, width, height, name=nameFor(obj))
 
 
+def captureClipboard() -> Picture:
+	"""Take a picture from the clipboard: an image copied, or an image file copied.
+
+	**Nothing here looks at the screen**, which is the point of it. The screen capture cannot
+	work under the screen curtain, copies whatever window is on top of the thing, and gets a
+	picture only at the size it is shown. A picture copied from a browser's context menu is
+	the image itself, at its own size, whatever is showing; and a file copied in File Explorer
+	is the same, for anything saved on disk.
+
+	Pillow reads both: `ImageGrab.grabclipboard` returns an image for copied image data and a
+	list of paths for copied files. Only the first file that opens as a picture is drawn.
+
+	**Needs Pillow, and says so.** There is no Python path for this one. Decoding PNG and JPEG
+	by hand is not a fallback worth carrying, and a reader on an NVDA without Pillow still has
+	the screen capture.
+
+	:return: the pixels, greyscale and colour, at or below `keepPixels`.
+	:raises ImageRefused: with a reason the reader can act on.
+	"""
+	if not hasPillow():
+		raise ImageRefused(
+			# Translators: reported when a picture was asked for from the clipboard on an NVDA
+			# that does not include the Pillow image library, which reading one needs.
+			_("Drawing from the clipboard needs the Pillow library, which this NVDA does not have"),
+		)
+	try:
+		from PIL import Image, ImageGrab
+
+		found = ImageGrab.grabclipboard()
+	except Exception:
+		log.error("BrlMultiline: the clipboard would not be read", exc_info=True)
+		# Translators: reported when the clipboard could not be read to draw a picture from it.
+		raise ImageRefused(_("The clipboard could not be read"))
+	# Translators: what a picture drawn from the clipboard is called when nothing names it.
+	name = _("clipboard picture")
+	image = None
+	if isinstance(found, list):
+		for path in found:
+			try:
+				opened = Image.open(path)
+				opened.load()
+			except Exception:
+				log.debug(f"BrlMultiline: a copied file is not a picture: {path!r}")
+				continue
+			image = opened
+			name = os.path.basename(str(path))
+			break
+		if image is None:
+			# Translators: reported when files were copied, and none of them is a picture.
+			raise ImageRefused(_("None of the copied files is a picture"))
+	elif found is not None:
+		image = found
+	if image is None:
+		# Translators: reported when a picture was asked for from the clipboard and there is none
+		# on it. Says how to put one there.
+		raise ImageRefused(_("There is no picture on the clipboard; copy an image or an image file"))
+	width, height = image.size
+	if width < MIN_SIDE or height < MIN_SIDE:
+		raise ImageRefused(
+			# Translators: reported when a picture on the clipboard is too small to draw. The
+			# placeholders are its width and height in pixels.
+			_("This picture is only {width} by {height}, too small to draw").format(
+				width=width, height=height
+			),
+		)
+	try:
+		picture = pictureFromImage(image, _captureSize(width, height), name)
+	except Exception:
+		log.error("BrlMultiline: a picture from the clipboard would not convert", exc_info=True)
+		picture = None
+	if picture is None:
+		# Translators: reported when a picture on the clipboard could not be read.
+		raise ImageRefused(_("The picture on the clipboard could not be read"))
+	return picture
+
+
 def capture(left: int, top: int, width: int, height: int, name: str = "") -> Picture:
 	"""Copy a rectangle of the screen and keep it as brightnesses.
 
@@ -364,7 +468,8 @@ def capture(left: int, top: int, width: int, height: int, name: str = "") -> Pic
 	:param height: how tall.
 	:param name: what to call it.
 	**Two ways, the same picture.** With Pillow the rectangle is copied near its own size and
-	Pillow turns it grey and shrinks it to `MAX_PIXELS`, without a Python loop over a pixel.
+	Pillow turns it grey and shrinks it to `keepPixels`, without a Python loop over a pixel, and
+	the colour is kept beside the grey for the things that need it.
 	Without it Windows shrinks during the copy and each kept pixel is read in Python, which is
 	what every version of this did before and is kept whole for an NVDA whose build leaves
 	Pillow out. See `imagePins` for why that is possible.

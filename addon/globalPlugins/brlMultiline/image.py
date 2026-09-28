@@ -44,6 +44,7 @@ __all__ = [
 	"REVERSED",
 	"SILHOUETTE",
 	"STYLES",
+	"colourName",
 	"figureFor",
 	"nextStyle",
 	"styleName",
@@ -124,7 +125,7 @@ def nextStyle(mode: str, invert: bool = False) -> tuple:
 		return STYLES[0]
 
 
-def zoomPoints(picture: Picture, width: int, height: int) -> int:
+def zoomPoints(picture: Picture, width: int, height: int, box: "tuple | None" = None) -> int:
 	"""How much there is to zoom into, in the vocabulary the graphics mode already has.
 
 	The mode refuses a zoom that would leave fewer than `MIN_WINDOW_POINTS` of whatever the
@@ -147,13 +148,41 @@ def zoomPoints(picture: Picture, width: int, height: int) -> int:
 	:param picture: the capture.
 	:param width: pins across the panel.
 	:param height: pins down.
+	:param box: the part of the capture the whole figure covers, which is what a zoom narrows.
+		The whole capture if None.
 	:return: the count, at least `MIN_WINDOW_POINTS` so a picture is never refused its first
 		zoom merely for having been captured small.
 	"""
 	if width <= 0 or height <= 0:
 		return MIN_WINDOW_POINTS
-	perPin = max(picture.width / width, picture.height / height)
+	_left, _top, across, down = box if box is not None else (0, 0, picture.width, picture.height)
+	perPin = max(across / width, down / height)
 	return max(MIN_WINDOW_POINTS, int(MIN_WINDOW_POINTS * perPin * ZOOM_FACTOR))
+
+
+def colourName(rgb: tuple) -> str:
+	""":return: what to call a colour out loud.
+
+	NVDA's own names, from `colors.RGB`, which are what it already says for the colour of text:
+	translated, and the same words a reader has heard for years. A hex value if they cannot be
+	had, which is ugly and still true.
+
+	:param rgb: red, green and blue.
+	"""
+	try:
+		import colors
+
+		return colors.RGB(*rgb).name
+	except Exception:
+		log.debugWarning("BrlMultiline: NVDA would not name a colour", exc_info=True)
+		return "#{:02x}{:02x}{:02x}".format(*rgb)
+
+
+def _original(picture: Picture) -> Picture:
+	""":return: the captured picture a picture of one colour was made from, or the picture."""
+	while picture.derivedFrom is not None:
+		picture = picture.derivedFrom
+	return picture
 
 
 def _describer(picture: Picture, spot: Placement):
@@ -174,6 +203,13 @@ def _describer(picture: Picture, spot: Placement):
 	**A press in the margin says so.** A square picture on a panel over twice as wide has
 	margin on a third of it, and there is nothing there. Reporting the nearest edge as though
 	it were the picture would be a fact about the letterbox, so the margin is named instead.
+
+	**And it names the colour there**, when the capture kept its colour: the ink under the
+	finger if there is any, the paper if not. See `imagePins.Picture.colourAt` for why that is
+	not simply the average. The pixels looked at are the pin pressed and one pin round it,
+	because a routing press is a fingertip's guess and a line one pin away is what it was
+	aimed at. The colour is also kept on the captured picture, as `touched`, so that "draw only
+	this colour" knows which one was meant.
 
 	:param picture: the capture, for its size.
 	:param spot: the part of it being shown and where that part sits on the panel.
@@ -196,10 +232,26 @@ def _describer(picture: Picture, spot: Placement):
 		atY = top + (insideY + 0.5) * down / spot.height
 		# Translators: where a finger is on a drawn picture. Placeholders are percentages
 		# across from the left and down from the top.
-		return _("{across} across, {down} down").format(
+		where = _("{across} across, {down} down").format(
 			across=round(atX / picture.width * 100),
 			down=round(atY / picture.height * 100),
 		)
+		pinWidth = across / spot.width
+		pinHeight = down / spot.height
+		colour = picture.colourAt(
+			(
+				int(left + (insideX - 1) * pinWidth),
+				int(top + (insideY - 1) * pinHeight),
+				max(1, round(3 * pinWidth)),
+				max(1, round(3 * pinHeight)),
+			),
+		)
+		if colour is None:
+			return where
+		_original(picture).touched = colour
+		# Translators: a colour and where a finger is on a drawn picture, as in "dark red, 40
+		# across, 60 down". Placeholders are the colour's name and the position.
+		return _("{colour}, {where}").format(colour=colourName(colour), where=where)
 
 	return describeAt
 
@@ -223,8 +275,9 @@ def figureFor(
 	:return: the figure.
 	:raises ImageRefused: if there is nothing here to draw.
 	"""
-	box = (0, 0, picture.width, picture.height)
-	return _compose(newBuffer, picture, box, width, height, mode, invert, whole=True)
+	# Its content rather than the whole capture, so blank margins do not take pins from what
+	# is in it. See `imagePins.Picture.content`.
+	return _compose(newBuffer, picture, picture.content, width, height, mode, invert, whole=True)
 
 
 def _compose(newBuffer, picture, box, width, height, mode, invert, whole: bool) -> Drawing:
@@ -262,7 +315,7 @@ def _compose(newBuffer, picture, box, width, height, mode, invert, whole: bool) 
 		name=name,
 		describeAt=_describer(picture, spot),
 		redraw=_reframer(newBuffer, picture, box, mode, invert),
-		points=zoomPoints(picture, width, height),
+		points=zoomPoints(picture, width, height, box),
 		windowsVertically=True,
 		note=note,
 	)
@@ -277,6 +330,10 @@ def _nameOf(picture: Picture, mode: str, invert: bool, whole: bool) -> str:
 	arrived.
 	"""
 	said = picture.name or _("picture")
+	if picture.onlyColour is not None:
+		# Translators: what a picture is called when only one of its colours is drawn. The
+		# placeholders are the picture's name and the colour, as in "map, only blue".
+		said = _("{name}, only {colour}").format(name=said, colour=colourName(picture.onlyColour))
 	if whole:
 		# Translators: what a drawn picture is called. Placeholders are what the picture is
 		# of and how it was drawn, one of "outlines", "single lines", "brightness" or

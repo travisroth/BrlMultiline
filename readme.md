@@ -749,9 +749,48 @@ There's no way to know ahead of time which style works best for a picture, so tr
 Changing styles redraws the image already captured rather than copying the screen again, so the
 page changing underneath doesn't change the picture you are reading.
 
+Blank margins around a picture are left out, so what is in the picture fills as much of the
+display as it can. A picture that is mostly content is drawn whole. Positions you hear when
+exploring are still measured across the whole picture.
+
+In outlines, colour counts as well as brightness: a red shape on a green background of the same
+brightness still has an outline.
+
 If a picture can't be drawn, you are told why: the screen curtain is on, there is nothing there,
 it isn't visible on screen, it needs to be scrolled into view, it is too small to be a picture,
 or it couldn't be copied from the screen.
+
+### Drawing a picture from the clipboard
+
+**Graphics: Draw the picture on the clipboard** draws an image you have copied, instead of
+copying it from the screen. In a browser, open the context menu on an image and choose Copy
+image. In File Explorer, copy an image file; if several files are copied, the first that is a
+picture is drawn, and it is called by its file name.
+
+This works with the screen curtain on, nothing covering the picture on screen can get into it,
+and the image is used at its own size rather than the size it was shown at, so there is more
+detail to magnify. Transparent parts are drawn as white, and photos are turned the right way up.
+The styles and everything else work the same as for a picture from the screen.
+
+This command needs the Pillow image library. Installed copies of NVDA include it (checked on
+NVDA 2026.2), although it is not an official part of NVDA; if yours does not have it, you are
+told so, and drawing from the screen still works.
+
+### Colours in a picture
+
+When you press a routing key on a picture, you hear the colour under your finger before its
+position, for example "red, 40 across, 60 down". If your finger is on a line or shape, that is
+its colour; if it is on the background, you hear the background's colour.
+
+**Graphics: Draw only the colour last touched on a picture, or all colours again** then redraws
+the picture with only that colour, in whichever style you are using. Use it for one line of a
+chart, the rivers on a map, or a highlighted route. The drawing is called, for example, "chart,
+only red", you stay on the part of the picture you were reading, and pressing the command again
+brings every colour back. If the last press was on the background, you are asked to press on a
+line or shape instead.
+
+Colours need the Pillow image library, like the clipboard. Without it, a press says only where
+you are, and asking for one colour tells you why it can't be done.
 
 ### Exploring a drawing
 
@@ -760,7 +799,8 @@ and the add-on tells you what is there. There is no second command and nothing t
 
 - On a **chart**, it names what is under your finger: which bar and its value, which series at
   which date, or a period's open, high, low, and close.
-- On a **picture**, it tells you where you are as a percentage across and down.
+- On a **picture**, it tells you the colour there and where you are as a percentage across and
+  down.
 - Anywhere else on an image, it says "raised at" or "blank at" with the position in the drawing,
   counted from its top left corner.
 
@@ -998,13 +1038,18 @@ on:
 - **Graphics: Draw the picture as single lines**: l, on a picture.
 - **Graphics: Draw the picture by brightness**: b, on a picture.
 - **Graphics: Draw the picture by brightness, reversed**: r, on a picture.
+- **Graphics: Draw only the colour last touched on a picture, or all colours again**: c, on a
+  picture.
 - **Graphics: Change how a picture is drawn**: Space with dots 1, 4, and 8, on a picture. Cycles
   through the four styles.
 
-These two have no key:
+These have no key:
 
 - **Graphics: Reports the drawing on the display**: tells you what is showing, how far it is
   magnified, and where you are in it, without changing anything.
+- **Graphics: Draw the picture on the clipboard**: see [Drawing a picture from the
+  clipboard](#drawing-a-picture-from-the-clipboard). Assign it a key in NVDA's Input gestures
+  dialog.
 - **Graphics: Show the glyph catalogue**: draws every role and state shape with the braille it
   replaces beside it, for learning the shapes. See "Draw roles and states as shapes instead of
   words" in [Dividing a single display into segments](#dividing-a-single-display-into-segments).
@@ -1043,8 +1088,8 @@ The Monarch and the keyboard come with these layers:
   and includes all the graphics layer keys. Adds o to zoom to one pin per point, and v and v with
   dot 7 for the next and previous set of lines. Other letters still type.
 - **Monarch, picture layer.** The same, for a picture from the screen. Adds o for outlines, l for
-  single lines, b for brightness, r for brightness reversed, and Space with dots 1, 4, and 8 to
-  cycle through them.
+  single lines, b for brightness, r for brightness reversed, Space with dots 1, 4, and 8 to
+  cycle through them, and c to draw only the colour last touched.
 - **Monarch, table layer.** With the caret in a table on a web page, or in a table laid out in
   columns, press the layer key to turn it on. The left d-pad moves by table cell, and the zoom
   keys go to the next and previous page of columns. It stays on until you turn it off.

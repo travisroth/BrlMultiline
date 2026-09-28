@@ -201,7 +201,7 @@ class TestGrabbingWithPillow(CaptureTestCase):
 		picture = imageSource.capture(0, 0, 1600, 1000)
 		grabbed = FakeScreenBitmap.asked[0]
 		self.assertEqual(grabbed, (1600, 1000))
-		self.assertLessEqual(picture.width * picture.height, imageSource.MAX_PIXELS)
+		self.assertLessEqual(picture.width * picture.height, imageSource.keepPixels())
 		self.assertAlmostEqual(picture.width / picture.height, 1.6, places=1)
 
 	def test_somethingHugeIsCopiedNoLargerThanTheGrabLimit(self):
@@ -219,7 +219,7 @@ class TestGrabbingWithPillow(CaptureTestCase):
 
 		sys.modules["screenBitmap"] = types.SimpleNamespace(ScreenBitmap=Rows)
 		picture = imageSource.capture(0, 0, 900, 500)
-		self.assertLessEqual(picture.width * picture.height, imageSource.MAX_PIXELS)
+		self.assertLessEqual(picture.width * picture.height, imageSource.keepPixels())
 		self.assertEqual(picture.greys[0], 10)
 
 
@@ -229,7 +229,7 @@ class TestGrabbingWithoutPillow(WithoutPillow, CaptureTestCase):
 	def test_whatIsCopiedIsWhatIsKept(self):
 		picture = imageSource.capture(0, 0, 1600, 1000)
 		self.assertEqual(FakeScreenBitmap.asked[0], (picture.width, picture.height))
-		self.assertLessEqual(picture.width * picture.height, imageSource.MAX_PIXELS)
+		self.assertLessEqual(picture.width * picture.height, imageSource.keepPixels())
 
 
 class TestKeepingThinLines(unittest.TestCase):

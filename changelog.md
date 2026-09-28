@@ -8,6 +8,28 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **A picture can be drawn from the clipboard.** A new command draws an image you have copied,
+  with Copy image in a browser, or an image file copied in File Explorer. It works with the
+  screen curtain on, nothing on top of the picture on screen gets into it, and the image is used
+  at its own size, so there is more to magnify. Transparent parts are drawn as white and photos
+  are turned the right way up. It has no key by default. Needs Pillow, and says so without it.
+
+- **Pictures have their colours.** A routing press on a picture names the colour under your
+  finger before where it is: the line or shape's colour if you are on one, the background's if
+  not. A new command, c on the Monarch's picture layer, then draws only that colour, in any
+  style, keeping your place, and pressing it again brings every colour back: one series of a
+  chart, the rivers on a map. Outlines now find edges in colour as well as brightness, so a red
+  shape on a green of the same brightness has an outline where before there was nothing to
+  draw. Needs Pillow.
+
+- **Blank margins are left out of a picture.** Padding around a diagram or a logo in the middle
+  of a banner used to take its share of the display; the drawing now starts from what is in the
+  picture, with a little room round it, so the content is larger. Positions you hear are still
+  across the whole picture.
+
+- **Pictures keep more detail when Pillow is there**, 1.44 megapixels rather than 360,000, which
+  is one more doubling of magnification before a pin stands on a single pixel.
+
 - **Pictures can be drawn as single lines.** A fourth picture style, between outlines and
   brightness, that draws each line in a picture once, down its middle. Outlines draw a stroke as
   two lines, one on each side of the ink; a hexagon drawn with a pen is now six sides under the

@@ -75,12 +75,13 @@ if TYPE_CHECKING:
 	from PIL.Image import Image as PillowImage
 
 try:
-	from PIL import Image as _Image, ImageFilter as _ImageFilter
+	from PIL import Image as _Image, ImageChops as _ImageChops, ImageFilter as _ImageFilter
 except Exception:
 	# ImportError on an NVDA without it, and anything else on one whose copy will not load: a
 	# missing or mismatched native module raises OSError or ImportError depending on how it is
 	# missing. Either way the answer is the same, which is the Python path.
 	_Image = None
+	_ImageChops = None
 	_ImageFilter = None
 
 __all__ = [
@@ -97,6 +98,7 @@ __all__ = [
 	"greysFromPixels",
 	"hasPillow",
 	"pictureFromBgrx",
+	"pictureFromImage",
 	"place",
 	"render",
 	"renderAt",
@@ -216,6 +218,40 @@ the scale altogether: its skeleton is a dot, so its width comes out as its whole
 
 At four a stroke is a band a fingertip can feel the width of, and a band has two sides worth
 feeling.
+"""
+
+TRIM_KEEPS = 0.85
+"""Past this share of the picture, content is left untrimmed.
+
+Trimming a picture that is nearly all content moves its drawing by a pin or two and gains
+nothing a hand could notice, while making the same picture sit differently from one capture to
+the next. So a trim that would keep more than this of the area is not made.
+"""
+
+TRIM_MARGIN = 0.04
+"""How much room to leave round trimmed content, as a share of its longer side.
+
+Not none, because outlines never raise the outermost ring of the panel -- a Sobel has nothing
+beyond the border to compare with -- and content trimmed flush would lose its own outer edge.
+Four per cent is about a pin and a half at fit, which clears the ring with room to spare.
+"""
+
+COLOUR_REACH = 85
+"""How far a colour may be from the one asked for and still count as it, per channel.
+
+Out of 255, on whichever of red, green and blue differs most. A plotted line is drawn
+anti-aliased and a photograph is compressed, so the colour a reader touched is really a small
+cloud of colours; eighty-five takes in the cloud and not the neighbouring series. Distances are
+scaled so this one lands at full white, and the usual Otsu split then decides where the colour
+ends -- which is what lets the edge pixels of a line fall on the side they mostly belong to.
+"""
+
+INK_FROM_PAPER = 40
+"""How far a pixel must be from the paper, on its most different channel, to count as ink.
+
+What `Picture.colourAt` asks before naming a colour under a finger. Less than this and the
+finger is on paper, and the paper's colour is the true answer. JPEG noise and anti-aliased
+fringes stay under it; any line a hand would want named is well over it.
 """
 
 SPARSE = 0.004
@@ -432,12 +468,48 @@ def pictureFromBgrx(
 	if pillow is None or len(raw) != width * height * 4:
 		return None
 	try:
-		image = pillow.frombuffer("RGB", (width, height), raw, "raw", "BGRX", 0, 1).convert("L")
+		colour = pillow.frombuffer("RGB", (width, height), raw, "raw", "BGRX", 0, 1)
 		if (width, height) != (keep[0], keep[1]):
-			image = image.resize((keep[0], keep[1]), pillow.Resampling.BOX)
+			colour = colour.resize((keep[0], keep[1]), pillow.Resampling.BOX)
+		image = colour.convert("L")
 	except Exception:
 		return None
-	return Picture(bytearray(image.tobytes()), image.width, image.height, name, image=image)
+	return Picture(bytearray(image.tobytes()), image.width, image.height, name, image=image, colour=colour)
+
+
+def pictureFromImage(image: "PillowImage", keep: "tuple[int, int]", name: str = "") -> "Picture | None":
+	"""Make a picture from an image that did not come off the screen: a file, the clipboard.
+
+	**Transparency is laid on white.** A picture with see-through parts -- most icons, logos
+	and diagrams on the web -- stores some colour behind the transparency, very often black,
+	and dropping the transparency hands that colour over as though it were drawn. A black logo
+	on a transparent ground would arrive as black on black and draw as nothing. Laid on white,
+	it is what the page showed, since white is what the page usually was.
+
+	**A photograph is turned the way it was taken.** Cameras store a photo sideways and record
+	which way up it goes; the picture is turned by that record first, so what reaches the pins
+	is what anybody looking at it sees.
+
+	:param image: the image, as Pillow opened it.
+	:param keep: `(width, height)` to hold on to, no larger than the image.
+	:param name: what to call the picture.
+	:return: the picture, or None if Pillow is not there.
+	"""
+	pillow = _Image
+	if pillow is None:
+		return None
+	from PIL import ImageOps
+
+	image = ImageOps.exif_transpose(image) or image
+	if image.mode in ("RGBA", "LA", "PA") or (image.mode == "P" and "transparency" in image.info):
+		image = image.convert("RGBA")
+		ground = pillow.new("RGBA", image.size, (255, 255, 255, 255))
+		image = pillow.alpha_composite(ground, image)
+	colour = image.convert("RGB")
+	if colour.size != (keep[0], keep[1]):
+		colour = colour.resize((keep[0], keep[1]), pillow.Resampling.BOX)
+	grey = colour.convert("L")
+	return Picture(bytearray(grey.tobytes()), grey.width, grey.height, name, image=grey, colour=colour)
 
 
 def _topOf(values, share: float = REFERENCE_SHARE) -> int:
@@ -473,6 +545,7 @@ class Picture:
 		height: int,
 		name: str = "",
 		image: "PillowImage | None" = None,
+		colour: "PillowImage | None" = None,
 	):
 		"""
 		:param greys: one brightness per pixel, row major.
@@ -481,6 +554,8 @@ class Picture:
 		:param name: what to call this picture when a reader asks what is on the display.
 		:param image: the same pixels as a Pillow "L" image, if the capture already has one.
 			Made from `greys` when first needed otherwise.
+		:param colour: the same pixels in colour, as a Pillow "RGB" image. Only a capture made
+			with Pillow has one, and everything that needs colour says so when it is missing.
 		"""
 		self.greys = greys
 		self.width = width
@@ -488,6 +563,15 @@ class Picture:
 		self.name = name
 		self._strength = None
 		self._image: "PillowImage | None" = image
+		self.colour: "PillowImage | None" = colour
+		self._content: "tuple[int, int, int, int] | None" = None
+		self._paper: "tuple[int, int, int] | None" = None
+		self.derivedFrom: "Picture | None" = None
+		"""The picture this one was made from, for a picture of one colour of another."""
+		self.onlyColour: "tuple[int, int, int] | None" = None
+		"""The colour this picture keeps, if it is a picture of one colour of another."""
+		self.touched: "tuple[int, int, int] | None" = None
+		"""The colour under the last routing press on this picture, kept on the original."""
 
 	def _pillow(self) -> "PillowImage | None":
 		""":return: these pixels as a Pillow image, or None to go the Python way.
@@ -504,6 +588,205 @@ class Picture:
 			except Exception:
 				return None
 		return self._image
+
+	@property
+	def content(self) -> "tuple[int, int, int, int]":
+		""":return: the part of the picture with something in it, as a source box.
+
+		**Blank margins cost the reader pins.** A diagram exported with a wide white border, a
+		logo in the middle of a banner, a chart with padding: the picture is fitted to the
+		panel whole, margin and all, so the part that matters arrives smaller than it needed to
+		be. The box the drawing starts from is cut down to what differs from the picture's own
+		border tone, with `TRIM_MARGIN` left round it.
+
+		"Differs" means by `SUBJECT_TONES`, the tone difference this module already treats as
+		something the picture is saying. That is above faint background texture -- measured on
+		the hexagon fixture, its hatch stays within ten levels of the border, and the ink starts
+		past fifteen -- and above JPEG noise.
+
+		The pixels are all kept; only where the drawing starts moves. A routing press still
+		says where it is in the whole capture, and a picture of one colour of this one keeps
+		this box, so that it lands where the picture it came from did.
+
+		Measured once and kept. Pillow finds the box in one call; without it, each row and each
+		column is tested as a slice.
+		"""
+		if self._content is None:
+			self._content = self._findContent()
+		return self._content
+
+	def _findContent(self) -> "tuple[int, int, int, int]":
+		""":return: the trimmed box. See `content`."""
+		whole = (0, 0, self.width, self.height)
+		if not self.greys or self.width < 3 or self.height < 3:
+			return whole
+		paper = self.border
+		low = paper - SUBJECT_TONES
+		high = paper + SUBJECT_TONES
+		image = self._pillow()
+		if image is not None:
+			found = image.point([0 if low <= value <= high else 255 for value in range(256)]).getbbox()
+			if not found:
+				return whole
+			left, top, right, bottom = found
+		else:
+			width = self.width
+			greys = self.greys
+			rows = [
+				y
+				for y in range(self.height)
+				if min(greys[y * width : (y + 1) * width]) < low
+				or max(greys[y * width : (y + 1) * width]) > high
+			]
+			if not rows:
+				return whole
+			columns = [x for x in range(width) if min(greys[x::width]) < low or max(greys[x::width]) > high]
+			left, right = columns[0], columns[-1] + 1
+			top, bottom = rows[0], rows[-1] + 1
+		room = max(2, round(TRIM_MARGIN * max(right - left, bottom - top)))
+		left = max(0, left - room)
+		top = max(0, top - room)
+		right = min(self.width, right + room)
+		bottom = min(self.height, bottom + room)
+		if (right - left) * (bottom - top) > TRIM_KEEPS * self.width * self.height:
+			return whole
+		return left, top, right - left, bottom - top
+
+	@property
+	def paper(self) -> "tuple[int, int, int] | None":
+		""":return: the colour round the edge of the picture, or None if there is no colour.
+
+		The colour counterpart of `border`, and taken the same way, from the outermost pixels,
+		since what is round the edge of a picture is almost always what it is drawn on.
+		"""
+		if self.colour is None:
+			return None
+		if self._paper is None:
+			colour = self.colour
+			width, height = colour.size
+			total = [0, 0, 0]
+			count = 0
+			for strip in (
+				(0, 0, width, 1),
+				(0, height - 1, width, height),
+				(0, 0, 1, height),
+				(width - 1, 0, width, height),
+			):
+				for red, green, blue in colour.crop(strip).getdata():
+					total[0] += red
+					total[1] += green
+					total[2] += blue
+					count += 1
+			self._paper = (total[0] // count, total[1] // count, total[2] // count)
+		return self._paper
+
+	def colourAt(self, box: "tuple[int, int, int, int]") -> "tuple[int, int, int] | None":
+		"""What colour is under a finger: the ink there if there is any, else the paper.
+
+		**The ink, not the average.** A pin on a plotted line covers the line and the white
+		either side of it, and their average is a pale wash of the line's colour that nobody
+		drew. So the pixels furthest from the paper are found, and those within a quarter of the
+		furthest are averaged: the core of the stroke, with its anti-aliased fringe left out.
+		Less than `INK_FROM_PAPER` from the paper and there is no ink here, and the paper's own
+		colour is the answer.
+
+		:param box: `(left, top, width, height)` in picture pixels, clipped to the picture.
+		:return: red, green and blue, or None if the picture has no colour or the box is empty.
+		"""
+		paper = self.paper
+		if paper is None or self.colour is None:
+			return None
+		left, top, width, height = box
+		right = min(self.width, left + width)
+		bottom = min(self.height, top + height)
+		left = max(0, left)
+		top = max(0, top)
+		if right <= left or bottom <= top:
+			return None
+		pixels = list(self.colour.crop((left, top, right, bottom)).getdata())
+
+		def distance(pixel: "tuple[int, int, int]") -> int:
+			return max(abs(pixel[0] - paper[0]), abs(pixel[1] - paper[1]), abs(pixel[2] - paper[2]))
+
+		furthest = max(distance(pixel) for pixel in pixels)
+		if furthest < INK_FROM_PAPER:
+			return paper
+		core = [pixel for pixel in pixels if distance(pixel) * 4 >= furthest * 3]
+		return (
+			sum(pixel[0] for pixel in core) // len(core),
+			sum(pixel[1] for pixel in core) // len(core),
+			sum(pixel[2] for pixel in core) // len(core),
+		)
+
+	def ofOneColour(self, rgb: "tuple[int, int, int]", name: str = "") -> "Picture | None":
+		"""A picture of just the parts of this one that are a given colour.
+
+		**Made as a new picture of the same size, so every style works on it unchanged.** Its
+		greys are how far each pixel is from the colour -- the colour itself black, everything
+		`COLOUR_REACH` away or further white -- so the colour becomes dark ink on white paper,
+		and outlines, single lines and brightness all draw it with nothing new to learn. A
+		chart's one series comes out as that one line; a map's rivers as the rivers.
+
+		Distance is on whichever of red, green and blue differs most. Crude beside a proper
+		perceptual measure, and enough for what readers point this at, which is colours chosen
+		to be told apart.
+
+		:param rgb: the colour to keep.
+		:param name: what to call the result.
+		:return: the picture, or None if this one has no colour to go on.
+		"""
+		pillow = _Image
+		chops = _ImageChops
+		if self.colour is None or pillow is None or chops is None:
+			return None
+		apart = chops.difference(self.colour, pillow.new("RGB", self.colour.size, tuple(rgb)))
+		red, green, blue = apart.split()
+		furthest = chops.lighter(chops.lighter(red, green), blue)
+		grey = furthest.point([min(255, value * 255 // COLOUR_REACH) for value in range(256)])
+		picture = Picture(
+			bytearray(grey.tobytes()),
+			self.width,
+			self.height,
+			name,
+			image=grey,
+			colour=self.colour,
+		)
+		picture.derivedFrom = self
+		picture.onlyColour = (rgb[0], rgb[1], rgb[2])
+		picture._content = self.content
+		return picture
+
+	def channels(
+		self,
+		box: "tuple[int, int, int, int]",
+		outWidth: int,
+		outHeight: int,
+	) -> "list[bytearray] | None":
+		""":return: red, green and blue each reduced as `reduce` does, or None without colour.
+
+		What lets outlines see an edge that exists only in colour. See `_edgeCells`.
+
+		None for a picture of one colour of another, too. It carries the original's colour so
+		that a routing press can still name what is under the finger, but its edges are the
+		edges of the one colour, which are in its greys and nowhere else.
+		"""
+		pillow = _Image
+		if (
+			self.colour is None
+			or self.onlyColour is not None
+			or pillow is None
+			or outWidth <= 0
+			or outHeight <= 0
+			or not self._inside(box)
+		):
+			return None
+		left, top, width, height = box
+		reduced = self.colour.resize(
+			(outWidth, outHeight),
+			pillow.Resampling.BOX,
+			box=(left, top, left + width, top + height),
+		)
+		return [bytearray(channel.tobytes()) for channel in reduced.split()]
 
 	@property
 	def spread(self) -> int:
@@ -579,7 +862,7 @@ class Picture:
 		across = max(across, min(3, self.width))
 		down = max(down, min(3, self.height))
 		greys = self.reduce((0, 0, self.width, self.height), across, down)
-		cells = _gradients(greys, across, down)
+		cells = _edgeCells(self, (0, 0, self.width, self.height), greys, across, down)
 		return Strength(_topOf([cell[0] for cell in cells]), _separation(greys))
 
 	def reduce(self, box, outWidth: int, outHeight: int, background: "int | None" = None) -> bytearray:
@@ -1043,7 +1326,40 @@ def _fitEdges(kept, cut: int, width: int, height: int, ceiling: int):
 	return out or None
 
 
-def edgePins(greys, width: int, height: int, coverage: float = EDGE_COVERAGE) -> Rendering:
+def _edgeCells(picture: "Picture", box: "tuple[int, int, int, int]", greys, width: int, height: int) -> list:
+	"""Sobel over a reduction, in colour when there is colour.
+
+	**Two colours of the same brightness are the same grey.** A red line on a green ground, a
+	blue series beside a purple one, a coloured region on a map shaded to match its neighbour:
+	turned grey, each is a flat field, and outlines have nothing to find. So when the picture
+	kept its colour, the gradient is taken on red, green and blue separately and each cell
+	keeps the strongest of the three, direction and all.
+
+	Nothing is lost on a grey picture. Grey is a weighted average of the three channels, so
+	where grey changes, at least one channel changes by as much: an edge outlines found before
+	is found at the same strength or stronger. The picture's own strength reference is taken
+	the same way, so a window is still held against a yardstick measured like itself.
+
+	:param picture: whose colour to use, if it has any.
+	:param box: the source rectangle `greys` was reduced from.
+	:param greys: the grey reduction, used when there is no colour.
+	:param width: cells across.
+	:param height: cells down.
+	:return: as `_gradients`.
+	"""
+	channels = picture.channels(box, width, height)
+	if channels is None:
+		return _gradients(greys, width, height)
+	strongest: dict = {}
+	for channel in channels:
+		for cell in _gradients(channel, width, height):
+			held = strongest.get(cell[3])
+			if held is None or cell[0] > held[0]:
+				strongest[cell[3]] = cell
+	return [strongest[place] for place in sorted(strongest)]
+
+
+def edgePins(greys, width: int, height: int, coverage: float = EDGE_COVERAGE, cells=None) -> Rendering:
 	"""Raise a pin wherever the picture changes fastest.
 
 	**The coverage is a ceiling and not a target, and that distinction is the whole of this.**
@@ -1068,10 +1384,12 @@ def edgePins(greys, width: int, height: int, coverage: float = EDGE_COVERAGE) ->
 	:param width: cells across.
 	:param height: cells down.
 	:param coverage: the most of the picture that may be raised.
+	:param cells: the gradients already taken, from `_edgeCells`, or None to take them here.
 	:return: the pins.
 	"""
 	pins = bytearray(width * height)
-	cells = _gradients(greys, width, height)
+	if cells is None:
+		cells = _gradients(greys, width, height)
 	if not cells:
 		return Rendering(pins, width, height, 0)
 	kept = _thin(cells, width, height)
@@ -1452,10 +1770,14 @@ def strokePins(
 			for place in group:
 				pins[place] = 1
 			kept += len(group)
-	if kept:
+	if kept * 2 >= ceiling:
 		return Rendering(pins, width, height, kept, crowded=True)
-	# One stroke larger than the whole budget: a scribble, or a texture Otsu took for ink. As
-	# with outlines, an even scattering, marked.
+	# Most of the ink is one tangle larger than the whole budget -- a scribble, a dense web of
+	# crossing lines, a texture Otsu took for ink -- so keeping whole strokes keeps only the
+	# specks round it. Found on forty crossing lines: one network over the ceiling and a
+	# three pin fragment beside it, drawn as three pins. As with outlines, an even scattering
+	# of all of it instead, marked, which tells the reader to magnify.
+	pins = bytearray(width * height)
 	return Rendering(
 		pins, width, height, _raiseTopmost([1] * len(places), places, ceiling, pins), crowded=True
 	)
@@ -1589,7 +1911,14 @@ def renderAt(
 		)
 
 	greys = picture.reduce(spot.source, spot.width, spot.height)
-	if not greys or (max(greys) - min(greys)) < PLAIN:
+	flat = not greys or (max(greys) - min(greys)) < PLAIN
+	if flat and greys and mode == EDGES:
+		# Flat in grey is not flat to outlines when there is colour: red on a green of the same
+		# brightness is one grey and two colours. See `_edgeCells`.
+		channels = picture.channels(spot.source, spot.width, spot.height)
+		if channels:
+			flat = all((max(channel) - min(channel)) < PLAIN for channel in channels)
+	if flat:
 		# A flat field. Every threshold below would be arbitrary on it, and for a whole
 		# picture both ways it could go -- an empty panel and a solid one -- are
 		# indistinguishable by touch from a display that has stopped working.
@@ -1606,7 +1935,7 @@ def renderAt(
 		apart = _separation(greys)
 		found = apart >= strength.separation * MEANINGFUL or apart >= SUBJECT_TONES
 	else:
-		cells = _gradients(greys, spot.width, spot.height)
+		cells = _edgeCells(picture, spot.source, greys, spot.width, spot.height)
 		strongest = max((cell[0] for cell in cells), default=0)
 		# Four times, because a clean step of n tones answers as 4n through a Sobel.
 		found = strongest >= strength.gradient * MEANINGFUL or strongest >= 4 * SUBJECT_TONES
@@ -1622,7 +1951,7 @@ def renderAt(
 		inked = picture.reduceInk(spot.source, spot.width, spot.height, dark)
 		rendering = strokePins(inked, spot.width, spot.height, dark, plain=greys)
 	else:
-		rendering = edgePins(greys, spot.width, spot.height)
+		rendering = edgePins(greys, spot.width, spot.height, cells=cells)
 	if whole and rendering.coverage < SPARSE:
 		# Only of a whole picture. A window this sparse has found a little of something real,
 		# and a few true pins are worth more to a reader panning across a drawing than a

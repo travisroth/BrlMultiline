@@ -117,6 +117,13 @@ class CarriedPin(NamedTuple):
 	wasFlowing: bool
 
 
+def _pictureRoot(picture):
+	""":return: the captured picture another was made from, or the picture itself."""
+	while picture is not None and getattr(picture, "derivedFrom", None) is not None:
+		picture = picture.derivedFrom
+	return picture
+
+
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	scriptCategory = SCRIPT_CATEGORY
 
@@ -3034,6 +3041,85 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
+		description=_("Graphics: Draw the picture on the clipboard"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_drawClipboardPicture(self, gesture):
+		"""Draw an image copied to the clipboard, or an image file copied in File Explorer.
+
+		The way round everything a screen capture cannot do: it works with the screen curtain
+		on, nothing covering the picture on screen can get into it, and it has the image at
+		its own size rather than the size it was shown at. In a browser, Copy image from the
+		context menu; in File Explorer, copy the file.
+
+		Unbound by default, like the glyph catalogue. The Monarch's free chords are few, and
+		which of them NVDA's own driver has not taken is not something this add-on can check.
+		"""
+		self._drawPicture(again=False, capture=lambda: imageSource.captureClipboard())
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Draw only the colour last touched on a picture, or all colours again"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_pictureOnlyColour(self, gesture):
+		"""Redraw the picture with only the colour under the last routing press, or undo that.
+
+		A routing press on a picture names the colour under the finger; this then draws that
+		colour alone, in whatever style is up. One series of a chart, the rivers on a map, the
+		highlighted route. Pressed again, every colour comes back.
+
+		Kept to the part of the picture the reader is on, the way a change of style is: the
+		colour picture is the same size and starts from the same box, so a reader zoomed into a
+		legend can pick a colour there and stay there.
+		"""
+		mode = self.graphicsMode
+		picture = self._picture
+		if picture is None or not mode.active or mode.source is not self._pictureDrawing:
+			ui.message(_("There is no picture to change"))
+			return
+		if picture.derivedFrom is not None:
+			self._drawPicture(
+				again=True,
+				picture=picture.derivedFrom,
+				# Translators: reported when a picture will not draw with all its colours back at
+				# the part of it the reader has magnified.
+				cannotHere=_("All the colours will not draw the part you are on"),
+			)
+			return
+		if picture.colour is None:
+			# Translators: reported when only one colour of a picture was asked for, and the
+			# picture was captured without its colours, which needs the Pillow library.
+			ui.message(_("This picture has no colours to choose from; that needs the Pillow library"))
+			return
+		if picture.touched is None:
+			# Translators: reported when only one colour of a picture was asked for before any
+			# colour had been touched. Says how to choose one.
+			ui.message(_("Press a routing key on the colour you want first"))
+			return
+		paper = picture.paper
+		fromPaper = max(abs(a - b) for a, b in zip(picture.touched, paper)) if paper is not None else 255
+		if fromPaper < imagePins.INK_FROM_PAPER:
+			# Drawing only the paper raises everything that is not a line, which is the picture
+			# inside out rather than a colour of it. The press almost certainly missed.
+			# Translators: reported when only one colour of a picture was asked for and the colour
+			# last touched is the background. Says how to choose a colour that is drawn.
+			ui.message(_("That is the background; press a routing key on a line or shape first"))
+			return
+		chosen = picture.ofOneColour(picture.touched, picture.name)
+		if chosen is None:
+			ui.message(_("The picture could not be drawn, see the log"))
+			return
+		self._drawPicture(
+			again=True,
+			picture=chosen,
+			# Translators: reported when one colour of a picture will not draw at the part of it
+			# the reader has magnified, usually because that colour is not there.
+			cannotHere=_("That colour will not draw the part you are on"),
+		)
+
+	@script(
+		# Translators: input help message for a command.
 		description=_("Graphics: Change how a picture is drawn"),
 		category=SCRIPT_CATEGORY,
 	)
@@ -3109,7 +3195,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._pictureStyle = tuple(style)
 		self._drawPicture(again=True)
 
-	def _drawPicture(self, again: bool) -> None:
+	def _drawPicture(
+		self,
+		again: bool,
+		capture=None,
+		picture=None,
+		cannotHere: "str | None" = None,
+	) -> None:
 		"""Capture if needed, compose, and put a picture on the display.
 
 		The size is asked for here rather than carried in, because the rectangle a drawing
@@ -3118,6 +3210,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		:param again: whether to re-use the pixels already captured rather than copying the
 			screen. True for a change of style, False for a new picture.
+		:param capture: where a new picture comes from, `imageSource.captureNavigator` if None.
+		:param picture: a picture to draw in place of the one held, made from it -- one colour
+			of it, or the original back again. Drawn keeping the reader's place.
+		:param cannotHere: what to say if that keeps the place and the place will not draw.
 		"""
 		mode = self.graphicsMode
 		# Whatever the reader has already decided about the braille line beside the drawing.
@@ -3134,10 +3230,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# A is still on the display -- and the cached pixels are now B while the drawing and
 		# the mode still hold A. The style key checks that the drawing on the display is the
 		# last picture drawing, which it is, so the next press would draw B over A.
-		captured = self._picture
+		captured = picture if picture is not None else self._picture
 		try:
 			if not again or captured is None:
-				captured = imageSource.captureNavigator()
+				captured = capture() if capture is not None else imageSource.captureNavigator()
 			drawing = imageFigure.figureFor(
 				mode.newBuffer,
 				captured,
@@ -3160,18 +3256,24 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# A change of style on the picture already up keeps the reader where they were. Going
 		# through `enter` would reset the zoom and both origins, so switching styles to compare
 		# them would move the reader off the part they were comparing.
+		# One colour of a picture is the same pixels and starts from the same box, so it keeps
+		# the place as a change of style does.
 		keepingPlace = (
 			again
 			and mode.active
-			and captured is self._picture
+			and self._picture is not None
+			and _pictureRoot(captured) is _pictureRoot(self._picture)
 			and mode.source is self._pictureDrawing
 			and self._pictureDrawing is not None
 		)
 		if keepingPlace:
 			if not mode.replaceSource(drawing):
-				# Translators: reported when a picture will not draw in the style just asked
-				# for, at the part of it the reader has magnified.
-				ui.message(_("This style will not draw the part you are on"))
+				ui.message(
+					cannotHere
+					# Translators: reported when a picture will not draw in the style just asked
+					# for, at the part of it the reader has magnified.
+					or _("This style will not draw the part you are on"),
+				)
 				return
 		elif not mode.enter(drawing, textLines=textLines):
 			ui.message(mode.lastError or _("The drawing could not be shown"))

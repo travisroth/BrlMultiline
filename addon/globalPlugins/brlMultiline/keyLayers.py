@@ -725,6 +725,7 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 				normalize(f"br({MONARCH}):dot1+dot2+dot3"): plugin("pictureLines"),
 				normalize(f"br({MONARCH}):dot1+dot2"): plugin("pictureBrightness"),
 				normalize(f"br({MONARCH}):dot1+dot2+dot3+dot5"): plugin("pictureReversed"),
+				normalize(f"br({MONARCH}):dot1+dot4"): plugin("pictureOnlyColour"),
 				normalize(f"br({MONARCH}):space+dot1+dot4+dot8"): plugin("pictureStyle"),
 			},
 		)

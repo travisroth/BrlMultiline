@@ -1470,8 +1470,8 @@ readable and testable on a list of numbers.
 copies, and the memory device context it copies into is left in the default "black on white"
 stretch mode, which combines the pixels it drops with a bitwise AND of their colours. That keeps
 black on white and does something arbitrary to colour. With Pillow, the rectangle is copied at up
-to two megapixels and box-averaged down to the 360,000 pixels kept. Without Pillow, Windows still
-does the shrink, as before.
+to two megapixels and box-averaged down to the pixels kept (`PILLOW_PIXELS`, below). Without
+Pillow, Windows still does the shrink, as before.
 
 **Grey is still Rec. 601, not NVDA's.** `screenBitmap.rgbPixelBrightness` exchanges the red and
 blue weights. Pillow's `convert("L")` uses the correct weights in 16 bit fixed point, and the
@@ -1511,6 +1511,56 @@ Three things make it work on real pictures:
 There is no reversed single lines. The ink is taken as the smaller of Otsu's two classes, and a
 stroke is thin by being a stroke, so the guess is rarely wrong. A fifth style would cost a press
 on every picture for a case brightness reversed already covers.
+
+#### What Pillow made possible besides speed
+
+Four things, each something a grey capture of the screen could not give a reader.
+
+**Trimming.** `Picture.content` cuts the box a drawing starts from down to what differs from the
+picture's border tone by `SUBJECT_TONES`, with `TRIM_MARGIN` left round it so outlines, which
+never raise the outermost ring, keep the content's own edge. A trim that would keep more than
+`TRIM_KEEPS` of the area is not made. Only where the drawing starts moves: the pixels are all
+kept, and a routing press still reports its place across the whole capture. This one works
+without Pillow too, testing each row and column as a slice.
+
+**More pixels.** With Pillow a picture keeps up to `PILLOW_PIXELS`, 1.44 megapixels, rather than
+`MAX_PIXELS`. The zoom ladder goes to 32 times, so the limit on how far a picture magnifies is
+where a pin stands on one pixel, and four times the pixels is one more doubling before that.
+The cost is time in the one style that works on pixels after the first reduction: single lines
+took under 50 ms for a whole picture at the new size on the development machine.
+
+**The clipboard.** `imageSource.captureClipboard` reads an image copied to the clipboard, or the
+first image among copied files, through `ImageGrab.grabclipboard`. It reaches what the screen
+capture cannot: it works under the screen curtain, cannot be covered by another window, and has
+the image at its own size. Transparency is laid on white before anything else, because most
+transparent images keep black behind the transparency and would otherwise arrive black on
+black. There is no Python path for this: decoding PNG and JPEG by hand is not a fallback worth
+carrying, and the screen capture is still there without Pillow.
+
+**Colour.** A picture made with Pillow keeps an RGB copy beside its greys, and three things read
+it.
+
+1. *Naming.* A routing press says the colour under the finger, using NVDA's own `colors.RGB`
+   names so the words are translated and familiar. What is named is the ink, not the average: a
+   pin across a thin red line is mostly white, and averaging it gives a pink nobody drew. So the
+   pixels furthest from the paper are found and those within a quarter of the furthest averaged,
+   over the pin pressed and one pin round it. Below `INK_FROM_PAPER` the finger is on paper, and
+   the paper's colour is the answer.
+2. *One colour.* `Picture.ofOneColour` makes a new picture of the same size whose greys are each
+   pixel's distance from the colour, on the channel that differs most, scaled so `COLOUR_REACH`
+   is white. The colour becomes dark ink on white and every style draws it unchanged. It keeps
+   the original's content box, so switching keeps the reader's place.
+3. *Edges.* Outlines take the Sobel on red, green and blue separately and keep the strongest per
+   cell. Two colours of one brightness are one grey, and an edge between them used to be refused
+   as a flat picture. Nothing changes for a grey picture, since grey is an average of the
+   channels and a channel always changes at least as much. The strength reference is taken the
+   same way.
+
+**Found while building it: a tangle is not a set of strokes.** Single lines keeps whole strokes,
+largest first, when there is more than the ceiling allows. Forty crossing lines are one network
+larger than the ceiling, so what was kept was a three pin fragment beside it. Now, if the whole
+strokes kept come to less than half the ceiling, the style draws an even scattering of all of it
+and says the picture is too detailed, the same answer outlines give.
 
 #### What this is not, and what comes after
 

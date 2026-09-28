@@ -108,15 +108,21 @@ def newBuffer(width, height):
 	return PinBuffer(width, height)
 
 
-def picture(width=96, height=96, name="a picture"):
-	""":return: a capture of a dark square on a light field."""
+def picture(width=96, height=96, name="a picture", framed=False):
+	""":return: a capture of a dark square on a light field.
+
+	:param framed: draw a dark line round the very edge too, so that the picture has content
+		out to its borders and nothing is trimmed from it. For the tests that are about where
+		a press lands in the whole capture, which trimming would otherwise move.
+	"""
 	size = min(width, height) // 3
 	left = (width - size) // 2
 	top = (height - size) // 2
 	greys = bytearray()
 	for y in range(height):
 		for x in range(width):
-			greys.append(0 if (left <= x < left + size and top <= y < top + size) else 255)
+			edge = framed and (x in (0, width - 1) or y in (0, height - 1))
+			greys.append(0 if edge or (left <= x < left + size and top <= y < top + size) else 255)
 	return imagePins.Picture(greys, width, height, name)
 
 
@@ -335,7 +341,7 @@ class TestHowManyPixelsAreKept(ScreenCapture):
 		downstream could know it had happened."""
 		self.navigator.location = (0, 0, 4000, 2000)
 		found = imageSource.captureNavigator()
-		self.assertLessEqual(found.width * found.height, imageSource.MAX_PIXELS)
+		self.assertLessEqual(found.width * found.height, imageSource.keepPixels())
 		self.assertAlmostEqual(found.width / found.height, 2.0, places=1)
 
 	def test_nothingIsEverEnlarged(self):
@@ -385,13 +391,14 @@ class TestWhereAPressSaysItIs(unittest.TestCase):
 	so the number is wrong exactly when they have most need of it, since zooming in is what
 	somebody does when they have lost the place.
 
-	The picture here is the panel's own shape, so there is no margin to reason about at the
-	same time. `TestAPictureKeepsItsShape` covers the letterbox.
+	The picture here is the panel's own shape and framed out to its edges, so there is no
+	margin and nothing to trim to reason about at the same time. `TestAPictureKeepsItsShape`
+	covers the letterbox, and `test_imageColour` the trim.
 	"""
 
 	def panelShaped(self):
 		""":return: a picture with the panel's proportions, so there is no margin."""
-		return picture(PANEL[0] * 5, PANEL[1] * 5)
+		return picture(PANEL[0] * 5, PANEL[1] * 5, framed=True)
 
 	def percentages(self, said):
 		""":return: the two numbers a press reported."""

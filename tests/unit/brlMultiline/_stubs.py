@@ -2906,6 +2906,36 @@ class FakeVirtualBufferClass:
 		self.updates += 1
 
 
+class FakeRGB(tuple):
+	"""NVDA's `colors.RGB`, reduced to its `name`.
+
+	The real one names by hue, saturation and brightness from translated tables. This names
+	the nearest of a few plain colours, which is all a test needs: that a colour was named, and
+	which of a handful it was nearest.
+	"""
+
+	NAMES = {
+		(0, 0, 0): "black",
+		(255, 255, 255): "white",
+		(128, 128, 128): "grey",
+		(255, 0, 0): "red",
+		(0, 160, 0): "green",
+		(0, 0, 255): "blue",
+		(255, 255, 0): "yellow",
+		(255, 128, 0): "orange",
+		(128, 0, 128): "purple",
+	}
+
+	def __new__(cls, red, green, blue):
+		return super().__new__(cls, (red, green, blue))
+
+	@property
+	def name(self):
+		return self.NAMES[
+			min(self.NAMES, key=lambda known: sum((a - b) ** 2 for a, b in zip(known, self)))
+		]
+
+
 def _module(name, **attributes):
 	module = types.ModuleType(name)
 	for key, value in attributes.items():
@@ -3103,6 +3133,7 @@ def installStubs() -> None:
 	if PACKAGE in sys.modules:
 		return
 	_module("logHandler", log=log)
+	_module("colors", RGB=FakeRGB)
 	# NVDA's own, and the real class rather than the add-on's fallback for it: a test that
 	# raises this is testing what the watchdog does to a COM call, and it only tests it if
 	# what the add-on catches is what the test raised. See `flow.CallCancelled`.
