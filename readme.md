@@ -465,7 +465,7 @@ a table, it says which layout applies there, if any. For the selected layout you
 - Uncheck **Only for a table with these headings**, for a site that renames a column.
 - Rename it, edit its address, or delete it.
 
-Nothing is saved until you press OK. 
+Nothing is saved until you press OK.
 
 **Excel.** An Excel worksheet reads in columns like any other table. The sheet's extent is
 whatever Excel considers used, and the row and column numbers are Excel's own. A spreadsheet has
@@ -847,6 +847,12 @@ Two messages may be announced each time you move the view:
   blank rather than refused, so you can move across an empty middle to reach the far side.
 - **"Too detailed to draw whole; magnify to read it"**: the picture has more edges than the pins
   can show, and what is drawn would feel like an even texture. Zoom in to read it.
+- **"Too detailed for the pins at this size; try drawing it from the clipboard"**: the same, but
+  you are already zoomed in as far as the picture's pixels allow, so zooming won't help. Small
+  text in a logo is the usual cause. A picture copied from the screen is only as large as it was
+  shown, so copying the image and using **Graphics: Draw the picture on the clipboard** often
+  gives more pixels to work with. If the picture already came from the clipboard, you hear
+  "too detailed for the pins, even at the closest zoom" instead.
 
 ### The braille line beside it
 

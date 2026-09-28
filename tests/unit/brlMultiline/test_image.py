@@ -151,6 +151,11 @@ class TestFindingSomethingToDraw(ScreenCapture):
 		self.assertEqual(FakeScreenBitmap.asked[0][:4], (10, 20, 200, 100))
 		self.assertTrue(found.width)
 
+	def test_aScreenCaptureKnowsItCameFromTheScreen(self):
+		"""So a picture too detailed at its limit can suggest the clipboard, which has it at
+		its own size rather than the size it was shown at."""
+		self.assertTrue(imageSource.captureNavigator().fromScreen)
+
 	def test_somethingWithNoLocationIsRefusedWithAReason(self):
 		self.navigator.location = None
 		with self.assertRaises(imagePins.ImageRefused) as refused:
@@ -321,7 +326,7 @@ class TestWhatThePictureIsCalled(ScreenCapture):
 		self.assertEqual(imageSource.nameFor(self.navigator), "a map of the site")
 
 	def test_theRoleIsTheFallbackRatherThanAPrefix(self):
-		""""graphic, graphic" says nothing twice."""
+		""" "graphic, graphic" says nothing twice."""
 		self.assertEqual(imageSource.nameFor(self.navigator), "graphic")
 
 	def test_somethingThatWillNotSayStillHasAName(self):

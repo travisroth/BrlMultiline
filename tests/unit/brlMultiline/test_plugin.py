@@ -245,6 +245,40 @@ class TestDrawingThePictureHere(unittest.TestCase):
 		self.assertIs(self.mode.source, showing)
 		self.assertTrue(any("style" in said for said in flashedMessages))
 
+	def test_andTheStyleOnTheDisplayIsStillTheOneChosen(self):
+		"""Found by review. The style was set before drawing, so after a refusal the old
+		drawing was on the display and the next press moved on from the one that failed."""
+		from brlMultiline import image as imageFigure
+
+		self.plugin.script_drawPicture(None)
+		self.mode.refuseReplace = True
+		self.plugin.script_pictureStyle(None)
+		self.assertEqual(self.plugin._pictureStyle, imageFigure.OUTLINES)
+		self.mode.refuseReplace = False
+		self.plugin.script_pictureStyle(None)
+		self.assertEqual(
+			self.plugin._pictureStyle, imageFigure.LINES, "the cycle resumes from what was shown"
+		)
+
+	def test_aStyleThePictureWillNotDrawInLeavesTheStyleAlone(self):
+		"""The other way a style is refused: composing it fails, before the display is asked."""
+		from brlMultiline import image as imageFigure
+
+		self.plugin.script_drawPicture(None)
+		realFigure = imageFigure.figureFor
+
+		def refuseSilhouettes(newBuffer, picture, width, height, mode, invert=False):
+			if mode == imagePins.BRIGHTNESS:
+				raise imagePins.ImageRefused("There is too little in this picture to feel")
+			return realFigure(newBuffer, picture, width, height, mode, invert)
+
+		imageFigure.figureFor = refuseSilhouettes
+		self.addCleanup(setattr, imageFigure, "figureFor", realFigure)
+		self.plugin.script_pictureBrightness(None)
+		self.assertIn("There is too little in this picture to feel", flashedMessages)
+		self.assertEqual(self.plugin._pictureStyle, imageFigure.OUTLINES)
+		self.assertEqual(len(self.mode.shown), 1)
+
 	def setUp(self):
 		resetPluginState()
 		self.handler = FakeHandler(MONARCH_ROWS, MONARCH_COLS)

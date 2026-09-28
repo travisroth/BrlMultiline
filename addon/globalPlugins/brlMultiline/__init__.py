@@ -30,7 +30,16 @@ from braille.extensions import displayChanged, displaySizeChanged
 from logHandler import log
 from scriptHandler import script
 
-from . import bmConfig, keyLayerContexts, keyLayerDispatch, keyLayers, panning, patches, tableArrows, tableRowLine
+from . import (
+	bmConfig,
+	keyLayerContexts,
+	keyLayerDispatch,
+	keyLayers,
+	panning,
+	patches,
+	tableArrows,
+	tableRowLine,
+)
 from . import tableHeaderSpeech
 from .container import DisplayContainer
 from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
@@ -3192,8 +3201,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# under the hand, so this only says what is there.
 			ui.message(mode.describe())
 			return
-		self._pictureStyle = tuple(style)
-		self._drawPicture(again=True)
+		# Handed over rather than set here, and kept only if it draws. Set first, a style that
+		# was refused -- it would not draw the part the reader is on, or the picture had nothing
+		# in it that way -- stayed chosen while the old drawing stayed on the display, so the
+		# next press of the cycling key moved on from a style the reader never felt. Found by
+		# review.
+		self._drawPicture(again=True, style=tuple(style))
 
 	def _drawPicture(
 		self,
@@ -3201,6 +3214,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		capture=None,
 		picture=None,
 		cannotHere: "str | None" = None,
+		style: "tuple | None" = None,
 	) -> None:
 		"""Capture if needed, compose, and put a picture on the display.
 
@@ -3214,7 +3228,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		:param picture: a picture to draw in place of the one held, made from it -- one colour
 			of it, or the original back again. Drawn keeping the reader's place.
 		:param cannotHere: what to say if that keeps the place and the place will not draw.
+		:param style: a style to draw in, kept as the style only if the drawing is shown. The
+			style already chosen if None.
 		"""
+		if style is None:
+			style = self._pictureStyle
 		mode = self.graphicsMode
 		# Whatever the reader has already decided about the braille line beside the drawing.
 		# Asking for the default instead would put the line back on a panel they had given
@@ -3239,8 +3257,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				captured,
 				size[0],
 				size[1],
-				self._pictureStyle[0],
-				self._pictureStyle[1],
+				style[0],
+				style[1],
 			)
 		except imagePins.ImageRefused as refusal:
 			# Every refusal here names what went wrong — too small, not on the screen, nothing
@@ -3282,6 +3300,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# different pictures.
 		self._picture = captured
 		self._pictureDrawing = drawing
+		self._pictureStyle = tuple(style)
 		ui.message(mode.describe())
 
 	@script(

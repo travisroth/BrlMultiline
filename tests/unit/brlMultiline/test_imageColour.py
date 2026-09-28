@@ -164,7 +164,7 @@ class TestPicturesFromFiles(unittest.TestCase):
 		"""A black logo on a transparent ground stores black behind the transparency too."""
 		image = Image.new("RGBA", (40, 40), (0, 0, 0, 0))
 		ImageDraw.Draw(image).rectangle((10, 10, 29, 29), fill=(0, 0, 0, 255))
-		picture = imagePins.pictureFromImage(image, (40, 40))
+		picture = imagePins.pictureFromImage(image, 40 * 40)
 		self.assertEqual(picture.greys[0], 255)
 		self.assertEqual(picture.greys[20 * 40 + 20], 0)
 
@@ -173,27 +173,41 @@ class TestPicturesFromFiles(unittest.TestCase):
 		ImageDraw.Draw(image).rectangle((10, 10, 29, 29), fill=(0, 0, 255, 255))
 		palette = image.convert("P")
 		palette.info["transparency"] = palette.getpixel((0, 0))
-		picture = imagePins.pictureFromImage(palette, (40, 40))
+		picture = imagePins.pictureFromImage(palette, 40 * 40)
 		self.assertEqual(picture.greys[0], 255)
 
 	def test_aLargeImageIsShrunkToWhatIsKeptAndKeepsItsColour(self):
 		image = Image.new("RGB", (800, 400), (255, 0, 0))
-		picture = imagePins.pictureFromImage(image, (400, 200))
+		picture = imagePins.pictureFromImage(image, 400 * 200)
 		self.assertEqual((picture.width, picture.height), (400, 200))
 		self.assertEqual(picture.colour.size, (400, 200))
 		self.assertEqual(picture.colour.getpixel((10, 10)), (255, 0, 0))
 
 	def test_aPhotographIsTurnedTheWayItWasTaken(self):
 		"""Orientation 6 means the camera stored it turned a quarter; wider stored, taller shown."""
-		image = Image.new("RGB", (60, 30), (255, 255, 255))
-		exif = image.getexif()
-		exif[0x0112] = 6
-		stored = io.BytesIO()
-		image.save(stored, "JPEG", exif=exif)
-		stored.seek(0)
-		opened = Image.open(stored)
-		picture = imagePins.pictureFromImage(opened, (30, 60))
+		picture = imagePins.pictureFromImage(sideways(60, 30), 60 * 30)
 		self.assertEqual((picture.width, picture.height), (30, 60))
+
+	def test_andIsShrunkTheWayItIsShown(self):
+		"""The size kept is chosen after turning. Chosen before, a photo too large to keep was
+		turned and then squeezed back into the stored shape."""
+		picture = imagePins.pictureFromImage(sideways(400, 200), 100 * 50)
+		self.assertEqual((picture.width, picture.height), (50, 100))
+
+
+def sideways(width, height):
+	""":return: a JPEG stored `width` by `height` and marked to be turned a quarter to show.
+
+	A dark bar across the top as stored, so which way it went is also in the pixels.
+	"""
+	image = Image.new("RGB", (width, height), (255, 255, 255))
+	ImageDraw.Draw(image).rectangle((0, 0, width - 1, height // 5), fill=(0, 0, 0))
+	exif = image.getexif()
+	exif[0x0112] = 6
+	stored = io.BytesIO()
+	image.save(stored, "JPEG", exif=exif)
+	stored.seek(0)
+	return Image.open(stored)
 
 
 class FakeGrab:
@@ -271,6 +285,19 @@ class TestTheClipboard(unittest.TestCase):
 		with self.assertRaisesRegex(imagePins.ImageRefused, "could not be read"):
 			imageSource.captureClipboard()
 
+	def test_aTurnedPhotographKeepsItsShapeThroughTheClipboard(self):
+		"""The reviewer's probe: a 60 by 30 JPEG marked for a quarter turn came back 60 by 30,
+		because the clipboard chose the size from the stored image before it was turned."""
+		self.clipboard(sideways(60, 30))
+		picture = imageSource.captureClipboard()
+		self.assertEqual((picture.width, picture.height), (30, 60))
+
+	def test_andALargeOneToo(self):
+		self.clipboard(sideways(3000, 1500))
+		picture = imageSource.captureClipboard()
+		self.assertLess(picture.width, picture.height)
+		self.assertAlmostEqual(picture.height / picture.width, 2.0, places=1)
+
 	def test_aHugeImageIsKeptAtTheLimit(self):
 		self.clipboard(Image.new("RGB", (3000, 2000), (255, 255, 255)))
 		picture = imageSource.captureClipboard()
@@ -288,7 +315,7 @@ def colourPicture(width, height, draw, ground=(255, 255, 255)):
 	""":return: a picture with colour, drawn by `draw(ImageDraw)` on a plain ground."""
 	image = Image.new("RGB", (width, height), ground)
 	draw(ImageDraw.Draw(image))
-	return imagePins.pictureFromImage(image, (width, height), "chart")
+	return imagePins.pictureFromImage(image, width * height, "chart")
 
 
 def twoLines(draw):
@@ -310,6 +337,56 @@ class TestTheColourUnderAFinger(unittest.TestCase):
 	def test_paperIsNamedAsThePaper(self):
 		picture = colourPicture(400, 300, twoLines, ground=(250, 245, 220))
 		self.assertEqual(picture.colourAt((100, 120, 20, 20)), picture.paper)
+
+	def closeSeries(self, draw):
+		"""The reviewer's probe: a red line and a blue one with two pixels of paper between."""
+		draw.line((10, 100, 390, 100), fill=(220, 0, 0), width=3)
+		draw.line((10, 105, 390, 105), fill=(0, 0, 220), width=3)
+
+	def near(self, found, wanted):
+		self.assertIsNotNone(found)
+		self.assertLessEqual(max(abs(a - b) for a, b in zip(found, wanted)), 12, found)
+
+	def test_aPressOnTheRedLineOfTwoIsRed(self):
+		"""The area a press covers holds both lines. It used to come back purple, which is
+		neither, and drawing only that colour then drew nothing."""
+		picture = colourPicture(400, 300, self.closeSeries)
+		self.near(picture.colourAt((190, 90, 21, 21)), (220, 0, 0))
+
+	def test_andOnTheBlueLineIsBlue(self):
+		picture = colourPicture(400, 300, self.closeSeries)
+		self.near(picture.colourAt((190, 95, 21, 21)), (0, 0, 220))
+
+	def test_andTheColourFoundDrawsItsOwnLine(self):
+		"""The whole of it: press, then draw only that colour, and one line comes back."""
+		picture = colourPicture(400, 300, self.closeSeries)
+		red = picture.ofOneColour(picture.colourAt((190, 90, 21, 21)))
+		spot = imagePins.place(red, red.content, 96, 40)
+		drawn = imagePins.renderAt(red, spot, imagePins.STROKES)
+		self.assertTrue(drawn.raised)
+		inked = sum(1 for grey in red.greys if grey < 128)
+		self.assertLess(abs(inked - 381 * 3), 381, "about one three pixel line's worth of red")
+
+	def test_aGreyLineBesideABlackOneIsGrey(self):
+		"""Same hue, different darkness: a grid line beside a data line."""
+
+		def lines(draw):
+			draw.line((10, 100, 390, 100), fill=(0, 0, 0), width=3)
+			draw.line((10, 105, 390, 105), fill=(170, 170, 170), width=3)
+
+		picture = colourPicture(400, 300, lines)
+		self.near(picture.colourAt((190, 95, 21, 21)), (170, 170, 170))
+
+	def test_aPressOnTheFringeOfALineStillNamesTheLine(self):
+		"""The nearest ink can be the anti-aliased edge, a mix with the paper. Its strongest
+		neighbour of the same hue is the line itself."""
+
+		def soft(draw):
+			draw.line((10, 100, 390, 100), fill=(240, 120, 120), width=1)
+			draw.line((10, 101, 390, 101), fill=(220, 0, 0), width=2)
+
+		picture = colourPicture(400, 300, soft)
+		self.near(picture.colourAt((190, 90, 21, 21)), (220, 0, 0))
 
 	def test_aPictureWithoutColourHasNoAnswer(self):
 		self.assertIsNone(greyPicture(20, 20, lambda x, y: x < 10).colourAt((0, 0, 5, 5)))
@@ -397,7 +474,7 @@ class TestEdgesInColour(unittest.TestCase):
 		grey = greyPicture(200, 200, lambda x, y: 60 <= x < 140 and 60 <= y < 140)
 		image = Image.new("RGB", (200, 200), (255, 255, 255))
 		ImageDraw.Draw(image).rectangle((60, 60, 139, 139), fill=(0, 0, 0))
-		coloured = imagePins.pictureFromImage(image, (200, 200))
+		coloured = imagePins.pictureFromImage(image, 200 * 200)
 		spot = imagePins.place(grey, (0, 0, 200, 200), 96, 40)
 		self.assertEqual(
 			imagePins.renderAt(grey, spot, imagePins.EDGES).pins,
@@ -522,3 +599,120 @@ class TestDrawingTheClipboard(ColourPluginTestCase):
 		self.plugin.script_drawClipboardPicture(None)
 		self.plugin.script_pictureStyle(None)
 		self.assertEqual(len(self.mode.shown), 2)
+
+
+class TestWhatAPictureTooDetailedAdvises(unittest.TestCase):
+	"""Found on a logo: "magnify to read it", then, on magnifying, "no more detail to show".
+
+	Both were true. The advice now knows what the zoom key will do.
+	"""
+
+	def grid(self):
+		""":return: a fine grid, one connected network too dense for the pins."""
+		return greyPicture(192, 80, lambda x, y: x % 3 == 0 or y % 3 == 0)
+
+	def figure(self, picture):
+		return imageFigure.figureFor(test_plugin.TestDrawingThePictureHere.Dots, picture, 96, 40)
+
+	def atTheLimit(self, picture):
+		""":return: the whole picture composed as though no zoom were left."""
+		return imageFigure._compose(
+			test_plugin.TestDrawingThePictureHere.Dots,
+			picture,
+			picture.content,
+			96,
+			40,
+			imagePins.EDGES,
+			False,
+			whole=True,
+			canMagnify=False,
+		)
+
+	def test_theZoomLimitIsTheModesOwn(self):
+		"""Fourteen points: two zooms leave three and a half, a third would leave under two."""
+		self.assertTrue(imageFigure.canMagnify(14, 1.0))
+		self.assertTrue(imageFigure.canMagnify(14, 0.5))
+		self.assertFalse(imageFigure.canMagnify(14, 0.25))
+
+	def test_andTheTopOfTheLadderToo(self):
+		self.assertFalse(imageFigure.canMagnify(100000, 1 / 32))
+
+	def test_whenMagnifyingWillHelpItSaysSo(self):
+		self.assertIn("magnify", self.figure(self.grid()).note)
+
+	def test_andAfterAZoomThatLeavesAnotherToo(self):
+		"""Twelve points: at two times there are six left, so one more zoom is allowed."""
+		window = self.figure(self.grid()).redraw(0.25, 0.5, 96, 40, top=0.25, down=0.5)
+		self.assertIn("magnify", window.note)
+
+	def test_whenItCannotItDoesNotSayMagnify(self):
+		note = self.atTheLimit(self.grid()).note
+		self.assertTrue(note)
+		self.assertNotIn("magnify", note)
+
+	def test_aScreenCaptureIsToldAboutTheClipboard(self):
+		"""The clipboard has the image at its own size, often larger than it was shown."""
+		picture = self.grid()
+		picture.fromScreen = True
+		self.assertIn("clipboard", self.atTheLimit(picture).note)
+
+	def test_somethingAlreadyFromTheClipboardIsNot(self):
+		self.assertNotIn("clipboard", self.atTheLimit(self.grid()).note)
+
+	@needsPillow
+	def test_oneColourOfAScreenCaptureIsStillAScreenCapture(self):
+		"""So the advice about the clipboard still reaches a reader looking at one colour."""
+		picture = colourPicture(400, 300, twoLines)
+		picture.fromScreen = True
+		self.assertTrue(picture.ofOneColour((220, 0, 0)).fromScreen)
+
+
+@needsPillow
+class TestSingleLinesInColour(unittest.TestCase):
+	"""The reviewer's probe: outlines drew a red stroke on a green of the same brightness, and
+	single lines said there was nothing to draw."""
+
+	def stroke(self):
+		# Red at 255 and green at 130 both come to a grey of 76.
+		return colourPicture(
+			200,
+			200,
+			lambda draw: draw.line((20, 100, 180, 100), fill=(255, 0, 0), width=6),
+			ground=(0, 130, 0),
+		)
+
+	def test_itIsFlatInGrey(self):
+		self.assertLessEqual(self.stroke().spread, 1)
+
+	def test_singleLinesDrawsItAsOneLine(self):
+		picture = self.stroke()
+		spot = imagePins.place(picture, picture.content, 96, 40)
+		drawn = imagePins.renderAt(picture, spot, imagePins.STROKES)
+		rows = {y for _x, y in raised(drawn)}
+		self.assertTrue(drawn.raised)
+		self.assertLessEqual(len(rows), 2, "one line across, not a band or rails")
+
+	def test_aBlackAndWhiteDrawingIsExactlyAsBefore(self):
+		"""A grey g is 255 - g from white, so its distance from the paper is g again."""
+
+		def square(draw):
+			draw.rectangle((40, 40, 159, 159), outline=(0, 0, 0), width=8)
+			draw.line((40, 100, 159, 100), fill=(128, 128, 128), width=5)
+
+		coloured = colourPicture(200, 200, square)
+		grey = imagePins.Picture(bytearray(coloured.greys), 200, 200)
+		spot = imagePins.place(grey, grey.content, 96, 40)
+		self.assertEqual(
+			imagePins.renderAt(coloured, spot, imagePins.STROKES).pins,
+			imagePins.renderAt(grey, spot, imagePins.STROKES).pins,
+		)
+
+	def test_aPictureWithoutColourIsItself(self):
+		picture = greyPicture(20, 20, lambda x, y: x < 10)
+		self.assertIs(picture.againstPaper(), picture)
+
+	def test_oneColourOfAPictureIsItselfToo(self):
+		"""Already dark ink on white; measuring it against the paper again would undo that."""
+		picture = colourPicture(400, 300, twoLines)
+		red = picture.ofOneColour((220, 0, 0))
+		self.assertIs(red.againstPaper(), red)

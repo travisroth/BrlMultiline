@@ -37,6 +37,7 @@ from logHandler import log
 from .imagePins import (
 	ImageRefused,
 	Picture,
+	fitWithin,
 	greysFromPixels,
 	hasPillow,
 	pictureFromBgrx,
@@ -269,22 +270,14 @@ def keepPixels() -> int:
 def _captureSize(width: int, height: int, most: "int | None" = None) -> "tuple[int, int]":
 	"""Choose how many pixels to keep for something of this size on screen.
 
-	Never enlarged. Upscaling a small image before reducing it adds no detail and costs the
-	reduction real time, and the pixels it invents are the ones a reader would then be feeling.
+	`imagePins.fitWithin`, with the budget this NVDA can afford.
 
 	:param width: its width on screen.
 	:param height: its height on screen.
 	:param most: the most pixels to allow, `keepPixels` if None.
 	:return: the capture size.
 	"""
-	if most is None:
-		most = keepPixels()
-	if width * height <= most:
-		return width, height
-	# Shrunk on both axes by the same factor, because the shape has to survive: a picture
-	# squeezed on one axis is a picture of something else, and nothing downstream could know.
-	scale = (most / (width * height)) ** 0.5
-	return max(1, int(width * scale)), max(1, int(height * scale))
+	return fitWithin(width, height, keepPixels() if most is None else most)
 
 
 def _rawBytes(pixels: object, width: int, height: int) -> "bytes | None":
@@ -376,7 +369,9 @@ def captureNavigator() -> Picture:
 				height=int(height),
 			),
 		)
-	return capture(left, top, width, height, name=nameFor(obj))
+	picture = capture(left, top, width, height, name=nameFor(obj))
+	picture.fromScreen = True
+	return picture
 
 
 def captureClipboard() -> Picture:
@@ -445,7 +440,8 @@ def captureClipboard() -> Picture:
 			),
 		)
 	try:
-		picture = pictureFromImage(image, _captureSize(width, height), name)
+		# The budget, not a size: the size is chosen after a photo is turned the right way up.
+		picture = pictureFromImage(image, keepPixels(), name)
 	except Exception:
 		log.error("BrlMultiline: a picture from the clipboard would not convert", exc_info=True)
 		picture = None

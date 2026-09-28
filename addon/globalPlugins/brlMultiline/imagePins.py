@@ -95,6 +95,7 @@ __all__ = [
 	"Strength",
 	"brightnessPins",
 	"edgePins",
+	"fitWithin",
 	"greysFromPixels",
 	"hasPillow",
 	"pictureFromBgrx",
@@ -252,6 +253,22 @@ INK_FROM_PAPER = 40
 What `Picture.colourAt` asks before naming a colour under a finger. Less than this and the
 finger is on paper, and the paper's colour is the true answer. JPEG noise and anti-aliased
 fringes stay under it; any line a hand would want named is well over it.
+"""
+
+SAME_HUE = 0.95
+"""How closely two colours must point the same way from the paper to be one stroke's.
+
+A cosine, between the two colours each taken as a step away from the paper. An anti-aliased
+fringe is a mix of a stroke and the paper, so it points exactly the stroke's way and differs
+only in how far; JPEG noise moves it a little. Red and blue on white are at about 0.63, and
+black and red at about 0.86, so this keeps the one and parts the others.
+"""
+
+SAME_COLOUR = 32
+"""How near, on the channel that differs most, a pixel must be to count as the colour found.
+
+Small, because it only has to take in the core of one stroke; the fringe and every other
+stroke are meant to fall outside it. See `Picture.colourAt`.
 """
 
 SPARSE = 0.004
@@ -477,7 +494,26 @@ def pictureFromBgrx(
 	return Picture(bytearray(image.tobytes()), image.width, image.height, name, image=image, colour=colour)
 
 
-def pictureFromImage(image: "PillowImage", keep: "tuple[int, int]", name: str = "") -> "Picture | None":
+def fitWithin(width: int, height: int, most: int) -> "tuple[int, int]":
+	"""Choose how many pixels to keep of something this size, at most `most`.
+
+	Never enlarged. Upscaling a small image before reducing it adds no detail and costs the
+	reduction real time, and the pixels it invents are the ones a reader would then be feeling.
+
+	:param width: pixels across.
+	:param height: pixels down.
+	:param most: the most pixels to allow.
+	:return: the size to keep.
+	"""
+	if width * height <= most:
+		return width, height
+	# Shrunk on both axes by the same factor, because the shape has to survive: a picture
+	# squeezed on one axis is a picture of something else, and nothing downstream could know.
+	scale = (most / (width * height)) ** 0.5
+	return max(1, int(width * scale)), max(1, int(height * scale))
+
+
+def pictureFromImage(image: "PillowImage", most: int, name: str = "") -> "Picture | None":
 	"""Make a picture from an image that did not come off the screen: a file, the clipboard.
 
 	**Transparency is laid on white.** A picture with see-through parts -- most icons, logos
@@ -490,8 +526,14 @@ def pictureFromImage(image: "PillowImage", keep: "tuple[int, int]", name: str = 
 	which way up it goes; the picture is turned by that record first, so what reaches the pins
 	is what anybody looking at it sees.
 
+	**The size kept is chosen after turning, here, and not by the caller.** It used to be passed
+	in, worked out from the stored size -- so a photo stored 60 wide by 30 and turned to 30 by
+	60 was then squeezed back into 60 by 30, a picture of something else. Taking a pixel budget
+	instead of a size means the size can only ever be measured on the picture as it will be
+	drawn.
+
 	:param image: the image, as Pillow opened it.
-	:param keep: `(width, height)` to hold on to, no larger than the image.
+	:param most: the most pixels to keep; see `fitWithin`.
 	:param name: what to call the picture.
 	:return: the picture, or None if Pillow is not there.
 	"""
@@ -506,10 +548,23 @@ def pictureFromImage(image: "PillowImage", keep: "tuple[int, int]", name: str = 
 		ground = pillow.new("RGBA", image.size, (255, 255, 255, 255))
 		image = pillow.alpha_composite(ground, image)
 	colour = image.convert("RGB")
-	if colour.size != (keep[0], keep[1]):
-		colour = colour.resize((keep[0], keep[1]), pillow.Resampling.BOX)
+	keep = fitWithin(colour.width, colour.height, most)
+	if colour.size != keep:
+		colour = colour.resize(keep, pillow.Resampling.BOX)
 	grey = colour.convert("L")
 	return Picture(bytearray(grey.tobytes()), grey.width, grey.height, name, image=grey, colour=colour)
+
+
+def _rgbOf(image: "PillowImage") -> "list[tuple[int, int, int]]":
+	""":return: an RGB image's pixels as tuples, row major.
+
+	Read from `tobytes` rather than `getdata`, which Pillow 12 deprecates and says it will
+	remove in Pillow 14. NVDA can move to a new Pillow in any release without telling an
+	add-on, since Pillow is not part of its add-on API, so nothing here may lean on a call
+	already marked to go.
+	"""
+	raw = image.tobytes()
+	return list(zip(raw[0::3], raw[1::3], raw[2::3]))
 
 
 def _topOf(values, share: float = REFERENCE_SHARE) -> int:
@@ -566,12 +621,15 @@ class Picture:
 		self.colour: "PillowImage | None" = colour
 		self._content: "tuple[int, int, int, int] | None" = None
 		self._paper: "tuple[int, int, int] | None" = None
+		self._againstPaper: "Picture | None" = None
 		self.derivedFrom: "Picture | None" = None
 		"""The picture this one was made from, for a picture of one colour of another."""
 		self.onlyColour: "tuple[int, int, int] | None" = None
 		"""The colour this picture keeps, if it is a picture of one colour of another."""
 		self.touched: "tuple[int, int, int] | None" = None
 		"""The colour under the last routing press on this picture, kept on the original."""
+		self.fromScreen = False
+		"""Whether this was copied off the screen, and so is only as large as it was shown."""
 
 	def _pillow(self) -> "PillowImage | None":
 		""":return: these pixels as a Pillow image, or None to go the Python way.
@@ -672,7 +730,7 @@ class Picture:
 				(0, 0, 1, height),
 				(width - 1, 0, width, height),
 			):
-				for red, green, blue in colour.crop(strip).getdata():
+				for red, green, blue in _rgbOf(colour.crop(strip)):
 					total[0] += red
 					total[1] += green
 					total[2] += blue
@@ -681,14 +739,29 @@ class Picture:
 		return self._paper
 
 	def colourAt(self, box: "tuple[int, int, int, int]") -> "tuple[int, int, int] | None":
-		"""What colour is under a finger: the ink there if there is any, else the paper.
+		"""What colour is under a finger: the ink nearest it if there is any, else the paper.
 
-		**The ink, not the average.** A pin on a plotted line covers the line and the white
-		either side of it, and their average is a pale wash of the line's colour that nobody
-		drew. So the pixels furthest from the paper are found, and those within a quarter of the
-		furthest are averaged: the core of the stroke, with its anti-aliased fringe left out.
-		Less than `INK_FROM_PAPER` from the paper and there is no ink here, and the paper's own
-		colour is the answer.
+		**One stroke's colour, never a blend of two.** A press covers the pin and one pin round
+		it, and on a chart that area can hold two series. An earlier version averaged the
+		strongest ink anywhere in it, and a red line two pixels from a blue one came back as a
+		purple neither of them is -- which "draw only this colour" then drew as nothing. The
+		rule is now:
+
+		1. **The ink nearest the middle of the press says which stroke is meant.** Nearest by
+		   position; between two equally near, the stronger.
+		2. **Its strongest neighbour of the same hue is the stroke's own colour.** The nearest
+		   ink is often the anti-aliased fringe of a line, a mix of the line and the paper. A
+		   mix lies on the way from the paper to the ink, so it points the same way from the
+		   paper as the ink does, only less far; so the strongest pixel within one of it that
+		   points the same way is the core. Another colour points another way and is never
+		   taken, however close.
+		3. **The answer is the average of the pixels close to that core colour**, within
+		   `SAME_COLOUR`, so neither the fringe nor a neighbour of another colour is in it.
+
+		Less than `INK_FROM_PAPER` from the paper anywhere in the area and there is no ink here,
+		and the paper's own colour is the answer. Two strokes of the same hue that differ only
+		in how dark they are -- a grey grid line beside a black one -- are still told apart,
+		because step 3 averages only colours close to the one found in step 2.
 
 		:param box: `(left, top, width, height)` in picture pixels, clipped to the picture.
 		:return: red, green and blue, or None if the picture has no colour or the box is empty.
@@ -703,19 +776,51 @@ class Picture:
 		top = max(0, top)
 		if right <= left or bottom <= top:
 			return None
-		pixels = list(self.colour.crop((left, top, right, bottom)).getdata())
+		pixels = _rgbOf(self.colour.crop((left, top, right, bottom)))
+		across = right - left
+		middleX = (across - 1) / 2
+		middleY = (bottom - top - 1) / 2
 
-		def distance(pixel: "tuple[int, int, int]") -> int:
-			return max(abs(pixel[0] - paper[0]), abs(pixel[1] - paper[1]), abs(pixel[2] - paper[2]))
+		def apart(one: "tuple[int, int, int]", other: "tuple[int, int, int]") -> int:
+			return max(abs(one[0] - other[0]), abs(one[1] - other[1]), abs(one[2] - other[2]))
 
-		furthest = max(distance(pixel) for pixel in pixels)
-		if furthest < INK_FROM_PAPER:
+		def fromPaper(pixel: "tuple[int, int, int]") -> "tuple[int, int, int]":
+			return (pixel[0] - paper[0], pixel[1] - paper[1], pixel[2] - paper[2])
+
+		def sameHue(one: "tuple[int, int, int]", other: "tuple[int, int, int]") -> bool:
+			first = fromPaper(one)
+			second = fromPaper(other)
+			dot = sum(a * b for a, b in zip(first, second))
+			lengths = (sum(a * a for a in first) * sum(b * b for b in second)) ** 0.5
+			return lengths > 0 and dot >= SAME_HUE * lengths
+
+		ink = [at for at, pixel in enumerate(pixels) if apart(pixel, paper) >= INK_FROM_PAPER]
+		if not ink:
 			return paper
-		core = [pixel for pixel in pixels if distance(pixel) * 4 >= furthest * 3]
+
+		def gap(at: int) -> float:
+			return (at % across - middleX) ** 2 + (at // across - middleY) ** 2
+
+		nearest = min(ink, key=lambda at: (gap(at), -apart(pixels[at], paper)))
+		seed = pixels[nearest]
+		seedX = nearest % across
+		seedY = nearest // across
+		core = max(
+			(
+				at
+				for at in ink
+				if abs(at % across - seedX) <= 1
+				and abs(at // across - seedY) <= 1
+				and sameHue(pixels[at], seed)
+			),
+			key=lambda at: apart(pixels[at], paper),
+		)
+		colour = pixels[core]
+		alike = [pixels[at] for at in ink if apart(pixels[at], colour) <= SAME_COLOUR]
 		return (
-			sum(pixel[0] for pixel in core) // len(core),
-			sum(pixel[1] for pixel in core) // len(core),
-			sum(pixel[2] for pixel in core) // len(core),
+			sum(pixel[0] for pixel in alike) // len(alike),
+			sum(pixel[1] for pixel in alike) // len(alike),
+			sum(pixel[2] for pixel in alike) // len(alike),
 		)
 
 	def ofOneColour(self, rgb: "tuple[int, int, int]", name: str = "") -> "Picture | None":
@@ -752,9 +857,43 @@ class Picture:
 			colour=self.colour,
 		)
 		picture.derivedFrom = self
+		picture.fromScreen = self.fromScreen
 		picture.onlyColour = (rgb[0], rgb[1], rgb[2])
 		picture._content = self.content
 		return picture
+
+	def againstPaper(self) -> "Picture":
+		""":return: this picture as how far each pixel is from the paper, for single lines.
+
+		**A stroke is ink that is not paper, whatever its brightness.** Single lines finds its
+		ink by tone, and tone is brightness: a red stroke on a green ground of the same
+		brightness is one flat grey, and the style said there was nothing to draw while
+		outlines, which look at colour, found the shape. Found by review. So for a picture that
+		kept its colour, single lines works on a picture whose greys are each pixel's distance
+		from the paper colour, on the channel that differs most, taken from white: paper is
+		white, and anything drawn on it is dark in proportion to how different it is.
+
+		**Nothing changes for a drawing in black and grey on white.** A grey of g is 255 - g
+		from white on every channel, so its distance taken from white is g again: the greys are
+		the same numbers they were. A picture without colour, and a picture that is already one
+		colour of another, is returned as it is.
+
+		Made once and kept, with this picture's content box, so it lands where this one does.
+		"""
+		if self.colour is None or self.onlyColour is not None or self.paper is None:
+			return self
+		if self._againstPaper is None:
+			chops = _ImageChops
+			pillow = _Image
+			if chops is None or pillow is None:
+				return self
+			apart = chops.difference(self.colour, pillow.new("RGB", self.colour.size, self.paper))
+			red, green, blue = apart.split()
+			grey = chops.invert(chops.lighter(chops.lighter(red, green), blue))
+			picture = Picture(bytearray(grey.tobytes()), self.width, self.height, self.name, image=grey)
+			picture._content = self.content
+			self._againstPaper = picture
+		return self._againstPaper
 
 	def channels(
 		self,
@@ -1872,6 +2011,10 @@ def renderAt(
 	:return: the pins, positioned on the panel.
 	:raises ImageRefused: if there is nothing here to draw and nothing to pan towards.
 	"""
+	if mode == STROKES:
+		# Ink is whatever is not paper, which for a picture in colour is not the same as what
+		# is darker. See `Picture.againstPaper`.
+		picture = picture.againstPaper()
 	if spot.width <= 0 or spot.height <= 0:
 		# Translators: reported when a picture was asked for in no space at all.
 		raise ImageRefused(_("There is no room here for a picture"))

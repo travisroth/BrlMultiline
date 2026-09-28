@@ -83,7 +83,9 @@ the drawing no longer fits, moving the window is the only way to reach the rest 
 Five steps is 32 times the fitted size, which for a drawing that started at a quarter scale is
 8 pins per source dot. `MAX_SCALE` stops it there whatever the ladder says, because beyond
 that a single source dot is wider than a braille cell and the reader is feeling the
-magnification rather than the figure.
+magnification rather than the figure. It applies only to a drawing that is magnified; one that
+redraws itself for each view never has a dot wider than a pin, and stops where what it is drawn
+from runs out.
 """
 
 MIN_WINDOW_POINTS = 3
@@ -424,12 +426,18 @@ class GraphicsMode(PanelOwner):
 			compressed to fit; above one it is magnified.
 		"""
 		scale = self.fitScale(pins) * (ZOOM_FACTOR**self._zoomStep)
-		if self._countsPoints:
-			# `MAX_SCALE` is about a dot growing wider than a finger, and a figure that counts
-			# its zoom in points never grows a dot: it is composed again at the panel's own
-			# size for fewer points. Its limit is running out of points, which `_tooFewPoints`
-			# already says. Capped, a chart of a thousand days could never be zoomed closer
-			# than an eighth of them, which is still several days to a pin.
+		if self._windows:
+			# `MAX_SCALE` is about a dot growing wider than a finger, and a figure that redraws
+			# itself never grows a dot: every view is composed again at the panel's own size.
+			# Its limit is running out of what it is drawn from, which `_tooFewPoints` already
+			# says. Capped, a chart of a thousand days could never be zoomed closer than an
+			# eighth of them, which is still several days to a pin.
+			#
+			# This used to be only for a figure counting its zoom in points, which left a
+			# picture capped at eight times: a picture's first view is composed at the panel's
+			# size too, so eight times the fit was the end however many pixels were behind it.
+			# The number of pixels was meant to be the limit (see `image.zoomPoints`), and a
+			# picture kept at four times the pixels got not one step more for it.
 			return scale
 		return min(MAX_SCALE, scale)
 
@@ -1014,16 +1022,20 @@ class GraphicsMode(PanelOwner):
 			# how far it can be moved. The placeholder is that percentage.
 			_("{percent} across"),
 		)
-		down = "" if (self._windows and not self._windowsVertically) else self._axisWords(
-			self._originY,
-			source.height - visibleY,
-			# Translators: the drawing is panned hard against its top edge.
-			_("top edge"),
-			# Translators: the drawing is panned hard against its bottom edge.
-			_("bottom edge"),
-			# Translators: how far down a drawing the visible part sits, as a percentage of
-			# how far it can be moved. The placeholder is that percentage.
-			_("{percent} down"),
+		down = (
+			""
+			if (self._windows and not self._windowsVertically)
+			else self._axisWords(
+				self._originY,
+				source.height - visibleY,
+				# Translators: the drawing is panned hard against its top edge.
+				_("top edge"),
+				# Translators: the drawing is panned hard against its bottom edge.
+				_("bottom edge"),
+				# Translators: how far down a drawing the visible part sits, as a percentage of
+				# how far it can be moved. The placeholder is that percentage.
+				_("{percent} down"),
+			)
 		)
 		parts = [words for words in (across, down) if words]
 		return ", ".join(parts)
@@ -1141,7 +1153,7 @@ class GraphicsMode(PanelOwner):
 
 		:param pins: the rectangle the drawing occupies.
 		"""
-		return not self._countsPoints and self.scale(pins) >= MAX_SCALE
+		return not self._windows and self.scale(pins) >= MAX_SCALE
 
 	def _zoomTo(self, wanted: float, pins: PinRect, surface: GraphicsSurface) -> bool:
 		"""Go to a zoom step about the middle of the view, or stay put if it will not draw.

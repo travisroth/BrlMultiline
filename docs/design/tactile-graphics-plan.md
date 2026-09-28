@@ -1321,7 +1321,8 @@ The individual repairs:
   thing; half of one is a lie.
 - **A picture too dense to draw says so.** When neither of those fits, what is drawn is an even
   scattering, which is an honest account of a texture and a dishonest one of a drawing. So it
-  is announced: too detailed to draw whole, magnify to read it.
+  is announced: too detailed to draw whole, magnify to read it. That advice is given only when
+  the zoom key will act on it; see "Advice that matches the key" below.
 - **Suppression answers once.** A cell that merely equalled its neighbour survived, so a single
   clean light-to-dark step came back as two columns. That is not the doubled contour of a thick
   stroke — it is one edge drawn twice.
@@ -1555,6 +1556,52 @@ it.
    as a flat picture. Nothing changes for a grey picture, since grey is an average of the
    channels and a channel always changes at least as much. The strength reference is taken the
    same way.
+
+**Found on a logo: advice that matches the key.** A logo with small lettering was too dense for
+the pins at fit, and said "too detailed to draw whole; magnify to read it". Magnified once, it
+said the same, and the zoom key answered that there was no more detail to show. Both were true
+and together a contradiction, since the zoom refusal is the one that decides. `image.canMagnify`
+now applies the mode's own two limits, the ladder's top step and the points left at the next
+step, and the note advises magnifying only when both allow it. When they do not, a picture
+copied off the screen suggests the clipboard, since a screen capture is only as large as the
+picture was shown and the copied image is usually larger; any other picture is simply said to
+be too detailed at the closest zoom.
+
+**Found on the same logo: pictures were capped at eight times.** `MAX_SCALE` stops magnification
+where a source dot would be wider than a braille cell. That is right for a drawing the mode
+magnifies, and it was being applied to pictures, whose every view is composed again at the
+panel's own size so that no dot ever grows. A picture's first view is panel sized, so eight
+times the fit was the end whatever pixels were behind it, and keeping four times the pixels
+with Pillow bought no extra zoom at all. The cap now applies only to drawings that do not
+redraw themselves, the way it already excluded charts, and a picture stops where
+`image.zoomPoints` says its pixels run out, or at the ladder's thirty-two times.
+
+**Found by review.** Four faults in the features above, each now covered by a test that
+reproduces the reviewer's probe:
+
+1. *A turned photo was squeezed.* The clipboard chose the size to keep from the image as stored,
+   and `pictureFromImage` then turned it, so a photo stored 60 by 30 and shown 30 by 60 was
+   resized back to 60 by 30. `pictureFromImage` now takes a pixel budget and measures after
+   turning, through `fitWithin`, which the screen capture uses as well.
+2. *Two colours made a third.* `colourAt` averaged the strongest ink in the area a press covers,
+   which on a chart can hold two series: red two pixels from blue came back purple, and one
+   colour of the picture in purple is nothing. It now takes the ink nearest the middle of the
+   press, climbs to the strongest pixel of the same hue beside it to get past an anti-aliased
+   fringe, and averages only pixels close to that colour. `SAME_HUE` and `SAME_COLOUR` hold the
+   two tolerances.
+3. *Single lines was blind to colour.* It found ink by brightness, so a stroke of one
+   brightness on a ground of another colour of the same brightness was a flat picture to it
+   while outlines drew it. For a picture that kept its colour, single lines now works on
+   `Picture.againstPaper`, each pixel's distance from the paper colour taken from white. A
+   grey g on white is 255 - g from it, so a black and grey drawing gives the same numbers as
+   before and draws the same pins, which a test checks.
+4. *A refused style was kept.* The style was recorded before the drawing was tried, so after a
+   refusal the display showed the old style and the cycling key moved on from the new one. It
+   is now recorded with the picture and the drawing, only when the drawing is shown.
+
+The same review pass turned up `Image.getdata`, which the colour code used and which Pillow 12
+deprecates for removal in Pillow 14. NVDA can change its Pillow in any release, so pixels are
+now read with `tobytes`, and the suite passes with deprecation warnings raised as errors.
 
 **Found while building it: a tangle is not a set of strokes.** Single lines keeps whole strokes,
 largest first, when there is more than the ceiling allows. Forty crossing lines are one network

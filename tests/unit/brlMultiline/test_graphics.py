@@ -1271,10 +1271,8 @@ class TestWhyAZoomDidNotHappen(unittest.TestCase):
 	def figure(self, points=0, refuse=False, size=(96, 35)):
 		""":return: a windowing figure with a given amount of data behind it.
 
-		`size` is the source buffer. A figure no larger than the panel reaches the scale cap
-		before the ladder runs out, so the test that wants the end of the ladder has to bring
-		a drawing several times the size of the display -- which is the ordinary case for a
-		real capture anyway.
+		`size` is the source buffer. A figure that redraws itself is not held by the scale
+		cap, since no dot of it grows, so its size matters only to how its first view fits.
 		"""
 
 		def redraw(offset, span, pinWidth, pinHeight, top=0.0, down=1.0):
@@ -1309,13 +1307,32 @@ class TestWhyAZoomDidNotHappen(unittest.TestCase):
 		self.assertEqual(self.mode.zoomRefusal(1), "closest view")
 
 	def test_aDrawingAlreadyAsLargeAsThePinsAllowSaysThat(self):
-		"""The third reason, and the one the test above used to hit by accident: a figure that
-		started at the panel's own size runs into the scale cap long before the ladder ends."""
-		self.mode.enter(self.figure(points=1000))
+		"""The third reason: a drawing that is magnified rather than redrawn, and started at
+		the panel's own size, runs into the scale cap long before the ladder ends."""
+		buffer = PinBuffer(96, 35)
+		buffer.rect(0, 0, 96, 35)
+		self.mode.enter(Drawing(buffer, name="catalogue"))
 		while self.mode.zoomBy(1):
 			pass
 		self.assertLess(self.mode.zoom, MAX_ZOOM_STEP)
 		self.assertEqual(self.mode.zoomRefusal(1), "as large as the pins can show")
+
+	def test_aFigureThatRedrawsItselfIsNotCappedByTheScale(self):
+		"""A picture composes every view at the panel's own size, so no dot of it ever grows.
+		Capped anyway, a picture stopped at eight times whatever pixels were behind it; its
+		limit is its pixels, which `points` stands for."""
+		self.mode.enter(self.figure(points=1000))
+		while self.mode.zoomBy(1):
+			pass
+		self.assertEqual(self.mode.zoom, MAX_ZOOM_STEP)
+		self.assertEqual(self.mode.zoomRefusal(1), "closest view")
+
+	def test_andStillStopsWhereItsDetailRunsOut(self):
+		self.mode.enter(self.figure(points=40))
+		while self.mode.zoomBy(1):
+			pass
+		self.assertEqual(self.mode.zoom, 3)
+		self.assertEqual(self.mode.zoomRefusal(1), "no more detail to show")
 
 	def test_aFigureThatWillNotDrawTheWindowSaysThat(self):
 		self.mode.enter(self.figure(points=1000, refuse=True))

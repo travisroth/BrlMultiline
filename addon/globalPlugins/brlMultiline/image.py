@@ -25,7 +25,9 @@ from typing import Optional
 
 from logHandler import log
 
-from .graphicsMode import MIN_WINDOW_POINTS, ZOOM_FACTOR, Drawing
+import math
+
+from .graphicsMode import MAX_ZOOM_STEP, MIN_WINDOW_POINTS, ZOOM_FACTOR, Drawing
 from .imagePins import (
 	BRIGHTNESS,
 	EDGES,
@@ -277,15 +279,61 @@ def figureFor(
 	"""
 	# Its content rather than the whole capture, so blank margins do not take pins from what
 	# is in it. See `imagePins.Picture.content`.
-	return _compose(newBuffer, picture, picture.content, width, height, mode, invert, whole=True)
+	box = picture.content
+	return _compose(
+		newBuffer,
+		picture,
+		box,
+		width,
+		height,
+		mode,
+		invert,
+		whole=True,
+		canMagnify=canMagnify(zoomPoints(picture, width, height, box), 1.0),
+	)
 
 
-def _compose(newBuffer, picture, box, width, height, mode, invert, whole: bool) -> Drawing:
+def canMagnify(points: int, fraction: float) -> bool:
+	""":return: whether the graphics mode will allow one more zoom in from here.
+
+	**The advice has to match the key.** A picture too dense for the pins says so and says to
+	magnify, and that was said unconditionally -- so a reader zoomed in as far as the capture
+	allowed heard "magnify to read it" and, pressing the key, "no more detail to show". Both
+	true, and together a contradiction: the second is the one that decides, so the first must
+	know it. Found on a logo whose lettering was too small for the pins at every zoom the
+	capture could support.
+
+	The same two limits the mode applies, restated here rather than asked of it, since a window
+	is composed before the mode knows whether it will keep it: the ladder's top step, and the
+	points left at the next step (`graphicsMode.GraphicsMode._tooFewPoints`).
+
+	:param points: the whole figure's zoom points, from `zoomPoints`.
+	:param fraction: how much of the whole the view shows across its narrower axis, 1 for all.
+	"""
+	if fraction <= 0:
+		return False
+	step = round(math.log(1 / fraction, ZOOM_FACTOR))
+	return step < MAX_ZOOM_STEP and points / (ZOOM_FACTOR ** (step + 1)) >= MIN_WINDOW_POINTS
+
+
+def _compose(
+	newBuffer,
+	picture,
+	box,
+	width,
+	height,
+	mode,
+	invert,
+	whole: bool,
+	canMagnify: bool = True,
+) -> Drawing:
 	"""Draw one rectangle of a picture at one size.
 
 	:param whole: whether this is the whole picture, which is what the name says and what
 		decides whether a `redraw` is attached — a window's own drawing is never asked to
 		window again, and attaching one would let a stale box be applied twice.
+	:param canMagnify: whether a zoom in from this view is possible, which decides what a
+		picture too detailed for the pins advises. See `canMagnify`.
 	:return: the figure.
 	:raises ImageRefused: if there is nothing in this part of the picture.
 	"""
@@ -303,11 +351,21 @@ def _compose(newBuffer, picture, box, width, height, mode, invert, whole: bool) 
 		# reader feeling an empty panel knows the picture is blank here rather than that the
 		# display has stopped working. They can keep panning to reach the part that is not.
 		note = _("only background here")
-	elif rendering.crowded:
+	elif rendering.crowded and canMagnify:
 		# Translators: said when a picture holds more detail than the pins can carry, so what
 		# is drawn is an even texture rather than its lines. Magnifying shows less of the
 		# picture at a time and lets its lines come apart from each other.
 		note = _("too detailed to draw whole; magnify to read it")
+	elif rendering.crowded and picture.fromScreen:
+		# Translators: said when a picture copied off the screen holds more detail than the
+		# pins can carry and it is already magnified as far as the captured pixels allow, so
+		# magnifying cannot help. Copying the image and drawing it from the clipboard gets it
+		# at its own size, which is often larger than it was shown on screen.
+		note = _("too detailed for the pins at this size; try drawing it from the clipboard")
+	elif rendering.crowded:
+		# Translators: said when a picture holds more detail than the pins can carry and it is
+		# already magnified as far as its pixels allow, so magnifying cannot help.
+		note = _("too detailed for the pins, even at the closest zoom")
 	if not whole:
 		return Drawing(buffer, name=name, describeAt=_describer(picture, spot), note=note)
 	return Drawing(
@@ -377,6 +435,7 @@ def _reframer(newBuffer, picture: Picture, box, mode: str, invert: bool):
 				mode,
 				invert,
 				whole=False,
+				canMagnify=canMagnify(zoomPoints(picture, pinWidth, pinHeight, box), min(span, down)),
 			)
 		except ImageRefused as refusal:
 			# The mode keeps the view the reader already had when a window will not compose,

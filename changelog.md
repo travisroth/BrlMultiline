@@ -8,6 +8,31 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **Fixes from a review of the picture features.**
+  - A photo copied to the clipboard that is stored sideways, as cameras do, was turned the right
+    way up and then squeezed back into its stored shape. It keeps its shape now.
+  - Pressing a routing key where two coloured lines are close together could name a blend of
+    the two, purple for red beside blue, and drawing only that colour then drew nothing. The
+    colour named is now the one of the line nearest the middle of your press.
+  - Single lines said there was nothing to draw in a line that differed from its background
+    only in colour, such as red on a green of the same brightness. For a picture in colour, it
+    now finds lines by how different they are from the background, which leaves drawings in
+    black and grey on white exactly as they were.
+  - A style that could not be drawn still became the selected style while the old drawing
+    stayed on the display, so the next press of the style key skipped ahead. The style now
+    changes only when the new drawing is shown.
+
+- **A picture too detailed to read no longer tells you to magnify when you can't.** On a logo
+  with small lettering, the display said "magnify to read it" and the zoom key then said there
+  was no more detail to show. Now the advice to magnify is given only when a zoom is possible;
+  otherwise you are told the picture is too detailed at this size, and, for a picture copied
+  from the screen, that drawing it from the clipboard may give more to work with.
+
+- **Pictures magnify as far as their pixels allow.** A picture stopped at eight times its fitted
+  size however many pixels it had, because a limit meant for drawings whose dots grow when
+  magnified was applied to pictures too, and a picture is redrawn from its pixels at every zoom
+  instead. A large picture can now go to sixteen or thirty-two times.
+
 - **A picture can be drawn from the clipboard.** A new command draws an image you have copied,
   with Copy image in a browser, or an image file copied in File Explorer. It works with the
   screen curtain on, nothing on top of the picture on screen gets into it, and the image is used
@@ -28,7 +53,8 @@ Added:
   across the whole picture.
 
 - **Pictures keep more detail when Pillow is there**, 1.44 megapixels rather than 360,000, which
-  is one more doubling of magnification before a pin stands on a single pixel.
+  is one more doubling of magnification before a pin stands on a single pixel. (That doubling
+  depends on the fix above: before it, every picture stopped at eight times.)
 
 - **Pictures can be drawn as single lines.** A fourth picture style, between outlines and
   brightness, that draws each line in a picture once, down its middle. Outlines draw a stroke as

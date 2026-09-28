@@ -106,9 +106,7 @@ class DisplaySection(dict):
 		asked it, which upstream is the specification's default.
 		"""
 		if self.profiles is not None:
-			return key in self or any(
-				profile is not None and key in profile for profile in self.profiles
-			)
+			return key in self or any(profile is not None and key in profile for profile in self.profiles)
 		return key in self
 
 
@@ -197,7 +195,7 @@ def setBandConfig(displayKey: str, **values) -> None:
 			"flowGroundOnQuickNav": True,
 			"flowScrollToNewContent": True,
 			"flowWriteByParagraph": True,
-		"flowUnwrapLines": False,
+			"flowUnwrapLines": False,
 			"flowIndentStyle": "twoSpaces",
 		},
 	)
@@ -422,9 +420,7 @@ class Region:
 		# Read here and not afterwards, which is where NVDA reads it: the mode handed to
 		# liblouis is decided from the cursor at the moment of translating. See
 		# `expandedAtCursor`.
-		self.expandedAtCursor = bool(BRAILLE_CONFIG.get("expandAtCursor")) and (
-			self.cursorPos is not None
-		)
+		self.expandedAtCursor = bool(BRAILLE_CONFIG.get("expandAtCursor")) and (self.cursorPos is not None)
 		self.brailleCells = [ord(character) & 0xFF for character in self.rawText]
 		# Rebuilt here as NVDA rebuilds them, so that a region re-read with different text
 		# does not keep the map the text before it had.
@@ -579,7 +575,7 @@ class BrailleBuffer(AutoPropertyObject):
 		self.cursorPos = None
 		start = 0
 		for region in self.regions:
-			at = getattr(region, 'brailleCursorPos', None)
+			at = getattr(region, "brailleCursorPos", None)
 			if at is not None:
 				self.cursorPos = start + at
 			start += len(region.brailleCells)
@@ -2231,6 +2227,7 @@ request to move at all."""
 def _speakTextInfo(info, formatConfig=None, reason=None, **kwargs):
 	spokenPositions.append((info, formatConfig, reason))
 
+
 flashedMessages: list[str] = []
 """What was also written to the display, which is what `ui.message` does and what a message
 about a table must not do: the display is showing the table, and a flash sits over it until
@@ -2267,6 +2264,8 @@ def _flash(text):
 	"""What `ui.message` does: speak it and write it to the display."""
 	flashedMessages.append(text)
 	spokenMessages.append(text)
+
+
 """Everything `ui.message` was given, so a test can assert what the user was told."""
 
 
@@ -2702,7 +2701,6 @@ class NVDAObjectRegion(Region):
 		# One cell per character in this harness, so a text position is a braille position.
 		self.brailleCursorPos = self.cursorPos
 
-
 	def routeTo(self, pos):
 		self.acted = True
 
@@ -2931,9 +2929,7 @@ class FakeRGB(tuple):
 
 	@property
 	def name(self):
-		return self.NAMES[
-			min(self.NAMES, key=lambda known: sum((a - b) ** 2 for a, b in zip(known, self)))
-		]
+		return self.NAMES[min(self.NAMES, key=lambda known: sum((a - b) ** 2 for a, b in zip(known, self)))]
 
 
 def _module(name, **attributes):
