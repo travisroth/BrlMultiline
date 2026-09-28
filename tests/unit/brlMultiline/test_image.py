@@ -16,6 +16,7 @@ time, so the graphics mode had never had to window vertically at all. Half a pho
 still half a photograph, and the other half is above or below it.
 """
 
+import ctypes
 import os
 import re
 import sys
@@ -50,15 +51,24 @@ from brlMultiline.graphicsMode import MIN_WINDOW_POINTS  # noqa: E402
 PANEL = (48, 20)
 
 
-class FakePixel:
-	def __init__(self, grey):
-		self.rgbRed = grey
-		self.rgbGreen = grey
-		self.rgbBlue = grey
+class RGBQUAD(ctypes.Structure):
+	"""One pixel as Windows returns it: blue, green, red, and a byte nobody uses."""
+
+	_fields_ = [
+		("rgbBlue", ctypes.c_ubyte),
+		("rgbGreen", ctypes.c_ubyte),
+		("rgbRed", ctypes.c_ubyte),
+		("rgbReserved", ctypes.c_ubyte),
+	]
 
 
 class FakeScreenBitmap:
-	"""`screenBitmap.ScreenBitmap`, reduced to what the capture asks of it."""
+	"""`screenBitmap.ScreenBitmap`, reduced to what the capture asks of it.
+
+	Returns what the real one returns, a ctypes array of `RGBQUAD` rows, because that is the
+	shape the Pillow path reads as raw bytes. A list of pixel objects would quietly send every
+	capture test down the Python path and leave the one readers get untested.
+	"""
 
 	asked = []
 
@@ -70,22 +80,18 @@ class FakeScreenBitmap:
 		FakeScreenBitmap.asked.append((x, y, w, h, self.width, self.height))
 		# A dark square in the middle of a light field, so that whatever was asked for comes
 		# back as something with a shape in it rather than as a refusal.
-		rows = []
-		for row in range(self.height):
-			rows.append(
-				[
-					FakePixel(
-						0
-						if (
-							self.width // 4 <= column < 3 * self.width // 4
-							and self.height // 4 <= row < 3 * self.height // 4
-						)
-						else 255,
-					)
-					for column in range(self.width)
-				],
-			)
-		return rows
+		light = bytes((255, 255, 255, 0)) * self.width
+		dark = (
+			bytes((255, 255, 255, 0)) * (self.width // 4)
+			+ bytes(4 * (3 * self.width // 4 - self.width // 4))
+			+ bytes((255, 255, 255, 0)) * (self.width - 3 * self.width // 4)
+		)
+		raw = b"".join(
+			dark if self.height // 4 <= row < 3 * self.height // 4 else light for row in range(self.height)
+		)
+		pixels = (RGBQUAD * self.width * self.height)()
+		ctypes.memmove(pixels, raw, len(raw))
+		return pixels
 
 
 class FakeObject:
@@ -552,7 +558,7 @@ class TestAPictureKeepsItsShape(unittest.TestCase):
 
 
 class TestTheStyles(unittest.TestCase):
-	"""Outlines, brightness, brightness reversed, on one key."""
+	"""Outlines, single lines, brightness, brightness reversed, on one key."""
 
 	def test_theCycleReturnsToWhereItStarted(self):
 		style = imageFigure.STYLES[0]

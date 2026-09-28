@@ -722,6 +722,7 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 			fallsThrough="graphics",
 			bindings={
 				normalize(f"br({MONARCH}):dot1+dot3+dot5"): plugin("pictureOutlines"),
+				normalize(f"br({MONARCH}):dot1+dot2+dot3"): plugin("pictureLines"),
 				normalize(f"br({MONARCH}):dot1+dot2"): plugin("pictureBrightness"),
 				normalize(f"br({MONARCH}):dot1+dot2+dot3+dot5"): plugin("pictureReversed"),
 				normalize(f"br({MONARCH}):space+dot1+dot4+dot8"): plugin("pictureStyle"),

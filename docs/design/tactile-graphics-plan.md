@@ -1121,7 +1121,7 @@ about what the type adds on top of that:
 Status: **5a built and unit tested, awaiting a hardware run.** `imageSource.py` finds the
 object and copies its rectangle, `imagePins.py` is the arithmetic, `image.py` composes a
 `Drawing`, and two commands drive it. Getting a picture off the screen and onto the pins, by
-brightness and by edges. Everything cleverer than that — finding the subject, dropping the background, saying
+edges, by single lines and by brightness. Everything cleverer than that — finding the subject, dropping the background, saying
 what the picture is of — comes later and comes on top of this, not instead of it.
 
 **The picture is the one NVDA just found.** The reader is arrowing a web page, NVDA says
@@ -1429,23 +1429,88 @@ clip so that a large object with a sliver showing is refused as what it is.
 Occlusion is the limit none of that reaches. A window over the thing being captured is copied
 instead of it, because a screen grab is a grab of the screen and there is nothing else to ask.
 
-#### Pure Python, and why it is worth it
+#### Pillow for the pixels, Python for the pins
 
-No numpy, no Pillow.
+This section used to be called "Pure Python, and why it is worth it" and said Pillow was not in
+NVDA. That was wrong: installed NVDA builds carry Pillow, and `import PIL` works in them. What
+was true, and still is, is that NVDA does not *use* it, and that shapes how the add-on can.
 
-**numpy imports fine in the NVDA Python console and is not there for anybody else**, which is
-the trap worth writing down rather than merely avoiding. It is in the build environment as an
-optional dependency of comtypes, so it is importable in any NVDA run from source — and
-`source/setup.py` lists it under `excludes` with the comment "numpy is an optional dependency
-of comtypes but we don't require it", so py2exe leaves it out of what is shipped. An add-on
-that imported it would be tested by its author in a console that has it and would fail on
-every installed NVDA, which is the worst shape a dependency can take: it works everywhere it
-is checked and nowhere it is used. Pillow is not present on either path.
+**Why Pillow is there.** NVDA's own source does not import Pillow and does not list it as a
+runtime dependency. It is in NVDA's build environment as a dependency of Robot Framework's screen
+capture library, which is in the `system-tests` dependency group. py2exe packs whatever the
+bundled code imports, and `wx.lib.agw.shapedbutton`, which NVDA ships, has an optional
+`import PIL.Image`. That is the likely route in; it is an inference from the build, not something
+NVDA states. Checked on an installed 2026.2, whose `library.zip` has
+Pillow 12.2.0 with `ImageFilter`, `ImageOps`, `ImageMorph` and the rest; the 2026.3 lock file
+has 12.3.0. So it is present, and it is **not part of the add-on API**: no deprecation policy
+covers it, and a change to NVDA's build could change its version or leave it out.
 
-The arithmetic does not need either of them. It is one reduction over the captured pixels —
-taken as slice sums, so the per-pixel work happens below Python — and a Sobel over a few
-thousand cells, which is milliseconds on a capture of a third of a megapixel. What it buys
-besides safety is that the module stays testable on a list of numbers with no NVDA in the room.
+So the add-on uses it, and never depends on it:
+
+1. Every use sits behind a check that Pillow imported. The pure Python path it replaces is kept
+   whole and is what an NVDA without Pillow runs.
+2. The unit tests install the Pillow version NVDA's lock file names and run the image suites
+   with it, and then run every one of them again with it switched off
+   (`test_imageWithoutPillow`), so neither path can rot unnoticed.
+3. The two paths agree grey for grey on conversion, to within one level on any reduction where
+   a cell is a whole number of pixels, and on the drawing where cells split pixels. Details in
+   `imagePins.Picture.reduce`.
+
+**Where the line between them falls.** By size. Everything that touches every captured pixel
+goes to Pillow when it is there: colour to grey, shrinking the capture to what is kept, shrinking
+a region to the panel, and thickening ink for single lines. That is where the time was: turning
+a 600 by 600 capture grey took about 100 ms in Python and under 3 ms in Pillow, on the
+development machine. Everything after
+the reduction stays in Python: Sobel, thinning, hysteresis, Otsu, the skeleton, the ceilings and
+the refusals. It runs on a grid the size of the panel, a few thousand cells, so it is milliseconds
+either way, and it is where every decision about what the pins say is made. It has to stay
+readable and testable on a list of numbers.
+
+**The capture itself got better too, not only faster.** NVDA's `ScreenBitmap` shrinks while it
+copies, and the memory device context it copies into is left in the default "black on white"
+stretch mode, which combines the pixels it drops with a bitwise AND of their colours. That keeps
+black on white and does something arbitrary to colour. With Pillow, the rectangle is copied at up
+to two megapixels and box-averaged down to the 360,000 pixels kept. Without Pillow, Windows still
+does the shrink, as before.
+
+**Grey is still Rec. 601, not NVDA's.** `screenBitmap.rgbPixelBrightness` exchanges the red and
+blue weights. Pillow's `convert("L")` uses the correct weights in 16 bit fixed point, and the
+Python path now uses that same integer formula. The floating point version it replaced truncated,
+which left about half of all pixels one level darker than Pillow's.
+
+**numpy stays out entirely.** It imports in the NVDA Python console and is not there for anybody
+else. It is in the build environment as an optional dependency of comtypes, so it is importable
+in any NVDA run from source, and `source/setup.py` lists it under `excludes` with the comment
+"numpy is an optional dependency of comtypes but we don't require it". An add-on that imported
+it would pass every test its author ran and fail on every installed NVDA.
+
+#### Single lines
+
+A third style between outlines and brightness, and the one line art wanted from the start.
+
+Outlines draw every stroke as two rails, since a stroke has an edge on each side of its ink, and
+`_thin` explains why they must not be merged. Brightness draws the ink itself, which is right for
+a shape and too heavy for a pen line. Single lines finds the ink the way brightness does, then
+pares it down to a centre line one pin wide (Zhang and Suen's thinning), so a hexagon drawn with a
+pen reads as six sides rather than twelve.
+
+Three things make it work on real pictures:
+
+1. **The ink is reduced so a thin line cannot be averaged away.** At fifteen pixels to a pin, a
+   one pixel line averages to a grey paler than 200 and no threshold finds it. `reduceInk`
+   thickens the ink before each halving (a 3 by 3 minimum filter for dark ink), so the line
+   arrives two pins wide at about a third of full brightness. The skeleton then takes the
+   thickness back off. Without Pillow, each cell takes its most inked pixel instead.
+2. **A filled shape is drawn round, not through.** The skeleton of a solid square is a dot. A
+   piece of ink more than four pins thick on average (`SOLID`) is drawn as its boundary instead:
+   still one line, round the outside. The thickness is measured on the plain reduction, because
+   measured after thickening, a pen stroke three pins wide came back as five and was drawn as
+   rails.
+3. **The same ceiling as outlines,** met by dropping whole strokes, largest kept, and saying so.
+
+There is no reversed single lines. The ink is taken as the smaller of Otsu's two classes, and a
+stroke is thin by being a stroke, so the guess is rarely wrong. A fifth style would cost a press
+on every picture for a case brightness reversed already covers.
 
 #### What this is not, and what comes after
 

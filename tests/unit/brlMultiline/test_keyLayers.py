@@ -471,6 +471,7 @@ class TestDefaultLayers(unittest.TestCase):
 			("picture", True, "graphics"), (picture.context, picture.autoEnable, picture.fallsThrough)
 		)
 		self.assertEqual("pictureOutlines", picture.bindings[monarch("dot1+dot3+dot5")].scriptName)
+		self.assertEqual("pictureLines", picture.bindings[monarch("dot1+dot2+dot3")].scriptName)
 		self.assertEqual("pictureBrightness", picture.bindings[monarch("dot1+dot2")].scriptName)
 		self.assertEqual("pictureReversed", picture.bindings[monarch("dot1+dot2+dot3+dot5")].scriptName)
 		self.assertEqual("pictureStyle", picture.bindings[monarch("space+dot1+dot4+dot8")].scriptName)

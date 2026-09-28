@@ -29,6 +29,7 @@ from .graphicsMode import MIN_WINDOW_POINTS, ZOOM_FACTOR, Drawing
 from .imagePins import (
 	BRIGHTNESS,
 	EDGES,
+	STROKES,
 	ImageRefused,
 	Picture,
 	Placement,
@@ -38,6 +39,10 @@ from .imagePins import (
 )
 
 __all__ = [
+	"LINES",
+	"OUTLINES",
+	"REVERSED",
+	"SILHOUETTE",
 	"STYLES",
 	"figureFor",
 	"nextStyle",
@@ -45,19 +50,35 @@ __all__ = [
 ]
 
 
-STYLES = (
-	(EDGES, False),
-	(BRIGHTNESS, False),
-	(BRIGHTNESS, True),
-)
+OUTLINES = (EDGES, False)
+"""Where the picture changes. Every stroke as a pair of rails."""
+
+LINES = (STROKES, False)
+"""Every stroke of ink once, down its middle."""
+
+SILHOUETTE = (BRIGHTNESS, False)
+"""The subject raised, the background down."""
+
+REVERSED = (BRIGHTNESS, True)
+"""The background raised instead."""
+
+STYLES = (OUTLINES, LINES, SILHOUETTE, REVERSED)
 """The ways of turning a picture into pins, in the order one key cycles them.
 
-Outlines first because it is what works on what readers actually meet — diagrams, maps, logos,
-line art. Brightness second because it is what rescues a picture the outlines made nothing of,
-and reversed third because the guess about which side of a silhouette is the subject is a guess:
-usually right, cheap to overturn, and impossible for anyone to check except by feeling both.
+Outlines first because it is what works on the widest range of what readers meet — diagrams,
+maps, logos, line art, and photographs as well as anything does. Single lines next, because on
+the drawn part of that range it says the same thing more plainly: one line per stroke, where
+outlines give two. Brightness third because it is what rescues a picture the lines made nothing
+of, and reversed last because the guess about which side of a silhouette is the subject is a
+guess: usually right, cheap to overturn, and impossible for anyone to check except by feeling
+both.
 
-**Three states on one key rather than a dialog.** None of these can be chosen in advance. The
+**No reversed single lines.** The same guess is made for strokes, and it is a much safer one
+there: a stroke is thin by being a stroke, so the ink is almost always the smaller class. A
+fifth style on the cycling key would cost every reader a press on every picture for a case that
+rarely comes up, and white-on-dark line art is still readable reversed as a silhouette.
+
+**Four states on one key rather than a dialog.** None of these can be chosen in advance. The
 same picture as outlines and as brightness are two entirely different panels, nobody can predict
 which will read, and the whole cost of finding out is one keypress — so the answer is a key that
 cycles rather than a question the reader has no way to answer.
@@ -69,11 +90,18 @@ def styleName(mode: str, invert: bool = False) -> str:
 
 	Said every time it changes, because it is the thing the reader has just altered and the one
 	thing they cannot tell from the panel: the picture under their hand looks different, and
-	without being told why they would have to work out which of three it had become.
+	without being told why they would have to work out which of four it had become.
+
+	**"Single lines", not "lines".** Heard straight after "outlines", "lines" is the same word
+	with its first syllable lost, and a reader cycling quickly would hear no change at all.
 
 	:param mode: from `imagePins`.
 	:param invert: whether the silhouette is reversed.
 	"""
+	if mode == STROKES:
+		# Translators: a way of drawing a picture on a braille display: each stroke of ink as
+		# one line down its middle, where outlines would give two.
+		return _("single lines")
 	if mode == BRIGHTNESS and invert:
 		# Translators: a way of drawing a picture: its background raised instead of its subject.
 		return _("brightness reversed")
@@ -190,7 +218,7 @@ def figureFor(
 	:param picture: the capture.
 	:param width: pins across.
 	:param height: pins down.
-	:param mode: `EDGES` or `BRIGHTNESS`.
+	:param mode: `EDGES`, `STROKES` or `BRIGHTNESS`.
 	:param invert: swap which side of a silhouette is raised.
 	:return: the figure.
 	:raises ImageRefused: if there is nothing here to draw.
@@ -251,7 +279,8 @@ def _nameOf(picture: Picture, mode: str, invert: bool, whole: bool) -> str:
 	said = picture.name or _("picture")
 	if whole:
 		# Translators: what a drawn picture is called. Placeholders are what the picture is
-		# of and how it was drawn, one of "outlines", "brightness" or "brightness reversed".
+		# of and how it was drawn, one of "outlines", "single lines", "brightness" or
+		# "brightness reversed".
 		return _("{name}, {mode}").format(name=said, mode=styleName(mode, invert))
 	# Translators: what part of a drawn picture is called when the reader has zoomed into it.
 	return _("{name}, {mode}, part").format(name=said, mode=styleName(mode, invert))

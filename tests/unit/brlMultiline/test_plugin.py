@@ -363,12 +363,14 @@ class TestDrawingThePictureHere(unittest.TestCase):
 
 		self.plugin.script_drawPicture(None)
 		self.plugin.script_pictureReversed(None)
-		self.assertEqual(self.plugin._pictureStyle, imageFigure.STYLES[2])
+		self.assertEqual(self.plugin._pictureStyle, imageFigure.REVERSED)
 		self.plugin.script_pictureBrightness(None)
-		self.assertEqual(self.plugin._pictureStyle, imageFigure.STYLES[1])
+		self.assertEqual(self.plugin._pictureStyle, imageFigure.SILHOUETTE)
+		self.plugin.script_pictureLines(None)
+		self.assertEqual(self.plugin._pictureStyle, imageFigure.LINES)
 		self.plugin.script_pictureOutlines(None)
-		self.assertEqual(self.plugin._pictureStyle, imageFigure.STYLES[0])
-		self.assertEqual(len(self.mode.shown), 4)
+		self.assertEqual(self.plugin._pictureStyle, imageFigure.OUTLINES)
+		self.assertEqual(len(self.mode.shown), 5)
 		self.assertEqual(len(self.captures), 1, "a change of style copies nothing off the screen")
 
 	def test_theStyleAlreadyUpIsNotDrawnAgain(self):

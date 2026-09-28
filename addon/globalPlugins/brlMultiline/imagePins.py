@@ -46,18 +46,46 @@ rather than how much was demanded.
 **A window is judged against the picture it came from.** Every detector here returns a best
 answer for whatever it is handed, and blank paper has a best answer too. See `MEANINGFUL`.
 
-**No numpy, and it is importable while you check.** It is in NVDA's build environment as an
-optional dependency of comtypes, so it works in the Python console of any NVDA run from
-source — and `source/setup.py` lists it under `excludes`, so py2exe leaves it out of what is
-shipped. Importing it here would pass every test the author could run and fail on every
-installed NVDA. Pillow is on neither path. The work is a reduction taken as slice sums and a
-Sobel over a few thousand cells, which is milliseconds and wants nothing.
+**Pillow for the pixels, Python for the pins.** The work falls into two sizes. Everything that
+touches every captured pixel -- colour to grey, shrinking a region to the panel, thickening ink
+so a shrink cannot lose it -- is done by Pillow when it is there, because a third of a megapixel
+is a lot of Python. Everything after the reduction -- Sobel, thinning, hysteresis, Otsu,
+skeletons, the ceilings -- runs on a grid the size of the panel, a few thousand cells, and stays
+here in Python: it is milliseconds either way, it is where every decision this module makes
+lives, and it has to read as arithmetic.
+
+Pillow is in installed NVDA builds (2026.2 ships Pillow 12.2.0, and the 2026.3 lock file has
+12.3.0) but NVDA's own code does not import it. It is in NVDA's build environment for the system
+tests, as a dependency of Robot Framework's screen capture library, and py2exe packs what the
+bundled code imports -- `wx.lib.agw.shapedbutton`, which NVDA ships, imports it optionally. It is
+therefore **not part of NVDA's add-on API**: no deprecation cycle covers it, and a change to
+NVDA's build could remove it or change its version. So every use here is behind
+`_Image is None`, and the pure Python path it replaces is kept whole, tested, and is what an
+NVDA without Pillow gets. The two agree on everything the tests measure.
+
+numpy is a different case and stays out entirely. It is importable in an NVDA run from source,
+as an optional dependency of comtypes, and `source/setup.py` lists it under `excludes`, so it is
+missing from every installed copy -- the worst shape a dependency can take, since it works
+everywhere the author checks and nowhere a reader runs it.
 """
 
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
+
+if TYPE_CHECKING:
+	from PIL.Image import Image as PillowImage
+
+try:
+	from PIL import Image as _Image, ImageFilter as _ImageFilter
+except Exception:
+	# ImportError on an NVDA without it, and anything else on one whose copy will not load: a
+	# missing or mismatched native module raises OSError or ImportError depending on how it is
+	# missing. Either way the answer is the same, which is the Python path.
+	_Image = None
+	_ImageFilter = None
 
 __all__ = [
 	"EDGES",
+	"STROKES",
 	"BRIGHTNESS",
 	"ImageRefused",
 	"Picture",
@@ -67,15 +95,28 @@ __all__ = [
 	"brightnessPins",
 	"edgePins",
 	"greysFromPixels",
+	"hasPillow",
+	"pictureFromBgrx",
 	"place",
 	"render",
 	"renderAt",
+	"strokePins",
+	"subjectIsDarkIn",
 	"windowOf",
 ]
 
 
 EDGES = "edges"
 """Outlines: where the picture changes, which is what line art and diagrams are made of."""
+
+STROKES = "strokes"
+"""Single lines: each stroke of ink drawn once, down its middle.
+
+What `EDGES` cannot give. A drawn line has two edges, one on each side of the ink, so outlines
+feel every stroke as a pair of rails -- see `_thin` for why they must. This finds the ink, as
+`BRIGHTNESS` does, and then pares it down to a centre line one pin wide, so a hexagon drawn
+with a thick pen is six sides under the finger rather than twelve.
+"""
 
 BRIGHTNESS = "brightness"
 """Silhouette: the dark against the light, or the light against the dark."""
@@ -161,6 +202,20 @@ Fixed, and deliberately not the panel size: the reference has to mean the same t
 zoom, so it cannot be taken at whatever reduction the window happens to want. Forty-eight is
 close enough to a panel's forty rows that gradients come out the same order of magnitude, and
 small enough that measuring costs a few thousand cells once per capture.
+"""
+
+SOLID = 4
+"""How thick, in pins, a piece of ink has to be before `STROKES` draws round it, not through it.
+
+Measured as its area over the length of its skeleton, which is its average width, and the area
+is taken from the plain reduction rather than from `Picture.reduceInk`. Thickening is what that
+reduction is for, and measured after it a pen stroke three pins wide came back as five and was
+drawn round as a band, rails and all -- the one thing this style exists not to do. On the plain
+reduction a fine line has hardly any area, a pen stroke has its own, and a filled square is off
+the scale altogether: its skeleton is a dot, so its width comes out as its whole area.
+
+At four a stroke is a band a fingertip can feel the width of, and a band has two sides worth
+feeling.
 """
 
 SPARSE = 0.004
@@ -310,7 +365,15 @@ def greysFromPixels(rows, width: int, height: int) -> bytearray:
 	0.11, which is the standard luma formula with its red and blue terms exchanged; on anything
 	where the subject is told from its background by being red or blue — a red line on a chart,
 	a blue link underline — it gets the contrast backwards. The weights here are Rec. 601 as
-	written, and this is the one place they are applied.
+	written.
+
+	**Written as Pillow's own integer formula, so the two paths agree to the level.** Pillow's
+	`convert("L")` applies the same weights in 16 bit fixed point, rounded; the floating point
+	version this used to be truncated instead, which put a Python capture one level darker than
+	a Pillow one on about half of all pixels. Nothing a hand could feel, but a threshold sitting
+	on that level would have raised different pins depending on which NVDA the reader had.
+
+	The path without Pillow. `pictureFromBgrx` is the one with it.
 
 	:param rows: what `screenBitmap.captureImage` gives back, indexable as `rows[y][x]` with
 		`rgbRed`, `rgbGreen` and `rgbBlue` on each pixel.
@@ -324,9 +387,57 @@ def greysFromPixels(rows, width: int, height: int) -> bytearray:
 		row = rows[y]
 		for x in range(width):
 			pixel = row[x]
-			greys[at] = int(0.299 * pixel.rgbRed + 0.587 * pixel.rgbGreen + 0.114 * pixel.rgbBlue)
+			greys[at] = (pixel.rgbRed * 19595 + pixel.rgbGreen * 38470 + pixel.rgbBlue * 7471 + 0x8000) >> 16
 			at += 1
 	return greys
+
+
+def hasPillow() -> bool:
+	""":return: whether the pixel work can be handed to Pillow.
+
+	Asked by the capture, which grabs more pixels when Pillow is there to shrink them properly.
+	"""
+	return _Image is not None
+
+
+def pictureFromBgrx(
+	raw: bytes,
+	width: int,
+	height: int,
+	keep: "tuple[int, int]",
+	name: str = "",
+) -> "Picture | None":
+	"""Make a picture from a raw screen capture, shrunk to the size worth keeping.
+
+	`raw` is the bytes of what `screenBitmap.captureImage` returns: four bytes a pixel, blue,
+	green, red and one unused, rows top to bottom. Pillow reads that layout directly as "BGRX",
+	so no pixel is visited in Python.
+
+	**The shrink to `keep` is done here, by area, and not by the screen copy.** Windows can
+	shrink while it copies, and NVDA's `ScreenBitmap` asks it to, but a memory device context
+	stretches in the "black on white" mode unless told otherwise: the pixels a shrink drops are
+	combined with a bitwise AND of their colour values. That keeps a black line on white, and
+	does something with no name to a red line on blue. A box average is the right answer for
+	every colour, so the capture is taken near full size and averaged down here.
+
+	:param raw: the captured bytes, `width * height * 4` of them.
+	:param width: pixels across in the capture.
+	:param height: pixels down.
+	:param keep: `(width, height)` to hold on to, no larger than the capture.
+	:param name: what to call the picture.
+	:return: the picture, or None if Pillow is not there or would not read the bytes, in which
+		case the caller goes the Python way.
+	"""
+	pillow = _Image
+	if pillow is None or len(raw) != width * height * 4:
+		return None
+	try:
+		image = pillow.frombuffer("RGB", (width, height), raw, "raw", "BGRX", 0, 1).convert("L")
+		if (width, height) != (keep[0], keep[1]):
+			image = image.resize((keep[0], keep[1]), pillow.Resampling.BOX)
+	except Exception:
+		return None
+	return Picture(bytearray(image.tobytes()), image.width, image.height, name, image=image)
 
 
 def _topOf(values, share: float = REFERENCE_SHARE) -> int:
@@ -355,18 +466,44 @@ class Picture:
 	detail, up to the resolution it was captured at, and no further.
 	"""
 
-	def __init__(self, greys: bytearray, width: int, height: int, name: str = ""):
+	def __init__(
+		self,
+		greys: bytearray,
+		width: int,
+		height: int,
+		name: str = "",
+		image: "PillowImage | None" = None,
+	):
 		"""
 		:param greys: one brightness per pixel, row major.
 		:param width: pixels across.
 		:param height: pixels down.
 		:param name: what to call this picture when a reader asks what is on the display.
+		:param image: the same pixels as a Pillow "L" image, if the capture already has one.
+			Made from `greys` when first needed otherwise.
 		"""
 		self.greys = greys
 		self.width = width
 		self.height = height
 		self.name = name
 		self._strength = None
+		self._image: "PillowImage | None" = image
+
+	def _pillow(self) -> "PillowImage | None":
+		""":return: these pixels as a Pillow image, or None to go the Python way.
+
+		Built once and kept, because a reader zooming asks for a reduction per view. The greys
+		stay the record: nothing writes to either after capture, so the two cannot drift.
+		"""
+		pillow = _Image
+		if pillow is None:
+			return None
+		if self._image is None:
+			try:
+				self._image = pillow.frombytes("L", (self.width, self.height), bytes(self.greys))
+			except Exception:
+				return None
+		return self._image
 
 	@property
 	def spread(self) -> int:
@@ -467,9 +604,21 @@ class Picture:
 		at the background value, which is why the count is over the cell whole area rather than
 		over the pixels found in it.
 
-		The inner sum is taken over a slice so that the per-pixel work happens below Python.
-		A capture of a few hundred thousand pixels reduces in milliseconds that way and in a
-		noticeable pause without it.
+		**Pillow when it is there, for a box inside the picture**, which is every box the add-on
+		asks for. Its box filter is the same area average with one difference worth knowing:
+		it weights a pixel that straddles two cells by how much of it falls in each, where the
+		Python below gives it whole to one. Where every cell is a whole number of pixels the two
+		agree to within one level, which is Pillow's fixed point rounding. Where cells split
+		pixels they differ at the boundaries, and on line art by more than that suggests: a one
+		pixel line on a boundary is shared between two cells by Pillow and given to one by
+		Python, so a single cell can differ by a quarter of full scale. Measured on the hexagon
+		fixture fitted to forty pins, the average cell is four levels apart and both draw the
+		same hexagon. A box reaching outside the picture goes the Python way, which is the one
+		that knows about `background`.
+
+		The Python inner sum is taken over a slice so that the per-pixel work happens below
+		Python. A capture of a few hundred thousand pixels reduces in milliseconds that way and
+		in a noticeable pause without it.
 
 		:param box: the source rectangle, `(left, top, width, height)` in pixels. May lie
 			partly or wholly outside the picture.
@@ -484,6 +633,16 @@ class Picture:
 		out = bytearray(max(0, outWidth) * max(0, outHeight))
 		if outWidth <= 0 or outHeight <= 0:
 			return out
+		pillow = _Image
+		image = self._pillow() if self._inside(box) else None
+		if image is not None and pillow is not None:
+			return bytearray(
+				image.resize(
+					(outWidth, outHeight),
+					pillow.Resampling.BOX,
+					box=(left, top, left + width, top + height),
+				).tobytes(),
+			)
 		if background is None:
 			background = self.border
 		greys = self.greys
@@ -507,7 +666,100 @@ class Picture:
 						total += sum(greys[base + insideX0 : base + insideX1])
 					found = (insideX1 - insideX0) * (insideY1 - insideY0)
 				total += background * (area - found)
-				out[rowOut + ox] = min(255, total // area) if area else background
+				# Rounded, as Pillow's box filter rounds. Truncating put this a level darker.
+				out[rowOut + ox] = min(255, (total + area // 2) // area) if area else background
+		return out
+
+	def _inside(self, box: "tuple[int, int, int, int]") -> bool:
+		""":return: whether a source rectangle lies wholly on the picture."""
+		left, top, width, height = box
+		return (
+			left >= 0
+			and top >= 0
+			and width >= 1
+			and height >= 1
+			and left + width <= self.width
+			and top + height <= self.height
+		)
+
+	def reduceInk(
+		self,
+		box: "tuple[int, int, int, int]",
+		outWidth: int,
+		outHeight: int,
+		dark: bool,
+	) -> bytearray:
+		"""Reduce so that a line of ink cannot be averaged away.
+
+		`reduce` is right for edges and silhouettes and wrong for a thin line: at eight pixels
+		to a pin, a one pixel pen stroke is an eighth of each cell it crosses and averages to
+		a pale grey that no threshold will call ink. A diagram drawn with a fine pen comes out
+		with gaps along its own lines, and a gap in a line is the one thing a hand cannot work
+		around. This is the reduction for `STROKES`, where the only question asked of a cell
+		is whether a stroke went through it.
+
+		**Thickened, then shrunk.** The ink is widened before each halving, so that nothing
+		one pixel wide is ever halved: a 3 by 3 minimum filter for dark ink, maximum for light,
+		then a 2 by 2 average, repeated until the next halving would overshoot, then a box
+		shrink to size. Measured at fifteen pixels to a pin, a one pixel line comes out two pins
+		wide at about a third of full brightness, where a plain average leaves it paler than
+		200 and gone. The thickness is what the skeleton in `strokePins` takes back off, so it
+		costs nothing except that two strokes closer together than a pin merge into one --
+		which they would have done on the pins anyway.
+
+		Staged rather than one wide filter, because a minimum filter costs the square of its
+		width for every pixel, and fifteen pixels to a pin would be two hundred and twenty-five
+		comparisons each. Each stage works on a quarter of the pixels the last one did.
+
+		**Without Pillow, the most inked pixel of each cell**, taken over slices as `reduce`
+		takes its sums. Not the same arithmetic and asking the same question, and it is the
+		stricter of the two: one stray dark pixel inks a whole cell. On line art that is what
+		is wanted, and on a photograph no stroke style was going to help.
+
+		:param box: the source rectangle, inside the picture.
+		:param outWidth: columns wanted.
+		:param outHeight: rows wanted.
+		:param dark: whether the ink is darker than its ground.
+		:return: one value per output cell, row major.
+		"""
+		out = bytearray(max(0, outWidth) * max(0, outHeight))
+		if outWidth <= 0 or outHeight <= 0:
+			return out
+		left, top, width, height = box
+		width = max(1, width)
+		height = max(1, height)
+		pillow = _Image
+		filters = _ImageFilter
+		image = self._pillow() if self._inside(box) else None
+		if image is not None and pillow is not None and filters is not None:
+			image = image.crop((left, top, left + width, top + height))
+			widen = filters.MinFilter(3) if dark else filters.MaxFilter(3)
+			while True:
+				acrossBy = 2 if image.width >= 2 * outWidth else 1
+				downBy = 2 if image.height >= 2 * outHeight else 1
+				if acrossBy == downBy == 1:
+					break
+				image = image.filter(widen).reduce((acrossBy, downBy))
+			if image.size != (outWidth, outHeight):
+				image = image.resize((outWidth, outHeight), pillow.Resampling.BOX)
+			return bytearray(image.tobytes())
+		pick = min if dark else max
+		greys = self.greys
+		for oy in range(outHeight):
+			y0 = max(0, top + oy * height // outHeight)
+			y1 = min(self.height, max(y0 + 1, top + (oy + 1) * height // outHeight))
+			rowOut = oy * outWidth
+			for ox in range(outWidth):
+				x0 = max(0, left + ox * width // outWidth)
+				x1 = min(self.width, max(x0 + 1, left + (ox + 1) * width // outWidth))
+				if x1 <= x0 or y1 <= y0:
+					# Only for a box off the picture, which nothing in the add-on asks for. No
+					# ink there, whichever way round the ink is.
+					out[rowOut + ox] = 255 if dark else 0
+					continue
+				out[rowOut + ox] = pick(
+					pick(greys[y * self.width + x0 : y * self.width + x1]) for y in range(y0, y1)
+				)
 		return out
 
 
@@ -997,10 +1249,7 @@ def brightnessPins(
 	if not total or not greys:
 		return Rendering(pins, width, height, 0)
 	threshold = _otsu(greys)
-	dark = sum(1 for grey in greys if grey < threshold)
-	subjectIsDark = dark <= total - dark
-	if invert:
-		subjectIsDark = not subjectIsDark
+	subjectIsDark = subjectIsDarkIn(greys, invert)
 	places = [place for place, grey in enumerate(greys) if (grey < threshold) == subjectIsDark]
 	if not places:
 		return Rendering(pins, width, height, 0)
@@ -1011,6 +1260,205 @@ def brightnessPins(
 		return Rendering(pins, width, height, len(places))
 	values = [(255 - greys[place]) if subjectIsDark else greys[place] for place in places]
 	return Rendering(pins, width, height, _raiseTopmost(values, places, ceiling, pins))
+
+
+def subjectIsDarkIn(greys: "bytes | bytearray", invert: bool = False) -> bool:
+	""":return: whether the subject of a picture is its dark side.
+
+	The smaller of Otsu's two classes, on the reasoning in `brightnessPins`: a thing is usually
+	smaller than what it is in front of. Truer still of a stroke, which is thin by being a
+	stroke, and that is why `STROKES` asks this and offers no reversed style of its own.
+
+	:param greys: brightnesses, reduced.
+	:param invert: take the other side.
+	"""
+	if not greys:
+		return not invert
+	threshold = _otsu(greys)
+	dark = sum(1 for grey in greys if grey < threshold)
+	return (dark <= len(greys) - dark) != invert
+
+
+def _ring(grid: bytearray, place: int, width: int, height: int) -> "tuple[int, ...]":
+	""":return: the eight neighbours of a cell, clockwise from the one above it.
+
+	The order Zhang and Suen number them in, P2 to P9, which is what makes `_skeleton` checkable
+	against the paper. Off the grid counts as empty.
+	"""
+	x = place % width
+	y = place // width
+	up = y > 0
+	down = y < height - 1
+	left = x > 0
+	right = x < width - 1
+	return (
+		grid[place - width] if up else 0,
+		grid[place - width + 1] if up and right else 0,
+		grid[place + 1] if right else 0,
+		grid[place + width + 1] if down and right else 0,
+		grid[place + width] if down else 0,
+		grid[place + width - 1] if down and left else 0,
+		grid[place - 1] if left else 0,
+		grid[place - width - 1] if up and left else 0,
+	)
+
+
+def _skeleton(mask: "bytes | bytearray", width: int, height: int) -> bytearray:
+	"""Pare a mask down to its centre lines, one cell wide.
+
+	Zhang and Suen's thinning, 1984: peel away the cells on the boundary that can go without
+	breaking anything, in two alternating passes -- one taking south and east boundaries, one
+	north and west -- so that what is left sits in the middle of the stroke rather than against
+	one side of it. A cell may go only if it has between two and six neighbours, which keeps
+	line ends and interiors, and if its neighbours make exactly one run around it, which keeps
+	every connection it was making.
+
+	**One known fault, mended afterwards rather than worked around.** A stroke exactly two cells
+	thick can vanish, because both passes see every cell of a 2 by 2 block as a removable
+	corner and they all go at once. A dot of ink that small is still ink, so any piece of the
+	mask that comes out with nothing left of it gets back its most central cell. That keeps a
+	full stop a full stop.
+
+	Pure Python on purpose. It runs on the reduced grid, a few thousand cells for a handful of
+	passes, and it is a decision about what the pins say: exactly the kind of thing this module
+	keeps where it can be read.
+
+	:param mask: one byte per cell, non-zero for ink.
+	:param width: cells across.
+	:param height: cells down.
+	:return: the centre lines, one byte per cell.
+	"""
+	grid = bytearray(1 if value else 0 for value in mask)
+	inked = [place for place, value in enumerate(grid) if value]
+	changing = True
+	while changing:
+		changing = False
+		for firstPass in (True, False):
+			doomed = []
+			for place in inked:
+				ring = _ring(grid, place, width, height)
+				count = sum(ring)
+				if count < 2 or count > 6:
+					continue
+				runs = sum(1 for n in range(8) if not ring[n] and ring[(n + 1) % 8])
+				if runs != 1:
+					continue
+				p2, _p3, p4, _p5, p6, _p7, p8, _p9 = ring
+				if firstPass:
+					if (p2 and p4 and p6) or (p4 and p6 and p8):
+						continue
+				elif (p2 and p4 and p8) or (p2 and p6 and p8):
+					continue
+				doomed.append(place)
+			for place in doomed:
+				grid[place] = 0
+			if doomed:
+				changing = True
+				inked = [place for place in inked if grid[place]]
+	for group in _components([place for place, value in enumerate(mask) if value], width, height):
+		if any(grid[place] for place in group):
+			continue
+		middleX = sum(place % width for place in group) / len(group)
+		middleY = sum(place // width for place in group) / len(group)
+		grid[
+			min(group, key=lambda place: (place % width - middleX) ** 2 + (place // width - middleY) ** 2)
+		] = 1
+	return grid
+
+
+def _onBoundary(mask: bytearray, place: int, width: int, height: int) -> bool:
+	""":return: whether an inked cell touches the ground above, below or to either side.
+
+	Four neighbours rather than eight, which is what makes the boundary one cell thick and
+	still joined: a diagonal step is a corner of the shape, not a way out of it.
+	"""
+	x = place % width
+	y = place // width
+	return (
+		y == 0
+		or y == height - 1
+		or x == 0
+		or x == width - 1
+		or not mask[place - width]
+		or not mask[place + width]
+		or not mask[place - 1]
+		or not mask[place + 1]
+	)
+
+
+def strokePins(
+	inked: "bytes | bytearray",
+	width: int,
+	height: int,
+	dark: bool,
+	coverage: float = EDGE_COVERAGE,
+	plain: "bytes | bytearray | None" = None,
+) -> Rendering:
+	"""Raise each stroke of ink once, down its middle.
+
+	The style for what readers meet most and `EDGES` serves worst: diagrams, maps, handwriting,
+	a hexagon drawn with a pen. Outlines of those are rails, a pair of lines for every stroke,
+	and a hand has to learn that two lines close together mean one. This draws one.
+
+	Otsu splits the ink from the ground and the ink side is pared to a skeleton -- piece by
+	piece, because not every piece of ink is a stroke. **A filled shape is drawn round, not
+	through.** The skeleton of a solid square is a dot and of a disc a point, so a logo, a
+	filled chart marker or a black blob on a map would arrive as nothing much. A piece whose
+	ink is more than `SOLID` pins thick on average is a shape rather than a line, and is drawn
+	as its own boundary instead: still one line, and the line a finger wants, round the
+	outside. The same ceiling as outlines then applies, because a skeleton is a set of lines and the panel reads lines
+	at the same density whichever way they were found. Over the ceiling, whole strokes are kept
+	largest first and the rest let go, for the reason `_fitEdges` gives: half a line is a lie.
+	Letting any go is said, as `crowded`, since the reader is then feeling less than there is.
+
+	:param inked: one value per cell, from `Picture.reduceInk`, so that thin lines survived.
+	:param width: cells across.
+	:param height: cells down.
+	:param dark: whether the ink is the dark side, from `subjectIsDarkIn`.
+	:param coverage: the most of the picture that may be raised.
+	:param plain: the same cells from `Picture.reduce`, which is what how thick a piece of ink
+		is gets measured on. See `SOLID`. None to measure on `inked`.
+	:return: the pins.
+	"""
+	pins = bytearray(width * height)
+	if not width or not height or not inked:
+		return Rendering(pins, width, height, 0)
+	threshold = _otsu(inked)
+	mask = bytearray(1 if (grey < threshold) == dark else 0 for grey in inked)
+	if not any(mask):
+		return Rendering(pins, width, height, 0)
+	if plain is None:
+		body = mask
+	else:
+		cut = _otsu(plain)
+		body = bytearray(1 if (grey < cut) == dark else 0 for grey in plain)
+	lines = _skeleton(mask, width, height)
+	places = []
+	for group in _components([place for place, value in enumerate(mask) if value], width, height):
+		spine = [place for place in group if lines[place]]
+		if sum(body[place] for place in group) > SOLID * max(1, len(spine)):
+			places.extend(place for place in group if _onBoundary(mask, place, width, height))
+		else:
+			places.extend(spine)
+	places.sort()
+	ceiling = max(1, int(round(width * height * coverage)))
+	if len(places) <= ceiling:
+		for place in places:
+			pins[place] = 1
+		return Rendering(pins, width, height, len(places))
+	kept = 0
+	for group in sorted(_components(places, width, height), key=len, reverse=True):
+		if kept + len(group) <= ceiling:
+			for place in group:
+				pins[place] = 1
+			kept += len(group)
+	if kept:
+		return Rendering(pins, width, height, kept, crowded=True)
+	# One stroke larger than the whole budget: a scribble, or a texture Otsu took for ink. As
+	# with outlines, an even scattering, marked.
+	return Rendering(
+		pins, width, height, _raiseTopmost([1] * len(places), places, ceiling, pins), crowded=True
+	)
 
 
 def place(picture: Picture, box, width: int, height: int) -> Placement:
@@ -1096,7 +1544,7 @@ def renderAt(
 
 	:param picture: the captured pixels.
 	:param spot: which of them, and where they land.
-	:param mode: `EDGES` or `BRIGHTNESS`.
+	:param mode: `EDGES`, `STROKES` or `BRIGHTNESS`.
 	:param invert: swap which side of a silhouette is raised.
 	:param whole: whether this is the entire picture rather than a window of it.
 	:return: the pins, positioned on the panel.
@@ -1152,7 +1600,9 @@ def renderAt(
 	# elsewhere in the capture from making everything softer than itself look like backdrop.
 	# See `SUBJECT_TONES`.
 	strength = picture.strength
-	if mode == BRIGHTNESS:
+	if mode in (BRIGHTNESS, STROKES):
+		# Strokes are ink, found by tone as a silhouette is, so they ask the silhouette's
+		# question: are there two tones here at all.
 		apart = _separation(greys)
 		found = apart >= strength.separation * MEANINGFUL or apart >= SUBJECT_TONES
 	else:
@@ -1165,6 +1615,12 @@ def renderAt(
 		return nothingHere(_("There is only background in this picture"))
 	if mode == BRIGHTNESS:
 		rendering = brightnessPins(greys, spot.width, spot.height, invert=invert)
+	elif mode == STROKES:
+		# Which side is ink is decided on the plain reduction, where the two tones are in their
+		# true proportions. On the inked one they are not: thickening the ink is the point of it.
+		dark = subjectIsDarkIn(greys, invert)
+		inked = picture.reduceInk(spot.source, spot.width, spot.height, dark)
+		rendering = strokePins(inked, spot.width, spot.height, dark, plain=greys)
 	else:
 		rendering = edgePins(greys, spot.width, spot.height)
 	if whole and rendering.coverage < SPARSE:
@@ -1195,7 +1651,7 @@ def render(
 	:param box: which part of them, as left, top, width and height.
 	:param width: pins across.
 	:param height: pins down.
-	:param mode: `EDGES` or `BRIGHTNESS`.
+	:param mode: `EDGES`, `STROKES` or `BRIGHTNESS`.
 	:param invert: swap which side of a silhouette is raised.
 	:return: the pins, positioned on the panel.
 	:raises ImageRefused: if there is nothing in this part of the picture to draw.

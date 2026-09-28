@@ -3,10 +3,12 @@
 
 """Just enough PNG to read a test fixture.
 
-**Why this exists rather than Pillow.** Pillow is not in NVDA and is not in this project
-either, and the one thing worth having a real image file for is a regression test against an
-image that actually produced a wrong panel. Sixty lines of `zlib` and a filter loop buys that
-without adding a dependency to a test suite that has none.
+**Why this exists rather than Pillow.** Written when the add-on did not use Pillow, and kept
+because the fixture has to load the same way on both of the paths the image tests run. Pillow
+is now a test dependency and installed NVDA builds carry it, but the suites are run a second
+time with it switched off (see `test_imageWithoutPillow`), and a fixture read by Pillow would
+quietly depend on it in the run that is meant to prove nothing does. Sixty lines of `zlib` and
+a filter loop keeps the fixture independent of the thing under test.
 
 Deliberately narrow: eight bits a channel, no interlacing, the five standard filters. It is
 not a decoder, it is a fixture reader, and anything it cannot read should fail loudly rather

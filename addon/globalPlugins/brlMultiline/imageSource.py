@@ -33,7 +33,7 @@ from typing import Optional
 import api
 from logHandler import log
 
-from .imagePins import ImageRefused, Picture, greysFromPixels
+from .imagePins import ImageRefused, Picture, greysFromPixels, hasPillow, pictureFromBgrx
 
 __all__ = [
 	"MIN_SIDE",
@@ -58,6 +58,17 @@ Six hundred square. The capture is held so that zooming can reduce from pixels r
 magnify pins, and past about eight pixels to a pin there is nothing left for zoom to reach —
 the panel runs out first. Capturing a four megapixel image would cost the reader a pause for
 detail no finger will ever arrive at.
+"""
+
+GRAB_PIXELS = 2000000
+"""How many pixels to copy off the screen when Pillow will shrink them to `MAX_PIXELS`.
+
+What is kept is still `MAX_PIXELS`. This is how much is copied so that the shrink to it can be
+done properly: Windows can shrink while it copies, but in the mode NVDA's `ScreenBitmap` leaves
+it in, the pixels it drops are combined by a bitwise AND of their colours -- see
+`imagePins.pictureFromBgrx`. Two megapixels is a full HD screen, so nearly everything is copied
+at its own size and averaged down, and something larger than that is shrunk by Windows only as
+far as two megapixels. About eight megabytes of capture for a moment.
 """
 
 
@@ -229,7 +240,7 @@ def _isOffScreen(obj) -> bool:
 		return False
 
 
-def _captureSize(width: int, height: int) -> tuple:
+def _captureSize(width: int, height: int, most: int = MAX_PIXELS) -> "tuple[int, int]":
 	"""Choose how many pixels to keep for something of this size on screen.
 
 	Never enlarged. Upscaling a small image before reducing it adds no detail and costs the
@@ -237,14 +248,33 @@ def _captureSize(width: int, height: int) -> tuple:
 
 	:param width: its width on screen.
 	:param height: its height on screen.
+	:param most: the most pixels to allow.
 	:return: the capture size.
 	"""
-	if width * height <= MAX_PIXELS:
+	if width * height <= most:
 		return width, height
 	# Shrunk on both axes by the same factor, because the shape has to survive: a picture
 	# squeezed on one axis is a picture of something else, and nothing downstream could know.
-	scale = (MAX_PIXELS / (width * height)) ** 0.5
+	scale = (most / (width * height)) ** 0.5
 	return max(1, int(width * scale)), max(1, int(height * scale))
+
+
+def _rawBytes(pixels: object, width: int, height: int) -> "bytes | None":
+	""":return: a capture's pixels as bytes, four to a pixel, or None if it is not that shape.
+
+	`ScreenBitmap.captureImage` returns a ctypes array of `RGBQUAD`, which is exactly the bytes
+	Pillow wants, in one piece of memory. Anything else -- a test's rows of pixel objects, or a
+	future NVDA that returns something different -- is None, and goes the Python way.
+	"""
+	try:
+		import ctypes
+
+		size = ctypes.sizeof(pixels)
+		if size != width * height * 4:
+			return None
+		return ctypes.string_at(ctypes.addressof(pixels), size)
+	except TypeError:
+		return None
 
 
 def nameFor(obj) -> str:
@@ -333,20 +363,39 @@ def capture(left: int, top: int, width: int, height: int, name: str = "") -> Pic
 	:param width: how wide on screen.
 	:param height: how tall.
 	:param name: what to call it.
+	**Two ways, the same picture.** With Pillow the rectangle is copied near its own size and
+	Pillow turns it grey and shrinks it to `MAX_PIXELS`, without a Python loop over a pixel.
+	Without it Windows shrinks during the copy and each kept pixel is read in Python, which is
+	what every version of this did before and is kept whole for an NVDA whose build leaves
+	Pillow out. See `imagePins` for why that is possible.
+
 	:return: the pixels.
 	:raises ImageRefused: if the screen would not give them up.
 	"""
-	keepWidth, keepHeight = _captureSize(int(width), int(height))
+	keep = _captureSize(int(width), int(height))
+	grab = _captureSize(int(width), int(height), GRAB_PIXELS) if hasPillow() else keep
 	try:
 		import screenBitmap
 
-		grabber = screenBitmap.ScreenBitmap(keepWidth, keepHeight)
+		grabber = screenBitmap.ScreenBitmap(*grab)
 		pixels = grabber.captureImage(int(left), int(top), int(width), int(height))
 	except Exception:
 		log.error("BrlMultiline: the screen would not be captured", exc_info=True)
 		# Translators: reported when copying part of the screen failed.
 		raise ImageRefused(_("This could not be copied off the screen"))
-	return Picture(greysFromPixels(pixels, keepWidth, keepHeight), keepWidth, keepHeight, name)
+	raw = _rawBytes(pixels, *grab)
+	if raw is not None:
+		picture = pictureFromBgrx(raw, grab[0], grab[1], keep, name)
+		if picture is not None:
+			return picture
+	if grab != keep:
+		# Pillow was there when the size was chosen and would not read the capture. Rare
+		# enough to be worth a log line, and the capture is still good: read in Python and
+		# shrunk by `Picture.reduce`, slower and the same picture.
+		log.debugWarning("BrlMultiline: Pillow would not read a capture, reading it in Python")
+		large = Picture(greysFromPixels(pixels, *grab), grab[0], grab[1], name)
+		return Picture(large.reduce((0, 0, grab[0], grab[1]), *keep), keep[0], keep[1], name)
+	return Picture(greysFromPixels(pixels, *keep), keep[0], keep[1], name)
 
 
 def sizeWords(picture: Optional[Picture]) -> str:

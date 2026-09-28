@@ -239,7 +239,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		anybody here that it happened.
 		"""
 
-		self._pictureStyle = imageFigure.STYLES[0]
+		self._pictureStyle = imageFigure.OUTLINES
 		"""How pictures are being drawn, as a mode and whether it is reversed.
 
 		Carried from one picture to the next within a session. A reader who has found that
@@ -3040,8 +3040,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_pictureStyle(self, gesture):
 		"""Draw the same picture the other way, without copying the screen again.
 
-		Outlines, brightness, brightness reversed. None of the three can be chosen in
-		advance — the same picture as outlines and as brightness are two entirely different
+		Outlines, single lines, brightness, brightness reversed. None of the four can be chosen
+		in advance — the same picture as outlines and as brightness are two entirely different
 		panels, and which one reads depends on the picture — so the answer is a key that
 		cycles rather than a question nobody can answer before feeling it.
 
@@ -3058,7 +3058,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		category=SCRIPT_CATEGORY,
 	)
 	def script_pictureOutlines(self, gesture):
-		self._choosePictureStyle(imageFigure.STYLES[0])
+		self._choosePictureStyle(imageFigure.OUTLINES)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Draw the picture as single lines"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_pictureLines(self, gesture):
+		self._choosePictureStyle(imageFigure.LINES)
 
 	@script(
 		# Translators: input help message for a command.
@@ -3066,7 +3074,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		category=SCRIPT_CATEGORY,
 	)
 	def script_pictureBrightness(self, gesture):
-		self._choosePictureStyle(imageFigure.STYLES[1])
+		self._choosePictureStyle(imageFigure.SILHOUETTE)
 
 	@script(
 		# Translators: input help message for a command.
@@ -3074,14 +3082,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		category=SCRIPT_CATEGORY,
 	)
 	def script_pictureReversed(self, gesture):
-		self._choosePictureStyle(imageFigure.STYLES[2])
+		self._choosePictureStyle(imageFigure.REVERSED)
 
 	def _choosePictureStyle(self, style: tuple) -> None:
 		"""Draw the picture up in one style, the one the cycling key or a direct key asked for.
 
 		A key for each as well as one that cycles, because once a reader has learned which style
-		reads a kind of picture, cycling through the other two to reach it is two panels of
-		something they already know they do not want.
+		reads a kind of picture, cycling through the others to reach it is panels of something
+		they already know they do not want.
 
 		:param style: one of `image.STYLES`.
 		"""

@@ -8,6 +8,21 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **Pictures can be drawn as single lines.** A fourth picture style, between outlines and
+  brightness, that draws each line in a picture once, down its middle. Outlines draw a stroke as
+  two lines, one on each side of the ink; a hexagon drawn with a pen is now six sides under the
+  finger rather than twelve. Filled shapes are drawn round their outside. Fine lines are kept
+  when a picture is shrunk a long way to fit, where before they could average away to nothing.
+  It is second on the cycling key, and l draws it directly on the Monarch's picture layer.
+
+- **Pictures are copied and shrunk with Pillow when NVDA has it.** Installed NVDA builds carry
+  the Pillow image library, although NVDA itself does not use it. The add-on now uses it for the
+  work that touches every pixel: turning a capture grey is about thirty times faster, and a
+  large capture is averaged down by area rather than shrunk by Windows during the copy, which
+  treated colours oddly. Because Pillow is not part of NVDA's add-on interface, everything still
+  works without it, the old way, and the tests run both ways. Earlier notes in this project that
+  said Pillow was not in NVDA were wrong and are corrected.
+
 - **One table's headers can be left out of speech.** For the table whose headers are a paragraph
   of help text, without a profile for its site. A new command, pressed in a table, stops speaking
   that table's row and column headers until the page is loaded again; pressing it again speaks

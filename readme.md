@@ -731,11 +731,15 @@ photos; and poor results for everything else. It draws what is in the picture wi
 what matters, so a photo of a person in front of a bookcase comes out as a person and a
 bookcase.
 
-**Graphics: Change how a picture is drawn** cycles through three styles and announces which one
+**Graphics: Change how a picture is drawn** cycles through four styles and announces which one
 you are on:
 
 - **Outlines**: the edges in the picture, thinned to one dot. A thick stroke has two edges, an
   outer and an inner, so it shows as a double line.
+- **Single lines**: each line in the picture drawn once, down its middle, so a line drawn with a
+  thick pen is one line rather than two. Filled shapes are drawn round their outside. Try it
+  first on diagrams, maps, charts, and handwriting. Fine lines are kept even when the picture is
+  shrunk a long way to fit.
 - **Brightness**: the dark parts of the picture raised. This draws the ink itself rather than
   its edges, so try it on a shape whose inside matters.
 - **Brightness reversed**: the light parts raised instead. Try it on anything drawn light on
@@ -991,10 +995,11 @@ on:
 - **Graphics: Show the next set of lines on a chart**: v, on a chart.
 - **Graphics: Show the previous set of lines on a chart**: v with dot 7, on a chart.
 - **Graphics: Draw the picture as outlines**: o, on a picture.
+- **Graphics: Draw the picture as single lines**: l, on a picture.
 - **Graphics: Draw the picture by brightness**: b, on a picture.
 - **Graphics: Draw the picture by brightness, reversed**: r, on a picture.
 - **Graphics: Change how a picture is drawn**: Space with dots 1, 4, and 8, on a picture. Cycles
-  through the three styles.
+  through the four styles.
 
 These two have no key:
 
@@ -1037,8 +1042,9 @@ The Monarch and the keyboard come with these layers:
 - **Monarch, chart layer.** Turns on instead of the graphics layer when the drawing is a chart,
   and includes all the graphics layer keys. Adds o to zoom to one pin per point, and v and v with
   dot 7 for the next and previous set of lines. Other letters still type.
-- **Monarch, picture layer.** The same, for a picture from the screen. Adds o for outlines, b for
-  brightness, r for brightness reversed, and Space with dots 1, 4, and 8 to cycle through them.
+- **Monarch, picture layer.** The same, for a picture from the screen. Adds o for outlines, l for
+  single lines, b for brightness, r for brightness reversed, and Space with dots 1, 4, and 8 to
+  cycle through them.
 - **Monarch, table layer.** With the caret in a table on a web page, or in a table laid out in
   columns, press the layer key to turn it on. The left d-pad moves by table cell, and the zoom
   keys go to the next and previous page of columns. It stays on until you turn it off.
