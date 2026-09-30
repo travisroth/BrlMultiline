@@ -28,6 +28,7 @@ import time
 from typing import TYPE_CHECKING, Optional
 
 import api
+import braille
 import textInfos
 from logHandler import log
 
@@ -329,11 +330,94 @@ def describePins() -> list[str]:
 	plugin = getPlugin()
 	monitors = dict(getattr(plugin, "_monitors", {}) or {}) if plugin is not None else {}
 	if not monitors:
-		return ["Pinned objects: none."]
-	lines = ["Pinned objects:"]
+		return ["Pinned objects: none.", *describeDivision()]
+	lines = [*describeDivision(), "Pinned objects:"]
 	for key, monitor in monitors.items():
 		reads, changes = getattr(monitor, "counts", (0, 0))
 		lines.append(f"  {monitor.name!r} in {key}: {reads} reads, {changes} of them different.")
+		lines.extend(f"    {line}" for line in describePinReading(monitor))
+	return lines
+
+
+def describeDivision() -> list[str]:
+	"""How the display is divided right now, and the settings each physical display divides by.
+
+	A pin is only as tall as its segment, and a segment's height comes from a chain a reader
+	cannot feel: the composite's bands, then each display's own segment settings, then any claim
+	laid over them. Every link is named here.
+
+	:return: the lines of the account.
+	"""
+	from .devices import deviceMap
+
+	lines = ["Display division:"]
+	container = braille.handler.mainBuffer if braille.handler else None
+	for number, segment in enumerate(getattr(container, "segments", None) or ()):
+		focus = " (follows the focus)" if number == getattr(container, "focusSegmentNumber", None) else ""
+		lines.append(f"  segment {number}: {segment.key!r} {segment.rect}{focus}")
+	try:
+		devices = deviceMap()
+	except Exception as error:
+		return [*lines, f"  physical displays: could not be read: {error!r}"]
+	for device in devices:
+		try:
+			key = device.displayKey
+			layout = (
+				f"segments {'on' if bmConfig.areSegmentsEnabled(key) else 'off'}, "
+				f"layout {bmConfig.getLayout(key)!r}, focus segment {bmConfig.getFocusSegment(key)}"
+			)
+		except Exception as error:
+			key, layout = "?", f"settings could not be read: {error!r}"
+		lines.append(
+			f"  {device.driverName}: rows {device.rowStart} to {device.rowEnd - 1}, "
+			f"{device.numCols} cells, settings {key!r}: {layout}"
+		)
+	return lines
+
+
+def describePinReading(monitor) -> list[str]:
+	"""Whether a pin is being read as a flow, and if it is not, why not.
+
+	A pin that shows one line and will not pan is a pin reading through NVDA's regions, and
+	there are three ways to get there: the segment is too short, the segment cannot hold a flow,
+	or the flow would not build. Each looks the same under the fingers, so each is named here,
+	and a flow that would not build is asked again with notes so the step that failed is shown.
+
+	:param monitor: the pin.
+	:return: the lines of the account.
+	"""
+	lines = [f"pinned object: {describeObject(getattr(monitor, 'pinned', None))}"]
+	segment = monitor._segment()
+	if segment is None:
+		return [*lines, "segment: gone"]
+	rows, cols = segment.rect.numRows, segment.rect.numCols
+	lines.append(f"segment: {segment!r}, {rows} rows by {cols} cells")
+	control = getattr(monitor, "controller", None)
+	if control is not None:
+		attached = getattr(segment, "controller", None) is control
+		lines.append(f"read as a flow: yes, {'attached to' if attached else 'NOT attached to'} the segment")
+		lines.append(f"flow: {control!r}")
+		return lines
+	lines.append("read as a flow: no, reading through NVDA's regions")
+	if not hasattr(segment, "attach"):
+		return [*lines, "why: the segment cannot hold a flow"]
+	try:
+		needed = monitor._minimumRows(rows)
+	except Exception as error:
+		needed = None
+		lines.append(f"why: could not ask how many rows it needs: {error!r}")
+	if needed is not None and rows < needed:
+		return [*lines, f"why: the segment has {rows} rows and this pin needs {needed}"]
+	notes: list = []
+	try:
+		built = buildController(
+			obj=monitor.pinned, numRows=rows, numCols=cols, handler=braille.handler, notes=notes
+		)
+	except Exception as error:
+		built = None
+		notes.append(f"raised {error!r}")
+	lines.append(f"building it now: {'succeeded' if built is not None else 'failed'}")
+	lines.extend(f"  {note}" for note in notes)
 	return lines
 
 

@@ -1576,6 +1576,27 @@ with Pillow bought no extra zoom at all. The cap now applies only to drawings th
 redraw themselves, the way it already excluded charts, and a picture stops where
 `image.zoomPoints` says its pixels run out, or at the ladder's thirty-two times.
 
+**The image's own file, without the clipboard.** Getting a web image at its own size meant
+routing the mouse to it, right-clicking and choosing Copy image, and a reader reported the
+right-click as unreliable: the menu sometimes did not open, or opened without focus. Asked in
+NVDA's Python console on a real image, Chrome gave the file's full address as the `src`
+IAccessible2 attribute, which NVDA already reads as `IA2Attributes`; `ISimpleDOMNode`, which
+NVDA uses for MathML, answered nothing for it in Chrome and is kept as a second way to ask.
+
+So `script_drawPicture` asks `imageSource.addressOf` first. With an address, the file is loaded
+on a thread of its own (`fetchPicture`), decoded there, and handed back through `wx.CallAfter`,
+because a download can take seconds and NVDA does not speak while its main thread waits. Only
+the last press counts, so a slow file cannot land on top of something asked for since. Without
+an address, or when the load fails, the object pressed on is copied off the screen, the object
+rather than whatever the navigator has moved to by then.
+
+Three limits, all by design. Only `http`, `https` and `data` addresses are loaded: a page can
+name a network share as an image, and opening one makes Windows offer the reader's login to
+whoever runs it, so `file` is refused, and the opener is built without FTP or file handlers so a
+redirect cannot reach them either. The download has none of the browser's cookies, so an image
+shown only to a signed-in reader falls back to the screen. And Pillow does not read SVG, which
+falls back too.
+
 **Found by review.** Four faults in the features above, each now covered by a test that
 reproduces the reviewer's probe:
 

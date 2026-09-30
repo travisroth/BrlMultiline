@@ -46,10 +46,13 @@ from .imagePins import (
 
 __all__ = [
 	"MIN_SIDE",
+	"addressOf",
 	"captureClipboard",
 	"captureNavigator",
+	"fetchPicture",
 	"keepPixels",
 	"nameFor",
+	"readAddress",
 ]
 
 
@@ -325,20 +328,24 @@ def nameFor(obj) -> str:
 	return _("picture")
 
 
-def captureNavigator() -> Picture:
-	"""Take a picture of whatever the reader is pointing at.
+def captureNavigator(obj=None) -> Picture:
+	"""Take a picture of whatever the reader is pointing at, off the screen.
 
+	:param obj: the object to copy, or None for the navigator object. Given when the object
+		was chosen earlier -- a picture whose own file would not load falls back to this, a
+		moment after the press, and by then the navigator may have moved on.
 	:return: the pixels, at or below `keepPixels`.
 	:raises ImageRefused: with a reason the reader can act on.
 	"""
 	if _screenCurtainIsUp():
 		# Translators: reported when a picture was asked for while the screen curtain is on.
 		raise ImageRefused(_("Turn the screen curtain off to draw a picture"))
-	try:
-		obj = api.getNavigatorObject()
-	except Exception:
-		log.error("BrlMultiline: could not find the object to draw", exc_info=True)
-		obj = None
+	if obj is None:
+		try:
+			obj = api.getNavigatorObject()
+		except Exception:
+			log.error("BrlMultiline: could not find the object to draw", exc_info=True)
+			obj = None
 	if obj is None:
 		# Translators: reported when a picture was asked for and there is nothing to draw.
 		raise ImageRefused(_("There is nothing here to draw"))
@@ -449,6 +456,243 @@ def captureClipboard() -> Picture:
 		# Translators: reported when a picture on the clipboard could not be read.
 		raise ImageRefused(_("The picture on the clipboard could not be read"))
 	return picture
+
+
+FETCH_SCHEMES = ("http", "https", "data")
+"""The kinds of image address the add-on will load for itself.
+
+**Not `file`, deliberately.** The address comes from the web page, and a page can write any
+address into an image. A `file` address can name a network share, and opening one makes Windows
+offer the reader's login to whoever runs that share. A browser refuses such an image on a web
+page for that reason and draws nothing; the add-on refuses to fetch it and falls back to what
+the browser did draw. `blob` addresses exist only inside the browser, so they fall back too.
+"""
+
+FETCH_SECONDS = 8
+"""How long a download may take before the screen capture is used instead."""
+
+FETCH_BYTES = 20 * 1024 * 1024
+"""The most of an image file that will be read. Larger than this is not a picture for pins."""
+
+
+def _domAttribute(obj, name: str) -> "str | None":
+	""":return: an HTML attribute read through ISimpleDOMNode, or None.
+
+	The second way to ask. Chrome answers `src` through its IAccessible2 attributes and says
+	nothing here -- measured, in NVDA's console on a real page -- so this is for a browser that
+	answers the other way round. NVDA's own MathML support reads `data-mathml` the same way.
+	"""
+	try:
+		from comtypes.automation import BSTR
+		from comtypes.gen.ISimpleDOM import ISimpleDOMNode
+		from ctypes import c_short
+
+		node = obj.IAccessibleObject.QueryInterface(ISimpleDOMNode)
+		value = node.attributesForNames(1, (BSTR * 1)(name), (c_short * 1)(0))
+	except Exception:
+		return None
+	return str(value) if value else None
+
+
+def _documentAddress(obj) -> "str | None":
+	""":return: the address of the page an object is on, for resolving a relative one."""
+	try:
+		found = obj.treeInterceptor.documentConstantIdentifier
+	except Exception:
+		return None
+	return found if isinstance(found, str) and "://" in found else None
+
+
+def addressOf(obj) -> "str | None":
+	"""The address of an image's own file, if the browser will say it.
+
+	**The file is better than the screen in every way that matters here.** It is the image at
+	its own size rather than the size it was shown at, so there is more to magnify; nothing on
+	top of it on the screen gets into it; and it can be had with the screen curtain on. And it
+	takes no mouse, where the other way to get it -- route the mouse, right-click, find "Copy
+	image" -- was reported as unreliable enough to be the reason this exists.
+
+	Chrome gives it as the `src` IAccessible2 attribute of the image, which NVDA already reads
+	as `IA2Attributes`; checked in NVDA's console on the Accessibility Partners logo, which
+	answered with its full address. ISimpleDOMNode is asked second, for a browser that answers
+	there instead.
+
+	:param obj: the object the reader is on.
+	:return: an absolute `http`, `https` or `data` address, or None to use the screen.
+	"""
+	if obj is None:
+		return None
+	address = None
+	try:
+		attributes = obj.IA2Attributes
+		if isinstance(attributes, dict):
+			address = attributes.get("src")
+	except Exception:
+		address = None
+	if not address:
+		address = _domAttribute(obj, "src")
+	if not address or not str(address).strip():
+		return None
+	address = str(address).strip()
+	from urllib.parse import urljoin, urlsplit
+
+	if not urlsplit(address).scheme:
+		base = _documentAddress(obj)
+		if base is None:
+			return None
+		address = urljoin(base, address)
+	if urlsplit(address).scheme.lower() not in FETCH_SCHEMES:
+		return None
+	return address
+
+
+def _opener():
+	""":return: a URL opener that speaks HTTP and HTTPS and nothing else.
+
+	The default opener also follows a redirect to FTP, and reads `file` addresses. Built from
+	parts instead, so that a server cannot redirect the add-on anywhere `FETCH_SCHEMES` would
+	not have let it start.
+	"""
+	import urllib.request
+
+	opener = urllib.request.OpenerDirector()
+	for handler in (
+		urllib.request.ProxyHandler(),
+		urllib.request.HTTPHandler(),
+		urllib.request.HTTPSHandler(),
+		urllib.request.HTTPRedirectHandler(),
+		urllib.request.HTTPDefaultErrorHandler(),
+		urllib.request.HTTPErrorProcessor(),
+	):
+		opener.add_handler(handler)
+	return opener
+
+
+def _download(address: str) -> bytes:
+	""":return: the bytes at a web address, at most `FETCH_BYTES`.
+
+	Separate so the tests can stand in for the network.
+
+	:raises ImageRefused: if there is more than that.
+	"""
+	import urllib.parse
+	import urllib.request
+
+	request = urllib.request.Request(address, headers={"User-Agent": "BrlMultiline NVDA add-on"})
+	with _opener().open(request, timeout=FETCH_SECONDS) as response:
+		if urllib.parse.urlsplit(response.geturl()).scheme.lower() not in ("http", "https"):
+			# Translators: reported when a picture's own file could not be loaded.
+			raise ImageRefused(_("The picture could not be loaded"))
+		raw = response.read(FETCH_BYTES + 1)
+	if len(raw) > FETCH_BYTES:
+		# Translators: reported when a picture's file is too large to load.
+		raise ImageRefused(_("The picture's file is too large to load"))
+	return raw
+
+
+def readAddress(address: str) -> bytes:
+	"""The bytes of an image, from the page itself or from the web.
+
+	A `data` address carries the image in it and is decoded here; nothing leaves the machine.
+	An `http` or `https` one is downloaded. **Without the browser's cookies**, which the add-on
+	does not have: an image a site shows only to someone signed in will not load, and the
+	screen capture is used instead.
+
+	Runs off NVDA's main thread; see `fetchPicture`.
+
+	:param address: from `addressOf`.
+	:return: the file's bytes.
+	:raises Exception: anything a failed load raises. The caller falls back on any of them.
+	"""
+	import base64
+	import urllib.parse
+
+	scheme = urllib.parse.urlsplit(address).scheme.lower()
+	if scheme == "data":
+		header, _comma, payload = address.partition(",")
+		if header.lower().endswith(";base64"):
+			raw = base64.b64decode(payload, validate=False)
+		else:
+			raw = urllib.parse.unquote_to_bytes(payload)
+		if len(raw) > FETCH_BYTES:
+			# Translators: reported when a picture's file is too large to load.
+			raise ImageRefused(_("The picture's file is too large to load"))
+		return raw
+	if scheme not in ("http", "https"):
+		# Translators: reported when a picture's own file could not be loaded.
+		raise ImageRefused(_("The picture could not be loaded"))
+	return _download(address)
+
+
+def pictureFromBytes(raw: bytes, name: str = "") -> Picture:
+	"""Decode an image file and make a picture of it.
+
+	:param raw: the file.
+	:param name: what to call the picture.
+	:raises ImageRefused: if it is not a picture Pillow can read, or is too small.
+	"""
+	import io
+
+	from PIL import Image
+
+	try:
+		image = Image.open(io.BytesIO(raw))
+		image.load()
+	except Exception:
+		# Translators: reported when a picture's file could not be read, for example because it
+		# is a kind of image the add-on cannot draw.
+		raise ImageRefused(_("The picture's file could not be read"))
+	width, height = image.size
+	if width < MIN_SIDE or height < MIN_SIDE:
+		raise ImageRefused(
+			# Translators: reported when a picture is too small to draw. The placeholders are
+			# its width and height in pixels.
+			_("This picture is only {width} by {height}, too small to draw").format(
+				width=width,
+				height=height,
+			),
+		)
+	picture = pictureFromImage(image, keepPixels(), name)
+	if picture is None:
+		# Translators: reported when a picture's file could not be read.
+		raise ImageRefused(_("The picture's file could not be read"))
+	return picture
+
+
+def _startBackground(work) -> None:
+	"""Run a piece of work on its own thread. Replaced by the tests, which run it at once."""
+	import threading
+
+	threading.Thread(target=work, name="BrlMultiline picture load", daemon=True).start()
+
+
+def fetchPicture(address: str, name: str, done) -> None:
+	"""Load an image's own file in the background, then hand the picture back.
+
+	**Never on NVDA's main thread.** A download can take seconds on a slow network, and NVDA
+	does not speak while its main thread waits. So the loading and decoding happen on a
+	thread of their own, which touches nothing of NVDA's, and the result comes back to the
+	main thread through `wx.CallAfter`.
+
+	:param address: from `addressOf`.
+	:param name: what to call the picture.
+	:param done: called on the main thread as `done(picture, why)`, with the picture and None,
+		or None and the reason it could not be had.
+	"""
+
+	def work():
+		try:
+			picture = pictureFromBytes(readAddress(address), name)
+		except Exception as failure:
+			picture = None
+			why = failure
+		else:
+			why = None
+		import wx
+
+		wx.CallAfter(done, picture, why)
+
+	_startBackground(work)
 
 
 def capture(left: int, top: int, width: int, height: int, name: str = "") -> Picture:

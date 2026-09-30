@@ -726,6 +726,15 @@ It works on anything, not just objects NVDA calls a graphic. A diagram in a canv
 floor plan, or a chart published as an image may all be worth exploring, and many of them don't
 report a useful role.
 
+For an image on a web page, the add-on first asks the browser where the image's file is and
+loads that file instead of copying the screen. That gives the image at its full size, so there
+is more to magnify, and it works with the screen curtain on. If the file can't be loaded, the
+picture is copied from the screen as before, without you having to do anything. That happens
+for images a site shows only when you are signed in, since the add-on doesn't have your browser's
+sign-in; for kinds of image it can't read, such as SVG; and when there is no network. This needs
+the Pillow image library, like the clipboard. Chrome tells NVDA where an image's file is; with
+browsers that don't, the screen is copied.
+
 Expect good results for line art, logos, diagrams, and maps; fair results for high-contrast
 photos; and poor results for everything else. It draws what is in the picture without deciding
 what matters, so a photo of a person in front of a bookcase comes out as a person and a
@@ -769,7 +778,9 @@ picture is drawn, and it is called by its file name.
 
 This works with the screen curtain on, nothing covering the picture on screen can get into it,
 and the image is used at its own size rather than the size it was shown at, so there is more
-detail to magnify. Transparent parts are drawn as white, and photos are turned the right way up.
+detail to magnify. For most images on web pages you no longer need it, since **Graphics: Draw
+the picture here** loads the image's own file; the clipboard is still useful for images in other
+programs, for image files, and for web images the add-on can't load itself. Transparent parts are drawn as white, and photos are turned the right way up.
 The styles and everything else work the same as for a picture from the screen.
 
 This command needs the Pillow image library. Installed copies of NVDA include it (checked on

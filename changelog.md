@@ -8,6 +8,15 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **Images on web pages are drawn from their own files.** Drawing the picture here now asks the
+  browser where an image's file is and loads it, so the picture is at its full size and works
+  with the screen curtain on, with no need to copy it from the context menu, which was unreliable
+  to reach by routing the mouse and right-clicking. Loading happens in the background, and if the
+  file won't load, the picture is copied from the screen as before. Chrome gives the address;
+  other browsers are asked a second way, and fall back to the screen if they don't answer. Only
+  web and embedded image addresses are loaded, never files or network shares named by a page.
+  Needs Pillow.
+
 - **Fixes from a review of the picture features.**
   - A photo copied to the clipboard that is stored sideways, as cameras do, was turned the right
     way up and then squeezed back into its stored shape. It keeps its shape now.

@@ -256,6 +256,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""
 
 		self._pictureStyle = imageFigure.OUTLINES
+		self._pictureRequest = None
+		"""The picture file being loaded for the last press, if one is; see `script_drawPicture`."""
 		"""How pictures are being drawn, as a mode and whether it is reversed.
 
 		Carried from one picture to the next within a session. A reader who has found that
@@ -3045,8 +3047,40 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		a map, a floor plan and a chart somebody published as a picture are all worth a
 		hand, and half of them report a role that says nothing. A reader who has pointed at
 		something and pressed this has said what they want more clearly than a role would.
+
+		**An image on a web page is loaded from its own file when the browser says where it
+		is**, which is better than the screen: the full size, nothing covering it, and the
+		screen curtain can stay on. Loaded in the background so NVDA keeps talking, and if it
+		will not load -- an image that needs the reader signed in, a kind Pillow cannot read,
+		no network -- the same object is copied off the screen instead, as it always was.
 		"""
-		self._drawPicture(again=False)
+		obj = None
+		try:
+			obj = api.getNavigatorObject()
+		except Exception:
+			log.debugWarning("BrlMultiline: no navigator object to draw", exc_info=True)
+		address = imageSource.addressOf(obj) if imagePins.hasPillow() else None
+		if address is None:
+			self._pictureRequest = None
+			self._drawPicture(again=False)
+			return
+		# Only the last press counts. A reader who presses again, or moves on and presses on
+		# another picture, while a slow file is still loading must not have the first one
+		# arrive afterwards and replace what they asked for since.
+		request = object()
+		self._pictureRequest = request
+
+		def arrived(picture, why):
+			if self._pictureRequest is not request:
+				return
+			self._pictureRequest = None
+			if picture is not None:
+				self._drawPicture(again=False, capture=lambda: picture)
+				return
+			log.debug(f"BrlMultiline: a picture's own file did not load, copying the screen: {why}")
+			self._drawPicture(again=False, capture=lambda: imageSource.captureNavigator(obj))
+
+		imageSource.fetchPicture(address, imageSource.nameFor(obj), arrived)
 
 	@script(
 		# Translators: input help message for a command.
@@ -3064,6 +3098,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		Unbound by default, like the glyph catalogue. The Monarch's free chords are few, and
 		which of them NVDA's own driver has not taken is not something this add-on can check.
 		"""
+		# A newer request than any picture file still loading, which must not land on top.
+		self._pictureRequest = None
 		self._drawPicture(again=False, capture=lambda: imageSource.captureClipboard())
 
 	@script(
