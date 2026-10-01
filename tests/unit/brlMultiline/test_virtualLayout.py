@@ -22,6 +22,7 @@ from brlMultilineVirtual.virtualLayout import (  # noqa: E402
 	deadColumnCount,
 	deviceCellIndexToVirtual,
 	formatDeviceSpec,
+	memberShape,
 	parseDeviceSpec,
 	parseDeviceSpecs,
 	sliceBandCells,
@@ -51,17 +52,56 @@ class TestParseDeviceSpec(unittest.TestCase):
 
 	def test_rejectsExtraSeparators(self):
 		with self.assertRaises(ValueError):
+			parseDeviceSpec("hims|COM3|3|extra")
+
+	def test_rowsThatAreNotANumberAreRefused(self):
+		with self.assertRaises(ValueError):
 			parseDeviceSpec("hims|COM3|extra")
+
+	def test_rowsForADisplayDetectedAfresh(self):
+		self.assertEqual(
+			parseDeviceSpec("hidBrailleStandard||3"),
+			DeviceSpec("hidBrailleStandard", DEFAULT_PORT, 3),
+		)
+
+	def test_rowsWithAPort(self):
+		self.assertEqual(parseDeviceSpec("hims|COM3|2"), DeviceSpec("hims", "COM3", 2))
 
 
 class TestFormatDeviceSpec(unittest.TestCase):
 	def test_defaultPortIsNotWritten(self):
 		self.assertEqual(formatDeviceSpec(DeviceSpec("hims", DEFAULT_PORT)), "hims")
 
+	def test_rowsAreWrittenOnlyWhenGiven(self):
+		self.assertEqual(formatDeviceSpec(DeviceSpec("hidBrailleStandard", DEFAULT_PORT, 3)), "hidBrailleStandard||3")
+		self.assertEqual(formatDeviceSpec(DeviceSpec("hims", "COM3", 0)), "hims|COM3")
+
 	def test_roundTrip(self):
-		for spec in (DeviceSpec("hims", DEFAULT_PORT), DeviceSpec("hims", "COM3")):
+		for spec in (
+			DeviceSpec("hims", DEFAULT_PORT),
+			DeviceSpec("hims", "COM3"),
+			DeviceSpec("hims", DEFAULT_PORT, 3),
+			DeviceSpec("hims", "COM3", 2),
+		):
 			with self.subTest(spec=spec):
 				self.assertEqual(parseDeviceSpec(formatDeviceSpec(spec)), spec)
+
+
+class TestMemberShape(unittest.TestCase):
+	"""An Orbit Slate 340 on the HID standard driver: one row of 120 reported, three of forty real."""
+
+	def test_aSingleRowIsDividedIntoTheRowsGiven(self):
+		self.assertEqual(memberShape(1, 120, 3), (3, 40))
+
+	def test_noRowsGivenIsAsReported(self):
+		self.assertEqual(memberShape(1, 120), (1, 120))
+		self.assertEqual(memberShape(1, 120, 1), (1, 120))
+
+	def test_rowsThatDoNotDivideTheCellsAreIgnored(self):
+		self.assertEqual(memberShape(1, 120, 7), (1, 120))
+
+	def test_aDisplayReportingRowsOfItsOwnIsAsReported(self):
+		self.assertEqual(memberShape(8, 32, 2), (8, 32))
 
 
 class TestParseDeviceSpecs(unittest.TestCase):

@@ -44,7 +44,9 @@ configSpec = {
 
 - `devices`: the physical displays making up the virtual one, in stacking order, top first.
 	Each entry is a driver name, optionally followed by `|` and a port. A driver name alone
-	means detect afresh, which is what `virtualLayout.DEFAULT_PORT` is about.
+	means detect afresh, which is what `virtualLayout.DEFAULT_PORT` is about. A third field,
+	after a second `|`, is the rows a display reporting one row physically has, as in
+	`hidBrailleStandard||3`; see `virtualLayout.memberShape`.
 
 Registered so that NVDA validates the section wherever it can, but never depended on: this
 driver reads the section long after the base configuration was validated, so nothing may

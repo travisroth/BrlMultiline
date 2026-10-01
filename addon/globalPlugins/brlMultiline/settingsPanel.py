@@ -731,6 +731,24 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Translators: label of a checkbox in settings. The caret is the reading position the
+		# arrow keys move.
+		caretByDisplayLabel = _("Full dis&play scroll for caret")
+		self.caretByDisplayCtrl = sHelper.addItem(wx.CheckBox(self, label=caretByDisplayLabel))
+		self.caretByDisplayCtrl.SetValue(bool(section["flowCaretByDisplay"]))
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the checkbox above, explaining what it
+					# does. Monarch is a braille display; its own software scrolls this way.
+					"On, arrowing past the bottom of the display puts the next item at the top "
+					"and fills the display with what follows it, and arrowing past the top does "
+					"the same upward, the way a Monarch's own software scrolls a list. Off, the "
+					"display moves by one item.",
+				),
+			),
+		)
 		# Translators: label of a combo box in settings, choosing how the depth of an item in a
 		# tree or a nested list is shown on the display.
 		indentLabel = _("Show how deep an item &sits with:")
@@ -1072,6 +1090,7 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowGroundOnQuickNav"] = self.groundCtrl.IsChecked()
 		section["flowWriteByParagraph"] = self.writeByParagraphCtrl.IsChecked()
 		section["flowUnwrapLines"] = self.unwrapLinesCtrl.IsChecked()
+		section["flowCaretByDisplay"] = self.caretByDisplayCtrl.IsChecked()
 		section["flowScrollToNewContent"] = self.newContentCtrl.IsChecked()
 		section["flowIndentStyle"] = indentStyleChoices()[self.indentStyleCtrl.GetSelection()][0]
 		section["flowLineFocus"] = self.lineFocusCtrl.IsChecked()
@@ -1089,6 +1108,11 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		plugin = getPlugin()
 		if plugin is not None:
 			plugin.rebuildBuffer()
+
+
+MAX_MEMBER_ROWS = 16
+"""Most rows a combined display's member may be said to physically have. A limit on the spin
+control only."""
 
 
 class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
@@ -1112,6 +1136,12 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 	explaining: `SettingsPanelAccessible.GetDescription` reads this attribute, and the visible
 	text is added from it in `makeSettings`.
 	"""
+
+	rowsCtrl = None
+	"""The rows of the selected display, or None before `makeSettings` has made it."""
+
+	memberRows: dict[str, int] | None = None
+	"""The rows each chosen display physically has, as edited here. See `_rows`."""
 
 	_states: dict[str, bool] | None = None
 	"""Which chosen displays the composite is driving, or None if it is not the display in use.
@@ -1150,6 +1180,31 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 		self.moveDownButton.Bind(wx.EVT_BUTTON, self._onMoveDown)
 		self.removeButton.Bind(wx.EVT_BUTTON, self._onRemove)
 		self.chosenCtrl.Bind(wx.EVT_LISTBOX, self._onSelectionChanged)
+		# Translators: label of a spin control in settings, for the display selected in the list
+		# above, when its driver tells NVDA it has one row although it physically has several.
+		rowsLabel = _("Rows the selected display &physically has (0 to use what it reports):")
+		self.rowsCtrl = sHelper.addLabeledControl(
+			rowsLabel,
+			wx.SpinCtrl,
+			min=0,
+			max=MAX_MEMBER_ROWS,
+			initial=0,
+		)
+		self.rowsCtrl.Bind(wx.EVT_SPINCTRL, self._onRowsChanged)
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the rows control above. The Orbit Slate
+					# is a braille display, and the standard HID driver is NVDA's.
+					"For a display with several rows whose driver says it has one, such as an "
+					"Orbit Slate 340 on the standard HID driver, which says it has 120 cells in "
+					"one row. Set it to 3 and the display is used as 3 rows of 40. The number "
+					"must divide the display's cells evenly, and a display that reports rows of "
+					"its own is used as it reports.",
+				),
+			),
+		)
 		# Translators: label of a combo box in settings, of displays that may be added.
 		addLabel = _("Display to &add:")
 		self.availableCtrl = sHelper.addLabeledControl(addLabel, wx.Choice, choices=[])
@@ -1242,6 +1297,7 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 		if self._available:
 			self.availableCtrl.SetSelection(0)
 		self._updateButtons()
+		self._showRows()
 
 	def _updateButtons(self) -> None:
 		"""Enable only the buttons that would do something, so tabbing past them says so."""
@@ -1254,6 +1310,72 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 
 	def _onSelectionChanged(self, event) -> None:
 		self._updateButtons()
+		self._showRows()
+
+	# The rows a display physically has
+
+	def _rows(self) -> dict[str, int]:
+		""":return: the rows each display has been given here, starting from what is stored.
+
+		Kept by driver name rather than by place in the list, so that moving a display keeps its
+		rows, and a display removed and added again before saving gets them back.
+		"""
+		if self.memberRows is None:
+			self.memberRows = {name: spec.rows for name, spec in self.storedSpecs.items()}
+		return self.memberRows
+
+	def _selectedName(self) -> str | None:
+		""":return: the driver name of the display selected in the list, or None."""
+		index = self.chosenCtrl.GetSelection()
+		return self.chosen[index] if 0 <= index < len(self.chosen) else None
+
+	def _showRows(self) -> None:
+		"""Put the selected display's rows into the control, and say when there is none."""
+		if self.rowsCtrl is None:
+			return
+		name = self._selectedName()
+		self.rowsCtrl.SetValue(self._rows().get(name, 0) if name is not None else 0)
+		self.rowsCtrl.Enable(name is not None)
+
+	def _onRowsChanged(self, event) -> None:
+		name = self._selectedName()
+		if name is not None:
+			self._rows()[name] = int(self.rowsCtrl.Value)
+
+	def _liveCells(self) -> dict[str, int]:
+		""":return: how many cells each display the composite is driving has, by driver name.
+
+		Only known while the composite is the display in use. Otherwise nothing is open to ask,
+		and the driver says in the log when it meets rows it cannot use.
+		"""
+		return {device.driverName: device.numRows * device.numCols for device in devices.deviceMap()}
+
+	def isValid(self) -> bool:
+		cells = self._liveCells()
+		for index, name in enumerate(self.chosen):
+			rows = self._rows().get(name, 0)
+			if rows < 2 or name not in cells or cells[name] % rows == 0:
+				continue
+			self.chosenCtrl.SetSelection(index)
+			self._updateButtons()
+			self._showRows()
+			reportSettingsError(
+				self,
+				_(
+					# Translators: reported in settings when a display's cells cannot be divided
+					# into the rows given for it. Placeholders are its name, cells and rows.
+					"{display} has {cells} cells, which cannot be divided into {rows} rows of equal width.",
+				).format(display=self._describe(name), cells=cells[name], rows=rows),
+				self.rowsCtrl,
+			)
+			return False
+		return True
+
+	def _rowsChanged(self) -> bool:
+		""":return: whether any chosen display has different rows from what is stored."""
+		return any(
+			self._rows().get(name, 0) != getattr(self.storedSpecs.get(name), "rows", 0) for name in self.chosen
+		)
 
 	def _move(self, offset: int) -> None:
 		"""Move the selected display by one place, and keep it selected."""
@@ -1293,11 +1415,15 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 		A display that was already configured keeps the specification it had, so that a port
 		set from the console is not silently changed to automatic detection by someone opening
 		this category and pressing OK. A newly added one is stored as a name alone, which means
-		detect afresh.
+		detect afresh. Either way it carries the rows given it here.
 		"""
 		from brailleDisplayDrivers.brlMultilineVirtual.virtualLayout import DeviceSpec
 
-		return [self.storedSpecs.get(name) or DeviceSpec(name) for name in self.chosen]
+		rows = self._rows()
+		return [
+			(self.storedSpecs.get(name) or DeviceSpec(name))._replace(rows=rows.get(name, 0))
+			for name in self.chosen
+		]
 
 	def onSave(self):
 		try:
@@ -1311,10 +1437,10 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 			log.error("BrlMultiline: could not store the combined display's device list", exc_info=True)
 
 	def postSave(self):
-		if self.chosen == self._original or not devices.isVirtualDisplay():
+		if (self.chosen == self._original and not self._rowsChanged()) or not devices.isVirtualDisplay():
 			return
-		# The members are opened when the display is constructed, so a changed list does
-		# nothing until it is constructed again. Deferred so that the settings dialog has
+		# The members are opened when the display is constructed, so a changed list, or a
+		# member's changed rows, does nothing until it is constructed again. Deferred so that the settings dialog has
 		# closed first: reopening two displays can take a moment, and it happens on this
 		# thread.
 		wx.CallAfter(self._reopen)

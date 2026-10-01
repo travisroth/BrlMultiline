@@ -152,6 +152,7 @@ configSpec = {
 			"flowLiveSeconds": "integer(default=0, min=0, max=60)",
 			"flowLiveUpdates": "boolean(default=True)",
 			"flowScrollToNewContent": "boolean(default=True)",
+			"flowCaretByDisplay": "boolean(default=False)",
 			"flowTableHeadersMode": f'option({FOLLOWING_OPTIONS}, default="{FOLLOW_NVDA}")',
 			"flowTableHeaders": "boolean(default=True)",
 			**{
@@ -223,6 +224,8 @@ configSpec = {
 - `flowLiveUpdates`: whether the band follows a page that changes under it at all.
 - `flowScrollToNewContent`: whether content arriving at the end of a pinned object scrolls
 	onto the display, while the reader is at that end.
+- `flowCaretByDisplay`: whether a caret that moves off the band brings a whole display of what
+	lies beyond it, rather than one row. Off by default.
 - `flowTableHeadersMode`: whether a table's header row is held on the top row of the band,
 	whatever the rest of it is showing. One of `FOLLOWING`; following means NVDA's own
 	`reportTableHeaders` asking for column headers.
@@ -734,6 +737,24 @@ def shouldScrollToNewContent(displayKey: str | None = None) -> bool:
 	except Exception:
 		log.debugWarning("Could not read flowScrollToNewContent", exc_info=True)
 		return True
+
+
+def shouldScrollCaretByDisplay(displayKey: str | None = None) -> bool:
+	""":return: whether following the caret off the band scrolls a whole display.
+
+	Off, which is the default, an arrow key that takes the caret past the bottom of the band
+	brings on the one row it moved to, at the bottom, and the rest of the band moves up by a
+	row. On, the row it moved to goes to the top instead and what follows it fills the band,
+	so every row under the reader's hands is new; moving up past the top is the mirror of it.
+	That is how a Monarch's own software scrolls a list, and a reader who spends their day in
+	it may find the flow easier to read the same way. Applies wherever the band follows a
+	caret or a focus: browse mode, editors, lists and trees.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["flowCaretByDisplay"])
+	except Exception:
+		log.debugWarning("Could not read flowCaretByDisplay", exc_info=True)
+		return False
 
 
 def shouldMarkLineFocus(displayKey: str | None = None) -> bool:

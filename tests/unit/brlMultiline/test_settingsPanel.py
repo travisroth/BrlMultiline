@@ -469,6 +469,40 @@ class TestExplicitPorts(SettingsPanelTestCase):
 			[("hidBrailleStandard", "auto"), ("freedomScientific", "COM4")],
 		)
 
+	def test_rowsGivenHereAreStored(self):
+		"""A Slate on the HID driver is one row of 120 to NVDA and three rows of forty in the hand."""
+		self.panel.chosenCtrl.SetSelection(0)
+		self.panel.rowsCtrl = FakeControl(3)
+		self.panel._onRowsChanged(None)
+		self.panel.onSave()
+		self.assertEqual([spec.rows for spec in vdConfig.getDevices()], [3, 0])
+
+	def test_rowsFollowTheDisplayWhenItIsMoved(self):
+		self.panel.chosenCtrl.SetSelection(0)
+		self.panel.rowsCtrl = FakeControl(3)
+		self.panel._onRowsChanged(None)
+		self.panel._onMoveDown(None)
+		self.assertEqual(
+			[(spec.driverName, spec.rows) for spec in self.panel.specsToStore()],
+			[("freedomScientific", 0), ("hidBrailleStandard", 3)],
+		)
+
+	def test_storedRowsAreShownForTheSelectedDisplay(self):
+		vdConfig.setDevices([DeviceSpec("hidBrailleStandard", rows=3), DeviceSpec("freedomScientific")])
+		self.panel.storedSpecs = self.panel._readDevices()
+		self.panel.memberRows = None
+		self.panel.rowsCtrl = FakeControl(0)
+		self.panel._refresh(select=0)
+		self.assertEqual(self.panel.rowsCtrl.Value, 3)
+
+	def test_changedRowsAreAChange(self):
+		"""So that saving reopens the combined display, which is when rows take effect."""
+		self.assertFalse(self.panel._rowsChanged())
+		self.panel.chosenCtrl.SetSelection(0)
+		self.panel.rowsCtrl = FakeControl(3)
+		self.panel._onRowsChanged(None)
+		self.assertTrue(self.panel._rowsChanged())
+
 	def test_aRemovedDisplayIsGone(self):
 		self.panel._refresh(select=0)
 		self.panel._onRemove(None)
@@ -504,6 +538,7 @@ class FlowPanelTestCase(SettingsPanelTestCase):
 		self.panel.groundCtrl = FakeControl(True)
 		self.panel.writeByParagraphCtrl = FakeControl(True)
 		self.panel.unwrapLinesCtrl = FakeControl(False)
+		self.panel.caretByDisplayCtrl = FakeControl(False)
 		self.panel.indentStyleCtrl = FakeControl(0)
 		self.panel.lineFocusCtrl = FakeControl(True)
 		self.panel.tableRowsCtrl = FakeControl(1)
@@ -625,6 +660,11 @@ class TestFlowOnOneDisplay(FlowPanelTestCase):
 		self.panel.unwrapLinesCtrl.SetValue(True)
 		self.panel.onSave()
 		self.assertTrue(self.sections[MONARCH_KEY]["flowUnwrapLines"])
+
+	def test_fullDisplayScrollForCaretIsSaved(self):
+		self.panel.caretByDisplayCtrl.SetValue(True)
+		self.panel.onSave()
+		self.assertTrue(self.sections[MONARCH_KEY]["flowCaretByDisplay"])
 
 	def test_moreRowsThanTheDisplayHasIsRefused(self):
 		self.panel.enabledCtrl.SetValue(True)

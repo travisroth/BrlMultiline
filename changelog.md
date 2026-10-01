@@ -8,6 +8,17 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **Rows a combined display's member physically has.** In BrlMultiline displays, a display
+  whose driver reports one row can be given the rows it really has. An Orbit Slate 340 on the
+  standard HID driver reports 120 cells in one row; set to 3, the combined display uses it as
+  3 rows of 40, with writing and routing keys unchanged, so segments and the flow can use its
+  rows.
+
+- **Full display scroll for caret.** A new flow setting, off by default. When the caret moves
+  past the bottom or top of the display, the new item goes to the opposite edge and the display
+  fills with the items beyond it, a display at a time, the way the Monarch's own software
+  scrolls a list. Applies in browse mode, editors, lists and trees.
+
 - **Images on web pages are drawn from their own files.** Drawing the picture here now asks the
   browser where an image's file is and loads it, so the picture is at its full size and works
   with the screen curtain on, with no need to copy it from the context menu, which was unreliable

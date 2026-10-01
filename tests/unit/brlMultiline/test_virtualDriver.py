@@ -367,6 +367,51 @@ class TestDisplayFanOut(VirtualDriverTestCase):
 		self.assertEqual(device.written, [[7] * 256])
 
 
+SLATE = "orbit"
+
+
+class TestAMemberWithRowsOfItsOwn(VirtualDriverTestCase):
+	"""A Focus above an Orbit Slate 340, whose driver reports one row of 120 cells.
+
+	The Slate has three rows of forty, numbered across the device in that order, so it is
+	stacked as three rows, written as 120 cells and routed from 0 to 119 as before.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		makeMemberDriver(SLATE, numRows=1, numCols=120)
+		vdConfig.setDevices([DeviceSpec(FOCUS), DeviceSpec(SLATE, rows=3)])
+		self.display = VirtualDisplay()
+		self.handler.display = self.display
+		self.display.initSettings()
+		self.slateDevice = driverRegistry[SLATE].instances[0]
+		self.slateDevice.written.clear()
+
+	def test_itIsStackedAsItsRows(self):
+		self.assertEqual((self.display.numRows, self.display.numCols), (4, 80))
+		band = self.display.slots[1].band
+		self.assertEqual((band.rowStart, band.numRows, band.numCols), (1, 3, 40))
+
+	def test_eachOfItsRowsIsWrittenInOrder(self):
+		cells = [9] * 80 + [1] * 80 + [2] * 80 + [3] * 80
+		self.display.display(cells)
+		bgThread.flush()
+		self.assertEqual(self.slateDevice.written, [[1] * 40 + [2] * 40 + [3] * 40])
+
+	def test_aRoutingKeyOnItsSecondRowLandsThere(self):
+		gesture = StubBrailleDisplayGesture(SLATE, "routing", [45])
+		self.assertTrue(decide_executeGesture.decide(gesture=gesture))
+		self.assertEqual(gesture.cellIndexes, [2 * 80 + 5])
+
+	def test_rowsThatCannotApplyAreUsedAsReportedAndSaidSo(self):
+		resetStubs()
+		makeMemberDriver(SLATE, numRows=1, numCols=120)
+		vdConfig.setDevices([DeviceSpec(SLATE, rows=7)])
+		display = VirtualDisplay()
+		self.assertEqual((display.numRows, display.numCols), (1, 120))
+		self.assertTrue(any("7 rows" in str(message) for message in log.messages))
+
+
 class TestLosingAMember(VirtualDriverTestCase):
 	"""What happens to the composite when one of its displays goes.
 

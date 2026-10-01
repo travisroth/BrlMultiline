@@ -270,6 +270,7 @@ def _objectController(
 		movesCursor=False,
 		indentStyle=bmConfig.flowIndentStyle(),
 		lineFocus=bmConfig.shouldMarkLineFocus(),
+		caretByDisplay=bmConfig.shouldScrollCaretByDisplay(),
 	)
 	if not control.enterAtCursor():
 		result = control.lastResult
@@ -532,6 +533,7 @@ def buildTheTable(
 		movesCursor=False,
 		indentStyle=bmConfig.flowIndentStyle(),
 		lineFocus=bmConfig.shouldMarkLineFocus(),
+		caretByDisplay=bmConfig.shouldScrollCaretByDisplay(),
 	)
 	if headers:
 		# Already built, above, since whether it exists is what decided the band's height.
@@ -713,6 +715,7 @@ def buildController(
 		live=live,
 		indentStyle=bmConfig.flowIndentStyle(),
 		lineFocus=bmConfig.shouldMarkLineFocus(),
+		caretByDisplay=bmConfig.shouldScrollCaretByDisplay(),
 	)
 	if not control.enterAtCursor(atObject=atObject):
 		result = control.lastResult

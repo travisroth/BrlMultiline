@@ -50,6 +50,7 @@ from .virtualLayout import (
 	DeviceSpec,
 	VirtualGeometry,
 	deadColumnCount,
+	memberShape,
 	sliceBandCells,
 	stackDevices,
 )
@@ -268,7 +269,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 			if not opened:
 				raise RuntimeError("BrlMultiline virtual display could not open any of its displays")
 
-			geometry = stackDevices([_shapeOf(driver) for _spec, driver in opened])
+			geometry = stackDevices([_shapeOf(driver, spec) for spec, driver in opened])
 			self._slots = [
 				DeviceSlot(spec, driver, band, onFailure=self._memberFailed)
 				for (spec, driver), band in zip(opened, geometry.bands, strict=True)
@@ -391,7 +392,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		:param spec: the member's configuration.
 		:param driver: the freshly opened driver.
 		"""
-		numRows, numCols = _shapeOf(driver)
+		numRows, numCols = _shapeOf(driver, spec)
 		band = DeviceBand(rowStart=0, numRows=numRows, numCols=numCols)
 		slot = DeviceSlot(spec, driver, band, onFailure=self._memberFailed)
 		order = [each.driverName for each in self._specs]
@@ -921,18 +922,34 @@ def _isPresent(spec: DeviceSpec) -> bool:
 	return not found
 
 
-def _shapeOf(driver: braille.display.driver.BrailleDisplayDriver) -> tuple[int, int]:
+def _shapeOf(
+	driver: braille.display.driver.BrailleDisplayDriver,
+	spec: DeviceSpec | None = None,
+) -> tuple[int, int]:
 	"""Read a driver's geometry the way `BrailleHandler` reads it.
 
 	A single row driver may report its size through `numCells` and leave `numCols` alone, so
 	the handler prefers `numCells` in that case. Mirrored here rather than reinvented.
 
+	Then the rows the reader configured for it, where it has any: a display whose driver
+	reports one row but which physically has several is stacked as those rows. See
+	`virtualLayout.memberShape`. Rows that cannot apply are said in the log, because the
+	reader asked for something and would otherwise feel only that it did not happen.
+
 	:param driver: the driver.
+	:param spec: the member's configuration, or None for the driver's own shape.
 	:return: its (numRows, numCols).
 	"""
 	numRows = driver.numRows
 	numCols = driver.numCols if numRows > 1 else driver.numCells
-	return numRows, numCols
+	rows = spec.rows if spec is not None else 0
+	shape = memberShape(numRows, numCols, rows)
+	if rows > 1 and shape == (numRows, numCols):
+		log.warning(
+			f"BrlMultiline: {spec.driverName} reports {numRows} rows of {numCols}, which cannot be "
+			f"laid out as the {rows} rows configured for it; using what it reports",
+		)
+	return shape
 
 
 _retiredDrivers: list[braille.display.driver.BrailleDisplayDriver] = []

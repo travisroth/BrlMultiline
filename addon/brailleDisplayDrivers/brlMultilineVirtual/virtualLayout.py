@@ -57,6 +57,9 @@ class DeviceSpec(NamedTuple):
 
 	driverName: str
 	port: str = DEFAULT_PORT
+	rows: int = 0
+	"""How many rows the display physically has, where its driver reports one. 0 means as
+	reported. See `memberShape`."""
 
 
 class DeviceBand(NamedTuple):
@@ -93,21 +96,30 @@ class VirtualGeometry(NamedTuple):
 def parseDeviceSpec(text: str) -> DeviceSpec:
 	"""Read one stored device entry.
 
-	Accepts `driverName` or `driverName|port`. A missing port means `DEFAULT_PORT` rather
-	than whatever NVDA has stored for that driver.
+	Accepts `driverName`, `driverName|port` or `driverName|port|rows`. A missing port means
+	`DEFAULT_PORT` rather than whatever NVDA has stored for that driver, so the rows of a
+	display detected afresh are written `driverName||rows`. Missing rows mean as reported.
 
 	:param text: the stored entry.
 	:return: the parsed specification.
-	:raise ValueError: if the entry names no driver, or carries more than one separator.
+	:raise ValueError: if the entry names no driver, carries more than two separators, or has
+		rows that are not a number from 0 up.
 	"""
 	parts = text.strip().split(DEVICE_FIELD_SEPARATOR)
-	if len(parts) > 2:
-		raise ValueError(f"Device entry {text!r} has more than one {DEVICE_FIELD_SEPARATOR!r}")
+	if len(parts) > 3:
+		raise ValueError(f"Device entry {text!r} has more than two {DEVICE_FIELD_SEPARATOR!r}")
 	driverName = parts[0].strip()
 	if not driverName:
 		raise ValueError(f"Device entry {text!r} names no driver")
-	port = parts[1].strip() if len(parts) == 2 else ""
-	return DeviceSpec(driverName, port or DEFAULT_PORT)
+	port = parts[1].strip() if len(parts) >= 2 else ""
+	rowsText = parts[2].strip() if len(parts) == 3 else ""
+	try:
+		rows = int(rowsText) if rowsText else 0
+	except ValueError:
+		raise ValueError(f"Device entry {text!r} gives rows that are not a number") from None
+	if rows < 0:
+		raise ValueError(f"Device entry {text!r} gives a negative number of rows")
+	return DeviceSpec(driverName, port or DEFAULT_PORT, rows)
 
 
 def formatDeviceSpec(spec: DeviceSpec) -> str:
@@ -116,9 +128,35 @@ def formatDeviceSpec(spec: DeviceSpec) -> str:
 	:param spec: the specification.
 	:return: an entry `parseDeviceSpec` will read back to an equal specification.
 	"""
-	if spec.port == DEFAULT_PORT:
+	port = "" if spec.port == DEFAULT_PORT else spec.port
+	if spec.rows:
+		return DEVICE_FIELD_SEPARATOR.join((spec.driverName, port, str(spec.rows)))
+	if not port:
 		return spec.driverName
-	return f"{spec.driverName}{DEVICE_FIELD_SEPARATOR}{spec.port}"
+	return f"{spec.driverName}{DEVICE_FIELD_SEPARATOR}{port}"
+
+
+def memberShape(numRows: int, numCols: int, rows: int = 0) -> tuple[int, int]:
+	"""The shape a member display takes in the stack.
+
+	Its driver's own, unless the driver reports one row and the reader has said the display
+	physically has more. An Orbit Slate 340 on NVDA's HID standard driver reports one row of
+	120 cells and has three rows of forty, laid out in that order: cells 0 to 39 are the first
+	row, 40 to 79 the second. So reshaping it changes nothing about the cells or the routing
+	keys, which are both flat across the device — see `sliceBandCells` and
+	`deviceCellIndexToVirtual` — and only tells everything above the driver where the rows are.
+
+	A display reporting rows of its own already knows its shape, and rows that do not divide
+	the cells evenly describe no display, so both are left as reported.
+
+	:param numRows: the rows the driver reports.
+	:param numCols: the columns the driver reports.
+	:param rows: the rows the reader says the display has, or 0.
+	:return: the (numRows, numCols) to stack it as.
+	"""
+	if numRows == 1 and rows > 1 and numCols > rows and numCols % rows == 0:
+		return rows, numCols // rows
+	return numRows, numCols
 
 
 def parseDeviceSpecs(entries: Iterable[str]) -> list[DeviceSpec]:

@@ -116,6 +116,7 @@ class FlowController(PanelOwner):
 		movesCursor: Optional[bool] = None,
 		indentStyle: str = flowIndent.DEFAULT_STYLE,
 		lineFocus: bool = True,
+		caretByDisplay: bool = False,
 	) -> None:
 		"""
 		:param source: where the blocks come from.
@@ -133,6 +134,8 @@ class FlowController(PanelOwner):
 			`flowIndent.INDENT_STYLES`.
 		:param lineFocus: whether to mark the left of the focused row where it is indented
 			far enough to carry the mark. See `_markLineFocus`.
+		:param caretByDisplay: whether a caret that moves off the band brings on a whole
+			display beyond it rather than the one row. See `syncToCursor`.
 		"""
 		self.source = source
 		self.renderer = renderer
@@ -145,6 +148,10 @@ class FlowController(PanelOwner):
 
 		self.lineFocus = lineFocus
 		"""Whether the focused row is marked at the left. See `_markLineFocus`."""
+
+		self.caretByDisplay = caretByDisplay
+		"""Whether following the caret off the band fills the display beyond it. Set again by
+		the band when it keeps this controller across a profile switch."""
 
 		self._presentation = self._presentationFor(indentStyle, lineFocus)
 		"""The settings the band was last drawn under. See `reconfigure`."""
@@ -2268,6 +2275,7 @@ class FlowController(PanelOwner):
 				self.activeBlockId,
 				rowIndex=row if row is not None else 0,
 				forward=forward,
+				fullDisplay=self.caretByDisplay,
 			)
 			moved = self._showTheWholeOfIt(self.activeBlockId) or moved
 		except LookupError:

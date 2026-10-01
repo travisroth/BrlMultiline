@@ -1129,6 +1129,7 @@ class FlowBand(PanelOwner):
 		:param segment: the band's segment.
 		"""
 		if self.controller is not None and segment.controller is not self.controller:
+			self.controller.caretByDisplay = bmConfig.shouldScrollCaretByDisplay()
 			try:
 				self.controller.reconfigure(bmConfig.flowIndentStyle(), bmConfig.shouldMarkLineFocus())
 			except Exception:

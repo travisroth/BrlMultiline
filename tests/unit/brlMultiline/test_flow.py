@@ -322,6 +322,34 @@ class TestFollowingTheCursor(unittest.TestCase):
 		self.assertTrue(window.ensureVisible(blockId("c"), rowIndex=0, forward=False))
 		self.assertEqual(visibleNames(window)[-1], "c0")
 
+	def test_fullDisplayPutsTheNextItemAtTheTopAndFillsBelowIt(self):
+		"""Arrowing past the bottom shows the next item first and only new rows after it."""
+		items = [block(f"i{n}") for n in range(10)]
+		window = windowWith(4, items)
+		self.assertTrue(window.ensureVisible(blockId("i4"), forward=True, fullDisplay=True))
+		self.assertEqual(visibleNames(window), ["i40", "i50", "i60", "i70"])
+
+	def test_fullDisplayPutsThePreviousItemAtTheBottomAndFillsAboveIt(self):
+		items = [block(f"i{n}") for n in range(10)]
+		window = windowWith(4, items)
+		window.panForward()
+		window.panForward()
+		self.assertTrue(window.ensureVisible(blockId("i7"), forward=False, fullDisplay=True))
+		self.assertEqual(visibleNames(window), ["i40", "i50", "i60", "i70"])
+
+	def test_fullDisplayLeavesARowAlreadyShownWhereItIs(self):
+		items = [block(f"i{n}") for n in range(10)]
+		window = windowWith(4, items)
+		self.assertFalse(window.ensureVisible(blockId("i3"), forward=True, fullDisplay=True))
+		self.assertEqual(visibleNames(window), ["i00", "i10", "i20", "i30"])
+
+	def test_fullDisplayBackNearTheStartShowsNoBlanksAbove(self):
+		items = [block(f"i{n}") for n in range(10)]
+		window = windowWith(4, items)
+		window.panForward()
+		self.assertTrue(window.ensureVisible(blockId("i3"), forward=False, fullDisplay=True))
+		self.assertEqual(visibleNames(window), ["i00", "i10", "i20", "i30"])
+
 	def test_isVisibleAnswersForOneRowOfABlock(self):
 		window = windowWith(2, [block("long", numRows=6)])
 		self.assertTrue(window.isVisible(blockId("long"), rowIndex=1))

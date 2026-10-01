@@ -909,17 +909,30 @@ class FlowWindow:
 			raise ContentNeeded(Edge.BEFORE, max(1, 1 - start))
 		return self._anchorTo(rows[position], Entry.BOTTOM)
 
-	def ensureVisible(self, blockId: BlockId, rowIndex: int = 0, forward: bool = True) -> bool:
+	def ensureVisible(
+		self,
+		blockId: BlockId,
+		rowIndex: int = 0,
+		forward: bool = True,
+		fullDisplay: bool = False,
+	) -> bool:
 		"""Bring a row onto the display by the smallest movement that does so.
 
 		If it is already there, nothing moves at all. Otherwise it is brought on at the edge
 		it is nearest: a row above the window becomes the top row, one below it becomes the
 		bottom row. Either way the display moves by the distance to it and no further.
 
+		With `fullDisplay` it is brought on at the far edge instead, so that what lies beyond
+		it fills the display: a row below the window becomes the top row with what follows it
+		underneath, and one above becomes the bottom row with what precedes it above. That is
+		how a Monarch's own software scrolls a list, a display at a time rather than a line.
+
 		:param blockId: the block to show.
 		:param rowIndex: which of its rows must be visible.
 		:param forward: the direction the reader is moving. A tiebreak only, for a row the
 			stream cannot place.
+		:param fullDisplay: whether to fill the display beyond the row rather than move by
+			the least. See `bmConfig.shouldScrollCaretByDisplay`.
 		:return: whether the window moved.
 		:raises LookupError: if the block is not cached.
 		"""
@@ -927,6 +940,8 @@ class FlowWindow:
 		if self.isVisible(blockId, rowIndex):
 			return False
 		entry = self._entryFor(blockId, rowIndex, forward)
+		if fullDisplay:
+			entry = Entry.BOTTOM if entry is Entry.TOP else Entry.TOP
 		self.anchor = Anchor(blockId=blockId, rowIndex=rowIndex, entry=entry)
 		self._clampAnchor()
 		return True

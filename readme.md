@@ -116,6 +116,16 @@ you work elsewhere.
 
 NVDA now treats the two as one tall display. The keys on both displays work as usual.
 
+**A display with several rows that reports one.** Some multi-line displays tell NVDA they
+have a single row. An Orbit Slate 340 on NVDA's standard HID driver reports one row of 120
+cells, though it has three rows of 40. In BrlMultiline displays, select it in the list and set
+"Rows the selected display physically has" to 3. When you press OK the combined display
+reopens with the Slate as 3 rows of 40, so a Focus 80 above it and the Slate below make 4
+rows. Segment sizes for the Slate are then counted in rows, routing keys on every row work,
+and the flow can use it. The number must divide the display's cells evenly. Leave it at 0 to
+use what the display reports. A display used on its own needs to be added to the combined
+display, as the only display in the list, for this to apply.
+
 **Choose which display follows the focus.** By default, the focus is shown in the last
 segment, which is on the bottom display. With the Monarch on top, that puts the focus on the
 single line display. To move it, assign a key to "Moves the focus onto another of the combined braille
@@ -311,6 +321,15 @@ stays where you put it.
 There is also a command to turn unwrapped lines on or off for the moment without changing the
 setting, since one file can hold both code and prose. What the command chose lasts until the
 setting itself changes, so opening NVDA's menu and coming back keeps it.
+
+**Full display scroll for caret.** Off by default. Normally, when the caret is on the bottom
+row and you arrow down, the display moves by one item: the new item appears on the bottom row
+and everything else moves up. With this on, the new item goes to the top row instead and the
+items after it fill the rest of the display, so every row is something you have not read yet.
+Arrowing up past the top row does the same in reverse: the new item goes to the bottom row with
+the items before it above. This is how the Monarch's own software scrolls a list, so it may
+feel more familiar if you use that a lot. It applies in browse mode, editors, lists, menus and
+trees. Moving to something already on the display never scrolls it.
 
 **Show how deep an item sits with.** For tree views and other controls that report how deeply
 their items are nested. Choose two spaces per level (the default), one space per level, or
