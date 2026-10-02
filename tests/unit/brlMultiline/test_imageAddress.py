@@ -190,6 +190,66 @@ class TestLoadingInTheBackground(unittest.TestCase):
 
 
 @needsPillow
+class TestAFileThatDecodesTooLarge(unittest.TestCase):
+	"""The download limit bounds the file, not the memory decoding it takes.
+
+	Found in review: a few kilobytes of PNG can declare a picture of a hundred million pixels,
+	and the size was checked only after the pixels had been decoded. The limits are lowered
+	here so the tests stay small; what is tested is the order of the checks, not the numbers.
+	"""
+
+	def setUp(self):
+		self.saved = (imageSource.DECODE_PIXELS, Image.MAX_IMAGE_PIXELS)
+		self.addCleanup(self.restore)
+
+	def restore(self):
+		imageSource.DECODE_PIXELS, Image.MAX_IMAGE_PIXELS = self.saved
+
+	def encoded(self, width, height, kind):
+		image = Image.new("RGB", (width, height), (255, 255, 255))
+		ImageDraw.Draw(image).rectangle((20, 20, width // 2, height // 2), fill=(0, 0, 0))
+		stored = io.BytesIO()
+		image.save(stored, kind)
+		return stored.getvalue()
+
+	def test_aFileDeclaringTooManyPixelsIsRefusedWithoutDecoding(self):
+		imageSource.DECODE_PIXELS = 2_000_000
+		raw = self.encoded(2000, 1500, "PNG")
+		decoded = []
+		realLoad = Image.Image.load
+
+		def load(image):
+			decoded.append(image.size)
+			return realLoad(image)
+
+		Image.Image.load = load
+		self.addCleanup(setattr, Image.Image, "load", realLoad)
+		with self.assertRaises(imageSource.ImageRefused) as refused:
+			imageSource.pictureFromBytes(raw, "big")
+		self.assertIn("2000 by 1500, too large", str(refused.exception))
+		self.assertEqual(decoded, [], "the pixels were decoded before the size was checked")
+
+	def test_aLargeJpegIsDecodedSmallerInsteadOfRefused(self):
+		"""A photograph is the ordinary large picture, and a JPEG can be decoded at a half or a
+		quarter for nothing, so its full size does not count against the limit."""
+		imageSource.DECODE_PIXELS = 4_000_000
+		picture = imageSource.pictureFromBytes(self.encoded(4000, 3000, "JPEG"), "photo")
+		self.assertIsNotNone(picture)
+		with self.assertRaises(imageSource.ImageRefused):
+			imageSource.pictureFromBytes(self.encoded(4000, 3000, "PNG"), "the same, not a JPEG")
+
+	def test_pillowsOwnWarningIsARefusal(self):
+		"""Pillow only warns below twice its limit, and a warning does not stop anything."""
+		Image.MAX_IMAGE_PIXELS = 500 * 500
+		with self.assertRaises(imageSource.ImageRefused):
+			imageSource.pictureFromBytes(self.encoded(600, 600, "PNG"), "suspicious")
+
+	def test_anOrdinaryPictureStillLoads(self):
+		picture = imageSource.pictureFromBytes(png(), "logo")
+		self.assertEqual((picture.width, picture.height), (325, 97))
+
+
+@needsPillow
 class TestThePictureCommand(unittest.TestCase):
 	"""The plugin's side: file first, screen when the file will not come."""
 
@@ -312,3 +372,38 @@ class TestThePictureCommand(unittest.TestCase):
 		shownNow = len(self.mode.shown)
 		self.finish()
 		self.assertEqual(len(self.mode.shown), shownNow)
+
+	def test_aChartChosenWhileTheFileLoadsIsNotReplaced(self):
+		"""Found in review: the chart went up, then the late picture went up over it."""
+		import types
+
+		chart = types.SimpleNamespace(name="chart")
+		offer = types.SimpleNamespace(key="bar", draw=lambda *args: chart)
+		self.plugin.script_drawPicture(None)
+		self.plugin.drawChart(offer)
+		self.finish()
+		self.assertEqual(self.mode.shown, [chart])
+
+	def test_turningTheDrawingOffDropsTheFile(self):
+		"""The reader took the drawing off while the file loaded; it must not come back by itself."""
+		self.mode.active = True
+		self.plugin.script_drawPicture(None)
+		self.plugin.script_toggleGraphics(None)
+		self.finish()
+		self.assertFalse(self.mode.active)
+		self.assertEqual(self.mode.shown, [])
+
+	def test_aFileArrivingAfterShutdownDrawsNothing(self):
+		"""Found in review: the late file drew on a display NVDA had already let go of."""
+		self.plugin.script_drawPicture(None)
+		self.plugin.terminate()
+		self.finish()
+		self.assertEqual(self.mode.shown, [])
+
+	def test_aFileArrivingPartWayThroughShutdownDrawsNothing(self):
+		"""Teardown sets the flag before anything else, so a file landing between that and the
+		request being dropped is still refused."""
+		self.plugin.script_drawPicture(None)
+		self.plugin._terminated = True
+		self.finish()
+		self.assertEqual(self.mode.shown, [])

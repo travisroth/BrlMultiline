@@ -407,7 +407,7 @@ def captureClipboard() -> Picture:
 			_("Drawing from the clipboard needs the Pillow library, which this NVDA does not have"),
 		)
 	try:
-		from PIL import Image, ImageGrab
+		from PIL import ImageGrab
 
 		found = ImageGrab.grabclipboard()
 	except Exception:
@@ -420,8 +420,7 @@ def captureClipboard() -> Picture:
 	if isinstance(found, list):
 		for path in found:
 			try:
-				opened = Image.open(path)
-				opened.load()
+				opened = openImage(path)
 			except Exception:
 				log.debug(f"BrlMultiline: a copied file is not a picture: {path!r}")
 				continue
@@ -473,6 +472,17 @@ FETCH_SECONDS = 8
 
 FETCH_BYTES = 20 * 1024 * 1024
 """The most of an image file that will be read. Larger than this is not a picture for pins."""
+
+DECODE_PIXELS = 25_000_000
+"""The most pixels an image file may decode to, after a JPEG has been decoded at a reduced size.
+
+`FETCH_BYTES` bounds the download and says nothing about memory: a file of a few kilobytes can
+declare a picture of a hundred million pixels, all one colour, and decoding it takes gigabytes
+before anything shrinks it for the pins. So the size a file declares is checked before it is
+decoded. Twenty-five million is past a large phone photograph's twelve to twenty-four, whose
+JPEG is decoded at a half or a quarter anyway by `openImage`, and about a hundred megabytes
+decoded, which an NVDA process can spare for the moment it takes. Found in review.
+"""
 
 
 def _domAttribute(obj, name: str) -> "str | None":
@@ -633,11 +643,10 @@ def pictureFromBytes(raw: bytes, name: str = "") -> Picture:
 	"""
 	import io
 
-	from PIL import Image
-
 	try:
-		image = Image.open(io.BytesIO(raw))
-		image.load()
+		image = openImage(io.BytesIO(raw))
+	except ImageRefused:
+		raise
 	except Exception:
 		# Translators: reported when a picture's file could not be read, for example because it
 		# is a kind of image the add-on cannot draw.
@@ -657,6 +666,52 @@ def pictureFromBytes(raw: bytes, name: str = "") -> Picture:
 		# Translators: reported when a picture's file could not be read.
 		raise ImageRefused(_("The picture's file could not be read"))
 	return picture
+
+
+def openImage(source):
+	"""Open an image file and decode it, refusing one that would decode too large.
+
+	**The size is checked before the pixels exist.** Pillow reads only the header on `open`, so
+	the declared size is known while decoding costs nothing yet; `load` is what spends the
+	memory. A JPEG, which is most photographs, is first asked to decode at a reduced scale near
+	the size that is kept anyway (`keepPixels`), which is free and makes the full size
+	irrelevant. Anything still over `DECODE_PIXELS` is refused.
+
+	Pillow's own decompression bomb check only warns below twice its limit. Here the warning is
+	an error, so a file Pillow itself thinks is suspicious is never decoded.
+
+	:param source: a path or a file object.
+	:return: the decoded image.
+	:raises ImageRefused: if it would decode to more than `DECODE_PIXELS`.
+	:raises Exception: whatever Pillow raises for a file it cannot read.
+	"""
+	import math
+	import warnings
+
+	from PIL import Image
+
+	with warnings.catch_warnings():
+		warnings.simplefilter("error", Image.DecompressionBombWarning)
+		image = Image.open(source)
+		width, height = image.size
+		wanted = keepPixels()
+		if width * height > wanted:
+			shrink = math.sqrt(wanted / (width * height))
+			# A request rather than a command: a JPEG decodes at the largest of a half, a
+			# quarter or an eighth that is still at least this size, and anything else ignores it.
+			image.draft(image.mode, (math.ceil(width * shrink), math.ceil(height * shrink)))
+			width, height = image.size
+		if width * height > DECODE_PIXELS:
+			raise ImageRefused(
+				# Translators: reported when a picture's file is too large to draw. The placeholders
+				# are its width and height in pixels.
+				_("This picture is {width} by {height}, too large to draw").format(
+					width=width,
+					height=height,
+				),
+			)
+		image.load()
+	return image
 
 
 def _startBackground(work) -> None:

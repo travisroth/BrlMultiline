@@ -310,6 +310,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Set first, so that anything already queued sees it even if the teardown below
 		# raises part way through.
 		self._terminated = True
+		self._cancelPictureRequest()
 		try:
 			displaySizeChanged.unregister(self._handleDisplayChanged)
 			displayChanged.unregister(self._handleDisplayChanged)
@@ -2884,6 +2885,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"nothing happened" is the one answer a reader cannot act on.
 		"""
 		mode = self.graphicsMode
+		self._cancelPictureRequest()
 		# Collected rather than spoken, so the layers the drawing brought or took with it are said in
 		# the same message as the drawing, once.
 		self._layerChangesToSay = []
@@ -2930,6 +2932,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		prices — because a command that only said it had failed would leave them guessing
 		at which.
 		"""
+		self._cancelPictureRequest()
 		if self.graphicsMode.drawingSize() is None:
 			# Translators: reported when a drawing was asked for on a display that cannot draw.
 			ui.message(_("This display cannot show graphics"))
@@ -3007,6 +3010,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		:param offer: what to draw, from `chartMenu.offersFor`.
 		"""
+		# Again here, for a picture pressed for while the chart dialog was open.
+		self._cancelPictureRequest()
 		mode = self.graphicsMode
 		size = mode.drawingSize()
 		if size is None:
@@ -3061,7 +3066,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			log.debugWarning("BrlMultiline: no navigator object to draw", exc_info=True)
 		address = imageSource.addressOf(obj) if imagePins.hasPillow() else None
 		if address is None:
-			self._pictureRequest = None
+			self._cancelPictureRequest()
 			self._drawPicture(again=False)
 			return
 		# Only the last press counts. A reader who presses again, or moves on and presses on
@@ -3071,7 +3076,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._pictureRequest = request
 
 		def arrived(picture, why):
-			if self._pictureRequest is not request:
+			# The request is cancelled at shutdown too; checking both is for a file that arrives
+			# while the plugin is part way through coming down.
+			if self._terminated or self._pictureRequest is not request:
 				return
 			self._pictureRequest = None
 			if picture is not None:
@@ -3099,8 +3106,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		which of them NVDA's own driver has not taken is not something this add-on can check.
 		"""
 		# A newer request than any picture file still loading, which must not land on top.
-		self._pictureRequest = None
+		self._cancelPictureRequest()
 		self._drawPicture(again=False, capture=lambda: imageSource.captureClipboard())
+
+	def _cancelPictureRequest(self) -> None:
+		"""Forget a picture file still loading, so it is never drawn when it arrives.
+
+		Only the last thing asked for counts. A picture whose file is slow is still the reader's
+		request when it lands, unless they asked for something else in between: another picture,
+		a chart, the glyph catalogue, or the drawing on or off. Each of those calls this, and so
+		does `terminate`, so a file arriving after NVDA has moved on draws nothing. Found in
+		review: a late image replaced a chart chosen after it, and one drew after shutdown.
+		"""
+		self._pictureRequest = None
 
 	@script(
 		# Translators: input help message for a command.
@@ -3360,6 +3378,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		Unbound by default. It is a tool for choosing a vocabulary rather than something
 		used while reading, and the graphics chords are spent on things that are.
 		"""
+		self._cancelPictureRequest()
 		mode = self.graphicsMode
 		size = mode.drawingSize()
 		if size is None:

@@ -1997,6 +1997,28 @@ class TestSteppingThroughAChart(unittest.TestCase):
 					self.mode.stepPoint(-1)
 					self.assertTrue(self.holds(), (count, index))
 
+	def test_everyStepIsOneWriteToTheDisplay(self):
+		"""Found in review: a page turn wrote a window one point short before the one it kept,
+		and each write is a refresh of the whole panel that a reader feels."""
+		writes = []
+		realWrite = self.driver.setGraphicsOverlay
+
+		def counted(key, x, y, buffer):
+			writes.append(key)
+			realWrite(key, x, y, buffer)
+
+		self.driver.setGraphicsOverlay = counted
+		for count in (200, 233, 261):
+			with self.subTest(count=count):
+				self.mode.enter(self.line(count))
+				self.mode.zoomToPoints()
+				self.mode.pointToEnd(last=False)
+				for direction, steps in ((1, count - 1), (-1, count - 1)):
+					for _step in range(steps):
+						writes.clear()
+						self.mode.stepPoint(direction)
+						self.assertEqual(len(writes), 1, (count, self.mode.markedPoint))
+
 	def test_aPageTurnPutsThePointAtTheEdgeItLeft(self):
 		"""Going right the point lands at the left with the unread points ahead of it, and going
 		back it lands at the right. Within a point or two, which is the rounding the window's

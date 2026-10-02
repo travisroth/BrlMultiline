@@ -97,6 +97,9 @@ least that still has a shape to feel — a rise and a fall — and refusing at t
 zoom the reader is told matching the zoom they are feeling, which clamping silently would not.
 """
 
+TURN_ATTEMPTS = 4
+"""How many windows a page turn composes before giving up, the last of them centred on the point."""
+
 MAX_SCALE = 8.0
 """Pins per source dot, at the most magnified. See the zoom ladder."""
 
@@ -1655,11 +1658,10 @@ class GraphicsMode(PanelOwner):
 		if not shown:
 			shown = self._turnTo(index, forward, pins, surface)
 		if not shown:
+			# Nothing was written: a turn composes its windows without showing them, so the
+			# overlay on the display is still the one that agrees with what is put back.
 			self._restore(restore)
 			self._marked = was
-			# The overlay is whatever the last render left, which may have been a window tried on
-			# the way; drawing again makes it agree with what was put back.
-			self.render(surface)
 		return shown
 
 	def _turnTo(self, index: int, forward: bool, pins: PinRect, surface: GraphicsSurface) -> bool:
@@ -1677,6 +1679,11 @@ class GraphicsMode(PanelOwner):
 		Then the window is nudged a point's width towards it, a few times, and centred on it as a
 		last resort.
 
+		**Only the window that holds the point is written to the display.** The candidates are
+		composed and checked first, since each write is a mechanical refresh of the whole panel
+		and a reader feels every one. Found in review: a 200 point chart wrote twice on some
+		page turns, the first a window one point short.
+
 		:param index: the point of the whole figure.
 		:param forward: which way the reader is going.
 		:param pins: the rectangle the drawing occupies.
@@ -1690,17 +1697,20 @@ class GraphicsMode(PanelOwner):
 		self._originX = x if forward else x - visibleX + 1
 		self._clampOrigin(pins)
 		nudge = max(1, self._source.buffer.width // max(1, self._source.points))
-		for _attempt in range(4):
-			if not self.render(surface):
+		for attempt in range(TURN_ATTEMPTS + 1):
+			# Composed, not shown: `_reframe` builds the window's drawing, and `render` below
+			# finds it already built and only writes it.
+			if not self._reframe(pins):
 				return False
 			if self._holds(index):
-				return True
-			first, _last = self._shownPoints()
-			self._originX += -nudge if index < first else nudge
+				return self.render(surface)
+			if attempt == TURN_ATTEMPTS - 1:
+				self._originX = x - visibleX // 2
+			else:
+				first, _last = self._shownPoints()
+				self._originX += -nudge if index < first else nudge
 			self._clampOrigin(pins)
-		self._originX = x - visibleX // 2
-		self._clampOrigin(pins)
-		return self.render(surface) and self._holds(index)
+		return False
 
 	# --- Touch ------------------------------------------------------------------------------
 
