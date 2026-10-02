@@ -1892,5 +1892,199 @@ class TestTheTestFigure(unittest.TestCase):
 		self.assertTrue(drawing.buffer.getDot(drawing.width // 2, drawing.height // 2 - 1))
 
 
+class TestSteppingThroughAChart(unittest.TestCase):
+	"""Marking a chart's points one at a time, and keeping the marked one on the panel.
+
+	The mark is held as a point of the whole chart while the panel shows a window of it, so the
+	tests that matter most step across a zoomed chart and check, at every step, that the point
+	marked is a point the panel is showing and the one that was said. A window that turned one
+	point short would mark a day the reader cannot feel and read it out regardless.
+	"""
+
+	def setUp(self):
+		self.driver = FakeDrawableDriver(numRows=8, numCols=32)
+		useDisplay(self.driver)
+		self.mode = GraphicsMode(FakePlugin())
+		self.width, self.height = self.mode.drawingSize()
+		flashedMessages.clear()
+
+	def bars(self, values):
+		from brlMultiline.chart import Series, barChart
+
+		series = [Series(f"b{index}", value) for index, value in enumerate(values)]
+		return barChart(self.mode.newBuffer, self.width, self.height, series)
+
+	def line(self, count, lines=None):
+		from brlMultiline.chartLine import Line, lineChart
+
+		labels = [f"d{index}" for index in range(count)]
+		lines = lines or [Line("Close", [index % 7 for index in range(count)])]
+		return lineChart(self.mode.newBuffer, self.width, self.height, lines, labels)
+
+	def overlay(self):
+		return self.driver.overlays[OVERLAY_KEY][2]
+
+	def holds(self):
+		""":return: whether the marked point is in the drawing on the panel."""
+		drawing = self.mode.drawing
+		marked = self.mode.markedPoint
+		return drawing.firstPoint <= marked < drawing.firstPoint + drawing.points
+
+	def test_theFirstStepMarksTheFirstPointWithoutMovingPastIt(self):
+		self.mode.enter(self.bars([3, 5, 7]))
+		self.assertEqual(self.mode.stepPoint(1), "b0, 3")
+		self.assertEqual(self.mode.markedPoint, 0)
+
+	def test_theFirstStepBackMarksTheLastPointShown(self):
+		self.mode.enter(self.bars([3, 5, 7]))
+		self.assertEqual(self.mode.stepPoint(-1), "b2, 7")
+
+	def test_stepsMoveAPointAtATime(self):
+		self.mode.enter(self.bars([3, 5, 7]))
+		self.mode.stepPoint(1)
+		self.assertEqual(self.mode.stepPoint(1), "b1, 5")
+		self.assertEqual(self.mode.stepPoint(-1), "b0, 3")
+
+	def test_theEndsRefuseWithoutMoving(self):
+		self.mode.enter(self.bars([3, 5, 7]))
+		self.mode.pointToEnd(last=True)
+		self.assertEqual(self.mode.stepPoint(1), "last point")
+		self.assertEqual(self.mode.markedPoint, 2)
+		self.mode.pointToEnd(last=False)
+		self.assertEqual(self.mode.stepPoint(-1), "first point")
+		self.assertEqual(self.mode.markedPoint, 0)
+
+	def test_aPressIsWhereTheFirstStepStarts(self):
+		self.mode.enter(self.bars([3, 5, 7, 9]))
+		column = self.mode.drawing.markFor(2).own[0]
+		self.driver.lastRoutingPin = (column, PIN_HEIGHT - self.height + self.height // 2)
+		GraphicsRoutingPolicy(self.mode).route(container=None, segmentNumber=0, segmentPos=0)
+		runQueuedFunctions()
+		self.assertIsNone(self.mode.markedPoint, "a press must not mark, or the pins change under the finger")
+		self.assertEqual(self.mode.stepPoint(1), "b2, 7")
+
+	def test_theGuidesAreOnThePanelAndNotInTheChart(self):
+		self.mode.enter(self.bars([3, 5, 7]))
+		plain = self.overlay().rows()
+		self.mode.stepPoint(1)
+		self.assertNotEqual(self.overlay().rows(), plain)
+		self.assertEqual(self.mode.drawing.buffer.rows(), plain)
+
+	def test_unmarkingTakesTheGuidesOff(self):
+		self.mode.enter(self.bars([3, 5, 7]))
+		plain = self.overlay().rows()
+		self.mode.stepPoint(1)
+		self.assertEqual(self.mode.unmarkPoint(), "Point unmarked")
+		self.assertEqual(self.overlay().rows(), plain)
+		self.assertIsNone(self.mode.markedPoint)
+		self.assertEqual(self.mode.unmarkPoint(), "No point is marked")
+
+	def test_steppingAcrossAZoomedLineChartKeepsEveryPointOnThePanel(self):
+		"""At one pin per point, the case where the line chart respaces its window and the point
+		is likeliest to land one outside it. Every point, both ways, at lengths whose rounding
+		falls differently."""
+		for count in (200, 233, 261):
+			with self.subTest(count=count):
+				self.mode.enter(self.line(count))
+				self.assertTrue(self.mode.zoomToPoints())
+				self.mode.pointToEnd(last=False)
+				for index in range(1, count):
+					said = self.mode.stepPoint(1)
+					self.assertEqual(self.mode.markedPoint, index)
+					self.assertTrue(self.holds(), (count, index))
+					self.assertTrue(said.endswith(f", d{index}"), said)
+				for index in range(count - 2, -1, -1):
+					self.mode.stepPoint(-1)
+					self.assertTrue(self.holds(), (count, index))
+
+	def test_aPageTurnPutsThePointAtTheEdgeItLeft(self):
+		"""Going right the point lands at the left with the unread points ahead of it, and going
+		back it lands at the right. Within a point or two, which is the rounding the window's
+		even spacing is allowed."""
+		self.mode.enter(self.line(250))
+		self.mode.zoomToPoints()
+		self.mode.pointToEnd(last=False)
+		self.assertEqual(self.mode.drawing.firstPoint, 0)
+		end = self.mode.drawing.points
+		for _step in range(end - 1):
+			self.mode.stepPoint(1)
+		self.assertEqual(self.mode.drawing.firstPoint, 0, "a step inside the window must not move it")
+		self.mode.stepPoint(1)
+		self.assertLessEqual(self.mode.markedPoint - self.mode.drawing.firstPoint, 2)
+		turned = self.mode.drawing.firstPoint
+		while self.mode.drawing.firstPoint == turned:
+			self.mode.stepPoint(-1)
+		drawing = self.mode.drawing
+		self.assertLessEqual(drawing.firstPoint + drawing.points - 1 - self.mode.markedPoint, 2)
+
+	def test_steppingAcrossAZoomedBarChartReachesEveryBar(self):
+		self.mode.enter(self.bars([index % 9 + 1 for index in range(40)]))
+		self.assertTrue(self.mode.zoomBy(1))
+		self.mode.pointToEnd(last=False)
+		for index in range(1, 40):
+			self.assertEqual(self.mode.stepPoint(1), f"b{index}, {index % 9 + 1}")
+			self.assertTrue(self.holds(), index)
+
+	def test_theLastPointOfAZoomedChartIsReachedInOneCommand(self):
+		self.mode.enter(self.line(250))
+		self.mode.zoomToPoints()
+		self.assertEqual(self.mode.pointToEnd(last=True), "Close 4, d249")
+		self.assertTrue(self.holds())
+
+	def test_zoomingKeepsTheMarkedPointInTheMiddle(self):
+		self.mode.enter(self.line(250))
+		self.mode.pointToEnd(last=False)
+		for _step in range(200):
+			self.mode.stepPoint(1)
+		self.assertTrue(self.mode.zoomBy(1))
+		self.assertTrue(self.holds())
+		self.assertTrue(self.mode.zoomToPoints())
+		self.assertTrue(self.holds())
+
+	def test_theReportSaysWhichPoint(self):
+		self.mode.enter(self.bars([3, 5, 7]))
+		self.mode.stepPoint(1)
+		self.mode.stepPoint(1)
+		self.assertIn("point 2 of 3", self.mode.describe())
+
+	def test_aChangeOfViewKeepsTheMark(self):
+		from brlMultiline.chartLine import Line
+
+		lines = [Line("Close", [5, 6, 7, 8]), Line("Average", [4, 5, 6, 7])]
+		self.mode.enter(self.line(4, lines))
+		self.mode.stepPoint(1)
+		self.mode.stepPoint(1)
+		self.assertTrue(self.mode.changeView(1))
+		self.assertEqual(self.mode.markedPoint, 1)
+
+	def test_aNewDrawingForgetsTheMark(self):
+		self.mode.enter(self.bars([3, 5, 7]))
+		self.mode.stepPoint(1)
+		self.mode.enter(self.bars([1, 2]))
+		self.assertIsNone(self.mode.markedPoint)
+		self.assertEqual(self.mode.stepPoint(1), "b0, 1")
+
+	def test_theLevelLineCanFollowAnotherLine(self):
+		from brlMultiline.chartLine import Line
+
+		lines = [Line("Close", [5, 6, 7, 8]), Line("Average", [None, 5, 6, 7])]
+		self.mode.enter(self.line(4, lines))
+		self.mode.stepPoint(1)
+		self.assertEqual(self.mode.nextLevel(), "Level line follows Average, no value here")
+		self.mode.stepPoint(1)
+		self.assertEqual(self.mode.nextLevel(), "Level line follows Close, 6")
+
+	def test_aChartWithOneValuePerPointHasOneLevel(self):
+		self.mode.enter(self.bars([3, 5, 7]))
+		self.assertEqual(self.mode.nextLevel(), "The level line has only one line to follow here")
+
+	def test_aPictureHasNoPoints(self):
+		self.mode.enter(Drawing(PinBuffer.fromRows(["O.O", ".O.", "O.O"]), name="picture"))
+		self.assertEqual(self.mode.stepPoint(1), "Only a chart has points to step through")
+
+	def test_withNothingUpThereIsNothingToStep(self):
+		self.assertEqual(self.mode.stepPoint(1), "No drawing")
+
+
 if __name__ == "__main__":
 	unittest.main()

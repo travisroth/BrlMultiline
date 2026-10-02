@@ -55,8 +55,9 @@ Read the files in this order:
 11. [chart-point-plan.md](chart-point-plan.md) — the plan for stepping through a chart's
    points with keys, and for guide lines that show where the marked point is: a level line
    across the plot at its value and a line up and down at its position. Taken from the
-   Dot Pad add-on's trace line and adapted to charts without a drawn value axis. Not
-   started. Read it before changing `Drawing`, the chart describers, or `GraphicsMode.render`.
+   Dot Pad add-on's trace line and adapted to charts without a drawn value axis. Built and
+   unit tested, not yet on hardware. Read it before changing `Drawing`, the chart describers,
+   or `GraphicsMode.render`.
 
 ## Project background
 

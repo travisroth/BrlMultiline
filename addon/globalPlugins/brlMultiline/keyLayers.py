@@ -635,7 +635,9 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 	which were global until 15 September 2026. Its chart layer and picture layer come on by themselves
 	instead of it for a chart or a picture, fall through to it for panning and zooming, and add plain
 	letters: on a chart o for one pin per point and v for the next set of lines, with dot 7 for the
-	previous; on a picture o for outlines, b for brightness and r for brightness reversed. Its table
+	previous, space with dot 4 and dot 1 for the next and previous point, space with dots 1 2 3 and
+	dots 4 5 6 for the first and last, u to unmark the point and l to move its level line; on a
+	picture o for outlines, b for brightness and r for brightness reversed. Its table
 	layer stays on and moves by table cell with the left d-pad, and turns column pages with the zoom
 	keys; it comes on only from the layer key, since a table is somewhere the caret passes through.
 	Its unwrapped layer comes on by itself while the band shows lines unwrapped, and pans across them
@@ -711,6 +713,14 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 				normalize(f"br({MONARCH}):dot1+dot3+dot5"): plugin("graphicsZoomToPoints"),
 				normalize(f"br({MONARCH}):dot1+dot2+dot3+dot6"): plugin("graphicsNextView"),
 				normalize(f"br({MONARCH}):dot1+dot2+dot3+dot6+dot7"): plugin("graphicsPreviousView"),
+				# Space with dot 4 and dot 1 are the Monarch's next and previous line, the nearest
+				# thing a chart has to stepping from one point to the next.
+				normalize(f"br({MONARCH}):space+dot4"): plugin("graphicsNextPoint"),
+				normalize(f"br({MONARCH}):space+dot1"): plugin("graphicsPreviousPoint"),
+				normalize(f"br({MONARCH}):space+dot1+dot2+dot3"): plugin("graphicsFirstPoint"),
+				normalize(f"br({MONARCH}):space+dot4+dot5+dot6"): plugin("graphicsLastPoint"),
+				normalize(f"br({MONARCH}):dot1+dot3+dot6"): plugin("graphicsUnmarkPoint"),
+				normalize(f"br({MONARCH}):dot1+dot2+dot3"): plugin("graphicsNextLevel"),
 			},
 		)
 		pictures = newLayer(

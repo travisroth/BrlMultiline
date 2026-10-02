@@ -35,6 +35,7 @@ from .chartDraw import (
 	CELL_COLUMNS,
 	GAP,
 	ChartRefused,
+	PointMark,
 	Scale,
 	Series,
 	cellsFor,
@@ -82,6 +83,7 @@ def barChart(
 	height: int,
 	series: "list[Series]",
 	translate: Optional[Callable] = None,
+	firstPoint: int = 0,
 ) -> Drawing:
 	"""Draw a bar chart to fill a rectangle exactly.
 
@@ -98,6 +100,7 @@ def barChart(
 	:param series: what to chart, in the order the bars go left to right.
 	:param translate: turns a string into braille cells. None draws the bars bare, which is
 		what a display with no braille table behind it gets.
+	:param firstPoint: which bar of the whole chart the first of these is, for a window.
 	:return: the drawing, which answers for each bar when pointed at.
 	:raises ChartRefused: if there is nothing to chart or no room to chart it.
 	"""
@@ -142,6 +145,10 @@ def barChart(
 		describeAt=_describer(bars, baseline),
 		redraw=_reframer(newBuffer, width, height, series, translate),
 		points=len(series),
+		firstPoint=firstPoint,
+		pointAt=_pointFinder(bars, slot),
+		markFor=_marker(bars, scale, baseline, width),
+		sayPoint=lambda index: _say(bars[index]),
 	)
 
 
@@ -172,7 +179,7 @@ def _reframer(
 	def redraw(offset: float, span: float, pinWidth: int, pinHeight: int) -> Optional[Drawing]:
 		first, last = windowOf(len(series), offset, span, 1)
 		try:
-			return barChart(newBuffer, pinWidth, pinHeight, series[first:last], translate)
+			return barChart(newBuffer, pinWidth, pinHeight, series[first:last], translate, first)
 		except ChartRefused:
 			return None
 
@@ -337,18 +344,77 @@ def _describer(bars: "list[Bar]", baseline: int) -> Callable:
 	def describeAt(x: int, y: int) -> Optional[str]:
 		for bar in bars:
 			if bar.left <= x < bar.right:
-				# Translators: reported for a touch on a bar of a chart. Placeholders are what
-				# the bar is called and what it is worth.
-				return _("{label}, {value}").format(
-					label=bar.series.label,
-					value=numberText(bar.series.value),
-				)
+				return _say(bar)
 		if y == baseline:
 			# Translators: reported for a touch on the zero line of a chart, between bars.
 			return _("baseline")
 		return None
 
 	return describeAt
+
+
+def _say(bar: Bar) -> str:
+	""":return: what a bar is, for a press on it or a step onto it.
+
+	:param bar: the bar.
+	"""
+	# Translators: reported for a touch on a bar of a chart, or a step onto it. Placeholders are
+	# what the bar is called and what it is worth.
+	return _("{label}, {value}").format(label=bar.series.label, value=numberText(bar.series.value))
+
+
+def _pointFinder(bars: "list[Bar]", slot: int) -> Callable:
+	"""Build the lookup from a column to the bar whose slot it is in.
+
+	The slot rather than the bar, so the gap after a bar is that bar's: a press there is a press
+	beside it, and a press anywhere along the chart's width is a press on some bar.
+
+	:param bars: where the bars went.
+	:param slot: pins from one bar's left edge to the next.
+	:return: a function taking a column and returning a bar's index, or None past the last.
+	"""
+
+	def pointAt(x: int) -> Optional[int]:
+		index = x // slot if slot else -1
+		return index if 0 <= index < len(bars) else None
+
+	return pointAt
+
+
+def _marker(bars: "list[Bar]", scale: Scale, baseline: int, width: int) -> Callable:
+	"""Build the lookup from a bar to where its guides go.
+
+	The point line goes in the gap to the bar's left, so the bar itself is felt exactly as it
+	was drawn; the first bar has no gap to its left and takes the one to its right. The level
+	line is at the bar's tip, and cuts into every other bar it passes through, which is what
+	lets a finger along it feel which bars go past the marked one.
+
+	:param bars: where the bars went.
+	:param scale: the chart's scale.
+	:param baseline: the row zero sits on.
+	:param width: the drawing's width.
+	:return: a function taking a bar's index, and a level that a bar chart ignores, and
+		returning a `PointMark`.
+	"""
+
+	def markFor(index: int, level: int = 0) -> Optional[PointMark]:
+		if not 0 <= index < len(bars):
+			return None
+		bar = bars[index]
+		column = bar.left - 1 if bar.left > 0 else min(bar.right, width - 1)
+		tip = _tipRow(scale, baseline, bar.series.value)
+		return PointMark(
+			column=column,
+			row=tip,
+			plotTop=scale.top,
+			plotBottom=scale.bottom,
+			# A zero bar's tip is the baseline, and a cut there would break the floor.
+			cuts=tip != baseline,
+			own=(bar.left, bar.right),
+			value=bar.series.value,
+		)
+
+	return markFor
 
 
 def _chartName(series: "list[Series]") -> str:

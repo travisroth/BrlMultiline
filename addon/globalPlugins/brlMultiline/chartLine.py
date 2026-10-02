@@ -45,6 +45,7 @@ from .chartDraw import (
 	NEAR_COLUMNS,
 	NEAR_ROWS,
 	ChartRefused,
+	PointMark,
 	Scale,
 	isFinite,
 	numberText,
@@ -247,6 +248,7 @@ def _compose(
 	pitch: Optional[int],
 	redraw: Optional[Callable] = None,
 	nextView: Optional[Callable] = None,
+	firstPoint: int = 0,
 ) -> Drawing:
 	"""Draw the chart for one run of points, whole or windowed.
 
@@ -261,6 +263,7 @@ def _compose(
 	:param pitch: pins between points, or None to spread the points across the whole width.
 	:param redraw: how to compose a window of this, for the whole chart only.
 	:param nextView: how to change which series are shown, for the whole chart only.
+	:param firstPoint: which point of the whole chart the first of these is, for a window.
 	:return: the drawing.
 	:raises ChartRefused: if there is nothing to chart or no room to chart it.
 	"""
@@ -314,6 +317,11 @@ def _compose(
 		note=note,
 		nextView=nextView,
 		pinsPerPoint=1,
+		firstPoint=firstPoint,
+		pointAt=lambda x: _nearestPoint(columns, x) if 0 <= x < width else None,
+		markFor=_marker(lines, shown, columns, scale),
+		sayPoint=lambda index: _reading(lines, shown, labels, index),
+		levelNames=tuple(lines[index].name for index in shown),
 	)
 
 
@@ -360,6 +368,7 @@ def _reframer(
 				translate,
 				shown,
 				pitch,
+				firstPoint=first,
 			)
 		except ChartRefused:
 			# None leaves the reader the view they had, which is a better answer than a blank
@@ -722,6 +731,68 @@ def _describer(
 		)
 
 	return describeAt
+
+
+def _valueAt(line: Line, index: int):
+	""":return: a line's value at a point, or None where it has none."""
+	return line.values[index] if 0 <= index < len(line.values) else None
+
+
+def _reading(lines: "list[Line]", shown: tuple, labels: Optional[list], index: int) -> str:
+	"""Say every line being shown at one point, for a step onto it.
+
+	Every line, not only the nearest: a step is not a finger, so there is no "nearest", and the
+	question a step answers is "what is everything doing on this day". A line with nothing on
+	that day says so rather than being left out, so the reader is not left wondering whether a
+	line was missed.
+
+	:param lines: every series.
+	:param shown: which of them are drawn.
+	:param labels: what each point is called, or None.
+	:param index: which point.
+	:return: the readings, then what the point is called.
+	"""
+	readings = []
+	for series in shown:
+		value = _valueAt(lines[series], index)
+		if value is None:
+			# Translators: one line's reading on a line chart where it has no value at that point.
+			# The placeholder is the series' name.
+			readings.append(_("{name} no value").format(name=lines[series].name))
+		else:
+			readings.append(_("{name} {value}").format(name=lines[series].name, value=numberText(value)))
+	return _("{readings}, {label}").format(readings=", ".join(readings), label=_labelAt(labels, index))
+
+
+def _marker(lines: "list[Line]", shown: tuple, columns: "list[int]", scale: Scale) -> Callable:
+	"""Build the lookup from a point to where its guides go.
+
+	The point line through the point's own column, and the level line at the value of the line
+	the reader chose for it: the first line shown unless they changed it, which is the thick one
+	where there are three or more.
+
+	:param lines: every series.
+	:param shown: which of them are drawn; the level follows one of these.
+	:param columns: the column each point is drawn in.
+	:param scale: the shared value to row mapping.
+	:return: a function taking a point and a position in `shown`, and returning a `PointMark`.
+	"""
+
+	def markFor(index: int, level: int = 0) -> Optional[PointMark]:
+		if not 0 <= index < len(columns) or not shown:
+			return None
+		line = lines[shown[level % len(shown)]]
+		value = _valueAt(line, index)
+		return PointMark(
+			column=columns[index],
+			row=None if value is None else scale.row(value),
+			plotTop=scale.top,
+			plotBottom=scale.bottom,
+			value=value,
+			name=line.name,
+		)
+
+	return markFor
 
 
 def _nearestPoint(columns: "list[int]", x: int) -> int:

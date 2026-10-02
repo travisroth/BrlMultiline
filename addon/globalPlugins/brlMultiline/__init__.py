@@ -3515,6 +3515,61 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
+		description=_("Graphics: Next point on a chart"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_graphicsNextPoint(self, gesture):
+		"""Mark the next point of a chart and say it, turning a page if it is off the panel.
+
+		Space with dot 4 in the Monarch's chart layer. See `GraphicsMode.stepPoint`, and
+		`docs/design/chart-point-plan.md` for why a page and not a point.
+		"""
+		ui.message(self.graphicsMode.stepPoint(1))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Previous point on a chart"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_graphicsPreviousPoint(self, gesture):
+		ui.message(self.graphicsMode.stepPoint(-1))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: First point on a chart"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_graphicsFirstPoint(self, gesture):
+		ui.message(self.graphicsMode.pointToEnd(last=False))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Last point on a chart"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_graphicsLastPoint(self, gesture):
+		ui.message(self.graphicsMode.pointToEnd(last=True))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Unmark the point on a chart"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_graphicsUnmarkPoint(self, gesture):
+		ui.message(self.graphicsMode.unmarkPoint())
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Move the level line to the next line of a chart"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_graphicsNextLevel(self, gesture):
+		"""On a line chart with several lines, the level line at the marked point follows one of
+		them; this moves it to the next, and says that line's value at the point."""
+		ui.message(self.graphicsMode.nextLevel())
+
+	@script(
+		# Translators: input help message for a command.
 		description=_("Graphics: Move the drawing view up"),
 		category=SCRIPT_CATEGORY,
 	)

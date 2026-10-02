@@ -39,6 +39,7 @@ import braille
 import ui
 from logHandler import log
 
+from .chartDraw import drawGuides, numberText
 from .graphics import GraphicsSurface, PinRect, findSurface
 from .layout import SegmentRect
 from .panels import GraphicsPanel, PanelOwner
@@ -157,6 +158,11 @@ class Drawing:
 		note: str = "",
 		nextView=None,
 		pinsPerPoint: int = 0,
+		firstPoint: int = 0,
+		pointAt=None,
+		markFor=None,
+		sayPoint=None,
+		levelNames: tuple = (),
 	):
 		"""
 		:param buffer: the dots, a buffer from `GraphicsSurface.newBuffer`.
@@ -192,8 +198,28 @@ class Drawing:
 		:param pinsPerPoint: how many pins across one point needs to be felt on its own, for a
 			figure whose zoom is counted in points. One for a line chart. Zero where there is
 			no such thing, which is everything a zoom to one pin per point means nothing for.
+		:param firstPoint: which point of the whole figure this drawing starts at. Zero for
+			the whole figure; a window composed by `redraw` says where it cut the data. It is
+			what lets the mode hold a marked point as an index into the whole chart while the
+			panel shows a window of it. See `docs/design/chart-point-plan.md`.
+		:param pointAt: which point, counted from this drawing's first, a source column
+			belongs to, or None between points. Optional, and with the two below it is what
+			makes a figure one the reader can step through a point at a time.
+		:param markFor: where a point of this drawing was drawn, taking its index from this
+			drawing's first and which of `levelNames` the level follows, and giving back a
+			`chartDraw.PointMark` or None. The figure describes its geometry; the mode decides
+			which point is marked and draws the guides.
+		:param sayPoint: what a point is, taking its index from this drawing's first. The
+			same words a press on it gives, so stepping and pointing have one vocabulary.
+		:param levelNames: what each series the level line can follow is called, in order.
+			Empty for a figure with one value per point.
 		"""
 		self.buffer = buffer
+		self.firstPoint = firstPoint
+		self.pointAt = pointAt
+		self.markFor = markFor
+		self.sayPoint = sayPoint
+		self.levelNames = tuple(levelNames)
 		self.name = name
 		self.note = note
 		self.describeAt = describeAt
@@ -369,6 +395,24 @@ class GraphicsMode(PanelOwner):
 		to its corner; it starts mattering the moment there is more drawing than display.
 		"""
 
+		self._marked: Optional[int] = None
+		"""The point of the whole figure the reader stepped to, or None.
+
+		An index into the whole figure rather than into the window on the panel, so it survives
+		zooming, panning and a change of view: each of those composes a different window, and
+		`Drawing.firstPoint` is how a window says where it is in the whole.
+		"""
+
+		self._pressedPoint: Optional[int] = None
+		"""The point the last routing press landed on, where a first step starts from.
+
+		Remembered and not marked: marking redraws the panel, and a press is the reader asking a
+		question with a finger on the pins, not asking for the pins to change under it.
+		"""
+
+		self._level = 0
+		"""Which of the drawing's `levelNames` the level line follows."""
+
 		self._textLines = DEFAULT_TEXT_LINES
 		"""Braille lines kept beside the figure. Zero gives the whole band to the drawing.
 
@@ -539,6 +583,7 @@ class GraphicsMode(PanelOwner):
 		self._zoomStep = FIT
 		self._originX = 0
 		self._originY = 0
+		self._forgetPoints()
 		self.render(surface)
 		self._notifyChanged()
 		return True
@@ -570,6 +615,7 @@ class GraphicsMode(PanelOwner):
 		self._source = None
 		self._window = None
 		self._rect = None
+		self._forgetPoints()
 		try:
 			self.plugin.deactivatePanel(PANEL_NAME)
 		except Exception:
@@ -615,13 +661,25 @@ class GraphicsMode(PanelOwner):
 			return False
 		was = self._source
 		restore = self._state()
+		marks = (self._marked, self._pressedPoint, self._level)
 		self._source = drawing
 		self._window = None
+		# The mark is kept, since a new view of the same chart has the same points. One past the
+		# end of the new figure, or a level past its lines, is let go rather than clamped onto a
+		# point or a line the reader did not choose.
+		points = drawing.points if drawing.markFor is not None else 0
+		if self._marked is not None and self._marked >= points:
+			self._marked = None
+		if self._pressedPoint is not None and self._pressedPoint >= points:
+			self._pressedPoint = None
+		if self._level >= max(1, len(drawing.levelNames)):
+			self._level = 0
 		if self.render(surface):
 			self._notifyChanged()
 			return True
 		self._source = was
 		self._restore(restore)
+		self._marked, self._pressedPoint, self._level = marks
 		return False
 
 	@property
@@ -906,6 +964,7 @@ class GraphicsMode(PanelOwner):
 			# Already composed for this panel at this window, so there is nothing to sample:
 			# a dot of it is a pin of the display.
 			buffer.blit(self._drawing.buffer)
+			self._drawGuides(buffer)
 		else:
 			self._sample(buffer, pins)
 		return surface.show(OVERLAY_KEY, pins, buffer)
@@ -1166,6 +1225,11 @@ class GraphicsMode(PanelOwner):
 		visibleX, visibleY = self._visible(pins)
 		centreX = self._originX + visibleX // 2
 		centreY = self._originY + visibleY // 2
+		marked = self._markedColumn()
+		if marked is not None:
+			# A marked point on the panel is where the reader's attention is, so it is what
+			# stays in the middle: find the point, then magnify around it.
+			centreX = marked
 		restore = self._state()
 		self._zoomStep = wanted
 		visibleX, visibleY = self._visible(pins)
@@ -1357,6 +1421,287 @@ class GraphicsMode(PanelOwner):
 		visibleX, visibleY = self._visible(pins)
 		return max(1, visibleX // 4), max(1, visibleY // 4)
 
+	# --- Points -----------------------------------------------------------------------------
+
+	@property
+	def hasPoints(self) -> bool:
+		""":return: whether the figure up can be stepped through a point at a time.
+
+		Asked of the figure, as everything else is: a chart describes its points and a picture
+		has none.
+		"""
+		source = self._source if self.active else None
+		return (
+			source is not None
+			and bool(source.points)
+			and source.pointAt is not None
+			and source.markFor is not None
+			and source.sayPoint is not None
+		)
+
+	@property
+	def markedPoint(self) -> Optional[int]:
+		""":return: the marked point of the whole figure, counting from 0, or None."""
+		return self._marked
+
+	def _forgetPoints(self) -> None:
+		self._marked = None
+		self._pressedPoint = None
+		self._level = 0
+
+	def _holds(self, index: int) -> bool:
+		""":return: whether a point of the whole figure is in the drawing on the panel."""
+		drawing = self._drawing
+		return drawing is not None and drawing.firstPoint <= index < drawing.firstPoint + drawing.points
+
+	def _shownPoints(self) -> tuple:
+		""":return: the points on the panel, as a slice of the whole figure."""
+		drawing = self._drawing
+		return drawing.firstPoint, drawing.firstPoint + drawing.points
+
+	def _pointX(self, index: int) -> Optional[int]:
+		"""Where a point of the whole figure is, in the whole figure's dots.
+
+		Which is the space the origin is held in, so this is what a page turn and a zoom about
+		the point both need. A bar's own left edge rather than the gap its point line uses, so a
+		window turned to start at it starts at the bar.
+
+		:param index: the point.
+		:return: the column, or None if the figure will not say.
+		"""
+		mark = self._source.markFor(index, self._level)
+		if mark is None:
+			return None
+		return mark.own[0] if mark.own[1] > mark.own[0] else mark.column
+
+	def _markedColumn(self) -> Optional[int]:
+		""":return: the marked point's column in the whole figure, if it is on the panel."""
+		if self._marked is None or not self.hasPoints or not self._holds(self._marked):
+			return None
+		return self._pointX(self._marked)
+
+	def _drawGuides(self, buffer) -> None:
+		"""Show which point is marked, over what the figure composed.
+
+		On the panel's copy and never on the drawing, so moving the mark within a window costs
+		one render and no composition, and unmarking is just a render without them.
+
+		:param buffer: the panel's buffer, the drawing already copied onto it.
+		"""
+		drawing = self._drawing
+		if self._marked is None or drawing is None or drawing.markFor is None:
+			return
+		if not self._holds(self._marked):
+			return
+		try:
+			mark = drawing.markFor(self._marked - drawing.firstPoint, self._level)
+		except Exception:
+			log.error("BrlMultiline: a drawing could not say where its point is", exc_info=True)
+			return
+		if mark is not None:
+			drawGuides(buffer, mark)
+
+	def _notePress(self, point: Optional[tuple]) -> None:
+		"""Remember which point a press landed on, as where the next first step starts.
+
+		:param point: the source dot of the drawing on the panel the press mapped to.
+		"""
+		drawing = self._drawing
+		if point is None or drawing is None or drawing.pointAt is None:
+			return
+		try:
+			local = drawing.pointAt(point[0])
+		except Exception:
+			log.error("BrlMultiline: a drawing could not say which point a press is on", exc_info=True)
+			return
+		if local is not None:
+			self._pressedPoint = drawing.firstPoint + local
+
+	def _sayMarked(self) -> str:
+		""":return: what the marked point is, in the words a press on it gives."""
+		drawing = self._drawing
+		return drawing.sayPoint(self._marked - drawing.firstPoint)
+
+	def stepPoint(self, delta: int) -> str:
+		"""Mark the next or previous point, and say it.
+
+		With nothing marked the first step marks a point without moving past it: the one last
+		pressed if there was one, otherwise the first point on the panel going forward or the
+		last going back. At either end of the figure nothing moves and nothing wraps, and the
+		answer is the end alone, so it cannot be taken for another point.
+
+		:param delta: 1 for the next point, -1 for the previous.
+		:return: what to speak.
+		"""
+		refusal = self._pointRefusal()
+		if refusal:
+			return refusal
+		count = self._source.points
+		if self._marked is None:
+			if self._pressedPoint is not None and 0 <= self._pressedPoint < count:
+				target = self._pressedPoint
+			else:
+				first, last = self._shownPoints()
+				target = first if delta > 0 else last - 1
+		else:
+			target = self._marked + delta
+			if target < 0:
+				# Translators: reported when stepping back from the first point of a chart.
+				return _("first point")
+			if target >= count:
+				# Translators: reported when stepping on from the last point of a chart.
+				return _("last point")
+		return self._goTo(target, forward=delta > 0)
+
+	def pointToEnd(self, last: bool) -> str:
+		"""Mark the first or last point of the whole figure, and say it.
+
+		:param last: the last point rather than the first.
+		:return: what to speak.
+		"""
+		refusal = self._pointRefusal()
+		if refusal:
+			return refusal
+		return self._goTo(self._source.points - 1 if last else 0, forward=last)
+
+	def unmarkPoint(self) -> str:
+		"""Take the mark and its guides off.
+
+		:return: what to speak.
+		"""
+		refusal = self._pointRefusal()
+		if refusal:
+			return refusal
+		if self._marked is None:
+			# Translators: reported when unmarking a point on a chart with no point marked.
+			return _("No point is marked")
+		self._marked = None
+		self.render()
+		# Translators: reported when the marked point on a chart, and its guide lines, are taken off.
+		return _("Point unmarked")
+
+	def nextLevel(self) -> str:
+		"""Move the level line to the next line of a chart with several.
+
+		:return: what to speak: the line, and its value at the marked point if there is one.
+		"""
+		refusal = self._pointRefusal()
+		if refusal:
+			return refusal
+		names = self._drawing.levelNames
+		if len(names) < 2:
+			# Translators: reported when asking a chart's level line to follow another line on a
+			# chart that has only one value per point.
+			return _("The level line has only one line to follow here")
+		self._level = (self._level + 1) % len(names)
+		name = names[self._level]
+		if self._marked is None or not self._holds(self._marked):
+			# Translators: reported when the level line is moved to another line of a chart with no
+			# point marked. The placeholder is the line's name.
+			return _("Level line follows {name}").format(name=name)
+		self.render()
+		drawing = self._drawing
+		mark = drawing.markFor(self._marked - drawing.firstPoint, self._level)
+		if mark is None or mark.value is None:
+			# Translators: reported when the level line is moved to a line that has no value at the
+			# marked point. The placeholder is the line's name.
+			return _("Level line follows {name}, no value here").format(name=name)
+		# Translators: reported when the level line is moved to another line of a chart.
+		# Placeholders are the line's name and its value at the marked point.
+		return _("Level line follows {name}, {value}").format(name=name, value=numberText(mark.value))
+
+	def _pointRefusal(self) -> str:
+		""":return: why the points of what is up cannot be stepped through, or nothing."""
+		if not self.active:
+			return _("No drawing")
+		if not self.hasPoints:
+			# Translators: reported when a chart point command is used on a drawing that is not a
+			# chart, such as a picture.
+			return _("Only a chart has points to step through")
+		return ""
+
+	def _goTo(self, index: int, forward: bool) -> str:
+		"""Mark a point and say it, bringing it onto the panel first if it is off it.
+
+		:param index: the point of the whole figure.
+		:param forward: which way the reader is going, for which edge a page turn puts it at.
+		:return: what to speak.
+		"""
+		if not self._showPoint(index, forward):
+			# Translators: reported when the part of a chart a point is in will not draw, so the
+			# point the reader had is kept.
+			return _("this part will not draw")
+		return self._sayMarked()
+
+	def _showPoint(self, index: int, forward: bool) -> bool:
+		"""Mark a point, and turn the window to it if it is off the panel.
+
+		:param index: the point of the whole figure.
+		:param forward: which way the reader is going.
+		:return: whether it is marked and on the panel. False leaves everything as it was.
+		"""
+		if self._rect is None:
+			return False
+		surface = findSurface()
+		if surface is None:
+			return False
+		pins = surface.pinRectForCells(self._rect)
+		if pins.isEmpty:
+			return False
+		restore = self._state()
+		was = self._marked
+		self._marked = index
+		shown = self._holds(index) and self.render(surface)
+		if not shown:
+			shown = self._turnTo(index, forward, pins, surface)
+		if not shown:
+			self._restore(restore)
+			self._marked = was
+			# The overlay is whatever the last render left, which may have been a window tried on
+			# the way; drawing again makes it agree with what was put back.
+			self.render(surface)
+		return shown
+
+	def _turnTo(self, index: int, forward: bool, pins: PinRect, surface: GraphicsSurface) -> bool:
+		"""Turn the window a page, so a point that was off the panel is on it.
+
+		**A page and not a point.** The point goes to the edge the reader is moving away from,
+		with a panel's worth of points ahead of it they have not felt yet: going right it lands
+		at the left. Moving the window one point at a time would redraw the whole panel on every
+		step once the point reached the edge, and the reader would feel everything shift each
+		time. The same choice as the flow's full display scroll for the caret, for the same
+		reason.
+
+		The window is held in dots and a figure turns it into points with its own rounding, and a
+		line chart then respaces it evenly about its middle, so the point can land one outside.
+		Then the window is nudged a point's width towards it, a few times, and centred on it as a
+		last resort.
+
+		:param index: the point of the whole figure.
+		:param forward: which way the reader is going.
+		:param pins: the rectangle the drawing occupies.
+		:param surface: the display.
+		:return: whether the point is now on the panel.
+		"""
+		x = self._pointX(index)
+		if x is None:
+			return False
+		visibleX, _visibleY = self._visible(pins)
+		self._originX = x if forward else x - visibleX + 1
+		self._clampOrigin(pins)
+		nudge = max(1, self._source.buffer.width // max(1, self._source.points))
+		for _attempt in range(4):
+			if not self.render(surface):
+				return False
+			if self._holds(index):
+				return True
+			first, _last = self._shownPoints()
+			self._originX += -nudge if index < first else nudge
+			self._clampOrigin(pins)
+		self._originX = x - visibleX // 2
+		self._clampOrigin(pins)
+		return self.render(surface) and self._holds(index)
+
 	# --- Touch ------------------------------------------------------------------------------
 
 	def pointForPin(
@@ -1453,6 +1798,7 @@ class GraphicsMode(PanelOwner):
 				# the claim, which happens when a press was decided from the device's own cell
 				# index instead. The cell is coarser and is still an answer.
 				point = self.pointForCell(segmentPos, surface)
+		self._notePress(point)
 		_sayAfterThePress(self.describePoint(point, surface))
 
 	def searchRadius(self, surface: Optional[GraphicsSurface] = None) -> int:
@@ -1592,6 +1938,13 @@ class GraphicsMode(PanelOwner):
 			)
 		if self.note:
 			description += ", " + self.note
+		if self._marked is not None and self.hasPoints:
+			# Translators: added to the report of a chart on the display when a point of it is
+			# marked. Placeholders are which point, counting from 1, and how many there are.
+			description += ", " + _("point {number} of {count}").format(
+				number=self._marked + 1,
+				count=self._source.points,
+			)
 		if not self._textLines:
 			# Translators: added when a drawing has taken the whole display and there is no
 			# braille line left beside it.
@@ -1665,6 +2018,7 @@ class GraphicsMode(PanelOwner):
 			surface.hide(OVERLAY_KEY)
 		self._drawing = None
 		self._rect = None
+		self._forgetPoints()
 
 	def onTerminate(self) -> None:
 		"""The add-on is shutting down. Leave nothing on the hardware, and announce nothing."""

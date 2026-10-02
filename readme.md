@@ -842,6 +842,42 @@ follows the magnification: it grows when a drawing is compressed and shrinks as 
 A press outside the image says "outside the picture," so it isn't confused with an empty part
 of the drawing.
 
+### Stepping through a chart
+
+You can also move through a chart one point at a time with keys: one bar, one day of a line
+chart, or one period of a price chart. Each step says what that point is, in the same words a
+press on it gives. Stepping is exact where a fingertip is not, and reaches a point that shares a
+pin with its neighbours.
+
+- **Graphics: Next point on a chart** and **Graphics: Previous point on a chart** move one point.
+  The first step, with no point marked yet, marks a point without moving past it: the one you
+  last pressed a routing key on, otherwise the first point on the display going forward or the
+  last going back.
+- **Graphics: First point on a chart** and **Graphics: Last point on a chart** go to the ends of
+  the whole chart, not just of what is on the display.
+- At either end, the point doesn't move or wrap, and you hear "first point" or "last point" on
+  its own.
+
+On a magnified chart, when the next point is off the edge, the view turns a whole page: going
+right, the point lands at the left with the next stretch of the chart ahead of it, and going
+left it lands at the right. Magnifying or zooming to one pin per point keeps the marked point in
+the middle, so you can find a point and then magnify around it.
+
+**Guide lines.** While a point is marked, two sparse lines show where it is: a dot every fourth
+pin, so they don't feel like data. One runs across the plot at the point's value, and one runs
+up and down the plot at its position. Each has two solid pins at both ends, so you can find it
+by sweeping down the side of the plot or along its top or bottom. Where the line across passes
+through a taller bar, it is cut into the bar as a notch, so running a finger along it tells you
+which bars go past the marked one. On a price chart it is at the close.
+
+On a line chart with several lines, the line across follows the first line shown.
+**Graphics: Move the level line to the next line of a chart** moves it to the next line and says
+that line's value at the marked point.
+
+**Graphics: Unmark the point on a chart** takes the mark and its guide lines off. Pressing a
+routing key never marks a point or changes the drawing under your finger; it only sets where the
+next step starts. **Graphics: Reports the drawing on the display** includes which point is marked.
+
 ### Magnifying and moving
 
 **Graphics: Magnify the drawing** and **Graphics: Shrink the drawing** zoom in and out in
@@ -1070,6 +1106,12 @@ on:
 - **Graphics: Zoom a chart to one pin per point**: o, on a chart.
 - **Graphics: Show the next set of lines on a chart**: v, on a chart.
 - **Graphics: Show the previous set of lines on a chart**: v with dot 7, on a chart.
+- **Graphics: Next point on a chart**: Space with dot 4, on a chart.
+- **Graphics: Previous point on a chart**: Space with dot 1, on a chart.
+- **Graphics: First point on a chart**: Space with dots 1, 2, and 3, on a chart.
+- **Graphics: Last point on a chart**: Space with dots 4, 5, and 6, on a chart.
+- **Graphics: Unmark the point on a chart**: u, on a chart.
+- **Graphics: Move the level line to the next line of a chart**: l, on a chart.
 - **Graphics: Draw the picture as outlines**: o, on a picture.
 - **Graphics: Draw the picture as single lines**: l, on a picture.
 - **Graphics: Draw the picture by brightness**: b, on a picture.

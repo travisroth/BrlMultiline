@@ -35,10 +35,12 @@ __all__ = [
 	"MIN_PLOT_ROWS",
 	"NEAR_COLUMNS",
 	"NEAR_ROWS",
+	"PointMark",
 	"Scale",
 	"Series",
 	"TEXT_ROWS",
 	"cellsFor",
+	"drawGuides",
 	"numberText",
 	"roundedText",
 	"textRowsFor",
@@ -82,6 +84,92 @@ point nearest it, so a steep stretch of line a column or two over, or a point sh
 column with its neighbours, was never looked at. Two columns each way and three rows each
 way is about the pad of a finger resting on the panel.
 """
+
+
+GUIDE_SPACING = 4
+"""Pins from one dot of a guide line to the next.
+
+Sparse so that a guide never reads as data: a bar is solid, a series is solid or dashed along
+its path, and the baseline is solid. The line chart's dotted series is a dot every third pin,
+which is the nearest thing to this, and whether the two can be told apart is the hardware
+question the plan leaves open; see `docs/design/chart-point-plan.md`. Change it here.
+"""
+
+GUIDE_TICK = 2
+"""Solid pins at each end of a guide, so a finger sweeping an edge of the plot finds it."""
+
+
+class PointMark(NamedTuple):
+	"""Where a chart drew one of its points, for the guides that show which point is marked.
+
+	A chart says where its points are; the mode decides which one is marked and draws the
+	guides over what the chart composed. So the chart never learns about the mark, and a step
+	inside a window costs one render and no composition.
+	"""
+
+	column: int
+	"""Where the line up and down the plot goes."""
+
+	row: Optional[int]
+	"""Where the line across the plot goes: the row of the point's value. None for no level,
+	which is a line chart's gap."""
+
+	plotTop: int
+	"""The first row the guides may use. Above it is writing."""
+
+	plotBottom: int
+	"""The last row they may use."""
+
+	cuts: bool = False
+	"""Whether the level line is cut into filled shapes it crosses rather than drawn over
+	them. True for bars only: a bar is solid, so a guide drawn over it would vanish, and a
+	notch is what says "this one goes past it". A data line or a price bar is one pin wide
+	and a cut would break it."""
+
+	own: tuple = (0, 0)
+	"""Columns, as a slice, of the marked point's own shape, which a cut never touches."""
+
+	value: Optional[float] = None
+	"""What the level line stands for, so it can be said."""
+
+	name: str = ""
+	"""Whose value it is: the series the level follows, where a chart has several."""
+
+
+def drawGuides(buffer, mark: PointMark) -> None:
+	"""Draw the level line and the point line for a marked point.
+
+	**The level line** runs the whole width at the point's row. Over empty pins it is a dot
+	every `GUIDE_SPACING`; where it crosses a filled shape that `cuts` allows it to, it lowers
+	the pins instead, but only pins with raised pins above and below them, so a bar exactly as
+	tall as the marked one keeps its top and only a taller one is notched. Two solid pins at
+	each end, where the pins are free.
+
+	**The point line** runs from the top of the plot to the bottom at the point's column, a dot
+	every `GUIDE_SPACING` and two solid pins at each end. It only ever raises pins.
+
+	:param buffer: what the chart was composed onto, already copied for the panel.
+	:param mark: where the point is.
+	"""
+	top, bottom = mark.plotTop, mark.plotBottom
+	if bottom < top:
+		return
+	row = mark.row
+	if row is not None and top <= row <= bottom:
+		width = buffer.width
+		for x in range(width):
+			if buffer.getDot(x, row):
+				inside = buffer.getDot(x, row - 1) and buffer.getDot(x, row + 1)
+				if mark.cuts and inside and not (mark.own[0] <= x < mark.own[1]):
+					buffer.clearDot(x, row)
+				continue
+			if x % GUIDE_SPACING == 0 or x < GUIDE_TICK or x >= width - GUIDE_TICK:
+				buffer.setDot(x, row)
+	column = mark.column
+	if 0 <= column < buffer.width:
+		for y in range(top, bottom + 1):
+			if (y - top) % GUIDE_SPACING == 0 or y < top + GUIDE_TICK or y > bottom - GUIDE_TICK:
+				buffer.setDot(column, y)
 
 
 class ChartRefused(Exception):

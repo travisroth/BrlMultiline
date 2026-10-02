@@ -14,7 +14,20 @@ Read [tactile-graphics-plan.md](tactile-graphics-plan.md) first, and the `Drawin
 `GraphicsMode` docstrings in `graphicsMode.py`. This plan leans on how a chart is redrawn
 for a window rather than magnified, and on how a press is turned into a source dot.
 
-Not started.
+**Status, 2 October 2026: phases 1 to 4 are built and unit tested, and none of it has been on
+hardware.** The phase 2 and phase 3 hardware checks below are still to do, including the
+texture trial, so `GUIDE_SPACING` in `chartDraw.py` is a first guess. Where the build differs
+from the design below:
+
+1. A cut lowers a pin only where the pins above and below it are raised too, so a bar exactly
+   as tall as the marked one keeps its top and only a taller one is notched. The design said
+   only "cut into the bar", which would have shortened an equal bar by one pin.
+2. The level line's edge ticks are drawn only where the pins are free, so a tall first or last
+   bar keeps its notch rather than having it filled in by a tick.
+3. `Drawing` also takes `levelNames`, the lines a level can follow, and `PointMark` carries the
+   level's value and its line's name, which is what "next line for the level" says.
+4. The tests are in `tests/unit/brlMultiline/test_chartPoints.py` for the charts and the guides,
+   and `TestSteppingThroughAChart` in `test_graphics.py` for the mode.
 
 ## Where the idea came from
 
@@ -316,3 +329,9 @@ press tests passing unchanged.
    since pointing then works only to the nearest cell. The Dot Pad is the obvious case. Not
    in this plan, but nothing here depends on touch, so a Dot Pad driver offering the
    drawing surface would get stepping and guides with no further work.
+6. **A point line in a one pin gap.** A bar chart has a single pin of gap between bars, and
+   the point line goes in it, so every fourth row it touches both neighbours and the two bars
+   feel joined by a rung there. Seen in a simulated render, not yet felt. If it reads badly,
+   the alternatives are the point line through the bar's own middle column, cut into it the
+   way the level line is, or no point line on a bar chart at all, since the marked bar is the
+   one whose top the level line starts from.

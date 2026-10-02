@@ -8,6 +8,14 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **Stepping through a chart, with guide lines.** New commands move through a chart one point
+  at a time, saying each point in the words a press on it gives, and go to its first and last
+  point. On a magnified chart the view turns a page to keep the point on the display. While a
+  point is marked, sparse guide lines cross the plot at its value and its position, notching any
+  taller bar they pass through. On the Monarch they are in the chart layer: Space with dot 4 and
+  dot 1, Space with dots 1 2 3 and dots 4 5 6, u to unmark and l to move the level line.
+  Not yet tried on hardware.
+
 - **Rows a combined display's member physically has.** In BrlMultiline displays, a display
   whose driver reports one row can be given the rows it really has. An Orbit Slate 340 on the
   standard HID driver reports 120 cells in one row; set to 3, the combined display uses it as

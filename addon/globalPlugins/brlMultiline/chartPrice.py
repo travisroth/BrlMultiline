@@ -35,6 +35,7 @@ from typing import Callable, NamedTuple, Optional
 from .chartDraw import (
 	GAP,
 	ChartRefused,
+	PointMark,
 	Scale,
 	isFinite,
 	numberText,
@@ -131,6 +132,7 @@ def _priceChart(
 	translate: Optional[Callable],
 	drawOne: Callable,
 	name: Callable,
+	firstPoint: int = 0,
 ) -> Drawing:
 	"""Lay out and draw a price chart, whichever shape each period is drawn in.
 
@@ -146,6 +148,7 @@ def _priceChart(
 	:param translate: turns a string into braille cells.
 	:param drawOne: draws one period, given the buffer, the period and its slot.
 	:param name: says what the chart is called, given the periods it holds.
+	:param firstPoint: which period of the whole chart the first of these is, for a window.
 	:return: the drawing.
 	:raises ChartRefused: if there is nothing to chart or no room to chart it.
 	"""
@@ -195,6 +198,10 @@ def _priceChart(
 		describeAt=_describer(periods, width),
 		redraw=_reframer(newBuffer, width, height, periods, translate, drawOne, name),
 		points=len(periods),
+		firstPoint=firstPoint,
+		pointAt=_pointFinder(len(periods), width),
+		markFor=_marker(periods, edges, scale),
+		sayPoint=lambda index: _say(periods[index]),
 	)
 
 
@@ -256,6 +263,7 @@ def _reframer(
 				translate,
 				drawOne,
 				name,
+				first,
 			)
 		except ChartRefused:
 			return None
@@ -325,18 +333,76 @@ def _describer(periods: "list[Period]", width: int) -> Callable:
 		# The exact inverse of `_edges`, so a press anywhere in a period's slot — bar, tick
 		# or the gap after it — is that period's press.
 		index = max(0, min(len(periods) - 1, x * len(periods) // width if width else 0))
-		period = periods[index]
-		# Translators: reported for a touch on a period of a price chart. Placeholders are what
-		# the period is called and its four prices.
-		return _("{label}, open {open}, high {high}, low {low}, close {close}").format(
-			label=period.label,
-			open=numberText(period.open),
-			high=numberText(period.high),
-			low=numberText(period.low),
-			close=numberText(period.close),
-		)
+		return _say(periods[index])
 
 	return describeAt
+
+
+def _say(period: Period) -> str:
+	""":return: what a period is, for a press on it or a step onto it.
+
+	:param period: the period.
+	"""
+	# Translators: reported for a touch on a period of a price chart, or a step onto it.
+	# Placeholders are what the period is called and its four prices.
+	return _("{label}, open {open}, high {high}, low {low}, close {close}").format(
+		label=period.label,
+		open=numberText(period.open),
+		high=numberText(period.high),
+		low=numberText(period.low),
+		close=numberText(period.close),
+	)
+
+
+def _pointFinder(count: int, width: int) -> Callable:
+	"""Build the lookup from a column to the period whose slot it is in.
+
+	The same inverse of `_edges` that a press uses, so a step and a press agree on which period a
+	column belongs to.
+
+	:param count: how many periods were drawn.
+	:param width: the drawing's width in pins.
+	:return: a function taking a column and returning a period's index, or None off the drawing.
+	"""
+
+	def pointAt(x: int) -> Optional[int]:
+		if not width or not 0 <= x < width:
+			return None
+		return min(count - 1, x * count // width)
+
+	return pointAt
+
+
+def _marker(periods: "list[Period]", edges: "list[int]", scale: Scale) -> Callable:
+	"""Build the lookup from a period to where its guides go.
+
+	The point line goes through the stem, and the level line is at the close: the price a
+	period is most often compared by, and the one its right hand tick already stands for.
+
+	:param periods: what was drawn.
+	:param edges: from `_edges`.
+	:param scale: the chart's scale.
+	:return: a function taking a period's index, and a level that a price chart ignores, and
+		returning a `PointMark`.
+	"""
+
+	def markFor(index: int, level: int = 0) -> Optional[PointMark]:
+		if not 0 <= index < len(periods):
+			return None
+		left = edges[index]
+		barWidth = max(1, edges[index + 1] - left - GAP)
+		period = periods[index]
+		return PointMark(
+			column=left + barWidth // 2,
+			row=scale.row(period.close),
+			plotTop=scale.top,
+			plotBottom=scale.bottom,
+			value=period.close,
+			# Translators: what the level line follows on a price chart: each period's close.
+			name=_("close"),
+		)
+
+	return markFor
 
 
 def _ohlcName(periods: "list[Period]") -> str:
