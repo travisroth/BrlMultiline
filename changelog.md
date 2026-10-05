@@ -703,6 +703,15 @@ For add-on authors and component work:
 - Wrapping and cursor routing behaviour are per segment, so a claimed area can behave
   differently from the display around it. Neither is exposed in the settings dialog.
 
+Fixed, on a news page with a live stock index above its headlines:
+
+- The focused headline was drawn twice in the flow, and the list under it changed and changed
+  back as the index updated. Text growing or shrinking earlier in a page moves the position
+  of every line after it, and the flow found its lines again by position. When a re-read or
+  an arrival finds the page has moved, the band is now read again from the caret, with the
+  reader's row kept where it was. A pin, or a band the reader has panned away from, keeps the
+  old behaviour of leaving moved lines as they were. Verified on a Monarch on SeekingAlpha.
+
 Fixed, from a performance review of flow editing:
 
 - A letter typed after a pause appeared only once the next one had been typed. The pass

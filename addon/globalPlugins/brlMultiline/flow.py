@@ -339,6 +339,15 @@ class FetchResult:
 	than the reason for it.
 	"""
 
+	displaced: bool = False
+	"""For an error: the block is not where it was read from, because the document moved.
+
+	Different from every other refusal, because it says something about all the blocks and
+	not just this one. A document's blocks are found again by offset, and text growing or
+	shrinking earlier in the page moves every offset after it at once. See
+	`FlowController._readAgainWhereTheDocumentMoved`.
+	"""
+
 	@classmethod
 	def found(cls, block: SourceBlock) -> "FetchResult":
 		""":return: a result carrying a block."""
@@ -361,6 +370,11 @@ class FetchResult:
 	def failed(cls, message: str) -> "FetchResult":
 		""":return: a result saying the source could not answer."""
 		return cls(kind=ResultKind.ERROR, message=message)
+
+	@classmethod
+	def moved(cls, message: str) -> "FetchResult":
+		""":return: a result saying the document moved under the block. See `displaced`."""
+		return cls(kind=ResultKind.ERROR, message=message, displaced=True)
 
 	@property
 	def edgeState(self) -> "EdgeState":

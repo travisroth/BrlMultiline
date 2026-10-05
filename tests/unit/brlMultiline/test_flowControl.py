@@ -1616,6 +1616,97 @@ class TestReadingTheBandAgain(unittest.TestCase):
 		self.assertFalse(flow.rereadContent())
 
 
+class TestTheDocumentMovingUnderTheBand(unittest.TestCase):
+	"""A stock index ticking at the top of a news page grows and shrinks, and every offset
+	after it moves each time. On hardware the band drew the focused headline twice, and a
+	re-read showed one line under another's name and then put it back."""
+
+	def _band(self, caretIndex=2, numRows=3):
+		lines = ["index 100", "first", "second", "third", "fourth", "fifth"]
+		flow = controllerOver(lines, caretIndex=caretIndex, numRows=numRows, numCols=16, live=True)
+		return flow, lines
+
+	def _shown(self, flow):
+		return [row.strip() for row in rowTexts(flow) if row.strip()]
+
+	def test_nothingTheReaderCanFeelChanges(self):
+		flow, lines = self._band()
+		before = self._shown(flow)
+		lines[0] = "index 100.25"
+		flow.rereadContent()
+		self.assertEqual(self._shown(flow), before)
+
+	def test_andTheBandGoesOnFollowingTheValues(self):
+		"""The refusal on its own was safe and left the band dead: every block refused, so a
+		value on it never changed again until the reader moved."""
+		flow, lines = self._band()
+		lines[0] = "index 100.25"
+		flow.rereadContent()
+		lines[3] = "3rd"
+		flow.rereadContent()
+		self.assertIn("3rd", self._shown(flow))
+
+	def test_theReadersRowIsKept(self):
+		flow, lines = self._band(caretIndex=3, numRows=4)
+		with flow.operation():
+			flow._reachBack(1)
+		flow.window.enterAt(flow.activeBlockId, contextRows=1)
+		before = self._shown(flow)
+		self.assertEqual(before[1], "third")
+		lines[0] = "index 99"
+		flow.rereadContent()
+		self.assertEqual(self._shown(flow), before)
+
+	def test_aPassThatFindsTheMoveKeepsNothingItRead(self):
+		"""A stale offset can land exactly on another line's start and be answered, so one
+		displaced block makes every answer in the pass suspect."""
+		from brlMultiline.flow import FetchResult
+
+		flow, lines = self._band()
+		original = flow.source.blockAt
+		answered = []
+
+		def oneMoved(blockId):
+			if answered:
+				return FetchResult.moved("the document moved under this block")
+			answered.append(blockId)
+			lines[2] = "a neighbour"
+			return original(blockId)
+
+		flow.source.blockAt = oneMoved
+		# What happens next is the band being read again from the document, which is tested
+		# above; this is about the pass itself.
+		flow._readAgainWhereTheDocumentMoved = lambda why, atObject=None: False
+		flow.rereadContent()
+		self.assertNotIn("a neighbour", " ".join(flow.describeRows()))
+
+	def test_arrivingLeavesNoBlockAtAPositionThatHasMoved(self):
+		"""The duplicate itself needs real offsets to show: a walk from a stale offset in a
+		virtual buffer lands on the line the reader is on. This stub keeps lines by number,
+		so what is checked is the cause — after an arrival, every block on the band is still
+		where it was read from."""
+		from brlMultiline.flow import ResultKind
+
+		flow, lines = self._band(caretIndex=1, numRows=4)
+		lines[0] = "index 100.25"
+		flow.source.obj.caretIndex = 2
+		flow.followCursor()
+		shown = self._shown(flow)
+		self.assertEqual(len(shown), len(set(shown)), shown)
+		self.assertIn("second", shown)
+		for block in flow.window.blocks:
+			self.assertIs(flow.source.blockAt(block.blockId).kind, ResultKind.BLOCK, block.blockId)
+
+	def test_aViewerIsLeftAsItWas(self):
+		"""A viewer does not follow the caret, so the caret cannot say where it should be."""
+		lines = ["index 100", "first", "second", "third"]
+		flow = controllerOver(lines, caretIndex=2, numRows=2, numCols=16)
+		before = self._shown(flow)
+		lines[0] = "index 100.25"
+		flow.rereadContent()
+		self.assertEqual(self._shown(flow), before)
+
+
 class TestAReReadIsBoundedLikeEverythingElse(unittest.TestCase):
 	"""A re-read is the one walk here nobody asked for by name: it runs on a timer, between
 	the reader's keystrokes, and it was the one walk with no gate between its blocks. The

@@ -1011,24 +1011,53 @@ class DocumentFlowSource:
 
 		Text changing *within* a block does not move it, and that is the ordinary case this
 		exists for: a price going from 309.48 to 309.46 leaves every position alone.
+
+		The refusal is marked as a displacement, because it is news about every block the band
+		holds and not only this one. See `FetchResult.displaced`.
 		"""
 		self.budget.startUnlessActive()
 		start = self._positions.get(blockId.bookmark)
 		if start is None:
 			return FetchResult.failed(f"no cached position for {blockId}")
+		try:
+			here, found = self._unitAt(start)
+		except Exception as error:
+			log.debugWarning("Could not read a block again", exc_info=True)
+			return FetchResult.failed(f"could not read a block again: {error!r}")
+		if self._bookmark(found) != blockId.bookmark:
+			return FetchResult.moved("the document moved under this block")
+		return self._blockAt(here, start=found)
+
+	def hasMoved(self, blockId: BlockId) -> bool:
+		""":return: whether a block no longer begins where it was read from.
+
+		`blockAt`'s question without the reading: one expansion at the cached position, with
+		no region built. What an arrival asks of the block the reader is leaving, because an
+		arrival walks from the cached positions to find the new one, and walking from offsets
+		that have moved found the line the reader was already on a second time. On a stock
+		page, whose index ticks above the headlines, that was the focused link drawn twice.
+
+		False when it cannot be told, which leaves things as they were before this was asked.
+		"""
+		start = self._positions.get(blockId.bookmark)
+		if start is None:
+			return False
+		try:
+			_here, found = self._unitAt(start)
+		except Exception:
+			log.debugWarning("Could not tell whether a block has moved", exc_info=True)
+			return False
+		return self._bookmark(found) != blockId.bookmark
+
+	def _unitAt(self, start):
+		""":return: the unit at a cached position, expanded, and where it begins now."""
 		began = self.budget.clock()
 		try:
 			here = start.copy()
 			here.expand(self.unit)
-			found = self._startOfUnit(here)
-		except Exception as error:
-			log.debugWarning("Could not read a block again", exc_info=True)
-			return FetchResult.failed(f"could not read a block again: {error!r}")
+			return here, self._startOfUnit(here)
 		finally:
 			self.budget.observe(self.budget.clock() - began)
-		if self._bookmark(found) != blockId.bookmark:
-			return FetchResult.failed("the document moved under this block")
-		return self._blockAt(here, start=found)
 
 	def blockAfter(self, blockId: BlockId) -> FetchResult:
 		"""The block following one already fetched."""

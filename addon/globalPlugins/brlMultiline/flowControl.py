@@ -882,8 +882,97 @@ class FlowController(PanelOwner):
 			return False
 		with self.operation():
 			changed = self._rereadBlocks()
-			self._redrawBlocks(why="the content changed under the band", changed=changed)
+			if changed is None:
+				self._readAgainWhereTheDocumentMoved(why="the content moved under the band")
+			else:
+				self._redrawBlocks(why="the content changed under the band", changed=changed)
 		return True
+
+	def _readAgainWhereTheDocumentMoved(self, why: str, atObject=None) -> bool:
+		"""Read the band again from the caret, with the reader's row where it was.
+
+		**Reached when text earlier in the page grew or shrank**, which moves the offset of
+		every block on the band at once. Re-reading at the old offsets refuses most blocks and
+		answers some wrongly; walking from them finds lines the band already holds. A live
+		region above the reader does this continuously: a stock index ticking at the top of a
+		news page moved the headline list under it several times a second.
+
+		The caret is the one position that is still right, because the document keeps it with
+		the text. So every cached position is forgotten, the band is entered at the caret, and
+		the caret's block is put back on the row it had. Where only the moving text changed,
+		the cells come out the same, and the band's live pass then writes nothing.
+
+		**Not when the reader's row is off the band.** They panned away from the caret, and
+		entering there would take the display back from under them. The old readings stand
+		instead, which is honest about everything except the values, until their next move.
+
+		:param why: what asked, for the report.
+		:param atObject: what the reader is arriving at, for an arrival. See `_arrive`.
+		:return: whether the band was read again.
+		"""
+		place = self._readersPlaceOnTheBand() if self.live else None
+		if place is None:
+			# A viewer does not follow the caret, so the caret says nothing about where it is.
+			self._note(f"{why}: the document moved, and the reader's row is not on the band, so it was left")
+			return False
+		above, rowIndex = place
+		self.source.forget()
+		if self.source.budget.stopped:
+			# A re-read that found the move may have spent the allowance getting there, and the
+			# reading that follows is the one that matters. See `_placeAfresh`.
+			self.source.budget.renew()
+		if not self._enterAtCursor(atObject=atObject, fill=False):
+			return False
+		active = self.activeBlockId
+		try:
+			if above > 0:
+				self._reachBack(above)
+				self.window.enterAt(active, contextRows=above)
+			elif rowIndex > 0:
+				self.window.enterAt(active, rowIndex=rowIndex)
+		except LookupError:
+			log.debugWarning("Could not put the reader's row back after the document moved", exc_info=True)
+		self.fill()
+		self._note(f"{why}: the document moved, so the band was read again with the reader's row kept")
+		return True
+
+	def _canReadAgainWhereItMoved(self) -> bool:
+		""":return: whether `_readAgainWhereTheDocumentMoved` has a place to keep."""
+		return self.live and self._readersPlaceOnTheBand() is not None
+
+	def _readersPlaceOnTheBand(self) -> Optional[tuple[int, int]]:
+		"""Where the cursor's block sits on the display.
+
+		:return: how many rows are above its first row, and which of its rows is the top row
+			when its first row is above the display (rows above is then zero). None when no row
+			of it is on the display.
+		"""
+		if self.activeBlockId is None:
+			return None
+		try:
+			visible = self.window.visibleRows()
+		except LookupError:
+			return None
+		for position, row in enumerate(visible):
+			if row.kind is RowKind.CONTENT and row.blockId == self.activeBlockId:
+				return max(0, position - row.rowIndex), max(0, row.rowIndex - position)
+		return None
+
+	def _documentMovedUnderTheBand(self) -> bool:
+		""":return: whether the block the reader is on no longer begins where it was read.
+
+		Asked on arrival, before anything walks from the cached positions. A band's live pass
+		notices the same thing within a settle delay, and a reader tabbing down a list on a
+		page that changes several times a second arrives inside that delay as often as not.
+		"""
+		moved = getattr(self.source, "hasMoved", None)
+		if not self.live or moved is None or self.activeBlockId is None:
+			return False
+		try:
+			return bool(moved(self.activeBlockId))
+		except Exception:
+			log.debugWarning("Could not tell whether the document moved", exc_info=True)
+			return False
 
 	def runStillHoldsTheBand(self) -> bool:
 		""":return: whether the rows beside the reader are still the ones the run has.
@@ -1095,8 +1184,23 @@ class FlowController(PanelOwner):
 		on a timer, between the reader's keystrokes. Where it stops it says so, and the next
 		pass carries on from there rather than starting again at the top. See `_rereadOrder`.
 
+		**A block the document moved under throws the whole pass away.** Text growing or
+		shrinking earlier in the page moves every offset after it at once, so one block found
+		displaced says the rest are displaced too — and some of them will still have been
+		answered, because a stale offset can land exactly on the start of a *different* line.
+		A short one does it most easily: a headline list with a two letter age under each item
+		showed the next headline under an age's name and then put it back on the next tick, as
+		a stock index above it grew and shrank. Nothing read in such a pass is kept, and the
+		caller reads the band again from the document. See `_readAgainWhereTheDocumentMoved`.
+
+		Only where that reading can be made: a band whose reader's row is on it. A pin has no
+		caret to go by, and a reader who panned away would be taken back, so there the blocks
+		that still answer are kept, as they always were, and the ones that moved keep the text
+		they had.
+
 		:return: the ids of the blocks that came back saying something different, for the
 			redraw that follows. A block nobody re-read does not have to be laid out again.
+			None when the document moved under the band, and nothing was kept.
 		"""
 		fetch = getattr(self.source, "blockAt", None)
 		if fetch is None:
@@ -1112,6 +1216,9 @@ class FlowController(PanelOwner):
 		lostTheCursor = False
 		changed: list = []
 		cutShort = False
+		# Held back until every block has answered, so that a displacement found at the last
+		# block can still refuse what the first one said.
+		readings: list = []
 		for index in self._rereadOrder(len(blocks)):
 			rendered = blocks[index]
 			held = self.blocks.get(rendered.blockId)
@@ -1130,12 +1237,17 @@ class FlowController(PanelOwner):
 			except Exception:
 				log.debugWarning(f"Could not read {rendered.blockId} again", exc_info=True)
 				continue
+			if result.displaced and self._canReadAgainWhereItMoved():
+				self._rereadFrom = 0
+				return None
 			if result.kind is ResultKind.BLOCK and result.block is not None:
-				if not self._readsTheSame(held, result.block):
-					changed.append(rendered.blockId)
-				self._keep(result.block, replace=True)
-				if self.activeBlockId is not None and rendered.blockId == self.activeBlockId:
-					lostTheCursor = True
+				readings.append((rendered, held, result.block))
+		for rendered, held, block in readings:
+			if not self._readsTheSame(held, block):
+				changed.append(rendered.blockId)
+			self._keep(block, replace=True)
+			if self.activeBlockId is not None and rendered.blockId == self.activeBlockId:
+				lostTheCursor = True
 		if not cutShort:
 			self._rereadFrom = 0
 		if lostTheCursor:
@@ -1846,6 +1958,15 @@ class FlowController(PanelOwner):
 		"""
 		if self._writing():
 			return self._readAgainWhileWriting(ground=ground)
+		if self._documentMovedUnderTheBand():
+			# Before the walk below, which starts from the cached positions and would find the
+			# line the reader is on a second time. Read again here, the band holds the block
+			# they arrived at, and the arrival goes on as an ordinary one.
+			if not self._readAgainWhereTheDocumentMoved(why="the reader arriving", atObject=atObject):
+				# Their row was not on the band to keep, so there is no place to hold, and the
+				# positions are still wrong. The band is placed afresh around them.
+				self.source.forget()
+				return True if self._placeAfresh(atObject) else None
 		result = self.source.blockAtCursor(atObject)
 		self.lastResult = result
 		if result.kind is not ResultKind.BLOCK or result.block is None:
