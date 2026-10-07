@@ -183,6 +183,13 @@ class TestTheWordsNVDABuildsRatherThanLooksUp(GlyphTestCase):
 		back, which is about the largest difference two shapes this sparse can carry."""
 		self.assertIsNot(glyphFlow.tokens()["vlnk"], glyphFlow.tokens()["lnk"])
 
+	def test_aMultiSelectListIsDrawnAsAList(self):
+		self.assertIs(glyphFlow.tokens()["mslst"], glyphs.LIST)
+
+	def test_aMultiSelectListKeepsItsCountToo(self):
+		found = glyphFlow.marksIn("Files mslst24 Documents")
+		self.assertEqual([(start, end) for start, end, _glyph in found], [(6, 11)])
+
 	def test_theFirstThreeHeadingLevelsHaveShapes(self):
 		table = glyphFlow.tokens()
 		self.assertIs(table["h1"], glyphs.HEADING_1)
@@ -230,6 +237,28 @@ class TestFindingThemInALine(GlyphTestCase):
 	def test_aWordThatMerelyContainsOneIsNot(self):
 		self.assertEqual(glyphFlow.marksIn("obtnl"), [])
 		self.assertEqual(glyphFlow.marksIn("btns"), [])
+
+	def test_aListIsFoundWithItsCountRunOn(self):
+		"""NVDA writes a list's item count straight after its role, "lst6", with no space. The
+		shape stands over the label and the count stays."""
+		found = glyphFlow.marksIn("Recent lst6 Inbox")
+		self.assertEqual([(start, end) for start, end, _glyph in found], [(7, 10)])
+		self.assertIs(found[0][2], glyphs.LIST)
+
+	def test_aListCountAtTheEndOfTheLineIsFound(self):
+		found = glyphFlow.marksIn("Recent lst12")
+		self.assertEqual([(start, end) for start, end, _glyph in found], [(7, 10)])
+
+	def test_aWordAfterAListCountIsStillFound(self):
+		found = glyphFlow.marksIn("lst6 btn")
+		self.assertEqual([start for start, _end, _glyph in found], [0, 5])
+
+	def test_onlyAListTakesACount(self):
+		self.assertEqual(glyphFlow.marksIn("btn6 Search"), [])
+
+	def test_aListLabelRunIntoLettersIsNot(self):
+		self.assertEqual(glyphFlow.marksIn("lst6a"), [])
+		self.assertEqual(glyphFlow.marksIn("lsts"), [])
 
 	def test_severalAreFoundLeftToRight(self):
 		found = glyphFlow.marksIn("⣏⣿⣹ edt Name")
@@ -437,6 +466,11 @@ class TestShorteningALine(GlyphTestCase):
 		region = self.region("btn Search")
 		glyphFlow.compressRegion(region, self.target())
 		self.assertEqual(region.brailleCells[0], ord("b"))
+
+	def test_aListKeepsItsCount(self):
+		region = self.region("lst6 Inbox")
+		glyphFlow.compressRegion(region, self.target())
+		self.assertEqual(bytes(region.brailleCells).decode(), "l6 Inbox")
 
 	def test_theTextAfterItIsUnchanged(self):
 		region = self.region("btn Search")

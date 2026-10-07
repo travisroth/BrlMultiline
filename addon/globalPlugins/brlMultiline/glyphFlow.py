@@ -196,6 +196,14 @@ NEGATIVE_GLYPHS = {
 }
 """Which entry stands over each state NVDA writes when the state is absent."""
 
+COUNTED = ("list",)
+"""Entries whose word NVDA may run straight into a count: "lst6" for a list of six.
+
+`getPropertiesBraille` appends a list's `childControlCount` to its role text with no separator
+between them, so the word was never a word on its own and whole word matching did not find it.
+Only the label is drawn over; the count stays on the line, because the shape does not carry it.
+"""
+
 HEADING_LEVELS = (1, 2, 3)
 """Which heading levels have a shape. See `glyphs.HEADING_1` for why it stops at three."""
 
@@ -206,6 +214,13 @@ Not in `braille.labels`: `getPropertiesBraille` composes it where it finds `Stat
 a link, so there is no dictionary to read it out of. What is written here is the message id,
 and it goes through NVDA's own catalogue before it is used — see `_nvdaSays` — so this is not
 the English text being matched, it is the key that finds the reader's own.
+"""
+
+MULTISELECT_LIST = "mslst"
+"""NVDA's own message for a list that allows more than one selection. See `VISITED_LINK`.
+
+Drawn as a list: the shape says what the thing is, and the count NVDA runs on after it stays,
+as it does for a plain one. See `COUNTED`.
 """
 
 HEADING = "h%s"
@@ -458,12 +473,14 @@ def _nvdaSays(message: str) -> str:
 def _fromComposition() -> dict:
 	""":return: the words NVDA builds rather than looks up, to the entry standing over each.
 
-	A visited link and a heading are not in `braille.labels`. `getPropertiesBraille` composes
-	them where it meets the role — a link carrying `State.VISITED`, a heading with a level — so
-	there is no dictionary to read, and the message is asked of NVDA's catalogue instead.
+	A visited link, a multi select list and a heading are not in `braille.labels`.
+	`getPropertiesBraille` composes them where it meets the role — a link carrying
+	`State.VISITED`, a list carrying `State.MULTISELECTABLE`, a heading with a level — so there is
+	no dictionary to read, and the message is asked of NVDA's catalogue instead.
 	"""
 	found: dict = {}
 	_offer(found, _nvdaSays(VISITED_LINK), "visitedLink")
+	_offer(found, _nvdaSays(MULTISELECT_LIST), "list")
 	template = _nvdaSays(HEADING)
 	for level in HEADING_LEVELS:
 		try:
@@ -744,8 +761,8 @@ def _marksBetween(rawText: str, start: int, end: int, labels: "list[str]", table
 		matched = _labelAt(rawText, at, labels, table, end)
 		if matched is not None:
 			found.append(matched)
-			at = matched[1] + len(SEPARATOR)
-			continue
+			# Not past the separator: a count after the label is still this word. See `COUNTED`.
+			at = matched[1]
 		nextWord = rawText.find(SEPARATOR, at, end)
 		if nextWord < 0:
 			break
@@ -759,6 +776,8 @@ def _labelAt(rawText: str, at: int, labels: "list[str]", table: dict, limit: int
 	Longest first, so a label that begins with another one is not lost to it. What follows has
 	to be a separator or the end of what may be replaced, which is what makes "h1" fail to match
 	inside "h10" and what stops a label running off the end of NVDA's own words into somebody's.
+	The one exception is a count after an entry in `COUNTED`, which NVDA writes with no
+	separator; the match still ends at the label, so the count is left on the line.
 
 	:param rawText: the line.
 	:param at: a word boundary in it.
@@ -770,10 +789,19 @@ def _labelAt(rawText: str, at: int, labels: "list[str]", table: dict, limit: int
 		end = at + len(label)
 		if end > limit or not rawText.startswith(label, at):
 			continue
-		if end < len(rawText) and rawText[end] != SEPARATOR:
+		after = end
+		if table[label] in _counted():
+			while after < limit and rawText[after].isdigit():
+				after += 1
+		if after < len(rawText) and rawText[after] != SEPARATOR:
 			continue
 		return at, end, table[label]
 	return None
+
+
+def _counted() -> frozenset:
+	""":return: the entries a count may follow. See `COUNTED`."""
+	return frozenset(glyphs.VOCABULARY[name] for name in COUNTED)
 
 
 def _byLength() -> "list[str]":
