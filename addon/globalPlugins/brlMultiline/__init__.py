@@ -3427,12 +3427,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when a drawing command is used with no drawing on the display.
 			ui.message(_("No drawing"))
 			return
+		marked = mode.markedPoint
 		moved = mode.zoomBy(step)
 		# Reported whether or not it moved: at the ends of the ladder the useful answer is
 		# still where the reader now is, and silence would read as the command having missed.
 		# `describe` says "whole drawing" at the bottom of the ladder rather than a number,
 		# because a magnification figure for a compressed drawing means nothing to a reader.
 		said = mode.describe()
+		movedMark = self._markMovedWords(mode, marked)
+		if movedMark:
+			said += ", " + movedMark
 		if not moved:
 			# And when it did not move, why. Without this the answer to a refused zoom is the
 			# same sentence as the answer to the zoom before it, which is indistinguishable
@@ -3486,10 +3490,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if why:
 			ui.message(why)
 			return
+		marked = mode.markedPoint
 		if not mode.zoomToPoints():
 			ui.message(", ".join((mode.describe(), _("this part will not draw"))))
 			return
-		ui.message(mode.describe())
+		ui.message(", ".join(part for part in (mode.describe(), self._markMovedWords(mode, marked)) if part))
 
 	@script(
 		# Translators: input help message for a command.
@@ -3654,6 +3659,21 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		said = mode.positionWords()
 		note = mode.note
 		ui.message(", ".join(part for part in (said, note) if part))
+
+	@staticmethod
+	def _markMovedWords(mode, before) -> str:
+		""":return: the chart point now marked, if moving the window moved the mark onto it.
+
+		A zoom that leaves the marked point off the panel brings the mark to the edge it went off
+		by (see `GraphicsMode._keepPointsOnPanel`), and the reader is told where it went, since
+		that is where the next step starts.
+
+		:param mode: the graphics mode.
+		:param before: the marked point before the window moved.
+		"""
+		if before is None or mode.markedPoint == before:
+			return ""
+		return mode.markedWords()
 
 	@script(
 		# Translators: input help message for a command.

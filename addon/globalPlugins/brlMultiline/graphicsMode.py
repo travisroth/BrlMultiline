@@ -399,18 +399,11 @@ class GraphicsMode(PanelOwner):
 		"""
 
 		self._marked: Optional[int] = None
-		"""The point of the whole figure the reader stepped to, or None.
+		"""The point of the whole figure the reader stepped to or pressed, or None.
 
 		An index into the whole figure rather than into the window on the panel, so it survives
 		zooming, panning and a change of view: each of those composes a different window, and
 		`Drawing.firstPoint` is how a window says where it is in the whole.
-		"""
-
-		self._pressedPoint: Optional[int] = None
-		"""The point the last routing press landed on, where a first step starts from.
-
-		Remembered and not marked: marking redraws the panel, and a press is the reader asking a
-		question with a finger on the pins, not asking for the pins to change under it.
 		"""
 
 		self._level = 0
@@ -664,7 +657,7 @@ class GraphicsMode(PanelOwner):
 			return False
 		was = self._source
 		restore = self._state()
-		marks = (self._marked, self._pressedPoint, self._level)
+		marks = (self._marked, self._level)
 		self._source = drawing
 		self._window = None
 		# The mark is kept, since a new view of the same chart has the same points. One past the
@@ -673,8 +666,6 @@ class GraphicsMode(PanelOwner):
 		points = drawing.points if drawing.markFor is not None else 0
 		if self._marked is not None and self._marked >= points:
 			self._marked = None
-		if self._pressedPoint is not None and self._pressedPoint >= points:
-			self._pressedPoint = None
 		if self._level >= max(1, len(drawing.levelNames)):
 			self._level = 0
 		if self.render(surface):
@@ -682,7 +673,7 @@ class GraphicsMode(PanelOwner):
 			return True
 		self._source = was
 		self._restore(restore)
-		self._marked, self._pressedPoint, self._level = marks
+		self._marked, self._level = marks
 		return False
 
 	@property
@@ -964,6 +955,7 @@ class GraphicsMode(PanelOwner):
 			# does not match what is being reported.
 			return False
 		if self._windows:
+			self._keepPointsOnPanel()
 			# Already composed for this panel at this window, so there is nothing to sample:
 			# a dot of it is a pin of the display.
 			buffer.blit(self._drawing.buffer)
@@ -1380,6 +1372,11 @@ class GraphicsMode(PanelOwner):
 		self._clampOrigin(pins)
 		if (self._originX, self._originY) == before:
 			return False
+		# A pan is the reader choosing a new part of the chart, so stepping starts again from
+		# the edges of it: the next step on marks the first point shown, the next step back
+		# the last. A mark kept from before the pan sat wherever it happened to be, in the
+		# middle or off the panel, and the step read out a date the reader had not moved to.
+		self._marked = None
 		if not self.render(surface):
 			self._restore(restore)
 			return False
@@ -1394,17 +1391,32 @@ class GraphicsMode(PanelOwner):
 		asking it again for the one before would be a second composition of something the
 		display is already showing.
 		"""
-		return (self._zoomStep, self._originX, self._originY, self._window, self._drawing)
+		return (
+			self._zoomStep,
+			self._originX,
+			self._originY,
+			self._window,
+			self._drawing,
+			self._marked,
+		)
 
 	def _restore(self, state: tuple) -> None:
 		"""Put back what `_state` took.
 
 		Nothing is written to the display here, and that is the point: the overlay on it was
-		never replaced, so it already agrees with what is being put back.
+		never replaced, so it already agrees with what is being put back. The mark goes back
+		with the window, since `render` moves it onto whatever window it composed.
 
 		:param state: from `_state`.
 		"""
-		self._zoomStep, self._originX, self._originY, self._window, self._drawing = state
+		(
+			self._zoomStep,
+			self._originX,
+			self._originY,
+			self._window,
+			self._drawing,
+			self._marked,
+		) = state
 
 	def panStep(self) -> tuple:
 		""":return: a sensible pan distance across and down, in source dots.
@@ -1449,13 +1461,37 @@ class GraphicsMode(PanelOwner):
 
 	def _forgetPoints(self) -> None:
 		self._marked = None
-		self._pressedPoint = None
 		self._level = 0
 
 	def _holds(self, index: int) -> bool:
 		""":return: whether a point of the whole figure is in the drawing on the panel."""
 		drawing = self._drawing
 		return drawing is not None and drawing.firstPoint <= index < drawing.firstPoint + drawing.points
+
+	def _keepPointsOnPanel(self) -> None:
+		"""Bring the mark onto the panel after the window moved out from under it.
+
+		**The mark is where the next step starts, so it has to be a point the reader can feel.**
+		A zoom, or the braille line taking pins back, can move the window without stepping, and
+		a mark left behind meant the next step read out a date nowhere on the panel and then
+		turned a page back to it. A pan does not get this far with a mark: `panBy` lets it go. So
+		a mark the window has left goes to the nearest point still shown, which is the edge it
+		went off by.
+
+		Called from `render`, after the window is composed and before the guides are drawn, so
+		the guides and the mark agree with the one write.
+		"""
+		if not self.hasPoints or self._drawing is None or not self._drawing.points:
+			return
+		first, last = self._shownPoints()
+		if self._marked is not None and not self._holds(self._marked):
+			self._marked = min(max(self._marked, first), last - 1)
+
+	def markedWords(self) -> str:
+		""":return: what the marked point is, as a step would say it, or nothing if none is."""
+		if self._marked is None or not self.hasPoints or not self._holds(self._marked):
+			return ""
+		return self._sayMarked()
 
 	def _shownPoints(self) -> tuple:
 		""":return: the points on the panel, as a slice of the whole figure."""
@@ -1505,7 +1541,13 @@ class GraphicsMode(PanelOwner):
 			drawGuides(buffer, mark)
 
 	def _notePress(self, point: Optional[tuple]) -> None:
-		"""Remember which point a press landed on, as where the next first step starts.
+		"""Mark the point a press landed on, so the next step goes on from it.
+
+		**A press moves the stepper.** The first plan only remembered the point and left the
+		panel alone, so as not to redraw it under the finger that pressed; on hardware a reader
+		pressing a point and then stepping expected to step from the point they pressed, and a
+		mark left elsewhere stepped from somewhere else. So the press marks the point and draws
+		its guides, in one write, and only when it is not the point already marked.
 
 		:param point: the source dot of the drawing on the panel the press mapped to.
 		"""
@@ -1517,8 +1559,15 @@ class GraphicsMode(PanelOwner):
 		except Exception:
 			log.error("BrlMultiline: a drawing could not say which point a press is on", exc_info=True)
 			return
-		if local is not None:
-			self._pressedPoint = drawing.firstPoint + local
+		if local is None:
+			return
+		index = drawing.firstPoint + local
+		if index == self._marked or not self.hasPoints:
+			return
+		was = self._marked
+		self._marked = index
+		if not self.render():
+			self._marked = was
 
 	def _sayMarked(self) -> str:
 		""":return: what the marked point is, in the words a press on it gives."""
@@ -1528,9 +1577,9 @@ class GraphicsMode(PanelOwner):
 	def stepPoint(self, delta: int) -> str:
 		"""Mark the next or previous point, and say it.
 
-		With nothing marked the first step marks a point without moving past it: the one last
-		pressed if there was one, otherwise the first point on the panel going forward or the
-		last going back. At either end of the figure nothing moves and nothing wraps, and the
+		With nothing marked the first step marks a point without moving past it: the first point
+		on the panel going forward or the last going back. A press marks the point it lands on, so
+		after one the step goes on from there. At either end of the figure nothing moves and nothing wraps, and the
 		answer is the end alone, so it cannot be taken for another point.
 
 		:param delta: 1 for the next point, -1 for the previous.
@@ -1541,11 +1590,8 @@ class GraphicsMode(PanelOwner):
 			return refusal
 		count = self._source.points
 		if self._marked is None:
-			if self._pressedPoint is not None and 0 <= self._pressedPoint < count:
-				target = self._pressedPoint
-			else:
-				first, last = self._shownPoints()
-				target = first if delta > 0 else last - 1
+			first, last = self._shownPoints()
+			target = first if delta > 0 else last - 1
 		else:
 			target = self._marked + delta
 			if target < 0:

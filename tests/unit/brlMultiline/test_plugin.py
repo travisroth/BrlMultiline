@@ -438,6 +438,7 @@ class TestTheChartKeys(unittest.TestCase):
 			self.zooms = zooms
 			self.changes = changes
 			self.directions = []
+			self.markedPoint = None
 
 		def pointZoomRefusal(self):
 			return self.pointRefusal

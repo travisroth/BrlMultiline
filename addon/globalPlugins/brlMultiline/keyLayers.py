@@ -75,7 +75,7 @@ found a keyboard layer that escape did not leave. With modifiers it is another k
 escape is left to NVDA.
 """
 
-SHIPPED = 3
+SHIPPED = 4
 """Which additions to the shipped layers a stored set has already been given. See L{SHIPPED_ADDITIONS}.
 
 Written with every set saved. A set stored before this was written has none, and reads as 1.
@@ -98,6 +98,24 @@ SHIPPED_ADDITIONS = {
 	},
 	3: {
 		"layers": ("unwrapped",),
+	},
+	# The chart layer's keys for one pin per point, its views and stepping through its points. A
+	# chart layer saved before them had none, and the stepping keys did the Monarch's own next and
+	# previous line instead. Found on hardware.
+	4: {
+		"bindings": {
+			"chart": (
+				"dot1+dot3+dot5",
+				"dot1+dot2+dot3+dot6",
+				"dot1+dot2+dot3+dot6+dot7",
+				"space+dot4",
+				"space+dot1",
+				"space+dot1+dot2+dot3",
+				"space+dot4+dot5+dot6",
+				"dot1+dot3+dot6",
+				"dot1+dot2+dot3",
+			),
+		},
 	},
 }
 """What each revision of the shipped layers added, for sets saved before it.

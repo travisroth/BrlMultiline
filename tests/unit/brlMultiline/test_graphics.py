@@ -1960,8 +1960,28 @@ class TestSteppingThroughAChart(unittest.TestCase):
 		self.driver.lastRoutingPin = (column, PIN_HEIGHT - self.height + self.height // 2)
 		GraphicsRoutingPolicy(self.mode).route(container=None, segmentNumber=0, segmentPos=0)
 		runQueuedFunctions()
-		self.assertIsNone(self.mode.markedPoint, "a press must not mark, or the pins change under the finger")
-		self.assertEqual(self.mode.stepPoint(1), "b2, 7")
+		self.assertEqual(self.mode.markedPoint, 2, "a press moves the stepper to the point pressed")
+		self.assertEqual(self.mode.stepPoint(1), "b3, 9")
+		self.assertEqual(self.mode.stepPoint(-1), "b2, 7")
+
+	def test_aPressMovesAMarkThatWasElsewhere(self):
+		self.mode.enter(self.bars([3, 5, 7, 9]))
+		self.mode.stepPoint(1)
+		column = self.mode.drawing.markFor(2).own[0]
+		self.mode._notePress((column, 0))
+		self.assertEqual(self.mode.markedPoint, 2)
+		self.assertEqual(self.mode.stepPoint(-1), "b1, 5")
+
+	def test_aPressDrawsTheGuidesAtThePointPressed(self):
+		self.mode.enter(self.bars([3, 5, 7, 9]))
+		column = self.mode.drawing.markFor(2).own[0]
+		self.mode._notePress((column, 0))
+		pressed = self.overlay().rows()
+		self.mode.unmarkPoint()
+		self.mode.stepPoint(1)
+		self.mode.stepPoint(1)
+		self.mode.stepPoint(1)
+		self.assertEqual(self.overlay().rows(), pressed)
 
 	def test_theGuidesAreOnThePanelAndNotInTheChart(self):
 		self.mode.enter(self.bars([3, 5, 7]))
@@ -2062,6 +2082,87 @@ class TestSteppingThroughAChart(unittest.TestCase):
 		self.assertTrue(self.holds())
 		self.assertTrue(self.mode.zoomToPoints())
 		self.assertTrue(self.holds())
+
+	def bands(self, count):
+		""":return: a close with an average and Bollinger bands, the chart this was found on."""
+		from brlMultiline.chartLine import Line
+
+		close = [50 + index % 11 for index in range(count)]
+		late = [None] * 19
+		return self.line(
+			count,
+			[
+				Line("Close", close),
+				Line("Average", late + close[19:]),
+				Line("Upper", late + [value + 5 for value in close[19:]]),
+				Line("Lower", late + [value - 5 for value in close[19:]]),
+			],
+		)
+
+	def panToEnd(self, direction):
+		across, _down = self.mode.panStep()
+		while self.mode.panBy(direction * across, 0):
+			pass
+
+	def test_afterAPanToTheRightEdgeStepsStartAtTheEdges(self):
+		"""Found in testing: a chart with Bollinger bands at one pin per point, panned to the
+		right edge, stepped from wherever the mark had been rather than from the panel."""
+		for back in (False, True):
+			with self.subTest(back=back):
+				self.mode.enter(self.bands(250))
+				self.assertTrue(self.mode.zoomToPoints())
+				self.mode.pointToEnd(last=False)
+				self.panToEnd(1)
+				drawing = self.mode.drawing
+				self.assertIsNone(self.mode.markedPoint)
+				said = self.mode.stepPoint(-1 if back else 1)
+				edge = drawing.firstPoint + drawing.points - 1 if back else drawing.firstPoint
+				self.assertEqual(self.mode.markedPoint, edge)
+				self.assertTrue(said.endswith(f", d{edge}"), said)
+				self.assertIs(self.mode.drawing, drawing, "a step at the edge must not move the window")
+
+	def test_aMarkStillOnThePanelIsLetGoByAPan(self):
+		"""Kept, it sat in the middle of the new view, and the step went on from a point the
+		reader had not chosen."""
+		self.mode.enter(self.bands(250))
+		self.assertTrue(self.mode.zoomToPoints())
+		self.mode.pointToEnd(last=True)
+		for _step in range(10):
+			self.mode.stepPoint(-1)
+		self.assertTrue(self.mode.panBy(-1, 0))
+		self.assertIsNone(self.mode.markedPoint)
+		self.mode.stepPoint(1)
+		self.assertEqual(self.mode.markedPoint, self.mode.drawing.firstPoint)
+
+	def test_aPanTakesTheGuidesOff(self):
+		self.mode.enter(self.bands(250))
+		self.assertTrue(self.mode.zoomToPoints())
+		self.panToEnd(1)
+		plain = self.overlay().rows()
+		self.mode.stepPoint(1)
+		self.assertTrue(self.mode.panBy(-1, 0))
+		self.assertTrue(self.mode.panBy(1, 0))
+		self.assertEqual(self.overlay().rows(), plain)
+
+	def test_aPressIsLetGoByAPan(self):
+		self.mode.enter(self.bands(250))
+		self.assertTrue(self.mode.zoomToPoints())
+		self.mode._notePress((2, 0))
+		self.assertIsNotNone(self.mode.markedPoint)
+		self.assertTrue(self.mode.panBy(-1, 0))
+		self.mode.stepPoint(1)
+		self.assertEqual(self.mode.markedPoint, self.mode.drawing.firstPoint)
+
+	def test_aZoomThatLeavesTheMarkBringsItOntoThePanel(self):
+		"""A zoom keeps a marked point on the panel in the middle, but one already off it is
+		brought to the edge it is off by, as the braille line taking rows back would leave it."""
+		self.mode.enter(self.bands(250))
+		self.assertTrue(self.mode.zoomToPoints())
+		self.mode.pointToEnd(last=True)
+		self.mode._marked = 0
+		self.assertTrue(self.mode.zoomBy(-1))
+		self.assertTrue(self.holds())
+		self.assertEqual(self.mode.markedPoint, self.mode.drawing.firstPoint)
 
 	def test_theReportSaysWhichPoint(self):
 		self.mode.enter(self.bars([3, 5, 7]))

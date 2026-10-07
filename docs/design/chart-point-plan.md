@@ -129,14 +129,13 @@ Which value the level is drawn at:
 
 ### Pressing and stepping together
 
-A routing press on a chart remembers which point it landed on, as the place the next step
-starts from. It does **not** mark the point or draw the guides. Drawing them would redraw
-the panel under the finger that just pressed, and the reader pressed to ask a question,
-not to change the chart. Press on a bar, then press next point, and the bar after it is
-marked.
+A routing press on a chart marks the point it landed on and draws its guides, as well as
+saying it. Press on a bar, then press next point, and the bar after it is marked.
 
-Once a point is marked, a press anywhere still just answers for where the finger is and
-leaves the mark where it was. The reader moves the mark with the step commands.
+This plan first had the press only remember the point, so the panel would not redraw under
+the finger that pressed. Decided on hardware, 7 October 2026: a reader who pressed a point
+and then stepped expected to step from it, and a mark left elsewhere stepped from somewhere
+else. See open question 2.
 
 ## Design
 
@@ -175,9 +174,7 @@ geometry; the mode decides what to mark.
 New state, all in whole-chart point indexes:
 
 1. `_marked: Optional[int]`. The marked point.
-2. `_pressedPoint: Optional[int]`. The point the last press landed on, for where a first
-   step starts.
-3. `_levelSeries: int`. Which line the level is drawn for, on a line chart.
+2. `_levelSeries: int`. Which line the level is drawn for, on a line chart.
 
 Lifetime:
 
@@ -266,7 +263,7 @@ press tests passing unchanged.
 
 1. Mode state and `stepPoint`, `pointToEnd`, `unmarkPoint`, `_showPoint` as above, with no
    guides drawn yet.
-2. `reportPress` records `_pressedPoint` through `pointAt` and `firstPoint`.
+2. `reportPress` marks the point it lands on, through `pointAt` and `firstPoint`.
 3. The scripts, and the chart layer keys.
 4. Tests in `test_graphics.py`, using the fake surface it already has:
    - The first step marks without moving, from the press if there was one.
@@ -315,10 +312,10 @@ press tests passing unchanged.
 1. **The d-pad.** Should left and right on the left d-pad step points on a chart, with
    panning left to the space chords? Stepping does the panning a reader of a chart
    usually wants. Decide after phase 2 on hardware.
-2. **Press marks the point?** This plan says a press only sets where stepping starts, so
-   the panel never redraws under a finger. If the Monarch's refresh under a resting finger
-   turns out to be harmless, marking on press would make the guides appear where the
-   reader is pointing, which may be what they expect.
+2. **Press marks the point?** Decided on hardware, 7 October 2026: yes. A press marks the
+   point and draws its guides, so stepping goes on from where the reader pressed. Tested on
+   the Monarch: the refresh under the finger is no problem, since it raises and lowers only
+   the pins that change.
 3. **Price chart level at the close.** Close is the price most often compared against.
    A reader studying ranges might want the high or the low. Leave it at close unless asked.
 4. **Bar chart with values written over the bars.** The level line passes through the

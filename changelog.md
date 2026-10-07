@@ -14,7 +14,11 @@ Added:
   point is marked, sparse guide lines cross the plot at its value and its position, notching any
   taller bar they pass through. On the Monarch they are in the chart layer: Space with dot 4 and
   dot 1, Space with dots 1 2 3 and dots 4 5 6, u to unmark and l to move the level line.
-  Not yet tried on hardware.
+  Panning lets the mark go, so the next step starts at an edge of what is shown: the first point
+  going on, the last going back. A zoom that leaves the marked point off the display moves the
+  mark to the nearest point still shown, and says it. Pressing a routing key on a point marks
+  it as well as saying it, so the next step goes on from the point you pressed. Stepping from a
+  press tested on the Monarch.
 
 - **Rows a combined display's member physically has.** In BrlMultiline displays, a display
   whose driver reports one row can be given the rows it really has. An Orbit Slate 340 on the

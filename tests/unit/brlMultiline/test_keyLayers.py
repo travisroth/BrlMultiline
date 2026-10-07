@@ -587,6 +587,50 @@ class TestLayersSavedBeforeTheShippedOnesChanged(unittest.TestCase):
 		self.assertIsNone(read.get("chart"))
 
 
+class TestAChartLayerSavedBeforeTheStepperKeys(unittest.TestCase):
+	"""The stepping keys went into the shipped chart layer and nowhere else, so a reader whose chart
+	layer was saved before them pressed space with dot 4 and got the Monarch's next line. The layers
+	dialog showed none of the keys. Found on hardware."""
+
+	def savedAt3(self, bindings=None):
+		chart = newLayer(
+			MONARCH,
+			"chart",
+			"Chart",
+			"chart",
+			autoEnable=True,
+			fallsThrough="graphics",
+			bindings=bindings or {},
+		)
+		graphics = newLayer(MONARCH, "graphics", "Graphics", "graphics", autoEnable=True)
+		stored = json.loads(LayerSet(MONARCH, (newLayer(MONARCH, DEFAULT_ID), graphics, chart)).toText())
+		stored["shipped"] = 3
+		return LayerSet.fromText(MONARCH, json.dumps(stored), keyLayers.defaultLayers(MONARCH, PLUGIN))[0]
+
+	def test_itIsGivenTheSteppingKeys(self):
+		chart = self.savedAt3().get("chart")
+		for key, name in (
+			("space+dot4", "graphicsNextPoint"),
+			("space+dot1", "graphicsPreviousPoint"),
+			("space+dot1+dot2+dot3", "graphicsFirstPoint"),
+			("space+dot4+dot5+dot6", "graphicsLastPoint"),
+			("dot1+dot3+dot6", "graphicsUnmarkPoint"),
+			("dot1+dot2+dot3", "graphicsNextLevel"),
+		):
+			with self.subTest(key=key):
+				self.assertEqual(name, chart.bindings[monarch(key)].scriptName)
+
+	def test_aKeyTheReaderBoundIsKept(self):
+		chart = self.savedAt3({monarch("space+dot4"): SAY_LINE}).get("chart")
+		self.assertEqual(SAY_LINE, chart.bindings[monarch("space+dot4")])
+		self.assertEqual("graphicsPreviousPoint", chart.bindings[monarch("space+dot1")].scriptName)
+
+	def test_everyShippedChartKeyReachesAnOldChartLayer(self):
+		"""So the next key added to the shipped chart layer is not lost the same way."""
+		shipped = next(layer for layer in keyLayers.defaultLayers(MONARCH, PLUGIN) if layer.id == "chart")
+		self.assertEqual(set(shipped.bindings), set(self.savedAt3().get("chart").bindings))
+
+
 class TestNormalize(unittest.TestCase):
 	def test_matchesNvda(self):
 		self.assertEqual("br(x):dot1+space", normalize("br(X):Space+DOT1"))
