@@ -29,6 +29,7 @@ from ._stubs import (
 	FakeTreeInterceptor,
 	Region,
 	callAfterQueue,
+	callLaterQueue,
 	dialogAnswers,
 	mainFrame,
 	displayChanged,
@@ -453,6 +454,15 @@ class TestTheChartKeys(unittest.TestCase):
 		def describe(self):
 			return "the chart now"
 
+		def drawingSize(self):
+			return (96, 35)
+
+		def newBuffer(self, width, height):
+			return None
+
+		def enter(self, drawing):
+			return True
+
 	def setUp(self):
 		resetPluginState()
 		braille.handler = FakeHandler(MONARCH_ROWS, MONARCH_COLS)
@@ -503,6 +513,33 @@ class TestTheChartKeys(unittest.TestCase):
 		self.use(changes=False)
 		self.plugin.script_graphicsNextView(None)
 		self.assertIn("will not draw", flashedMessages[-1])
+
+	def refused(self):
+		from brlMultiline import chartDraw, chartMenu
+
+		def draw(newBuffer, width, height, translate):
+			raise chartDraw.ChartRefused("277 periods will not fit; this display holds 24")
+
+		return chartMenu.Offer(key=chartMenu.OHLC, label="Open, high, low, close bars", draw=draw)
+
+	def test_aChartChosenInTheDialogIsAnsweredAfterTheFocusComesBack(self):
+		"""Found on hardware: a refused price chart was said as the dialog closed, cut off by
+		the focus returning to the spreadsheet, and heard as nothing happening."""
+		self.use()
+		callLaterQueue.pending.clear()
+		self.addCleanup(callLaterQueue.pending.clear)
+		self.plugin.drawChart(self.refused(), say=plugin._sayAfterDialog)
+		self.assertNotIn("277 periods will not fit; this display holds 24", flashedMessages)
+		callLaterQueue.fire()
+		self.assertEqual(flashedMessages[-1], "277 periods will not fit; this display holds 24")
+
+	def test_aRefusedChartIsLogged(self):
+		"""The log had nothing to show for a refusal, which made a lost one look like no answer."""
+		self.use()
+		log.messages.clear()
+		self.plugin.drawChart(self.refused())
+		self.assertEqual(flashedMessages[-1], "277 periods will not fit; this display holds 24")
+		self.assertTrue(any("ohlc chart refused" in message for _level, message in log.messages))
 
 	def test_withNoDrawingTheKeysSaySo(self):
 		self.use(active=False)

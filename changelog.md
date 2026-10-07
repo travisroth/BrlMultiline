@@ -20,6 +20,13 @@ Added:
   it as well as saying it, so the next step goes on from the point you pressed. Stepping from a
   press tested on the Monarch.
 
+- **Price charts longer than the display.** Open, high, low, close bars and candlesticks need
+  four pins a period, so a 96-pin display holds 24. A longer selection was refused, and the
+  refusal was talked over by the focus returning from the chart dialog, so nothing seemed to
+  happen. It now opens on the most recent periods, says how many of how many are shown, and
+  pans or steps back through the rest. Answers to the chart dialog are now said after the focus
+  comes back, and a refused chart is logged. Tested on the Monarch.
+
 - **Rows a combined display's member physically has.** In BrlMultiline displays, a display
   whose driver reports one row can be given the rows it really has. An Orbit Slate 340 on the
   standard HID driver reports 120 cells in one row; set to 3, the combined display uses it as

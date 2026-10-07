@@ -166,6 +166,7 @@ class Drawing:
 		markFor=None,
 		sayPoint=None,
 		levelNames: tuple = (),
+		widestView: int = 0,
 	):
 		"""
 		:param buffer: the dots, a buffer from `GraphicsSurface.newBuffer`.
@@ -216,6 +217,10 @@ class Drawing:
 			same words a press on it gives, so stepping and pointing have one vocabulary.
 		:param levelNames: what each series the level line can follow is called, in order.
 			Empty for a figure with one value per point.
+		:param widestView: the most points one view of a redrawable figure can show, or zero for
+			no limit. A price chart of a year of days cannot be shown whole, since a bar needs
+			four pins; it says how many fit, and the mode opens it at the widest view it has, on
+			its latest points, for the reader to pan back through.
 		"""
 		self.buffer = buffer
 		self.firstPoint = firstPoint
@@ -231,6 +236,7 @@ class Drawing:
 		self.windowsVertically = windowsVertically
 		self.nextView = nextView
 		self.pinsPerPoint = pinsPerPoint
+		self.widestView = widestView
 
 	@property
 	def width(self) -> int:
@@ -576,8 +582,10 @@ class GraphicsMode(PanelOwner):
 		self._window = None
 		self._rect = rect
 		self._textLines = textLines
-		self._zoomStep = FIT
-		self._originX = 0
+		self._zoomStep = self._widestStep(pins)
+		# Hard against the right, at the latest points, for a figure too wide to show whole. A
+		# reader charting prices wants the most recent ones first; the rest is a pan away.
+		self._originX = drawing.buffer.width if self._zoomStep != FIT else 0
 		self._originY = 0
 		self._forgetPoints()
 		self.render(surface)
@@ -1164,7 +1172,7 @@ class GraphicsMode(PanelOwner):
 		pins = surface.pinRectForCells(self._rect)
 		if pins.isEmpty:
 			return False
-		wanted = self._stepFrom(step)
+		wanted = self._stepFrom(step, pins)
 		if wanted == self._zoomStep:
 			return False
 		if wanted > self._zoomStep and self._tooFewPoints(wanted):
@@ -1179,7 +1187,7 @@ class GraphicsMode(PanelOwner):
 			return False
 		return self._zoomTo(wanted, pins, surface)
 
-	def _stepFrom(self, step: int) -> float:
+	def _stepFrom(self, step: int, pins: PinRect) -> float:
 		"""The ladder step a zoom key goes to from here.
 
 		From a step on the ladder that is simply the next one. From a zoom to one pin per
@@ -1190,7 +1198,11 @@ class GraphicsMode(PanelOwner):
 		Past the top of the ladder, which only a zoom to one pin per point reaches, magnifying
 		stays where it is rather than going back down to the top rung.
 
+		Below the widest view a figure has, which is the whole of it for everything but a chart
+		too wide to show whole, shrinking stops at that view.
+
 		:param step: how many levels in, negative for out.
+		:param pins: the rectangle the drawing occupies.
 		:return: the step, which may be the current one where there is nowhere to go.
 		"""
 		here = self._zoomStep
@@ -1200,7 +1212,39 @@ class GraphicsMode(PanelOwner):
 			wanted = math.ceil(here) + step
 		else:
 			return here
-		return max(FIT, min(max(MAX_ZOOM_STEP, here), wanted))
+		return max(self._widestStep(pins), min(max(MAX_ZOOM_STEP, here), wanted))
+
+	def _widestStep(self, pins: PinRect) -> float:
+		""":return: the zoom showing as much of the figure as it can show at once.
+
+		`FIT` for every figure that can be shown whole. For one that says it cannot, see
+		`Drawing.widestView`, the step at which the panel holds as many whole dots of the figure
+		as it can without the window coming to more points than fit: the window is whole dots
+		of a figure a panel wide, and one dot more would be a few points too many and a view the
+		figure refuses to draw.
+
+		:param pins: the rectangle the drawing occupies.
+		"""
+		source = self._source
+		widest = getattr(source, "widestView", 0) if source is not None else 0
+		if not self._windows or not widest or source.points <= widest:
+			return FIT
+		dots = max(1, source.buffer.width * widest // source.points)
+		# A hair over the exact scale, so that the visible width, which is rounded up, comes to
+		# `dots` and not one more.
+		scale = pins.width / dots * (1 + 1e-9)
+		return max(FIT, math.log(scale / self.fitScale(pins)) / math.log(ZOOM_FACTOR))
+
+	@property
+	def showsWidestView(self) -> bool:
+		""":return: whether a figure too wide to show whole is at the widest view it has."""
+		if not self.active or self._rect is None or self._zoomStep == FIT:
+			return False
+		surface = findSurface()
+		if surface is None:
+			return False
+		pins = surface.pinRectForCells(self._rect)
+		return not pins.isEmpty and abs(self._zoomStep - self._widestStep(pins)) < 1e-9
 
 	def _atScaleCap(self, pins: PinRect) -> bool:
 		""":return: whether the drawing is already as large as the pins may make it.
@@ -1259,12 +1303,16 @@ class GraphicsMode(PanelOwner):
 		pins = surface.pinRectForCells(self._rect)
 		if pins.isEmpty:
 			return ""
-		wanted = self._stepFrom(step)
+		wanted = self._stepFrom(step, pins)
 		if wanted == self._zoomStep:
 			if step > 0:
 				# Translators: reported when the drawing cannot be magnified any further
 				# because the magnification ladder has no steps left.
 				return _("closest view")
+			if step < 0 and self.showsWidestView:
+				# Translators: reported when shrinking a chart that is too wide to show whole
+				# and is already showing as much of itself as fits.
+				return _("as much as fits at once; pan to see the rest")
 			return ""
 		if step > 0 and self._tooFewPoints(wanted):
 			# Translators: reported when magnifying further would show no more than it
@@ -1981,6 +2029,18 @@ class GraphicsMode(PanelOwner):
 			# Translators: reports a drawing shown whole, with no part of it off the display.
 			# The placeholder is what the drawing is called.
 			description = _("{name}, whole drawing").format(name=name)
+		elif self.showsWidestView:
+			# A magnification means nothing for a chart that was never shown whole, and how
+			# much of it is under the hands is the thing worth knowing.
+			# Translators: reports a chart too wide to show whole, at the widest view it has.
+			# Placeholders are what it is called, how many of its points are shown, how many
+			# it has, and where in it the visible part sits.
+			description = _("{name}, {shown} of {count} shown, {position}").format(
+				name=name,
+				shown=self._drawing.points,
+				count=self._source.points,
+				position=self.positionWords(),
+			)
 		else:
 			# Translators: reports a magnified drawing. Placeholders are what it is called, how
 			# many times larger than the whole-drawing view it is, and where in it the visible
@@ -2041,7 +2101,7 @@ class GraphicsMode(PanelOwner):
 		# The figure will not draw for where the claim has landed. Falling back to the whole
 		# figure is worth one try, since a window is the thing most likely to have become
 		# impossible and fit is the one view every figure can always compose.
-		self._zoomStep = FIT
+		self._zoomStep = self._widestStep(surface.pinRectForCells(self._rect))
 		self._originX = 0
 		self._originY = 0
 		self._window = None

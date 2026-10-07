@@ -700,6 +700,11 @@ Four kinds of chart can be drawn:
 - **Open, high, low, close bars**: four columns drawn as price bars.
 - **Candlesticks**: the same four columns drawn as candlesticks.
 
+A price bar needs four pins, so a 96-pin display holds 24 of them. A price chart with more
+periods than that opens on the most recent ones, against the right edge, and says how many it
+shows: "23 of 277 shown, right edge." Pan or step back to reach the earlier periods. Shrinking
+stops at this view and says so; magnifying works as usual.
+
 **It asks which kind.** Four columns of numbers with dates down the side could be four separate
 measurements or one stock's trading prices, and the cells alone don't say which. So a "Which
 chart?" dialog offers the kinds that can be drawn from your selection, with your last choice
@@ -732,7 +737,7 @@ the point under your finger: "Close 96.3, Lower 98.5, day 149." Away from all li
 the height as a value instead.
 
 If a chart can't be drawn, you are told why: not a spreadsheet, nothing selected, no numbers in
-the selection, a value that isn't a number, more bars or periods than the display can hold,
+the selection, a value that isn't a number, more bars than the display can hold,
 more series than can be told apart, or four columns that aren't prices.
 
 ### Drawing a picture off the screen

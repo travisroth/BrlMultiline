@@ -133,6 +133,7 @@ def _priceChart(
 	drawOne: Callable,
 	name: Callable,
 	firstPoint: int = 0,
+	widen: bool = True,
 ) -> Drawing:
 	"""Lay out and draw a price chart, whichever shape each period is drawn in.
 
@@ -149,6 +150,8 @@ def _priceChart(
 	:param drawOne: draws one period, given the buffer, the period and its slot.
 	:param name: says what the chart is called, given the periods it holds.
 	:param firstPoint: which period of the whole chart the first of these is, for a window.
+	:param widen: whether more periods than fit make a chart too wide to show whole rather than
+		a refusal. True for the whole chart and False for a window of it, which has to fit.
 	:return: the drawing.
 	:raises ChartRefused: if there is nothing to chart or no room to chart it.
 	"""
@@ -167,6 +170,8 @@ def _priceChart(
 		# Translators: reported when the space for a drawing is too small for a chart.
 		raise ChartRefused(_("There is not enough room here for a chart"))
 	slot = width // len(periods)
+	if slot < MIN_SLOT and widen:
+		return _tooWide(newBuffer, width, height, periods, translate, drawOne, name)
 	if slot < MIN_SLOT:
 		raise ChartRefused(
 			# Translators: reported when a price chart has more periods than the display can
@@ -202,6 +207,59 @@ def _priceChart(
 		pointAt=_pointFinder(len(periods), width),
 		markFor=_marker(periods, edges, scale),
 		sayPoint=lambda index: _say(periods[index]),
+	)
+
+
+def _tooWide(
+	newBuffer: Callable,
+	width: int,
+	height: int,
+	periods: "list[Period]",
+	translate: Optional[Callable],
+	drawOne: Callable,
+	name: Callable,
+) -> Drawing:
+	"""The whole of a price chart with more periods than the panel holds.
+
+	**Shown a window at a time rather than refused.** A bar needs four pins, so ninety-six hold
+	twenty-four days, and a year of prices was refused outright with a message the dialog closing
+	talked over. Panning and stepping already move a window over a chart; this lets them. The
+	drawing says how many periods fit, and the mode opens it at that view on the latest of them.
+
+	Nothing of this drawing is shown: the mode never zooms out past the widest view. It is the
+	frame the windows are cut from, so its width, its points and where it says each period sits
+	are what the mode's origin and a marked period are measured in. The windows are drawn by
+	`_reframer`, each to its own scale, as for any other window.
+
+	:param newBuffer: makes a blank buffer.
+	:param width: the rectangle's width in pins.
+	:param height: its height in pins.
+	:param periods: all of them.
+	:param translate: turns a string into braille cells.
+	:param drawOne: draws one period.
+	:param name: says what the chart is called.
+	:return: the drawing.
+	:raises ChartRefused: if the display would not provide a buffer.
+	"""
+	buffer = newBuffer(width, height)
+	if buffer is None:
+		raise ChartRefused(_("The display would not provide a drawing surface"))
+	textRows = textRowsFor(height, translate, MIN_PLOT)
+	scale = Scale.forValues(
+		[value for period in periods for value in (period.high, period.low)],
+		top=textRows,
+		bottom=height - 1 - textRows,
+	)
+	return Drawing(
+		buffer,
+		name=name(periods),
+		describeAt=_describer(periods, width),
+		redraw=_reframer(newBuffer, width, height, periods, translate, drawOne, name),
+		points=len(periods),
+		pointAt=_pointFinder(len(periods), width),
+		markFor=_marker(periods, _edges(len(periods), width), scale),
+		sayPoint=lambda index: _say(periods[index]),
+		widestView=width // MIN_SLOT,
 	)
 
 
@@ -264,6 +322,7 @@ def _reframer(
 				drawOne,
 				name,
 				first,
+				widen=False,
 			)
 		except ChartRefused:
 			return None

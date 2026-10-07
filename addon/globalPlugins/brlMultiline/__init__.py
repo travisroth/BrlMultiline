@@ -16,7 +16,7 @@ that keeps their segment keeps the pin.
 """
 
 import time
-from typing import NamedTuple
+from typing import Callable, NamedTuple, Optional
 
 import addonHandler
 import api
@@ -84,6 +84,22 @@ BREAK = chr(10)
 """A line break in a dialog's text, spelled so no escape has to survive a shell."""
 
 _plugin = None
+
+AFTER_DIALOG_MILLIS = 300
+"""How long an answer to a dialog waits, so the focus coming back does not talk over it."""
+
+
+def _sayAfterDialog(text: str) -> None:
+	"""Say something once a dialog has closed and the focus is back where it was.
+
+	**Said at once, it was never heard.** Closing a dialog gives the focus back to the
+	application, and NVDA announces the focus as it arrives, cutting off whatever was being
+	said. A chart refused from the chart dialog was spoken and lost, and the reader was left
+	with nothing happening.
+
+	:param text: what to say.
+	"""
+	wx.CallLater(AFTER_DIALOG_MILLIS, ui.message, text)
 
 
 class FocusDisplayTarget(NamedTuple):
@@ -2998,41 +3014,48 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			finally:
 				gui.mainFrame.postPopup()
 			if 0 <= chosen < len(offers):
-				self.drawChart(offers[chosen])
+				self.drawChart(offers[chosen], say=_sayAfterDialog)
 
 		wx.CallAfter(ask)
 
-	def drawChart(self, offer) -> None:
+	def drawChart(self, offer, say: Optional[Callable] = None) -> None:
 		"""Draw one of the charts on offer and put it on the display.
 
 		The size is asked for again here rather than carried in from the command, because
 		a dialog was open in between and a display can be unplugged while one is.
 
 		:param offer: what to draw, from `chartMenu.offersFor`.
+		:param say: speaks the answer, `ui.message` if not given. `_sayAfterDialog` when the
+			chart was chosen in the dialog, whose closing gives the focus back and would talk
+			over the answer.
 		"""
+		say = say or ui.message
 		# Again here, for a picture pressed for while the chart dialog was open.
 		self._cancelPictureRequest()
 		mode = self.graphicsMode
 		size = mode.drawingSize()
 		if size is None:
 			# Translators: reported when a drawing was asked for on a display that cannot draw.
-			ui.message(_("This display cannot show graphics"))
+			say(_("This display cannot show graphics"))
 			return
 		try:
 			drawing = offer.draw(mode.newBuffer, size[0], size[1], graphicsMode.labelCells)
 		except (chartSource.NoNumbers, chartDraw.ChartRefused) as refusal:
-			ui.message(str(refusal))
+			# Logged as well as said: a refusal said over the focus coming back was heard as
+			# nothing happening, and the log had nothing to show for it either.
+			log.info(f"BrlMultiline: {offer.key} chart refused: {refusal}")
+			say(str(refusal))
 			return
 		except Exception:
 			log.error("BrlMultiline: could not chart the selection", exc_info=True)
 			# Translators: reported when charting failed for a reason worth a log entry.
-			ui.message(_("The chart could not be made, see the log"))
+			say(_("The chart could not be made, see the log"))
 			return
 		self._lastChartKind = offer.key
 		if not mode.enter(drawing):
-			ui.message(mode.lastError or _("The drawing could not be shown"))
+			say(mode.lastError or _("The drawing could not be shown"))
 			return
-		ui.message(mode.describe())
+		say(mode.describe())
 
 	@script(
 		# Translators: input help message for a command.

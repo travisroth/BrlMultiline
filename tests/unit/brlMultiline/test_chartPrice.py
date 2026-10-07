@@ -168,12 +168,23 @@ class TestWhatAPriceChartRefuses(unittest.TestCase):
 		with self.assertRaises(ChartRefused):
 			ohlcChart(newBuffer, 96, 35, [])
 
-	def test_morePeriodsThanTheDisplayHolds(self):
-		"""Silently charting the first twenty-four of sixty days would be a different chart
-		drawn confidently, which is worse than saying it does not fit."""
-		with self.assertRaises(ChartRefused) as caught:
-			ohlcChart(newBuffer, 96, 35, [RISING] * 40)
-		self.assertIn("24", str(caught.exception))
+	def test_morePeriodsThanTheDisplayHoldsAreShownAWindowAtATime(self):
+		"""Refused, a year of prices could not be charted at all. The whole chart keeps every
+		period and says how many one view holds; the mode shows it a window at a time and says
+		how many of how many are shown, so it is never a shorter chart drawn confidently."""
+		drawing = ohlcChart(newBuffer, 96, 35, [RISING] * 40)
+		self.assertEqual(drawing.points, 40)
+		self.assertEqual(drawing.widestView, 24)
+		self.assertIsNotNone(drawing.redraw)
+
+	def test_aWindowOfMorePeriodsThanFitIsStillRefused(self):
+		"""So the mode keeps the view it had rather than drawing bars too narrow to read."""
+		drawing = ohlcChart(newBuffer, 96, 35, [RISING] * 40)
+		self.assertIsNone(drawing.redraw(0.0, 0.9, 96, 35))
+		self.assertEqual(drawing.redraw(0.0, 0.5, 96, 35).points, 20)
+
+	def test_whatFitsIsDrawnWhole(self):
+		self.assertEqual(ohlcChart(newBuffer, 96, 35, [RISING] * 24).widestView, 0)
 
 	def test_theLimitIsTheNarrowestBarThatCanCarryTwoTicks(self):
 		"""Three pins of bar and one of gap. A bar with its ticks on top of its stem is a bar

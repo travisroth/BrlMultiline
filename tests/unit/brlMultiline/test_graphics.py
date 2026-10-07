@@ -2164,6 +2164,45 @@ class TestSteppingThroughAChart(unittest.TestCase):
 		self.assertTrue(self.holds())
 		self.assertEqual(self.mode.markedPoint, self.mode.drawing.firstPoint)
 
+	def prices(self, count):
+		from brlMultiline.chartPrice import Period, ohlcChart
+
+		periods = [Period(f"d{index}", 10, 12 + index % 3, 9, 11) for index in range(count)]
+		return ohlcChart(self.mode.newBuffer, self.width, self.height, periods)
+
+	def test_aPriceChartTooWideToShowWholeOpensOnItsLatestPeriods(self):
+		"""Found on hardware: 277 days of prices were refused, since 96 pins hold 24 bars."""
+		self.assertTrue(self.mode.enter(self.prices(277)))
+		drawing = self.mode.drawing
+		self.assertEqual(drawing.firstPoint + drawing.points, 277)
+		self.assertLessEqual(drawing.points, 24)
+		self.assertIn(f"{drawing.points} of 277 shown, right edge", self.mode.describe())
+
+	def test_itZoomsOutNoFurtherThanWhatFits(self):
+		self.mode.enter(self.prices(277))
+		self.assertFalse(self.mode.zoomBy(-1))
+		self.assertEqual(self.mode.zoomRefusal(-1), "as much as fits at once; pan to see the rest")
+		self.assertTrue(self.mode.zoomBy(1))
+		self.assertTrue(self.mode.zoomBy(-1))
+		self.assertTrue(self.mode.showsWidestView)
+
+	def test_everyPeriodCanBePannedToAndSteppedThrough(self):
+		self.mode.enter(self.prices(277))
+		across, _down = self.mode.panStep()
+		while self.mode.panBy(-across, 0):
+			pass
+		self.assertEqual(self.mode.drawing.firstPoint, 0)
+		self.assertEqual(self.mode.stepPoint(1).split(",")[0], "d0")
+		for index in range(1, 277):
+			self.mode.stepPoint(1)
+			self.assertEqual(self.mode.markedPoint, index)
+			self.assertTrue(self.holds(), index)
+
+	def test_aPriceChartThatFitsIsStillShownWhole(self):
+		self.mode.enter(self.prices(20))
+		self.assertEqual(self.mode.zoom, 0)
+		self.assertIn("whole drawing", self.mode.describe())
+
 	def test_theReportSaysWhichPoint(self):
 		self.mode.enter(self.bars([3, 5, 7]))
 		self.mode.stepPoint(1)
