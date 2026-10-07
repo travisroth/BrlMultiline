@@ -439,8 +439,10 @@ def describeLineFocus(control) -> str:
 	except Exception:
 		log.debugWarning("Could not read the band to look for the focus mark", exc_info=True)
 		return "on, but the band could not be read."
-	wanted = [FOCUS_CELL] * FOCUS_WIDTH
-	marked = [row for row in range(len(cells) // numCols) if cells[row * numCols :][:FOCUS_WIDTH] == wanted]
+	# Where the band draws glyphs the mark is the square's cell and then a blank, as Monarch
+	# draws its own list focus. See `FlowController._markLineFocus`.
+	wanted = ([FOCUS_CELL] * FOCUS_WIDTH, [FOCUS_CELL] + [0] * (FOCUS_WIDTH - 1))
+	marked = [row for row in range(len(cells) // numCols) if cells[row * numCols :][:FOCUS_WIDTH] in wanted]
 	if marked:
 		return f"on, marked on {'rows' if len(marked) > 1 else 'row'} {', '.join(map(str, marked))}."
 	return "on, but nothing is marked: the focused row is at the margin, with no room for it."

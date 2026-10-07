@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Optional
 
 from logHandler import log
 
-from . import flowForms, flowIndent, glyphFlow
+from . import flowForms, flowIndent, glyphFlow, glyphs
 from .flow import (
 	BLANK_CELL,
 	NO_POSITION,
@@ -155,6 +155,9 @@ class FlowController(PanelOwner):
 
 		self._presentation = self._presentationFor(indentStyle, lineFocus)
 		"""The settings the band was last drawn under. See `reconfigure`."""
+
+		self._focusFitted: Optional[tuple] = None
+		"""The driver the focus square was last fitted for, and the square. See `_focusGlyph`."""
 
 		self._following = False
 		"""Guards against following a cursor move that this controller made itself."""
@@ -2874,6 +2877,7 @@ class FlowController(PanelOwner):
 		"""
 		found: dict = {}
 		self._pinnedGlyphs(found)
+		self._focusGlyphs(found)
 		numCols = self.renderer.numCols
 		# The last block rather than a table of them, because a bookmark is comparable and not
 		# hashable — NVDA's own are — and because a block's cells are consecutive, so one
@@ -2943,19 +2947,41 @@ class FlowController(PanelOwner):
 
 		Rows too near the left margin to carry it are left alone. See `flowIndent.focusMark`.
 
+		**Where the band draws glyphs, the mark is Monarch's own.** The square goes on the first
+		cell of the mark and the second is left blank, which is how the firmware draws its list
+		focus; the dots 3678 under the square are what the driver matches on. See `_focusGlyph`.
+
 		:param cells: the assembled band, modified in place.
 		"""
-		if not self.lineFocus or self.activeBlockId is None:
+		mark, marked = self._lineFocusRows()
+		if not marked:
 			return
+		if self._focusGlyph() is not None:
+			mark = (mark[0],) + (BLANK_CELL,) * (len(mark) - 1)
+		numCols = self.renderer.numCols
+		for index in marked:
+			for offset, cell in enumerate(mark):
+				cells[index * numCols + offset] = cell
+
+	def _lineFocusRows(self) -> "tuple[tuple[int, ...], list[int]]":
+		"""Which rows of the window carry the focus mark, and the mark they carry.
+
+		One answer for the cells and the glyphs both, so the square can never be registered on a
+		row that was not marked. See `_markLineFocus` for why the room is asked of the item.
+
+		:return: the mark's cells, and the window rows it goes on; no rows where nothing is marked.
+		"""
+		if not self.lineFocus or self.activeBlockId is None:
+			return (), []
 		try:
 			rows = self.window.visibleRows()
 			block = self.window.blocks[self.window.blockIndex(self.activeBlockId)]
 		except LookupError:
-			return
+			return (), []
 		mark = flowIndent.focusMark(self.renderer.indentPlan.cellsFor(block.depth))
 		if not mark:
-			return
-		numCols = self.renderer.numCols
+			return (), []
+		marked = []
 		for index, row in enumerate(rows):
 			if row.kind is not RowKind.CONTENT or row.blockId != self.activeBlockId:
 				continue
@@ -2964,8 +2990,37 @@ class FlowController(PanelOwner):
 				# one the block was rendered under, so this cannot fire — and if it ever did,
 				# the mark would be sitting on a cell of the reader's text.
 				continue
-			for offset, cell in enumerate(mark):
-				cells[index * numCols + offset] = cell
+			marked.append(index)
+		return mark, marked
+
+	def _focusGlyph(self) -> "Optional[glyphs.Fitted]":
+		""":return: the focus square fitted for the band's display, or None where none is drawn.
+
+		Fitted over the one cell it stands on, so it is drawn in place and moves nothing. Kept
+		per driver, because a shape belongs to the driver that built it and the band can move.
+		"""
+		target = self.renderer.glyphTarget
+		if target is None or not self.renderer.glyphsWanted:
+			return None
+		held = self._focusFitted
+		if held is not None and held[0] is target.driver:
+			return held[1]
+		fitted = glyphs.fittedOver(target.driver, glyphs.FOCUS, [flowIndent.FOCUS_CELL])
+		self._focusFitted = (target.driver, fitted)
+		return fitted
+
+	def _focusGlyphs(self, found: dict) -> None:
+		"""Add the focus square on the first cell of every marked row.
+
+		:param found: the table being built, by band position.
+		"""
+		fitted = self._focusGlyph()
+		if fitted is None:
+			return
+		_mark, marked = self._lineFocusRows()
+		numCols = self.renderer.numCols
+		for index in marked:
+			found[index * numCols + self.pinnedCells] = fitted
 
 	def _indentOfRow(self, row) -> int:
 		"""How many cells of indent one row of the window was drawn with.

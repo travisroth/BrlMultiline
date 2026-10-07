@@ -222,7 +222,7 @@ def _numbers(group: str) -> "list[int]":
 
 FOCUS = Glyph(
 	dots="1,2,3,4,5,6,9,10,11",
-	fallbackDots="1,2,3,4,5,6",
+	fallbackDots="3,6,7,8",
 	stands="the add-on's own list focus mark",
 	describes="a solid square with the bottom row clear",
 )
@@ -234,9 +234,12 @@ FOCUS = Glyph(
 	...
 
 A solid three by three with the fourth row clear. It is easy to find precisely because it is
-square, and square needs three columns — which is why the add-on's present approximation is
-dots 3678 twice and does not read the same. The fallback is the shape with its third column
-taken away: a solid two by three, which stays recognisable on a Focus.
+square, and square needs three columns, which braille's dots 3678 cannot give.
+
+Drawn by `flowControl._markLineFocus` rather than found in text: the square goes on the first
+cell of the mark and the second is left blank, as Monarch does it. The fallback is
+`flowIndent.FOCUS_CELL`, the cell the band writes there, because that is what the driver
+matches on. Where nothing draws, the mark stays dots 3678 twice.
 """
 
 PENDING = Glyph(

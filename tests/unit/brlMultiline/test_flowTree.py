@@ -37,7 +37,7 @@ from ._stubs import (
 
 installStubs()
 
-from brlMultiline import flowObjects  # noqa: E402
+from brlMultiline import flowObjects, glyphFlow, glyphs  # noqa: E402
 from brlMultiline.flowIndent import FOCUS_CELL  # noqa: E402
 from brlMultiline.flowControl import FlowController  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
@@ -359,6 +359,39 @@ class TestMarkingTheRowTheFocusIsOn(unittest.TestCase):
 		control = self._controller(index, at="Work")
 		marked = [row for row in range(5) if self._rowCells(control, row)[:2] == [FOCUS_CELL] * 2]
 		self.assertEqual(marked, [0, 1])
+
+	def _drawing(self, control):
+		""":return: the controller, on a display that draws glyphs, with them asked for."""
+
+		class Draws:
+			def newGlyph(self, rows, fallback):
+				return (tuple(rows), tuple(fallback))
+
+		control.renderer.glyphTarget = glyphFlow.Target(Draws(), 0, 5, NUM_COLS)
+		control.renderer.glyphsWanted = True
+		return control
+
+	def test_whereGlyphsDrawTheSecondCellOfTheMarkIsLeftBlank(self):
+		"""Monarch's own list focus: the square on the first cell and a space after it."""
+		_control, index = tree()
+		control = self._drawing(self._controller(index, at="Work"))
+		self.assertEqual(self._rowCells(control, 0)[:2], [FOCUS_CELL, 0])
+
+	def test_theSquareStandsOnTheFirstCellOfEveryMarkedRow(self):
+		_control, index = tree()
+		index["Work"].name = "Work in progress"
+		control = self._drawing(self._controller(index, at="Work"))
+		found = control.cellGlyphs()
+		self.assertEqual(sorted(found), [0, NUM_COLS])
+		drawn = found[0].drawn
+		self.assertEqual(drawn, (tuple(glyphs.patternRows(glyphs.FOCUS.dots)), (FOCUS_CELL,)))
+
+	def test_withGlyphsOffTheMarkIsTwoCells(self):
+		_control, index = tree()
+		control = self._drawing(self._controller(index, at="Work"))
+		control.renderer.glyphsWanted = False
+		self.assertEqual(self._rowCells(control, 0)[:2], [FOCUS_CELL] * 2)
+		self.assertEqual(control.cellGlyphs(), {})
 
 
 def wrappedTree():

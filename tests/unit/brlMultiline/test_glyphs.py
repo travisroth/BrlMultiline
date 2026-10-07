@@ -21,6 +21,7 @@ from ._stubs import installStubs
 installStubs()
 
 from brlMultiline import glyphs  # noqa: E402
+from brlMultiline.flowIndent import FOCUS_CELL  # noqa: E402
 
 
 def spell(text):
@@ -147,14 +148,14 @@ class TestTheVocabulary(unittest.TestCase):
 		self.assertEqual(unchecked, [ord(character) - 0x2800 for character in "⣏⣀⣹"])
 
 	def test_theFocusIndicatorIsMonarchsOwnSquare(self):
-		"""Easy to find precisely because it is square, and square needs three columns — which
-		is why the add-on's present approximation of dots 3678 twice does not read the same."""
+		"""Easy to find precisely because it is square, and square needs three columns, which
+		braille's dots 3678 cannot give."""
 		self.assertEqual(glyphs.patternRows(glyphs.FOCUS.dots), ["OOO", "OOO", "OOO", "..."])
 
-	def test_theFocusFallbackIsTheShapeWithItsThirdColumnTakenAway(self):
-		"""Which is what makes it recognisable on a display that cannot draw: a solid two by
-		three is the same idea, smaller."""
-		self.assertEqual(glyphs.cellValue(glyphs.FOCUS.fallbackDots), 0x3F)
+	def test_theFocusFallbackIsTheCellTheBandWrites(self):
+		"""The driver matches a glyph on its fallback, and the band writes dots 3678 where the
+		square goes, so anything else would retire the square on its first frame."""
+		self.assertEqual(glyphs.cellValue(glyphs.FOCUS.fallbackDots), FOCUS_CELL)
 
 	def test_aCheckboxIsToldFromAnEmptyOneByBeingSolid(self):
 		"""Solid against hollow is the difference between a surface and an edge, which is the
@@ -218,7 +219,7 @@ class TestFittingOneToADisplay(unittest.TestCase):
 
 	def test_aFallbackWrittenAsDotsNeedsNoTable(self):
 		fitted = glyphs.fittedGlyph(self.driver, glyphs.FOCUS, spell)
-		self.assertEqual(fitted.cells, [0x3F])
+		self.assertEqual(fitted.cells, [FOCUS_CELL])
 		self.assertEqual(fitted.saved, 0)
 
 	def test_aShapeWiderThanItsTextIsRefused(self):
