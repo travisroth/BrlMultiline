@@ -234,9 +234,11 @@ class TestDrawingThePictureHere(unittest.TestCase):
 		"""It goes through `replaceSource` rather than `enter`, because `enter` resets the zoom
 		and both origins -- and comparing two styles means feeling the same part in both."""
 		self.plugin.script_drawPicture(None)
+		asked = len(self.mode.askedFor)
 		self.plugin.script_pictureStyle(None)
 		self.assertEqual(len(self.mode.shown), 2)
-		self.assertEqual(self.mode.askedFor.count(None), 0)
+		# The first drawing leaves the line to the mode; a style change carries the reader's.
+		self.assertNotIn(None, self.mode.askedFor[asked:])
 
 	def test_aStyleThatWillNotDrawTheCurrentWindowSaysSo(self):
 		self.plugin.script_drawPicture(None)

@@ -3314,7 +3314,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Whatever the reader has already decided about the braille line beside the drawing.
 		# Asking for the default instead would put the line back on a panel they had given
 		# whole to the picture, and shrink the drawing, while claiming to change its style.
-		textLines = mode.textLines if mode.active else graphicsMode.DEFAULT_TEXT_LINES
+		# None for a first drawing, which the mode decides: see `GraphicsMode.openingTextLines`.
+		textLines = mode.textLines if mode.active else None
 		size = mode.drawingSize(textLines)
 		if size is None:
 			# Translators: reported when a drawing was asked for on a display that cannot draw.

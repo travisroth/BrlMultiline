@@ -51,6 +51,7 @@ from pinBuffer import PinBuffer  # noqa: E402
 
 from brlMultiline.graphics import PinRect, findSurface  # noqa: E402
 from brlMultiline.graphicsMode import (  # noqa: E402
+	DEFAULT_TEXT_LINES,
 	FIT,
 	MAX_ZOOM_STEP,
 	OVERLAY_KEY,
@@ -452,6 +453,41 @@ class TestTheClaim(unittest.TestCase):
 		self.assertIsInstance(self.panel(), GraphicsPanel)
 		self.assertEqual(self.panel().name, PANEL_NAME)
 		self.assertEqual(self.panel().rect, SegmentRect(row=0, col=0, numRows=8, numCols=32))
+
+	def composite(self, focusRow):
+		""":return: the Monarch beside an 80 cell display, the focus segment on `focusRow`."""
+		useDisplay(
+			fakeVirtualDisplay(
+				("freedomScientific", 0, 1, 80),
+				("fakeMonarch", 1, 8, 32),
+				drivers={
+					"freedomScientific": FakePlainDriver(),
+					"fakeMonarch": FakeDrawableDriver(numRows=8, numCols=32),
+				},
+			),
+		)
+		focus = types.SimpleNamespace(rect=SegmentRect(row=focusRow, col=0, numRows=1, numCols=32))
+		self.plugin.container = types.SimpleNamespace(focusSegment=focus)
+
+	def test_withTheFocusOnAnotherDisplayTheDrawingTakesTheWholeBand(self):
+		"""Found on hardware: the line beside the drawing was kept with the focus on the 80 cell
+		display, and showed nothing anyone was reading."""
+		self.composite(focusRow=0)
+		whole = self.mode.drawingSize(0)
+		self.assertEqual(self.mode.drawingSize(), whole)
+		self.assertTrue(self.mode.enter())
+		self.assertEqual(self.mode.textLines, 0)
+		self.assertEqual(self.panel().textRows, 0)
+
+	def test_onADisplayDoingDoubleDutyTheFocusLineIsKept(self):
+		self.composite(focusRow=1)
+		self.assertTrue(self.mode.enter())
+		self.assertEqual(self.mode.textLines, DEFAULT_TEXT_LINES)
+		self.assertLess(self.mode.drawingSize()[1], self.mode.drawingSize(0)[1])
+
+	def test_whereTheFocusCannotBeFoundTheLineIsKept(self):
+		self.assertTrue(self.mode.enter())
+		self.assertEqual(self.mode.textLines, DEFAULT_TEXT_LINES)
 
 	def test_theBandIsTheMembersOwnRowsInsideAComposite(self):
 		monarch = FakeDrawableDriver(numRows=8, numCols=32)

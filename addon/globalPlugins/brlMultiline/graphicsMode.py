@@ -500,7 +500,42 @@ class GraphicsMode(PanelOwner):
 
 	# --- Entering and leaving ---------------------------------------------------------------
 
-	def drawingSize(self, textLines: int = DEFAULT_TEXT_LINES) -> Optional[tuple]:
+	def openingTextLines(self) -> int:
+		""":return: the braille lines a drawing keeps when it is put up, before the reader says.
+
+		**The line is kept only where it is the focus line.** On a display doing double duty,
+		the drawing's band is where the reader's focus braille is, and the line beside the
+		drawing is that braille. On a composite whose focus is on another display, the line was
+		kept all the same and showed nothing anyone was reading: a row of pins taken from every
+		chart for no reason. So there the drawing takes the whole band.
+
+		The line can still be given or taken back with the reader's own command either way.
+		"""
+		surface = findSurface()
+		if surface is None or self._bandHoldsFocus(surface):
+			return DEFAULT_TEXT_LINES
+		return 0
+
+	def _bandHoldsFocus(self, surface: GraphicsSurface) -> bool:
+		""":return: whether the focus segment is on the rows a drawing would claim.
+
+		True when that cannot be told, which keeps the line: a line kept for nothing costs a
+		row of pins, and a focus line lost costs the reader where they are.
+
+		:param surface: the display that can draw.
+		"""
+		container = getattr(self.plugin, "container", None)
+		if container is None:
+			return True
+		try:
+			rect = container.focusSegment.rect
+		except Exception:
+			log.debugWarning("BrlMultiline: could not find the focus segment", exc_info=True)
+			return True
+		top = surface.rowStart
+		return rect.row < top + surface.numRows and top < rect.row + rect.numRows
+
+	def drawingSize(self, textLines: Optional[int] = None) -> Optional[tuple]:
 		"""How big a drawing would be if one were shown now.
 
 		For a caller composing a drawing for this display rather than bringing one that
@@ -509,9 +544,12 @@ class GraphicsMode(PanelOwner):
 		band, the pitch, the text line, the composite's offset — in one place instead of
 		being repeated by everything that wants to draw.
 
-		:param textLines: braille lines that would be kept beside it.
+		:param textLines: braille lines that would be kept beside it. None for what a drawing
+			put up now would keep, see `openingTextLines`.
 		:return: width and height in pins, or None where nothing can be drawn.
 		"""
+		if textLines is None:
+			textLines = self.openingTextLines()
 		surface = findSurface()
 		if surface is None:
 			return None
@@ -534,15 +572,18 @@ class GraphicsMode(PanelOwner):
 		surface = findSurface()
 		return None if surface is None else surface.newBuffer(width, height)
 
-	def enter(self, drawing: Optional[Drawing] = None, textLines: int = DEFAULT_TEXT_LINES) -> bool:
+	def enter(self, drawing: Optional[Drawing] = None, textLines: Optional[int] = None) -> bool:
 		"""Claim a rectangle and show a figure in it.
 
 		:param drawing: the figure, or None for the test figure sized to the claim.
 		:param textLines: braille lines to leave to NVDA above the drawing. Zero is allowed
 			and gives the whole drawable display to the figure, which a claim will refuse if
-			those rows hold the focus segment.
+			those rows hold the focus segment. None for `openingTextLines`, which is zero
+			where the focus is on another display.
 		:return: whether the figure is up.
 		"""
+		if textLines is None:
+			textLines = self.openingTextLines()
 		self.lastError = None
 		surface = findSurface()
 		if surface is None:

@@ -931,10 +931,13 @@ Two messages may be announced each time you move the view:
 the image gets. On a Monarch at the default 8 rows, an image is 96 by 35 pins with a braille line
 beside it, or 96 by 40 without. The switch keeps your magnification and position.
 
+A drawing keeps the braille line only when that line is your focus braille. With two displays
+combined and the focus on the other one, a drawing on the Monarch takes the whole display from
+the start, since a line there would show nothing you are reading. On a display doing double
+duty, the line is kept.
+
 Giving the image the whole display has a cost on a single display: NVDA's focus is not shown
-while the image is up. You are told when this happens, and the same command undoes it. With two
-displays combined, you can put the focus on the other display and give the whole Monarch to the
-drawing.
+while the image is up. You are told when this happens, and the same command undoes it.
 
 ### While a drawing is up
 

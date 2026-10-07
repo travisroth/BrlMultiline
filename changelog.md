@@ -20,6 +20,12 @@ Added:
   it as well as saying it, so the next step goes on from the point you pressed. Stepping from a
   press tested on the Monarch.
 
+- **A drawing takes the whole display when the focus is elsewhere.** With two displays combined
+  and the focus on the other one, a chart or picture on the Monarch no longer keeps a braille
+  line beside it that showed nothing; it gets every row. A display that also holds the focus
+  keeps the line, as before, and the show or hide command still switches it either way. Tested
+  on the Monarch.
+
 - **Price charts longer than the display.** Open, high, low, close bars and candlesticks need
   four pins a period, so a 96-pin display holds 24. A longer selection was refused, and the
   refusal was talked over by the focus returning from the chart dialog, so nothing seemed to
