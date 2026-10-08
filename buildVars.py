@@ -20,12 +20,14 @@ addon_info = AddonInfo(
 	addon_summary=_("BrlMultiline"),
 	# Add-on description
 	# Translators: Long description to be shown for this add-on on add-on information from add-on store
-	addon_description=_("""Proof of concept multiline support. Divides a braille display into several independent segments.
-Each segment holds its own content and scrolls on its own, so a multi line display such as the
-Monarch can show more than one thing at a time, and a large single line display can be split into
-two working areas."""),
+	addon_description=_("""
+	Proof of concept multiline Braille support. It allows Braille to fill a multiline display across objects, such as multiple links and paragraphs of a web page.
+	It has spatial layouts for tables, lists and trees. 
+	Includes a custom Humanware Monarch Braille display driver that supports drawing, and 8 and 10 rows, as well as providing individual names for every key.
+	Provides a virtual Braille display driver to allow running multiple displays at once.
+	"""),
 	# version
-	addon_version="0.1.0",
+	addon_version="2026.3.0",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
 	addon_changelog=_("""Initial development version."""),
@@ -34,7 +36,7 @@ two working areas."""),
 	# URL for the add-on documentation support
 	addon_url=None,
 	# URL for the add-on repository where the source code can be found
-	addon_sourceURL=None,
+	addon_sourceURL="https://github.com/travisroth/BrlMultiline",
 	# Documentation file name
 	addon_docFileName="readme.html",
 	# Minimum NVDA version supported (e.g. "2019.3.0", minor version is optional)
@@ -45,7 +47,7 @@ two working areas."""),
 	# Multi row display support (DisplayDimensions, numRows/numCols) is older, from 2026.1.
 	addon_minimumNVDAVersion="2026.3.0",
 	# Last NVDA version supported/tested (e.g. "2024.4.0", ideally more recent than minimum version)
-	addon_lastTestedNVDAVersion="2026.3.0",
+	addon_lastTestedNVDAVersion="2027.1.0",
 	# Add-on update channel (default is None, denoting stable releases,
 	# and for development releases, use "dev".)
 	# Do not change unless you know what you are doing!
