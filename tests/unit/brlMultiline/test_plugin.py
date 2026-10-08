@@ -13,6 +13,8 @@ before, after, or instead of running.
 """
 
 import contextlib
+import os
+import sys
 import types
 import unittest
 
@@ -548,6 +550,191 @@ class TestTheChartKeys(unittest.TestCase):
 		self.plugin.script_graphicsZoomToPoints(None)
 		self.plugin.script_graphicsNextView(None)
 		self.assertEqual(flashedMessages[-2:], ["No drawing", "No drawing"])
+
+
+class TestFollowingAnApplicationsChart(unittest.TestCase):
+	"""The plugin's half of `docs/design/excel-chart-plan.md`: drawing the chart the reader is on,
+	marking the point the screen reader's chart navigation arrives at, and moving that
+	navigation when the reader steps on the pins."""
+
+	KEY = ("C:/charting.xlsx", "Prices Chart 1")
+
+	class FakeMode:
+		def __init__(self, chartKey=None):
+			self.active = chartKey is not None
+			self.source = types.SimpleNamespace(chartKey=chartKey)
+			self.marks = []
+			self.entered = []
+
+		def markPoint(self, index, levelName=None):
+			self.marks.append((index, levelName))
+			return True
+
+		def drawingSize(self, textLines=None):
+			return (96, 35)
+
+		def newBuffer(self, width, height):
+			# The Monarch driver's own buffer, so a chart is really drawn.
+			driver = os.path.join(
+				os.path.dirname(__file__), "..", "..", "..", "addon", "brailleDisplayDrivers", "brlMultilineMonarch"
+			)
+			if driver not in sys.path:
+				sys.path.insert(0, driver)
+			from pinBuffer import PinBuffer
+
+			return PinBuffer(width, height)
+
+		def enter(self, drawing):
+			self.entered.append(drawing)
+			return True
+
+		def describe(self):
+			return "the chart now"
+
+	class FakeChart:
+		def __init__(self, key, definition=None):
+			self._key = key
+			self._definition = definition
+
+		def key(self):
+			return self._key
+
+		def definition(self):
+			return self._definition
+
+	class FakePart:
+		"""One of NVDA's chart objects, wearing the Excel module's overlay."""
+
+		def __init__(self, test, key, point=None, seriesName="Close"):
+			self.test = test
+			self.key = key
+			self.point = point
+			self.seriesName = seriesName
+			self.led = []
+
+		def brlMultilineChart(self):
+			return TestFollowingAnApplicationsChart.FakeChart(self.key)
+
+		def brlMultilinePoint(self):
+			if self.point is None:
+				return None
+			return types.SimpleNamespace(key=self.key, index=self.point, seriesName=self.seriesName)
+
+		def brlMultilineLeadTo(self, index):
+			self.led.append(index)
+			return True
+
+	def setUp(self):
+		resetPluginState()
+		braille.handler = FakeHandler(MONARCH_ROWS, MONARCH_COLS)
+		self.plugin = GlobalPlugin()
+		self.addCleanup(self.tidy)
+		flashedMessages.clear()
+		import api
+
+		self.addCleanup(setattr, api, "getFocusObject", api.getFocusObject)
+		self.api = api
+
+	def tidy(self):
+		try:
+			if not self.plugin._terminated:
+				self.plugin.terminate()
+		except Exception:
+			pass
+
+	def use(self, chartKey=KEY):
+		self.plugin.graphicsMode = self.FakeMode(chartKey)
+		return self.plugin.graphicsMode
+
+	def focusOn(self, obj):
+		self.api.getFocusObject = lambda: obj
+
+	def test_aPointOfTheDrawnChartIsMarked(self):
+		mode = self.use()
+		self.plugin._followChart(self.FakePart(self, self.KEY, point=7, seriesName="Average"))
+		self.assertEqual(mode.marks, [(7, "Average")])
+
+	def test_aPointOfAnotherChartIsNot(self):
+		mode = self.use()
+		self.plugin._followChart(self.FakePart(self, ("C:/charting.xlsx", "Other Chart 2"), point=7))
+		self.assertEqual(mode.marks, [])
+
+	def test_aPartThatIsNotAPointIsNot(self):
+		mode = self.use()
+		self.plugin._followChart(self.FakePart(self, self.KEY))
+		self.assertEqual(mode.marks, [])
+
+	def test_aDrawingNotFromAChartIsLeftAlone(self):
+		mode = self.use()
+		mode.source = types.SimpleNamespace()
+		self.plugin._followChart(self.FakePart(self, self.KEY, point=7))
+		self.assertEqual(mode.marks, [])
+
+	def test_followingRunsOnEveryFocusChange(self):
+		mode = self.use()
+		self.plugin.event_gainFocus(self.FakePart(self, self.KEY, point=2), lambda: None)
+		self.assertEqual(mode.marks, [(2, "Close")])
+
+	def test_aStepOnThePinsMovesTheScreenReadersPlace(self):
+		self.use()
+		focus = self.FakePart(self, self.KEY, point=1)
+		self.focusOn(focus)
+		self.plugin.onPointMarked(5)
+		self.assertEqual(focus.led, [5])
+
+	def test_notWhenTheReaderHasGoneBackToTheCells(self):
+		self.use()
+		self.focusOn(FakeNavigatorObject("a cell"))
+		self.plugin.onPointMarked(5)
+
+	def test_notWhenTheFocusIsInAnotherChart(self):
+		self.use()
+		focus = self.FakePart(self, ("C:/charting.xlsx", "Other Chart 2"), point=1)
+		self.focusOn(focus)
+		self.plugin.onPointMarked(5)
+		self.assertEqual(focus.led, [])
+
+	def test_theChartCommandOnAChartDrawsItWithoutAsking(self):
+		from brlMultiline import chartSource
+
+		mode = self.use()
+		definition = chartSource.ChartDefinition(
+			key=self.KEY,
+			title="Prices",
+			kind="line",
+			typeName="Line",
+			categories=["d0", "d1", "d2"],
+			series=[chartSource.ChartSeries("Close", [1, 2, 3])],
+		)
+		part = self.FakePart(self, self.KEY)
+		part.brlMultilineChart = lambda: self.FakeChart(self.KEY, definition)
+		self.focusOn(part)
+		self.assertTrue(self.plugin._drawFocusedChart())
+		self.assertEqual(len(mode.entered), 1)
+		self.assertEqual(mode.entered[0].chartKey, self.KEY)
+
+	def test_aChartThatCannotBeDrawnSaysWhy(self):
+		from brlMultiline import chartSource
+
+		self.use()
+		definition = chartSource.ChartDefinition(
+			key=self.KEY,
+			title="Prices",
+			kind="",
+			typeName="Scatter",
+			categories=[],
+			series=[],
+		)
+		part = self.FakePart(self, self.KEY)
+		part.brlMultilineChart = lambda: self.FakeChart(self.KEY, definition)
+		self.focusOn(part)
+		self.assertTrue(self.plugin._drawFocusedChart())
+		self.assertEqual(flashedMessages[-1], "Scatter charts cannot be drawn yet")
+
+	def test_offAChartTheSelectionIsChartedAsBefore(self):
+		self.use()
+		self.focusOn(FakeNavigatorObject("a cell"))
+		self.assertFalse(self.plugin._drawFocusedChart())
 
 
 class PluginTestCase(unittest.TestCase):

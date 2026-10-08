@@ -30,14 +30,16 @@ the drawing is each chart module's.
 
 from typing import Callable, NamedTuple, Optional
 
-from . import chart, chartLine, chartPrice, chartSource
+from . import chart, chartDraw, chartLine, chartPrice, chartSource
 
 __all__ = [
 	"BARS",
 	"CANDLE",
+	"HLC",
 	"LINE",
 	"OHLC",
 	"Offer",
+	"offerForChart",
 	"offersFor",
 ]
 
@@ -52,6 +54,9 @@ OHLC = "ohlc"
 
 CANDLE = "candle"
 """The same four columns as candlesticks."""
+
+HLC = "hlc"
+"""Three series as high, low, close bars: the price bars with no open tick."""
 
 class Offer(NamedTuple):
 	"""One chart that could be drawn from what is selected."""
@@ -215,3 +220,142 @@ def _priceOffers(table: chartSource.Table) -> "list[Offer]":
 			),
 		),
 	]
+
+
+def offerForChart(definition: chartSource.ChartDefinition) -> Offer:
+	"""The one drawing of a chart its application already defines.
+
+	One and not a list, because the chart says what it is. The dialog `offersFor` feeds exists
+	because a selection does not; a chart does, so there is nothing to ask. See
+	`docs/design/excel-chart-plan.md`.
+
+	:param definition: the chart, from its application module.
+	:return: the drawing on offer.
+	:raises chartSource.NoNumbers: with the reason, where it cannot be drawn.
+	"""
+	if not definition.kind:
+		raise chartSource.NoNumbers(
+			definition.refusal
+			# Translators: reported when a chart of a kind the display cannot draw is asked for.
+			# The placeholder is the chart's type, as the screen reader names it: "Scatter".
+			or _("{type} charts cannot be drawn yet").format(type=definition.typeName or _("These")),
+		)
+	series = definition.series
+	labels = list(definition.categories)
+	if not series or not labels:
+		raise chartSource.NoNumbers(_("There are no numbers here to chart"))
+	if definition.kind == LINE:
+		draw = _chartLines(definition)
+	elif definition.kind == BARS:
+		draw = _chartBars(definition)
+	elif definition.kind in (OHLC, HLC):
+		draw = _chartPrices(definition)
+	else:
+		raise chartSource.NoNumbers(_("{type} charts cannot be drawn yet").format(type=definition.typeName))
+
+	def drawTitled(newBuffer, width, height, translate):
+		return fromChart(draw(newBuffer, width, height, translate), definition)
+
+	return Offer(key=definition.kind, label=definition.title, draw=drawTitled)
+
+
+def _chartLines(definition: chartSource.ChartDefinition) -> Callable:
+	""":return: draws a line chart of a chart's series.
+
+	:param definition: the chart.
+	:raises chartSource.NoNumbers: for more series than can be told apart, or too few points.
+	"""
+	if len(definition.series) > chartLine.MAX_LINES:
+		raise chartSource.NoNumbers(
+			# Translators: reported when a chart has more lines than the display can tell apart.
+			# Placeholders are how many it has and how many can be drawn.
+			_("This chart has {count} lines; {most} can be told apart").format(
+				count=len(definition.series),
+				most=chartLine.MAX_LINES,
+			),
+		)
+	if len(definition.categories) < chartLine.MIN_POINTS:
+		raise chartSource.NoNumbers(_("There are no numbers here to chart"))
+	lines = [chartLine.Line(name=one.name, values=list(one.values)) for one in definition.series]
+	labels = list(definition.categories)
+	return lambda newBuffer, width, height, translate: chartLine.lineChart(
+		newBuffer,
+		width,
+		height,
+		lines,
+		labels,
+		translate,
+	)
+
+
+def _chartBars(definition: chartSource.ChartDefinition) -> Callable:
+	""":return: draws a bar chart of a chart's one series.
+
+	:param definition: the chart.
+	:raises chartSource.NoNumbers: for a point with no value, since a bar of nothing would be read
+		as a bar of zero.
+	"""
+	values = definition.series[0].values
+	if any(value is None for value in values):
+		# Translators: reported when a bar chart has a point with no value, such as an empty cell.
+		raise chartSource.NoNumbers(_("A bar here has no value"))
+	bars = [chartDraw.Series(label, value) for label, value in zip(definition.categories, values)]
+	return lambda newBuffer, width, height, translate: chart.barChart(newBuffer, width, height, bars, translate)
+
+
+def _chartPrices(definition: chartSource.ChartDefinition) -> Callable:
+	""":return: draws price bars from a stock chart's series, in the order the chart keeps them.
+
+	Open, high, low and close for an open, high, low, close chart; high, low and close for a
+	high, low, close chart, whose bars are drawn without the open tick. The order is the one the
+	application itself requires of a stock chart, so it is not guessed.
+
+	:param definition: the chart.
+	"""
+	opens = definition.kind == OHLC
+	wanted = 4 if opens else 3
+	if len(definition.series) < wanted:
+		raise chartSource.NoNumbers(
+			# Translators: reported when a stock chart has fewer series than its kind needs.
+			_("This stock chart is missing a price series"),
+		)
+	columns = [one.values for one in definition.series[:wanted]]
+	if not opens:
+		columns = [[None] * len(definition.categories), *columns]
+	periods = [
+		chartPrice.Period(label, open_, high, low, close)
+		for label, open_, high, low, close in zip(definition.categories, *columns)
+	]
+	return lambda newBuffer, width, height, translate: chartPrice.ohlcChart(
+		newBuffer,
+		width,
+		height,
+		periods,
+		translate,
+	)
+
+
+def fromChart(drawing, definition: chartSource.ChartDefinition):
+	"""Mark a drawing as made from a chart, and give it the chart's title.
+
+	**Every window of it too.** Zooming and panning compose new drawings through `redraw`, and a
+	change of view through `nextView`, and each of those has to say which chart it is a window of,
+	or a point the reader arrives at in the screen reader's chart navigation could not be matched
+	to it. So both are wrapped to mark what they make the same way.
+
+	:param drawing: what the chart module drew.
+	:param definition: the chart it was drawn from.
+	:return: the same drawing.
+	"""
+	if drawing is None:
+		return None
+	drawing.chartKey = definition.key
+	if definition.title:
+		drawing.name = ", ".join(part for part in (definition.title, drawing.name, definition.note) if part)
+	redraw = drawing.redraw
+	if redraw is not None:
+		drawing.redraw = lambda *args, **kwargs: fromChart(redraw(*args, **kwargs), definition)
+	nextView = getattr(drawing, "nextView", None)
+	if nextView is not None:
+		drawing.nextView = lambda *args, **kwargs: fromChart(nextView(*args, **kwargs), definition)
+	return drawing

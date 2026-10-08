@@ -7,7 +7,29 @@ Read [chart-point-plan.md](chart-point-plan.md) first, and the module docstring 
 `addon/appModules/excel.py`. This plan adds a second seam beside the sheet seam described there,
 and leans on the stepper, the guide lines and the level line from the chart point plan.
 
-**Status, 8 October 2026: planned, nothing built.**
+**Status, 8 October 2026: all four steps of the build order are built and unit tested, and none
+of it has been on hardware.** Where the build differs from the design below:
+
+1. **Excel's chart types are mapped in `appModules/excel.py`**, not in `chartMenu`, so the global
+   plugin never sees an Excel constant: the reading arrives with a neutral `kind` (`line`, `bars`,
+   `ohlc`, `hlc`) or an empty one and a refusal. `chartMenu.offerForChart` draws the kinds.
+2. **The reading is a `ChartReading` defined in the Excel module**, field for field the
+   `chartSource.ChartDefinition` the plugin documents, since the application module does not
+   import the global plugin. Likewise `PointReading` and `ChartPoint`.
+3. **Categories are read one cell at a time**, `Range.Item(i).Text`, as NVDA's point reads its
+   one. The plan hoped for one call per column; Excel's `Text` of a range of several cells is
+   empty unless they all agree, so there is no such call. Up to 400 COM calls on a long chart,
+   to be timed on hardware.
+4. **Axis titles are not yet added to what a press or a step says.** The title is in the name.
+5. **Following uses the series name** to move the level line, matched against the drawing's
+   `levelNames`, rather than the series number, since a view can leave lines out.
+6. **A chart drawn from Excel does not change which kind the "Which chart?" dialog opens on**
+   (`drawChart(remember=False)`).
+7. The tests are `TestReadingAnExcelChart` and `TestTheChartObjectsOfferTheChart` in
+   `test_excelAppModule.py`, `TestDrawingAnApplicationsOwnChart` in `test_chartMenu.py`,
+   `TestAHighLowCloseBar` in `test_chartPrice.py`, the `markPoint` tests in
+   `TestSteppingThroughAChart` in `test_graphics.py`, and `TestFollowingAnApplicationsChart` in
+   `test_plugin.py`.
 
 ## What NVDA already does, and what this does not repeat
 

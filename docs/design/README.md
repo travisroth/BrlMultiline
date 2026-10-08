@@ -61,8 +61,8 @@ Read the files in this order:
 12. [excel-chart-plan.md](excel-chart-plan.md) — the plan for drawing an Excel chart from the
    chart's own definition rather than from selected cells, and for keeping the chart stepper on
    the same point as NVDA's own chart navigation, both ways. Builds on NVDA's Office chart objects
-   rather than replacing them. Planned, not started. Read it before adding a chart seam to
-   `appModules/excel.py`.
+   rather than replacing them. Built and unit tested, not yet on hardware. Read it before
+   changing the chart seam in `appModules/excel.py`.
 
 ## Project background
 

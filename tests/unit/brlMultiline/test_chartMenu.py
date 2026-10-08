@@ -340,3 +340,87 @@ class TestReadingWhatIsSelected(unittest.TestCase):
 		finally:
 			chartSource._focusedSheet = original
 		self.assertIn("spreadsheet", str(caught.exception))
+
+
+class TestDrawingAnApplicationsOwnChart(unittest.TestCase):
+	"""`offerForChart`: a chart that says what it is, drawn without asking. See
+	`docs/design/excel-chart-plan.md`."""
+
+	def definition(self, kind, series, categories=None, **extra):
+		count = len(series[0][1]) if series else 0
+		return chartSource.ChartDefinition(
+			key=("book.xlsx", "Prices Chart 1"),
+			title=extra.pop("title", "Prices"),
+			kind=kind,
+			typeName=extra.pop("typeName", "Line"),
+			categories=categories or [f"d{index}" for index in range(count)],
+			series=[chartSource.ChartSeries(name, values) for name, values in series],
+			**extra,
+		)
+
+	def draw(self, definition, width=96, height=35):
+		offer = chartMenu.offerForChart(definition)
+		return offer.draw(newBuffer, width, height, None)
+
+	def test_aLineChartIsDrawnAsLines(self):
+		drawing = self.draw(self.definition(chartMenu.LINE, [("Close", [1, 2, None, 4]), ("Average", [1, 1, 2, 3])]))
+		self.assertEqual(drawing.points, 4)
+		self.assertEqual(drawing.levelNames, ("Close", "Average"))
+
+	def test_theTitleIsWhatTheDrawingIsCalled(self):
+		drawing = self.draw(self.definition(chartMenu.LINE, [("Close", [1, 2, 3, 4])]))
+		self.assertTrue(drawing.name.startswith("Prices, "), drawing.name)
+
+	def test_everyWindowSaysWhichChartItIsFrom(self):
+		"""Or a point the screen reader's chart navigation arrives at could not be matched to
+		the drawing once the reader had zoomed."""
+		drawing = self.draw(self.definition(chartMenu.LINE, [("Close", list(range(200)))]))
+		window = drawing.redraw(0.5, 0.25, 96, 35)
+		self.assertEqual(window.chartKey, ("book.xlsx", "Prices Chart 1"))
+		self.assertTrue(window.name.startswith("Prices, "))
+
+	def test_moreLinesThanCanBeToldApartAreRefused(self):
+		lines = [(f"s{index}", [1, 2, 3]) for index in range(5)]
+		with self.assertRaises(chartSource.NoNumbers) as caught:
+			chartMenu.offerForChart(self.definition(chartMenu.LINE, lines))
+		self.assertIn("5 lines", str(caught.exception))
+
+	def test_oneSeriesOfColumnsIsDrawnAsBars(self):
+		drawing = self.draw(self.definition(chartMenu.BARS, [("Sales", [3, 5, 7])], ["N", "S", "E"]))
+		self.assertEqual(drawing.points, 3)
+		self.assertEqual(drawing.sayPoint(1).split(",")[0], "S")
+
+	def test_aBarWithNoValueIsRefused(self):
+		with self.assertRaises(chartSource.NoNumbers):
+			chartMenu.offerForChart(self.definition(chartMenu.BARS, [("Sales", [3, None, 7])]))
+
+	def test_aStockChartTakesItsSeriesInOrder(self):
+		series = [("Open", [10, 11]), ("High", [12, 13]), ("Low", [9, 10]), ("Close", [11, 12])]
+		drawing = self.draw(self.definition(chartMenu.OHLC, series))
+		self.assertEqual(drawing.sayPoint(0), "d0, open 10, high 12, low 9, close 11")
+
+	def test_aHighLowCloseChartHasNoOpen(self):
+		series = [("High", [12, 13]), ("Low", [9, 10]), ("Close", [11, 12])]
+		drawing = self.draw(self.definition(chartMenu.HLC, series))
+		self.assertEqual(drawing.sayPoint(0), "d0, high 12, low 9, close 11")
+
+	def test_aStockChartMissingASeriesIsRefused(self):
+		with self.assertRaises(chartSource.NoNumbers):
+			chartMenu.offerForChart(self.definition(chartMenu.OHLC, [("Open", [1]), ("High", [2])]))
+
+	def test_aKindThatCannotBeDrawnIsRefusedByName(self):
+		definition = self.definition("", [], typeName="Scatter")
+		with self.assertRaises(chartSource.NoNumbers) as caught:
+			chartMenu.offerForChart(definition)
+		self.assertEqual(str(caught.exception), "Scatter charts cannot be drawn yet")
+
+	def test_theApplicationsOwnReasonIsSaid(self):
+		definition = self.definition("", [], refusal="Charts that mix kinds cannot be drawn yet")
+		with self.assertRaises(chartSource.NoNumbers) as caught:
+			chartMenu.offerForChart(definition)
+		self.assertEqual(str(caught.exception), "Charts that mix kinds cannot be drawn yet")
+
+	def test_aNoteIsPartOfTheName(self):
+		series = [("Open", [10, 11]), ("High", [12, 13]), ("Low", [9, 10]), ("Close", [11, 12])]
+		drawing = self.draw(self.definition(chartMenu.OHLC, series, note="volume not drawn"))
+		self.assertTrue(drawing.name.endswith(", volume not drawn"), drawing.name)

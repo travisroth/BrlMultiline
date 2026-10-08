@@ -362,8 +362,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def event_gainFocus(self, obj, nextHandler):
 		"""Let the focus through, then finish anything that was waiting for it.
 
-		The one event this add-on handles, and it is here for one thing: routing into a
-		column of a list view. The cell cannot take the focus, so the row is focused and the
+		The one event this add-on handles, and it is here for two things: routing into a
+		column of a list view, and keeping a chart on the display on the point the screen
+		reader's own chart navigation has moved to (see `_followChart`). The cell cannot take the focus, so the row is focused and the
 		navigator object is taken the rest of the way — and NVDA moves the navigator object
 		to whatever takes the focus, after the focus has arrived, which is after the routing
 		key has finished. The column asked for was set and then quietly undone.
@@ -379,6 +380,56 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			flowObjectTable.columnWantedAfterFocus(obj)
 		except Exception:
 			log.debugWarning("Could not finish going to a table column", exc_info=True)
+		try:
+			self._followChart(obj)
+		except Exception:
+			log.debugWarning("Could not follow the chart navigation onto the display", exc_info=True)
+
+	def _followChart(self, obj) -> None:
+		"""Mark the point of the chart on the display that the screen reader has just moved to.
+
+		Silently, since the screen reader has just said it. Only for a point of the very chart
+		that is drawn: arrowing through another chart leaves the display alone. Costs one
+		`getattr` that finds nothing on every focus change that is not a chart point. See
+		`docs/design/excel-chart-plan.md`.
+
+		:param obj: the new focus.
+		"""
+		mode = self.graphicsMode
+		if not mode.active:
+			return
+		key = getattr(mode.source, "chartKey", None)
+		if key is None:
+			return
+		point = chartSource.pointOf(obj)
+		if point is None or point.key != key:
+			return
+		mode.markPoint(point.index, point.seriesName)
+
+	def onPointMarked(self, index: int) -> None:
+		"""The reader moved the mark on a chart, by a step or a press. Move the screen reader's own
+		place in the chart to match, so its next arrow key goes on from there.
+
+		Called by `GraphicsMode`, never for a mark the screen reader's navigation made. Only when
+		the focus is in the very chart that is drawn; a reader who has gone back to the cells is
+		left there.
+
+		:param index: the point now marked, counting from 0.
+		"""
+		mode = self.graphicsMode
+		key = getattr(mode.source, "chartKey", None) if mode.active else None
+		if key is None:
+			return
+		try:
+			focus = api.getFocusObject()
+			chart = chartSource.chartOf(focus)
+			if chart is None or chart.key() != key:
+				return
+			lead = getattr(focus, "brlMultilineLeadTo", None)
+			if lead is not None:
+				lead(index)
+		except Exception:
+			log.debugWarning("Could not move the chart navigation to the marked point", exc_info=True)
 
 	# Buffer lifetime
 
@@ -2953,6 +3004,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when a drawing was asked for on a display that cannot draw.
 			ui.message(_("This display cannot show graphics"))
 			return
+		if self._drawFocusedChart():
+			return
 		try:
 			offers = chartMenu.offersFor(chartSource.gridFromFocus())
 		except chartSource.NoNumbers as refusal:
@@ -2973,6 +3026,45 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self.drawChart(offers[0])
 			return
 		self._chooseChart(offers)
+
+	def _drawFocusedChart(self) -> bool:
+		"""Draw the chart the reader is on, if they are on one: the application's own chart.
+
+		Asked before the selection, and with no dialog, since the chart already says what it is.
+		See `docs/design/excel-chart-plan.md`.
+
+		:return: whether the reader was on a chart, whatever came of drawing it.
+		"""
+		try:
+			chart = chartSource.chartFromFocus()
+		except chartSource.CallCancelled:
+			ui.message(_("The application did not answer in time; try again"))
+			return True
+		except Exception:
+			log.debugWarning("Could not ask the focus for a chart", exc_info=True)
+			return False
+		if chart is None:
+			return False
+		try:
+			definition = chart.definition()
+			log.info(
+				f"BrlMultiline: charting {definition.typeName or 'a chart'} {definition.title!r}, "
+				f"{len(definition.series)} series of {len(definition.categories)} points",
+			)
+			offer = chartMenu.offerForChart(definition)
+		except chartSource.NoNumbers as refusal:
+			log.info(f"BrlMultiline: chart refused: {refusal}")
+			ui.message(str(refusal))
+			return True
+		except chartSource.CallCancelled:
+			ui.message(_("The application did not answer in time; try again"))
+			return True
+		except Exception:
+			log.error("BrlMultiline: could not read the chart", exc_info=True)
+			ui.message(_("The chart could not be made, see the log"))
+			return True
+		self.drawChart(offer, remember=False)
+		return True
 
 	def _chooseChart(self, offers: list) -> None:
 		"""Ask which of several charts to draw, then draw it.
@@ -3018,7 +3110,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		wx.CallAfter(ask)
 
-	def drawChart(self, offer, say: Optional[Callable] = None) -> None:
+	def drawChart(self, offer, say: Optional[Callable] = None, remember: bool = True) -> None:
 		"""Draw one of the charts on offer and put it on the display.
 
 		The size is asked for again here rather than carried in from the command, because
@@ -3028,6 +3120,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		:param say: speaks the answer, `ui.message` if not given. `_sayAfterDialog` when the
 			chart was chosen in the dialog, whose closing gives the focus back and would talk
 			over the answer.
+		:param remember: whether this is the kind to open the chart dialog on next time. Not for
+			an application's own chart, which was never chosen in the dialog.
 		"""
 		say = say or ui.message
 		# Again here, for a picture pressed for while the chart dialog was open.
@@ -3051,7 +3145,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when charting failed for a reason worth a log entry.
 			say(_("The chart could not be made, see the log"))
 			return
-		self._lastChartKind = offer.key
+		if remember:
+			self._lastChartKind = offer.key
 		if not mode.enter(drawing):
 			say(mode.lastError or _("The drawing could not be shown"))
 			return

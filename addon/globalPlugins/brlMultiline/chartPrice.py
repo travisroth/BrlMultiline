@@ -71,8 +71,9 @@ class Period(NamedTuple):
 	label: str
 	"""The date, usually: what the reader sees in the sheet."""
 
-	open: float
-	"""What it opened at."""
+	open: Optional[float]
+	"""What it opened at. None for a high, low, close chart, which has no open to draw: its bars
+	are drawn without the left hand tick, and a press or a step says the other three."""
 
 	high: float
 	"""The highest it reached."""
@@ -121,6 +122,10 @@ def candleChart(
 	:return: the drawing, which answers with all four prices when pointed at.
 	:raises ChartRefused: if there is nothing to chart or no room to chart it.
 	"""
+	if any(period.open is None for period in periods):
+		# A candle's body runs from the open to the close, so there is nothing to draw it from.
+		# Translators: reported when candlesticks are asked for over prices with no open.
+		raise ChartRefused(_("Candlesticks need an open price for every period"))
 	return _priceChart(newBuffer, width, height, periods, translate, _drawCandle, _candleName)
 
 
@@ -159,7 +164,10 @@ def _priceChart(
 		# Translators: reported when a chart was asked for with no numbers to chart.
 		raise ChartRefused(_("There are no numbers here to chart"))
 	if not all(
-		isFinite(number) for period in periods for number in (period.open, period.high, period.low, period.close)
+		isFinite(number)
+		for period in periods
+		for number in (period.high, period.low, period.close)
+		+ (() if period.open is None else (period.open,))
 	):
 		# Refused rather than skipped: a period is four numbers that have to agree, and one of
 		# them missing is not a shorter bar, it is a bar nobody can read.
@@ -341,7 +349,7 @@ def _drawBar(buffer, period: Period, scale: Scale, left: int, barWidth: int) -> 
 	"""
 	stem = left + barWidth // 2
 	buffer.line(stem, scale.row(period.high), stem, scale.row(period.low))
-	if stem > left:
+	if stem > left and period.open is not None:
 		buffer.line(left, scale.row(period.open), stem - 1, scale.row(period.open))
 	right = left + barWidth - 1
 	if right > stem:
@@ -402,6 +410,15 @@ def _say(period: Period) -> str:
 
 	:param period: the period.
 	"""
+	if period.open is None:
+		# Translators: reported for a touch on a period of a high, low, close chart, or a step
+		# onto it. Placeholders are what the period is called and its three prices.
+		return _("{label}, high {high}, low {low}, close {close}").format(
+			label=period.label,
+			high=numberText(period.high),
+			low=numberText(period.low),
+			close=numberText(period.close),
+		)
 	# Translators: reported for a touch on a period of a price chart, or a step onto it.
 	# Placeholders are what the period is called and its four prices.
 	return _("{label}, open {open}, high {high}, low {low}, close {close}").format(
@@ -469,6 +486,14 @@ def _ohlcName(periods: "list[Period]") -> str:
 
 	:param periods: what it holds.
 	"""
+	if all(period.open is None for period in periods):
+		# Translators: the name of a high, low, close chart on the display. Placeholders are
+		# how many periods it covers and the first and last of them.
+		return _("high, low, close chart, {count} periods, {first} to {last}").format(
+			count=len(periods),
+			first=periods[0].label,
+			last=periods[-1].label,
+		)
 	# Translators: the name of an open, high, low, close chart on the display. Placeholders are
 	# how many periods it covers and the first and last of them.
 	return _("open, high, low, close chart, {count} periods, {first} to {last}").format(

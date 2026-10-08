@@ -108,6 +108,36 @@ class TestTheBarShape(unittest.TestCase):
 		self.assertEqual(self.text[5][8], "O")
 
 
+class TestAHighLowCloseBar(unittest.TestCase):
+	"""Excel's high, low, close stock charts have no open, and are drawn as the price bars with
+	no left hand tick. Decided 8 October 2026; see `docs/design/excel-chart-plan.md`."""
+
+	def setUp(self):
+		self.period = RISING._replace(open=None)
+		self.text = rows(ohlcChart(newBuffer, 12, 12, [self.period, FALLING._replace(open=None)]))
+
+	def test_thereIsNoOpenTick(self):
+		# Row 5 is where the open of 10 would have been, two pins left of the stem.
+		self.assertEqual(self.text[5][:2], "..")
+
+	def test_theStemAndTheCloseAreStillDrawn(self):
+		self.assertTrue(all(row[2] == "O" for row in self.text))
+		self.assertEqual(self.text[3][2:5], "OOO")
+
+	def test_aPressSaysTheThreePrices(self):
+		drawing = ohlcChart(newBuffer, 12, 12, [self.period])
+		self.assertEqual(drawing.describeAt(2, 3), "Mon, high 20, low 0, close 15")
+
+	def test_itIsCalledAHighLowCloseChart(self):
+		drawing = ohlcChart(newBuffer, 12, 12, [self.period])
+		self.assertTrue(drawing.name.startswith("high, low, close chart"))
+
+	def test_candlesticksAreRefusedWithNoOpen(self):
+		"""A candle's body runs from the open to the close."""
+		with self.assertRaises(ChartRefused):
+			candleChart(newBuffer, 12, 12, [self.period])
+
+
 class TestTheCandleShape(unittest.TestCase):
 	def setUp(self):
 		self.text = rows(candleChart(newBuffer, 12, 12, [RISING, FALLING]))

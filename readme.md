@@ -710,6 +710,30 @@ measurements or one stock's trading prices, and the cells alone don't say which.
 chart?" dialog offers the kinds that can be drawn from your selection, with your last choice
 selected. If only one kind fits, it is drawn without asking.
 
+#### Excel's own charts
+
+**Graphics: Chart the selected cells** also draws an Excel chart, when you are on one. Get onto
+the chart the way NVDA already does: select it, or choose it from the Charts list in the
+elements list (NVDA+F7). The chart is drawn as its author made it, with its title as its name,
+and without the dialog, since the chart already says what kind it is:
+
+- **Line charts** are drawn as line charts, up to four lines. Stacked line charts are drawn
+  with each line at its own values.
+- **Column and bar charts with one series** are drawn as bar charts.
+- **Stock charts** are drawn as price bars. A high, low, close chart's bars have no open tick,
+  and a chart with volume is drawn without the volume, which the name says.
+
+Other kinds, and charts that mix kinds or use a second value axis, are refused with NVDA's own
+name for the chart type, such as "Scatter charts cannot be drawn yet."
+
+**The display follows NVDA's chart navigation.** While the chart is drawn, arrowing through its
+points with NVDA marks the same point on the display, with its guide lines, and turns the page
+when the point is off the panel. Nothing extra is spoken; NVDA has just said the point. Moving
+to another series with up and down arrow moves the level line to that series.
+
+**And NVDA follows the display.** Stepping with the chart keys, or pressing a routing key on a
+point, moves NVDA's place in the chart too, so the next arrow key goes on from that point.
+
 A chart is laid out for the space available rather than shrunk to fit, so the whole-chart view
 is the natural starting point. Magnifying a chart lays it out again with fewer bars, each wide
 enough to identify, rather than enlarging the dots already drawn.

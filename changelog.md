@@ -20,6 +20,13 @@ Added:
   it as well as saying it, so the next step goes on from the point you pressed. Stepping from a
   press tested on the Monarch.
 
+- **Excel's own charts, following NVDA's chart navigation.** On an Excel chart, the chart command
+  draws that chart from its own definition, with its title and without the dialog: line charts,
+  single series column and bar charts, and stock charts, including high, low, close charts as
+  price bars without the open tick. Arrowing through the chart's points with NVDA marks the same
+  point on the display, and stepping or pressing on the display moves NVDA's place to match.
+  Not yet tried on hardware.
+
 - **A drawing takes the whole display when the focus is elsewhere.** With two displays combined
   and the focus on the other one, a chart or picture on the Monarch no longer keeps a braille
   line beside it that showed nothing; it gets every row. A display that also holds the focus

@@ -41,9 +41,11 @@ layout drawn from numbers this could not check.
 """
 
 import ctypes
+import math
 import re
-from typing import Optional
+from typing import NamedTuple, Optional
 
+import addonHandler
 import config
 import eventHandler
 import NVDAHelper
@@ -65,6 +67,12 @@ from NVDAObjects.window.excel import (
 from nvdaBuiltin.appModules.excel import AppModule as ExcelAppModule
 
 try:
+	addonHandler.initTranslation()
+except Exception:
+	# Translation is a nicety; failing to set it up must not cost the reader their spreadsheet.
+	log.debugWarning("BrlMultiline: could not initialise Excel translations", exc_info=True)
+
+try:
 	from exceptions import CallCancelled
 except ImportError:  # Outside NVDA, and on an NVDA old enough not to have it.
 
@@ -78,6 +86,345 @@ except ImportError:  # pragma: no cover - an NVDA without it answers no headings
 	HeaderCellTracker = None
 """Where NVDA records the header rows and columns a reader has marked. See
 `ExcelSheet._trackerNow`, which fills one rather than reading the worksheet's."""
+
+
+try:
+	from NVDAObjects.window import _msOfficeChart as officeChart
+except ImportError:  # pragma: no cover - an NVDA without it has no chart objects to overlay.
+	officeChart = None
+"""NVDA's model of an Office chart: the chart, its series and its points as objects the reader
+moves through, and the names of the chart types. Private to NVDA, so it is reached from here
+only, and everything taken from it has a fallback. See `docs/design/excel-chart-plan.md`."""
+
+
+def _xl(name: str, fallback: int) -> int:
+	""":return: one of Excel's chart constants, by NVDA's name for it.
+
+	Excel's numbers, which do not change, so a copy stands in if NVDA's module ever moves.
+
+	:param name: NVDA's name for it, which is Excel's.
+	:param fallback: the number, for when NVDA's module does not have it.
+	"""
+	return getattr(officeChart, name, fallback)
+
+
+XL_LINE_CHARTS = frozenset(
+	_xl(name, number)
+	for name, number in (
+		("xlLine", 4),
+		("xlLineMarkers", 65),
+		("xlLineStacked", 63),
+		("xlLineStacked100", 64),
+		("xlLineMarkersStacked", 66),
+		("xlLineMarkersStacked100", 67),
+	)
+)
+"""Excel's line chart types, drawn as the line chart. The stacked ones are drawn unstacked, so
+each line is at its own values rather than on top of the one below."""
+
+XL_BAR_CHARTS = frozenset((_xl("xlColumnClustered", 51), _xl("xlBarClustered", 57)))
+"""Excel's column and bar chart types that are drawn, as the bar chart, with one series."""
+
+XL_STOCK_CHARTS = {
+	_xl("xlStockOHLC", 89): ("ohlc", 0),
+	_xl("xlStockVOHLC", 91): ("ohlc", 1),
+	_xl("xlStockHLC", 88): ("hlc", 0),
+	_xl("xlStockVHLC", 90): ("hlc", 1),
+}
+"""Excel's stock chart types: what each is drawn as, and how many series lead its prices.
+
+The volume charts have the volume first, in the order Excel requires of them, and it is left
+out: the price bars have nowhere to put it."""
+
+XL_LIST_SEPARATOR = _xl("xlListSeparator", 5)
+XL_SECONDARY = _xl("xlSecondary", 2)
+
+MAX_CHART_POINTS = 400
+"""Points a chart may have to be drawn: the ceiling a selection is read to. See
+`chartSource.MAX_POINTS`."""
+
+XL_ERRORS = range(-2146826288, -2146826245)
+"""The numbers Excel's error values arrive as when they come through as integers: #N/A, #DIV/0!
+and the rest. A point holding one has no value."""
+
+
+class SeriesReading(NamedTuple):
+	"""One series of a chart. The shape `chartSource.ChartSeries` describes."""
+
+	name: str
+	values: list
+
+
+class ChartReading(NamedTuple):
+	"""A chart read from Excel. The shape `chartSource.ChartDefinition` describes, field for
+	field; defined again here because this module does not import the global plugin."""
+
+	key: tuple
+	title: str
+	kind: str
+	typeName: str
+	categories: list
+	series: list
+	note: str = ""
+	refusal: str = ""
+
+
+class PointReading(NamedTuple):
+	"""Which point of which chart a point object is. The shape of `chartSource.ChartPoint`."""
+
+	key: tuple
+	index: int
+	seriesName: str
+
+
+def _chartValue(value) -> Optional[float]:
+	""":return: one value of a series, or None where the point has none.
+
+	The rules of `chartSource._asNumber`: no booleans, no infinities, nothing that is not a
+	number. And an Excel error arriving as an integer is no value, not a value of minus two
+	billion.
+
+	:param value: one entry of `Series.Values`.
+	"""
+	if value is None or isinstance(value, bool):
+		return None
+	if isinstance(value, int) and value in XL_ERRORS:
+		return None
+	try:
+		number = float(value)
+	except (TypeError, ValueError, OverflowError):
+		return None
+	return number if math.isfinite(number) else None
+
+
+def _categoryText(value) -> str:
+	""":return: a category Excel gave as a value rather than as the text of its cell.
+
+	:param value: one entry of `Series.XValues`.
+	"""
+	if value is None:
+		return ""
+	if isinstance(value, float) and value.is_integer():
+		return str(int(value))
+	return str(value)
+
+
+def _chartTypeName(chartType) -> str:
+	""":return: a chart type in NVDA's own words, as NVDA's chart navigation says it."""
+	names = getattr(officeChart, "chartTypeDict", None) or {}
+	return str(names.get(chartType, ""))
+
+
+class ExcelChart:
+	"""One of Excel's charts, read as a whole for drawing.
+
+	**Read in bulk, where NVDA reads a point at a time.** NVDA's point objects ask Excel for one
+	value as the reader arrives at it, which is right for speech. A drawing wants every value at
+	once, and `Series.Values` gives a whole series in one call.
+	"""
+
+	def __init__(self, chart):
+		"""
+		:param chart: Excel's `Chart`, as NVDA's chart objects hold it in `officeChartObject`.
+		"""
+		self.chart = chart
+
+	def key(self) -> tuple:
+		""":return: which chart this is, as the workbook and the chart's name.
+
+		Not the chart object, because two COM wrappers of one chart do not compare equal. An
+		embedded chart's name includes its sheet's: "Prices Chart 1".
+		"""
+		chart = self.chart
+		return (str(chart.Application.ActiveWorkbook.FullName), str(chart.Name))
+
+	def title(self) -> str:
+		""":return: the chart's title, or its name where it has none, as NVDA names it."""
+		chart = self.chart
+		if chart.HasTitle:
+			return str(chart.ChartTitle.Text)
+		return str(chart.Name)
+
+	def definition(self) -> ChartReading:
+		""":return: the chart, read, or a reading that says why it cannot be drawn.
+
+		:raises CallCancelled: if NVDA stopped waiting on Excel.
+		"""
+		chart = self.chart
+		chartType = chart.ChartType
+		key = self.key()
+		title = self.title()
+		typeName = _chartTypeName(chartType)
+
+		def refused(why: str) -> ChartReading:
+			return ChartReading(key, title, "", typeName, [], [], refusal=why)
+
+		count = chart.SeriesCollection().Count
+		if not count:
+			# Translators: reported when a chart with no series is asked for.
+			return refused(_("This chart has no series"))
+		everySeries = [chart.SeriesCollection(index) for index in range(1, count + 1)]
+		note = ""
+		if chartType in XL_LINE_CHARTS:
+			kind, lead = "line", 0
+		elif chartType in XL_BAR_CHARTS:
+			if count > 1:
+				return refused(
+					# Translators: reported when a column or bar chart of several series is
+					# asked for. The placeholder is the chart's type, as NVDA names it.
+					_("{type} charts of more than one series cannot be drawn yet").format(type=typeName),
+				)
+			kind, lead = "bars", 0
+		elif chartType in XL_STOCK_CHARTS:
+			kind, lead = XL_STOCK_CHARTS[chartType]
+			if lead:
+				# Translators: added to what a stock chart drawn without its volume is called.
+				note = _("volume not drawn")
+		else:
+			return refused("")
+		if kind in ("line", "bars"):
+			for one in everySeries:
+				if one.ChartType != chartType:
+					# Translators: reported when a chart mixes kinds, such as columns and a line.
+					return refused(_("Charts that mix kinds cannot be drawn yet"))
+				if one.AxisGroup == XL_SECONDARY:
+					# Translators: reported when a chart has a series on a second value axis.
+					return refused(_("Charts with a second value axis cannot be drawn yet"))
+		drawn = everySeries[lead:]
+		series = [
+			SeriesReading(str(one.Name), [_chartValue(value) for value in (one.Values or ())])
+			for one in drawn
+		]
+		lengths = {len(one.values) for one in series}
+		if len(lengths) != 1:
+			# Translators: reported when a chart's series do not all have the same number of
+			# points.
+			return refused(_("This chart's series are not all the same length"))
+		points = lengths.pop()
+		if points > MAX_CHART_POINTS:
+			return refused(
+				# Translators: reported when a chart has more points than can be drawn. The
+				# placeholders are how many it has and the most that can be drawn.
+				_("This chart has {count} points; at most {most} can be drawn").format(
+					count=points,
+					most=MAX_CHART_POINTS,
+				),
+			)
+		categories = self._categories(drawn[0], points)
+		return ChartReading(key, title, kind, typeName, categories, series, note=note)
+
+	def _categories(self, series, count: int) -> list:
+		""":return: what each point is called, as the sheet shows it.
+
+		**Read the way NVDA reads them**, as the text of the cells the series formula names, so
+		a date category is the date the sheet shows and not the number Excel keeps it as. NVDA's
+		version is inside its point's speech and cannot be called; this follows its logic, and
+		falls back to `XValues` exactly where it does, then to counting.
+
+		:param series: the series to read the categories of.
+		:param count: how many points it has.
+		"""
+		chart = self.chart
+		try:
+			separator = chart.Application.International(XL_LIST_SEPARATOR)
+			parts = str(series.Formula).split(separator)
+			if len(parts) == 4 and parts[1]:
+				cells = chart.Application.Range(parts[1])
+				return [str(cells.Item(index).Text) for index in range(1, count + 1)]
+		except CallCancelled:
+			raise
+		except Exception:
+			log.debugWarning("Could not read a chart's categories from its cells", exc_info=True)
+		try:
+			values = list(series.XValues or ())
+			if len(values) == count:
+				return [_categoryText(value) for value in values]
+		except CallCancelled:
+			raise
+		except Exception:
+			log.debugWarning("Could not read a chart's categories", exc_info=True)
+		return [str(index) for index in range(1, count + 1)]
+
+
+class SpreadsheetChart:
+	"""The overlay on NVDA's chart objects: the chart, its series, its points, its other parts.
+
+	Offers the chart to the global plugin, says which point a point is, and moves NVDA's place
+	in the chart when the reader steps on the pins. What NVDA does with these objects — the
+	arrow keys, the speech, the colours, Escape back to the cells — is left exactly as it is.
+	"""
+
+	def brlMultilineChart(self) -> ExcelChart:
+		""":return: the chart this is part of. See `chartSource.chartOf`."""
+		return ExcelChart(self.officeChartObject)
+
+	def brlMultilinePoint(self) -> Optional[PointReading]:
+		""":return: which point of which chart this is, or None if it is not a point.
+
+		NVDA's point carries its series and its point, counting from 1, as `arg1` and `arg2`;
+		`arg2` is -1 on the object that stands for the series itself.
+		"""
+		pointClass = getattr(officeChart, "OfficeChartElementPoint", None)
+		if pointClass is None or not isinstance(self, pointClass):
+			return None
+		seriesIndex, pointIndex = self.arg1, self.arg2
+		if not seriesIndex or not pointIndex or pointIndex < 1:
+			return None
+		chart = self.officeChartObject
+		return PointReading(
+			ExcelChart(chart).key(),
+			pointIndex - 1,
+			str(chart.SeriesCollection(seriesIndex).Name),
+		)
+
+	def brlMultilineLeadTo(self, index: int) -> bool:
+		"""Move NVDA's place in this series to a point, silently.
+
+		So the next arrow key goes on from where the reader stepped on the pins. NVDA's series
+		keeps the point it is on as `activeElement` and moves from it; this sets it, and selects
+		the point in Excel the way NVDA's own navigation does. No focus event, so nothing is
+		said: the step on the pins has already spoken.
+
+		**This reaches into NVDA's objects**, `elementList` and `activeElement`, which nothing
+		promises. Kept here alone, so a change in NVDA costs only this, never the step.
+
+		:param index: the point, counting from 0.
+		:return: whether NVDA's place moved. False on anything that is not a series or a point
+			of one, such as the chart itself before a series is chosen.
+		"""
+		seriesClass = getattr(officeChart, "OfficeChartElementSeries", None)
+		if seriesClass is None:
+			return False
+		series = self if isinstance(self, seriesClass) else getattr(self, "parent", None)
+		if not isinstance(series, seriesClass):
+			return False
+		elements = getattr(series, "elementList", None)
+		count = getattr(series, "pointsCount", 0)
+		if not elements or not 0 <= index < min(count, len(elements)):
+			return False
+		element = elements[index]
+		series.activeElement = element
+		element.select()
+		return True
+
+
+def isPartOfAChart(obj) -> bool:
+	""":return: whether this object is one of NVDA's Office chart objects, in Excel.
+
+	`isinstance` and an attribute only, for the reason `readsByCoordinate` gives: this runs for
+	every object NVDA builds.
+
+	:param obj: the object NVDA has just built.
+	"""
+	kinds = tuple(
+		found
+		for found in (
+			getattr(officeChart, "OfficeChartElementBase", None),
+			getattr(officeChart, "OfficeChartElementList", None),
+		)
+		if found is not None
+	)
+	return bool(kinds) and isinstance(obj, kinds) and hasattr(obj, "officeChartObject")
 
 
 _UNASKED = object()
@@ -1481,14 +1828,16 @@ OVERLAYS = (
 	(SpreadsheetCell, readsByCoordinate),
 	(SpreadsheetSelection, isASelectedRange),
 	(CellOutlivingItsWorkbook, isAWorksheetCell),
+	(SpreadsheetChart, isPartOfAChart),
 )
 """The overlay classes this module adds, and what each of them is for.
 
-Three, and deliberately not one. What a cell says its column is called is worth showing in
+Several, and deliberately not one. What a cell says its column is called is worth showing in
 braille whether or not this add-on can lay the sheet out, and those two questions are answered
-by different things about a cell — see `HeadersInBraille`. The third is not about reading at
-all: it keeps a race of NVDA's own from being written into the log under this add-on's name.
-See `CellOutlivingItsWorkbook`.
+by different things about a cell — see `HeadersInBraille`. `CellOutlivingItsWorkbook` is not
+about reading at all: it keeps a race of NVDA's own from being written into the log under this
+add-on's name. `SpreadsheetChart` is on NVDA's chart objects, not on cells: it offers a chart
+for drawing and follows NVDA's chart navigation. See `docs/design/excel-chart-plan.md`.
 """
 
 

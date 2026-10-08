@@ -1657,6 +1657,48 @@ class GraphicsMode(PanelOwner):
 		self._marked = index
 		if not self.render():
 			self._marked = was
+			return
+		self._notifyMarked()
+
+	def _notifyMarked(self) -> None:
+		"""Tell the plugin the reader moved the mark, so a screen reader's own place in the chart
+		can be moved to match. See `docs/design/excel-chart-plan.md`.
+
+		Only for the reader's own moves: a step, a jump to an end, a press. Not for `markPoint`,
+		which is the screen reader's place arriving here, and telling it back would be a loop.
+		"""
+		notify = getattr(self.plugin, "onPointMarked", None)
+		if notify is None or self._marked is None:
+			return
+		try:
+			notify(self._marked)
+		except Exception:
+			log.error("BrlMultiline: could not tell the plugin a point was marked", exc_info=True)
+
+	def markPoint(self, index: int, levelName: Optional[str] = None) -> bool:
+		"""Mark a point the screen reader's own chart navigation has arrived at, saying nothing.
+
+		The screen reader has just said the point, so saying it again here would be two voices for
+		one key press. The page turns if the point is off the panel, as for a step, and the level
+		line moves to the series being moved through when that series is one of the lines shown.
+
+		:param index: the point of the whole figure.
+		:param levelName: the series the reader is moving through, or None to leave the level.
+		:return: whether the point is marked and on the panel.
+		"""
+		if not self.hasPoints or not 0 <= index < self._source.points:
+			return False
+		names = self._drawing.levelNames if self._drawing is not None else ()
+		level = names.index(levelName) if levelName in names else self._level
+		if index == self._marked and level == self._level and self._holds(index):
+			return True
+		wasLevel = self._level
+		self._level = level
+		forward = self._marked is None or index >= self._marked
+		if self._showPoint(index, forward):
+			return True
+		self._level = wasLevel
+		return False
 
 	def _sayMarked(self) -> str:
 		""":return: what the marked point is, in the words a press on it gives."""
@@ -1769,6 +1811,7 @@ class GraphicsMode(PanelOwner):
 			# Translators: reported when the part of a chart a point is in will not draw, so the
 			# point the reader had is kept.
 			return _("this part will not draw")
+		self._notifyMarked()
 		return self._sayMarked()
 
 	def _showPoint(self, index: int, forward: bool) -> bool:

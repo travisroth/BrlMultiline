@@ -2239,6 +2239,76 @@ class TestSteppingThroughAChart(unittest.TestCase):
 		self.assertEqual(self.mode.zoom, 0)
 		self.assertIn("whole drawing", self.mode.describe())
 
+	def recordMarks(self):
+		""":return: the points the mode tells the plugin the reader marked."""
+		marked = []
+		self.mode.plugin.onPointMarked = marked.append
+		return marked
+
+	def test_theScreenReadersPlaceIsMarkedSilently(self):
+		"""Following NVDA's chart navigation: it has just said the point. See
+		`docs/design/excel-chart-plan.md`."""
+		self.mode.enter(self.line(4))
+		plain = self.overlay().rows()
+		self.assertTrue(self.mode.markPoint(2))
+		self.assertEqual(self.mode.markedPoint, 2)
+		self.assertNotEqual(self.overlay().rows(), plain, "the guides are drawn")
+
+	def test_aPlaceOffThePanelTurnsThePage(self):
+		self.mode.enter(self.line(250))
+		self.assertTrue(self.mode.zoomToPoints())
+		self.mode.pointToEnd(last=False)
+		self.assertTrue(self.mode.markPoint(240))
+		self.assertTrue(self.holds())
+
+	def test_theLevelFollowsTheSeriesBeingMovedThrough(self):
+		from brlMultiline.chartLine import Line
+
+		lines = [Line("Close", [5, 6, 7, 8]), Line("Average", [4, 5, 6, 7])]
+		self.mode.enter(self.line(4, lines))
+		self.mode.markPoint(1, "Average")
+		self.assertEqual(self.mode._level, 1)
+		self.mode.markPoint(2, "Volume")
+		self.assertEqual(self.mode._level, 1, "a series not drawn leaves the level where it was")
+
+	def test_aPlacePastTheEndIsNotMarked(self):
+		self.mode.enter(self.bars([3, 5, 7]))
+		self.assertFalse(self.mode.markPoint(3))
+		self.assertIsNone(self.mode.markedPoint)
+
+	def test_theSamePlaceAgainDoesNotRedraw(self):
+		self.mode.enter(self.bars([3, 5, 7]))
+		self.mode.markPoint(1)
+		writes = []
+		realWrite = self.driver.setGraphicsOverlay
+		self.driver.setGraphicsOverlay = lambda *args: (writes.append(args), realWrite(*args))
+		self.mode.markPoint(1)
+		self.assertEqual(writes, [])
+
+	def test_theReadersStepsAndPressesAreToldToThePlugin(self):
+		"""So the screen reader's place in the chart can be moved to match."""
+		self.mode.enter(self.bars([3, 5, 7, 9]))
+		marked = self.recordMarks()
+		self.mode.stepPoint(1)
+		self.mode.stepPoint(1)
+		self.mode.pointToEnd(last=True)
+		self.mode._notePress((self.mode.drawing.markFor(1).own[0], 0))
+		self.assertEqual(marked, [0, 1, 3, 1])
+
+	def test_theScreenReadersOwnPlaceIsNotToldBack(self):
+		"""It came from there, and telling it back would be a loop."""
+		self.mode.enter(self.bars([3, 5, 7]))
+		marked = self.recordMarks()
+		self.mode.markPoint(2)
+		self.assertEqual(marked, [])
+
+	def test_aStepThatGoesNowhereTellsNothing(self):
+		self.mode.enter(self.bars([3, 5, 7]))
+		self.mode.pointToEnd(last=True)
+		marked = self.recordMarks()
+		self.assertEqual(self.mode.stepPoint(1), "last point")
+		self.assertEqual(marked, [])
+
 	def test_theReportSaysWhichPoint(self):
 		self.mode.enter(self.bars([3, 5, 7]))
 		self.mode.stepPoint(1)

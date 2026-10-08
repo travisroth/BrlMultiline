@@ -357,6 +357,53 @@ class FakeSelectedRange:
 		self.Application = worksheet.excelWorksheetObject.Application
 
 
+class FakeChartElement(metaclass=DynamicType):
+	"""NVDA's `OfficeChartElementBase`: one part of a chart the reader can arrive at.
+
+	Built through `DynamicType`, as NVDA builds its chart objects through
+	`DynamicNVDAObjectType`, which is what puts the application module's overlay on them."""
+
+	def __init__(self, officeChartObject=None, arg1=None, arg2=None):
+		self.officeChartObject = officeChartObject
+		self.arg1 = arg1
+		self.arg2 = arg2
+
+	def select(self):
+		"""What NVDA's point does: select the point in Excel. Recorded on the fake chart."""
+		self.officeChartObject.selected.append((self.arg1, self.arg2))
+
+
+class FakeChartPoint(FakeChartElement):
+	"""NVDA's `OfficeChartElementPoint`: `arg1` its series and `arg2` its point, from 1."""
+
+
+class FakeChartList(metaclass=DynamicType):
+	"""NVDA's `OfficeChartElementList`: a part of a chart with parts of its own to move through."""
+
+	def __init__(self, officeChartObject=None):
+		self.officeChartObject = officeChartObject
+		self.elementList = []
+		self.activeElement = None
+
+
+class FakeOfficeChart(FakeChartList):
+	"""NVDA's `OfficeChart`: what the focus is while a chart is active."""
+
+
+class FakeChartSeries(FakeChartList):
+	"""NVDA's `OfficeChartElementSeries`: one series, its points made the moment it is."""
+
+	def __init__(self, officeChartObject=None, arg1=1):
+		super().__init__(officeChartObject=officeChartObject)
+		self.seriesIndex = arg1
+		values = officeChartObject.SeriesCollection(arg1).Values
+		self.pointsCount = len(values)
+		for index in range(self.pointsCount):
+			point = FakeChartPoint(officeChartObject=officeChartObject, arg1=arg1, arg2=index + 1)
+			point.parent = self
+			self.elementList.append(point)
+
+
 def _install() -> None:
 	"""Register what the application module imports, and put the add-on on the path."""
 	if "nvdaBuiltin.appModules.excel" in sys.modules:
@@ -398,6 +445,19 @@ def _install() -> None:
 	sys.modules["NVDAObjects"] = objects
 	sys.modules["NVDAObjects.window"] = window
 	sys.modules["NVDAObjects.window.excel"] = nvdaExcel
+	# NVDA's model of an Office chart. Only some of its constants, so the module's own copies of
+	# the rest are what is tested for those.
+	charts = types.ModuleType("NVDAObjects.window._msOfficeChart")
+	charts.OfficeChartElementBase = FakeChartElement
+	charts.OfficeChartElementPoint = FakeChartPoint
+	charts.OfficeChartElementList = FakeChartList
+	charts.OfficeChart = FakeOfficeChart
+	charts.OfficeChartElementSeries = FakeChartSeries
+	charts.xlLine = 4
+	charts.xlStockOHLC = 89
+	charts.chartTypeDict = {4: "Line", 51: "Clustered Column", 89: "Open-High-Low-Close", -4169: "Scatter"}
+	window._msOfficeChart = charts
+	sys.modules["NVDAObjects.window._msOfficeChart"] = charts
 	sys.modules["eventHandler"].executeEvent = lambda name, obj, **kwargs: firedEvents.append(
 		(name, obj),
 	)
@@ -2182,3 +2242,191 @@ class TestReadingTheTextOfASelection(unittest.TestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class FakeChartSeriesObject:
+	"""Excel's `Series`: a name, its values, and the formula that says where its cells are."""
+
+	def __init__(self, name, values, chartType=4, axisGroup=1, formula=None, xValues=None):
+		self.Name = name
+		self.Values = tuple(values)
+		self.ChartType = chartType
+		self.AxisGroup = axisGroup
+		self.Formula = formula if formula is not None else f"=SERIES({name},Sheet1!A2:A9,Sheet1!B2:B9,1)"
+		self.XValues = tuple(xValues) if xValues is not None else ()
+
+
+BOOK = "C:/charting.xlsx"
+"""The workbook every fake chart is in."""
+
+
+class FakeExcelChart:
+	"""Excel's `Chart`, as NVDA's chart objects hold it."""
+
+	def __init__(self, series, chartType=4, title="Prices", name="Prices Chart 1", cells=None):
+		self.ChartType = chartType
+		self.HasTitle = bool(title)
+		self.ChartTitle = types.SimpleNamespace(Text=title)
+		self.Name = name
+		self._series = series
+		self.selected = []
+		texts = cells if cells is not None else [f"1 Oct {index}" for index in range(1, 10)]
+		self.Application = types.SimpleNamespace(
+			ActiveWorkbook=types.SimpleNamespace(FullName=BOOK),
+			International=lambda which: ",",
+			Range=lambda address: types.SimpleNamespace(
+				Item=lambda index: types.SimpleNamespace(Text=texts[index - 1]),
+			),
+		)
+
+	def SeriesCollection(self, index=None):  # noqa: N802 - Excel's own spelling.
+		if index is None:
+			return types.SimpleNamespace(Count=len(self._series))
+		return self._series[index - 1]
+
+
+def bands(chartType=4, **extra):
+	""":return: a line chart of a close with Bollinger bands, four series of four points."""
+	return FakeExcelChart(
+		[
+			FakeChartSeriesObject("Close", [10, 11, None, 13], chartType=chartType),
+			FakeChartSeriesObject("Average", [10, 10.5, 11, 12], chartType=chartType),
+			FakeChartSeriesObject("Upper", [12, 12.5, 13, 14], chartType=chartType),
+			FakeChartSeriesObject("Lower", [8, 8.5, 9, 10], chartType=chartType),
+		],
+		chartType=chartType,
+		**extra,
+	)
+
+
+class TestReadingAnExcelChart(unittest.TestCase):
+	"""`ExcelChart.definition`: a whole chart read for drawing. See
+	`docs/design/excel-chart-plan.md`."""
+
+	def read(self, chart):
+		return excelModule.ExcelChart(chart).definition()
+
+	def test_aLineChartIsReadWhole(self):
+		reading = self.read(bands())
+		self.assertEqual(reading.kind, "line")
+		self.assertEqual(reading.title, "Prices")
+		self.assertEqual(reading.typeName, "Line")
+		self.assertEqual([one.name for one in reading.series], ["Close", "Average", "Upper", "Lower"])
+		self.assertEqual(reading.series[0].values, [10.0, 11.0, None, 13.0])
+
+	def test_theCategoriesAreTheTextOfTheirCells(self):
+		"""As NVDA reads them, so a date is the date the sheet shows."""
+		self.assertEqual(self.read(bands()).categories, ["1 Oct 1", "1 Oct 2", "1 Oct 3", "1 Oct 4"])
+
+	def test_withNoCategoryRangeTheyComeFromTheValuesExcelGives(self):
+		series = FakeChartSeriesObject("Sales", [3, 5], formula="=SERIES(Sales,,Sheet1!B2:B3,1)", xValues=[1.0, 2.0])
+		self.assertEqual(self.read(FakeExcelChart([series])).categories, ["1", "2"])
+
+	def test_anExcelErrorIsNoValue(self):
+		chart = FakeExcelChart([FakeChartSeriesObject("Close", [10, -2146826246, 12])])
+		self.assertEqual(self.read(chart).series[0].values, [10.0, None, 12.0])
+
+	def test_aChartWithNoTitleIsCalledByItsName(self):
+		self.assertEqual(self.read(bands(title="")).title, "Prices Chart 1")
+
+	def test_oneSeriesOfColumnsIsBars(self):
+		chart = FakeExcelChart([FakeChartSeriesObject("Sales", [3, 5, 7], chartType=51)], chartType=51)
+		self.assertEqual(self.read(chart).kind, "bars")
+
+	def test_columnsOfSeveralSeriesAreRefusedByName(self):
+		chart = FakeExcelChart(
+			[FakeChartSeriesObject("A", [1, 2], chartType=51), FakeChartSeriesObject("B", [3, 4], chartType=51)],
+			chartType=51,
+		)
+		reading = self.read(chart)
+		self.assertEqual(reading.kind, "")
+		self.assertEqual(reading.refusal, "Clustered Column charts of more than one series cannot be drawn yet")
+
+	def test_aChartThatMixesKindsIsRefused(self):
+		chart = bands()
+		chart._series[1].ChartType = 51
+		self.assertIn("mix kinds", self.read(chart).refusal)
+
+	def test_aSeriesOnASecondAxisIsRefused(self):
+		chart = bands()
+		chart._series[3].AxisGroup = 2
+		self.assertIn("second value axis", self.read(chart).refusal)
+
+	def test_aStockChartIsPrices(self):
+		reading = self.read(bands(chartType=89))
+		self.assertEqual(reading.kind, "ohlc")
+		self.assertEqual(len(reading.series), 4)
+
+	def test_theVolumeOfAStockChartIsLeftOutAndSaidSo(self):
+		prices = [FakeChartSeriesObject(name, [1, 2]) for name in ("Open", "High", "Low", "Close")]
+		chart = FakeExcelChart([FakeChartSeriesObject("Volume", [100, 200]), *prices], chartType=91)
+		reading = self.read(chart)
+		self.assertEqual(reading.kind, "ohlc")
+		self.assertEqual([one.name for one in reading.series], ["Open", "High", "Low", "Close"])
+		self.assertEqual(reading.note, "volume not drawn")
+
+	def test_aHighLowCloseChart(self):
+		prices = [FakeChartSeriesObject(name, [1, 2]) for name in ("High", "Low", "Close")]
+		self.assertEqual(self.read(FakeExcelChart(prices, chartType=88)).kind, "hlc")
+
+	def test_aKindThatCannotBeDrawnIsLeftToBeRefusedByName(self):
+		chart = FakeExcelChart([FakeChartSeriesObject("Y", [1, 2], chartType=-4169)], chartType=-4169)
+		reading = self.read(chart)
+		self.assertEqual((reading.kind, reading.refusal, reading.typeName), ("", "", "Scatter"))
+
+	def test_seriesOfDifferentLengthsAreRefused(self):
+		chart = bands()
+		chart._series[2].Values = (1, 2)
+		self.assertIn("same length", self.read(chart).refusal)
+
+	def test_tooManyPointsAreRefused(self):
+		chart = FakeExcelChart([FakeChartSeriesObject("Close", list(range(401)))])
+		self.assertIn("401 points", self.read(chart).refusal)
+
+	def test_theKeyIsTheWorkbookAndTheChartsName(self):
+		self.assertEqual(excelModule.ExcelChart(bands()).key(), (BOOK, "Prices Chart 1"))
+
+
+class TestTheChartObjectsOfferTheChart(unittest.TestCase):
+	"""The overlay on NVDA's own chart objects, built the way NVDA builds them."""
+
+	def setUp(self):
+		self.chart = bands()
+		self.series = FakeChartSeries(officeChartObject=self.chart, arg1=2)
+		self.point = self.series.elementList[1]
+
+	def test_theChartItsSeriesAndItsPointsAllWearTheOverlay(self):
+		chart = FakeOfficeChart(officeChartObject=self.chart)
+		for found in (chart, self.series, self.point):
+			self.assertIsInstance(found, excelModule.SpreadsheetChart)
+
+	def test_aCellDoesNotWearIt(self):
+		self.assertNotIsInstance(aCell(), excelModule.SpreadsheetChart)
+
+	def test_anyPartOfAChartOffersIt(self):
+		self.assertEqual(self.series.brlMultilineChart().key(), (BOOK, "Prices Chart 1"))
+
+	def test_aPointSaysWhichPointOfWhichSeries(self):
+		point = self.point.brlMultilinePoint()
+		self.assertEqual((point.key, point.index, point.seriesName), ((BOOK, "Prices Chart 1"), 1, "Average"))
+
+	def test_aSeriesIsNotAPoint(self):
+		self.assertIsNone(self.series.brlMultilinePoint())
+
+	def test_leadingFromAPointMovesNvdasPlaceInItsSeries(self):
+		"""So NVDA's next arrow goes on from where the reader stepped on the pins."""
+		self.assertTrue(self.point.brlMultilineLeadTo(3))
+		self.assertIs(self.series.activeElement, self.series.elementList[3])
+		self.assertEqual(self.chart.selected, [(2, 4)])
+
+	def test_leadingFromTheSeriesItselfWorksToo(self):
+		self.assertTrue(self.series.brlMultilineLeadTo(0))
+		self.assertIs(self.series.activeElement, self.series.elementList[0])
+
+	def test_thereIsNothingToLeadOnTheChartBeforeASeriesIsChosen(self):
+		chart = FakeOfficeChart(officeChartObject=self.chart)
+		self.assertFalse(chart.brlMultilineLeadTo(0))
+
+	def test_aPointPastTheEndIsNotLedTo(self):
+		self.assertFalse(self.point.brlMultilineLeadTo(4))
+		self.assertEqual(self.chart.selected, [])

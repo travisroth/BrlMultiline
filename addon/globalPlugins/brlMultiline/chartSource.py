@@ -41,8 +41,13 @@ from .chartPrice import Period
 from .flowObjectTable import describeThing, sheetOf
 
 __all__ = [
+	"CHART",
+	"ChartDefinition",
+	"ChartPoint",
+	"ChartSeries",
 	"Column",
 	"NoNumbers",
+	"POINT",
 	"Table",
 	"gridFromFocus",
 	"periodsFrom",
@@ -51,6 +56,9 @@ __all__ = [
 	"seriesFromTable",
 	"tableFromFocus",
 	"tableFromGrid",
+	"chartFromFocus",
+	"chartOf",
+	"pointOf",
 ]
 
 MAX_BARS = 96
@@ -61,6 +69,129 @@ reader who has selected a whole column rather than a range within it. A limit on
 rather than on the chart: it keeps a stray Ctrl+Space from turning a million cells into a
 million tuples, and the chart's own `MIN_SLOT` gives the useful message about how many fit.
 """
+
+
+CHART = "brlMultilineChart"
+"""What an object that is part of a chart offers, to say which chart. See `chartOf`.
+
+The chart's twin of `flowObjectTable.SHEET`, and the same kind of seam: an application module
+puts it on its own objects and nothing here learns which application that is. Excel's is in
+`appModules/excel.py`, on NVDA's own Office chart objects.
+"""
+
+POINT = "brlMultilinePoint"
+"""What a point of a chart offers, to say which point it is. See `pointOf`."""
+
+
+class ChartSeries(NamedTuple):
+	"""One series of a chart: what it is called and its value at every category."""
+
+	name: str
+	values: list
+	"""One per category, in order. None where the point has no value: an empty cell, #N/A."""
+
+
+class ChartDefinition(NamedTuple):
+	"""A chart as its application defines it, read once and holding nothing of the application.
+
+	What an application module's chart offers from `definition()`. Drawn by
+	`chartMenu.offerForChart`, which is where the kinds below become drawings.
+	"""
+
+	key: tuple
+	"""Which chart this is, comparable across reads, so a point the reader arrives at can be told
+	to be on the chart that is drawn. Two wrappers of one chart from an object model do not compare
+	equal, which is why this is not the chart itself."""
+
+	title: str
+	"""The chart's title, or its name where it has none."""
+
+	kind: str
+	"""What to draw it as: `chartMenu.LINE`, `BARS`, `OHLC` or `HLC`. Empty where it cannot be
+	drawn, and then `refusal` says why."""
+
+	typeName: str
+	"""The chart's type in the words the screen reader uses for it: "Line", "Scatter"."""
+
+	categories: list
+	"""One label per point, as the application shows it: a date reads as the date."""
+
+	series: list
+	"""`ChartSeries`, only those to draw: a stock chart's volume is already left out."""
+
+	note: str = ""
+	"""Something to say about what was drawn, such as the volume being left out."""
+
+	refusal: str = ""
+	"""Why it cannot be drawn, in the reader's words, where `kind` is empty."""
+
+
+class ChartPoint(NamedTuple):
+	"""Where in a chart the screen reader's own chart navigation is."""
+
+	key: tuple
+	"""The chart, as `ChartDefinition.key`."""
+
+	index: int
+	"""The point, counting from 0: the category it is at."""
+
+	seriesName: str
+	"""The series the reader is moving through, so the level line can follow it."""
+
+
+def chartOf(obj):
+	""":return: the chart an object is part of, or None.
+
+	What comes back answers `key()` and `definition()`, and can be told to `leadTo(index)`: see
+	`appModules/excel.py`. Asked by attribute so this never imports an application module.
+
+	:param obj: the object the reader is on.
+	:raises CallCancelled: if the application stopped answering, which is not "no chart here".
+	"""
+	offered = getattr(obj, CHART, None) if obj is not None else None
+	if offered is None:
+		return None
+	try:
+		return offered()
+	except CallCancelled:
+		raise
+	except Exception:
+		log.debugWarning(f"Could not reach the chart behind {describeThing(obj)}", exc_info=True)
+		return None
+
+
+def pointOf(obj) -> Optional[ChartPoint]:
+	""":return: which point of which chart an object is, or None if it is not a point.
+
+	Asked on every change of focus, by `GlobalPlugin.event_gainFocus`, so it costs one `getattr`
+	that finds nothing anywhere but a chart.
+
+	:param obj: the new focus.
+	"""
+	offered = getattr(obj, POINT, None) if obj is not None else None
+	if offered is None:
+		return None
+	try:
+		return offered()
+	except Exception:
+		# Following is a convenience. Nothing a point fails to say may cost the focus change.
+		log.debugWarning(f"Could not tell which chart point {describeThing(obj)} is", exc_info=True)
+		return None
+
+
+def chartFromFocus():
+	""":return: the chart the reader is on, or None if they are not on one.
+
+	:raises CallCancelled: if the application stopped answering.
+	"""
+	try:
+		import api
+
+		obj = api.getFocusObject()
+	except Exception:
+		log.error("BrlMultiline: could not read the focus to chart from", exc_info=True)
+		return None
+	return chartOf(obj)
 
 
 class NoNumbers(Exception):
