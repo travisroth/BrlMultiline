@@ -374,6 +374,13 @@ class FakeChartElement(metaclass=DynamicType):
 		self.arg1 = arg1
 		self.arg2 = arg2
 
+	reported = 0
+	"""How many times NVDA's own report of this element arriving was spoken."""
+
+	def reportFocus(self):
+		"""NVDA's own, which speaks the element. Counted."""
+		self.reported += 1
+
 	def select(self):
 		"""What NVDA's point does: select the point in Excel. Recorded on the fake chart, which
 		can be told to refuse, as Excel can."""
@@ -469,6 +476,11 @@ def _install() -> None:
 	sys.modules["NVDAObjects.window._msOfficeChart"] = charts
 	sys.modules["eventHandler"].executeEvent = lambda name, obj, **kwargs: firedEvents.append(
 		(name, obj),
+	)
+	# Queued rather than run, as NVDA's chart navigation queues its own focus events. Recorded
+	# apart from those run, so a test can tell which the module asked for.
+	sys.modules["eventHandler"].queueEvent = lambda name, obj, **kwargs: firedEvents.append(
+		("queued " + name, obj),
 	)
 	builtin = types.ModuleType("nvdaBuiltin")
 	builtin.__path__ = []
@@ -2652,3 +2664,44 @@ class TestARefusedSelectionDoesNotMoveNvda(unittest.TestCase):
 		with self.assertRaises(COMError):
 			series.elementList[0].brlMultilineLeadTo(2)
 		self.assertIs(series.activeElement, series.elementList[0])
+
+
+class TestNvdaIsMovedThereNotJustPointedThere(unittest.TestCase):
+	"""Found on hardware: leading NVDA from the pins set its place in the series but sent no focus
+	event, so NVDA's focus stayed on the old point. On a second display showing NVDA's braille the
+	step's message flashed and then the old point came back."""
+
+	def setUp(self):
+		firedEvents.clear()
+		self.chart = bands()
+		self.series = FakeChartSeries(officeChartObject=self.chart, arg1=1)
+
+	def test_aFocusEventIsQueuedForThePoint(self):
+		self.series.elementList[0].brlMultilineLeadTo(2)
+		self.assertEqual(firedEvents, [("queued gainFocus", self.series.elementList[2])])
+
+	def test_itsArrivalIsNotSpokenTwice(self):
+		"""The step on the pins has already said it."""
+		point = self.series.elementList[2]
+		self.series.elementList[0].brlMultilineLeadTo(2)
+		point.reportFocus()
+		self.assertEqual(point.reported, 0)
+
+	def test_onlyThatOnce(self):
+		"""An arrow key arriving at the same point later is reported as NVDA reports it."""
+		point = self.series.elementList[2]
+		self.series.elementList[0].brlMultilineLeadTo(2)
+		point.reportFocus()
+		point.reportFocus()
+		self.assertEqual(point.reported, 1)
+
+	def test_anArrowKeysArrivalIsSpoken(self):
+		point = self.series.elementList[1]
+		point.reportFocus()
+		self.assertEqual(point.reported, 1)
+
+	def test_aRefusedSelectionSendsNoEvent(self):
+		self.chart.refuses = True
+		with self.assertRaises(COMError):
+			self.series.elementList[0].brlMultilineLeadTo(2)
+		self.assertEqual(firedEvents, [])

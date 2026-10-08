@@ -591,13 +591,32 @@ class SpreadsheetChart:
 			series=seriesIndex,
 		)
 
+	def reportFocus(self):
+		"""NVDA's own report of a point arriving, unless the arrival is one the pins made.
+
+		See `brlMultilineLeadTo`: a step on the pins has already said the point, so the focus
+		event it sends is not spoken a second time. Only that once; every other arrival, an
+		arrow key's included, is reported exactly as NVDA reports it.
+		"""
+		if getattr(self, "_brlMultilineQuiet", False):
+			self._brlMultilineQuiet = False
+			return
+		super().reportFocus()
+
 	def brlMultilineLeadTo(self, index: int) -> bool:
-		"""Move NVDA's place in this series to a point, silently.
+		"""Move NVDA's place in this series to a point, with everything but the speech.
 
 		So the next arrow key goes on from where the reader stepped on the pins. NVDA's series
 		keeps the point it is on as `activeElement` and moves from it; this sets it, and selects
-		the point in Excel the way NVDA's own navigation does. No focus event, so nothing is
-		said: the step on the pins has already spoken.
+		the point in Excel, then queues a focus event for the point exactly as NVDA's own
+		`navigateToElement` does.
+
+		**The focus event is the whole of NVDA moving there**, not a formality. It first left
+		it out, to keep NVDA from saying the point the step had just said, and NVDA's focus stayed
+		on the old point: with a second display showing NVDA's braille, the step's message
+		flashed and then the old point came back. Found on hardware. So the event is sent and
+		NVDA's chain runs in full -- the focus, the navigator object, braille, vision -- and only
+		the spoken report is left out, once, by `reportFocus`.
 
 		**This reaches into NVDA's objects**, `elementList` and `activeElement`, which nothing
 		promises. Kept here alone, so a change in NVDA costs only this, never the step.
@@ -621,6 +640,8 @@ class SpreadsheetChart:
 		# next arrow going on from a point Excel never went to. Found in review.
 		element.select()
 		series.activeElement = element
+		element._brlMultilineQuiet = True
+		eventHandler.queueEvent("gainFocus", element)
 		return True
 
 

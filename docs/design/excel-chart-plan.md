@@ -19,7 +19,8 @@ of it has been on hardware.** Where the build differs from the design below:
 3. **Categories are read one cell at a time**, `Range.Item(i).Text`, as NVDA's point reads its
    one. The plan hoped for one call per column; Excel's `Text` of a range of several cells is
    empty unless they all agree, so there is no such call. Up to 400 COM calls on a long chart,
-   to be timed on hardware.
+   timed on hardware on 8 October: a Bollinger chart of 253 points and four series takes 3 to 4
+   seconds to read and draw, which is tolerable. Worth batching if a longer chart makes it worse.
 4. **Axis titles are not yet added to what a press or a step says.** The title is in the name.
 5. **Following uses the series name** to move the level line, matched against the drawing's
    `levelNames`, rather than the series number, since a view can leave lines out.
@@ -45,7 +46,14 @@ of it has been on hardware.** Where the build differs from the design below:
    3. NVDA's place in a series moves only after Excel has selected the point.
    4. A shape drawn as another is said in the drawing's name: "bars drawn upright" for Excel's
       horizontal bar chart, "stacked lines drawn at their own values" for a stacked line chart.
-9. The tests are `TestReadingAnExcelChart` and `TestTheChartObjectsOfferTheChart` in
+9. **NVDA following the pins sends the focus event after all.** The plan said no focus event,
+   so NVDA would not say the point the step had just said. Without one, NVDA's focus stayed on
+   the old point, and on the Focus 80 the step's message flashed and the old point came back.
+   Found on hardware, 8 October. `brlMultilineLeadTo` now queues `gainFocus` for the point as
+   NVDA's own `navigateToElement` does, so the focus, the navigator object and braille all move,
+   and the overlay's `reportFocus` leaves out only the spoken report, once. Confirmed on
+   hardware with the Monarch and the Focus 80.
+10. The tests are `TestReadingAnExcelChart` and `TestTheChartObjectsOfferTheChart` in
    `test_excelAppModule.py`, `TestDrawingAnApplicationsOwnChart` in `test_chartMenu.py`,
    `TestAHighLowCloseBar` in `test_chartPrice.py`, the `markPoint` tests in
    `TestSteppingThroughAChart` in `test_graphics.py`, and `TestFollowingAnApplicationsChart` in
@@ -211,8 +219,10 @@ When our stepper moves, or a routing press marks a point, NVDA's place in the ch
 1. The plugin finds NVDA's series object for the drawing's chart from the focus: the focus
    itself if it is a series, its parent if it is a point.
 2. It sets that series' `activeElement` to the point object at the new index from its
-   `elementList`, and calls `select()` on it, which selects the point in Excel. No focus event
-   is queued, so NVDA says nothing; our step has already spoken.
+   `elementList`, and calls `select()` on it, which selects the point in Excel. Then it queues a
+   focus event for the point, as NVDA's own navigation does, so NVDA's focus and braille move
+   there, and the overlay's `reportFocus` leaves out NVDA's spoken report of that one arrival,
+   since our step has already spoken. (Built first with no focus event; see the status.)
 3. The next left or right arrow then continues from that point, because `navigateToElement`
    moves from `activeElement`.
 
