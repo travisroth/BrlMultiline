@@ -105,7 +105,54 @@ markdownExtensions: list[str] = []
 # contracted (contracted (True) or uncontracted (False) braille code),
 # output (shown in output table list),
 # input (shown in input table list).
-brailleTables: BrailleTables = {}
+# These are NVDA's own tables with rules for the characters they leave undefined, written by
+# tools/makeBrailleTables.py. Output only: braille input is the stock table's business.
+brailleTables: BrailleTables = {
+	"en-us-g2-brlMultiline.utb": {
+		# Translators: name of a braille table in NVDA's braille settings.
+		"displayName": _("English (U.S.) grade 2 with symbol names (BrlMultiline)"),
+		"contracted": True,
+		"output": True,
+		"input": False,
+	},
+	"en-us-comp8-ext-brlMultiline.utb": {
+		# Translators: name of a braille table in NVDA's braille settings.
+		"displayName": _("English (U.S.) 8 dot computer braille with symbol names (BrlMultiline)"),
+		"contracted": False,
+		"output": True,
+		"input": False,
+	},
+	# No commas in these names: the manifest is written unquoted, a comma makes the value a list,
+	# and NVDA then refuses the whole manifest and loads none of the add-on.
+	"en-ueb-g1-brlMultiline.utb": {
+		# Translators: name of a braille table in NVDA's braille settings.
+		"displayName": _("Unified English Braille Code grade 1 with symbol names (BrlMultiline)"),
+		"contracted": False,
+		"output": True,
+		"input": False,
+	},
+	"en-ueb-g2-brlMultiline.utb": {
+		# Translators: name of a braille table in NVDA's braille settings.
+		"displayName": _("Unified English Braille Code grade 2 with symbol names (BrlMultiline)"),
+		"contracted": True,
+		"output": True,
+		"input": False,
+	},
+	"en-us-g1-brlMultiline.utb": {
+		# Translators: name of a braille table in NVDA's braille settings.
+		"displayName": _("English (U.S.) grade 1 with symbol names (BrlMultiline)"),
+		"contracted": False,
+		"output": True,
+		"input": False,
+	},
+	"en-us-comp6-brlMultiline.utb": {
+		# Translators: name of a braille table in NVDA's braille settings.
+		"displayName": _("English (U.S.) 6 dot computer braille with symbol names (BrlMultiline)"),
+		"contracted": False,
+		"output": True,
+		"input": False,
+	},
+}
 
 # Custom speech symbol dictionaries
 # Symbol dictionary files reside in the locale folder, e.g. `locale\en`, and are named `symbols-<name>.dic`.
