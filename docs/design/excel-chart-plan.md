@@ -25,7 +25,17 @@ of it has been on hardware.** Where the build differs from the design below:
    `levelNames`, rather than the series number, since a view can leave lines out.
 6. **A chart drawn from Excel does not change which kind the "Which chart?" dialog opens on**
    (`drawChart(remember=False)`).
-7. The tests are `TestReadingAnExcelChart` and `TestTheChartObjectsOfferTheChart` in
+7. **NVDA's own point speech is given clean numbers**, an addition found on hardware: NVDA's
+   chart navigation said "increased by 3.0000000000000004", the raw binary arithmetic of 344.37
+   less 341.37, and spoke every value to sixteen digits. The subtraction is inline in
+   `OfficeChartElementPoint._getChartElementText`, so there is no smaller function to replace.
+   Instead the overlay's `initOverlayClass`, which NVDA runs after its own constructor has
+   stored the chart, gives each point the chart through `ChartWithChartNumbers`, whose series
+   values are `ChartNumber`s: floats that subtract to ten significant digits and print without
+   the noise. NVDA's wording, order and translations are untouched. Worth reporting to NV Access
+   as well, since every NVDA user meets it. Tested by `TestWhatNvdaSaysOfAPointIsWithoutNoise`,
+   and confirmed in speech on hardware on 8 October.
+8. The tests are `TestReadingAnExcelChart` and `TestTheChartObjectsOfferTheChart` in
    `test_excelAppModule.py`, `TestDrawingAnApplicationsOwnChart` in `test_chartMenu.py`,
    `TestAHighLowCloseBar` in `test_chartPrice.py`, the `markPoint` tests in
    `TestSteppingThroughAChart` in `test_graphics.py`, and `TestFollowingAnApplicationsChart` in

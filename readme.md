@@ -734,6 +734,12 @@ to another series with up and down arrow moves the level line to that series.
 **And NVDA follows the display.** Stepping with the chart keys, or pressing a routing key on a
 point, moves NVDA's place in the chart too, so the next arrow key goes on from that point.
 
+**NVDA's own chart navigation says its numbers cleanly** with the add-on installed. Without it,
+NVDA reads a chart's values and the change from one point to the next with the noise of the
+computer's arithmetic: "increased by 3.0000000000000004". With it, that is "increased by 3", and a
+value is said to at most ten significant digits, so 3 is "3" rather than "3.0". This applies
+whether or not the chart is drawn.
+
 A chart is laid out for the space available rather than shrunk to fit, so the whole-chart view
 is the natural starting point. Magnifying a chart lays it out again with fewer bars, each wide
 enough to identify, rather than enlarging the dots already drawn.

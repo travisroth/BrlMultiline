@@ -346,6 +346,119 @@ class ExcelChart:
 		return [str(index) for index in range(1, count + 1)]
 
 
+CHART_DIGITS = 10
+"""Significant digits a chart value is spoken to in NVDA's own chart navigation. See
+`ChartNumber`.
+
+Enough for any price or measurement a sheet holds, and few enough that the noise of binary
+arithmetic, which sits around the sixteenth digit, never reaches speech."""
+
+
+def _chartNumberText(value: float) -> str:
+	""":return: a chart value as NVDA should say it: no binary noise, no ".0" on a whole number.
+
+	:param value: the value.
+	"""
+	if not math.isfinite(value):
+		return float.__repr__(value)
+	rounded = float(f"{value:.{CHART_DIGITS}g}")
+	if rounded.is_integer() and abs(rounded) < 1e15:
+		return str(int(rounded))
+	return float.__repr__(rounded)
+
+
+class ChartNumber(float):
+	"""A value of a chart series that subtracts and prints the way a reader expects.
+
+	**NVDA's chart navigation speaks the raw arithmetic.** Arriving at a point of a line chart,
+	NVDA subtracts the previous point's value from this one and puts the result straight into
+	what it says: 344.37 less 341.37 is 3.0000000000000004 in binary, and every digit was spoken.
+	The value itself is spoken the same way, so 3 was "3.0" and a moving average was sixteen
+	digits long.
+
+	That arithmetic is inline in NVDA's `OfficeChartElementPoint._getChartElementText`, which
+	builds the whole sentence; there is no smaller function to replace. So the numbers it is
+	given are these: an ordinary float to everything NVDA does with them -- comparing, summing a
+	pie, dividing for a percentage -- except that taking one from another rounds the difference
+	to `CHART_DIGITS` significant digits, and formatting one with no format specification prints
+	it without the noise. NVDA's own wording, order and translations are untouched, and if NVDA
+	ever formats these itself, its formatting wins, because a format specification is passed
+	straight through.
+	"""
+
+	def __sub__(self, other):
+		difference = float.__sub__(self, other)
+		if difference is NotImplemented:
+			return difference
+		return ChartNumber(float(f"{difference:.{CHART_DIGITS}g}"))
+
+	def __rsub__(self, other):
+		difference = float.__rsub__(self, other)
+		if difference is NotImplemented:
+			return difference
+		return ChartNumber(float(f"{difference:.{CHART_DIGITS}g}"))
+
+	def __str__(self) -> str:
+		return _chartNumberText(self)
+
+	def __format__(self, spec: str) -> str:
+		if not spec:
+			return _chartNumberText(self)
+		return float.__format__(self, spec)
+
+
+def _asChartNumber(value):
+	""":return: a series value as a `ChartNumber`, or as it was if it is not an ordinary number.
+
+	An empty point, an Excel error and a boolean are left exactly as Excel gave them, so NVDA
+	says about them whatever it says today.
+
+	:param value: one entry of `Series.Values`.
+	"""
+	if isinstance(value, bool) or not isinstance(value, (int, float)):
+		return value
+	if isinstance(value, int) and value in XL_ERRORS:
+		return value
+	return ChartNumber(value)
+
+
+class _ForwardingTo:
+	"""Answers everything as the object it wraps does, except what a subclass defines."""
+
+	def __init__(self, wrapped):
+		object.__setattr__(self, "_wrapped", wrapped)
+
+	def __getattr__(self, name):
+		return getattr(self._wrapped, name)
+
+	def __setattr__(self, name, value):
+		setattr(self._wrapped, name, value)
+
+
+class SeriesWithChartNumbers(_ForwardingTo):
+	"""Excel's `Series`, whose `Values` are `ChartNumber`s. Everything else is Excel's own."""
+
+	@property
+	def Values(self):  # noqa: N802 - Excel's own spelling.
+		values = self._wrapped.Values
+		if values is None:
+			return None
+		return tuple(_asChartNumber(value) for value in values)
+
+
+class ChartWithChartNumbers(_ForwardingTo):
+	"""Excel's `Chart`, as NVDA's point objects are given it. See `ChartNumber`.
+
+	A series asked for by number comes back as `SeriesWithChartNumbers`; asked for without one,
+	`SeriesCollection()` is the collection, for its `Count`, as Excel gives it. Everything else --
+	the formula, the axes, the chart type, `Points(n).Select()` -- goes straight to Excel.
+	"""
+
+	def SeriesCollection(self, *args):  # noqa: N802 - Excel's own spelling.
+		found = self._wrapped.SeriesCollection(*args)
+		return SeriesWithChartNumbers(found) if args else found
+
+
 class SpreadsheetChart:
 	"""The overlay on NVDA's chart objects: the chart, its series, its points, its other parts.
 
@@ -353,6 +466,21 @@ class SpreadsheetChart:
 	in the chart when the reader steps on the pins. What NVDA does with these objects — the
 	arrow keys, the speech, the colours, Escape back to the cells — is left exactly as it is.
 	"""
+
+	def initOverlayClass(self):
+		"""Give a point the chart through `ChartWithChartNumbers`, so what NVDA says of it is
+		said without the noise of binary arithmetic. See `ChartNumber`.
+
+		Here because NVDA runs this once the overlay is on, after its own constructor has stored
+		the chart: nothing of NVDA's has used it yet. Points only; the chart, its series and its
+		other parts keep Excel's own object, and the drawing reads that.
+		"""
+		pointClass = getattr(officeChart, "OfficeChartElementPoint", None)
+		if pointClass is None or not isinstance(self, pointClass):
+			return
+		chart = getattr(self, "officeChartObject", None)
+		if chart is not None and not isinstance(chart, ChartWithChartNumbers):
+			self.officeChartObject = ChartWithChartNumbers(chart)
 
 	def brlMultilineChart(self) -> ExcelChart:
 		""":return: the chart this is part of. See `chartSource.chartOf`."""

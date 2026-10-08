@@ -142,7 +142,13 @@ class DynamicType(type):
 				name = "Dynamic_" + "".join(found.__name__ for found in classes)
 				composed = type(name, bases, {"__module__": __name__})
 				_composed[bases] = composed
+			before = frozenset(type(obj).__mro__)
 			obj.__class__ = composed
+			# Then each overlay's own setup, as NVDA runs it: once the class is changed, and only
+			# for the classes the object did not start with.
+			for found in reversed(composed.__mro__):
+				if found not in before and "initOverlayClass" in found.__dict__:
+					found.__dict__["initOverlayClass"](obj)
 		return obj
 
 
@@ -2430,3 +2436,104 @@ class TestTheChartObjectsOfferTheChart(unittest.TestCase):
 	def test_aPointPastTheEndIsNotLedTo(self):
 		self.assertFalse(self.point.brlMultilineLeadTo(4))
 		self.assertEqual(self.chart.selected, [])
+
+
+def nvdaSaysOfAPoint(point) -> str:
+	""":return: the numbers of what NVDA's own point says, by NVDA's own arithmetic.
+
+	The lines of `OfficeChartElementPoint._getChartElementText` that touch a value, as NVDA 2026.3
+	has them, run against the point's `officeChartObject`: the change from the point before, and
+	the value. Reproduced rather than summarised, because the whole question is what that code
+	does with the numbers it is handed.
+	"""
+	chart = point.officeChartObject
+	arg1, arg2 = point.arg1, point.arg2
+	output = ""
+	if arg2 > 1:
+		rightDataPoint = chart.SeriesCollection(arg1).Values[arg2 - 1]
+		leftDataPoint = chart.SeriesCollection(arg1).Values[arg2 - 2]
+		if rightDataPoint == leftDataPoint:
+			output += "no change from point {previousIndex}, ".format(previousIndex=arg2 - 1)
+		elif rightDataPoint > leftDataPoint:
+			output += "increased by {incrementValue} from point {previousIndex}, ".format(
+				incrementValue=rightDataPoint - leftDataPoint,
+				previousIndex=arg2 - 1,
+			)
+		else:
+			output += "decreased by {decrementValue} from point {previousIndex}, ".format(
+				decrementValue=leftDataPoint - rightDataPoint,
+				previousIndex=arg2 - 1,
+			)
+	output += "value {valueAxisData}".format(valueAxisData=chart.SeriesCollection(arg1).Values[arg2 - 1])
+	return output
+
+
+class TestWhatNvdaSaysOfAPointIsWithoutNoise(unittest.TestCase):
+	"""Found on hardware: NVDA's chart navigation said "increased by 3.0000000000000004", from the
+	binary arithmetic of 344.37 less 341.37. The point is handed values that subtract and print
+	cleanly; NVDA's own sentence is otherwise untouched. See `ChartNumber`."""
+
+	def point(self, values, index):
+		chart = FakeExcelChart([FakeChartSeriesObject("Close", values)])
+		return FakeChartSeries(officeChartObject=chart, arg1=1).elementList[index]
+
+	def test_theChangeFromThePointBeforeIsRounded(self):
+		self.assertEqual(
+			nvdaSaysOfAPoint(self.point([341.37, 344.37], 1)),
+			"increased by 3 from point 1, value 344.37",
+		)
+
+	def test_aFallIsRoundedToo(self):
+		self.assertEqual(
+			nvdaSaysOfAPoint(self.point([0.3, 0.1], 1)),
+			"decreased by 0.2 from point 1, value 0.1",
+		)
+
+	def test_aWholeNumberIsSaidWithoutAPoint(self):
+		self.assertEqual(nvdaSaysOfAPoint(self.point([3.0], 0)), "value 3")
+
+	def test_realDigitsAreKept(self):
+		self.assertEqual(nvdaSaysOfAPoint(self.point([12.3456789], 0)), "value 12.3456789")
+
+	def test_noChangeIsStillNoChange(self):
+		self.assertEqual(
+			nvdaSaysOfAPoint(self.point([5.25, 5.25], 1)),
+			"no change from point 1, value 5.25",
+		)
+
+	def test_aPiesArithmeticStillWorks(self):
+		"""NVDA sums a pie's values and divides for a percentage, in the same method."""
+		import math
+
+		values = self.point([1.0, 3.0], 0).officeChartObject.SeriesCollection(1).Values
+		total = math.fsum(values)
+		self.assertEqual(f"{values[1] / total * 100.00:.2f}", "75.00")
+
+	def test_aFormatNvdaAsksForIsHonoured(self):
+		value = self.point([2.0 / 3.0], 0).officeChartObject.SeriesCollection(1).Values[0]
+		self.assertEqual(f"{value:.2f}", "0.67")
+
+	def test_anEmptyPointIsLeftAsExcelGaveIt(self):
+		values = self.point([1.0, None, -2146826246], 0).officeChartObject.SeriesCollection(1).Values
+		self.assertEqual(values[1:], (None, -2146826246))
+
+	def test_everythingElseIsExcelsOwn(self):
+		point = self.point([1.0, 2.0], 1)
+		chart = point.officeChartObject
+		self.assertEqual(chart.SeriesCollection().Count, 1)
+		self.assertEqual(chart.SeriesCollection(1).Name, "Close")
+		self.assertEqual(chart.Name, "Prices Chart 1")
+
+	def test_onlyPointsAreGivenIt(self):
+		"""The chart, its series and the drawing keep Excel's own object."""
+		chart = FakeExcelChart([FakeChartSeriesObject("Close", [1.0, 2.0])])
+		series = FakeChartSeries(officeChartObject=chart, arg1=1)
+		self.assertIs(series.officeChartObject, chart)
+		self.assertIs(FakeOfficeChart(officeChartObject=chart).officeChartObject, chart)
+		self.assertIsInstance(series.elementList[0].officeChartObject, excelModule.ChartWithChartNumbers)
+
+	def test_aChartReadThroughAPointIsReadAsPlainNumbers(self):
+		point = self.point([341.37, 344.37], 1)
+		reading = point.brlMultilineChart().definition()
+		self.assertEqual(reading.series[0].values, [341.37, 344.37])
+		self.assertIs(type(reading.series[0].values[1]), float)

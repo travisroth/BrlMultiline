@@ -25,7 +25,9 @@ Added:
   single series column and bar charts, and stock charts, including high, low, close charts as
   price bars without the open tick. Arrowing through the chart's points with NVDA marks the same
   point on the display, and stepping or pressing on the display moves NVDA's place to match.
-  Not yet tried on hardware.
+  NVDA's own chart navigation also says values and changes without arithmetic noise:
+  "increased by 3", not "increased by 3.0000000000000004". The clean speech is tested on
+  hardware; the drawing and the following are not yet.
 
 - **A drawing takes the whole display when the focus is elsewhere.** With two displays combined
   and the focus on the other one, a chart or picture on the Monarch no longer keeps a braille
