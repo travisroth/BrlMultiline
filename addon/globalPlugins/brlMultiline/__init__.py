@@ -41,6 +41,7 @@ from . import (
 	tableRowLine,
 )
 from . import tableHeaderSpeech
+from . import userBrailleTable
 from .container import DisplayContainer
 from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
 from . import image as imageFigure, imagePins, imageSource
@@ -302,6 +303,25 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# is on. See `keyLayerDispatch`.
 		keyLayerDispatch.install()
 		self._keyLayersMenuItem = self._addKeyLayersMenuItem()
+		# The reader's braille substitutions: written into the rules file every BrlMultiline table
+		# includes, for the profiles in force, and again on every profile switch. See
+		# `userBrailleTable`. Guarded, because a list that cannot be put in force must not stop the
+		# rest of the add-on loading.
+		try:
+			if userBrailleTable.install(self._handleBrailleRulesChanged):
+				# The reader's personal tables were made again, after the add-on was updated or its
+				# manifest written afresh, and NVDA reads which tables there are only as it starts.
+				# Said after startup's own speech, or it would be cut off.
+				wx.CallLater(
+					5000,
+					ui.message,
+					# Translators: said at startup when the reader's personal braille tables had to be made
+					# again and NVDA has to restart before they can be chosen.
+					_("BrlMultiline: restart NVDA to use your personal braille tables."),
+				)
+		except Exception:
+			log.error("BrlMultiline: could not put the braille substitutions in force", exc_info=True)
+		self._substitutionsMenuItem = self._addSubstitutionsMenuItem()
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(BrailleMultilineSettingsPanel)
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(FlowSettingsPanel)
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(VirtualDisplaySettingsPanel)
@@ -347,6 +367,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			tableHeaderSpeech.remove()
 			keyLayerDispatch.remove()
 			self._removeKeyLayersMenuItem()
+			userBrailleTable.remove()
+			self._removeSubstitutionsMenuItem()
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(BrailleMultilineSettingsPanel)
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(FlowSettingsPanel)
 			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(VirtualDisplaySettingsPanel)
@@ -3946,6 +3968,82 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		from . import keyLayerDialog
 
 		keyLayerDialog.openDialog()
+
+	# Braille substitutions
+
+	def _addSubstitutionsMenuItem(self):
+		"""Put the braille substitutions dialog in NVDA's Preferences menu, after the layered keys.
+
+		Not in a secure session, where NVDA leaves its own dictionaries out of the menu too and the list
+		could not be saved.
+
+		:return: the menu item, or None if there is no menu to add it to.
+		"""
+		try:
+			import globalVars
+
+			if globalVars.appArgs.secure:
+				return None
+			tray = gui.mainFrame.sysTrayIcon
+			item = tray.preferencesMenu.Append(
+				wx.ID_ANY,
+				# Translators: the item in NVDA's Preferences menu that opens the braille substitutions dialog.
+				_("BrlMultiline braille &substitutions..."),
+			)
+			tray.Bind(wx.EVT_MENU, self._onSubstitutionsMenu, item)
+			return item
+		except Exception:
+			log.debugWarning("BrlMultiline: could not add the braille substitutions menu item", exc_info=True)
+			return None
+
+	def _removeSubstitutionsMenuItem(self) -> None:
+		item = getattr(self, "_substitutionsMenuItem", None)
+		if item is None:
+			return
+		self._substitutionsMenuItem = None
+		try:
+			tray = gui.mainFrame.sysTrayIcon
+			# Unbound as well as removed, for the reason the layered keys item is.
+			tray.Unbind(wx.EVT_MENU, source=item, handler=self._onSubstitutionsMenu)
+			tray.preferencesMenu.DestroyItem(item)
+		except Exception:
+			log.debugWarning("BrlMultiline: could not remove the braille substitutions menu item", exc_info=True)
+
+	def _onSubstitutionsMenu(self, event) -> None:
+		from . import substitutionsDialog
+
+		substitutionsDialog.openDialog()
+
+	def _handleBrailleRulesChanged(self) -> None:
+		"""Draw everything again after the reader's braille rules changed.
+
+		What is on the display was translated with the old rules, and nothing about the change makes
+		a braille event. NVDA's own regions are made again from the focus, as NVDA does when braille is
+		first shown, and the flow band, whose renderings carry the rules' generation in their key, is
+		rebuilt. Deferred, as a profile switch's rebuild is: this can run while the switch is applied.
+		"""
+
+		def redraw() -> None:
+			if self._terminated or not braille.handler:
+				return
+			try:
+				braille.handler.initialDisplay()
+			except Exception:
+				log.debugWarning("BrlMultiline: could not redraw after the braille rules changed", exc_info=True)
+
+		wx.CallAfter(redraw)
+		self._scheduleRebuild()
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Opens the BrlMultiline braille substitutions"),
+		category=SCRIPT_CATEGORY,
+	)
+	@gui.blockAction.when(gui.blockAction.Context.MODAL_DIALOG_OPEN)
+	def script_showBrailleSubstitutions(self, gesture):
+		from . import substitutionsDialog
+
+		wx.CallAfter(substitutionsDialog.openDialog)
 
 	@script(
 		# Translators: input help message for a command.

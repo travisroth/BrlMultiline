@@ -32,7 +32,7 @@ import config
 from braille.constants import CONTINUATION_SHAPE
 from logHandler import log
 
-from . import glyphFlow
+from . import brailleSubstitutions, glyphFlow
 from .flow import BLANK_CELL, NO_POSITION, RenderedBlock, RenderKey, SourceBlock
 from .flowIndent import FLAT, IndentPlan
 from .flowTable import (
@@ -208,6 +208,9 @@ class FlowRenderer:
 				self.columnPlan,
 				# The page across, so that a line drawn at one page is never served for another.
 				self.unwrappedPage,
+				# The reader's braille substitutions, which change the cells while the table's name
+				# stays the same. See `brailleSubstitutions.generation`.
+				brailleSubstitutions.generation(),
 			),
 			indent=indent,
 		)

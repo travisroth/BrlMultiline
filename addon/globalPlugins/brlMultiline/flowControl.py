@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Optional
 
 from logHandler import log
 
-from . import flowForms, flowIndent, glyphFlow, glyphs
+from . import brailleSubstitutions, flowForms, flowIndent, glyphFlow, glyphs
 from .flow import (
 	BLANK_CELL,
 	NO_POSITION,
@@ -661,6 +661,8 @@ class FlowController(PanelOwner):
 			indentStyle,
 			lineFocus,
 			setting("translationTable"),
+			# The reader's braille substitutions, which change the cells under the same table name.
+			brailleSubstitutions.generation(),
 			setting("textWrap"),
 			setting("expandAtCursor"),
 		)

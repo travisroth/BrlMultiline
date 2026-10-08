@@ -2051,3 +2051,4 @@ noback replace \xfe0c
 noback replace \xfe0d
 noback replace \xfe0e
 noback replace \xfe0f
+noback replace \xfffc

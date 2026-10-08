@@ -73,6 +73,8 @@ pythonSources: list[str] = [
 	# One application module, for the one application whose tables cannot be read without
 	# knowing something about it. See `addon/appModules/excel.py`.
 	"addon/appModules/*.py",
+	# Writes the empty braille substitutions file the tables include. See `addon/installTasks.py`.
+	"addon/installTasks.py",
 ]
 
 # Files that contain strings for translation. Usually your python sources
@@ -84,7 +86,14 @@ i18nSources: list[str] = pythonSources + ["buildVars.py"]
 # or use glob expressions.
 # The unit tests import modules from the add-on directly, which leaves compiled bytecode
 # behind in the source tree. It must not be shipped.
-excludedFiles: list[str] = ["**/__pycache__"]
+# Nor the reader's braille substitutions and personal tables, which the add-on writes into its own
+# brailleTables folder while it runs: a developer's own would ship to everyone. Installing writes
+# an empty substitutions file, and makes the personal tables again from the reader's list.
+excludedFiles: list[str] = [
+	"**/__pycache__",
+	"brailleTables/brlMultiline-user*",
+	"brailleTables/*-brlMultiline-personal.utb",
+]
 
 # Base language for the NVDA add-on
 # If your add-on is written in a language other than english, modify this variable.

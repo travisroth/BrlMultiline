@@ -18,3 +18,8 @@ manifest.ini
 # become part of a history that may one day be public.
 *.msg
 *.eml
+
+# The reader's braille substitutions, written by the add-on as it runs, and the
+# candidates it compiles to check them. See addon/globalPlugins/brlMultiline/userBrailleTable.py.
+addon/brailleTables/brlMultiline-user*
+addon/brailleTables/*-brlMultiline-personal.utb

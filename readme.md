@@ -1000,6 +1000,100 @@ magnified, and where you are in it, without changing anything.
 - No image library is needed. All image processing is done in plain Python inside the add-on,
   so there is nothing extra to install.
 
+## Braille symbols and your own substitutions
+
+### Symbol names
+
+liblouis, the braille translator NVDA uses, writes a character its table has no rule for as a
+hexadecimal code, such as `'\x2068'` or `'\y1f4ca'`. These codes take many cells and mean
+nothing to a reader. BrlMultiline adds six braille tables that fix this. Each is one of NVDA's
+own English tables, plus rules for the characters that table leaves undefined:
+
+- English (U.S.) grade 1 and grade 2
+- English (U.S.) 6 dot and 8 dot computer braille
+- Unified English Braille Code grade 1 and grade 2
+
+Each is listed in NVDA's Braille settings with "with symbol names (BrlMultiline)" after its
+name. Choose one as the output table. Your input table stays as it is.
+
+What they do:
+
+- **Invisible characters are dropped.** These are marks that only steer how text is drawn,
+  such as the direction marks Discord puts around every name, and the placeholder that
+  Chromium-based applications put where an icon or other object sits in the text.
+- **Some characters are shown as a familiar character.** Other bullet shapes become the
+  table's own bullet, box drawing becomes `+`, `-` and `|`, and other hyphens become the
+  hyphen.
+- **Everything NVDA's speech has a name for is shown by that name**, between two full cells
+  (dots 1 to 8): an emoji such as 💬 reads ⣿speech balloon⣿. The names come from NVDA's own
+  symbol and emoji lists, and are contracted in grade 2. A joined emoji, such as a family, a
+  skin tone, or a flag, reads as one name.
+
+Anything the stock table already writes is left as it is. UEB, for example, has its own signs
+for arrows and check marks, and those are kept.
+
+A table chosen while a configuration profile is active is saved to that profile only. To use
+one everywhere, choose it while no profile is active, then save the configuration.
+
+### Your own substitutions
+
+NVDA menu, Preferences, **BrlMultiline braille substitutions** opens a list of your own
+changes to braille, in the style of NVDA's speech dictionaries. There is also a command for it
+in Input Gestures, with no key assigned. The substitutions are used with the tables above and
+with your personal tables (see below).
+
+Each entry finds some text and shows it in one of three ways:
+
+- **Text:** shown as other text, which the table then translates as if you had typed it. For
+  example, "Travis Roth" as "TR". Leave the replacement empty to show nothing at all.
+- **Dots:** shown as dots you give, such as `1245-1235`. Separate cells with hyphens, and use
+  `0` for a blank cell. Punctuation after the dots is written the way it would be after a
+  word.
+- **liblouis rules:** one or more rules of your own, one a line, for anything the other two
+  can't do. They are put in as you write them, so you need to know liblouis's rule language.
+
+And each entry has these options:
+
+- **Whole word only** (on by default): only where the text is not part of a longer word, so
+  "Travis Roth" does not change "Travis Roths".
+- **Match case** (off by default): only with the capitals as you typed them. Off, the text is
+  also found in lower case, in capitals, and with each word or only the first letter
+  capitalised.
+- **Use in profile:** in every profile, or only while one configuration profile is active.
+- **Use this substitution:** turn an entry off without deleting it.
+
+When you press OK, everything is checked before anything is saved. Each entry has to make
+sense, no two may find the same text in the same profile, and liblouis has to accept the rules
+in every BrlMultiline table. If something fails, you are told which entry and why, and nothing
+changes until it is fixed. Your braille changes as soon as the list is saved, with no restart.
+
+### Personal tables, for any language
+
+BrlMultiline's own tables are English. If you read another table, such as Spanish or UK braille,
+make a personal table from it. In the substitutions dialog, under **Personal tables**, press
+**Create personal table** and choose one or more of NVDA's braille tables. Each becomes a table of
+its own, such as "Spanish grade 1 (BrlMultiline personal)", which is that NVDA table with your
+substitutions in front of it.
+
+NVDA reads which braille tables there are only when it starts, so a new personal table appears
+in NVDA's Braille settings after NVDA restarts. When you press OK, you are asked whether to
+restart now. Then choose the personal table as your output table. Removing a personal table also
+takes effect after a restart; if it was your output table, NVDA goes back to its default.
+
+Only NVDA's own tables can be made personal, not tables from other add-ons. Your personal tables
+are kept with your substitutions and made again when BrlMultiline is updated, so an update does
+not lose them.
+
+**Where the list is kept.** The list, and your personal tables, are saved as soon as you press OK, in
+`brlMultiline\brailleSubstitutions.json` in NVDA's configuration folder, whatever your setting
+for saving the configuration on exit. The list it replaces is kept beside it as `.bak`. If
+the list is ever damaged, it is set aside under a name of its own, the backup is used instead,
+and the dialog tells you.
+
+**How many.** Each entry is checked against every line braille shows, so a very long list
+slows braille down. Tens of entries cost nothing you will notice. Hundreds would, especially
+entries matching whole words in any capitals.
+
 ## Commands
 
 Every command is in the **BrlMultiline** category in NVDA menu, Preferences, Input Gestures.
