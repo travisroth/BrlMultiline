@@ -120,8 +120,12 @@ reason. Mapping by type:
    open, high, low and close, which is the order Excel itself requires for that type.
 4. **Volume-open-high-low-close** (`xlStockVOHLC`): the price chart from series 2 to 5, with the
    volume left out and the description saying so.
-5. **High-low-close** (`xlStockHLC`, `xlStockVHLC`): refused for now. The price chart draws an
-   open tick and has no period without one; see open questions.
+5. **High-low-close** (`xlStockHLC`, `xlStockVHLC`): the price chart's open, high, low, close
+   bars with the open tick left off, series 1 to 3 as high, low and close (2 to 4 with volume).
+   Decided 8 October 2026. That needs the price chart to take a period with no open: `Period`
+   gains an optional open, `_drawBar` skips the left tick when there is none, and a press or a
+   step says high, low and close only. Candlesticks are not offered for these, since a candle's
+   body is the open to the close and there is no open to draw it from.
 6. **Anything else**, and any chart whose series do not all share one type (a combination
    chart), or that puts a series on a secondary axis: refused, naming the type: "Scatter charts
    cannot be drawn yet." The volume stock chart above is the one exception, since its secondary
@@ -218,8 +222,8 @@ drawing is the focus line in the second case.
 
 ## Open questions
 
-1. **High-low-close charts.** Draw them as price bars with no open tick, or as the line chart
-   of three lines? Decide when there is one to feel.
+1. **High-low-close charts.** Decided 8 October 2026: price bars with no open tick. See
+   "What gets drawn".
 2. **Charts in Word and PowerPoint.** NVDA uses the same chart objects there. The reading in
    `ExcelChart` is Office-wide except the category text, which uses Excel's ranges. Worth doing
    once Excel is on hardware, through those applications' own modules.
