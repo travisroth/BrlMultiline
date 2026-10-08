@@ -375,7 +375,10 @@ class FakeChartElement(metaclass=DynamicType):
 		self.arg2 = arg2
 
 	def select(self):
-		"""What NVDA's point does: select the point in Excel. Recorded on the fake chart."""
+		"""What NVDA's point does: select the point in Excel. Recorded on the fake chart, which
+		can be told to refuse, as Excel can."""
+		if getattr(self.officeChartObject, "refuses", False):
+			raise COMError()
 		self.officeChartObject.selected.append((self.arg1, self.arg2))
 
 
@@ -2269,20 +2272,25 @@ BOOK = "C:/charting.xlsx"
 class FakeExcelChart:
 	"""Excel's `Chart`, as NVDA's chart objects hold it."""
 
-	def __init__(self, series, chartType=4, title="Prices", name="Prices Chart 1", cells=None):
+	def __init__(self, series, chartType=4, title="Prices", name="Prices Chart 1", cells=None, separator=","):
 		self.ChartType = chartType
 		self.HasTitle = bool(title)
 		self.ChartTitle = types.SimpleNamespace(Text=title)
 		self.Name = name
 		self._series = series
 		self.selected = []
+		self.ranges = []
+		"""Every address the chart's categories were read from."""
 		texts = cells if cells is not None else [f"1 Oct {index}" for index in range(1, 10)]
+
+		def cellsAt(address):
+			self.ranges.append(address)
+			return types.SimpleNamespace(Item=lambda index: types.SimpleNamespace(Text=texts[index - 1]))
+
 		self.Application = types.SimpleNamespace(
 			ActiveWorkbook=types.SimpleNamespace(FullName=BOOK),
-			International=lambda which: ",",
-			Range=lambda address: types.SimpleNamespace(
-				Item=lambda index: types.SimpleNamespace(Text=texts[index - 1]),
-			),
+			International=lambda which: separator,
+			Range=cellsAt,
 		)
 
 	def SeriesCollection(self, index=None):  # noqa: N802 - Excel's own spelling.
@@ -2537,3 +2545,110 @@ class TestWhatNvdaSaysOfAPointIsWithoutNoise(unittest.TestCase):
 		reading = point.brlMultilineChart().definition()
 		self.assertEqual(reading.series[0].values, [341.37, 344.37])
 		self.assertIs(type(reading.series[0].values[1]), float)
+
+
+class TestReadingASeriesFormula(unittest.TestCase):
+	"""Found in review: splitting `=SERIES(...)` on every separator made a quoted sheet name with a
+	comma in it two arguments, so the categories were read from the wrong one and a chart of dates
+	was labelled with Excel's serial numbers."""
+
+	def arguments(self, formula, separator=","):
+		return excelModule.seriesArguments(formula, separator)
+
+	def test_anOrdinaryFormula(self):
+		self.assertEqual(
+			self.arguments("=SERIES(Prices!$B$1,Prices!$A$2:$A$9,Prices!$B$2:$B$9,1)"),
+			["Prices!$B$1", "Prices!$A$2:$A$9", "Prices!$B$2:$B$9", "1"],
+		)
+
+	def test_aSheetNameWithTheSeparatorInIt(self):
+		arguments = self.arguments("=SERIES('Sales, Q1'!$B$1,'Sales, Q1'!$A$2:$A$9,'Sales, Q1'!$B$2:$B$9,1)")
+		self.assertEqual(arguments[1], "'Sales, Q1'!$A$2:$A$9")
+		self.assertEqual(len(arguments), 4)
+
+	def test_aQuoteInASheetNameIsDoubled(self):
+		arguments = self.arguments("=SERIES('Bob''s, sheet'!$B$1,'Bob''s, sheet'!$A$2:$A$9,'Bob''s, sheet'!$B$2:$B$9,1)")
+		self.assertEqual(arguments[1], "'Bob''s, sheet'!$A$2:$A$9")
+
+	def test_aNameWrittenIntoTheFormula(self):
+		arguments = self.arguments('=SERIES("Close, adjusted",Prices!$A$2:$A$9,Prices!$B$2:$B$9,1)')
+		self.assertEqual(arguments[0], '"Close, adjusted"')
+		self.assertEqual(arguments[1], "Prices!$A$2:$A$9")
+
+	def test_aRangeOfSeveralAreasIsOneArgument(self):
+		arguments = self.arguments("=SERIES(,(Prices!$A$2:$A$5,Prices!$A$8:$A$9),Prices!$B$2:$B$9,1)")
+		self.assertEqual(arguments[1], "(Prices!$A$2:$A$5,Prices!$A$8:$A$9)")
+
+	def test_aSemicolonLocale(self):
+		arguments = self.arguments("=SERIES('Ventes; T1'!$B$1;'Ventes; T1'!$A$2:$A$9;'Ventes; T1'!$B$2:$B$9;1)", ";")
+		self.assertEqual(arguments[1], "'Ventes; T1'!$A$2:$A$9")
+		self.assertEqual(len(arguments), 4)
+
+	def test_theCategoriesOfAQuotedSheetAreTheTextOfItsCells(self):
+		formula = "=SERIES('Sales, Q1'!$B$1,'Sales, Q1'!$A$2:$A$3,'Sales, Q1'!$B$2:$B$3,1)"
+		chart = FakeExcelChart(
+			[FakeChartSeriesObject("Sales", [3, 5], formula=formula, xValues=[46000.0, 46001.0])],
+			cells=["Jan 1", "Jan 2"],
+		)
+		reading = excelModule.ExcelChart(chart).definition()
+		self.assertEqual(reading.categories, ["Jan 1", "Jan 2"])
+		self.assertEqual(chart.ranges, ["'Sales, Q1'!$A$2:$A$3"])
+
+	def test_andInASemicolonLocale(self):
+		formula = "=SERIES('Ventes; T1'!$B$1;'Ventes; T1'!$A$2:$A$3;'Ventes; T1'!$B$2:$B$3;1)"
+		chart = FakeExcelChart(
+			[FakeChartSeriesObject("Ventes", [3, 5], formula=formula, xValues=[46000.0, 46001.0])],
+			cells=["1 janv.", "2 janv."],
+			separator=";",
+		)
+		self.assertEqual(excelModule.ExcelChart(chart).definition().categories, ["1 janv.", "2 janv."])
+
+
+class TestTheSeriesAreKnownByNumber(unittest.TestCase):
+	"""Found in review: two series of the same name put the level line on the first of them
+	whichever NVDA was on. A series carries its number in Excel's collection, NVDA's `arg1`."""
+
+	def test_eachSeriesKnowsItsNumber(self):
+		reading = excelModule.ExcelChart(bands()).definition()
+		self.assertEqual([one.key for one in reading.series], [1, 2, 3, 4])
+
+	def test_aStockChartsPricesKeepTheirNumbersPastTheVolume(self):
+		prices = [FakeChartSeriesObject(name, [1, 2]) for name in ("Open", "High", "Low", "Close")]
+		chart = FakeExcelChart([FakeChartSeriesObject("Volume", [100, 200]), *prices], chartType=91)
+		self.assertEqual([one.key for one in excelModule.ExcelChart(chart).definition().series], [2, 3, 4, 5])
+
+	def test_aPointSaysItsSeriesByNumber(self):
+		series = FakeChartSeries(officeChartObject=bands(), arg1=3)
+		self.assertEqual(series.elementList[0].brlMultilinePoint().series, 3)
+
+
+class TestWhatTheDrawingChangesIsSaid(unittest.TestCase):
+	"""Found in review: some of Excel's shapes are drawn as another, and the reader was not told."""
+
+	def test_horizontalBarsAreSaidToBeDrawnUpright(self):
+		chart = FakeExcelChart([FakeChartSeriesObject("Sales", [3, 5], chartType=57)], chartType=57)
+		self.assertEqual(excelModule.ExcelChart(chart).definition().note, "bars drawn upright")
+
+	def test_stackedLinesAreSaidToBeDrawnAtTheirOwnValues(self):
+		reading = excelModule.ExcelChart(bands(chartType=63)).definition()
+		self.assertEqual(reading.kind, "line")
+		self.assertEqual(reading.note, "stacked lines drawn at their own values")
+
+	def test_columnsAndPlainLinesAreDrawnAsTheyAre(self):
+		chart = FakeExcelChart([FakeChartSeriesObject("Sales", [3, 5], chartType=51)], chartType=51)
+		self.assertEqual(excelModule.ExcelChart(chart).definition().note, "")
+		self.assertEqual(excelModule.ExcelChart(bands()).definition().note, "")
+
+
+class TestARefusedSelectionDoesNotMoveNvda(unittest.TestCase):
+	"""Found in review: NVDA's place moved before Excel was asked to select the point, so a
+	refusal left the next arrow going on from a point Excel never went to."""
+
+	def test_nvdasPlaceStaysWhereItWas(self):
+		chart = bands()
+		series = FakeChartSeries(officeChartObject=chart, arg1=1)
+		series.activeElement = series.elementList[0]
+		chart.refuses = True
+		with self.assertRaises(COMError):
+			series.elementList[0].brlMultilineLeadTo(2)
+		self.assertIs(series.activeElement, series.elementList[0])

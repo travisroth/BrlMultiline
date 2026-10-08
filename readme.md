@@ -718,8 +718,9 @@ elements list (NVDA+F7). The chart is drawn as its author made it, with its titl
 and without the dialog, since the chart already says what kind it is:
 
 - **Line charts** are drawn as line charts, up to four lines. Stacked line charts are drawn
-  with each line at its own values.
-- **Column and bar charts with one series** are drawn as bar charts.
+  with each line at its own values, and the name says so.
+- **Column and bar charts with one series** are drawn as bar charts. Excel's bar chart, whose
+  bars run across the page, is drawn with them standing up, and the name says so.
 - **Stock charts** are drawn as price bars. A high, low, close chart's bars have no open tick,
   and a chart with volume is drawn without the volume, which the name says.
 

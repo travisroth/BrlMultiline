@@ -367,6 +367,13 @@ class TestDrawingAnApplicationsOwnChart(unittest.TestCase):
 		self.assertEqual(drawing.points, 4)
 		self.assertEqual(drawing.levelNames, ("Close", "Average"))
 
+	def test_eachLineKnowsWhichSeriesItIs(self):
+		definition = self.definition(chartMenu.LINE, [("Same", [1, 2, 3]), ("Same", [3, 2, 1])])
+		definition = definition._replace(
+			series=[one._replace(key=number) for number, one in enumerate(definition.series, start=1)],
+		)
+		self.assertEqual(self.draw(definition).levelKeys, (1, 2))
+
 	def test_theTitleIsWhatTheDrawingIsCalled(self):
 		drawing = self.draw(self.definition(chartMenu.LINE, [("Close", [1, 2, 3, 4])]))
 		self.assertTrue(drawing.name.startswith("Prices, "), drawing.name)

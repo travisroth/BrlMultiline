@@ -2261,6 +2261,32 @@ class TestSteppingThroughAChart(unittest.TestCase):
 		self.assertTrue(self.mode.markPoint(240))
 		self.assertTrue(self.holds())
 
+	def test_theLevelFollowsTheSeriesByNumberWhenTwoShareAName(self):
+		"""Found in review: with two series called the same, the level stayed on the first while
+		NVDA was on the second."""
+		from brlMultiline.chartLine import Line
+
+		lines = [Line("Same", [5, 6, 7, 8], key=1), Line("Same", [4, 5, 6, 7], key=2)]
+		self.mode.enter(self.line(4, lines))
+		self.mode.markPoint(1, "Same", 2)
+		self.assertEqual(self.mode._level, 1)
+		self.mode.markPoint(2, "Same", 1)
+		self.assertEqual(self.mode._level, 0)
+
+	def test_andStillDoesOnceTheChartIsZoomed(self):
+		from brlMultiline.chartLine import Line
+
+		count = 250
+		lines = [
+			Line("Same", [index % 7 for index in range(count)], key=1),
+			Line("Same", [index % 5 for index in range(count)], key=2),
+		]
+		self.mode.enter(self.line(count, lines))
+		self.assertTrue(self.mode.zoomToPoints())
+		self.assertEqual(self.mode.drawing.levelKeys, (1, 2))
+		self.mode.markPoint(200, "Same", 2)
+		self.assertEqual(self.mode._level, 1)
+
 	def test_theLevelFollowsTheSeriesBeingMovedThrough(self):
 		from brlMultiline.chartLine import Line
 

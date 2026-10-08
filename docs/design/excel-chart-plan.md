@@ -35,7 +35,17 @@ of it has been on hardware.** Where the build differs from the design below:
    the noise. NVDA's wording, order and translations are untouched. Worth reporting to NV Access
    as well, since every NVDA user meets it. Tested by `TestWhatNvdaSaysOfAPointIsWithoutNoise`,
    and confirmed in speech on hardware on 8 October.
-8. The tests are `TestReadingAnExcelChart` and `TestTheChartObjectsOfferTheChart` in
+8. **From the first review**, 8 October:
+   1. The series formula is split only on separators outside quotes, brackets and braces
+      (`seriesArguments`). Split on every separator, a sheet named `Sales, Q1` made the categories
+      the wrong argument and dates came out as Excel's serial numbers.
+   2. Each series carries its number in Excel's collection, NVDA's `arg1`, through
+      `ChartSeries.key`, `Line.key` and `Drawing.levelKeys`, and following matches the level line
+      by that rather than by name. Two series of one name put the level on the first.
+   3. NVDA's place in a series moves only after Excel has selected the point.
+   4. A shape drawn as another is said in the drawing's name: "bars drawn upright" for Excel's
+      horizontal bar chart, "stacked lines drawn at their own values" for a stacked line chart.
+9. The tests are `TestReadingAnExcelChart` and `TestTheChartObjectsOfferTheChart` in
    `test_excelAppModule.py`, `TestDrawingAnApplicationsOwnChart` in `test_chartMenu.py`,
    `TestAHighLowCloseBar` in `test_chartPrice.py`, the `markPoint` tests in
    `TestSteppingThroughAChart` in `test_graphics.py`, and `TestFollowingAnApplicationsChart` in

@@ -143,6 +143,21 @@ MAX_CHART_POINTS = 400
 """Points a chart may have to be drawn: the ceiling a selection is read to. See
 `chartSource.MAX_POINTS`."""
 
+XL_STACKED_LINE_CHARTS = frozenset(
+	_xl(name, number)
+	for name, number in (
+		("xlLineStacked", 63),
+		("xlLineStacked100", 64),
+		("xlLineMarkersStacked", 66),
+		("xlLineMarkersStacked100", 67),
+	)
+)
+"""The line chart types Excel stacks, each line on top of the one below. Drawn unstacked, so the
+drawing says so."""
+
+XL_HORIZONTAL_BAR_CHARTS = frozenset((_xl("xlBarClustered", 57),))
+"""The bar chart types Excel draws across the page. Drawn upright, so the drawing says so."""
+
 XL_ERRORS = range(-2146826288, -2146826245)
 """The numbers Excel's error values arrive as when they come through as integers: #N/A, #DIV/0!
 and the rest. A point holding one has no value."""
@@ -153,6 +168,9 @@ class SeriesReading(NamedTuple):
 
 	name: str
 	values: list
+	key: object = None
+	"""Its number in Excel's `SeriesCollection`, from 1: what NVDA's point calls `arg1`. The name
+	is for speech; two series may share one."""
 
 
 class ChartReading(NamedTuple):
@@ -175,6 +193,8 @@ class PointReading(NamedTuple):
 	key: tuple
 	index: int
 	seriesName: str
+	series: object = None
+	"""The series' number in Excel's `SeriesCollection`, as `SeriesReading.key`."""
 
 
 def _chartValue(value) -> Optional[float]:
@@ -195,6 +215,61 @@ def _chartValue(value) -> Optional[float]:
 	except (TypeError, ValueError, OverflowError):
 		return None
 	return number if math.isfinite(number) else None
+
+
+def seriesArguments(formula: str, separator: str) -> list:
+	""":return: the arguments of a series formula, `=SERIES(name, categories, values, order)`.
+
+	**Split only where the separator separates.** A sheet name with the separator in it is quoted,
+	`'Sales, Q1'!$A$2:$A$9`, and so is a series named in the formula, `"Close, adjusted"`; a
+	quote inside either is doubled. A range of several areas is in brackets and an array of
+	constants in braces. Split on every separator, any of those made the categories the wrong
+	argument, and a chart of dates was labelled with the numbers Excel keeps them as. Found in
+	review.
+
+	:param formula: the series' `Formula`.
+	:param separator: the reader's list separator, a comma or a semicolon, as Excel says it is.
+	:return: the arguments as written, or nothing if this is not a formula of that shape.
+	"""
+	text = (formula or "").strip()
+	start, end = text.find("("), text.rfind(")")
+	if start < 0 or end <= start or not separator:
+		return []
+	body = text[start + 1 : end]
+	arguments = []
+	current = []
+	depth = 0
+	quote = ""
+	index = 0
+	while index < len(body):
+		character = body[index]
+		if quote:
+			current.append(character)
+			if character == quote:
+				if body[index + 1 : index + 2] == quote:
+					current.append(quote)
+					index += 1
+				else:
+					quote = ""
+		elif character in "'\"":
+			quote = character
+			current.append(character)
+		elif character in "({":
+			depth += 1
+			current.append(character)
+		elif character in ")}":
+			depth -= 1
+			current.append(character)
+		elif depth == 0 and body.startswith(separator, index):
+			arguments.append("".join(current))
+			current = []
+			index += len(separator)
+			continue
+		else:
+			current.append(character)
+		index += 1
+	arguments.append("".join(current))
+	return arguments
 
 
 def _categoryText(value) -> str:
@@ -264,9 +339,15 @@ class ExcelChart:
 			# Translators: reported when a chart with no series is asked for.
 			return refused(_("This chart has no series"))
 		everySeries = [chart.SeriesCollection(index) for index in range(1, count + 1)]
-		note = ""
+		notes = []
 		if chartType in XL_LINE_CHARTS:
 			kind, lead = "line", 0
+			if chartType in XL_STACKED_LINE_CHARTS:
+				# The drawing is not the shape on the screen, so the reader is told rather than left
+				# to compare a stacked chart with a sighted colleague's and find it different.
+				# Translators: added to what a stacked line chart is called on the display, which
+				# draws each line at its own values rather than on top of the one below.
+				notes.append(_("stacked lines drawn at their own values"))
 		elif chartType in XL_BAR_CHARTS:
 			if count > 1:
 				return refused(
@@ -275,11 +356,15 @@ class ExcelChart:
 					_("{type} charts of more than one series cannot be drawn yet").format(type=typeName),
 				)
 			kind, lead = "bars", 0
+			if chartType in XL_HORIZONTAL_BAR_CHARTS:
+				# Translators: added to what a bar chart is called on the display, when Excel draws
+				# its bars across the page and the display draws them standing up.
+				notes.append(_("bars drawn upright"))
 		elif chartType in XL_STOCK_CHARTS:
 			kind, lead = XL_STOCK_CHARTS[chartType]
 			if lead:
 				# Translators: added to what a stock chart drawn without its volume is called.
-				note = _("volume not drawn")
+				notes.append(_("volume not drawn"))
 		else:
 			return refused("")
 		if kind in ("line", "bars"):
@@ -292,8 +377,8 @@ class ExcelChart:
 					return refused(_("Charts with a second value axis cannot be drawn yet"))
 		drawn = everySeries[lead:]
 		series = [
-			SeriesReading(str(one.Name), [_chartValue(value) for value in (one.Values or ())])
-			for one in drawn
+			SeriesReading(str(one.Name), [_chartValue(value) for value in (one.Values or ())], key=number)
+			for number, one in enumerate(drawn, start=lead + 1)
 		]
 		lengths = {len(one.values) for one in series}
 		if len(lengths) != 1:
@@ -311,7 +396,7 @@ class ExcelChart:
 				),
 			)
 		categories = self._categories(drawn[0], points)
-		return ChartReading(key, title, kind, typeName, categories, series, note=note)
+		return ChartReading(key, title, kind, typeName, categories, series, note=", ".join(notes))
 
 	def _categories(self, series, count: int) -> list:
 		""":return: what each point is called, as the sheet shows it.
@@ -326,10 +411,10 @@ class ExcelChart:
 		"""
 		chart = self.chart
 		try:
-			separator = chart.Application.International(XL_LIST_SEPARATOR)
-			parts = str(series.Formula).split(separator)
-			if len(parts) == 4 and parts[1]:
-				cells = chart.Application.Range(parts[1])
+			separator = str(chart.Application.International(XL_LIST_SEPARATOR))
+			arguments = seriesArguments(str(series.Formula), separator)
+			if len(arguments) >= 3 and arguments[1].strip():
+				cells = chart.Application.Range(arguments[1].strip())
 				return [str(cells.Item(index).Text) for index in range(1, count + 1)]
 		except CallCancelled:
 			raise
@@ -503,6 +588,7 @@ class SpreadsheetChart:
 			ExcelChart(chart).key(),
 			pointIndex - 1,
 			str(chart.SeriesCollection(seriesIndex).Name),
+			series=seriesIndex,
 		)
 
 	def brlMultilineLeadTo(self, index: int) -> bool:
@@ -531,8 +617,10 @@ class SpreadsheetChart:
 		if not elements or not 0 <= index < min(count, len(elements)):
 			return False
 		element = elements[index]
-		series.activeElement = element
+		# Selected first and moved to after: a selection Excel refused would otherwise leave NVDA's
+		# next arrow going on from a point Excel never went to. Found in review.
 		element.select()
+		series.activeElement = element
 		return True
 
 

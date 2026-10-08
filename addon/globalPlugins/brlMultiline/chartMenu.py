@@ -276,7 +276,10 @@ def _chartLines(definition: chartSource.ChartDefinition) -> Callable:
 		)
 	if len(definition.categories) < chartLine.MIN_POINTS:
 		raise chartSource.NoNumbers(_("There are no numbers here to chart"))
-	lines = [chartLine.Line(name=one.name, values=list(one.values)) for one in definition.series]
+	lines = [
+		chartLine.Line(name=one.name, values=list(one.values), key=getattr(one, "key", None))
+		for one in definition.series
+	]
 	labels = list(definition.categories)
 	return lambda newBuffer, width, height, translate: chartLine.lineChart(
 		newBuffer,

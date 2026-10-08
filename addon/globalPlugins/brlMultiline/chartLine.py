@@ -134,6 +134,10 @@ class Line(NamedTuple):
 	values: list
 	"""One number per point, in order. None where that point has no value."""
 
+	key: object = None
+	"""Which series this is where it came from an application's chart, so a point of it can be
+	matched to this line when two lines share a name. See `Drawing.levelKeys`."""
+
 
 def patternName(index: int) -> str:
 	"""Say which texture a series was drawn with.
@@ -207,7 +211,7 @@ def lineChart(
 	# A value that is not a number becomes a gap, which is what it is: a point the source could
 	# not give. A gap breaks the line and reads as one, where an error cell drawn as a number
 	# would read as a price.
-	lines = [Line(line.name, [value if isFinite(value) else None for value in line.values]) for line in lines]
+	lines = [line._replace(values=[value if isFinite(value) else None for value in line.values]) for line in lines]
 	lines = [line for line in lines if any(value is not None for value in line.values)]
 	if not lines:
 		# Translators: reported when a chart was asked for with no numbers to chart.
@@ -322,6 +326,7 @@ def _compose(
 		markFor=_marker(lines, shown, columns, scale),
 		sayPoint=lambda index: _reading(lines, shown, labels, index),
 		levelNames=tuple(lines[index].name for index in shown),
+		levelKeys=tuple(lines[index].key for index in shown),
 	)
 
 
@@ -363,7 +368,7 @@ def _reframer(
 				newBuffer,
 				pinWidth,
 				pinHeight,
-				[Line(line.name, line.values[first:last]) for line in lines],
+				[line._replace(values=line.values[first:last]) for line in lines],
 				labels[first:last] if labels else None,
 				translate,
 				shown,

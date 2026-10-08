@@ -404,7 +404,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		point = chartSource.pointOf(obj)
 		if point is None or point.key != key:
 			return
-		mode.markPoint(point.index, point.seriesName)
+		mode.markPoint(point.index, point.seriesName, getattr(point, "series", None))
 
 	def onPointMarked(self, index: int) -> None:
 		"""The reader moved the mark on a chart, by a step or a press. Move the screen reader's own

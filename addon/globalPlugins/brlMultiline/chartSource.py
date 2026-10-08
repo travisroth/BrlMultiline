@@ -90,6 +90,10 @@ class ChartSeries(NamedTuple):
 	values: list
 	"""One per category, in order. None where the point has no value: an empty cell, #N/A."""
 
+	key: object = None
+	"""Which series this is, as the application numbers them, so a point of it can be matched to
+	its line when two series share a name. The name is for speech."""
+
 
 class ChartDefinition(NamedTuple):
 	"""A chart as its application defines it, read once and holding nothing of the application.
@@ -136,7 +140,10 @@ class ChartPoint(NamedTuple):
 	"""The point, counting from 0: the category it is at."""
 
 	seriesName: str
-	"""The series the reader is moving through, so the level line can follow it."""
+	"""The series the reader is moving through, for speech."""
+
+	series: object = None
+	"""The same series as `ChartSeries.key`, which is what the level line follows it by."""
 
 
 def chartOf(obj):

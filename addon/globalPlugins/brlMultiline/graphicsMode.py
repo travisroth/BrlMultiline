@@ -167,6 +167,7 @@ class Drawing:
 		sayPoint=None,
 		levelNames: tuple = (),
 		widestView: int = 0,
+		levelKeys: tuple = (),
 	):
 		"""
 		:param buffer: the dots, a buffer from `GraphicsSurface.newBuffer`.
@@ -217,6 +218,9 @@ class Drawing:
 			same words a press on it gives, so stepping and pointing have one vocabulary.
 		:param levelNames: what each series the level line can follow is called, in order.
 			Empty for a figure with one value per point.
+		:param levelKeys: what identifies each of `levelNames`, in the same order, where a name may
+			not: two series of an application's chart can share one. Empty where the names are
+			enough. See `GraphicsMode.markPoint`.
 		:param widestView: the most points one view of a redrawable figure can show, or zero for
 			no limit. A price chart of a year of days cannot be shown whole, since a bar needs
 			four pins; it says how many fit, and the mode opens it at the widest view it has, on
@@ -237,6 +241,7 @@ class Drawing:
 		self.nextView = nextView
 		self.pinsPerPoint = pinsPerPoint
 		self.widestView = widestView
+		self.levelKeys = tuple(levelKeys)
 
 	@property
 	def width(self) -> int:
@@ -1675,7 +1680,7 @@ class GraphicsMode(PanelOwner):
 		except Exception:
 			log.error("BrlMultiline: could not tell the plugin a point was marked", exc_info=True)
 
-	def markPoint(self, index: int, levelName: Optional[str] = None) -> bool:
+	def markPoint(self, index: int, levelName: Optional[str] = None, levelKey=None) -> bool:
 		"""Mark a point the screen reader's own chart navigation has arrived at, saying nothing.
 
 		The screen reader has just said the point, so saying it again here would be two voices for
@@ -1684,12 +1689,22 @@ class GraphicsMode(PanelOwner):
 
 		:param index: the point of the whole figure.
 		:param levelName: the series the reader is moving through, or None to leave the level.
+		:param levelKey: the same series as one of the drawing's `levelKeys`, which is what is
+			matched where the drawing has them. A name alone put the level on the first of two
+			series called the same thing. Found in review.
 		:return: whether the point is marked and on the panel.
 		"""
 		if not self.hasPoints or not 0 <= index < self._source.points:
 			return False
-		names = self._drawing.levelNames if self._drawing is not None else ()
-		level = names.index(levelName) if levelName in names else self._level
+		drawing = self._drawing
+		keys = getattr(drawing, "levelKeys", ()) if drawing is not None else ()
+		names = drawing.levelNames if drawing is not None else ()
+		if levelKey is not None and levelKey in keys:
+			level = keys.index(levelKey)
+		elif not any(key is not None for key in keys) and levelName in names:
+			level = names.index(levelName)
+		else:
+			level = self._level
 		if index == self._marked and level == self._level and self._holds(index):
 			return True
 		wasLevel = self._level

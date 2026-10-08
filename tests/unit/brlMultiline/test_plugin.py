@@ -566,8 +566,8 @@ class TestFollowingAnApplicationsChart(unittest.TestCase):
 			self.marks = []
 			self.entered = []
 
-		def markPoint(self, index, levelName=None):
-			self.marks.append((index, levelName))
+		def markPoint(self, index, levelName=None, levelKey=None):
+			self.marks.append((index, levelName, levelKey))
 			return True
 
 		def drawingSize(self, textLines=None):
@@ -618,7 +618,7 @@ class TestFollowingAnApplicationsChart(unittest.TestCase):
 		def brlMultilinePoint(self):
 			if self.point is None:
 				return None
-			return types.SimpleNamespace(key=self.key, index=self.point, seriesName=self.seriesName)
+			return types.SimpleNamespace(key=self.key, index=self.point, seriesName=self.seriesName, series=2)
 
 		def brlMultilineLeadTo(self, index):
 			self.led.append(index)
@@ -652,7 +652,7 @@ class TestFollowingAnApplicationsChart(unittest.TestCase):
 	def test_aPointOfTheDrawnChartIsMarked(self):
 		mode = self.use()
 		self.plugin._followChart(self.FakePart(self, self.KEY, point=7, seriesName="Average"))
-		self.assertEqual(mode.marks, [(7, "Average")])
+		self.assertEqual(mode.marks, [(7, "Average", 2)])
 
 	def test_aPointOfAnotherChartIsNot(self):
 		mode = self.use()
@@ -673,7 +673,7 @@ class TestFollowingAnApplicationsChart(unittest.TestCase):
 	def test_followingRunsOnEveryFocusChange(self):
 		mode = self.use()
 		self.plugin.event_gainFocus(self.FakePart(self, self.KEY, point=2), lambda: None)
-		self.assertEqual(mode.marks, [(2, "Close")])
+		self.assertEqual(mode.marks, [(2, "Close", 2)])
 
 	def test_aStepOnThePinsMovesTheScreenReadersPlace(self):
 		self.use()
