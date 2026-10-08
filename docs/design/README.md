@@ -55,9 +55,14 @@ Read the files in this order:
 11. [chart-point-plan.md](chart-point-plan.md) — the plan for stepping through a chart's
    points with keys, and for guide lines that show where the marked point is: a level line
    across the plot at its value and a line up and down at its position. Taken from the
-   Dot Pad add-on's trace line and adapted to charts without a drawn value axis. Built and
-   unit tested, not yet on hardware. Read it before changing `Drawing`, the chart describers,
-   or `GraphicsMode.render`.
+   Dot Pad add-on's trace line and adapted to charts without a drawn value axis. Built, and
+   stepping is confirmed on hardware; the guide texture trial is still to do. Read it before
+   changing `Drawing`, the chart describers, or `GraphicsMode.render`.
+12. [excel-chart-plan.md](excel-chart-plan.md) — the plan for drawing an Excel chart from the
+   chart's own definition rather than from selected cells, and for keeping the chart stepper on
+   the same point as NVDA's own chart navigation, both ways. Builds on NVDA's Office chart objects
+   rather than replacing them. Planned, not started. Read it before adding a chart seam to
+   `appModules/excel.py`.
 
 ## Project background
 

@@ -14,10 +14,13 @@ Read [tactile-graphics-plan.md](tactile-graphics-plan.md) first, and the `Drawin
 `GraphicsMode` docstrings in `graphicsMode.py`. This plan leans on how a chart is redrawn
 for a window rather than magnified, and on how a press is turned into a source dot.
 
-**Status, 2 October 2026: phases 1 to 4 are built and unit tested, and none of it has been on
-hardware.** The phase 2 and phase 3 hardware checks below are still to do, including the
-texture trial, so `GUIDE_SPACING` in `chartDraw.py` is a first guess. Where the build differs
-from the design below:
+**Status, 8 October 2026: phases 1 to 4 are built and unit tested, and stepping is confirmed on
+the Monarch.** Tested on hardware on 7 October: the step keys on line and price charts, page
+turns, stepping from the edges of the panel after a pan, the mark following a zoom, and a
+routing press marking the point it lands on (open question 2). The stepping keys first reached
+only a chart layer saved after they were added; shipped layer revision 4 in `keyLayers.py`
+gives them to older saved layers. The phase 3 texture trial is still to do, so `GUIDE_SPACING`
+in `chartDraw.py` is a first guess. Where the build differs from the design below:
 
 1. A cut lowers a pin only where the pins above and below it are raised too, so a bar exactly
    as tall as the marked one keeps its top and only a taller one is notched. The design said
