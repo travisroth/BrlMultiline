@@ -67,9 +67,9 @@ def problemMessage(problem: brailleSubstitutions.Problem) -> str:
 	}.get(problem, str(problem))
 
 
-def profileLabel(profile: str) -> str:
+def profilesLabel(profiles) -> str:
 	# Translators: a braille substitution used whatever configuration profile is in force.
-	return profile or _("All profiles")
+	return ", ".join(profiles) or _("All profiles")
 
 
 class SubstitutionsDialog(SettingsDialog):
@@ -102,7 +102,7 @@ class SubstitutionsDialog(SettingsDialog):
 		self.list.AppendColumn(_("Shown as"), width=90)
 		# Translators: a column of the braille substitutions list: the text, dots or rules it is shown as.
 		self.list.AppendColumn(_("Replacement"), width=170)
-		# Translators: a column of the braille substitutions list: which profile it is used in.
+		# Translators: a column of the braille substitutions list: which profiles it is used in.
 		self.list.AppendColumn(_("Profile"), width=110)
 		# Translators: a column of the braille substitutions list: whether it is used.
 		self.list.AppendColumn(_("Used"), width=50)
@@ -171,7 +171,7 @@ class SubstitutionsDialog(SettingsDialog):
 			replacement = _("(nothing)")
 		# Translators: whether a braille substitution is used.
 		used = _("yes") if entry.enabled else _("no")
-		return (entry.match, kindLabels()[entry.kind], replacement, profileLabel(entry.profile), used)
+		return (entry.match, kindLabels()[entry.kind], replacement, profilesLabel(entry.profiles), used)
 
 	def _fill(self, select: Optional[int]) -> None:
 		self.list.DeleteAllItems()
@@ -356,10 +356,11 @@ class EntryDialog(wx.Dialog):
 			title=_("Add substitution") if add else _("Edit substitution"),
 		)
 		self.entry: Optional[Substitution] = None
-		self.profiles = [""] + sorted(config.conf.listProfiles())
-		if entry.profile and entry.profile not in self.profiles:
-			# Kept though the profile is gone, so editing does not quietly move it to all profiles.
-			self.profiles.append(entry.profile)
+		self.profiles = sorted(config.conf.listProfiles())
+		for name in entry.profiles:
+			if name not in self.profiles:
+				# Kept though the profile is gone, so editing does not quietly drop it from the entry.
+				self.profiles.append(name)
 		sizer = wx.BoxSizer(wx.VERTICAL)
 		sHelper = guiHelper.BoxSizerHelper(self, orientation=wx.VERTICAL)
 		self.kindCtrl = sHelper.addLabeledControl(
@@ -396,13 +397,31 @@ class EntryDialog(wx.Dialog):
 		# Translators: a braille substitution that finds only the capitals typed.
 		self.matchCaseCtrl = sHelper.addItem(wx.CheckBox(self, label=_("Match &case")))
 		self.matchCaseCtrl.SetValue(entry.matchCase)
-		self.profileCtrl = sHelper.addLabeledControl(
-			# Translators: the label of the choice of the configuration profile a braille substitution is used in.
-			_("Use in &profile:"),
-			wx.Choice,
-			choices=[profileLabel(profile) for profile in self.profiles],
+		# Translators: a braille substitution used whatever configuration profile is in force.
+		self.allProfilesCtrl = sHelper.addItem(wx.CheckBox(self, label=_("Use in all &profiles")))
+		self.allProfilesCtrl.SetValue(not entry.profiles)
+		self.allProfilesCtrl.Bind(wx.EVT_CHECKBOX, self._onAllProfiles)
+		# A list view with the system's own checkboxes, as the table layout editor's list of columns:
+		# a `wx.CheckListBox` draws its own, and a screen reader hears no states in it.
+		self.profilesCtrl = sHelper.addLabeledControl(
+			# Translators: the label of the list of configuration profiles a braille substitution is used in,
+			# each ticked when it is.
+			_("&Only in these profiles:"),
+			wx.ListCtrl,
+			style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.LC_NO_HEADER,
+			size=(-1, 90),
 		)
-		self.profileCtrl.SetSelection(self.profiles.index(entry.profile))
+		# Translators: the heading of the only column of the list of profiles.
+		self.profilesCtrl.InsertColumn(0, _("Profile"))
+		self.profilesCtrl.EnableCheckBoxes(True)
+		for position, name in enumerate(self.profiles):
+			self.profilesCtrl.InsertItem(position, name)
+			self.profilesCtrl.CheckItem(position, name in entry.profiles)
+		self.profilesCtrl.SetColumnWidth(0, wx.LIST_AUTOSIZE)
+		if self.profiles:
+			self.profilesCtrl.Select(0)
+			self.profilesCtrl.Focus(0)
+		self._onAllProfiles(None)
 		# Translators: whether a braille substitution is used.
 		self.enabledCtrl = sHelper.addItem(wx.CheckBox(self, label=_("&Use this substitution")))
 		self.enabledCtrl.SetValue(entry.enabled)
@@ -418,6 +437,17 @@ class EntryDialog(wx.Dialog):
 
 	def _kind(self) -> str:
 		return KINDS[self.kindCtrl.GetSelection()]
+
+	def _onAllProfiles(self, event) -> None:
+		"""The list of profiles is for choosing some of them, so not while it is used in all."""
+		self.profilesCtrl.Enable(not self.allProfilesCtrl.GetValue() and bool(self.profiles))
+
+	def _chosenProfiles(self) -> tuple:
+		if self.allProfilesCtrl.GetValue():
+			return ()
+		return tuple(
+			name for position, name in enumerate(self.profiles) if self.profilesCtrl.IsItemChecked(position)
+		)
 
 	def _onKind(self, event) -> None:
 		"""Name the fields for what is being made. A rule entry finds nothing itself, so no options."""
@@ -465,9 +495,20 @@ class EntryDialog(wx.Dialog):
 			replacement=replacement,
 			wholeWord=self.wholeWordCtrl.GetValue(),
 			matchCase=self.matchCaseCtrl.GetValue(),
-			profile=self.profiles[self.profileCtrl.GetSelection()],
+			profiles=self._chosenProfiles(),
 			enabled=self.enabledCtrl.GetValue(),
 		)
+		if not self.allProfilesCtrl.GetValue() and not entry.profiles:
+			gui.messageBox(
+				# Translators: refused in the braille substitution dialog when it is to be used in only some
+				# profiles and none is ticked.
+				_("Tick the profiles to use it in, or use it in all profiles."),
+				self.GetTitle(),
+				wx.OK | wx.ICON_ERROR,
+				self,
+			)
+			(self.profilesCtrl if self.profiles else self.allProfilesCtrl).SetFocus()
+			return
 		problem = brailleSubstitutions.problemOf(entry)
 		if problem is not None:
 			gui.messageBox(problemMessage(problem), self.GetTitle(), wx.OK | wx.ICON_ERROR, self)

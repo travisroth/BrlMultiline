@@ -1059,11 +1059,13 @@ And each entry has these options:
 - **Match case** (off by default): only with the capitals as you typed them. Off, the text is
   also found in lower case, in capitals, and with each word or only the first letter
   capitalised.
-- **Use in profile:** in every profile, or only while one configuration profile is active.
+- **Use in all profiles** (on by default): turn it off to tick, in **Only in these profiles**,
+  the configuration profiles to use it in. One entry can serve several, such as Outlook and
+  Teams, and is used while any of them is active.
 - **Use this substitution:** turn an entry off without deleting it.
 
 When you press OK, everything is checked before anything is saved. Each entry has to make
-sense, no two may find the same text in the same profile, and liblouis has to accept the rules
+sense, no two may find the same text in a profile they share, and liblouis has to accept the rules
 in every BrlMultiline table. If something fails, you are told which entry and why, and nothing
 changes until it is fixed. Your braille changes as soon as the list is saved, with no restart.
 

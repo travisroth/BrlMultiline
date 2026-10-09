@@ -94,32 +94,55 @@ class Substitution:
 	matchCase: bool = False
 	"""Only with the capitals as typed. Otherwise as typed, in lower case, in capitals, and capitalised."""
 
-	profile: str = ""
-	"""The configuration profile it is used in, or empty for every profile."""
+	profiles: tuple = ()
+	"""The configuration profiles it is used in, by name, or none for every profile.
+
+	Several, so one entry serves Outlook and Teams rather than two that have to be kept the same.
+	"""
 
 	enabled: bool = True
 	"""Whether it is used at all. A reader can keep an entry they want back later."""
 
 	def asStored(self) -> dict:
-		return dataclasses.asdict(self)
+		stored = dataclasses.asdict(self)
+		stored["profiles"] = list(self.profiles)
+		return stored
+
+	def usedIn(self, activeProfiles: Iterable[str]) -> bool:
+		""":return: whether it is used with these profiles in force. Not whether it is enabled."""
+		return not self.profiles or bool(set(self.profiles) & set(activeProfiles))
+
+	def sharesAProfileWith(self, other: "Substitution") -> bool:
+		""":return: whether the two can be in force at once: one is for every profile, or both are
+		for the same one."""
+		return not self.profiles or not other.profiles or bool(set(self.profiles) & set(other.profiles))
 
 	@classmethod
 	def fromStored(cls, stored) -> Optional["Substitution"]:
-		""":return: the entry a stored record describes, or None if it is not one."""
+		""":return: the entry a stored record describes, or None if it is not one.
+
+		An entry saved before an entry could have several profiles has `profile`, one name or empty,
+		and is read as that one or every profile.
+		"""
 		if not isinstance(stored, dict):
 			return None
 		match, kind = stored.get("match"), stored.get("kind", TEXT)
 		if not isinstance(match, str) or kind not in KINDS:
 			return None
 		replacement = stored.get("replacement", "")
-		profile = stored.get("profile", "")
+		profiles = stored.get("profiles")
+		if profiles is None:
+			single = stored.get("profile", "")
+			profiles = [single] if isinstance(single, str) and single else []
+		if not isinstance(profiles, list):
+			profiles = []
 		return cls(
 			match=match,
 			kind=kind,
 			replacement=replacement if isinstance(replacement, str) else "",
 			wholeWord=bool(stored.get("wholeWord", True)),
 			matchCase=bool(stored.get("matchCase", False)),
-			profile=profile if isinstance(profile, str) else "",
+			profiles=tuple(dict.fromkeys(name for name in profiles if isinstance(name, str) and name)),
 			enabled=bool(stored.get("enabled", True)),
 		)
 
@@ -194,16 +217,15 @@ def clash(entries: list) -> Optional[tuple[int, int]]:
 	Two `correct` rules for the same text leave liblouis to use one of them, and the reader would
 	never learn which. Rule entries are the reader's own business and are not compared.
 	"""
-	seen: list[tuple[int, str, set]] = []
+	seen: list[tuple[int, Substitution, set]] = []
 	for index, entry in enumerate(entries):
 		if not entry.enabled or entry.kind == RULE or problemOf(entry) is not None:
 			continue
 		forms = set(caseForms(entry.match, entry.matchCase))
-		for other, profile, otherForms in seen:
-			sameProfile = not profile or not entry.profile or profile == entry.profile
-			if sameProfile and forms & otherForms:
+		for other, otherEntry, otherForms in seen:
+			if entry.sharesAProfileWith(otherEntry) and forms & otherForms:
 				return other, index
-		seen.append((index, entry.profile, forms))
+		seen.append((index, entry, forms))
 	return None
 
 
@@ -318,8 +340,8 @@ def rulesFor(entry: Substitution, placeholder: Optional[int] = None) -> list[str
 
 
 def applies(entry: Substitution, activeProfiles: Iterable[str]) -> bool:
-	""":return: whether the entry is used with these profiles active. See `Substitution.profile`."""
-	return entry.enabled and (not entry.profile or entry.profile in set(activeProfiles))
+	""":return: whether the entry is used with these profiles active. See `Substitution.profiles`."""
+	return entry.enabled and entry.usedIn(activeProfiles)
 
 
 def rulesText(entries: Iterable[Substitution], activeProfiles: Optional[Iterable[str]] = None) -> str:
@@ -347,7 +369,7 @@ def rulesText(entries: Iterable[Substitution], activeProfiles: Optional[Iterable
 			placeholder = min(placeholder + 1, PLACEHOLDER_LIMIT)
 		if problemOf(entry) is not None:
 			continue
-		if not entry.enabled or (active is not None and entry.profile and entry.profile not in active):
+		if not entry.enabled or (active is not None and not entry.usedIn(active)):
 			continue
 		lines.append(f"# {number}: {asciiLine(entry.match)}".rstrip())
 		lines += rulesFor(entry, ownCharacter)

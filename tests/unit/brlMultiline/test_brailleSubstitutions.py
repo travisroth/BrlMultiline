@@ -137,7 +137,7 @@ class TestRulesText(unittest.TestCase):
 	ENTRIES = [
 		Substitution("Travis Roth", TEXT, "TR"),
 		Substitution("•", DOTS, "456-256", wholeWord=False),
-		Substitution("work", TEXT, "W", profile="Office"),
+		Substitution("work", TEXT, "W", profiles=("Office",)),
 		Substitution("off", TEXT, "OFF", enabled=False),
 		Substitution("o'neil", DOTS, "1345-145"),
 		Substitution("", TEXT, "broken"),
@@ -162,9 +162,9 @@ class TestRulesText(unittest.TestCase):
 
 	def test_aDotsEntryKeepsItsCharacterWhicheverProfileIsInForce(self):
 		withOffice = bs.rulesText(
-			[Substitution("x", DOTS, "1", profile="Office")] + self.ENTRIES[4:5], ["Office"]
+			[Substitution("x", DOTS, "1", profiles=("Office",))] + self.ENTRIES[4:5], ["Office"]
 		)
-		without = bs.rulesText([Substitution("x", DOTS, "1", profile="Office")] + self.ENTRIES[4:5], [])
+		without = bs.rulesText([Substitution("x", DOTS, "1", profiles=("Office",))] + self.ENTRIES[4:5], [])
 		self.assertIn("\\yf0001", withOffice)
 		self.assertIn("\\yf0001", without)
 		self.assertNotIn("\\yf0000", without)
@@ -190,16 +190,51 @@ class TestClash(unittest.TestCase):
 		self.assertIsNone(bs.clash(entries))
 
 	def test_twoProfilesDoNotClashButOneForAllClashesWithEither(self):
-		office = Substitution("x", TEXT, "1", profile="Office")
-		home = Substitution("x", TEXT, "2", profile="Home")
+		office = Substitution("x", TEXT, "1", profiles=("Office",))
+		home = Substitution("x", TEXT, "2", profiles=("Home",))
 		everywhere = Substitution("x", TEXT, "3")
 		self.assertIsNone(bs.clash([office, home]))
 		self.assertEqual(bs.clash([office, everywhere]), (0, 1))
+
+	def test_entriesWhoseProfilesOverlapClash(self):
+		work = Substitution("x", TEXT, "1", profiles=("Outlook", "Teams"))
+		chat = Substitution("x", TEXT, "2", profiles=("Teams", "Discord"))
+		code = Substitution("x", TEXT, "3", profiles=("Code",))
+		self.assertEqual(bs.clash([work, chat]), (0, 1))
+		self.assertIsNone(bs.clash([work, code]))
 
 	def test_aDisabledEntryDoesNotClash(self):
 		self.assertIsNone(
 			bs.clash([Substitution("x", TEXT, "1"), Substitution("x", TEXT, "2", enabled=False)])
 		)
+
+
+class TestProfiles(unittest.TestCase):
+	BOTH = Substitution("Travis Roth", TEXT, "TR", profiles=("Outlook", "Teams"))
+
+	def test_oneEntryServesEachOfItsProfiles(self):
+		for active in (["Outlook"], ["Teams"], ["Outlook", "Teams"], ["Teams", "Code"]):
+			with self.subTest(active=active):
+				self.assertIn("# 1:", bs.rulesText([self.BOTH], active))
+		self.assertNotIn("# 1:", bs.rulesText([self.BOTH], []))
+		self.assertNotIn("# 1:", bs.rulesText([self.BOTH], ["Code"]))
+
+	def test_bothProfilesActiveWriteItsRulesOnce(self):
+		text = bs.rulesText([self.BOTH], ["Outlook", "Teams"])
+		self.assertEqual(text.count("# 1:"), 1)
+
+	def test_theProfilesAreStoredAsAList(self):
+		self.assertEqual(self.BOTH.asStored()["profiles"], ["Outlook", "Teams"])
+		self.assertEqual(bs.fromText(bs.toText([self.BOTH])).entries, [self.BOTH])
+
+	def test_anEntryWithOneProfileFromBeforeIsReadAsAListOfOne(self):
+		stored = {"match": "x", "profile": "Teams"}
+		self.assertEqual(bs.Substitution.fromStored(stored).profiles, ("Teams",))
+		self.assertEqual(bs.Substitution.fromStored({"match": "x", "profile": ""}).profiles, ())
+
+	def test_aProfileNamedTwiceIsKeptOnce(self):
+		stored = {"match": "x", "profiles": ["Teams", "Teams", "", 3, "Outlook"]}
+		self.assertEqual(bs.Substitution.fromStored(stored).profiles, ("Teams", "Outlook"))
 
 
 class TestStore(unittest.TestCase):

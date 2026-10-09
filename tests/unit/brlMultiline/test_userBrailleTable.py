@@ -191,7 +191,7 @@ class TestApplying(StoreTestCase):
 		self.assertTrue(os.path.isfile(userBrailleTable.rulesPath()))
 
 	def test_aProfilesEntriesComeAndGoWithIt(self):
-		userBrailleTable.save([Substitution("work", TEXT, "W", profile="Office")])
+		userBrailleTable.save([Substitution("work", TEXT, "W", profiles=("Office",))])
 		userBrailleTable.apply()
 		self.assertNotIn("# 1:", self.rulesText())
 		self.profiles.append(Profile("Office"))
@@ -200,7 +200,7 @@ class TestApplying(StoreTestCase):
 
 	def test_aProfileSwitchThatChangesTheRulesRedraws(self):
 		calls = []
-		userBrailleTable.save([Substitution("work", TEXT, "W", profile="Office")])
+		userBrailleTable.save([Substitution("work", TEXT, "W", profiles=("Office",))])
 		userBrailleTable.install(lambda: calls.append("drawn"))
 		calls.clear()
 		self.profiles.append(Profile("Office"))
