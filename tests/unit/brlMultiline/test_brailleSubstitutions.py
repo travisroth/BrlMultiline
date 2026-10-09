@@ -237,6 +237,41 @@ class TestProfiles(unittest.TestCase):
 		self.assertEqual(bs.Substitution.fromStored(stored).profiles, ("Teams", "Outlook"))
 
 
+class TestPrecedence(unittest.TestCase):
+	# Different profiles do not clash, but a profile turned on by hand sits on top of the one an
+	# application brought, and both are active.
+	OUTLOOK = Substitution("Travis Roth", TEXT, "TR", profiles=("Outlook",))
+	MANUAL = Substitution("Travis Roth", TEXT, "Travis", profiles=("Reading",))
+	EVERYWHERE = Substitution("Travis Roth", DOTS, "1", profiles=())
+
+	def test_theyDoNotClashInTheDialog(self):
+		self.assertIsNone(bs.clash([self.OUTLOOK, self.MANUAL]))
+
+	def test_theProfileOnTopOfNVDAsStackWins(self):
+		entries = [self.OUTLOOK, self.MANUAL]
+		self.assertEqual(bs.winners(entries, ["Outlook", "Reading"]), {1})
+		self.assertEqual(bs.winners(entries, ["Reading", "Outlook"]), {0})
+
+	def test_onlyTheWinnersRulesAreWritten(self):
+		text = bs.rulesText([self.OUTLOOK, self.MANUAL], ["Outlook", "Reading"])
+		self.assertNotIn("# 1:", text)
+		self.assertIn("# 2:", text)
+		self.assertNotIn('"TR"', text)
+
+	def test_anEntryForEveryProfileIsBeneathAnyProfiles(self):
+		self.assertEqual(bs.winners([self.EVERYWHERE, self.OUTLOOK], ["Outlook"]), {1})
+		self.assertEqual(bs.winners([self.EVERYWHERE, self.OUTLOOK], []), {0})
+
+	def test_entriesForDifferentTextAreAllKept(self):
+		other = Substitution("NVDA", TEXT, "screen reader", profiles=("Reading",))
+		self.assertEqual(bs.winners([self.OUTLOOK, other], ["Outlook", "Reading"]), {0, 1})
+
+	def test_validationStillCompilesEveryEntry(self):
+		text = bs.rulesText([self.OUTLOOK, self.MANUAL])
+		self.assertIn("# 1:", text)
+		self.assertIn("# 2:", text)
+
+
 class TestStore(unittest.TestCase):
 	def test_aListRoundTrips(self):
 		entries = TestRulesText.ENTRIES

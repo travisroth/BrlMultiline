@@ -331,6 +331,17 @@ class SubstitutionsDialog(SettingsDialog):
 				# Translators: said when the braille substitutions could not be written.
 				_("The braille substitutions could not be saved. Nothing was changed. See NVDA's log."),
 			)
+		except userBrailleTable.NotApplied:
+			# Saved, but braille is still using the rules from before. The dialog stays open, so OK tries
+			# again; the list is saved again with it, which changes nothing.
+			return self._refuse(
+				None,
+				# Translators: said when the braille substitutions were saved but could not be put in use.
+				_(
+					"The braille substitutions were saved, but braille could not start using them, and is "
+					"still using the ones from before. Press OK to try again, or see NVDA's log."
+				),
+			)
 		except userBrailleTable.NotListed:
 			gui.messageBox(
 				# Translators: said when the substitutions were saved but the personal tables could not be

@@ -7,7 +7,7 @@
 
 BrlMultiline's own tables are English. A reader of Spanish or UK braille makes a personal table
 from the table they read, in the substitutions dialog, and their list is used with it too. Each is a
-two line table, `<table>-brlMultiline-personal.utb`, that includes the substitutions and then the
+two line table, `<table file>-brlMultiline-personal.utb`, such as `es-g1.ctb-brlMultiline-personal.utb`, that includes the substitutions and then the
 NVDA table, beside the add-on's own tables. See `brailleSubstitutions.PersonalTable`.
 
 **Listed in the add-on's manifest, and seen after NVDA restarts.** NVDA chooses the braille table
@@ -43,8 +43,14 @@ NAME_SUFFIX = " (BrlMultiline personal)"
 
 def wrapperName(base: str) -> str:
 	""":return: the file name of the personal table made from an NVDA table: `es-g1.ctb` gives
-	`es-g1-brlMultiline-personal.utb`."""
-	return os.path.splitext(base)[0] + WRAPPER_SUFFIX
+	`es-g1.ctb-brlMultiline-personal.utb`.
+
+	The whole of the table's file name, extension and all: NVDA has `bg.ctb` and `bg.utb`, Bulgarian
+	computer braille and Bulgarian grade 1, and named without the extension both were one file and one
+	manifest entry. A personal table named the earlier way is not wanted under either name, so it is
+	removed like any other, once NVDA no longer has it in use.
+	"""
+	return base + WRAPPER_SUFFIX
 
 
 def wrapperText(base: str) -> str:
@@ -98,22 +104,38 @@ def nvdaValidation(path: str) -> Optional[str]:
 	return None if errors is None else str(errors)
 
 
-def sync(addonDir: str, tables: Iterable, validate: Callable[[str], Optional[str]] = nvdaValidation) -> bool:
+def sync(
+	addonDir: str,
+	tables: Iterable,
+	validate: Callable[[str], Optional[str]] = nvdaValidation,
+	inUse: Iterable[str] = (),
+) -> bool:
 	"""Make the personal tables, and the manifest's list of them, what the reader's list says.
 
 	:param addonDir: the add-on's folder, holding `manifest.ini` and `brailleTables`.
 	:param tables: `PersonalTable`s.
 	:param validate: says what is wrong with a manifest, or None. NVDA's own reader by default.
+	:param inUse: the personal tables NVDA has now, by file name. One of them no longer wanted is
+		taken out of the manifest but its file is kept, since NVDA goes on translating with it until
+		it restarts. See `_syncWrappers`.
 	:return: whether anything changed, which NVDA sees only after it restarts.
 	:raises NotListed: if the manifest could not be written. The tables written are harmless
 		without it, and the manifest is as it was.
 	"""
 	tables = list(tables)
-	changed = _syncWrappers(os.path.join(addonDir, "brailleTables"), tables)
+	changed = _syncWrappers(os.path.join(addonDir, "brailleTables"), tables, set(inUse))
 	return _syncManifest(os.path.join(addonDir, MANIFEST_FILE), tables, validate) or changed
 
 
-def _syncWrappers(folder: str, tables: list) -> bool:
+def _syncWrappers(folder: str, tables: list, inUse: set = frozenset()) -> bool:
+	"""Write the personal tables wanted, and remove those not wanted that NVDA is not using.
+
+	**A table NVDA has is kept until it restarts.** NVDA keeps the tables it read at startup, and the
+	reader's output table may be one of them: removed, liblouis would have nothing to compile the
+	next time it is asked to, which is the next time the substitutions change, and braille would stop.
+	Kept, it goes on working; it is no longer in the manifest, so NVDA does not have it after the
+	restart, and it is removed then.
+	"""
 	changed = False
 	wanted = {wrapperName(table.base): wrapperText(table.base) for table in tables}
 	for name, text in wanted.items():
@@ -128,7 +150,7 @@ def _syncWrappers(folder: str, tables: list) -> bool:
 			file.write(text)
 		changed = True
 	for name in os.listdir(folder):
-		if _isPersonal(name) and name not in wanted:
+		if _isPersonal(name) and name not in wanted and name not in inUse:
 			os.remove(os.path.join(folder, name))
 			changed = True
 	return changed

@@ -66,7 +66,8 @@ class StoreTestCase(unittest.TestCase):
 		self.sync = mock.patch.object(
 			userBrailleTable.personalTables,
 			"sync",
-			side_effect=lambda folder, tables: self.synced.append(list(tables)) or True,
+			side_effect=lambda folder, tables, inUse=(): self.synced.append((list(tables), set(inUse)))
+			or True,
 		)
 		self.sync.start()
 		self.modules.start()
@@ -157,6 +158,21 @@ class TestReading(StoreTestCase):
 		self.assertTrue(any(name.startswith("brailleSubstitutions.json.damaged-") for name in names))
 		self.assertIn("copy saved before", userBrailleTable.loadProblem())
 
+	def test_aRecoveredListIsThereAtTheNextStart(self):
+		backup = bs.toText(ENTRIES[:1], [bs.PersonalTable("es-g1.ctb", "Spanish grade 1")])
+		self.writeStore(backup, suffix=".bak")
+		self.writeStore("{ not json")
+		userBrailleTable.entries()
+		# The next start, with the dialog never opened and nothing saved.
+		userBrailleTable._store = None
+		self.assertEqual(userBrailleTable.entries(), ENTRIES[:1])
+		self.assertEqual(userBrailleTable.tables(), [bs.PersonalTable("es-g1.ctb", "Spanish grade 1")])
+		self.assertIsNone(userBrailleTable.loadProblem())
+		with open(userBrailleTable.storePath() + ".bak", encoding="utf-8") as file:
+			self.assertEqual(file.read(), backup)
+		names = os.listdir(userBrailleTable.storeDir())
+		self.assertTrue(any(name.startswith("brailleSubstitutions.json.damaged-") for name in names))
+
 	def test_aDamagedListWithNoBackupIsKeptAndTheReaderTold(self):
 		self.writeStore("{ not json")
 		self.assertEqual(userBrailleTable.entries(), [])
@@ -210,6 +226,39 @@ class TestApplying(StoreTestCase):
 		self.assertEqual(calls, ["drawn"])
 		userBrailleTable.remove()
 
+	def test_aRulesFileThatCannotBeWrittenIsNotTakenForNoChange(self):
+		userBrailleTable.save(ENTRIES)
+		with mock.patch.object(userBrailleTable.os, "replace", side_effect=OSError("in use")):
+			with self.assertRaises(userBrailleTable.NotApplied):
+				userBrailleTable.apply()
+		self.assertEqual(self.louis.freed, 0)
+
+	def test_aCommitWhoseRulesCannotBeWrittenSaysSoAndCanBeTriedAgain(self):
+		userBrailleTable.install(lambda: None)
+		with mock.patch.object(
+			userBrailleTable, "_writeReplacing", wraps=userBrailleTable._writeReplacing
+		) as write:
+			# The list saves; the rules file does not.
+			write.side_effect = [None, OSError("in use")]
+			with self.assertRaises(userBrailleTable.NotApplied):
+				userBrailleTable.commit(ENTRIES)
+		self.assertEqual(userBrailleTable.entries(), ENTRIES)
+		userBrailleTable.commit(ENTRIES)
+		self.assertIn("# 1: Travis Roth", self.rulesText())
+		userBrailleTable.remove()
+
+	def test_aProfileSwitchWhoseRulesCannotBeWrittenLeavesTheOldOnes(self):
+		calls = []
+		userBrailleTable.save([Substitution("work", TEXT, "W", profiles=("Office",))])
+		userBrailleTable.install(lambda: calls.append("drawn"))
+		calls.clear()
+		self.profiles.append(Profile("Office"))
+		with mock.patch.object(userBrailleTable.os, "replace", side_effect=OSError("in use")):
+			userBrailleTable._handleProfileSwitch()
+		self.assertEqual(calls, [])
+		self.assertNotIn("# 1:", self.rulesText())
+		userBrailleTable.remove()
+
 	def test_committingSavesAndRedraws(self):
 		calls = []
 		userBrailleTable.install(lambda: calls.append("drawn"))
@@ -235,19 +284,26 @@ class TestPersonalTables(StoreTestCase):
 
 	def test_aNewPersonalTableNeedsARestart(self):
 		self.assertTrue(userBrailleTable.commit(ENTRIES, [self.SPANISH]))
-		self.assertEqual(self.synced[-1], [self.SPANISH])
+		self.assertEqual(self.synced[-1][0], [self.SPANISH])
 
 	def test_onceNVDAKnowsItNoRestartIsNeeded(self):
-		self.registered.append(types.SimpleNamespace(fileName="es-g1-brlMultiline-personal.utb"))
+		self.registered.append(types.SimpleNamespace(fileName="es-g1.ctb-brlMultiline-personal.utb"))
 		self.assertFalse(userBrailleTable.commit(ENTRIES, [self.SPANISH]))
 
+	def test_aTableNVDAHasIsKeptForItUntilItRestarts(self):
+		# Removed in the dialog while it was the output table: NVDA goes on translating with it, and the
+		# file it includes has to be there when the changed substitutions make liblouis compile it again.
+		self.registered.append(types.SimpleNamespace(fileName="es-g1.ctb-brlMultiline-personal.utb"))
+		userBrailleTable.commit(ENTRIES, [])
+		self.assertEqual(self.synced[-1], ([], {"es-g1.ctb-brlMultiline-personal.utb"}))
+
 	def test_removingOneNVDAStillKnowsNeedsARestart(self):
-		self.registered.append(types.SimpleNamespace(fileName="es-g1-brlMultiline-personal.utb"))
+		self.registered.append(types.SimpleNamespace(fileName="es-g1.ctb-brlMultiline-personal.utb"))
 		self.assertTrue(userBrailleTable.commit(ENTRIES, []))
 
 	def test_aPersonalTableUsesTheSubstitutions(self):
 		userBrailleTable.save(ENTRIES, [self.SPANISH])
-		self.assertTrue(userBrailleTable.usesSubstitutions("es-g1-brlMultiline-personal.utb"))
+		self.assertTrue(userBrailleTable.usesSubstitutions("es-g1.ctb-brlMultiline-personal.utb"))
 		self.assertFalse(userBrailleTable.usesSubstitutions("es-g1.ctb"))
 
 	def test_aManifestThatCannotBeWrittenStillSavesTheList(self):

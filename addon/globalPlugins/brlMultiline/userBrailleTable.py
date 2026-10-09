@@ -176,6 +176,13 @@ def _read() -> Store:
 		log.error(f"{LOG_PREFIX}{path} could not be read ({error}); kept as {kept}")
 		recovered = _readBackup(path)
 		if recovered is not None:
+			# Put back where it is read from. Otherwise the next start finds no list at all, uses
+			# none, and takes away the personal tables it names. The damaged file stays where it was
+			# set aside, and the backup is left as it is.
+			try:
+				_writeReplacing(path, brailleSubstitutions.toText(recovered.entries, recovered.tables))
+			except OSError:
+				log.error(f"{LOG_PREFIX}could not put the recovered list back at {path}", exc_info=True)
 			# Translators: said when the braille substitutions were damaged and the copy saved before
 			# them was used. The placeholder is the file the damaged list was kept as.
 			_loadProblem = _(
@@ -363,11 +370,17 @@ def activeProfiles() -> list[str]:
 		return []
 
 
+class NotApplied(Exception):
+	"""The rules file could not be written, so the rules in force are the ones before."""
+
+
 def apply() -> bool:
 	"""Write the rules for the profiles in force, if they are not what the rules file holds.
 
 	:return: whether the rules changed. Translation then uses them from the next line on; what is on
 		the display was translated before, and is for the caller to draw again.
+	:raises NotApplied: if the file could not be written. It was once taken for "nothing changed",
+		and the dialog closed on a list that was saved and not in use.
 	"""
 	text = brailleSubstitutions.rulesText(entries(), activeProfiles())
 	path = rulesPath()
@@ -379,9 +392,9 @@ def apply() -> bool:
 		pass
 	try:
 		_writeReplacing(path, text)
-	except OSError:
+	except OSError as error:
 		log.error(f"{LOG_PREFIX}could not write {path}", exc_info=True)
-		return False
+		raise NotApplied(str(error)) from error
 	_freeCompiledTables()
 	brailleSubstitutions.rulesChanged()
 	log.debug(f"{LOG_PREFIX}rules written for profiles {activeProfiles()}")
@@ -400,20 +413,24 @@ def syncPersonalTables() -> bool:
 	if globalVars.appArgs.secure:
 		return False
 	wanted = tables()
-	personalTables.sync(addonDir(), wanted)
+	personalTables.sync(addonDir(), wanted, inUse=_knownPersonalTables())
 	return restartNeeded(wanted)
 
 
-def restartNeeded(wanted: Iterable[PersonalTable]) -> bool:
-	""":return: whether the personal tables NVDA knows differ from those wanted."""
+def _knownPersonalTables() -> set:
+	""":return: the personal tables NVDA has now, by file name: those it read as it started."""
 	import brailleTables
 
-	known = {
+	return {
 		table.fileName
 		for table in brailleTables.listTables()
 		if table.fileName.endswith(personalTables.WRAPPER_SUFFIX)
 	}
-	return known != {personalTables.wrapperName(table.base) for table in wanted}
+
+
+def restartNeeded(wanted: Iterable[PersonalTable]) -> bool:
+	""":return: whether the personal tables NVDA knows differ from those wanted."""
+	return _knownPersonalTables() != {personalTables.wrapperName(table.base) for table in wanted}
 
 
 _onChanged: Optional[Callable[[], None]] = None
@@ -428,8 +445,12 @@ def install(onChanged: Callable[[], None]) -> bool:
 	"""
 	global _onChanged
 	_onChanged = onChanged
-	if apply():
-		onChanged()
+	try:
+		if apply():
+			onChanged()
+	except NotApplied:
+		# Logged; the rules from before stay in force, and the next profile switch or save tries again.
+		pass
 	config.post_configProfileSwitch.register(_handleProfileSwitch)
 	try:
 		return syncPersonalTables()
@@ -445,7 +466,12 @@ def remove() -> None:
 
 
 def _handleProfileSwitch(**kwargs) -> None:
-	if apply() and _onChanged is not None:
+	try:
+		changed = apply()
+	except NotApplied:
+		# Logged. The rules of the profile before stay in force until a switch or a save writes them.
+		return
+	if changed and _onChanged is not None:
 		_onChanged()
 
 
@@ -459,6 +485,8 @@ def commit(newEntries: Iterable[Substitution], newTables: Optional[Iterable[Pers
 	:param newTables: the personal tables, or None to keep those stored.
 	:return: whether NVDA has to restart to show the personal tables as they now are.
 	:raises NotSaved: if it could not be saved. Nothing was changed.
+	:raises NotApplied: if it was saved but the rules could not be put in force. Committing again
+		tries again.
 	:raises NotListed: if it was saved but the manifest could not be changed.
 	"""
 	save(newEntries, newTables)
