@@ -1092,6 +1092,60 @@ class TestAFigureWithAnUpAndADown(unittest.TestCase):
 		self.assertEqual(len(self.windows[-1]), 2)
 
 
+class TestAFigureThatOpensAcross(unittest.TestCase):
+	"""A figure much taller than the panel, read by moving down it a panel at a time.
+
+	The layout of a long web page is the case: squeezed whole onto one panel, every area but the
+	main few is a sliver. So it opens a panel wide at its top, at the size it was composed, and
+	the rest is below; shrinking still shows it whole.
+	"""
+
+	def setUp(self):
+		self.driver = FakeDrawableDriver(numRows=8, numCols=32)
+		useDisplay(self.driver)
+		self.plugin = FakePlugin()
+		self.mode = GraphicsMode(self.plugin)
+		self.windows: list = []
+
+	def figure(self, screens: int = 4):
+		width, height = self.mode.drawingSize()
+
+		def redraw(offset, span, pinWidth, pinHeight, top=0.0, down=1.0):
+			self.windows.append((offset, span, top, down))
+			return Drawing(PinBuffer(pinWidth, pinHeight), name="part", windowsVertically=True)
+
+		self.height = height
+		buffer = PinBuffer(width, height * screens)
+		buffer.rect(0, 0, width, height * screens)
+		return Drawing(buffer, name="page", redraw=redraw, windowsVertically=True, opensAcross=True)
+
+	def test_itOpensAPanelWideAtTheTop(self):
+		self.assertTrue(self.mode.enter(self.figure()))
+		offset, span, top, down = self.windows[-1]
+		self.assertEqual((offset, span, top), (0.0, 1.0, 0.0))
+		self.assertAlmostEqual(down, 0.25, places=2)
+		self.assertAlmostEqual(self.mode.zoom, 2.0, places=6)
+
+	def test_aWholePanelDownIsTheNextScreen(self):
+		self.mode.enter(self.figure())
+		across, down = self.mode.panelStep()
+		self.assertEqual(down, self.height)
+		self.assertTrue(self.mode.panBy(0, down))
+		self.assertAlmostEqual(self.windows[-1][2], 0.25, places=2)
+
+	def test_shrinkingShowsItWhole(self):
+		self.mode.enter(self.figure())
+		self.mode.zoomBy(-1)
+		self.mode.zoomBy(-1)
+		self.assertEqual(self.mode.zoom, 0)
+
+	def test_aFigureNotAskingOpensWhole(self):
+		width, height = self.mode.drawingSize()
+		buffer = PinBuffer(width, height * 4)
+		self.mode.enter(Drawing(buffer, name="picture", redraw=lambda *a, **k: None, windowsVertically=True))
+		self.assertEqual(self.mode.zoom, 0)
+
+
 class TestChangingTheBrailleLineBeside(unittest.TestCase):
 	"""Giving the drawing the whole panel has to be all or nothing.
 

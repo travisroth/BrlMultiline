@@ -49,7 +49,7 @@ The interaction does most of the work, not the picture:
 
 Displays that cannot draw get the same data as text, in reading order of position: "Banner
 across the top. Search at top right. Navigation down the left, full height. Main content in
-the centre, in two columns: Bookmarks, then Content. Footer across the bottom." That also
+the center, in two columns: Bookmarks, then Content. Footer across the bottom." That also
 works in speech, so the feature is useful with no multi-line display at all.
 
 ## Finding the areas, without AI
@@ -122,7 +122,7 @@ visible, and is part of open question 4.
 3. Scale to the pin surface and snap to it, keeping relative positions rather than exact
    proportions. Every box has to be large enough for its label. On the Monarch a braille cell
    takes 3 pin columns and 4 pin rows, so a three letter label needs a box about 11 by 6 pins
-   with its outline. Boxes too small for that are grown, and their neighbours pushed, before
+   with its outline. Boxes too small for that are grown, and their neighbors pushed, before
    anything is drawn.
 4. Label the way tactile graphics transcribers do. A short label goes inside the box when it
    fits. When it does not, a number does, with a key available from the overview; BANA's
@@ -137,7 +137,7 @@ Windows applications are easier than web pages. UI Automation gives every elemen
 rectangle, and applications use roles that already say what an area is: menu bar, toolbar,
 ribbon, tree (usually a navigation pane), list, document, tab and status bar. A walk of the
 foreground window's children, a few levels deep, gives File Explorer as an address bar and
-search at the top, a navigation pane on the left, the file list in the centre and a status bar
+search at the top, a navigation pane on the left, the file list in the center and a status bar
 at the bottom. The source differs; the tree, the layout and the drawing are the same code. Web
 first, since it is the harder case and the one asked for.
 
@@ -195,6 +195,30 @@ The plugin's three commands are unbound: draw the screen's worth, draw the whole
 the overview as text with `ui.browseableMessage`. Gathering is cancelled by anything else that
 cancels a pending picture.
 
+**Tried on a Monarch, on Fabula Coffee.** The screen view and a press naming the box under it
+worked. Two things did not, and changed the design:
+
+1. The whole page squeezed onto one panel kept only its four main areas; everything inside
+   main was dropped as too small to find. Now the whole page is composed tall, a screen of the
+   page to a panel's height, so the areas inside have room, and it opens a panel wide at its
+   top (`Drawing.opensAcross`, new in graphics mode). Two new graphics commands move a whole
+   panel up or down (`GraphicsMode.panelStep`); the old ones still move a quarter. They are on
+   the Monarch's panning keys in the graphics layer, which did nothing while a drawing was up
+   and are the keys a reader already uses to move through text a display at a time; shipped
+   revision 5 gives them to graphics layers saved before. Shrinking still shows the whole page
+   squeezed.
+2. Zooming magnified the drawing, braille labels and all, into blobs of dots. Now the overview
+   supplies `Drawing.redraw`, as charts and pictures do, so a zoomed or moved view is composed
+   again at the panel's own size with labels at their own size. The view's window is read back
+   through the rulers of the tall drawing (`Overview.windowAt`), so a zoom shows exactly what
+   was under the hand. An area keeps its key letter in every view, and each view's key is its
+   note, said after every move.
+
+A general answer for drawings that are magnified rather than redrawn, such as the glyph
+catalogue, would keep labels in a layer of their own that is placed at the magnified position
+but drawn at the panel's size. Not built: everything with labels that is used while reading
+already redraws.
+
 The screen view draws each region where it is on screen (`Region.screenBox`), so a sticky
 header is at the top, and what it covers is drawn from below it. When even the main areas will
 not all fit, the smallest unnamed area found by geometry is left out first, since the text
@@ -242,7 +266,7 @@ A review of the first commit found six faults, each now a test in `TestReviewFin
    cross, and a block's box always includes the regions in it. On Seeking Alpha a wide table
    now stops the two columns at the top of main being cut down the page's whole length, so
    they are found one level down, in the band above it.
-3. Sticky header repair moved any element that came before its neighbour in reading order but
+3. Sticky header repair moved any element that came before its neighbor in reading order but
    after it on screen, with a gap the right size. Ordinary sections shown out of reading order
    were moved, hiding the very mismatch a tester wants to find. Now the element must also be
    pinned within 120 pixels of the top of the screen and look like a header: a banner or
@@ -399,7 +423,7 @@ home page in both versions. None has a single real landmark, only unnamed forms.
    column, the content, and a right column. Geometry finds what markup hides.
 5. Layout tables never reach the candidate list, because NVDA leaves them out of table
    navigation by default (`includeLayoutTables`). On Hacker News the outer hnmain table, 1607
-   pixels wide and centred, is a layout table; the story list inside it was judged a data table
+   pixels wide and centered, is a layout table; the story list inside it was judged a data table
    and came through. For the overview the outer table is a structure worth drawing, so tables
    have to be read from the tree, not only from quick navigation.
 6. Hacker News's search field has no name, placeholder, id or class. The only clue is the text
@@ -407,7 +431,7 @@ home page in both versions. None has a single real landmark, only unnamed forms.
 7. Off screen skip links report absurd rectangles: list items 15,994 pixels wide, and links at
    left minus 15,440. Anything that extends far past the page's edges is hidden and dropped.
 8. Hacker News's shape is simple and geometry agrees: an orange bar across the top 24 pixels
-   tall, a single column of stories down the left of a centred table, and the footer with the
+   tall, a single column of stories down the left of a centered table, and the footer with the
    search form below. Its leaves' left edges sit between 140 and 440 pixels with nothing to the
    right, which is a single column.
 
@@ -415,7 +439,7 @@ The inaccessible page again with the tree walked 12 deep (219 objects in 1.5 sec
 the last question: Chrome keeps every nested layout table, row and cell as an object with a
 rectangle. Four tables deep, the page's whole layout is there:
 
-1. A centred 801 pixel table holding a header row (the logo cell 444 pixels wide, a picture,
+1. A centered 801 pixel table holding a header row (the logo cell 444 pixels wide, a picture,
    and a QUICKMENU cell at the right) above a row of three cells: a 156 pixel navigation column
    at the left, a 435 pixel content cell in the middle, and a 152 pixel column at the right
    holding four stacked promotions.

@@ -142,6 +142,81 @@ class TestScreenView(unittest.TestCase):
 		self.assertTrue([c for c in banner.children if c.region.kind == "navigation"])
 
 
+def loadPage(name: str):
+	with open(os.path.join(FIXTURES, name), encoding="utf-8") as f:
+		root, viewport = fromProbe(json.load(f))
+	return findRegions(root, viewport), viewport
+
+
+class TestTallPageAndItsWindows(unittest.TestCase):
+	"""The whole page drawn a screen to a panel, and the views of it zooming and moving compose."""
+
+	def test_aTallPageKeepsTheAreasInsideMain(self):
+		"""Squeezed onto one panel Fabula's main lost its five bands; a screen to a panel keeps them."""
+		page, viewport = loadPage("fabula-chrome-scrolled.json")
+		screens = page.box.height / viewport.height
+		overview = compose(PinBuffer, page, WIDTH, round(HEIGHT * screens), "page", viewport, translate)
+		main = [b for b in overview.boxes if b.region.kind == "main"][0]
+		self.assertGreaterEqual(len(main.children), 4)
+
+	def test_aWindowShowsWhatWasUnderIt(self):
+		page, viewport = loadPage("fabula-chrome-scrolled.json")
+		tall = compose(PinBuffer, page, WIDTH, HEIGHT * 9, "page", viewport, translate)
+		banner = [b for b in tall.boxes if b.region.kind == "banner"][0]
+		top = banner.rect.top / tall.buffer.height
+		down = banner.rect.height / tall.buffer.height
+		window = tall.windowAt(0.0, 1.0, top, down)
+		self.assertLessEqual(abs(window.top - banner.region.box.top), 20)
+		self.assertLessEqual(abs(window.bottom - banner.region.box.bottom), 20)
+
+	def test_magnifiedLabelsAreBrailleAtItsOwnSize(self):
+		"""Zoomed in, a label is composed again, three pins to a cell, not blown up."""
+		page, viewport = loadPage("seekingalpha.json")
+		part = compose(
+			PinBuffer, page, WIDTH, HEIGHT, "screen", viewport, translate, window=Box(0, 0, 960, 455)
+		)
+		labelled = [b for b in part.walk() if b.label]
+		self.assertTrue(labelled)
+		box = labelled[0]
+		row = box.rect.top + 2
+		dots = [x for x in range(box.rect.left + 1, box.rect.right - 1) if part.buffer.getDot(x, row)]
+		self.assertTrue(dots)
+		# Solid test cells raise both columns of each cell, then a gap: pairs three pins apart.
+		self.assertEqual(dots[1] - dots[0], 1)
+
+	def test_aKeyLetterIsTheSameInEveryView(self):
+		page = Region("page", "", Box(0, 0, 1000, 2000), "page")
+		narrow = Region("region", "Announcements", Box(0, 0, 60, 2000), "landmark")
+		wide = Region("main", "", Box(60, 0, 940, 2000), "landmark")
+		page.children = [narrow, wide]
+		keys: dict = {}
+		whole = compose(PinBuffer, page, WIDTH, HEIGHT, "page", page.box, translate, 1, keys=keys)
+		part = compose(
+			PinBuffer,
+			page,
+			WIDTH,
+			HEIGHT,
+			"page",
+			page.box,
+			translate,
+			1,
+			window=Box(0, 1000, 1000, 1000),
+			keys=keys,
+		)
+		self.assertEqual([b.key for b in whole.keyed], ["a"])
+		self.assertEqual([b.key for b in part.keyed], ["a"])
+		self.assertIs(part.keyed[0].region, narrow)
+
+	def test_aPressInAWindowSaysWhereOnTheWholePage(self):
+		page, viewport = loadPage("seekingalpha.json")
+		part = compose(
+			PinBuffer, page, WIDTH, HEIGHT, "screen", viewport, translate, window=Box(0, 0, 960, 455)
+		)
+		aside = [b for b in part.boxes if b.region.kind == "complementary"][0]
+		said = part.describeAt(aside.rect.left + 1, aside.rect.top + 1)
+		self.assertIn("down the left side", said)
+
+
 class TestKeyLetters(unittest.TestCase):
 	def test_aWordTooLongForItsBoxGetsALetter(self):
 		"""A narrow box is widened for a short word, but never past four cells' worth."""

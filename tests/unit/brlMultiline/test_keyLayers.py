@@ -399,6 +399,12 @@ class TestDefaultLayers(unittest.TestCase):
 		self.assertEqual("graphicsPanUp", graphics.bindings[monarch("leftDpadUp")].scriptName)
 		self.assertEqual("graphicsZoomIn", graphics.bindings[monarch("zoomIn")].scriptName)
 
+	def test_thePanningKeysMoveADrawingAPanelAtATime(self):
+		"""As they move through text a display at a time: back is up, forward is down."""
+		graphics = LayerSet(MONARCH, tuple(keyLayers.defaultLayers(MONARCH, PLUGIN))).get("graphics")
+		self.assertEqual("graphicsPanelUp", graphics.bindings[monarch("panLeft")].scriptName)
+		self.assertEqual("graphicsPanelDown", graphics.bindings[monarch("panRight")].scriptName)
+
 	def test_theMonarchsGraphicsLayerComesOnByItselfAndTheKeyboardsDoesNot(self):
 		"""Putting a drawing up is asking for it; the keypad is the review cursor on a desktop layout."""
 		monarchGraphics = LayerSet(MONARCH, tuple(keyLayers.defaultLayers(MONARCH, PLUGIN))).get("graphics")
@@ -629,6 +635,29 @@ class TestAChartLayerSavedBeforeTheStepperKeys(unittest.TestCase):
 		"""So the next key added to the shipped chart layer is not lost the same way."""
 		shipped = next(layer for layer in keyLayers.defaultLayers(MONARCH, PLUGIN) if layer.id == "chart")
 		self.assertEqual(set(shipped.bindings), set(self.savedAt3().get("chart").bindings))
+
+
+class TestAGraphicsLayerSavedBeforeThePanningKeys(unittest.TestCase):
+	"""Revision 5: the panning keys move a drawing a whole panel, and a saved graphics layer
+	from before gets them without losing what the reader bound."""
+
+	def savedAt4(self, bindings=None):
+		graphics = newLayer(
+			MONARCH, "graphics", "Graphics", "graphics", autoEnable=True, bindings=bindings or {}
+		)
+		stored = json.loads(LayerSet(MONARCH, (newLayer(MONARCH, DEFAULT_ID), graphics)).toText())
+		stored["shipped"] = 4
+		return LayerSet.fromText(MONARCH, json.dumps(stored), keyLayers.defaultLayers(MONARCH, PLUGIN))[0]
+
+	def test_itIsGivenThePanningKeys(self):
+		graphics = self.savedAt4().get("graphics")
+		self.assertEqual("graphicsPanelUp", graphics.bindings[monarch("panLeft")].scriptName)
+		self.assertEqual("graphicsPanelDown", graphics.bindings[monarch("panRight")].scriptName)
+
+	def test_aPanningKeyTheReaderBoundIsKept(self):
+		graphics = self.savedAt4({monarch("panRight"): SAY_LINE}).get("graphics")
+		self.assertEqual(SAY_LINE, graphics.bindings[monarch("panRight")])
+		self.assertEqual("graphicsPanelUp", graphics.bindings[monarch("panLeft")].scriptName)
 
 
 class TestNormalize(unittest.TestCase):

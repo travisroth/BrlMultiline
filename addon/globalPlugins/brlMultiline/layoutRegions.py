@@ -27,7 +27,7 @@ The rules, in the order they are applied:
    is something a sighted reader sees.
 3. **Sticky headers are put back.** A header that stays on screen as the page scrolls reports
    its position on screen, not its place in the page, and lands on top of whatever is there.
-   In reading order it still sits between its neighbours, and the gap it left between them is
+   In reading order it still sits between its neighbors, and the gap it left between them is
    its own height, so it goes back into that gap, but only when it is pinned near the top of
    the screen and looks like a header: sections merely shown out of reading order stay where
    they are. Its box on screen is kept too, for a view of the screen.
@@ -630,7 +630,7 @@ def _regions(node: Node, viewport: Box) -> list[Region]:
 REPEAT_MIN = 6
 
 
-#: The roles a repeated record has. A section the same size as its neighbours is not a record.
+#: The roles a repeated record has. A section the same size as its neighbors is not a record.
 REPEAT_ROLES = frozenset(("tablerow", "listitem"))
 
 
@@ -856,7 +856,7 @@ def _cut(items: list[Item], bounds: Box, axis: str) -> list[tuple[Box, list[Item
 
 	A wide piece of content, more than half the area's width, is left out when looking for
 	columns, since a picture across two columns would otherwise hide the gutter between them.
-	It is still placed, in whichever part holds its centre. A region found already is different:
+	It is still placed, in whichever part holds its center. A region found already is different:
 	it is never cut through, whatever its width, so that it stays whole inside the part that
 	holds it (found in review: a wide table ended up outside the column it was put in). Parts
 	are clipped to the area: a carousel's slides parked off to the right are part of the
@@ -880,8 +880,8 @@ def _cut(items: list[Item], bounds: Box, axis: str) -> list[tuple[Box, list[Item
 	cuts.sort()
 	groups: list[list[Item]] = [[] for _ in range(len(cuts) + 1)]
 	for box, item in items:
-		centre = box.left + box.width / 2 if axis == "x" else box.top + box.height / 2
-		groups[sum(1 for c in cuts if centre > c)].append((box, item))
+		center = box.left + box.width / 2 if axis == "x" else box.top + box.height / 2
+		groups[sum(1 for c in cuts if center > c)].append((box, item))
 	edges = [
 		bounds.left if axis == "x" else bounds.top,
 		*cuts,
@@ -997,7 +997,7 @@ def _nameByPosition(level: Region, viewport: Box) -> None:
 
 def whereWords(box: Box, within: Box) -> str:
 	"""Where a box is inside another, the way someone would say it."""
-	horizontal = _third(box.left + box.width / 2 - within.left, within.width, ("left", "centre", "right"))
+	horizontal = _third(box.left + box.width / 2 - within.left, within.width, ("left", "center", "right"))
 	vertical = _third(box.top + box.height / 2 - within.top, within.height, ("top", "middle", "bottom"))
 	fullWidth = box.width >= within.width * 0.8
 	fullHeight = box.height >= within.height * 0.8
@@ -1006,9 +1006,9 @@ def whereWords(box: Box, within: Box) -> str:
 	if fullWidth:
 		return f"across the {vertical}"
 	if fullHeight:
-		return "down the centre" if horizontal == "centre" else f"down the {horizontal} side"
-	if (vertical, horizontal) == ("middle", "centre"):
-		return "in the centre"
+		return "down the center" if horizontal == "center" else f"down the {horizontal} side"
+	if (vertical, horizontal) == ("middle", "center"):
+		return "in the center"
 	return f"{vertical} {horizontal}"
 
 

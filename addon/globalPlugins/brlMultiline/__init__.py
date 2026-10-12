@@ -82,6 +82,9 @@ addonHandler.initTranslation()
 # Translators: the name of the input gestures category for this add-on's commands.
 SCRIPT_CATEGORY = _("BrlMultiline")
 
+LAYOUT_SMALLEST_VIEW = 200
+"""Pixels of a web page, top to bottom, that the most magnified view of its layout shows."""
+
 BREAK = chr(10)
 """A line break in a dialog's text, spelled so no escape has to survive a shell."""
 
@@ -3661,18 +3664,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if size is None:
 			ui.message(_("This display cannot show graphics"))
 			return
-		overview = layoutDraw.compose(
-			mode.newBuffer,
-			page,
-			size[0],
-			size[1],
-			view,
-			viewport,
-			graphicsMode.labelCells,
-		)
-		if overview is None:
-			ui.message(mode.lastError or _("The drawing could not be shown"))
-			return
 		if view == "page":
 			# Translators: the name of the drawing of a whole web page's layout.
 			name = _("layout of the whole page")
@@ -3680,19 +3671,92 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: the name of the drawing of the layout of the part of a web page on
 			# screen.
 			name = _("layout of the page on screen")
-		drawing = graphicsMode.Drawing(overview.buffer, name=name, describeAt=overview.describeAt)
+		drawing = self._layoutDrawing(page, view, viewport, size, name)
+		if drawing is None:
+			ui.message(mode.lastError or _("The drawing could not be shown"))
+			return
 		if not mode.enter(drawing):
 			ui.message(mode.lastError or _("The drawing could not be shown"))
 			return
+		# The key to the letters on the panel is the drawing's note, which this includes.
 		message = mode.describe()
-		key = overview.keyText()
-		if key:
-			# Translators: the key to the letters on a drawing of a page's layout, said after it
-			# is drawn. The placeholder is a list of letters with what each stands for.
-			message = f"{message}. " + _("Key: {key}").format(key=key)
 		if partial:
 			message = f"{message}. {partialNote}"
 		ui.message(message)
+
+	def _layoutDrawing(self, page, view: str, viewport, size: tuple, name: str):
+		"""The drawing of a page's layout, which draws itself again when zoomed or moved.
+
+		**The whole page is drawn tall**: a screen of the page to a panel's height, so its
+		areas have room for their labels and the areas inside them, and it opens a panel wide at
+		its top for the reader to move down (see `Drawing.opensAcross`). Squeezed onto one panel
+		a long page lost everything but its main areas.
+
+		**Zooming and moving compose the view again rather than magnifying it**, through
+		`Drawing.redraw`, so the labels stay braille at the panel's own size instead of growing
+		into blobs, and an area keeps the key letter it was given wherever it appears. The key
+		for what is on the panel is the drawing's note, said after each move.
+
+		:return: the drawing, or None.
+		"""
+		mode = self.graphicsMode
+		width, height = size
+		screens = page.box.height / max(viewport.height, 1) if view == "page" else 1.0
+		tall = max(height, round(height * screens))
+		keys: dict = {}
+		source = layoutDraw.compose(
+			mode.newBuffer,
+			page,
+			width,
+			tall,
+			view,
+			viewport,
+			graphicsMode.labelCells,
+			keys=keys,
+		)
+		if source is None:
+			return None
+		whole = layoutDraw.windowFor(page, view, viewport)
+
+		def redraw(offset, span, pinWidth, pinHeight, top=0.0, down=1.0):
+			window = source.windowAt(offset, span, top, down)
+			part = layoutDraw.compose(
+				mode.newBuffer,
+				page,
+				pinWidth,
+				pinHeight,
+				view,
+				viewport,
+				graphicsMode.labelCells,
+				window=window,
+				keys=keys,
+			)
+			if part is None:
+				return None
+			key = part.keyText()
+			return graphicsMode.Drawing(
+				part.buffer,
+				name=name,
+				describeAt=part.describeAt,
+				# Translators: the key to the letters on the part of a page's layout that is on
+				# the display. The placeholder is a list of letters with what each stands for.
+				note=_("Key: {key}").format(key=key) if key else "",
+			)
+
+		sourceKey = source.keyText()
+		drawing = graphicsMode.Drawing(
+			source.buffer,
+			name=name,
+			describeAt=source.describeAt,
+			note=_("Key: {key}").format(key=sourceKey) if sourceKey else "",
+			redraw=redraw,
+			# How far in the zoom can go, as the mode counts it: a window no smaller than about
+			# 200 pixels of the page, past which there is nothing more to see in a layout.
+			points=max(1, round(whole.height * graphicsMode.MIN_WINDOW_POINTS / LAYOUT_SMALLEST_VIEW)),
+			windowsVertically=True,
+			opensAcross=view == "page",
+		)
+		return drawing
 
 	@script(
 		# Translators: input help message for a command.
@@ -3917,7 +3981,26 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_graphicsPanRight(self, gesture):
 		self._panGraphics(1, 0)
 
-	def _panGraphics(self, across: int, down: int) -> None:
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Move the drawing view down a whole panel"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_graphicsPanelDown(self, gesture):
+		"""Move down by the whole height of the panel, for reading a tall drawing a panel at a
+		time the way a page is read a screen at a time. Unbound by default."""
+		self._panGraphics(0, 1, whole=True)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Graphics: Move the drawing view up a whole panel"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_graphicsPanelUp(self, gesture):
+		"""Move up by the whole height of the panel. Unbound by default."""
+		self._panGraphics(0, -1, whole=True)
+
+	def _panGraphics(self, across: int, down: int, whole: bool = False) -> None:
 		"""Move the visible part of the drawing, and say where it now starts.
 
 		Written out four times rather than generated, unlike the segment commands, because a
@@ -3926,6 +4009,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		:param across: steps right, negative for left.
 		:param down: steps down, negative for up.
+		:param whole: whether a step is the whole panel rather than a quarter of it.
 		"""
 		mode = self.graphicsMode
 		if not mode.active:
@@ -3939,7 +4023,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# on the display.
 			ui.message(_("Whole drawing is shown; magnify to move around it"))
 			return
-		stepAcross, stepDown = mode.panStep()
+		stepAcross, stepDown = mode.panelStep() if whole else mode.panStep()
 		if not mode.panBy(across * stepAcross, down * stepDown):
 			# Translators: reported when the drawing cannot be moved any further that way.
 			ui.message(_("Edge of the drawing"))

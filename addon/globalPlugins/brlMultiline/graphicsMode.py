@@ -168,6 +168,7 @@ class Drawing:
 		levelNames: tuple = (),
 		widestView: int = 0,
 		levelKeys: tuple = (),
+		opensAcross: bool = False,
 	):
 		"""
 		:param buffer: the dots, a buffer from `GraphicsSurface.newBuffer`.
@@ -225,6 +226,11 @@ class Drawing:
 			no limit. A price chart of a year of days cannot be shown whole, since a bar needs
 			four pins; it says how many fit, and the mode opens it at the widest view it has, on
 			its latest points, for the reader to pan back through.
+		:param opensAcross: whether the figure opens at the panel's full width, at its top,
+			rather than whole. For a figure much taller than it is wide that is read by moving
+			down it, such as the layout of a long web page: shown whole it is squeezed until its
+			parts are slivers, and shown a panel wide it reads at its own size with the rest a
+			pan down. Shrinking from there still shows it whole.
 		"""
 		self.buffer = buffer
 		self.firstPoint = firstPoint
@@ -242,6 +248,7 @@ class Drawing:
 		self.pinsPerPoint = pinsPerPoint
 		self.widestView = widestView
 		self.levelKeys = tuple(levelKeys)
+		self.opensAcross = opensAcross
 
 	@property
 	def width(self) -> int:
@@ -628,10 +635,12 @@ class GraphicsMode(PanelOwner):
 		self._window = None
 		self._rect = rect
 		self._textLines = textLines
-		self._zoomStep = self._widestStep(pins)
+		self._zoomStep = self._openingStep(pins)
 		# Hard against the right, at the latest points, for a figure too wide to show whole. A
-		# reader charting prices wants the most recent ones first; the rest is a pan away.
-		self._originX = drawing.buffer.width if self._zoomStep != FIT else 0
+		# reader charting prices wants the most recent ones first; the rest is a pan away. A
+		# figure that opens across starts at its top left, where a page is read from.
+		opensAcross = getattr(drawing, "opensAcross", False)
+		self._originX = drawing.buffer.width if self._zoomStep != FIT and not opensAcross else 0
 		self._originY = 0
 		self._forgetPoints()
 		self.render(surface)
@@ -1281,6 +1290,24 @@ class GraphicsMode(PanelOwner):
 		scale = pins.width / dots * (1 + 1e-9)
 		return max(FIT, math.log(scale / self.fitScale(pins)) / math.log(ZOOM_FACTOR))
 
+	def _openingStep(self, pins: PinRect) -> float:
+		""":return: the zoom a figure opens at: its widest view, or its full width.
+
+		See `Drawing.opensAcross`. The step that makes the figure's width the panel's width,
+		which for a figure drawn a panel wide is the scale of one pin per dot: what it was
+		composed at, so nothing is magnified or squeezed.
+
+		:param pins: the rectangle the drawing occupies.
+		"""
+		widest = self._widestStep(pins)
+		source = self._source
+		if source is None or not getattr(source, "opensAcross", False) or not source.buffer.width:
+			return widest
+		across = min(1.0, pins.width / source.buffer.width) / self.fitScale(pins)
+		if across <= 1:
+			return widest
+		return max(widest, math.log(across) / math.log(ZOOM_FACTOR))
+
 	@property
 	def showsWidestView(self) -> bool:
 		""":return: whether a figure too wide to show whole is at the widest view it has."""
@@ -1529,6 +1556,24 @@ class GraphicsMode(PanelOwner):
 			return 0, 0
 		visibleX, visibleY = self._visible(pins)
 		return max(1, visibleX // 4), max(1, visibleY // 4)
+
+	def panelStep(self) -> tuple:
+		""":return: the pan distance for a whole panel across and down, in source dots.
+
+		For reading a tall figure a panel at a time, as a page is read a screen at a time:
+		nothing of the last view is left to reorient by, but nothing is skipped and nothing is
+		felt twice.
+		"""
+		if not self.active or self._rect is None:
+			return 0, 0
+		surface = findSurface()
+		if surface is None:
+			return 0, 0
+		pins = surface.pinRectForCells(self._rect)
+		if pins.isEmpty:
+			return 0, 0
+		visibleX, visibleY = self._visible(pins)
+		return max(1, visibleX), max(1, visibleY)
 
 	# --- Points -----------------------------------------------------------------------------
 

@@ -153,7 +153,7 @@ def _whereWords(rect, viewport) -> str:
 		return f"below the visible part, {top // max(vh, 1)} screens down"
 	cx = left + width / 2
 	cy = top + height / 2
-	horizontal = "left" if cx < vw / 3 else "right" if cx > vw * 2 / 3 else "centre"
+	horizontal = "left" if cx < vw / 3 else "right" if cx > vw * 2 / 3 else "center"
 	vertical = "top" if cy < vh / 3 else "bottom" if cy > vh * 2 / 3 else "middle"
 	shape = ""
 	if width >= vw * 0.8:

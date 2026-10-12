@@ -75,7 +75,7 @@ found a keyboard layer that escape did not leave. With modifiers it is another k
 escape is left to NVDA.
 """
 
-SHIPPED = 4
+SHIPPED = 5
 """Which additions to the shipped layers a stored set has already been given. See L{SHIPPED_ADDITIONS}.
 
 Written with every set saved. A set stored before this was written has none, and reads as 1.
@@ -115,6 +115,13 @@ SHIPPED_ADDITIONS = {
 				"dot1+dot3+dot6",
 				"dot1+dot2+dot3",
 			),
+		},
+	},
+	# The panning keys move a drawing up and down a whole panel, for the layout of a whole web
+	# page drawn a screen to a panel. Before, they did nothing while a drawing was up.
+	5: {
+		"bindings": {
+			"graphics": ("panLeft", "panRight"),
 		},
 	},
 }
@@ -715,6 +722,11 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 				**{normalize(key): plugin(f"graphicsPan{direction}") for key, direction in pad.items()},
 				normalize(f"br({MONARCH}):zoomIn"): plugin("graphicsZoomIn"),
 				normalize(f"br({MONARCH}):zoomOut"): plugin("graphicsZoomOut"),
+				# The panning keys move back and forward through text a display at a time, so here
+				# they move up and down a drawing a panel at a time: the same habit, and keys that
+				# otherwise do nothing while a drawing is up.
+				normalize(f"br({MONARCH}):panLeft"): plugin("graphicsPanelUp"),
+				normalize(f"br({MONARCH}):panRight"): plugin("graphicsPanelDown"),
 				**{normalize(f"br({MONARCH}):{chord}"): plugin(name) for chord, name in chords.items()},
 			},
 		)

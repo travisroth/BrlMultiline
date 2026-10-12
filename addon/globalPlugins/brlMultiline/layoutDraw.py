@@ -82,6 +82,13 @@ class Overview:
 	window: Box
 	#: Where each region is in the view drawn, by `id`: on the page, or on the screen.
 	places: dict[int, Box] = field(default_factory=dict)
+	#: The whole view this is part of, which a press describes positions within: "down the left
+	#: side" of the page, not of whatever part of it is magnified.
+	whole: Box | None = None
+	#: The rulers the boxes were placed on, for finding which part of the page a part of the
+	#: drawing shows. See `windowAt`.
+	xs: "_Ruler | None" = None
+	ys: "_Ruler | None" = None
 
 	def walk(self):
 		stack = list(reversed(self.boxes))
@@ -106,7 +113,8 @@ class Overview:
 		if box is None:
 			return None
 		region = box.region
-		parts = [region.title, whereWords(self.places.get(id(region), region.box), self.window)]
+		within = self.whole or self.window
+		parts = [region.title, whereWords(self.places.get(id(region), region.box), within)]
 		if region.links:
 			parts.append(f"{region.links} links" if region.links != 1 else "1 link")
 		return ", ".join(parts)
@@ -118,6 +126,24 @@ class Overview:
 	def keyText(self) -> str:
 		"""The key for boxes labelled with a letter, as one line to say."""
 		return "; ".join(f"{b.key}, {b.region.title}" for b in self.keyed)
+
+	def windowAt(self, offset: float, span: float, top: float, down: float) -> Box:
+		"""The part of the page shown by a part of this drawing, given as fractions of it.
+
+		Graphics mode asks a figure to draw a window of itself again in those terms (see
+		`graphicsMode.Drawing.redraw`). The drawing is warped, so a third of its height is not a
+		third of the page; the rulers it was laid out on are read backwards to find the page
+		that third shows, so a zoomed view holds exactly what was under the reader's hand.
+		"""
+		width = getattr(self.buffer, "width", 0) or 1
+		height = getattr(self.buffer, "height", 0) or 1
+		if self.xs is None or self.ys is None:
+			return self.window
+		left = self.xs.valueAt(offset * width)
+		right = self.xs.valueAt(min(1.0, offset + span) * width)
+		upper = self.ys.valueAt(top * height)
+		lower = self.ys.valueAt(min(1.0, top + down) * height)
+		return Box(round(left), round(upper), max(1, round(right - left)), max(1, round(lower - upper)))
 
 
 def windowFor(page: Region, view: str, viewport: Box) -> Box:
@@ -165,6 +191,8 @@ def compose(
 	viewport: Box,
 	translate: Callable[[str], list[int]],
 	depth: int = 2,
+	window: Box | None = None,
+	keys: dict[int, str] | None = None,
 ) -> Overview | None:
 	"""Draw the page's areas onto a new buffer of width by height pins.
 
@@ -175,12 +203,18 @@ def compose(
 	:param translate: braille cells for a short label, as `graphicsMode.labelCells` does.
 	:param depth: how many levels of areas to draw: 1 for the main areas alone, 2 for the
 		areas inside them as well.
+	:param window: part of the view to draw, in the view's coordinates, for a magnified or
+		moved view of it; the whole view if None. Labels are composed afresh at the panel's
+		own resolution, never magnified.
+	:param keys: key letters already given out, by region `id`, kept and added to, so that an
+		area has the same letter in every view of the page.
 	:return: the overview, or None if no buffer could be made.
 	"""
 	buffer = newBuffer(width, height)
 	if buffer is None:
 		return None
-	window = windowFor(page, view, viewport)
+	whole = windowFor(page, view, viewport)
+	window = window or whole
 	places = placesFor(page, view)
 	level = _topLevel(page)
 	chosen = _choose(level.children, window, depth, places)
@@ -192,8 +226,9 @@ def compose(
 	# between content goes first: a strip of links between a site's navigation and its banner
 	# matters less than either, and the text overview still lists it.
 	boxes: list[DrawnBox] = []
+	xs = ys = None
 	for _ in range(len(chosen) + 1):
-		boxes = _layout(chosen, labels, window, width, height, places)
+		boxes, xs, ys = _layout(chosen, labels, window, width, height, places)
 		cramped = {id(b.region) for b in _walkBoxes(boxes) if any(_isCramped(c) for c in b.children)}
 		if cramped:
 			chosen = [(r, d) for r, d in chosen if id(_parentOf(r, chosen)) not in cramped]
@@ -203,8 +238,8 @@ def compose(
 			break
 		dropped = min(spare, key=lambda b: b.region.box.area).region
 		chosen = [(r, d) for r, d in chosen if r is not dropped and _parentOf(r, chosen) is not dropped]
-	overview = Overview(buffer, boxes, window, places)
-	_label(overview, labels)
+	overview = Overview(buffer, boxes, window, places, whole, xs, ys)
+	_label(overview, labels, keys if keys is not None else {})
 	_draw(overview, labels)
 	return overview
 
@@ -226,7 +261,7 @@ def _layout(
 	width: int,
 	height: int,
 	places: dict[int, Box],
-) -> list[DrawnBox]:
+) -> tuple[list[DrawnBox], "_Ruler", "_Ruler"]:
 	"""Place the chosen regions on warped rulers, children inside their parents."""
 	clips = {id(r): _clip(places[id(r)], window) for r, _ in chosen}
 	xs = _Ruler(
@@ -260,7 +295,7 @@ def _layout(
 			drawn.rect = rect.intersection(inner) or inner
 			parent.children.append(drawn)
 		byRegion[id(region)] = drawn
-	return boxes
+	return boxes, xs, ys
 
 
 def _clip(box: Box, window: Box) -> Box:
@@ -318,18 +353,28 @@ def _minHeight(level: int) -> int:
 	return MIN_BOX[1]
 
 
-def _label(overview: Overview, labels: dict[int, list[int]]) -> None:
+def _label(overview: Overview, labels: dict[int, list[int]], keys: dict[int, str]) -> None:
 	"""Decide each box's label: its short word where it fits clear of the boxes inside it,
-	else a key letter, else nothing (a press still names it)."""
-	letters = iter(KEY_LETTERS)
+	else a key letter, else nothing (a press still names it).
+
+	A letter given to an area is kept in `keys` and used for it again in any other view of the
+	page, so the key a reader heard stays true as they zoom and move.
+	"""
 	for box in overview.walk():
 		cells = labels[id(box.region)]
 		spot = _labelSpot(box, _labelWidth(len(cells)))
 		if cells and spot is not None:
 			box.label = "word"
 			continue
-		if _labelSpot(box, _labelWidth(1)) is not None:
-			box.key = next(letters, "")
+		if _labelSpot(box, _labelWidth(1)) is None:
+			continue
+		letter = keys.get(id(box.region))
+		if letter is None:
+			used = set(keys.values())
+			letter = next((c for c in KEY_LETTERS if c not in used), "")
+			if letter:
+				keys[id(box.region)] = letter
+		box.key = letter
 
 
 def _labelSpot(box: DrawnBox, labelWidth: int) -> Box | None:
@@ -462,6 +507,17 @@ class _Ruler:
 				fraction = (value - a) / (b - a) if b > a else 0
 				return self.starts[i] + fraction * self.alloc[i]
 		return float(self.pins)
+
+	def valueAt(self, pin: float) -> float:
+		"""The page coordinate at a pin: `at` read backwards."""
+		pin = min(max(pin, 0.0), float(self.pins))
+		for i in range(len(self.alloc)):
+			if pin <= self.starts[i + 1] or i == len(self.alloc) - 1:
+				a, b = self.marks[i], self.marks[i + 1]
+				if self.alloc[i] <= 0:
+					return float(a)
+				return a + (pin - self.starts[i]) / self.alloc[i] * (b - a)
+		return float(self.high)
 
 	def span(self, a: int, b: int) -> tuple[int, int]:
 		"""The pins from a to b, as a start and an end one past the last pin."""

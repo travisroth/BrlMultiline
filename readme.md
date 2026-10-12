@@ -1015,13 +1015,20 @@ accessibility, or when you have made a page and want to check it looks the way y
 
 **Overview: Draw the layout of the part of the page on screen** draws the main areas of the
 page as boxes in their places: the banner, the navigation, the main content, a sidebar, the
-search field, the footer, and the areas inside them where there is room. Each box has a short label
-inside it, such as nav, main, side, foot or find. A box too small for its label gets a letter
-instead, and the key to the letters is spoken after the drawing appears. Press a routing key
-inside a box to hear what it is in full, where it is, and how many links it holds.
-**Overview: Draw the layout of the whole page** does the same for the whole page, top to bottom.
-On a long page the areas inside the main content are often left out of this view, because there
-is not room for each of them to be big enough to find.
+search field, the footer, and the areas inside them where there is room. Each box has a short
+label inside it, such as nav, main, side, foot or find. A box too small for its label gets a
+letter instead, and the key to the letters on the panel is spoken after the drawing appears and
+after each move. Press a routing key inside a box to hear what it is in full, where it is on the
+page, and how many links it holds.
+
+**Overview: Draw the layout of the whole page** draws the whole page, top to bottom, one screen
+of the page to the height of the panel, and starts at the top. On a Monarch, the panning keys
+move down it and back up a whole panel at a time, as they move through text; the left d-pad
+moves a quarter of the panel at a time. Shrink the drawing to see the whole page on the panel at
+once, squeezed so that only the main areas fit.
+
+Magnifying either drawing draws that part of the page again, larger, rather than enlarging the
+dots, so the labels stay ordinary braille and an area keeps the same key letter in every view.
 
 **Overview: Show the layout of the page as text** shows the same areas as lines of text in a
 window, such as "banner: across the top" and "navigation: down the left side", which you can
@@ -1284,6 +1291,9 @@ on:
 - **Graphics: Shrink the drawing**: the zoom out key, or Space with dot 7.
 - **Graphics: Move the drawing view up, down, left and right**: the left d-pad, or Space with
   dots 1, 4, 3, or 6, each with dot 7.
+- **Graphics: Move the drawing view up a whole panel** and **down a whole panel**: the left and
+  right panning keys, for reading a tall drawing such as [the layout of a whole
+  page](#the-layout-of-a-web-page) a panel at a time.
 - **Graphics: Show or hide the braille line beside the drawing**: Space with dots 2 and 7.
 - **Graphics: Zoom a chart to one pin per point**: o, on a chart.
 - **Graphics: Show the next set of lines on a chart**: v, on a chart.
@@ -1350,7 +1360,8 @@ The Monarch and the keyboard come with these layers:
 - **Monarch, default layer.** Press the layer key, then the left d-pad: up reads the current
   line, down starts Say All, left reports the focus, right reports the window title.
 - **Monarch, graphics layer.** Turns on by itself when a drawing goes up, and off when it comes
-  down. The left d-pad moves the drawing, and the zoom keys magnify and shrink it. Space with dot
+  down. The left d-pad moves the drawing, the panning keys move it up and down a whole panel, and
+  the zoom keys magnify and shrink it. Space with dot
   7 and Space with dot 8 also shrink and magnify, and Space with dots 2 and 7 shows or hides the
   braille line. The right d-pad stays the arrow keys. If you turn the layer off with the layer
   key, it stays off until the drawing is taken down and put up again.

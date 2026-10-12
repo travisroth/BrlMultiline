@@ -61,7 +61,7 @@ class TestBox(unittest.TestCase):
 		self.assertEqual(whereWords(Box(0, 0, 1000, 100), page), "across the top")
 		self.assertEqual(whereWords(Box(0, 0, 200, 1000), page), "down the left side")
 		self.assertEqual(whereWords(Box(800, 0, 150, 100), page), "top right")
-		self.assertEqual(whereWords(Box(400, 400, 200, 200), page), "in the centre")
+		self.assertEqual(whereWords(Box(400, 400, 200, 200), page), "in the center")
 
 
 class TestScroll(unittest.TestCase):
@@ -439,7 +439,7 @@ class TestRealPages(unittest.TestCase):
 		page = load("hackernews.json")
 		self.assertEqual(
 			[line for line in describe(page) if not line.startswith(" ")],
-			["header: across the top", "main content, table: down the left side", "footer: bottom centre"],
+			["header: across the top", "main content, table: down the left side", "footer: bottom center"],
 		)
 		footer = ofKind(page, "footer")[0]
 		self.assertTrue(ofKind(footer, "search"))
