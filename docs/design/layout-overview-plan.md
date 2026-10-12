@@ -165,8 +165,44 @@ same pattern the chart work uses.
    page views.
 6. Windows applications, through UI Automation.
 
-Steps 1 to 3 are done; see the next section. Step 4 needs one more piece first: a collector in
-the add-on that builds the rules' input live, cheaply, rather than through the probe.
+Steps 1 to 3 are done; see the next section. Step 4 is built and unit tested, not yet tried on
+hardware: see "The drawing and the collector as built" below. Of step 5, a press naming the box
+under it is built; moving to an area, drilling in and backing out are not.
+
+## The drawing and the collector as built
+
+`layoutCollect.py` gathers the rules' input live, in the shape the probe saves, so what the
+add-on finds on a page is what a saved copy gives. It works in batches of 25 calls into the
+browser with a return to NVDA's message loop between, and stops at limits: 300 leaves, a tree of
+600 objects 12 deep, and 8 seconds in all. Two savings on what the probe does: headings of level
+3 are not located, and a button is only located when its label in the buffer says search.
+
+`layoutDraw.py` draws the regions on a buffer, pure Python like the rules. The decisions:
+
+1. Each axis is a warped ruler. Every box's edges are marks on it; the stretches between marks
+   start in proportion to their length and boxes too small for a label are grown out of the
+   others. Order and adjacency are exact, sizes only as true as the panel allows.
+2. Two levels are drawn: the main areas and the areas inside them. A box whose inner areas
+   cannot each be made big enough is drawn without them, and the layout is done again with the
+   room that frees.
+3. A label is the kind's short word (nav, main, side, foot, find) in the reader's braille table,
+   in the first corner of the box clear of the boxes inside it. A box with no room for its word
+   gets a key letter, written in uncontracted letters so a contracted table cannot turn it into
+   a word sign, and the key is spoken after the drawing.
+4. A press names the innermost box under it, with where it is on the page and its links.
+
+The plugin's three commands are unbound: draw the screen's worth, draw the whole page, and show
+the overview as text with `ui.browseableMessage`. Gathering is cancelled by anything else that
+cancels a pending picture.
+
+The screen view draws each region where it is on screen (`Region.screenBox`), so a sticky
+header is at the top, and what it covers is drawn from below it. When even the main areas will
+not all fit, the smallest unnamed area found by geometry is left out first, since the text
+overview still lists it.
+
+Known gaps in this step: regions carry where they start in the text, but nothing moves there
+yet; regions from the accessible tree, on pages without landmarks, have no start at all; and
+none of it has run on a Monarch.
 
 ## The region rules as built
 
@@ -190,9 +226,41 @@ came from pages breaking an earlier version, and are worth keeping in mind when 
 3. A gutter may be crossed by 3 percent of the items around it, and a part's box comes from
    what lies wholly inside it. WSJ's lead picture spans two of its four columns, and without
    both of these the two columns merge, or one is drawn twice as wide as it is.
-4. The page is never split when it has the page's own landmarks (banner, navigation, main,
-   complementary, content info). Doing so wrapped WSJ's landmarks in invented header and main
-   boxes.
+4. Beside the page's own landmarks (banner, navigation, main, complementary, content info),
+   only the content outside every landmark is split by geometry, and the areas found are set
+   beside the landmarks. Splitting everything wrapped WSJ's landmarks in invented header and
+   main boxes; not splitting at all lost whatever no landmark marked.
+
+A review of the first commit found six faults, each now a test in `TestReviewFindings`:
+
+1. One landmark hid all unmarked content, since geometry was skipped beside any landmark. Now
+   the uncovered content is split on its own, as in point 4 above. On WSJ this finds two strips
+   of links the landmarks leave out, one between the top navigation and the banner and one
+   under the banner.
+2. A cut could leave a region found already outside the block it was put in: a wide table was
+   left out of the gutter search like a wide picture. Regions are now barriers that no cut may
+   cross, and a block's box always includes the regions in it. On Seeking Alpha a wide table
+   now stops the two columns at the top of main being cut down the page's whole length, so
+   they are found one level down, in the band above it.
+3. Sticky header repair moved any element that came before its neighbour in reading order but
+   after it on screen, with a gap the right size. Ordinary sections shown out of reading order
+   were moved, hiding the very mismatch a tester wants to find. Now the element must also be
+   pinned within 120 pixels of the top of the screen and look like a header: a banner or
+   navigation landmark, a header or nav element, or an id saying so.
+4. Repeat suppression dropped any six unnamed areas of one size, including six titled
+   sections. Now only rows and list items with no heading of their own count as records.
+5. One wide hidden control at minus 9999 set the scroll estimate. Now only containers count,
+   a top with nothing starting within a screen of where it ends is an outlier, and a caller
+   that knows the scroll can pass it.
+6. "Research" matched search. Matching is now by word: a word that is search or starts with it,
+   from names split at spaces and identifiers split at case changes and punctuation. The rules,
+   the collector and the probe share the one function, `mentionsSearch`.
+
+The same review asked for three more things, done as well: regions carry where they start in
+browse mode's text (`Region.start`) for a later command that moves to one; the collector shares
+its leaf budget out across links, headings, pictures and fields, spread through the page,
+instead of taking links first; and the collector reports what it cut short, which the plugin
+says after the overview unless it was only the normal sampling of a busy page.
 
 Known weak spots, from the same pages:
 

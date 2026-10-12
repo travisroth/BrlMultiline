@@ -44,6 +44,7 @@ from . import tableHeaderSpeech
 from . import userBrailleTable
 from .container import DisplayContainer
 from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
+from . import layoutCollect, layoutDraw, layoutRegions
 from . import image as imageFigure, imagePins, imageSource
 from .flowTableSource import wantsColumns
 from .graphicsMode import FIT as GRAPHICS_FIT, PANEL_NAME as GRAPHICS_PANEL_NAME, GraphicsMode
@@ -275,6 +276,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._pictureStyle = imageFigure.OUTLINES
 		self._pictureRequest = None
 		"""The picture file being loaded for the last press, if one is; see `script_drawPicture`."""
+		self._layoutCollector = None
+		"""The page layout being gathered for an overview, if one is; see `_layoutOverview`."""
 		"""How pictures are being drawn, as a mode and whether it is reversed.
 
 		Carried from one picture to the next within a session. A reader who has found that
@@ -3257,8 +3260,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		a chart, the glyph catalogue, or the drawing on or off. Each of those calls this, and so
 		does `terminate`, so a file arriving after NVDA has moved on draws nothing. Found in
 		review: a late image replaced a chart chosen after it, and one drew after shutdown.
+
+		A page layout still being gathered for an overview is the same kind of late arrival,
+		and is stopped here for the same reason.
 		"""
 		self._pictureRequest = None
+		if self._layoutCollector is not None:
+			self._layoutCollector.cancel()
+			self._layoutCollector = None
 
 	@script(
 		# Translators: input help message for a command.
@@ -3541,6 +3550,149 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(mode.lastError or _("The drawing could not be shown"))
 			return
 		ui.message(mode.describe())
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Overview: Draw the layout of the part of the page on screen"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_layoutOverview(self, gesture):
+		"""Draw the main areas of the web page on screen as labelled boxes in their places.
+
+		Browse mode reads a page in one line and loses its shape: whether the navigation runs
+		across the top or down the left, where search is, whether the page is in columns. This
+		draws that shape, an outline for each area with a short label or a key letter in it,
+		and a press inside a box names the area in full. See
+		`docs/design/layout-overview-plan.md`.
+
+		Unbound by default, like the other drawings that are not used while reading.
+		"""
+		self._layoutOverview("screen")
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Overview: Draw the layout of the whole page"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_layoutOverviewPage(self, gesture):
+		"""The same overview for the whole page, top to bottom, rather than the screen's worth."""
+		self._layoutOverview("page")
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Overview: Show the layout of the page as text"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_layoutOverviewText(self, gesture):
+		"""The page's main areas and where they are, as lines of text in a window.
+
+		For a display that cannot draw, and for speech: "banner: across the top", "search: top
+		right", "navigation: down the left side". Also what the drawing commands fall back to
+		on a display without graphics.
+		"""
+		self._layoutOverview("text")
+
+	def _layoutOverview(self, view: str) -> None:
+		"""Gather the focused page's layout a batch at a time, then draw or show it.
+
+		Gathering takes a second or more on a busy page, so it is done in batches with NVDA
+		free to speak between them, and only the last request counts: another overview, a
+		chart, a picture or the drawing turned off in the meantime cancels it.
+		"""
+		self._cancelPictureRequest()
+		document = getattr(api.getFocusObject(), "treeInterceptor", None)
+		if document is None or not hasattr(document, "_iterNodesByType") or not hasattr(document, "VBufHandle"):
+			# Translators: reported when the layout overview is asked for outside a web page.
+			ui.message(_("The layout overview needs a web page in browse mode"))
+			return
+		if not getattr(document, "isReady", True):
+			# Translators: reported when the layout overview is asked for while a page loads.
+			ui.message(_("The page is still loading"))
+			return
+		if view != "text" and self.graphicsMode.drawingSize() is None:
+			view = "text"
+		collector = None
+
+		def gathered(payload, why):
+			if self._terminated or self._layoutCollector is not collector:
+				return
+			self._layoutCollector = None
+			if payload is None:
+				log.debug(f"BrlMultiline: no page layout: {why}")
+				# Translators: reported when the layout of a web page could not be worked out.
+				ui.message(_("Could not read the layout of this page"))
+				return
+			self._showLayout(payload, view)
+
+		collector = layoutCollect.Collector(document, gathered)
+		self._layoutCollector = collector
+		# Translators: reported while the add-on reads where things are on a web page.
+		ui.message(_("Reading the page layout"))
+		collector.start()
+
+	def _showLayout(self, payload: dict, view: str) -> None:
+		"""Work out the page's areas from what was gathered, and draw or show them."""
+		try:
+			root, viewport = layoutRegions.fromProbe(payload)
+			page = layoutRegions.findRegions(root, viewport)
+		except Exception:
+			log.error("BrlMultiline: could not work out the page layout", exc_info=True)
+			ui.message(_("Could not read the layout of this page"))
+			return
+		# Any limit reached other than sampling, which is normal on a busy page, means part of the
+		# page was not read, and an overview of part of a page must not pass for the whole.
+		partial = any(why != "sampled" for why in payload.get("incomplete", ()))
+		# Translators: said after the layout of a web page when only part of it could be read in
+		# the time allowed, such as a very long or slow page.
+		partialNote = _("Only part of the page could be read")
+		if view == "text":
+			lines = layoutRegions.describe(page, 3)
+			if not lines:
+				# Translators: reported when no areas were found on a web page.
+				ui.message(_("No areas found on this page"))
+				return
+			if partial:
+				lines.append(partialNote)
+			# Translators: the title of the window showing a web page's layout as text.
+			ui.browseableMessage("\n".join(lines), title=_("Page layout"))
+			return
+		mode = self.graphicsMode
+		size = mode.drawingSize()
+		if size is None:
+			ui.message(_("This display cannot show graphics"))
+			return
+		overview = layoutDraw.compose(
+			mode.newBuffer,
+			page,
+			size[0],
+			size[1],
+			view,
+			viewport,
+			graphicsMode.labelCells,
+		)
+		if overview is None:
+			ui.message(mode.lastError or _("The drawing could not be shown"))
+			return
+		if view == "page":
+			# Translators: the name of the drawing of a whole web page's layout.
+			name = _("layout of the whole page")
+		else:
+			# Translators: the name of the drawing of the layout of the part of a web page on
+			# screen.
+			name = _("layout of the page on screen")
+		drawing = graphicsMode.Drawing(overview.buffer, name=name, describeAt=overview.describeAt)
+		if not mode.enter(drawing):
+			ui.message(mode.lastError or _("The drawing could not be shown"))
+			return
+		message = mode.describe()
+		key = overview.keyText()
+		if key:
+			# Translators: the key to the letters on a drawing of a page's layout, said after it
+			# is drawn. The placeholder is a list of letters with what each stands for.
+			message = f"{message}. " + _("Key: {key}").format(key=key)
+		if partial:
+			message = f"{message}. {partialNote}"
+		ui.message(message)
 
 	@script(
 		# Translators: input help message for a command.

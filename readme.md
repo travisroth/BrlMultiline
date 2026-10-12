@@ -1000,6 +1000,50 @@ magnified, and where you are in it, without changing anything.
 - No image library is needed. All image processing is done in plain Python inside the add-on,
   so there is nothing extra to install.
 
+## The layout of a web page
+
+These commands draw on a display that can raise individual pins, using the same drawing as
+[Drawings and charts](#drawings-and-charts), so magnifying and moving work the same way.
+
+Browse mode reads a web page in one line, so you don't learn its shape: whether the navigation
+runs across the top or down the left side, where the search field is, or whether the page is in
+columns. That matters when someone tells you to "look in the top right", when you test a page's
+accessibility, or when you have made a page and want to check it looks the way you meant.
+
+**Overview: Draw the layout of the part of the page on screen** draws the main areas of the
+page as boxes in their places: the banner, the navigation, the main content, a sidebar, the
+search field, the footer, and the areas inside them where there is room. Each box has a short label
+inside it, such as nav, main, side, foot or find. A box too small for its label gets a letter
+instead, and the key to the letters is spoken after the drawing appears. Press a routing key
+inside a box to hear what it is in full, where it is, and how many links it holds.
+**Overview: Draw the layout of the whole page** does the same for the whole page, top to bottom.
+On a long page the areas inside the main content are often left out of this view, because there
+is not room for each of them to be big enough to find.
+
+**Overview: Show the layout of the page as text** shows the same areas as lines of text in a
+window, such as "banner: across the top" and "navigation: down the left side", which you can
+read in braille or speech. The drawing commands do this too on a display that can't draw.
+
+The areas are worked out from the page itself, without AI: its landmarks first, then search
+fields, then plain names in the page's code such as header and footer, then table layouts on
+older pages, and finally the gaps between blocks of content. Reading the page takes a moment on
+a busy page, and NVDA keeps talking while it does. None of these commands has a key; assign them
+in NVDA's Input gestures dialog.
+
+Some things to expect:
+
+- The drawing is not to scale. A banner is a sliver of the screen, so thin areas are stretched
+  until their label fits, and the rest share what is left. What is left of something stays left
+  of it, and areas that touch on the page touch on the pins.
+- Areas found from the gaps between content are named after their first heading, which on a
+  shop or news page is often a product or a story rather than what the area is.
+- A header that stays at the top of the screen as you scroll is drawn at the top of the on
+  screen view, and at its place at the top of the page in the whole page view.
+- When there is not room for every area, the smallest unnamed ones are left out of the drawing.
+  The text view still lists them.
+- On a very long or slow page, you are told if only part of it could be read.
+- Only web pages in Chrome and Firefox have been tried.
+
 ## Braille symbols and your own substitutions
 
 ### Symbol names
@@ -1266,6 +1310,16 @@ These have no key:
 - **Graphics: Show the glyph catalogue**: draws every role and state shape with the braille it
   replaces beside it, for learning the shapes. See "Draw roles and states as shapes instead of
   words" in [Dividing a single display into segments](#dividing-a-single-display-into-segments).
+
+### Overview
+
+None of these has a key; assign them in NVDA's Input gestures dialog. See [The layout of a web
+page](#the-layout-of-a-web-page).
+
+- **Overview: Draw the layout of the part of the page on screen**: the main areas of the web page
+  on screen, drawn as labelled boxes in their places.
+- **Overview: Draw the layout of the whole page**: the same for the whole page, top to bottom.
+- **Overview: Show the layout of the page as text**: the same areas as lines of text in a window.
 
 ### Layered keys
 
