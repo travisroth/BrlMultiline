@@ -256,7 +256,22 @@ A review of the first commit found six faults, each now a test in `TestReviewFin
    from names split at spaces and identifiers split at case changes and punctuation. The rules,
    the collector and the probe share the one function, `mentionsSearch`.
 
-The same review asked for three more things, done as well: regions carry where they start in
+A second review, of those fixes, found three more, each a test in `TestReviewFollowUps`:
+
+1. Content on every side of a landmark could still vanish. The fix for the first fault divided a
+   block crossing a landmark only at its top and bottom edges, so content to its left and right
+   stayed one block that crossed it, and was dropped. Now a crossing block is divided into what
+   is above, below, left and right of the landmark, and again around any other it still
+   crosses. Content is divided, never dropped for its bounding box.
+2. Areas found by geometry inside a sticky header had no node, so they missed the header's move
+   and their screen boxes were a page's scroll above the screen. Now an area without a node
+   takes the move of the region holding it.
+3. A block found by geometry could start after its first child: its start was taken from its
+   children before the children's own starts were set from their nodes. Now regions take their
+   node's start when they are made, keep the earlier start when they collapse, and every start
+   is settled bottom up at the end, as the earliest of a region's own and its children's.
+
+The first review asked for three more things, done as well: regions carry where they start in
 browse mode's text (`Region.start`) for a later command that moves to one; the collector shares
 its leaf budget out across links, headings, pictures and fields, spread through the page,
 instead of taking links first; and the collector reports what it cut short, which the plugin

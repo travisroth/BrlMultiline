@@ -313,12 +313,40 @@ def findRegions(root: Node, viewport: Box, scroll: int | None = None) -> Region:
 		if not region.label and region.kind != "page" and region.source in ("structure", "position", "id"):
 			region.label = _firstHeading(region.node)
 		region.label = " ".join(region.label.split())
-		shift = region.node.shift if region.node is not None and region is not page else 0
-		region.screenBox = region.box.moved(dy=-scroll - shift)
-		if region.start is None and region.node is not None and region is not page:
-			region.start = region.node.start
+	_placeOnScreen(page, scroll, 0)
+	for child in page.children:
+		_anchor(child)
 	page.scroll, page.scrollEstimated = scroll, estimated
 	return page
+
+
+def _placeOnScreen(region: Region, scroll: int, inherited: int) -> None:
+	"""Give each region its box on screen: its box on the page, less the scroll, less any move
+	that put a sticky header back in its place.
+
+	An area found by geometry has no node of its own, so it takes the move of the region it is
+	in (found in review: the columns inside a pinned banner were placed far above the screen).
+	"""
+	shift = region.node.shift if region.node is not None and region.kind != "page" else inherited
+	region.screenBox = region.box.moved(dy=-scroll - shift)
+	for child in region.children:
+		_placeOnScreen(child, scroll, shift)
+
+
+def _anchor(region: Region) -> int | None:
+	"""Where a region starts in browse mode's text: its own start or its earliest child's.
+
+	Worked out bottom up, after everything is built, so a block found by geometry starts at the
+	earliest of what it holds, including regions whose starts were set from their nodes (found
+	in review: a block holding a table at offset 10 started at the links after it, at 100).
+	"""
+	starts = [s for s in (_anchor(c) for c in region.children) if s is not None]
+	if region.start is None and region.node is not None:
+		region.start = region.node.start
+	if region.start is not None:
+		starts.append(region.start)
+	region.start = min(starts) if starts else None
+	return region.start
 
 
 def _firstHeading(node: Node | None) -> str:
@@ -560,7 +588,11 @@ def _regions(node: Node, viewport: Box) -> list[Region]:
 	kind, label, source = _classify(node)
 	if kind == "search" or (node.isSearch and node.role not in CONTAINER_ROLES):
 		# A search field or button is small but always worth a box; the drawing grows it.
-		return [Region("search", label or "", node.box, source or "search", node.links, node=node)]
+		return [
+			Region(
+				"search", label or "", node.box, source or "search", node.links, node=node, start=node.start
+			)
+		]
 	if node.role not in CONTAINER_ROLES:
 		return children
 	if not kind and children and all(c.kind == "search" for c in children):
@@ -568,7 +600,7 @@ def _regions(node: Node, viewport: Box) -> list[Region]:
 		# it is not much more than them.
 		inner = unionOf(c.box for c in children)
 		if inner and node.box.area <= inner.area * 3:
-			return [Region("search", "", node.box, "search", node.links, node=node)]
+			return [Region("search", "", node.box, "search", node.links, node=node, start=node.start)]
 	if not _isSizeable(node.box):
 		return children
 	if not kind and not children and not node.isDataTable and node.box.area < viewport.area * MIN_PLAIN_SHARE:
@@ -579,7 +611,18 @@ def _regions(node: Node, viewport: Box) -> list[Region]:
 	if not kind and node.isDataTable:
 		kind = "table"
 	children = _dropRepeats(children)
-	return [Region(kind or "area", label, node.box, source or "structure", node.links, children, node)]
+	return [
+		Region(
+			kind or "area",
+			label,
+			node.box,
+			source or "structure",
+			node.links,
+			children,
+			node,
+			start=node.start,
+		)
+	]
 
 
 #: This many unnamed areas of much the same size side by side or stacked are the items of a
@@ -640,6 +683,7 @@ def _collapse(region: Region) -> Region:
 		if inner.box.area < region.box.area * 0.9:
 			break
 		keep = _better(region, inner)
+		starts = [s for s in (region.start, inner.start) if s is not None]
 		region = Region(
 			keep.kind,
 			keep.label,
@@ -648,6 +692,7 @@ def _collapse(region: Region) -> Region:
 			region.links,
 			inner.children,
 			region.node,
+			start=min(starts) if starts else None,
 		)
 	return region
 
@@ -707,8 +752,11 @@ def _uncovered(leaves: list[Item], taken: list[Box], bounds: Box) -> list[Region
 	"""Areas for content outside the regions already found, none overlapping them.
 
 	The content is split by its own gaps. A block that would reach across a region found
-	already, such as content above and below a landmark, is split again at that region's
-	edges, so every area returned keeps clear of the regions there are.
+	already is not dropped but divided around it: into what is above it, below it, and to
+	each side, and each of those again around any other region it still reaches across. The
+	content's own rectangles are all outside the regions, so dividing always ends in blocks
+	clear of them (found in review: content on all four sides of a narrow navigation landmark,
+	with no straight gutter between, was discarded as one block crossing it).
 	"""
 	blocks = splitByGeometry(leaves, bounds) or [_block(leaves, bounds)]
 	result: list[Region] = []
@@ -718,17 +766,31 @@ def _uncovered(leaves: list[Item], taken: list[Box], bounds: Box) -> list[Region
 		if not any(t.intersection(block.box) for t in taken):
 			result.append(block)
 			continue
-		edges = sorted({e for t in taken for e in (t.top, t.bottom)})
 		inside = [(b, n) for b, n in leaves if block.box.intersection(b)]
-		slots: dict[int, list[Item]] = {}
-		for b, n in inside:
-			middle = b.top + b.height / 2
-			slots.setdefault(sum(1 for e in edges if middle > e), []).append((b, n))
-		for members in slots.values():
-			piece = _block(members, bounds)
-			if piece is not None and not any(t.intersection(piece.box) for t in taken):
-				result.append(piece)
+		result += _around(inside, taken, bounds)
 	return result
+
+
+def _around(members: list[Item], taken: list[Box], bounds: Box, depth: int = 0) -> list[Region]:
+	"""Divide content around the first region its box reaches across, until no box does."""
+	block = _block(members, bounds)
+	if block is None:
+		return []
+	crossed = next((t for t in taken if t.intersection(block.box)), None)
+	if crossed is None or depth > 2 * len(taken):
+		return [block] if crossed is None else []
+	sides: dict[str, list[Item]] = {"above": [], "below": [], "left": [], "right": []}
+	for b, n in members:
+		middleX, middleY = b.left + b.width / 2, b.top + b.height / 2
+		if middleY < crossed.top:
+			sides["above"].append((b, n))
+		elif middleY >= crossed.bottom:
+			sides["below"].append((b, n))
+		elif middleX < crossed.left:
+			sides["left"].append((b, n))
+		else:
+			sides["right"].append((b, n))
+	return [piece for side in sides.values() if side for piece in _around(side, taken, bounds, depth + 1)]
 
 
 def _block(members: list[Item], bounds: Box) -> Region | None:

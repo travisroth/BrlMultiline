@@ -318,6 +318,66 @@ class TestReviewFindings(unittest.TestCase):
 		self.assertEqual(ofKind(page, "search"), [])
 
 
+class TestReviewFollowUps(unittest.TestCase):
+	"""Three faults found in review of the fixes for the first six."""
+
+	def test_contentOnEverySideOfALandmarkIsKept(self):
+		"""A narrow navigation in the middle, content packed above, below and to both sides, with
+		no straight gutter separating it all."""
+		nav = Node(
+			"landmark",
+			Box(800, 300, 300, 300),
+			landmark="navigation",
+			children=[leaf("link", 810, 310 + i * 40, 280, 20) for i in range(6)],
+		)
+		content = [leaf("link", 100 + i * 180, 120 + r * 60, 160, 40) for i in range(10) for r in range(3)]
+		content += [leaf("link", 100 + i * 180, 610 + r * 60, 160, 40) for i in range(10) for r in range(3)]
+		content += [leaf("link", 100 + i * 180, 300 + r * 60, 160, 40) for i in range(4) for r in range(5)]
+		content += [leaf("link", 1140 + i * 180, 300 + r * 60, 160, 40) for i in range(4) for r in range(5)]
+		page = findRegions(Node("document", children=[nav, *content]), VIEW)
+		others = [r for r in page.walk() if r is not page and r.kind != "navigation"]
+		self.assertTrue(any(r.box.right <= 800 and r.box.top >= 290 for r in others), describe(page, 3))
+		self.assertTrue(any(r.box.left >= 1100 and r.box.top >= 290 for r in others), describe(page, 3))
+		self.assertFalse(any(r.box.intersection(nav.box) for r in others if r.kind == "area"))
+
+	def test_areasInsideAStickyHeaderKeepItsScreenPosition(self):
+		"""A tall banner pinned at the top of a scrolled page, its links found as two columns."""
+		links = [leaf("link", 40, 20 + i * 20, 500, 16) for i in range(8)]
+		links += [leaf("link", 1000, 20 + i * 20, 500, 16) for i in range(8)]
+		banner = Node("landmark", Box(0, 0, 1900, 200), landmark="banner", children=links)
+		main = Node("landmark", Box(0, -800, 1900, 5000), landmark="main")
+		page = findRegions(Node("document", children=[banner, main]), VIEW, scroll=1000)
+		found = ofKind(page, "banner")[0]
+		self.assertEqual(found.screenBox.top, 0)
+		inner = [r for r in found.walk() if r is not found]
+		self.assertTrue(inner, "the banner's links were split into columns")
+		for region in inner:
+			self.assertGreaterEqual(region.screenBox.top, 0, region)
+			self.assertLess(region.screenBox.bottom, 200, region)
+
+	def test_aGeometricParentStartsAtItsEarliestChild(self):
+		"""A table starting at offset 10 beside links starting at 100, in one band."""
+		table = Node(
+			"table",
+			Box(100, 100, 500, 300),
+			isDataTable=True,
+			start=10,
+			end=90,
+			children=[Node("link", Box(110, 110, 200, 20), start=12)],
+		)
+		beside = [Node("link", Box(1000, 100 + i * 30, 500, 20), start=100 + i) for i in range(8)]
+		below = [Node("link", Box(100 + i * 200, 700, 180, 20), start=500 + i) for i in range(8)]
+		section = Node("section", Box(0, 0, 1900, 900), children=[table, *beside, *below])
+		page = findRegions(Node("document", children=[section]), VIEW)
+		holders = [r for r in page.walk() if any(c.node is table for c in r.children)]
+		self.assertTrue(holders, describe(page, 3))
+		self.assertEqual(holders[0].start, 10)
+		for region in page.walk():
+			starts = [c.start for c in region.children if c.start is not None]
+			if region.start is not None and starts:
+				self.assertLessEqual(region.start, min(starts), region)
+
+
 class TestRealPages(unittest.TestCase):
 	"""Pages saved by the probe, each checked for the shape a sighted reader would describe."""
 
