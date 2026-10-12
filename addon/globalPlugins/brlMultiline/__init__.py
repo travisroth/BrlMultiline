@@ -82,6 +82,11 @@ addonHandler.initTranslation()
 # Translators: the name of the input gestures category for this add-on's commands.
 SCRIPT_CATEGORY = _("BrlMultiline")
 
+LAYOUT_DEPTH = 3
+"""Levels of areas a drawing of a page's layout shows: the main areas, the areas inside them,
+and those inside those. Forms, search, tab strips and the like are drawn deeper still; see
+`layoutDraw.MAJOR_KINDS`."""
+
 LAYOUT_SMALLEST_VIEW = 200
 """Pixels of a web page, top to bottom, that the most magnified view of its layout shows."""
 
@@ -3705,19 +3710,34 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""
 		mode = self.graphicsMode
 		width, height = size
-		screens = page.box.height / max(viewport.height, 1) if view == "page" else 1.0
-		tall = max(height, round(height * screens))
 		keys: dict = {}
-		source = layoutDraw.compose(
-			mode.newBuffer,
-			page,
-			width,
-			tall,
-			view,
-			viewport,
-			graphicsMode.labelCells,
-			keys=keys,
-		)
+		if view == "page":
+			screens = page.box.height / max(viewport.height, 1)
+			source = layoutDraw.compose(
+				mode.newBuffer,
+				page,
+				width,
+				max(height, round(height * screens)),
+				view,
+				viewport,
+				graphicsMode.labelCells,
+				LAYOUT_DEPTH,
+				keys=keys,
+			)
+		else:
+			# The screen as tall as it has to be for everything on it to be drawn, rather than
+			# squeezed onto one panel with areas left out. See `layoutDraw.composeFitting`.
+			source = layoutDraw.composeFitting(
+				mode.newBuffer,
+				page,
+				width,
+				height,
+				view,
+				viewport,
+				graphicsMode.labelCells,
+				LAYOUT_DEPTH,
+				keys=keys,
+			)
 		if source is None:
 			return None
 		whole = layoutDraw.windowFor(page, view, viewport)
@@ -3749,6 +3769,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				view,
 				viewport,
 				graphicsMode.labelCells,
+				LAYOUT_DEPTH,
 				window=window,
 				keys=keys,
 			)
@@ -3767,19 +3788,29 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			)
 
 		sourceKey = source.keyText()
+		notes = [_("Key: {key}").format(key=sourceKey)] if sourceKey else []
+		if source.unreadable:
+			notes.append(
+				# Translators: said after a drawing of a web page's layout when some areas on it
+				# could not be drawn big enough to find, even with the drawing grown taller. The
+				# placeholder is how many.
+				_("{count} areas too small to show; magnify to see them").format(count=source.unreadable),
+			)
 		drawing = graphicsMode.Drawing(
 			source.buffer,
 			name=name,
 			describeAt=source.describeAt,
 			activateAt=activator(source),
 			areaAt=areaOf(source),
-			note=_("Key: {key}").format(key=sourceKey) if sourceKey else "",
+			note=". ".join(notes),
 			redraw=redraw,
 			# How far in the zoom can go, as the mode counts it: a window no smaller than about
 			# 200 pixels of the page, past which there is nothing more to see in a layout.
 			points=max(1, round(whole.height * graphicsMode.MIN_WINDOW_POINTS / LAYOUT_SMALLEST_VIEW)),
 			windowsVertically=True,
-			opensAcross=view == "page",
+			# A view taller than the panel opens at its top, a panel wide, and is read by moving
+			# down it with the panning keys.
+			opensAcross=source.buffer.height > height,
 		)
 		return drawing
 

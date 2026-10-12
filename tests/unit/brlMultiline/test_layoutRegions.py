@@ -595,6 +595,12 @@ class TestRealPages(unittest.TestCase):
 		self.assertTrue(ofKind(footer, "search"))
 		self.assertLess(len(ofKind(page, "main")[0].children), 6, "the story rows are not areas")
 
+	def test_wellsFargosSignOnFormIsAnArea(self):
+		"""Saved before fields were counted: the form's four fields are added up from what it holds."""
+		forms = ofKind(load("wellsfargo.json"), "form")
+		self.assertEqual(len(forms), 1)
+		self.assertGreaterEqual(forms[0].fields, 3)
+
 	def test_w3cAccessiblePageByIds(self):
 		page = load("w3c-bad-after.json")
 		inner = [r for r in ofKind(page, "main") if r.source == "id"][0]

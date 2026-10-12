@@ -626,12 +626,19 @@ def _restoreSticky(node: Node, scroll: int, viewport: Box) -> None:
 
 
 def _countContent(node: Node) -> None:
-	"""Fill in the counts the caller did not have, from the node itself and its children."""
+	"""Fill in the counts the caller did not have, from the node itself and its children.
+
+	A caller that counted everything says so (`Node.counted`). One that gave only links and
+	text, as pages saved before the other counts did, keeps those, and has the rest added up
+	here (found on a saved page: a sign on form with four fields counted none, and was not an
+	area).
+	"""
 	for child in node.children:
 		_countContent(child)
-	if node.counted or node.links or node.textLength:
+	if node.counted:
 		return
-	if node.role == "link":
+	linksGiven = bool(node.links or node.textLength)
+	if node.role == "link" and not linksGiven:
 		node.links = 1
 	elif node.role in FIELD_ROLES:
 		node.fields = 1
@@ -640,11 +647,12 @@ def _countContent(node: Node) -> None:
 		node.sections = 1 if node.expandable else 0
 	elif node.role == "tab":
 		node.tabs = 1
-	if node.role in LEAF_ROLES and not node.children:
+	if node.role in LEAF_ROLES and not node.children and not linksGiven:
 		node.textLength = len(node.name)
 	for child in node.children:
-		node.links += child.links
-		node.textLength += child.textLength
+		if not linksGiven:
+			node.links += child.links
+			node.textLength += child.textLength
 		node.fields += child.fields
 		node.buttons += child.buttons
 		node.tabs += child.tabs

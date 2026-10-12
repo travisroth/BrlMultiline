@@ -106,6 +106,8 @@ class Overview:
 	#: drawing shows. See `windowAt`.
 	xs: "_Ruler | None" = None
 	ys: "_Ruler | None" = None
+	#: Areas in view that were left out for want of room, so the reader can be told.
+	omitted: list[Region] = field(default_factory=list)
 
 	def walk(self):
 		stack = list(reversed(self.boxes))
@@ -134,6 +136,12 @@ class Overview:
 		parts = [region.title, whereWords(self.places.get(id(region), region.box), within)]
 		parts += [countWords(name, count) for name, count in region.counts]
 		return ", ".join(parts)
+
+	@property
+	def unreadable(self) -> int:
+		"""How many areas in view could not be drawn big enough to find: left out, or drawn as
+		slivers because even the tallest drawing had no more room. Said after the drawing."""
+		return len(self.omitted) + sum(1 for b in self.walk() if _isCramped(b))
 
 	@property
 	def keyed(self) -> list[DrawnBox]:
@@ -234,6 +242,7 @@ def compose(
 	places = placesFor(page, view)
 	level = _topLevel(page)
 	chosen = _choose(level.children, window, depth, places)
+	wanted = [r for r, _ in chosen]
 	labels = {id(r): _labelFor(r, translate) for r, _ in chosen}
 	# A box whose areas cannot each be drawn big enough to find is drawn without them; they are
 	# a drill in away. Each round lays out again with those areas left out, which gives the
@@ -254,11 +263,61 @@ def compose(
 			break
 		dropped = min(spare, key=lambda b: b.region.box.area).region
 		chosen = [(r, d) for r, d in chosen if r is not dropped and _parentOf(r, chosen) is not dropped]
-	overview = Overview(buffer, boxes, window, places, whole, xs, ys)
+	drawn = {id(b.region) for b in _walkBoxes(boxes)}
+	overview = Overview(
+		buffer, boxes, window, places, whole, xs, ys, [r for r in wanted if id(r) not in drawn]
+	)
 	_label(overview, labels, keys if keys is not None else {})
 	for box in overview.walk():
 		_placeDetails(box, [(text, translate(text)) for text in _detailsFor(box.region)])
 	_draw(overview, labels)
+	return overview
+
+
+#: The tallest the screen view grows, in panels, before it settles for leaving areas out.
+MAX_SCREEN_PANELS = 3
+#: How much taller each try is than the one before, in panels.
+SCREEN_PANEL_STEP = 0.5
+
+
+def composeFitting(
+	newBuffer: Callable[[int, int], object],
+	page: Region,
+	width: int,
+	height: int,
+	view: str,
+	viewport: Box,
+	translate: Callable[[str], list[int]],
+	depth: int = 3,
+	keys: dict[int, str] | None = None,
+) -> Overview | None:
+	"""Draw a view as tall as it has to be for everything in it to be drawn, up to a limit.
+
+	Braille takes more room than print, and a reader knows it: a screen squeezed onto one panel
+	by leaving its areas out is a picture of less than the screen, which is no use for checking
+	what a screenshot shows, and reads as suspicious. So a view that does not fit on one panel is
+	drawn half a panel taller at a time until nothing in it is left out, up to
+	`MAX_SCREEN_PANELS`, and the reader moves down it as they move down the whole page. What still
+	does not fit is in `Overview.omitted`.
+
+	:param height: one panel's height; the drawing is a whole number of half panels tall.
+	:return: the overview, whose buffer is that tall, or None if no buffer could be made.
+	"""
+	keys = keys if keys is not None else {}
+	overview = None
+	steps = int((MAX_SCREEN_PANELS - 1) / SCREEN_PANEL_STEP) + 1
+	for step in range(steps):
+		tall = round(height * (1 + step * SCREEN_PANEL_STEP))
+		# A fresh set of letters for each try, so a try thrown away does not use up letters.
+		trial = dict(keys)
+		overview = compose(newBuffer, page, width, tall, view, viewport, translate, depth, keys=trial)
+		# Grown again while anything was left out, or drawn too small to find: a main area that
+		# will not fit is drawn regardless, as a sliver, rather than left out.
+		if overview is None or not (overview.omitted or any(_isCramped(b) for b in overview.walk())):
+			break
+	if overview is not None:
+		keys.clear()
+		keys.update(trial)
 	return overview
 
 
@@ -327,26 +386,62 @@ def _choose(
 	places: dict[int, Box],
 	level: int = 1,
 ) -> list[tuple[Region, int]]:
-	"""The regions to draw, parents before children, with the level each is drawn at."""
+	"""The regions to draw, parents before children, with the level each is drawn at.
+
+	Down to `depth` levels, and below that only the areas that matter whatever their depth
+	(`MAJOR_KINDS`), drawn inside the deepest box that is drawn. Splitting by gaps nests blocks
+	in blocks, and a sign on form four levels down is still what the page is for (found on a
+	saved page, where it was cut off by the depth).
+	"""
 	chosen = []
 	for region in sorted(regions, key=lambda r: (places[id(r)].top, places[id(r)].left)):
-		place = places[id(region)]
-		clipped = place.intersection(window)
-		# An area just showing at the edge of the screen is left out; an area thin only
-		# because the page is long, like a banner on a whole page view, is not.
-		if clipped is None or (clipped.height < 20 and clipped.height < place.height / 2):
+		if not _inView(region, window, places):
 			continue
 		chosen.append((region, level))
 		if level < depth:
 			chosen += _choose(region.children, window, depth, places, level + 1)
+		else:
+			chosen += [(major, level + 1) for major in _majorWithin(region, window, places)]
 	return chosen
 
 
+#: The kinds of area drawn however deep they are found.
+MAJOR_KINDS = frozenset(
+	("form", "search", "tabs", "accordion", "navigation", "complementary", "region", "main")
+)
+
+
+def _inView(region: Region, window: Box, places: dict[int, Box]) -> bool:
+	place = places[id(region)]
+	clipped = place.intersection(window)
+	# An area just showing at the edge of the screen is left out; an area thin only because the
+	# page is long, like a banner on a whole page view, is not.
+	return clipped is not None and not (clipped.height < 20 and clipped.height < place.height / 2)
+
+
+def _majorWithin(region: Region, window: Box, places: dict[int, Box]) -> list[Region]:
+	"""The major areas below a region, not inside one another, in reading order of position."""
+	found = []
+	stack = list(reversed(region.children))
+	while stack:
+		inner = stack.pop()
+		if inner.kind in MAJOR_KINDS and _inView(inner, window, places):
+			found.append(inner)
+			continue
+		stack.extend(reversed(inner.children))
+	return sorted(found, key=lambda r: (places[id(r)].top, places[id(r)].left))
+
+
 def _parentOf(region: Region, chosen: list[tuple[Region, int]]) -> Region | None:
-	for candidate, _ in chosen:
-		if region in candidate.children:
-			return candidate
-	return None
+	"""The deepest region drawn that holds this one, which for a major area found below the
+	depth drawn is not the region directly holding it."""
+	best, bestLevel = None, -1
+	for candidate, level in chosen:
+		if candidate is region or level <= bestLevel:
+			continue
+		if region in candidate.children or any(inner is region for inner in candidate.walk()):
+			best, bestLevel = candidate, level
+	return best
 
 
 def _labelFor(region: Region, translate: Callable[[str], list[int]]) -> list[int]:
@@ -361,14 +456,22 @@ def _labelWidth(cells: int) -> int:
 
 
 def _minWidth(cells: list[int], level: int) -> int:
-	# Room for the whole label where it is short; a long one gets a key letter instead, so it
-	# is not allowed to claim the whole panel.
+	"""The pins across a box asks the ruler for, so that it is still big enough once drawn.
+
+	A box inside another is drawn inside its outline, which takes a pin off each side where the
+	two touch, and a pin more for every level further in; so it asks for those too (found on a
+	saved page: a banner's navigation was dropped as too small at any height). A main area asks
+	for room for its whole label where that is short; a long one gets a key letter instead, so it
+	is not allowed to claim the whole panel.
+	"""
+	nesting = 2 * (level - 1)
 	wanted = 2 + 2 * LABEL_MARGIN + _labelWidth(min(len(cells), 4))
-	return max(MIN_BOX[0], wanted if level == 1 else MIN_BOX[0])
+	return max(MIN_BOX[0], wanted if level == 1 else MIN_BOX[0]) + nesting
 
 
 def _minHeight(level: int) -> int:
-	return MIN_BOX[1]
+	"""The pins down a box asks the ruler for. See `_minWidth` for the nesting."""
+	return MIN_BOX[1] + 2 * (level - 1)
 
 
 def _label(overview: Overview, labels: dict[int, list[int]], keys: dict[int, str]) -> None:

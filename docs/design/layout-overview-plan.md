@@ -237,6 +237,21 @@ browser with a return to NVDA's message loop between, and stops at limits: 300 l
    by its first heading. A form around one field, or around a whole page with a search box in
    it, is still not.
 
+9. **The screen view grows rather than squeezes** (`composeFitting`), found on the Wells Fargo
+   sign on page in a maximized window. Squeezed onto one panel it left out the header's
+   navigation, the sign on form and two areas beside it, and said nothing, which reads as
+   suspicious to a braille reader who knows braille takes more room than print, and defeats
+   checking what a screenshot shows. Now a view that does not fit is drawn half a panel taller at
+   a time, up to three panels, until nothing in it is left out or drawn too small, and opens at
+   its top like the whole page. What still does not fit is counted and said
+   (`Overview.unreadable`). Three things made it work: a box inside another asks the ruler for
+   the two pins the outline around it takes, at every level, without which a banner's
+   navigation was too small at any height; three levels are drawn instead of two; and forms,
+   search, tab strips, accordions and landmarks found deeper than that are drawn inside the
+   deepest box that is (`MAJOR_KINDS`), since splitting by gaps nests blocks in blocks and buried
+   the form four levels down. On the saved pages, Wells Fargo now fits in a panel and a half,
+   WSJ in two and the inaccessible demonstration page in a panel and a half, nothing left out.
+
 The plugin's three commands are unbound: draw the screen's worth, draw the whole page, and show
 the overview as text with `ui.browseableMessage`. Gathering is cancelled by anything else that
 cancels a pending picture.

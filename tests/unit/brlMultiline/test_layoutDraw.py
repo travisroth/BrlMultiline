@@ -37,7 +37,7 @@ sys.path.insert(
 from pinBuffer import PinBuffer  # noqa: E402
 
 from brlMultiline.layoutCollect import Collector  # noqa: E402
-from brlMultiline.layoutDraw import MIN_BOX, _Ruler, compose  # noqa: E402
+from brlMultiline.layoutDraw import MIN_BOX, _Ruler, compose, composeFitting  # noqa: E402
 from brlMultiline.layoutRegions import Box, Region, findRegions, fromProbe  # noqa: E402
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "..", "..", "fixtures", "layout")
@@ -342,6 +342,55 @@ class TestSeveralDetails(unittest.TestCase):
 		self.assertEqual(overview.describeAt(5, 30), "main content, filling it, 1 field, 8 links")
 
 
+class TestTheScreenIsNotSqueezed(unittest.TestCase):
+	"""The screen drawn as tall as it has to be, so every area on it can be checked by hand.
+
+	Found on the Wells Fargo sign on page: squeezed onto one panel, the header's navigation, the
+	sign on form and two areas beside it were left out, with nothing said.
+	"""
+
+	def test_wellsFargoShowsEverythingOnScreen(self):
+		page, viewport = loadPage("wellsfargo.json")
+		overview = composeFitting(PinBuffer, page, WIDTH, 32, "screen", viewport, translate, 3)
+		titles = [b.region.title for b in overview.walk()]
+		self.assertIn("navigation, Header Navigation", titles)
+		self.assertIn("form", [b.region.kind for b in overview.walk()])
+		self.assertEqual(overview.omitted, [])
+		self.assertGreater(overview.buffer.height, 32, "taller than a panel, to fit it all")
+
+	def test_aBoxInsideAThinBannerIsStillBigEnough(self):
+		"""Inside its parent's outline, it asks the ruler for the pins that outline takes."""
+		page, viewport = loadPage("wellsfargo.json")
+		overview = composeFitting(PinBuffer, page, WIDTH, 32, "screen", viewport, translate, 3)
+		inner = [b for b in overview.walk() if b.region.title == "navigation, Header Navigation"]
+		self.assertTrue(inner)
+		self.assertGreaterEqual(inner[0].rect.height, MIN_BOX[1])
+
+	def test_aFormBelowTheDepthDrawnIsStillDrawn(self):
+		page, viewport = loadPage("wellsfargo.json")
+		overview = composeFitting(PinBuffer, page, WIDTH, 32, "screen", viewport, translate, 3)
+		form = [b for b in overview.walk() if b.region.kind == "form"][0]
+		self.assertGreater(form.depth, 3, "deeper than the three levels drawn")
+		holder = [b for b in overview.walk() if form in b.children][0]
+		self.assertEqual(holder.depth, 3, "inside the deepest box drawn")
+
+	def test_itStopsGrowingAtThreePanelsAndSaysWhatIsLeftOut(self):
+		page = Region("page", "", Box(0, 0, 1000, 1000), "page")
+		page.children = [
+			Region("region", f"Band {i}", Box(0, i * 25, 1000, 25), "landmark") for i in range(40)
+		]
+		overview = composeFitting(PinBuffer, page, WIDTH, 32, "page", page.box, translate, 1)
+		self.assertEqual(overview.buffer.height, 96, "grown to three panels and no further")
+		self.assertTrue(
+			any(b.rect.height < MIN_BOX[1] for b in overview.walk()), "still not room for all forty"
+		)
+
+	def test_aScreenThatFitsStaysOnePanel(self):
+		page, viewport = loadPage("seekingalpha.json")
+		overview = composeFitting(PinBuffer, page, WIDTH, 32, "screen", viewport, translate, 3)
+		self.assertEqual(overview.buffer.height, 32)
+
+
 class TestKeyLetters(unittest.TestCase):
 	def test_aWordTooLongForItsBoxGetsALetter(self):
 		"""A narrow box is widened for a short word, but never past four cells' worth."""
@@ -455,6 +504,19 @@ class TestMovingToAnArea(unittest.TestCase):
 		aside = [r for r in page.children if r.kind == "complementary"][0]
 		self.assertIsNotNone(aside.start)
 		self.assertEqual(self.document.selections, [((aside.start, aside.start), "quicknav")])
+
+	def test_aScreenTallerThanAPanelOpensAtItsTop(self):
+		"""WSJ's screen needs two panels; Seeking Alpha's fits on one and opens whole."""
+		self.plugin.graphicsMode.newBuffer = PinBuffer
+		for name, tall in (("wsj.json", True), ("seekingalpha.json", False)):
+			with self.subTest(page=name):
+				page, viewport = loadPage(name)
+				drawing = self.plugin._layoutDrawing(
+					page, "screen", viewport, (WIDTH, 32), "layout", self.document
+				)
+				self.assertEqual(drawing.opensAcross, tall)
+				self.assertEqual(drawing.buffer.height > 32, tall)
+				self.assertNotIn("too small", drawing.note)
 
 	def test_aPageThatHasChangedIsNotMovedIn(self):
 		self.plugin._moveToArea(FakeBrowseDocument(), self.area(120))

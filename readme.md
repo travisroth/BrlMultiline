@@ -1013,8 +1013,8 @@ runs across the top or down the left side, where the search field is, or whether
 columns. That matters when someone tells you to "look in the top right", when you test a page's
 accessibility, or when you have made a page and want to check it looks the way you meant.
 
-**Overview: Draw the layout of the part of the page on screen** draws the main areas of the
-page as boxes in their places: the banner, the navigation, the main content, a sidebar, the
+**Overview: Draw the layout of the part of the page on screen** draws the areas of the page you
+can see as boxes in their places: the banner, the navigation, the main content, a sidebar, the
 search field, the footer, and the areas inside them where there is room. Each box has a short
 label inside it, such as nav, main, side, foot or find, and where the box already has room, what
 it holds: tabs or sections first, then form fields, then buttons, then links, as in nav 8 links
@@ -1039,6 +1039,14 @@ of the page to the height of the panel, and starts at the top. On a Monarch, the
 move down it and back up a whole panel at a time, as they move through text; the left d-pad
 moves a quarter of the panel at a time. Shrink the drawing to see the whole page on the panel at
 once, squeezed so that only the main areas fit.
+
+The on screen view is not squeezed onto one panel. Braille needs more room than print, so when
+everything on the screen will not fit on one panel with room for its labels, the drawing is made
+taller, up to three panels, and opens at its top for you to move down with the panning keys, as
+with the whole page. That way it shows everything that is really visible, which is what you need
+when checking a screenshot. Forms, search, tab strips and accordions are drawn even when they are
+deep inside other areas. If some areas still cannot be drawn big enough to find, you are told how
+many, and magnifying shows them.
 
 Magnifying either drawing draws that part of the page again, larger, rather than enlarging the
 dots, so the labels stay ordinary braille and an area keeps the same key letter in every view.
