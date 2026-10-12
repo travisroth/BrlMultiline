@@ -337,6 +337,26 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Not per display like the rest of this panel: it is about the keyboard, and it is the
+		# same keys whichever display is connected. Off by default, because it changes what
+		# NVDA's own keys do. See `tableArrows`.
+		# Translators: label of a checkbox in settings. When checked, up and down arrow move by
+		# row and left and right arrow by cell while reading a table in browse mode.
+		tableArrowsLabel = _("Arrows move by ro&w in browse mode tables")
+		self.tableArrowsCtrl = sHelper.addItem(wx.CheckBox(self, label=tableArrowsLabel))
+		self.tableArrowsCtrl.SetValue(bmConfig.shouldArrowsMoveByRow())
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the checkbox above, explaining what it
+					# does.
+					"Up and down arrow move a row and keep the column, left and right arrow move "
+					"a cell, and home and end go to the ends of the row. At the edge of the table "
+					"the key does what it always does, so nothing traps you in the table.",
+				),
+			),
+		)
 		# Translators: the button in BrlMultiline settings that opens the layered keys dialog.
 		keyLayersButton = sHelper.addItem(wx.Button(self, label=_("Layered &keys...")))
 		keyLayersButton.Bind(wx.EVT_BUTTON, self._onKeyLayers)
@@ -568,6 +588,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["messageSegment"] = self.messageSegmentCtrl.Value
 		section["showDocumentLines"] = self.documentLinesCtrl.IsChecked()
 		section["drawGlyphs"] = self.glyphCtrl.IsChecked()
+		bmConfig.setArrowsMoveByRow(self.tableArrowsCtrl.IsChecked())
 
 	def postSave(self):
 		# Rebuild the display with the new layout straight away.

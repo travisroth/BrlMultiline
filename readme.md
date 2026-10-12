@@ -501,15 +501,18 @@ display for every cell in the column rather than being shown once.
 
 ## Arrow keys in a table
 
-Inside a browse mode table, such as on a web page or in an email message, the arrow keys move
-by table cell:
+This is off by default, because it changes what NVDA's own arrow keys do. To turn it on, check
+"Arrows move by row in browse mode tables" in the BrlMultiline category of NVDA's settings.
+
+Once it is on, inside a browse mode table, such as on a web page or in an email message, the
+arrow keys move by table cell:
 
 - Up and down arrow move one row and stay in the same column, so you can read down a column of
   figures without reading every row along the way.
 - Left and right arrow move one cell and stay in the same row.
 - Home and End move to the first and last cell of the row.
 
-There is nothing to turn on or off. When there is no cell in the direction you pressed, the key
+Nothing has to be turned off to leave a table. When there is no cell in the direction you pressed, the key
 does what it does anywhere else on the page: down arrow on the last row leaves the table, up
 arrow on the first row leaves it upward, and right arrow in the last cell of a row continues
 into whatever follows the table. No edge is announced.

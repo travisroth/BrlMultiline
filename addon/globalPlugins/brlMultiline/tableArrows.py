@@ -16,7 +16,11 @@ keys cannot do. NVDA answers that with a second set of commands, control+alt+arr
 works and costs a four finger chord per cell; other screen readers answer it with a mode the
 reader turns on and off and must remember the state of.
 
-**So it is not a mode.** There is nothing to turn on, nothing to turn off and no state to
+**Off until the reader turns it on.** "Arrows move by row" in the BrlMultiline settings,
+because these are NVDA's own keys and the add-on changes nothing of NVDA's by default. See
+`bmConfig.shouldArrowsMoveByRow`.
+
+**Once on, it is not a mode.** There is nothing to switch while reading and no state to
 remember, because being in a table is already the state: the reader arrows into a table and
 the arrows read the table, arrows out of it and they read the page. What makes that safe is
 the second half:
@@ -134,6 +138,10 @@ def wantsCellMovement(document, gesture) -> bool:
 		# NVDA's own policy for both kinds of movement: with keypresses backed up, moving and
 		# reporting costs more than the movement is worth. NVDA's own script says the same
 		# thing, so handing the key over changes nothing except where it is decided.
+		return False
+	if not bmConfig.shouldArrowsMoveByRow():
+		# Off unless the reader turned it on: these are NVDA's own keys, and the add-on
+		# changes nothing of NVDA's by default. See `bmConfig.shouldArrowsMoveByRow`.
 		return False
 	# The reader's own answer to "treat tables as tables". Taking over the arrow keys is
 	# something this add-on does on its own account, which is exactly what that setting

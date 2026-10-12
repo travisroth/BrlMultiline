@@ -3330,6 +3330,8 @@ def resetConfig() -> None:
 		conf.deactivateProfiles()
 		conf.savedProfiles.clear()
 		conf["BrlMultiline"]["displays"].clear()
+		# Arrows moving by row in a table: off, its default, for a test that turned it on.
+		conf["BrlMultiline"].pop("tableArrows", None)
 		# The combined display's member list, which the settings panel and the plugin both
 		# read through the driver's own `vdConfig`. Cleared in both places it can live, since
 		# whether the section is base only depends on whether `vdConfig` has been imported.

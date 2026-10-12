@@ -149,6 +149,9 @@ class ArrowTestCase(unittest.TestCase):
 	def setUp(self):
 		resetConfig()
 		self.addCleanup(resetConfig)
+		# Off by default; on here, since what is under test is what the keys do once a reader
+		# has asked for them. Taken off again by `resetConfig`.
+		sys.modules["config"].conf["BrlMultiline"]["tableArrows"] = True
 		spokenPositions.clear()
 		self.addCleanup(spokenPositions.clear)
 		SCRIPT_STATE.update(waiting=False, sayAllResuming=False)
@@ -356,6 +359,12 @@ class TestWhereTheKeysAreLeftAlone(ArrowTestCase):
 		document.selectionIsCollapsed = False
 		self.assertFalse(self.down(document))
 
+	def test_whenTheReaderHasNotTurnedItOn(self):
+		"""Off by default: the arrow keys are NVDA's, and the add-on changes nothing of
+		NVDA's until the reader asks."""
+		del sys.modules["config"].conf["BrlMultiline"]["tableArrows"]
+		self.assertFalse(self.down(BrowsingATable()))
+
 	def test_whenTheReaderHasTurnedTablesOff(self):
 		"""Taking the arrow keys over is something this add-on does on its own account, which
 		is exactly what NVDA's "report tables" setting governs."""
@@ -381,6 +390,8 @@ class TestTheKeysThemselves(unittest.TestCase):
 	def setUp(self):
 		resetConfig()
 		self.addCleanup(resetConfig)
+		# On, as for `ArrowTestCase`: what is under test is the keys once a reader asked.
+		sys.modules["config"].conf["BrlMultiline"]["tableArrows"] = True
 		spokenPositions.clear()
 		self.addCleanup(spokenPositions.clear)
 		SCRIPT_STATE.update(waiting=False, sayAllResuming=False)

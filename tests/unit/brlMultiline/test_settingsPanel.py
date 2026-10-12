@@ -162,6 +162,7 @@ class SegmentPanelTestCase(SettingsPanelTestCase):
 		self.panel.reverseScrollCtrl = FakeControl(False)
 		self.panel.documentLinesCtrl = FakeControl(False)
 		self.panel.glyphCtrl = FakeControl(False)
+		self.panel.tableArrowsCtrl = FakeControl(False)
 		self.panel._showTarget(0)
 
 	def show(self, index):
@@ -189,6 +190,13 @@ class TestOrdinaryDisplay(SegmentPanelTestCase):
 		self.panel.glyphCtrl.SetValue(True)
 		self.panel.onSave()
 		self.assertTrue(bmConfig.shouldDrawGlyphs(self.displayKey))
+
+	def test_arrowsMovingByRowIsSaved(self):
+		"""Off until it is asked for: it changes what NVDA's own arrow keys do."""
+		self.assertFalse(bmConfig.shouldArrowsMoveByRow())
+		self.panel.tableArrowsCtrl.SetValue(True)
+		self.panel.onSave()
+		self.assertTrue(bmConfig.shouldArrowsMoveByRow())
 
 	def test_savingWritesTheOneSection(self):
 		self.panel.segmentCountCtrl.SetValue(3)

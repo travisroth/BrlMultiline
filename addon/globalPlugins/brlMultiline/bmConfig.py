@@ -121,6 +121,7 @@ def flowModeKey(mode: str) -> str:
 
 configSpec = {
 	"tableLayouts": 'string(default="")',
+	"tableArrows": "boolean(default=False)",
 	"keyLayerDevices": {
 		"__many__": {
 			"layers": 'string(default="")',
@@ -163,6 +164,11 @@ configSpec = {
 	},
 }
 """Configuration specification, registered under `config.conf.spec[CONFIG_SECTION]`.
+
+- `tableArrows`: whether the plain arrow keys, home and end move by row and cell inside a
+	browse mode table. Off by default, because it changes what NVDA's own keys do, and the
+	add-on changes nothing of NVDA's until the reader asks. Not per display: it is about the
+	keyboard, not the hardware. See `tableArrows`.
 
 - `segmentsEnabled`: whether to divide the display at all. Turning it off overrides the
 	layout below without disturbing it, so that turning it back on restores the arrangement
@@ -1035,6 +1041,25 @@ def wantsRowHeaders() -> bool:
 		ReportTableHeaders.ROWS_AND_COLUMNS.value,
 		ReportTableHeaders.ROWS.value,
 	)
+
+
+def shouldArrowsMoveByRow() -> bool:
+	""":return: whether the arrow keys move by row and cell inside a browse mode table.
+
+	Off by default. Taking over NVDA's arrow keys is a change to NVDA, and the add-on's rule
+	is to change nothing of NVDA's until the reader turns it on. An unreadable setting reads
+	as off for the same reason. See `tableArrows`.
+	"""
+	try:
+		return bool(config.conf[CONFIG_SECTION]["tableArrows"])
+	except Exception:
+		log.debugWarning("Could not read tableArrows", exc_info=True)
+		return False
+
+
+def setArrowsMoveByRow(enabled: bool) -> None:
+	"""Store whether the arrow keys move by row and cell. See L{shouldArrowsMoveByRow}."""
+	config.conf[CONFIG_SECTION]["tableArrows"] = bool(enabled)
 
 
 def wantsTables() -> bool:
