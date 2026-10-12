@@ -660,6 +660,24 @@ class TestAGraphicsLayerSavedBeforeThePanningKeys(unittest.TestCase):
 		self.assertEqual("graphicsPanelUp", graphics.bindings[monarch("panLeft")].scriptName)
 
 
+class TestAGraphicsLayerSavedBeforeDrilling(unittest.TestCase):
+	"""Revision 6: dot 8 and dot 7 drill into a page's layout and back out."""
+
+	def test_theShippedLayerHasThem(self):
+		graphics = LayerSet(MONARCH, tuple(keyLayers.defaultLayers(MONARCH, PLUGIN))).get("graphics")
+		self.assertEqual("layoutDrillIn", graphics.bindings[monarch("dot8")].scriptName)
+		self.assertEqual("layoutBackOut", graphics.bindings[monarch("dot7")].scriptName)
+
+	def test_aLayerSavedAtRevisionFiveIsGivenThem(self):
+		graphics = newLayer(MONARCH, "graphics", "Graphics", "graphics", autoEnable=True)
+		stored = json.loads(LayerSet(MONARCH, (newLayer(MONARCH, DEFAULT_ID), graphics)).toText())
+		stored["shipped"] = 5
+		layers = LayerSet.fromText(MONARCH, json.dumps(stored), keyLayers.defaultLayers(MONARCH, PLUGIN))[0]
+		bindings = layers.get("graphics").bindings
+		self.assertEqual("layoutDrillIn", bindings[monarch("dot8")].scriptName)
+		self.assertNotIn(monarch("panLeft"), bindings, "revision 5's keys were given to sets saved before it")
+
+
 class TestNormalize(unittest.TestCase):
 	def test_matchesNvda(self):
 		self.assertEqual("br(x):dot1+space", normalize("br(X):Space+DOT1"))

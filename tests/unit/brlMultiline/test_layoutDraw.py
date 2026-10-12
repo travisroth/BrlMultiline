@@ -391,6 +391,125 @@ class TestTheScreenIsNotSqueezed(unittest.TestCase):
 		self.assertEqual(overview.buffer.height, 32)
 
 
+class TestDrawingOneArea(unittest.TestCase):
+	"""An area drilled into, drawn as the whole drawing with what is inside it."""
+
+	def test_theAreaFillsTheDrawingAndItsInsidesAreItsBoxes(self):
+		page, viewport = loadPage("seekingalpha.json")
+		main = [r for r in page.children if r.kind == "main"][0]
+		overview = compose(PinBuffer, page, WIDTH, HEIGHT, "page", viewport, translate, 2, focus=main)
+		self.assertEqual(overview.window, main.box)
+		self.assertTrue(overview.boxes)
+		self.assertTrue(all(any(b.region is c for c in main.children) for b in overview.boxes))
+
+	def test_positionsAreSaidWithinTheArea(self):
+		page = Region("page", "", Box(0, 0, 1000, 1000), "page")
+		side = Region("navigation", "", Box(0, 0, 200, 1000), "landmark")
+		top = Region("region", "Menu", Box(0, 0, 200, 100), "landmark")
+		side.children = [top]
+		page.children = [side, Region("main", "", Box(200, 0, 800, 1000), "landmark")]
+		overview = compose(PinBuffer, page, WIDTH, HEIGHT, "page", page.box, translate, 1, focus=side)
+		self.assertEqual(overview.describeAt(5, 2), "region, Menu, across the top")
+
+	def test_onTheScreenOnlyThePartOnScreenIsDrawn(self):
+		page, viewport = loadPage("seekingalpha.json")
+		main = [r for r in page.children if r.kind == "main"][0]
+		overview = compose(PinBuffer, page, WIDTH, HEIGHT, "screen", viewport, translate, 2, focus=main)
+		self.assertLessEqual(overview.window.bottom, viewport.height)
+
+
+class FakeDrawingMode:
+	"""Graphics mode as far as an overview being drawn and drilled into uses it."""
+
+	lastError = ""
+
+	def __init__(self):
+		self.active = False
+		self.source = None
+		self.newBuffer = PinBuffer
+
+	def drawingSize(self):
+		return (WIDTH, 32)
+
+	def enter(self, drawing):
+		self.active, self.source = True, drawing
+		return True
+
+	def describe(self):
+		return self.source.name
+
+	def leave(self):
+		self.active, self.source = False, None
+
+	def holdsFocus(self):
+		return True
+
+
+class TestDrillingInAndBackingOut(unittest.TestCase):
+	def setUp(self):
+		from . import test_plugin
+
+		test_plugin.resetPluginState()
+		import braille
+
+		braille.handler = test_plugin.FakeHandler(test_plugin.MONARCH_ROWS, test_plugin.MONARCH_COLS)
+		self.plugin = test_plugin.GlobalPlugin()
+		self.addCleanup(self.plugin.terminate)
+		self.mode = FakeDrawingMode()
+		self.plugin.graphicsMode = self.mode
+		_stubs.flashedMessages.clear()
+		page, viewport = loadPage("seekingalpha.json")
+		self.page = page
+		LayoutView = sys.modules[type(self.plugin).__module__]._LayoutView
+		self.state = LayoutView(page, "screen", viewport, None)
+		self.plugin._layoutView = self.state
+		self.assertIsNotNone(self.plugin._enterLayout(self.state))
+
+	def pressOn(self, kind):
+		"""Press inside the drawn box of an area of this kind, as a routing press would."""
+		drawing = self.mode.source
+		for y in range(drawing.buffer.height):
+			for x in range(drawing.buffer.width):
+				drawing.describeAt(x, y)
+				if self.state.pressed is not None and self.state.pressed.kind == kind:
+					return self.state.pressed
+		self.fail(f"no box for {kind}")
+
+	def test_drillingGoesIntoTheAreaLastPressed(self):
+		main = self.pressOn("main")
+		self.plugin.script_layoutDrillIn(None)
+		self.assertIs(self.state.focus, main)
+		self.assertEqual(self.mode.source.name, "layout of main content")
+		self.assertIn("layout of main content", _stubs.flashedMessages[-1])
+
+	def test_backingOutReturnsToTheWholeAndRemembersWhereItCameFrom(self):
+		main = self.pressOn("main")
+		self.plugin.script_layoutDrillIn(None)
+		self.plugin.script_layoutBackOut(None)
+		self.assertIsNone(self.state.focus)
+		self.assertEqual(self.mode.source.name, "layout of the page on screen")
+		self.assertIs(self.state.pressed, main, "so dot 8 goes straight back in")
+
+	def test_drillingWithNothingPressedSaysSo(self):
+		self.plugin.script_layoutDrillIn(None)
+		self.assertIn("Press a routing key", _stubs.flashedMessages[-1])
+		self.assertIsNone(self.state.focus)
+
+	def test_anAreaWithNothingInsideSaysSo(self):
+		self.state.pressed = Region("search", "", Box(0, 0, 10, 10), "search")
+		self.plugin.script_layoutDrillIn(None)
+		self.assertIn("Nothing inside search", _stubs.flashedMessages[-1])
+
+	def test_backingOutAtTheTopSaysSo(self):
+		self.plugin.script_layoutBackOut(None)
+		self.assertIn("Already showing all of it", _stubs.flashedMessages[-1])
+
+	def test_withAnotherDrawingUpTheCommandsSaySo(self):
+		self.mode.enter(type("Chart", (), {"name": "chart"})())
+		self.plugin.script_layoutDrillIn(None)
+		self.assertIn("No page layout is shown", _stubs.flashedMessages[-1])
+
+
 class TestKeyLetters(unittest.TestCase):
 	def test_aWordTooLongForItsBoxGetsALetter(self):
 		"""A narrow box is widened for a short word, but never past four cells' worth."""

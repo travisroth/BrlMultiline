@@ -166,8 +166,20 @@ same pattern the chart work uses.
 6. Windows applications, through UI Automation.
 
 Steps 1 to 4 are done, and the drawing has been tried on a Monarch: see "The drawing and the
-collector as built" below. Of step 5, a press naming the box under it and a second press moving
-to it are built; drilling in and backing out are not.
+collector as built" below. Step 5 is built: a press naming the box under it, a second press
+moving to it, and drilling in and backing out.
+
+**Drilling in and backing out** goes into the area last pressed. A press records the area
+(`_LayoutView.pressed`, set as the drawing describes the point), and dot 8 redraws the overview
+with that area as the whole (`compose`'s `focus`, with `focusWindow`): its inside drawn three
+levels deep, grown taller if it needs to be, positions said within it, and on the screen view
+only the part of it on screen. Dot 7 goes back along the trail of areas drilled through, to the
+whole page or screen, and leaves the area it came out of as the one pressed, so dot 8 goes
+straight back in. Both redraw from the same reading of the page rather than reading it again.
+The keys are dot 8 and dot 7 alone in the Monarch's graphics layer, enter and backspace when
+typing braille, since nothing is typed into a drawing; shipped revision 6 gives them to graphics
+layers saved before. With another drawing up, or nothing pressed, or an area with nothing inside,
+they say so.
 
 **Moving to an area** is a second routing press in the same box. The first version wanted the
 same cell within NVDA's multiple press timeout, and never fired on a Monarch: a second routing

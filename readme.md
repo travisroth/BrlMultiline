@@ -1048,6 +1048,14 @@ when checking a screenshot. Forms, search, tab strips and accordions are drawn e
 deep inside other areas. If some areas still cannot be drawn big enough to find, you are told how
 many, and magnifying shows them.
 
+To see what is inside an area, press a routing key in it, then dot 8: the area fills the
+drawing, with the areas inside it drawn as boxes, and positions are said within it. Dot 7 goes
+back out to the area around it, and on to the whole page or screen. Coming back out, the area you
+were in is still the one last pressed, so dot 8 goes straight back in. These are **Overview: Show
+what is inside the area last pressed in a page's layout** and **Overview: Go back out to the area
+around, in a page's layout**, on dot 8 and dot 7 in the Monarch's graphics layer, the keys that
+are enter and backspace when typing braille.
+
 Magnifying either drawing draws that part of the page again, larger, rather than enlarging the
 dots, so the labels stay ordinary braille and an area keeps the same key letter in every view.
 
@@ -1354,6 +1362,10 @@ page](#the-layout-of-a-web-page).
   on screen, drawn as labelled boxes in their places.
 - **Overview: Draw the layout of the whole page**: the same for the whole page, top to bottom.
 - **Overview: Show the layout of the page as text**: the same areas as lines of text in a window.
+- **Overview: Show what is inside the area last pressed in a page's layout**: dot 8 on the Monarch
+  while a layout is drawn.
+- **Overview: Go back out to the area around, in a page's layout**: dot 7 on the Monarch while a
+  layout is drawn.
 
 ### Layered keys
 
@@ -1382,7 +1394,8 @@ The Monarch and the keyboard come with these layers:
   line, down starts Say All, left reports the focus, right reports the window title.
 - **Monarch, graphics layer.** Turns on by itself when a drawing goes up, and off when it comes
   down. The left d-pad moves the drawing, the panning keys move it up and down a whole panel, and
-  the zoom keys magnify and shrink it. Space with dot
+  the zoom keys magnify and shrink it. On a page's layout, dot 8 goes into the area last pressed
+  and dot 7 back out. Space with dot
   7 and Space with dot 8 also shrink and magnify, and Space with dots 2 and 7 shows or hides the
   braille line. The right d-pad stays the arrow keys. If you turn the layer off with the layer
   key, it stays off until the drawing is taken down and put up again.

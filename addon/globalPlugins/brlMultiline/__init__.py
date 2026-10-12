@@ -82,6 +82,28 @@ addonHandler.initTranslation()
 # Translators: the name of the input gestures category for this add-on's commands.
 SCRIPT_CATEGORY = _("BrlMultiline")
 
+class _LayoutView:
+	"""An overview of a page's layout that is up: what it was drawn from, and where the reader is.
+
+	Kept so that drilling into an area and backing out draw from the same reading of the page,
+	rather than reading it again, and so that the area last pressed is what a drill goes into.
+	"""
+
+	def __init__(self, page, view: str, viewport, document):
+		self.page = page
+		self.view = view
+		self.viewport = viewport
+		self.document = document
+		#: The area drilled into, or None for the whole page or screen.
+		self.focus = None
+		#: The areas drilled through to get here, outermost first; None stands for the whole.
+		self.trail: list = []
+		#: The area the last routing press landed in, which a drill goes into.
+		self.pressed = None
+		#: The drawing on the display, so a drill can tell it is still this overview that is up.
+		self.drawing = None
+
+
 LAYOUT_DEPTH = 3
 """Levels of areas a drawing of a page's layout shows: the main areas, the areas inside them,
 and those inside those. Forms, search, tab strips and the like are drawn deeper still; see
@@ -286,6 +308,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""The picture file being loaded for the last press, if one is; see `script_drawPicture`."""
 		self._layoutCollector = None
 		"""The page layout being gathered for an overview, if one is; see `_layoutOverview`."""
+		self._layoutView: Optional[_LayoutView] = None
+		"""The overview of a page's layout last drawn, for drilling into it; see `_LayoutView`."""
 		"""How pictures are being drawn, as a mode and whether it is reversed.
 
 		Carried from one picture to the next within a session. A reader who has found that
@@ -3669,27 +3693,136 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if size is None:
 			ui.message(_("This display cannot show graphics"))
 			return
-		if view == "page":
+		state = _LayoutView(page, view, viewport, document)
+		message = self._enterLayout(state)
+		if message is None:
+			return
+		self._layoutView = state
+		if partial:
+			message = f"{message}. {partialNote}"
+		ui.message(message)
+
+	def _enterLayout(self, state: "_LayoutView") -> Optional[str]:
+		"""Draw the overview for where the reader is in it and put it up.
+
+		:return: what to say, or None when it could not be drawn, the reason having been said.
+		"""
+		mode = self.graphicsMode
+		size = mode.drawingSize()
+		if size is None:
+			ui.message(_("This display cannot show graphics"))
+			return None
+		if state.focus is not None:
+			# Translators: the name of the drawing of one area of a web page's layout, drilled
+			# into. The placeholder is the area's name, such as "navigation, Main".
+			name = _("layout of {area}").format(area=state.focus.title)
+		elif state.view == "page":
 			# Translators: the name of the drawing of a whole web page's layout.
 			name = _("layout of the whole page")
 		else:
 			# Translators: the name of the drawing of the layout of the part of a web page on
 			# screen.
 			name = _("layout of the page on screen")
-		drawing = self._layoutDrawing(page, view, viewport, size, name, document)
-		if drawing is None:
+		drawing = self._layoutDrawing(
+			state.page,
+			state.view,
+			state.viewport,
+			size,
+			name,
+			state.document,
+			focus=state.focus,
+			state=state,
+		)
+		if drawing is None or not mode.enter(drawing):
 			ui.message(mode.lastError or _("The drawing could not be shown"))
-			return
-		if not mode.enter(drawing):
-			ui.message(mode.lastError or _("The drawing could not be shown"))
-			return
+			return None
+		state.drawing = drawing
 		# The key to the letters on the panel is the drawing's note, which this includes.
-		message = mode.describe()
-		if partial:
-			message = f"{message}. {partialNote}"
+		return mode.describe()
+
+	def _layoutUp(self) -> Optional["_LayoutView"]:
+		""":return: the overview of a page's layout, if that is what is on the display."""
+		state = self._layoutView
+		mode = self.graphicsMode
+		if state is None or not mode.active or mode.source is not state.drawing:
+			# Translators: said when drilling into a page's layout is asked for with no layout
+			# on the display.
+			ui.message(_("No page layout is shown"))
+			return None
+		return state
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Overview: Show what is inside the area last pressed in a page's layout"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_layoutDrillIn(self, gesture):
+		"""Draw the area last pressed as the whole drawing, with the areas inside it.
+
+		A press names a box; this goes into it, so a reader can see what is in the navigation or
+		the main content in the room the whole panel gives. Positions are then said within that
+		area. Dot 8 on the Monarch in the graphics layer, as enter goes in.
+		"""
+		state = self._layoutUp()
+		if state is None:
+			return
+		region = state.pressed
+		if region is None:
+			# Translators: said when drilling into a page's layout is asked for before any area
+			# has been pressed, since the drill goes into the area last pressed.
+			ui.message(_("Press a routing key in an area first"))
+			return
+		if not region.children:
+			# Translators: said when the area asked to be drilled into has no areas inside it.
+			# The placeholder is the area's name.
+			ui.message(_("Nothing inside {area}").format(area=region.title))
+			return
+		before = (state.focus, list(state.trail), state.pressed)
+		state.trail.append(state.focus)
+		state.focus, state.pressed = region, None
+		message = self._enterLayout(state)
+		if message is None:
+			state.focus, state.trail, state.pressed = before
+			return
 		ui.message(message)
 
-	def _layoutDrawing(self, page, view: str, viewport, size: tuple, name: str, document=None):
+	@script(
+		# Translators: input help message for a command.
+		description=_("Overview: Go back out to the area around, in a page's layout"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_layoutBackOut(self, gesture):
+		"""Draw the area around the one drilled into, or the whole page or screen. Dot 7 on the
+		Monarch in the graphics layer, as backspace goes back."""
+		state = self._layoutUp()
+		if state is None:
+			return
+		if state.focus is None:
+			# Translators: said when backing out of a page's layout is asked for and the whole
+			# page, or the whole screen, is already shown.
+			ui.message(_("Already showing all of it"))
+			return
+		before = (state.focus, list(state.trail), state.pressed)
+		# Came out of this area, so a drill straight back in returns to it.
+		state.pressed = state.focus
+		state.focus = state.trail.pop() if state.trail else None
+		message = self._enterLayout(state)
+		if message is None:
+			state.focus, state.trail, state.pressed = before
+			return
+		ui.message(message)
+
+	def _layoutDrawing(
+		self,
+		page,
+		view: str,
+		viewport,
+		size: tuple,
+		name: str,
+		document=None,
+		focus=None,
+		state: Optional["_LayoutView"] = None,
+	):
 		"""The drawing of a page's layout, which draws itself again when zoomed or moved.
 
 		**The whole page is drawn tall**: a screen of the page to a panel's height, so its
@@ -3711,8 +3844,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		mode = self.graphicsMode
 		width, height = size
 		keys: dict = {}
+		whole = layoutDraw.focusWindow(page, view, viewport, focus)
 		if view == "page":
-			screens = page.box.height / max(viewport.height, 1)
+			screens = whole.height / max(viewport.height, 1)
 			source = layoutDraw.compose(
 				mode.newBuffer,
 				page,
@@ -3723,6 +3857,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				graphicsMode.labelCells,
 				LAYOUT_DEPTH,
 				keys=keys,
+				focus=focus,
 			)
 		else:
 			# The screen as tall as it has to be for everything on it to be drawn, rather than
@@ -3737,10 +3872,20 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				graphicsMode.labelCells,
 				LAYOUT_DEPTH,
 				keys=keys,
+				focus=focus,
 			)
 		if source is None:
 			return None
-		whole = layoutDraw.windowFor(page, view, viewport)
+
+		def describer(overview):
+			# A press says what is there, and remembers the area, which a drill goes into.
+			def describeAt(x, y):
+				box = overview.boxAt(x, y)
+				if state is not None and box is not None:
+					state.pressed = box.region
+				return overview.describeAt(x, y)
+
+			return describeAt
 
 		def activator(overview):
 			def activateAt(x, y):
@@ -3772,6 +3917,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				LAYOUT_DEPTH,
 				window=window,
 				keys=keys,
+				focus=focus,
 			)
 			if part is None:
 				return None
@@ -3779,7 +3925,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return graphicsMode.Drawing(
 				part.buffer,
 				name=name,
-				describeAt=part.describeAt,
+				describeAt=describer(part),
 				activateAt=activator(part),
 				areaAt=areaOf(part),
 				# Translators: the key to the letters on the part of a page's layout that is on
@@ -3799,7 +3945,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		drawing = graphicsMode.Drawing(
 			source.buffer,
 			name=name,
-			describeAt=source.describeAt,
+			describeAt=describer(source),
 			activateAt=activator(source),
 			areaAt=areaOf(source),
 			note=". ".join(notes),

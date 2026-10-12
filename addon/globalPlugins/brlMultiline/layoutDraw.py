@@ -177,6 +177,25 @@ def windowFor(page: Region, view: str, viewport: Box) -> Box:
 	return Box(0, 0, viewport.width, viewport.height)
 
 
+def focusWindow(
+	page: Region,
+	view: str,
+	viewport: Box,
+	focus: Region | None,
+	places: dict[int, Box] | None = None,
+) -> Box:
+	"""What a view draws: the page or the screen, or the part of it an area drilled into covers.
+
+	An area drilled into fills the drawing, and positions are said within it: "top left" of the
+	navigation, not of the page. On the screen it is the part of the area that is on screen.
+	"""
+	whole = windowFor(page, view, viewport)
+	if focus is None:
+		return whole
+	place = (places or placesFor(page, view)).get(id(focus), focus.box)
+	return place.intersection(whole) or place
+
+
 def placesFor(page: Region, view: str) -> dict[int, Box]:
 	"""Where each region is in the view: its box on the page, or its box on the screen.
 
@@ -217,6 +236,7 @@ def compose(
 	depth: int = 2,
 	window: Box | None = None,
 	keys: dict[int, str] | None = None,
+	focus: Region | None = None,
 ) -> Overview | None:
 	"""Draw the page's areas onto a new buffer of width by height pins.
 
@@ -232,15 +252,17 @@ def compose(
 		own resolution, never magnified.
 	:param keys: key letters already given out, by region `id`, kept and added to, so that an
 		area has the same letter in every view of the page.
+	:param focus: an area drilled into, drawn as the whole view with what is inside it; the
+		page if None. See `focusWindow`.
 	:return: the overview, or None if no buffer could be made.
 	"""
 	buffer = newBuffer(width, height)
 	if buffer is None:
 		return None
-	whole = windowFor(page, view, viewport)
-	window = window or whole
 	places = placesFor(page, view)
-	level = _topLevel(page)
+	whole = focusWindow(page, view, viewport, focus, places)
+	window = window or whole
+	level = focus or _topLevel(page)
 	chosen = _choose(level.children, window, depth, places)
 	wanted = [r for r, _ in chosen]
 	labels = {id(r): _labelFor(r, translate) for r, _ in chosen}
@@ -290,6 +312,7 @@ def composeFitting(
 	translate: Callable[[str], list[int]],
 	depth: int = 3,
 	keys: dict[int, str] | None = None,
+	focus: Region | None = None,
 ) -> Overview | None:
 	"""Draw a view as tall as it has to be for everything in it to be drawn, up to a limit.
 
@@ -310,7 +333,9 @@ def composeFitting(
 		tall = round(height * (1 + step * SCREEN_PANEL_STEP))
 		# A fresh set of letters for each try, so a try thrown away does not use up letters.
 		trial = dict(keys)
-		overview = compose(newBuffer, page, width, tall, view, viewport, translate, depth, keys=trial)
+		overview = compose(
+			newBuffer, page, width, tall, view, viewport, translate, depth, keys=trial, focus=focus
+		)
 		# Grown again while anything was left out, or drawn too small to find: a main area that
 		# will not fit is drawn regardless, as a sliver, rather than left out.
 		if overview is None or not (overview.omitted or any(_isCramped(b) for b in overview.walk())):
