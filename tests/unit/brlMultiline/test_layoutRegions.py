@@ -204,6 +204,120 @@ class TestGeometry(unittest.TestCase):
 		self.assertEqual([b.label for b in blocks], ["Latest News", "Opinion"])
 
 
+def regionOf(page: Region, node: Node) -> Region | None:
+	return next((r for r in page.walk() if r.node is node), None)
+
+
+def allInside(region: Region) -> bool:
+	"""Whether every region lies inside the one holding it, all the way down."""
+	for child in region.children:
+		box, outer = child.box, region.box
+		if (
+			box.left < outer.left
+			or box.top < outer.top
+			or box.right > outer.right
+			or box.bottom > outer.bottom
+		):
+			return False
+		if not allInside(child):
+			return False
+	return True
+
+
+class TestReviewFindings(unittest.TestCase):
+	"""The six faults found in review of the first version, each as the page that showed it."""
+
+	def test_oneLandmarkDoesNotHideUnmarkedContent(self):
+		"""A navigation landmark, then a large area of content no landmark marks."""
+		nav = Node(
+			"landmark",
+			Box(0, 0, 1900, 60),
+			landmark="navigation",
+			children=[leaf("link", 20 + i * 120, 20, 100, 20) for i in range(6)],
+		)
+		content = [leaf("heading", 100, 150, 600, 40, "Welcome")]
+		content += [leaf("link", 100, 220 + i * 40, 700, 20) for i in range(14)]
+		page = findRegions(Node("document", children=[nav, *content]), VIEW)
+		unmarked = [r for r in page.children if r.kind != "navigation"]
+		self.assertTrue(unmarked, describe(page))
+		self.assertGreaterEqual(max(r.box.height for r in unmarked), 500)
+		self.assertIn("navigation", [r.kind for r in page.children])
+
+	def test_aKnownRegionStaysInsideItsBlock(self):
+		"""A wide table above two columns: no cut may leave it outside the block holding it."""
+		table = Region("table", "", Box(20, 0, 600, 60), "structure")
+		items = [(table.box, table)]
+		for column in (20, 340):
+			items += [(Box(column, 120 + 40 * i, 280, 20), leaf("link", 0, 0, 1, 1)) for i in range(9)]
+		bounds = Box(0, 0, 640, 500)
+		blocks = splitByGeometry(items, bounds)
+		self.assertTrue(blocks)
+		holder = Region("area", "", bounds, "test", children=blocks)
+		self.assertTrue(allInside(holder), [(b.box, [c.box for c in b.children]) for b in blocks])
+		self.assertIn(table, list(holder.walk()))
+
+	def test_reorderedSectionsAreNotTakenForAStickyHeader(self):
+		"""Two ordinary sections shown in the opposite order to reading order, page scrolled."""
+		second = Node("section", Box(0, -800, 1900, 100), children=[leaf("graphic", 0, -800, 1900, 100)])
+		first = Node("section", Box(0, -900, 1900, 1000), children=[leaf("graphic", 0, -900, 1900, 1000)])
+		page = findRegions(Node("document", children=[second, first]), VIEW, scroll=1000)
+		self.assertEqual(regionOf(page, second).box.top, 200)
+
+	def test_namedSectionsOfOneSizeAreNotRepeats(self):
+		"""Six sections the same size, each with its own heading, are six areas."""
+		sections = [
+			Node(
+				"section",
+				Box(100, 100 + i * 150, 1200, 140),
+				children=[
+					leaf("heading", 110, 110 + i * 150, 400, 30, f"Part {i}"),
+					leaf("paragraph", 110, 150 + i * 150, 1100, 80, "Text"),
+				],
+			)
+			for i in range(6)
+		]
+		holder = Node("section", Box(0, 0, 1900, 1100), children=sections)
+		page = findRegions(Node("document", children=[holder]), VIEW)
+		kept = [r for r in page.walk() if r.node in sections]
+		self.assertEqual(len(kept), 6, describe(page, 3))
+
+	def test_aWideHiddenControlDoesNotSetTheScroll(self):
+		root = Node(
+			"document",
+			children=[
+				leaf("link", 0, -9999, 1000, 40, "Skip to content"),
+				leaf("section", 0, 0, 1900, 100),
+				leaf("section", 0, 100, 1900, 800),
+			],
+		)
+		self.assertEqual(estimateScroll(root, VIEW), 0)
+
+	def test_anIsolatedContainerFarAboveIsAnOutlier(self):
+		root = Node(
+			"document",
+			children=[
+				leaf("section", 0, -9999, 1900, 40),
+				leaf("section", 0, 0, 1900, 100),
+				leaf("section", 0, 100, 1900, 800),
+			],
+		)
+		self.assertEqual(estimateScroll(root, VIEW), 0)
+
+	def test_researchIsNotSearch(self):
+		form = Node(
+			"form",
+			Box(100, 100, 600, 200),
+			landmark="form",
+			name="Research grants",
+			children=[
+				leaf("statictext", 110, 110, 200, 20, "Research grants"),
+				leaf("editabletext", 110, 140, 300, 24, "Email"),
+			],
+		)
+		page = findRegions(Node("document", children=[form]), VIEW)
+		self.assertEqual(ofKind(page, "search"), [])
+
+
 class TestRealPages(unittest.TestCase):
 	"""Pages saved by the probe, each checked for the shape a sighted reader would describe."""
 
@@ -233,10 +347,12 @@ class TestRealPages(unittest.TestCase):
 
 	def test_seekingAlphaMainOpensInTwoColumns(self):
 		main = ofKind(load("seekingalpha.json"), "main")[0]
-		left = [c for c in main.children if c.box.right < 900]
-		right = [c for c in main.children if c.box.left > 880]
-		self.assertTrue(left and right)
+		top = min(main.children, key=lambda r: r.box.top)
+		left = [c for c in top.children if c.box.right < 900]
+		right = [c for c in top.children if c.box.left > 880]
+		self.assertTrue(left and right, [c.box for c in top.children])
 		self.assertTrue(left[0].box.overlapY(right[0].box))
+		self.assertTrue(allInside(main), "a wide table below the columns is not cut through")
 
 	def test_wsjDropsStoryLabelsAndFindsColumns(self):
 		page = load("wsj.json")

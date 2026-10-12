@@ -185,10 +185,15 @@ def _linkOffsets(doc) -> list:
 
 
 def _isSearchField(attrs: dict, name: str) -> bool:
-	text = " ".join(
-		(name or "", attrs.get("placeholder", ""), attrs.get("id", ""), attrs.get("class", "")),
-	).lower()
-	return attrs.get("text-input-type") == "search" or "search" in text
+	"""Search by the add-on's own word-aware test, so the probe and the add-on agree on it."""
+	if attrs.get("text-input-type") == "search":
+		return True
+	return _layoutRegions().mentionsSearch(
+		name or "",
+		attrs.get("placeholder", ""),
+		attrs.get("id", ""),
+		attrs.get("class", ""),
+	)
 
 
 def collect(doc=None) -> Optional[dict]:
@@ -494,8 +499,13 @@ def save(
 	print(f"Saved {stem}.txt and {stem}.json")
 
 
+_rules: tuple = (None, None)
+
+
 def _layoutRegions():
-	"""The add-on's region rules, loaded from source each time so an edit needs no NVDA restart."""
+	"""The add-on's region rules, loaded from source again whenever the file changes, so an edit
+	needs no NVDA restart."""
+	global _rules
 	import importlib.util
 
 	path = os.path.join(
@@ -506,11 +516,15 @@ def _layoutRegions():
 		"brlMultiline",
 		"layoutRegions.py",
 	)
+	changed = os.path.getmtime(path)
+	if _rules[0] == changed:
+		return _rules[1]
 	spec = importlib.util.spec_from_file_location("layoutRegionsProbeCopy", path)
 	module = importlib.util.module_from_spec(spec)
 	# Registered before it runs: dataclasses look their own module up while being defined.
 	sys.modules[spec.name] = module
 	spec.loader.exec_module(module)
+	_rules = (changed, module)
 	return module
 
 

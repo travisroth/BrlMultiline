@@ -19,15 +19,18 @@ of the page is and where. `fromProbe` builds the input from a saved probe file.
 The rules, in the order they are applied:
 
 1. **Positions become page positions.** The browser reports rectangles relative to the visible
-   part of the page. The scroll position is not reported, so it is estimated from the topmost
-   wide element: when that is above the visible part, the page is scrolled by that much.
+   part of the page. The scroll position is not reported, so unless the caller knows it, it is
+   estimated from the topmost wide container that is not an isolated outlier, and the page
+   region says it was estimated.
 2. **Hidden things are dropped.** A visually hidden element still reports a rectangle: one
    pixel square, thousands of pixels wide, or wholly above the top of the page. None of those
    is something a sighted reader sees.
 3. **Sticky headers are put back.** A header that stays on screen as the page scrolls reports
    its position on screen, not its place in the page, and lands on top of whatever is there.
    In reading order it still sits between its neighbours, and the gap it left between them is
-   its own height, so it goes back into that gap.
+   its own height, so it goes back into that gap, but only when it is pinned near the top of
+   the screen and looks like a header: sections merely shown out of reading order stay where
+   they are. Its box on screen is kept too, for a view of the screen.
 4. **Boxes are drawn around content.** A container's own rectangle often lies: a form as wide
    as the page holding a narrow column of links, or a footer that starts behind floated
    columns. So an area's box is the union of what is inside it, inside its own rectangle.
@@ -38,7 +41,10 @@ The rules, in the order they are applied:
    become one, keeping the better name.
 7. **An area with no structure inside is split by geometry.** Recursive XY-cut: the widest gap
    of empty space running right across or right down the area splits it, and the parts are
-   split again. That finds a news site's columns, which no markup describes.
+   split again. That finds a news site's columns, which no markup describes. Regions already
+   found are never cut through and always end up wholly inside the part holding them. Beside
+   a page's own landmarks, only the content outside every landmark is split this way, so a
+   landmark is never wrapped in a guess and content no landmark marks is never lost.
 8. **Unnamed areas at the top are named by position:** a full width band at the top is a
    header, one at the bottom a footer, a tall narrow column at a side a sidebar, and the
    largest of the rest the main content. Inside the page those words would be guesses, so they
@@ -225,10 +231,16 @@ class Node:
 	isSearch: bool = False
 	#: A table holding data rather than laying out the page. Browse mode only lists these.
 	isDataTable: bool = False
+	#: Where the element starts and ends in browse mode's text, when the caller knows: what a
+	#: command that moves to an area will move to.
+	start: int | None = None
+	end: int | None = None
 	children: list["Node"] = field(default_factory=list)
-	# Worked out by `findRegions`: the rectangle on the page, and the box around the content.
+	# Worked out by `findRegions`: the rectangle on the page, the box around the content, and how
+	# far a sticky header was moved to put it back in its place on the page.
 	pageRect: Box | None = field(default=None, repr=False)
 	box: Box | None = field(default=None, repr=False)
+	shift: int = field(default=0, repr=False)
 
 	def walk(self) -> Iterator["Node"]:
 		yield self
@@ -248,6 +260,16 @@ class Region:
 	children: list["Region"] = field(default_factory=list)
 	#: The node the region was found from, kept so its content can be split by geometry.
 	node: Node | None = field(default=None, repr=False)
+	#: Where the region starts in browse mode's text, when known.
+	start: int | None = None
+	#: The box as it was on screen, relative to the visible part of the page. Differs from
+	#: `box` moved by the scroll only for a sticky header put back in its place, which on
+	#: screen is still where it was reported. None where nothing was on screen to report.
+	screenBox: Box | None = None
+	#: How the page was read: the scroll used, and whether it was estimated, for the page
+	#: region only.
+	scroll: int = 0
+	scrollEstimated: bool = False
 
 	@property
 	def title(self) -> str:
@@ -263,17 +285,21 @@ class Region:
 			yield from child.walk()
 
 
-def findRegions(root: Node, viewport: Box) -> Region:
+def findRegions(root: Node, viewport: Box, scroll: int | None = None) -> Region:
 	"""The page as a tree of regions, the page itself at the top.
 
 	`viewport` is the visible part of the page on screen, which only its size is used of.
+	`scroll` is how far down the page is scrolled, when the caller knows; otherwise it is
+	estimated, and the page region says so.
 	"""
-	scroll = estimateScroll(root, viewport)
+	estimated = scroll is None
+	if scroll is None:
+		scroll = estimateScroll(root, viewport)
 	_toPage(root, scroll)
 	# Pages scroll down, not across: anything far past the view's width is parked off screen.
 	_ = _dropHidden(root, viewport, viewport.width)
 	if scroll > 0:
-		_restoreSticky(root)
+		_restoreSticky(root, scroll, viewport)
 	_countContent(root)
 	_contentBoxes(root)
 	pageBox = Box(0, 0, viewport.width, max(root.box.bottom if root.box else 0, viewport.height))
@@ -287,6 +313,11 @@ def findRegions(root: Node, viewport: Box) -> Region:
 		if not region.label and region.kind != "page" and region.source in ("structure", "position", "id"):
 			region.label = _firstHeading(region.node)
 		region.label = " ".join(region.label.split())
+		shift = region.node.shift if region.node is not None and region is not page else 0
+		region.screenBox = region.box.moved(dy=-scroll - shift)
+		if region.start is None and region.node is not None and region is not page:
+			region.start = region.node.start
+	page.scroll, page.scrollEstimated = scroll, estimated
 	return page
 
 
@@ -298,21 +329,32 @@ def _firstHeading(node: Node | None) -> str:
 
 
 def estimateScroll(root: Node, viewport: Box) -> int:
-	"""How far down the page is scrolled, from the topmost wide element.
+	"""How far down the page is scrolled, from the topmost wide container.
 
-	The browser does not say. But the top of the page is at the top of its topmost element,
-	and elements narrower than 40 percent of the view are left out, since visually hidden skip
-	links are parked far above the page and are narrow; so is anything absurdly wide.
+	The browser does not say, so this is an estimate, and a caller that knows should pass the
+	scroll to `findRegions` instead. The top of the page is at the top of its topmost element,
+	with three kinds of element left out because pages park hidden things far above the top:
+
+	1. Anything that is not a container. A skip link or a button is a control, and a hidden one
+	   can be any width (found in review: a wide skip link at minus 9999).
+	2. Anything narrower than 40 percent of the view, or absurdly wide.
+	3. An outlier: a top with nothing else starting within a screen of where it ends. A page's
+	   content runs on from its top; a hidden container parked thousands of pixels up does not.
 	"""
-	tops = [
-		n.rect.top
+	spans = sorted(
+		(n.rect.top, n.rect.bottom)
 		for n in root.walk()
 		if n is not root
 		and n.rect
+		and n.role in CONTAINER_ROLES
 		and viewport.width * 0.4 <= n.rect.width <= viewport.width * 1.5
 		and n.rect.height >= 8
-	]
-	return max(0, -min(tops)) if tops else 0
+	)
+	for index, (top, bottom) in enumerate(spans):
+		following = spans[index + 1 :]
+		if not following or any(t <= bottom + viewport.height for t, _ in following):
+			return max(0, -top)
+	return 0
 
 
 def _toPage(node: Node, scroll: int) -> None:
@@ -344,26 +386,48 @@ def _dropHidden(node: Node, viewport: Box, pageWidth: int) -> bool:
 	return node.pageRect is not None or bool(node.children)
 
 
-def _restoreSticky(node: Node) -> None:
+#: A sticky header is pinned within this many pixels of the top of the screen.
+STICKY_PINNED = 120
+#: Tags and landmarks a sticky header has. Two ordinary sections in the opposite order on screen
+#: to reading order also look like a header out of place, and moving one hides exactly the
+#: mismatch a reader testing a page wants to find; so a header has to look like one.
+STICKY_TAGS = frozenset(("header", "nav", "sticky-header"))
+STICKY_LANDMARKS = frozenset(("banner", "navigation"))
+
+
+def _looksLikeHeader(node: Node) -> bool:
+	if node.landmark in STICKY_LANDMARKS or (node.tag or "").lower() in STICKY_TAGS:
+		return True
+	return _idKind(node) in ("header", "navigation")
+
+
+def _restoreSticky(node: Node, scroll: int, viewport: Box) -> None:
 	"""Move headers that stay on screen as the page scrolls back to their place in the page.
 
 	Such a header reports where it is on screen, so on a scrolled page it lands on top of what
 	follows it in reading order. Its place is the gap between the sibling before it and the one
-	after, which on the page it left is its own height.
+	after, which on the page it left is its own height. All of that has to hold, and two more
+	things: it is pinned near the top of the screen, and it looks like a header (a banner or
+	navigation landmark, a header or nav element, or an id saying so). Its rectangle on screen is
+	kept in `shift`, so a view of the screen can still draw it where it is.
 	"""
 	for child in node.children:
-		_restoreSticky(child)
+		_restoreSticky(child, scroll, viewport)
 	placed = [(c, c.pageRect) for c in node.children if c.pageRect]
 	for i in range(len(placed) - 1):
 		child, rect = placed[i]
 		nextRect = placed[i + 1][1]
 		if rect.top <= nextRect.top or not rect.overlapX(nextRect):
 			continue
+		onScreen = rect.top - scroll
+		if not (-2 <= onScreen <= STICKY_PINNED) or not _looksLikeHeader(child):
+			continue
 		gapTop = placed[i - 1][1].bottom if i > 0 else 0
 		gap = nextRect.top - gapTop
 		if gap >= rect.height * 0.8 and rect.height <= gap * 1.25:
 			dy = gapTop - rect.top
 			for n in child.walk():
+				n.shift += dy
 				if n.pageRect:
 					n.pageRect = n.pageRect.moved(dy=dy)
 
@@ -419,8 +483,24 @@ def _idKind(node: Node) -> str:
 	return ""
 
 
+def words(text: str) -> list[str]:
+	"""The words in a name or an identifier, lower case: "siteSearch-box" is site, search, box."""
+	spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text or "")
+	return [w for w in re.split(r"[^A-Za-z0-9]+", spaced.lower()) if w]
+
+
+def mentionsSearch(*texts: str) -> bool:
+	"""Whether any of the texts has search as a word, or a word starting with it.
+
+	Search box, searchbox, search-form and siteSearch count; research does not (found in
+	review: a "Research grants" form became a search field). Shared with the collector and the
+	probe, so all three agree on what search is.
+	"""
+	return any(w.startswith("search") for text in texts for w in words(text))
+
+
 def _mentionsSearch(node: Node) -> bool:
-	return "search" in f"{node.name} {node.id}".lower()
+	return mentionsSearch(node.name, node.id)
 
 
 #: A form holding more links than this is a page wrapped in a form, not a search form.
@@ -507,8 +587,26 @@ def _regions(node: Node, viewport: Box) -> list[Region]:
 REPEAT_MIN = 6
 
 
+#: The roles a repeated record has. A section the same size as its neighbours is not a record.
+REPEAT_ROLES = frozenset(("tablerow", "listitem"))
+
+
+def _isRecord(region: Region) -> bool:
+	"""An unnamed row or list item with no heading of its own: one of a list's records."""
+	node = region.node
+	if region.kind != "area" or region.children or node is None or node.role not in REPEAT_ROLES:
+		return False
+	return not any(n.role == "heading" for n in node.walk())
+
+
 def _dropRepeats(children: list[Region]) -> list[Region]:
-	plain = [c for c in children if c.kind == "area" and not c.children]
+	"""Leave out the records of a list, such as Hacker News's rows of stories.
+
+	Found in review: dropping any six areas of one size took six titled sections with them. A
+	record is a row or a list item with no heading, so a section, or a row with its own heading,
+	is always kept.
+	"""
+	plain = [c for c in children if _isRecord(c)]
 	if len(plain) < REPEAT_MIN:
 		return children
 	widths = sorted(c.box.width for c in plain)
@@ -577,10 +675,6 @@ def _split(region: Region, viewport: Box) -> None:
 		or region.box.area < viewport.area * SPLIT_MIN_SHARE
 	):
 		return
-	if any(c.kind in PAGE_LANDMARKS for c in region.children):
-		# The page's own landmarks already say how it is divided; geometry would only wrap
-		# them in guesses.
-		return
 	taken = [c.box for c in region.children]
 	leaves: list[Item] = [
 		(n.box, n)
@@ -593,10 +687,67 @@ def _split(region: Region, viewport: Box) -> None:
 	]
 	if len(leaves) < SPLIT_MIN_LEAVES:
 		return
+	if any(c.kind in PAGE_LANDMARKS for c in region.children):
+		# The page's own landmarks say how most of it is divided, and wrapping them in
+		# geometric guesses would only hide that. But content outside every landmark is still
+		# content (found in review: a navigation landmark hid a whole unmarked article), so it
+		# is found from its own gaps and set beside the landmarks.
+		region.children = sorted(
+			region.children + _uncovered(leaves, taken, region.box),
+			key=lambda r: (r.box.top, r.box.left),
+		)
+		return
 	items: list[Item] = [(c.box, c) for c in region.children] + leaves
 	blocks = splitByGeometry(items, region.box)
 	if blocks:
 		region.children = blocks
+
+
+def _uncovered(leaves: list[Item], taken: list[Box], bounds: Box) -> list[Region]:
+	"""Areas for content outside the regions already found, none overlapping them.
+
+	The content is split by its own gaps. A block that would reach across a region found
+	already, such as content above and below a landmark, is split again at that region's
+	edges, so every area returned keeps clear of the regions there are.
+	"""
+	blocks = splitByGeometry(leaves, bounds) or [_block(leaves, bounds)]
+	result: list[Region] = []
+	for block in blocks:
+		if block is None:
+			continue
+		if not any(t.intersection(block.box) for t in taken):
+			result.append(block)
+			continue
+		edges = sorted({e for t in taken for e in (t.top, t.bottom)})
+		inside = [(b, n) for b, n in leaves if block.box.intersection(b)]
+		slots: dict[int, list[Item]] = {}
+		for b, n in inside:
+			middle = b.top + b.height / 2
+			slots.setdefault(sum(1 for e in edges if middle > e), []).append((b, n))
+		for members in slots.values():
+			piece = _block(members, bounds)
+			if piece is not None and not any(t.intersection(piece.box) for t in taken):
+				result.append(piece)
+	return result
+
+
+def _block(members: list[Item], bounds: Box) -> Region | None:
+	"""One area around some content, named by its first heading, or None if too small."""
+	box = unionOf(b for b, _ in members)
+	box = box and box.intersection(bounds)
+	if not box or not _isSizeable(box) or len(members) < SPLIT_MIN_LEAVES // 2:
+		return None
+	nodes = [(b, n) for b, n in members if isinstance(n, Node)]
+	headings = sorted((b.top, b.left, n.name) for b, n in nodes if n.role == "heading" and n.name)
+	starts = [n.start for _, n in nodes if n.start is not None]
+	return Region(
+		"area",
+		headings[0][2] if headings else "",
+		box,
+		"geometry",
+		sum(1 for _, n in nodes if n.role == "link"),
+		start=min(starts) if starts else None,
+	)
 
 
 def splitByGeometry(items: list[Item], bounds: Box, depth: int = 0, maxDepth: int = 3) -> list[Region]:
@@ -625,9 +776,15 @@ def splitByGeometry(items: list[Item], bounds: Box, depth: int = 0, maxDepth: in
 			headings = sorted((b.top, b.left, n.name) for b, n in nodes if n.role == "heading" and n.name)
 			label = headings[0][2] if headings else ""
 			links = sum(1 for _, n in nodes if n.role == "link") + sum(r.links for r in regions)
+			starts = [n.start for _, n in nodes if n.start is not None]
+			starts += [r.start for r in regions if r.start is not None]
 			inner = splitByGeometry(members, box, depth + 1, maxDepth)
 			children = inner or sorted(regions, key=lambda r: (r.box.top, r.box.left))
-			blocks.append(Region("area", label, box, "geometry", links, children))
+			blocks.append(
+				Region(
+					"area", label, box, "geometry", links, children, start=min(starts) if starts else None
+				),
+			)
 		return blocks
 	return []
 
@@ -635,18 +792,27 @@ def splitByGeometry(items: list[Item], bounds: Box, depth: int = 0, maxDepth: in
 def _cut(items: list[Item], bounds: Box, axis: str) -> list[tuple[Box, list[Item]]]:
 	"""Split items at the widest gutters along one axis, up to `MAX_PARTS` parts.
 
-	A wide item, more than half the area's width, is left out when looking for columns, since a
-	picture across two columns would otherwise hide the gutter between them. It is still placed,
-	in whichever part holds its centre. Parts are clipped to the area: a carousel's slides
-	parked off to the right are part of the carousel, not a column of their own.
+	A wide piece of content, more than half the area's width, is left out when looking for
+	columns, since a picture across two columns would otherwise hide the gutter between them.
+	It is still placed, in whichever part holds its centre. A region found already is different:
+	it is never cut through, whatever its width, so that it stays whole inside the part that
+	holds it (found in review: a wide table ended up outside the column it was put in). Parts
+	are clipped to the area: a carousel's slides parked off to the right are part of the
+	carousel, not a column of their own.
 	"""
 	if axis == "x":
-		spans = [(b.left, b.right) for b, _ in items if b.width <= bounds.width * 0.5]
+		spans = [
+			(b.left, b.right) for b, m in items if b.width <= bounds.width * 0.5 or isinstance(m, Region)
+		]
 		minGap = max(16, bounds.width * 0.015)
 	else:
 		spans = [(b.top, b.bottom) for b, _ in items]
 		minGap = max(32, min(bounds.height * 0.02, 64))
-	cuts = [position for _, position in sorted(_gutters(spans, minGap), reverse=True)[: MAX_PARTS - 1]]
+	barriers = [
+		(b.left, b.right) if axis == "x" else (b.top, b.bottom) for b, m in items if isinstance(m, Region)
+	]
+	gutters = [g for g in _gutters(spans, minGap) if not any(low < g[1] < high for low, high in barriers)]
+	cuts = [position for _, position in sorted(gutters, reverse=True)[: MAX_PARTS - 1]]
 	if not cuts:
 		return []
 	cuts.sort()
@@ -670,6 +836,8 @@ def _cut(items: list[Item], bounds: Box, axis: str) -> list[tuple[Box, list[Item
 			if low <= (b.left if axis == "x" else b.top) and (b.right if axis == "x" else b.bottom) <= high
 		]
 		box = unionOf(inside) or unionOf(b for b, _ in members)
+		# Regions are always wholly inside the part that holds them.
+		box = unionOf([b for b in (box,) if b] + [b for b, m in members if isinstance(m, Region)])
 		box = box and (box.intersection(bounds) or box)
 		if box and _isSizeable(box):
 			parts.append((box, members))
@@ -868,18 +1036,18 @@ def _landmarkTree(records: list[dict[str, Any]], leaves: list[dict[str, Any]]) -
 				textLength=r.get("textLength") or 0,
 				isDataTable=kind == "table",
 			)
+			node.start, node.end = r["start"], r["end"]
 			items.append((r["start"], r["end"], node))
 		elif kind.startswith("heading"):
-			items.append(
-				(r["start"], r["start"], Node("heading", _rect(r["rect"]), name=r.get("label") or ""))
-			)
+			node = Node("heading", _rect(r["rect"]), name=r.get("label") or "", start=r["start"])
+			items.append((r["start"], r["start"], node))
 		elif kind in ("search field", "search button"):
 			role = "editabletext" if kind == "search field" else "button"
-			node = Node(role, _rect(r["rect"]), name=r.get("name") or "", isSearch=True)
+			node = Node(role, _rect(r["rect"]), name=r.get("name") or "", isSearch=True, start=r["start"])
 			items.append((r["start"], r["start"], node))
 	for leaf in leaves:
 		role = _LEAF_ROLES_BY_TYPE.get(leaf["type"], "statictext")
-		items.append((leaf["start"], leaf["start"], Node(role, _rect(leaf["rect"]))))
+		items.append((leaf["start"], leaf["start"], Node(role, _rect(leaf["rect"]), start=leaf["start"])))
 	# Containers first at the same offset, outermost first, so they are open before their content.
 	items.sort(key=lambda item: (item[0], -(item[1] - item[0]), item[2].role in LEAF_ROLES))
 	stack: list[tuple[int, Node]] = [(1 << 62, root)]
@@ -900,7 +1068,6 @@ def _accessibleTree(nodes: list[dict[str, Any]], dataTables: set[tuple[int, ...]
 	stack: list[tuple[int, Node]] = []
 	for n in nodes:
 		role = n["role"].lower()
-		text = f"{n.get('name') or ''} {n.get('id') or ''} {n.get('class') or ''}".lower()
 		node = Node(
 			role,
 			_rect(n["rect"]),
@@ -908,7 +1075,8 @@ def _accessibleTree(nodes: list[dict[str, Any]], dataTables: set[tuple[int, ...]
 			name=n.get("name") or "",
 			tag=n.get("tag") or "",
 			id=n.get("id") or "",
-			isSearch=role in ("editabletext", "button", "combobox") and "search" in text,
+			isSearch=role in ("editabletext", "button", "combobox")
+			and mentionsSearch(n.get("name") or "", n.get("id") or "", n.get("class") or ""),
 			isDataTable=role == "table" and bool(n["rect"]) and tuple(n["rect"]) in dataTables,
 		)
 		while stack and stack[-1][0] >= n["depth"]:
