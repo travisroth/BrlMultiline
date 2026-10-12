@@ -11,6 +11,12 @@ The copied table builds on JAWS's own U.S. grade 2 table rather than stock liblo
 its Freedom Scientific symbol definitions; BrlMultiline's rules come first and win for the
 characters they name.
 
+JAWS hands liblouis a character beyond U+FFFF, which is most emoji, as its two UTF-16 halves, so a
+rule for the whole character never matches and JAWS shows its unknown-symbol cells. NVDA joins the
+halves first. Each copied rule that names such a character is followed by the same rule written for
+the two halves; a rule for one character becomes an always rule, the only kind that can match two.
+The rules NVDA uses are not changed, since NVDA never sees the halves.
+
 A JAWS update usually brings a new liblouis folder, which the table is not in. Run this again after
 updating JAWS, and after changing braille substitutions in NVDA, to bring JAWS up to date. Running it
 again is safe: files are replaced and the mode is added only once.
@@ -52,6 +58,14 @@ $DisplayName = 'U.S. English Grade 2 BrlMultiline'
 $BaseModeId = '20'
 $StockInclude = 'include en-us-g2.ctb'
 $FirstModeId = 900
+# Opcodes that define one character, which written for two halves become always rules; and opcodes
+# whose operand may be several characters, which stay as they are. A reader's own rule with any other
+# opcode gets no copy for the halves, rather than a copy liblouis might not compile.
+$OneCharacterOpcodes = @('sign', 'letter', 'punctuation', 'math', 'digit', 'lowercase', 'uppercase')
+$SeveralCharacterOpcodes = @(
+	'always', 'correct', 'word', 'largesign', 'partword', 'begword', 'midword', 'endword',
+	'begmidword', 'midendword', 'prepunc', 'postpunc', 'repeated'
+)
 
 function Test-Administrator {
 	$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -112,6 +126,35 @@ function Test-Bom([string]$path) {
 	$bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
 }
 
+function ConvertTo-SurrogatePair([string]$line) {
+	$evaluator = [Text.RegularExpressions.MatchEvaluator] {
+		param($match)
+		$code = [Convert]::ToInt32($match.Groups[1].Value, 16) - 0x10000
+		'\x{0:x4}\x{1:x4}' -f (0xD800 + ($code -shr 10)), (0xDC00 + ($code -band 0x3FF))
+	}
+	[regex]::Replace($line, '\\y([0-9a-fA-F]{5})', $evaluator)
+}
+
+# The rules, each one that names a character beyond U+FFFF followed by its copy for the two halves.
+function Add-SurrogateRules([string]$text) {
+	$newline = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
+	$out = New-Object Collections.Generic.List[string]
+	foreach ($line in ($text -split '\r?\n')) {
+		$out.Add($line)
+		if ($line -notmatch '\\y[0-9a-fA-F]{5}') { continue }
+		$rule = [regex]::Match($line, '^(\s*(?:no(?:back|for)\s+)*)(\w+)(\s.*)$')
+		if (-not $rule.Success) { continue }  # A comment, or not a rule.
+		$opcode = $rule.Groups[2].Value.ToLowerInvariant()
+		if ($OneCharacterOpcodes -contains $opcode) {
+			$opcode = 'always'
+		} elseif ($SeveralCharacterOpcodes -notcontains $opcode) {
+			continue
+		}
+		$out.Add((ConvertTo-SurrogatePair ($rule.Groups[1].Value + $opcode + $rule.Groups[3].Value)))
+	}
+	$out -join $newline
+}
+
 # The newest liblouis folder of each JAWS version, which is the one its translator uses.
 function Get-JawsTargets {
 	$jawsRoot = Join-Path $env:ProgramFiles 'Freedom Scientific\JAWS'
@@ -165,7 +208,7 @@ function Install-Into($target, [string]$sourceFolder) {
 		$from = Join-Path $sourceFolder $file
 		$to = Join-Path $target.Tables $file
 		if (Test-Path $from) {
-			Copy-Item $from $to -Force
+			Write-TextFile $to (Add-SurrogateRules ([IO.File]::ReadAllText($from))) $false
 		} elseif ($file -eq 'brlMultiline-user.cti') {
 			# Written by the add-on as NVDA runs; the table does not compile without it.
 			Write-TextFile $to "# No braille substitutions were found when this was installed.`r`n" $false
