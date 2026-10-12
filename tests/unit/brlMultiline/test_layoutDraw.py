@@ -217,6 +217,81 @@ class TestTallPageAndItsWindows(unittest.TestCase):
 		self.assertIn("down the left side", said)
 
 
+class TestDetailLines(unittest.TestCase):
+	"""What a box holds, beside or under its label, only where there is room already."""
+
+	def page(self, links: int, height: int = 2000):
+		page = Region("page", "", Box(0, 0, 1000, height), "page")
+		page.children = [Region("main", "", Box(0, 0, 1000, height), "landmark", links)]
+		return page
+
+	def test_aWideBoxGetsItsLinksOnTheLabelsLine(self):
+		"""Read as one phrase, "main 8 links", with a blank cell between."""
+		overview = compose(
+			PinBuffer, self.page(8), WIDTH, HEIGHT, "page", Box(0, 0, 1000, 2000), translate, 1
+		)
+		box = overview.boxes[0]
+		self.assertEqual(box.detail, "8 links")
+		self.assertEqual(box.detailAt.top, box.labelAt.top)
+		self.assertEqual(box.detailAt.left, box.labelAt.right + 1 + 3, "one blank cell after the label")
+		self.assertTrue(overview.buffer.getDot(box.detailAt.left, box.detailAt.top))
+
+	def test_aNarrowBoxGetsItsLinksUnderItsLabel(self):
+		"""Too narrow for both on one line, tall enough for a second line."""
+		page = Region("page", "", Box(0, 0, 1000, 2000), "page")
+		page.children = [
+			Region("navigation", "", Box(0, 0, 320, 2000), "landmark", 8),
+			Region("main", "", Box(320, 0, 680, 2000), "landmark"),
+		]
+		overview = compose(PinBuffer, page, WIDTH, HEIGHT, "page", page.box, translate, 1)
+		nav = overview.boxes[0]
+		self.assertEqual(nav.detail, "8 links")
+		self.assertEqual(nav.detailAt.left, nav.labelAt.left)
+		self.assertEqual(nav.detailAt.top, nav.labelAt.bottom + 1, "a blank row between the lines")
+
+	def test_oneLinkIsOneLink(self):
+		overview = compose(
+			PinBuffer, self.page(1), WIDTH, HEIGHT, "page", Box(0, 0, 1000, 2000), translate, 1
+		)
+		self.assertEqual(overview.boxes[0].detail, "1 link")
+
+	def test_noLinksNoDetail(self):
+		overview = compose(
+			PinBuffer, self.page(0), WIDTH, HEIGHT, "page", Box(0, 0, 1000, 2000), translate, 1
+		)
+		self.assertEqual(overview.boxes[0].detail, "")
+		self.assertIsNone(overview.boxes[0].detailAt)
+
+	def test_aBoxIsNeverGrownForItsDetail(self):
+		"""A box just big enough for its label keeps its size and goes without the detail.
+
+		Thin, so there is no line under the label, and narrow, so there is no room beside it.
+		"""
+		page = Region("page", "", Box(0, 0, 1000, 1000), "page")
+		thin = Region("navigation", "", Box(0, 0, 180, 50), "landmark", 12)
+		rest = Region("main", "", Box(0, 50, 1000, 950), "landmark")
+		page.children = [thin, rest]
+		withLinks = compose(PinBuffer, page, WIDTH, HEIGHT, "page", page.box, translate, 1)
+		thin.links = 0
+		without = compose(PinBuffer, page, WIDTH, HEIGHT, "page", page.box, translate, 1)
+		self.assertEqual([b.rect for b in withLinks.boxes], [b.rect for b in without.boxes])
+		banner = withLinks.boxes[0]
+		self.assertTrue(banner.label)
+		self.assertEqual(banner.detail, "", "no room beside or under the label")
+
+	def test_everyDetailIsInsideItsBoxAndClearOfTheBoxesInside(self):
+		for name in sorted(os.listdir(FIXTURES)):
+			for view in ("screen", "page"):
+				with self.subTest(page=name, view=view):
+					for box in draw(name, view).walk():
+						if box.detailAt is None:
+							continue
+						self.assertIsNotNone(box.detailAt.intersection(box.rect))
+						self.assertEqual(box.detailAt.intersection(box.rect), box.detailAt)
+						for child in box.children:
+							self.assertIsNone(child.rect.intersection(box.detailAt), box.region.title)
+
+
 class TestKeyLetters(unittest.TestCase):
 	def test_aWordTooLongForItsBoxGetsALetter(self):
 		"""A narrow box is widened for a short word, but never past four cells' worth."""

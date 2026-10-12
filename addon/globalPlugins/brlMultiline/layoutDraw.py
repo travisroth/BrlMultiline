@@ -71,6 +71,11 @@ class DrawnBox:
 	label: str = ""
 	key: str = ""
 	children: list["DrawnBox"] = field(default_factory=list)
+	#: Where the label or key letter is drawn, and where the detail line under it is, if any.
+	labelAt: Box | None = None
+	detail: str = ""
+	detailAt: Box | None = None
+	detailCells: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -240,6 +245,8 @@ def compose(
 		chosen = [(r, d) for r, d in chosen if r is not dropped and _parentOf(r, chosen) is not dropped]
 	overview = Overview(buffer, boxes, window, places, whole, xs, ys)
 	_label(overview, labels, keys if keys is not None else {})
+	details = {id(b.region): _detailFor(b.region) for b in overview.walk()}
+	_detail(overview, {key: (text, translate(text) if text else []) for key, text in details.items()})
 	_draw(overview, labels)
 	return overview
 
@@ -365,9 +372,12 @@ def _label(overview: Overview, labels: dict[int, list[int]], keys: dict[int, str
 		spot = _labelSpot(box, _labelWidth(len(cells)))
 		if cells and spot is not None:
 			box.label = "word"
+			box.labelAt = spot
 			continue
-		if _labelSpot(box, _labelWidth(1)) is None:
+		spot = _labelSpot(box, _labelWidth(1))
+		if spot is None:
 			continue
+		box.labelAt = spot
 		letter = keys.get(id(box.region))
 		if letter is None:
 			used = set(keys.values())
@@ -399,20 +409,73 @@ def _labelSpot(box: DrawnBox, labelWidth: int) -> Box | None:
 	return None
 
 
+def _detailFor(region: Region) -> str:
+	"""What a box holds, in the words a press says: how many links. Empty where there are none.
+
+	Translatable through the add-on's own catalogue in NVDA, and plain English in the tests.
+	"""
+	if region.links <= 0:
+		return ""
+	return f"{region.links} links" if region.links != 1 else "1 link"
+
+
+def _detail(overview: Overview, details: dict[int, tuple[str, list[int]]]) -> None:
+	"""Put each box's detail beside or under its label, where there is already room for it.
+
+	Never by making room: the boxes are laid out for their labels alone, and a detail that
+	does not fit, clear of the boxes inside, is left for a press to say. See `_detailSpot` for
+	where it is tried. A box with no label or key letter has nothing for a detail to belong to,
+	so gets none.
+	"""
+	for box in overview.walk():
+		text, cells = details.get(id(box.region), ("", []))
+		if not cells or box.labelAt is None:
+			continue
+		spot = _detailSpot(box, _labelWidth(len(cells)))
+		if spot is not None:
+			box.detail = text
+			box.detailAt = spot
+			box.detailCells = cells
+
+
+def _detailSpot(box: DrawnBox, width: int) -> Box | None:
+	"""Where a detail of this width goes, or None.
+
+	On the label's own line after a blank cell first, so it reads as one phrase, "nav 8 links".
+	Then a line of its own a blank row under the label, or over it for a label in a bottom
+	corner, at the label's left or the box's right.
+	"""
+	label, r = box.labelAt, box.rect
+	inset = 1 + LABEL_MARGIN
+	# The label's last cell ends a pin before where a next cell would start; one blank cell on.
+	sameLine = (label.top, label.right + 1 + CELL_STRIDE)
+	below, above = label.bottom + 1, label.top - 1 - CELL_HEIGHT
+	places = [sameLine]
+	for top in (below, above):
+		places += [(top, label.left), (top, r.right - inset - width)]
+	for top, left in places:
+		if top < r.top + inset or top + CELL_HEIGHT > r.bottom - inset:
+			continue
+		if left < r.left + inset or left + width > r.right - inset:
+			continue
+		spot = Box(left, top, width, CELL_HEIGHT)
+		clearance = Box(spot.left - 1, spot.top - 1, spot.width + 2, spot.height + 2)
+		if not any(child.rect.intersection(clearance) for child in box.children):
+			return spot
+	return None
+
+
 def _draw(overview: Overview, labels: dict[int, list[int]]) -> None:
 	buffer = overview.buffer
 	for box in overview.walk():
 		r = box.rect
 		buffer.rect(r.left, r.top, r.width, r.height)
-		if box.label:
-			cells = labels[id(box.region)]
-			spot = _labelSpot(box, _labelWidth(len(cells)))
-			if spot is not None:
-				buffer.text(spot.left, spot.top, cells, CELL_STRIDE)
-		elif box.key:
-			spot = _labelSpot(box, _labelWidth(1))
-			if spot is not None:
-				buffer.text(spot.left, spot.top, _keyCells(box.key), CELL_STRIDE)
+		if box.labelAt is not None and box.label:
+			buffer.text(box.labelAt.left, box.labelAt.top, labels[id(box.region)], CELL_STRIDE)
+		elif box.labelAt is not None and box.key:
+			buffer.text(box.labelAt.left, box.labelAt.top, _keyCells(box.key), CELL_STRIDE)
+		if box.detailAt is not None:
+			buffer.text(box.detailAt.left, box.detailAt.top, box.detailCells, CELL_STRIDE)
 
 
 #: Braille letters a to z as eight dot cell values (dots 1 to 6 only), for key letters. Not

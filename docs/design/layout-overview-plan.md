@@ -210,6 +210,12 @@ browser with a return to NVDA's message loop between, and stops at limits: 300 l
    gets a key letter, written in uncontracted letters so a contracted table cannot turn it into
    a word sign, and the key is spoken after the drawing.
 4. A press names the innermost box under it, with where it is on the page and its links.
+5. Where a box already has room, the link count a press would say is drawn with the label:
+   on its line after a blank cell first ("nav 8 links", which reads as one phrase), else a line
+   of its own a blank row under it (or over it, for a label in a bottom corner), clear of the
+   boxes inside. Boxes are never grown for it: the rulers are laid out for labels alone, and a box
+   without room keeps its label or key letter and leaves the count to a press. Asked on
+   hardware, because a press is a question the reader has to think to ask.
 
 The plugin's three commands are unbound: draw the screen's worth, draw the whole page, and show
 the overview as text with `ui.browseableMessage`. Gathering is cancelled by anything else that
