@@ -1,0 +1,1951 @@
+{
+ "candidates": {
+  "browser": "Google Chrome 154.0.8037.95",
+  "url": "file:///C:/pages/favorites.html",
+  "viewport": [
+   0,
+   121,
+   1920,
+   911
+  ],
+  "totalLinks": 30,
+  "linkScanMs": 3.7,
+  "locateCount": 8,
+  "locateMsTotal": 47.5,
+  "locateMsMax": 8.0,
+  "records": [
+   {
+    "type": "landmark",
+    "label": "form",
+    "role": "SECTION",
+    "name": null,
+    "tag": "form",
+    "xmlRoles": "form",
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "tag",
+     "text-align",
+     "xml-roles"
+    ],
+    "rect": [
+     8,
+     8,
+     1889,
+     1404
+    ],
+    "where": "bottom centre, full width, 1889 by 1404",
+    "start": 0,
+    "end": 718,
+    "textLength": 718,
+    "links": 30,
+    "depth": 0
+   },
+   {
+    "type": "search field",
+    "label": "",
+    "role": "EDITABLETEXT",
+    "name": "Search",
+    "tag": "input",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "inline-block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "explicit-name",
+     "html-input-name",
+     "maxlength",
+     "name-from",
+     "tag",
+     "text-align",
+     "text-input-type",
+     "text-model"
+    ],
+    "rect": [
+     15,
+     15,
+     212,
+     21
+    ],
+    "where": "top left, 212 by 21",
+    "start": 0,
+    "end": 1,
+    "textLength": 1,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "search button",
+    "label": "Google Search",
+    "role": "BUTTON",
+    "name": "Google Search",
+    "tag": "input",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "inline-block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "explicit-name",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     15,
+     36,
+     105,
+     21
+    ],
+    "where": "top left, 105 by 21",
+    "start": 1,
+    "end": 14,
+    "textLength": 13,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading1",
+    "label": "Favorites",
+    "role": "HEADING",
+    "name": "Favorites",
+    "tag": "h1",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     13,
+     80,
+     320,
+     38
+    ],
+    "where": "top left, 320 by 38",
+    "start": 14,
+    "end": 23,
+    "textLength": 9,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "Reading",
+    "role": "HEADING",
+    "name": "Reading",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     13,
+     602,
+     320,
+     28
+    ],
+    "where": "bottom left, 320 by 28",
+    "start": 318,
+    "end": 327,
+    "textLength": 9,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "Accounts",
+    "role": "HEADING",
+    "name": "Accounts",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     13,
+     755,
+     320,
+     28
+    ],
+    "where": "bottom left, 320 by 28",
+    "start": 405,
+    "end": 411,
+    "textLength": 6,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading1",
+    "label": "Accessibility",
+    "role": "HEADING",
+    "name": "Accessibility",
+    "tag": "h1",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     13,
+     909,
+     320,
+     38
+    ],
+    "where": "bottom left, 320 by 38",
+    "start": 456,
+    "end": 469,
+    "textLength": 13,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading1",
+    "label": "Quick Reference",
+    "role": "HEADING",
+    "name": "Quick Reference",
+    "tag": "h1",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     13,
+     1211,
+     320,
+     38
+    ],
+    "where": "below the visible part, 1 screens down",
+    "start": 603,
+    "end": 618,
+    "textLength": 15,
+    "links": 0,
+    "depth": 1
+   }
+  ]
+ },
+ "tree": {
+  "nodes": [
+   {
+    "depth": 0,
+    "role": "DOCUMENT",
+    "name": "Favorites Home",
+    "tag": "#document",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 1,
+    "rect": [
+     0,
+     0,
+     1920,
+     911
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "SECTION",
+    "name": "",
+    "tag": "form",
+    "id": null,
+    "class": null,
+    "xmlRoles": "form",
+    "display": "block",
+    "hints": [],
+    "children": 36,
+    "rect": [
+     8,
+     8,
+     1889,
+     1404
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "TABLE",
+    "name": "",
+    "tag": "table",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     13,
+     320,
+     46
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     15,
+     15,
+     316,
+     42
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "TABLECELL",
+    "name": "Search Google Search",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     15,
+     15,
+     316,
+     42
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "EDITABLETEXT",
+    "name": "Search",
+    "tag": "input",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline-block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     15,
+     15,
+     212,
+     21
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "BUTTON",
+    "name": "Google Search",
+    "tag": "input",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline-block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     15,
+     36,
+     105,
+     21
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "HEADING",
+    "name": "Favorites",
+    "tag": "h1",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     80,
+     320,
+     38
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     138,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 1",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     138,
+     131,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     172,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 2",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     172,
+     148,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     206,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 3",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     206,
+     115,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     240,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 4",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     240,
+     219,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     274,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 5",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     274,
+     177,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     308,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 6",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     308,
+     96,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     342,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 7",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     342,
+     92,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     376,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 8",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     376,
+     100,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     410,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 9",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     410,
+     167,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     444,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 10",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     444,
+     249,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     478,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 11",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     478,
+     180,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     512,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 12",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     512,
+     84,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     546,
+     320,
+     37
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 13",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     546,
+     255,
+     36
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "HEADING",
+    "name": "Reading",
+    "tag": "h2",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     602,
+     320,
+     28
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     649,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 14",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     649,
+     240,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     683,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 15",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     683,
+     76,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     717,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 16",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     717,
+     238,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "HEADING",
+    "name": "Accounts",
+    "tag": "h2",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     755,
+     320,
+     28
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     802,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 17",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     802,
+     131,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     836,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 18",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     836,
+     124,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     870,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 19",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     870,
+     49,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "HEADING",
+    "name": "Accessibility",
+    "tag": "h1",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     909,
+     320,
+     38
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     968,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 20",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     968,
+     218,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1002,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 21",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1002,
+     73,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1036,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 22",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1036,
+     111,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1070,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 23",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1070,
+     148,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1104,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 24",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1104,
+     82,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1138,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 25",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1138,
+     237,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1172,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 26",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1172,
+     155,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "HEADING",
+    "name": "Quick Reference",
+    "tag": "h1",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1211,
+     320,
+     38
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1270,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 27",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1270,
+     142,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1304,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 28",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1304,
+     188,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1338,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 29",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1338,
+     212,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1372,
+     320,
+     19
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Link 30",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     13,
+     1372,
+     158,
+     18
+    ]
+   }
+  ],
+  "ms": 400.2,
+  "truncated": false
+ },
+ "leaves": {
+  "count": 37,
+  "limit": 400,
+  "msTotal": 186.0,
+  "msMedian": 4.86,
+  "msMax": 7.0,
+  "leaves": [
+   {
+    "type": "link",
+    "start": 23,
+    "rect": [
+     13,
+     138,
+     131,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 42,
+    "rect": [
+     13,
+     172,
+     148,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 64,
+    "rect": [
+     13,
+     206,
+     115,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 79,
+    "rect": [
+     13,
+     240,
+     219,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 111,
+    "rect": [
+     13,
+     274,
+     177,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 135,
+    "rect": [
+     13,
+     308,
+     96,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 148,
+    "rect": [
+     13,
+     342,
+     92,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 160,
+    "rect": [
+     13,
+     376,
+     100,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 175,
+    "rect": [
+     13,
+     410,
+     167,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 199,
+    "rect": [
+     13,
+     444,
+     249,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 236,
+    "rect": [
+     13,
+     478,
+     180,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 260,
+    "rect": [
+     13,
+     512,
+     84,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 272,
+    "rect": [
+     13,
+     546,
+     255,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 327,
+    "rect": [
+     13,
+     649,
+     240,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 361,
+    "rect": [
+     13,
+     683,
+     76,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 370,
+    "rect": [
+     13,
+     717,
+     238,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 411,
+    "rect": [
+     13,
+     802,
+     131,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 431,
+    "rect": [
+     13,
+     836,
+     124,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 450,
+    "rect": [
+     13,
+     870,
+     49,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 469,
+    "rect": [
+     13,
+     968,
+     218,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 502,
+    "rect": [
+     13,
+     1002,
+     73,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 510,
+    "rect": [
+     13,
+     1036,
+     111,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 522,
+    "rect": [
+     13,
+     1070,
+     148,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 541,
+    "rect": [
+     13,
+     1104,
+     82,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 551,
+    "rect": [
+     13,
+     1138,
+     237,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 584,
+    "rect": [
+     13,
+     1172,
+     155,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 618,
+    "rect": [
+     13,
+     1270,
+     142,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 635,
+    "rect": [
+     13,
+     1304,
+     188,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 663,
+    "rect": [
+     13,
+     1338,
+     212,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 693,
+    "rect": [
+     13,
+     1372,
+     158,
+     18
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 14,
+    "rect": [
+     13,
+     80,
+     320,
+     38
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 318,
+    "rect": [
+     13,
+     602,
+     320,
+     28
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 405,
+    "rect": [
+     13,
+     755,
+     320,
+     28
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 456,
+    "rect": [
+     13,
+     909,
+     320,
+     38
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 603,
+    "rect": [
+     13,
+     1211,
+     320,
+     38
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 0,
+    "rect": [
+     15,
+     15,
+     212,
+     21
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 1,
+    "rect": [
+     15,
+     36,
+     105,
+     21
+    ]
+   }
+  ]
+ }
+}

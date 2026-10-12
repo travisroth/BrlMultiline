@@ -1,0 +1,8399 @@
+{
+ "candidates": {
+  "url": "https://fabulacoffee.com/",
+  "viewport": [
+   0,
+   121,
+   1920,
+   911
+  ],
+  "totalLinks": 58,
+  "linkScanMs": 12.1,
+  "locateCount": 61,
+  "locateMsTotal": 321.3,
+  "locateMsMax": 8.1,
+  "records": [
+   {
+    "type": "landmark",
+    "label": "Announcement bar",
+    "role": "REGION",
+    "name": "Announcement bar",
+    "tag": "div",
+    "xmlRoles": "region",
+    "id": null,
+    "class": "announcement-bar",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "explicit-name",
+     "name-from",
+     "tag",
+     "text-align",
+     "xml-roles"
+    ],
+    "rect": [
+     0,
+     -912,
+     1905,
+     35
+    ],
+    "where": "above the visible part",
+    "start": 47,
+    "end": 70,
+    "textLength": 23,
+    "links": 0,
+    "depth": 0
+   },
+   {
+    "type": "landmark",
+    "label": "banner",
+    "role": "LANDMARK",
+    "name": null,
+    "tag": "header",
+    "xmlRoles": "banner",
+    "id": "shopify-section-sections--21490724929771__header",
+    "class": "shopify-section shopify-section-group-header-group section-header shopify-section-header-sticky scrolled-past-header",
+    "display": "block",
+    "hints": [
+     "header",
+     "header"
+    ],
+    "attributeKeys": [
+     "class",
+     "display",
+     "id",
+     "tag",
+     "text-align",
+     "xml-roles"
+    ],
+    "rect": [
+     0,
+     0,
+     1905,
+     93
+    ],
+    "where": "top centre, full width, 1905 by 93",
+    "start": 70,
+    "end": 170,
+    "textLength": 100,
+    "links": 8,
+    "depth": 0
+   },
+   {
+    "type": "landmark",
+    "label": "navigation",
+    "role": "LANDMARK",
+    "name": null,
+    "tag": "nav",
+    "xmlRoles": "navigation",
+    "id": "sea-skip-target-navigation",
+    "class": "header__inline-menu",
+    "display": "block",
+    "hints": [
+     "nav",
+     "header",
+     "menu"
+    ],
+    "attributeKeys": [
+     "class",
+     "display",
+     "id",
+     "tag",
+     "text-align",
+     "xml-roles"
+    ],
+    "rect": [
+     501,
+     30,
+     903,
+     32
+    ],
+    "where": "top centre, 903 by 32",
+    "start": 83,
+    "end": 154,
+    "textLength": 71,
+    "links": 6,
+    "depth": 1
+   },
+   {
+    "type": "search button",
+    "label": "Search; collapsed",
+    "role": "BUTTON",
+    "name": "Search",
+    "tag": "button",
+    "xmlRoles": null,
+    "id": null,
+    "class": "header__icon header__search header__search--desktop",
+    "display": "flex",
+    "hints": [
+     "header",
+     "search"
+    ],
+    "attributeKeys": [
+     "class",
+     "display",
+     "explicit-name",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     1717,
+     27,
+     46,
+     38
+    ],
+    "where": "top right, 46 by 38",
+    "start": 154,
+    "end": 160,
+    "textLength": 6,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "landmark",
+    "label": "main",
+    "role": "LANDMARK",
+    "name": null,
+    "tag": "main",
+    "xmlRoles": "main",
+    "id": "MainContent",
+    "class": "content-for-layout focus-none",
+    "display": "block",
+    "hints": [
+     "content",
+     "main",
+     "content"
+    ],
+    "attributeKeys": [
+     "class",
+     "display",
+     "id",
+     "tag",
+     "text-align",
+     "xml-roles"
+    ],
+    "rect": [
+     0,
+     -784,
+     1905,
+     7656
+    ],
+    "where": "bottom centre, full width, 1905 by 7656",
+    "start": 170,
+    "end": 7264,
+    "textLength": 7094,
+    "links": 16,
+    "depth": 0
+   },
+   {
+    "type": "heading1",
+    "label": "Better Coffee\nfor a Better You",
+    "role": "HEADING",
+    "name": "Better Coffee for a Better You",
+    "tag": "h1",
+    "xmlRoles": null,
+    "id": null,
+    "class": "banner-item__title",
+    "display": "block",
+    "hints": [
+     "banner"
+    ],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     352,
+     -703,
+     417,
+     126
+    ],
+    "where": "above the visible part",
+    "start": 170,
+    "end": 200,
+    "textLength": 30,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "Fabula Fans' Top Picks",
+    "role": "HEADING",
+    "name": "Fabula Fans' Top Picks",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "headlines-sellers__title",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     352,
+     73,
+     377,
+     45
+    ],
+    "where": "top left, 377 by 45",
+    "start": 455,
+    "end": 477,
+    "textLength": 22,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Medium - 12oz",
+    "role": "HEADING",
+    "name": "Medium - 12oz",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "product-item__title h3",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     368,
+     414,
+     185,
+     26
+    ],
+    "where": "middle left, 185 by 26",
+    "start": 574,
+    "end": 587,
+    "textLength": 13,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Pods for K-Machine, Dark",
+    "role": "HEADING",
+    "name": "Pods for K-Machine, Dark",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "product-item__title h3",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     614,
+     414,
+     185,
+     51
+    ],
+    "where": "middle centre, 185 by 51",
+    "start": 682,
+    "end": 706,
+    "textLength": 24,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Decaf (Medium) - 12oz",
+    "role": "HEADING",
+    "name": "Decaf (Medium) - 12oz",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "product-item__title h3",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     860,
+     414,
+     185,
+     51
+    ],
+    "where": "middle centre, 185 by 51",
+    "start": 793,
+    "end": 814,
+    "textLength": 21,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Dark - 12oz",
+    "role": "HEADING",
+    "name": "Dark - 12oz",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "product-item__title h3",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     1106,
+     414,
+     185,
+     26
+    ],
+    "where": "middle centre, 185 by 26",
+    "start": 889,
+    "end": 900,
+    "textLength": 11,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Collagen Peptides",
+    "role": "HEADING",
+    "name": "Collagen Peptides",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "product-item__title h3",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     1352,
+     414,
+     185,
+     26
+    ],
+    "where": "middle right, 185 by 26",
+    "start": 989,
+    "end": 1006,
+    "textLength": 17,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "What\u2019s in it for you?",
+    "role": "HEADING",
+    "name": "What\u2019s in it for you?",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "landing-image-benefits-new__title",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     352,
+     702,
+     1201,
+     45
+    ],
+    "where": "bottom centre, 1201 by 45",
+    "start": 1054,
+    "end": 1075,
+    "textLength": 21,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "Something Delicious\nfor Everyone",
+    "role": "HEADING",
+    "name": "Something Delicious for Everyone",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "image-text-blocks__title",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     352,
+     1594,
+     1201,
+     92
+    ],
+    "where": "below the visible part, 1 screens down",
+    "start": 1930,
+    "end": 1962,
+    "textLength": 32,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Organic Coffee",
+    "role": "HEADING",
+    "name": "Organic Coffee",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "image-text-block__title",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     392,
+     1797,
+     332,
+     40
+    ],
+    "where": "below the visible part, 1 screens down",
+    "start": 2033,
+    "end": 2047,
+    "textLength": 14,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Creamers & Collagens",
+    "role": "HEADING",
+    "name": "Creamers & Collagens",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "image-text-block__title",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     1007,
+     1797,
+     332,
+     79
+    ],
+    "where": "below the visible part, 1 screens down",
+    "start": 2254,
+    "end": 2274,
+    "textLength": 20,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Tea",
+    "role": "HEADING",
+    "name": "Tea",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "image-text-block__title",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     392,
+     2266,
+     332,
+     40
+    ],
+    "where": "below the visible part, 2 screens down",
+    "start": 2464,
+    "end": 2467,
+    "textLength": 3,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Coffee Pods",
+    "role": "HEADING",
+    "name": "Coffee Pods",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "image-text-block__title",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     1007,
+     2266,
+     332,
+     40
+    ],
+    "where": "below the visible part, 2 screens down",
+    "start": 2638,
+    "end": 2649,
+    "textLength": 11,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "Fabula Fans' Top Picks",
+    "role": "HEADING",
+    "name": "Fabula Fans' Top Picks",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "headlines-sellers__title",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     352,
+     2761,
+     377,
+     45
+    ],
+    "where": "below the visible part, 3 screens down",
+    "start": 2909,
+    "end": 2931,
+    "textLength": 22,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Medium - 12oz",
+    "role": "HEADING",
+    "name": "Medium - 12oz",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "product-item__title h3",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     368,
+     3102,
+     185,
+     26
+    ],
+    "where": "below the visible part, 3 screens down",
+    "start": 3028,
+    "end": 3041,
+    "textLength": 13,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Pods for K-Machine, Dark",
+    "role": "HEADING",
+    "name": "Pods for K-Machine, Dark",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "product-item__title h3",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     614,
+     3102,
+     185,
+     51
+    ],
+    "where": "below the visible part, 3 screens down",
+    "start": 3136,
+    "end": 3160,
+    "textLength": 24,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Decaf (Medium) - 12oz",
+    "role": "HEADING",
+    "name": "Decaf (Medium) - 12oz",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "product-item__title h3",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     860,
+     3102,
+     185,
+     51
+    ],
+    "where": "below the visible part, 3 screens down",
+    "start": 3247,
+    "end": 3268,
+    "textLength": 21,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Dark - 12oz",
+    "role": "HEADING",
+    "name": "Dark - 12oz",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "product-item__title h3",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     1106,
+     3102,
+     185,
+     26
+    ],
+    "where": "below the visible part, 3 screens down",
+    "start": 3343,
+    "end": 3354,
+    "textLength": 11,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Collagen Peptides",
+    "role": "HEADING",
+    "name": "Collagen Peptides",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "product-item__title h3",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     1352,
+     3102,
+     185,
+     26
+    ],
+    "where": "below the visible part, 3 screens down",
+    "start": 3443,
+    "end": 3460,
+    "textLength": 17,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "We Asked\u00a01,313\u00a0Fabula Drinkers\u2028How the Switch is Going.",
+    "role": "HEADING",
+    "name": "We Asked\u00a01,313\u00a0Fabula Drinkers\u2028How the Switch is Going.",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "social-proof__heading",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     597,
+     3390,
+     711,
+     105
+    ],
+    "where": "below the visible part, 3 screens down",
+    "start": 3521,
+    "end": 3576,
+    "textLength": 55,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "30+ Million Tasty Coffees Made",
+    "role": "HEADING",
+    "name": "30+ Million Tasty Coffees Made",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "large-reviews__title",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     352,
+     4129,
+     1201,
+     46
+    ],
+    "where": "below the visible part, 4 screens down",
+    "start": 4559,
+    "end": 4589,
+    "textLength": 30,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Makes you want to place your face in the bag",
+    "role": "HEADING",
+    "name": "Makes you want to place your face in the bag",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "slide-content__title",
+    "display": "block",
+    "hints": [
+     "content"
+    ],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     -463,
+     4315,
+     376,
+     69
+    ],
+    "where": "below the visible part, 4 screens down",
+    "start": 4672,
+    "end": 4716,
+    "textLength": 44,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Deliciously Healthy and Organic",
+    "role": "HEADING",
+    "name": "Deliciously Healthy and Organic",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "slide-content__title",
+    "display": "block",
+    "hints": [
+     "content"
+    ],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     277,
+     4291,
+     376,
+     69
+    ],
+    "where": "below the visible part, 4 screens down",
+    "start": 4894,
+    "end": 4925,
+    "textLength": 31,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Just Perfect",
+    "role": "HEADING",
+    "name": "Just Perfect",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "slide-content__title",
+    "display": "block",
+    "hints": [
+     "content"
+    ],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     1017,
+     4308,
+     376,
+     35
+    ],
+    "where": "below the visible part, 4 screens down",
+    "start": 5182,
+    "end": 5194,
+    "textLength": 12,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "Rich Flavor, Gentle on the Stomach",
+    "role": "HEADING",
+    "name": "Rich Flavor, Gentle on the Stomach",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "slide-content__title",
+    "display": "block",
+    "hints": [
+     "content"
+    ],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     1757,
+     4303,
+     376,
+     69
+    ],
+    "where": "below the visible part, 4 screens down",
+    "start": 5454,
+    "end": 5488,
+    "textLength": 34,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "This is possibly the smoothest coffee",
+    "role": "HEADING",
+    "name": "This is possibly the smoothest coffee",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "slide-content__title",
+    "display": "block",
+    "hints": [
+     "content"
+    ],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     2497,
+     4315,
+     376,
+     69
+    ],
+    "where": "below the visible part, 4 screens down",
+    "start": 5728,
+    "end": 5765,
+    "textLength": 37,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading3",
+    "label": "What a difference!",
+    "role": "HEADING",
+    "name": "What a difference!",
+    "tag": "h3",
+    "xmlRoles": null,
+    "id": null,
+    "class": "slide-content__title",
+    "display": "block",
+    "hints": [
+     "content"
+    ],
+    "attributeKeys": [
+     "atomic",
+     "class",
+     "container-atomic",
+     "container-busy",
+     "container-live",
+     "container-relevant",
+     "display",
+     "level",
+     "name-from",
+     "relevant",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     3237,
+     4332,
+     376,
+     35
+    ],
+    "where": "below the visible part, 4 screens down",
+    "start": 5954,
+    "end": 5972,
+    "textLength": 18,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "Fabula Coffee vs. Typical Coffee",
+    "role": "HEADING",
+    "name": "Fabula Coffee vs. Typical Coffee",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     382,
+     4682,
+     1141,
+     45
+    ],
+    "where": "below the visible part, 5 screens down",
+    "start": 6173,
+    "end": 6205,
+    "textLength": 32,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "table",
+    "label": "Product comparedFabulaRegular CoffeeOrganic Certified  Specialty-Grade Arabica Beans  Fresh Roast-to-Order  Lab-Tested (550+ Toxins-Free)  Gentle, Low-Acid  No Jitters or Crash  Single-Origin, High-Altitude Grown",
+    "role": "TABLE",
+    "name": null,
+    "tag": "table",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "table",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     472,
+     4829,
+     961,
+     601
+    ],
+    "where": "below the visible part, 5 screens down",
+    "start": 6315,
+    "end": 6529,
+    "textLength": 214,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "What Makes Fabula a Favorite?",
+    "role": "HEADING",
+    "name": "What Makes Fabula a Favorite?",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "new-video-reviews__title",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     685,
+     5544,
+     535,
+     45
+    ],
+    "where": "below the visible part, 6 screens down",
+    "start": 6529,
+    "end": 6558,
+    "textLength": 29,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "Subscribe & Save",
+    "role": "HEADING",
+    "name": "Subscribe & Save",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "subcription-text__title",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     1019,
+     6453,
+     454,
+     52
+    ],
+    "where": "below the visible part, 7 screens down",
+    "start": 7017,
+    "end": 7033,
+    "textLength": 16,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "landmark",
+    "label": "content info",
+    "role": "LANDMARK",
+    "name": null,
+    "tag": "footer",
+    "xmlRoles": "contentinfo",
+    "id": "sea-skip-target-footer",
+    "class": null,
+    "display": "block",
+    "hints": [
+     "footer"
+    ],
+    "attributeKeys": [
+     "display",
+     "id",
+     "tag",
+     "text-align",
+     "xml-roles"
+    ],
+    "rect": [
+     0,
+     6871,
+     1905,
+     724
+    ],
+    "where": "below the visible part, 7 screens down",
+    "start": 7264,
+    "end": 8233,
+    "textLength": 969,
+    "links": 31,
+    "depth": 0
+   }
+  ]
+ },
+ "tree": {
+  "nodes": [
+   {
+    "depth": 0,
+    "role": "DOCUMENT",
+    "name": "Low Acid, 100% Organic Coffee \u2013 Healthy Mold Free Coffee \u2013 F",
+    "tag": "#document",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 14,
+    "rect": [
+     0,
+     0,
+     1920,
+     911
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "sea-accessibility-skip-links",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     -9999,
+     0,
+     1,
+     1
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "LINK",
+    "name": "Skip to navigation",
+    "tag": "a",
+    "id": null,
+    "class": "sea-skip-link",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     -9999,
+     0,
+     1,
+     1
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "LINK",
+    "name": "Skip to footer",
+    "tag": "a",
+    "id": null,
+    "class": "sea-skip-link",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     -9999,
+     0,
+     1,
+     1
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "SECTION",
+    "name": "",
+    "tag": "loading-bar",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     0,
+     0,
+     0,
+     7
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "LINK",
+    "name": "Skip to content",
+    "tag": "a",
+    "id": null,
+    "class": "skip-to-content-link button visually-hidden",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "content"
+    ],
+    "children": 1,
+    "rect": [
+     -1,
+     -913,
+     122,
+     47
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": "shopify-section-sections--21490724929771__announcement-bar",
+    "class": "shopify-section shopify-section-group-header-group",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "header"
+    ],
+    "children": 1,
+    "rect": [
+     0,
+     -912,
+     1905,
+     35
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "REGION",
+    "name": "Announcement bar",
+    "tag": "div",
+    "id": null,
+    "class": "announcement-bar",
+    "xmlRoles": "region",
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     0,
+     -912,
+     1905,
+     35
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "announcement-bar__content announcement-bar__content--heading",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "content"
+    ],
+    "children": 1,
+    "rect": [
+     15,
+     -902,
+     1875,
+     15
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "\u00a0FREE SHIPPING OVER\u00a0$49",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     861,
+     -904,
+     183,
+     19
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "LANDMARK",
+    "name": "",
+    "tag": "header",
+    "id": "shopify-section-sections--21490724929771__header",
+    "class": "shopify-section shopify-section-group-header-group section-header shopify-section-header-sticky scrolled-past-header",
+    "xmlRoles": "banner",
+    "display": "block",
+    "hints": [
+     "header",
+     "header"
+    ],
+    "children": 1,
+    "rect": [
+     0,
+     0,
+     1905,
+     93
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "sticky-header",
+    "id": null,
+    "class": "header-wrapper  header-wrapper--transparent  ",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "header"
+    ],
+    "children": 1,
+    "rect": [
+     0,
+     0,
+     1905,
+     93
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "header header--middle-left header--mobile-center header--has-menu header--has-social header--has-account header--initialized",
+    "xmlRoles": null,
+    "display": "grid",
+    "hints": [
+     "header",
+     "left",
+     "menu"
+    ],
+    "children": 5,
+    "rect": [
+     0,
+     0,
+     1905,
+     93
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "header__heading",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "header"
+    ],
+    "children": 1,
+    "rect": [
+     50,
+     16,
+     60,
+     60
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Fabula Coffee",
+    "tag": "a",
+    "id": null,
+    "class": "header__heading-link link link--text focus-inset",
+    "xmlRoles": null,
+    "display": "inline-block",
+    "hints": [
+     "header"
+    ],
+    "children": 1,
+    "rect": [
+     50,
+     16,
+     60,
+     60
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LANDMARK",
+    "name": "",
+    "tag": "nav",
+    "id": "sea-skip-target-navigation",
+    "class": "header__inline-menu",
+    "xmlRoles": "navigation",
+    "display": "block",
+    "hints": [
+     "nav",
+     "header",
+     "menu"
+    ],
+    "children": 1,
+    "rect": [
+     501,
+     30,
+     903,
+     32
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": "list-menu list-menu--inline",
+    "xmlRoles": "list",
+    "display": "flex",
+    "hints": [
+     "menu"
+    ],
+    "children": 6,
+    "rect": [
+     501,
+     30,
+     903,
+     32
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "BUTTON",
+    "name": "Search",
+    "tag": "button",
+    "id": null,
+    "class": "header__icon header__search header__search--desktop",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "header",
+     "search"
+    ],
+    "children": 0,
+    "rect": [
+     1717,
+     27,
+     46,
+     38
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LINK",
+    "name": "Log in",
+    "tag": "a",
+    "id": null,
+    "class": "header__icon header__icon--account link focus-inset",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "header"
+    ],
+    "children": 2,
+    "rect": [
+     1763,
+     27,
+     46,
+     38
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "BUTTON",
+    "name": "Cart",
+    "tag": "a",
+    "id": "cart-icon-bubble",
+    "class": "header__icon header__icon--cart link focus-inset",
+    "xmlRoles": "button",
+    "display": "flex",
+    "hints": [
+     "header"
+    ],
+    "children": 2,
+    "rect": [
+     1809,
+     27,
+     46,
+     38
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": "icon icon-cart-empty",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1820,
+     34,
+     24,
+     24
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "Cart",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1817,
+     37,
+     30,
+     18
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "LANDMARK",
+    "name": "",
+    "tag": "main",
+    "id": "MainContent",
+    "class": "content-for-layout focus-none",
+    "xmlRoles": "main",
+    "display": "block",
+    "hints": [
+     "content",
+     "main",
+     "content"
+    ],
+    "children": 10,
+    "rect": [
+     0,
+     -784,
+     1905,
+     7656
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": "shopify-section-template--23159067640043__new_hero_banner_VCAjEK",
+    "class": "shopify-section",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "banner"
+    ],
+    "children": 25,
+    "rect": [
+     0,
+     -784,
+     1905,
+     746
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "HEADING",
+    "name": "Better Coffee for a Better You",
+    "tag": "h1",
+    "id": null,
+    "class": "banner-item__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "banner"
+    ],
+    "children": 5,
+    "rect": [
+     352,
+     -703,
+     417,
+     126
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     -558,
+     417,
+     26
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Exceptionally Pure. Remarkably Delicious.",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     352,
+     -556,
+     314,
+     21
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": "banner-item__benefits",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "banner"
+    ],
+    "children": 3,
+    "rect": [
+     352,
+     -513,
+     417,
+     101
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "banner-item__benefits-item",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "banner"
+    ],
+    "children": 2,
+    "rect": [
+     352,
+     -513,
+     417,
+     25
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     352,
+     -513,
+     25,
+     25
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "Low acid. No tummy burn.",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     388,
+     -510,
+     186,
+     20
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "banner-item__benefits-item",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "banner"
+    ],
+    "children": 2,
+    "rect": [
+     352,
+     -475,
+     417,
+     25
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     352,
+     -475,
+     25,
+     25
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "Mold Free. Guaranteed.",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     388,
+     -472,
+     167,
+     20
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "banner-item__benefits-item",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "banner"
+    ],
+    "children": 2,
+    "rect": [
+     352,
+     -437,
+     417,
+     25
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     352,
+     -437,
+     25,
+     25
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "Clean. Healthy. Always.",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     388,
+     -434,
+     167,
+     20
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     352,
+     -385,
+     16,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     370,
+     -385,
+     16,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     388,
+     -385,
+     16,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     406,
+     -385,
+     16,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     424,
+     -385,
+     16,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "banner-item__review-text",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "banner"
+    ],
+    "children": 1,
+    "rect": [
+     447,
+     -388,
+     232,
+     22
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "over 40,583 Five Star Reviews",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     447,
+     -388,
+     232,
+     21
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "SHOP NOW",
+    "tag": "a",
+    "id": null,
+    "class": "banner-item__link",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "banner"
+    ],
+    "children": 1,
+    "rect": [
+     352,
+     -332,
+     301,
+     57
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1472,
+     -698,
+     61,
+     61
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "100% ORGANIC",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1470,
+     -633,
+     65,
+     32
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1472,
+     -581,
+     61,
+     61
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "NON GMO",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1467,
+     -516,
+     71,
+     18
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1472,
+     -478,
+     61,
+     61
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "SINGLE ORIGIN",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1477,
+     -413,
+     51,
+     32
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1472,
+     -361,
+     61,
+     61
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "MOLD-FREE",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1461,
+     -296,
+     83,
+     18
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "new-hero-banner__footer-text",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "banner",
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     352,
+     -184,
+     1201,
+     25
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "\u201cFabula is everything you need for a healthy lifestyle\u201d",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     742,
+     -183,
+     421,
+     21
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     475,
+     -138,
+     85,
+     38
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     600,
+     -140,
+     215,
+     42
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     855,
+     -140,
+     41,
+     42
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     936,
+     -140,
+     68,
+     42
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1044,
+     -136,
+     149,
+     34
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1233,
+     -134,
+     197,
+     30
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": "shopify-section-template--23159067640043__best_sellers_fRp9yj",
+    "class": "shopify-section",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     0,
+     -39,
+     1905,
+     662
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "new-best-sellers__header",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "header"
+    ],
+    "children": 3,
+    "rect": [
+     352,
+     41,
+     1201,
+     77
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "headlines-sellers__subtitle",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     41,
+     377,
+     23
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "Best sellers",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     352,
+     42,
+     89,
+     21
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "HEADING",
+    "name": "Fabula Fans' Top Picks",
+    "tag": "h2",
+    "id": null,
+    "class": "headlines-sellers__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     73,
+     377,
+     45
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": "new-best-sellers__header-filter filter-sellers",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "header"
+    ],
+    "children": 6,
+    "rect": [
+     889,
+     79,
+     664,
+     39
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "filter-sellers__item",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     889,
+     79,
+     113,
+     39
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "filter-sellers__item",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1006,
+     79,
+     132,
+     39
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "filter-sellers__item",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1142,
+     79,
+     91,
+     39
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "filter-sellers__item",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1237,
+     79,
+     74,
+     39
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "filter-sellers__item",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1315,
+     79,
+     176,
+     39
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "filter-sellers__item",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1495,
+     79,
+     58,
+     39
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "shopify-block-collection_DmTbzy",
+    "class": "new-best-sellers__body-wrapper new-best-sellers__body-wrapper--active sellers-wrapper swiper swiper-initialized swiper-horizontal swiper-watch-progress swiper-backface-hidden",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     352,
+     157,
+     1201,
+     411
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "swiper-wrapper-404c271752bb22e4",
+    "class": "new-best-sellers__body-inner swiper-wrapper",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 5,
+    "rect": [
+     352,
+     157,
+     1201,
+     361
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "1 / 5",
+    "tag": "div",
+    "id": null,
+    "class": "sellers-wrapper__item swiper-slide swiper-slide-visible swiper-slide-fully-visible swiper-slide-active",
+    "xmlRoles": "group",
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     157,
+     217,
+     361
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "2 / 5",
+    "tag": "div",
+    "id": null,
+    "class": "sellers-wrapper__item swiper-slide swiper-slide-visible swiper-slide-fully-visible swiper-slide-next",
+    "xmlRoles": "group",
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     598,
+     157,
+     217,
+     361
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "3 / 5",
+    "tag": "div",
+    "id": null,
+    "class": "sellers-wrapper__item swiper-slide swiper-slide-visible swiper-slide-fully-visible",
+    "xmlRoles": "group",
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     844,
+     157,
+     217,
+     361
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "4 / 5",
+    "tag": "div",
+    "id": null,
+    "class": "sellers-wrapper__item swiper-slide swiper-slide-visible swiper-slide-fully-visible",
+    "xmlRoles": "group",
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1090,
+     157,
+     217,
+     361
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "5 / 5",
+    "tag": "div",
+    "id": null,
+    "class": "sellers-wrapper__item swiper-slide swiper-slide-visible swiper-slide-fully-visible",
+    "xmlRoles": "group",
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1336,
+     157,
+     217,
+     361
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "span",
+    "id": null,
+    "class": "swiper-notification",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     352,
+     157,
+     1201,
+     411
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": "shopify-section-template--23159067640043__landing_image_benefits_new_xwQLzV",
+    "class": "shopify-section landing-image-benefits-new",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 12,
+    "rect": [
+     0,
+     622,
+     1905,
+     893
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "HEADING",
+    "name": "What\u2019s in it for you?",
+    "tag": "h2",
+    "id": null,
+    "class": "landing-image-benefits-new__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     702,
+     1201,
+     45
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     761,
+     1201,
+     25
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Join thousands enjoying smoother, cleaner, healthier coffee ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     688,
+     763,
+     529,
+     21
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "landing-image-benefits-new__image-container",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     352,
+     825,
+     561,
+     610
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "landing-benefit-item__icon",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     982,
+     857,
+     82,
+     82
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "landing-benefit-item__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1078,
+     857,
+     405,
+     30
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Drink coffee without the tummy burn",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1078,
+     857,
+     405,
+     28
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "landing-benefit-item__text",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1078,
+     898,
+     405,
+     113
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Fabula Coffee is naturally low-acid and guaranteed free from",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1078,
+     899,
+     393,
+     110
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "landing-benefit-item__icon",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     982,
+     1050,
+     82,
+     82
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "landing-benefit-item__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1078,
+     1050,
+     405,
+     58
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "100% Organic: Coffee the way Mother Earth intended",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1078,
+     1050,
+     404,
+     57
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "landing-benefit-item__text",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1078,
+     1119,
+     405,
+     91
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Enjoy coffee that\u2019s pure, clean, and ethically produced. Cho",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1078,
+     1120,
+     387,
+     88
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "landing-benefit-item__icon",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     982,
+     1249,
+     82,
+     82
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "landing-benefit-item__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1078,
+     1249,
+     405,
+     30
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Taste the difference of top 1% coffee",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1078,
+     1249,
+     389,
+     28
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "landing-benefit-item__text",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1078,
+     1290,
+     405,
+     113
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Fabula Coffee is exclusively crafted from the top 1% of Arab",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1078,
+     1291,
+     391,
+     110
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": "shopify-section-template--23159067640043__image_text_blocks_m937Pp",
+    "class": "shopify-section image-text-blocks",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     0,
+     1514,
+     1905,
+     1136
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "image-text-blocks__container page-width section-template--23159067640043__image_text_blocks_m937Pp--padding",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     332,
+     1514,
+     1241,
+     1136
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "HEADING",
+    "name": "Something Delicious for Everyone",
+    "tag": "h2",
+    "id": null,
+    "class": "image-text-blocks__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     1594,
+     1201,
+     92
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "image-text-blocks__text",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     1700,
+     1201,
+     23
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     1700,
+     1201,
+     23
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "image-text-blocks__blocks-container",
+    "xmlRoles": null,
+    "display": "grid",
+    "hints": [],
+    "children": 20,
+    "rect": [
+     352,
+     1757,
+     1201,
+     893
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "HEADING",
+    "name": "Organic Coffee",
+    "tag": "h3",
+    "id": null,
+    "class": "image-text-block__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     392,
+     1797,
+     332,
+     40
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     392,
+     1856,
+     332,
+     69
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     392,
+     1944,
+     332,
+     88
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "SHOP NOW",
+    "tag": "a",
+    "id": null,
+    "class": "image-text-block__button",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     392,
+     2110,
+     221,
+     47
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "image-text-block__image",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     728,
+     1885,
+     210,
+     312
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "HEADING",
+    "name": "Creamers & Collagens",
+    "tag": "h3",
+    "id": null,
+    "class": "image-text-block__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1007,
+     1797,
+     332,
+     79
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1007,
+     1895,
+     332,
+     69
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     1007,
+     1983,
+     332,
+     88
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "SHOP NOW",
+    "tag": "a",
+    "id": null,
+    "class": "image-text-block__button",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1007,
+     2110,
+     221,
+     47
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "image-text-block__image",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1343,
+     1885,
+     210,
+     312
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "HEADING",
+    "name": "Tea",
+    "tag": "h3",
+    "id": null,
+    "class": "image-text-block__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     392,
+     2266,
+     332,
+     40
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     392,
+     2325,
+     332,
+     69
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     392,
+     2413,
+     332,
+     88
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "SHOP NOW",
+    "tag": "a",
+    "id": null,
+    "class": "image-text-block__button",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     392,
+     2563,
+     221,
+     47
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "image-text-block__image",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     728,
+     2337,
+     210,
+     313
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "HEADING",
+    "name": "Coffee Pods",
+    "tag": "h3",
+    "id": null,
+    "class": "image-text-block__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1007,
+     2266,
+     332,
+     40
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1007,
+     2325,
+     332,
+     91
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     1007,
+     2435,
+     332,
+     89
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "SHOP NOW",
+    "tag": "a",
+    "id": null,
+    "class": "image-text-block__button",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1007,
+     2563,
+     221,
+     47
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "image-text-block__image",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1343,
+     2338,
+     210,
+     312
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": "shopify-section-template--23159067640043__best_sellers_qwe123",
+    "class": "shopify-section",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     0,
+     2649,
+     1905,
+     662
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "new-best-sellers__header",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "header"
+    ],
+    "children": 3,
+    "rect": [
+     352,
+     2729,
+     1201,
+     77
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "headlines-sellers__subtitle",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     2729,
+     377,
+     23
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "Best sellers",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     352,
+     2730,
+     89,
+     21
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "HEADING",
+    "name": "Fabula Fans' Top Picks",
+    "tag": "h2",
+    "id": null,
+    "class": "headlines-sellers__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     2761,
+     377,
+     45
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": "new-best-sellers__header-filter filter-sellers",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "header"
+    ],
+    "children": 6,
+    "rect": [
+     889,
+     2767,
+     664,
+     39
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "filter-sellers__item",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     889,
+     2767,
+     113,
+     39
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "filter-sellers__item",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1006,
+     2767,
+     132,
+     39
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "filter-sellers__item",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1142,
+     2767,
+     91,
+     39
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "filter-sellers__item",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1237,
+     2767,
+     74,
+     39
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "filter-sellers__item",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1315,
+     2767,
+     176,
+     39
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "filter-sellers__item",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1495,
+     2767,
+     58,
+     39
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "shopify-block-collection_DmTbzy",
+    "class": "new-best-sellers__body-wrapper new-best-sellers__body-wrapper--active sellers-wrapper swiper swiper-initialized swiper-horizontal swiper-watch-progress swiper-backface-hidden",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     352,
+     2845,
+     1201,
+     411
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "swiper-wrapper-875424fbf40f11bf",
+    "class": "new-best-sellers__body-inner swiper-wrapper",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 5,
+    "rect": [
+     352,
+     2845,
+     1201,
+     361
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "1 / 5",
+    "tag": "div",
+    "id": null,
+    "class": "sellers-wrapper__item swiper-slide swiper-slide-visible swiper-slide-fully-visible swiper-slide-active",
+    "xmlRoles": "group",
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     2845,
+     217,
+     361
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "2 / 5",
+    "tag": "div",
+    "id": null,
+    "class": "sellers-wrapper__item swiper-slide swiper-slide-visible swiper-slide-fully-visible swiper-slide-next",
+    "xmlRoles": "group",
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     598,
+     2845,
+     217,
+     361
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "3 / 5",
+    "tag": "div",
+    "id": null,
+    "class": "sellers-wrapper__item swiper-slide swiper-slide-visible swiper-slide-fully-visible",
+    "xmlRoles": "group",
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     844,
+     2845,
+     217,
+     361
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "4 / 5",
+    "tag": "div",
+    "id": null,
+    "class": "sellers-wrapper__item swiper-slide swiper-slide-visible swiper-slide-fully-visible",
+    "xmlRoles": "group",
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1090,
+     2845,
+     217,
+     361
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "5 / 5",
+    "tag": "div",
+    "id": null,
+    "class": "sellers-wrapper__item swiper-slide swiper-slide-visible swiper-slide-fully-visible",
+    "xmlRoles": "group",
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1336,
+     2845,
+     217,
+     361
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "span",
+    "id": null,
+    "class": "swiper-notification",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     352,
+     2845,
+     1201,
+     411
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": "shopify-section-template--23159067640043__social_proof_nhYBJJ",
+    "class": "shopify-section section__social-proof",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     0,
+     3310,
+     1905,
+     740
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "social-proof__wrapper section-template--23159067640043__social_proof_nhYBJJ--padding social-proof--rounded",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 17,
+    "rect": [
+     0,
+     3310,
+     1905,
+     740
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "picture",
+    "id": null,
+    "class": "section-template--23159067640043__social_proof_nhYBJJ decor-image decor-image--all",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1600,
+     6655,
+     305,
+     0
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GRAPHIC",
+    "name": "Fabula Coffee",
+    "tag": "img",
+    "id": null,
+    "class": "decor-image__image",
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1600,
+     3345,
+     0,
+     10
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "HEADING",
+    "name": "We Asked\u00a01,313\u00a0Fabula Drinkers\u2028How the Switch is Going.",
+    "tag": "h2",
+    "id": null,
+    "class": "social-proof__heading",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     597,
+     3390,
+     711,
+     105
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "social-proof__item-value",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     393,
+     3570,
+     167,
+     81
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "94",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     393,
+     3540,
+     117,
+     127
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "em",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     509,
+     3579,
+     51,
+     77
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     771,
+     3570,
+     51,
+     51
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "social-proof__item-title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     393,
+     3680,
+     429,
+     55
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "strong",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     393,
+     3683,
+     308,
+     22
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "\u00a0since switching to Fabula.",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     393,
+     3683,
+     358,
+     49
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "social-proof__item-text",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     393,
+     3742,
+     429,
+     46
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "82% chose \u201cMuch better \u2014 noticeably more comfortable and enj",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     393,
+     3743,
+     404,
+     42
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "social-proof__item-progress",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     393,
+     3817,
+     429,
+     6
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "social-proof__item-value",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     913,
+     3570,
+     254,
+     57
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "83",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     913,
+     3549,
+     83,
+     88
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "em",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     995,
+     3578,
+     35,
+     51
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "social-proof__item-title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     913,
+     3646,
+     254,
+     46
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "felt the difference\u00a0",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     913,
+     3647,
+     130,
+     20
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "strong",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     913,
+     3647,
+     243,
+     43
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "social-proof__item-text",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     913,
+     3693,
+     254,
+     24
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "67% in the first week alone.",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     913,
+     3694,
+     197,
+     20
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "social-proof__item-value",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     1258,
+     3570,
+     254,
+     57
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "9",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1258,
+     3549,
+     42,
+     88
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "em",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1299,
+     3578,
+     37,
+     51
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "10",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1335,
+     3549,
+     70,
+     88
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "social-proof__item-title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     1258,
+     3646,
+     254,
+     46
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "would\u00a0",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1258,
+     3647,
+     48,
+     20
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "strong",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1258,
+     3647,
+     215,
+     43
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "social-proof__item-text",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1258,
+     3693,
+     254,
+     24
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "Net Promoter Score: 86.",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1258,
+     3694,
+     171,
+     20
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "social-proof__item-value",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     913,
+     3808,
+     96,
+     57
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "71",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     913,
+     3787,
+     62,
+     88
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "em",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     974,
+     3816,
+     35,
+     51
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "social-proof__item-title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     1038,
+     3814,
+     291,
+     46
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "describe a\u00a0",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1038,
+     3815,
+     79,
+     20
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "strong",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1116,
+     3815,
+     186,
+     20
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "\u2028they genuinely enjoy.",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1038,
+     3815,
+     268,
+     42
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "social-proof__footnote-title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     602,
+     3930,
+     701,
+     40
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "*June 2026 survey of 1,313 Fabula customers. \u201cRecommend\u201d: 96",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     602,
+     3931,
+     701,
+     37
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "BUTTON",
+    "name": "Survey details",
+    "tag": "button",
+    "id": null,
+    "class": "social-proof__survey-toggle",
+    "xmlRoles": null,
+    "display": "inline-block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     714,
+     3951,
+     88,
+     17
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "social-proof__footnote-inner",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     602,
+     3980,
+     695,
+     95
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "Typeform survey, June 1\u201310, 2026; all Fabula customers invit",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     602,
+     3980,
+     695,
+     95
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "BUTTON",
+    "name": "Hide Survey details",
+    "tag": "button",
+    "id": null,
+    "class": "social-proof__survey-toggle",
+    "xmlRoles": null,
+    "display": "inline-block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     854,
+     4058,
+     119,
+     17
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": "shopify-section-template--23159067640043__large_review_slider_new_XHNnjg",
+    "class": "shopify-section",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 5,
+    "rect": [
+     0,
+     4049,
+     1905,
+     634
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "HEADING",
+    "name": "30+ Million Tasty Coffees Made",
+    "tag": "h2",
+    "id": null,
+    "class": "large-reviews__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     4129,
+     1201,
+     46
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     4189,
+     1201,
+     23
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Join thousands enjoying smoother, cleaner, healthier coffee ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     703,
+     4190,
+     499,
+     20
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "large-reviews__swiper swiper swiper-initialized swiper-horizontal swiper-backface-hidden",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     240,
+     4246,
+     1665,
+     301
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "swiper-wrapper-23542e8753cf422d",
+    "class": "large-reviews__swiper-wrapper swiper-wrapper large-swiper",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 6,
+    "rect": [
+     -728,
+     4246,
+     1586,
+     301
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "6 / 6",
+    "tag": "div",
+    "id": null,
+    "class": "large-swiper__slide swiper-slide",
+    "xmlRoles": "group",
+    "display": "flex",
+    "hints": [],
+    "children": 7,
+    "rect": [
+     -728,
+     4246,
+     641,
+     301
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "1 / 6",
+    "tag": "div",
+    "id": null,
+    "class": "large-swiper__slide swiper-slide swiper-slide-prev",
+    "xmlRoles": "group",
+    "display": "flex",
+    "hints": [],
+    "children": 7,
+    "rect": [
+     12,
+     4246,
+     641,
+     301
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "2 / 6",
+    "tag": "div",
+    "id": null,
+    "class": "large-swiper__slide swiper-slide swiper-slide-active",
+    "xmlRoles": "group",
+    "display": "flex",
+    "hints": [],
+    "children": 7,
+    "rect": [
+     752,
+     4246,
+     641,
+     301
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "3 / 6",
+    "tag": "div",
+    "id": null,
+    "class": "large-swiper__slide swiper-slide swiper-slide-next",
+    "xmlRoles": "group",
+    "display": "flex",
+    "hints": [],
+    "children": 7,
+    "rect": [
+     1492,
+     4246,
+     641,
+     301
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "4 / 6",
+    "tag": "div",
+    "id": null,
+    "class": "large-swiper__slide swiper-slide",
+    "xmlRoles": "group",
+    "display": "flex",
+    "hints": [],
+    "children": 7,
+    "rect": [
+     2232,
+     4246,
+     641,
+     301
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "5 / 6",
+    "tag": "div",
+    "id": null,
+    "class": "large-swiper__slide swiper-slide",
+    "xmlRoles": "group",
+    "display": "flex",
+    "hints": [],
+    "children": 7,
+    "rect": [
+     2972,
+     4246,
+     641,
+     301
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "span",
+    "id": null,
+    "class": "swiper-notification",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     240,
+     4246,
+     1665,
+     301
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "BUTTON",
+    "name": "Previous slide",
+    "tag": "button",
+    "id": null,
+    "class": "large-reviews__swiper-button large-reviews__swiper-button--prev",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     913,
+     2742,
+     37,
+     37
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     925,
+     2755,
+     13,
+     12
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "BUTTON",
+    "name": "Next slide",
+    "tag": "button",
+    "id": null,
+    "class": "large-reviews__swiper-button large-reviews__swiper-button--next",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     955,
+     4566,
+     37,
+     37
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "svg",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     967,
+     4579,
+     13,
+     12
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": "shopify-section-template--23159067640043__product_compate_table_Tp8Fag",
+    "class": "shopify-section product-compare-table",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     0,
+     4682,
+     1905,
+     828
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "why-fabula__wrapper   section-template--23159067640043__product_compate_table_Tp8Fag--padding      ",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     0,
+     4682,
+     1905,
+     828
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "why-fabula__decor-background",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     85,
+     4817,
+     281,
+     151
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GRAPHIC",
+    "name": "Decor beans",
+    "tag": "img",
+    "id": null,
+    "class": "why-fabula__decor-background--desktop",
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     85,
+     4817,
+     281,
+     142
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "why-fabula__decor-background why-fabula__decor-background--bottom",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1719,
+     5300,
+     106,
+     120
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GRAPHIC",
+    "name": "Decor beans",
+    "tag": "img",
+    "id": null,
+    "class": "why-fabula__decor-background--desktop",
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1719,
+     5300,
+     106,
+     111
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "why-fabula",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     352,
+     4682,
+     1201,
+     748
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "HEADING",
+    "name": "Fabula Coffee vs. Typical Coffee",
+    "tag": "h2",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     382,
+     4682,
+     1141,
+     45
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     584,
+     4741,
+     737,
+     49
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "TABLE",
+    "name": "",
+    "tag": "table",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table",
+    "hints": [],
+    "children": 8,
+    "rect": [
+     472,
+     4829,
+     961,
+     601
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": "shopify-section-template--23159067640043__new-video_reviews_grid_jE6QUx",
+    "class": "shopify-section",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 9,
+    "rect": [
+     0,
+     5509,
+     1905,
+     780
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "HEADING",
+    "name": "What Makes Fabula a Favorite?",
+    "tag": "h2",
+    "id": null,
+    "class": "new-video-reviews__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     685,
+     5544,
+     535,
+     45
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "new-video-reviews__text",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     832,
+     5603,
+     241,
+     24
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Hear Directly from Our Customers",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     832,
+     5604,
+     241,
+     20
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     352,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "TOGGLEBUTTON",
+    "name": "Play video review by Lauren Strahm",
+    "tag": "button",
+    "id": null,
+    "class": "video-review__controls",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     352,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review__video",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "video_review_1",
+    "tag": "video",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     352,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review__info",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     6044,
+     94,
+     43
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "video-review__author",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     364,
+     6055,
+     82,
+     20
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     596,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "TOGGLEBUTTON",
+    "name": "Play video review by Hannah Hatcher",
+    "tag": "button",
+    "id": null,
+    "class": "video-review__controls",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     596,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review__video",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     596,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "video_review_2",
+    "tag": "video",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     596,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review__info",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     596,
+     6044,
+     102,
+     43
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "video-review__author",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     608,
+     6055,
+     90,
+     20
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     840,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "TOGGLEBUTTON",
+    "name": "Play video review by Terri DeCresie",
+    "tag": "button",
+    "id": null,
+    "class": "video-review__controls",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     840,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review__video",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     840,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "video_review_3",
+    "tag": "video",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     840,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review__info",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     840,
+     6044,
+     92,
+     43
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "video-review__author",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     852,
+     6055,
+     80,
+     20
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     1084,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "TOGGLEBUTTON",
+    "name": "Play video review by Annie Blouin",
+    "tag": "button",
+    "id": null,
+    "class": "video-review__controls",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1084,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review__video",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1084,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "video_review_4",
+    "tag": "video",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1084,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review__info",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1084,
+     6044,
+     83,
+     43
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "video-review__author",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1096,
+     6055,
+     71,
+     20
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     1328,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "TOGGLEBUTTON",
+    "name": "Play video review by Martin Rhyne",
+    "tag": "button",
+    "id": null,
+    "class": "video-review__controls",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1328,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review__video",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1328,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GROUPING",
+    "name": "video_review_5",
+    "tag": "video",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1328,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "video-review__info",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1328,
+     6044,
+     88,
+     43
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "video-review__author",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1340,
+     6055,
+     76,
+     20
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     516,
+     6098,
+     873,
+     19
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Testimonials featured in videos or other promotianal materia",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     516,
+     6099,
+     873,
+     16
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "BUTTON",
+    "name": "Load more reviews",
+    "tag": "button",
+    "id": null,
+    "class": "new-video-reviews__load-more",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     842,
+     6163,
+     221,
+     46
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": "shopify-section-template--23159067640043__new_subscription_banner",
+    "class": "shopify-section",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "banner"
+    ],
+    "children": 7,
+    "rect": [
+     0,
+     6288,
+     1905,
+     584
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "subcription-text__subtitle",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1019,
+     6417,
+     454,
+     24
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Try Fabula today!",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1019,
+     6418,
+     149,
+     22
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "HEADING",
+    "name": "Subscribe & Save",
+    "tag": "h2",
+    "id": null,
+    "class": "subcription-text__title",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     1019,
+     6453,
+     454,
+     52
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "subcription-text__information",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1019,
+     6525,
+     454,
+     96
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Never run out again\u2014subscribe today for savings, convenience",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1019,
+     6527,
+     436,
+     92
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "new-subsription-banner__review-stars",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "banner"
+    ],
+    "children": 0,
+    "rect": [
+     1019,
+     6643,
+     88,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "new-subsription-banner__review-text",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "banner"
+    ],
+    "children": 1,
+    "rect": [
+     1114,
+     6641,
+     232,
+     21
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "over 40,583 Five Star Reviews",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1114,
+     6641,
+     232,
+     20
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "SUBSCRIBE & SAVE",
+    "tag": "a",
+    "id": null,
+    "class": "subcription-text__link",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1019,
+     6691,
+     261,
+     51
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "new-subsription-banner__image new-subsription-banner__image--mobile-hidden",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "banner"
+    ],
+    "children": 0,
+    "rect": [
+     432,
+     6388,
+     508,
+     384
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "LANDMARK",
+    "name": "",
+    "tag": "footer",
+    "id": "sea-skip-target-footer",
+    "class": null,
+    "xmlRoles": "contentinfo",
+    "display": "block",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     0,
+     6871,
+     1905,
+     724
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "shopify-section-sections--21490724864235__footer",
+    "class": "shopify-section shopify-section-group-footer-group-new",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "footer",
+     "footer"
+    ],
+    "children": 14,
+    "rect": [
+     0,
+     6871,
+     1905,
+     724
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "GRAPHIC",
+    "name": "Fabula Coffee",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     352,
+     6931,
+     61,
+     61
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     7011,
+     432,
+     110
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "* The statements made on this website have not been evaluate",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     352,
+     7012,
+     423,
+     108
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": "list-unstyled list-social",
+    "xmlRoles": "list",
+    "display": "flex",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     352,
+     7140,
+     432,
+     43
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "list-social__item footer__link",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     352,
+     7140,
+     43,
+     43
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Facebook",
+    "tag": "a",
+    "id": null,
+    "class": "link list-social__link",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     352,
+     7140,
+     43,
+     43
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "list-social__item footer__link",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     402,
+     7140,
+     43,
+     43
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Instagram",
+    "tag": "a",
+    "id": null,
+    "class": "link list-social__link",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     402,
+     7140,
+     43,
+     43
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "list-social__item footer__link",
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     452,
+     7140,
+     43,
+     43
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Youtube",
+    "tag": "a",
+    "id": null,
+    "class": "link list-social__link",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     452,
+     7140,
+     43,
+     43
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LABEL",
+    "name": "",
+    "tag": "label",
+    "id": null,
+    "class": "footer__link-heading",
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     6936,
+     105,
+     20
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "SHOP COFFEE",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     837,
+     6936,
+     105,
+     20
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": "footer__links-list",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "footer"
+    ],
+    "children": 7,
+    "rect": [
+     837,
+     6975,
+     217,
+     218
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "footer__link-item",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     6975,
+     217,
+     20
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Best Sellers",
+    "tag": "a",
+    "id": null,
+    "class": "footer__link",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     6975,
+     84,
+     20
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "footer__link-item",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     7008,
+     217,
+     20
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Special Brews",
+    "tag": "a",
+    "id": null,
+    "class": "footer__link",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     7008,
+     101,
+     20
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "footer__link-item",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     7041,
+     217,
+     20
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Flavored coffee",
+    "tag": "a",
+    "id": null,
+    "class": "footer__link",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     7041,
+     111,
+     20
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "footer__link-item",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     7074,
+     217,
+     20
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Decaf Coffee",
+    "tag": "a",
+    "id": null,
+    "class": "footer__link",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     7074,
+     95,
+     20
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "footer__link-item",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     7107,
+     217,
+     20
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "K-cups",
+    "tag": "a",
+    "id": null,
+    "class": "footer__link",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     7107,
+     51,
+     20
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "footer__link-item",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     7140,
+     217,
+     20
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "K-cups flavored",
+    "tag": "a",
+    "id": null,
+    "class": "footer__link",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     7140,
+     113,
+     20
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "footer__link-item",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     7173,
+     217,
+     20
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Samplers",
+    "tag": "a",
+    "id": null,
+    "class": "footer__link",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     837,
+     7173,
+     67,
+     20
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LABEL",
+    "name": "",
+    "tag": "label",
+    "id": null,
+    "class": "footer__link-heading",
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     1087,
+     6936,
+     72,
+     20
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "SUPPORT",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1087,
+     6936,
+     72,
+     20
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": "footer__links-list",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "footer"
+    ],
+    "children": 7,
+    "rect": [
+     1087,
+     6975,
+     216,
+     218
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "footer__link-item",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     1087,
+     6975,
+     216,
+     20
+    ]
+   }
+  ],
+  "ms": 2717.0,
+  "truncated": true
+ },
+ "leaves": {
+  "count": 154,
+  "limit": 400,
+  "msTotal": 852.3,
+  "msMedian": 5.43,
+  "msMax": 9.9,
+  "leaves": [
+   {
+    "type": "link",
+    "start": 0,
+    "rect": [
+     -9999,
+     0,
+     1,
+     1
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18,
+    "rect": [
+     -9999,
+     0,
+     1,
+     1
+    ]
+   },
+   {
+    "type": "link",
+    "start": 32,
+    "rect": [
+     -1,
+     -913,
+     122,
+     47
+    ]
+   },
+   {
+    "type": "link",
+    "start": 70,
+    "rect": [
+     50,
+     16,
+     60,
+     60
+    ]
+   },
+   {
+    "type": "link",
+    "start": 83,
+    "rect": [
+     522,
+     36,
+     70,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 91,
+    "rect": [
+     633,
+     36,
+     119,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 103,
+    "rect": [
+     793,
+     36,
+     178,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 122,
+    "rect": [
+     1012,
+     36,
+     85,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 131,
+    "rect": [
+     1138,
+     36,
+     75,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 140,
+    "rect": [
+     1254,
+     36,
+     129,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 160,
+    "rect": [
+     1763,
+     27,
+     46,
+     38
+    ]
+   },
+   {
+    "type": "link",
+    "start": 339,
+    "rect": [
+     352,
+     -332,
+     301,
+     57
+    ]
+   },
+   {
+    "type": "link",
+    "start": 538,
+    "rect": [
+     352,
+     157,
+     217,
+     361
+    ]
+   },
+   {
+    "type": "link",
+    "start": 639,
+    "rect": [
+     598,
+     157,
+     217,
+     361
+    ]
+   },
+   {
+    "type": "link",
+    "start": 758,
+    "rect": [
+     844,
+     157,
+     217,
+     361
+    ]
+   },
+   {
+    "type": "link",
+    "start": 866,
+    "rect": [
+     1090,
+     157,
+     217,
+     361
+    ]
+   },
+   {
+    "type": "link",
+    "start": 952,
+    "rect": [
+     1336,
+     157,
+     217,
+     361
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2246,
+    "rect": [
+     392,
+     2110,
+     221,
+     47
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2456,
+    "rect": [
+     1007,
+     2110,
+     221,
+     47
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2630,
+    "rect": [
+     392,
+     2563,
+     221,
+     47
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2889,
+    "rect": [
+     1007,
+     2563,
+     221,
+     47
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2992,
+    "rect": [
+     352,
+     2845,
+     217,
+     361
+    ]
+   },
+   {
+    "type": "link",
+    "start": 3093,
+    "rect": [
+     598,
+     2845,
+     217,
+     361
+    ]
+   },
+   {
+    "type": "link",
+    "start": 3212,
+    "rect": [
+     844,
+     2845,
+     217,
+     361
+    ]
+   },
+   {
+    "type": "link",
+    "start": 3320,
+    "rect": [
+     1090,
+     2845,
+     217,
+     361
+    ]
+   },
+   {
+    "type": "link",
+    "start": 3406,
+    "rect": [
+     1336,
+     2845,
+     217,
+     361
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7248,
+    "rect": [
+     1019,
+     6691,
+     261,
+     51
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7673,
+    "rect": [
+     352,
+     7140,
+     43,
+     43
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7681,
+    "rect": [
+     402,
+     7140,
+     43,
+     43
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7690,
+    "rect": [
+     452,
+     7140,
+     43,
+     43
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7708,
+    "rect": [
+     837,
+     6975,
+     84,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7720,
+    "rect": [
+     837,
+     7008,
+     101,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7733,
+    "rect": [
+     837,
+     7041,
+     111,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7748,
+    "rect": [
+     837,
+     7074,
+     95,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7760,
+    "rect": [
+     837,
+     7107,
+     51,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7766,
+    "rect": [
+     837,
+     7140,
+     113,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7781,
+    "rect": [
+     837,
+     7173,
+     67,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7796,
+    "rect": [
+     1087,
+     6975,
+     37,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7800,
+    "rect": [
+     1087,
+     7008,
+     135,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7818,
+    "rect": [
+     1087,
+     7041,
+     98,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7830,
+    "rect": [
+     1087,
+     7074,
+     59,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7838,
+    "rect": [
+     1087,
+     7107,
+     40,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7843,
+    "rect": [
+     1087,
+     7140,
+     80,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7853,
+    "rect": [
+     1087,
+     7173,
+     74,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7869,
+    "rect": [
+     1336,
+     6975,
+     69,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7878,
+    "rect": [
+     1336,
+     7008,
+     79,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7888,
+    "rect": [
+     1336,
+     7041,
+     105,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7901,
+    "rect": [
+     1336,
+     7074,
+     98,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7914,
+    "rect": [
+     1336,
+     7107,
+     95,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7928,
+    "rect": [
+     1336,
+     7140,
+     33,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7932,
+    "rect": [
+     1336,
+     7173,
+     57,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7939,
+    "rect": [
+     1336,
+     7206,
+     119,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 7956,
+    "rect": [
+     1336,
+     7239,
+     114,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 8124,
+    "rect": [
+     759,
+     7467,
+     99,
+     22
+    ]
+   },
+   {
+    "type": "link",
+    "start": 8139,
+    "rect": [
+     887,
+     7467,
+     121,
+     22
+    ]
+   },
+   {
+    "type": "link",
+    "start": 8156,
+    "rect": [
+     1037,
+     7467,
+     131,
+     22
+    ]
+   },
+   {
+    "type": "link",
+    "start": 8175,
+    "rect": [
+     1197,
+     7467,
+     89,
+     22
+    ]
+   },
+   {
+    "type": "link",
+    "start": 8188,
+    "rect": [
+     1355,
+     7467,
+     198,
+     22
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 170,
+    "rect": [
+     352,
+     -703,
+     417,
+     126
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 455,
+    "rect": [
+     352,
+     73,
+     377,
+     45
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 574,
+    "rect": [
+     368,
+     414,
+     185,
+     26
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 682,
+    "rect": [
+     614,
+     414,
+     185,
+     51
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 793,
+    "rect": [
+     860,
+     414,
+     185,
+     51
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 889,
+    "rect": [
+     1106,
+     414,
+     185,
+     26
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 989,
+    "rect": [
+     1352,
+     414,
+     185,
+     26
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 1054,
+    "rect": [
+     352,
+     702,
+     1201,
+     45
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 1930,
+    "rect": [
+     352,
+     1594,
+     1201,
+     92
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 2033,
+    "rect": [
+     392,
+     1797,
+     332,
+     40
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 2254,
+    "rect": [
+     1007,
+     1797,
+     332,
+     79
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 2464,
+    "rect": [
+     392,
+     2266,
+     332,
+     40
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 2638,
+    "rect": [
+     1007,
+     2266,
+     332,
+     40
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 2909,
+    "rect": [
+     352,
+     2761,
+     377,
+     45
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 3028,
+    "rect": [
+     368,
+     3102,
+     185,
+     26
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 3136,
+    "rect": [
+     614,
+     3102,
+     185,
+     51
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 3247,
+    "rect": [
+     860,
+     3102,
+     185,
+     51
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 3343,
+    "rect": [
+     1106,
+     3102,
+     185,
+     26
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 3443,
+    "rect": [
+     1352,
+     3102,
+     185,
+     26
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 3521,
+    "rect": [
+     597,
+     3390,
+     711,
+     105
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 4559,
+    "rect": [
+     352,
+     4129,
+     1201,
+     46
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 4672,
+    "rect": [
+     -463,
+     4315,
+     376,
+     69
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 4894,
+    "rect": [
+     277,
+     4291,
+     376,
+     69
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 5182,
+    "rect": [
+     1017,
+     4308,
+     376,
+     35
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 5454,
+    "rect": [
+     1757,
+     4303,
+     376,
+     69
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 5728,
+    "rect": [
+     2497,
+     4315,
+     376,
+     69
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 5954,
+    "rect": [
+     3237,
+     4332,
+     376,
+     35
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 6173,
+    "rect": [
+     382,
+     4682,
+     1141,
+     45
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 6529,
+    "rect": [
+     685,
+     5544,
+     535,
+     45
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 7017,
+    "rect": [
+     1019,
+     6453,
+     454,
+     52
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 70,
+    "rect": [
+     50,
+     16,
+     60,
+     60
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 549,
+    "rect": [
+     352,
+     157,
+     217,
+     217
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 587,
+    "rect": [
+     368,
+     446,
+     86,
+     19
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 639,
+    "rect": [
+     598,
+     157,
+     217,
+     217
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 706,
+    "rect": [
+     614,
+     472,
+     86,
+     19
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 758,
+    "rect": [
+     844,
+     157,
+     217,
+     217
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 814,
+    "rect": [
+     860,
+     472,
+     86,
+     19
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 866,
+    "rect": [
+     1090,
+     157,
+     217,
+     217
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 900,
+    "rect": [
+     1106,
+     446,
+     86,
+     19
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 955,
+    "rect": [
+     1336,
+     157,
+     217,
+     217
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1006,
+    "rect": [
+     1352,
+     446,
+     86,
+     19
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3003,
+    "rect": [
+     352,
+     2845,
+     217,
+     217
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3041,
+    "rect": [
+     368,
+     3134,
+     86,
+     19
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3093,
+    "rect": [
+     598,
+     2845,
+     217,
+     217
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3160,
+    "rect": [
+     614,
+     3160,
+     86,
+     19
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3212,
+    "rect": [
+     844,
+     2845,
+     217,
+     217
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3268,
+    "rect": [
+     860,
+     3160,
+     86,
+     19
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3320,
+    "rect": [
+     1090,
+     2845,
+     217,
+     217
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3354,
+    "rect": [
+     1106,
+     3134,
+     86,
+     19
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3409,
+    "rect": [
+     1336,
+     2845,
+     217,
+     217
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3460,
+    "rect": [
+     1352,
+     3134,
+     86,
+     19
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4659,
+    "rect": [
+     -728,
+     4246,
+     241,
+     301
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4881,
+    "rect": [
+     12,
+     4246,
+     241,
+     301
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5169,
+    "rect": [
+     752,
+     4246,
+     241,
+     301
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5441,
+    "rect": [
+     1492,
+     4246,
+     241,
+     301
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5715,
+    "rect": [
+     2232,
+     4246,
+     241,
+     301
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5941,
+    "rect": [
+     2972,
+     4246,
+     241,
+     301
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6151,
+    "rect": [
+     85,
+     4817,
+     281,
+     142
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6162,
+    "rect": [
+     1719,
+     5300,
+     106,
+     111
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 7264,
+    "rect": [
+     352,
+     6931,
+     61,
+     61
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 7985,
+    "rect": [
+     352,
+     7380,
+     39,
+     25
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 7991,
+    "rect": [
+     396,
+     7380,
+     39,
+     25
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 8007,
+    "rect": [
+     440,
+     7380,
+     39,
+     25
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 8016,
+    "rect": [
+     484,
+     7380,
+     39,
+     25
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 8027,
+    "rect": [
+     528,
+     7380,
+     39,
+     25
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 8035,
+    "rect": [
+     572,
+     7380,
+     39,
+     25
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 8045,
+    "rect": [
+     616,
+     7380,
+     39,
+     25
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 8048,
+    "rect": [
+     660,
+     7380,
+     39,
+     25
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 8058,
+    "rect": [
+     704,
+     7380,
+     39,
+     25
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 8064,
+    "rect": [
+     748,
+     7380,
+     39,
+     25
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 8072,
+    "rect": [
+     792,
+     7380,
+     39,
+     25
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 154,
+    "rect": [
+     1717,
+     27,
+     46,
+     38
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 166,
+    "rect": [
+     1809,
+     27,
+     46,
+     38
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 477,
+    "rect": [
+     889,
+     79,
+     113,
+     39
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 489,
+    "rect": [
+     1006,
+     79,
+     132,
+     39
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 503,
+    "rect": [
+     1142,
+     79,
+     91,
+     39
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 511,
+    "rect": [
+     1237,
+     79,
+     74,
+     39
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 516,
+    "rect": [
+     1315,
+     79,
+     176,
+     39
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 535,
+    "rect": [
+     1495,
+     79,
+     58,
+     39
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 2931,
+    "rect": [
+     889,
+     2767,
+     113,
+     39
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 2943,
+    "rect": [
+     1006,
+     2767,
+     132,
+     39
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 2957,
+    "rect": [
+     1142,
+     2767,
+     91,
+     39
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 2965,
+    "rect": [
+     1237,
+     2767,
+     74,
+     39
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 2970,
+    "rect": [
+     1315,
+     2767,
+     176,
+     39
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 2989,
+    "rect": [
+     1495,
+     2767,
+     58,
+     39
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 4045,
+    "rect": [
+     714,
+     3951,
+     88,
+     17
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 4540,
+    "rect": [
+     854,
+     4058,
+     119,
+     17
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 6127,
+    "rect": [
+     913,
+     2742,
+     37,
+     37
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 6141,
+    "rect": [
+     955,
+     4566,
+     37,
+     37
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 6590,
+    "rect": [
+     352,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 6638,
+    "rect": [
+     596,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 6688,
+    "rect": [
+     840,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 6738,
+    "rect": [
+     1084,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 6784,
+    "rect": [
+     1328,
+     5666,
+     225,
+     421
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 6983,
+    "rect": [
+     842,
+     6163,
+     221,
+     46
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 8208,
+    "rect": [
+     352,
+     7508,
+     218,
+     27
+    ]
+   }
+  ]
+ }
+}

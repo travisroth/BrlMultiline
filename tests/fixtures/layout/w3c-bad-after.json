@@ -1,0 +1,3204 @@
+{
+ "candidates": {
+  "browser": "Google Chrome 154.0.8037.95",
+  "url": "https://www.w3.org/WAI/demos/bad/after/home.html",
+  "viewport": [
+   0,
+   121,
+   1920,
+   911
+  ],
+  "totalLinks": 55,
+  "linkScanMs": 7.3,
+  "locateCount": 11,
+  "locateMsTotal": 58.2,
+  "locateMsMax": 5.9,
+  "records": [
+   {
+    "type": "heading1",
+    "label": "Accessible Home Page-Before and After Demonstration",
+    "role": "HEADING",
+    "name": "Accessible Home Page - Before and After Demonstration",
+    "tag": "h1",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     10,
+     24,
+     436,
+     50
+    ],
+    "where": "top left, 436 by 50",
+    "start": 96,
+    "end": 147,
+    "textLength": 51,
+    "links": 0,
+    "depth": 0
+   },
+   {
+    "type": "landmark",
+    "label": "form",
+    "role": "SECTION",
+    "name": null,
+    "tag": "form",
+    "xmlRoles": "form",
+    "id": null,
+    "class": null,
+    "display": "inline",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "tag",
+     "text-align",
+     "xml-roles"
+    ],
+    "rect": [
+     1172,
+     241,
+     141,
+     23
+    ],
+    "where": "top centre, 141 by 23",
+    "start": 544,
+    "end": 578,
+    "textLength": 34,
+    "links": 0,
+    "depth": 0
+   },
+   {
+    "type": "heading2",
+    "label": "Navigation menu:",
+    "role": "HEADING",
+    "name": "Navigation menu:",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": "navtarget",
+    "class": "skip",
+    "display": "block",
+    "hints": [
+     "nav"
+    ],
+    "attributeKeys": [
+     "class",
+     "display",
+     "id",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     -24000,
+     -23981,
+     1,
+     2
+    ],
+    "where": "above the visible part",
+    "start": 666,
+    "end": 682,
+    "textLength": 16,
+    "links": 0,
+    "depth": 0
+   },
+   {
+    "type": "heading1",
+    "label": "Welcome to CityLights",
+    "role": "HEADING",
+    "name": "Welcome to CityLights",
+    "tag": "h1",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     724,
+     352,
+     457,
+     30
+    ],
+    "where": "middle centre, 457 by 30",
+    "start": 703,
+    "end": 724,
+    "textLength": 21,
+    "links": 0,
+    "depth": 0
+   },
+   {
+    "type": "heading2",
+    "label": "Heat wave linked to temperatures",
+    "role": "HEADING",
+    "name": "Heat wave linked to temperatures",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     734,
+     438,
+     139,
+     47
+    ],
+    "where": "middle centre, 139 by 47",
+    "start": 839,
+    "end": 871,
+    "textLength": 32,
+    "links": 1,
+    "depth": 0
+   },
+   {
+    "type": "heading2",
+    "label": "Man Gets Nine Months in Violin Case",
+    "role": "HEADING",
+    "name": "Man Gets Nine Months in Violin Case",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     882,
+     438,
+     139,
+     47
+    ],
+    "where": "middle centre, 139 by 47",
+    "start": 1011,
+    "end": 1046,
+    "textLength": 35,
+    "links": 1,
+    "depth": 0
+   },
+   {
+    "type": "heading2",
+    "label": "Lack of brains hinders research",
+    "role": "HEADING",
+    "name": "Lack of brains hinders research",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     1030,
+     438,
+     139,
+     47
+    ],
+    "where": "middle centre, 139 by 47",
+    "start": 1175,
+    "end": 1206,
+    "textLength": 31,
+    "links": 1,
+    "depth": 0
+   },
+   {
+    "type": "heading2",
+    "label": "Elsewhere on the Web",
+    "role": "HEADING",
+    "name": "Elsewhere on the Web",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "header",
+    "display": "block",
+    "hints": [
+     "header"
+    ],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     724,
+     780,
+     457,
+     29
+    ],
+    "where": "bottom centre, 457 by 29",
+    "start": 1337,
+    "end": 1357,
+    "textLength": 20,
+    "links": 0,
+    "depth": 0
+   },
+   {
+    "type": "heading2",
+    "label": "Citylights Concert",
+    "role": "HEADING",
+    "name": "Citylights Concert",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     1190,
+     352,
+     137,
+     27
+    ],
+    "where": "middle centre, 137 by 27",
+    "start": 1601,
+    "end": 1619,
+    "textLength": 18,
+    "links": 0,
+    "depth": 0
+   },
+   {
+    "type": "heading2",
+    "label": "Citylights Survey",
+    "role": "HEADING",
+    "name": "Citylights Survey",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     1190,
+     617,
+     137,
+     27
+    ],
+    "where": "bottom centre, 137 by 27",
+    "start": 1762,
+    "end": 1779,
+    "textLength": 17,
+    "links": 0,
+    "depth": 0
+   }
+  ]
+ },
+ "tree": {
+  "nodes": [
+   {
+    "depth": 0,
+    "role": "DOCUMENT",
+    "name": "Welcome to CityLights! [Accessible Home Page]",
+    "tag": "#document",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 4,
+    "rect": [
+     0,
+     0,
+     1920,
+     911
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "meta-header",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "header"
+    ],
+    "children": 5,
+    "rect": [
+     0,
+     0,
+     1905,
+     152
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": "skipnav",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "nav"
+    ],
+    "children": 1,
+    "rect": [
+     -14400,
+     -14400,
+     1,
+     1
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Skip to accessible demo page",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     -14400,
+     -14400,
+     1,
+     1
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": "logos",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     1624,
+     24,
+     281,
+     54
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "W3C logo. Appears to say: W3C",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1624,
+     24,
+     72,
+     52
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Web Accessibility Initiative (WAI) logo",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1696,
+     24,
+     194,
+     52
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "HEADING",
+    "name": "Accessible Home Page - Before and After Demonstration",
+    "tag": "h1",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     10,
+     24,
+     436,
+     50
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "subline",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     10,
+     78,
+     1620,
+     21
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "Improving a Web site using Web Content Accessibility Guideli",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     10,
+     80,
+     498,
+     17
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "mnav",
+    "class": "accessible",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "nav"
+    ],
+    "children": 1,
+    "rect": [
+     0,
+     120,
+     1905,
+     32
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 6,
+    "rect": [
+     10,
+     112,
+     168,
+     40
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "first",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     10,
+     120,
+     86,
+     32
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Overview",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     10,
+     116,
+     87,
+     36
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "current first",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     105,
+     112,
+     73,
+     40
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "Current location:",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     -14294,
+     -14285,
+     61,
+     37
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "Home",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     121,
+     124,
+     41,
+     17
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "subnav",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "nav"
+    ],
+    "children": 2,
+    "rect": [
+     106,
+     155,
+     476,
+     40
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     176,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "News",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     176,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     257,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Tickets",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     257,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     338,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Survey",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     338,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     419,
+     116,
+     85,
+     36
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Template",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     419,
+     116,
+     85,
+     36
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "page",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     568,
+     151,
+     769,
+     896
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "border_t",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     578,
+     199,
+     749,
+     11
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "border_l",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     568,
+     209,
+     769,
+     780
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "border_r",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 6,
+    "rect": [
+     578,
+     209,
+     759,
+     780
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": "startcontent",
+    "class": "skip",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "content"
+    ],
+    "children": 1,
+    "rect": [
+     -16000,
+     -15984,
+     1,
+     1
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "Demo starts here",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     -16000,
+     -15984,
+     48,
+     57
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": "skip",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     578,
+     209,
+     0,
+     20
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     -15422,
+     209,
+     15994,
+     38
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "list-item",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     -15422,
+     209,
+     15994,
+     38
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "header",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "header"
+    ],
+    "children": 3,
+    "rect": [
+     578,
+     209,
+     749,
+     88
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GRAPHIC",
+    "name": "Citylights: your access to the city.",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     578,
+     209,
+     444,
+     87
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "GRAPHIC",
+    "name": "Sunny Spells",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1021,
+     209,
+     146,
+     87
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "form",
+    "id": null,
+    "class": null,
+    "xmlRoles": "form",
+    "display": "inline",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     1172,
+     241,
+     141,
+     23
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "info",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     578,
+     297,
+     749,
+     31
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "left",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "left"
+    ],
+    "children": 2,
+    "rect": [
+     578,
+     305,
+     270,
+     17
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": "weather",
+    "class": "right",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "right"
+    ],
+    "children": 2,
+    "rect": [
+     578,
+     305,
+     749,
+     17
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "main",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "main"
+    ],
+    "children": 3,
+    "rect": [
+     578,
+     352,
+     749,
+     620
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "HEADING",
+    "name": "Navigation menu:",
+    "tag": "h2",
+    "id": "navtarget",
+    "class": "skip",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "nav"
+    ],
+    "children": 1,
+    "rect": [
+     -24000,
+     -23981,
+     1,
+     2
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "nav",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "nav"
+    ],
+    "children": 1,
+    "rect": [
+     578,
+     352,
+     137,
+     146
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "content",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "content"
+    ],
+    "children": 2,
+    "rect": [
+     724,
+     352,
+     603,
+     620
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "footer",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "footer"
+    ],
+    "children": 1,
+    "rect": [
+     578,
+     352,
+     749,
+     637
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 11,
+    "rect": [
+     578,
+     971,
+     749,
+     18
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "border_b",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     578,
+     988,
+     749,
+     11
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "meta-footer",
+    "class": "meta",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "footer"
+    ],
+    "children": 4,
+    "rect": [
+     0,
+     1046,
+     1905,
+     211
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SEPARATOR",
+    "name": "",
+    "tag": "hr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     -14400,
+     -14380,
+     3,
+     3
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 20,
+    "rect": [
+     14,
+     1074,
+     1877,
+     62
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "strong",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     14,
+     1076,
+     50,
+     17
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Status:",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     14,
+     1076,
+     50,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " 20 February 2012 (see ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     63,
+     1076,
+     154,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "changelog",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     216,
+     1076,
+     68,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": ")",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     283,
+     1076,
+     6,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "WHITESPACE",
+    "name": "",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     288,
+     2122,
+     0,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "Editors: ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     14,
+     1097,
+     54,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Shadi Abou-Zahra",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     67,
+     1097,
+     117,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " and the ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     183,
+     1097,
+     57,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Education and Outreach Working Group (EOWG)",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     239,
+     1097,
+     316,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": ".",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     554,
+     1097,
+     5,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "WHITESPACE",
+    "name": "",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     558,
+     2143,
+     0,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "Developed with support from ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     14,
+     1117,
+     188,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "WAI-TIES",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     201,
+     1117,
+     65,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " and ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     265,
+     1117,
+     33,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "WAI-AGE",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     297,
+     1117,
+     63,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " projects, co-funded by the European Commission ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     359,
+     1117,
+     324,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "acronym",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     682,
+     1117,
+     23,
+     17
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "IST",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     682,
+     1117,
+     23,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " Programme. [see ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     704,
+     1117,
+     119,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Acknowledgements",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     822,
+     1117,
+     126,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "]",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     947,
+     1117,
+     5,
+     17
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 14,
+    "rect": [
+     14,
+     1149,
+     1877,
+     42
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "[",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     14,
+     1151,
+     5,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "WAI Site Map",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     18,
+     1151,
+     88,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "] [",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     105,
+     1151,
+     13,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Help with WAI Website",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     117,
+     1151,
+     147,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "] [",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     263,
+     1151,
+     13,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Search",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     275,
+     1151,
+     47,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "] [",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     321,
+     1151,
+     13,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Contacting WAI",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     333,
+     1151,
+     100,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "]",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     432,
+     1151,
+     5,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "WHITESPACE",
+    "name": "",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     436,
+     2197,
+     0,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "strong",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     14,
+     1171,
+     312,
+     17
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Feedback welcome to ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     14,
+     1171,
+     154,
+     17
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LINK",
+    "name": "wai-eo-editors@w3.org",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     167,
+     1171,
+     159,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " (a publicly archived list) or ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     325,
+     1171,
+     175,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "wai@w3.org",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     499,
+     1171,
+     81,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " (a WAI staff-only list).",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     579,
+     1171,
+     141,
+     17
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 23,
+    "rect": [
+     14,
+     1204,
+     1877,
+     24
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Copyright",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     14,
+     1209,
+     63,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " \u00a9 2012 ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     76,
+     1209,
+     55,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "W3C",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     130,
+     1209,
+     33,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "sup",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     162,
+     1205,
+     10,
+     15
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "\u00ae",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     162,
+     1205,
+     10,
+     15
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " (",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     171,
+     1209,
+     10,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "MIT",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     180,
+     1209,
+     24,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": ", ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     203,
+     1209,
+     9,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "ERCIM",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     211,
+     1209,
+     47,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": ", ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     257,
+     1209,
+     9,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Keio",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     265,
+     1209,
+     30,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "), All Rights Reserved. W3C ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     294,
+     1209,
+     184,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "liability",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     477,
+     1209,
+     43,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": ", ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     519,
+     1209,
+     9,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "trademark",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     527,
+     1209,
+     66,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": ", ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     592,
+     1209,
+     9,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "document use",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     600,
+     1209,
+     91,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " and ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     690,
+     1209,
+     33,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "software licensing",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     722,
+     1209,
+     116,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " rules apply. Your interactions with this site are in accord",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     837,
+     1209,
+     447,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "public",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1283,
+     1209,
+     39,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " and ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1321,
+     1209,
+     33,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Member",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1353,
+     1209,
+     54,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " privacy statements.",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1406,
+     1209,
+     129,
+     17
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "message_to_say_yyd",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     0,
+     1256,
+     1905,
+     0
+    ]
+   }
+  ],
+  "ms": 763.0,
+  "truncated": false
+ },
+ "leaves": {
+  "count": 72,
+  "limit": 400,
+  "msTotal": 340.6,
+  "msMedian": 4.57,
+  "msMax": 7.6,
+  "leaves": [
+   {
+    "type": "link",
+    "start": 0,
+    "rect": [
+     -14400,
+     -14400,
+     1,
+     1
+    ]
+   },
+   {
+    "type": "link",
+    "start": 28,
+    "rect": [
+     1624,
+     24,
+     72,
+     52
+    ]
+   },
+   {
+    "type": "link",
+    "start": 57,
+    "rect": [
+     1696,
+     24,
+     194,
+     52
+    ]
+   },
+   {
+    "type": "link",
+    "start": 221,
+    "rect": [
+     10,
+     116,
+     87,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 263,
+    "rect": [
+     217,
+     155,
+     126,
+     21
+    ]
+   },
+   {
+    "type": "link",
+    "start": 284,
+    "rect": [
+     342,
+     155,
+     95,
+     21
+    ]
+   },
+   {
+    "type": "link",
+    "start": 342,
+    "rect": [
+     342,
+     175,
+     95,
+     21
+    ]
+   },
+   {
+    "type": "link",
+    "start": 368,
+    "rect": [
+     437,
+     155,
+     145,
+     42
+    ]
+   },
+   {
+    "type": "link",
+    "start": 384,
+    "rect": [
+     176,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 388,
+    "rect": [
+     257,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 395,
+    "rect": [
+     338,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 401,
+    "rect": [
+     419,
+     116,
+     85,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 425,
+    "rect": [
+     -15422,
+     213,
+     335,
+     34
+    ]
+   },
+   {
+    "type": "link",
+    "start": 459,
+    "rect": [
+     -15422,
+     213,
+     335,
+     34
+    ]
+   },
+   {
+    "type": "link",
+    "start": 686,
+    "rect": [
+     578,
+     389,
+     136,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 690,
+    "rect": [
+     578,
+     425,
+     136,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 697,
+    "rect": [
+     578,
+     461,
+     136,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 839,
+    "rect": [
+     764,
+     438,
+     104,
+     46
+    ]
+   },
+   {
+    "type": "link",
+    "start": 989,
+    "rect": [
+     739,
+     716,
+     129,
+     32
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1011,
+    "rect": [
+     912,
+     438,
+     104,
+     46
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1151,
+    "rect": [
+     887,
+     716,
+     129,
+     32
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1175,
+    "rect": [
+     1060,
+     438,
+     104,
+     46
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1309,
+    "rect": [
+     1035,
+     716,
+     129,
+     32
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1515,
+    "rect": [
+     734,
+     874,
+     94,
+     21
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1526,
+    "rect": [
+     734,
+     896,
+     72,
+     21
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1751,
+    "rect": [
+     1195,
+     578,
+     127,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1938,
+    "rect": [
+     1195,
+     901,
+     127,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1949,
+    "rect": [
+     1103,
+     973,
+     49,
+     13
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1966,
+    "rect": [
+     1196,
+     973,
+     24,
+     13
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1972,
+    "rect": [
+     1235,
+     973,
+     18,
+     13
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1977,
+    "rect": [
+     1259,
+     973,
+     33,
+     13
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1984,
+    "rect": [
+     1298,
+     973,
+     22,
+     13
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2020,
+    "rect": [
+     216,
+     1076,
+     68,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2040,
+    "rect": [
+     67,
+     1097,
+     117,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2065,
+    "rect": [
+     239,
+     1097,
+     316,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2138,
+    "rect": [
+     201,
+     1117,
+     65,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2151,
+    "rect": [
+     297,
+     1117,
+     63,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2226,
+    "rect": [
+     822,
+     1117,
+     126,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2244,
+    "rect": [
+     18,
+     1151,
+     88,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2259,
+    "rect": [
+     117,
+     1151,
+     147,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2283,
+    "rect": [
+     275,
+     1151,
+     47,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2292,
+    "rect": [
+     333,
+     1151,
+     100,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2328,
+    "rect": [
+     167,
+     1171,
+     159,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2380,
+    "rect": [
+     499,
+     1171,
+     81,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2415,
+    "rect": [
+     14,
+     1209,
+     63,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2432,
+    "rect": [
+     130,
+     1209,
+     33,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2438,
+    "rect": [
+     180,
+     1209,
+     24,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2443,
+    "rect": [
+     211,
+     1209,
+     47,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2450,
+    "rect": [
+     265,
+     1209,
+     30,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2482,
+    "rect": [
+     477,
+     1209,
+     43,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2493,
+    "rect": [
+     527,
+     1209,
+     66,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2504,
+    "rect": [
+     600,
+     1209,
+     91,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2521,
+    "rect": [
+     722,
+     1209,
+     116,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2613,
+    "rect": [
+     1283,
+     1209,
+     39,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2624,
+    "rect": [
+     1353,
+     1209,
+     54,
+     17
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 96,
+    "rect": [
+     10,
+     24,
+     436,
+     50
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 666,
+    "rect": [
+     -24000,
+     -23981,
+     1,
+     2
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 703,
+    "rect": [
+     724,
+     352,
+     457,
+     30
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 839,
+    "rect": [
+     734,
+     438,
+     139,
+     47
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 1011,
+    "rect": [
+     882,
+     438,
+     139,
+     47
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 1175,
+    "rect": [
+     1030,
+     438,
+     139,
+     47
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 1337,
+    "rect": [
+     724,
+     780,
+     457,
+     29
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 1601,
+    "rect": [
+     1190,
+     352,
+     137,
+     27
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 1762,
+    "rect": [
+     1190,
+     617,
+     137,
+     27
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 28,
+    "rect": [
+     1624,
+     24,
+     72,
+     49
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 57,
+    "rect": [
+     1696,
+     24,
+     194,
+     49
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 496,
+    "rect": [
+     578,
+     209,
+     444,
+     87
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 532,
+    "rect": [
+     1021,
+     209,
+     146,
+     87
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1619,
+    "rect": [
+     1190,
+     378,
+     137,
+     97
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1779,
+    "rect": [
+     1190,
+     643,
+     137,
+     140
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 566,
+    "rect": [
+     1172,
+     244,
+     103,
+     19
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 576,
+    "rect": [
+     1280,
+     243,
+     33,
+     21
+    ]
+   }
+  ]
+ }
+}

@@ -1,0 +1,4773 @@
+{
+ "candidates": {
+  "browser": "Google Chrome 154.0.8037.95",
+  "url": "https://www.w3.org/WAI/demos/bad/before/home.html",
+  "viewport": [
+   0,
+   121,
+   1920,
+   911
+  ],
+  "totalLinks": 55,
+  "linkScanMs": 8.1,
+  "locateCount": 1,
+  "locateMsTotal": 6.5,
+  "locateMsMax": 6.5,
+  "records": [
+   {
+    "type": "heading1",
+    "label": "Inaccessible Home Page-Before and After Demonstration",
+    "role": "HEADING",
+    "name": "Inaccessible Home Page - Before and After Demonstration",
+    "tag": "h1",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     10,
+     24,
+     436,
+     50
+    ],
+    "where": "top left, 436 by 50",
+    "start": 98,
+    "end": 151,
+    "textLength": 53,
+    "links": 0,
+    "depth": 0
+   }
+  ]
+ },
+ "tree": {
+  "nodes": [
+   {
+    "depth": 0,
+    "role": "DOCUMENT",
+    "name": "Welcome to CityLights! [Inaccessible Home Page]",
+    "tag": "#document",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 4,
+    "rect": [
+     0,
+     0,
+     1920,
+     911
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "meta-header",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "header"
+    ],
+    "children": 5,
+    "rect": [
+     0,
+     0,
+     1905,
+     152
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": "skipnav",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "nav"
+    ],
+    "children": 1,
+    "rect": [
+     -14400,
+     -14400,
+     1,
+     1
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Skip to inaccessible demo page",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     -14400,
+     -14400,
+     1,
+     1
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": "logos",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     1624,
+     24,
+     281,
+     49
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "W3C logo. Appears to say: W3C",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1624,
+     24,
+     72,
+     52
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Web Accessibility Initiative (WAI) logo",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1696,
+     24,
+     194,
+     52
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "HEADING",
+    "name": "Inaccessible Home Page - Before and After Demonstration",
+    "tag": "h1",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     10,
+     24,
+     436,
+     50
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "subline",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     10,
+     78,
+     1620,
+     21
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "Improving a Web site using Web Content Accessibility Guideli",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     10,
+     80,
+     498,
+     17
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "mnav",
+    "class": "inaccessible",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "nav"
+    ],
+    "children": 1,
+    "rect": [
+     0,
+     120,
+     1905,
+     32
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 6,
+    "rect": [
+     10,
+     112,
+     168,
+     40
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "first",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     10,
+     120,
+     86,
+     32
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Overview",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     10,
+     116,
+     87,
+     36
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "current first",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     105,
+     112,
+     73,
+     40
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "Current location:",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     -14294,
+     -14285,
+     61,
+     37
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "Home",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     121,
+     124,
+     41,
+     17
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "subnav",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "nav"
+    ],
+    "children": 2,
+    "rect": [
+     106,
+     155,
+     476,
+     40
+    ]
+   },
+   {
+    "depth": 6,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     106,
+     155,
+     347,
+     42
+    ]
+   },
+   {
+    "depth": 7,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "inaccessible",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     106,
+     155,
+     347,
+     21
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "strong",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     107,
+     155,
+     111,
+     19
+    ]
+   },
+   {
+    "depth": 9,
+    "role": "STATICTEXT",
+    "name": "Inaccessible:",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     112,
+     157,
+     91,
+     17
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "SECTION",
+    "name": "",
+    "tag": "a",
+    "id": null,
+    "class": "page current",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     217,
+     155,
+     126,
+     21
+    ]
+   },
+   {
+    "depth": 9,
+    "role": "STATICTEXT",
+    "name": "Inaccessible",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     -14183,
+     -14243,
+     87,
+     17
+    ]
+   },
+   {
+    "depth": 9,
+    "role": "STATICTEXT",
+    "name": "Home Page",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     234,
+     157,
+     79,
+     17
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "LINK",
+    "name": "Inaccessible Home Page Report",
+    "tag": "a",
+    "id": null,
+    "class": "report",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     342,
+     155,
+     95,
+     21
+    ]
+   },
+   {
+    "depth": 7,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": "accessible",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     106,
+     175,
+     347,
+     22
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "strong",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     107,
+     175,
+     111,
+     19
+    ]
+   },
+   {
+    "depth": 9,
+    "role": "STATICTEXT",
+    "name": "Accessible:",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     112,
+     177,
+     81,
+     17
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "LINK",
+    "name": "Accessible Home Page",
+    "tag": "a",
+    "id": null,
+    "class": "page",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     217,
+     175,
+     126,
+     21
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "LINK",
+    "name": "Accessible Home Page Report",
+    "tag": "a",
+    "id": null,
+    "class": "report",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     342,
+     175,
+     95,
+     21
+    ]
+   },
+   {
+    "depth": 6,
+    "role": "LINK",
+    "name": "Show Annotations",
+    "tag": "a",
+    "id": null,
+    "class": "annotoggle",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     437,
+     155,
+     145,
+     42
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     176,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "News",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     176,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     257,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Tickets",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     257,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     338,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Survey",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     338,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LISTITEM",
+    "name": "",
+    "tag": "li",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     419,
+     116,
+     85,
+     36
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Template",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     419,
+     116,
+     85,
+     36
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "page",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     0,
+     151,
+     1905,
+     878
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": "startcontent",
+    "class": "skip",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "content"
+    ],
+    "children": 1,
+    "rect": [
+     -16000,
+     -15984,
+     1,
+     1
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "Demo starts here",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     -16000,
+     -15984,
+     40,
+     53
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "TABLE",
+    "name": "",
+    "tag": "table",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     0,
+     199,
+     1905,
+     782
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     0,
+     199,
+     1905,
+     782
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "TABLECELL",
+    "name": "Red dot with a white letter 'C' that symbolizes a moon cresc",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     0,
+     199,
+     1905,
+     782
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "TABLE",
+    "name": "",
+    "tag": "table",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     552,
+     199,
+     801,
+     782
+    ]
+   },
+   {
+    "depth": 6,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     552,
+     199,
+     801,
+     11
+    ]
+   },
+   {
+    "depth": 7,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     552,
+     199,
+     11,
+     11
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     552,
+     199,
+     11,
+     11
+    ]
+   },
+   {
+    "depth": 7,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     199,
+     781,
+     11
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     562,
+     199,
+     11,
+     11
+    ]
+   },
+   {
+    "depth": 7,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1342,
+     199,
+     11,
+     11
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1342,
+     199,
+     11,
+     11
+    ]
+   },
+   {
+    "depth": 6,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     552,
+     209,
+     801,
+     762
+    ]
+   },
+   {
+    "depth": 7,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     552,
+     209,
+     11,
+     762
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     552,
+     585,
+     11,
+     11
+    ]
+   },
+   {
+    "depth": 7,
+    "role": "TABLECELL",
+    "name": "Red dot with a white letter 'C' that symbolizes a moon cresc",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     562,
+     209,
+     781,
+     762
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "TABLE",
+    "name": "",
+    "tag": "table",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table",
+    "hints": [],
+    "children": 5,
+    "rect": [
+     562,
+     209,
+     781,
+     145
+    ]
+   },
+   {
+    "depth": 9,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 5,
+    "rect": [
+     562,
+     209,
+     781,
+     87
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "Red dot with a white letter 'C' that symbolizes a moon cresc",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     209,
+     444,
+     87
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     209,
+     444,
+     87
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "LINK",
+    "name": "Red dot with a white letter 'C' that symbolizes a moon cresc",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     209,
+     444,
+     90
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1005,
+     209,
+     25,
+     87
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "GRAPHIC",
+    "name": "No description available.",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1005,
+     209,
+     25,
+     87
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1029,
+     209,
+     129,
+     87
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "GRAPHIC",
+    "name": "No description available.",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1029,
+     209,
+     129,
+     87
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1157,
+     209,
+     23,
+     87
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "GRAPHIC",
+    "name": "No description available.",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1157,
+     209,
+     23,
+     87
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "QUICKMENU ---->",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1179,
+     209,
+     164,
+     87
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "COMBOBOX",
+    "name": "",
+    "tag": "select",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline-block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1189,
+     243,
+     144,
+     20
+    ]
+   },
+   {
+    "depth": 9,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     295,
+     781,
+     8
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     295,
+     781,
+     8
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     562,
+     295,
+     159,
+     8
+    ]
+   },
+   {
+    "depth": 9,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     302,
+     781,
+     26
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "\u00a0\u00a0Traffic: Construction work on Main Road Today:Monday 12 Oc",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     302,
+     781,
+     26
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "TABLE",
+    "name": "",
+    "tag": "table",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     302,
+     781,
+     26
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     562,
+     302,
+     781,
+     26
+    ]
+   },
+   {
+    "depth": 9,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     327,
+     781,
+     2
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     327,
+     781,
+     2
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     562,
+     327,
+     79,
+     2
+    ]
+   },
+   {
+    "depth": 9,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     328,
+     781,
+     26
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     328,
+     781,
+     26
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "STATICTEXT",
+    "name": "",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     562,
+     332,
+     5,
+     18
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "TABLE",
+    "name": "",
+    "tag": "table",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     353,
+     781,
+     601
+    ]
+   },
+   {
+    "depth": 9,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 5,
+    "rect": [
+     562,
+     353,
+     781,
+     601
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     353,
+     156,
+     601
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "TABLE",
+    "name": "",
+    "tag": "table",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table",
+    "hints": [],
+    "children": 9,
+    "rect": [
+     562,
+     353,
+     156,
+     142
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     562,
+     353,
+     156,
+     2
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     354,
+     156,
+     35
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     388,
+     156,
+     2
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     389,
+     156,
+     35
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     423,
+     156,
+     2
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     424,
+     156,
+     35
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     458,
+     156,
+     2
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     459,
+     156,
+     35
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     493,
+     156,
+     2
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     717,
+     353,
+     21,
+     601
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     717,
+     651,
+     21,
+     6
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "Welcome to CityLights Citylights is the new portal for visit",
+    "tag": "td",
+    "id": "main",
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [
+     "main"
+    ],
+    "children": 3,
+    "rect": [
+     737,
+     353,
+     435,
+     601
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "headline",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     737,
+     353,
+     435,
+     30
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "STATICTEXT",
+    "name": "Welcome to CityLights",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     737,
+     353,
+     220,
+     30
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     737,
+     388,
+     435,
+     35
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "STATICTEXT",
+    "name": "Citylights is the new portal for visitors and residents. Fin",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     737,
+     388,
+     415,
+     34
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "content",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "content"
+    ],
+    "children": 9,
+    "rect": [
+     737,
+     428,
+     435,
+     496
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "newsheadline",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     737,
+     429,
+     139,
+     52
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "newsheadline",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     880,
+     429,
+     139,
+     52
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "newsheadline",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     1023,
+     429,
+     139,
+     52
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "image",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     737,
+     480,
+     139,
+     120
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "image",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     880,
+     480,
+     139,
+     120
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "image",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1023,
+     480,
+     139,
+     120
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "newsbar",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     737,
+     599,
+     435,
+     120
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": "subheadline",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     737,
+     726,
+     435,
+     47
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 16,
+    "rect": [
+     737,
+     778,
+     435,
+     146
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1171,
+     353,
+     21,
+     601
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1171,
+     651,
+     21,
+     6
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "\u00a0Free Penguins \"Free penguins\" slogan at zoo benefit concert",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1191,
+     353,
+     152,
+     601
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "TABLE",
+    "name": "",
+    "tag": "table",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table",
+    "hints": [],
+    "children": 9,
+    "rect": [
+     1191,
+     353,
+     152,
+     595
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     1191,
+     353,
+     152,
+     2
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1191,
+     354,
+     152,
+     26
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1191,
+     379,
+     152,
+     107
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1191,
+     485,
+     152,
+     133
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1191,
+     617,
+     152,
+     19
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1191,
+     635,
+     152,
+     2
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1191,
+     636,
+     152,
+     26
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1191,
+     661,
+     152,
+     155
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1191,
+     815,
+     152,
+     133
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "TABLE",
+    "name": "",
+    "tag": "table",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     953,
+     781,
+     18
+    ]
+   },
+   {
+    "depth": 9,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     953,
+     781,
+     18
+    ]
+   },
+   {
+    "depth": 10,
+    "role": "TABLECELL",
+    "name": "Copyright \u00a9 2012 W3C\u00ae (MIT, ERCIM, Keio)",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 11,
+    "rect": [
+     562,
+     953,
+     781,
+     18
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "LINK",
+    "name": "Copyright",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1117,
+     957,
+     50,
+     13
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "STATICTEXT",
+    "name": " \u00a9 2012 ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1166,
+     957,
+     47,
+     13
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "LINK",
+    "name": "W3C",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1212,
+     957,
+     24,
+     13
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "sup",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1235,
+     955,
+     9,
+     10
+    ]
+   },
+   {
+    "depth": 12,
+    "role": "STATICTEXT",
+    "name": "\u00ae",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1235,
+     955,
+     9,
+     10
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "STATICTEXT",
+    "name": " (",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1243,
+     957,
+     9,
+     13
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "LINK",
+    "name": "MIT",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1251,
+     957,
+     19,
+     13
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "STATICTEXT",
+    "name": ", ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1269,
+     957,
+     8,
+     13
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "LINK",
+    "name": "ERCIM",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1276,
+     957,
+     34,
+     13
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "STATICTEXT",
+    "name": ", ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1309,
+     957,
+     8,
+     13
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "LINK",
+    "name": "Keio",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1316,
+     957,
+     22,
+     13
+    ]
+   },
+   {
+    "depth": 11,
+    "role": "STATICTEXT",
+    "name": ")",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1337,
+     957,
+     6,
+     13
+    ]
+   },
+   {
+    "depth": 7,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1342,
+     209,
+     11,
+     762
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1342,
+     585,
+     11,
+     11
+    ]
+   },
+   {
+    "depth": 6,
+    "role": "TABLEROW",
+    "name": "",
+    "tag": "tr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-row",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     552,
+     970,
+     801,
+     11
+    ]
+   },
+   {
+    "depth": 7,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     552,
+     970,
+     11,
+     11
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     552,
+     970,
+     11,
+     11
+    ]
+   },
+   {
+    "depth": 7,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     562,
+     970,
+     781,
+     11
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     562,
+     970,
+     11,
+     11
+    ]
+   },
+   {
+    "depth": 7,
+    "role": "TABLECELL",
+    "name": "",
+    "tag": "td",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "table-cell",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1342,
+     970,
+     11,
+     11
+    ]
+   },
+   {
+    "depth": 8,
+    "role": "GRAPHIC",
+    "name": "",
+    "tag": "img",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1342,
+     970,
+     11,
+     11
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "meta-footer",
+    "class": "meta",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "footer"
+    ],
+    "children": 4,
+    "rect": [
+     0,
+     1028,
+     1905,
+     211
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SEPARATOR",
+    "name": "",
+    "tag": "hr",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     -14400,
+     -14393,
+     3,
+     4
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 20,
+    "rect": [
+     14,
+     1057,
+     1877,
+     61
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "strong",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     14,
+     1059,
+     50,
+     17
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Status:",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     14,
+     1059,
+     50,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " 20 February 2012 (see ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     63,
+     1059,
+     154,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "changelog",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     216,
+     1059,
+     68,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": ")",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     283,
+     1059,
+     6,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "WHITESPACE",
+    "name": "",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     288,
+     2088,
+     0,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "Editors: ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     14,
+     1079,
+     54,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Shadi Abou-Zahra",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     67,
+     1079,
+     117,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " and the ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     183,
+     1079,
+     57,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Education and Outreach Working Group (EOWG)",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     239,
+     1079,
+     316,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": ".",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     554,
+     1079,
+     5,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "WHITESPACE",
+    "name": "",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     558,
+     2108,
+     0,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "Developed with support from ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     14,
+     1099,
+     188,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "WAI-TIES",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     201,
+     1099,
+     65,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " and ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     265,
+     1099,
+     33,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "WAI-AGE",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     297,
+     1099,
+     63,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " projects, co-funded by the European Commission ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     359,
+     1099,
+     324,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "acronym",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     682,
+     1099,
+     23,
+     17
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "IST",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     682,
+     1099,
+     23,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " Programme. [see ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     704,
+     1099,
+     119,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Acknowledgements",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     822,
+     1099,
+     126,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "]",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     947,
+     1099,
+     5,
+     17
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 14,
+    "rect": [
+     14,
+     1132,
+     1877,
+     41
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "[",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     14,
+     1134,
+     5,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "WAI Site Map",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     18,
+     1134,
+     88,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "] [",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     105,
+     1134,
+     13,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Help with WAI Website",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     117,
+     1134,
+     147,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "] [",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     263,
+     1134,
+     13,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Search",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     275,
+     1134,
+     47,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "] [",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     321,
+     1134,
+     13,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Contacting WAI",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     333,
+     1134,
+     100,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "]",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     432,
+     1134,
+     5,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "WHITESPACE",
+    "name": "",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     436,
+     2162,
+     0,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "strong",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     14,
+     1154,
+     312,
+     17
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "Feedback welcome to ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     14,
+     1154,
+     154,
+     17
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LINK",
+    "name": "wai-eo-editors@w3.org",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     167,
+     1154,
+     159,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " (a publicly archived list) or ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     325,
+     1154,
+     175,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "wai@w3.org",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     499,
+     1154,
+     81,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " (a WAI staff-only list).",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     579,
+     1154,
+     141,
+     17
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "PARAGRAPH",
+    "name": "",
+    "tag": "p",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 23,
+    "rect": [
+     14,
+     1187,
+     1877,
+     23
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Copyright",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     14,
+     1191,
+     63,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " \u00a9 2012 ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     76,
+     1191,
+     55,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "W3C",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     130,
+     1191,
+     33,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "TEXTFRAME",
+    "name": "",
+    "tag": "sup",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     162,
+     1188,
+     10,
+     15
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "STATICTEXT",
+    "name": "\u00ae",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     162,
+     1188,
+     10,
+     15
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " (",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     171,
+     1191,
+     10,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "MIT",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     180,
+     1191,
+     24,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": ", ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     203,
+     1191,
+     9,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "ERCIM",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     211,
+     1191,
+     47,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": ", ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     257,
+     1191,
+     9,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Keio",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     265,
+     1191,
+     30,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": "), All Rights Reserved. W3C ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     294,
+     1191,
+     184,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "liability",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     477,
+     1191,
+     43,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": ", ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     519,
+     1191,
+     9,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "trademark",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     527,
+     1191,
+     66,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": ", ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     592,
+     1191,
+     9,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "document use",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     600,
+     1191,
+     91,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " and ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     690,
+     1191,
+     33,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "software licensing",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     722,
+     1191,
+     116,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " rules apply. Your interactions with this site are in accord",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     837,
+     1191,
+     447,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "public",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1283,
+     1191,
+     39,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " and ",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1321,
+     1191,
+     33,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "LINK",
+    "name": "Member",
+    "tag": "a",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "inline",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1353,
+     1191,
+     54,
+     17
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "STATICTEXT",
+    "name": " privacy statements.",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1406,
+     1191,
+     129,
+     17
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "message_to_say_yyd",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     0,
+     1238,
+     1905,
+     0
+    ]
+   }
+  ],
+  "ms": 1523.3,
+  "truncated": false
+ },
+ "leaves": {
+  "count": 75,
+  "limit": 400,
+  "msTotal": 396.0,
+  "msMedian": 5.07,
+  "msMax": 9.3,
+  "leaves": [
+   {
+    "type": "link",
+    "start": 0,
+    "rect": [
+     -14400,
+     -14400,
+     1,
+     1
+    ]
+   },
+   {
+    "type": "link",
+    "start": 30,
+    "rect": [
+     1624,
+     24,
+     72,
+     52
+    ]
+   },
+   {
+    "type": "link",
+    "start": 59,
+    "rect": [
+     1696,
+     24,
+     194,
+     52
+    ]
+   },
+   {
+    "type": "link",
+    "start": 225,
+    "rect": [
+     10,
+     116,
+     87,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 288,
+    "rect": [
+     342,
+     155,
+     95,
+     21
+    ]
+   },
+   {
+    "type": "link",
+    "start": 327,
+    "rect": [
+     217,
+     175,
+     126,
+     21
+    ]
+   },
+   {
+    "type": "link",
+    "start": 346,
+    "rect": [
+     342,
+     175,
+     95,
+     21
+    ]
+   },
+   {
+    "type": "link",
+    "start": 372,
+    "rect": [
+     437,
+     155,
+     145,
+     42
+    ]
+   },
+   {
+    "type": "link",
+    "start": 388,
+    "rect": [
+     176,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 392,
+    "rect": [
+     257,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 399,
+    "rect": [
+     338,
+     116,
+     83,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 405,
+    "rect": [
+     419,
+     116,
+     85,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 433,
+    "rect": [
+     562,
+     209,
+     444,
+     90
+    ]
+   },
+   {
+    "type": "link",
+    "start": 955,
+    "rect": [
+     562,
+     358,
+     119,
+     31
+    ]
+   },
+   {
+    "type": "link",
+    "start": 976,
+    "rect": [
+     562,
+     396,
+     115,
+     25
+    ]
+   },
+   {
+    "type": "link",
+    "start": 997,
+    "rect": [
+     562,
+     430,
+     124,
+     27
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1021,
+    "rect": [
+     562,
+     460,
+     124,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1206,
+    "rect": [
+     765,
+     429,
+     87,
+     51
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1263,
+    "rect": [
+     908,
+     429,
+     98,
+     51
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1323,
+    "rect": [
+     1051,
+     429,
+     94,
+     51
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1476,
+    "rect": [
+     742,
+     696,
+     49,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1593,
+    "rect": [
+     885,
+     696,
+     49,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1713,
+    "rect": [
+     1028,
+     696,
+     49,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1917,
+    "rect": [
+     835,
+     847,
+     63,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 1944,
+    "rect": [
+     813,
+     867,
+     63,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2166,
+    "rect": [
+     1195,
+     596,
+     85,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2337,
+    "rect": [
+     1195,
+     926,
+     85,
+     18
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2349,
+    "rect": [
+     1117,
+     957,
+     50,
+     13
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2366,
+    "rect": [
+     1212,
+     957,
+     24,
+     13
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2372,
+    "rect": [
+     1251,
+     957,
+     19,
+     13
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2377,
+    "rect": [
+     1276,
+     957,
+     34,
+     13
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2384,
+    "rect": [
+     1316,
+     957,
+     22,
+     13
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2424,
+    "rect": [
+     216,
+     1059,
+     68,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2444,
+    "rect": [
+     67,
+     1079,
+     117,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2469,
+    "rect": [
+     239,
+     1079,
+     316,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2542,
+    "rect": [
+     201,
+     1099,
+     65,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2555,
+    "rect": [
+     297,
+     1099,
+     63,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2630,
+    "rect": [
+     822,
+     1099,
+     126,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2648,
+    "rect": [
+     18,
+     1134,
+     88,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2663,
+    "rect": [
+     117,
+     1134,
+     147,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2687,
+    "rect": [
+     275,
+     1134,
+     47,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2696,
+    "rect": [
+     333,
+     1134,
+     100,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2732,
+    "rect": [
+     167,
+     1154,
+     159,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2784,
+    "rect": [
+     499,
+     1154,
+     81,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2819,
+    "rect": [
+     14,
+     1191,
+     63,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2836,
+    "rect": [
+     130,
+     1191,
+     33,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2842,
+    "rect": [
+     180,
+     1191,
+     24,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2847,
+    "rect": [
+     211,
+     1191,
+     47,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2854,
+    "rect": [
+     265,
+     1191,
+     30,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2886,
+    "rect": [
+     477,
+     1191,
+     43,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2897,
+    "rect": [
+     527,
+     1191,
+     66,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2908,
+    "rect": [
+     600,
+     1191,
+     91,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 2925,
+    "rect": [
+     722,
+     1191,
+     116,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 3017,
+    "rect": [
+     1283,
+     1191,
+     39,
+     17
+    ]
+   },
+   {
+    "type": "link",
+    "start": 3028,
+    "rect": [
+     1353,
+     1191,
+     54,
+     17
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 98,
+    "rect": [
+     10,
+     24,
+     436,
+     50
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 30,
+    "rect": [
+     1624,
+     24,
+     72,
+     49
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 59,
+    "rect": [
+     1696,
+     24,
+     194,
+     49
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 433,
+    "rect": [
+     562,
+     209,
+     444,
+     87
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 776,
+    "rect": [
+     1005,
+     209,
+     25,
+     87
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 801,
+    "rect": [
+     1029,
+     209,
+     129,
+     87
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 826,
+    "rect": [
+     1157,
+     209,
+     23,
+     87
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 955,
+    "rect": [
+     577,
+     358,
+     89,
+     28
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 976,
+    "rect": [
+     574,
+     396,
+     91,
+     22
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 997,
+    "rect": [
+     571,
+     430,
+     106,
+     24
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1021,
+    "rect": [
+     570,
+     460,
+     108,
+     33
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1181,
+    "rect": [
+     737,
+     429,
+     24,
+     25
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1238,
+    "rect": [
+     880,
+     429,
+     24,
+     25
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1298,
+    "rect": [
+     1023,
+     429,
+     24,
+     25
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1897,
+    "rect": [
+     737,
+     846,
+     22,
+     21
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1929,
+    "rect": [
+     737,
+     866,
+     22,
+     21
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1993,
+    "rect": [
+     955,
+     903,
+     111,
+     21
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2039,
+    "rect": [
+     1192,
+     379,
+     151,
+     107
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2196,
+    "rect": [
+     1192,
+     661,
+     151,
+     155
+    ]
+   },
+   {
+    "type": "formField",
+    "start": 851,
+    "rect": [
+     1189,
+     243,
+     144,
+     20
+    ]
+   }
+  ]
+ }
+}

@@ -1,0 +1,7124 @@
+{
+ "candidates": {
+  "browser": "Google Chrome 154.0.8037.95",
+  "url": "https://seekingalpha.com/",
+  "viewport": [
+   0,
+   121,
+   1920,
+   911
+  ],
+  "totalLinks": 241,
+  "linkScanMs": 39.1,
+  "locateCount": 109,
+  "locateMsTotal": 617.6,
+  "locateMsMax": 8.1,
+  "records": [
+   {
+    "type": "landmark",
+    "label": "complementary",
+    "role": "LANDMARK",
+    "name": null,
+    "tag": "aside",
+    "xmlRoles": "complementary",
+    "id": null,
+    "class": "shrink-0 print:hidden XmtZz negOk lg:ml-0 lg:pt-0 flex",
+    "display": "flex",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "tag",
+     "text-align",
+     "xml-roles"
+    ],
+    "rect": [
+     0,
+     0,
+     240,
+     16280
+    ],
+    "where": "bottom left, tall and narrow, 240 by 16280",
+    "start": 0,
+    "end": 363,
+    "textLength": 363,
+    "links": 20,
+    "depth": 0
+   },
+   {
+    "type": "landmark",
+    "label": "navigation",
+    "role": "LANDMARK",
+    "name": null,
+    "tag": "nav",
+    "xmlRoles": "navigation",
+    "id": "main-sidebar-nav",
+    "class": "flex h-0 grow flex-col",
+    "display": "flex",
+    "hints": [
+     "main",
+     "nav",
+     "sidebar"
+    ],
+    "attributeKeys": [
+     "class",
+     "display",
+     "id",
+     "tag",
+     "text-align",
+     "xml-roles"
+    ],
+    "rect": [
+     0,
+     68,
+     240,
+     843
+    ],
+    "where": "middle left, tall and narrow, 240 by 843",
+    "start": 77,
+    "end": 363,
+    "textLength": 286,
+    "links": 18,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "INVESTING GROUPS",
+    "role": "HEADING",
+    "name": "INVESTING GROUPS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "relative flex select-none items-center justify-center text-large-r text-white lg:text-medium-2-r t3G5B Q4tsV aqj-P CigoV mb-0 py-8 text-white hover:text-white hover:no-underline An7va w-full grow",
+    "display": "flex",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     0,
+     268,
+     230,
+     30
+    ],
+    "where": "top left, 230 by 30",
+    "start": 132,
+    "end": 148,
+    "textLength": 16,
+    "links": 0,
+    "depth": 2
+   },
+   {
+    "type": "heading2",
+    "label": "PORTFOLIOS",
+    "role": "HEADING",
+    "name": "PORTFOLIOS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "relative flex select-none items-center justify-center text-large-r text-white lg:text-medium-2-r t3G5B Q4tsV aqj-P CigoV mb-0 py-8 text-white hover:text-white hover:no-underline An7va w-full grow",
+    "display": "flex",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     0,
+     353,
+     230,
+     30
+    ],
+    "where": "middle left, 230 by 30",
+    "start": 172,
+    "end": 182,
+    "textLength": 10,
+    "links": 0,
+    "depth": 2
+   },
+   {
+    "type": "heading2",
+    "label": "SAVED SCREENS",
+    "role": "HEADING",
+    "name": "SAVED SCREENS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "relative flex select-none items-center justify-center text-large-r text-white lg:text-medium-2-r t3G5B Q4tsV aqj-P CigoV mb-0 py-8 text-white hover:text-white hover:no-underline An7va w-full grow",
+    "display": "flex",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     0,
+     468,
+     230,
+     30
+    ],
+    "where": "middle left, 230 by 30",
+    "start": 214,
+    "end": 227,
+    "textLength": 13,
+    "links": 0,
+    "depth": 2
+   },
+   {
+    "type": "heading2",
+    "label": "FIND & COMPARE",
+    "role": "HEADING",
+    "name": "FIND & COMPARE",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "relative flex select-none items-center justify-center text-large-r text-white lg:text-medium-2-r t3G5B Q4tsV aqj-P CigoV mb-0 py-8 text-white hover:text-white hover:no-underline An7va w-full grow",
+    "display": "flex",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     0,
+     553,
+     230,
+     30
+    ],
+    "where": "middle left, 230 by 30",
+    "start": 242,
+    "end": 256,
+    "textLength": 14,
+    "links": 0,
+    "depth": 2
+   },
+   {
+    "type": "landmark",
+    "label": "banner",
+    "role": "LANDMARK",
+    "name": null,
+    "tag": "header",
+    "xmlRoles": "banner",
+    "id": "header",
+    "class": "XJQ0Y sticky left-0 top-0 w-full print:hidden",
+    "display": "block",
+    "hints": [
+     "header",
+     "left"
+    ],
+    "attributeKeys": [
+     "class",
+     "display",
+     "id",
+     "tag",
+     "text-align",
+     "xml-roles"
+    ],
+    "rect": [
+     240,
+     0,
+     1665,
+     120
+    ],
+    "where": "top centre, full width, 1665 by 120",
+    "start": 363,
+    "end": 588,
+    "textLength": 225,
+    "links": 2,
+    "depth": 0
+   },
+   {
+    "type": "search button",
+    "label": "Clicking this button will open the Ask Seeking Alpha search box",
+    "role": "BUTTON",
+    "name": "Clicking this button will open the Ask Seeking Alpha search box",
+    "tag": "button",
+    "xmlRoles": null,
+    "id": null,
+    "class": "flex h-44 w-full cursor-text items-center rounded-8 border border-black-10 bg-white p-12 text-left dark:border-black-30/40 dark:bg-black-95 f709c",
+    "display": "flex",
+    "hints": [
+     "left"
+    ],
+    "attributeKeys": [
+     "class",
+     "display",
+     "explicit-name",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     276,
+     23,
+     604,
+     44
+    ],
+    "where": "top left, 604 by 44",
+    "start": 363,
+    "end": 426,
+    "textLength": 63,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "landmark",
+    "label": "main",
+    "role": "LANDMARK",
+    "name": null,
+    "tag": "main",
+    "xmlRoles": "main",
+    "id": "content",
+    "class": "relative flex grow flex-col ojQCd jTEXG lg:pt-0",
+    "display": "flex",
+    "hints": [
+     "content"
+    ],
+    "attributeKeys": [
+     "class",
+     "display",
+     "id",
+     "tag",
+     "text-align",
+     "xml-roles"
+    ],
+    "rect": [
+     240,
+     120,
+     1665,
+     16060
+    ],
+    "where": "bottom centre, full width, 1665 by 16060",
+    "start": 588,
+    "end": 31404,
+    "textLength": 30816,
+    "links": 219,
+    "depth": 0
+   },
+   {
+    "type": "heading1",
+    "label": "Seeking Alpha - Stock Market Analysis & Tools for Investors",
+    "role": "HEADING",
+    "name": "Seeking Alpha - Stock Market Analysis & Tools for Investors",
+    "tag": "h1",
+    "xmlRoles": null,
+    "id": null,
+    "class": "sr-only",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     275,
+     143,
+     1,
+     1
+    ],
+    "where": "top left, 1 by 1",
+    "start": 588,
+    "end": 647,
+    "textLength": 59,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "table",
+    "label": "Us Stock IndicesSymbolPriceChangeChange %Dow JonesSelect Dow Jones row51,896.90241.95 +0.47% S&P 500Select S&P 500 row7,815.323.78 +0.0484% NasdaqSelect Nasdaq row27,306.73-59.44 -0.22% Crude OilSelect Crude Oil row93.611.76 +1.91% GoldSelect Gold row4,165.40-28.47 -0.68% BitcoinSelect Bitcoin row82,814.35-881.10 -1.05%",
+    "role": "TABLE",
+    "name": "Us Stock Indices",
+    "tag": "table",
+    "xmlRoles": null,
+    "id": null,
+    "class": "w-full",
+    "display": "table",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "explicit-name",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     276,
+     166,
+     301,
+     137
+    ],
+    "where": "top left, 301 by 137",
+    "start": 682,
+    "end": 1004,
+    "textLength": 322,
+    "links": 6,
+    "depth": 1
+   },
+   {
+    "type": "landmark",
+    "label": "Dow Jones price and volume. Highcharts interactive chart.",
+    "role": "REGION",
+    "name": "Dow Jones price and volume. Highcharts interactive chart.",
+    "tag": "div",
+    "xmlRoles": "region",
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "explicit-name",
+     "name-from",
+     "tag",
+     "text-align",
+     "xml-roles"
+    ],
+    "rect": [
+     595,
+     166,
+     283,
+     137
+    ],
+    "where": "top centre, 283 by 137",
+    "start": 1066,
+    "end": 18224,
+    "textLength": 17158,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "Dow Jones price and volume",
+    "role": "HEADING",
+    "name": "Dow Jones price and volume",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": null,
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     595,
+     163,
+     1,
+     36
+    ],
+    "where": "top left, 1 by 36",
+    "start": 1066,
+    "end": 1092,
+    "textLength": 26,
+    "links": 0,
+    "depth": 2
+   },
+   {
+    "type": "landmark",
+    "label": "DJI, series 1 of 2 with 169 data points. Min. value: 51,723.5, max. value: 51,925.55, current value: 51,898.59. Y axis, symbol price.",
+    "role": "REGION",
+    "name": "DJI, series 1 of 2 with 169 data points. Min. value: 51,723.5, max. value: 51,925.55, current value: 51,898.59. Y axis, symbol price.",
+    "tag": "g",
+    "xmlRoles": "region",
+    "id": null,
+    "class": "highcharts-markers highcharts-series-0 highcharts-area-series highcharts-tracker",
+    "display": "inline",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "explicit-name",
+     "name-from",
+     "tag",
+     "text-align",
+     "xml-roles"
+    ],
+    "rect": [
+     593,
+     202,
+     107,
+     72
+    ],
+    "where": "top centre, 107 by 72",
+    "start": 1371,
+    "end": 9831,
+    "textLength": 8460,
+    "links": 0,
+    "depth": 2
+   },
+   {
+    "type": "landmark",
+    "label": "Volume, series 2 of 2. Bar series with 169 bars. Min. value: 282,870, max. value: 2,242,698, current value: 292,144. Y axis, symbol volume.",
+    "role": "REGION",
+    "name": "Volume, series 2 of 2. Bar series with 169 bars. Min. value: 282,870, max. value: 2,242,698, current value: 292,144. Y axis, symbol volume.",
+    "tag": "g",
+    "xmlRoles": "region",
+    "id": null,
+    "class": "highcharts-series highcharts-series-1 highcharts-column-series highcharts-tracker highcharts-dense-data",
+    "display": "inline",
+    "hints": [
+     "column"
+    ],
+    "attributeKeys": [
+     "class",
+     "display",
+     "explicit-name",
+     "name-from",
+     "tag",
+     "text-align",
+     "xml-roles"
+    ],
+    "rect": [
+     595,
+     257,
+     103,
+     22
+    ],
+    "where": "top centre, 103 by 22",
+    "start": 9831,
+    "end": 18199,
+    "textLength": 8368,
+    "links": 0,
+    "depth": 2
+   },
+   {
+    "type": "heading2",
+    "label": "Latest News",
+    "role": "HEADING",
+    "name": "Latest News",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": "latest-news-title",
+    "class": "mb-4 pt-2 text-small-b",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "id",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     902,
+     144,
+     71,
+     16
+    ],
+    "where": "top centre, 71 by 16",
+    "start": 18224,
+    "end": 18235,
+    "textLength": 11,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "TRENDING ANALYSIS",
+    "role": "HEADING",
+    "name": "TRENDING ANALYSIS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     339,
+     146,
+     20
+    ],
+    "where": "middle left, 146 by 20",
+    "start": 18617,
+    "end": 18634,
+    "textLength": 17,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "TRENDING NEWS",
+    "role": "HEADING",
+    "name": "TRENDING NEWS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     920,
+     339,
+     119,
+     20
+    ],
+    "where": "middle centre, 119 by 20",
+    "start": 19235,
+    "end": 19248,
+    "textLength": 13,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "IN CASE YOU MISSED IT",
+    "role": "HEADING",
+    "name": "IN CASE YOU MISSED IT",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     947,
+     165,
+     20
+    ],
+    "where": "below the visible part, 1 screens down",
+    "start": 20007,
+    "end": 20028,
+    "textLength": 21,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "table",
+    "label": "SymbolAnalyst RatingArticleAnalystSaveNVDABUYNvidia: Reaching The Point Of An Explosive Upside BreakoutJR ResearchNvidia: Reaching The Point Of An Explosive Upside Breakout save this article for later readingNVDASTRONG BUYNvidia: The Top AI Stock Is On SaleSteven Cress, Quant TeamNvidia: The Top AI Stock Is On Sale save this article for later readingMUHOLDMicron: Winter Is Coming (Rating Upgrade)Uttam DeyMicron: Winter Is Coming (Rating Upgrade) save this article for later readingQQQHOLDThis Is Most Certainly A Bull TrapUttam DeyThis Is Most Certainly A Bull Trap save this article for later readingMUSELLMicron: Wishful Thinking At Its FinestTech Stock ProsMicron: Wishful Thinking At Its Finest save this article for later readingAMZNBUYAmazon's $220 Billion Bet Is Starting To Pay OffPythia ResearchAmazon's $220 Billion Bet Is Starting To Pay Off save this article for later readingSNDKBUYSandisk: 12% Cash Return, With Earnings Up NextTQP ResearchSandisk: 12% Cash Return, With Earnings Up Next save this article for later readingRKLBHOLDRocket Lab: The Biggest Test In Its History Is ComingBohdan KucheriavyiRocket Lab: The Biggest Test In Its History Is Coming save this article for later readingDIVBBUYDIVB: Dual Payout Approach Beats SCHD Dividend Only StrategyDS Retirement SolutionsDIVB: Dual Payout Approach Beats SCHD Dividend Only Strategy save this article for later readingVZBUYDoes Verizon's 6.2% Dividend Yield Have A Starlink Risk?Rida MorwaDoes Verizon's 6.2% Dividend Yield Have A Starlink Risk? save this article for later reading",
+    "role": "TABLE",
+    "name": null,
+    "tag": "table",
+    "xmlRoles": null,
+    "id": null,
+    "class": "mb-0 max-w-full grow table-fixed self-start",
+    "display": "table",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     1007,
+     1188,
+     332
+    ],
+    "where": "below the visible part, 1 screens down",
+    "start": 20087,
+    "end": 21645,
+    "textLength": 1558,
+    "links": 40,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "SAVED ARTICLES",
+    "role": "HEADING",
+    "name": "SAVED ARTICLES",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     1391,
+     121,
+     20
+    ],
+    "where": "below the visible part, 1 screens down",
+    "start": 21645,
+    "end": 21659,
+    "textLength": 14,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "ARTICLES YOU'VE READ",
+    "role": "HEADING",
+    "name": "ARTICLES YOU'VE READ",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     920,
+     1391,
+     170,
+     20
+    ],
+    "where": "below the visible part, 1 screens down",
+    "start": 21796,
+    "end": 21816,
+    "textLength": 20,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "LATEST GROWTH IDEAS",
+    "role": "HEADING",
+    "name": "LATEST GROWTH IDEAS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     1758,
+     168,
+     20
+    ],
+    "where": "below the visible part, 1 screens down",
+    "start": 23359,
+    "end": 23378,
+    "textLength": 19,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "table",
+    "label": "SymbolAnalyst RatingArticleAnalystSaveDINOBUYHF Sinclair: Adversity Creates OpportunityRicardo FernandezHF Sinclair: Adversity Creates Opportunity save this article for later readingMUSTRONG BUYMicron: More For LongerCavenagh ResearchMicron: More For Longer save this article for later readingSOFIBUYSoFi Needs To Keep Over Half Of Every New Dollar - Oct. 27 Shows If It's On TrackRick OrfordSoFi Needs To Keep Over Half Of Every New Dollar - Oct. 27 Shows If It's On Track save this article for later readingONDSBUYOndas Is Assembling A Defense Prime, BuySteven FiorilloOndas Is Assembling A Defense Prime, Buy save this article for later readingVICRBUYAll Roads Lead To VicorJohn DillonAll Roads Lead To Vicor save this article for later readingFIGRSTRONG BUYFigure Technology Solutions: A New Force In Lending InfrastructureMare Evidence LabFigure Technology Solutions: A New Force In Lending Infrastructure save this article for later readingFIXBUYComfort Systems USA: A Sneaky Winner In The AI Infrastructure BuildoutBlake WinieckiComfort Systems USA: A Sneaky Winner In The AI Infrastructure Buildout save this article for later readingNVDABUYNvidia Stock: Finding New Ways To Extend The AI Growth RunwayFuture Stack InvestmentNvidia Stock: Finding New Ways To Extend The AI Growth Runway save this article for later readingSNDKBUYSandisk: 12% Cash Return, With Earnings Up NextTQP ResearchSandisk: 12% Cash Return, With Earnings Up Next save this article for later readingTLNBUYTalen: Cornerstone And Buybacks Strengthen The Buy CaseDaniel JamesTalen: Cornerstone And Buybacks Strengthen The Buy Case save this article for later reading",
+    "role": "TABLE",
+    "name": null,
+    "tag": "table",
+    "xmlRoles": null,
+    "id": null,
+    "class": "mb-0 max-w-full grow table-fixed self-start",
+    "display": "table",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     1818,
+     1188,
+     332
+    ],
+    "where": "below the visible part, 1 screens down",
+    "start": 23454,
+    "end": 25097,
+    "textLength": 1643,
+    "links": 40,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "ETFs BY QUANT RATING",
+    "role": "HEADING",
+    "name": "ETFs BY QUANT RATING",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     2202,
+     168,
+     20
+    ],
+    "where": "below the visible part, 2 screens down",
+    "start": 25097,
+    "end": 25117,
+    "textLength": 20,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "table",
+    "label": "Top Rated ETFs RatingBWETBreakwave Tanker Shipping ETFRATING: STRONG BUY4.99MVLLGraniteShares 2x Long MRVL Daily ETFRATING: STRONG BUY4.98AMDLGraniteShares 2x Long AMD Daily ETFRATING: STRONG BUY4.97DLLLGraniteShares 2x Long DELL Daily ETFRATING: STRONG BUY4.96AMUUDirexion Daily AMD Bull 2X ETFRATING: STRONG BUY4.95MRNYYieldMax MRNA Option Income Strategy ETFRATING: STRONG BUY4.94CRWLGraniteShares 2x Long CRWD Daily ETFRATING: STRONG BUY4.93TECLDirexion Daily Technology Bull 3X ETFRATING: STRONG BUY4.92SOXLDirexion Daily Semiconductor Bull 3X ETFRATING: STRONG BUY4.91AMDWRoundhill AMD WeeklyPay ETFRATING: STRONG BUY4.90MUUDirexion Daily MU Bull 2X ETFRATING: STRONG BUY4.89",
+    "role": "TABLE",
+    "name": null,
+    "tag": "table",
+    "xmlRoles": null,
+    "id": null,
+    "class": "mb-0 max-w-full grow table-fixed self-start",
+    "display": "table",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     2262,
+     564,
+     363
+    ],
+    "where": "below the visible part, 2 screens down",
+    "start": 25181,
+    "end": 25862,
+    "textLength": 681,
+    "links": 22,
+    "depth": 1
+   },
+   {
+    "type": "table",
+    "label": "Sector ETFs RatingXLKState Street Technology Select Sector SPDR ETFRATING: BUY4.47XLEState Street Energy Select Sector SPDR ETFRATING: BUY4.32XLVState Street Health Care Select Sector SPDR ETFRATING: BUY4.05XLIState Street Industrial Select Sector SPDR ETFRATING: HOLD3.22XLPState Street Consumer Staples Sel Sect SPDR ETFRATING: HOLD3.00XLYState Street Consumer Disc Sel Sect SPDR ETFRATING: HOLD2.87XLCState Street Com Svc Sel Sec SPDR ETFRATING: HOLD2.86XLFState Street Financial Sel Sec SPDR ETFRATING: HOLD2.82XLBState Street Materials Select Sector SPDR ETFRATING: SELL2.16XLUState Street Utilities Select Sector SPDR ETFRATING: SELL2.10XLREState Street Real Estate Select Sector SPDR ETFRATING: SELL1.67",
+    "role": "TABLE",
+    "name": null,
+    "tag": "table",
+    "xmlRoles": null,
+    "id": null,
+    "class": "mb-0 max-w-full grow table-fixed self-start",
+    "display": "table",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     920,
+     2262,
+     564,
+     363
+    ],
+    "where": "below the visible part, 2 screens down",
+    "start": 25862,
+    "end": 26572,
+    "textLength": 710,
+    "links": 22,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "MOST COMPELLING ANALYST IDEAS",
+    "role": "HEADING",
+    "name": "MOST COMPELLING ANALYST IDEAS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     2707,
+     253,
+     20
+    ],
+    "where": "below the visible part, 2 screens down",
+    "start": 26580,
+    "end": 26609,
+    "textLength": 29,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "table",
+    "label": "SymbolAnalyst RatingArticleAnalystSaveMUBUYSimply Outstanding: Micron's Absolutely Enormous DayQuad 7 CapitalSimply Outstanding: Micron's Absolutely Enormous Day save this article for later readingMUSTRONG BUYMicron Q4 2026: These Numbers Don't Look RealAgar CapitalMicron Q4 2026: These Numbers Don't Look Real save this article for later readingOKEBUYONEOK: Second Guidance Raise And Brazos Deal Make The Pullback CompellingSteven FiorilloONEOK: Second Guidance Raise And Brazos Deal Make The Pullback Compelling save this article for later readingAVGOBUYBroadcom: The Anthropic Panic Looks OverblownDanil SeredaBroadcom: The Anthropic Panic Looks Overblown save this article for later readingMUSTRONG BUYMicron: 6 Business Signals That Worked Last Year And What They Say NowTom DorseyMicron: 6 Business Signals That Worked Last Year And What They Say Now save this article for later readingCRDOBUYCredo: Opportunity Is KnockingBay Area IdeasCredo: Opportunity Is Knocking save this article for later readingMUBUYMicron Q4: Nothing Negative HereBill MaurerMicron Q4: Nothing Negative Here save this article for later readingSCHDBUYSCHD Has A Hidden Buy-The-Dip Strategy Most Investors Don't Know ExistsDave Dierking, CFASCHD Has A Hidden Buy-The-Dip Strategy Most Investors Don't Know Exists save this article for later readingVICISTRONG BUYVICI Properties: Priced For A Caesars Rent Cut The Math Doesn't SupportTim TravisVICI Properties: Priced For A Caesars Rent Cut The Math Doesn't Support save this article for later readingNVDABUYNvidia Looks Criminally CheapNova CapitalNvidia Looks Criminally Cheap save this article for later reading",
+    "role": "TABLE",
+    "name": null,
+    "tag": "table",
+    "xmlRoles": null,
+    "id": null,
+    "class": "mb-0 max-w-full grow table-fixed self-start",
+    "display": "table",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     2767,
+     1188,
+     332
+    ],
+    "where": "below the visible part, 3 screens down",
+    "start": 26678,
+    "end": 28322,
+    "textLength": 1644,
+    "links": 40,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "HOT THEMES - NEWS",
+    "role": "HEADING",
+    "name": "HOT THEMES - NEWS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     3151,
+     147,
+     20
+    ],
+    "where": "below the visible part, 3 screens down",
+    "start": 28322,
+    "end": 28339,
+    "textLength": 17,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "RECENTLY VIEWED SYMBOLS",
+    "role": "HEADING",
+    "name": "RECENTLY VIEWED SYMBOLS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     3704,
+     207,
+     20
+    ],
+    "where": "below the visible part, 4 screens down",
+    "start": 28366,
+    "end": 28389,
+    "textLength": 23,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "SMALL CAP LATEST STRONG BUYS",
+    "role": "HEADING",
+    "name": "SMALL CAP LATEST STRONG BUYS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     4271,
+     246,
+     20
+    ],
+    "where": "below the visible part, 4 screens down",
+    "start": 28454,
+    "end": 28482,
+    "textLength": 28,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "DIVIDEND GROWTH IDEAS",
+    "role": "HEADING",
+    "name": "DIVIDEND GROWTH IDEAS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     4808,
+     182,
+     20
+    ],
+    "where": "below the visible part, 5 screens down",
+    "start": 28553,
+    "end": 28574,
+    "textLength": 21,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "INDUSTRIALS STOCKS - LATEST QUANT RATINGS",
+    "role": "HEADING",
+    "name": "INDUSTRIALS STOCKS - LATEST QUANT RATINGS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     5345,
+     342,
+     20
+    ],
+    "where": "below the visible part, 5 screens down",
+    "start": 28653,
+    "end": 28694,
+    "textLength": 41,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "MY ANALYSTS",
+    "role": "HEADING",
+    "name": "MY ANALYSTS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     5882,
+     99,
+     20
+    ],
+    "where": "below the visible part, 6 screens down",
+    "start": 28783,
+    "end": 28794,
+    "textLength": 11,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "TECH & COMMUNICATION STOCKS - LATEST QUANT RATINGS",
+    "role": "HEADING",
+    "name": "TECH & COMMUNICATION STOCKS - LATEST QUANT RATINGS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     6419,
+     425,
+     20
+    ],
+    "where": "below the visible part, 7 screens down",
+    "start": 28871,
+    "end": 28921,
+    "textLength": 50,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "SAFE DIVIDEND IDEAS",
+    "role": "HEADING",
+    "name": "SAFE DIVIDEND IDEAS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     6956,
+     155,
+     20
+    ],
+    "where": "below the visible part, 7 screens down",
+    "start": 29019,
+    "end": 29038,
+    "textLength": 19,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "HEALTH CARE STOCKS - LATEST QUANT RATINGS",
+    "role": "HEADING",
+    "name": "HEALTH CARE STOCKS - LATEST QUANT RATINGS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     7493,
+     347,
+     20
+    ],
+    "where": "below the visible part, 8 screens down",
+    "start": 29117,
+    "end": 29158,
+    "textLength": 41,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "ANALYSIS FOR YOU",
+    "role": "HEADING",
+    "name": "ANALYSIS FOR YOU",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     8030,
+     137,
+     20
+    ],
+    "where": "below the visible part, 8 screens down",
+    "start": 29247,
+    "end": 29263,
+    "textLength": 16,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "PORTFOLIO MOVERS AND RELATED ARTICLES",
+    "role": "HEADING",
+    "name": "PORTFOLIO MOVERS AND RELATED ARTICLES",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     8573,
+     323,
+     20
+    ],
+    "where": "below the visible part, 9 screens down",
+    "start": 29278,
+    "end": 29315,
+    "textLength": 37,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "EARNINGS CALENDAR",
+    "role": "HEADING",
+    "name": "EARNINGS CALENDAR",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     8847,
+     157,
+     20
+    ],
+    "where": "below the visible part, 9 screens down",
+    "start": 29486,
+    "end": 29503,
+    "textLength": 17,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "ETFs FOR INCOME INVESTORS",
+    "role": "HEADING",
+    "name": "ETFs FOR INCOME INVESTORS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     9414,
+     213,
+     20
+    ],
+    "where": "below the visible part, 10 screens down",
+    "start": 29578,
+    "end": 29603,
+    "textLength": 25,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "BUYS AND STRONG BUYS WITH MOMENTUM",
+    "role": "HEADING",
+    "name": "BUYS AND STRONG BUYS WITH MOMENTUM",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     9951,
+     307,
+     20
+    ],
+    "where": "below the visible part, 10 screens down",
+    "start": 29647,
+    "end": 29681,
+    "textLength": 34,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "MID CAP LATEST STRONG BUYS",
+    "role": "HEADING",
+    "name": "MID CAP LATEST STRONG BUYS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     10488,
+     223,
+     20
+    ],
+    "where": "below the visible part, 11 screens down",
+    "start": 29780,
+    "end": 29806,
+    "textLength": 26,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "CANADIAN STOCKS",
+    "role": "HEADING",
+    "name": "CANADIAN STOCKS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     11025,
+     137,
+     20
+    ],
+    "where": "below the visible part, 12 screens down",
+    "start": 29875,
+    "end": 29890,
+    "textLength": 15,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "LARGE CAP LATEST STRONG BUYS",
+    "role": "HEADING",
+    "name": "LARGE CAP LATEST STRONG BUYS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     11562,
+     247,
+     20
+    ],
+    "where": "below the visible part, 12 screens down",
+    "start": 29943,
+    "end": 29971,
+    "textLength": 28,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "FINANCIALS STOCKS - LATEST QUANT RATINGS",
+    "role": "HEADING",
+    "name": "FINANCIALS STOCKS - LATEST QUANT RATINGS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     12099,
+     333,
+     20
+    ],
+    "where": "below the visible part, 13 screens down",
+    "start": 30042,
+    "end": 30082,
+    "textLength": 40,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "ENERGY STOCKS - LATEST ANALYST COVERAGE",
+    "role": "HEADING",
+    "name": "ENERGY STOCKS - LATEST ANALYST COVERAGE",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     12636,
+     339,
+     20
+    ],
+    "where": "below the visible part, 13 screens down",
+    "start": 30170,
+    "end": 30209,
+    "textLength": 39,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "TOP QUANT STOCKS BY MARKET CAP",
+    "role": "HEADING",
+    "name": "TOP QUANT STOCKS BY MARKET CAP",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     13173,
+     265,
+     20
+    ],
+    "where": "below the visible part, 14 screens down",
+    "start": 30296,
+    "end": 30326,
+    "textLength": 30,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "TECH & COMMUNICATION STOCKS - LATEST ANALYST COVERAGE",
+    "role": "HEADING",
+    "name": "TECH & COMMUNICATION STOCKS - LATEST ANALYST COVERAGE",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     13710,
+     458,
+     20
+    ],
+    "where": "below the visible part, 15 screens down",
+    "start": 30419,
+    "end": 30472,
+    "textLength": 53,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "REAL ESTATE STOCKS - LATEST QUANT RATINGS",
+    "role": "HEADING",
+    "name": "REAL ESTATE STOCKS - LATEST QUANT RATINGS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     14247,
+     343,
+     20
+    ],
+    "where": "below the visible part, 15 screens down",
+    "start": 30573,
+    "end": 30614,
+    "textLength": 41,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "ON THE MOVE - NEWS",
+    "role": "HEADING",
+    "name": "ON THE MOVE - NEWS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     14784,
+     153,
+     20
+    ],
+    "where": "below the visible part, 16 screens down",
+    "start": 30703,
+    "end": 30721,
+    "textLength": 18,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "PORTFOLIO MOVERS",
+    "role": "HEADING",
+    "name": "PORTFOLIO MOVERS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     15327,
+     147,
+     20
+    ],
+    "where": "below the visible part, 16 screens down",
+    "start": 30741,
+    "end": 30757,
+    "textLength": 16,
+    "links": 0,
+    "depth": 1
+   },
+   {
+    "type": "heading2",
+    "label": "MATERIALS STOCKS - LATEST QUANT RATINGS",
+    "role": "HEADING",
+    "name": "MATERIALS STOCKS - LATEST QUANT RATINGS",
+    "tag": "h2",
+    "xmlRoles": null,
+    "id": null,
+    "class": "m-0 inline-block text-medium-2-b uppercase text-black-70 dark:text-black-15",
+    "display": "block",
+    "hints": [],
+    "attributeKeys": [
+     "class",
+     "display",
+     "level",
+     "name-from",
+     "tag",
+     "text-align"
+    ],
+    "rect": [
+     296,
+     15601,
+     328,
+     20
+    ],
+    "where": "below the visible part, 17 screens down",
+    "start": 30905,
+    "end": 30944,
+    "textLength": 39,
+    "links": 0,
+    "depth": 1
+   }
+  ]
+ },
+ "tree": {
+  "nodes": [
+   {
+    "depth": 0,
+    "role": "DOCUMENT",
+    "name": "Seeking Alpha | Stock Market Analysis & Tools for Investors",
+    "tag": "#document",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 1,
+    "rect": [
+     0,
+     0,
+     1920,
+     911
+    ]
+   },
+   {
+    "depth": 1,
+    "role": "SECTION",
+    "name": "",
+    "tag": "body",
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 9,
+    "rect": [
+     0,
+     0,
+     1905,
+     16280
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "app-loader",
+    "class": "appLoading appLoaderInvisible",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1905,
+     0,
+     1905,
+     2
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "root",
+    "class": "root",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     0,
+     0,
+     1905,
+     16280
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "k3Phz relative flex min-h-svh lg:min-h-screen",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 5,
+    "rect": [
+     0,
+     0,
+     1905,
+     16280
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LANDMARK",
+    "name": "",
+    "tag": "aside",
+    "id": null,
+    "class": "shrink-0 print:hidden XmtZz negOk lg:ml-0 lg:pt-0 flex",
+    "xmlRoles": "complementary",
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     0,
+     0,
+     240,
+     16280
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "group/aside fixed bottom-0 z-modal flex max-w-full flex-col border-t border-solid border-black-70 bg-share-aside-bg pl-safe lg:border-0 lg:pt-0 O-6w4 dlcaw XmtZz lg:top-0 negOk",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "aside"
+    ],
+    "children": 4,
+    "rect": [
+     0,
+     0,
+     240,
+     911
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LANDMARK",
+    "name": "",
+    "tag": "header",
+    "id": "header",
+    "class": "XJQ0Y sticky left-0 top-0 w-full print:hidden",
+    "xmlRoles": "banner",
+    "display": "block",
+    "hints": [
+     "header",
+     "left"
+    ],
+    "children": 7,
+    "rect": [
+     240,
+     0,
+     1665,
+     120
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "BUTTON",
+    "name": "Clicking this button will open the Ask Seeking Alpha search ",
+    "tag": "button",
+    "id": null,
+    "class": "flex h-44 w-full cursor-text items-center rounded-8 border border-black-10 bg-white p-12 text-left dark:border-black-30/40 dark:bg-black-95 f709c",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "left"
+    ],
+    "children": 2,
+    "rect": [
+     276,
+     23,
+     604,
+     44
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "sa-header-content-slot",
+    "class": "contents",
+    "xmlRoles": null,
+    "display": "contents",
+    "hints": [
+     "content",
+     "header",
+     "content"
+    ],
+    "children": 0,
+    "rect": [
+     240,
+     0,
+     1665,
+     10
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "GO TO HELP CENTER",
+    "tag": "a",
+    "id": null,
+    "class": "relative inline-flex items-center justify-center select-none hover:no-underline transition-colors motion-reduce:transition-none border-black-70 bg-black-70 text-white hover:border-black-50 hover:bg-black-50 disabled:border-black-50 disabled:bg-black-50 disabled:text-black dark:border-black-80 dark:bg-black-80 dark:hover:border-black-80 dark:hover:bg-black-30/20 dark:disabled:border-black-30/20 dark:disabled:bg-black-30/40 lg:border-white lg:bg-white lg:uppercase lg:text-black lg:hover:border-black-5 lg:hover:bg-black-5 lg:disabled:bg-black-10 lg:disabled:text-black-60 lg:dark:border-black-80 lg:dark:bg-black-80 lg:dark:text-white lg:dark:hover:border-black-80 lg:dark:hover:bg-black-60 lg:dark:disabled:border-black-10 lg:dark:disabled:bg-black-10 lg:dark:disabled:text-black-80 min-h-36 border-2 text-small-r size-36 p-6 whitespace-nowrap break-words rounded-8 cursor-pointer",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1745,
+     27,
+     36,
+     36
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "BUTTON",
+    "name": "Notifications",
+    "tag": "button",
+    "id": null,
+    "class": "relative inline-flex items-center justify-center select-none hover:no-underline transition-colors motion-reduce:transition-none border-black-70 bg-black-70 text-white hover:border-black-50 hover:bg-black-50 disabled:border-black-50 disabled:bg-black-50 disabled:text-black dark:border-black-80 dark:bg-black-80 dark:hover:border-black-80 dark:hover:bg-black-30/20 dark:disabled:border-black-30/20 dark:disabled:bg-black-30/40 lg:border-white lg:bg-white lg:uppercase lg:text-black lg:hover:border-black-5 lg:hover:bg-black-5 lg:disabled:bg-black-10 lg:disabled:text-black-60 lg:dark:border-black-80 lg:dark:bg-black-80 lg:dark:text-white lg:dark:hover:border-black-80 lg:dark:hover:bg-black-60 lg:dark:disabled:border-black-10 lg:dark:disabled:bg-black-10 lg:dark:disabled:text-black-80 min-h-36 border-2 text-small-r size-36 p-6 whitespace-nowrap break-words rounded-8 cursor-pointer shrink-0",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     1789,
+     27,
+     36,
+     36
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "MENUBUTTON",
+    "name": "User menu",
+    "tag": "button",
+    "id": null,
+    "class": "rounded-8 bg-white dark:bg-black-80",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1833,
+     27,
+     36,
+     36
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "sa-header-sub-content-slot",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "content",
+     "header"
+    ],
+    "children": 0,
+    "rect": [
+     240,
+     90,
+     1665,
+     0
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "relative",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     240,
+     90,
+     1665,
+     30
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "LANDMARK",
+    "name": "",
+    "tag": "main",
+    "id": "content",
+    "class": "relative flex grow flex-col ojQCd jTEXG lg:pt-0",
+    "xmlRoles": "main",
+    "display": "flex",
+    "hints": [
+     "content"
+    ],
+    "children": 44,
+    "rect": [
+     240,
+     120,
+     1665,
+     16060
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "HEADING",
+    "name": "Seeking Alpha - Stock Market Analysis & Tools for Investors",
+    "tag": "h1",
+    "id": null,
+    "class": "sr-only",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     275,
+     143,
+     1,
+     1
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "TABCONTROL",
+    "name": "Stock Indices",
+    "tag": "div",
+    "id": null,
+    "class": "flex Pf8rl min-h-22 border-b border-share-text-2 pb-2",
+    "xmlRoles": "tablist",
+    "display": "flex",
+    "hints": [],
+    "children": 5,
+    "rect": [
+     276,
+     144,
+     301,
+     22
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PROPERTYPAGE",
+    "name": "US",
+    "tag": "div",
+    "id": null,
+    "class": "BWJ3O",
+    "xmlRoles": "tabpanel",
+    "display": "block",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     166,
+     301,
+     137
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "TABCONTROL",
+    "name": "Dow Jones chart",
+    "tag": "div",
+    "id": null,
+    "class": "flex Pf8rl min-h-22 border-b border-share-text-2 pb-2 lg:pl-18",
+    "xmlRoles": "tablist",
+    "display": "flex",
+    "hints": [],
+    "children": 9,
+    "rect": [
+     577,
+     144,
+     301,
+     22
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "PROPERTYPAGE",
+    "name": "1 Day",
+    "tag": "div",
+    "id": null,
+    "class": "BWJ3O lg:pl-18",
+    "xmlRoles": "tabpanel",
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     577,
+     166,
+     301,
+     137
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "HEADING",
+    "name": "Latest News",
+    "tag": "h2",
+    "id": "latest-news-title",
+    "class": "mb-4 pt-2 text-small-b",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     902,
+     144,
+     71,
+     16
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LINK",
+    "name": "Latest News See All News \u00bb",
+    "tag": "a",
+    "id": "see-all-news",
+    "class": "text-x-small-r text-share-text-3",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     1430,
+     147,
+     74,
+     14
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "LIST",
+    "name": "",
+    "tag": "ul",
+    "id": null,
+    "class": "mb-0 list-none pl-0",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 6,
+    "rect": [
+     902,
+     166,
+     602,
+     137
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     276,
+     323,
+     604,
+     500
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     900,
+     323,
+     604,
+     500
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": "my-seeking-alpha-cards-container",
+    "class": "md:col-span-2 items-center rounded-12 bg-share-card-bg px-20 py-16 md:flex",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [
+     "col-"
+    ],
+    "children": 5,
+    "rect": [
+     276,
+     843,
+     1228,
+     68
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     276,
+     931,
+     1228,
+     424
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     276,
+     1375,
+     604,
+     347
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     900,
+     1375,
+     604,
+     347
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     276,
+     1742,
+     1228,
+     424
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 4,
+    "rect": [
+     276,
+     2186,
+     1228,
+     485
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     276,
+     2691,
+     1228,
+     424
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     276,
+     3135,
+     1228,
+     493
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "STATICTEXT",
+    "name": "OTHER TOPICS YOU MIGHT LIKE",
+    "tag": null,
+    "id": null,
+    "class": null,
+    "xmlRoles": null,
+    "display": null,
+    "hints": [],
+    "children": 0,
+    "rect": [
+     287,
+     3649,
+     256,
+     17
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 3,
+    "rect": [
+     276,
+     3688,
+     1228,
+     547
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     4255,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     4792,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     5329,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     5866,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     6403,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     6940,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     7477,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     8014,
+     1228,
+     523
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 4,
+    "rect": [
+     276,
+     8557,
+     1228,
+     254
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 4,
+    "rect": [
+     276,
+     8831,
+     1228,
+     547
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     9398,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     9935,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     10472,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     11009,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     11546,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     12083,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     12620,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     13157,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     13694,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     14231,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     14768,
+     1228,
+     523
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 4,
+    "rect": [
+     276,
+     15311,
+     1228,
+     254
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "section",
+    "id": null,
+    "class": "mx-auto flex w-full flex-col justify-between rounded-12 bg-share-card-bg px-12 py-16 md:px-20 mb-0 print:block",
+    "xmlRoles": null,
+    "display": "flex",
+    "hints": [],
+    "children": 2,
+    "rect": [
+     276,
+     15585,
+     1228,
+     517
+    ]
+   },
+   {
+    "depth": 5,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "px-12 md:px-0",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     276,
+     16122,
+     1228,
+     40
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "sticky bottom-0 z-sticky w-full",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     240,
+     911,
+     1665,
+     0
+    ]
+   },
+   {
+    "depth": 4,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": null,
+    "class": "GnTMR",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     240,
+     16180,
+     1665,
+     100
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "drawerRoot",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     0,
+     16280,
+     1905,
+     0
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "modalRoot",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     0,
+     16280,
+     1905,
+     0
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "message_to_say_yyd",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     0,
+     16280,
+     1905,
+     0
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "helphero-dom",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     0,
+     16280,
+     1905,
+     0
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "hs-web-interactives-top-anchor",
+    "class": "go2933276541 go2369186930",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 1,
+    "rect": [
+     0,
+     0,
+     1905,
+     911
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "hs-interactives-modal-overlay",
+    "class": "go1632949049",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     0,
+     0,
+     1940,
+     921
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "hs-web-interactives-bottom-anchor",
+    "class": "go2933276541 go1348078617",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 0,
+    "rect": [
+     0,
+     911,
+     1905,
+     0
+    ]
+   },
+   {
+    "depth": 2,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "hs-web-interactives-floating-container",
+    "class": null,
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [],
+    "children": 4,
+    "rect": [
+     1905,
+     911,
+     0,
+     15369
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "hs-web-interactives-floating-top-left-anchor",
+    "class": "go2417249464 go613305155",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "left"
+    ],
+    "children": 0,
+    "rect": [
+     0,
+     16280,
+     1905,
+     0
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "hs-web-interactives-floating-top-right-anchor",
+    "class": "go2417249464 go471583506",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "right"
+    ],
+    "children": 0,
+    "rect": [
+     1905,
+     0,
+     0,
+     16280
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "hs-web-interactives-floating-bottom-left-anchor",
+    "class": "go2417249464 go3921366393",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "left"
+    ],
+    "children": 0,
+    "rect": [
+     0,
+     911,
+     1905,
+     15369
+    ]
+   },
+   {
+    "depth": 3,
+    "role": "SECTION",
+    "name": "",
+    "tag": "div",
+    "id": "hs-web-interactives-floating-bottom-right-anchor",
+    "class": "go2417249464 go3967842156",
+    "xmlRoles": null,
+    "display": "block",
+    "hints": [
+     "right"
+    ],
+    "children": 0,
+    "rect": [
+     1905,
+     911,
+     0,
+     15369
+    ]
+   }
+  ],
+  "ms": 1003.0,
+  "truncated": false
+ },
+ "leaves": {
+  "count": 400,
+  "limit": 400,
+  "msTotal": 2315.7,
+  "msMedian": 5.59,
+  "msMax": 11.6,
+  "leaves": [
+   {
+    "type": "link",
+    "start": 0,
+    "rect": [
+     0,
+     -48,
+     240,
+     48
+    ]
+   },
+   {
+    "type": "link",
+    "start": 15,
+    "rect": [
+     12,
+     18,
+     150,
+     32
+    ]
+   },
+   {
+    "type": "link",
+    "start": 77,
+    "rect": [
+     36,
+     96,
+     158,
+     24
+    ]
+   },
+   {
+    "type": "link",
+    "start": 100,
+    "rect": [
+     0,
+     123,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 108,
+    "rect": [
+     0,
+     153,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 112,
+    "rect": [
+     0,
+     183,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 123,
+    "rect": [
+     0,
+     213,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 148,
+    "rect": [
+     0,
+     298,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 182,
+    "rect": [
+     0,
+     383,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 199,
+    "rect": [
+     0,
+     413,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 227,
+    "rect": [
+     0,
+     498,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 256,
+    "rect": [
+     0,
+     583,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 266,
+    "rect": [
+     0,
+     613,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 274,
+    "rect": [
+     0,
+     643,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 288,
+    "rect": [
+     0,
+     673,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 300,
+    "rect": [
+     0,
+     703,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 311,
+    "rect": [
+     0,
+     758,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 327,
+    "rect": [
+     0,
+     813,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 338,
+    "rect": [
+     0,
+     843,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 359,
+    "rect": [
+     0,
+     873,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 426,
+    "rect": [
+     1745,
+     27,
+     36,
+     36
+    ]
+   },
+   {
+    "type": "link",
+    "start": 524,
+    "rect": [
+     260,
+     90,
+     1228,
+     30
+    ]
+   },
+   {
+    "type": "link",
+    "start": 723,
+    "rect": [
+     288,
+     166,
+     64,
+     22
+    ]
+   },
+   {
+    "type": "link",
+    "start": 775,
+    "rect": [
+     276,
+     189,
+     48,
+     22
+    ]
+   },
+   {
+    "type": "link",
+    "start": 822,
+    "rect": [
+     276,
+     212,
+     44,
+     22
+    ]
+   },
+   {
+    "type": "link",
+    "start": 868,
+    "rect": [
+     276,
+     235,
+     55,
+     22
+    ]
+   },
+   {
+    "type": "link",
+    "start": 914,
+    "rect": [
+     276,
+     258,
+     28,
+     22
+    ]
+   },
+   {
+    "type": "link",
+    "start": 955,
+    "rect": [
+     276,
+     281,
+     41,
+     22
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18235,
+    "rect": [
+     1430,
+     147,
+     74,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18263,
+    "rect": [
+     950,
+     170,
+     436,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18337,
+    "rect": [
+     950,
+     193,
+     298,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18390,
+    "rect": [
+     950,
+     216,
+     355,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18451,
+    "rect": [
+     950,
+     239,
+     311,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18503,
+    "rect": [
+     950,
+     262,
+     303,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18556,
+    "rect": [
+     950,
+     285,
+     345,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18634,
+    "rect": [
+     336,
+     381,
+     423,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18701,
+    "rect": [
+     336,
+     418,
+     392,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18760,
+    "rect": [
+     336,
+     455,
+     386,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18816,
+    "rect": [
+     336,
+     492,
+     359,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18869,
+    "rect": [
+     336,
+     529,
+     331,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18922,
+    "rect": [
+     336,
+     566,
+     318,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 18969,
+    "rect": [
+     336,
+     597,
+     524,
+     32
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19054,
+    "rect": [
+     336,
+     644,
+     204,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19084,
+    "rect": [
+     336,
+     681,
+     302,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19130,
+    "rect": [
+     336,
+     718,
+     372,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19188,
+    "rect": [
+     336,
+     755,
+     257,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19229,
+    "rect": [
+     296,
+     793,
+     39,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19249,
+    "rect": [
+     960,
+     381,
+     336,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19300,
+    "rect": [
+     960,
+     418,
+     413,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19363,
+    "rect": [
+     960,
+     455,
+     325,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19415,
+    "rect": [
+     960,
+     492,
+     365,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19467,
+    "rect": [
+     960,
+     529,
+     374,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19529,
+    "rect": [
+     960,
+     566,
+     453,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19600,
+    "rect": [
+     960,
+     597,
+     524,
+     32
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19692,
+    "rect": [
+     960,
+     644,
+     424,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19759,
+    "rect": [
+     960,
+     681,
+     446,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19828,
+    "rect": [
+     960,
+     718,
+     391,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19887,
+    "rect": [
+     960,
+     755,
+     210,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 19918,
+    "rect": [
+     920,
+     793,
+     39,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20125,
+    "rect": [
+     297,
+     1037,
+     40,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20129,
+    "rect": [
+     413,
+     1035,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20132,
+    "rect": [
+     557,
+     1037,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20190,
+    "rect": [
+     1263,
+     1037,
+     81,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20295,
+    "rect": [
+     297,
+     1068,
+     40,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20299,
+    "rect": [
+     413,
+     1066,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20309,
+    "rect": [
+     557,
+     1068,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20344,
+    "rect": [
+     1263,
+     1068,
+     168,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20439,
+    "rect": [
+     297,
+     1099,
+     22,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20441,
+    "rect": [
+     413,
+     1097,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20445,
+    "rect": [
+     557,
+     1099,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20486,
+    "rect": [
+     1263,
+     1099,
+     67,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20572,
+    "rect": [
+     297,
+     1130,
+     33,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20575,
+    "rect": [
+     413,
+     1128,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20579,
+    "rect": [
+     557,
+     1130,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20613,
+    "rect": [
+     1263,
+     1130,
+     67,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20692,
+    "rect": [
+     297,
+     1161,
+     22,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20694,
+    "rect": [
+     413,
+     1159,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20698,
+    "rect": [
+     557,
+     1161,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20736,
+    "rect": [
+     1263,
+     1161,
+     102,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20825,
+    "rect": [
+     297,
+     1192,
+     41,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20829,
+    "rect": [
+     413,
+     1190,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20832,
+    "rect": [
+     557,
+     1192,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20880,
+    "rect": [
+     1263,
+     1192,
+     103,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20979,
+    "rect": [
+     297,
+     1223,
+     40,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20983,
+    "rect": [
+     413,
+     1221,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 20986,
+    "rect": [
+     557,
+     1223,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21033,
+    "rect": [
+     1263,
+     1223,
+     93,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21128,
+    "rect": [
+     297,
+     1254,
+     39,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21132,
+    "rect": [
+     413,
+     1252,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21136,
+    "rect": [
+     557,
+     1254,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21189,
+    "rect": [
+     1263,
+     1254,
+     125,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21296,
+    "rect": [
+     297,
+     1285,
+     34,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21300,
+    "rect": [
+     413,
+     1283,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21303,
+    "rect": [
+     557,
+     1285,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21363,
+    "rect": [
+     1263,
+     1285,
+     154,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21482,
+    "rect": [
+     297,
+     1316,
+     18,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21484,
+    "rect": [
+     413,
+     1314,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21487,
+    "rect": [
+     557,
+     1316,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21543,
+    "rect": [
+     1263,
+     1316,
+     75,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21659,
+    "rect": [
+     296,
+     1431,
+     238,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21776,
+    "rect": [
+     296,
+     1692,
+     111,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21816,
+    "rect": [
+     920,
+     1431,
+     372,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 21968,
+    "rect": [
+     920,
+     1456,
+     491,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 22154,
+    "rect": [
+     920,
+     1481,
+     374,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 22298,
+    "rect": [
+     920,
+     1506,
+     373,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 22444,
+    "rect": [
+     920,
+     1531,
+     382,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 22598,
+    "rect": [
+     920,
+     1556,
+     354,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 22742,
+    "rect": [
+     920,
+     1581,
+     339,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 22882,
+    "rect": [
+     920,
+     1606,
+     384,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23032,
+    "rect": [
+     920,
+     1631,
+     415,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23200,
+    "rect": [
+     920,
+     1656,
+     339,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23340,
+    "rect": [
+     920,
+     1692,
+     105,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23492,
+    "rect": [
+     297,
+     1848,
+     35,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23496,
+    "rect": [
+     413,
+     1846,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23499,
+    "rect": [
+     557,
+     1848,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23541,
+    "rect": [
+     1263,
+     1848,
+     120,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23636,
+    "rect": [
+     297,
+     1879,
+     22,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23638,
+    "rect": [
+     413,
+     1877,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23648,
+    "rect": [
+     557,
+     1879,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23671,
+    "rect": [
+     1263,
+     1879,
+     128,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23747,
+    "rect": [
+     297,
+     1910,
+     33,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23751,
+    "rect": [
+     413,
+     1908,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23754,
+    "rect": [
+     557,
+     1910,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23835,
+    "rect": [
+     1263,
+     1910,
+     71,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23963,
+    "rect": [
+     297,
+     1941,
+     41,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23967,
+    "rect": [
+     413,
+     1939,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 23970,
+    "rect": [
+     557,
+     1941,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24010,
+    "rect": [
+     1263,
+     1941,
+     89,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24101,
+    "rect": [
+     297,
+     1972,
+     34,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24105,
+    "rect": [
+     413,
+     1970,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24108,
+    "rect": [
+     557,
+     1972,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24131,
+    "rect": [
+     1263,
+     1972,
+     70,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24201,
+    "rect": [
+     297,
+     2003,
+     34,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24205,
+    "rect": [
+     413,
+     2001,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24215,
+    "rect": [
+     557,
+     2003,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24281,
+    "rect": [
+     1263,
+     2003,
+     121,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24400,
+    "rect": [
+     297,
+     2034,
+     22,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24403,
+    "rect": [
+     413,
+     2032,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24406,
+    "rect": [
+     557,
+     2034,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24476,
+    "rect": [
+     1263,
+     2034,
+     92,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24596,
+    "rect": [
+     297,
+     2065,
+     40,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24600,
+    "rect": [
+     413,
+     2063,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24603,
+    "rect": [
+     557,
+     2065,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24664,
+    "rect": [
+     1263,
+     2065,
+     152,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24784,
+    "rect": [
+     297,
+     2096,
+     40,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24788,
+    "rect": [
+     413,
+     2094,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24791,
+    "rect": [
+     557,
+     2096,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24838,
+    "rect": [
+     1263,
+     2096,
+     93,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24933,
+    "rect": [
+     297,
+     2127,
+     28,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24936,
+    "rect": [
+     413,
+     2125,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24939,
+    "rect": [
+     557,
+     2127,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 24994,
+    "rect": [
+     1263,
+     2127,
+     85,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25202,
+    "rect": [
+     297,
+     2292,
+     42,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25235,
+    "rect": [
+     809,
+     2290,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25257,
+    "rect": [
+     297,
+     2323,
+     39,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25297,
+    "rect": [
+     809,
+     2321,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25319,
+    "rect": [
+     297,
+     2354,
+     41,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25358,
+    "rect": [
+     809,
+     2352,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25380,
+    "rect": [
+     297,
+     2385,
+     36,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25420,
+    "rect": [
+     809,
+     2383,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25442,
+    "rect": [
+     297,
+     2416,
+     42,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25476,
+    "rect": [
+     809,
+     2414,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25498,
+    "rect": [
+     297,
+     2447,
+     42,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25542,
+    "rect": [
+     809,
+     2445,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25564,
+    "rect": [
+     297,
+     2478,
+     42,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25604,
+    "rect": [
+     809,
+     2476,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25626,
+    "rect": [
+     297,
+     2509,
+     37,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25667,
+    "rect": [
+     809,
+     2507,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25689,
+    "rect": [
+     297,
+     2540,
+     39,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25733,
+    "rect": [
+     809,
+     2538,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25755,
+    "rect": [
+     297,
+     2571,
+     46,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25786,
+    "rect": [
+     809,
+     2569,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25808,
+    "rect": [
+     297,
+     2602,
+     32,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25840,
+    "rect": [
+     809,
+     2600,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25880,
+    "rect": [
+     921,
+     2292,
+     28,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25929,
+    "rect": [
+     1433,
+     2290,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25944,
+    "rect": [
+     921,
+     2323,
+     28,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 25989,
+    "rect": [
+     1433,
+     2321,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26004,
+    "rect": [
+     921,
+     2354,
+     27,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26054,
+    "rect": [
+     1433,
+     2352,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26069,
+    "rect": [
+     921,
+     2385,
+     22,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26118,
+    "rect": [
+     1433,
+     2383,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26134,
+    "rect": [
+     921,
+     2416,
+     28,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26184,
+    "rect": [
+     1433,
+     2414,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26200,
+    "rect": [
+     921,
+     2447,
+     26,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26247,
+    "rect": [
+     1433,
+     2445,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26263,
+    "rect": [
+     921,
+     2478,
+     28,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26303,
+    "rect": [
+     1433,
+     2476,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26319,
+    "rect": [
+     921,
+     2509,
+     27,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26361,
+    "rect": [
+     1433,
+     2507,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26377,
+    "rect": [
+     921,
+     2540,
+     28,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26425,
+    "rect": [
+     1433,
+     2538,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26441,
+    "rect": [
+     921,
+     2571,
+     28,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26489,
+    "rect": [
+     1433,
+     2569,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26505,
+    "rect": [
+     921,
+     2602,
+     38,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26556,
+    "rect": [
+     1433,
+     2600,
+     50,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26572,
+    "rect": [
+     296,
+     2641,
+     64,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26716,
+    "rect": [
+     297,
+     2797,
+     22,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26718,
+    "rect": [
+     413,
+     2795,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26721,
+    "rect": [
+     557,
+     2797,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26773,
+    "rect": [
+     1263,
+     2797,
+     94,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26875,
+    "rect": [
+     297,
+     2828,
+     22,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26877,
+    "rect": [
+     413,
+     2826,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26887,
+    "rect": [
+     557,
+     2828,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 26932,
+    "rect": [
+     1263,
+     2828,
+     78,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27025,
+    "rect": [
+     297,
+     2859,
+     31,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27028,
+    "rect": [
+     413,
+     2857,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27031,
+    "rect": [
+     557,
+     2859,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27104,
+    "rect": [
+     1263,
+     2859,
+     89,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27228,
+    "rect": [
+     297,
+     2890,
+     41,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27232,
+    "rect": [
+     413,
+     2888,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27235,
+    "rect": [
+     557,
+     2890,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27280,
+    "rect": [
+     1263,
+     2890,
+     81,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27373,
+    "rect": [
+     297,
+     2921,
+     22,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27375,
+    "rect": [
+     413,
+     2919,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27385,
+    "rect": [
+     557,
+     2921,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27455,
+    "rect": [
+     1263,
+     2921,
+     75,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27571,
+    "rect": [
+     297,
+     2952,
+     42,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27575,
+    "rect": [
+     413,
+     2950,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27578,
+    "rect": [
+     557,
+     2952,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27608,
+    "rect": [
+     1263,
+     2952,
+     95,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27688,
+    "rect": [
+     297,
+     2983,
+     22,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27690,
+    "rect": [
+     413,
+     2981,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27693,
+    "rect": [
+     557,
+     2983,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27725,
+    "rect": [
+     1263,
+     2983,
+     67,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27804,
+    "rect": [
+     297,
+     3014,
+     40,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27808,
+    "rect": [
+     413,
+     3012,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27811,
+    "rect": [
+     557,
+     3014,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 27882,
+    "rect": [
+     1263,
+     3014,
+     123,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 28007,
+    "rect": [
+     297,
+     3045,
+     28,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 28011,
+    "rect": [
+     413,
+     3043,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 28021,
+    "rect": [
+     557,
+     3045,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 28092,
+    "rect": [
+     1263,
+     3045,
+     65,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 28209,
+    "rect": [
+     297,
+     3076,
+     40,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 28213,
+    "rect": [
+     413,
+     3074,
+     100,
+     20
+    ]
+   },
+   {
+    "type": "link",
+    "start": 28216,
+    "rect": [
+     557,
+     3076,
+     688,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 28245,
+    "rect": [
+     1263,
+     3076,
+     81,
+     16
+    ]
+   },
+   {
+    "type": "link",
+    "start": 28445,
+    "rect": [
+     296,
+     4205,
+     68,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 29263,
+    "rect": [
+     296,
+     8507,
+     98,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 29556,
+    "rect": [
+     296,
+     9348,
+     141,
+     14
+    ]
+   },
+   {
+    "type": "link",
+    "start": 30721,
+    "rect": [
+     296,
+     15261,
+     143,
+     14
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 132,
+    "rect": [
+     0,
+     268,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 172,
+    "rect": [
+     0,
+     353,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 214,
+    "rect": [
+     0,
+     468,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 242,
+    "rect": [
+     0,
+     553,
+     230,
+     30
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 588,
+    "rect": [
+     275,
+     143,
+     1,
+     1
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 1066,
+    "rect": [
+     595,
+     163,
+     1,
+     36
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 18224,
+    "rect": [
+     902,
+     144,
+     71,
+     16
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 18617,
+    "rect": [
+     296,
+     339,
+     146,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 19235,
+    "rect": [
+     920,
+     339,
+     119,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 20007,
+    "rect": [
+     296,
+     947,
+     165,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 21645,
+    "rect": [
+     296,
+     1391,
+     121,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 21796,
+    "rect": [
+     920,
+     1391,
+     170,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 23359,
+    "rect": [
+     296,
+     1758,
+     168,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 25097,
+    "rect": [
+     296,
+     2202,
+     168,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 26580,
+    "rect": [
+     296,
+     2707,
+     253,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 28322,
+    "rect": [
+     296,
+     3151,
+     147,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 28366,
+    "rect": [
+     296,
+     3704,
+     207,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 28454,
+    "rect": [
+     296,
+     4271,
+     246,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 28553,
+    "rect": [
+     296,
+     4808,
+     182,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 28653,
+    "rect": [
+     296,
+     5345,
+     342,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 28783,
+    "rect": [
+     296,
+     5882,
+     99,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 28871,
+    "rect": [
+     296,
+     6419,
+     425,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 29019,
+    "rect": [
+     296,
+     6956,
+     155,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 29117,
+    "rect": [
+     296,
+     7493,
+     347,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 29247,
+    "rect": [
+     296,
+     8030,
+     137,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 29278,
+    "rect": [
+     296,
+     8573,
+     323,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 29486,
+    "rect": [
+     296,
+     8847,
+     157,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 29578,
+    "rect": [
+     296,
+     9414,
+     213,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 29647,
+    "rect": [
+     296,
+     9951,
+     307,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 29780,
+    "rect": [
+     296,
+     10488,
+     223,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 29875,
+    "rect": [
+     296,
+     11025,
+     137,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 29943,
+    "rect": [
+     296,
+     11562,
+     247,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 30042,
+    "rect": [
+     296,
+     12099,
+     333,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 30170,
+    "rect": [
+     296,
+     12636,
+     339,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 30296,
+    "rect": [
+     296,
+     13173,
+     265,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 30419,
+    "rect": [
+     296,
+     13710,
+     458,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 30573,
+    "rect": [
+     296,
+     14247,
+     343,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 30703,
+    "rect": [
+     296,
+     14784,
+     153,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 30741,
+    "rect": [
+     296,
+     15327,
+     147,
+     20
+    ]
+   },
+   {
+    "type": "heading",
+    "start": 30905,
+    "rect": [
+     296,
+     15601,
+     328,
+     20
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1354,
+    "rect": [
+     595,
+     166,
+     283,
+     137
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1371,
+    "rect": [
+     593,
+     244,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1419,
+    "rect": [
+     593,
+     240,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1467,
+    "rect": [
+     594,
+     233,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1515,
+    "rect": [
+     595,
+     229,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1563,
+    "rect": [
+     595,
+     222,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1611,
+    "rect": [
+     596,
+     229,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1659,
+    "rect": [
+     596,
+     220,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1707,
+    "rect": [
+     597,
+     227,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1755,
+    "rect": [
+     598,
+     238,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1803,
+    "rect": [
+     598,
+     249,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1852,
+    "rect": [
+     599,
+     256,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1901,
+    "rect": [
+     599,
+     258,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1950,
+    "rect": [
+     600,
+     241,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 1999,
+    "rect": [
+     601,
+     236,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2048,
+    "rect": [
+     601,
+     247,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2097,
+    "rect": [
+     602,
+     239,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2146,
+    "rect": [
+     603,
+     246,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2195,
+    "rect": [
+     603,
+     254,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2244,
+    "rect": [
+     604,
+     262,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2293,
+    "rect": [
+     604,
+     269,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2341,
+    "rect": [
+     605,
+     267,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2390,
+    "rect": [
+     606,
+     258,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2439,
+    "rect": [
+     606,
+     257,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2488,
+    "rect": [
+     607,
+     256,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2537,
+    "rect": [
+     607,
+     253,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2586,
+    "rect": [
+     608,
+     259,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2635,
+    "rect": [
+     609,
+     262,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2684,
+    "rect": [
+     609,
+     262,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2730,
+    "rect": [
+     610,
+     255,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2779,
+    "rect": [
+     610,
+     248,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2828,
+    "rect": [
+     611,
+     240,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2878,
+    "rect": [
+     612,
+     248,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2928,
+    "rect": [
+     612,
+     247,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 2978,
+    "rect": [
+     613,
+     247,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3028,
+    "rect": [
+     613,
+     247,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3078,
+    "rect": [
+     614,
+     242,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3128,
+    "rect": [
+     615,
+     232,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3178,
+    "rect": [
+     615,
+     236,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3228,
+    "rect": [
+     616,
+     234,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3278,
+    "rect": [
+     616,
+     233,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3328,
+    "rect": [
+     617,
+     225,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3378,
+    "rect": [
+     618,
+     230,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3428,
+    "rect": [
+     618,
+     225,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3478,
+    "rect": [
+     619,
+     216,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3527,
+    "rect": [
+     619,
+     226,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3577,
+    "rect": [
+     620,
+     229,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3627,
+    "rect": [
+     621,
+     231,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3677,
+    "rect": [
+     621,
+     232,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3727,
+    "rect": [
+     622,
+     233,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3777,
+    "rect": [
+     623,
+     228,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3827,
+    "rect": [
+     623,
+     225,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3877,
+    "rect": [
+     624,
+     217,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3927,
+    "rect": [
+     624,
+     221,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 3977,
+    "rect": [
+     625,
+     219,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4027,
+    "rect": [
+     626,
+     219,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4077,
+    "rect": [
+     626,
+     222,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4127,
+    "rect": [
+     627,
+     220,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4177,
+    "rect": [
+     627,
+     219,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4227,
+    "rect": [
+     628,
+     219,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4277,
+    "rect": [
+     629,
+     220,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4327,
+    "rect": [
+     629,
+     215,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4377,
+    "rect": [
+     630,
+     217,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4427,
+    "rect": [
+     630,
+     209,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4477,
+    "rect": [
+     631,
+     208,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4527,
+    "rect": [
+     632,
+     207,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4574,
+    "rect": [
+     632,
+     204,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4624,
+    "rect": [
+     633,
+     202,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4674,
+    "rect": [
+     633,
+     213,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4724,
+    "rect": [
+     634,
+     215,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4774,
+    "rect": [
+     635,
+     211,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4824,
+    "rect": [
+     635,
+     210,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4874,
+    "rect": [
+     636,
+     209,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4924,
+    "rect": [
+     636,
+     210,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 4974,
+    "rect": [
+     637,
+     213,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5024,
+    "rect": [
+     638,
+     224,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5074,
+    "rect": [
+     638,
+     219,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5123,
+    "rect": [
+     639,
+     220,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5173,
+    "rect": [
+     639,
+     217,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5223,
+    "rect": [
+     640,
+     226,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5272,
+    "rect": [
+     641,
+     221,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5322,
+    "rect": [
+     641,
+     218,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5372,
+    "rect": [
+     642,
+     219,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5422,
+    "rect": [
+     643,
+     216,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5472,
+    "rect": [
+     643,
+     219,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5522,
+    "rect": [
+     644,
+     214,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5572,
+    "rect": [
+     644,
+     211,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5622,
+    "rect": [
+     645,
+     212,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5672,
+    "rect": [
+     646,
+     212,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5722,
+    "rect": [
+     646,
+     212,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5772,
+    "rect": [
+     647,
+     214,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5822,
+    "rect": [
+     647,
+     215,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5872,
+    "rect": [
+     648,
+     215,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5922,
+    "rect": [
+     649,
+     218,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 5972,
+    "rect": [
+     649,
+     211,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6022,
+    "rect": [
+     650,
+     209,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6072,
+    "rect": [
+     650,
+     209,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6122,
+    "rect": [
+     651,
+     212,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6172,
+    "rect": [
+     652,
+     211,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6222,
+    "rect": [
+     652,
+     209,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6272,
+    "rect": [
+     653,
+     208,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6323,
+    "rect": [
+     653,
+     205,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6374,
+    "rect": [
+     654,
+     208,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6425,
+    "rect": [
+     655,
+     207,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6476,
+    "rect": [
+     655,
+     205,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6527,
+    "rect": [
+     656,
+     205,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6578,
+    "rect": [
+     656,
+     206,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6628,
+    "rect": [
+     657,
+     209,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6678,
+    "rect": [
+     658,
+     210,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6729,
+    "rect": [
+     658,
+     211,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6779,
+    "rect": [
+     659,
+     215,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6830,
+    "rect": [
+     659,
+     215,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6881,
+    "rect": [
+     660,
+     214,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6932,
+    "rect": [
+     661,
+     216,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 6983,
+    "rect": [
+     661,
+     214,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 7034,
+    "rect": [
+     662,
+     215,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 7085,
+    "rect": [
+     663,
+     214,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 7136,
+    "rect": [
+     663,
+     215,
+     5,
+     5
+    ]
+   },
+   {
+    "type": "graphic",
+    "start": 7187,
+    "rect": [
+     664,
+     218,
+     5,
+     5
+    ]
+   }
+  ]
+ }
+}

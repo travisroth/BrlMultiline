@@ -63,6 +63,13 @@ Read the files in this order:
    the same point as NVDA's own chart navigation, both ways. Builds on NVDA's Office chart objects
    rather than replacing them. Built and unit tested, not yet on hardware. Read it before
    changing the chart seam in `appModules/excel.py`.
+13. [layout-overview-plan.md](layout-overview-plan.md) — the plan for a picture of a web page's
+   or a window's main areas, drawn as labelled boxes in their real positions, found without AI
+   from landmarks, structure, link density, position and geometry. The probe in
+   `spikes/layoutOverviewProbe.py` has answered its open questions, and the region rules and the
+   text overview are built in `layoutRegions.py` and tested against nine saved pages. Nothing
+   runs in the add-on yet. Read it before writing code that reads object rectangles from browse
+   mode, or before changing a rule in `layoutRegions.py`.
 
 ## Project background
 
