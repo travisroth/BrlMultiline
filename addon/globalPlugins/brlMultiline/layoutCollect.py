@@ -108,6 +108,9 @@ class Collector:
 			self.done(None, "no location")
 			return
 		viewport = tuple(location)
+		# Which page, and which reading of it, the layout is of: a move to an area later checks
+		# both, since browse mode can read a page again under the same document.
+		identity = [getattr(doc, "documentConstantIdentifier", None), getattr(doc, "VBufHandle", None)]
 		calls = 0
 		records: list[dict[str, Any]] = []
 		links = [item.textInfo._startOffset for item in doc._iterNodesByType("link")]
@@ -116,8 +119,11 @@ class Collector:
 		# call into the browser, so that each area's counts are exact rather than sampled.
 		buttons = _starts(doc, "button")
 		buttonSet = set(buttons)
-		fields = [offset for offset in _starts(doc, "formField") if offset not in buttonSet]
 		tabItems = _items(doc, "tab")
+		tabSet = {item.textInfo._startOffset for item in tabItems}
+		# Browse mode's form fields include its buttons and its tabs, and neither is something
+		# typed into (found in review: three tabs were also counted as three fields).
+		fields = [offset for offset in _starts(doc, "formField") if offset not in buttonSet | tabSet]
 		toggles = [item for item in _items(doc, "button") if _isExpandable(item)]
 		yield
 		offsets = {
@@ -169,6 +175,7 @@ class Collector:
 							"rect": rect,
 							"start": start,
 							"end": item.textInfo._endOffset,
+							"ident": _identOf(item),
 						},
 					)
 				if calls % BATCH == 0:
@@ -193,8 +200,12 @@ class Collector:
 				start = item.textInfo._startOffset
 				# A form field that is a button is saved as one, so a block found by geometry
 				# can count its fields and its buttons apart.
-				kind = "button" if nodeType == "formField" and start in buttonSet else nodeType
-				leaves.append({"type": kind, "start": start, "rect": rect})
+				kind = nodeType
+				if nodeType == "formField" and start in tabSet:
+					kind = "tab"
+				elif nodeType == "formField" and start in buttonSet:
+					kind = "button"
+				leaves.append({"type": kind, "start": start, "rect": rect, "ident": _identOf(item)})
 			calls += 1
 			if calls % BATCH == 0:
 				yield
@@ -217,6 +228,7 @@ class Collector:
 			# What was cut short, so an overview of part of a page does not pass for the whole.
 			# "sampled" alone is normal on a busy page; the others mean a limit was reached.
 			"incomplete": self.incomplete,
+			"identity": identity,
 		}
 		log.debug(
 			f"BrlMultiline: page layout gathered in {time.perf_counter() - self.started:.2f}s, "
@@ -251,6 +263,12 @@ def _sample(pools: dict[str, list], limit: int) -> list[tuple[str, object]]:
 		step = len(pool) / count
 		chosen += [(kind, pool[int(i * step)]) for i in range(count)]
 	return chosen
+
+
+def _identOf(item) -> list:
+	""":return: browse mode's identifier for an item, a document handle and an id, as a list."""
+	ident = item.vbufFieldIdentifier
+	return list(ident) if isinstance(ident, (tuple, list)) else [ident]
 
 
 def _items(doc, nodeType: str) -> list:
@@ -328,6 +346,7 @@ def _record(
 		nodeType = "search field" if nodeType == "edit" else "search button"
 	start, end = item.textInfo._startOffset, item.textInfo._endOffset
 	return {
+		"ident": _identOf(item),
 		"type": nodeType,
 		"label": label,
 		"name": name,

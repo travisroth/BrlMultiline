@@ -367,6 +367,32 @@ A second review, of those fixes, found three more, each a test in `TestReviewFol
    node's start when they are made, keep the earlier start when they collapse, and every start
    is settled bottom up at the end, as the earliest of a region's own and its children's.
 
+A third review, of the live collection and drawing at commit 7808507, found six more. The
+reviewer's own tests for them are kept as `tests/unit/brlMultiline/test_layoutLiveReview.py`:
+
+1. An old drawing could move into a buffer that had been replaced: browse mode can read a page
+   again, or a page can become another, under the same document object. Now the layout records
+   the page's address and its buffer when it is read (`_pageIdentity`), every element keeps
+   browse mode's identifier for it, and an area keeps the identifier of the element it starts at
+   (`Region.anchor`). A move refuses another page, looks the element up where it now is, and
+   refuses if it is gone; an offset alone is used only while the buffer is the one it came from.
+2. A form wholly under a sticky header was drawn filling the main area: the main area was cut
+   below the header but what was inside it was not, and a box outside its parent was stretched
+   to the parent's whole inside. Now what can be seen of an area is clipped to what can be seen
+   of the area around it, all the way down (`_clipInside`), and a box outside its parent is not
+   drawn.
+3. Tabs were counted as fields: browse mode's form fields include its tabs as well as its
+   buttons. Now both are taken out of the count, and a sampled tab stays a tab.
+4. Blocks made beside landmarks counted their links and not their fields or buttons. Both ways
+   blocks are made now share one function (`_fillBlock`).
+5. The form role alone, without the landmark attribute some browsers add, did not get the form
+   rule. Now both go through `_classifyForm`.
+6. Tabs each in a plain wrapper, such as a list item, made no strip. Now tab strips and
+   accordions are looked for through plain wrappers, which are absorbed into what is found;
+   tabs inside a strip found further down are not found again a level up; a tab saved twice is
+   one tab; and a named area that is all tab strip keeps the strip inside it rather than merging
+   it away.
+
 The first review asked for three more things, done as well: regions carry where they start in
 browse mode's text (`Region.start`) for a later command that moves to one; the collector shares
 its leaf budget out across links, headings, pictures and fields, spread through the page,

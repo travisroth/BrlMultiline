@@ -525,12 +525,20 @@ class TestKeyLetters(unittest.TestCase):
 
 
 class FakeInfo:
-	def __init__(self, offsets):
+	def __init__(self, offsets, document=None):
 		self.offsets = offsets
 		self.unit = None
+		self.document = document
 
 	def copy(self):
-		return FakeInfo(self.offsets)
+		return FakeInfo(self.offsets, self.document)
+
+	def _getOffsetsFromFieldIdentifier(self, docHandle, ID):
+		"""Where an element is in the text now, as browse mode looks it up; LookupError if gone."""
+		found = self.document.elements.get((docHandle, ID)) if self.document else None
+		if found is None:
+			raise LookupError
+		return found
 
 	def expand(self, unit):
 		self.unit = unit
@@ -544,9 +552,11 @@ class FakeBrowseDocument:
 
 	def __init__(self):
 		self.selections = []
+		#: Where each element is in the text now, by browse mode's identifier.
+		self.elements = {}
 
 	def makeTextInfo(self, offsets):
-		return FakeInfo(offsets)
+		return FakeInfo(offsets, self)
 
 	def _set_selection(self, info, reason=None):
 		self.selections.append((info.offsets, reason))
@@ -636,6 +646,28 @@ class TestMovingToAnArea(unittest.TestCase):
 				self.assertEqual(drawing.opensAcross, tall)
 				self.assertEqual(drawing.buffer.height > 32, tall)
 				self.assertNotIn("too small", drawing.note)
+
+	def test_onTheSamePageReadAgainTheAreasElementIsFoundWhereItNowIs(self):
+		"""Browse mode read the page again: the offset moved, the element is still there."""
+		area = Region("navigation", "Primary", Box(0, 0, 100, 100), "landmark", start=120, anchor=(1, 77))
+		self.document.documentConstantIdentifier, self.document.VBufHandle = "https://a.example/", 2
+		self.document.elements[(1, 77)] = (300, 340)
+		self.plugin._moveToArea(self.document, area, ("https://a.example/", 1))
+		self.assertEqual(self.document.selections, [((300, 300), "quicknav")])
+
+	def test_anAreaWhoseElementIsGoneIsNotMovedTo(self):
+		area = Region("navigation", "Primary", Box(0, 0, 100, 100), "landmark", start=120, anchor=(1, 77))
+		self.document.documentConstantIdentifier, self.document.VBufHandle = "https://a.example/", 1
+		self.plugin._moveToArea(self.document, area, ("https://a.example/", 1))
+		self.assertEqual(self.document.selections, [])
+		self.assertIn("page has changed", _stubs.flashedMessages[-1])
+
+	def test_anotherPageUnderTheSameDocumentIsNotMovedIn(self):
+		area = Region("navigation", "Primary", Box(0, 0, 100, 100), "landmark", start=120, anchor=(1, 77))
+		self.document.documentConstantIdentifier = "https://b.example/"
+		self.document.elements[(1, 77)] = (300, 340)
+		self.plugin._moveToArea(self.document, area, ("https://a.example/", 1))
+		self.assertEqual(self.document.selections, [])
 
 	def test_aPageThatHasChangedIsNotMovedIn(self):
 		self.plugin._moveToArea(FakeBrowseDocument(), self.area(120))

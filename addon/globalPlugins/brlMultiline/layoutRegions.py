@@ -254,6 +254,9 @@ class Node:
 	#: command that moves to an area will move to.
 	start: int | None = None
 	end: int | None = None
+	#: Browse mode's identifier for the element, when the caller knows it: what finds the element
+	#: again after the page's text has changed around it, where an offset would not.
+	ident: tuple | None = None
 	children: list["Node"] = field(default_factory=list)
 	# Worked out by `findRegions`: the rectangle on the page, the box around the content, and how
 	# far a sticky header was moved to put it back in its place on the page.
@@ -281,6 +284,8 @@ class Region:
 	node: Node | None = field(default=None, repr=False)
 	#: Where the region starts in browse mode's text, when known.
 	start: int | None = None
+	#: The identifier of the element the region starts at, when known. See `Node.ident`.
+	anchor: tuple | None = None
 	#: What the region holds besides links. See `Node.fields`.
 	fields: int = 0
 	buttons: int = 0
@@ -395,12 +400,19 @@ def _anchor(region: Region) -> int | None:
 	earliest of what it holds, including regions whose starts were set from their nodes (found
 	in review: a block holding a table at offset 10 started at the links after it, at 100).
 	"""
-	starts = [s for s in (_anchor(c) for c in region.children) if s is not None]
-	if region.start is None and region.node is not None:
-		region.start = region.node.start
+	for child in region.children:
+		_anchor(child)
+	node = region.node
+	if node is not None and region.kind != "page":
+		if region.start is None:
+			region.start = node.start
+		if region.anchor is None and region.start is not None and region.start == node.start:
+			region.anchor = node.ident
+	starts = [(c.start, c.anchor) for c in region.children if c.start is not None]
 	if region.start is not None:
-		starts.append(region.start)
-	region.start = min(starts) if starts else None
+		starts.append((region.start, region.anchor))
+	if starts:
+		region.start, region.anchor = min(starts, key=lambda pair: pair[0])
 	return region.start
 
 
@@ -425,14 +437,22 @@ def _widgets(region: Region) -> None:
 		_widgets(child)
 	if region.node is None or region.kind in ("search", "tabs", "accordion"):
 		return
-	taken = [c.box for c in region.children]
-	free = [
-		n
-		for n in region.node.walk()
-		if n.box is not None
-		and (n.role == "tab" or (n.role == "button" and n.expandable))
-		and not any(t.intersection(n.box) for t in taken)
-	]
+	# A plain wrapper is layout, not an area with meaning of its own, so it does not keep the tab
+	# or the header in it from the others (found in review: four tabs, each in a list item, made
+	# no strip). Anything named does.
+	taken = _takenWithin(region)
+	free = []
+	seen = set()
+	for n in region.node.walk():
+		if n.box is None or not (n.role == "tab" or (n.role == "button" and n.expandable)):
+			continue
+		if any(t.intersection(n.box) for t in taken):
+			continue
+		# A tab saved as a record and sampled as a leaf too is one tab, not two in the same place.
+		key = (n.role, tuple(n.box))
+		if key not in seen:
+			seen.add(key)
+			free.append(n)
 	order = lambda n: (n.start if n.start is not None else 0, n.box.top, n.box.left)  # noqa: E731
 	tabs = sorted((n for n in free if n.role == "tab"), key=order)
 	headers = sorted((n for n in free if n.role == "button"), key=lambda n: (n.box.top, n.box.left))
@@ -451,7 +471,36 @@ def _widgets(region: Region) -> None:
 			widget.sections = len(run)
 		added.append(widget)
 	if added:
-		region.children = sorted(region.children + added, key=lambda r: (r.box.top, r.box.left))
+		# The plain wrappers a strip or an accordion was found through are part of it now.
+		kept = [
+			c
+			for c in region.children
+			if not (_isPlainWrapper(c) and any(w.box.intersection(c.box) == c.box for w in added))
+		]
+		region.children = sorted(kept + added, key=lambda r: (r.box.top, r.box.left))
+
+
+def _takenWithin(region: Region) -> list[Box]:
+	"""The boxes of what a region holds that its tabs and headers must not be taken from.
+
+	Every area with a name or a kind of its own; and, looking through plain wrappers, every such
+	area inside them, the strips and accordions already found there included, so the same tabs
+	are not made into a strip a second time a level up.
+	"""
+	taken = []
+	stack = list(region.children)
+	while stack:
+		child = stack.pop()
+		if _isPlainWrapper(child):
+			stack.extend(child.children)
+		else:
+			taken.append(child.box)
+	return taken
+
+
+def _isPlainWrapper(region: Region) -> bool:
+	""":return: whether a region is only a container, with no name or kind of its own."""
+	return region.kind == "area" and region.source == "structure" and not region.label
 
 
 def _runs(nodes: list[Node], follows) -> list[list[Node]]:
@@ -738,6 +787,20 @@ def _isSearchForm(node: Node) -> bool:
 	return any(_mentionsSearch(n) for n in node.walk())
 
 
+def _classifyForm(node: Node, source: str) -> tuple[str, str, str]:
+	"""A form is search, or a form area, or nothing to name. See `FORM_MIN_FIELDS`."""
+	if _isSearchForm(node):
+		return "search", "", "landmark" if source == "landmark" else "search"
+	if not node.name and node.fields < FORM_MIN_FIELDS:
+		# A form around a single field, or around a whole page with one search box in it, is not
+		# a form a reader would name.
+		return "", "", ""
+	pageRect = node.pageRect
+	if pageRect and (pageRect.width < 40 or pageRect.height < 12):
+		return "", "", ""
+	return "form", node.name, source
+
+
 def _classify(node: Node) -> tuple[str, str, str]:
 	"""What a node is, if anything can be said: (kind, label, source), or empty strings."""
 	landmark = node.landmark
@@ -745,20 +808,17 @@ def _classify(node: Node) -> tuple[str, str, str]:
 		if landmark == "region" and (not node.name or node.tag in SVG_TAGS):
 			return "", "", ""
 		if landmark == "form":
-			if _isSearchForm(node):
-				return "search", "", "landmark"
-			if not node.name and node.fields < FORM_MIN_FIELDS:
-				# A form around a single field, or around a whole page with one search box in
-				# it, is not a form a reader would name.
-				return "", "", ""
+			return _classifyForm(node, "landmark")
 		pageRect = node.pageRect
 		if pageRect and (pageRect.width < 40 or pageRect.height < 12):
 			return "", "", ""
 		return landmark, node.name, "landmark"
 	if node.isSearch:
 		return "search", "", "search"
-	if node.role == "form" and _isSearchForm(node):
-		return "search", "", "search"
+	if node.role == "form":
+		# The form role alone, without the landmark attribute some browsers add, is the same
+		# form (found in review: three fields in a plain form were left as an area).
+		return _classifyForm(node, "structure")
 	if node.role in ("internalframe", "frame"):
 		return "frame", "", "frame"
 	if node.role in CONTAINER_ROLES:
@@ -873,9 +933,14 @@ def _collapse(region: Region) -> Region:
 		inner = region.children[0]
 		if inner.box.area < region.box.area * 0.9:
 			break
+		if inner.kind in ("tabs", "accordion") and not _isPlainWrapper(region):
+			# A named area that is all tab strip is still both: the strip inside "main" is not
+			# merged away into it. A plain wrapper around a strip is.
+			break
 		keep = _better(region, inner)
-		starts = [s for s in (region.start, inner.start) if s is not None]
-		region = Region(
+		starts = [(r.start, r.anchor) for r in (region, inner) if r.start is not None]
+		start, anchor = min(starts, key=lambda pair: pair[0]) if starts else (None, None)
+		merged = Region(
 			keep.kind,
 			keep.label,
 			region.box,
@@ -883,8 +948,14 @@ def _collapse(region: Region) -> Region:
 			region.links,
 			inner.children,
 			region.node,
-			start=min(starts) if starts else None,
+			start=start,
+			anchor=anchor,
 		)
+		# What the kept region counted goes with it: a tab strip found inside a plain list keeps
+		# its tabs when the list around it is merged away.
+		merged.fields, merged.buttons = keep.fields, keep.buttons
+		merged.tabs, merged.sections = keep.tabs, keep.sections
+		region = merged
 	return region
 
 
@@ -990,17 +1061,31 @@ def _block(members: list[Item], bounds: Box) -> Region | None:
 	box = box and box.intersection(bounds)
 	if not box or not _isSizeable(box) or len(members) < SPLIT_MIN_LEAVES // 2:
 		return None
+	block = Region("area", "", box, "geometry")
+	_fillBlock(block, members, countLoose=True)
+	return block
+
+
+def _fillBlock(block: Region, members: list[Item], countLoose: bool) -> None:
+	"""Name a block found by geometry, count what lies loose in it, and find where it starts.
+
+	Shared by both ways blocks are made, so neither forgets a count (found in review: the blocks
+	made beside landmarks counted their links and not their fields or buttons). Links are counted
+	whole, regions' included; fields and buttons only where they lie loose and the block is not
+	split again, since a split block's are its parts', which `_tally` adds up.
+	"""
 	nodes = [(b, n) for b, n in members if isinstance(n, Node)]
+	regions = [m for _, m in members if isinstance(m, Region)]
 	headings = sorted((b.top, b.left, n.name) for b, n in nodes if n.role == "heading" and n.name)
-	starts = [n.start for _, n in nodes if n.start is not None]
-	return Region(
-		"area",
-		headings[0][2] if headings else "",
-		box,
-		"geometry",
-		sum(1 for _, n in nodes if n.role == "link"),
-		start=min(starts) if starts else None,
-	)
+	block.label = headings[0][2] if headings else ""
+	block.links = sum(1 for _, n in nodes if n.role == "link") + sum(r.links for r in regions)
+	if countLoose:
+		block.fields = sum(1 for _, n in nodes if n.role in FIELD_ROLES)
+		block.buttons = sum(1 for _, n in nodes if n.role == "button")
+	starts = [(n.start, n.ident) for _, n in nodes if n.start is not None]
+	starts += [(r.start, r.anchor) for r in regions if r.start is not None]
+	if starts:
+		block.start, block.anchor = min(starts, key=lambda pair: pair[0])
 
 
 def splitByGeometry(items: list[Item], bounds: Box, depth: int = 0, maxDepth: int = 3) -> list[Region]:
@@ -1025,25 +1110,10 @@ def splitByGeometry(items: list[Item], bounds: Box, depth: int = 0, maxDepth: in
 			if len(members) == 1 and regions:
 				blocks.append(regions[0])
 				continue
-			nodes = [(b, m) for b, m in members if isinstance(m, Node)]
-			headings = sorted((b.top, b.left, n.name) for b, n in nodes if n.role == "heading" and n.name)
-			label = headings[0][2] if headings else ""
-			links = sum(1 for _, n in nodes if n.role == "link") + sum(r.links for r in regions)
-			# Fields and buttons the regions inside hold are added up by `_tally`; these are the
-			# ones lying loose in the block.
-			loose = [n for _, n in nodes]
-			starts = [n.start for _, n in nodes if n.start is not None]
-			starts += [r.start for r in regions if r.start is not None]
 			inner = splitByGeometry(members, box, depth + 1, maxDepth)
 			children = inner or sorted(regions, key=lambda r: (r.box.top, r.box.left))
-			block = Region(
-				"area", label, box, "geometry", links, children, start=min(starts) if starts else None
-			)
-			if not inner:
-				# Fields and buttons lying loose in a block that is not split again. A split
-				# block's are its parts', and `_tally` adds those up.
-				block.fields = sum(1 for n in loose if n.role in FIELD_ROLES)
-				block.buttons = sum(1 for n in loose if n.role == "button")
+			block = Region("area", "", box, "geometry", children=children)
+			_fillBlock(block, members, countLoose=not inner)
 			blocks.append(block)
 		return blocks
 	return []
@@ -1259,6 +1329,12 @@ def fromProbe(data: dict[str, Any]) -> tuple[Node, Box]:
 	return root, viewport
 
 
+def _ident(record: dict[str, Any]) -> tuple | None:
+	""":return: browse mode's identifier for a saved element, where the collector saved one."""
+	ident = record.get("ident")
+	return tuple(ident) if ident else None
+
+
 def _rect(value: list[int] | None) -> Box | None:
 	return Box(*value) if value else None
 
@@ -1284,6 +1360,7 @@ _LEAF_ROLES_BY_TYPE = {
 	"graphic": "graphic",
 	"formField": "editabletext",
 	"button": "button",
+	"tab": "tab",
 }
 
 
@@ -1305,6 +1382,7 @@ def _landmarkTree(records: list[dict[str, Any]], leaves: list[dict[str, Any]]) -
 				isDataTable=kind == "table",
 			)
 			node.start, node.end = r["start"], r["end"]
+			node.ident = _ident(r)
 			if "fields" in r:
 				# Counted exactly by the collector from browse mode's text, which the samples of
 				# content below cannot do on a busy page.
@@ -1313,7 +1391,9 @@ def _landmarkTree(records: list[dict[str, Any]], leaves: list[dict[str, Any]]) -
 				node.counted = True
 			items.append((r["start"], r["end"], node))
 		elif kind.startswith("heading"):
-			node = Node("heading", _rect(r["rect"]), name=r.get("label") or "", start=r["start"])
+			node = Node(
+				"heading", _rect(r["rect"]), name=r.get("label") or "", start=r["start"], ident=_ident(r)
+			)
 			items.append((r["start"], r["start"], node))
 		elif kind in ("tab", "toggle"):
 			# A tab, or a button that expands and collapses something: what tab strips and
@@ -1324,15 +1404,24 @@ def _landmarkTree(records: list[dict[str, Any]], leaves: list[dict[str, Any]]) -
 				name=r.get("name") or r.get("label") or "",
 				start=r["start"],
 				expandable=kind == "toggle",
+				ident=_ident(r),
 			)
 			items.append((r["start"], r["start"], node))
 		elif kind in ("search field", "search button"):
 			role = "editabletext" if kind == "search field" else "button"
-			node = Node(role, _rect(r["rect"]), name=r.get("name") or "", isSearch=True, start=r["start"])
+			node = Node(
+				role,
+				_rect(r["rect"]),
+				name=r.get("name") or "",
+				isSearch=True,
+				start=r["start"],
+				ident=_ident(r),
+			)
 			items.append((r["start"], r["start"], node))
 	for leaf in leaves:
 		role = _LEAF_ROLES_BY_TYPE.get(leaf["type"], "statictext")
-		items.append((leaf["start"], leaf["start"], Node(role, _rect(leaf["rect"]), start=leaf["start"])))
+		node = Node(role, _rect(leaf["rect"]), start=leaf["start"], ident=_ident(leaf))
+		items.append((leaf["start"], leaf["start"], node))
 	# Containers first at the same offset, outermost first, so they are open before their content.
 	items.sort(key=lambda item: (item[0], -(item[1] - item[0]), item[2].role in LEAF_ROLES))
 	stack: list[tuple[int, Node]] = [(1 << 62, root)]

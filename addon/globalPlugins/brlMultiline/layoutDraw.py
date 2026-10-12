@@ -222,7 +222,22 @@ def placesFor(page: Region, view: str) -> dict[int, Box]:
 			if box.top < header.bottom < box.bottom and header.top <= max(box.top, 0):
 				box = Box(box.left, header.bottom, box.width, box.bottom - header.bottom)
 		places[id(region)] = box
+		_clipInside(region, box, places)
 	return places
+
+
+def _clipInside(region: Region, bound: Box, places: dict[int, Box]) -> None:
+	"""What can be seen of each area inside a region is no more than what can be seen of it.
+
+	On the screen an area wholly under a sticky header is hidden, however big it is (found in
+	review: a form covered by the header was drawn filling the main area below it). One with
+	nothing visible gets no height, so nothing chooses it to draw, and nothing inside it either.
+	"""
+	for child in region.children:
+		box = places[id(child)]
+		visible = box.intersection(bound)
+		places[id(child)] = visible or Box(box.left, box.top, box.width, 0)
+		_clipInside(child, visible or Box(box.left, box.top, 0, 0), places)
 
 
 def compose(
@@ -380,21 +395,32 @@ def _layout(
 	)
 	boxes: list[DrawnBox] = []
 	byRegion: dict[int, DrawnBox] = {}
+	skipped: set[int] = set()
 	for region, d in chosen:
 		clipped = clips[id(region)]
 		left, right = xs.span(clipped.left, clipped.right)
 		top, bottom = ys.span(clipped.top, clipped.bottom)
 		rect = Box(left, top, right - left, bottom - top)
 		drawn = DrawnBox(region, rect, d)
-		parent = byRegion.get(id(_parentOf(region, chosen)))
+		parentRegion = _parentOf(region, chosen)
+		if parentRegion is not None and id(parentRegion) in skipped:
+			skipped.add(id(region))
+			continue
+		parent = byRegion.get(id(parentRegion))
 		if parent is None:
 			boxes.append(drawn)
 		else:
-			# Inside its parent's outline, never on it, so the two can be told apart.
+			# Inside its parent's outline, never on it, so the two can be told apart. One that
+			# falls outside it altogether is not drawn, rather than stretched to fill the parent
+			# and drawn as though it were all of it.
 			inner = Box(
 				parent.rect.left + 1, parent.rect.top + 1, parent.rect.width - 2, parent.rect.height - 2
 			)
-			drawn.rect = rect.intersection(inner) or inner
+			fitted = rect.intersection(inner)
+			if fitted is None:
+				skipped.add(id(region))
+				continue
+			drawn.rect = fitted
 			parent.children.append(drawn)
 		byRegion[id(region)] = drawn
 	return boxes, xs, ys

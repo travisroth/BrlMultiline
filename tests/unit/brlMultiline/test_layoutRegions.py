@@ -528,6 +528,63 @@ class TestFormsAndCounts(unittest.TestCase):
 		)
 
 
+class TestLiveReviewFindings(unittest.TestCase):
+	"""Faults found in review of the live collection and the counts, in the rules' part."""
+
+	def test_unmarkedContentBesideALandmarkCountsItsFieldsAndButtons(self):
+		"""A navigation landmark, then six fields and two buttons no landmark marks."""
+		nav = Node(
+			"landmark",
+			Box(0, 0, 1900, 60),
+			landmark="navigation",
+			children=[leaf("link", 20 + i * 120, 20, 100, 20) for i in range(6)],
+		)
+		fields = [leaf("editabletext", 100, 200 + i * 60, 600, 30) for i in range(6)]
+		buttons = [leaf("button", 100 + i * 200, 600, 150, 40) for i in range(2)]
+		page = findRegions(Node("document", children=[nav, *fields, *buttons]), VIEW)
+		unmarked = [r for r in page.children if r.kind != "navigation"]
+		self.assertTrue(unmarked, describe(page))
+		self.assertEqual(sum(r.fields for r in unmarked), 6)
+		self.assertEqual(sum(r.buttons for r in unmarked), 2)
+
+	def test_aPlainFormRoleWithFieldsIsAForm(self):
+		"""The form role alone, with no form landmark attribute, gets the same rule."""
+		form = Node(
+			"form",
+			Box(100, 100, 700, 500),
+			children=[leaf("editabletext", 120, 150 + i * 60, 400, 30) for i in range(3)],
+		)
+		page = findRegions(Node("document", children=[form]), VIEW)
+		self.assertEqual([r.kind for r in page.walk() if r.node is form], ["form"])
+
+	def test_tabsEachInAPlainWrapperAreStillAStrip(self):
+		"""On a page without landmarks, each tab sits in a list item; the wrappers are layout."""
+		items = [
+			Node("listitem", Box(100 + i * 160, 200, 150, 50), children=[tab(105 + i * 160, 205, start=i)])
+			for i in range(4)
+		]
+		holder = Node("list", Box(100, 200, 640, 50), children=items)
+		section = Node("section", Box(0, 0, 1900, 900), children=[holder, leaf("graphic", 0, 300, 1900, 600)])
+		page = findRegions(Node("document", children=[section]), VIEW)
+		strips = [r for r in page.walk() if r.kind == "tabs"]
+		self.assertEqual([r.tabs for r in strips], [4], describe(page, 4))
+		self.assertFalse(
+			[
+				r
+				for r in page.walk()
+				if r.kind == "area" and r.box.intersection(strips[0].box) == r.box and r is not page
+			],
+			"the wrappers inside the strip are not left as areas of their own",
+		)
+
+	def test_aTabSampledTwiceIsOneTab(self):
+		"""A tab as a record and as a sampled leaf is the same tab, not two side by side."""
+		tabs = [tab(100 + i * 130, 200, start=i) for i in range(3)]
+		twice = [tab(100 + i * 130, 200, start=i) for i in range(3)]
+		page, _ = inMain(*tabs, *twice)
+		self.assertEqual([r.tabs for r in page.walk() if r.kind == "tabs"], [3])
+
+
 class TestRealPages(unittest.TestCase):
 	"""Pages saved by the probe, each checked for the shape a sighted reader would describe."""
 

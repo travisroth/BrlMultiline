@@ -89,11 +89,13 @@ class _LayoutView:
 	rather than reading it again, and so that the area last pressed is what a drill goes into.
 	"""
 
-	def __init__(self, page, view: str, viewport, document):
+	def __init__(self, page, view: str, viewport, document, identity=None):
 		self.page = page
 		self.view = view
 		self.viewport = viewport
 		self.document = document
+		#: Which page and which reading of it the layout is of; see `_pageIdentity`.
+		self.identity = tuple(identity) if identity else _pageIdentity(document)
 		#: The area drilled into, or None for the whole page or screen.
 		self.focus = None
 		#: The areas drilled through to get here, outermost first; None stands for the whole.
@@ -102,6 +104,14 @@ class _LayoutView:
 		self.pressed = None
 		#: The drawing on the display, so a drill can tell it is still this overview that is up.
 		self.drawing = None
+
+
+def _pageIdentity(document) -> tuple:
+	""":return: which page a browse mode document shows, and which reading of it: its address and
+	its buffer. Browse mode can read a page again, or a page can become another, under the same
+	document object, so the object alone does not say the text is the text a layout was made of.
+	"""
+	return (getattr(document, "documentConstantIdentifier", None), getattr(document, "VBufHandle", None))
 
 
 LAYOUT_DEPTH = 3
@@ -3693,7 +3703,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if size is None:
 			ui.message(_("This display cannot show graphics"))
 			return
-		state = _LayoutView(page, view, viewport, document)
+		state = _LayoutView(page, view, viewport, document, payload.get("identity"))
 		message = self._enterLayout(state)
 		if message is None:
 			return
@@ -3887,11 +3897,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 			return describeAt
 
+		identity = state.identity if state is not None else _pageIdentity(document)
+
 		def activator(overview):
 			def activateAt(x, y):
 				box = overview.boxAt(x, y)
 				if box is not None:
-					self._moveToArea(document, box.region)
+					self._moveToArea(document, box.region, identity)
 
 			return activateAt
 
@@ -3960,7 +3972,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		)
 		return drawing
 
-	def _moveToArea(self, document, region) -> None:
+	def _moveToArea(self, document, region, identity: Optional[tuple] = None) -> None:
 		"""Put the browse mode cursor where an area of the page starts, and leave the drawing.
 
 		What quick navigation does for a heading or a landmark, done for an area found on the
@@ -3972,12 +3984,20 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		another display, such as a Focus 80 beside the Monarch drawing, the line arrives there
 		and the drawing stays up for the next area.
 
+		**Where the area starts is found again, not remembered.** An offset is only good for the
+		reading of the page it came from, and browse mode reads a page again, or a page becomes
+		another, under the same document object (found in review: an old drawing moved to an
+		offset in a buffer that had been replaced). So the area's first element is looked up by
+		browse mode's identifier for it (`Region.anchor`), which finds it wherever it now is; an
+		offset alone is used only while the buffer is the one it came from.
+
 		Refused, with the reason said, when the area has no place in the text (an area found from
 		the accessible tree on a page without landmarks), or when the page under the focus is no
-		longer the one the layout was read from, since its positions would be somebody else's.
+		longer the one the layout was read from, or its first element is gone.
 
 		:param document: the browse mode document the layout was read from.
 		:param region: the area pressed.
+		:param identity: the page and buffer the layout was read from; see `_pageIdentity`.
 		"""
 		import controlTypes
 		import speech
@@ -3989,17 +4009,34 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# has no place in the page's text to move to. The placeholder is the area's name.
 			ui.message(_("No place in the page to move to for {area}").format(area=region.title))
 			return
+		# Translators: said when a reader asks to move to an area of a page's layout, but the
+		# page has changed since its layout was read, so the layout no longer fits it.
+		changed = _("The page has changed; read its layout again")
 		current = getattr(api.getFocusObject(), "treeInterceptor", None)
 		if document is None or current is not document or not getattr(document, "isAlive", True):
-			# Translators: said when a reader asks to move to an area of a page's layout, but the
-			# page has changed since its layout was read, so the layout no longer fits it.
-			ui.message(_("The page has changed; read its layout again"))
+			ui.message(changed)
 			return
+		page, buffer = identity or (None, None)
+		pageNow, bufferNow = _pageIdentity(document)
+		if page is not None and pageNow != page:
+			ui.message(changed)
+			return
+		start = region.start
+		anchor = getattr(region, "anchor", None)
 		try:
-			info = document.makeTextInfo(Offsets(region.start, region.start))
+			if anchor is not None:
+				# Its first element, wherever it now is; gone, the lookup says so.
+				probe = document.makeTextInfo(textInfos.POSITION_FIRST)
+				start = probe._getOffsetsFromFieldIdentifier(*anchor)[0]
+			elif buffer is not None and bufferNow != buffer:
+				# No element to find again, and a different reading of the page: the offset
+				# belongs to that other text.
+				ui.message(changed)
+				return
+			info = document.makeTextInfo(Offsets(start, start))
 		except Exception:
-			log.debugWarning("BrlMultiline: no text at an area's start", exc_info=True)
-			ui.message(_("The page has changed; read its layout again"))
+			log.debugWarning("BrlMultiline: an area's start is not in the page now", exc_info=True)
+			ui.message(changed)
 			return
 		if self.graphicsMode.holdsFocus():
 			self._cancelPictureRequest()
