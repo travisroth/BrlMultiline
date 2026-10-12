@@ -169,6 +169,8 @@ class Drawing:
 		widestView: int = 0,
 		levelKeys: tuple = (),
 		opensAcross: bool = False,
+		activateAt=None,
+		areaAt=None,
 	):
 		"""
 		:param buffer: the dots, a buffer from `GraphicsSurface.newBuffer`.
@@ -231,6 +233,14 @@ class Drawing:
 			down it, such as the layout of a long web page: shown whole it is squeezed until its
 			parts are slivers, and shown a panel wide it reads at its own size with the rest a
 			pan down. Shrinking from there still shows it whole.
+		:param activateAt: what pressing a point a second time does, taking source
+			coordinates. Optional. The first press says what is there, as for every drawing; the
+			next press in the same area acts on it, however long after. The layout of a web page
+			supplies one that moves the browse mode cursor to the area pressed.
+		:param areaAt: which area a point is in, as anything that compares equal for the same
+			area, or None outside every area. Optional, and only asked of a drawing with
+			`activateAt`. It is what makes two presses "on the same thing" when a finger lands a
+			pin or a cell away the second time; without it the same cell has to be pressed.
 		"""
 		self.buffer = buffer
 		self.firstPoint = firstPoint
@@ -249,6 +259,8 @@ class Drawing:
 		self.widestView = widestView
 		self.levelKeys = tuple(levelKeys)
 		self.opensAcross = opensAcross
+		self.activateAt = activateAt
+		self.areaAt = areaAt
 
 	@property
 	def width(self) -> int:
@@ -296,6 +308,16 @@ def testFigure(surface: GraphicsSurface, width: int, height: int) -> Optional[Dr
 		buffer.clearRect(2, 2, len(cells) * 3 + 1, 5)
 		buffer.text(3, 2, cells)
 	return Drawing(buffer, name="test figure")
+
+
+def _afterThePress(func, *args) -> None:
+	"""Run something once the routing press has finished. See `_sayAfterThePress` for why."""
+	try:
+		import queueHandler
+
+		queueHandler.queueFunction(queueHandler.eventQueue, func, *args)
+	except Exception:
+		func(*args)
 
 
 def _sayAfterThePress(text: str) -> None:
@@ -407,6 +429,9 @@ class GraphicsMode(PanelOwner):
 		braille line the panel keeps beside the figure; this is what is left for pins.
 		"""
 
+		self._lastPress: Optional[tuple] = None
+		"""What the last routing press on the drawing landed on, and on which figure, so a second
+		press can be told from a first. See `_isSecondPress`."""
 		self._zoomStep = FIT
 		self._originX = 0
 		self._originY = 0
@@ -674,6 +699,7 @@ class GraphicsMode(PanelOwner):
 		self._source = None
 		self._window = None
 		self._rect = None
+		self._lastPress = None
 		self._forgetPoints()
 		try:
 			self.plugin.deactivatePanel(PANEL_NAME)
@@ -2046,8 +2072,69 @@ class GraphicsMode(PanelOwner):
 				# the claim, which happens when a press was decided from the device's own cell
 				# index instead. The cell is coarser and is still an answer.
 				point = self.pointForCell(segmentPos, surface)
+		if point is not None and self._isSecondPress(segmentPos, point):
+			activateAt = self._drawing.activateAt
+			# After the press, like everything a press says: acting on a point usually takes the
+			# drawing down, and doing that from inside `routeTo` would leave NVDA routing a press
+			# into a panel that has gone.
+			_afterThePress(activateAt, point[0], point[1])
+			return
 		self._notePress(point)
 		_sayAfterThePress(self.describePoint(point, surface))
+
+	def _isSecondPress(self, segmentPos: int, point: tuple) -> bool:
+		"""Whether this press lands on what the last one did, so it acts rather than describes.
+
+		**No time limit.** The first version wanted the same cell within NVDA's multiple press
+		timeout, and on a Monarch it never fired: a second routing press there is slow, and a
+		finger seldom comes down on the same cell twice. So a press records what it landed on,
+		and the next press acts if it lands on the same thing, however long after. A press on
+		anything else describes that and becomes the new first press. The same thing is the
+		same area where the drawing can say (`Drawing.areaAt`), and the same cell where not.
+
+		Kept here rather than asked of NVDA, which counts repeats by script and time alone, and
+		to which every routing key is the one script.
+
+		:param segmentPos: the pressed cell within the claim.
+		:param point: the source dot the press mapped to.
+		:return: whether to act on the point rather than describe it. Always False for a
+			drawing with nothing to do on a second press.
+		"""
+		drawing = self._drawing
+		activateAt = getattr(drawing, "activateAt", None) if drawing is not None else None
+		if activateAt is None:
+			self._lastPress = None
+			return False
+		target = self._pressTarget(drawing, segmentPos, point)
+		last = self._lastPress
+		self._lastPress = (target, self._source)
+		if target is None or last != (target, self._source):
+			return False
+		# Acted on, so the next press there describes again rather than acting a second time.
+		self._lastPress = None
+		return True
+
+	@staticmethod
+	def _pressTarget(drawing, segmentPos: int, point: tuple):
+		""":return: what a press landed on: the drawing's area, or the cell where it names none."""
+		areaAt = getattr(drawing, "areaAt", None)
+		if areaAt is None:
+			return ("cell", segmentPos)
+		try:
+			return areaAt(point[0], point[1])
+		except Exception:
+			log.error("BrlMultiline: a drawing could not say what area a point is in", exc_info=True)
+			return None
+
+	def holdsFocus(self) -> bool:
+		""":return: whether the display that draws also shows the focus, beside the drawing.
+
+		On one display doing everything it does, in the braille line kept beside the figure. On
+		a drawing display paired with another that shows the focus, such as a Monarch with a
+		Focus 80, it does not. True when that cannot be told. See `_bandHoldsFocus`.
+		"""
+		surface = findSurface()
+		return True if surface is None else self._bandHoldsFocus(surface)
 
 	def searchRadius(self, surface: Optional[GraphicsSurface] = None) -> int:
 		"""How far from the reported pin to look for a dot, in source dots.

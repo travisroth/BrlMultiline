@@ -231,6 +231,112 @@ class TestKeyLetters(unittest.TestCase):
 		self.assertEqual(overview.keyText(), "a, region, Announcements")
 
 
+class FakeInfo:
+	def __init__(self, offsets):
+		self.offsets = offsets
+		self.unit = None
+
+	def copy(self):
+		return FakeInfo(self.offsets)
+
+	def expand(self, unit):
+		self.unit = unit
+
+
+class FakeBrowseDocument:
+	"""A browse mode document as far as moving to an area uses one."""
+
+	isAlive = True
+	passThrough = False
+
+	def __init__(self):
+		self.selections = []
+
+	def makeTextInfo(self, offsets):
+		return FakeInfo(offsets)
+
+	def _set_selection(self, info, reason=None):
+		self.selections.append((info.offsets, reason))
+
+
+class FakeLeavingMode:
+	def __init__(self, focusHere: bool = True):
+		self.left = 0
+		self.focusHere = focusHere
+
+	def leave(self):
+		self.left += 1
+
+	def holdsFocus(self):
+		return self.focusHere
+
+
+class TestMovingToAnArea(unittest.TestCase):
+	"""Pressing a box twice puts the browse mode cursor where the area starts."""
+
+	def setUp(self):
+		from . import test_plugin
+
+		test_plugin.resetPluginState()
+		import braille
+
+		braille.handler = test_plugin.FakeHandler(test_plugin.MONARCH_ROWS, test_plugin.MONARCH_COLS)
+		self.plugin = test_plugin.GlobalPlugin()
+		self.addCleanup(self.plugin.terminate)
+		self.plugin.graphicsMode = FakeLeavingMode()
+		self.document = FakeBrowseDocument()
+		api = sys.modules["api"]
+		focus = type("Focus", (), {"treeInterceptor": self.document})()
+		original = api.getFocusObject
+		api.getFocusObject = lambda: focus
+		self.addCleanup(setattr, api, "getFocusObject", original)
+		_stubs.spokenMessages.clear()
+		_stubs.spokenPositions.clear()
+		_stubs.flashedMessages.clear()
+
+	def area(self, start):
+		return Region("navigation", "Primary", Box(0, 0, 100, 100), "landmark", start=start)
+
+	def test_theCursorGoesToTheStartAndTheDrawingComesDown(self):
+		self.plugin._moveToArea(self.document, self.area(120))
+		self.assertEqual(self.document.selections, [((120, 120), "quicknav")])
+		self.assertEqual(self.plugin.graphicsMode.left, 1)
+		self.assertEqual(_stubs.spokenMessages[-1], "navigation, Primary")
+		info, _format, reason = _stubs.spokenPositions[-1]
+		self.assertEqual((info.unit, reason), ("line", "quicknav"))
+
+	def test_withTheFocusOnAnotherDisplayTheDrawingStaysUp(self):
+		"""A Monarch drawing beside a Focus 80 showing the focus: the line arrives there."""
+		self.plugin.graphicsMode = FakeLeavingMode(focusHere=False)
+		self.plugin._moveToArea(self.document, self.area(120))
+		self.assertEqual(self.document.selections, [((120, 120), "quicknav")])
+		self.assertEqual(self.plugin.graphicsMode.left, 0)
+
+	def test_anAreaWithNoPlaceInTheTextSaysSo(self):
+		self.plugin._moveToArea(self.document, self.area(None))
+		self.assertEqual(self.document.selections, [])
+		self.assertEqual(self.plugin.graphicsMode.left, 0)
+		self.assertIn("No place in the page", _stubs.flashedMessages[-1])
+
+	def test_theDrawingsSecondPressReachesTheAreaUnderIt(self):
+		"""Seeking Alpha on screen: the bottom left pin is the sidebar, below its navigation."""
+		self.plugin.graphicsMode.newBuffer = PinBuffer
+		page, viewport = loadPage("seekingalpha.json")
+		drawing = self.plugin._layoutDrawing(
+			page, "screen", viewport, (WIDTH, HEIGHT), "layout", self.document
+		)
+		self.assertIn("complementary", drawing.describeAt(0, HEIGHT - 1))
+		drawing.activateAt(0, HEIGHT - 1)
+		aside = [r for r in page.children if r.kind == "complementary"][0]
+		self.assertIsNotNone(aside.start)
+		self.assertEqual(self.document.selections, [((aside.start, aside.start), "quicknav")])
+
+	def test_aPageThatHasChangedIsNotMovedIn(self):
+		self.plugin._moveToArea(FakeBrowseDocument(), self.area(120))
+		self.assertEqual(self.document.selections, [])
+		self.assertIn("page has changed", _stubs.flashedMessages[-1])
+
+
 class FakeObject:
 	def __init__(self, role="SECTION", location=(0, 0, 0, 0), name="", attributes=None, children=()):
 		self.role = type("Role", (), {"name": role})()

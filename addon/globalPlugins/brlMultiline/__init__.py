@@ -3625,7 +3625,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				# Translators: reported when the layout of a web page could not be worked out.
 				ui.message(_("Could not read the layout of this page"))
 				return
-			self._showLayout(payload, view)
+			self._showLayout(payload, view, document)
 
 		collector = layoutCollect.Collector(document, gathered)
 		self._layoutCollector = collector
@@ -3633,7 +3633,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		ui.message(_("Reading the page layout"))
 		collector.start()
 
-	def _showLayout(self, payload: dict, view: str) -> None:
+	def _showLayout(self, payload: dict, view: str, document=None) -> None:
 		"""Work out the page's areas from what was gathered, and draw or show them."""
 		try:
 			root, viewport = layoutRegions.fromProbe(payload)
@@ -3671,7 +3671,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: the name of the drawing of the layout of the part of a web page on
 			# screen.
 			name = _("layout of the page on screen")
-		drawing = self._layoutDrawing(page, view, viewport, size, name)
+		drawing = self._layoutDrawing(page, view, viewport, size, name, document)
 		if drawing is None:
 			ui.message(mode.lastError or _("The drawing could not be shown"))
 			return
@@ -3684,7 +3684,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			message = f"{message}. {partialNote}"
 		ui.message(message)
 
-	def _layoutDrawing(self, page, view: str, viewport, size: tuple, name: str):
+	def _layoutDrawing(self, page, view: str, viewport, size: tuple, name: str, document=None):
 		"""The drawing of a page's layout, which draws itself again when zoomed or moved.
 
 		**The whole page is drawn tall**: a screen of the page to a panel's height, so its
@@ -3696,6 +3696,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		`Drawing.redraw`, so the labels stay braille at the panel's own size instead of growing
 		into blobs, and an area keeps the key letter it was given wherever it appears. The key
 		for what is on the panel is the drawing's note, said after each move.
+
+		**Pressing in a box a second time moves to it**: the browse mode cursor goes to where
+		the area starts in the page, through `Drawing.activateAt` and `Drawing.areaAt`. See
+		`_moveToArea`.
 
 		:return: the drawing, or None.
 		"""
@@ -3718,6 +3722,23 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return None
 		whole = layoutDraw.windowFor(page, view, viewport)
 
+		def activator(overview):
+			def activateAt(x, y):
+				box = overview.boxAt(x, y)
+				if box is not None:
+					self._moveToArea(document, box.region)
+
+			return activateAt
+
+		def areaOf(overview):
+			# The region itself is the area, whatever view it is drawn in, so a press in the
+			# sidebar and the next one a cell away, or after a move, are on the same area.
+			def areaAt(x, y):
+				box = overview.boxAt(x, y)
+				return None if box is None else id(box.region)
+
+			return areaAt
+
 		def redraw(offset, span, pinWidth, pinHeight, top=0.0, down=1.0):
 			window = source.windowAt(offset, span, top, down)
 			part = layoutDraw.compose(
@@ -3738,6 +3759,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				part.buffer,
 				name=name,
 				describeAt=part.describeAt,
+				activateAt=activator(part),
+				areaAt=areaOf(part),
 				# Translators: the key to the letters on the part of a page's layout that is on
 				# the display. The placeholder is a list of letters with what each stands for.
 				note=_("Key: {key}").format(key=key) if key else "",
@@ -3748,6 +3771,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			source.buffer,
 			name=name,
 			describeAt=source.describeAt,
+			activateAt=activator(source),
+			areaAt=areaOf(source),
 			note=_("Key: {key}").format(key=sourceKey) if sourceKey else "",
 			redraw=redraw,
 			# How far in the zoom can go, as the mode counts it: a window no smaller than about
@@ -3757,6 +3782,61 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			opensAcross=view == "page",
 		)
 		return drawing
+
+	def _moveToArea(self, document, region) -> None:
+		"""Put the browse mode cursor where an area of the page starts, and leave the drawing.
+
+		What quick navigation does for a heading or a landmark, done for an area found on the
+		page: the cursor goes to the area's first content, the area's name is said, then the line
+		there.
+
+		**The drawing comes down only when its display is also showing the focus**, as one
+		display doing everything is, so braille can show the line arrived at. With the focus on
+		another display, such as a Focus 80 beside the Monarch drawing, the line arrives there
+		and the drawing stays up for the next area.
+
+		Refused, with the reason said, when the area has no place in the text (an area found from
+		the accessible tree on a page without landmarks), or when the page under the focus is no
+		longer the one the layout was read from, since its positions would be somebody else's.
+
+		:param document: the browse mode document the layout was read from.
+		:param region: the area pressed.
+		"""
+		import controlTypes
+		import speech
+		import textInfos
+		from textInfos.offsets import Offsets
+
+		if region.start is None:
+			# Translators: said when a reader asks to move to an area of a page's layout that
+			# has no place in the page's text to move to. The placeholder is the area's name.
+			ui.message(_("No place in the page to move to for {area}").format(area=region.title))
+			return
+		current = getattr(api.getFocusObject(), "treeInterceptor", None)
+		if document is None or current is not document or not getattr(document, "isAlive", True):
+			# Translators: said when a reader asks to move to an area of a page's layout, but the
+			# page has changed since its layout was read, so the layout no longer fits it.
+			ui.message(_("The page has changed; read its layout again"))
+			return
+		try:
+			info = document.makeTextInfo(Offsets(region.start, region.start))
+		except Exception:
+			log.debugWarning("BrlMultiline: no text at an area's start", exc_info=True)
+			ui.message(_("The page has changed; read its layout again"))
+			return
+		if self.graphicsMode.holdsFocus():
+			self._cancelPictureRequest()
+			self.graphicsMode.leave()
+		if getattr(document, "passThrough", False):
+			import browseMode
+
+			document.passThrough = False
+			browseMode.reportPassThrough(document)
+		document._set_selection(info, reason=controlTypes.OutputReason.QUICKNAV)
+		speech.speakMessage(region.title)
+		line = info.copy()
+		line.expand(textInfos.UNIT_LINE)
+		speech.speakTextInfo(line, reason=controlTypes.OutputReason.QUICKNAV)
 
 	@script(
 		# Translators: input help message for a command.

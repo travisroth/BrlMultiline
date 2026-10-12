@@ -165,9 +165,29 @@ same pattern the chart work uses.
    page views.
 6. Windows applications, through UI Automation.
 
-Steps 1 to 3 are done; see the next section. Step 4 is built and unit tested, not yet tried on
-hardware: see "The drawing and the collector as built" below. Of step 5, a press naming the box
-under it is built; moving to an area, drilling in and backing out are not.
+Steps 1 to 4 are done, and the drawing has been tried on a Monarch: see "The drawing and the
+collector as built" below. Of step 5, a press naming the box under it and a second press moving
+to it are built; drilling in and backing out are not.
+
+**Moving to an area** is a second routing press in the same box. The first version wanted the
+same cell within NVDA's multiple press timeout, and never fired on a Monarch: a second routing
+press there is slow, and a finger seldom comes down on the same cell twice. So graphics mode now
+records what a press landed on (`GraphicsMode._isSecondPress`), and the next press acts if it
+lands on the same thing, with no time limit; a press anywhere else describes that and becomes the
+new first press. The same thing is the same area where the drawing can say (`Drawing.areaAt`; the
+overview's is the region, so it holds across zooms and moves) and the same cell where not. NVDA's
+repeat count would not do either way, since every routing key is the one script to it. A drawing
+opts in with `Drawing.activateAt`, and every other drawing goes on describing on every press.
+
+The overview's moves the browse mode cursor to `Region.start` the way quick navigation does
+(`_set_selection` with the quick navigation reason) and says the area's name and then the line.
+The drawing comes down first only when its display also shows the focus
+(`GraphicsMode.holdsFocus`), as one display doing everything does. With the focus on another
+display, such as a Focus 80 beside a Monarch, taking the drawing down would do nothing for the
+reader, since the line arrives on the other display, and would lose the drawing; so it stays up
+for the next area. It refuses, saying why, for an area with no start (found from the accessible
+tree, on a page without landmarks) or when the page under the focus is no longer the one the
+layout was read from.
 
 ## The drawing and the collector as built
 
@@ -224,9 +244,8 @@ header is at the top, and what it covers is drawn from below it. When even the m
 not all fit, the smallest unnamed area found by geometry is left out first, since the text
 overview still lists it.
 
-Known gaps in this step: regions carry where they start in the text, but nothing moves there
-yet; regions from the accessible tree, on pages without landmarks, have no start at all; and
-none of it has run on a Monarch.
+Known gaps in this step: regions from the accessible tree, on pages without landmarks, have no
+start, so they cannot be moved to.
 
 ## The region rules as built
 

@@ -1568,6 +1568,95 @@ class TestAWindowTheFigureWillNotDraw(unittest.TestCase):
 		self.assertEqual(self.mode.drawing.name, "a window")
 
 
+class TestPressingTwice(unittest.TestCase):
+	"""A second press on the same thing acts on it, for a drawing that can, however slow.
+
+	The first version wanted the same cell within NVDA's multiple press timeout, and never fired
+	on a Monarch, where a second routing press is slow and a finger seldom lands on the same cell.
+	"""
+
+	def setUp(self):
+		self.driver = FakeDrawableDriver(numRows=8, numCols=32)
+		useDisplay(self.driver)
+		self.mode = GraphicsMode(FakePlugin())
+		self.acted: list = []
+		flashedMessages.clear()
+		runQueuedFunctions()
+
+	def drawing(self, acts: bool = True, areaAt=None):
+		return Drawing(
+			PinBuffer.fromRows(["O..", "...", "..O"]),
+			describeAt=lambda x, y: "the box",
+			activateAt=(lambda x, y: self.acted.append((x, y))) if acts else None,
+			areaAt=areaAt,
+		)
+
+	def press(self, segmentPos: int = 0):
+		self.driver.lastRoutingPin = (2, 37)
+		GraphicsRoutingPolicy(self.mode).route(container=None, segmentNumber=0, segmentPos=segmentPos)
+		runQueuedFunctions()
+
+	def test_theFirstPressSaysAndTheSecondActs(self):
+		self.mode.enter(self.drawing(), textLines=7)
+		self.press()
+		self.assertEqual(self.acted, [])
+		self.assertIn("the box", flashedMessages[-1])
+		self.press()
+		self.assertEqual(self.acted, [(2, 2)])
+
+	def test_aPressOnAnotherKeyIsAFirstPress(self):
+		"""NVDA counts every routing key as one script; the cell is what tells them apart."""
+		self.mode.enter(self.drawing(), textLines=7)
+		self.press(0)
+		self.press(1)
+		self.assertEqual(self.acted, [])
+
+	def test_aSlowSecondPressStillActs(self):
+		"""There is no timer: the next press on the same thing acts, whenever it comes."""
+		self.mode.enter(self.drawing(), textLines=7)
+		self.press()
+		self.mode.panStep()
+		self.mode.describe()
+		self.press()
+		self.assertEqual(len(self.acted), 1)
+
+	def test_aPressACellAwayInTheSameAreaActs(self):
+		"""The drawing says what area a point is in, so the finger need not land on one cell."""
+		self.mode.enter(self.drawing(areaAt=lambda x, y: "the sidebar"), textLines=7)
+		self.press(0)
+		self.press(1)
+		self.assertEqual(len(self.acted), 1)
+
+	def test_aPressInAnotherAreaIsAFirstPress(self):
+		areas = iter(["the sidebar", "the banner", "the banner"])
+		self.mode.enter(self.drawing(areaAt=lambda x, y: next(areas)), textLines=7)
+		self.press()
+		self.press()
+		self.assertEqual(self.acted, [], "the banner was only described")
+		self.press()
+		self.assertEqual(len(self.acted), 1, "the second press on the banner acts")
+
+	def test_aPressOutsideEveryAreaNeverActs(self):
+		self.mode.enter(self.drawing(areaAt=lambda x, y: None), textLines=7)
+		self.press()
+		self.press()
+		self.assertEqual(self.acted, [])
+
+	def test_aThirdPressStartsAgain(self):
+		self.mode.enter(self.drawing(), textLines=7)
+		self.press()
+		self.press()
+		self.press()
+		self.assertEqual(len(self.acted), 1)
+
+	def test_aDrawingThatCannotActJustSaysAgain(self):
+		self.mode.enter(self.drawing(acts=False), textLines=7)
+		self.press()
+		self.press()
+		self.assertEqual(self.acted, [])
+		self.assertEqual(sum("the box" in m for m in flashedMessages), 2)
+
+
 class TestPointing(unittest.TestCase):
 	"""Pointing is a routing press, and these are about the two ways it can be answered.
 

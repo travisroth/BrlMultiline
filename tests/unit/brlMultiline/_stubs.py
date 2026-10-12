@@ -17,6 +17,7 @@ Call L{installStubs} before importing anything under `brlMultiline`. It is idemp
 every test module may call it.
 """
 
+import collections
 import dataclasses
 import enum
 import os
@@ -3043,7 +3044,7 @@ def _installPluginStubs() -> None:
 	_module(
 		"controlTypes",
 		Role=lambda role: types.SimpleNamespace(displayString=str(role)),
-		OutputReason=types.SimpleNamespace(CARET="caret", FOCUS="focus", QUERY="query"),
+		OutputReason=types.SimpleNamespace(CARET="caret", FOCUS="focus", QUERY="query", QUICKNAV="quicknav"),
 	)
 	_module("braille.extensions", displayChanged=displayChanged, displaySizeChanged=displaySizeChanged)
 	_module("braille.brailleHandler", BrailleHandler=FakeBrailleHandler)
@@ -3185,6 +3186,8 @@ def installStubs() -> None:
 		Field=Field,
 		FormatField=FormatField,
 	)
+	# NVDA's own offsets for a browse mode position: a start and an end, compared by value.
+	_module("textInfos.offsets", Offsets=collections.namedtuple("Offsets", ("startOffset", "endOffset")))
 	braille.buffers = buffers
 	braille.display = display
 	display.gesture = gestureModule

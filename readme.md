@@ -1019,7 +1019,12 @@ search field, the footer, and the areas inside them where there is room. Each bo
 label inside it, such as nav, main, side, foot or find. A box too small for its label gets a
 letter instead, and the key to the letters on the panel is spoken after the drawing appears and
 after each move. Press a routing key inside a box to hear what it is in full, where it is on the
-page, and how many links it holds.
+page, and how many links it holds. Press a routing key in the same box again to move there: the
+browse mode cursor goes to the start of that area, as if you had moved there by quick navigation.
+There is no hurry, and it need not be the same routing key, only the same box; a press in a
+different box tells you about that box instead. When the Monarch is also showing the focus, the
+drawing comes down so you can read where you landed. When another display shows the focus, such
+as a Focus 80 beside the Monarch, the line appears there and the drawing stays up.
 
 **Overview: Draw the layout of the whole page** draws the whole page, top to bottom, one screen
 of the page to the height of the panel, and starts at the top. On a Monarch, the panning keys
