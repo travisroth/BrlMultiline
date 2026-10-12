@@ -292,6 +292,56 @@ class TestDetailLines(unittest.TestCase):
 							self.assertIsNone(child.rect.intersection(box.detailAt), box.region.title)
 
 
+class TestSeveralDetails(unittest.TestCase):
+	"""As many counts as a box already has room for, most telling first."""
+
+	def big(self, **counts):
+		page = Region("page", "", Box(0, 0, 1000, 2000), "page")
+		main = Region("main", "", Box(0, 0, 1000, 2000), "landmark", counts.pop("links", 0))
+		for name, value in counts.items():
+			setattr(main, name, value)
+		page.children = [main]
+		return compose(PinBuffer, page, WIDTH, HEIGHT, "page", page.box, translate, 1).boxes[0]
+
+	def test_aBigBoxShowsSeveralInOrder(self):
+		box = self.big(links=8, fields=3, tabs=2)
+		self.assertEqual([text for text, _, _ in box.details], ["2 tabs", "3 fields", "8 links"])
+
+	def test_theyFillTheLabelsLineThenTheNext(self):
+		box = self.big(links=8, fields=3, tabs=2, buttons=4, sections=5)
+		spots = [spot for _, spot, _ in box.details]
+		self.assertEqual(spots[0].top, box.labelAt.top)
+		self.assertTrue(any(spot.top > box.labelAt.top for spot in spots), "some on a line below")
+		for a, b in zip(spots, spots[1:]):
+			if a.top == b.top:
+				self.assertEqual(b.left, a.right + 1 + 3, "a blank cell between counts on a line")
+
+	def test_aLessTellingCountIsNeverShownWithoutAMoreTellingOne(self):
+		page = Region("page", "", Box(0, 0, 1000, 1000), "page")
+		thin = Region("navigation", "", Box(0, 0, 400, 50), "landmark", 8)
+		thin.fields = 12345678
+		page.children = [thin, Region("main", "", Box(0, 50, 1000, 950), "landmark")]
+		box = compose(PinBuffer, page, WIDTH, HEIGHT, "page", page.box, translate, 1).boxes[0]
+		self.assertEqual(box.details, [], "the fields will not fit, so the links are not shown either")
+
+	def test_aTabStripShowsJustTheNumber(self):
+		"""Its label already says tabs."""
+		page = Region("page", "", Box(0, 0, 1000, 1000), "page")
+		strip = Region("tabs", "", Box(0, 0, 1000, 400), "widget")
+		strip.tabs = 5
+		page.children = [strip, Region("main", "", Box(0, 400, 1000, 600), "landmark")]
+		box = compose(PinBuffer, page, WIDTH, HEIGHT, "page", page.box, translate, 1).boxes[0]
+		self.assertEqual(box.detail, "5")
+
+	def test_aPressSaysEveryCount(self):
+		page = Region("page", "", Box(0, 0, 1000, 1000), "page")
+		main = Region("main", "", Box(0, 0, 1000, 1000), "landmark", 8)
+		main.fields = 1
+		page.children = [main]
+		overview = compose(PinBuffer, page, WIDTH, HEIGHT, "page", page.box, translate, 1)
+		self.assertEqual(overview.describeAt(5, 30), "main content, filling it, 1 field, 8 links")
+
+
 class TestKeyLetters(unittest.TestCase):
 	def test_aWordTooLongForItsBoxGetsALetter(self):
 		"""A narrow box is widened for a short word, but never past four cells' worth."""
@@ -525,6 +575,58 @@ class TestCollector(unittest.TestCase):
 		linkTops = [leaf["rect"][1] for leaf in leaves if leaf["type"] == "link"]
 		self.assertGreater(max(linkTops), 8000, "links from the bottom of the page too")
 		self.assertIn("sampled", got[0]["incomplete"])
+
+	def test_countsAreExactAndTabsAndTogglesAreLocated(self):
+		"""Fields, buttons, tabs and expandable headers counted from the buffer for each area."""
+
+		def expandable(item, state):
+			item.textInfo._getControlFieldAttribs = lambda *ident: {
+				"states": {type("S", (), {"name": state})()}
+			}
+			return item
+
+		main = FakeItem(
+			2, 100, 1000, FakeObject("LANDMARK", (0, 190, 1920, 800), attributes={"xml-roles": "main"})
+		)
+		plainButton = FakeItem(20, 120, 121, FakeObject("BUTTON", (300, 300, 80, 30)))
+		toggles = [
+			expandable(
+				FakeItem((1, 30 + i), 300 + i, 301 + i, FakeObject("BUTTON", (100, 400 + i * 80, 900, 50))),
+				"COLLAPSED",
+			)
+			for i in range(2)
+		]
+		tabs = [
+			FakeItem(40 + i, 400 + i, 401 + i, FakeObject("TAB", (100 + i * 130, 250, 120, 40)))
+			for i in range(2)
+		]
+		fieldItems = [
+			FakeItem(10, 110, 111, FakeObject("EDIT", (100, 300, 300, 30))),
+			FakeItem(11, 120, 121, FakeObject("BUTTON", (300, 300, 80, 30))),
+		]
+		document = FakeDocument(
+			{
+				"landmark": [main],
+				"button": [plainButton, *toggles],
+				"formField": fieldItems,
+				"tab": tabs,
+			},
+		)
+		got = []
+		run(Collector(document, lambda p, w: got.append(p)))
+		records = got[0]["candidates"]["records"]
+		landmark = [r for r in records if r["type"] == "landmark"][0]
+		self.assertEqual(
+			(landmark["fields"], landmark["buttons"], landmark["tabs"], landmark["sections"]),
+			(1, 3, 2, 2),
+			"the button among the form fields is a button, not a field",
+		)
+		self.assertEqual(
+			sorted(r["type"] for r in records if r["type"] in ("tab", "toggle")),
+			["tab", "tab", "toggle", "toggle"],
+		)
+		kinds = {leaf["start"]: leaf["type"] for leaf in got[0]["leaves"]["leaves"]}
+		self.assertEqual(kinds.get(120), "button")
 
 	def test_cancelledNeverReports(self):
 		got = []

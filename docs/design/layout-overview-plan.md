@@ -209,13 +209,33 @@ browser with a return to NVDA's message loop between, and stops at limits: 300 l
    in the first corner of the box clear of the boxes inside it. A box with no room for its word
    gets a key letter, written in uncontracted letters so a contracted table cannot turn it into
    a word sign, and the key is spoken after the drawing.
-4. A press names the innermost box under it, with where it is on the page and its links.
+4. A press names the innermost box under it, with where it is on the page and all it holds.
 5. Where a box already has room, the link count a press would say is drawn with the label:
    on its line after a blank cell first ("nav 8 links", which reads as one phrase), else a line
    of its own a blank row under it (or over it, for a label in a bottom corner), clear of the
    boxes inside. Boxes are never grown for it: the rulers are laid out for labels alone, and a box
    without room keeps its label or key letter and leaves the count to a press. Asked on
    hardware, because a press is a question the reader has to think to ask.
+6. **What a box holds, as counts.** Every area counts its links, form fields, buttons, tabs and
+   the expandable headers of accordions ("sections"). The collector counts them exactly from
+   browse mode's text, where each starts, with no call into the browser; a button among the
+   form fields is counted as a button. Blocks found by geometry count what was sampled in them,
+   which on a busy page is fewer than there are. The order shown and said is most telling
+   first: tabs and sections say what kind of area it is, fields and buttons what can be done in
+   it, links where it leads (`Region.counts`). A box shows as many as already fit, in that order,
+   on the label's line and then on lines under it, and stops at the first that will not fit so
+   that a count is never shown while a more telling one is hidden. A press says them all.
+7. **Tab strips and accordions are areas** (`_widgets`), asked for on hardware. Two or more tabs
+   in a run along a row or down a column are a tab strip, drawn around the tabs. Two or more
+   expandable buttons stacked with their left edges together and much the same width are an
+   accordion, drawn from the first header to the last so it holds whichever sections are open;
+   expandable buttons in a row, such as a site's menus, are not. The collector locates up to 40
+   tabs and 60 expandable buttons, which browse mode marks as collapsed or expanded. The area
+   around a strip or an accordion does not count its tabs or sections again, and a strip shows
+   just its number, since its label says tabs.
+8. **A form with three or more fields is an area** even without a name (`FORM_MIN_FIELDS`), named
+   by its first heading. A form around one field, or around a whole page with a search box in
+   it, is still not.
 
 The plugin's three commands are unbound: draw the screen's worth, draw the whole page, and show
 the overview as text with `ui.browseableMessage`. Gathering is cancelled by anything else that

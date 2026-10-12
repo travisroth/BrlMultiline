@@ -1016,9 +1016,15 @@ accessibility, or when you have made a page and want to check it looks the way y
 **Overview: Draw the layout of the part of the page on screen** draws the main areas of the
 page as boxes in their places: the banner, the navigation, the main content, a sidebar, the
 search field, the footer, and the areas inside them where there is room. Each box has a short
-label inside it, such as nav, main, side, foot or find, and where the box already has room, how
-many links it holds: on the same line after the label, as in nav 8 links, or on a line under it.
-Boxes are not made bigger for this, so small boxes go without it. A box too small for its label gets a letter
+label inside it, such as nav, main, side, foot or find, and where the box already has room, what
+it holds: tabs or sections first, then form fields, then buttons, then links, as in nav 8 links
+or form 4 fields 1 button. These go on the label's line, then on lines under it. Boxes are not
+made bigger for them, so small boxes show fewer or none, and a press always says them all.
+
+Tab strips and accordions are areas of their own, labelled tabs and accord: two or more tabs in
+a row, or two or more headers that expand stacked one under another. A form with three or more
+fields is an area too, labelled form and named by its first heading, since a sign in, a search
+or a checkout is often what a page is for. A box too small for its label gets a letter
 instead, and the key to the letters on the panel is spoken after the drawing appears and
 after each move. Press a routing key inside a box to hear what it is in full, where it is on the
 page, and how many links it holds. Press a routing key in the same box again to move there: the

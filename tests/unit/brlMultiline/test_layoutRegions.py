@@ -23,6 +23,7 @@ from brlMultiline.layoutRegions import (  # noqa: E402
 	Box,
 	Node,
 	Region,
+	countWords,
 	describe,
 	estimateScroll,
 	findRegions,
@@ -376,6 +377,155 @@ class TestReviewFollowUps(unittest.TestCase):
 			starts = [c.start for c in region.children if c.start is not None]
 			if region.start is not None and starts:
 				self.assertLessEqual(region.start, min(starts), region)
+
+
+def tab(left, top, width=120, height=40, start=0, name="Tab"):
+	return Node("tab", Box(left, top, width, height), name=name, start=start)
+
+
+def header(left, top, width=900, height=50, start=0):
+	return Node("button", Box(left, top, width, height), name="Section", start=start, expandable=True)
+
+
+def inMain(*children):
+	main = Node("landmark", Box(0, 0, 1900, 1500), landmark="main", children=list(children))
+	return findRegions(Node("document", children=[main]), VIEW), main
+
+
+class TestTabStripsAndAccordions(unittest.TestCase):
+	"""Two kinds of area nothing else marks, found from what they are made of."""
+
+	def test_tabsInARowAreATabStrip(self):
+		page, _ = inMain(*(tab(100 + i * 130, 200, start=10 + i) for i in range(4)))
+		strips = [r for r in page.walk() if r.kind == "tabs"]
+		self.assertEqual(len(strips), 1)
+		self.assertEqual((strips[0].tabs, strips[0].box), (4, Box(100, 200, 510, 40)))
+		self.assertEqual(strips[0].start, 10)
+
+	def test_tabsDownAColumnAreATabStrip(self):
+		page, _ = inMain(*(tab(100, 200 + i * 50, width=200, start=i) for i in range(3)))
+		self.assertEqual([r.tabs for r in page.walk() if r.kind == "tabs"], [3])
+
+	def test_oneTabIsNotAStrip(self):
+		page, _ = inMain(tab(100, 200))
+		self.assertEqual([r for r in page.walk() if r.kind == "tabs"], [])
+
+	def test_theAreaAroundAStripDoesNotCountItsTabsAgain(self):
+		page, _ = inMain(*(tab(100 + i * 130, 200, start=i) for i in range(4)))
+		main = [r for r in page.walk() if r.kind == "main"][0]
+		self.assertEqual(main.tabs, 0)
+
+	def test_expandableHeadersStackedAreAnAccordion(self):
+		page, _ = inMain(*(header(100, 300 + i * 120, start=i) for i in range(4)))
+		accordions = [r for r in page.walk() if r.kind == "accordion"]
+		self.assertEqual(len(accordions), 1)
+		self.assertEqual(accordions[0].sections, 4)
+		self.assertEqual(accordions[0].box, Box(100, 300, 900, 410), "from the first header to the last")
+
+	def test_aRowOfMenusIsNotAnAccordion(self):
+		"""Buttons that expand along a site's top run across, not down."""
+		page, _ = inMain(*(header(100 + i * 160, 20, width=140, height=30, start=i) for i in range(5)))
+		self.assertEqual([r for r in page.walk() if r.kind == "accordion"], [])
+
+	def test_headersOfDifferentWidthsAreNotOneAccordion(self):
+		page, _ = inMain(header(100, 300), header(100, 400, width=300))
+		self.assertEqual([r for r in page.walk() if r.kind == "accordion"], [])
+
+
+class TestFormsAndCounts(unittest.TestCase):
+	def form(self, fieldCount, name=""):
+		fields = [leaf("editabletext", 120, 200 + i * 50, 400, 30) for i in range(fieldCount)]
+		heading = leaf("heading", 120, 120, 300, 40, "Contact us")
+		return Node(
+			"form",
+			Box(100, 100, 700, 600),
+			landmark="form",
+			name=name,
+			children=[heading, *fields, leaf("button", 120, 600, 120, 40, "Send")],
+		)
+
+	def test_aFormWithSeveralFieldsIsAnArea(self):
+		page = findRegions(Node("document", children=[self.form(3)]), VIEW)
+		forms = [r for r in page.walk() if r.kind == "form"]
+		self.assertEqual(len(forms), 1)
+		self.assertEqual((forms[0].label, forms[0].fields, forms[0].buttons), ("Contact us", 3, 1))
+
+	def test_aFormAroundOneFieldIsNot(self):
+		page = findRegions(Node("document", children=[self.form(1)]), VIEW)
+		self.assertEqual([r for r in page.walk() if r.kind == "form"], [])
+
+	def test_countsGoMostTellingFirst(self):
+		region = Region("main", "", Box(0, 0, 10, 10), "landmark", links=8)
+		region.fields, region.buttons, region.tabs, region.sections = 3, 2, 5, 4
+		self.assertEqual(
+			[name for name, _ in region.counts],
+			["tabs", "sections", "fields", "buttons", "links"],
+		)
+
+	def test_oneOfAnythingIsSingular(self):
+		self.assertEqual(
+			[countWords(n, 1) for n in ("tabs", "sections", "fields", "buttons", "links")],
+			["1 tab", "1 section", "1 field", "1 button", "1 link"],
+		)
+		self.assertEqual(countWords("links", 8), "8 links")
+
+	def test_exactCountsFromTheCollectorWin(self):
+		"""Counted from browse mode's text, not added up from the few leaves sampled."""
+		data = {
+			"candidates": {
+				"viewport": [0, 0, 1920, 911],
+				"records": [
+					{
+						"type": "landmark",
+						"xmlRoles": "main",
+						"rect": [0, 0, 1900, 900],
+						"start": 0,
+						"end": 1000,
+						"links": 40,
+						"textLength": 900,
+						"fields": 6,
+						"buttons": 3,
+						"tabs": 0,
+						"sections": 0,
+					},
+				],
+			},
+			"leaves": {"leaves": [{"type": "formField", "start": 5, "rect": [10, 10, 100, 20]}]},
+			"tree": {"nodes": []},
+		}
+		page = findRegions(*fromProbe(data))
+		main = page.children[0]
+		self.assertEqual((main.links, main.fields, main.buttons), (40, 6, 3))
+
+	def test_tabsAndTogglesFromTheCollectorBecomeAStripAndAnAccordion(self):
+		records = [
+			{"type": "landmark", "xmlRoles": "main", "rect": [0, 0, 1900, 1400], "start": 0, "end": 1000},
+		]
+		records += [
+			{
+				"type": "tab",
+				"label": f"Tab {i}",
+				"rect": [100 + i * 130, 100, 120, 40],
+				"start": 10 + i,
+				"end": 11 + i,
+			}
+			for i in range(3)
+		]
+		records += [
+			{
+				"type": "toggle",
+				"label": "More",
+				"rect": [100, 400 + i * 120, 900, 50],
+				"start": 50 + i,
+				"end": 51 + i,
+			}
+			for i in range(3)
+		]
+		data = {"candidates": {"viewport": [0, 0, 1920, 911], "records": records}, "leaves": {"leaves": []}}
+		page = findRegions(*fromProbe(data))
+		self.assertEqual(
+			sorted(r.kind for r in page.walk() if r.kind in ("tabs", "accordion")), ["accordion", "tabs"]
+		)
 
 
 class TestRealPages(unittest.TestCase):

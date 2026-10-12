@@ -145,8 +145,13 @@ LEAF_ROLES = frozenset(
 		"checkbox",
 		"radiobutton",
 		"paragraph",
+		"tab",
+		"slider",
 	),
 )
+
+#: Roles that are form fields, for counting them. Buttons are counted on their own.
+FIELD_ROLES = frozenset(("editabletext", "combobox", "checkbox", "radiobutton", "slider", "list"))
 
 #: The ARIA landmarks the overview names. A form is only one when it has a name or holds a
 #: search field, and a region only when it has a name; both are checked where they are used.
@@ -197,6 +202,8 @@ KIND_NAMES = {
 	"sidebar": "sidebar",
 	"content": "content",
 	"table": "table",
+	"tabs": "tabs",
+	"accordion": "accordion",
 	"area": "area",
 }
 
@@ -231,6 +238,18 @@ class Node:
 	isSearch: bool = False
 	#: A table holding data rather than laying out the page. Browse mode only lists these.
 	isDataTable: bool = False
+	#: Counts of what the element holds, besides links: form fields, buttons, tabs, and the
+	#: expandable headers of accordions. Like `links`, given by a caller that has them (see
+	#: `counted`) and otherwise worked out from the children.
+	fields: int = 0
+	buttons: int = 0
+	tabs: int = 0
+	sections: int = 0
+	#: Whether the counts above, and `links`, came from the caller, who counted them exactly; a
+	#: node that says so keeps them rather than having them added up from what was sampled.
+	counted: bool = False
+	#: A button that expands and collapses something, as an accordion's headers do.
+	expandable: bool = False
 	#: Where the element starts and ends in browse mode's text, when the caller knows: what a
 	#: command that moves to an area will move to.
 	start: int | None = None
@@ -262,6 +281,11 @@ class Region:
 	node: Node | None = field(default=None, repr=False)
 	#: Where the region starts in browse mode's text, when known.
 	start: int | None = None
+	#: What the region holds besides links. See `Node.fields`.
+	fields: int = 0
+	buttons: int = 0
+	tabs: int = 0
+	sections: int = 0
 	#: The box as it was on screen, relative to the visible part of the page. Differs from
 	#: `box` moved by the scroll only for a sticky header put back in its place, which on
 	#: screen is still where it was reported. None where nothing was on screen to report.
@@ -283,6 +307,34 @@ class Region:
 		yield self
 		for child in self.children:
 			yield from child.walk()
+
+	@property
+	def counts(self) -> list[tuple[str, int]]:
+		"""What the region holds, most telling first: what kind of area it is, then what can
+		be done in it, then where it leads. Only the counts above zero."""
+		ordered = (
+			("tabs", self.tabs),
+			("sections", self.sections),
+			("fields", self.fields),
+			("buttons", self.buttons),
+			("links", self.links),
+		)
+		return [(name, count) for name, count in ordered if count > 0]
+
+
+#: The singular of each count's name, for a count of one.
+COUNT_SINGULAR = {
+	"tabs": "tab",
+	"sections": "section",
+	"fields": "field",
+	"buttons": "button",
+	"links": "link",
+}
+
+
+def countWords(name: str, count: int) -> str:
+	"""A count as it is said and shown: "8 links", "1 field"."""
+	return f"{count} {COUNT_SINGULAR.get(name, name) if count == 1 else name}"
 
 
 def findRegions(root: Node, viewport: Box, scroll: int | None = None) -> Region:
@@ -306,11 +358,14 @@ def findRegions(root: Node, viewport: Box, scroll: int | None = None) -> Region:
 	regions = [r for c in root.children for r in _regions(c, viewport)]
 	page = Region("page", root.name, pageBox, "page", root.links, regions, root)
 	page.children = [_collapse(c) for c in page.children]
+	_widgets(page)
 	_split(page, viewport)
 	page.children = [_collapse(c) for c in page.children]
 	_nameByPosition(_topLevel(page), viewport)
+	_tally(page)
 	for region in page.walk():
-		if not region.label and region.kind != "page" and region.source in ("structure", "position", "id"):
+		named = region.source in ("structure", "position", "id") or region.kind == "form"
+		if not region.label and region.kind != "page" and named:
 			region.label = _firstHeading(region.node)
 		region.label = " ".join(region.label.split())
 	_placeOnScreen(page, scroll, 0)
@@ -347,6 +402,116 @@ def _anchor(region: Region) -> int | None:
 		starts.append(region.start)
 	region.start = min(starts) if starts else None
 	return region.start
+
+
+#: Tabs in a row, or expandable headers in a column, need at least this many to be a tab strip
+#: or an accordion rather than a lone tab or a disclosure button.
+WIDGET_MIN = 2
+
+
+def _widgets(region: Region) -> None:
+	"""Find tab strips and accordions among what a region holds, and make each an area.
+
+	Neither has a landmark or an id of its own as a rule, and both say what kind of area they
+	are in a way nothing else does. A tab strip is two or more tabs in a run along one line, or
+	down one column; the area is the strip itself, the tabs a reader chooses between. An
+	accordion is two or more expandable buttons stacked one under another with their left
+	edges together; the area runs from the first header to the last, so it holds whichever
+	sections are open. A row of buttons that expand, such as the menus along a site's top, is
+	not an accordion: those run across, not down. Tabs and headers inside an area found
+	already belong to it, and are looked for there.
+	"""
+	for child in region.children:
+		_widgets(child)
+	if region.node is None or region.kind in ("search", "tabs", "accordion"):
+		return
+	taken = [c.box for c in region.children]
+	free = [
+		n
+		for n in region.node.walk()
+		if n.box is not None
+		and (n.role == "tab" or (n.role == "button" and n.expandable))
+		and not any(t.intersection(n.box) for t in taken)
+	]
+	order = lambda n: (n.start if n.start is not None else 0, n.box.top, n.box.left)  # noqa: E731
+	tabs = sorted((n for n in free if n.role == "tab"), key=order)
+	headers = sorted((n for n in free if n.role == "button"), key=lambda n: (n.box.top, n.box.left))
+	found = [("tabs", run) for run in _runs(tabs, _nextTab)]
+	found += [("accordion", run) for run in _runs(headers, _nextHeader)]
+	added = []
+	for kind, run in found:
+		box = unionOf(n.box for n in run)
+		if box is None or not _isSizeable(box):
+			continue
+		starts = [n.start for n in run if n.start is not None]
+		widget = Region(kind, "", box, "widget", start=min(starts) if starts else None)
+		if kind == "tabs":
+			widget.tabs = len(run)
+		else:
+			widget.sections = len(run)
+		added.append(widget)
+	if added:
+		region.children = sorted(region.children + added, key=lambda r: (r.box.top, r.box.left))
+
+
+def _runs(nodes: list[Node], follows) -> list[list[Node]]:
+	"""Split nodes, in order, into runs where each follows the one before; keep runs long enough."""
+	runs: list[list[Node]] = []
+	for node in nodes:
+		if runs and follows(runs[-1][-1], node):
+			runs[-1].append(node)
+		else:
+			runs.append([node])
+	return [run for run in runs if len(run) >= WIDGET_MIN]
+
+
+def _nextTab(before: Node, after: Node) -> bool:
+	"""Whether a tab carries on the strip the one before it is in: along its row or down its
+	column, with no more than a couple of tabs' room between."""
+	a, b = before.box, after.box
+	if a.overlapY(b) >= min(a.height, b.height) / 2:
+		return 0 <= b.left - a.right <= max(40, 2 * a.height)
+	if a.overlapX(b) >= min(a.width, b.width) / 2:
+		return 0 <= b.top - a.bottom <= max(40, 2 * a.height)
+	return False
+
+
+def _nextHeader(before: Node, after: Node) -> bool:
+	"""Whether an expandable header is the next of an accordion: below the one before, left
+	edges together, much the same width."""
+	a, b = before.box, after.box
+	if b.top < a.top + a.height / 2:
+		return False
+	return abs(a.left - b.left) <= 24 and abs(a.width - b.width) <= 0.3 * max(a.width, b.width)
+
+
+def _tally(region: Region) -> None:
+	"""Give every region its counts: from its node where it has one, else from what it holds.
+
+	A tab strip or an accordion that is an area of its own carries its own count, so the area
+	around it does not say the same tabs again.
+	"""
+	for child in region.children:
+		_tally(child)
+	if region.kind in ("tabs", "accordion"):
+		return
+	node = region.node
+	if node is not None and region.kind != "page":
+		region.fields, region.buttons = node.fields, node.buttons
+		region.tabs, region.sections = node.tabs, node.sections
+	else:
+		# A block found by geometry has no node; what lies loose in it was counted when it was
+		# made, and what its regions hold is added here.
+		region.fields += sum(c.fields for c in region.children)
+		region.buttons += sum(c.buttons for c in region.children)
+		region.tabs += sum(c.tabs for c in region.children)
+		region.sections += sum(c.sections for c in region.children)
+	for widget in region.walk():
+		if widget is not region and widget.kind == "tabs":
+			region.tabs = max(0, region.tabs - widget.tabs)
+		elif widget is not region and widget.kind == "accordion":
+			region.sections = max(0, region.sections - widget.sections)
+			region.buttons = max(0, region.buttons - widget.sections)
 
 
 def _firstHeading(node: Node | None) -> str:
@@ -461,17 +626,29 @@ def _restoreSticky(node: Node, scroll: int, viewport: Box) -> None:
 
 
 def _countContent(node: Node) -> None:
-	"""Fill in link and text counts the caller did not have, from the children."""
+	"""Fill in the counts the caller did not have, from the node itself and its children."""
 	for child in node.children:
 		_countContent(child)
-	if node.links or node.textLength:
+	if node.counted or node.links or node.textLength:
 		return
 	if node.role == "link":
 		node.links = 1
+	elif node.role in FIELD_ROLES:
+		node.fields = 1
+	elif node.role == "button":
+		node.buttons = 1
+		node.sections = 1 if node.expandable else 0
+	elif node.role == "tab":
+		node.tabs = 1
 	if node.role in LEAF_ROLES and not node.children:
 		node.textLength = len(node.name)
-	node.links += sum(c.links for c in node.children)
-	node.textLength += sum(c.textLength for c in node.children)
+	for child in node.children:
+		node.links += child.links
+		node.textLength += child.textLength
+		node.fields += child.fields
+		node.buttons += child.buttons
+		node.tabs += child.tabs
+		node.sections += child.sections
 
 
 def _contentBoxes(node: Node) -> None:
@@ -531,6 +708,10 @@ def _mentionsSearch(node: Node) -> bool:
 	return mentionsSearch(node.name, node.id)
 
 
+#: A form without a name is an area of its own when it holds at least this many fields: a
+#: sign in, a checkout, a contact form. Those are often what a page is for.
+FORM_MIN_FIELDS = 3
+
 #: A form holding more links than this is a page wrapped in a form, not a search form.
 SEARCH_FORM_MAX_LINKS = 3
 
@@ -558,7 +739,9 @@ def _classify(node: Node) -> tuple[str, str, str]:
 		if landmark == "form":
 			if _isSearchForm(node):
 				return "search", "", "landmark"
-			if not node.name:
+			if not node.name and node.fields < FORM_MIN_FIELDS:
+				# A form around a single field, or around a whole page with one search box in
+				# it, is not a form a reader would name.
 				return "", "", ""
 		pageRect = node.pageRect
 		if pageRect and (pageRect.width < 40 or pageRect.height < 12):
@@ -838,15 +1021,22 @@ def splitByGeometry(items: list[Item], bounds: Box, depth: int = 0, maxDepth: in
 			headings = sorted((b.top, b.left, n.name) for b, n in nodes if n.role == "heading" and n.name)
 			label = headings[0][2] if headings else ""
 			links = sum(1 for _, n in nodes if n.role == "link") + sum(r.links for r in regions)
+			# Fields and buttons the regions inside hold are added up by `_tally`; these are the
+			# ones lying loose in the block.
+			loose = [n for _, n in nodes]
 			starts = [n.start for _, n in nodes if n.start is not None]
 			starts += [r.start for r in regions if r.start is not None]
 			inner = splitByGeometry(members, box, depth + 1, maxDepth)
 			children = inner or sorted(regions, key=lambda r: (r.box.top, r.box.left))
-			blocks.append(
-				Region(
-					"area", label, box, "geometry", links, children, start=min(starts) if starts else None
-				),
+			block = Region(
+				"area", label, box, "geometry", links, children, start=min(starts) if starts else None
 			)
+			if not inner:
+				# Fields and buttons lying loose in a block that is not split again. A split
+				# block's are its parts', and `_tally` adds those up.
+				block.fields = sum(1 for n in loose if n.role in FIELD_ROLES)
+				block.buttons = sum(1 for n in loose if n.role == "button")
+			blocks.append(block)
 		return blocks
 	return []
 
@@ -1078,7 +1268,15 @@ def _isMeaningfulLandmark(record: dict[str, Any]) -> bool:
 
 
 _RECORD_ROLES = {"landmark": "landmark", "table": "table", "frame": "internalframe", "article": "article"}
-_LEAF_ROLES_BY_TYPE = {"link": "link", "heading": "heading", "graphic": "graphic", "formField": "button"}
+#: A sampled form field the collector found to be a button is saved as "button"; any other is a
+#: field. Saved pages from before that distinction call every one a form field.
+_LEAF_ROLES_BY_TYPE = {
+	"link": "link",
+	"heading": "heading",
+	"graphic": "graphic",
+	"formField": "editabletext",
+	"button": "button",
+}
 
 
 def _landmarkTree(records: list[dict[str, Any]], leaves: list[dict[str, Any]]) -> Node:
@@ -1099,9 +1297,26 @@ def _landmarkTree(records: list[dict[str, Any]], leaves: list[dict[str, Any]]) -
 				isDataTable=kind == "table",
 			)
 			node.start, node.end = r["start"], r["end"]
+			if "fields" in r:
+				# Counted exactly by the collector from browse mode's text, which the samples of
+				# content below cannot do on a busy page.
+				node.fields, node.buttons = r.get("fields") or 0, r.get("buttons") or 0
+				node.tabs, node.sections = r.get("tabs") or 0, r.get("sections") or 0
+				node.counted = True
 			items.append((r["start"], r["end"], node))
 		elif kind.startswith("heading"):
 			node = Node("heading", _rect(r["rect"]), name=r.get("label") or "", start=r["start"])
+			items.append((r["start"], r["start"], node))
+		elif kind in ("tab", "toggle"):
+			# A tab, or a button that expands and collapses something: what tab strips and
+			# accordions are found from. See `_widgets`.
+			node = Node(
+				"tab" if kind == "tab" else "button",
+				_rect(r["rect"]),
+				name=r.get("name") or r.get("label") or "",
+				start=r["start"],
+				expandable=kind == "toggle",
+			)
 			items.append((r["start"], r["start"], node))
 		elif kind in ("search field", "search button"):
 			role = "editabletext" if kind == "search field" else "button"
@@ -1140,6 +1355,7 @@ def _accessibleTree(nodes: list[dict[str, Any]], dataTables: set[tuple[int, ...]
 			isSearch=role in ("editabletext", "button", "combobox")
 			and mentionsSearch(n.get("name") or "", n.get("id") or "", n.get("class") or ""),
 			isDataTable=role == "table" and bool(n["rect"]) and tuple(n["rect"]) in dataTables,
+			expandable=bool(n.get("expandable")),
 		)
 		while stack and stack[-1][0] >= n["depth"]:
 			stack.pop()

@@ -29,7 +29,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from .layoutRegions import Box, Region, _topLevel, whereWords
+from .layoutRegions import Box, Region, _topLevel, countWords, whereWords
 
 #: The short label drawn inside each kind of box. Short because every braille cell costs three
 #: pins across, and the full name is a press away.
@@ -48,6 +48,8 @@ SHORT_LABELS = {
 	"sidebar": "side",
 	"content": "text",
 	"table": "table",
+	"tabs": "tabs",
+	"accordion": "accord",
 }
 
 #: Pins a braille cell takes across, with the gap after it, and down.
@@ -71,11 +73,21 @@ class DrawnBox:
 	label: str = ""
 	key: str = ""
 	children: list["DrawnBox"] = field(default_factory=list)
-	#: Where the label or key letter is drawn, and where the detail line under it is, if any.
+	#: Where the label or key letter is drawn.
 	labelAt: Box | None = None
-	detail: str = ""
-	detailAt: Box | None = None
-	detailCells: list[int] = field(default_factory=list)
+	#: The counts drawn with the label, most telling first: each one's words, where it is, and
+	#: its braille cells.
+	details: list[tuple[str, Box, list[int]]] = field(default_factory=list)
+
+	@property
+	def detail(self) -> str:
+		""":return: the first count drawn, or nothing."""
+		return self.details[0][0] if self.details else ""
+
+	@property
+	def detailAt(self) -> Box | None:
+		""":return: where the first count drawn is, or None."""
+		return self.details[0][1] if self.details else None
 
 
 @dataclass
@@ -120,8 +132,7 @@ class Overview:
 		region = box.region
 		within = self.whole or self.window
 		parts = [region.title, whereWords(self.places.get(id(region), region.box), within)]
-		if region.links:
-			parts.append(f"{region.links} links" if region.links != 1 else "1 link")
+		parts += [countWords(name, count) for name, count in region.counts]
 		return ", ".join(parts)
 
 	@property
@@ -245,8 +256,8 @@ def compose(
 		chosen = [(r, d) for r, d in chosen if r is not dropped and _parentOf(r, chosen) is not dropped]
 	overview = Overview(buffer, boxes, window, places, whole, xs, ys)
 	_label(overview, labels, keys if keys is not None else {})
-	details = {id(b.region): _detailFor(b.region) for b in overview.walk()}
-	_detail(overview, {key: (text, translate(text) if text else []) for key, text in details.items()})
+	for box in overview.walk():
+		_placeDetails(box, [(text, translate(text)) for text in _detailsFor(box.region)])
 	_draw(overview, labels)
 	return overview
 
@@ -409,60 +420,74 @@ def _labelSpot(box: DrawnBox, labelWidth: int) -> Box | None:
 	return None
 
 
-def _detailFor(region: Region) -> str:
-	"""What a box holds, in the words a press says: how many links. Empty where there are none.
+def _detailsFor(region: Region) -> list[str]:
+	"""What a box holds, in the words a press says, most telling first. See `Region.counts`.
 
-	Translatable through the add-on's own catalogue in NVDA, and plain English in the tests.
+	A tab strip's own count is just the number: its label already says tabs.
 	"""
-	if region.links <= 0:
-		return ""
-	return f"{region.links} links" if region.links != 1 else "1 link"
+	words = []
+	for name, count in region.counts:
+		ownCount = (region.kind, name) in (("tabs", "tabs"),)
+		words.append(str(count) if ownCount else countWords(name, count))
+	return words
 
 
-def _detail(overview: Overview, details: dict[int, tuple[str, list[int]]]) -> None:
-	"""Put each box's detail beside or under its label, where there is already room for it.
+def _placeDetails(box: DrawnBox, details: list[tuple[str, list[int]]]) -> None:
+	"""Put a box's counts with its label, as many as there is already room for, in order.
 
-	Never by making room: the boxes are laid out for their labels alone, and a detail that
-	does not fit, clear of the boxes inside, is left for a press to say. See `_detailSpot` for
-	where it is tried. A box with no label or key letter has nothing for a detail to belong to,
-	so gets none.
-	"""
-	for box in overview.walk():
-		text, cells = details.get(id(box.region), ("", []))
-		if not cells or box.labelAt is None:
-			continue
-		spot = _detailSpot(box, _labelWidth(len(cells)))
-		if spot is not None:
-			box.detail = text
-			box.detailAt = spot
-			box.detailCells = cells
+	On the label's own line first, after a blank cell, so the first reads as one phrase with
+	it, "nav 8 links"; then on lines of their own a blank row apart, under the label, or over it
+	for a label in a bottom corner. Counts on one line are a blank cell apart. They go in order
+	and stop at the first that will not fit anywhere left, so a count is never shown while a
+	more telling one is not.
 
-
-def _detailSpot(box: DrawnBox, width: int) -> Box | None:
-	"""Where a detail of this width goes, or None.
-
-	On the label's own line after a blank cell first, so it reads as one phrase, "nav 8 links".
-	Then a line of its own a blank row under the label, or over it for a label in a bottom
-	corner, at the label's left or the box's right.
+	Never by making room: the boxes are laid out for their labels alone, and what does not fit,
+	clear of the boxes inside, is left for a press to say. A box with no label or key letter has
+	nothing for counts to belong to, so gets none.
 	"""
 	label, r = box.labelAt, box.rect
+	if label is None or not details:
+		return
 	inset = 1 + LABEL_MARGIN
-	# The label's last cell ends a pin before where a next cell would start; one blank cell on.
-	sameLine = (label.top, label.right + 1 + CELL_STRIDE)
-	below, above = label.bottom + 1, label.top - 1 - CELL_HEIGHT
-	places = [sameLine]
-	for top in (below, above):
-		places += [(top, label.left), (top, r.right - inset - width)]
-	for top, left in places:
-		if top < r.top + inset or top + CELL_HEIGHT > r.bottom - inset:
-			continue
-		if left < r.left + inset or left + width > r.right - inset:
-			continue
-		spot = Box(left, top, width, CELL_HEIGHT)
+	downward = label.top <= r.top + inset
+	step = CELL_HEIGHT + 1
+
+	def lineTop(index: int) -> int:
+		if index == 0:
+			return label.top
+		return label.bottom + 1 + (index - 1) * step if downward else label.top - index * step
+
+	def fits(spot: Box) -> bool:
+		if spot.top < r.top + inset or spot.bottom > r.bottom - inset:
+			return False
+		if spot.left < r.left + inset or spot.right > r.right - inset:
+			return False
 		clearance = Box(spot.left - 1, spot.top - 1, spot.width + 2, spot.height + 2)
-		if not any(child.rect.intersection(clearance) for child in box.children):
-			return spot
-	return None
+		return not any(child.rect.intersection(clearance) for child in box.children)
+
+	line, x = 0, label.right + 1 + CELL_STRIDE
+	for text, cells in details:
+		width = _labelWidth(len(cells))
+		if not cells:
+			continue
+		placed = None
+		for _ in range(2):
+			top = lineTop(line)
+			starts = (x,) if x != label.left or line == 0 else (label.left, r.right - inset - width)
+			for left in starts:
+				spot = Box(left, top, width, CELL_HEIGHT)
+				if fits(spot):
+					placed = spot
+					break
+			if placed is not None:
+				break
+			# Not on this line: the next one, from the label's left.
+			line += 1
+			x = label.left
+		if placed is None:
+			return
+		box.details.append((text, placed, cells))
+		x = placed.right + 1 + CELL_STRIDE
 
 
 def _draw(overview: Overview, labels: dict[int, list[int]]) -> None:
@@ -474,8 +499,8 @@ def _draw(overview: Overview, labels: dict[int, list[int]]) -> None:
 			buffer.text(box.labelAt.left, box.labelAt.top, labels[id(box.region)], CELL_STRIDE)
 		elif box.labelAt is not None and box.key:
 			buffer.text(box.labelAt.left, box.labelAt.top, _keyCells(box.key), CELL_STRIDE)
-		if box.detailAt is not None:
-			buffer.text(box.detailAt.left, box.detailAt.top, box.detailCells, CELL_STRIDE)
+		for _text, spot, cells in box.details:
+			buffer.text(spot.left, spot.top, cells, CELL_STRIDE)
 
 
 #: Braille letters a to z as eight dot cell values (dots 1 to 6 only), for key letters. Not

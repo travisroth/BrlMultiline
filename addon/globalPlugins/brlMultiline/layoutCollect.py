@@ -49,6 +49,10 @@ MAX_LEAVES = 300
 #: columns of a page laid out with tables nested four deep.
 TREE_DEPTH = 12
 TREE_NODES = 600
+#: The most tabs, and buttons that expand, located for finding tab strips and accordions. A
+#: page with more has them in menus, and a strip or an accordion is found from its first few.
+MAX_TABS = 40
+MAX_TOGGLES = 60
 #: Calls into the browser between returns to NVDA's message loop.
 BATCH = 25
 #: Past this, gathering stops where it is and the rules work with what there is.
@@ -108,6 +112,20 @@ class Collector:
 		records: list[dict[str, Any]] = []
 		links = [item.textInfo._startOffset for item in doc._iterNodesByType("link")]
 		yield
+		# Where every form field, button and tab starts, read from browse mode's text with no
+		# call into the browser, so that each area's counts are exact rather than sampled.
+		buttons = _starts(doc, "button")
+		buttonSet = set(buttons)
+		fields = [offset for offset in _starts(doc, "formField") if offset not in buttonSet]
+		tabItems = _items(doc, "tab")
+		toggles = [item for item in _items(doc, "button") if _isExpandable(item)]
+		yield
+		offsets = {
+			"fields": fields,
+			"buttons": buttons,
+			"tabs": [item.textInfo._startOffset for item in tabItems],
+			"sections": [item.textInfo._startOffset for item in toggles],
+		}
 		seen = set()
 		for nodeType in CANDIDATE_TYPES:
 			if self.overTime:
@@ -125,7 +143,7 @@ class Collector:
 					# A button is only wanted when it is search, and its label, read from the
 					# buffer, costs nothing to check; locating every button does not.
 					continue
-				record = _record(item, nodeType, label, viewport, links)
+				record = _record(item, nodeType, label, viewport, links, offsets)
 				calls += 1
 				if record is not None:
 					records.append(record)
@@ -133,6 +151,28 @@ class Collector:
 					yield
 					if self.overTime:
 						break
+		# Tabs and buttons that expand, with their rectangles, for finding tab strips and
+		# accordions. See `layoutRegions._widgets`.
+		for kind, items, limit in (("tab", tabItems, MAX_TABS), ("toggle", toggles, MAX_TOGGLES)):
+			for item in items[:limit]:
+				if self.overTime:
+					break
+				rect = _relative(_location(item), viewport)
+				calls += 1
+				if rect and rect[2] > 0 and rect[3] > 0:
+					start = item.textInfo._startOffset
+					records.append(
+						{
+							"type": kind,
+							"label": item.label or "",
+							"name": item.label or "",
+							"rect": rect,
+							"start": start,
+							"end": item.textInfo._endOffset,
+						},
+					)
+				if calls % BATCH == 0:
+					yield
 		if self.overTime:
 			self.incomplete.append("candidates")
 		records.sort(key=lambda r: (r["start"], -r["end"]))
@@ -150,7 +190,11 @@ class Collector:
 				break
 			rect = _relative(_location(item), viewport)
 			if rect and rect[2] > 0 and rect[3] > 0:
-				leaves.append({"type": nodeType, "start": item.textInfo._startOffset, "rect": rect})
+				start = item.textInfo._startOffset
+				# A form field that is a button is saved as one, so a block found by geometry
+				# can count its fields and its buttons apart.
+				kind = "button" if nodeType == "formField" and start in buttonSet else nodeType
+				leaves.append({"type": kind, "start": start, "rect": rect})
 			calls += 1
 			if calls % BATCH == 0:
 				yield
@@ -209,6 +253,30 @@ def _sample(pools: dict[str, list], limit: int) -> list[tuple[str, object]]:
 	return chosen
 
 
+def _items(doc, nodeType: str) -> list:
+	try:
+		return list(doc._iterNodesByType(nodeType))
+	except NotImplementedError:
+		return []
+
+
+def _starts(doc, nodeType: str) -> list[int]:
+	return [item.textInfo._startOffset for item in _items(doc, nodeType)]
+
+
+def _isExpandable(item) -> bool:
+	"""Whether a button expands and collapses something, from browse mode's own record of it.
+
+	Read from the buffer rather than the browser, so it costs nothing to ask of every button.
+	"""
+	try:
+		attrs = item.textInfo._getControlFieldAttribs(*item.vbufFieldIdentifier)
+	except Exception:
+		return False
+	states = attrs.get("states") or ()
+	return any(getattr(state, "name", str(state)).upper() in ("COLLAPSED", "EXPANDED") for state in states)
+
+
 def _location(item):
 	try:
 		obj = item.obj
@@ -230,7 +298,14 @@ def _attributes(obj) -> dict[str, str]:
 		return {}
 
 
-def _record(item, nodeType: str, label: str, viewport, links: list[int]) -> dict[str, Any] | None:
+def _record(
+	item,
+	nodeType: str,
+	label: str,
+	viewport,
+	links: list[int],
+	offsets: dict[str, list[int]] | None = None,
+) -> dict[str, Any] | None:
 	"""One candidate as the rules read it, or None for a field or button that is not search."""
 	try:
 		obj = item.obj
@@ -265,7 +340,19 @@ def _record(item, nodeType: str, label: str, viewport, links: list[int]) -> dict
 		"end": end,
 		"textLength": end - start,
 		"links": sum(1 for offset in links if start <= offset < end),
+		**{
+			name: sum(1 for offset in found if start <= offset < end)
+			for name, found in (offsets or {}).items()
+		},
 	}
+
+
+def _hasExpandState(obj) -> bool:
+	try:
+		states = obj.states
+	except Exception:
+		return False
+	return any(getattr(state, "name", str(state)).upper() in ("COLLAPSED", "EXPANDED") for state in states)
 
 
 def _isMeaningful(record: dict[str, Any]) -> bool:
@@ -298,6 +385,7 @@ def _walk(root, viewport, out: list[dict[str, Any]], collector: Collector) -> It
 				"class": attrs.get("class"),
 				"xmlRoles": attrs.get("xml-roles"),
 				"rect": _relative(location, viewport),
+				"expandable": role == "BUTTON" and _hasExpandState(obj),
 			},
 		)
 		if childCount and depth < TREE_DEPTH and role not in LEAF_ROLE_NAMES:
