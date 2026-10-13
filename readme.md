@@ -1461,6 +1461,15 @@ dialog: a filter, a tree of categories and commands with the keys under each, an
 and Remove buttons. Above the tree, choose the device and the layer to edit. Changes are saved in
 the configuration profile in use when you press OK.
 
+A profile changes only the keys you change in it, as it does any other NVDA setting. With an
+application's profile in force, a key is looked for first in that profile's layer, then in the
+normal configuration's layer of the same name, and then left to NVDA. So a key you add in the
+normal configuration later works in every profile that hasn't changed that key, and the dialog,
+opened in a profile, says so above the tree. A key you remove in a profile goes to NVDA there,
+and Does nothing in this layer still blocks it. Layers saved in a profile by an earlier version
+were a whole copy of every layer; they are now read as only the keys and layers they add or
+change, and everything else comes from the normal configuration.
+
 - **Add** waits for a key on the device being edited. A key on a different display is refused
   with a message, and Escape on the keyboard stops waiting.
 - If a key already does something else in the layer, you are asked before it is moved.

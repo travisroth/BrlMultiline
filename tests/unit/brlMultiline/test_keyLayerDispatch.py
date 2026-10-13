@@ -165,6 +165,8 @@ class DispatchTestCase(unittest.TestCase):
 		self.saved = {
 			"keyLayerText": bmConfig.keyLayerText,
 			"setKeyLayerText": bmConfig.setKeyLayerText,
+			"keyLayerTexts": bmConfig.keyLayerTexts,
+			"keyLayersGoToProfile": bmConfig.keyLayersGoToProfile,
 			"keyLayerDevices": bmConfig.keyLayerDevices,
 			"runningPlugins": globalPluginHandler.__dict__.get("runningPlugins"),
 			"getFocusObject": api.__dict__.get("getFocusObject"),
@@ -174,6 +176,12 @@ class DispatchTestCase(unittest.TestCase):
 		}
 		bmConfig.keyLayerText = lambda device: self.stored.get(device, "")
 		bmConfig.setKeyLayerText = self.stored.__setitem__
+		# The normal configuration, then a profile's text when a test puts one in force.
+		self.profile = None
+		bmConfig.keyLayerTexts = lambda device: [self.stored.get(device, "")] + (
+			[] if self.profile is None else [self.profile.get(device, "")]
+		)
+		bmConfig.keyLayersGoToProfile = lambda: self.profile is not None
 		bmConfig.keyLayerDevices = lambda: sorted(self.stored)
 		self.plugin = Plugin()
 		self.commands = Commands()
@@ -196,6 +204,8 @@ class DispatchTestCase(unittest.TestCase):
 		dispatch.remove()
 		bmConfig.keyLayerText = self.saved["keyLayerText"]
 		bmConfig.setKeyLayerText = self.saved["setKeyLayerText"]
+		bmConfig.keyLayerTexts = self.saved["keyLayerTexts"]
+		bmConfig.keyLayersGoToProfile = self.saved["keyLayersGoToProfile"]
 		bmConfig.keyLayerDevices = self.saved["keyLayerDevices"]
 		globalPluginHandler.runningPlugins = self.saved["runningPlugins"] or []
 		if self.saved["getFocusObject"] is not None:

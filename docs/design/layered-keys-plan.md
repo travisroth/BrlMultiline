@@ -1013,6 +1013,30 @@ Found and left:
    also sent on, because that would close a dialog the reader only meant to back out of the
    layer from.
 
+## Decided with the reader, 13 October 2026: profiles change only what they change
+
+A device's layers were one stored text, so a profile that saved its own replaced the normal
+configuration's whole. Found on the Monarch: the layout overview keys, added in normal, did nothing
+in Outlook, whose profile held a copy of the layers saved before they were added. The reader:
+NVDA's profiles change their own keys and everything else falls back to normal, and the layers
+should too, layer by layer: the profile's, then normal's, then NVDA, unless a key is trapped.
+
+1. **A key is looked up in the profile's layer, then the normal configuration's layer of the same
+   id, then left to NVDA.** Within that, a layer's chain (falls through, then the default layer)
+   is as before. Profiles in force stack in the order NVDA activated them (`keyLayers.stacked`).
+2. **A profile stores only what it changes** (`keyLayers.overlayText`): bindings added or
+   changed, bindings removed (`unbound`), layer properties changed, layers added, and layers
+   removed (`removedLayers`). Nothing at all when it changes nothing. The normal configuration
+   stores the whole set, as before.
+3. **A key removed in a profile goes to NVDA there**, not back to normal's binding, since the
+   reader took it out. Blocked still traps.
+4. **A whole copy saved by an earlier version is read as what it adds or changes**, and nothing it
+   lacks: it cannot say whether a key it lacks was removed on purpose or added to normal after it
+   was saved, and the second is what happened. It is not rewritten until it is saved again, when
+   it is stored as changes.
+5. **The dialog edits the stacked layers** and saves the difference; in a profile it says above
+   the tree that what the profile does not change comes from normal.
+
 ## Open questions
 
 None at present. Which pad is physically left was confirmed by hand: the pad reported under

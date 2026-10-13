@@ -626,6 +626,16 @@ def memberCommands(members: Iterable[tuple], known: Iterable[Command], miscCateg
 	return commands
 
 
+def profileNote() -> str:
+	""":return: what the dialog says when the layers being edited are a profile's."""
+	# Translators: shown at the top of the layered keys dialog when a configuration profile is
+	# being edited.
+	return _(
+		"Keys and layers this profile does not change come from the normal configuration. A key"
+		" removed here goes to NVDA in this profile."
+	)
+
+
 def dialogTitle(profileName: Optional[str]) -> str:
 	# Translators: the title of the layered keys dialog. The placeholder is the configuration profile
 	# being edited.
@@ -707,6 +717,12 @@ if wx is not None:
 			self.nodes: list = []
 			self._captor = None
 			sHelper = guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
+			from . import bmConfig
+
+			if bmConfig.keyLayersGoToProfile():
+				# A profile changes only the keys it changes; say so, since the keys shown include the
+				# normal configuration's. See `keyLayers.stacked`.
+				sHelper.addItem(wx.StaticText(self, label=profileNote()))
 			self.deviceCtrl = sHelper.addLabeledControl(
 				# Translators: the label of the combo box choosing which device's layers are edited.
 				_("D&evice:"),

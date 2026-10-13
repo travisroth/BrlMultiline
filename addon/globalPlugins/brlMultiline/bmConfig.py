@@ -355,6 +355,41 @@ def keyLayerText(device: str) -> str:
 		return ""
 
 
+def keyLayerTexts(device: str) -> list[str]:
+	""":return: one device's layered keys as each configuration profile in force stores them: the
+	normal configuration's first, then each profile in the order NVDA activated them, an empty
+	string where a profile stores none.
+
+	Read profile by profile rather than through `config.conf`, which gives only the most specific
+	profile's text: the layers are stacked, each profile changing only what it changes, by
+	`keyLayers.stacked`.
+	"""
+	texts = []
+	try:
+		profiles = list(config.conf.profiles)
+	except Exception:
+		log.debugWarning("Could not list the configuration profiles", exc_info=True)
+		return [keyLayerText(device)]
+	for profile in profiles:
+		try:
+			section = (profile or {}).get(CONFIG_SECTION) or {}
+			devices = section.get("keyLayerDevices") or {}
+			texts.append(str((devices.get(device) or {}).get("layers") or ""))
+		except Exception:
+			log.debugWarning(f"Could not read a profile's layered keys for {device}", exc_info=True)
+			texts.append("")
+	return texts or [""]
+
+
+def keyLayersGoToProfile() -> bool:
+	""":return: whether a save of layered keys goes to a configuration profile rather than the normal
+	configuration: NVDA writes changed settings to the most recently activated profile."""
+	try:
+		return len(config.conf.profiles) > 1
+	except Exception:
+		return False
+
+
 def setKeyLayerText(device: str, text: str) -> None:
 	"""Store one device's layered keys, in the profile in force.
 

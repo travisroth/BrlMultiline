@@ -580,6 +580,157 @@ def withShippedAdditions(layers: LayerSet, factory: Iterable, since: int) -> tup
 	return layers, added
 
 
+# Profiles
+
+
+#: The properties of a layer a profile can change, as `Layer.toStored` names them.
+_LAYER_PROPERTIES = ("name", "context", "autoEnable", "style", "exitKeys", "fallsThrough")
+
+
+def stacked(device: str, texts: Iterable[str], factory: Iterable = ()) -> tuple:
+	"""A device's layers as the configuration profiles in force give them, each over the last.
+
+	**A profile changes only what it changes**, as it does every other NVDA setting. The normal
+	configuration's layers are the base, or the shipped layers where it has none; each profile in
+	force then changes the layers it changes, and only the keys in them it binds, removes or
+	changes. A key a profile leaves alone is looked up in the normal configuration's layer of the
+	same name, and a key bound in neither goes to NVDA, as before. A key bound to blocked is still
+	the trap.
+
+	A profile saved by an earlier version holds a whole copy of every layer, made when it was
+	saved, and replaced the normal configuration's layers outright: a key added in normal later
+	never reached it (found on the Monarch: the overview keys did nothing in Outlook, whose
+	profile had an older copy). A copy like that is read as the keys and layers it adds or changes
+	and nothing else, since it cannot say whether a key it lacks was removed on purpose or added to
+	normal after; so everything it lacks comes from normal.
+
+	:param texts: each profile's stored text, the normal configuration's first, then each profile
+		in force in the order NVDA activated them; empty where a profile stores nothing.
+	:param factory: the layers the device ships with.
+	:return: the layers, and a problem to log or None.
+	"""
+	texts = list(texts) or [""]
+	layers, problem = LayerSet.fromText(device, texts[0], factory)
+	for text in texts[1:]:
+		if not text:
+			continue
+		layers, found = _withProfile(layers, text)
+		problem = problem or found
+	return layers, problem
+
+
+def _withProfile(base: LayerSet, text: str) -> tuple:
+	""":return: a base set with one profile's stored changes, or whole copy, made to it."""
+	try:
+		stored = json.loads(text)
+	except ValueError as error:
+		return base, f"could not read a profile's layers, so using the ones under it: {error}"
+	if not isinstance(stored, dict) or not isinstance(stored.get("layers"), list):
+		return base, "a profile's layers are not in a form this version knows"
+	if not stored.get("overlay"):
+		# A whole copy from before profiles changed only what they changed.
+		copy, problem = LayerSet.fromText(base.device, text)
+		changes = _changes(copy, base, removals=False)
+		return _applied(base, changes), problem
+	return _applied(base, stored), None
+
+
+def _applied(base: LayerSet, changes: dict) -> LayerSet:
+	"""Make a profile's changes, in the form `overlayText` stores them, to a set."""
+	layers = base
+	removed = changes.get("removedLayers")
+	if isinstance(removed, list):
+		kept = tuple(layer for layer in layers.layers if layer.isDefault or layer.id not in removed)
+		layers = LayerSet(base.device, kept)
+	for rawLayer in changes.get("layers", []):
+		if not isinstance(rawLayer, dict) or not isinstance(rawLayer.get("id"), str):
+			continue
+		own = layers.get(rawLayer["id"])
+		if own is None:
+			layer = Layer.fromStored(rawLayer)
+			if layer is not None:
+				layers = layers.withLayer(layer)
+			continue
+		whole = own.toStored()
+		for name in _LAYER_PROPERTIES:
+			if name in rawLayer:
+				whole[name] = rawLayer[name]
+		changed = Layer.fromStored(whole)
+		if changed is None:
+			continue
+		bindings = dict(own.bindings)
+		unbound = rawLayer.get("unbound")
+		for identifier in unbound if isinstance(unbound, list) else ():
+			if isinstance(identifier, str):
+				bindings.pop(normalize(identifier), None)
+		rawBindings = rawLayer.get("bindings")
+		if isinstance(rawBindings, dict):
+			for identifier, rawTarget in rawBindings.items():
+				target = Target.fromStored(rawTarget)
+				if isinstance(identifier, str) and target is not None:
+					bindings[normalize(identifier)] = target
+		if changed.isDefault:
+			changed = replace(changed, context=None, fallsThrough=None, autoEnable=False)
+		layers = layers.withLayer(replace(changed, bindings=bindings))
+	return layers
+
+
+def _changes(edited: LayerSet, base: LayerSet, removals: bool = True) -> dict:
+	""":return: what a profile changes, the difference between the layers it has and the base under it.
+
+	:param removals: whether keys and layers the base has and the edited set does not are recorded
+		as removed. Not for a whole copy saved by an earlier version, which see `stacked`.
+	"""
+	changed = []
+	for layer in edited.layers:
+		under = base.get(layer.id)
+		if under is None:
+			changed.append(layer.toStored())
+			continue
+		mine, theirs = layer.toStored(), under.toStored()
+		entry: dict = {"id": layer.id}
+		for name in _LAYER_PROPERTIES:
+			if mine.get(name) != theirs.get(name):
+				# A property the base has and this layer does not, such as a context taken off, is
+				# stored as None, so that the change is made rather than read as no change.
+				entry[name] = mine.get(name)
+		bindings = {
+			identifier: target.toStored()
+			for identifier, target in sorted(layer.bindings.items())
+			if under.bindings.get(identifier) != target
+		}
+		if bindings:
+			entry["bindings"] = bindings
+		if removals:
+			unbound = sorted(identifier for identifier in under.bindings if identifier not in layer.bindings)
+			if unbound:
+				entry["unbound"] = unbound
+		if len(entry) > 1:
+			changed.append(entry)
+	result: dict = {"layers": changed}
+	if removals:
+		gone = [layer.id for layer in base.layers if not layer.isDefault and edited.get(layer.id) is None]
+		if gone:
+			result["removedLayers"] = gone
+	return result
+
+
+def overlayText(edited: LayerSet, base: LayerSet) -> str:
+	""":return: the stored form of a profile's layers: only what they change of the layers under it.
+
+	Empty when they change nothing, so that the profile stores nothing and the base is used whole.
+
+	:raises LayerSetError: if the edited set has a problem, as `LayerSet.toText` does.
+	"""
+	problems = edited.problems()
+	if problems:
+		raise LayerSetError("; ".join(problems))
+	changes = _changes(edited, base)
+	if not changes["layers"] and not changes.get("removedLayers"):
+		return ""
+	return json.dumps({"version": VERSION, "shipped": SHIPPED, "overlay": True, **changes}, sort_keys=True)
+
+
 def storedShipped(text: str) -> int:
 	""":return: the shipped revision a stored text was saved at, 1 for one saved before revisions,
 	and L{SHIPPED} for nothing stored or text that cannot be read, which get the shipped layers whole."""

@@ -135,8 +135,11 @@ def reload() -> list:
 
 def _read(device: str) -> LayerSet:
 	factory = keyLayers.defaultLayers(device, PLUGIN_MODULE)
-	text = bmConfig.keyLayerText(device)
-	layers, problem = LayerSet.fromText(device, text, factory)
+	texts = bmConfig.keyLayerTexts(device)
+	# The normal configuration's, which the shipped additions are given to; a profile changes only
+	# what it changes over it. See `keyLayers.stacked`.
+	text = texts[0]
+	layers, problem = keyLayers.stacked(device, texts, factory)
 	if problem:
 		log.warning(f"{LOG_PREFIX}{device}: {problem}")
 	since = keyLayers.storedShipped(text)
@@ -166,10 +169,19 @@ def layerSet(device: str) -> LayerSet:
 def save(layers: LayerSet) -> None:
 	"""Store a device's layers in the profile in force, and use them from now on.
 
+	In a profile, only what the layers change of the ones under it is stored, so a key added to the
+	normal configuration later still reaches the profile. See `keyLayers.stacked`.
+
 	:raises keyLayers.LayerSetError: if the set cannot be saved, such as one that falls through in a
 		circle. Nothing is stored then.
 	"""
-	text = layers.toText()
+	if bmConfig.keyLayersGoToProfile():
+		texts = bmConfig.keyLayerTexts(layers.device)
+		factory = keyLayers.defaultLayers(layers.device, PLUGIN_MODULE)
+		under, _problem = keyLayers.stacked(layers.device, texts[:-1], factory)
+		text = keyLayers.overlayText(layers, under)
+	else:
+		text = layers.toText()
 	bmConfig.setKeyLayerText(layers.device, text)
 	_sets[layers.device] = layers
 	activeId = _active.get(layers.device)
