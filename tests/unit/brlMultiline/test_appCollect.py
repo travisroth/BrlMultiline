@@ -271,11 +271,19 @@ class TestShowingAnApplication(unittest.TestCase):
 		self.plugin._showLayout(self.payload, "page")
 		self.assertEqual(self.plugin._layoutView.view, "screen")
 
-	def test_everyPressDescribesSinceThereIsNothingToMoveTo(self):
-		self.plugin._showLayout(self.payload, "screen")
-		self.assertIsNone(self.mode.source.activateAt)
+	def test_aPressDescribesAndASecondMoves(self):
+		self.plugin._showLayout({**self.payload, "identity": [5]}, "screen")
 		said = self.mode.source.describeAt(2, 2)
 		self.assertTrue(said and said.startswith("tabs"), said)
+		moved = []
+		with mock.patch.object(
+			type(self.plugin),
+			"_moveToAppArea",
+			lambda plugin, region, identity: moved.append((region, identity)),
+		):
+			self.mode.source.activateAt(2, 2)
+		self.assertEqual([r.kind for r, _ in moved], ["tabs"])
+		self.assertEqual(moved[0][1], (5,), "the window the layout was read from")
 
 	def test_drillingWorksAsOnAPage(self):
 		self.plugin._showLayout(self.payload, "screen")
@@ -316,3 +324,168 @@ class TestShowingAnApplication(unittest.TestCase):
 		self.assertEqual(len(started), 1)
 		self.assertIs(started[0].window, window)
 		self.assertIn("Reading the window layout", _stubs.flashedMessages)
+
+
+class FakeFound:
+	"""An element a search found, which can be focused."""
+
+	def __init__(self, focusable=True):
+		self.focused = 0
+
+	def SetFocus(self):  # noqa: N802
+		self.focused += 1
+
+	def BuildUpdatedCache(self, request):  # noqa: N802
+		return self
+
+
+class FakeSearchClient:
+	"""The parts of UI Automation's client the lookups for moving use, recording the conditions."""
+
+	def __init__(self, found):
+		self.found = found
+		self.conditions = []
+
+	def ElementFromHandle(self, hwnd):  # noqa: N802
+		return self
+
+	def CreatePropertyCondition(self, propertyId, value):  # noqa: N802
+		self.conditions.append((propertyId, list(value) if not isinstance(value, bool) else value))
+		return (propertyId, value)
+
+	def CreateAndConditionFromArray(self, conditions):  # noqa: N802
+		return tuple(conditions)
+
+	def FindFirst(self, scope, condition):  # noqa: N802
+		return self.found
+
+
+class TestFindingAnAreaAgain(unittest.TestCase):
+	def uia(self, found):
+		module = fakeUIA(None)
+		module.UIA_IsEnabledPropertyId = 12
+		module.UIA_IsKeyboardFocusablePropertyId = 13
+		module.TreeScope_Subtree = 7
+		module.handler = types.SimpleNamespace(clientObject=FakeSearchClient(found), baseCacheRequest=None)
+		return module
+
+	def test_byItsRuntimeId(self):
+		found = FakeFound()
+		module = self.uia(found)
+		with mock.patch.dict(sys.modules, {"UIAHandler": module}):
+			self.assertIs(appCollect.findElement(5, (42, 7, 3)), found)
+		self.assertEqual(module.handler.clientObject.conditions, [(10, [42, 7, 3])])
+
+	def test_goneIsNone(self):
+		with mock.patch.dict(sys.modules, {"UIAHandler": self.uia(None)}):
+			self.assertIsNone(appCollect.findElement(5, (42, 7, 3)))
+
+	def test_noRuntimeIdIsNone(self):
+		with mock.patch.dict(sys.modules, {"UIAHandler": self.uia(FakeFound())}):
+			self.assertIsNone(appCollect.findElement(5, None))
+
+	def test_somethingToFocusIsEnabledOnScreenAndFocusable(self):
+		found = FakeFound()
+		module = self.uia(found)
+		with mock.patch.dict(sys.modules, {"UIAHandler": module}):
+			self.assertIs(appCollect.focusableWithin(module.handler.clientObject), found)
+		self.assertEqual(sorted(module.handler.clientObject.conditions), [(7, False), (12, True), (13, True)])
+
+
+class TestMovingToAnAreaOfAWindow(unittest.TestCase):
+	"""A second press in an area of a window moves there, as on a page."""
+
+	def setUp(self):
+		from . import test_plugin
+		from .test_layoutDraw import FakeDrawingMode
+
+		test_plugin.resetPluginState()
+		import braille
+
+		braille.handler = test_plugin.FakeHandler(test_plugin.MONARCH_ROWS, test_plugin.MONARCH_COLS)
+		self.plugin = test_plugin.GlobalPlugin()
+		self.addCleanup(self.plugin.terminate)
+		self.mode = FakeDrawingMode()
+		self.plugin.graphicsMode = self.mode
+		self.mode.active = True
+		_stubs.flashedMessages.clear()
+		_stubs.spokenMessages.clear()
+		from brlMultiline.layoutRegions import Box, Region
+
+		self.region = Region("list", "Items View", Box(0, 0, 100, 100), "uia", anchor=(42, 9))
+		api = sys.modules["api"]
+		self.front = types.SimpleNamespace(windowHandle=5)
+		patcher = mock.patch.object(api, "getForegroundObject", lambda: self.front, create=True)
+		patcher.start()
+		self.addCleanup(patcher.stop)
+
+	def move(self, element, target):
+		with (
+			mock.patch.object(appCollect, "findElement", lambda hwnd, runtimeId: element),
+			mock.patch.object(appCollect, "focusableWithin", lambda found: target),
+		):
+			self.plugin._moveToAppArea(self.region, (5,))
+
+	def test_theFocusGoesToIt(self):
+		target = FakeFound()
+		self.move(FakeFound(), target)
+		self.assertEqual(target.focused, 1)
+		self.assertIn("list, Items View", _stubs.spokenMessages)
+		self.assertFalse(self.mode.active, "the drawing comes down where its display shows the focus")
+
+	def test_theDrawingStaysUpWhenTheFocusIsOnAnotherDisplay(self):
+		self.mode.holdsFocus = lambda: False
+		self.move(FakeFound(), FakeFound())
+		self.assertTrue(self.mode.active)
+
+	def test_withNothingToFocusTheNavigatorGoesThere(self):
+		element = FakeFound()
+		made = []
+
+		class FakeUIA:
+			def __init__(self, UIAElement):  # noqa: N803 - NVDA's spelling.
+				made.append(UIAElement)
+
+		objects = types.ModuleType("NVDAObjects.UIA")
+		objects.UIA = FakeUIA
+		uia = types.ModuleType("UIAHandler")
+		uia.handler = types.SimpleNamespace(baseCacheRequest=None)
+		spoken = []
+		speech = sys.modules["speech"]
+		with (
+			mock.patch.dict(sys.modules, {"NVDAObjects.UIA": objects, "UIAHandler": uia}),
+			mock.patch.object(
+				speech, "speakObject", lambda obj, reason=None: spoken.append(obj), create=True
+			),
+		):
+			self.move(element, None)
+		self.assertEqual(made, [element])
+		self.assertEqual(len(spoken), 1)
+		self.assertIs(_stubs.navigatedTo[-1], spoken[0])
+
+	def test_anotherWindowInFrontIsRefused(self):
+		self.front = types.SimpleNamespace(windowHandle=6)
+		target = FakeFound()
+		self.move(FakeFound(), target)
+		self.assertEqual(target.focused, 0)
+		self.assertIn("That window is no longer in front", _stubs.flashedMessages)
+
+	def test_aWindowOfItsOwnIsFoundByItsHandleWhenItsIdFindsNothing(self):
+		element, target = FakeFound(), FakeFound()
+		self.region.record = {"hwnd": 77}
+		asked = []
+		with (
+			mock.patch.object(appCollect, "findElement", lambda hwnd, runtimeId: None),
+			mock.patch.object(appCollect, "elementOfWindow", lambda hwnd: asked.append(hwnd) or element),
+			mock.patch.object(
+				appCollect, "focusableWithin", lambda found: target if found is element else None
+			),
+		):
+			self.plugin._moveToAppArea(self.region, (5,))
+		self.assertEqual(asked, [77])
+		self.assertEqual(target.focused, 1)
+
+	def test_anAreaThatIsGoneIsRefused(self):
+		self.move(None, None)
+		self.assertIn("The window has changed; read its layout again", _stubs.flashedMessages)
+		self.assertTrue(self.mode.active)

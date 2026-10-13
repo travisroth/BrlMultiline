@@ -1487,6 +1487,10 @@ def _accessibleTree(nodes: list[dict[str, Any]], dataTables: set[tuple[int, ...]
 			and mentionsSearch(n.get("name") or "", n.get("id") or "", n.get("class") or ""),
 			isDataTable=role == "table" and bool(n["rect"]) and tuple(n["rect"]) in dataTables,
 			expandable=bool(n.get("expandable")),
+			# Where it is in browse mode's text, for moving to an area found from the tree, where
+			# the collector saved it. Pages the probe saved before have neither.
+			start=n.get("start"),
+			ident=_ident(n),
 		)
 		while stack and stack[-1][0] >= n["depth"]:
 			stack.pop()

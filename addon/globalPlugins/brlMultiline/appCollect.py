@@ -416,3 +416,78 @@ def _focusPath(uia, focus) -> list:
 		except Exception:
 			break
 	return path
+
+
+# Moving to an area
+
+
+def findElement(hwnd: int, runtimeId) -> Any:
+	""":return: the element with this runtime id in a window, wherever it now is, or None when it is
+	gone. One search inside the application, so it costs no more than one call however deep the
+	element is.
+
+	By runtime id rather than by where it was, for the reason a page's area is found by its
+	element's identifier: the window may have changed since its layout was read.
+	"""
+	import array
+
+	import UIAHandler
+
+	handler = UIAHandler.handler
+	if handler is None or not hwnd or not runtimeId:
+		return None
+	client = handler.clientObject
+	try:
+		root = client.ElementFromHandle(int(hwnd))
+		condition = client.CreatePropertyCondition(
+			UIAHandler.UIA_RuntimeIdPropertyId, array.array("l", [int(v) for v in runtimeId])
+		)
+		found = root.FindFirst(UIAHandler.TreeScope_Subtree, condition)
+	except Exception:
+		log.debugWarning("BrlMultiline: could not look for an area's element", exc_info=True)
+		return None
+	# A search that finds nothing gives a null pointer, which is false but not None.
+	return found if found else None
+
+
+def focusableWithin(element) -> Any:
+	""":return: the area's own element if it can take the focus, or else the first thing inside it
+	that can, or None when nothing in it can: a toolbar's first button, a pane's first field, a list
+	or a tree itself. Enabled and on screen, since the focus cannot go to anything else."""
+	import UIAHandler
+
+	client = UIAHandler.handler.clientObject
+	try:
+		condition = client.CreateAndConditionFromArray(
+			[
+				client.CreatePropertyCondition(UIAHandler.UIA_IsKeyboardFocusablePropertyId, True),
+				client.CreatePropertyCondition(UIAHandler.UIA_IsEnabledPropertyId, True),
+				client.CreatePropertyCondition(UIAHandler.UIA_IsOffscreenPropertyId, False),
+			],
+		)
+		found = element.FindFirst(UIAHandler.TreeScope_Subtree, condition)
+	except Exception:
+		log.debugWarning("BrlMultiline: could not look for something to focus in an area", exc_info=True)
+		return None
+	return found if found else None
+
+
+def elementOfWindow(hwnd) -> Any:
+	""":return: the element of a window of its own, by its handle, or None when the window is gone.
+
+	For an area whose element has no runtime id to find it by, or whose id has changed: a Win32
+	control, an old application's toolbar or pane, is a window, and its handle stays the same.
+	"""
+	import UIAHandler
+
+	handler = UIAHandler.handler
+	if handler is None or not hwnd:
+		return None
+	try:
+		if not ctypes.windll.user32.IsWindow(int(hwnd)):
+			return None
+		found = handler.clientObject.ElementFromHandle(int(hwnd))
+	except Exception:
+		log.debugWarning("BrlMultiline: could not find an area by its window", exc_info=True)
+		return None
+	return found if found else None

@@ -96,7 +96,7 @@ class _LayoutView:
 		self.viewport = viewport
 		self.document = document
 		#: Whether this is an application window's layout rather than a web page's: there is no
-		#: page to scroll, and nothing yet to move to.
+		#: page to scroll, and moving to an area moves the focus. See `_moveToAppArea`.
 		self.app = app
 		#: Which page and which reading of it the layout is of; see `_pageIdentity`.
 		self.identity = tuple(identity) if identity else _pageIdentity(document)
@@ -4024,13 +4024,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		identity = state.identity if state is not None else _pageIdentity(document)
 
 		def activator(overview):
-			if state is not None and state.app:
-				# Nothing to move to in an application yet: every press describes.
-				return None
+			app = state is not None and state.app
 
 			def activateAt(x, y):
 				box = overview.boxAt(x, y)
-				if box is not None:
+				if box is None:
+					return
+				if app:
+					self._moveToAppArea(box.region, identity)
+				else:
 					self._moveToArea(document, box.region, identity)
 
 			return activateAt
@@ -4180,6 +4182,68 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		line = info.copy()
 		line.expand(textInfos.UNIT_LINE)
 		speech.speakTextInfo(line, reason=controlTypes.OutputReason.QUICKNAV)
+
+	def _moveToAppArea(self, region, identity: Optional[tuple] = None) -> None:
+		"""Move to an area of an application window: the focus to it, or to the first thing in it
+		that can take the focus, or the navigator object to it when nothing in it can.
+
+		The application's equivalent of `_moveToArea`. A list, a tree or a document takes the focus
+		itself; a toolbar or a pane gives it to its first button or field, as moving between a
+		window's panes with F6 does; a status bar, which nothing in can take the focus, gets the
+		navigator, which is how it is read anyway.
+
+		**The area is found again by its element's runtime id**, not by where it was, since the
+		window may have changed since its layout was read; and refused, with the reason said, when
+		the window is no longer the one in front or the element is gone.
+
+		:param region: the area pressed, whose `anchor` is its element's runtime id.
+		:param identity: the window the layout was read from, as `[window handle]`.
+		"""
+		import controlTypes
+		import speech
+
+		# Translators: said when a reader asks to move to an area of a window's layout, but the
+		# window has changed since its layout was read, so the layout no longer fits it.
+		changed = _("The window has changed; read its layout again")
+		hwnd = identity[0] if identity else None
+		front = api.getForegroundObject()
+		if not hwnd or front is None or getattr(front, "windowHandle", None) != hwnd:
+			# Translators: said when a reader asks to move to an area of a window's layout while
+			# another window is in front.
+			ui.message(_("That window is no longer in front"))
+			return
+		anchor = getattr(region, "anchor", None)
+		element = appCollect.findElement(hwnd, anchor) if anchor else None
+		record = getattr(region, "record", None) or {}
+		if element is None and record.get("hwnd"):
+			# A window of its own, found by its handle when its runtime id finds nothing.
+			element = appCollect.elementOfWindow(record["hwnd"])
+		if element is None:
+			ui.message(changed)
+			return
+		target = appCollect.focusableWithin(element)
+		if self.graphicsMode.holdsFocus():
+			self._cancelPictureRequest()
+			self.graphicsMode.leave()
+		speech.speakMessage(region.title)
+		if target is not None:
+			try:
+				# NVDA reports the focus when it arrives, as for any move of the focus.
+				target.SetFocus()
+				return
+			except Exception:
+				log.debugWarning("BrlMultiline: could not focus an area", exc_info=True)
+		try:
+			import UIAHandler
+			from NVDAObjects.UIA import UIA
+
+			obj = UIA(UIAElement=element.BuildUpdatedCache(UIAHandler.handler.baseCacheRequest))
+		except Exception:
+			log.debugWarning("BrlMultiline: could not make an object of an area", exc_info=True)
+			ui.message(changed)
+			return
+		api.setNavigatorObject(obj)
+		speech.speakObject(obj, reason=controlTypes.OutputReason.QUERY)
 
 	@script(
 		# Translators: input help message for a command.

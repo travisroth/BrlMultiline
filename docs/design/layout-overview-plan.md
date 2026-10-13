@@ -217,9 +217,19 @@ focus path recorded) in batches of four calls with a return to NVDA's message lo
 under the web collector's eight second limit, and hands `findAppRegions` the probe's shape. A
 limit reached is said ("Only part of the window could be read"). The drawing is the screen view
 of the window; the page command draws the same, since a window does not scroll, and the text
-command lists it under "Window layout". Presses describe and drilling works as on a page; the
-drawing has no `activateAt`, so a second press describes again rather than moving, until moving
-to an area of a window (focusing it, or putting the navigator on it, by its runtime id) is built.
+command lists it under "Window layout". Presses describe and drilling works as on a page.
+
+**A second press moves to an area of a window** (`_moveToAppArea`). The area's element is found
+again by its runtime id, in one search of the window (`appCollect.findElement`), since the window
+may have changed; the focus goes to the first element in the area, the area's own first, that is
+focusable, enabled and on screen (`appCollect.focusableWithin`): a list, tree or document itself,
+a toolbar's first button, a pane's first field, as F6 moves between panes. Where nothing in the
+area can take the focus, a status bar's, the navigator object goes to it and it is read. The
+area's name is said first, and the drawing comes down only when its display shows the focus, as
+on a page. An area whose runtime id finds nothing but which is a window of its own, as a Win32
+control or an old application's pane is, is found by its window handle instead
+(`appCollect.elementOfWindow`). Refused, with the reason said, when the window is no longer in
+front or the element is gone.
 
 A fifth review, of commit e6667a4, found four more; the reviewer's tests are kept as
 `tests/unit/brlMultiline/test_layoutReviewE6667a4.py`:
@@ -291,9 +301,14 @@ The drawing comes down first only when its display also shows the focus
 (`GraphicsMode.holdsFocus`), as one display doing everything does. With the focus on another
 display, such as a Focus 80 beside a Monarch, taking the drawing down would do nothing for the
 reader, since the line arrives on the other display, and would lose the drawing; so it stays up
-for the next area. It refuses, saying why, for an area with no start (found from the accessible
-tree, on a page without landmarks) or when the page under the focus is no longer the one the
-layout was read from.
+for the next area. It refuses, saying why, for an area with no start (only on a page saved by
+the probe before tree objects carried one, or an object browse mode has no place for) or when
+the page under the focus is no longer the one the layout was read from.
+
+Areas found from the accessible tree, on a page without landmarks, are moved to like any other:
+the tree walk saves each object with browse mode's identifier for it and where it starts in the
+text (`layoutCollect._Places`, read from the buffer with no call into the browser), and the rules
+give the area its start and anchor from them as they do for a landmark.
 
 ## The drawing and the collector as built
 
@@ -391,8 +406,9 @@ header is at the top, and what it covers is drawn from below it. When even the m
 not all fit, the smallest unnamed area found by geometry is left out first, since the text
 overview still lists it.
 
-Known gaps in this step: regions from the accessible tree, on pages without landmarks, have no
-start, so they cannot be moved to.
+Regions from the accessible tree, on pages without landmarks, had no start at first, so could
+not be moved to; the tree walk now saves where each object is in the text (see "Moving to an
+area" above).
 
 ## The region rules as built
 

@@ -381,10 +381,38 @@ def _isMeaningful(record: dict[str, Any]) -> bool:
 	return word not in ("form", "region") or bool(record.get("name"))
 
 
+class _Places:
+	"""Where objects of the accessible tree are in browse mode's text: its identifier for each, and
+	the offset it starts at. Read from the buffer, with no call into the browser."""
+
+	def __init__(self, document):
+		self.document = document
+		self.info = None
+
+	def of(self, obj) -> dict[str, Any]:
+		""":return: "ident" and "start" for an object, or nothing where browse mode has no place for it."""
+		try:
+			ident = self.document.getIdentifierFromNVDAObject(obj)
+			if self.info is None:
+				import textInfos
+
+				self.info = self.document.makeTextInfo(textInfos.POSITION_FIRST)
+			start = self.info._getOffsetsFromFieldIdentifier(*ident)[0]
+		except Exception:
+			return {}
+		return {"ident": [int(v) for v in ident], "start": int(start)}
+
+
 def _walk(root, viewport, out: list[dict[str, Any]], collector: Collector) -> Iterator[None]:
-	"""Walk the accessible tree into out, a batch at a time, not into text."""
+	"""Walk the accessible tree into out, a batch at a time, not into text.
+
+	Each object is saved with browse mode's identifier for it and where it starts in browse mode's
+	text, so an area found from the tree can be moved to as one found from a landmark can (found
+	in use: on a page without landmarks, every area said it had no place in the page).
+	"""
 	stack = [(root, 0)]
 	calls = 0
+	places = _Places(collector.document)
 	while stack and len(out) < TREE_NODES and not collector.overTime:
 		obj, depth = stack.pop()
 		attrs = _attributes(obj)
@@ -405,6 +433,7 @@ def _walk(root, viewport, out: list[dict[str, Any]], collector: Collector) -> It
 				"xmlRoles": attrs.get("xml-roles"),
 				"rect": _relative(location, viewport),
 				"expandable": role == "BUTTON" and _hasExpandState(obj),
+				**places.of(obj),
 			},
 		)
 		if childCount and depth < TREE_DEPTH and role not in LEAF_ROLE_NAMES:

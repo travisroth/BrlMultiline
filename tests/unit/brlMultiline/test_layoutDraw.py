@@ -48,7 +48,7 @@ from brlMultiline.layoutDraw import (  # noqa: E402
 	compose,
 	composeFitting,
 )
-from brlMultiline.layoutRegions import Box, Region, findRegions, fromProbe  # noqa: E402
+from brlMultiline.layoutRegions import Box, Region, describe, findRegions, fromProbe  # noqa: E402
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "..", "..", "fixtures", "layout")
 WIDTH, HEIGHT = 96, 40
@@ -1076,6 +1076,65 @@ class TestCollector(unittest.TestCase):
 		)
 		self.assertEqual([n["depth"] for n in nodes], [0, 1, 2, 3, 3, 3])
 		self.assertEqual(nodes[3]["rect"], [100, 50, 380, 600])
+
+	def tablePage(self):
+		cells = [
+			FakeObject("TABLECELL", (100 + i * 400, 150, 380, 600), attributes={"tag": "td"})
+			for i in range(3)
+		]
+		row = FakeObject("TABLEROW", (100, 150, 1180, 600), attributes={"tag": "tr"}, children=cells)
+		table = FakeObject("TABLE", (100, 150, 1180, 600), attributes={"tag": "table"}, children=[row])
+		return FakeObject("DOCUMENT", (0, 100, 1920, 900), children=[table]), cells
+
+	def test_theTreeIsSavedWithWhereEachObjectIsInTheText(self):
+		"""So an area found from it can be moved to, as one found from a landmark can."""
+		root, cells = self.tablePage()
+		got = []
+		run(Collector(FakePlacedDocument(root), lambda p, w: got.append(p)))
+		nodes = got[0]["tree"]["nodes"]
+		cell = nodes[3]
+		self.assertEqual(cell["ident"], [1, id(cells[0]) % 100000])
+		self.assertEqual(cell["start"], FakePlacedDocument.startOf(cells[0]))
+
+	def test_aPageWithoutLandmarksHasAreasToMoveTo(self):
+		root, cells = self.tablePage()
+		got = []
+		run(Collector(FakePlacedDocument(root), lambda p, w: got.append(p)))
+		page = findRegions(*fromProbe(got[0]))
+		areas = [r for r in page.walk() if r is not page]
+		self.assertTrue(areas, describe(page))
+		for area in areas:
+			with self.subTest(area=area.title):
+				self.assertIsNotNone(area.start)
+				self.assertIsNotNone(area.anchor)
+
+
+class FakePlacedDocument(FakeDocument):
+	"""A browse mode document that can say where an object of its tree is in its text."""
+
+	def __init__(self, tree):
+		super().__init__({}, tree)
+
+	@staticmethod
+	def startOf(obj) -> int:
+		return 10 + obj.location[0] // 10 + obj.location[1] // 100
+
+	def getIdentifierFromNVDAObject(self, obj):
+		self.objects = getattr(self, "objects", {})
+		ident = (1, id(obj) % 100000)
+		self.objects[ident] = obj
+		return ident
+
+	def makeTextInfo(self, position):
+		document = self
+
+		class Info:
+			def _getOffsetsFromFieldIdentifier(self, docHandle, ID):
+				obj = document.objects[(docHandle, ID)]
+				start = FakePlacedDocument.startOf(obj)
+				return start, start + 5
+
+		return Info()
 
 
 if __name__ == "__main__":

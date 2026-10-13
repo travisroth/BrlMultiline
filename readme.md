@@ -1100,7 +1100,12 @@ command draws the same as the on screen one, and the text command lists the wind
 window titled Window layout.
 
 Pressing a routing key in a box says what it is, and dot 8 and dot 7 drill in and back out as on
-a web page. Pressing twice does not move to the area yet. Older applications that are reached
+a web page. Pressing a routing key in the same box again moves there: the focus goes to the area
+if it can take it, as a list, a tree or a document can, or else to the first thing in it that
+can, such as a toolbar's first button; an area nothing in can take the focus, such as a status
+bar, gets the navigator object instead, and is read. The drawing comes down when the Monarch
+also shows the focus, and stays up when the focus is on another display. If the window is no
+longer in front, or the area has gone, you are told to read the layout again. Older applications that are reached
 through Microsoft Active Accessibility are slow to read, a few seconds for a busy window, and
 you are told if only part of the window could be read in the time allowed. It has been tried on
 File Explorer, Excel, Outlook, Settings, Notepad and askSam.
