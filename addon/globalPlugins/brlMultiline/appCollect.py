@@ -152,7 +152,10 @@ class AppCollector:
 		self.calls = 1
 		yield
 		bounds = [0, 0, location[2], location[3]]
-		window = yield from self._visit(root, 0, bounds, _cachedChildren(root))
+		first = _cachedChildren(root)
+		if first is None:
+			_note(self.incomplete, "unread")
+		window = yield from self._visit(root, 0, bounds, first or [])
 		yield
 		path = _focusPath(UIAHandler, self.focus)
 		payload = {
@@ -195,6 +198,11 @@ class AppCollector:
 		):
 			record["covered"] = True
 			return record
+		if record.get("offscreen") or record.get("outside"):
+			# Nothing in it can be seen either, and the rules leave it out; asked for its children
+			# it would spend the budget on them (found in review: an offscreen pane of eight
+			# hundred buttons left the visible work area after it unread).
+			return record
 		if record.get("type") in LEAF_TYPES:
 			return record
 		if depth >= MAX_DEPTH:
@@ -206,6 +214,12 @@ class AppCollector:
 				return record
 			children = _children(element, self.request)
 			self.calls += 1
+			if children is None:
+				# The application did not answer for what is inside it, which is not the same as
+				# there being nothing there: what it holds is missing, so say the read is partial
+				# (found in review: a provider that had gone away left a hole nobody was told of).
+				_note(self.incomplete, "unread")
+				children = []
 			if self.calls % BATCH == 0:
 				yield
 		held = Counter()
@@ -312,21 +326,27 @@ def _record(uia, element, origin: tuple) -> dict:
 	return {k: v for k, v in record.items() if v not in (None, "", False, [])}
 
 
-def _cachedChildren(element) -> list:
+def _cachedChildren(element) -> list | None:
+	""":return: the element's cached children, an empty list where it has none, or None where they
+	could not be read."""
 	try:
 		children = element.GetCachedChildren()
+		if not children:
+			return []
+		return [children.GetElement(i) for i in range(children.Length)]
 	except Exception:
-		return []
-	if not children:
-		return []
-	return [children.GetElement(i) for i in range(children.Length)]
+		log.debugWarning("BrlMultiline: an element's children could not be read", exc_info=True)
+		return None
 
 
-def _children(element, request) -> list:
+def _children(element, request) -> list | None:
+	""":return: an element's children, read from the application, or None where it did not answer."""
 	try:
-		return _cachedChildren(element.BuildUpdatedCache(request))
+		cached = element.BuildUpdatedCache(request)
 	except Exception:
-		return []
+		log.debugWarning("BrlMultiline: an element did not answer for its children", exc_info=True)
+		return None
+	return _cachedChildren(cached)
 
 
 def _intersect(rect: list, clip: list) -> list | None:
@@ -472,22 +492,44 @@ def focusableWithin(element) -> Any:
 	return found if found else None
 
 
-def elementOfWindow(hwnd) -> Any:
-	""":return: the element of a window of its own, by its handle, or None when the window is gone.
+#: `GetAncestor`'s flag for the top level window a window is in.
+_GA_ROOT = 2
+
+
+def elementOfWindow(hwnd, top) -> Any:
+	""":return: the element of a window of its own, by its handle, or None when the window is gone
+	or is no longer in the window the layout was read from.
 
 	For an area whose element has no runtime id to find it by, or whose id has changed: a Win32
 	control, an old application's toolbar or pane, is a window, and its handle stays the same.
+	But Windows gives a handle out again once its window is gone, so the handle must still be in
+	the same top level window; that it exists says nothing (found in review: a handle recycled
+	for another application's window was accepted). Asked by ancestry, not visibility, since a
+	XAML island's input window is hidden by design.
+
+	:param top: the top level window the layout was read from.
 	"""
 	import UIAHandler
 
 	handler = UIAHandler.handler
-	if handler is None or not hwnd:
+	if handler is None or not hwnd or not top:
 		return None
 	try:
-		if not ctypes.windll.user32.IsWindow(int(hwnd)):
+		user32 = ctypes.windll.user32
+		if not user32.IsWindow(int(hwnd)):
+			return None
+		if int(hwnd) != int(top) and user32.GetAncestor(int(hwnd), _GA_ROOT) != int(top):
 			return None
 		found = handler.clientObject.ElementFromHandle(int(hwnd))
 	except Exception:
 		log.debugWarning("BrlMultiline: could not find an area by its window", exc_info=True)
 		return None
 	return found if found else None
+
+
+def foregroundWindow() -> int | None:
+	""":return: the window Windows has in front now, by handle, or None where it cannot say."""
+	try:
+		return int(ctypes.windll.user32.GetForegroundWindow()) or None
+	except Exception:
+		return None

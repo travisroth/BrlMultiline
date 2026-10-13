@@ -231,6 +231,26 @@ control or an old application's pane is, is found by its window handle instead
 (`appCollect.elementOfWindow`). Refused, with the reason said, when the window is no longer in
 front or the element is gone.
 
+A sixth review, of commit 31ee6a9, found four more in reading a window and moving in it; the
+reviewer's tests are kept as `tests/unit/brlMultiline/test_layoutReview31ee6a9.py`:
+
+1. The collector stopped at covered windows but went into offscreen elements and ones outside
+   what holds them, which the rules then left out: an offscreen pane of eight hundred buttons
+   spent the whole budget and the visible work area after it was never read. Now neither is
+   asked for its children.
+2. A failed read of an element's children was taken for an element with none, so a provider that
+   had gone away left a hole with no warning. Now a failed read marks the result partial
+   ("unread"), which says "Only part of the window could be read", and what was read is kept.
+3. The move checked the window in front before its lookups and not after, so switching windows
+   while they ran still took the drawing down and focused the old window's area. Now it checks
+   again after them, before touching the drawing or the focus, and asks Windows
+   (`appCollect.foregroundWindow`) rather than NVDA's foreground object, which events cannot
+   bring up to date while the lookups hold the thread.
+4. The handle fallback took any handle that existed, but Windows gives handles out again: a
+   recycled one belonging to another application's window was accepted. Now the handle must
+   still be in the top level window the layout was read from (`GetAncestor`), asked by ancestry
+   and not visibility, since a XAML island's input window is hidden by design.
+
 A fifth review, of commit e6667a4, found four more; the reviewer's tests are kept as
 `tests/unit/brlMultiline/test_layoutReviewE6667a4.py`:
 

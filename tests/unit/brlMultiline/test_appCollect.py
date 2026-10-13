@@ -384,6 +384,20 @@ class TestFindingAnAreaAgain(unittest.TestCase):
 		with mock.patch.dict(sys.modules, {"UIAHandler": self.uia(FakeFound())}):
 			self.assertIsNone(appCollect.findElement(5, None))
 
+	def test_aHandleStillInTheWindowIsFoundAndOneElsewhereIsNot(self):
+		found = FakeFound()
+		module = self.uia(found)
+		module.handler.clientObject.ElementFromHandle = lambda hwnd: found
+		user32 = types.SimpleNamespace(
+			IsWindow=lambda hwnd: True, GetAncestor=lambda hwnd, flags: {77: 5, 88: 6}[hwnd]
+		)
+		with (
+			mock.patch.dict(sys.modules, {"UIAHandler": module}),
+			mock.patch.object(appCollect.ctypes, "windll", types.SimpleNamespace(user32=user32), create=True),
+		):
+			self.assertIs(appCollect.elementOfWindow(77, 5), found)
+			self.assertIsNone(appCollect.elementOfWindow(88, 5))
+
 	def test_somethingToFocusIsEnabledOnScreenAndFocusable(self):
 		found = FakeFound()
 		module = self.uia(found)
@@ -418,6 +432,10 @@ class TestMovingToAnAreaOfAWindow(unittest.TestCase):
 		patcher = mock.patch.object(api, "getForegroundObject", lambda: self.front, create=True)
 		patcher.start()
 		self.addCleanup(patcher.stop)
+		# The window Windows has in front, read at the moment it is asked, so a test can change it.
+		front = mock.patch.object(appCollect, "foregroundWindow", lambda: self.front.windowHandle)
+		front.start()
+		self.addCleanup(front.stop)
 
 	def move(self, element, target):
 		with (
@@ -476,13 +494,15 @@ class TestMovingToAnAreaOfAWindow(unittest.TestCase):
 		asked = []
 		with (
 			mock.patch.object(appCollect, "findElement", lambda hwnd, runtimeId: None),
-			mock.patch.object(appCollect, "elementOfWindow", lambda hwnd: asked.append(hwnd) or element),
+			mock.patch.object(
+				appCollect, "elementOfWindow", lambda hwnd, top: asked.append((hwnd, top)) or element
+			),
 			mock.patch.object(
 				appCollect, "focusableWithin", lambda found: target if found is element else None
 			),
 		):
 			self.plugin._moveToAppArea(self.region, (5,))
-		self.assertEqual(asked, [77])
+		self.assertEqual(asked, [(77, 5)], "the handle, and the window it must still be in")
 		self.assertEqual(target.focused, 1)
 
 	def test_anAreaThatIsGoneIsRefused(self):

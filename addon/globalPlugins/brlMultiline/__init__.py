@@ -4205,23 +4205,34 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Translators: said when a reader asks to move to an area of a window's layout, but the
 		# window has changed since its layout was read, so the layout no longer fits it.
 		changed = _("The window has changed; read its layout again")
+		# Translators: said when a reader asks to move to an area of a window's layout while
+		# another window is in front.
+		notInFront = _("That window is no longer in front")
 		hwnd = identity[0] if identity else None
-		front = api.getForegroundObject()
-		if not hwnd or front is None or getattr(front, "windowHandle", None) != hwnd:
-			# Translators: said when a reader asks to move to an area of a window's layout while
-			# another window is in front.
-			ui.message(_("That window is no longer in front"))
+
+		def inFront() -> bool:
+			# Asked of Windows, not of NVDA's foreground object, which is only brought up to date by
+			# events this thread cannot take while it is waiting on the lookups below.
+			return bool(hwnd) and appCollect.foregroundWindow() == hwnd
+
+		if not inFront():
+			ui.message(notInFront)
 			return
 		anchor = getattr(region, "anchor", None)
 		element = appCollect.findElement(hwnd, anchor) if anchor else None
 		record = getattr(region, "record", None) or {}
 		if element is None and record.get("hwnd"):
 			# A window of its own, found by its handle when its runtime id finds nothing.
-			element = appCollect.elementOfWindow(record["hwnd"])
+			element = appCollect.elementOfWindow(record["hwnd"], hwnd)
 		if element is None:
 			ui.message(changed)
 			return
 		target = appCollect.focusableWithin(element)
+		if not inFront():
+			# The lookups go into the application and can take a while, long enough to switch
+			# windows; then the move is stale, and leaves the drawing as it is (found in review).
+			ui.message(notInFront)
+			return
 		if self.graphicsMode.holdsFocus():
 			self._cancelPictureRequest()
 			self.graphicsMode.leave()
