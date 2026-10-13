@@ -61,6 +61,9 @@ LABEL_MARGIN = 1
 MIN_BOX = (2 + 2 * LABEL_MARGIN + 2, 2 + 2 * LABEL_MARGIN + CELL_HEIGHT)
 #: Letters for boxes too small for their label, in the order they are given out.
 KEY_LETTERS = "abcdefghijklmnopqrstuvwxyz"
+#: Letters kept for a kind of area found on most pages, so a reader can find it by its letter
+#: without pressing to ask: s is always search, and never anything else.
+RESERVED_KEYS = {"search": "s"}
 
 
 @dataclass(eq=False)
@@ -75,9 +78,9 @@ class DrawnBox:
 	children: list["DrawnBox"] = field(default_factory=list)
 	#: Where the label or key letter is drawn.
 	labelAt: Box | None = None
-	#: The counts drawn with the label, most telling first: each one's words, where it is, and
-	#: its braille cells.
-	details: list[tuple[str, Box, list[int]]] = field(default_factory=list)
+	#: The counts drawn with the label, most telling first: each one's words, the area it takes,
+	#: and what is drawn for it, as `_marks` gives.
+	details: list[tuple[str, Box, list]] = field(default_factory=list)
 
 	@property
 	def detail(self) -> str:
@@ -217,6 +220,12 @@ def placesFor(page: Region, view: str) -> dict[int, Box]:
 		for header in pinned:
 			if box == header or not box.overlapX(header) or not box.overlapY(header):
 				continue
+			covered = header.left <= box.left and box.right <= header.right
+			if covered and header.top <= max(box.top, 0) and box.bottom <= header.bottom:
+				# Wholly behind the header, so none of it can be seen, nor anything in it (found
+				# in review: a form entirely under the banner was still drawn).
+				box = Box(box.left, box.top, box.width, 0)
+				break
 			# The header covers the top of what is visible of this box, which may start above
 			# the screen, as a main area scrolled past does.
 			if box.top < header.bottom < box.bottom and header.top <= max(box.top, 0):
@@ -252,6 +261,7 @@ def compose(
 	window: Box | None = None,
 	keys: dict[int, str] | None = None,
 	focus: Region | None = None,
+	style: CountStyle | None = None,
 ) -> Overview | None:
 	"""Draw the page's areas onto a new buffer of width by height pins.
 
@@ -269,6 +279,7 @@ def compose(
 		area has the same letter in every view of the page.
 	:param focus: an area drilled into, drawn as the whole view with what is inside it; the
 		page if None. See `focusWindow`.
+	:param style: how counts are drawn; NVDA's English abbreviations if None.
 	:return: the overview, or None if no buffer could be made.
 	"""
 	buffer = newBuffer(width, height)
@@ -305,8 +316,9 @@ def compose(
 		buffer, boxes, window, places, whole, xs, ys, [r for r in wanted if id(r) not in drawn]
 	)
 	_label(overview, labels, keys if keys is not None else {})
+	style = style or CountStyle()
 	for box in overview.walk():
-		_placeDetails(box, [(text, translate(text)) for text in _detailsFor(box.region)])
+		_placeDetails(box, _countsFor(box.region, translate, style))
 	_draw(overview, labels)
 	return overview
 
@@ -328,6 +340,7 @@ def composeFitting(
 	depth: int = 3,
 	keys: dict[int, str] | None = None,
 	focus: Region | None = None,
+	style: CountStyle | None = None,
 ) -> Overview | None:
 	"""Draw a view as tall as it has to be for everything in it to be drawn, up to a limit.
 
@@ -349,7 +362,17 @@ def composeFitting(
 		# A fresh set of letters for each try, so a try thrown away does not use up letters.
 		trial = dict(keys)
 		overview = compose(
-			newBuffer, page, width, tall, view, viewport, translate, depth, keys=trial, focus=focus
+			newBuffer,
+			page,
+			width,
+			tall,
+			view,
+			viewport,
+			translate,
+			depth,
+			keys=trial,
+			focus=focus,
+			style=style,
 		)
 		# Grown again while anything was left out, or drawn too small to find: a main area that
 		# will not fit is drawn regardless, as a sliver, rather than left out.
@@ -530,7 +553,8 @@ def _label(overview: Overview, labels: dict[int, list[int]], keys: dict[int, str
 	else a key letter, else nothing (a press still names it).
 
 	A letter given to an area is kept in `keys` and used for it again in any other view of the
-	page, so the key a reader heard stays true as they zoom and move.
+	page, so the key a reader heard stays true as they zoom and move. Search gets its own letter,
+	s, whatever else is on the page; see `RESERVED_KEYS`.
 	"""
 	for box in overview.walk():
 		cells = labels[id(box.region)]
@@ -546,7 +570,13 @@ def _label(overview: Overview, labels: dict[int, list[int]], keys: dict[int, str
 		letter = keys.get(id(box.region))
 		if letter is None:
 			used = set(keys.values())
-			letter = next((c for c in KEY_LETTERS if c not in used), "")
+			reserved = RESERVED_KEYS.get(box.region.kind)
+			if reserved and reserved not in used:
+				letter = reserved
+			else:
+				# A second search box takes an ordinary letter; nothing takes a reserved one.
+				kept = set(RESERVED_KEYS.values())
+				letter = next((c for c in KEY_LETTERS if c not in used and c not in kept), "")
 			if letter:
 				keys[id(box.region)] = letter
 		box.key = letter
@@ -555,8 +585,13 @@ def _label(overview: Overview, labels: dict[int, list[int]], keys: dict[int, str
 def _labelSpot(box: DrawnBox, labelWidth: int) -> Box | None:
 	"""Where a label of this width goes inside a box, clear of its children, or None.
 
-	The top left corner first, where a hand looks for it, then the other corners: a banner
-	whose search field sits at its left still has room at its right.
+	The top left corner first, where a hand looks for it; then the leftmost clear place along the
+	top, just past whatever box inside holds the corner; then the same along the bottom. A banner
+	whose search field sits at its left still has room further along.
+
+	Leftmost rather than the far corner (found on Fabula's coffee: a box whose first product
+	column held its top left corner had its label pushed against its right edge, its counts
+	under it, and the room just right of the column left empty).
 	"""
 	if labelWidth <= 0:
 		return None
@@ -564,52 +599,126 @@ def _labelSpot(box: DrawnBox, labelWidth: int) -> Box | None:
 	inset = 1 + LABEL_MARGIN
 	if labelWidth > r.width - 2 * inset or CELL_HEIGHT > r.height - 2 * inset:
 		return None
-	lefts = (r.left + inset, r.right - inset - labelWidth)
-	tops = (r.top + inset, r.bottom - inset - CELL_HEIGHT)
-	for top, left in ((tops[0], lefts[0]), (tops[0], lefts[1]), (tops[1], lefts[0]), (tops[1], lefts[1])):
-		spot = Box(left, top, labelWidth, CELL_HEIGHT)
-		clearance = Box(spot.left - 1, spot.top - 1, spot.width + 2, spot.height + 2)
-		if not any(child.rect.intersection(clearance) for child in box.children):
-			return spot
+	lefts = range(r.left + inset, r.right - inset - labelWidth + 1)
+	for top in (r.top + inset, r.bottom - inset - CELL_HEIGHT):
+		for left in lefts:
+			spot = Box(left, top, labelWidth, CELL_HEIGHT)
+			clearance = Box(spot.left - 1, spot.top - 1, spot.width + 2, spot.height + 2)
+			if not any(child.rect.intersection(clearance) for child in box.children):
+				return spot
 	return None
 
 
-def _detailsFor(region: Region) -> list[str]:
-	"""What a box holds, in the words a press says, most telling first. See `Region.counts`.
+#: The short word each count is drawn with: NVDA's own braille abbreviation for the role, which
+#: a braille reader meets on every line, rather than the word a press says. NVDA supplies them
+#: in the reader's language (`CountStyle`); these English ones are for when it does not. Fields
+#: are drawn as edit fields, which most are; a press says "fields".
+COUNT_WORDS = {"links": "lnk", "buttons": "btn", "fields": "edt", "tabs": "tab", "sections": "sect"}
+
+
+@dataclass(frozen=True)
+class CountStyle:
+	"""How counts are drawn for this reader and this display.
+
+	:ivar words: the short word for each kind of count, as `COUNT_WORDS`.
+	:ivar shapes: the glyph drawn in place of the word, as rows of pins ("O" raised), for each
+		kind of count that has one, when the reader has glyphs on and the display can show
+		them. Empty for words throughout.
+	"""
+
+	words: dict = field(default_factory=lambda: dict(COUNT_WORDS))
+	shapes: dict = field(default_factory=dict)
+
+
+@dataclass
+class _Count:
+	"""One count ready to place: the words a press says, and what is drawn for it."""
+
+	text: str
+	#: The number, in braille cells.
+	number: list[int]
+	#: The short word after it, in braille cells; empty for a number alone or a shape.
+	word: list[int] = field(default_factory=list)
+	#: A glyph drawn after the number instead of the word, as rows of pins.
+	shape: list[str] | None = None
+
+	@property
+	def numberWidth(self) -> int:
+		return _labelWidth(len(self.number))
+
+	@property
+	def wordWidth(self) -> int:
+		if self.shape:
+			return len(self.shape[0])
+		return _labelWidth(len(self.word))
+
+	@property
+	def wordGap(self) -> int:
+		"""Pins from the number's left to the word's: a blank cell between, as a space; a glyph
+		follows straight on, its shape being no letter to run into the number."""
+		if self.shape:
+			return len(self.number) * CELL_STRIDE
+		return len(self.number) * CELL_STRIDE + CELL_STRIDE
+
+	@property
+	def hasWord(self) -> bool:
+		return bool(self.shape or self.word)
+
+	@property
+	def oneLineWidth(self) -> int:
+		return self.wordGap + self.wordWidth if self.hasWord else self.numberWidth
+
+
+def _countsFor(region: Region, translate: Callable[[str], list[int]], style: CountStyle) -> list[_Count]:
+	"""What a box holds, most telling first, ready to draw. See `Region.counts`.
 
 	A tab strip's own count is just the number: its label already says tabs.
 	"""
-	words = []
+	counts = []
 	for name, count in region.counts:
-		ownCount = (region.kind, name) in (("tabs", "tabs"),)
-		words.append(str(count) if ownCount else countWords(name, count))
-	return words
+		number = translate(str(count))
+		if not number:
+			continue
+		if (region.kind, name) == ("tabs", "tabs"):
+			counts.append(_Count(str(count), number))
+			continue
+		shape = style.shapes.get(name)
+		word = [] if shape else translate(style.words.get(name, name))
+		counts.append(_Count(countWords(name, count), number, word, shape or None))
+	return counts
 
 
-def _placeDetails(box: DrawnBox, details: list[tuple[str, list[int]]]) -> None:
+def _placeDetails(box: DrawnBox, counts: list[_Count]) -> None:
 	"""Put a box's counts with its label, as many as there is already room for, in order.
 
 	On the label's own line first, after a blank cell, so the first reads as one phrase with
-	it, "nav 8 links"; then on lines of their own a blank row apart, under the label, or over it
-	for a label in a bottom corner. Counts on one line are a blank cell apart. They go in order
-	and stop at the first that will not fit anywhere left, so a count is never shown while a
-	more telling one is not.
+	it, "nav #f lnk"; then on the lines under the label, or over it for a label in a bottom
+	corner. The lines follow one another with no blank row between, as the Monarch's lines of
+	text do. Counts on one line are a blank cell apart. They go in order and stop at the first
+	that will not fit anywhere left, so a count is never shown while a more telling one is not.
+
+	A count that does not fit where the last one ended is looked for on every line down the box
+	(up it, for a label at the bottom), at the label's left and then anywhere clear along the
+	line (found on Fabula's coffee: a box whose next line was blocked at the label's left by a
+	box inside got no count, with free lines below it). Where it fits on no line whole, its
+	number may go on one line and its word under it, so a narrow strip down the side of a box
+	still says what the box holds (found on Fabula's main content, whose only room was a strip
+	four cells wide beside the areas inside it).
 
 	Never by making room: the boxes are laid out for their labels alone, and what does not fit,
 	clear of the boxes inside, is left for a press to say. A box with no label or key letter has
 	nothing for counts to belong to, so gets none.
 	"""
 	label, r = box.labelAt, box.rect
-	if label is None or not details:
+	if label is None or not counts:
 		return
 	inset = 1 + LABEL_MARGIN
 	downward = label.top <= r.top + inset
-	step = CELL_HEIGHT + 1
 
 	def lineTop(index: int) -> int:
 		if index == 0:
 			return label.top
-		return label.bottom + 1 + (index - 1) * step if downward else label.top - index * step
+		return label.bottom + (index - 1) * CELL_HEIGHT if downward else label.top - index * CELL_HEIGHT
 
 	def fits(spot: Box) -> bool:
 		if spot.top < r.top + inset or spot.bottom > r.bottom - inset:
@@ -619,29 +728,63 @@ def _placeDetails(box: DrawnBox, details: list[tuple[str, list[int]]]) -> None:
 		clearance = Box(spot.left - 1, spot.top - 1, spot.width + 2, spot.height + 2)
 		return not any(child.rect.intersection(clearance) for child in box.children)
 
+	def inBox(index: int) -> bool:
+		top = lineTop(index)
+		return top >= r.top + inset and top + CELL_HEIGHT <= r.bottom - inset
+
+	def whole(count: _Count, left: int, index: int) -> list[Box] | None:
+		spot = Box(left, lineTop(index), count.oneLineWidth, CELL_HEIGHT)
+		return [spot] if fits(spot) else None
+
+	def stacked(count: _Count, left: int, index: int) -> list[Box] | None:
+		# The number on this line and the word on the next, both from the same left; the next
+		# line is above, for a label at the bottom, and the number still reads first.
+		if not count.hasWord or index == 0 or not inBox(index + 1):
+			return None
+		upper, lower = sorted((lineTop(index), lineTop(index + 1)))
+		spots = [
+			Box(left, upper, count.numberWidth, CELL_HEIGHT),
+			Box(left, lower, count.wordWidth, CELL_HEIGHT),
+		]
+		return spots if all(fits(s) for s in spots) else None
+
 	line, x = 0, label.right + 1 + CELL_STRIDE
-	for text, cells in details:
-		width = _labelWidth(len(cells))
-		if not cells:
-			continue
-		placed = None
-		for _ in range(2):
-			top = lineTop(line)
-			starts = (x,) if x != label.left or line == 0 else (label.left, r.right - inset - width)
-			for left in starts:
-				spot = Box(left, top, width, CELL_HEIGHT)
-				if fits(spot):
-					placed = spot
-					break
-			if placed is not None:
-				break
-			# Not on this line: the next one, from the label's left.
+	for count in counts:
+		# Where the last one ended, to read on from it.
+		spots = whole(count, x, line)
+		while spots is None:
+			# Not there: a line further on, at the label's left, or else anywhere clear on it;
+			# whole if it will go, or else in two.
 			line += 1
-			x = label.left
-		if placed is None:
-			return
-		box.details.append((text, placed, cells))
-		x = placed.right + 1 + CELL_STRIDE
+			if not inBox(line):
+				return
+			lefts = [label.left, *range(r.left + inset, r.right - inset + 1)]
+			for shape in (whole, stacked):
+				spots = next((s for s in (shape(count, left, line) for left in lefts) if s), None)
+				if spots:
+					break
+		marks = _marks(count, spots)
+		left, top = min(s.left for s in spots), min(s.top for s in spots)
+		area = Box(left, top, max(s.right for s in spots) - left, max(s.bottom for s in spots) - top)
+		box.details.append((count.text, area, marks))
+		if len(spots) == 2:
+			line += 1
+		x = spots[-1].right + 1 + CELL_STRIDE
+
+
+def _marks(count: _Count, spots: list[Box]) -> list[tuple[int, int, list]]:
+	"""What to draw for a count placed at these spots: braille cells, as a list of cell values,
+	or a glyph, as a list of rows of pins; each with where its top left is."""
+	first = spots[0]
+	marks: list[tuple[int, int, list]] = [(first.left, first.top, count.number)]
+	if not count.hasWord:
+		return marks
+	if len(spots) == 2:
+		left, top = spots[1].left, spots[1].top
+	else:
+		left, top = first.left + count.wordGap, first.top
+	marks.append((left, top, count.shape or count.word))
+	return marks
 
 
 def _draw(overview: Overview, labels: dict[int, list[int]]) -> None:
@@ -653,8 +796,20 @@ def _draw(overview: Overview, labels: dict[int, list[int]]) -> None:
 			buffer.text(box.labelAt.left, box.labelAt.top, labels[id(box.region)], CELL_STRIDE)
 		elif box.labelAt is not None and box.key:
 			buffer.text(box.labelAt.left, box.labelAt.top, _keyCells(box.key), CELL_STRIDE)
-		for _text, spot, cells in box.details:
-			buffer.text(spot.left, spot.top, cells, CELL_STRIDE)
+		for _text, _area, marks in box.details:
+			for left, top, ink in marks:
+				if ink and isinstance(ink[0], str):
+					_stamp(buffer, ink, left, top)
+				else:
+					buffer.text(left, top, ink, CELL_STRIDE)
+
+
+def _stamp(buffer, rows: list[str], left: int, top: int) -> None:
+	"""Raise the pins of a glyph, given as rows with "O" for a raised pin."""
+	for down, row in enumerate(rows):
+		for across, pin in enumerate(row):
+			if pin not in " .":
+				buffer.setDot(left + across, top + down)
 
 
 #: Braille letters a to z as eight dot cell values (dots 1 to 6 only), for key letters. Not

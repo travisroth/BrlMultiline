@@ -393,6 +393,49 @@ reviewer's own tests for them are kept as `tests/unit/brlMultiline/test_layoutLi
    one tab; and a named area that is all tab strip keeps the strip inside it rather than merging
    it away.
 
+A fourth review, of those fixes at commit 167d19e, found four more. The reviewer's tests are kept
+as `tests/unit/brlMultiline/test_layoutFollowUps.py`:
+
+1. Absorbing a plain wrapper threw away what was inside it: a named form in a wrapper between an
+   accordion's headers was lost. Now the areas with meaning inside an absorbed wrapper go into
+   the strip or accordion that took it (`_meaningfulWithin`).
+2. A tab strip or an accordion kept its first member's offset and not its identifier, so moving
+   to it after the page's text changed went to the old place. Now it keeps both, as blocks do.
+3. A top level area wholly behind a sticky header was still drawn on the screen; only one whose
+   top the header covered was cut. Now one wholly covered gets no height, and so does everything
+   in it. The page view is unaffected.
+4. Drilling in gave areas new key letters. Now the letters are kept on the layout
+   (`_LayoutView.keys`) for every drawing of it, drilled, backed out, zoomed or panned, and start
+   again only when the page is read again. The reviewer's test matched the area by its title;
+   Seeking Alpha has two areas called Latest News, the column and the block heading it, so the
+   test now follows the areas themselves, and checks that backing out gives the same key.
+
+On the Monarch, Fabula's coffee boxes shown by a key letter got no counts, with free lines below.
+A count that did not fit on the label's line was tried on the next line only, at the label's left
+or the right edge. Now every line down the box is tried, at the label's left and then anywhere
+clear along it (`_placeDetails`).
+
+A second Fabula probe showed counts still missing where a reader could see room: "3 links" in
+contracted braille is seven cells, too wide for a box that "3 lnk" fits, and main content's only
+free room was a strip four cells wide down its side. So a count is now drawn as its number and
+NVDA's own braille abbreviation for the role ("lnk", "btn", "edt", "tab", "sect"), from NVDA's
+labels in the reader's language; with glyphs on, on a display that can show them, the role's
+glyph follows the number instead, straight after it, which makes a count three cells and a
+glyph where it was seven cells (`CountStyle`, `_layoutCountStyle`). A count that fits on no line
+whole can go as its number on one line and its word on the next, from the same left, with the
+number always first. And the lines under a label follow one another with no blank row between,
+as the Monarch's lines of text do, which gives a box of three panel lines' height a third line.
+Fields are drawn as "edt", since most are edit fields; a press says "fields".
+
+The same probe had a label pushed against its box's right edge: the box's first product column
+held its top left corner, and a label went only in a corner. Now a label goes in the top left
+corner if it is clear, or else at the leftmost clear place along the top, just past the box
+holding the corner, or else the same along the bottom (`_labelSpot`). The counts follow it.
+
+Search is on most pages and is often what a reader wants first, so its key letter is always s
+and no other area is given s (`RESERVED_KEYS`); a second search box takes an ordinary letter.
+On Fabula, search had been a.
+
 The first review asked for three more things, done as well: regions carry where they start in
 browse mode's text (`Region.start`) for a later command that moves to one; the collector shares
 its leaf budget out across links, headings, pictures and fields, spread through the page,

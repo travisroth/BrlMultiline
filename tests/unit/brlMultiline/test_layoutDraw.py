@@ -37,7 +37,17 @@ sys.path.insert(
 from pinBuffer import PinBuffer  # noqa: E402
 
 from brlMultiline.layoutCollect import Collector  # noqa: E402
-from brlMultiline.layoutDraw import MIN_BOX, _Ruler, compose, composeFitting  # noqa: E402
+from brlMultiline.layoutDraw import (  # noqa: E402
+	MIN_BOX,
+	CountStyle,
+	DrawnBox,
+	_Count,
+	_labelSpot,
+	_placeDetails,
+	_Ruler,
+	compose,
+	composeFitting,
+)
 from brlMultiline.layoutRegions import Box, Region, findRegions, fromProbe  # noqa: E402
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "..", "..", "fixtures", "layout")
@@ -240,14 +250,14 @@ class TestDetailLines(unittest.TestCase):
 		"""Too narrow for both on one line, tall enough for a second line."""
 		page = Region("page", "", Box(0, 0, 1000, 2000), "page")
 		page.children = [
-			Region("navigation", "", Box(0, 0, 320, 2000), "landmark", 8),
+			Region("navigation", "", Box(0, 0, 220, 2000), "landmark", 8),
 			Region("main", "", Box(320, 0, 680, 2000), "landmark"),
 		]
 		overview = compose(PinBuffer, page, WIDTH, HEIGHT, "page", page.box, translate, 1)
 		nav = overview.boxes[0]
 		self.assertEqual(nav.detail, "8 links")
 		self.assertEqual(nav.detailAt.left, nav.labelAt.left)
-		self.assertEqual(nav.detailAt.top, nav.labelAt.bottom + 1, "a blank row between the lines")
+		self.assertEqual(nav.detailAt.top, nav.labelAt.bottom, "line after line, as the Monarch's text")
 
 	def test_oneLinkIsOneLink(self):
 		overview = compose(
@@ -340,6 +350,167 @@ class TestSeveralDetails(unittest.TestCase):
 		page.children = [main]
 		overview = compose(PinBuffer, page, WIDTH, HEIGHT, "page", page.box, translate, 1)
 		self.assertEqual(overview.describeAt(5, 30), "main content, filling it, 1 field, 8 links")
+
+
+class TestLookingDownTheBox(unittest.TestCase):
+	"""A count blocked where it would go first is looked for further down the box.
+
+	Found on Fabula's coffee: boxes shown by a key letter got no count, with free lines below.
+	"""
+
+	def place(self, rect, children, text="2 fields"):
+		region = Region("area", "", Box(0, 0, 10, 10), "geometry")
+		kids = [DrawnBox(region, Box(*c), 2) for c in children]
+		box = DrawnBox(region, Box(*rect), 1, key="a", children=kids, labelAt=Box(2, 2, 2, 4))
+		_placeDetails(box, [_Count(text, translate(text))])
+		return box
+
+	def test_aLineFurtherDown(self):
+		"""The label's line and the two under it are blocked by a box inside; the third is free."""
+		box = self.place((0, 0, 40, 30), [(12, 1, 12, 12)])
+		self.assertEqual(box.detail, "2 fields")
+		self.assertEqual(box.detailAt.left, box.labelAt.left)
+		self.assertGreater(box.detailAt.top, 12)
+
+	def test_furtherAlongTheLine(self):
+		"""Under the label, small boxes inside at the left and the right, with room between."""
+		box = self.place((0, 0, 60, 14), [(10, 1, 6, 4), (2, 9, 4, 3), (50, 8, 6, 4)])
+		self.assertEqual(box.detail, "2 fields")
+		self.assertEqual(box.detailAt.top, box.labelAt.bottom)
+		self.assertGreater(box.detailAt.left, 6)
+
+	def test_stillNeverOutsideTheBox(self):
+		box = self.place((0, 0, 40, 12), [(12, 1, 12, 10)])
+		self.assertEqual(box.details, [])
+
+
+class TestHowACountIsDrawn(unittest.TestCase):
+	"""A count is its number and NVDA's abbreviation for the role, or the role's glyph.
+
+	Found on Fabula's coffee: "3 links" in full did not fit a box that "3 lnk" did, and main
+	content's only room was a strip four cells wide down its side.
+	"""
+
+	def drawn(self, width, height=2000, style=None, **counts):
+		page = Region("page", "", Box(0, 0, 1000, 2000), "page")
+		area = Region("navigation", "", Box(0, 0, width, height), "landmark", counts.pop("links", 0))
+		for name, value in counts.items():
+			setattr(area, name, value)
+		page.children = [area, Region("main", "", Box(width, 0, 1000 - width, 2000), "landmark")]
+		return compose(PinBuffer, page, WIDTH, HEIGHT, "page", page.box, translate, 1, style=style).boxes[0]
+
+	def inks(self, box):
+		return [ink for _, _, marks in box.details for _, _, ink in marks]
+
+	def test_theRolesAbbreviationAfterTheNumber(self):
+		box = self.drawn(400, links=8, buttons=2, fields=3)
+		self.assertEqual([t for t, _, _ in box.details], ["3 fields", "2 buttons", "8 links"])
+		self.assertEqual(
+			self.inks(box),
+			[
+				translate("3"),
+				translate("edt"),
+				translate("2"),
+				translate("btn"),
+				translate("8"),
+				translate("lnk"),
+			],
+		)
+
+	def test_theReadersOwnWords(self):
+		style = CountStyle(words={"links": "lien"})
+		box = self.drawn(400, style=style, links=8)
+		self.assertEqual(self.inks(box), [translate("8"), translate("lien")])
+
+	def test_aGlyphInPlaceOfTheWord(self):
+		shape = ["O.O", ".O.", "O.O", "..."]
+		box = self.drawn(400, style=CountStyle(shapes={"links": shape}), links=8)
+		(_, area, marks) = box.details[0]
+		self.assertEqual(marks[1][2], shape)
+		self.assertEqual(marks[1][0], area.left + 3, "straight after the number")
+		self.assertEqual(area.width, 3 + 3, "one cell and the glyph")
+
+	def test_aNarrowStripTakesTheNumberThenTheWordUnderIt(self):
+		"""Four cells across: "#bb" fits, and "edt" fits, but not both on one line."""
+		box = self.drawn(140, links=0, fields=22)
+		(_, area, marks) = box.details[0]
+		(nx, ny, number), (wx, wy, word) = marks
+		self.assertEqual(number, translate("22"))
+		self.assertEqual(word, translate("edt"))
+		self.assertEqual(nx, wx, "the word under the number")
+		self.assertEqual(wy, ny + 4, "on the next line")
+		self.assertEqual(area.height, 8)
+
+	def test_aTabStripsNumberAlone(self):
+		page = Region("page", "", Box(0, 0, 1000, 1000), "page")
+		strip = Region("tabs", "", Box(0, 0, 1000, 400), "widget")
+		strip.tabs = 5
+		page.children = [strip, Region("main", "", Box(0, 400, 1000, 600), "landmark")]
+		box = compose(PinBuffer, page, WIDTH, HEIGHT, "page", page.box, translate, 1).boxes[0]
+		self.assertEqual(self.inks(box), [translate("5")])
+
+	def test_stackedOverABottomLabelTheNumberStillComesFirst(self):
+		region = Region("area", "", Box(0, 0, 10, 10), "geometry")
+		region.fields = 22
+		box = DrawnBox(region, Box(0, 0, 16, 30), 1, key="a", labelAt=Box(3, 24, 2, 4))
+		_placeDetails(box, [_Count("22 fields", translate("22"), translate("edt"))])
+		(number, _), (word, _) = [(y, ink) for _, y, ink in box.details[0][2]]
+		self.assertLess(number, word, "the number above the word")
+		self.assertLess(word, 24, "both above the label")
+
+
+class TestWhereALabelGoes(unittest.TestCase):
+	"""Top left, or else just past the box inside that holds the corner."""
+
+	def box(self, *children):
+		region = Region("area", "", Box(0, 0, 10, 10), "geometry")
+		kids = [DrawnBox(region, Box(*c), 2) for c in children]
+		return DrawnBox(region, Box(16, 24, 57, 15), 1, children=kids)
+
+	def test_theTopLeftCornerWhenItIsClear(self):
+		self.assertEqual(_labelSpot(self.box(), 17), Box(18, 26, 17, 4))
+
+	def test_justRightOfAColumnHoldingTheCorner(self):
+		"""Found on Fabula's coffee: pushed to the far right edge, with room left of it unused."""
+		spot = _labelSpot(self.box((17, 25, 21, 13)), 17)
+		self.assertEqual(spot.top, 26)
+		self.assertEqual(spot.left, 17 + 21 + 1, "a pin clear of the column, and no further")
+
+	def test_alongTheBottomWhenTheTopIsFull(self):
+		spot = _labelSpot(self.box((17, 25, 55, 6)), 17)
+		self.assertEqual((spot.left, spot.bottom), (18, 24 + 15 - 2))
+
+
+class TestSearchIsAlwaysS(unittest.TestCase):
+	"""Search is on most pages, so its key letter is always s, found without a press."""
+
+	def test_fabulasSearchIsS(self):
+		page, viewport = loadPage("fabula-firefox-top.json")
+		keys = {}
+		overview = composeFitting(PinBuffer, page, WIDTH, 40, "screen", viewport, translate, 3, keys=keys)
+		search = [b for b in overview.walk() if b.region.kind == "search"]
+		self.assertTrue(search)
+		self.assertEqual([b.key for b in search], ["s"])
+		self.assertIn("s, search", overview.keyText())
+
+	def test_nothingElseIsS(self):
+		for name in sorted(os.listdir(FIXTURES)):
+			with self.subTest(page=name):
+				for box in draw(name).walk():
+					if box.key == "s":
+						self.assertEqual(box.region.kind, "search", box.region.title)
+
+	def test_aSecondSearchTakesAnOrdinaryLetter(self):
+		page = Region("page", "", Box(0, 0, 1000, 1000), "page")
+		banner = Region("banner", "", Box(0, 0, 1000, 100), "landmark")
+		banner.children = [
+			Region("search", "", Box(400, 10, 20, 20), "landmark"),
+			Region("search", "", Box(900, 10, 20, 20), "landmark"),
+		]
+		page.children = [banner, Region("main", "", Box(0, 100, 1000, 900), "landmark")]
+		overview = compose(PinBuffer, page, WIDTH, HEIGHT, "page", page.box, translate, 2)
+		keys = sorted(b.key for b in overview.walk() if b.region.kind == "search")
+		self.assertEqual(keys, ["a", "s"])
 
 
 class TestTheScreenIsNotSqueezed(unittest.TestCase):
@@ -443,6 +614,43 @@ class FakeDrawingMode:
 
 	def holdsFocus(self):
 		return True
+
+
+class TestTheCountStyleForThisReader(unittest.TestCase):
+	"""NVDA's own role labels, and glyphs only when wanted and the display can show them."""
+
+	def setUp(self):
+		from unittest import mock
+
+		from . import test_plugin
+
+		self.mock = mock
+		self.module = sys.modules[test_plugin.GlobalPlugin.__module__]
+
+	def styleWith(self, wanted, supported):
+		module, mock = self.module, self.mock
+		surface = mock.Mock(driver=object())
+		with (
+			mock.patch.object(module, "graphicsFindSurface", return_value=surface),
+			mock.patch.object(module.glyphFlow, "enabled", return_value=wanted),
+			mock.patch.object(module.glyphs, "supported", return_value=supported),
+		):
+			return module._layoutCountStyle()
+
+	def test_nvdasWordsWithoutGlyphs(self):
+		style = self.styleWith(False, True)
+		self.assertEqual(style.words["links"], "lnk")
+		self.assertEqual(style.words["buttons"], "btn")
+		self.assertEqual(style.words["fields"], "edt")
+		self.assertEqual(style.shapes, {})
+
+	def test_glyphsWhenWantedAndShown(self):
+		style = self.styleWith(True, True)
+		self.assertEqual(set(style.shapes), {"links", "buttons", "fields"})
+		self.assertEqual(style.shapes["links"], self.module.glyphs.patternRows(self.module.glyphs.LINK.dots))
+
+	def test_noGlyphsOnADisplayThatCannotShowThem(self):
+		self.assertEqual(self.styleWith(True, False).shapes, {})
 
 
 class TestDrillingInAndBackingOut(unittest.TestCase):

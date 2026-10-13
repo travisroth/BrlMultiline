@@ -463,20 +463,32 @@ def _widgets(region: Region) -> None:
 		box = unionOf(n.box for n in run)
 		if box is None or not _isSizeable(box):
 			continue
-		starts = [n.start for n in run if n.start is not None]
-		widget = Region(kind, "", box, "widget", start=min(starts) if starts else None)
+		# Where the first member is, and what finds it again once the text around it has moved
+		# (found in review: a strip kept its first tab's offset and lost its identifier).
+		starts = [(n.start, n.ident) for n in run if n.start is not None]
+		widget = Region(kind, "", box, "widget")
+		if starts:
+			widget.start, widget.anchor = min(starts, key=lambda pair: pair[0])
 		if kind == "tabs":
 			widget.tabs = len(run)
 		else:
 			widget.sections = len(run)
 		added.append(widget)
 	if added:
-		# The plain wrappers a strip or an accordion was found through are part of it now.
-		kept = [
-			c
-			for c in region.children
-			if not (_isPlainWrapper(c) and any(w.box.intersection(c.box) == c.box for w in added))
-		]
+		# The plain wrappers a strip or an accordion was found through are part of it now; the
+		# areas with meaning inside them go into it, not away with the wrapper (found in review:
+		# a named form in a wrapper between an accordion's headers was lost).
+		kept = []
+		for c in region.children:
+			holder = _isPlainWrapper(c) and next(
+				(w for w in added if w.box.intersection(c.box) == c.box), None
+			)
+			if holder:
+				holder.children.extend(_meaningfulWithin(c))
+			else:
+				kept.append(c)
+		for widget in added:
+			widget.children.sort(key=lambda r: (r.box.top, r.box.left))
 		region.children = sorted(kept + added, key=lambda r: (r.box.top, r.box.left))
 
 
@@ -487,15 +499,21 @@ def _takenWithin(region: Region) -> list[Box]:
 	area inside them, the strips and accordions already found there included, so the same tabs
 	are not made into a strip a second time a level up.
 	"""
-	taken = []
+	return [r.box for r in _meaningfulWithin(region)]
+
+
+def _meaningfulWithin(region: Region) -> list[Region]:
+	""":return: the areas with a name or a kind of their own a region holds, looking through
+	plain wrappers to the ones inside them."""
+	found = []
 	stack = list(region.children)
 	while stack:
 		child = stack.pop()
 		if _isPlainWrapper(child):
 			stack.extend(child.children)
 		else:
-			taken.append(child.box)
-	return taken
+			found.append(child)
+	return found
 
 
 def _isPlainWrapper(region: Region) -> bool:

@@ -47,6 +47,7 @@ from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
 from . import layoutCollect, layoutDraw, layoutRegions
 from . import image as imageFigure, imagePins, imageSource
 from .flowTableSource import wantsColumns
+from .graphics import findSurface as graphicsFindSurface
 from .graphicsMode import FIT as GRAPHICS_FIT, PANEL_NAME as GRAPHICS_PANEL_NAME, GraphicsMode
 from . import devices as devicesModule
 from .devices import (
@@ -104,6 +105,47 @@ class _LayoutView:
 		self.pressed = None
 		#: The drawing on the display, so a drill can tell it is still this overview that is up.
 		self.drawing = None
+		#: Key letters given out, by region, kept for every drawing of this reading of the page,
+		#: so an area keeps its letter when drilled into, backed out of, zoomed or panned (found
+		#: in review: drilling into main content gave Latest News a new letter).
+		self.keys: dict = {}
+
+
+#: The role NVDA names each count of a page's layout by, in its braille labels, and the glyph
+#: drawn for it where there is one.
+LAYOUT_COUNT_ROLES = {
+	"links": ("LINK", glyphs.LINK),
+	"buttons": ("BUTTON", glyphs.BUTTON),
+	"fields": ("EDITABLETEXT", glyphs.EDIT),
+	"tabs": ("TAB", None),
+	"sections": ("SECTION", None),
+}
+
+
+def _layoutCountStyle() -> "layoutDraw.CountStyle":
+	""":return: how a page layout's counts are drawn for this reader and this display.
+
+	With NVDA's own braille abbreviation for each role, in the reader's language, as every line
+	of braille they read has it; and with the role's glyph instead, where the reader has asked
+	for glyphs and the display drawing the layout can show them.
+	"""
+	words = dict(layoutDraw.COUNT_WORDS)
+	try:
+		from braille.labels import roleLabels
+
+		written = {getattr(member, "name", ""): label for member, label in roleLabels.items()}
+		for count, (role, _glyph) in LAYOUT_COUNT_ROLES.items():
+			if written.get(role):
+				words[count] = written[role]
+	except Exception:
+		log.debugWarning("BrlMultiline: NVDA's braille labels could not be read", exc_info=True)
+	shapes = {}
+	surface = graphicsFindSurface()
+	if surface is not None and glyphFlow.enabled() and glyphs.supported(surface.driver):
+		for count, (_role, glyph) in LAYOUT_COUNT_ROLES.items():
+			if glyph is not None:
+				shapes[count] = glyphs.patternRows(glyph.dots)
+	return layoutDraw.CountStyle(words, shapes)
 
 
 def _pageIdentity(document) -> tuple:
@@ -3853,7 +3895,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""
 		mode = self.graphicsMode
 		width, height = size
-		keys: dict = {}
+		keys: dict = state.keys if state is not None else {}
+		style = _layoutCountStyle()
 		whole = layoutDraw.focusWindow(page, view, viewport, focus)
 		if view == "page":
 			screens = whole.height / max(viewport.height, 1)
@@ -3868,6 +3911,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				LAYOUT_DEPTH,
 				keys=keys,
 				focus=focus,
+				style=style,
 			)
 		else:
 			# The screen as tall as it has to be for everything on it to be drawn, rather than
@@ -3883,6 +3927,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				LAYOUT_DEPTH,
 				keys=keys,
 				focus=focus,
+				style=style,
 			)
 		if source is None:
 			return None
@@ -3930,6 +3975,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				window=window,
 				keys=keys,
 				focus=focus,
+				style=style,
 			)
 			if part is None:
 				return None

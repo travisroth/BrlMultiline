@@ -1017,16 +1017,21 @@ accessibility, or when you have made a page and want to check it looks the way y
 can see as boxes in their places: the banner, the navigation, the main content, a sidebar, the
 search field, the footer, and the areas inside them where there is room. Each box has a short
 label inside it, such as nav, main, side, foot or find, and where the box already has room, what
-it holds: tabs or sections first, then form fields, then buttons, then links, as in nav 8 links
-or form 4 fields 1 button. These go on the label's line, then on lines under it. Boxes are not
-made bigger for them, so small boxes show fewer or none, and a press always says them all.
+it holds: tabs or sections first, then form fields, then buttons, then links, as in nav 8 lnk
+or form 4 edt 1 btn. Each is a number and NVDA's own braille abbreviation for the role, in your
+language; with glyphs turned on, on a display that can show them, the role's glyph follows the
+number instead, which takes less room still. These go on the label's line, then on the lines
+under it, one after another as lines of text are. Where a box has only a narrow strip free, a
+number can go on one line and its word on the next. Boxes are not made bigger for them, so small
+boxes show fewer or none, and a press always says them all in full.
 
 Tab strips and accordions are areas of their own, labelled tabs and accord: two or more tabs in
 a row, or two or more headers that expand stacked one under another. A form with three or more
 fields is an area too, labelled form and named by its first heading, since a sign in, a search
 or a checkout is often what a page is for. A box too small for its label gets a letter
 instead, and the key to the letters on the panel is spoken after the drawing appears and
-after each move. Press a routing key inside a box to hear what it is in full, where it is on the
+after each move. Search is always s, and no other area is given s, so you can find the search
+field by its letter without asking. Press a routing key inside a box to hear what it is in full, where it is on the
 page, and how many links it holds. Press a routing key in the same box again to move there: the
 browse mode cursor goes to the start of that area, as if you had moved there by quick navigation.
 There is no hurry, and it need not be the same routing key, only the same box; a press in a
