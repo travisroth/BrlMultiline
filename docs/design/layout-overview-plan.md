@@ -141,6 +141,39 @@ search at the top, a navigation pane on the left, the file list in the center an
 at the bottom. The source differs; the tree, the layout and the drawing are the same code. Web
 first, since it is the harder case and the one asked for.
 
+That is the expectation; `spikes/appLayoutProbe.py` is what tests it, as the web probe tested
+the web plan. It reads the foreground window's UI Automation control view, one cached call per
+element with children, recording each element's control type, name, automation id, class,
+framework, rectangle, offscreen and focus state, landmark type and runtime id, and where the
+focus was. `probe.cost()` times that against one subtree cache call for the whole window. Its
+questions: which control types frame the main areas and whether they are named; whether the
+rectangles are sensible; whether WinUI, WebView2 and Electron applications report landmarks;
+what reading the tree costs; and how the focus can be placed in an area. Planned captures: File
+Explorer, Outlook or Mail, Settings, and an older Win32 application such as Notepad++ or an
+MMC console.
+
+The first captures (Notepad, Outlook, askSam, Settings, Explorer) showed the walk spending its
+budget on items: 612 of Explorer's 800 elements were navigation tree items, and its address bar
+was never reached. Explorer's inactive tabs reported the same rectangle as the active one, not
+offscreen; Outlook's folder tree reported its scrolled content as its height; and old
+applications put line breaks in names. So the probe now counts items on what holds them rather
+than walking them, never asks a leaf for its children, clips each rectangle to the one around
+it, and trims names. Reading cost ran from 1 ms an element (Settings) to 10 ms (askSam, through
+the MSAA bridge).
+
+The second captures (Outlook, Explorer, askSam, Excel) read each window in 125 elements or fewer,
+in a quarter of a second, except askSam at two seconds for 58: about 65 ms a call through the
+bridge, and six seconds for its whole tree in one call, so a live collector for old applications
+has to work in batches under a time limit, as the web one does. Excel is the clearest: ribbon
+tabs, the ribbon's named groups (Clipboard, Font, Alignment), the sheet tabs, the grid and the
+status bar, with hidden sheets offscreen and without a rectangle. Asking Windows whether a
+window is visible was wrong both ways in Explorer: the inactive tabs are visible windows, and the
+address bar, a XAML island, has a hidden input site under a visible bridge window. So an element
+in a window of its own is now tested by which child window the application's own window has on
+top at its middle and near its corners (`ChildWindowFromPointEx`, which ignores other
+applications); a window on top that is neither it, inside it nor around it covers it. The focus
+is recorded with every element above it, so an overview can say which area holds it.
+
 ## Testing
 
 `layoutOverviewProbe.save()` writes a JSON file with the candidates, the accessible tree and
