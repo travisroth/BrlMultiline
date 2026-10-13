@@ -207,8 +207,33 @@ message list, reading pane with its toolbar and message, and status bar; askSam 
 toolbar panes, its folders with two lists, its document and status bar; Settings its search,
 navigation, an unnamed navigation list, and main with its named cards; Notepad its tabs, menu
 bar, document and status strip. Not yet: unnamed toolbars could be named from their automation
-ids ("FileExplorerCommandBar"), as the web rules name areas by id; and nothing collects live, or
-moves to an area, yet.
+ids ("FileExplorerCommandBar"), as the web rules name areas by id; and nothing moves to an area
+yet.
+
+**Live, the same commands read the window** when the focus is not in a browse mode document:
+`appCollect.AppCollector` gathers the foreground window's control view with the probe's rules
+(items counted, leaves not asked for children, covered windows skipped, rectangles clipped, the
+focus path recorded) in batches of four calls with a return to NVDA's message loop between them,
+under the web collector's eight second limit, and hands `findAppRegions` the probe's shape. A
+limit reached is said ("Only part of the window could be read"). The drawing is the screen view
+of the window; the page command draws the same, since a window does not scroll, and the text
+command lists it under "Window layout". Presses describe and drilling works as on a page; the
+drawing has no `activateAt`, so a second press describes again rather than moving, until moving
+to an area of a window (focusing it, or putting the navigator on it, by its runtime id) is built.
+
+A fifth review, of commit e6667a4, found four more; the reviewer's tests are kept as
+`tests/unit/brlMultiline/test_layoutReviewE6667a4.py`:
+
+1. A count stacked over a label at the bottom of a box left the next count reading on from the
+   word's end, on the number's line, so the two overlapped. Now the next count reads on from
+   what is on the line it is on.
+2. An application that shows its editor as a plain edit control, not a document, lost it from
+   its layout. Now an edit control at least 60 pixels tall and a tenth of the window is a
+   document area; a form's field is still only counted.
+3. Counting included controls marked outside what holds them, which finding areas leaves out.
+   Both now use one test of whether an element can be seen (`_isHidden`).
+4. NVDA has no braille abbreviation for a tab, and its braille then uses the role's own name in
+   the reader's language; the count kept the English "tab". Now it does as NVDA does.
 
 ## Testing
 

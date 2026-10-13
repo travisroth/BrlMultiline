@@ -1088,6 +1088,23 @@ Some things to expect:
 - On a very long or slow page, you are told if only part of it could be read.
 - Only web pages in Chrome and Firefox have been tried.
 
+### The layout of an application window
+
+The same three commands work in any application window, outside a web page in browse mode. They
+read the window the focus is in, through UI Automation, and draw its menu bar, toolbars and
+ribbon, tab strips, panes, trees, lists, grids, documents and status bar as boxes in their
+places, each with what it holds: tabs, items, fields, buttons and links. A pane or group with a
+name of its own, such as Folders or a ribbon group like Font, is a box called by that name. The
+areas holding the focus are found too. A window does not scroll like a page, so the whole page
+command draws the same as the on screen one, and the text command lists the window's areas in a
+window titled Window layout.
+
+Pressing a routing key in a box says what it is, and dot 8 and dot 7 drill in and back out as on
+a web page. Pressing twice does not move to the area yet. Older applications that are reached
+through Microsoft Active Accessibility are slow to read, a few seconds for a busy window, and
+you are told if only part of the window could be read in the time allowed. It has been tried on
+File Explorer, Excel, Outlook, Settings, Notepad and askSam.
+
 ## Braille symbols and your own substitutions
 
 ### Symbol names
@@ -1363,10 +1380,12 @@ These have no key:
 None of these has a key; assign them in NVDA's Input gestures dialog. See [The layout of a web
 page](#the-layout-of-a-web-page).
 
-- **Overview: Draw the layout of the part of the page on screen**: the main areas of the web page
-  on screen, drawn as labelled boxes in their places.
+- **Overview: Draw the layout of the part of the page on screen, or of the window**: the main
+  areas of the web page on screen, drawn as labelled boxes in their places; outside a web page,
+  the areas of the application window.
 - **Overview: Draw the layout of the whole page**: the same for the whole page, top to bottom.
-- **Overview: Show the layout of the page as text**: the same areas as lines of text in a window.
+- **Overview: Show the layout of the page, or of the window, as text**: the same areas as lines of
+  text in a window.
 - **Overview: Show what is inside the area last pressed in a page's layout**: dot 8 on the Monarch
   while a layout is drawn.
 - **Overview: Go back out to the area around, in a page's layout**: dot 7 on the Monarch while a

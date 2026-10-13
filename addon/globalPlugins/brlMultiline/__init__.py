@@ -44,7 +44,7 @@ from . import tableHeaderSpeech
 from . import userBrailleTable
 from .container import DisplayContainer
 from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
-from . import layoutCollect, layoutDraw, layoutRegions
+from . import appCollect, appRegions, layoutCollect, layoutDraw, layoutRegions
 from . import image as imageFigure, imagePins, imageSource
 from .flowTableSource import wantsColumns
 from .graphics import findSurface as graphicsFindSurface
@@ -90,11 +90,14 @@ class _LayoutView:
 	rather than reading it again, and so that the area last pressed is what a drill goes into.
 	"""
 
-	def __init__(self, page, view: str, viewport, document, identity=None):
+	def __init__(self, page, view: str, viewport, document, identity=None, app: bool = False):
 		self.page = page
 		self.view = view
 		self.viewport = viewport
 		self.document = document
+		#: Whether this is an application window's layout rather than a web page's: there is no
+		#: page to scroll, and nothing yet to move to.
+		self.app = app
 		#: Which page and which reading of it the layout is of; see `_pageIdentity`.
 		self.identity = tuple(identity) if identity else _pageIdentity(document)
 		#: The area drilled into, or None for the whole page or screen.
@@ -130,15 +133,26 @@ def _layoutCountStyle() -> "layoutDraw.CountStyle":
 	for glyphs and the display drawing the layout can show them.
 	"""
 	words = dict(layoutDraw.COUNT_WORDS)
+	written = {}
 	try:
 		from braille.labels import roleLabels
 
 		written = {getattr(member, "name", ""): label for member, label in roleLabels.items()}
-		for count, (role, _glyph) in LAYOUT_COUNT_ROLES.items():
-			if written.get(role):
-				words[count] = written[role]
 	except Exception:
 		log.debugWarning("BrlMultiline: NVDA's braille labels could not be read", exc_info=True)
+	for count, (role, _glyph) in LAYOUT_COUNT_ROLES.items():
+		label = written.get(role)
+		if not label:
+			# As NVDA's braille does for a role with no abbreviation, a tab's among them: the
+			# role's own name, in the reader's language (found in review).
+			try:
+				import controlTypes
+
+				label = getattr(getattr(controlTypes.Role, role, None), "displayString", None)
+			except Exception:
+				label = None
+		if label:
+			words[count] = label
 	shapes = {}
 	surface = graphicsFindSurface()
 	if surface is not None and glyphFlow.enabled() and glyphs.supported(surface.driver):
@@ -3637,7 +3651,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Overview: Draw the layout of the part of the page on screen"),
+		description=_("Overview: Draw the layout of the part of the page on screen, or of the window"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_layoutOverview(self, gesture):
@@ -3649,6 +3663,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		and a press inside a box names the area in full. See
 		`docs/design/layout-overview-plan.md`.
 
+		Outside a web page in browse mode, it draws the window the focus is in instead: its
+		toolbars, ribbon, panes, lists and status bar, from UI Automation. See `appRegions`.
+
 		Unbound by default, like the other drawings that are not used while reading.
 		"""
 		self._layoutOverview("screen")
@@ -3659,12 +3676,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		category=SCRIPT_CATEGORY,
 	)
 	def script_layoutOverviewPage(self, gesture):
-		"""The same overview for the whole page, top to bottom, rather than the screen's worth."""
+		"""The same overview for the whole page, top to bottom, rather than the screen's worth.
+		In an application, where there is no page to scroll, the same as the window's."""
 		self._layoutOverview("page")
 
 	@script(
 		# Translators: input help message for a command.
-		description=_("Overview: Show the layout of the page as text"),
+		description=_("Overview: Show the layout of the page, or of the window, as text"),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_layoutOverviewText(self, gesture):
@@ -3686,8 +3704,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._cancelPictureRequest()
 		document = getattr(api.getFocusObject(), "treeInterceptor", None)
 		if document is None or not hasattr(document, "_iterNodesByType") or not hasattr(document, "VBufHandle"):
-			# Translators: reported when the layout overview is asked for outside a web page.
-			ui.message(_("The layout overview needs a web page in browse mode"))
+			self._appLayoutOverview(view)
 			return
 		if not getattr(document, "isReady", True):
 			# Translators: reported when the layout overview is asked for while a page loads.
@@ -3714,38 +3731,97 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		ui.message(_("Reading the page layout"))
 		collector.start()
 
+	def _appLayoutOverview(self, view: str) -> None:
+		"""Gather the layout of the window the focus is in, a batch at a time, then draw or show it.
+
+		The same overview as a web page's, from UI Automation rather than browse mode: see
+		`appCollect` and `appRegions`. A window has no page to scroll, so its whole is its screen.
+		"""
+		window = api.getForegroundObject()
+		if window is None or not getattr(window, "windowHandle", None):
+			# Translators: reported when the layout overview is asked for with no window to read.
+			ui.message(_("No window to read the layout of"))
+			return
+		if view != "text" and self.graphicsMode.drawingSize() is None:
+			view = "text"
+		collector = None
+
+		def gathered(payload, why):
+			if self._terminated or self._layoutCollector is not collector:
+				return
+			self._layoutCollector = None
+			if payload is None:
+				log.debug(f"BrlMultiline: no window layout: {why}")
+				# Translators: reported when the layout of an application window could not be read.
+				ui.message(_("Could not read the layout of this window"))
+				return
+			self._showLayout(payload, view)
+
+		collector = appCollect.AppCollector(window, api.getFocusObject(), gathered)
+		self._layoutCollector = collector
+		# Translators: reported while the add-on reads where things are in an application window.
+		ui.message(_("Reading the window layout"))
+		collector.start()
+
 	def _showLayout(self, payload: dict, view: str, document=None) -> None:
-		"""Work out the page's areas from what was gathered, and draw or show them."""
+		"""Work out the areas from what was gathered, a page's or a window's, and draw or show them."""
+		app = payload.get("kind") == "uia"
 		try:
-			root, viewport = layoutRegions.fromProbe(payload)
-			page = layoutRegions.findRegions(root, viewport)
+			if app:
+				page = appRegions.findAppRegions(
+					payload["window"], payload.get("windowRect"), (payload.get("focus") or {}).get("path")
+				)
+				viewport = page.box
+				# A window does not scroll: its whole is what is on screen.
+				view = "screen" if view == "page" else view
+			else:
+				root, viewport = layoutRegions.fromProbe(payload)
+				page = layoutRegions.findRegions(root, viewport)
 		except Exception:
-			log.error("BrlMultiline: could not work out the page layout", exc_info=True)
-			ui.message(_("Could not read the layout of this page"))
+			log.error("BrlMultiline: could not work out the layout", exc_info=True)
+			if app:
+				ui.message(_("Could not read the layout of this window"))
+			else:
+				ui.message(_("Could not read the layout of this page"))
 			return
 		# Any limit reached other than sampling, which is normal on a busy page, means part of the
 		# page was not read, and an overview of part of a page must not pass for the whole.
 		partial = any(why != "sampled" for why in payload.get("incomplete", ()))
-		# Translators: said after the layout of a web page when only part of it could be read in
-		# the time allowed, such as a very long or slow page.
-		partialNote = _("Only part of the page could be read")
+		if app:
+			# Translators: said after the layout of an application window when only part of it
+			# could be read in the time allowed, such as a slow older application.
+			partialNote = _("Only part of the window could be read")
+		else:
+			# Translators: said after the layout of a web page when only part of it could be read
+			# in the time allowed, such as a very long or slow page.
+			partialNote = _("Only part of the page could be read")
 		if view == "text":
 			lines = layoutRegions.describe(page, 3)
 			if not lines:
-				# Translators: reported when no areas were found on a web page.
-				ui.message(_("No areas found on this page"))
+				if app:
+					# Translators: reported when no areas were found in an application window.
+					ui.message(_("No areas found in this window"))
+				else:
+					# Translators: reported when no areas were found on a web page.
+					ui.message(_("No areas found on this page"))
 				return
 			if partial:
 				lines.append(partialNote)
-			# Translators: the title of the window showing a web page's layout as text.
-			ui.browseableMessage("\n".join(lines), title=_("Page layout"))
+			if app:
+				# Translators: the title of the window showing an application window's layout as
+				# text.
+				title = _("Window layout")
+			else:
+				# Translators: the title of the window showing a web page's layout as text.
+				title = _("Page layout")
+			ui.browseableMessage("\n".join(lines), title=title)
 			return
 		mode = self.graphicsMode
 		size = mode.drawingSize()
 		if size is None:
 			ui.message(_("This display cannot show graphics"))
 			return
-		state = _LayoutView(page, view, viewport, document, payload.get("identity"))
+		state = _LayoutView(page, view, viewport, document, payload.get("identity"), app=app)
 		message = self._enterLayout(state)
 		if message is None:
 			return
@@ -3768,6 +3844,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: the name of the drawing of one area of a web page's layout, drilled
 			# into. The placeholder is the area's name, such as "navigation, Main".
 			name = _("layout of {area}").format(area=state.focus.title)
+		elif state.app:
+			# Translators: the name of the drawing of an application window's layout.
+			name = _("layout of the window")
 		elif state.view == "page":
 			# Translators: the name of the drawing of a whole web page's layout.
 			name = _("layout of the whole page")
@@ -3945,6 +4024,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		identity = state.identity if state is not None else _pageIdentity(document)
 
 		def activator(overview):
+			if state is not None and state.app:
+				# Nothing to move to in an application yet: every press describes.
+				return None
+
 			def activateAt(x, y):
 				box = overview.boxAt(x, y)
 				if box is not None:

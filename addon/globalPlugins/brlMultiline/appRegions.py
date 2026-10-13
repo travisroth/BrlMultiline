@@ -151,8 +151,15 @@ def _isMeaningful(name: str, record: dict, title: str) -> bool:
 	return not _IDENTIFIER.match(name)
 
 
+def _isHidden(record: dict) -> bool:
+	""":return: whether an element cannot be seen: offscreen, covered by another of the
+	application's windows, or outside what holds it. Shared by finding areas and counting what
+	they hold, so an area does not count what it was found without (found in review)."""
+	return bool(record.get("offscreen") or record.get("covered") or record.get("outside"))
+
+
 def _visibleBox(record: dict, bounds: Box) -> Box | None:
-	if record.get("offscreen") or record.get("covered") or record.get("outside"):
+	if _isHidden(record):
 		return None
 	rect = record.get("rect")
 	if not rect:
@@ -194,6 +201,16 @@ def _heldItems(record: dict) -> dict:
 	return held
 
 
+#: An edit control is an editing surface, an area of its own, when it is at least this tall and
+#: takes at least this share of the window: several lines of text, not a field to type a word in.
+EDITOR_MIN_HEIGHT = 60
+EDITOR_MIN_SHARE = 0.1
+
+
+def _isEditingSurface(box: Box, window: Box) -> bool:
+	return box.height >= EDITOR_MIN_HEIGHT and box.area >= window.area * EDITOR_MIN_SHARE
+
+
 def _isStatusStrip(record: dict, box: Box, window: Box) -> bool:
 	""":return: whether an unnamed element is a status bar by where it is and what it holds."""
 	if box.height > STATUS_STRIP_HEIGHT or box.width < window.width * 0.9:
@@ -223,6 +240,10 @@ def _classify(record: dict, title: str, box: Box, window: Box, parent: str) -> t
 		return "", ""
 	if kind in ("Edit", "ComboBox") and mentionsSearch(name, record.get("automationId") or ""):
 		return "search", ""
+	if kind == "Edit" and _isEditingSurface(box, window):
+		# The editor of an application that shows it as a plain edit control rather than a
+		# document, as a classic Notepad does (found in review). A form field is not one.
+		return "document", label
 	if name.lower() == "ribbon":
 		return "ribbon", ""
 	held = _heldItems(record)
@@ -316,7 +337,7 @@ def _tally(record: dict, tally: dict) -> None:
 		elif kind in ITEM_TYPES:
 			tally["items"] += count
 	for child in record.get("children", []):
-		if child.get("offscreen") or child.get("covered"):
+		if _isHidden(child):
 			continue
 		kind = child.get("type")
 		if kind == "TabItem":

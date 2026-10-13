@@ -777,7 +777,11 @@ def _placeDetails(box: DrawnBox, counts: list[_Count]) -> None:
 		box.details.append((count.text, area, marks))
 		if len(spots) == 2:
 			line += 1
-		x = spots[-1].right + 1 + CELL_STRIDE
+		# Read on from the end of what is on the line now reached: after a count stacked over a
+		# label at the bottom, that is the number, above, not the word (found in review: the next
+		# count was placed from the word's end, over the number).
+		onLine = [spot for spot in spots if spot.top == lineTop(line)] or spots
+		x = onLine[-1].right + 1 + CELL_STRIDE
 
 
 def _marks(count: _Count, spots: list[Box]) -> list[tuple[int, int, list]]:

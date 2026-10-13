@@ -243,6 +243,17 @@ class TestTheRules(unittest.TestCase):
 		page = findAppRegions(window(element("Edit", (300, 10, 400, 30), "Search box, Find a setting")))
 		self.assertEqual(kinds(page.children), ["search"])
 
+	def test_aLargeEditIsTheEditorAndAFieldIsNot(self):
+		"""A classic editor shows its text as a plain edit control; a form's field is counted."""
+		page = findAppRegions(
+			window(
+				element("Edit", (0, 40, 1000, 600), "Text Editor"),
+				element("Pane", (0, 640, 1000, 60), "Options", [element("Edit", (10, 650, 300, 24), "Name")]),
+			)
+		)
+		self.assertEqual([r.title for r in page.children], ["document, Text Editor", "area, Options"])
+		self.assertEqual(page.children[1].fields, 1)
+
 	def test_countsInTheWholeOfAnArea(self):
 		inner = element(
 			"Group",
