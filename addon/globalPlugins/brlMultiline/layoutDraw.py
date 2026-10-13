@@ -50,6 +50,14 @@ SHORT_LABELS = {
 	"table": "table",
 	"tabs": "tabs",
 	"accordion": "accord",
+	"menubar": "menu",
+	"toolbar": "tools",
+	"ribbon": "ribbon",
+	"statusbar": "status",
+	"tree": "tree",
+	"list": "list",
+	"grid": "grid",
+	"document": "doc",
 }
 
 #: Pins a braille cell takes across, with the gap after it, and down.

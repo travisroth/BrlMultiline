@@ -1,0 +1,2948 @@
+{
+ "kind": "uia",
+ "window": {
+  "type": "Window",
+  "localizedType": "window",
+  "name": "Settings",
+  "className": "ApplicationFrameWindow",
+  "framework": "Win32",
+  "rect": [
+   -8,
+   0,
+   1936,
+   1048
+  ],
+  "enabled": true,
+  "focusable": true,
+  "runtimeId": [
+   42,
+   1710098
+  ],
+  "children": [
+   {
+    "type": "Window",
+    "name": "Settings",
+    "automationId": "TitleBar",
+    "className": "ApplicationFrameTitleBarWindow",
+    "framework": "Win32",
+    "rect": [
+     1732,
+     8,
+     188,
+     32
+    ],
+    "enabled": true,
+    "runtimeId": [
+     42,
+     1055184
+    ],
+    "children": [
+     {
+      "type": "MenuBar",
+      "localizedType": "menu bar",
+      "name": "System",
+      "automationId": "SystemMenuBar",
+      "enabled": true,
+      "focusable": true,
+      "runtimeId": [
+       42,
+       1055184,
+       4,
+       0
+      ],
+      "children": [
+       {
+        "type": "MenuItem",
+        "localizedType": "menu item",
+        "name": "System",
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         1055184,
+         4,
+         65535
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Name 1",
+      "automationId": "id1",
+      "rect": [
+       1782,
+       8,
+       46,
+       32
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       1055184,
+       4,
+       1
+      ]
+     },
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Name 2",
+      "automationId": "Maximize",
+      "rect": [
+       1828,
+       8,
+       46,
+       32
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       1055184,
+       4,
+       2
+      ]
+     },
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Name 3",
+      "automationId": "id2",
+      "rect": [
+       1874,
+       8,
+       46,
+       32
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       1055184,
+       4,
+       3
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Window",
+    "localizedType": "window",
+    "name": "Settings",
+    "className": "Windows.UI.Core.CoreWindow",
+    "framework": "XAML",
+    "rect": [
+     0,
+     8,
+     1920,
+     1032
+    ],
+    "enabled": true,
+    "runtimeId": [
+     42,
+     4199570
+    ],
+    "children": [
+     {
+      "type": "Text",
+      "localizedType": "text",
+      "name": "Settings",
+      "automationId": "SettingsLabel",
+      "className": "TextBlock",
+      "framework": "XAML",
+      "rect": [
+       50,
+       24,
+       1682,
+       16
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       4199570,
+       4,
+       112
+      ]
+     },
+     {
+      "type": "Edit",
+      "localizedType": "edit",
+      "name": "Search Name 4",
+      "automationId": "CommandSearchTextBox",
+      "className": "TextBox",
+      "framework": "XAML",
+      "rect": [
+       702,
+       16,
+       516,
+       32
+      ],
+      "enabled": true,
+      "focusable": true,
+      "runtimeId": [
+       42,
+       4199570,
+       4,
+       69
+      ]
+     },
+     {
+      "type": "Custom",
+      "localizedType": "custom",
+      "automationId": "PermanentNavigationView",
+      "framework": "XAML",
+      "rect": [
+       0,
+       8,
+       1920,
+       1032
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       4199570,
+       4,
+       22
+      ],
+      "children": [
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 5",
+        "automationId": "NavigationViewBackButton",
+        "className": "Button",
+        "framework": "XAML",
+        "rect": [
+         4,
+         14,
+         40,
+         36
+        ],
+        "runtimeId": [
+         42,
+         4199570,
+         4,
+         68
+        ]
+       },
+       {
+        "type": "Window",
+        "localizedType": "window",
+        "automationId": "PaneRoot",
+        "className": "SplitViewPane",
+        "framework": "XAML",
+        "rect": [
+         0,
+         8,
+         300,
+         1032
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         4199570,
+         4,
+         26
+        ],
+        "children": [
+         {
+          "type": "Button",
+          "localizedType": "button",
+          "name": "Name 6",
+          "automationId": "UserProfileControlButton",
+          "className": "Button",
+          "framework": "XAML",
+          "rect": [
+           5,
+           57,
+           290,
+           75
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           4199570,
+           4,
+           27
+          ],
+          "children": [
+           {
+            "type": "Image",
+            "localizedType": "image",
+            "name": "Name 7",
+            "className": "Image",
+            "framework": "XAML",
+            "rect": [
+             16,
+             65,
+             60,
+             60
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             28
+            ]
+           },
+           {
+            "type": "Text",
+            "localizedType": "text",
+            "name": "Name 8",
+            "automationId": "UserName",
+            "className": "TextBlock",
+            "framework": "XAML",
+            "rect": [
+             88,
+             78,
+             119,
+             19
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             29
+            ]
+           },
+           {
+            "type": "Text",
+            "localizedType": "text",
+            "name": "Name 9",
+            "automationId": "UserAccount",
+            "className": "TextBlock",
+            "framework": "XAML",
+            "rect": [
+             88,
+             97,
+             119,
+             16
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             30
+            ]
+           }
+          ]
+         },
+         {
+          "type": "Pane",
+          "localizedType": "pane",
+          "automationId": "MenuItemsScrollViewer",
+          "className": "ScrollViewer",
+          "framework": "XAML",
+          "rect": [
+           0,
+           149,
+           300,
+           883
+          ],
+          "enabled": true,
+          "runtimeId": [
+           42,
+           4199570,
+           4,
+           9
+          ],
+          "children": [
+           {
+            "type": "Group",
+            "localizedType": "group",
+            "automationId": "MenuItemsHost",
+            "framework": "XAML",
+            "rect": [
+             16,
+             151,
+             280,
+             476
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             31
+            ],
+            "children": [
+             {
+              "type": "ListItem",
+              "localizedType": "list item",
+              "name": "Home",
+              "className": "Microsoft.UI.Xaml.Controls.NavigationViewItem",
+              "framework": "XAML",
+              "rect": [
+               16,
+               151,
+               280,
+               36
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               18
+              ],
+              "children": [
+               {
+                "type": "Image",
+                "localizedType": "image",
+                "className": "Image",
+                "framework": "XAML",
+                "rect": [
+                 26,
+                 159,
+                 20,
+                 20
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 32
+                ]
+               }
+              ]
+             },
+             {
+              "type": "ListItem",
+              "localizedType": "list item",
+              "name": "System",
+              "className": "Microsoft.UI.Xaml.Controls.NavigationViewItem",
+              "framework": "XAML",
+              "rect": [
+               16,
+               191,
+               280,
+               36
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               34
+              ],
+              "children": [
+               {
+                "type": "Image",
+                "localizedType": "image",
+                "className": "Image",
+                "framework": "XAML",
+                "rect": [
+                 26,
+                 199,
+                 20,
+                 20
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 35
+                ]
+               }
+              ]
+             },
+             {
+              "type": "ListItem",
+              "localizedType": "list item",
+              "name": "Name 10",
+              "className": "Microsoft.UI.Xaml.Controls.NavigationViewItem",
+              "framework": "XAML",
+              "rect": [
+               16,
+               231,
+               280,
+               36
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               64
+              ],
+              "children": [
+               {
+                "type": "Image",
+                "localizedType": "image",
+                "className": "Image",
+                "framework": "XAML",
+                "rect": [
+                 26,
+                 239,
+                 20,
+                 20
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 65
+                ]
+               }
+              ]
+             },
+             {
+              "type": "ListItem",
+              "localizedType": "list item",
+              "name": "Name 11",
+              "className": "Microsoft.UI.Xaml.Controls.NavigationViewItem",
+              "framework": "XAML",
+              "rect": [
+               16,
+               271,
+               280,
+               36
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               61
+              ],
+              "children": [
+               {
+                "type": "Image",
+                "localizedType": "image",
+                "className": "Image",
+                "framework": "XAML",
+                "rect": [
+                 26,
+                 279,
+                 20,
+                 20
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 62
+                ]
+               }
+              ]
+             },
+             {
+              "type": "ListItem",
+              "localizedType": "list item",
+              "name": "Name 12",
+              "className": "Microsoft.UI.Xaml.Controls.NavigationViewItem",
+              "framework": "XAML",
+              "rect": [
+               16,
+               311,
+               280,
+               36
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               58
+              ],
+              "children": [
+               {
+                "type": "Image",
+                "localizedType": "image",
+                "className": "Image",
+                "framework": "XAML",
+                "rect": [
+                 26,
+                 319,
+                 20,
+                 20
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 59
+                ]
+               }
+              ]
+             },
+             {
+              "type": "ListItem",
+              "localizedType": "list item",
+              "name": "Apps",
+              "className": "Microsoft.UI.Xaml.Controls.NavigationViewItem",
+              "framework": "XAML",
+              "rect": [
+               16,
+               351,
+               280,
+               36
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               55
+              ],
+              "children": [
+               {
+                "type": "Image",
+                "localizedType": "image",
+                "className": "Image",
+                "framework": "XAML",
+                "rect": [
+                 26,
+                 359,
+                 20,
+                 20
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 56
+                ]
+               }
+              ]
+             },
+             {
+              "type": "ListItem",
+              "localizedType": "list item",
+              "name": "Name 13",
+              "className": "Microsoft.UI.Xaml.Controls.NavigationViewItem",
+              "framework": "XAML",
+              "rect": [
+               16,
+               391,
+               280,
+               36
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               52
+              ],
+              "children": [
+               {
+                "type": "Image",
+                "localizedType": "image",
+                "className": "Image",
+                "framework": "XAML",
+                "rect": [
+                 26,
+                 399,
+                 20,
+                 20
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 53
+                ]
+               }
+              ]
+             },
+             {
+              "type": "ListItem",
+              "localizedType": "list item",
+              "name": "Name 14",
+              "className": "Microsoft.UI.Xaml.Controls.NavigationViewItem",
+              "framework": "XAML",
+              "rect": [
+               16,
+               431,
+               280,
+               36
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               49
+              ],
+              "children": [
+               {
+                "type": "Image",
+                "localizedType": "image",
+                "className": "Image",
+                "framework": "XAML",
+                "rect": [
+                 26,
+                 439,
+                 20,
+                 20
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 50
+                ]
+               }
+              ]
+             },
+             {
+              "type": "ListItem",
+              "localizedType": "list item",
+              "name": "Name 15",
+              "className": "Microsoft.UI.Xaml.Controls.NavigationViewItem",
+              "framework": "XAML",
+              "rect": [
+               16,
+               471,
+               280,
+               36
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               46
+              ],
+              "children": [
+               {
+                "type": "Image",
+                "localizedType": "image",
+                "className": "Image",
+                "framework": "XAML",
+                "rect": [
+                 26,
+                 479,
+                 20,
+                 20
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 47
+                ]
+               }
+              ]
+             },
+             {
+              "type": "ListItem",
+              "localizedType": "list item",
+              "name": "Name 16",
+              "className": "Microsoft.UI.Xaml.Controls.NavigationViewItem",
+              "framework": "XAML",
+              "rect": [
+               16,
+               511,
+               280,
+               36
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               43
+              ],
+              "children": [
+               {
+                "type": "Image",
+                "localizedType": "image",
+                "className": "Image",
+                "framework": "XAML",
+                "rect": [
+                 26,
+                 519,
+                 20,
+                 20
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 44
+                ]
+               }
+              ]
+             },
+             {
+              "type": "ListItem",
+              "localizedType": "list item",
+              "name": "Name 17",
+              "className": "Microsoft.UI.Xaml.Controls.NavigationViewItem",
+              "framework": "XAML",
+              "rect": [
+               16,
+               551,
+               280,
+               36
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               40
+              ],
+              "children": [
+               {
+                "type": "Image",
+                "localizedType": "image",
+                "className": "Image",
+                "framework": "XAML",
+                "rect": [
+                 26,
+                 559,
+                 20,
+                 20
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 41
+                ]
+               }
+              ]
+             },
+             {
+              "type": "ListItem",
+              "localizedType": "list item",
+              "name": "Name 18",
+              "className": "Microsoft.UI.Xaml.Controls.NavigationViewItem",
+              "framework": "XAML",
+              "rect": [
+               16,
+               591,
+               280,
+               36
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               37
+              ],
+              "children": [
+               {
+                "type": "Image",
+                "localizedType": "image",
+                "className": "Image",
+                "framework": "XAML",
+                "rect": [
+                 26,
+                 599,
+                 20,
+                 20
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 38
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "type": "Pane",
+          "localizedType": "pane",
+          "automationId": "FooterItemsScrollViewer",
+          "className": "ScrollViewer",
+          "framework": "XAML",
+          "offscreen": true,
+          "enabled": true,
+          "runtimeId": [
+           42,
+           4199570,
+           4,
+           67
+          ],
+          "children": [
+           {
+            "type": "Group",
+            "localizedType": "group",
+            "automationId": "FooterMenuItemsHost",
+            "framework": "XAML",
+            "offscreen": true,
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             228
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "Group",
+        "localizedType": "group",
+        "automationId": "PermanentNavigationViewBreadcrumbBar",
+        "className": "LandmarkTarget",
+        "framework": "XAML",
+        "rect": [
+         611,
+         62,
+         77,
+         38
+        ],
+        "enabled": true,
+        "landmark": "Navigation",
+        "localizedLandmark": "navigation",
+        "runtimeId": [
+         42,
+         4199570,
+         4,
+         21
+        ],
+        "children": [
+         {
+          "type": "Button",
+          "localizedType": "breadcrumb bar item",
+          "name": "Home",
+          "className": "Microsoft.UI.Xaml.Controls.BreadcrumbBarItem",
+          "framework": "XAML",
+          "rect": [
+           611,
+           62,
+           77,
+           38
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           4199570,
+           4,
+           24
+          ],
+          "children": [
+           {
+            "type": "Text",
+            "localizedType": "text",
+            "name": "Home",
+            "className": "TextBlock",
+            "framework": "XAML",
+            "rect": [
+             611,
+             62,
+             77,
+             38
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             25
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "Group",
+        "localizedType": "group",
+        "className": "LandmarkTarget",
+        "framework": "XAML",
+        "rect": [
+         326,
+         114,
+         1594,
+         926
+        ],
+        "enabled": true,
+        "landmark": "Main",
+        "localizedLandmark": "main",
+        "runtimeId": [
+         42,
+         4199570,
+         4,
+         20
+        ],
+        "children": [
+         {
+          "type": "Pane",
+          "localizedType": "pane",
+          "automationId": "ItemsControlScrollViewer",
+          "className": "ScrollViewer",
+          "framework": "XAML",
+          "rect": [
+           326,
+           114,
+           1594,
+           926
+          ],
+          "enabled": true,
+          "runtimeId": [
+           42,
+           4199570,
+           4,
+           17
+          ],
+          "children": [
+           {
+            "type": "Image",
+            "localizedType": "image",
+            "name": "Name 19",
+            "automationId": "BackgroundImage",
+            "className": "Image",
+            "framework": "XAML",
+            "rect": [
+             615,
+             135,
+             112,
+             59
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             76
+            ]
+           },
+           {
+            "type": "Group",
+            "localizedType": "group",
+            "name": "Name 20",
+            "automationId": "SystemHeroContentStack",
+            "className": "NamedContainerAutomationPeer",
+            "framework": "XAML",
+            "rect": [
+             747,
+             136,
+             134,
+             64
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             77
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 20",
+              "automationId": "Title",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               747,
+               136,
+               134,
+               24
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               78
+              ]
+             },
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 21",
+              "automationId": "Description",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               747,
+               160,
+               134,
+               19
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               79
+              ]
+             },
+             {
+              "type": "Hyperlink",
+              "localizedType": "link",
+              "name": "Name 22",
+              "automationId": "SystemSettings_PCSystem_RenamePC_HyperlinkButton",
+              "className": "Hyperlink",
+              "framework": "XAML",
+              "rect": [
+               747,
+               179,
+               51,
+               21
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               80
+              ]
+             }
+            ]
+           },
+           {
+            "type": "Button",
+            "localizedType": "button",
+            "name": "Name 23",
+            "automationId": "SystemSettings_Home_NetworkStatus_Charm_NetworkCharmButton",
+            "className": "Button",
+            "framework": "XAML",
+            "rect": [
+             1247,
+             139,
+             159,
+             52
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             107
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 24",
+              "automationId": "{5FFC6935-F9A6-4ED2-BA01-943FA29DEF52}_NetworkCharmConnectionName",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               1291,
+               145,
+               107,
+               20
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               109
+              ]
+             },
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 25",
+              "automationId": "{5FFC6935-F9A6-4ED2-BA01-943FA29DEF52}_NetworkCharmDescription",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               1291,
+               167,
+               107,
+               16
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               110
+              ]
+             }
+            ]
+           },
+           {
+            "type": "Button",
+            "localizedType": "button",
+            "name": "Name 26",
+            "automationId": "id3",
+            "className": "Button",
+            "framework": "XAML",
+            "rect": [
+             1414,
+             139,
+             197,
+             52
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             84
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 18",
+              "automationId": "Title",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               1458,
+               145,
+               145,
+               20
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               86
+              ]
+             },
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 27",
+              "automationId": "Action",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               1458,
+               167,
+               145,
+               16
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               87
+              ]
+             }
+            ]
+           },
+           {
+            "type": "Group",
+            "localizedType": "group",
+            "name": "Recommended settings",
+            "className": "NamedContainerAutomationPeer",
+            "framework": "XAML",
+            "rect": [
+             608,
+             230,
+             502,
+             316
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             115
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Recommended settings",
+              "automationId": "TitleContent",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               636,
+               255,
+               446,
+               27
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               116
+              ]
+             },
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 28",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               636,
+               294,
+               224,
+               19
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               117
+              ]
+             },
+             {
+              "type": "List",
+              "localizedType": "list",
+              "automationId": "SystemSettings_Home_RecommendedSettings_EntryList_ItemsControl",
+              "className": "ListView",
+              "framework": "XAML",
+              "rect": [
+               608,
+               336,
+               502,
+               210
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               118
+              ],
+              "children": [
+               {
+                "type": "ListItem",
+                "localizedType": "list item",
+                "name": "Installed apps",
+                "className": "ListViewItem",
+                "framework": "XAML",
+                "rect": [
+                 608,
+                 336,
+                 502,
+                 72
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 216
+                ],
+                "children": [
+                 {
+                  "type": "Group",
+                  "localizedType": "group",
+                  "name": "Installed apps",
+                  "className": "NamedContainerAutomationPeer",
+                  "framework": "XAML",
+                  "rect": [
+                   612,
+                   337,
+                   494,
+                   69
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   4199570,
+                   4,
+                   120
+                  ],
+                  "children": [
+                   {
+                    "type": "Text",
+                    "localizedType": "text",
+                    "name": "Installed apps",
+                    "className": "TextBlock",
+                    "framework": "XAML",
+                    "rect": [
+                     678,
+                     363,
+                     86,
+                     19
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     4199570,
+                     4,
+                     122
+                    ]
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "type": "ListItem",
+                "localizedType": "list item",
+                "name": "Printers & scanners",
+                "className": "ListViewItem",
+                "framework": "XAML",
+                "rect": [
+                 608,
+                 405,
+                 502,
+                 72
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 217
+                ],
+                "children": [
+                 {
+                  "type": "Group",
+                  "localizedType": "group",
+                  "name": "Printers & scanners",
+                  "className": "NamedContainerAutomationPeer",
+                  "framework": "XAML",
+                  "rect": [
+                   612,
+                   406,
+                   494,
+                   69
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   4199570,
+                   4,
+                   125
+                  ],
+                  "children": [
+                   {
+                    "type": "Text",
+                    "localizedType": "text",
+                    "name": "Printers & scanners",
+                    "className": "TextBlock",
+                    "framework": "XAML",
+                    "rect": [
+                     678,
+                     432,
+                     120,
+                     19
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     4199570,
+                     4,
+                     127
+                    ]
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "type": "ListItem",
+                "localizedType": "list item",
+                "name": "Mouse pointer and touch",
+                "className": "ListViewItem",
+                "framework": "XAML",
+                "rect": [
+                 608,
+                 474,
+                 502,
+                 72
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 218
+                ],
+                "children": [
+                 {
+                  "type": "Group",
+                  "localizedType": "group",
+                  "name": "Mouse pointer and touch",
+                  "className": "NamedContainerAutomationPeer",
+                  "framework": "XAML",
+                  "rect": [
+                   612,
+                   475,
+                   494,
+                   69
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   4199570,
+                   4,
+                   130
+                  ],
+                  "children": [
+                   {
+                    "type": "Text",
+                    "localizedType": "text",
+                    "name": "Mouse pointer and touch",
+                    "className": "TextBlock",
+                    "framework": "XAML",
+                    "rect": [
+                     678,
+                     501,
+                     157,
+                     19
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     4199570,
+                     4,
+                     132
+                    ]
+                   }
+                  ]
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "type": "Group",
+            "localizedType": "group",
+            "name": "Cloud storage",
+            "className": "NamedContainerAutomationPeer",
+            "framework": "XAML",
+            "rect": [
+             1115,
+             230,
+             496,
+             356
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             134
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "header",
+              "name": "Cloud storage",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               1140,
+               299,
+               446,
+               27
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               136
+              ]
+             },
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 29",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               1140,
+               338,
+               446,
+               40
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               137
+              ]
+             },
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 30",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               1140,
+               398,
+               168,
+               20
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               139
+              ]
+             },
+             {
+              "type": "Button",
+              "localizedType": "button",
+              "name": "Name 31",
+              "className": "DynamicAutomationPeer",
+              "framework": "XAML",
+              "rect": [
+               1116,
+               465,
+               494,
+               60
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               141
+              ],
+              "children": [
+               {
+                "type": "Text",
+                "localizedType": "text",
+                "name": "Name 31",
+                "className": "TextBlock",
+                "framework": "XAML",
+                "rect": [
+                 1180,
+                 486,
+                 66,
+                 20
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 143
+                ]
+               },
+               {
+                "type": "Text",
+                "localizedType": "text",
+                "name": "Name 32",
+                "className": "TextBlock",
+                "framework": "XAML",
+                "rect": [
+                 1486,
+                 486,
+                 65,
+                 19
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 144
+                ]
+               }
+              ]
+             },
+             {
+              "type": "Button",
+              "localizedType": "button",
+              "name": "Name 33",
+              "className": "DynamicAutomationPeer",
+              "framework": "XAML",
+              "rect": [
+               1116,
+               525,
+               494,
+               60
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               146
+              ],
+              "children": [
+               {
+                "type": "Text",
+                "localizedType": "text",
+                "name": "Name 33",
+                "className": "TextBlock",
+                "framework": "XAML",
+                "rect": [
+                 1180,
+                 546,
+                 139,
+                 20
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 148
+                ]
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "type": "Group",
+            "localizedType": "group",
+            "name": "Bluetooth devices",
+            "className": "NamedContainerAutomationPeer",
+            "framework": "XAML",
+            "rect": [
+             611,
+             553,
+             496,
+             455
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             150
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Bluetooth devices",
+              "automationId": "TitleContent",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               636,
+               578,
+               446,
+               27
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               151
+              ]
+             },
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 34",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               636,
+               617,
+               211,
+               19
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               152
+              ]
+             },
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 35",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               678,
+               678,
+               61,
+               19
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               154
+              ]
+             },
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 36",
+              "automationId": "SystemSettings_Device_DiscoverableAs_DiscoverableAsTextBlock",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               678,
+               697,
+               312,
+               16
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               155
+              ]
+             },
+             {
+              "type": "Button",
+              "localizedType": "toggle switch",
+              "name": "Name 35",
+              "automationId": "SystemSettings_Device_BluetoothRadioToggle_ToggleSwitch",
+              "className": "ToggleSwitch",
+              "framework": "XAML",
+              "rect": [
+               1010,
+               676,
+               72,
+               40
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               12
+              ]
+             },
+             {
+              "type": "List",
+              "localizedType": "list",
+              "automationId": "SystemSettings_Devices_HomepageBluetoothDevicesCardDeviceList_SettingsListView",
+              "className": "ListView",
+              "framework": "XAML",
+              "rect": [
+               612,
+               731,
+               494,
+               206
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               103
+              ],
+              "children": [
+               {
+                "type": "ListItem",
+                "localizedType": "list item",
+                "name": "Name 37",
+                "className": "ListViewItem",
+                "framework": "XAML",
+                "rect": [
+                 612,
+                 731,
+                 494,
+                 68
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 219
+                ],
+                "children": [
+                 {
+                  "type": "Group",
+                  "localizedType": "group",
+                  "name": "Name 37",
+                  "automationId": "EntityListItemControl",
+                  "className": "NamedContainerAutomationPeer",
+                  "framework": "XAML",
+                  "rect": [
+                   612,
+                   731,
+                   494,
+                   68
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   4199570,
+                   4,
+                   160
+                  ],
+                  "children": [
+                   {
+                    "type": "Text",
+                    "localizedType": "text",
+                    "name": "Name 38",
+                    "className": "TextBlock",
+                    "framework": "XAML",
+                    "rect": [
+                     678,
+                     748,
+                     87,
+                     19
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     4199570,
+                     4,
+                     162
+                    ]
+                   },
+                   {
+                    "type": "Text",
+                    "localizedType": "text",
+                    "name": "Name 39",
+                    "className": "TextBlock",
+                    "framework": "XAML",
+                    "rect": [
+                     678,
+                     767,
+                     344,
+                     16
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     4199570,
+                     4,
+                     102
+                    ]
+                   },
+                   {
+                    "type": "Button",
+                    "localizedType": "button",
+                    "name": "Name 40",
+                    "automationId": "DeviceOptionsButton",
+                    "className": "Button",
+                    "framework": "XAML",
+                    "rect": [
+                     1042,
+                     745,
+                     40,
+                     40
+                    ],
+                    "enabled": true,
+                    "focusable": true,
+                    "runtimeId": [
+                     42,
+                     4199570,
+                     4,
+                     163
+                    ]
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "type": "ListItem",
+                "localizedType": "list item",
+                "name": "Name 41",
+                "className": "ListViewItem",
+                "framework": "XAML",
+                "rect": [
+                 612,
+                 799,
+                 494,
+                 69
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 220
+                ],
+                "children": [
+                 {
+                  "type": "Group",
+                  "localizedType": "group",
+                  "name": "Name 41",
+                  "automationId": "EntityListItemControl",
+                  "className": "NamedContainerAutomationPeer",
+                  "framework": "XAML",
+                  "rect": [
+                   612,
+                   799,
+                   494,
+                   69
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   4199570,
+                   4,
+                   166
+                  ],
+                  "children": [
+                   {
+                    "type": "Text",
+                    "localizedType": "text",
+                    "name": "Name 42",
+                    "className": "TextBlock",
+                    "framework": "XAML",
+                    "rect": [
+                     678,
+                     817,
+                     132,
+                     19
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     4199570,
+                     4,
+                     168
+                    ]
+                   },
+                   {
+                    "type": "Text",
+                    "localizedType": "text",
+                    "name": "Name 39",
+                    "className": "TextBlock",
+                    "framework": "XAML",
+                    "rect": [
+                     678,
+                     836,
+                     344,
+                     16
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     4199570,
+                     4,
+                     105
+                    ]
+                   },
+                   {
+                    "type": "Button",
+                    "localizedType": "button",
+                    "name": "Name 40",
+                    "automationId": "DeviceOptionsButton",
+                    "className": "Button",
+                    "framework": "XAML",
+                    "rect": [
+                     1042,
+                     814,
+                     40,
+                     40
+                    ],
+                    "enabled": true,
+                    "focusable": true,
+                    "runtimeId": [
+                     42,
+                     4199570,
+                     4,
+                     169
+                    ]
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "type": "ListItem",
+                "localizedType": "list item",
+                "name": "Name 43",
+                "className": "ListViewItem",
+                "framework": "XAML",
+                "rect": [
+                 612,
+                 868,
+                 494,
+                 69
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 221
+                ],
+                "children": [
+                 {
+                  "type": "Group",
+                  "localizedType": "group",
+                  "name": "Name 43",
+                  "automationId": "EntityListItemControl",
+                  "className": "NamedContainerAutomationPeer",
+                  "framework": "XAML",
+                  "rect": [
+                   612,
+                   868,
+                   494,
+                   69
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   4199570,
+                   4,
+                   172
+                  ],
+                  "children": [
+                   {
+                    "type": "Text",
+                    "localizedType": "text",
+                    "name": "Name 44",
+                    "className": "TextBlock",
+                    "framework": "XAML",
+                    "rect": [
+                     678,
+                     886,
+                     72,
+                     19
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     4199570,
+                     4,
+                     174
+                    ]
+                   },
+                   {
+                    "type": "Text",
+                    "localizedType": "text",
+                    "name": "Name 39",
+                    "className": "TextBlock",
+                    "framework": "XAML",
+                    "rect": [
+                     678,
+                     905,
+                     344,
+                     16
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     4199570,
+                     4,
+                     106
+                    ]
+                   },
+                   {
+                    "type": "Button",
+                    "localizedType": "button",
+                    "name": "Name 40",
+                    "automationId": "DeviceOptionsButton",
+                    "className": "Button",
+                    "framework": "XAML",
+                    "rect": [
+                     1042,
+                     883,
+                     40,
+                     40
+                    ],
+                    "enabled": true,
+                    "focusable": true,
+                    "runtimeId": [
+                     42,
+                     4199570,
+                     4,
+                     175
+                    ]
+                   }
+                  ]
+                 }
+                ]
+               }
+              ]
+             },
+             {
+              "type": "Group",
+              "localizedType": "group",
+              "name": "View all devices",
+              "automationId": "SystemSettings_Device_Discovery_ButtonEntityItem",
+              "className": "NamedContainerAutomationPeer",
+              "framework": "XAML",
+              "rect": [
+               612,
+               938,
+               494,
+               69
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               177
+              ],
+              "children": [
+               {
+                "type": "Text",
+                "localizedType": "text",
+                "name": "View all devices",
+                "className": "TextBlock",
+                "framework": "XAML",
+                "rect": [
+                 636,
+                 963,
+                 97,
+                 19
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 179
+                ]
+               },
+               {
+                "type": "Button",
+                "localizedType": "button",
+                "name": "Name 45",
+                "automationId": "SystemSettings_Device_Discovery_Button",
+                "className": "Button",
+                "framework": "XAML",
+                "rect": [
+                 912,
+                 957,
+                 130,
+                 32
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 180
+                ]
+               },
+               {
+                "type": "Button",
+                "localizedType": "button",
+                "name": "View all devices",
+                "automationId": "EntityItemButton",
+                "className": "Button",
+                "framework": "XAML",
+                "rect": [
+                 1046,
+                 957,
+                 32,
+                 32
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 182
+                ]
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "type": "Group",
+            "localizedType": "group",
+            "name": "Personalize your device",
+            "className": "NamedContainerAutomationPeer",
+            "framework": "XAML",
+            "rect": [
+             1115,
+             594,
+             496,
+             437
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             184
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Personalize your device",
+              "automationId": "TitleContent",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               1140,
+               619,
+               446,
+               27
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               185
+              ]
+             },
+             {
+              "type": "List",
+              "localizedType": "list",
+              "name": "Select a theme to apply",
+              "automationId": "SystemSettings_Personalize_Theme_Gallery_CapAtSix_GridView",
+              "className": "GridView",
+              "framework": "XAML",
+              "rect": [
+               1138,
+               666,
+               360,
+               206
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               15
+              ],
+              "children": [
+               {
+                "type": "ListItem",
+                "localizedType": "list item",
+                "name": "Name 46",
+                "className": "GridViewItem",
+                "framework": "XAML",
+                "rect": [
+                 1138,
+                 666,
+                 116,
+                 94
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 222
+                ],
+                "children": [
+                 {
+                  "type": "Group",
+                  "localizedType": "group",
+                  "name": "Name 46",
+                  "className": "NamedContainerAutomationPeer",
+                  "framework": "XAML",
+                  "rect": [
+                   1140,
+                   668,
+                   112,
+                   90
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   4199570,
+                   4,
+                   188
+                  ]
+                 }
+                ]
+               },
+               {
+                "type": "ListItem",
+                "localizedType": "list item",
+                "name": "Name 47",
+                "className": "GridViewItem",
+                "framework": "XAML",
+                "rect": [
+                 1258,
+                 666,
+                 116,
+                 94
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 223
+                ],
+                "children": [
+                 {
+                  "type": "Group",
+                  "localizedType": "group",
+                  "name": "Name 47",
+                  "className": "NamedContainerAutomationPeer",
+                  "framework": "XAML",
+                  "rect": [
+                   1260,
+                   668,
+                   112,
+                   90
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   4199570,
+                   4,
+                   191
+                  ]
+                 }
+                ]
+               },
+               {
+                "type": "ListItem",
+                "localizedType": "list item",
+                "name": "Name 48",
+                "className": "GridViewItem",
+                "framework": "XAML",
+                "rect": [
+                 1378,
+                 666,
+                 116,
+                 94
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 224
+                ],
+                "children": [
+                 {
+                  "type": "Group",
+                  "localizedType": "group",
+                  "name": "Name 48",
+                  "className": "NamedContainerAutomationPeer",
+                  "framework": "XAML",
+                  "rect": [
+                   1380,
+                   668,
+                   112,
+                   90
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   4199570,
+                   4,
+                   194
+                  ],
+                  "children": [
+                   {
+                    "type": "Image",
+                    "localizedType": "image",
+                    "name": "Name 49",
+                    "automationId": "ThemeTypeIcon",
+                    "className": "Image",
+                    "framework": "XAML",
+                    "rect": [
+                     1464,
+                     672,
+                     24,
+                     24
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     4199570,
+                     4,
+                     196
+                    ]
+                   }
+                  ]
+                 }
+                ]
+               },
+               {
+                "type": "ListItem",
+                "localizedType": "list item",
+                "name": "Name 50",
+                "className": "GridViewItem",
+                "framework": "XAML",
+                "rect": [
+                 1138,
+                 764,
+                 116,
+                 94
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 225
+                ],
+                "children": [
+                 {
+                  "type": "Group",
+                  "localizedType": "group",
+                  "name": "Name 50",
+                  "className": "NamedContainerAutomationPeer",
+                  "framework": "XAML",
+                  "rect": [
+                   1140,
+                   766,
+                   112,
+                   90
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   4199570,
+                   4,
+                   198
+                  ]
+                 }
+                ]
+               },
+               {
+                "type": "ListItem",
+                "localizedType": "list item",
+                "name": "Name 51",
+                "className": "GridViewItem",
+                "framework": "XAML",
+                "rect": [
+                 1258,
+                 764,
+                 116,
+                 94
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 226
+                ],
+                "children": [
+                 {
+                  "type": "Group",
+                  "localizedType": "group",
+                  "name": "Name 51",
+                  "className": "NamedContainerAutomationPeer",
+                  "framework": "XAML",
+                  "rect": [
+                   1260,
+                   766,
+                   112,
+                   90
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   4199570,
+                   4,
+                   201
+                  ]
+                 }
+                ]
+               },
+               {
+                "type": "ListItem",
+                "localizedType": "list item",
+                "name": "Name 52",
+                "className": "GridViewItem",
+                "framework": "XAML",
+                "rect": [
+                 1378,
+                 764,
+                 116,
+                 94
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 227
+                ],
+                "children": [
+                 {
+                  "type": "Group",
+                  "localizedType": "group",
+                  "name": "Name 52",
+                  "className": "NamedContainerAutomationPeer",
+                  "framework": "XAML",
+                  "rect": [
+                   1380,
+                   766,
+                   112,
+                   90
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   4199570,
+                   4,
+                   204
+                  ]
+                 }
+                ]
+               }
+              ]
+             },
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 53",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               1182,
+               916,
+               73,
+               19
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               207
+              ]
+             },
+             {
+              "type": "ComboBox",
+              "localizedType": "combo box",
+              "name": "Name 53",
+              "automationId": "SystemSettings_Personalize_Color_SimpleColorMode_ComboBox",
+              "className": "ComboBox",
+              "framework": "XAML",
+              "rect": [
+               1452,
+               906,
+               138,
+               40
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               208
+              ],
+              "children": [
+               {
+                "type": "ListItem",
+                "localizedType": "list item",
+                "name": "Name 54",
+                "automationId": "ContentPresenter",
+                "className": "ComboBoxItem",
+                "framework": "XAML",
+                "rect": [
+                 1468,
+                 916,
+                 80,
+                 19
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 229
+                ]
+               }
+              ]
+             },
+             {
+              "type": "Group",
+              "localizedType": "group",
+              "name": "Browse more backgrounds, colors, and themes",
+              "automationId": "SystemSettings_Homepage_Personalization_Card_NavigationButton_EntityItem",
+              "className": "NamedContainerAutomationPeer",
+              "framework": "XAML",
+              "rect": [
+               1116,
+               961,
+               494,
+               69
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               211
+              ],
+              "children": [
+               {
+                "type": "Text",
+                "localizedType": "text",
+                "name": "Browse more backgrounds, colors, and themes",
+                "className": "TextBlock",
+                "framework": "XAML",
+                "rect": [
+                 1140,
+                 986,
+                 288,
+                 19
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 213
+                ]
+               },
+               {
+                "type": "Button",
+                "localizedType": "button",
+                "name": "Browse more backgrounds, colors, and themes",
+                "automationId": "EntityItemButton",
+                "className": "Button",
+                "framework": "XAML",
+                "rect": [
+                 1562,
+                 980,
+                 32,
+                 32
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 214
+                ]
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "type": "Group",
+            "localizedType": "group",
+            "name": "Get help",
+            "automationId": "BonusBarEntityContactSupportGroup",
+            "className": "GroupItem",
+            "framework": "XAML",
+            "offscreen": true,
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             90
+            ],
+            "children": [
+             {
+              "type": "Hyperlink",
+              "localizedType": "link",
+              "name": "Get help",
+              "className": "Hyperlink",
+              "framework": "XAML",
+              "offscreen": true,
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               92
+              ],
+              "children": [
+               {
+                "type": "Text",
+                "localizedType": "text",
+                "name": "Get help",
+                "automationId": "BonusBarContactSupportLink",
+                "className": "TextBlock",
+                "framework": "XAML",
+                "offscreen": true,
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 93
+                ]
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "type": "Group",
+            "localizedType": "group",
+            "name": "Give feedback",
+            "automationId": "BonusBarEntityGiveFeedbackGroup",
+            "className": "GroupItem",
+            "framework": "XAML",
+            "offscreen": true,
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             94
+            ],
+            "children": [
+             {
+              "type": "Hyperlink",
+              "localizedType": "link",
+              "name": "Give feedback",
+              "className": "Hyperlink",
+              "framework": "XAML",
+              "offscreen": true,
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4199570,
+               4,
+               96
+              ],
+              "children": [
+               {
+                "type": "Text",
+                "localizedType": "text",
+                "name": "Give feedback",
+                "automationId": "BonusBarWindowsInsiderLink",
+                "className": "TextBlock",
+                "framework": "XAML",
+                "offscreen": true,
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4199570,
+                 4,
+                 97
+                ]
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "type": "ScrollBar",
+            "localizedType": "scroll bar",
+            "name": "Vertical",
+            "automationId": "VerticalScrollBar",
+            "className": "ScrollBar",
+            "framework": "XAML",
+            "offscreen": true,
+            "enabled": true,
+            "runtimeId": [
+             42,
+             4199570,
+             4,
+             104
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "className": "ApplicationFrameInputSinkWindow",
+    "framework": "Win32",
+    "rect": [
+     0,
+     40,
+     1920,
+     1000
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     6424246
+    ]
+   }
+  ]
+ },
+ "windowRect": [
+  0,
+  -8,
+  1920,
+  1040
+ ],
+ "app": {
+  "name": "applicationframehost",
+  "product": "Microsoft\u00ae Windows\u00ae Operating System",
+  "version": "10.0.26100.9549"
+ },
+ "focus": {
+  "role": "EDITABLETEXT",
+  "name": "Focused item",
+  "rect": [
+   702,
+   16,
+   516,
+   32
+  ],
+  "nvdaClass": "NVDAObjects.Dynamic_XamlEditableTextEditableTextWithAutoSelectDetectionUIA",
+  "runtimeId": [
+   42,
+   4199570,
+   4,
+   69
+  ]
+ },
+ "nodes": 139,
+ "calls": 139,
+ "seconds": 0.133,
+ "truncated": false,
+ "maxDepth": 12,
+ "maxNodes": 800
+}

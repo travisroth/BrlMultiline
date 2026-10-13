@@ -174,6 +174,42 @@ top at its middle and near its corners (`ChildWindowFromPointEx`, which ignores 
 applications); a window on top that is neither it, inside it nor around it covers it. The focus
 is recorded with every element above it, so an overview can say which area holds it.
 
+**The region rules for applications** are `appRegions.findAppRegions`, pure Python like the web
+rules, giving the same `Region` tree, so the drawing, presses and drilling work unchanged; the
+window is the page, drawn in the screen view. The rules, against six captures kept as fixtures
+in `tests/fixtures/appLayout` with personal names replaced by `spikes/appProbeScrub.py`:
+
+1. What cannot be seen goes: no rectangle, offscreen, covered, outside what holds it, or smaller
+   than the web rules' smallest area, as askSam's sixteen pixel view buttons are.
+2. A control that frames an area is one: menu bar, toolbar or app bar, the ribbon, tab strip,
+   tree, list, grid, document, status bar; and any UI Automation landmark. A list of tab items
+   is its strip's, not a list beside it. An edit or combo box whose name mentions search is
+   search, as Settings' is. A pane holding only a scroll bar is not an area, though Office
+   names them "Vertical" and "Horizontal".
+3. Otherwise a pane or group with a name for readers is an area called that. Not a name equal to
+   the window's title or class, a few generic ones ("Control Host"), or a programmer's
+   identifier ("NUIDocumentWindow", "ASEditorWnd", "Document12"). An unnamed container that
+   holds list or tree items directly is a list or tree, as Settings' navigation pane is; an
+   unnamed full width strip at the bottom holding only text is a status bar, as Notepad's is.
+4. Items are counted, never gone into, so a list's entries are never areas.
+5. An unnamed toolbar, list, tree or menu bar holding nothing is left out. Wrappers collapse: an
+   area whose one area inside covers most of it, or has its kind and name, becomes whichever
+   says more, counted over the whole.
+6. Counts are tabs, items, fields, buttons and links in the whole of an area; `Region.items` is
+   new, for lists, trees, grids and menus.
+7. Areas on the chain holding the focus are marked (`Region.hasFocus`).
+
+What each capture gives: Explorer its tab strip, three toolbars, search, the breadcrumb as
+navigation, and the active tab's folder view with its tree, item list and status bar, the focus
+traced to the item list; Excel its ribbon with each named group, a message bar, the workbook
+with its grids and sheet tabs, and its status bar; Outlook its ribbon, app bar, folder trees,
+message list, reading pane with its toolbar and message, and status bar; askSam its three named
+toolbar panes, its folders with two lists, its document and status bar; Settings its search,
+navigation, an unnamed navigation list, and main with its named cards; Notepad its tabs, menu
+bar, document and status strip. Not yet: unnamed toolbars could be named from their automation
+ids ("FileExplorerCommandBar"), as the web rules name areas by id; and nothing collects live, or
+moves to an area, yet.
+
 ## Testing
 
 `layoutOverviewProbe.save()` writes a JSON file with the candidates, the accessible tree and

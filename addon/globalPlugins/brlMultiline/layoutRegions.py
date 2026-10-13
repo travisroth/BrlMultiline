@@ -205,6 +205,14 @@ KIND_NAMES = {
 	"tabs": "tabs",
 	"accordion": "accordion",
 	"area": "area",
+	"menubar": "menu bar",
+	"toolbar": "toolbar",
+	"ribbon": "ribbon",
+	"statusbar": "status bar",
+	"tree": "tree",
+	"list": "list",
+	"grid": "grid",
+	"document": "document",
 }
 
 #: Smaller than this in either direction, an area is a line of text or a hidden element, not
@@ -299,6 +307,12 @@ class Region:
 	#: region only.
 	scroll: int = 0
 	scrollEstimated: bool = False
+	#: Items held, in an application's lists, trees, grids and menus. See `appRegions`.
+	items: int = 0
+	#: Whether the focus is in the region, where that is known (applications, so far).
+	hasFocus: bool = False
+	#: The UI Automation element the region was found from, in an application. See `appRegions`.
+	record: dict | None = field(default=None, repr=False, compare=False)
 
 	@property
 	def title(self) -> str:
@@ -320,6 +334,7 @@ class Region:
 		ordered = (
 			("tabs", self.tabs),
 			("sections", self.sections),
+			("items", self.items),
 			("fields", self.fields),
 			("buttons", self.buttons),
 			("links", self.links),
@@ -331,6 +346,7 @@ class Region:
 COUNT_SINGULAR = {
 	"tabs": "tab",
 	"sections": "section",
+	"items": "item",
 	"fields": "field",
 	"buttons": "button",
 	"links": "link",

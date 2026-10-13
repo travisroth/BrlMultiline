@@ -1,0 +1,2827 @@
+{
+ "kind": "uia",
+ "window": {
+  "type": "Window",
+  "localizedType": "window",
+  "name": "Name 1",
+  "className": "rctrl_renwnd32",
+  "framework": "Win32",
+  "rect": [
+   0,
+   0,
+   1424,
+   744
+  ],
+  "enabled": true,
+  "focusable": true,
+  "runtimeId": [
+   42,
+   458936
+  ],
+  "hwnd": 458936,
+  "fullRect": [
+   -8,
+   -1,
+   1440,
+   753
+  ],
+  "children": [
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "name": "DropShadowTop",
+    "className": "DropShadow",
+    "framework": "Win32",
+    "rect": [
+     0,
+     178,
+     1424,
+     6
+    ],
+    "focusable": true,
+    "runtimeId": [
+     42,
+     268612
+    ],
+    "hwnd": 268612
+   },
+   {
+    "type": "Button",
+    "localizedType": "button",
+    "name": "Name 2",
+    "className": "Button",
+    "framework": "Win32",
+    "rect": [
+     269,
+     190,
+     19,
+     19
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     134608
+    ],
+    "hwnd": 134608
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "name": "NUIDocumentWindow",
+    "className": "NetUINativeHWNDHost",
+    "framework": "Win32",
+    "rect": [
+     0,
+     48,
+     48,
+     674
+    ],
+    "enabled": true,
+    "runtimeId": [
+     42,
+     69044
+    ],
+    "hwnd": 69044,
+    "children": [
+     {
+      "type": "Pane",
+      "localizedType": "Pane",
+      "className": "NetUIHWNDElement",
+      "framework": "Win32",
+      "rect": [
+       0,
+       48,
+       48,
+       674
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       69046
+      ],
+      "hwnd": 69046,
+      "children": [
+       {
+        "type": "Custom",
+        "localizedType": "Custom Control",
+        "className": "NetUInetpane",
+        "framework": "Win32",
+        "rect": [
+         0,
+         48,
+         48,
+         674
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         69046,
+         4,
+         -910640608,
+         428
+        ],
+        "children": [
+         {
+          "type": "Group",
+          "localizedType": "Group",
+          "className": "NetUIElement",
+          "framework": "Win32",
+          "rect": [
+           0,
+           48,
+           48,
+           674
+          ],
+          "enabled": true,
+          "runtimeId": [
+           42,
+           69046,
+           4,
+           -910347728,
+           428
+          ],
+          "children": [
+           {
+            "type": "List",
+            "localizedType": "List",
+            "className": "NetUIListView",
+            "framework": "Win32",
+            "rect": [
+             0,
+             48,
+             48,
+             674
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             69046,
+             4,
+             -922696880,
+             428
+            ],
+            "items": {
+             "ListItem": 5
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "name": "FolderBar",
+    "automationId": "1",
+    "className": "AfxWndW",
+    "framework": "Win32",
+    "rect": [
+     294,
+     190,
+     300,
+     43
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     134504
+    ],
+    "hwnd": 134504,
+    "children": [
+     {
+      "type": "Window",
+      "localizedType": "window",
+      "name": "NUIDocumentWindow",
+      "className": "NetUINativeHWNDHost",
+      "framework": "Win32",
+      "rect": [
+       294,
+       190,
+       300,
+       43
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       460876
+      ],
+      "hwnd": 460876,
+      "children": [
+       {
+        "type": "Pane",
+        "localizedType": "Pane",
+        "className": "NetUIHWNDElement",
+        "framework": "Win32",
+        "rect": [
+         294,
+         190,
+         300,
+         43
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         69018
+        ],
+        "hwnd": 69018,
+        "children": [
+         {
+          "type": "Custom",
+          "localizedType": "Custom Control",
+          "className": "NetUINetUI",
+          "framework": "Win32",
+          "rect": [
+           294,
+           190,
+           300,
+           43
+          ],
+          "enabled": true,
+          "runtimeId": [
+           42,
+           69018,
+           4,
+           -914827584,
+           428
+          ],
+          "children": [
+           {
+            "type": "Button",
+            "localizedType": "Button",
+            "className": "NetUIFolderBarRoot",
+            "framework": "Win32",
+            "rect": [
+             294,
+             190,
+             300,
+             43
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             69018,
+             4,
+             -992794528,
+             428
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "name": "NUIDocumentWindow",
+    "automationId": "103",
+    "className": "NetUINativeHWNDHost",
+    "framework": "Win32",
+    "rect": [
+     62,
+     190,
+     230,
+     532
+    ],
+    "enabled": true,
+    "runtimeId": [
+     42,
+     69066
+    ],
+    "hwnd": 69066,
+    "children": [
+     {
+      "type": "Pane",
+      "localizedType": "Pane",
+      "className": "NetUIHWNDElement",
+      "framework": "Win32",
+      "rect": [
+       62,
+       190,
+       230,
+       532
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       69068
+      ],
+      "hwnd": 69068,
+      "children": [
+       {
+        "type": "Custom",
+        "localizedType": "Custom Control",
+        "className": "NetUINetUI",
+        "framework": "Win32",
+        "rect": [
+         62,
+         190,
+         230,
+         532
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         69068,
+         4,
+         -910422400,
+         428
+        ],
+        "children": [
+         {
+          "type": "Pane",
+          "localizedType": "Pane",
+          "className": "NetUIScrollViewer",
+          "framework": "Win32",
+          "rect": [
+           62,
+           206,
+           226,
+           135
+          ],
+          "enabled": true,
+          "runtimeId": [
+           42,
+           69068,
+           4,
+           -996491888,
+           428
+          ],
+          "children": [
+           {
+            "type": "Tree",
+            "localizedType": "Tree",
+            "name": "Favorites",
+            "className": "NetUITreeView",
+            "framework": "Win32",
+            "rect": [
+             62,
+             206,
+             226,
+             134
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             69068,
+             4,
+             -1000989168,
+             428
+            ],
+            "items": {
+             "TreeItem": 1
+            }
+           }
+          ]
+         },
+         {
+          "type": "Pane",
+          "localizedType": "Pane",
+          "className": "NetUIScrollViewer",
+          "framework": "Win32",
+          "rect": [
+           62,
+           342,
+           226,
+           380
+          ],
+          "enabled": true,
+          "runtimeId": [
+           42,
+           69068,
+           4,
+           -996491504,
+           428
+          ],
+          "children": [
+           {
+            "type": "Tree",
+            "localizedType": "Tree",
+            "name": "Mail Folders",
+            "className": "NetUITreeView",
+            "framework": "Win32",
+            "rect": [
+             62,
+             342,
+             209,
+             380
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             69068,
+             4,
+             -1000988736,
+             428
+            ],
+            "fullRect": [
+             62,
+             -11155,
+             209,
+             12063
+            ],
+            "items": {
+             "TreeItem": 9
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "className": "rctrl_renwnd32",
+    "framework": "Win32",
+    "rect": [
+     605,
+     191,
+     804,
+     530
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     134644
+    ],
+    "hwnd": 134644,
+    "children": [
+     {
+      "type": "Pane",
+      "localizedType": "pane",
+      "className": "AfxWndW",
+      "framework": "Win32",
+      "rect": [
+       605,
+       191,
+       804,
+       530
+      ],
+      "enabled": true,
+      "focusable": true,
+      "runtimeId": [
+       42,
+       134650
+      ],
+      "hwnd": 134650,
+      "children": [
+       {
+        "type": "Pane",
+        "localizedType": "pane",
+        "name": "Form Regions",
+        "automationId": "258",
+        "className": "AfxWndW",
+        "framework": "Win32",
+        "rect": [
+         605,
+         191,
+         804,
+         530
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         1248864
+        ],
+        "hwnd": 1248864,
+        "children": [
+         {
+          "type": "Text",
+          "localizedType": "text",
+          "automationId": "4287",
+          "className": "Static",
+          "framework": "Win32",
+          "rect": [
+           605,
+           207,
+           18,
+           13
+          ],
+          "enabled": true,
+          "runtimeId": [
+           42,
+           790312
+          ],
+          "hwnd": 790312
+         },
+         {
+          "type": "Text",
+          "localizedType": "text",
+          "automationId": "4290",
+          "className": "Static",
+          "framework": "Win32",
+          "rect": [
+           1386,
+           207,
+           23,
+           13
+          ],
+          "enabled": true,
+          "runtimeId": [
+           42,
+           921378
+          ],
+          "hwnd": 921378
+         },
+         {
+          "type": "Edit",
+          "localizedType": "edit",
+          "name": "Name 3",
+          "automationId": "4294",
+          "className": "RichEdit20WPT",
+          "framework": "Win32",
+          "rect": [
+           623,
+           207,
+           763,
+           26
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           724722
+          ],
+          "hwnd": 724722
+         },
+         {
+          "type": "Text",
+          "localizedType": "text",
+          "automationId": "4296",
+          "className": "Static",
+          "framework": "Win32",
+          "rect": [
+           623,
+           248,
+           50,
+           50
+          ],
+          "enabled": true,
+          "runtimeId": [
+           42,
+           790044
+          ],
+          "hwnd": 790044
+         },
+         {
+          "type": "Edit",
+          "localizedType": "edit",
+          "name": "Name 4",
+          "automationId": "4292",
+          "className": "RichEdit20WPT",
+          "framework": "Win32",
+          "rect": [
+           684,
+           252,
+           379,
+           21
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           26871094
+          ],
+          "hwnd": 26871094
+         },
+         {
+          "type": "Text",
+          "localizedType": "text",
+          "automationId": "4312",
+          "className": "Static",
+          "framework": "Win32",
+          "rect": [
+           1072,
+           252,
+           12,
+           13
+          ],
+          "enabled": true,
+          "runtimeId": [
+           42,
+           724728
+          ],
+          "hwnd": 724728
+         },
+         {
+          "type": "ToolBar",
+          "localizedType": "tool bar",
+          "name": "Message Actions",
+          "automationId": "4335",
+          "className": "ToolbarWindow32",
+          "framework": "Win32",
+          "rect": [
+           1084,
+           238,
+           302,
+           32
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           724830
+          ],
+          "hwnd": 724830,
+          "items": {
+           "MenuItem": 1
+          },
+          "children": [
+           {
+            "type": "Button",
+            "localizedType": "button",
+            "name": "Name 5",
+            "rect": [
+             1084,
+             238,
+             77,
+             32
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             724830,
+             4,
+             -2147483647,
+             724830,
+             -4,
+             5
+            ]
+           },
+           {
+            "type": "Button",
+            "localizedType": "button",
+            "name": "Name 6",
+            "rect": [
+             1161,
+             238,
+             94,
+             32
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             724830,
+             4,
+             -2147483647,
+             724830,
+             -4,
+             6
+            ]
+           },
+           {
+            "type": "Button",
+            "localizedType": "button",
+            "name": "Name 7",
+            "rect": [
+             1255,
+             238,
+             91,
+             32
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             724830,
+             4,
+             -2147483647,
+             724830,
+             -4,
+             7
+            ]
+           },
+           {
+            "type": "Button",
+            "localizedType": "button",
+            "name": "Name 8",
+            "rect": [
+             1354,
+             238,
+             32,
+             32
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             724830,
+             4,
+             -2147483647,
+             724830,
+             -4,
+             12
+            ]
+           }
+          ]
+         },
+         {
+          "type": "Edit",
+          "localizedType": "edit",
+          "name": "Name 9",
+          "automationId": "4521",
+          "className": "RichEdit20WPT",
+          "framework": "Win32",
+          "rect": [
+           684,
+           274,
+           14,
+           16
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           724780
+          ],
+          "hwnd": 724780
+         },
+         {
+          "type": "Edit",
+          "localizedType": "edit",
+          "name": "Name 10",
+          "automationId": "4117",
+          "className": "RichEdit20WPT",
+          "framework": "Win32",
+          "rect": [
+           707,
+           274,
+           556,
+           15
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           724730
+          ],
+          "hwnd": 724730
+         },
+         {
+          "type": "Edit",
+          "localizedType": "edit",
+          "name": "Name 11",
+          "automationId": "4315",
+          "className": "RichEdit20WPT",
+          "framework": "Win32",
+          "rect": [
+           1263,
+           274,
+           123,
+           16
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           659130
+          ],
+          "hwnd": 659130
+         },
+         {
+          "type": "Edit",
+          "localizedType": "edit",
+          "name": "Name 12",
+          "automationId": "4262",
+          "className": "rctrl_renwnd32",
+          "framework": "Win32",
+          "rect": [
+           623,
+           302,
+           763,
+           18
+          ],
+          "enabled": true,
+          "focusable": true,
+          "hasFocus": true,
+          "runtimeId": [
+           42,
+           4919120
+          ],
+          "hwnd": 4919120
+         },
+         {
+          "type": "Pane",
+          "localizedType": "pane",
+          "name": "Message",
+          "automationId": "4159",
+          "className": "AfxWndA",
+          "framework": "Win32",
+          "rect": [
+           605,
+           323,
+           804,
+           398
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           855578
+          ],
+          "hwnd": 855578,
+          "children": [
+           {
+            "type": "Pane",
+            "localizedType": "pane",
+            "name": "Document12",
+            "className": "_WwB",
+            "framework": "Win32",
+            "rect": [
+             605,
+             323,
+             804,
+             398
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             855732
+            ],
+            "hwnd": 855732,
+            "children": [
+             {
+              "type": "Document",
+              "localizedType": "document",
+              "name": "Name 13",
+              "className": "_WwG",
+              "framework": "Win32",
+              "rect": [
+               605,
+               323,
+               787,
+               398
+              ],
+              "enabled": true,
+              "focusable": true,
+              "runtimeId": [
+               42,
+               4919144
+              ],
+              "hwnd": 4919144,
+              "children": [
+               {
+                "type": "Edit",
+                "localizedType": "edit",
+                "name": "Name 14",
+                "automationId": "Body",
+                "rect": [
+                 605,
+                 323,
+                 787,
+                 398
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 4919144,
+                 4,
+                 1892
+                ]
+               }
+              ]
+             },
+             {
+              "type": "Pane",
+              "localizedType": "pane",
+              "name": "Vertical",
+              "className": "NUIScrollbar",
+              "framework": "Win32",
+              "rect": [
+               1392,
+               323,
+               17,
+               398
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               789108
+              ],
+              "hwnd": 789108,
+              "children": [
+               {
+                "type": "Pane",
+                "localizedType": "Pane",
+                "className": "NetUIHWNDElement",
+                "framework": "Win32",
+                "rect": [
+                 1392,
+                 323,
+                 17,
+                 398
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 790292
+                ],
+                "hwnd": 790292,
+                "children": [
+                 {
+                  "type": "ScrollBar",
+                  "localizedType": "ScrollBar",
+                  "className": "NetUIScrollBar",
+                  "framework": "Win32",
+                  "rect": [
+                   1392,
+                   323,
+                   17,
+                   398
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   790292,
+                   4,
+                   277164880,
+                   430
+                  ]
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "name": "MsoDockLeft",
+    "className": "MsoCommandBarDock",
+    "framework": "Win32",
+    "rect": [
+     0,
+     178,
+     48,
+     544
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     200078
+    ],
+    "hwnd": 200078,
+    "children": [
+     {
+      "type": "ToolBar",
+      "localizedType": "tool bar",
+      "className": "MsoCommandBar",
+      "framework": "Win32",
+      "rect": [
+       0,
+       178,
+       48,
+       544
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       268570
+      ],
+      "hwnd": 268570,
+      "children": [
+       {
+        "type": "Window",
+        "localizedType": "window",
+        "className": "MsoWorkPane",
+        "framework": "Win32",
+        "rect": [
+         0,
+         178,
+         48,
+         544
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         69054
+        ],
+        "hwnd": 268576,
+        "children": [
+         {
+          "type": "Pane",
+          "localizedType": "pane",
+          "className": "NUIPane",
+          "framework": "Win32",
+          "rect": [
+           0,
+           178,
+           48,
+           544
+          ],
+          "enabled": true,
+          "runtimeId": [
+           42,
+           69056
+          ],
+          "hwnd": 69056,
+          "children": [
+           {
+            "type": "Pane",
+            "localizedType": "Pane",
+            "className": "NetUIHWNDElement",
+            "framework": "Win32",
+            "rect": [
+             0,
+             178,
+             48,
+             544
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             69058
+            ],
+            "hwnd": 69058,
+            "children": [
+             {
+              "type": "Custom",
+              "localizedType": "Custom Control",
+              "className": "NetUInetpane",
+              "framework": "Win32",
+              "rect": [
+               0,
+               178,
+               48,
+               544
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               69058,
+               4,
+               -910657888,
+               428
+              ],
+              "children": [
+               {
+                "type": "Group",
+                "localizedType": "Group",
+                "className": "NetUIElement",
+                "framework": "Win32",
+                "rect": [
+                 0,
+                 178,
+                 48,
+                 544
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 69058,
+                 4,
+                 -910448192,
+                 428
+                ],
+                "children": [
+                 {
+                  "type": "List",
+                  "localizedType": "List",
+                  "className": "NetUIListView",
+                  "framework": "Win32",
+                  "rect": [
+                   0,
+                   178,
+                   48,
+                   544
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   69058,
+                   4,
+                   -922675056,
+                   428
+                  ]
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "name": "MsoDockTop",
+    "className": "MsoCommandBarDock",
+    "framework": "Win32",
+    "rect": [
+     0,
+     0,
+     1424,
+     178
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     462026
+    ],
+    "hwnd": 462026,
+    "children": [
+     {
+      "type": "ToolBar",
+      "localizedType": "tool bar",
+      "className": "MsoCommandBar",
+      "framework": "Win32",
+      "rect": [
+       0,
+       0,
+       1424,
+       178
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       268606
+      ],
+      "hwnd": 268606,
+      "children": [
+       {
+        "type": "Pane",
+        "localizedType": "pane",
+        "name": "Ribbon",
+        "className": "MsoWorkPane",
+        "framework": "Win32",
+        "rect": [
+         0,
+         0,
+         1424,
+         178
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         268610
+        ],
+        "hwnd": 268610,
+        "children": [
+         {
+          "type": "Pane",
+          "localizedType": "pane",
+          "className": "NUIPane",
+          "framework": "Win32",
+          "rect": [
+           0,
+           0,
+           1424,
+           178
+          ],
+          "enabled": true,
+          "runtimeId": [
+           42,
+           656280
+          ],
+          "hwnd": 656280,
+          "children": [
+           {
+            "type": "Pane",
+            "localizedType": "Pane",
+            "className": "NetUIHWNDElement",
+            "framework": "Win32",
+            "rect": [
+             0,
+             0,
+             1424,
+             178
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             461726
+            ],
+            "hwnd": 461726,
+            "children": [
+             {
+              "type": "Pane",
+              "localizedType": "Pane",
+              "name": "Ribbon",
+              "className": "NetUInetpane",
+              "framework": "Win32",
+              "rect": [
+               0,
+               0,
+               1424,
+               178
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               461726,
+               4,
+               -1003711952,
+               428
+              ],
+              "items": {
+               "MenuItem": 2
+              },
+              "children": [
+               {
+                "type": "ToolBar",
+                "localizedType": "ToolBar",
+                "name": "Quick Access Toolbar",
+                "className": "NetUIElement",
+                "framework": "Win32",
+                "rect": [
+                 42,
+                 0,
+                 86,
+                 48
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 461726,
+                 4,
+                 -1003774624,
+                 428
+                ],
+                "items": {
+                 "MenuItem": 1
+                },
+                "children": [
+                 {
+                  "type": "Button",
+                  "localizedType": "Button",
+                  "name": "Name 15",
+                  "automationId": "SendReceiveAll",
+                  "className": "NetUIRibbonButton",
+                  "framework": "Win32",
+                  "rect": [
+                   42,
+                   9,
+                   28,
+                   29
+                  ],
+                  "enabled": true,
+                  "focusable": true,
+                  "runtimeId": [
+                   42,
+                   461726,
+                   4,
+                   -809434640,
+                   428
+                  ]
+                 },
+                 {
+                  "type": "Button",
+                  "localizedType": "Button",
+                  "name": "Name 16",
+                  "automationId": "id1",
+                  "className": "NetUIRibbonButton",
+                  "framework": "Win32",
+                  "rect": [
+                   71,
+                   9,
+                   28,
+                   29
+                  ],
+                  "focusable": true,
+                  "runtimeId": [
+                   42,
+                   461726,
+                   4,
+                   -809432240,
+                   428
+                  ]
+                 }
+                ]
+               },
+               {
+                "type": "Group",
+                "localizedType": "Group",
+                "automationId": "SearchControlsRoot",
+                "className": "NetUIElement",
+                "framework": "Win32",
+                "rect": [
+                 129,
+                 0,
+                 1047,
+                 48
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 461726,
+                 4,
+                 -1207642400,
+                 428
+                ],
+                "children": [
+                 {
+                  "type": "Group",
+                  "localizedType": "Group",
+                  "automationId": "SearchControlsDialogViewContent",
+                  "className": "NetUIElement",
+                  "framework": "Win32",
+                  "rect": [
+                   294,
+                   7,
+                   305,
+                   34
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   461726,
+                   4,
+                   -910456720,
+                   428
+                  ],
+                  "items": {
+                   "MenuItem": 1
+                  }
+                 }
+                ]
+               },
+               {
+                "type": "Button",
+                "localizedType": "Button",
+                "name": "Name 17",
+                "className": "NetUIRibbonButton",
+                "framework": "Win32",
+                "rect": [
+                 1234,
+                 0,
+                 46,
+                 48
+                ],
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 461726,
+                 4,
+                 16359328,
+                 430
+                ]
+               },
+               {
+                "type": "Button",
+                "localizedType": "Button",
+                "name": "Minimize",
+                "className": "NetUIAppFrameHelper",
+                "framework": "Win32",
+                "rect": [
+                 1280,
+                 0,
+                 48,
+                 48
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 461726,
+                 4,
+                 -1005604832,
+                 428
+                ]
+               },
+               {
+                "type": "Button",
+                "localizedType": "Button",
+                "name": "Maximize",
+                "className": "NetUIAppFrameHelper",
+                "framework": "Win32",
+                "rect": [
+                 1328,
+                 0,
+                 48,
+                 48
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 461726,
+                 4,
+                 -1005607520,
+                 428
+                ]
+               },
+               {
+                "type": "Button",
+                "localizedType": "Button",
+                "name": "Close",
+                "className": "NetUIAppFrameHelper",
+                "framework": "Win32",
+                "rect": [
+                 1376,
+                 0,
+                 48,
+                 48
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 461726,
+                 4,
+                 -1005606624,
+                 428
+                ]
+               },
+               {
+                "type": "Button",
+                "localizedType": "Button",
+                "name": "Name 18",
+                "automationId": "FileTabButton",
+                "className": "NetUIRibbonTab",
+                "framework": "Win32",
+                "rect": [
+                 52,
+                 48,
+                 54,
+                 30
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 461726,
+                 4,
+                 -25623040,
+                 429
+                ]
+               },
+               {
+                "type": "Tab",
+                "localizedType": "Pane",
+                "name": "Ribbon Tabs",
+                "className": "NetUIPanViewer",
+                "framework": "Win32",
+                "rect": [
+                 106,
+                 48,
+                 1306,
+                 30
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 461726,
+                 4,
+                 -1002951264,
+                 428
+                ],
+                "items": {
+                 "TabItem": 5
+                },
+                "children": [
+                 {
+                  "type": "Button",
+                  "localizedType": "Toggle Switch",
+                  "name": "Name 19",
+                  "className": "NetUISwitch",
+                  "framework": "Win32",
+                  "rect": [
+                   1227,
+                   48,
+                   180,
+                   29
+                  ],
+                  "enabled": true,
+                  "focusable": true,
+                  "runtimeId": [
+                   42,
+                   461726,
+                   4,
+                   117205904,
+                   430
+                  ]
+                 }
+                ]
+               },
+               {
+                "type": "Pane",
+                "localizedType": "Pane",
+                "name": "Lower Ribbon",
+                "className": "NetUIPanViewer",
+                "framework": "Win32",
+                "rect": [
+                 56,
+                 78,
+                 1332,
+                 100
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 461726,
+                 4,
+                 -1002953504,
+                 428
+                ],
+                "children": [
+                 {
+                  "type": "Group",
+                  "localizedType": "Group",
+                  "name": "Home",
+                  "className": "NetUIOrderedGroup",
+                  "framework": "Win32",
+                  "rect": [
+                   60,
+                   78,
+                   1328,
+                   100
+                  ],
+                  "enabled": true,
+                  "runtimeId": [
+                   42,
+                   461726,
+                   4,
+                   1929618592,
+                   429
+                  ],
+                  "children": [
+                   {
+                    "type": "Group",
+                    "localizedType": "Group",
+                    "name": "New",
+                    "className": "NetUIChunk",
+                    "framework": "Win32",
+                    "rect": [
+                     60,
+                     80,
+                     105,
+                     96
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     461726,
+                     4,
+                     1929620048,
+                     429
+                    ],
+                    "items": {
+                     "MenuItem": 1
+                    },
+                    "children": [
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Name 20",
+                      "automationId": "NewItem",
+                      "className": "NetUIRibbonButton",
+                      "framework": "Win32",
+                      "rect": [
+                       68,
+                       82,
+                       42,
+                       76
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       -907735392,
+                       428
+                      ]
+                     }
+                    ]
+                   },
+                   {
+                    "type": "Group",
+                    "localizedType": "Group",
+                    "name": "Delete",
+                    "className": "NetUIChunk",
+                    "framework": "Win32",
+                    "rect": [
+                     165,
+                     80,
+                     147,
+                     96
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     461726,
+                     4,
+                     1929621920,
+                     429
+                    ],
+                    "items": {
+                     "MenuItem": 2
+                    },
+                    "children": [
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Name 21",
+                      "automationId": "IgnoreConversation",
+                      "className": "NetUIRibbonButton",
+                      "framework": "Win32",
+                      "rect": [
+                       173,
+                       82,
+                       24,
+                       24
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       -907739472,
+                       428
+                      ]
+                     },
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Delete",
+                      "automationId": "Delete",
+                      "className": "NetUIRibbonButton",
+                      "framework": "Win32",
+                      "rect": [
+                       215,
+                       82,
+                       42,
+                       76
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       -907737312,
+                       428
+                      ]
+                     },
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Name 22",
+                      "automationId": "MoveToArchiveFolder",
+                      "className": "NetUIRibbonButton",
+                      "framework": "Win32",
+                      "rect": [
+                       259,
+                       82,
+                       45,
+                       76
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       -907733472,
+                       428
+                      ]
+                     }
+                    ]
+                   },
+                   {
+                    "type": "Group",
+                    "localizedType": "Group",
+                    "name": "Respond",
+                    "className": "NetUIChunk",
+                    "framework": "Win32",
+                    "rect": [
+                     312,
+                     80,
+                     194,
+                     96
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     461726,
+                     4,
+                     1929632112,
+                     429
+                    ],
+                    "items": {
+                     "MenuItem": 2
+                    },
+                    "children": [
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Name 5",
+                      "automationId": "id2",
+                      "className": "NetUIRibbonButton",
+                      "framework": "Win32",
+                      "rect": [
+                       320,
+                       82,
+                       42,
+                       76
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       -907729392,
+                       428
+                      ]
+                     },
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Name 6",
+                      "automationId": "ReplyAll",
+                      "className": "NetUIRibbonButton",
+                      "framework": "Win32",
+                      "rect": [
+                       364,
+                       82,
+                       42,
+                       76
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       -907729872,
+                       428
+                      ]
+                     },
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Name 7",
+                      "automationId": "id3",
+                      "className": "NetUIRibbonButton",
+                      "framework": "Win32",
+                      "rect": [
+                       408,
+                       82,
+                       48,
+                       76
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       -907725792,
+                       428
+                      ]
+                     },
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Name 23",
+                      "automationId": "ReplyWithMeeting",
+                      "className": "NetUIRibbonButton",
+                      "framework": "Win32",
+                      "rect": [
+                       458,
+                       82,
+                       24,
+                       24
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       -907731072,
+                       428
+                      ]
+                     }
+                    ]
+                   },
+                   {
+                    "type": "Group",
+                    "localizedType": "Group",
+                    "name": "Quick Steps",
+                    "className": "NetUIChunk",
+                    "framework": "Win32",
+                    "rect": [
+                     506,
+                     80,
+                     171,
+                     96
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     461726,
+                     4,
+                     1929638976,
+                     429
+                    ],
+                    "children": [
+                     {
+                      "type": "Group",
+                      "localizedType": "Group",
+                      "name": "Quick Steps",
+                      "className": "NetUIElement",
+                      "framework": "Win32",
+                      "rect": [
+                       514,
+                       82,
+                       155,
+                       76
+                      ],
+                      "enabled": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       1929637936,
+                       429
+                      ],
+                      "items": {
+                       "MenuItem": 1
+                      }
+                     },
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Name 24",
+                      "automationId": "ManageQuickSteps",
+                      "className": "NetUISimpleButton",
+                      "framework": "Win32",
+                      "rect": [
+                       661,
+                       160,
+                       16,
+                       16
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       1973544976,
+                       429
+                      ]
+                     }
+                    ]
+                   },
+                   {
+                    "type": "Group",
+                    "localizedType": "Group",
+                    "name": "Move",
+                    "className": "NetUIChunk",
+                    "framework": "Win32",
+                    "rect": [
+                     677,
+                     80,
+                     140,
+                     96
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     461726,
+                     4,
+                     1929646256,
+                     429
+                    ],
+                    "items": {
+                     "MenuItem": 2
+                    },
+                    "children": [
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Name 25",
+                      "automationId": "MoveToOneNote",
+                      "className": "NetUIRibbonButton",
+                      "framework": "Win32",
+                      "rect": [
+                       685,
+                       134,
+                       124,
+                       24
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       -907714512,
+                       428
+                      ]
+                     }
+                    ]
+                   },
+                   {
+                    "type": "Group",
+                    "localizedType": "Group",
+                    "name": "Tags",
+                    "className": "NetUIChunk",
+                    "framework": "Win32",
+                    "rect": [
+                     817,
+                     80,
+                     163,
+                     96
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     461726,
+                     4,
+                     1929390624,
+                     429
+                    ],
+                    "items": {
+                     "MenuItem": 1
+                    },
+                    "children": [
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Name 26",
+                      "automationId": "ToggleMarkAsRead",
+                      "className": "NetUIRibbonButton",
+                      "framework": "Win32",
+                      "rect": [
+                       825,
+                       82,
+                       48,
+                       76
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       -907707072,
+                       428
+                      ]
+                     }
+                    ]
+                   },
+                   {
+                    "type": "Group",
+                    "localizedType": "Group",
+                    "name": "Find",
+                    "className": "NetUIChunk",
+                    "framework": "Win32",
+                    "rect": [
+                     980,
+                     80,
+                     121,
+                     96
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     461726,
+                     4,
+                     1929396032,
+                     429
+                    ],
+                    "items": {
+                     "MenuItem": 1
+                    },
+                    "children": [
+                     {
+                      "type": "Edit",
+                      "localizedType": "Edit Box",
+                      "name": "Search People",
+                      "className": "NetUIPeoplePickerWell",
+                      "framework": "Win32",
+                      "rect": [
+                       989,
+                       83,
+                       103,
+                       20
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       2823342
+                      ],
+                      "hwnd": 2823342
+                     },
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Name 27",
+                      "automationId": "AddressBook",
+                      "className": "NetUIRibbonButton",
+                      "framework": "Win32",
+                      "rect": [
+                       988,
+                       106,
+                       105,
+                       24
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       -907829472,
+                       428
+                      ]
+                     }
+                    ]
+                   },
+                   {
+                    "type": "Group",
+                    "localizedType": "Group",
+                    "name": "Speech",
+                    "className": "NetUIChunk",
+                    "framework": "Win32",
+                    "rect": [
+                     1101,
+                     80,
+                     58,
+                     96
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     461726,
+                     4,
+                     1929404352,
+                     429
+                    ],
+                    "children": [
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Name 28",
+                      "automationId": "ReadAloud",
+                      "className": "NetUIRibbonButton",
+                      "framework": "Win32",
+                      "rect": [
+                       1109,
+                       82,
+                       42,
+                       76
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       -907818192,
+                       428
+                      ]
+                     }
+                    ]
+                   },
+                   {
+                    "type": "Group",
+                    "localizedType": "Group",
+                    "name": "Language",
+                    "className": "NetUIChunk",
+                    "framework": "Win32",
+                    "rect": [
+                     1159,
+                     80,
+                     68,
+                     96
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     461726,
+                     4,
+                     1929405808,
+                     429
+                    ],
+                    "items": {
+                     "MenuItem": 1
+                    }
+                   },
+                   {
+                    "type": "Group",
+                    "localizedType": "Group",
+                    "name": "Apps",
+                    "className": "NetUIChunk",
+                    "framework": "Win32",
+                    "rect": [
+                     1227,
+                     80,
+                     58,
+                     96
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     461726,
+                     4,
+                     1929414128,
+                     429
+                    ],
+                    "children": [
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Name 29",
+                      "className": "NetUIRibbonButton",
+                      "framework": "Win32",
+                      "rect": [
+                       1235,
+                       82,
+                       42,
+                       76
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       -907815792,
+                       428
+                      ]
+                     }
+                    ]
+                   },
+                   {
+                    "type": "Group",
+                    "localizedType": "Group",
+                    "name": "Send/Receive",
+                    "className": "NetUIChunk",
+                    "framework": "Win32",
+                    "rect": [
+                     1285,
+                     80,
+                     92,
+                     96
+                    ],
+                    "enabled": true,
+                    "runtimeId": [
+                     42,
+                     461726,
+                     4,
+                     220511264,
+                     430
+                    ],
+                    "children": [
+                     {
+                      "type": "Button",
+                      "localizedType": "Button",
+                      "name": "Name 15",
+                      "automationId": "SendReceiveAll",
+                      "className": "NetUIRibbonButton",
+                      "framework": "Win32",
+                      "rect": [
+                       1293,
+                       82,
+                       76,
+                       76
+                      ],
+                      "enabled": true,
+                      "focusable": true,
+                      "runtimeId": [
+                       42,
+                       461726,
+                       4,
+                       -907760352,
+                       428
+                      ]
+                     }
+                    ]
+                   }
+                  ]
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "name": "MsoDockBottom",
+    "className": "MsoCommandBarDock",
+    "framework": "Win32",
+    "rect": [
+     0,
+     722,
+     1424,
+     22
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     855362
+    ],
+    "hwnd": 855362,
+    "children": [
+     {
+      "type": "ToolBar",
+      "localizedType": "tool bar",
+      "className": "MsoCommandBar",
+      "framework": "Win32",
+      "rect": [
+       0,
+       722,
+       1424,
+       22
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       268614
+      ],
+      "hwnd": 268614,
+      "children": [
+       {
+        "type": "Pane",
+        "localizedType": "pane",
+        "name": "Status Bar",
+        "className": "MsoWorkPane",
+        "framework": "Win32",
+        "rect": [
+         0,
+         722,
+         1424,
+         22
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         268608
+        ],
+        "hwnd": 268608,
+        "children": [
+         {
+          "type": "Pane",
+          "localizedType": "pane",
+          "className": "NUIPane",
+          "framework": "Win32",
+          "rect": [
+           0,
+           722,
+           1424,
+           22
+          ],
+          "enabled": true,
+          "runtimeId": [
+           42,
+           69062
+          ],
+          "hwnd": 69062,
+          "children": [
+           {
+            "type": "Pane",
+            "localizedType": "Pane",
+            "className": "NetUIHWNDElement",
+            "framework": "Win32",
+            "rect": [
+             0,
+             722,
+             1424,
+             22
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             69064
+            ],
+            "hwnd": 69064,
+            "children": [
+             {
+              "type": "StatusBar",
+              "localizedType": "Status Bar",
+              "name": "Status Bar",
+              "className": "NetUInetpane",
+              "framework": "Win32",
+              "rect": [
+               0,
+               722,
+               1424,
+               22
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               69064,
+               4,
+               -910689568,
+               428
+              ],
+              "children": [
+               {
+                "type": "Button",
+                "localizedType": "Button",
+                "name": "Name 30",
+                "className": "NetUISimpleButton",
+                "framework": "Win32",
+                "rect": [
+                 4,
+                 723,
+                 84,
+                 21
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 69064,
+                 4,
+                 -818567280,
+                 428
+                ]
+               },
+               {
+                "type": "Text",
+                "localizedType": "Text",
+                "name": "Name 31",
+                "className": "NetUISimpleButton",
+                "framework": "Win32",
+                "rect": [
+                 950,
+                 723,
+                 193,
+                 21
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 69064,
+                 4,
+                 -330900816,
+                 428
+                ]
+               },
+               {
+                "type": "Button",
+                "localizedType": "Button",
+                "name": "Name 32",
+                "className": "NetUIStickyButton",
+                "framework": "Win32",
+                "rect": [
+                 1153,
+                 723,
+                 40,
+                 21
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 69064,
+                 4,
+                 -910065040,
+                 428
+                ]
+               },
+               {
+                "type": "Button",
+                "localizedType": "Button",
+                "name": "Name 33",
+                "className": "NetUIStickyButton",
+                "framework": "Win32",
+                "rect": [
+                 1193,
+                 723,
+                 40,
+                 21
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 69064,
+                 4,
+                 -910062352,
+                 428
+                ]
+               },
+               {
+                "type": "Button",
+                "localizedType": "Button",
+                "name": "Name 34",
+                "className": "NetUIRepeatButton",
+                "framework": "Win32",
+                "rect": [
+                 1234,
+                 723,
+                 18,
+                 21
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 69064,
+                 4,
+                 -809286080,
+                 428
+                ]
+               },
+               {
+                "type": "Slider",
+                "localizedType": "Slider",
+                "name": "Name 35",
+                "className": "NetUISlider",
+                "framework": "Win32",
+                "rect": [
+                 1252,
+                 723,
+                 100,
+                 21
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 69064,
+                 4,
+                 -809279120,
+                 428
+                ]
+               },
+               {
+                "type": "Button",
+                "localizedType": "Button",
+                "name": "Name 36",
+                "className": "NetUIRepeatButton",
+                "framework": "Win32",
+                "rect": [
+                 1352,
+                 723,
+                 18,
+                 21
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 69064,
+                 4,
+                 -809269280,
+                 428
+                ]
+               },
+               {
+                "type": "Text",
+                "localizedType": "Text",
+                "name": "Name 37",
+                "className": "NetUISimpleButton",
+                "framework": "Win32",
+                "rect": [
+                 1370,
+                 723,
+                 43,
+                 21
+                ],
+                "enabled": true,
+                "focusable": true,
+                "runtimeId": [
+                 42,
+                 69064,
+                 4,
+                 -325713232,
+                 428
+                ]
+               },
+               {
+                "type": "Thumb",
+                "localizedType": "Thumb",
+                "name": "Name 38",
+                "className": "NetUIGrippie",
+                "framework": "Win32",
+                "rect": [
+                 1413,
+                 723,
+                 11,
+                 21
+                ],
+                "enabled": true,
+                "runtimeId": [
+                 42,
+                 69064,
+                 4,
+                 -910069968,
+                 428
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Table",
+    "localizedType": "table",
+    "name": "Table View",
+    "automationId": "4704",
+    "className": "SuperGrid",
+    "framework": "Win32",
+    "rect": [
+     294,
+     233,
+     276,
+     489
+    ],
+    "enabled": true,
+    "runtimeId": [
+     42,
+     19338650
+    ],
+    "hwnd": 19338650,
+    "items": {
+     "DataItem": 2
+    },
+    "children": [
+     {
+      "type": "Pane",
+      "localizedType": "pane",
+      "name": "Vertical",
+      "automationId": "4693",
+      "className": "NUIScrollbar",
+      "framework": "Win32",
+      "enabled": true,
+      "runtimeId": [
+       42,
+       7275316
+      ],
+      "hwnd": 7275316,
+      "fullRect": [
+       577,
+       233,
+       17,
+       489
+      ],
+      "outside": true,
+      "children": [
+       {
+        "type": "Pane",
+        "localizedType": "Pane",
+        "className": "NetUIHWNDElement",
+        "framework": "Win32",
+        "enabled": true,
+        "runtimeId": [
+         42,
+         4266334
+        ],
+        "hwnd": 4266334,
+        "fullRect": [
+         577,
+         233,
+         17,
+         489
+        ],
+        "outside": true,
+        "children": [
+         {
+          "type": "ScrollBar",
+          "localizedType": "ScrollBar",
+          "className": "NetUIScrollBar",
+          "framework": "Win32",
+          "enabled": true,
+          "runtimeId": [
+           42,
+           4266334,
+           4,
+           277317488,
+           430
+          ],
+          "fullRect": [
+           577,
+           233,
+           17,
+           489
+          ],
+          "outside": true
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "TitleBar",
+    "localizedType": "title bar",
+    "automationId": "TitleBar",
+    "offscreen": true,
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     458936,
+     3,
+     -2147483647,
+     458936,
+     -2,
+     0
+    ],
+    "children": [
+     {
+      "type": "MenuBar",
+      "localizedType": "menu bar",
+      "name": "System",
+      "automationId": "SystemMenuBar",
+      "rect": [
+       0,
+       7,
+       22,
+       22
+      ],
+      "enabled": true,
+      "focusable": true,
+      "runtimeId": [
+       42,
+       458936,
+       3,
+       -2147483646,
+       41096,
+       34542605,
+       0
+      ],
+      "items": {
+       "MenuItem": 1
+      }
+     },
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Minimize",
+      "automationId": "Minimize-Restore",
+      "rect": [
+       1285,
+       0,
+       47,
+       1
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       458936,
+       3,
+       -2147483647,
+       458936,
+       -2,
+       2
+      ],
+      "fullRect": [
+       1285,
+       -23,
+       47,
+       24
+      ]
+     },
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Maximize",
+      "automationId": "Maximize-Restore",
+      "rect": [
+       1332,
+       0,
+       46,
+       1
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       458936,
+       3,
+       -2147483647,
+       458936,
+       -2,
+       3
+      ],
+      "fullRect": [
+       1332,
+       -23,
+       46,
+       24
+      ]
+     },
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Close",
+      "automationId": "Close",
+      "rect": [
+       1378,
+       0,
+       46,
+       1
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       458936,
+       3,
+       -2147483647,
+       458936,
+       -2,
+       5
+      ],
+      "fullRect": [
+       1378,
+       -23,
+       47,
+       24
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "windowRect": [
+  216,
+  209,
+  1424,
+  744
+ ],
+ "app": {
+  "name": "outlook",
+  "product": "Microsoft Outlook",
+  "version": "16.0.20430.20092"
+ },
+ "focus": {
+  "role": "LISTITEM",
+  "name": "Focused item",
+  "rect": [
+   294,
+   233,
+   276,
+   56
+  ],
+  "nvdaClass": "appModules.outlook.UIAGridRowWithReadStatus",
+  "runtimeId": [
+   42,
+   19338650,
+   4,
+   -638
+  ]
+ },
+ "nodes": 125,
+ "items": 39,
+ "hiddenWindows": 0,
+ "calls": 70,
+ "seconds": 0.238,
+ "truncated": false,
+ "maxDepth": 12,
+ "maxNodes": 800,
+ "subtree": {
+  "error": "(-2147467259, 'Unspecified error', (None, None, None, 0, None))"
+ }
+}

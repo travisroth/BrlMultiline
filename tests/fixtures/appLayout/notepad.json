@@ -1,0 +1,1286 @@
+{
+ "kind": "uia",
+ "window": {
+  "type": "Window",
+  "localizedType": "window",
+  "name": "Name 1",
+  "className": "Notepad",
+  "framework": "Win32",
+  "rect": [
+   -6,
+   0,
+   720,
+   432
+  ],
+  "enabled": true,
+  "focusable": true,
+  "runtimeId": [
+   42,
+   69748
+  ],
+  "children": [
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "className": "NotepadTextBox",
+    "framework": "Win32",
+    "rect": [
+     0,
+     75,
+     708,
+     319
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     9963096
+    ],
+    "children": [
+     {
+      "type": "Document",
+      "localizedType": "document",
+      "name": "Text editor",
+      "className": "RichEditD2DPT",
+      "framework": "Win32",
+      "rect": [
+       0,
+       75,
+       708,
+       319
+      ],
+      "enabled": true,
+      "focusable": true,
+      "runtimeId": [
+       42,
+       10622744
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "className": "Microsoft.UI.Content.DesktopChildSiteBridge",
+    "framework": "Win32",
+    "rect": [
+     40,
+     10,
+     492,
+     32
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     69756
+    ],
+    "children": [
+     {
+      "type": "Pane",
+      "localizedType": "pane",
+      "className": "InputSiteWindowClass",
+      "framework": "XAML",
+      "rect": [
+       40,
+       10,
+       492,
+       32
+      ],
+      "enabled": true,
+      "hasFocus": true,
+      "runtimeId": [
+       42,
+       69754
+      ],
+      "children": [
+       {
+        "type": "Tab",
+        "localizedType": "tab",
+        "automationId": "Tabs",
+        "className": "Microsoft.UI.Xaml.Controls.TabView",
+        "framework": "XAML",
+        "rect": [
+         40,
+         10,
+         492,
+         32
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         69754,
+         4,
+         13
+        ],
+        "children": [
+         {
+          "type": "List",
+          "localizedType": "list",
+          "automationId": "TabListView",
+          "className": "ListView",
+          "framework": "XAML",
+          "rect": [
+           42,
+           10,
+           455,
+           32
+          ],
+          "enabled": true,
+          "runtimeId": [
+           42,
+           69754,
+           4,
+           12
+          ],
+          "children": [
+           {
+            "type": "TabItem",
+            "localizedType": "tab item",
+            "name": "Name 2",
+            "className": "ListViewItem",
+            "framework": "XAML",
+            "offscreen": true,
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             69754,
+             4,
+             26
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 3",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "offscreen": true,
+              "enabled": true,
+              "runtimeId": [
+               42,
+               69754,
+               4,
+               35
+              ]
+             }
+            ]
+           },
+           {
+            "type": "TabItem",
+            "localizedType": "tab item",
+            "name": "Name 4",
+            "className": "ListViewItem",
+            "framework": "XAML",
+            "offscreen": true,
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             69754,
+             4,
+             27
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 5",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "offscreen": true,
+              "enabled": true,
+              "runtimeId": [
+               42,
+               69754,
+               4,
+               36
+              ]
+             }
+            ]
+           },
+           {
+            "type": "TabItem",
+            "localizedType": "tab item",
+            "name": "Name 6",
+            "className": "ListViewItem",
+            "framework": "XAML",
+            "offscreen": true,
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             69754,
+             4,
+             28
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 7",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "offscreen": true,
+              "enabled": true,
+              "runtimeId": [
+               42,
+               69754,
+               4,
+               37
+              ]
+             }
+            ]
+           },
+           {
+            "type": "TabItem",
+            "localizedType": "tab item",
+            "name": "Name 8",
+            "className": "ListViewItem",
+            "framework": "XAML",
+            "offscreen": true,
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             69754,
+             4,
+             29
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 9",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "offscreen": true,
+              "enabled": true,
+              "runtimeId": [
+               42,
+               69754,
+               4,
+               38
+              ]
+             }
+            ]
+           },
+           {
+            "type": "TabItem",
+            "localizedType": "tab item",
+            "name": "Name 10",
+            "className": "ListViewItem",
+            "framework": "XAML",
+            "offscreen": true,
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             69754,
+             4,
+             30
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 11",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "offscreen": true,
+              "enabled": true,
+              "runtimeId": [
+               42,
+               69754,
+               4,
+               39
+              ]
+             }
+            ]
+           },
+           {
+            "type": "TabItem",
+            "localizedType": "tab item",
+            "name": "Name 12",
+            "className": "ListViewItem",
+            "framework": "XAML",
+            "rect": [
+             85,
+             10,
+             45,
+             32
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             69754,
+             4,
+             31
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 13",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               85,
+               18,
+               40,
+               15
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               69754,
+               4,
+               40
+              ]
+             }
+            ]
+           },
+           {
+            "type": "TabItem",
+            "localizedType": "tab item",
+            "name": "Name 14",
+            "className": "ListViewItem",
+            "framework": "XAML",
+            "rect": [
+             130,
+             10,
+             80,
+             32
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             69754,
+             4,
+             32
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 15",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               139,
+               18,
+               34,
+               15
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               69754,
+               4,
+               41
+              ]
+             }
+            ]
+           },
+           {
+            "type": "TabItem",
+            "localizedType": "tab item",
+            "name": "Name 16",
+            "className": "ListViewItem",
+            "framework": "XAML",
+            "rect": [
+             210,
+             10,
+             80,
+             32
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             69754,
+             4,
+             33
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 17",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               219,
+               18,
+               34,
+               15
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               69754,
+               4,
+               42
+              ]
+             }
+            ]
+           },
+           {
+            "type": "TabItem",
+            "localizedType": "tab item",
+            "name": "Name 18",
+            "className": "ListViewItem",
+            "framework": "XAML",
+            "rect": [
+             286,
+             10,
+             88,
+             32
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             69754,
+             4,
+             24
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 19",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               299,
+               18,
+               34,
+               15
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               69754,
+               4,
+               43
+              ]
+             }
+            ]
+           },
+           {
+            "type": "TabItem",
+            "localizedType": "tab item",
+            "name": "Name 20",
+            "className": "ListViewItem",
+            "framework": "XAML",
+            "rect": [
+             370,
+             10,
+             80,
+             32
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             69754,
+             4,
+             34
+            ],
+            "children": [
+             {
+              "type": "Text",
+              "localizedType": "text",
+              "name": "Name 21",
+              "className": "TextBlock",
+              "framework": "XAML",
+              "rect": [
+               379,
+               18,
+               37,
+               15
+              ],
+              "enabled": true,
+              "runtimeId": [
+               42,
+               69754,
+               4,
+               44
+              ]
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "type": "Button",
+          "localizedType": "button",
+          "name": "Name 22",
+          "automationId": "AddButton",
+          "className": "Button",
+          "framework": "XAML",
+          "rect": [
+           500,
+           16,
+           32,
+           24
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           69754,
+           4,
+           25
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "className": "Microsoft.UI.Content.DesktopChildSiteBridge",
+    "framework": "Win32",
+    "rect": [
+     0,
+     42,
+     708,
+     33
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     69764
+    ],
+    "children": [
+     {
+      "type": "Pane",
+      "localizedType": "pane",
+      "className": "InputSiteWindowClass",
+      "framework": "XAML",
+      "rect": [
+       0,
+       42,
+       708,
+       33
+      ],
+      "enabled": true,
+      "hasFocus": true,
+      "runtimeId": [
+       42,
+       69762
+      ],
+      "children": [
+       {
+        "type": "MenuBar",
+        "localizedType": "menu bar",
+        "automationId": "MenuBar",
+        "framework": "XAML",
+        "rect": [
+         0,
+         42,
+         159,
+         32
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         45
+        ],
+        "children": [
+         {
+          "type": "MenuItem",
+          "localizedType": "menu item",
+          "name": "Name 23",
+          "automationId": "id1",
+          "className": "Microsoft.UI.Xaml.Controls.MenuBarItem",
+          "framework": "XAML",
+          "rect": [
+           4,
+           42,
+           41,
+           32
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           69762,
+           4,
+           61
+          ]
+         },
+         {
+          "type": "MenuItem",
+          "localizedType": "menu item",
+          "name": "Name 24",
+          "automationId": "id2",
+          "className": "Microsoft.UI.Xaml.Controls.MenuBarItem",
+          "framework": "XAML",
+          "rect": [
+           53,
+           42,
+           44,
+           32
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           69762,
+           4,
+           62
+          ]
+         },
+         {
+          "type": "MenuItem",
+          "localizedType": "menu item",
+          "name": "Name 25",
+          "automationId": "id3",
+          "className": "Microsoft.UI.Xaml.Controls.MenuBarItem",
+          "framework": "XAML",
+          "rect": [
+           105,
+           42,
+           50,
+           32
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           69762,
+           4,
+           63
+          ]
+         }
+        ]
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 26",
+        "className": "Microsoft.UI.Xaml.Controls.DropDownButton",
+        "framework": "XAML",
+        "rect": [
+         218,
+         42,
+         56,
+         32
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         46
+        ]
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 27",
+        "className": "Microsoft.UI.Xaml.Controls.DropDownButton",
+        "framework": "XAML",
+        "rect": [
+         274,
+         42,
+         56,
+         32
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         47
+        ]
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 28",
+        "className": "ToggleButton",
+        "framework": "XAML",
+        "rect": [
+         330,
+         42,
+         32,
+         32
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         48
+        ]
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 29",
+        "className": "ToggleButton",
+        "framework": "XAML",
+        "rect": [
+         362,
+         42,
+         32,
+         32
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         49
+        ]
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 30",
+        "className": "ToggleButton",
+        "framework": "XAML",
+        "rect": [
+         394,
+         42,
+         32,
+         32
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         50
+        ]
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 31",
+        "className": "ToggleButton",
+        "framework": "XAML",
+        "rect": [
+         426,
+         42,
+         32,
+         32
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         51
+        ]
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 32",
+        "automationId": "OverflowButton",
+        "className": "Button",
+        "framework": "XAML",
+        "rect": [
+         458,
+         42,
+         32,
+         32
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         52
+        ]
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 33",
+        "automationId": "RewriteDropDownButton",
+        "className": "Microsoft.UI.Xaml.Controls.DropDownButton",
+        "framework": "XAML",
+        "rect": [
+         542,
+         42,
+         56,
+         32
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         53
+        ]
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 34",
+        "automationId": "FREButton",
+        "className": "Button",
+        "framework": "XAML",
+        "rect": [
+         602,
+         43,
+         30,
+         30
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         54
+        ]
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 35",
+        "automationId": "AvatarButton",
+        "className": "Button",
+        "framework": "XAML",
+        "rect": [
+         636,
+         42,
+         30,
+         32
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         55
+        ]
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Settings",
+        "automationId": "SettingsButton",
+        "className": "Button",
+        "framework": "XAML",
+        "rect": [
+         670,
+         42,
+         30,
+         32
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         57
+        ]
+       },
+       {
+        "type": "Window",
+        "localizedType": "window",
+        "automationId": "PrivacyTeachingTip",
+        "className": "Microsoft.UI.Xaml.Controls.TeachingTip",
+        "framework": "XAML",
+        "offscreen": true,
+        "enabled": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         58
+        ]
+       },
+       {
+        "type": "Pane",
+        "localizedType": "pane",
+        "automationId": "PsDownloadDetailTeachingTip",
+        "className": "Microsoft.UI.Xaml.Controls.TeachingTip",
+        "framework": "XAML",
+        "offscreen": true,
+        "enabled": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         59
+        ]
+       },
+       {
+        "type": "Pane",
+        "localizedType": "pane",
+        "name": "Name 36",
+        "automationId": "PsDownloadLightTeachingTip",
+        "className": "Microsoft.UI.Xaml.Controls.TeachingTip",
+        "framework": "XAML",
+        "offscreen": true,
+        "enabled": true,
+        "runtimeId": [
+         42,
+         69762,
+         4,
+         60
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "className": "Microsoft.UI.Content.DesktopChildSiteBridge",
+    "framework": "Win32",
+    "rect": [
+     0,
+     394,
+     708,
+     32
+    ],
+    "focusable": true,
+    "runtimeId": [
+     42,
+     69770
+    ],
+    "children": [
+     {
+      "type": "Pane",
+      "localizedType": "pane",
+      "className": "InputSiteWindowClass",
+      "framework": "XAML",
+      "rect": [
+       0,
+       394,
+       708,
+       32
+      ],
+      "hasFocus": true,
+      "runtimeId": [
+       42,
+       69768
+      ],
+      "children": [
+       {
+        "type": "Text",
+        "localizedType": "text",
+        "name": "Name 37",
+        "automationId": "ContentTextBlock",
+        "className": "TextBlock",
+        "framework": "XAML",
+        "rect": [
+         16,
+         402,
+         61,
+         16
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         69768,
+         4,
+         64
+        ]
+       },
+       {
+        "type": "Text",
+        "localizedType": "text",
+        "name": "Name 38",
+        "automationId": "ContentTextBlock",
+        "className": "TextBlock",
+        "framework": "XAML",
+        "rect": [
+         105,
+         402,
+         77,
+         16
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         69768,
+         4,
+         65
+        ]
+       },
+       {
+        "type": "Text",
+        "localizedType": "text",
+        "name": "Name 39",
+        "automationId": "ContentTextBlock",
+        "className": "TextBlock",
+        "framework": "XAML",
+        "rect": [
+         232,
+         394,
+         62,
+         32
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         69768,
+         4,
+         66
+        ]
+       },
+       {
+        "type": "Text",
+        "localizedType": "text",
+        "name": "Name 40",
+        "automationId": "ContentTextBlock",
+        "className": "TextBlock",
+        "framework": "XAML",
+        "rect": [
+         373,
+         402,
+         32,
+         16
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         69768,
+         4,
+         67
+        ]
+       },
+       {
+        "type": "Text",
+        "localizedType": "text",
+        "name": "Name 41",
+        "automationId": "ContentTextBlock",
+        "className": "TextBlock",
+        "framework": "XAML",
+        "rect": [
+         441,
+         402,
+         91,
+         16
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         69768,
+         4,
+         68
+        ]
+       },
+       {
+        "type": "Text",
+        "localizedType": "text",
+        "name": "Name 42",
+        "automationId": "ContentTextBlock",
+        "className": "TextBlock",
+        "framework": "XAML",
+        "rect": [
+         575,
+         402,
+         36,
+         16
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         69768,
+         4,
+         69
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "TitleBar",
+    "localizedType": "title bar",
+    "automationId": "TitleBar",
+    "offscreen": true,
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     69748,
+     3,
+     -2147483647,
+     69748,
+     -2,
+     0
+    ],
+    "children": [
+     {
+      "type": "MenuBar",
+      "localizedType": "menu bar",
+      "name": "System",
+      "automationId": "SystemMenuBar",
+      "rect": [
+       2,
+       8,
+       22,
+       22
+      ],
+      "enabled": true,
+      "focusable": true,
+      "runtimeId": [
+       42,
+       69748,
+       3,
+       -2147483646,
+       42624,
+       95094231,
+       0
+      ],
+      "children": [
+       {
+        "type": "MenuItem",
+        "localizedType": "menu item",
+        "name": "System",
+        "rect": [
+         2,
+         8,
+         22,
+         22
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         69748,
+         3,
+         -2147483646,
+         64712,
+         95094231,
+         1
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Minimize",
+      "automationId": "Minimize-Restore",
+      "rect": [
+       569,
+       1,
+       47,
+       30
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       69748,
+       3,
+       -2147483647,
+       69748,
+       -2,
+       2
+      ]
+     },
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Maximize",
+      "automationId": "Maximize-Restore",
+      "rect": [
+       616,
+       1,
+       46,
+       30
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       69748,
+       3,
+       -2147483647,
+       69748,
+       -2,
+       3
+      ]
+     },
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Close",
+      "automationId": "Close",
+      "rect": [
+       662,
+       1,
+       47,
+       30
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       69748,
+       3,
+       -2147483647,
+       69748,
+       -2,
+       5
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "windowRect": [
+  14,
+  78,
+  708,
+  426
+ ],
+ "app": {
+  "name": "notepad",
+  "product": "Microsoft.WindowsNotepad",
+  "version": "11.2607.14.0"
+ },
+ "focus": {
+  "role": "DOCUMENT",
+  "name": "Focused item",
+  "rect": [
+   0,
+   75,
+   708,
+   319
+  ],
+  "nvdaClass": "NVDAObjects.Dynamic_EditableTextWithAutoSelectDetectionUIAWindowNVDAObject",
+  "runtimeId": [
+   42,
+   10622744
+  ]
+ },
+ "nodes": 62,
+ "calls": 62,
+ "seconds": 0.09,
+ "truncated": false,
+ "maxDepth": 12,
+ "maxNodes": 800
+}

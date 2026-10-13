@@ -1,0 +1,1347 @@
+{
+ "kind": "uia",
+ "window": {
+  "type": "Window",
+  "localizedType": "window",
+  "name": "Name 1",
+  "className": "Afx:400000:8:10003:0:3e551213",
+  "framework": "Win32",
+  "rect": [
+   0,
+   0,
+   1920,
+   989
+  ],
+  "enabled": true,
+  "focusable": true,
+  "runtimeId": [
+   42,
+   1576722
+  ],
+  "hwnd": 1576722,
+  "fullRect": [
+   -8,
+   -51,
+   1936,
+   1048
+  ],
+  "children": [
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "name": "Workspace",
+    "automationId": "59648",
+    "className": "MDIClient",
+    "framework": "Win32",
+    "rect": [
+     226,
+     90,
+     1694,
+     880
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     12326130
+    ],
+    "hwnd": 12326130,
+    "children": [
+     {
+      "type": "Window",
+      "localizedType": "window",
+      "name": "Name 2",
+      "automationId": "65280",
+      "className": "Afx:400000:b:10003:6:ad18eb",
+      "framework": "Win32",
+      "rect": [
+       226,
+       90,
+       1694,
+       880
+      ],
+      "enabled": true,
+      "focusable": true,
+      "runtimeId": [
+       42,
+       22939376
+      ],
+      "hwnd": 22939376,
+      "fullRect": [
+       218,
+       59,
+       1710,
+       919
+      ],
+      "children": [
+       {
+        "type": "Pane",
+        "localizedType": "pane",
+        "automationId": "59648",
+        "className": "AfxFrameOrView42",
+        "framework": "Win32",
+        "rect": [
+         226,
+         90,
+         1694,
+         880
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         25560342
+        ],
+        "hwnd": 25560342,
+        "children": [
+         {
+          "type": "Pane",
+          "localizedType": "pane",
+          "name": "ASScrollWnd",
+          "automationId": "10024",
+          "className": "AfxWnd42",
+          "framework": "Win32",
+          "rect": [
+           228,
+           951,
+           1690,
+           17
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           1512714
+          ],
+          "hwnd": 1512714,
+          "children": [
+           {
+            "type": "Pane",
+            "localizedType": "pane",
+            "name": "View First",
+            "automationId": "101",
+            "className": "AfxWnd42",
+            "framework": "Win32",
+            "rect": [
+             228,
+             952,
+             16,
+             16
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             24253232
+            ],
+            "hwnd": 24253232
+           },
+           {
+            "type": "Pane",
+            "localizedType": "pane",
+            "name": "View Previous",
+            "automationId": "102",
+            "className": "AfxWnd42",
+            "framework": "Win32",
+            "rect": [
+             244,
+             952,
+             16,
+             16
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             1250828
+            ],
+            "hwnd": 1250828
+           },
+           {
+            "type": "Pane",
+            "localizedType": "pane",
+            "name": "View Next",
+            "automationId": "103",
+            "className": "AfxWnd42",
+            "framework": "Win32",
+            "rect": [
+             260,
+             952,
+             16,
+             16
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             1448230
+            ],
+            "hwnd": 1448230
+           },
+           {
+            "type": "Pane",
+            "localizedType": "pane",
+            "name": "View Last",
+            "automationId": "104",
+            "className": "AfxWnd42",
+            "framework": "Win32",
+            "rect": [
+             276,
+             952,
+             16,
+             16
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             11340196
+            ],
+            "hwnd": 11340196
+           },
+           {
+            "type": "Pane",
+            "localizedType": "pane",
+            "name": "View Document Type",
+            "automationId": "105",
+            "className": "AfxWnd42",
+            "framework": "Win32",
+            "rect": [
+             392,
+             952,
+             15,
+             16
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             3021254
+            ],
+            "hwnd": 3021254
+           },
+           {
+            "type": "Pane",
+            "localizedType": "pane",
+            "name": "Attachments",
+            "automationId": "106",
+            "className": "AfxWnd42",
+            "framework": "Win32",
+            "rect": [
+             408,
+             952,
+             15,
+             16
+            ],
+            "focusable": true,
+            "runtimeId": [
+             42,
+             3021308
+            ],
+            "hwnd": 3021308
+           },
+           {
+            "type": "ScrollBar",
+            "localizedType": "scroll bar",
+            "automationId": "100024",
+            "className": "ScrollBar",
+            "framework": "Win32",
+            "rect": [
+             424,
+             951,
+             1493,
+             17
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             2038058
+            ],
+            "hwnd": 2038058
+           }
+          ]
+         },
+         {
+          "type": "ScrollBar",
+          "localizedType": "scroll bar",
+          "automationId": "10025",
+          "className": "ScrollBar",
+          "framework": "Win32",
+          "rect": [
+           1901,
+           92,
+           17,
+           859
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           793052
+          ],
+          "hwnd": 793052
+         },
+         {
+          "type": "Pane",
+          "localizedType": "pane",
+          "name": "ASEditorWnd",
+          "automationId": "10023",
+          "className": "Afx:400000:1008",
+          "framework": "Win32",
+          "rect": [
+           226,
+           97,
+           1675,
+           853
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           17110382
+          ],
+          "hwnd": 17110382
+         }
+        ]
+       },
+       {
+        "type": "TitleBar",
+        "localizedType": "title bar",
+        "automationId": "TitleBar",
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         22939376,
+         3,
+         -2147483647,
+         22939376,
+         -2,
+         0
+        ],
+        "fullRect": [
+         226,
+         67,
+         1694,
+         22
+        ],
+        "outside": true
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "StatusBar",
+    "localizedType": "status bar",
+    "automationId": "59393",
+    "className": "msctls_statusbar32",
+    "framework": "Win32",
+    "rect": [
+     0,
+     970,
+     1920,
+     19
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     858594
+    ],
+    "hwnd": 858594,
+    "children": [
+     {
+      "type": "Text",
+      "localizedType": "text",
+      "name": "Name 3",
+      "rect": [
+       0,
+       972,
+       1533,
+       17
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       858594,
+       4,
+       -2147483647,
+       858594,
+       -4,
+       1
+      ]
+     },
+     {
+      "type": "Text",
+      "localizedType": "text",
+      "name": "Name 4",
+      "rect": [
+       1535,
+       972,
+       126,
+       17
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       858594,
+       4,
+       -2147483647,
+       858594,
+       -4,
+       2
+      ]
+     },
+     {
+      "type": "Text",
+      "localizedType": "text",
+      "name": "Name 5",
+      "rect": [
+       1663,
+       972,
+       176,
+       17
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       858594,
+       4,
+       -2147483647,
+       858594,
+       -4,
+       3
+      ]
+     },
+     {
+      "type": "Text",
+      "localizedType": "text",
+      "rect": [
+       1841,
+       972,
+       36,
+       17
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       858594,
+       4,
+       -2147483647,
+       858594,
+       -4,
+       4
+      ]
+     },
+     {
+      "type": "Text",
+      "localizedType": "text",
+      "rect": [
+       1879,
+       972,
+       41,
+       17
+      ],
+      "enabled": true,
+      "runtimeId": [
+       42,
+       858594,
+       4,
+       -2147483647,
+       858594,
+       -4,
+       5
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "name": "Search Line",
+    "automationId": "59398",
+    "className": "Afx:400000:8:10003:10:0",
+    "framework": "Win32",
+    "rect": [
+     0,
+     61,
+     618,
+     30
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     2819770
+    ],
+    "hwnd": 2819770,
+    "fullRect": [
+     -1,
+     61,
+     619,
+     30
+    ],
+    "children": [
+     {
+      "type": "Pane",
+      "localizedType": "pane",
+      "name": "Search",
+      "automationId": "1017",
+      "className": "AfxWnd42",
+      "framework": "Win32",
+      "rect": [
+       11,
+       65,
+       73,
+       21
+      ],
+      "enabled": true,
+      "focusable": true,
+      "runtimeId": [
+       42,
+       727318
+      ],
+      "hwnd": 727318
+     },
+     {
+      "type": "ComboBox",
+      "localizedType": "combo box",
+      "automationId": "383",
+      "className": "ComboBox",
+      "framework": "Win32",
+      "rect": [
+       84,
+       65,
+       450,
+       21
+      ],
+      "enabled": true,
+      "focusable": true,
+      "runtimeId": [
+       42,
+       7083426
+      ],
+      "hwnd": 7083426,
+      "children": [
+       {
+        "type": "Edit",
+        "localizedType": "edit",
+        "automationId": "1001",
+        "className": "Edit",
+        "framework": "Win32",
+        "rect": [
+         87,
+         68,
+         427,
+         15
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         36771106
+        ],
+        "hwnd": 36771106
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 6",
+        "automationId": "DropDown",
+        "rect": [
+         518,
+         66,
+         15,
+         19
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         7083426,
+         4,
+         -2147483647,
+         7083426,
+         -4,
+         2
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "name": "Formatting",
+    "automationId": "59397",
+    "className": "Afx:400000:8:10003:10:0",
+    "framework": "Win32",
+    "rect": [
+     0,
+     31,
+     579,
+     30
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     5051288
+    ],
+    "hwnd": 5051288,
+    "fullRect": [
+     -1,
+     31,
+     580,
+     30
+    ],
+    "children": [
+     {
+      "type": "ComboBox",
+      "localizedType": "combo box",
+      "automationId": "443",
+      "className": "ComboBox",
+      "framework": "Win32",
+      "rect": [
+       11,
+       35,
+       126,
+       21
+      ],
+      "enabled": true,
+      "focusable": true,
+      "runtimeId": [
+       42,
+       1186308
+      ],
+      "hwnd": 1186308,
+      "children": [
+       {
+        "type": "Edit",
+        "localizedType": "edit",
+        "automationId": "1001",
+        "className": "Edit",
+        "framework": "Win32",
+        "rect": [
+         14,
+         38,
+         103,
+         15
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         3807720
+        ],
+        "hwnd": 3807720
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 6",
+        "automationId": "DropDown",
+        "rect": [
+         121,
+         36,
+         15,
+         19
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         1186308,
+         4,
+         -2147483647,
+         1186308,
+         -4,
+         2
+        ]
+       }
+      ]
+     },
+     {
+      "type": "ComboBox",
+      "localizedType": "combo box",
+      "automationId": "442",
+      "className": "ComboBox",
+      "framework": "Win32",
+      "rect": [
+       137,
+       35,
+       135,
+       21
+      ],
+      "enabled": true,
+      "focusable": true,
+      "runtimeId": [
+       42,
+       4065044
+      ],
+      "hwnd": 4065044,
+      "children": [
+       {
+        "type": "Edit",
+        "localizedType": "edit",
+        "automationId": "1001",
+        "className": "Edit",
+        "framework": "Win32",
+        "rect": [
+         140,
+         38,
+         112,
+         15
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         661950
+        ],
+        "hwnd": 661950
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 6",
+        "automationId": "DropDown",
+        "rect": [
+         256,
+         36,
+         15,
+         19
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         4065044,
+         4,
+         -2147483647,
+         4065044,
+         -4,
+         2
+        ]
+       }
+      ]
+     },
+     {
+      "type": "ComboBox",
+      "localizedType": "combo box",
+      "automationId": "444",
+      "className": "ComboBox",
+      "framework": "Win32",
+      "rect": [
+       272,
+       35,
+       41,
+       21
+      ],
+      "enabled": true,
+      "focusable": true,
+      "runtimeId": [
+       42,
+       1185076
+      ],
+      "hwnd": 1185076,
+      "children": [
+       {
+        "type": "Edit",
+        "localizedType": "edit",
+        "automationId": "1001",
+        "className": "Edit",
+        "framework": "Win32",
+        "rect": [
+         275,
+         38,
+         18,
+         15
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         3280436
+        ],
+        "hwnd": 3280436
+       },
+       {
+        "type": "Button",
+        "localizedType": "button",
+        "name": "Name 6",
+        "automationId": "DropDown",
+        "rect": [
+         297,
+         36,
+         15,
+         19
+        ],
+        "enabled": true,
+        "runtimeId": [
+         42,
+         1185076,
+         4,
+         -2147483647,
+         1185076,
+         -4,
+         2
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "name": "Standard",
+    "automationId": "59392",
+    "className": "Afx:400000:8:10003:10:0",
+    "framework": "Win32",
+    "rect": [
+     0,
+     1,
+     657,
+     30
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     1775906
+    ],
+    "hwnd": 1775906,
+    "fullRect": [
+     -1,
+     1,
+     658,
+     30
+    ]
+   },
+   {
+    "type": "Pane",
+    "localizedType": "pane",
+    "name": "Folders",
+    "automationId": "59408",
+    "className": "AfxWnd42",
+    "framework": "Win32",
+    "rect": [
+     0,
+     90,
+     220,
+     882
+    ],
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     6624432
+    ],
+    "hwnd": 6624432,
+    "children": [
+     {
+      "type": "Pane",
+      "localizedType": "pane",
+      "automationId": "59649",
+      "className": "AfxWnd42",
+      "framework": "Win32",
+      "rect": [
+       3,
+       107,
+       214,
+       862
+      ],
+      "enabled": true,
+      "focusable": true,
+      "runtimeId": [
+       42,
+       11866440
+      ],
+      "hwnd": 11866440,
+      "children": [
+       {
+        "type": "Pane",
+        "localizedType": "pane",
+        "automationId": "59650",
+        "className": "AfxWnd42",
+        "framework": "Win32",
+        "rect": [
+         3,
+         710,
+         214,
+         259
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         41489380
+        ],
+        "hwnd": 41489380,
+        "fullRect": [
+         3,
+         710,
+         214,
+         862
+        ],
+        "children": [
+         {
+          "type": "List",
+          "localizedType": "list",
+          "automationId": "59648",
+          "className": "SysListView32",
+          "framework": "Win32",
+          "rect": [
+           3,
+           732,
+           214,
+           237
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           1513728
+          ],
+          "hwnd": 1513728,
+          "fullRect": [
+           3,
+           732,
+           214,
+           818
+          ],
+          "items": {
+           "ListItem": 5
+          }
+         },
+         {
+          "type": "Pane",
+          "localizedType": "pane",
+          "automationId": "59649",
+          "className": "AfxWnd42",
+          "framework": "Win32",
+          "rect": [
+           3,
+           710,
+           214,
+           22
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           2888820
+          ],
+          "hwnd": 2888820
+         }
+        ]
+       },
+       {
+        "type": "Pane",
+        "localizedType": "pane",
+        "automationId": "59649",
+        "className": "AfxWnd42",
+        "framework": "Win32",
+        "rect": [
+         3,
+         107,
+         214,
+         603
+        ],
+        "enabled": true,
+        "focusable": true,
+        "runtimeId": [
+         42,
+         3873114
+        ],
+        "hwnd": 3873114,
+        "children": [
+         {
+          "type": "List",
+          "localizedType": "list",
+          "automationId": "59648",
+          "className": "SysListView32",
+          "framework": "Win32",
+          "rect": [
+           3,
+           129,
+           214,
+           581
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           596406
+          ],
+          "hwnd": 596406,
+          "items": {
+           "ListItem": 440
+          },
+          "children": [
+           {
+            "type": "ScrollBar",
+            "localizedType": "scroll bar",
+            "name": "Vertical",
+            "automationId": "NonClientVerticalScrollBar",
+            "rect": [
+             200,
+             129,
+             17,
+             564
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             596406,
+             3,
+             -2147483647,
+             596406,
+             -5,
+             0
+            ]
+           },
+           {
+            "type": "ScrollBar",
+            "localizedType": "scroll bar",
+            "name": "Horizontal",
+            "automationId": "NonClientHorizontalScrollBar",
+            "rect": [
+             3,
+             693,
+             197,
+             17
+            ],
+            "enabled": true,
+            "runtimeId": [
+             42,
+             596406,
+             3,
+             -2147483647,
+             596406,
+             -6,
+             0
+            ]
+           },
+           {
+            "type": "Thumb",
+            "localizedType": "thumb",
+            "rect": [
+             200,
+             693,
+             17,
+             17
+            ],
+            "runtimeId": [
+             42,
+             596406,
+             3,
+             -2147483647,
+             596406,
+             -7,
+             0
+            ]
+           }
+          ]
+         },
+         {
+          "type": "Pane",
+          "localizedType": "pane",
+          "automationId": "59649",
+          "className": "AfxWnd42",
+          "framework": "Win32",
+          "rect": [
+           3,
+           107,
+           214,
+           24
+          ],
+          "enabled": true,
+          "focusable": true,
+          "runtimeId": [
+           42,
+           727468
+          ],
+          "hwnd": 727468,
+          "children": [
+           {
+            "type": "Button",
+            "localizedType": "button",
+            "name": "Name 7",
+            "automationId": "1000",
+            "className": "Button",
+            "framework": "Win32",
+            "rect": [
+             142,
+             108,
+             70,
+             22
+            ],
+            "enabled": true,
+            "focusable": true,
+            "runtimeId": [
+             42,
+             1775874
+            ],
+            "hwnd": 1775874
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "TitleBar",
+    "localizedType": "title bar",
+    "automationId": "TitleBar",
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     1576722,
+     3,
+     -2147483647,
+     1576722,
+     -2,
+     0
+    ],
+    "fullRect": [
+     16,
+     -48,
+     1904,
+     28
+    ],
+    "outside": true,
+    "children": [
+     {
+      "type": "MenuBar",
+      "localizedType": "menu bar",
+      "name": "System",
+      "automationId": "MenuBar",
+      "enabled": true,
+      "focusable": true,
+      "runtimeId": [
+       42,
+       1576722,
+       3,
+       -2147483646,
+       61908,
+       102042829,
+       0
+      ],
+      "fullRect": [
+       0,
+       -43,
+       22,
+       22
+      ],
+      "outside": true,
+      "items": {
+       "MenuItem": 1
+      }
+     },
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Minimize",
+      "enabled": true,
+      "runtimeId": [
+       42,
+       1576722,
+       3,
+       -2147483647,
+       1576722,
+       -2,
+       2
+      ],
+      "fullRect": [
+       1779,
+       -43,
+       47,
+       22
+      ],
+      "outside": true
+     },
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Restore",
+      "enabled": true,
+      "runtimeId": [
+       42,
+       1576722,
+       3,
+       -2147483647,
+       1576722,
+       -2,
+       3
+      ],
+      "fullRect": [
+       1826,
+       -43,
+       46,
+       22
+      ],
+      "outside": true
+     },
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Close",
+      "enabled": true,
+      "runtimeId": [
+       42,
+       1576722,
+       3,
+       -2147483647,
+       1576722,
+       -2,
+       5
+      ],
+      "fullRect": [
+       1872,
+       -43,
+       48,
+       22
+      ],
+      "outside": true
+     }
+    ]
+   },
+   {
+    "type": "MenuBar",
+    "localizedType": "menu bar",
+    "name": "Application",
+    "automationId": "MenuBar",
+    "enabled": true,
+    "focusable": true,
+    "runtimeId": [
+     42,
+     1576722,
+     3,
+     -2147483646,
+     61908,
+     2431119,
+     0
+    ],
+    "fullRect": [
+     0,
+     -20,
+     1920,
+     19
+    ],
+    "outside": true,
+    "items": {
+     "MenuItem": 10
+    },
+    "children": [
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Minimize",
+      "enabled": true,
+      "runtimeId": [
+       42,
+       1576722,
+       3,
+       -2147483646,
+       61908,
+       2431119,
+       11
+      ],
+      "fullRect": [
+       1863,
+       -20,
+       19,
+       19
+      ],
+      "outside": true
+     },
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Restore",
+      "enabled": true,
+      "runtimeId": [
+       42,
+       1576722,
+       3,
+       -2147483646,
+       61908,
+       2431119,
+       12
+      ],
+      "fullRect": [
+       1882,
+       -20,
+       19,
+       19
+      ],
+      "outside": true
+     },
+     {
+      "type": "Button",
+      "localizedType": "button",
+      "name": "Close",
+      "enabled": true,
+      "runtimeId": [
+       42,
+       1576722,
+       3,
+       -2147483646,
+       61908,
+       2431119,
+       13
+      ],
+      "fullRect": [
+       1901,
+       -20,
+       19,
+       19
+      ],
+      "outside": true
+     }
+    ]
+   }
+  ]
+ },
+ "windowRect": [
+  0,
+  43,
+  1920,
+  989
+ ],
+ "app": {
+  "name": "asksam",
+  "product": "askSam 6.1",
+  "version": "6, 1, 2, 797"
+ },
+ "focus": {
+  "role": "EDITABLETEXT",
+  "name": "Focused item",
+  "rect": [
+   226,
+   97,
+   1675,
+   853
+  ],
+  "nvdaClass": "NVDAObjects.Dynamic_IAccessibleDisplayModelEditableTextWindowNVDAObject",
+  "runtimeId": null
+ },
+ "nodes": 58,
+ "items": 456,
+ "hiddenWindows": 0,
+ "calls": 33,
+ "seconds": 2.176,
+ "truncated": false,
+ "maxDepth": 12,
+ "maxNodes": 800,
+ "subtree": {
+  "elements": 975,
+  "seconds": 5.879
+ }
+}
