@@ -115,10 +115,6 @@ class TestSettingsForANewDisplay(ConfigTestCase):
 		CONFIG["reverseScrollBtns"] = True
 		self.assertTrue(realBmConfig["shouldReverseScrollButtons"](FOCUS))
 
-	def test_showDocumentLines(self):
-		CONFIG["showDocumentLines"] = True
-		self.assertTrue(realBmConfig["shouldShowDocumentLines"](FOCUS))
-
 	def test_segmentsAreEnabledUntilTurnedOff(self):
 		"""Installing the add-on should not need a switch thrown before anything works."""
 		del CONFIG["segmentsEnabled"]

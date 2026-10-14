@@ -82,7 +82,6 @@ def defaults():
 		"focusSegment": -1,
 		"messageSegment": -1,
 		"reverseScrollBtns": False,
-		"showDocumentLines": False,
 		"flowEnabled": False,
 		"flowBrowseMode": True,
 		"flowObjects": False,
@@ -160,7 +159,6 @@ class SegmentPanelTestCase(SettingsPanelTestCase):
 		self.panel.focusSegmentCtrl = FakeControl(-1)
 		self.panel.messageSegmentCtrl = FakeControl(-1)
 		self.panel.reverseScrollCtrl = FakeControl(False)
-		self.panel.documentLinesCtrl = FakeControl(False)
 		self.panel.glyphCtrl = FakeControl(False)
 		self.panel.tableArrowsCtrl = FakeControl(False)
 		self.panel._showTarget(0)

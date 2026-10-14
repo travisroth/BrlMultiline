@@ -76,8 +76,8 @@ class SegmentSpec:
 	owner: str | None = None
 	"""The panel that reserved this segment, or None if it is free.
 
-	A free segment is one the add-on may fill with the document lines around the caret. A
-	reserved one belongs to whoever claimed it and is left alone.
+	A free segment is ordinary display space, which a pinned object may be put in. A reserved
+	one belongs to whoever claimed it and is left alone.
 	"""
 
 	hostsSystemFocus: bool = False
@@ -109,22 +109,6 @@ class SegmentSpec:
 	routingPolicy: RoutingPolicy = DEFAULT_ROUTING_POLICY
 	"""What a cursor routing key press within this segment does."""
 
-	documentContextIndex: int | None = None
-	"""This segment's place in the reading order of the document lines feature.
-
-	The distance between two of these is how many lines apart the segments read, so a
-	segment two after the focus segment shows the line two after the caret.
-
-	It cannot be derived from the display order of segments, because a panel may put
-	several segments on one physical row: a three column grid consumes three indices per
-	row band, which would inflate the offsets of everything below it. Nor can it be derived
-	from the row, because a single row display divided into columns puts every segment on
-	row 0 and still wants them to read consecutively. So it is stated rather than inferred.
-
-	None means this segment takes no part in the document lines feature, which is the
-	default and is what every claimed panel gets unless it opts in.
-	"""
-
 	@property
 	def isReserved(self) -> bool:
 		""":return: whether this segment belongs to a panel that claimed it."""
@@ -134,11 +118,6 @@ class SegmentSpec:
 	def ownerDrawsFocus(self) -> bool:
 		""":return: whether the focus content here is the owner's to draw, not NVDA's."""
 		return self.hostsSystemFocus and self.exclusive
-
-	@property
-	def hasDocumentContext(self) -> bool:
-		""":return: whether this segment takes part in the document lines feature."""
-		return self.documentContextIndex is not None
 
 
 class BraillePanel:
@@ -159,7 +138,6 @@ class BraillePanel:
 		markCuts: bool = False,
 		routingPolicy: RoutingPolicy | None = None,
 		focusSegmentKey: str | None = None,
-		documentContextIndex: int | None = None,
 		hostsSystemFocus: bool = False,
 		exclusive: bool = False,
 	) -> None:
@@ -168,8 +146,8 @@ class BraillePanel:
 			it must be unique within a view.
 		:param rect: the rectangle claimed, in display coordinates.
 		:param reserve: whether the segments produced are reserved for this panel's owner.
-			Reserved segments are left alone by the document lines feature. Pass False for
-			a panel whose segments are ordinary display space, as the configured view does.
+			Pass False for a panel whose segments are ordinary display space, as the
+			configured view does.
 		:param fillRows: the wrapping rule handed to this panel's segments.
 		:param markCuts: whether cut rows show a continuation mark, when filling rows.
 		:param routingPolicy: what a routing key press does within this panel's segments.
@@ -177,10 +155,6 @@ class BraillePanel:
 		:param focusSegmentKey: the segment that should follow the system focus if this
 			panel is composed into a view that loses its own focus segment. None means this
 			panel cannot host the focus, so such a composition is refused.
-		:param documentContextIndex: this panel's place in the reading order of the
-			document lines feature. None, the default, means its segments take no part in
-			it, which is what a claimed panel usually wants. See
-			L{SegmentSpec.documentContextIndex}.
 		:param hostsSystemFocus: whether this panel's segments are where NVDA's own focus
 			content belongs. A panel offering a `focusSegmentKey` is saying which segment
 			*could* host the focus; this says its segments actually do.
@@ -195,7 +169,6 @@ class BraillePanel:
 		self.markCuts = markCuts
 		self.routingPolicy = routingPolicy if routingPolicy is not None else DEFAULT_ROUTING_POLICY
 		self.focusSegmentKey = focusSegmentKey
-		self.documentContextIndex = documentContextIndex
 		self.hostsSystemFocus = hostsSystemFocus
 		self.exclusive = exclusive
 
@@ -214,7 +187,6 @@ class BraillePanel:
 		self,
 		suffix: str,
 		rect: SegmentRect,
-		documentContextIndex: int | None = None,
 	) -> SegmentSpec:
 		"""Build one segment specification carrying this panel's defaults.
 
@@ -222,9 +194,6 @@ class BraillePanel:
 			the panel name to form the key. Empty for a panel holding a single segment,
 			whose key is then the panel name itself.
 		:param rect: the rectangle the segment occupies, in display coordinates.
-		:param documentContextIndex: this segment's own place in the document reading
-			order, for a panel whose segments each need a different one. None falls back to
-			the panel's.
 		:return: the specification.
 		"""
 		return SegmentSpec(
@@ -234,9 +203,6 @@ class BraillePanel:
 			fillRows=self.fillRows,
 			markCuts=self.markCuts,
 			routingPolicy=self.routingPolicy,
-			documentContextIndex=(
-				documentContextIndex if documentContextIndex is not None else self.documentContextIndex
-			),
 			hostsSystemFocus=self.hostsSystemFocus,
 			exclusive=self.exclusive,
 		)
@@ -478,8 +444,8 @@ class GraphicsPanel(BraillePanel):
 						numCols=self.rect.numCols,
 					),
 					key=f"{self.name}.{self.TEXT_SUFFIX}",
-					# Ordinary space, deliberately: no owner, so the document lines feature may
-					# use it, and hosting the focus so NVDA's untargeted regions land here rather
+					# Ordinary space, deliberately: no owner, so a pinned object may use it,
+					# and hosting the focus so NVDA's untargeted regions land here rather
 					# than under the drawing where they would be drawn over and lost.
 					owner=None,
 					hostsSystemFocus=True,

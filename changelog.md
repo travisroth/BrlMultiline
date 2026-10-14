@@ -351,8 +351,6 @@ Added:
   pinned web page covers the page rather than the one element the cursor was in. Pins are
   re-read several times a second, so a pinned status line or clock keeps up, and re-reading
   neither moves the reading position nor disturbs the window the user panned to.
-- Optionally filling the segments around the focus segment with the document lines above
-  and below the caret.
 
 - Reading a document as a flow, on a band of the display: a heading followed by what comes
   after it, a paragraph running on across the rows, panning that moves a whole display's
@@ -544,9 +542,7 @@ Added:
   every row of a flow reads a place of its own — so the band asked for computer braille on
   every one of them, and each line came out with its first word written out uncontracted. The
   cursor was being taken away afterwards, which is one translation too late. Every row but
-  yours is now in whatever table and contraction you chose. The same fix applies to the
-  document lines shown around the caret in other segments, where only the caret's own line
-  expands.
+  yours is now in whatever table and contraction you chose.
 
 - **"No column repeated" is one of the answers in the table designer.** Whether a column is
   drawn again at the left of every page was a setting for all your tables at once, while which

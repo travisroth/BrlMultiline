@@ -36,7 +36,7 @@ from braille.constants import CONTEXTPRES_CHANGEDCONTEXT
 from config.configFlags import TetherTo
 from logHandler import log
 
-from . import bmConfig, documentLines, glyphFlow, panning, tableRowLine
+from . import glyphFlow, panning, tableRowLine
 from .container import DisplayContainer
 
 _owners: dict[str, object] = {}
@@ -174,7 +174,6 @@ def _doNewObjectMultiSegment(self: BrailleHandler, regions) -> None:
 		# The last region of each group receives focus within its own segment.
 		container.focus(group[-1])
 		self.scrollToCursorOrSelection(group[-1])
-	_populateDocumentLines(container)
 	if self.buffer is self.mainBuffer:
 		self.update()
 	elif self.buffer is self.messageBuffer and keyboardHandler.keyCounter > self._keyCountForLastMessage:
@@ -196,45 +195,6 @@ def _ownerTookTheFocus(segment, regions) -> bool:
 	except Exception:
 		log.debugWarning(f"An owner could not take the focus in {segment!r}", exc_info=True)
 		return False
-
-
-def _getMonitoredKeys() -> set[str]:
-	""":return: the keys of segments holding a pinned object, which must not be written over.
-
-	This is the runtime half of the reservation picture. The other half, panels that
-	reserved their segments when the view was composed, is carried on the segments
-	themselves and does not have to be gathered here.
-	"""
-	from . import getPlugin
-
-	plugin = getPlugin()
-	if plugin is None:
-		return set()
-	return set(plugin.monitoredKeys)
-
-
-def _populateDocumentLines(container: DisplayContainer) -> None:
-	"""Fill the free segments with the document lines around the caret, if configured.
-
-	Also takes back lines the add-on placed but should no longer be showing, whether
-	because the focus has left the document or because the setting has been turned off.
-	"""
-	if container.numSegments == 1:
-		return
-	if bmConfig.isSpeechOutputMode():
-		# The display is showing speech. Lines written now would stay under the reader's
-		# fingers beside it, since nothing handles caret moves in this mode.
-		return
-	monitored = _getMonitoredKeys()
-	try:
-		if bmConfig.shouldShowDocumentLines():
-			changed = documentLines.populate(container, monitored)
-		else:
-			changed = documentLines.clearDocumentRegions(container, monitored)
-		if changed:
-			container.update()
-	except Exception:
-		log.debugWarning("Could not show document lines", exc_info=True)
 
 
 def _refreshPinnedObjects(busy: bool = False) -> None:
@@ -321,49 +281,18 @@ def _tellTheBand(document) -> None:
 	band.documentChanged(document)
 
 
-def _handlePendingUpdateWithDocumentLines(self: BrailleHandler) -> None:
-	"""Refresh the document line regions after NVDA has handled its own pending updates.
-
-	NVDA only marks the region belonging to the caret as needing an update, so the regions
-	showing neighbouring lines have to be refreshed here.
+def _handlePendingUpdateRefreshingPins(self: BrailleHandler) -> None:
+	"""Refresh pinned objects after NVDA has handled its own pending updates.
 
 	`_handlePendingUpdate` runs on every core cycle and clears its own pending set before
 	returning, so whether there was anything to do has to be noted before delegating to it.
-	Refreshing regardless would re-read the caret and retranslate every row many times a
-	second while nothing at all was changing.
 
-	Pinned objects are the exception, and are refreshed whether or not anything was pending:
-	what they show is not driven by the caret, so a pending update is no signal at all for
-	them.
+	Pinned objects are refreshed whether or not anything was pending: what they show is not
+	driven by the caret, so a pending update is no signal at all for them.
 	"""
 	hadPendingUpdate = bool(self._regionsPendingUpdate)
 	_originals["_handlePendingUpdate"](self)
 	_refreshPinnedObjects(busy=hadPendingUpdate)
-	if not hadPendingUpdate:
-		return
-	container = self.mainBuffer
-	if not isinstance(container, DisplayContainer) or container.numSegments == 1:
-		return
-	if not bmConfig.shouldShowDocumentLines():
-		return
-	if bmConfig.isSpeechOutputMode():
-		# The display is showing speech, not the document the caret is in.
-		return
-	try:
-		regions = [
-			region
-			for segment in container.segments
-			for region in segment.regions
-			if isinstance(region, documentLines.TextInfoPositionRegion) and region.lineOffset != 0
-		]
-		if not regions:
-			return
-		for region in regions:
-			region.update()
-		container.update()
-		container.updateDisplay()
-	except Exception:
-		log.debugWarning("Could not refresh document lines", exc_info=True)
 
 
 def _nativeScroll(handler: BrailleHandler, forward: bool) -> None:
@@ -476,7 +405,7 @@ def _replacements() -> dict[str, tuple]:
 		"_doNewObject": (BrailleHandler, _doNewObjectMultiSegment),
 		"scrollForward": (BrailleHandler, _scrollForwardMaybeReversed),
 		"scrollBack": (BrailleHandler, _scrollBackMaybeReversed),
-		"_handlePendingUpdate": (BrailleHandler, _handlePendingUpdateWithDocumentLines),
+		"_handlePendingUpdate": (BrailleHandler, _handlePendingUpdateRefreshingPins),
 	}
 	buffers = _virtualBufferClass()
 	if buffers is not None:

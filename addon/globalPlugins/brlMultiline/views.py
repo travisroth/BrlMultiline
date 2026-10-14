@@ -293,15 +293,11 @@ def displayPanels(rects: list[SegmentRect]) -> list[SinglePanel]:
 	actually wants, so segments elsewhere on the display keep their keys, and anything
 	holding one of those keys, such as a pinned object, survives the rebuild.
 
-	Each is given its ordinal as its document context index, so the document lines feature
-	reads them consecutively however many claimed segments end up between them.
-
 	:param rects: the segment rectangles, in display order.
-	:return: one panel per rectangle, none of them reserved, so the add-on may fill the
-		free ones with the document lines around the caret.
+	:return: one panel per rectangle, none of them reserved.
 	"""
 	return [
-		SinglePanel(displaySegmentKey(index), rect, reserve=False, documentContextIndex=index)
+		SinglePanel(displaySegmentKey(index), rect, reserve=False)
 		for index, rect in enumerate(rects)
 	]
 
@@ -575,7 +571,7 @@ def deviceFallbackView(numRows: int, numCols: int, devices: Sequence[DeviceInfo]
 	keys: list[str] = []
 	for device, band in zip(devices, deviceBandRects([each.band for each in devices], numCols), strict=True):
 		key = deviceSegmentKey(device.driverName, 0)
-		panels.append(SinglePanel(key, band.live, reserve=False, documentContextIndex=len(keys)))
+		panels.append(SinglePanel(key, band.live, reserve=False))
 		keys.append(key)
 		if band.dead is not None:
 			panels.append(BlankPanel(band.dead, name=f"{DEVICE_PANEL_NAME}.{device.driverName}.dead"))
@@ -627,14 +623,7 @@ def deviceView(
 				# One panel per segment, as the configured view does and for the same reason:
 				# a claim laid over the composite then evicts only the segments whose cells it
 				# actually wants, leaving those on the other display with their keys.
-				SinglePanel(
-					keys[position],
-					rect,
-					reserve=False,
-					# Numbered across the whole composite, so that the document lines feature
-					# reads on from one display to the next rather than restarting.
-					documentContextIndex=position,
-				),
+				SinglePanel(keys[position], rect, reserve=False),
 			)
 			position += 1
 		if band.dead is not None:

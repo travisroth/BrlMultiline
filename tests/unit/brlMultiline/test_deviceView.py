@@ -212,17 +212,9 @@ class TestSegmentKeys(DeviceViewTestCase):
 			["device.hidBrailleStandard.0", "device.hidBrailleStandard.1"],
 		)
 
-	def test_segmentsAreFreeForDocumentLines(self):
+	def test_segmentsAreFree(self):
 		for spec in self.build().flatten():
 			self.assertIsNone(spec.owner)
-
-	def test_readingOrderRunsOnFromOneDisplayToTheNext(self):
-		setBandConfig(MONARCH_KEY, segmentCount=4)
-		setBandConfig(FOCUS_KEY, segmentCount=2)
-		self.assertEqual(
-			[spec.documentContextIndex for spec in self.build().flatten()],
-			[0, 1, 2, 3, 4, 5],
-		)
 
 	def test_onePanelPerSegment(self):
 		"""The finest grain there is, so a claim evicts only the segments it wants."""

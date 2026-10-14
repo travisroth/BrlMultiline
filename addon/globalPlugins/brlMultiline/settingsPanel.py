@@ -311,10 +311,6 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			max=self._highestSegmentNumber(),
 			initial=int(section["messageSegment"]),
 		)
-		# Translators: label of a checkbox in settings.
-		documentLinesLabel = _("Show the &document lines around the caret in the other segments")
-		self.documentLinesCtrl = sHelper.addItem(wx.CheckBox(self, label=documentLinesLabel))
-		self.documentLinesCtrl.SetValue(bool(section["showDocumentLines"]))
 		# Here rather than in the flow settings, because it is about what a cell of this display
 		# can draw and applies to everything shown on it. A menu bar in File Explorer is full of
 		# buttons and never goes near a flow.
@@ -586,7 +582,6 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section = bmConfig.getDisplayConfig(self.displayKey)
 		section["focusSegment"] = self.focusSegmentCtrl.Value
 		section["messageSegment"] = self.messageSegmentCtrl.Value
-		section["showDocumentLines"] = self.documentLinesCtrl.IsChecked()
 		section["drawGlyphs"] = self.glyphCtrl.IsChecked()
 		bmConfig.setArrowsMoveByRow(self.tableArrowsCtrl.IsChecked())
 

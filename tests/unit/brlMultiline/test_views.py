@@ -85,7 +85,7 @@ class TestConfiguredView(ViewTestCase):
 		self.assertEqual(view.name, "configured")
 
 	def test_configuredSegmentsAreFree(self):
-		"""Free segments are the ones the document lines feature may fill."""
+		"""Free segments are the ones a pinned object may be put in."""
 		CONFIG["segmentCount"] = 4
 		self.assertTrue(
 			all(not spec.isReserved for spec in viewFromConfig(MONARCH_ROWS, MONARCH_COLS).flatten())

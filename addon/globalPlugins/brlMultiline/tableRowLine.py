@@ -32,7 +32,7 @@ NVDA's next line — whenever the caret is anywhere else, so the rest of the pag
 always has. An ordinary region becomes one by `adopt`, called from the patch on
 `TextInfoRegion.update` (see `patches`), because NVDA builds its region afresh on every focus
 change and there is no other moment to catch it at. Only while a request stands, and only a
-region that is exactly NVDA's, so a flow's regions and the document lines' are never touched.
+region that is exactly NVDA's, so a flow's regions are never touched.
 
 **Which columns, and in what order.** A layout the reader saved for this table decides, as it
 would for the columns — see `flowTableLayouts.layoutFor`. Otherwise every column, in the

@@ -136,7 +136,6 @@ configSpec = {
 			"messageSegment": "integer(default=-1, min=-1)",
 			"reverseScrollBtns": "boolean(default=False)",
 			"reverseScrollBtnsMigrated": "boolean(default=False)",
-			"showDocumentLines": "boolean(default=False)",
 			"drawGlyphs": "boolean(default=False)",
 			"flowEnabled": "boolean(default=False)",
 			"flowRows": f"integer(default=0, min=0, max={MAX_FLOW_ROWS})",
@@ -193,8 +192,6 @@ configSpec = {
 - `reverseScrollBtnsMigrated`: bookkeeping, and only on a composite display's own section.
 	Set once the value above has been carried onto the displays behind it. See
 	L{migrateReverseScrollButtons}.
-- `showDocumentLines`: fill the segments around the focus segment with the document lines
-	above and below the caret.
 - `drawGlyphs`: whether the roles and states NVDA writes as short words are drawn as pin
 	shapes instead, on a display that can draw one. Off by default: the shapes are new and a
 	reader has to learn them before they are worth anything. Not a flow setting — it applies
@@ -581,15 +578,6 @@ def migrateReverseScrollButtons(displayKey: str, memberKeys) -> None:
 		# Panning the default way round is a poor outcome and not one worth losing a display to.
 		# The mark is unset, so the next rebuild tries again.
 		log.debugWarning("Could not carry over the reversed panning setting", exc_info=True)
-
-
-def shouldShowDocumentLines(displayKey: str | None = None) -> bool:
-	""":return: whether free segments should show the lines around the caret."""
-	try:
-		return bool(getDisplayConfig(displayKey)["showDocumentLines"])
-	except Exception:
-		log.debugWarning("Could not read showDocumentLines", exc_info=True)
-		return False
 
 
 def isFlowEnabled(displayKey: str | None = None) -> bool:

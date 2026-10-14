@@ -169,10 +169,7 @@ class BrailleBufferSegment(BrailleBuffer):
 
 	@property
 	def isReserved(self) -> bool:
-		""":return: whether this segment belongs to a panel that claimed it.
-
-		A free segment is one the add-on may fill with the document lines around the caret.
-		"""
+		""":return: whether this segment belongs to a panel that claimed it."""
 		return self.spec.isReserved
 
 	@property

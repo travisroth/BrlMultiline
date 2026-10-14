@@ -232,14 +232,6 @@ new. To learn them, assign a key to "Graphics: Show the glyph catalogue" in Inpu
 draws every shape with the braille it replaces beside it, so you can read the shape and then
 the word it stands for.
 
-<!-- (Flow does a better job than this so this may be removed)
-**Show the document lines around the caret in the other segments.** When you are in a
-document, fills the segments around the focus segment with the lines above and below the
-line the caret is on. The segment immediately above the focus segment shows the previous
-line, the one above that shows the line before it, and so on. Segments holding a pinned
-object are left alone. Segments run past the start or end of the document show as blank.
--->
-
 ## Reading as a flow
 
 Normally a braille display shows one thing: the line the cursor is on, or the object with

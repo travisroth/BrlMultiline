@@ -306,7 +306,7 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 		# assigned regions are now the whole of what the display shows. Write the contents
 		# into the focus segment rather than losing the proxy, and empty every other
 		# segment: in speech output mode NVDA stops handling focus, caret and review
-		# moves, so document lines and pinned objects left elsewhere would stay under the
+		# moves, so pinned objects left elsewhere would stay under the
 		# reader's fingers beside the speech, with nothing to ever refresh or remove them.
 		for segment in self.segments:
 			segment.clear()

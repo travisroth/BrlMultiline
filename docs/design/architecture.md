@@ -22,7 +22,6 @@ established there.
 - `container.py` — `DisplayContainer` and `FakeRegionsList`.
 - `patches.py` — the patches to `BrailleHandler`, installed and removed together — and taken
   back only where the method is still the one this add-on installed.
-- `documentLines.py` — `TextInfoPositionRegion` and the code that fills free segments.
 - `objectMonitor.py` — pinning an object to a segment.
 - `panning.py` — which physical display's panning key is running the scroll happening now,
   and therefore whose panning direction and whose segment apply. See the module docstring for
@@ -408,39 +407,6 @@ they sit on a piece of hardware. So when several displays are driven as one, the
 applies is the pressed display's, whichever display holds the segment that moves. `panning`
 is how the pressed display is known, and the same answer picks the segment: the focus segment
 when that display holds it, otherwise that display's first segment.
-
-## Document lines
-
-When enabled, the **free** segments are filled with `TextInfoPositionRegion`s reading the
-document at a fixed line offset.
-
-`documentLines.isFree` is the single place that decides what is free. Four things put a
-segment out of bounds, and they arrive by different routes:
-
-1. It follows the system focus, so it already shows the caret's own line.
-2. `spec.owner` reserves it for a panel — a claim made when the view was composed. A
-   table's grid cells are excluded this way, which is what stops nine cells being flooded
-   with document lines the moment a table appears.
-3. Its key is in the runtime-claimed set, because an object is pinned there. Pinning
-   happens long after the view was composed, so it cannot be carried on the spec.
-4. It has no `documentContextIndex`, so there is no line it could be showing.
-
-### The offset is stated, not inferred
-
-`SegmentSpec.documentContextIndex` gives a segment its place in the reading order, and the
-offset between two segments is the difference between theirs. It cannot be derived:
-
-- **Not from display order.** A panel may put several segments on one physical row. A three
-  column grid consumes three indices per row band, so a segment below it would read three
-  times too many lines away. This was a real defect: a segment seven rows above the focus
-  read ten lines back.
-- **Not from the row.** A single row display divided into columns puts every segment on row
-  0, and those segments still want to read consecutively.
-
-So the configured view's panels each carry their ordinal, and claimed panels carry `None`
-by default. If the focus segment itself has no context — the focus moved into a table cell,
-say — there is no caret line for anything to be relative to, and the document lines are
-withdrawn rather than computed against a fiction.
 
 ## Two things a region can be told, and why they are separate
 

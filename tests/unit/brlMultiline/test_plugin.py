@@ -1385,21 +1385,6 @@ class TestDoNewObjectPatch(PluginTestCase):
 		self.doNewObject(first, second)
 		self.assertCountEqual(self.handler.scrolledTo, [first, second])
 
-	def test_documentLinesAreNotFilledInWhileTheDisplayShowsSpeech(self):
-		"""The same rule the pins follow: nothing of the add-on's own on a display showing speech."""
-		from brlMultiline import documentLines
-
-		calls = []
-		original = documentLines.populate
-		documentLines.populate = lambda *args, **kwargs: calls.append(args)
-		self.addCleanup(setattr, documentLines, "populate", original)
-		CONFIG["showDocumentLines"] = True
-		self.doNewObject(Region("focus content"))
-		self.assertEqual(len(calls), 1)
-		setSpeechOutputMode(True)
-		self.doNewObject(Region("focus content"))
-		self.assertEqual(len(calls), 1)
-
 
 class TestFlowSwitch(PluginTestCase):
 	"""Claiming and giving back the flow band, from the setting and from the command.

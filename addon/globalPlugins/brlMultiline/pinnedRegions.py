@@ -23,11 +23,6 @@ through `_getSelection` and hand the new position to `_setCursor`, and both are 
 the copy — which is what lets a pinned segment be panned line by line through a document
 the user is not in. Without it a pin can never leave the line it was made on, and a pinned
 document is unreadable past its first line.
-
-The same trick, from the other end, is what `documentLines.TextInfoPositionRegion` does:
-there the private position is derived from the caret on every update and panning is
-refused, because those regions are meant to track the caret. Here it is fixed at pin time
-and panning is the whole point.
 """
 
 from braille.regions.textInfo import CursorManagerRegion, TextInfoRegion
@@ -54,9 +49,8 @@ class CursorOnlyWhereTheReaderIs:
 	out in whatever table and contraction the reader chose. The setting still does what it
 	says on the one row it is about.
 
-	The two regions that need this are the ones that show a place the reader is not standing
-	in: a flow's blocks, and the document lines drawn around the caret in other segments. See
-	`flowSources.FlowRegion` and `documentLines.TextInfoPositionRegion`.
+	The region that needs this is a flow's block, which shows a place the reader is not
+	standing in. See `flowSources.FlowRegion`.
 	"""
 
 	_cursorPos = None
@@ -66,7 +60,7 @@ class CursorOnlyWhereTheReaderIs:
 		""":return: whether this region is the one the reader is in.
 
 		Answered by whoever mixes this in, because only they know: for a flow it is the active
-		block of a live band, and for a document line it is the caret's own line.
+		block of a live band.
 		"""
 		return True
 

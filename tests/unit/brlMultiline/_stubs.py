@@ -141,7 +141,6 @@ CONFIG = DisplaySection(
 		"segmentSizes": [],
 		"focusSegment": -1,
 		"reverseScrollBtns": False,
-		"showDocumentLines": False,
 		"flowEnabled": False,
 		"flowBrowseMode": True,
 		"flowObjects": False,
@@ -186,8 +185,7 @@ def setBandConfig(displayKey: str, **values) -> None:
 			"segmentSizes": [],
 			"focusSegment": -1,
 			"reverseScrollBtns": False,
-			"showDocumentLines": False,
-			"flowEnabled": False,
+				"flowEnabled": False,
 			"flowBrowseMode": True,
 			"flowObjects": False,
 			"flowEditableText": False,
@@ -3220,7 +3218,6 @@ def installStubs() -> None:
 				"getLayout",
 				"getFocusSegment",
 				"setFocusSegment",
-				"shouldShowDocumentLines",
 				"shouldReverseScrollButtons",
 				"areSegmentsEnabled",
 				"setLayout",
@@ -3244,7 +3241,6 @@ def installStubs() -> None:
 	bmConfig.getLayout = getLayout
 	bmConfig.getFocusSegment = lambda displayKey=None: _sectionFor(displayKey)["focusSegment"]
 	bmConfig.setFocusSegment = setFocusSegment
-	bmConfig.shouldShowDocumentLines = lambda displayKey=None: _sectionFor(displayKey)["showDocumentLines"]
 	bmConfig.shouldReverseScrollButtons = lambda displayKey=None: _sectionFor(displayKey)["reverseScrollBtns"]
 	bmConfig.areSegmentsEnabled = lambda displayKey=None: _sectionFor(displayKey)["segmentsEnabled"]
 	bmConfig.setSegmentsEnabled = setSegmentsEnabled
@@ -3306,7 +3302,6 @@ def resetConfig() -> None:
 		segmentSizes=[],
 		focusSegment=-1,
 		reverseScrollBtns=False,
-		showDocumentLines=False,
 		flowEnabled=False,
 		flowBrowseMode=True,
 		flowObjects=False,
