@@ -197,3 +197,25 @@ class TestSearchInTheReadersLanguage(unittest.TestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestTheKeyLayersWords(unittest.TestCase):
+	def test_aShippedLayerTheReaderRenamedKeepsTheirName(self):
+		from brlMultiline import keyLayerDispatch, keyLayers
+
+		with mock.patch.object(
+			keyLayerDispatch, "pgettext", lambda context, message: _cross(message), create=True
+		):
+			shipped = keyLayers.newLayer(keyLayers.MONARCH, "graphics", "Graphics")
+			renamed = keyLayers.newLayer(keyLayers.MONARCH, "graphics", "Drawings")
+			self.assertEqual(keyLayerDispatch.layerName(shipped), "xxxxxxxx")
+			self.assertEqual(keyLayerDispatch.layerName(renamed), "Drawings")
+
+	def test_theLogStillHasItsEnglishSentence(self):
+		from brlMultiline import keyLayers
+
+		chart = keyLayers.newLayer(keyLayers.MONARCH, "chart", "Chart", fallsThrough="graphics")
+		graphics = keyLayers.newLayer(keyLayers.MONARCH, "graphics", "Graphics", fallsThrough="chart")
+		layers = keyLayers.LayerSet(keyLayers.MONARCH, (graphics, chart))
+		self.assertEqual(layers.issues()[0].kind, keyLayers.CIRCLE)
+		self.assertIn("falls through in a circle", layers.problems()[0])

@@ -481,12 +481,40 @@ class LayerEditor:
 				fallsThrough=fallsThrough or None,
 			)
 		updated = self.layers.withLayer(replace_(layer, **changes))
-		problems = updated.problems()
-		if problems:
+		issues = updated.issues()
+		if issues:
 			# Translators: why a layer's properties cannot be kept. The placeholder says what is wrong.
-			return _("These properties cannot be kept: {problem}").format(problem=problems[0])
+			return _("These properties cannot be kept: {problem}").format(
+				problem=self.describeIssue(issues[0], updated)
+			)
 		self._keepSet(updated)
 		return None
+
+	def describeIssue(self, issue: "keyLayers.LayerIssue", layers: LayerSet) -> str:
+		""":return: one thing wrong with a set of layers, said in the reader's language, the layers
+		called by their names rather than their ids."""
+
+		def name(layerId: str) -> str:
+			layer = layers.get(layerId)
+			return self.nameLayer(layer) if layer is not None else layerId
+
+		if issue.kind == keyLayers.DUPLICATE:
+			# Translators: what is wrong with a set of layered keys: two layers are the same one.
+			return _("there are two {layer} layers").format(layer=name(issue.layerId))
+		if issue.kind == keyLayers.DEFAULT_FIXED:
+			# Translators: what is wrong with a set of layered keys.
+			return _("the default layer cannot be for anything, or take keys from another layer")
+		if issue.kind == keyLayers.MISSING:
+			# Translators: what is wrong with a set of layered keys: a layer gets the keys it does not
+			# have from a layer that is not there.
+			return _("{layer} takes keys from {other}, which does not exist").format(
+				layer=name(issue.layerId), other=issue.others[0]
+			)
+		# Translators: what is wrong with a set of layered keys: layers that each take keys from the
+		# next, round in a circle. The second placeholder lists them in order.
+		return _("{layer} takes keys from layers in a circle: {chain}").format(
+			layer=name(issue.layerId), chain=", ".join(name(each) for each in issue.others)
+		)
 
 	def fallThroughChoices(self) -> list:
 		""":return: the layers the layer being edited could fall through to."""

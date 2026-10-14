@@ -176,3 +176,13 @@ never called it; only `__init__.py` and `settingsPanel.py` did. So:
    through it.
 4. **`_` is never a throwaway name** in a module that translates: `for _ in range(...)` inside a
    function that also calls `_()` makes `_` local to it, and the call fails.
+5. **Words a reader may have written are not translated as ours.** The shipped key layers' names
+   are said in the reader's language only while a layer still has the English name it shipped
+   with (`keyLayerDispatch._shippedName`); a layer the reader made or renamed keeps their name.
+6. **Messages built from parts are built where they are said.** A pure module returns what is
+   wrong as data (`keyLayers.LayerIssue`), with an English sentence for the log, and the dialog
+   says it in the reader's language with layers called by their names, rather than putting an
+   English reason inside a translated sentence.
+7. **Words are matched in any script, in composed form, a combining mark belonging to its word**
+   (`layoutRegions.words`): an accent can arrive as a mark of its own, and a vowel sign is part of
+   the word, not a break in it.

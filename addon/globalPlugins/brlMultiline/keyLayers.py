@@ -350,6 +350,36 @@ def newLayer(device: str, id: str, name: str = "", context: Optional[str] = None
 	return replace(layer, **changes) if changes else layer
 
 
+#: The kinds of `LayerIssue`.
+DUPLICATE = "duplicate"
+DEFAULT_FIXED = "defaultFixed"
+MISSING = "missing"
+CIRCLE = "circle"
+
+
+class LayerIssue(NamedTuple):
+	"""One thing wrong with a set of layers, as data, so the dialog can say it in the reader's
+	language and the log in English (found in review: the dialog put an English reason into a
+	translated message)."""
+
+	kind: str
+	"""`DUPLICATE`, `DEFAULT_FIXED`, `MISSING` or `CIRCLE`."""
+	layerId: str
+	"""The layer it is about."""
+	others: tuple = ()
+	"""For `MISSING`, the layer it falls through to; for `CIRCLE`, the chain of ids round the circle."""
+
+	def sentence(self) -> str:
+		""":return: the issue in English, for the log."""
+		if self.kind == DUPLICATE:
+			return f"two layers have the id {self.layerId!r}"
+		if self.kind == DEFAULT_FIXED:
+			return "the default layer can have no context and falls through to nothing"
+		if self.kind == MISSING:
+			return f"{self.layerId!r} falls through to {self.others[0]!r}, which does not exist"
+		return f"{self.layerId!r} falls through in a circle: {' to '.join(self.others)}"
+
+
 class LayerSetError(ValueError):
 	"""A layer set that cannot be saved as it stands."""
 
@@ -464,28 +494,32 @@ class LayerSet:
 			layers.append(layer)
 		return LayerSet(self.device, tuple(layers))
 
-	def problems(self) -> list:
-		""":return: what is wrong with this set, as sentences for the log. Empty when it can be saved."""
+	def issues(self) -> list:
+		""":return: what is wrong with this set, as data, for the dialog to say in the reader's language.
+		Empty when it can be saved. Each is a `LayerIssue`."""
 		found = []
 		ids = [layer.id for layer in self.layers]
 		for duplicate in sorted({id for id in ids if ids.count(id) > 1}):
-			found.append(f"two layers have the id {duplicate!r}")
+			found.append(LayerIssue(DUPLICATE, duplicate))
 		for layer in self.layers:
 			if layer.isDefault and (layer.context or layer.fallsThrough):
-				found.append("the default layer can have no context and falls through to nothing")
+				found.append(LayerIssue(DEFAULT_FIXED, layer.id))
 			if layer.fallsThrough and self.get(layer.fallsThrough) is None:
-				found.append(f"{layer.id!r} falls through to {layer.fallsThrough!r}, which does not exist")
+				found.append(LayerIssue(MISSING, layer.id, (layer.fallsThrough,)))
 			seen = []
 			current = layer
 			while current is not None and current.fallsThrough:
 				if current.id in seen:
-					found.append(
-						f"{layer.id!r} falls through in a circle: {' to '.join(seen + [current.id])}"
-					)
+					found.append(LayerIssue(CIRCLE, layer.id, tuple(seen + [current.id])))
 					break
 				seen.append(current.id)
 				current = self.get(current.fallsThrough)
 		return found
+
+	def problems(self) -> list:
+		""":return: what is wrong with this set, as English sentences for the log. Empty when it can be
+		saved. See `issues` for the same as data."""
+		return [issue.sentence() for issue in self.issues()]
 
 	def toText(self) -> str:
 		""":return: the stored form.

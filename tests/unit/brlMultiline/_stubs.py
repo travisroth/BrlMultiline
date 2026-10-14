@@ -2965,6 +2965,9 @@ def _installPluginStubs() -> None:
 
 	# addonHandler.initTranslation installs the gettext underscore into builtins.
 	builtins._ = lambda message: message  # type: ignore[attr-defined]
+	# NVDA installs these beside it, for modules that have not called initTranslation.
+	builtins.pgettext = lambda context, message: message  # type: ignore[attr-defined]
+	builtins.ngettext = lambda singular, plural, count: singular if count == 1 else plural  # type: ignore[attr-defined]
 	_module("addonHandler", initTranslation=lambda: None)
 	_module(
 		"api",

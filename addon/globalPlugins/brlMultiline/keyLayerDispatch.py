@@ -358,7 +358,33 @@ def layerName(layer: Optional[Layer]) -> str:
 	if layer.isDefault:
 		# Translators: the name of the layer of keys every device has, spoken as in "Default layer on".
 		return _("Default")
+	shipped = _shippedName(layer)
+	if shipped:
+		return shipped
 	return layer.name or layer.id
+
+
+def _shippedName(layer: Layer) -> Optional[str]:
+	""":return: a shipped layer's name in the reader's language, while it still has the English name it
+	shipped with, or None. A name the reader gave a layer, or changed a shipped one to, is theirs,
+	and is said as they wrote it (found in review: the shipped names were said in English in a
+	translated dialog)."""
+	names = {
+		# Translators: the name of a layer of keys BrlMultiline comes with, for drawings, as in
+		# "Graphics layer on".
+		"graphics": ("Graphics", pgettext("key layer", "Graphics")),
+		# Translators: the name of a layer of keys BrlMultiline comes with, for charts.
+		"chart": ("Chart", pgettext("key layer", "Chart")),
+		# Translators: the name of a layer of keys BrlMultiline comes with, for pictures.
+		"picture": ("Picture", pgettext("key layer", "Picture")),
+		# Translators: the name of a layer of keys BrlMultiline comes with, for tables.
+		"table": ("Table", pgettext("key layer", "Table")),
+		# Translators: the name of a layer of keys BrlMultiline comes with, for lines shown
+		# unwrapped, wider than the display.
+		"unwrapped": ("Unwrapped lines", pgettext("key layer", "Unwrapped lines")),
+	}
+	english, translated = names.get(layer.id, (None, None))
+	return translated if english is not None and layer.name == english else None
 
 
 # Which device

@@ -54,6 +54,7 @@ The rules, in the order they are applied:
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
@@ -852,16 +853,29 @@ def words(text: str) -> list[str]:
 
 	In any alphabet: a page or a window named in Spanish or Russian has its words in its own
 	letters, "Búsqueda" or "Поиск", not only A to Z.
+
+	**A combining mark belongs to the word it is in**, an accent or a vowel sign, and the text is
+	put in its composed form first (found in review: a decomposed "búsqueda", with its accent as
+	a mark of its own, was split at the accent; and a Hindi vowel sign split "खोज" into single
+	letters, which then matched words that only started with one of them).
 	"""
-	spaced = []
+	found: list[str] = []
+	current: list[str] = []
 	previous = ""
-	for character in text or "":
-		if previous.islower() and character.isupper():
-			# A capital after a small letter starts a word in an identifier: siteSearch.
-			spaced.append(" ")
-		spaced.append(character)
+	for character in unicodedata.normalize("NFC", text or ""):
+		if character.isalnum() or unicodedata.category(character).startswith("M"):
+			if current and previous.islower() and character.isupper():
+				# A capital after a small letter starts a word in an identifier: siteSearch.
+				found.append("".join(current))
+				current = []
+			current.append(character)
+		elif current:
+			found.append("".join(current))
+			current = []
 		previous = character
-	return [w for w in re.split(r"[\W_]+", "".join(spaced).lower()) if w]
+	if current:
+		found.append("".join(current))
+	return [word.lower() for word in found]
 
 
 def searchWords() -> tuple[str, ...]:

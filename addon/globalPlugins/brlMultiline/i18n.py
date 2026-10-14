@@ -19,8 +19,6 @@ which is what the tests and the spikes read.
 
 from __future__ import annotations
 
-import builtins
-
 try:
 	import addonHandler
 
@@ -43,8 +41,10 @@ def _englishInContext(context: str, message: str) -> str:
 	return message
 
 
-_ = globals().get("_") or getattr(builtins, "_", None) or _english
-ngettext = globals().get("ngettext") or getattr(builtins, "ngettext", None) or _englishPlural
-pgettext = globals().get("pgettext") or getattr(builtins, "pgettext", None) or _englishInContext
+# The add-on's, where `initTranslation` set them, or else English; never whatever `builtins._`
+# holds, which outside NVDA can be the interactive interpreter's last result (found in review).
+_ = globals().get("_", _english)
+ngettext = globals().get("ngettext", _englishPlural)
+pgettext = globals().get("pgettext", _englishInContext)
 
 __all__ = ["_", "ngettext", "pgettext"]
