@@ -50,6 +50,10 @@ from logHandler import log
 from . import brailleSubstitutions, personalTables
 from .brailleSubstitutions import RULES_FILE, PersonalTable, Store, StoreError, Substitution
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 LOG_PREFIX = "BrlMultiline braille substitutions: "
 
 STORE_FILE = "brailleSubstitutions.json"

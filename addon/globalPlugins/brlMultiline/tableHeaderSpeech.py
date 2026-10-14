@@ -65,6 +65,10 @@ from logHandler import log
 from . import bmConfig, flowTableLayouts, flowTableSource
 from .flowTableLayouts import FOLLOW, SPEAK_COLUMNS, SPEAK_OFF, SPEAK_ROWS
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 HEADER_PROPERTIES = ("rowHeaderText", "columnHeaderText")
 """What `getPropertiesSpeech` is given a table cell's headers as."""
 

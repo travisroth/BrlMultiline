@@ -29,36 +29,70 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from .i18n import _, pgettext
 from .layoutRegions import Box, Region, _topLevel, countWords, whereWords
 
-#: The short label drawn inside each kind of box. Short because every braille cell costs three
-#: pins across, and the full name is a press away.
-SHORT_LABELS = {
-	"banner": "banner",
-	"navigation": "nav",
-	"main": "main",
-	"complementary": "side",
-	"contentinfo": "foot",
-	"search": "find",
-	"form": "form",
-	"region": "region",
-	"frame": "frame",
-	"header": "head",
-	"footer": "foot",
-	"sidebar": "side",
-	"content": "text",
-	"table": "table",
-	"tabs": "tabs",
-	"accordion": "accord",
-	"menubar": "menu",
-	"toolbar": "tools",
-	"ribbon": "ribbon",
-	"statusbar": "status",
-	"tree": "tree",
-	"list": "list",
-	"grid": "grid",
-	"document": "doc",
-}
+
+def shortLabel(kind: str) -> str:
+	""":return: the short label drawn inside a kind of box, in the reader's language, or nothing for
+	a kind with none. Short because every braille cell costs three pins across, and the full name is
+	a press away. Translated when asked, as `layoutRegions.kindName` is."""
+	labels = {
+		# Translators: a label drawn in braille inside a box in the layout overview, for a page's
+		# banner. Keep these labels as short as you can, six letters or fewer: every braille cell
+		# takes room on the display, and pressing in the box says the full name.
+		"banner": pgettext("braille box label", "banner"),
+		# Translators: a short braille label in the layout overview, for navigation.
+		"navigation": pgettext("braille box label", "nav"),
+		# Translators: a short braille label in the layout overview, for main content.
+		"main": pgettext("braille box label", "main"),
+		# Translators: a short braille label in the layout overview, for a complementary area or a
+		# sidebar.
+		"complementary": pgettext("braille box label", "side"),
+		# Translators: a short braille label in the layout overview, for a page's footer or content
+		# info.
+		"contentinfo": pgettext("braille box label", "foot"),
+		# Translators: a short braille label in the layout overview, for search.
+		"search": pgettext("braille box label", "find"),
+		# Translators: a short braille label in the layout overview, for a form.
+		"form": pgettext("braille box label", "form"),
+		# Translators: a short braille label in the layout overview, for a named region.
+		"region": pgettext("braille box label", "region"),
+		# Translators: a short braille label in the layout overview, for an embedded frame.
+		"frame": pgettext("braille box label", "frame"),
+		# Translators: a short braille label in the layout overview, for a page's header.
+		"header": pgettext("braille box label", "head"),
+		# Translators: a short braille label in the layout overview, for a page's footer.
+		"footer": pgettext("braille box label", "foot"),
+		# Translators: a short braille label in the layout overview, for a sidebar.
+		"sidebar": pgettext("braille box label", "side"),
+		# Translators: a short braille label in the layout overview, for a page's content.
+		"content": pgettext("braille box label", "text"),
+		# Translators: a short braille label in the layout overview, for a data table.
+		"table": pgettext("braille box label", "table"),
+		# Translators: a short braille label in the layout overview, for a strip of tabs.
+		"tabs": pgettext("braille box label", "tabs"),
+		# Translators: a short braille label in the layout overview, for an accordion.
+		"accordion": pgettext("braille box label", "accord"),
+		# Translators: a short braille label in the layout overview, for a menu bar.
+		"menubar": pgettext("braille box label", "menu"),
+		# Translators: a short braille label in the layout overview, for a toolbar.
+		"toolbar": pgettext("braille box label", "tools"),
+		# Translators: a short braille label in the layout overview, for a ribbon of commands.
+		"ribbon": pgettext("braille box label", "ribbon"),
+		# Translators: a short braille label in the layout overview, for a status bar.
+		"statusbar": pgettext("braille box label", "status"),
+		# Translators: a short braille label in the layout overview, for a tree view.
+		"tree": pgettext("braille box label", "tree"),
+		# Translators: a short braille label in the layout overview, for a list.
+		"list": pgettext("braille box label", "list"),
+		# Translators: a short braille label in the layout overview, for a grid of cells.
+		"grid": pgettext("braille box label", "grid"),
+		# Translators: a short braille label in the layout overview, for a document or editor.
+		"document": pgettext("braille box label", "doc"),
+	}
+	return labels.get(kind, "")
+
 
 #: Pins a braille cell takes across, with the gap after it, and down.
 CELL_STRIDE = 3
@@ -160,7 +194,10 @@ class Overview:
 
 	def keyText(self) -> str:
 		"""The key for boxes labelled with a letter, as one line to say."""
-		return "; ".join(f"{b.key}, {b.region.title}" for b in self.keyed)
+		# Translators: one entry in the key to the letters on a drawing of a page's or window's
+		# layout: a letter, and the area it stands for, such as "a, navigation".
+		entry = _("{letter}, {area}")
+		return "; ".join(entry.format(letter=b.key, area=b.region.title) for b in self.keyed)
 
 	def windowAt(self, offset: float, span: float, top: float, down: float) -> Box:
 		"""The part of the page shown by a part of this drawing, given as fractions of it.
@@ -298,8 +335,8 @@ def compose(
 	window = window or whole
 	level = focus or _topLevel(page)
 	chosen = _choose(level.children, window, depth, places)
-	wanted = [r for r, _ in chosen]
-	labels = {id(r): _labelFor(r, translate) for r, _ in chosen}
+	wanted = [r for r, _depth in chosen]
+	labels = {id(r): _labelFor(r, translate) for r, _depth in chosen}
 	# A box whose areas cannot each be drawn big enough to find is drawn without them; they are
 	# a drill in away. Each round lays out again with those areas left out, which gives the
 	# rest more room, until everything drawn is big enough.
@@ -308,7 +345,7 @@ def compose(
 	# matters less than either, and the text overview still lists it.
 	boxes: list[DrawnBox] = []
 	xs = ys = None
-	for _ in range(len(chosen) + 1):
+	for _round in range(len(chosen) + 1):
 		boxes, xs, ys = _layout(chosen, labels, window, width, height, places)
 		cramped = {id(b.region) for b in _walkBoxes(boxes) if any(_isCramped(c) for c in b.children)}
 		if cramped:
@@ -411,7 +448,7 @@ def _layout(
 	places: dict[int, Box],
 ) -> tuple[list[DrawnBox], "_Ruler", "_Ruler"]:
 	"""Place the chosen regions on warped rulers, children inside their parents."""
-	clips = {id(r): _clip(places[id(r)], window) for r, _ in chosen}
+	clips = {id(r): _clip(places[id(r)], window) for r, _depth in chosen}
 	xs = _Ruler(
 		[(clips[id(r)].left, clips[id(r)].right, _minWidth(labels[id(r)], d)) for r, d in chosen],
 		window.left,
@@ -527,7 +564,7 @@ def _parentOf(region: Region, chosen: list[tuple[Region, int]]) -> Region | None
 
 
 def _labelFor(region: Region, translate: Callable[[str], list[int]]) -> list[int]:
-	word = SHORT_LABELS.get(region.kind, "")
+	word = shortLabel(region.kind)
 	if not word and region.label:
 		word = region.label.split()[0][:8]
 	return translate(word) if word else []
@@ -677,6 +714,18 @@ class _Count:
 		return self.wordGap + self.wordWidth if self.hasWord else self.numberWidth
 
 
+def _ownCountWord(name: str) -> str:
+	""":return: the short word drawn with a count NVDA has no braille label for: items, in lists,
+	trees, grids and menus. NVDA abbreviates a tree item and a list but not their items, and its
+	fallback, the role's whole name, is too long for a count drawn in a box."""
+	if name == "items":
+		# Translators: drawn in braille after the number of items in a list, tree, grid or menu in
+		# the layout overview, as NVDA abbreviates roles in braille ("lnk", "btn"). Keep it as
+		# short as you can: pressing in the box says the full words.
+		return pgettext("braille count word", "itm")
+	return name
+
+
 def _countsFor(region: Region, translate: Callable[[str], list[int]], style: CountStyle) -> list[_Count]:
 	"""What a box holds, most telling first, ready to draw. See `Region.counts`.
 
@@ -691,7 +740,7 @@ def _countsFor(region: Region, translate: Callable[[str], list[int]], style: Cou
 			counts.append(_Count(str(count), number))
 			continue
 		shape = style.shapes.get(name)
-		word = [] if shape else translate(style.words.get(name, name))
+		word = [] if shape else translate(style.words.get(name) or _ownCountWord(name))
 		counts.append(_Count(countWords(name, count), number, word, shape or None))
 	return counts
 
@@ -874,7 +923,7 @@ class _Ruler:
 
 	def __init__(self, spans: list[tuple[int, int, int]], low: int, high: int, pins: int):
 		self.low, self.high, self.pins = low, high, pins
-		marks = sorted({low, high, *(min(max(v, low), high) for a, b, _ in spans for v in (a, b))})
+		marks = sorted({low, high, *(min(max(v, low), high) for a, b, _need in spans for v in (a, b))})
 		self.marks = marks
 		lengths = [b - a for a, b in zip(marks, marks[1:])]
 		total = sum(lengths) or 1
@@ -885,7 +934,7 @@ class _Ruler:
 			for a, b, minimum in spans
 			if b > a
 		]
-		for _ in range(self.ROUNDS):
+		for _round in range(self.ROUNDS):
 			short = False
 			for first, last, minimum in needs:
 				have = sum(alloc[first:last])

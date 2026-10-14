@@ -65,6 +65,10 @@ from logHandler import log
 
 from . import bmConfig, flowTableIdentity
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 FOLLOW = ""
 """What a three-state field says when it defers to the reader's ordinary settings."""
 

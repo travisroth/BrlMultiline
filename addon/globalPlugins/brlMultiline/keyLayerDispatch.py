@@ -49,6 +49,10 @@ from logHandler import log
 from . import bmConfig, keyLayers
 from .keyLayers import KEYBOARD, Layer, LayerSet, Target
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 ACTS_FOR_ATTRIBUTE = "_brlMultilineActsFor"
 """Where the display a keyboard binding acts for is recorded on the gesture."""
 

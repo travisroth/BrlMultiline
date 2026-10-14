@@ -150,3 +150,29 @@ segment and container code paths as the Monarch does.
   `globalCommands.py` `script_braille_scrollBack` / `script_braille_scrollForward`, which
   call `handler.scrollBack()` / `handler.scrollForward()` with no direction option
   anywhere in the path. This add-on implements the feature itself, per display.
+
+## Translation is per module
+
+`addonHandler.initTranslation()` points `_`, `ngettext`, `pgettext` and `npgettext` at the
+add-on's own translations for the module that calls it, and for no other: it sets them on the
+calling frame's module (`addonHandler/__init__.py`). A module that uses `_` without calling it
+gets NVDA's builtin `_`, which looks its words up in NVDA's own translations, which do not have
+them. The build still extracts them into the .pot, so they would be translated and never shown.
+
+Found 14 October 2026: eighteen modules, about 370 strings (the layered keys dialog, graphics mode,
+the table manager and designer, the substitutions dialog, the chart and picture modules), had
+never called it; only `__init__.py` and `settingsPanel.py` did. So:
+
+1. **Every module with words to translate calls `addonHandler.initTranslation()`** after its
+   imports. `tests/unit/brlMultiline/test_translations.py` fails for one that does not.
+2. **The modules that also run without NVDA** (the layout overview's `layoutRegions`,
+   `layoutDraw` and `appRegions`, tested against saved pages and loaded by the probe spikes)
+   import the functions from `i18n.py` instead, which calls `initTranslation()` inside NVDA and
+   gives English back anywhere else. `layoutRegions`, which the probe loads on its own from its
+   file, falls back to English when the relative import fails.
+3. **Words are translated when asked, not at import**, where a test needs to see them: the
+   layout overview's kind names and braille box labels are functions (`kindName`, `shortLabel`),
+   so a test can put in a translation of its own and check every word reaches the reader
+   through it.
+4. **`_` is never a throwaway name** in a module that translates: `for _ in range(...)` inside a
+   function that also calls `_()` makes `_` local to it, and the call fails.

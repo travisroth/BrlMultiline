@@ -36,6 +36,10 @@ from logHandler import log
 from . import brailleSubstitutions, personalTables, userBrailleTable
 from .brailleSubstitutions import DOTS, KINDS, RULE, TEXT, PersonalTable, Substitution
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 
 def kindLabels() -> dict:
 	return {

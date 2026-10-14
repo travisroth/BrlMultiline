@@ -45,6 +45,10 @@ from typing import Callable, NamedTuple, Optional
 
 from logHandler import log
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 __all__ = [
 	"Fitted",
 	"Glyph",

@@ -40,6 +40,10 @@ from .chartDraw import Series, numberText
 from .chartPrice import Period
 from .flowObjectTable import describeThing, sheetOf
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 __all__ = [
 	"CHART",
 	"ChartDefinition",

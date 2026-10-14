@@ -37,6 +37,10 @@ try:
 except ImportError:  # pragma: no cover - only in a test run with no NVDA around it.
 	wx = None
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 
 class Device(NamedTuple):
 	"""A device the dialog can edit the layers of."""

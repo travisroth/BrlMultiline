@@ -32,6 +32,10 @@ from typing import Callable, NamedTuple, Optional
 
 from . import chart, chartDraw, chartLine, chartPrice, chartSource
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 __all__ = [
 	"BARS",
 	"CANDLE",

@@ -45,6 +45,10 @@ from .layout import SegmentRect
 from .panels import GraphicsPanel, PanelOwner
 from .routing import RoutingPolicy
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 __all__ = [
 	"Drawing",
 	"GraphicsMode",

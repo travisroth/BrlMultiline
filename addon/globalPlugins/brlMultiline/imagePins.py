@@ -84,6 +84,10 @@ except Exception:
 	_ImageChops = None
 	_ImageFilter = None
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 __all__ = [
 	"EDGES",
 	"STROKES",

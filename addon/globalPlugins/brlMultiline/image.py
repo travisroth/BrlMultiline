@@ -40,6 +40,10 @@ from .imagePins import (
 	windowOf,
 )
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 __all__ = [
 	"LINES",
 	"OUTLINES",

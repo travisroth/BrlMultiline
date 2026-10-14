@@ -44,6 +44,10 @@ from .imagePins import (
 	pictureFromImage,
 )
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 __all__ = [
 	"MIN_SIDE",
 	"addressOf",

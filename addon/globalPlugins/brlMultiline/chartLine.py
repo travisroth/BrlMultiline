@@ -56,6 +56,10 @@ from .chartDraw import (
 )
 from .graphicsMode import Drawing
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 __all__ = [
 	"MAX_LINES",
 	"MIN_POINTS",

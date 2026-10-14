@@ -35,6 +35,10 @@ except ImportError:  # pragma: no cover - only in a test run with no NVDA around
 	gui = None
 	guiHelper = None
 
+import addonHandler
+
+addonHandler.initTranslation()
+
 FOLLOW = ""
 """What a per-column control holds when the reader has decided nothing about that column.
 

@@ -58,6 +58,19 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
+try:
+	from .i18n import _, ngettext, pgettext
+except ImportError:
+	# Loaded on its own from its file, as the probe spike does: the words in English as they are.
+	def _(message: str) -> str:
+		return message
+
+	def ngettext(singular: str, plural: str, count: int) -> str:
+		return singular if count == 1 else plural
+
+	def pgettext(context: str, message: str) -> str:
+		return message
+
 
 class Box(NamedTuple):
 	"""A rectangle in pixels: left and top edges, then width and height."""
@@ -186,34 +199,80 @@ ID_WORDS = {
 	"search": "search",
 }
 
-#: What each kind of region is called when described.
-KIND_NAMES = {
-	"banner": "banner",
-	"navigation": "navigation",
-	"main": "main content",
-	"complementary": "complementary",
-	"contentinfo": "content info",
-	"search": "search",
-	"form": "form",
-	"region": "region",
-	"frame": "frame",
-	"header": "header",
-	"footer": "footer",
-	"sidebar": "sidebar",
-	"content": "content",
-	"table": "table",
-	"tabs": "tabs",
-	"accordion": "accordion",
-	"area": "area",
-	"menubar": "menu bar",
-	"toolbar": "toolbar",
-	"ribbon": "ribbon",
-	"statusbar": "status bar",
-	"tree": "tree",
-	"list": "list",
-	"grid": "grid",
-	"document": "document",
-}
+
+def kindName(kind: str) -> str:
+	""":return: what a kind of region is called when it is spoken or listed, in the reader's
+	language. The kind itself, for one with no name here.
+
+	Translated when asked rather than once at import, so that a test can put in a translation of
+	its own and see every word go through it.
+	"""
+	names = {
+		# Translators: the name of an area of a web page or window in the layout overview: the
+		# banner across the top of a page, as the ARIA landmark is called.
+		"banner": _("banner"),
+		# Translators: the name of an area in the layout overview: a page's navigation landmark.
+		"navigation": _("navigation"),
+		# Translators: the name of an area in the layout overview: a page's main landmark.
+		"main": _("main content"),
+		# Translators: the name of an area in the layout overview: a page's complementary
+		# landmark, usually a sidebar.
+		"complementary": _("complementary"),
+		# Translators: the name of an area in the layout overview: a page's contentinfo landmark,
+		# usually its footer.
+		"contentinfo": _("content info"),
+		# Translators: the name of an area in the layout overview: a search field or search
+		# landmark.
+		"search": _("search"),
+		# Translators: the name of an area in the layout overview: a form.
+		"form": _("form"),
+		# Translators: the name of an area in the layout overview: a named region landmark.
+		"region": _("region"),
+		# Translators: the name of an area in the layout overview: an embedded frame.
+		"frame": _("frame"),
+		# Translators: the name of an area in the layout overview: a page's header, found by its
+		# code or its place rather than a landmark.
+		"header": _("header"),
+		# Translators: the name of an area in the layout overview: a page's footer.
+		"footer": _("footer"),
+		# Translators: the name of an area in the layout overview: a sidebar.
+		"sidebar": _("sidebar"),
+		# Translators: the name of an area in the layout overview: a page's content, found by its
+		# code.
+		"content": _("content"),
+		# Translators: the name of an area in the layout overview: a data table.
+		"table": _("table"),
+		# Translators: the name of an area in the layout overview: a strip of tabs.
+		"tabs": _("tabs"),
+		# Translators: the name of an area in the layout overview: an accordion, headers that
+		# expand stacked one under another.
+		"accordion": _("accordion"),
+		# Translators: the name of an area in the layout overview with no kind of its own, found
+		# from where its content is or called by its own name.
+		"area": _("area"),
+		# Translators: the name of an area of an application window in the layout overview.
+		"menubar": _("menu bar"),
+		# Translators: the name of an area of an application window in the layout overview.
+		"toolbar": _("toolbar"),
+		# Translators: the name of an area of an application window in the layout overview: the
+		# ribbon of commands in Office and other applications.
+		"ribbon": _("ribbon"),
+		# Translators: the name of an area of an application window in the layout overview.
+		"statusbar": _("status bar"),
+		# Translators: the name of an area of an application window in the layout overview: a
+		# tree view, such as a folder tree.
+		"tree": _("tree"),
+		# Translators: the name of an area of an application window in the layout overview.
+		"list": _("list"),
+		# Translators: the name of an area of an application window in the layout overview: a grid
+		# of cells, such as a spreadsheet or a message list.
+		"grid": _("grid"),
+		# Translators: the name of an area of an application window in the layout overview: a
+		# document or an editor.
+		"document": _("document"),
+	}
+	return names.get(kind, kind)
+
 
 #: Smaller than this in either direction, an area is a line of text or a hidden element, not
 #: something to draw a box for.
@@ -317,10 +376,12 @@ class Region:
 	@property
 	def title(self) -> str:
 		"""How the region is spoken: its kind, then its label when that adds something."""
-		kindName = KIND_NAMES.get(self.kind, self.kind)
-		if self.label and self.label.lower() != kindName:
-			return f"{kindName}, {self.label}"
-		return kindName
+		kind = kindName(self.kind)
+		if self.label and self.label.lower() != kind.lower():
+			# Translators: how an area with a name of its own is spoken in the layout overview: its
+			# kind, then its name, such as "navigation, Primary" or "area, Clipboard".
+			return _("{kind}, {name}").format(kind=kind, name=self.label)
+		return kind
 
 	def walk(self) -> Iterator["Region"]:
 		yield self
@@ -342,20 +403,27 @@ class Region:
 		return [(name, count) for name, count in ordered if count > 0]
 
 
-#: The singular of each count's name, for a count of one.
-COUNT_SINGULAR = {
-	"tabs": "tab",
-	"sections": "section",
-	"items": "item",
-	"fields": "field",
-	"buttons": "button",
-	"links": "link",
-}
-
-
 def countWords(name: str, count: int) -> str:
-	"""A count as it is said and shown: "8 links", "1 field"."""
-	return f"{count} {COUNT_SINGULAR.get(name, name) if count == 1 else name}"
+	"""A count as it is said and shown: "8 links", "1 field", in the reader's language."""
+	if name == "tabs":
+		# Translators: how many tabs an area of the layout overview holds.
+		return ngettext("{count} tab", "{count} tabs", count).format(count=count)
+	if name == "sections":
+		# Translators: how many sections an accordion in the layout overview holds.
+		return ngettext("{count} section", "{count} sections", count).format(count=count)
+	if name == "items":
+		# Translators: how many items a list, tree, grid or menu in the layout overview holds.
+		return ngettext("{count} item", "{count} items", count).format(count=count)
+	if name == "fields":
+		# Translators: how many form fields an area of the layout overview holds.
+		return ngettext("{count} field", "{count} fields", count).format(count=count)
+	if name == "buttons":
+		# Translators: how many buttons an area of the layout overview holds.
+		return ngettext("{count} button", "{count} buttons", count).format(count=count)
+	if name == "links":
+		# Translators: how many links an area of the layout overview holds.
+		return ngettext("{count} link", "{count} links", count).format(count=count)
+	return f"{count} {name}"
 
 
 def findRegions(root: Node, viewport: Box, scroll: int | None = None) -> Region:
@@ -780,9 +848,32 @@ def _idKind(node: Node) -> str:
 
 
 def words(text: str) -> list[str]:
-	"""The words in a name or an identifier, lower case: "siteSearch-box" is site, search, box."""
-	spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text or "")
-	return [w for w in re.split(r"[^A-Za-z0-9]+", spaced.lower()) if w]
+	"""The words in a name or an identifier, lower case: "siteSearch-box" is site, search, box.
+
+	In any alphabet: a page or a window named in Spanish or Russian has its words in its own
+	letters, "Búsqueda" or "Поиск", not only A to Z.
+	"""
+	spaced = []
+	previous = ""
+	for character in text or "":
+		if previous.islower() and character.isupper():
+			# A capital after a small letter starts a word in an identifier: siteSearch.
+			spaced.append(" ")
+		spaced.append(character)
+		previous = character
+	return [w for w in re.split(r"[\W_]+", "".join(spaced).lower()) if w]
+
+
+def searchWords() -> tuple[str, ...]:
+	""":return: the beginnings of the words that mean search: English's, always, since the code of a
+	page or an application is written in it, and the reader's own language's."""
+	# Translators: the layout overview recognises a search field by its name, and pages and
+	# applications in your language name theirs in it. Put the words that mean search, or the
+	# beginnings of them, separated by spaces: a word in a name counts when it starts with one of
+	# these, so "recherch" finds both "recherche" and "rechercher". The English "search" is always
+	# recognised as well, so you need not include it.
+	own = pgettext("search words", "search")
+	return tuple(dict.fromkeys(["search", *words(own)]))
 
 
 def mentionsSearch(*texts: str) -> bool:
@@ -790,9 +881,11 @@ def mentionsSearch(*texts: str) -> bool:
 
 	Search box, searchbox, search-form and siteSearch count; research does not (found in
 	review: a "Research grants" form became a search field). Shared with the collector and the
-	probe, so all three agree on what search is.
+	probe, so all three agree on what search is. In the reader's language as well as English;
+	see `searchWords`.
 	"""
-	return any(w.startswith("search") for text in texts for w in words(text))
+	starts = searchWords()
+	return any(w.startswith(starts) for text in texts for w in words(text))
 
 
 def _mentionsSearch(node: Node) -> bool:
@@ -1293,25 +1386,64 @@ def _nameByPosition(level: Region, viewport: Box) -> None:
 		biggest = max(rest, key=lambda r: r.box.area)
 		if biggest.box.area >= bounds.area * 0.2:
 			if biggest.kind == "table" and not biggest.label:
-				biggest.label = "table"
+				# Said as "main content, table": the kind it has now, and what it is.
+				biggest.label = kindName("table")
 			biggest.kind, biggest.source = "main", "position"
 
 
 def whereWords(box: Box, within: Box) -> str:
-	"""Where a box is inside another, the way someone would say it."""
+	"""Where a box is inside another, the way someone would say it, in the reader's language."""
 	horizontal = _third(box.left + box.width / 2 - within.left, within.width, ("left", "center", "right"))
 	vertical = _third(box.top + box.height / 2 - within.top, within.height, ("top", "middle", "bottom"))
 	fullWidth = box.width >= within.width * 0.8
 	fullHeight = box.height >= within.height * 0.8
 	if fullWidth and fullHeight:
-		return "filling it"
+		return _placeWords("filling")
 	if fullWidth:
-		return f"across the {vertical}"
+		return _placeWords(f"across {vertical}")
 	if fullHeight:
-		return "down the center" if horizontal == "center" else f"down the {horizontal} side"
-	if (vertical, horizontal) == ("middle", "center"):
-		return "in the center"
-	return f"{vertical} {horizontal}"
+		return _placeWords(f"down {horizontal}")
+	return _placeWords(f"{vertical} {horizontal}")
+
+
+def _placeWords(place: str) -> str:
+	""":return: a place as it is said, each phrase whole so that a language can word it as it needs
+	to rather than as English words put together."""
+	phrases = {
+		# Translators: where an area is in the layout overview: it fills the page or window.
+		"filling": _("filling it"),
+		# Translators: where an area is in the layout overview: the full width, at the top.
+		"across top": _("across the top"),
+		# Translators: where an area is in the layout overview: the full width, in the middle.
+		"across middle": _("across the middle"),
+		# Translators: where an area is in the layout overview: the full width, at the bottom.
+		"across bottom": _("across the bottom"),
+		# Translators: where an area is in the layout overview: the full height, at the left.
+		"down left": _("down the left side"),
+		# Translators: where an area is in the layout overview: the full height, in the center.
+		"down center": _("down the center"),
+		# Translators: where an area is in the layout overview: the full height, at the right.
+		"down right": _("down the right side"),
+		# Translators: where an area is in the layout overview.
+		"top left": _("top left"),
+		# Translators: where an area is in the layout overview.
+		"top center": _("top center"),
+		# Translators: where an area is in the layout overview.
+		"top right": _("top right"),
+		# Translators: where an area is in the layout overview.
+		"middle left": _("middle left"),
+		# Translators: where an area is in the layout overview: in the middle of the page or window.
+		"middle center": _("in the center"),
+		# Translators: where an area is in the layout overview.
+		"middle right": _("middle right"),
+		# Translators: where an area is in the layout overview.
+		"bottom left": _("bottom left"),
+		# Translators: where an area is in the layout overview.
+		"bottom center": _("bottom center"),
+		# Translators: where an area is in the layout overview.
+		"bottom right": _("bottom right"),
+	}
+	return phrases[place]
 
 
 def _third(offset: float, span: int, words: tuple[str, str, str]) -> str:
@@ -1332,7 +1464,10 @@ def describe(page: Region, depth: int = 2) -> list[str]:
 
 	def visit(region: Region, level: int) -> None:
 		for child in sorted(region.children, key=lambda r: (r.box.top, r.box.left)):
-			lines.append(f"{'  ' * level}{child.title}: {whereWords(child.box, region.box)}")
+			# Translators: one line of the layout overview as text: an area and where it is, such
+			# as "navigation: down the left side".
+			line = _("{area}: {where}").format(area=child.title, where=whereWords(child.box, region.box))
+			lines.append(f"{'  ' * level}{line}")
 			if level + 1 < depth:
 				visit(child, level + 1)
 
