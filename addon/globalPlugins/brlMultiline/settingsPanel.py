@@ -333,6 +333,27 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# A setting of the display as a whole, like the focus segment: what it hands over is
+		# the arrangement, and a combined display has one. Per profile like everything here.
+		# See `appLayout`.
+		# Translators: label of a checkbox in settings. When checked, an application's app
+		# module may arrange the part of the display that holds no pinned object.
+		appLayoutsLabel = _("Let applications arran&ge this display")
+		self.appLayoutsCtrl = sHelper.addItem(wx.CheckBox(self, label=appLayoutsLabel))
+		self.appLayoutsCtrl.SetValue(bool(section["appLayouts"]))
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the checkbox above, explaining what it
+					# does.
+					"An application whose NVDA add-on supports this may show "
+					"related things together, such as a chat's messages above the box you type "
+					"in, while the focus is there. Rows holding an object you pinned are never "
+					"used. Set this in a configuration profile to allow it in one application only.",
+				),
+			),
+		)
 		# Not per display like the rest of this panel: it is about the keyboard, and it is the
 		# same keys whichever display is connected. Off by default, because it changes what
 		# NVDA's own keys do. See `tableArrows`.
@@ -583,6 +604,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["focusSegment"] = self.focusSegmentCtrl.Value
 		section["messageSegment"] = self.messageSegmentCtrl.Value
 		section["drawGlyphs"] = self.glyphCtrl.IsChecked()
+		section["appLayouts"] = self.appLayoutsCtrl.IsChecked()
 		bmConfig.setArrowsMoveByRow(self.tableArrowsCtrl.IsChecked())
 
 	def postSave(self):

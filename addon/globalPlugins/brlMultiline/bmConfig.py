@@ -137,6 +137,7 @@ configSpec = {
 			"reverseScrollBtns": "boolean(default=False)",
 			"reverseScrollBtnsMigrated": "boolean(default=False)",
 			"drawGlyphs": "boolean(default=False)",
+			"appLayouts": "boolean(default=False)",
 			"flowEnabled": "boolean(default=False)",
 			"flowRows": f"integer(default=0, min=0, max={MAX_FLOW_ROWS})",
 			"flowDisplay": 'string(default="")',
@@ -196,6 +197,9 @@ configSpec = {
 	shapes instead, on a display that can draw one. Off by default: the shapes are new and a
 	reader has to learn them before they are worth anything. Not a flow setting — it applies
 	to everything this display shows.
+- `appLayouts`: whether an app module may arrange the part of this display no pin holds,
+	around where the focus is. Off by default: it is a privilege the reader grants. Per display
+	and per profile, so it can be allowed in a Teams profile and nowhere else. See `appLayout`.
 - `flowEnabled`: whether a band of this display reads content as one flowing document.
 - `flow<Mode>`: one per entry in `FLOW_MODES`, whether that kind of content flows.
 - `flowRows`: how many rows the band takes, counted from the top of the display it is on.
@@ -703,6 +707,20 @@ def shouldDrawGlyphs(displayKey: str | None = None) -> bool:
 		return bool(getDisplayConfig(displayKey)["drawGlyphs"])
 	except Exception:
 		log.debugWarning("Could not read drawGlyphs", exc_info=True)
+		return False
+
+
+def shouldAllowAppLayouts(displayKey: str | None = None) -> bool:
+	""":return: whether an app module may arrange the free part of this display.
+
+	A display rather than a flow setting, because what it hands over is the arrangement of the
+	display. Off by default and off when it cannot be read, since it lets someone else's code
+	decide what the reader feels. See `appLayout` and `docs/design/app-layouts-plan.md`.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["appLayouts"])
+	except Exception:
+		log.debugWarning("Could not read appLayouts", exc_info=True)
 		return False
 
 

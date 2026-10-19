@@ -232,6 +232,14 @@ new. To learn them, assign a key to "Graphics: Show the glyph catalogue" in Inpu
 draws every shape with the braille it replaces beside it, so you can read the shape and then
 the word it stands for.
 
+**Let applications arrange this display.** Off by default. When on, an application whose NVDA
+add-on supports it may arrange the display around where you are working, such as a chat's
+messages above the box you type in. Rows or cells holding an object you pinned are never used:
+the application only gets what is left. This version only checks what an application would do,
+with the debug command under [Diagnostics](#diagnostics); showing it on the display comes in a
+later version. Like every setting here it can be set in a configuration profile, so you can
+allow it for one application and nowhere else.
+
 ## Reading as a flow
 
 Normally a braille display shows one thing: the line the cursor is on, or the object with
@@ -1219,6 +1227,11 @@ segments off and on again, without opening settings.
 following the focus, and what is on the display. Useful for confirming a layout took effect, and
 the first thing to check when the display isn't showing what you expect.
 
+**App layouts: sets them aside for now, or brings them back.** Where you have let applications
+arrange the display, turns that off until NVDA restarts, and on again, without opening settings.
+Says "App layouts off" or "App layouts on". Where applications are not allowed to arrange the
+display, it says so and changes nothing.
+
 **Moves the focus onto another of the combined braille displays.** Only does something when
 several displays are combined. With two displays, each press moves the segment that follows the
 focus to the other display. With more than two, it opens a list to choose from. It keeps the
@@ -1499,6 +1512,12 @@ marker meaning "there is more not yet read," press this and send the log with yo
 navigator object as a flow and copies the result to the clipboard, without moving anything or
 changing the display. Useful for reporting how the flow presented something.
 
+**Debug: Copies what the focus's application would arrange the display as to the clipboard.**
+Asks the focus's application how it would arrange the display here, and copies the answer: which
+rows are free, what it was offered, and where each part of its layout would go, or why the
+layout was refused. It changes nothing on the display, and it works even where applications are
+not allowed to arrange the display, so an add-on author can check a layout first.
+
 ## Notes and limitations
 
 The number of segments is limited to 8, the default row count of a Monarch.
@@ -1657,6 +1676,49 @@ Teams can fail at any time, and logs the failure instead of letting it escape.
   messages appear without any event from your code.
 - To see what BrlMultiline makes of your objects, move the navigator object to one and use
   "Debug: Copies what a flowed reading of this object would show to the clipboard."
+
+### Arranging the display around the focus
+
+This is the first part of a feature that is still being built. In this version BrlMultiline
+reads and checks the layout an app module offers, and the debug command "Copies what the focus's
+application would arrange the display as" reports it. Nothing is shown on the display yet. The
+design is in `docs/design/app-layouts-plan.md`.
+
+An app module may offer a layout for where the focus is, so that related things are read
+together: a chat's messages above its compose box, or a message list beside its reading pane. As
+with the flow attributes, there is nothing to import. Give the app module a method named
+`brlMultilineLayout`:
+
+```python
+def brlMultilineLayout(self, focus, area):
+	if not _inChat(focus):
+		return None
+	return {
+		"name": "chat",
+		"segments": [
+			{"show": self._findMessageList},
+			{"size": 1, "show": "focus"},
+		],
+	}
+```
+
+1. `focus` is the object with the focus. Return `None` where you have no layout.
+2. `area` has `rows` and `columns`: the part of the display that holds no pinned object. With
+   more than one row, segments run top to bottom and sizes are rows. With one row, as on a Focus
+   80, segments run left to right and sizes are cells. Several displays driven as one are one
+   tall display here, and `columns` is the narrowest of them.
+3. `name` identifies the layout. The same name for the next focus keeps the layout as it is.
+4. Each segment has `show`, which is `"focus"` for the segment that follows the focus, an object
+   to show, or a function taking no arguments that returns the object to show, asked again each
+   time the segment is refreshed. Use a function for something that is replaced, such as a
+   reading pane whose document changes with each message.
+5. `size` is optional on one segment, which takes what the others leave. Without one, the sizes
+   must add up to the area. Exactly one segment must show the focus.
+
+You do not need to know where one display ends and the next begins. A segment that would cross
+from one to the other is moved onto the boundary, and the rows it gives up go to the segment
+without a size. A layout that cannot be used, or a method that raises, costs the reader nothing:
+they keep their own arrangement, and the debug command says why.
 
 BrlMultiline also has a `register` function for code that wants to supply a complete adapter for
 controls it doesn't own. That requires importing from this add-on, which creates a load-order

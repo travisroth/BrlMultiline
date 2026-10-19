@@ -59,6 +59,7 @@ import config  # noqa: E402
 from braille.brailleHandler import BrailleHandler  # noqa: E402
 
 from brlMultiline import patches  # noqa: E402
+from brlMultiline import bmConfig  # noqa: E402
 from brlMultiline import imagePins, imageSource  # noqa: E402
 from brlMultiline import flowObjects  # noqa: E402
 from brlMultiline.container import PLACEMENT_KEY_ATTRIBUTE, DisplayContainer  # noqa: E402
@@ -3430,6 +3431,158 @@ class TestWhichTableAPagingCommandMoves(PluginTestCase):
 		self.keys()
 		self.plugin.tablesInColumns = lambda: {}
 		self.assertIsNone(self.plugin._tableToPage(None))
+
+
+class LayoutAppModule:
+	"""An app module offering a chat layout: the messages above, the focus on the last row."""
+
+	appName = "chatApp"
+
+	def __init__(self, answer="chat"):
+		self.answer = answer
+		self.asked = []
+
+	def brlMultilineLayout(self, focus, area):
+		self.asked.append(area)
+		if self.answer != "chat":
+			return self.answer
+		return {
+			"name": "chat",
+			"segments": [
+				{"show": FakeNavigatorObject("Messages", role="list")},
+				{"size": 1, "show": "focus"},
+			],
+		}
+
+
+def focusIn(appModule):
+	""":return: a focus whose app module is the one given."""
+	focus = FakeNavigatorObject("Compose", role="editableText")
+	focus.appModule = appModule
+	return focus
+
+
+class TestAppLayouts(PluginTestCase):
+	"""Milestone 1 of `docs/design/app-layouts-plan.md`: the setting, the toggle, the room an
+	app module is given and the report of what it would do with it. Nothing is shown yet."""
+
+	def test_offByDefault(self):
+		"""A privilege the reader grants, not something an app module takes."""
+		self.assertFalse(bmConfig.shouldAllowAppLayouts())
+		self.assertFalse(self.plugin.appLayoutsInForce())
+
+	def test_allowedByTheSetting(self):
+		CONFIG["appLayouts"] = True
+		self.assertTrue(self.plugin.appLayoutsInForce())
+
+	def test_theToggleSetsThemAsideAndBringsThemBack(self):
+		CONFIG["appLayouts"] = True
+		self.plugin.script_toggleAppLayouts(None)
+		self.assertFalse(self.plugin.appLayoutsInForce())
+		self.assertEqual(spokenMessages[-1], "App layouts off")
+		self.plugin.script_toggleAppLayouts(None)
+		self.assertTrue(self.plugin.appLayoutsInForce())
+		self.assertEqual(spokenMessages[-1], "App layouts on")
+
+	def test_theToggleSaysSoWhereTheyAreNotAllowed(self):
+		"""Rather than flipping a state that would surprise the reader the day they allow it."""
+		self.plugin.script_toggleAppLayouts(None)
+		self.assertFalse(self.plugin._appLayoutsSuspended)
+		self.assertIn("Allow it in the BrlMultiline settings", spokenMessages[-1])
+
+	def test_theWholeDisplayIsFreeWithNothingPinned(self):
+		area, bands = self.plugin.appLayoutRoom()
+		self.assertEqual(area, SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS))
+		self.assertEqual(bands, [])
+
+	def test_aPinnedSegmentIsNotFree(self):
+		"""The reader's pins come first: the top segment's two rows are not offered."""
+		self.pin(0)
+		area, _bands = self.plugin.appLayoutRoom()
+		self.assertEqual(area, SegmentRect(2, 0, MONARCH_ROWS - 2, MONARCH_COLS))
+
+	def test_aClaimIsNotFree(self):
+		self.plugin.activatePanel(SinglePanel("table", SegmentRect(0, 0, 1, MONARCH_COLS)))
+		area, _bands = self.plugin.appLayoutRoom()
+		self.assertEqual(area.row, 1)
+
+	def test_theReportShowsThePlacedLayout(self):
+		CONFIG["appLayouts"] = True
+		appModule = LayoutAppModule()
+		lines = self.plugin.appLayoutReport(focusIn(appModule))
+		self.assertIn("App module: chatApp", lines)
+		self.assertIn("App layouts: allowed", lines)
+		self.assertIn(f"Offered: {MONARCH_ROWS} rows, {MONARCH_COLS} columns", lines)
+		self.assertIn("Layout 'chat', 2 segments", lines)
+		self.assertTrue(any("rows 0 to 6" in line and "'Messages'" in line for line in lines), lines)
+		self.assertTrue(any("row 7" in line and "the focus" in line for line in lines), lines)
+
+	def test_theReportAsksEvenWhereNotAllowed(self):
+		"""An app module's author needs the answer before a reader has reason to allow it."""
+		lines = self.plugin.appLayoutReport(focusIn(LayoutAppModule()))
+		self.assertIn("App layouts: not allowed on this display", lines)
+		self.assertIn("Layout 'chat', 2 segments", lines)
+
+	def test_theReportSaysWhenSetAside(self):
+		CONFIG["appLayouts"] = True
+		self.plugin.script_toggleAppLayouts(None)
+		lines = self.plugin.appLayoutReport(focusIn(LayoutAppModule()))
+		self.assertIn("App layouts: allowed, and set aside for now", lines)
+
+	def test_theAppModuleIsOfferedOnlyTheFreeRows(self):
+		self.pin(0)
+		appModule = LayoutAppModule()
+		self.plugin.appLayoutReport(focusIn(appModule))
+		self.assertEqual(appModule.asked[-1].rows, MONARCH_ROWS - 2)
+
+	def test_noMethod(self):
+		lines = self.plugin.appLayoutReport(focusIn(object()))
+		self.assertTrue(any("has no brlMultilineLayout method" in line for line in lines), lines)
+
+	def test_noLayoutHere(self):
+		lines = self.plugin.appLayoutReport(focusIn(LayoutAppModule(answer=None)))
+		self.assertIn("Layout: none here", lines)
+
+	def test_aBadAnswerIsReportedNotRaised(self):
+		lines = self.plugin.appLayoutReport(focusIn(LayoutAppModule(answer={"name": "chat"})))
+		self.assertTrue(any(line.startswith("Layout refused:") for line in lines), lines)
+
+	def test_sizesThatDoNotFitAreReported(self):
+		answer = {"name": "big", "segments": [{"size": 20, "show": object()}, {"show": "focus"}]}
+		lines = self.plugin.appLayoutReport(focusIn(LayoutAppModule(answer=answer)))
+		self.assertTrue(any(line.startswith("Layout refused:") and "20" in line for line in lines), lines)
+
+	def test_everythingPinned(self):
+		for number in range(self.segmentCount):
+			if number != self.container.focusSegmentNumber:
+				self.pin(number)
+		# The focus segment is never pinned, so two rows stay free.
+		area, _bands = self.plugin.appLayoutRoom()
+		self.assertEqual(area, self.container.focusSegment.rect)
+
+
+class TestAppLayoutsOnCombinedDisplays(PluginTestCase):
+	"""A Monarch above a Focus 80 is one tall display to an app module."""
+
+	segmentCount = 1
+
+	def makeHandler(self):
+		handler = FakeHandler(MONARCH_ROWS + 1, 80)
+		handler.display = fakeVirtualDisplay(
+			("hidBrailleStandard", 0, MONARCH_ROWS, MONARCH_COLS),
+			("freedomScientific", MONARCH_ROWS, 1, 80),
+		)
+		return handler
+
+	def test_theDisplaysAreKnownToPlacementNotToTheAppModule(self):
+		appModule = LayoutAppModule()
+		lines = self.plugin.appLayoutReport(focusIn(appModule))
+		self.assertEqual(appModule.asked[-1].rows, MONARCH_ROWS + 1)
+		self.assertEqual(appModule.asked[-1].columns, MONARCH_COLS)
+		self.assertTrue(any(line.startswith("Displays: ") for line in lines), lines)
+		# The messages on the whole Monarch, the focus on the Focus 80.
+		self.assertTrue(any(f"rows 0 to {MONARCH_ROWS - 1}" in line and "'Messages'" in line for line in lines), lines)
+		self.assertTrue(any(f"row {MONARCH_ROWS}, cells 0 to 79" in line for line in lines), lines)
 
 
 if __name__ == "__main__":

@@ -160,6 +160,7 @@ class SegmentPanelTestCase(SettingsPanelTestCase):
 		self.panel.messageSegmentCtrl = FakeControl(-1)
 		self.panel.reverseScrollCtrl = FakeControl(False)
 		self.panel.glyphCtrl = FakeControl(False)
+		self.panel.appLayoutsCtrl = FakeControl(False)
 		self.panel.tableArrowsCtrl = FakeControl(False)
 		self.panel._showTarget(0)
 
@@ -188,6 +189,14 @@ class TestOrdinaryDisplay(SegmentPanelTestCase):
 		self.panel.glyphCtrl.SetValue(True)
 		self.panel.onSave()
 		self.assertTrue(bmConfig.shouldDrawGlyphs(self.displayKey))
+
+	def test_lettingApplicationsArrangeTheDisplayIsSaved(self):
+		"""Off until the reader grants it, and stored on the display as a whole, where a
+		configuration profile can override it for one application."""
+		self.assertFalse(bmConfig.shouldAllowAppLayouts(self.displayKey))
+		self.panel.appLayoutsCtrl.SetValue(True)
+		self.panel.onSave()
+		self.assertTrue(bmConfig.shouldAllowAppLayouts(self.displayKey))
 
 	def test_arrowsMovingByRowIsSaved(self):
 		"""Off until it is asked for: it changes what NVDA's own arrow keys do."""

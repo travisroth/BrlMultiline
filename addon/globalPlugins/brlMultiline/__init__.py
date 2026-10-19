@@ -44,7 +44,7 @@ from . import tableHeaderSpeech
 from . import userBrailleTable
 from .container import DisplayContainer
 from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
-from . import appCollect, appRegions, layoutCollect, layoutDraw, layoutRegions
+from . import appCollect, appLayout, appRegions, layoutCollect, layoutDraw, layoutRegions
 from . import image as imageFigure, imagePins, imageSource
 from .flowTableSource import wantsColumns
 from .graphics import findSurface as graphicsFindSurface
@@ -259,6 +259,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""Pinned objects, keyed by the segment key they live in.
 
 		Keyed rather than numbered so that a rebuild which keeps a segment keeps its pin.
+		"""
+
+		self._appLayoutsSuspended = False
+		"""Whether the reader has set app layouts aside for now, until NVDA restarts.
+
+		Over and above the setting, which is what allows them at all. Not stored: it is for the
+		one window where the reader wants their own arrangement back, not a second setting.
+		See L{script_toggleAppLayouts}.
 		"""
 
 		self._monitorTurn = 0
@@ -2126,6 +2134,55 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("Segments off"))
 
 	@script(
+		# Translators: input help message for a command. An app layout is an application
+		# arranging the display around where the focus is.
+		description=_("App layouts: sets them aside for now, or brings them back"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_toggleAppLayouts(self, gesture):
+		"""Set app layouts aside until NVDA restarts, or bring them back.
+
+		Only means anything where the setting allows them, and says so where it does not,
+		rather than flipping a state that would surprise the reader the day they allow it.
+		"""
+		if not bmConfig.shouldAllowAppLayouts():
+			# Translators: reported when asked to set app layouts aside on a display where the
+			# settings do not allow them at all.
+			ui.message(_("Applications may not arrange this display. Allow it in the BrlMultiline settings"))
+			return
+		self._appLayoutsSuspended = not self._appLayoutsSuspended
+		if self._appLayoutsSuspended:
+			# Translators: reported when app layouts have been set aside for now.
+			ui.message(_("App layouts off"))
+		else:
+			# Translators: reported when app layouts are allowed again.
+			ui.message(_("App layouts on"))
+
+	def appLayoutsInForce(self) -> bool:
+		""":return: whether an app module may arrange this display now: allowed, and not set aside."""
+		return bmConfig.shouldAllowAppLayouts() and not self._appLayoutsSuspended
+
+	def appLayoutRoom(self) -> tuple[SegmentRect | None, list[appLayout.Band]]:
+		"""The part of the display an app layout may have, and the displays behind it.
+
+		Taken is anything holding a pin, and any claim that is not where the focus is drawn: a
+		drawing, a table someone claimed. A flow band is reserved and still free here, because it
+		is the focus, and the focus is one of the things a layout arranges.
+
+		:return: (the free area or None, the physical displays top first, empty for an ordinary
+			display).
+		"""
+		numRows, numCols = self._displayDimensions()
+		container = self.container
+		occupied = []
+		if container is not None:
+			for spec in container.specs:
+				if spec.key in self._monitors or (spec.isReserved and not spec.hostsSystemFocus):
+					occupied.append(spec.rect)
+		bands = [appLayout.Band(device.rowStart, device.numRows, device.numCols) for device in deviceMap()]
+		return appLayout.freeArea(numRows, numCols, occupied), bands
+
+	@script(
 		# Translators: input help message for a command.
 		description=_("Moves the focus onto another of the combined braille displays"),
 		category=SCRIPT_CATEGORY,
@@ -3036,6 +3093,90 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				_("Clipboard refused it; flow dry run in the log, {count} lines").format(count=len(lines))
 			)
 		log.debug(verdict)
+
+	@script(
+		# Translators: input help message for a command. An app layout is an application
+		# arranging the display around where the focus is.
+		description=_("Debug: Copies what the focus's application would arrange the display as to the clipboard"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_appLayoutReport(self, gesture):
+		"""Ask the focus's app module for its layout here, and report what would be shown.
+
+		Shows nothing and claims nothing. It asks even where the setting does not allow app
+		layouts, and says so, because an app module's author needs the answer before the reader
+		has any reason to allow it.
+		"""
+		from .flowDryRun import toClipboard
+
+		try:
+			lines = self.appLayoutReport(api.getFocusObject())
+		except Exception:
+			log.error("The app layout report failed", exc_info=True)
+			# Translators: reported when a diagnostic command fails.
+			ui.message(_("App layout report failed, see the log"))
+			return
+		log.info("BrlMultiline app layout:\n" + "\n".join(f"  {line}" for line in lines))
+		if toClipboard("BrlMultiline app layout", lines):
+			# Translators: reported after a diagnostic has been copied to the clipboard.
+			# The placeholder is the number of lines copied.
+			ui.message(_("App layout report copied, {count} lines").format(count=len(lines)))
+		else:
+			# Translators: reported when a diagnostic could not reach the clipboard and is
+			# in the log instead. The placeholder is the number of lines written.
+			ui.message(
+				_("Clipboard refused it; app layout report in the log, {count} lines").format(count=len(lines))
+			)
+
+	def appLayoutReport(self, focus) -> list[str]:
+		"""What the focus's app module would arrange the display as, line by line.
+
+		In English and untranslated, like the other debug reports: it is for an app module's
+		author and for a bug report, and both are read against the code.
+
+		:param focus: the object to ask about.
+		:return: the report.
+		"""
+		appModule = getattr(focus, "appModule", None)
+		appName = getattr(appModule, "appName", None) or "none"
+		lines = [f"App module: {appName}"]
+		if not bmConfig.shouldAllowAppLayouts():
+			lines.append("App layouts: not allowed on this display")
+		elif self._appLayoutsSuspended:
+			lines.append("App layouts: allowed, and set aside for now")
+		else:
+			lines.append("App layouts: allowed")
+		area, bands = self.appLayoutRoom()
+		if area is None:
+			lines.append("Free area: none, every row holds a pin")
+			return lines
+		lines.append(
+			f"Free area: rows {area.row} to {area.endRow - 1}, cells {area.col} to {area.endCol - 1}",
+		)
+		if bands:
+			lines.append(
+				"Displays: "
+				+ ", ".join(f"rows {band.rowStart} to {band.rowEnd - 1} of {band.numCols} cells" for band in bands),
+			)
+		room = appLayout.displayArea(area, bands)
+		lines.append(f"Offered: {room.rows} rows, {room.columns} columns")
+		if getattr(appModule, appLayout.LAYOUT_METHOD, None) is None:
+			lines.append(f"Layout: the app module has no {appLayout.LAYOUT_METHOD} method")
+			return lines
+		layout, problem = appLayout.askAppModule(appModule, focus, room)
+		if problem is not None:
+			lines.append(f"Layout refused: {problem}")
+			return lines
+		if layout is None:
+			lines.append("Layout: none here")
+			return lines
+		try:
+			rects = appLayout.placeSegments(layout, area, bands)
+		except appLayout.LayoutError as error:
+			lines.append(f"Layout refused: {error}")
+			return lines
+		lines.extend(appLayout.describeLayout(layout, rects))
+		return lines
 
 	# --- Graphics ------------------------------------------------------------------------
 	#

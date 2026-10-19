@@ -8,6 +8,13 @@ written against, so until it ships, installing and testing means running an alph
 
 Added:
 
+- **Letting an application arrange the display, first part.** A new setting, "Let applications
+  arrange this display", off by default and settable per profile, allows an application's NVDA
+  add-on to arrange the rows no pinned object holds around where the focus is, such as a chat's
+  messages above its compose box. This version reads and checks what the application offers and
+  reports it with a new debug command; nothing is shown on the display yet. A new unassigned
+  command sets app layouts aside until NVDA restarts. Unit tested; not tried on hardware.
+
 - **Stepping through a chart, with guide lines.** New commands move through a chart one point
   at a time, saying each point in the words a press on it gives, and go to its first and last
   point. On a magnified chart the view turns a page to keep the point on the display. While a

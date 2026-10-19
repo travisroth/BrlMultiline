@@ -70,6 +70,11 @@ Read the files in this order:
    text overview are built in `layoutRegions.py` and tested against nine saved pages. Nothing
    runs in the add-on yet. Read it before writing code that reads object rectangles from browse
    mode, or before changing a rule in `layoutRegions.py`.
+14. [app-layouts-plan.md](app-layouts-plan.md) — the design for letting an app module arrange
+   the free rows of the display around where the focus is, such as a Teams chat history above
+   its compose box or an Outlook reading pane beside its message list. Milestone 1 is built:
+   the contract and its checks, with nothing shown on the display yet.
+   Read it before extending the app module API in the readme's developer section.
 
 ## Project background
 
