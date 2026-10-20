@@ -45,6 +45,7 @@ from . import userBrailleTable
 from .container import DisplayContainer
 from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
 from . import appCollect, appLayout, appRegions, layoutCollect, layoutDraw, layoutRegions
+from .appLayoutHost import AppLayoutHost
 from . import image as imageFigure, imagePins, imageSource
 from .flowTableSource import wantsColumns
 from .graphics import findSurface as graphicsFindSurface
@@ -269,6 +270,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		See L{script_toggleAppLayouts}.
 		"""
 
+		self.appLayouts = AppLayoutHost(self)
+		"""The focus's app layout, when one is up. See `appLayoutHost`."""
+
 		self._monitorTurn = 0
 		"""Which pin a timed refresh starts at, so that the rotation is fair.
 
@@ -466,6 +470,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				self.flowBand.onTerminate()
 				self.flowBand = None
 			self.graphicsMode.onTerminate()
+			self.appLayouts.terminate()
 			self.stopAllMonitoring()
 			self._restoreOriginalBuffer()
 			# Before the patches go, so a region already reading a row reads NVDA's line again.
@@ -515,6 +520,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._followChart(obj)
 		except Exception:
 			log.debugWarning("Could not follow the chart navigation onto the display", exc_info=True)
+		try:
+			self.appLayouts.followFocus(obj)
+		except Exception:
+			log.debugWarning("Could not follow the focus with the app layout", exc_info=True)
 
 	def _followChart(self, obj) -> None:
 		"""Mark the point of the chart on the display that the screen reader has just moved to.
@@ -786,6 +795,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._activePanels = []
 			container = self._fallbackContainer(handler, dimensions)
 		self._carryOverMonitors(container)
+		# Before the flow is carried over, which asks whether a layout is up.
+		self.appLayouts.onRebuilt()
 		wasShowingMainBuffer = handler.buffer is handler.mainBuffer
 		handler.mainBuffer = container
 		if wasShowingMainBuffer:
@@ -832,6 +843,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# back put the reader at the top of the document rather than where they had got to.
 			# The claim stays in `_activePanels` and is simply outranked, so leaving the figure
 			# gives the rows back and `_carryOverFlow` redraws from the controller that survived.
+			return
+		if self.appLayouts.isUp:
+			# The same, for an app layout: it outranks the flow, and the flow waits with its
+			# place kept until the layout goes. See `panels.PRIORITY_APP_LAYOUT`.
 			return
 		wanted = bmConfig.shouldClaimFlowBand()
 		active = self.flowBand is not None
@@ -906,7 +921,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if band is None:
 			return
 		if band.segment() is None:
-			if self.graphicsMode.active:
+			if self.graphicsMode.active or self.appLayouts.isUp:
 				# Borrowed rather than lost. A drawing outranks the flow and has taken its rows
 				# for as long as it is up; the claim is still in `_activePanels` and gets them
 				# back when the figure goes. Keeping the band keeps its controller, and the
@@ -1548,8 +1563,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# `_refreshDisplay` above draws nothing in this mode.
 			log.debug("BrlMultiline: not drawing pinned objects while braille shows speech")
 			return
-		for key, monitor in list(self._monitors.items()):
+		for key, monitor in list(self._everyMonitor().items()):
 			monitor.refresh(reveal=key == reveal)
+
+	def _everyMonitor(self) -> dict[str, ObjectMonitor]:
+		""":return: the reader's pins and the app layout's segments, which are refreshed alike.
+
+		Kept in two places because they are not alike in anything else: the reader's pins are
+		carried, rehomed and counted as pins, and the layout's are none of those. Their keys
+		cannot collide, since the layout's are all under `appLayout.PANEL_NAME`.
+		"""
+		return {**self._monitors, **self.appLayouts.liveMonitors()}
 
 	def refreshMonitorsInTurn(self, allowance: float) -> bool:
 		"""Refresh the pins that a timer asked about, a slice of a core cycle at a time.
@@ -1573,7 +1597,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if bmConfig.isSpeechOutputMode():
 			# See `refreshMonitors`: a pin drawn beside speech has nothing to remove it.
 			return False
-		keys = list(self._monitors)
+		try:
+			# On the same clock, because an app layout's reading pane is a pin whose object
+			# can be replaced, and nothing announces the replacement either.
+			self.appLayouts.resolveIfDue()
+		except Exception:
+			log.debugWarning("Could not bring the app layout up to date", exc_info=True)
+		monitors = self._everyMonitor()
+		keys = list(monitors)
 		if not keys:
 			self._monitorTurn = 0
 			return False
@@ -1581,8 +1612,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		began = time.monotonic()
 		for step in range(len(keys)):
 			index = (start + step) % len(keys)
-			monitor = self._monitors.get(keys[index])
-			if monitor is None:
+			monitor = monitors[keys[index]]
+			if monitor not in self._everyMonitor().values():
 				# Unpinned while this pass was running.
 				continue
 			monitor.refresh()
@@ -2152,11 +2183,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return
 		self._appLayoutsSuspended = not self._appLayoutsSuspended
 		if self._appLayoutsSuspended:
+			self.appLayouts.takeDown("set aside by the reader")
 			# Translators: reported when app layouts have been set aside for now.
 			ui.message(_("App layouts off"))
 		else:
 			# Translators: reported when app layouts are allowed again.
 			ui.message(_("App layouts on"))
+			# Brought back where the reader is, rather than at the next focus change.
+			self.appLayouts.followFocus(api.getFocusObject())
 
 	def appLayoutsInForce(self) -> bool:
 		""":return: whether an app module may arrange this display now: allowed, and not set aside."""
@@ -2175,12 +2209,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		numRows, numCols = self._displayDimensions()
 		container = self.container
 		occupied = []
+		within = None
 		if container is not None:
 			for spec in container.specs:
+				if appLayout.isAppLayoutKey(spec.key):
+					# The layout's own segments are its room, not something in its way, so the
+					# room is the same whether or not a layout is up.
+					continue
 				if spec.key in self._monitors or (spec.isReserved and not spec.hostsSystemFocus):
 					occupied.append(spec.rect)
+			within = container.focusSegment.rect
 		bands = [appLayout.Band(device.rowStart, device.numRows, device.numCols) for device in deviceMap()]
-		return appLayout.freeArea(numRows, numCols, occupied), bands
+		return appLayout.freeArea(numRows, numCols, occupied, within), bands
 
 	@script(
 		# Translators: input help message for a command.
@@ -3140,6 +3180,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		appModule = getattr(focus, "appModule", None)
 		appName = getattr(appModule, "appName", None) or "none"
 		lines = [f"App module: {appName}"]
+		lines.append(f"Shown now: {self.appLayouts.name!r}" if self.appLayouts.isUp else "Shown now: nothing")
 		if not bmConfig.shouldAllowAppLayouts():
 			lines.append("App layouts: not allowed on this display")
 		elif self._appLayoutsSuspended:

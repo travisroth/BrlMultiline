@@ -5,9 +5,11 @@ history of a Teams conversation in the top six rows of a Monarch with the compos
 rows below it, or an Outlook message list beside its reading pane, each coming up when the
 focus enters the place it is for and going away when the focus leaves.
 
-Status: milestone 1 is built and unit tested: the setting, the toggle, the contract in
-`appLayout.py` with its validation, the free area, placement with the boundary rule, and the
-debug report. Nothing is shown on the display yet; that is milestone 2. Not tried on hardware.
+Status: milestones 1 to 4 are built and unit tested. The contract is in `appLayout.py`, the
+lifecycle in `appLayoutHost.py`, and the Teams add-on offers a chat layout. Nothing has been
+tried in a running NVDA or on hardware, and the Teams layout's search for the history beside
+the compose box is written against the Teams accessibility tree as the add-on already knows it,
+not checked against Teams itself.
 
 Read [architecture.md](architecture.md) for views, panels and segments, and the developer
 section of the readme for the flow attributes this extends. This document assumes both.
@@ -99,9 +101,12 @@ combined, the app module sees eleven rows and lays out eleven rows; BrlMultiline
 tenth is the Monarch's last and the eleventh is the Focus. That keeps app modules from having
 to track hardware, at the cost of the boundary question below.
 
-The free area is the largest unbroken run of free rows. A reader whose pins leave two separate
-gaps gets the larger one for the app layout and the other stays as configured. Splitting one
-layout across a pin is not worth what it would cost to explain.
+The free area is the unbroken run of free rows the focus segment is in, since a layout arranges
+the focus among other things and has to be where it is. A reader whose pins leave two separate
+gaps gets the one holding the focus for the app layout, and the other stays as configured.
+Splitting one layout across a pin is not worth what it would cost to explain. The first version
+took the longest run; showing the layout found that its focus segment would then not be the
+focus whenever the focus was in the shorter one.
 
 Plain dictionaries rather than classes so that nothing has to be imported. A small helper
 module may come later for app modules willing to take the dependency, as `register` is for
@@ -197,3 +202,22 @@ takes the reader out of the compose box.
 ## Open questions
 
 None at present. New ones go here as the milestones turn them up.
+
+## As built
+
+What milestones 2 to 4 settled that the design above left open.
+
+1. **The claim.** `AppLayoutPanel` claims the free area and offers its focus segment, so the
+   reader's focus segment, which is always inside the area, is evicted and replaced. The
+   object segments are reserved and the focus segment is not, exactly as with the reader's own
+   arrangement. Ranked `PRIORITY_APP_LAYOUT`, between the flow and a drawing.
+2. **The flow waits.** While a layout is up, `_applyFlow` leaves the flow alone and
+   `_carryOverFlow` suspends it, as for a drawing, so its controller and the reader's place
+   survive. The layout's focus segment is an ordinary segment, not a flow.
+3. **Two dictionaries of monitors.** The reader's pins stay in the plugin's `_monitors`; the
+   layout's are in `AppLayoutHost`. `_everyMonitor` joins them for refreshing only, so the
+   layout's segments are never counted, carried or rehomed as pins.
+4. **The clock.** The pin timer runs while a layout is up even with every segment blank, and
+   asks the callables again every `RESOLVE_SECONDS`.
+5. **A rebuild.** `AppLayoutHost.onRebuilt` runs before the flow is carried over. A claim the
+   rebuild dropped forgets the layout; a setting turned off takes it down after the rebuild.

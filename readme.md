@@ -235,10 +235,13 @@ the word it stands for.
 **Let applications arrange this display.** Off by default. When on, an application whose NVDA
 add-on supports it may arrange the display around where you are working, such as a chat's
 messages above the box you type in. Rows or cells holding an object you pinned are never used:
-the application only gets what is left. This version only checks what an application would do,
-with the debug command under [Diagnostics](#diagnostics); showing it on the display comes in a
-later version. Like every setting here it can be set in a configuration profile, so you can
-allow it for one application and nowhere else.
+the application only gets the free rows around the segment that follows the focus. The layout
+comes up a moment after the focus arrives somewhere it is offered, stays while you move around
+inside it, and goes when you move somewhere without one or leave the application, giving you
+your own arrangement back. While it is up, a flow on that display waits with your place kept.
+Like every setting here it can be set in a configuration profile, so you can allow it for one
+application and nowhere else. The [Teams add-on](https://github.com/travisroth/ms-teams) offers
+one: in a chat, the history above and the compose box or the message you are on below.
 
 ## Reading as a flow
 
@@ -1679,10 +1682,10 @@ Teams can fail at any time, and logs the failure instead of letting it escape.
 
 ### Arranging the display around the focus
 
-This is the first part of a feature that is still being built. In this version BrlMultiline
-reads and checks the layout an app module offers, and the debug command "Copies what the focus's
-application would arrange the display as" reports it. Nothing is shown on the display yet. The
-design is in `docs/design/app-layouts-plan.md`.
+The reader has to allow this, with "Let applications arrange this display" in the BrlMultiline
+settings. Use the debug command "Copies what the focus's application would arrange the display
+as" to see what your app module offers, whether or not it is allowed. The design is in
+`docs/design/app-layouts-plan.md`.
 
 An app module may offer a layout for where the focus is, so that related things are read
 together: a chat's messages above its compose box, or a message list beside its reading pane. As
@@ -1703,8 +1706,8 @@ def brlMultilineLayout(self, focus, area):
 ```
 
 1. `focus` is the object with the focus. Return `None` where you have no layout.
-2. `area` has `rows` and `columns`: the part of the display that holds no pinned object. With
-   more than one row, segments run top to bottom and sizes are rows. With one row, as on a Focus
+2. `area` has `rows` and `columns`: the free run of the display the focus is in, holding no
+   pinned object. With more than one row, segments run top to bottom and sizes are rows. With one row, as on a Focus
    80, segments run left to right and sizes are cells. Several displays driven as one are one
    tall display here, and `columns` is the narrowest of them.
 3. `name` identifies the layout. The same name for the next focus keeps the layout as it is.
@@ -1714,6 +1717,20 @@ def brlMultilineLayout(self, focus, area):
    reading pane whose document changes with each message.
 5. `size` is optional on one segment, which takes what the others leave. Without one, the sizes
    must add up to the area. Exactly one segment must show the focus.
+
+How it behaves once it is up:
+
+1. BrlMultiline asks on every focus change in your application. The same name is kept at once.
+   A different layout, or `None`, waits until the focus has stayed put for a quarter of a second,
+   so passing through containers on the way somewhere does not rebuild the display.
+2. Leaving the application takes the layout down at once, without asking.
+3. A function given as `show` is asked again on every focus change and about once a second. A
+   different object replaces what is shown and starts at its top. The same object, by `==`,
+   keeps the reader's place. `None` blanks the segment. A function that raises three times in a
+   row takes the layout down.
+4. A segment showing an object reads like a pinned one: as a flow where it has room, following a
+   growing run such as a chat, and panned with the per segment commands. Routing keys move within
+   it and do not move the focus. The reader cannot pin anything into your segments.
 
 You do not need to know where one display ends and the next begins. A segment that would cross
 from one to the other is moved onto the boundary, and the rows it gives up go to the segment

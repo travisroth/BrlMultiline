@@ -17,6 +17,8 @@ installStubs()
 from brlMultiline.appLayout import (  # noqa: E402
 	FOCUS,
 	LAYOUT_METHOD,
+	PANEL_NAME,
+	AppLayoutPanel,
 	Band,
 	DisplayArea,
 	LayoutError,
@@ -24,9 +26,11 @@ from brlMultiline.appLayout import (  # noqa: E402
 	describeLayout,
 	displayArea,
 	freeArea,
+	isAppLayoutKey,
 	parseLayout,
 	placeSegments,
 	resolveShown,
+	segmentKey,
 )
 from brlMultiline.layout import SegmentRect  # noqa: E402
 
@@ -145,6 +149,76 @@ class TestTheFreeArea(unittest.TestCase):
 
 	def test_noDisplayIsNoArea(self):
 		self.assertIsNone(freeArea(0, 0, []))
+
+
+class TestTheRunTheFocusIsIn(unittest.TestCase):
+	"""A layout arranges the focus among other things, so it is where the focus is."""
+
+	def test_theFocusRunWinsOverALongerOne(self):
+		pin = SegmentRect(3, 0, 1, MONARCH_COLS)
+		focus = SegmentRect(1, 0, 1, MONARCH_COLS)
+		self.assertEqual(
+			freeArea(MONARCH_ROWS, MONARCH_COLS, [pin], focus), SegmentRect(0, 0, 3, MONARCH_COLS)
+		)
+
+	def test_theFocusInTheLongerRun(self):
+		pin = SegmentRect(3, 0, 1, MONARCH_COLS)
+		focus = SegmentRect(9, 0, 1, MONARCH_COLS)
+		self.assertEqual(
+			freeArea(MONARCH_ROWS, MONARCH_COLS, [pin], focus), SegmentRect(4, 0, 6, MONARCH_COLS)
+		)
+
+	def test_aFocusSpanningRowsIsFoundByItsFirst(self):
+		focus = SegmentRect(4, 0, 6, MONARCH_COLS)
+		self.assertEqual(
+			freeArea(MONARCH_ROWS, MONARCH_COLS, [], focus), SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS)
+		)
+
+	def test_onASingleRowItIsTheFocusCells(self):
+		pin = SegmentRect(0, 40, 1, 10)
+		focus = SegmentRect(0, 60, 1, 20)
+		self.assertEqual(freeArea(1, FOCUS_COLS, [pin], focus), SegmentRect(0, 50, 1, 30))
+
+	def test_aFocusOnATakenRowFallsBackToTheLongest(self):
+		"""Only a stale rectangle can do this, and the longest run is the safe answer."""
+		pin = SegmentRect(3, 0, 1, MONARCH_COLS)
+		self.assertEqual(
+			freeArea(MONARCH_ROWS, MONARCH_COLS, [pin], pin),
+			SegmentRect(4, 0, 6, MONARCH_COLS),
+		)
+
+
+class TestTheClaim(unittest.TestCase):
+	def panel(self):
+		area = SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS)
+		rects = [SegmentRect(0, 0, 9, MONARCH_COLS), SegmentRect(9, 0, 1, MONARCH_COLS)]
+		return AppLayoutPanel(area, rects, focusIndex=1)
+
+	def test_itsSegmentsAreKeyedByPlace(self):
+		self.assertEqual([spec.key for spec in self.panel().segments()], ["appLayout.0", "appLayout.1"])
+		self.assertEqual(segmentKey(0), f"{PANEL_NAME}.0")
+
+	def test_theObjectsAreReservedAndTheFocusIsNot(self):
+		"""So the reader's pin commands refuse the layout's segments, and NVDA's focus content
+		lands in the focus segment as it does in the reader's own."""
+		objects, focus = self.panel().segments()
+		self.assertTrue(objects.isReserved)
+		self.assertFalse(focus.isReserved)
+
+	def test_itOffersTheFocusSegment(self):
+		self.assertEqual(self.panel().focusSegmentKey, "appLayout.1")
+		self.panel().validate()
+
+	def test_itOutranksTheFlowAndNotADrawing(self):
+		from brlMultiline.panels import PRIORITY_FLOW, PRIORITY_GRAPHICS
+
+		self.assertGreater(AppLayoutPanel.priority, PRIORITY_FLOW)
+		self.assertLess(AppLayoutPanel.priority, PRIORITY_GRAPHICS)
+
+	def test_itsKeysAreRecognised(self):
+		self.assertTrue(isAppLayoutKey("appLayout.3"))
+		self.assertFalse(isAppLayoutKey("display.0"))
+		self.assertFalse(isAppLayoutKey("appLayoutish"))
 
 
 class TestWhatTheAppModuleIsTold(unittest.TestCase):

@@ -223,7 +223,9 @@ def _refreshPinnedObjects(busy: bool = False) -> None:
 	from . import getPlugin
 
 	plugin = getPlugin()
-	if plugin is None or not plugin.monitoredKeys:
+	if plugin is None or not (plugin.monitoredKeys or plugin.appLayouts.isUp):
+		# An app layout counts even with every segment blank, since a blank reading pane is
+		# waiting for its document and only this clock will notice it arrive.
 		return
 	now = time.monotonic()
 	if not _monitorsUnfinished and now - _lastMonitorRefresh < MONITOR_REFRESH_INTERVAL:

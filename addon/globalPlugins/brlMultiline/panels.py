@@ -38,6 +38,7 @@ BLANK_PANEL_NAME = "blank"
 
 PRIORITY_ORDINARY = 0
 PRIORITY_FLOW = 10
+PRIORITY_APP_LAYOUT = 15
 PRIORITY_GRAPHICS = 20
 """The ladder that decides which claim wins when two want the same cells.
 
@@ -55,6 +56,11 @@ Graphics outranks the flow because it is deliberate and temporary. A reader turn
 figure on, reads it, and turns it off; the flow is a standing preference that should
 resume by itself afterwards, and it does. Nothing else is ranked yet: a table claim and a
 pinned object have never wanted the same rows as each other.
+
+An app layout sits between the two. It outranks the flow because it is the application's
+arrangement of where the reader is, which the flow is only one way of reading; the flow keeps
+its place while it waits, as it does for a drawing. A drawing outranks the layout for the
+same reason it outranks the flow: the reader asked for it, now, and will put it away.
 """
 
 

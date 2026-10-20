@@ -1,0 +1,360 @@
+# BrlMultiline: showing an app layout, and following the focus with it.
+# Part of the BrlMultiline add-on for NVDA.
+# Copyright (C) 2026 Travis Roth <travis@travisroth.com>
+# This file is covered by the GNU General Public License version 2.
+
+"""The life of an app layout on the display: when it comes up, what it shows, when it goes.
+
+`appLayout` is the contract and knows nothing of NVDA. This is the other half, and it owns
+three things the contract cannot:
+
+1. **Following the focus.** Asked on every focus change. A layout of the same name as the one
+   up is kept as it is, at once, so moving between a chat's messages and its compose box costs
+   nothing and loses no one's place. Anything else, a different layout, or none, waits until
+   the focus has stayed put for L{SETTLE_SECONDS}, because focus in a web application passes
+   through containers on its way and each would otherwise rebuild the display. Leaving the
+   application is the exception: that takes the layout down at once, without asking, so an
+   app module can never leave its arrangement on another application's display.
+2. **Keeping secondary segments current.** A segment whose `show` is a callable is asked again
+   on every focus change within the layout and on the pin timer every L{RESOLVE_SECONDS}. A
+   different answer replaces what is shown, starting at the top; the same answer keeps it, so
+   a reader partway down a message is not thrown back; None blanks the segment. A callable
+   that raises keeps what it showed, and one that raises L{MAX_FAILURES} times running takes
+   the layout down.
+3. **Failure is the reader's own arrangement.** Anything that goes wrong takes the layout
+   down and logs why. The reader is never left with a half built display.
+
+The objects are shown by `ObjectMonitor`, the same machinery as a pin, so a secondary segment
+reads as a flow, follows a growing chat and pans exactly as a pin does. They are kept apart
+from the reader's pins, which the plugin keeps in `_monitors`: the layout's never count as
+the reader's, are never carried to another segment, and go when the layout goes.
+
+See `docs/design/app-layouts-plan.md`.
+"""
+
+import dataclasses
+import time
+from typing import TYPE_CHECKING, Any
+
+import wx
+from logHandler import log
+
+from .appLayout import (
+	PANEL_NAME,
+	AppLayout,
+	AppLayoutPanel,
+	Band,
+	LayoutError,
+	askAppModule,
+	displayArea,
+	placeSegments,
+	resolveShown,
+	segmentKey,
+)
+from .layout import SegmentRect
+from .objectMonitor import ObjectMonitor
+
+if TYPE_CHECKING:
+	from . import GlobalPlugin
+
+SETTLE_SECONDS = 0.25
+"""How long the focus must stay put before a layout comes up, changes or goes.
+
+Long enough to swallow the containers focus passes through in a web application on the way to
+where it is going, short enough that the layout is there by the time the reader's hand is."""
+
+RESOLVE_SECONDS = 1.0
+"""How often a secondary segment's callable is asked again, over and above every focus change.
+
+Slower than the pin timer, because asking means a call into the application, and this only
+has to catch what loads after the focus has settled, such as a reading pane's document."""
+
+MAX_FAILURES = 3
+"""How many times running a segment's callable may raise before the layout is taken down."""
+
+
+@dataclasses.dataclass
+class Shown:
+	"""The layout on the display now, and everything needed to keep it current."""
+
+	layout: AppLayout
+	area: SegmentRect
+	bands: list[Band]
+	rects: list[SegmentRect]
+	panel: AppLayoutPanel
+	appModule: Any
+	"""The app module that offered it. Leaving it takes the layout down."""
+
+	monitors: dict[str, ObjectMonitor] = dataclasses.field(default_factory=dict)
+	"""What each secondary segment is showing, by segment key. A blank segment has none."""
+
+	objects: dict[str, Any] = dataclasses.field(default_factory=dict)
+	"""The object each secondary segment was last given, to tell a new answer from the same."""
+
+	failures: dict[str, int] = dataclasses.field(default_factory=dict)
+	"""How many times running each segment's callable has raised."""
+
+
+def sameObject(old: Any, new: Any) -> bool:
+	"""Whether two answers are the same object, as far as anyone can tell.
+
+	Two reads of one element are often two Python objects, and on UI Automation they compare
+	equal only through NVDA's own `__eq__`, which is a call into the application and can raise.
+	A raise counts as different: that costs a reset of the reading position and never shows the
+	wrong content.
+	"""
+	if old is new:
+		return True
+	if old is None or new is None:
+		return False
+	try:
+		return bool(old == new)
+	except Exception:
+		return False
+
+
+class AppLayoutHost:
+	"""Shows the focus's app layout, and takes it down. One per plugin."""
+
+	def __init__(self, plugin: "GlobalPlugin") -> None:
+		self.plugin = plugin
+		self.shown: Shown | None = None
+		self._pending: tuple | None = None
+		"""What to show once the focus settles: (layout or None, area, bands, app module)."""
+		self._timer = None
+		self._resolvedAt = 0.0
+
+	# What the plugin asks.
+
+	@property
+	def isUp(self) -> bool:
+		""":return: whether a layout's claim is among the plugin's active ones."""
+		shown = self.shown
+		return shown is not None and any(panel is shown.panel for panel in self.plugin._activePanels)
+
+	@property
+	def name(self) -> str | None:
+		""":return: the name of the layout up, or None."""
+		return self.shown.layout.name if self.shown is not None else None
+
+	def liveMonitors(self) -> dict[str, ObjectMonitor]:
+		""":return: the secondary segments' monitors whose segments are on the display now.
+
+		A drawing outranks a layout and takes its rows while it is up; the monitors wait rather
+		than being refreshed into segments that are not there.
+		"""
+		shown = self.shown
+		container = self.plugin.container
+		if shown is None or container is None:
+			return {}
+		return {key: monitor for key, monitor in shown.monitors.items() if container.hasKey(key)}
+
+	# Following the focus.
+
+	def followFocus(self, focus: Any) -> None:
+		"""Answer a focus change: keep, change, show or take down the layout.
+
+		:param focus: the new focus.
+		"""
+		plugin = self.plugin
+		if not plugin.appLayoutsInForce():
+			self._cancelPending()
+			self.takeDown("app layouts are not in force")
+			return
+		appModule = getattr(focus, "appModule", None)
+		if self.shown is not None and appModule is not self.shown.appModule:
+			# At once and without asking, so an app module that raises, hangs or forgets can
+			# never leave its arrangement on another application's display.
+			self._cancelPending()
+			self.takeDown("the focus left the application")
+		if appModule is None or not hasattr(appModule, "brlMultilineLayout"):
+			self._cancelPending()
+			return
+		area, bands = plugin.appLayoutRoom()
+		layout = None
+		if area is not None:
+			layout, problem = askAppModule(appModule, focus, displayArea(area, bands))
+			if problem is not None:
+				log.debugWarning(
+					f"BrlMultiline: the app layout of {_appName(appModule)} was refused: {problem}"
+				)
+		if self.shown is not None and layout is not None and layout.name == self.shown.layout.name:
+			# The same layout: kept as it is, at once. A focus change within it is when a
+			# message list's selection moves, which is the moment its reading pane changes.
+			self._cancelPending()
+			self.resolve()
+			return
+		if self.shown is None and layout is None:
+			self._cancelPending()
+			return
+		self._pending = (layout, area, bands, appModule)
+		if self._timer is not None:
+			self._timer.Stop()
+		self._timer = wx.CallLater(int(SETTLE_SECONDS * 1000), self._settle)
+
+	def _cancelPending(self) -> None:
+		self._pending = None
+		if self._timer is not None:
+			self._timer.Stop()
+			self._timer = None
+
+	def _settle(self) -> None:
+		"""The focus has stayed put: show what it last asked for, or take the layout down."""
+		self._timer = None
+		pending, self._pending = self._pending, None
+		if pending is None or self.plugin._terminated:
+			return
+		layout, area, bands, appModule = pending
+		if not self.plugin.appLayoutsInForce():
+			self.takeDown("app layouts are not in force")
+			return
+		if layout is None:
+			self.takeDown("the focus has no layout here")
+			return
+		self.show(layout, area, bands, appModule)
+
+	# Showing and taking down.
+
+	def show(self, layout: AppLayout, area: SegmentRect, bands: list[Band], appModule: Any) -> bool:
+		"""Put a layout on the display, replacing any that is up.
+
+		:return: whether it is up. If not, the reader's own arrangement is, and the log says why.
+		"""
+		try:
+			rects = placeSegments(layout, area, bands)
+		except LayoutError as error:
+			log.debugWarning(f"BrlMultiline: app layout {layout.name!r} cannot be placed: {error}")
+			self.takeDown("the layout could not be placed")
+			return False
+		self._stopMonitors()
+		panel = AppLayoutPanel(area, rects, layout.focusIndex)
+		# Before the claim, because claiming rebuilds the display and the rebuild asks whether
+		# a layout is up: the flow waits for one rather than fighting it for the rows.
+		self.shown = Shown(
+			layout=layout, area=area, bands=list(bands), rects=rects, panel=panel, appModule=appModule
+		)
+		try:
+			self.plugin.activatePanel(panel)
+		except (ValueError, LookupError):
+			log.warning(f"BrlMultiline: app layout {layout.name!r} cannot be shown", exc_info=True)
+			self.shown = None
+			self.plugin.deactivatePanel(PANEL_NAME)
+			return False
+		log.debug(f"BrlMultiline: app layout {layout.name!r} is up, {len(rects)} segments in {area}")
+		self.resolve(reveal=True)
+		return True
+
+	def takeDown(self, reason: str = "") -> None:
+		"""Take the layout down and give the reader their own arrangement back."""
+		if self.shown is None:
+			return
+		name = self.shown.layout.name
+		self._stopMonitors()
+		self.shown = None
+		log.debug(f"BrlMultiline: app layout {name!r} taken down: {reason or 'asked'}")
+		self.plugin.deactivatePanel(PANEL_NAME)
+
+	def onRebuilt(self) -> None:
+		"""After the display was rebuilt: notice a layout that was dropped or is no longer allowed.
+
+		A display that changed size, a profile switch or a settings change rebuilds with the
+		claim re-composed, and a claim that no longer fits is dropped by the rebuild. A setting
+		turned off is answered after the rebuild, since taking the claim down is a rebuild too.
+		"""
+		shown = self.shown
+		if shown is None:
+			return
+		if not any(panel is shown.panel for panel in self.plugin._activePanels):
+			log.debug(f"BrlMultiline: app layout {shown.layout.name!r} was dropped by a rebuild")
+			self._stopMonitors()
+			self.shown = None
+			return
+		if not self.plugin.appLayoutsInForce():
+			wx.CallAfter(self.takeDown, "app layouts are no longer in force")
+
+	def terminate(self) -> None:
+		self._cancelPending()
+		self._stopMonitors()
+		self.shown = None
+
+	# Keeping secondary segments current.
+
+	def resolveIfDue(self) -> None:
+		"""Ask the callables again if L{RESOLVE_SECONDS} have passed. Called from the pin timer."""
+		if self.shown is None:
+			return
+		now = time.monotonic()
+		if now - self._resolvedAt < RESOLVE_SECONDS:
+			return
+		self.resolve()
+
+	def resolve(self, reveal: bool = False) -> None:
+		"""Bring every secondary segment up to date with what it should show.
+
+		:param reveal: whether this is the layout's first showing, when every segment is
+			filled from the start.
+		"""
+		self._resolvedAt = time.monotonic()
+		shown = self.shown
+		if shown is None:
+			return
+		for index, segment in enumerate(shown.layout.segments):
+			if segment.isFocus:
+				continue
+			key = segmentKey(index)
+			if not reveal and not segment.isResolved:
+				continue
+			obj, problem = resolveShown(segment)
+			if problem is not None:
+				failures = shown.failures.get(key, 0) + 1
+				shown.failures[key] = failures
+				log.debugWarning(
+					f"BrlMultiline: segment {index} of app layout {shown.layout.name!r}: the callable {problem}",
+				)
+				if failures >= MAX_FAILURES:
+					self.takeDown(f"segment {index}'s callable kept raising")
+					return
+				continue
+			shown.failures[key] = 0
+			if not reveal and sameObject(shown.objects.get(key), obj):
+				continue
+			self._showIn(key, obj)
+			if self.shown is not shown:
+				# Showing it rebuilt the display and the rebuild dropped the layout.
+				return
+
+	def _showIn(self, key: str, obj: Any) -> None:
+		"""Show an object in a secondary segment from its start, or blank it for None."""
+		shown = self.shown
+		old = shown.monitors.pop(key, None)
+		if old is not None:
+			old.stop()
+		shown.objects[key] = obj
+		container = self.plugin.container
+		if obj is None:
+			# "No message selected" is a true thing for a reading pane to say, and stale
+			# content is not.
+			if container is not None and container.hasKey(key):
+				container.clear(key)
+				container.update()
+				container.updateDisplay()
+			return
+		monitor = ObjectMonitor(obj, key)
+		shown.monitors[key] = monitor
+		if container is not None and container.hasKey(key):
+			monitor.refresh(reveal=True)
+
+	def _stopMonitors(self) -> None:
+		shown = self.shown
+		if shown is None:
+			return
+		for monitor in shown.monitors.values():
+			try:
+				monitor.stop()
+			except Exception:
+				log.debugWarning("Could not stop an app layout segment", exc_info=True)
+		shown.monitors.clear()
+
+
+def _appName(appModule: Any) -> str:
+	return getattr(appModule, "appName", None) or type(appModule).__name__

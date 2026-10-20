@@ -43,6 +43,7 @@ from collections.abc import Callable, Sequence
 from typing import Any, NamedTuple
 
 from .layout import SegmentRect
+from .panels import PRIORITY_APP_LAYOUT, BraillePanel, SegmentSpec
 
 LAYOUT_METHOD = "brlMultilineLayout"
 """The name of the app module method that offers a layout. Read with `getattr`, never called
@@ -50,6 +51,14 @@ on anything that is not an app module."""
 
 FOCUS = "focus"
 """The `show` value of the segment that follows the focus."""
+
+PANEL_NAME = "appLayout"
+"""The name of the claim an app layout is shown in, and the prefix of its segment keys.
+
+One name for every layout, whatever the app module called it: there is only ever one app
+layout up, and a fixed name is what lets the plugin find its own segments, and leave them
+out, when it works out the room for the next one.
+"""
 
 MAX_ADJUSTMENTS = 16
 """How many times a placement may be moved off display boundaries before it is refused.
@@ -182,35 +191,44 @@ def _parseSegment(layoutName: str, index: int, raw: Any) -> LayoutSegment:
 	return LayoutSegment(show=show, size=size)
 
 
-def freeArea(numRows: int, numCols: int, occupied: Sequence[SegmentRect]) -> SegmentRect | None:
+def freeArea(
+	numRows: int,
+	numCols: int,
+	occupied: Sequence[SegmentRect],
+	within: SegmentRect | None = None,
+) -> SegmentRect | None:
 	"""The part of the display an app layout may have.
 
 	On a display of more than one row, a row is taken if anything occupied touches it, and the
-	area is the longest unbroken run of rows nothing touches. On a display of one row, the same
-	in cells. The earlier run wins a tie, so a pin at the bottom of a display that has another
-	gap above leaves the top for the layout, which is where a reader's eye starts.
+	area is an unbroken run of rows nothing touches. On a display of one row, the same in cells.
 
-	Taking the longest run rather than every free row is deliberate: one layout split around a
-	pin would be one layout read in two places, and the gap left over stays as the reader
-	arranged it.
+	**The run the focus is in.** A layout arranges the focus among other things, so it has to
+	be where the focus is: the focus segment is never pinned, so it always lies in a free run,
+	and that run is the area. Only when no focus is given is it the longest run, the earlier on
+	a tie.
+
+	Taking one run rather than every free row is deliberate: one layout split around a pin
+	would be one layout read in two places, and a gap left over stays as the reader arranged
+	it.
 
 	:param numRows: rows on the display.
 	:param numCols: cells across it.
 	:param occupied: the rectangles of what is already there: pins, and claims that are not the
 		focus itself.
+	:param within: the focus segment's rectangle, whose run is wanted.
 	:return: the area, or None if nothing is free.
 	"""
 	if numRows < 1 or numCols < 1:
 		return None
 	if numRows > 1:
 		taken = [any(rect.row <= row < rect.endRow for rect in occupied) for row in range(numRows)]
-		run = _longestRun(taken)
+		run = _runAt(taken, within.row) if within is not None else _longestRun(taken)
 		if run is None:
 			return None
 		start, length = run
 		return SegmentRect(row=start, col=0, numRows=length, numCols=numCols)
 	taken = [any(rect.col <= col < rect.endCol for rect in occupied) for col in range(numCols)]
-	run = _longestRun(taken)
+	run = _runAt(taken, within.col) if within is not None else _longestRun(taken)
 	if run is None:
 		return None
 	start, length = run
@@ -232,6 +250,20 @@ def _longestRun(taken: Sequence[bool]) -> tuple[int, int] | None:
 				best = (start, length)
 			start = None
 	return best
+
+
+def _runAt(taken: Sequence[bool], place: int) -> tuple[int, int] | None:
+	""":return: (start, length) of the run of untaken places holding one, or the longest run
+	if that place is taken or out of range, which only a stale focus rectangle can make it."""
+	if not 0 <= place < len(taken) or taken[place]:
+		return _longestRun(taken)
+	start = place
+	while start > 0 and not taken[start - 1]:
+		start -= 1
+	end = place + 1
+	while end < len(taken) and not taken[end]:
+		end += 1
+	return start, end - start
 
 
 def bandsIn(area: SegmentRect, bands: Sequence[Band]) -> list[Band]:
@@ -390,6 +422,49 @@ def _widthAt(row: int, bands: Sequence[Band], area: SegmentRect) -> int:
 		if band.rowStart <= row < band.rowEnd:
 			return min(band.numCols, area.col + area.numCols)
 	return area.numCols
+
+
+def segmentKey(index: int) -> str:
+	""":return: the key of one segment of the app layout, by its place in the layout."""
+	return f"{PANEL_NAME}.{index}"
+
+
+def isAppLayoutKey(key: str) -> bool:
+	""":return: whether a segment key belongs to the app layout's claim."""
+	return key.startswith(f"{PANEL_NAME}.")
+
+
+class AppLayoutPanel(BraillePanel):
+	"""The claim an app layout is shown in: the free area, cut into the placed segments.
+
+	**Reserved, except where the focus is.** The segments showing objects belong to the layout,
+	so the reader's pin commands refuse them as they refuse any claim, and nothing else draws
+	there. The focus segment is ordinary display space, exactly as the reader's own focus
+	segment is, because what lands in it is NVDA's own focus content.
+
+	Ranked above the flow and below a drawing; see `panels.PRIORITY_APP_LAYOUT`.
+	"""
+
+	priority = PRIORITY_APP_LAYOUT
+
+	def __init__(self, area: SegmentRect, rects: Sequence[SegmentRect], focusIndex: int) -> None:
+		"""
+		:param area: the free area, which is the claim.
+		:param rects: where each segment goes, from L{placeSegments}.
+		:param focusIndex: which of them follows the focus.
+		"""
+		super().__init__(PANEL_NAME, area, reserve=True, focusSegmentKey=segmentKey(focusIndex))
+		self.rects = list(rects)
+		self.focusIndex = focusIndex
+
+	def segments(self) -> list[SegmentSpec]:
+		specs = []
+		for index, rect in enumerate(self.rects):
+			spec = self.buildSpec(str(index), rect)
+			if index == self.focusIndex:
+				spec = dataclasses.replace(spec, owner=None)
+			specs.append(spec)
+		return specs
 
 
 def askAppModule(appModule: Any, focus: Any, area: DisplayArea) -> tuple[AppLayout | None, str | None]:

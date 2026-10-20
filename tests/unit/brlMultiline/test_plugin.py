@@ -3584,6 +3584,353 @@ class TestAppLayoutsOnCombinedDisplays(PluginTestCase):
 		self.assertTrue(any(f"rows 0 to {MONARCH_ROWS - 1}" in line and "'Messages'" in line for line in lines), lines)
 		self.assertTrue(any(f"row {MONARCH_ROWS}, cells 0 to 79" in line for line in lines), lines)
 
+	def test_itIsShownWithEachSegmentOnItsOwnDisplay(self):
+		"""Six rows and the rest would straddle the two; the messages take the whole Monarch
+		and the focus is on the Focus 80, at its full width."""
+		CONFIG["appLayouts"] = True
+		answer = {"name": "chat", "segments": [{"size": 6, "show": FakeNavigatorObject("Messages")}, {"show": "focus"}]}
+		focus = focusIn(LayoutAppModule(answer=answer))
+		self.plugin.event_gainFocus(focus, lambda: None)
+		callLaterQueue.fire()
+		self.assertTrue(self.plugin.appLayouts.isUp)
+		self.assertEqual(self.container.segmentForKey("appLayout.0").rect, SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS))
+		self.assertEqual(self.container.focusSegment.rect, SegmentRect(MONARCH_ROWS, 0, 1, 80))
+
+
+class ScriptedAppModule:
+	"""An app module whose layout is whatever the test says, for the focus it is given."""
+
+	appName = "scripted"
+
+	def __init__(self, answer):
+		""":param answer: a function of the focus returning the layout, or the layout itself."""
+		self.answer = answer
+		self.asked = 0
+
+	def brlMultilineLayout(self, focus, area):
+		self.asked += 1
+		return self.answer(focus) if callable(self.answer) else self.answer
+
+
+def chatLayout(show, name="chat", focusRows=1):
+	return {"name": name, "segments": [{"show": show}, {"size": focusRows, "show": "focus"}]}
+
+
+class TestShowingAppLayouts(PluginTestCase):
+	"""Milestones 2 and 3 of `docs/design/app-layouts-plan.md`: the layout on the display,
+	following the focus, and secondary segments kept current."""
+
+	def setUp(self):
+		super().setUp()
+		CONFIG["appLayouts"] = True
+		self.messages = FakeNavigatorObject("Messages", role="list")
+		self.chat = ScriptedAppModule(chatLayout(self.messages))
+		self.host = self.plugin.appLayouts
+
+	def focus(self, appModule=None, name="Compose"):
+		"""Move the focus, as NVDA does, into an application."""
+		obj = FakeNavigatorObject(name, role="editableText")
+		obj.appModule = appModule if appModule is not None else self.chat
+		self.plugin.event_gainFocus(obj, lambda: None)
+		return obj
+
+	def settle(self):
+		callLaterQueue.fire()
+
+	def appKeys(self):
+		return [spec.key for spec in self.container.specs if spec.key.startswith("appLayout.")]
+
+	# Coming up.
+
+	def test_nothingUntilTheFocusSettles(self):
+		self.focus()
+		self.assertFalse(self.host.isUp)
+		self.settle()
+		self.assertTrue(self.host.isUp)
+
+	def test_theLayoutIsOnTheDisplay(self):
+		"""The messages over seven rows of the Monarch, the focus on the last."""
+		self.focus()
+		self.settle()
+		self.assertEqual(self.appKeys(), ["appLayout.0", "appLayout.1"])
+		self.assertEqual(self.container.focusSegmentKey, "appLayout.1")
+		self.assertEqual(self.container.segmentForKey("appLayout.0").rect, SegmentRect(0, 0, 7, MONARCH_COLS))
+		self.assertEqual(self.container.focusSegment.rect, SegmentRect(7, 0, 1, MONARCH_COLS))
+
+	def test_theSecondarySegmentShowsItsObject(self):
+		self.focus()
+		self.settle()
+		monitor = self.host.liveMonitors()["appLayout.0"]
+		self.assertIs(monitor.pinned, self.messages)
+		self.assertIn("appLayout.0", self.plugin._everyMonitor())
+
+	def test_theLayoutsSegmentsAreNotTheReadersPins(self):
+		self.focus()
+		self.settle()
+		self.assertEqual(self.plugin.monitoredKeys, set())
+
+	def test_nothingWhereTheSettingIsOff(self):
+		CONFIG["appLayouts"] = False
+		self.focus()
+		self.settle()
+		self.assertFalse(self.host.isUp)
+		self.assertEqual(self.chat.asked, 0)
+
+	def test_anApplicationWithoutAMethodCostsNothing(self):
+		self.focus(appModule=object())
+		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_aLayoutThatDoesNotFitIsNotShown(self):
+		self.chat.answer = chatLayout(self.messages, focusRows=MONARCH_ROWS)
+		self.focus()
+		self.settle()
+		self.assertFalse(self.host.isUp)
+		self.assertEqual(self.container.numSegments, 4)
+
+	def test_aBadAnswerIsNotShown(self):
+		self.chat.answer = {"name": "chat"}
+		self.focus()
+		self.settle()
+		self.assertFalse(self.host.isUp)
+
+	# Following the focus.
+
+	def test_theSameLayoutIsKeptAtOnce(self):
+		"""Moving between the messages and the compose box rebuilds nothing."""
+		self.focus()
+		self.settle()
+		panel = self.host.shown.panel
+		container = self.container
+		self.focus(name="A message")
+		self.assertEqual(callLaterQueue.pending, [])
+		self.assertIs(self.host.shown.panel, panel)
+		self.assertIs(self.container, container)
+
+	def test_aFocusWithNoLayoutTakesItDownOnceSettled(self):
+		self.focus()
+		self.settle()
+		self.chat.answer = None
+		self.focus(name="Toolbar")
+		self.assertTrue(self.host.isUp)
+		self.settle()
+		self.assertFalse(self.host.isUp)
+		self.assertEqual(self.appKeys(), [])
+		self.assertEqual(self.container.numSegments, 4)
+
+	def test_passingThroughSomewhereWithoutALayoutKeepsIt(self):
+		"""Focus in a web application passes through containers on its way."""
+		self.focus()
+		self.settle()
+		panel = self.host.shown.panel
+		self.chat.answer = lambda focus: None if focus.name == "Container" else chatLayout(self.messages)
+		self.focus(name="Container")
+		self.focus(name="Compose")
+		self.settle()
+		self.assertIs(self.host.shown.panel, panel)
+
+	def test_aDifferentLayoutReplacesIt(self):
+		self.focus()
+		self.settle()
+		self.chat.answer = chatLayout(self.messages, name="channel", focusRows=2)
+		self.focus(name="Channel post")
+		self.settle()
+		self.assertEqual(self.host.name, "channel")
+		self.assertEqual(self.container.focusSegment.rect, SegmentRect(6, 0, 2, MONARCH_COLS))
+
+	def test_leavingTheApplicationTakesItDownAtOnce(self):
+		"""Without asking it and without waiting, so it cannot be left on another's display."""
+		self.focus()
+		self.settle()
+		self.focus(appModule=object(), name="Elsewhere")
+		self.assertFalse(self.host.isUp)
+		self.assertEqual(self.container.numSegments, 4)
+
+	def test_movingToAnotherApplicationWithALayoutShowsThatOne(self):
+		self.focus()
+		self.settle()
+		other = ScriptedAppModule(chatLayout(FakeNavigatorObject("Inbox"), name="mail", focusRows=3))
+		self.focus(appModule=other)
+		self.assertFalse(self.host.isUp)
+		self.settle()
+		self.assertEqual(self.host.name, "mail")
+
+	def test_turningTheSettingOffTakesItDown(self):
+		self.focus()
+		self.settle()
+		CONFIG["appLayouts"] = False
+		self.plugin.rebuildBuffer()
+		callAfterQueue.flush()
+		self.assertFalse(self.host.isUp)
+
+	def test_theToggleTakesItDownAndBringsItBack(self):
+		import api
+
+		focus = self.focus()
+		self.settle()
+		self.plugin.script_toggleAppLayouts(None)
+		self.assertFalse(self.host.isUp)
+		original = api.getFocusObject
+		api.getFocusObject = lambda: focus
+		self.addCleanup(setattr, api, "getFocusObject", original)
+		self.plugin.script_toggleAppLayouts(None)
+		self.settle()
+		self.assertTrue(self.host.isUp)
+
+	def test_whileSetAsideTheFocusBringsNothing(self):
+		self.plugin.script_toggleAppLayouts(None)
+		self.focus()
+		self.settle()
+		self.assertFalse(self.host.isUp)
+
+	# The reader's pins and the rest of the display.
+
+	def test_aPinIsLeftWhereItIs(self):
+		self.pin(0)
+		self.focus()
+		self.settle()
+		self.assertEqual(self.plugin.monitoredKeys, {"display.0"})
+		self.assertEqual(self.container.segmentForKey("display.0").rect, SegmentRect(0, 0, 2, MONARCH_COLS))
+		self.assertEqual(self.container.segmentForKey("appLayout.0").rect, SegmentRect(2, 0, 5, MONARCH_COLS))
+
+	def test_theLayoutsSegmentsCannotBePinned(self):
+		self.focus()
+		self.settle()
+		self.pin(self.container.numberForKey("appLayout.0"))
+		self.assertEqual(self.plugin.monitoredKeys, set())
+		self.assertTrue(any("in use by" in message for message in spokenMessages))
+
+	def test_theReaderGetsTheirArrangementBackWithThePin(self):
+		self.pin(0)
+		self.focus()
+		self.settle()
+		self.chat.answer = None
+		self.focus()
+		self.settle()
+		self.assertEqual(self.container.numSegments, 4)
+		self.assertEqual(self.plugin.monitoredKeys, {"display.0"})
+
+	def test_theRoomIsTheSameWithTheLayoutUp(self):
+		before = self.plugin.appLayoutRoom()
+		self.focus()
+		self.settle()
+		self.assertEqual(self.plugin.appLayoutRoom(), before)
+
+	def test_theFlowWaitsWithItsPlaceKept(self):
+		CONFIG["flowEnabled"] = True
+		self.plugin.rebuildBuffer()
+		band = self.plugin.flowBand
+		self.assertIsNotNone(band)
+		self.focus()
+		self.settle()
+		self.assertTrue(self.host.isUp)
+		self.assertIs(self.plugin.flowBand, band)
+		self.assertIsNone(band.segment())
+		self.chat.answer = None
+		self.focus()
+		self.settle()
+		self.assertIs(self.plugin.flowBand, band)
+		self.assertIsNotNone(band.segment())
+
+	def test_aRebuildThatDropsTheClaimForgetsTheLayout(self):
+		self.focus()
+		self.settle()
+		self.plugin._activePanels = []
+		self.plugin.rebuildBuffer()
+		self.assertIsNone(self.host.shown)
+
+	def test_theReportSaysWhatIsUp(self):
+		focus = self.focus()
+		self.settle()
+		self.assertIn("Shown now: 'chat'", self.plugin.appLayoutReport(focus))
+
+	def test_terminatingWithALayoutUpIsClean(self):
+		self.focus()
+		self.settle()
+		self.plugin.terminate()
+		self.assertIsNone(self.host.shown)
+
+	# Secondary segments kept current.
+
+	def resolvedLayout(self, pane):
+		""":return: a mail layout whose reading pane is asked for each time."""
+		self.pane = pane
+		self.chat.answer = {
+			"name": "mail",
+			"segments": [{"size": 5, "show": lambda: self.pane}, {"show": "focus"}],
+		}
+
+	def test_aCallableIsShown(self):
+		first = FakeNavigatorObject("Message one", role="document")
+		self.resolvedLayout(first)
+		self.focus()
+		self.settle()
+		self.assertIs(self.host.liveMonitors()["appLayout.0"].pinned, first)
+
+	def test_aNewAnswerReplacesItOnTheNextFocus(self):
+		"""Selecting another message replaces the reading pane's document."""
+		self.resolvedLayout(FakeNavigatorObject("Message one", role="document"))
+		self.focus()
+		self.settle()
+		second = FakeNavigatorObject("Message two", role="document")
+		self.pane = second
+		self.focus(name="Message two in the list")
+		self.assertIs(self.host.liveMonitors()["appLayout.0"].pinned, second)
+
+	def test_theSameAnswerKeepsTheReadersPlace(self):
+		self.resolvedLayout(FakeNavigatorObject("Message one", role="document"))
+		self.focus()
+		self.settle()
+		monitor = self.host.liveMonitors()["appLayout.0"]
+		self.focus(name="Compose")
+		self.assertIs(self.host.liveMonitors()["appLayout.0"], monitor)
+
+	def test_aNewAnswerIsPickedUpOnTheClock(self):
+		"""The pane loads after the selection does, with no focus change to say so."""
+		self.resolvedLayout(None)
+		self.focus()
+		self.settle()
+		self.assertNotIn("appLayout.0", self.host.liveMonitors())
+		loaded = FakeNavigatorObject("Message one", role="document")
+		self.pane = loaded
+		self.host._resolvedAt = 0.0
+		self.plugin.refreshMonitorsInTurn(1.0)
+		self.assertIs(self.host.liveMonitors()["appLayout.0"].pinned, loaded)
+
+	def test_theClockAsksNoMoreOftenThanItShould(self):
+		self.resolvedLayout(FakeNavigatorObject("Message one", role="document"))
+		self.focus()
+		self.settle()
+		self.pane = FakeNavigatorObject("Message two", role="document")
+		self.host.resolveIfDue()
+		self.assertEqual(self.host.liveMonitors()["appLayout.0"].pinned.name, "Message one")
+
+	def test_noneBlanksTheSegment(self):
+		self.resolvedLayout(FakeNavigatorObject("Message one", role="document"))
+		self.focus()
+		self.settle()
+		self.pane = None
+		self.focus()
+		self.assertNotIn("appLayout.0", self.host.liveMonitors())
+		self.assertEqual(self.container.segmentForKey("appLayout.0").regions, [])
+
+	def test_aCallableThatKeepsRaisingTakesTheLayoutDown(self):
+		self.failing = False
+
+		def pane():
+			if self.failing:
+				raise RuntimeError("COM failed")
+			return FakeNavigatorObject("Message one", role="document")
+
+		self.chat.answer = {"name": "mail", "segments": [{"size": 5, "show": pane}, {"show": "focus"}]}
+		self.focus()
+		self.settle()
+		self.failing = True
+		self.focus()
+		self.assertTrue(self.host.isUp, "one failure keeps what was shown")
+		self.focus()
+		self.focus()
+		self.assertFalse(self.host.isUp)
+
 
 if __name__ == "__main__":
 	unittest.main()
