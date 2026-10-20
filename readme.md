@@ -191,7 +191,10 @@ normally does. Segments are numbered from 0. Enter -1, the default, for the last
 **Segment that flash messages appear in.** Where NVDA's brief messages go, such as the time,
 a setting you just changed, or "selected." Enter -1, the default, to show them wherever the
 focus is. Choosing a specific segment is most useful with two displays combined, to keep
-messages off the display you are reading.
+messages off the display you are reading. While a message is up, the rest of the display goes on
+working: a pinned object or an application's layout keeps updating, and the panning keys of a
+display the message is not on pan that display. Only the panning keys of the display holding the
+message pan the message and keep it up longer.
 
 **Reverse the panning keys on this display.** Swaps the panning keys, so the key that
 normally scrolls back scrolls forward instead. Because it is stored per display, you can have

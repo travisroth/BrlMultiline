@@ -26,7 +26,7 @@ from logHandler import log
 from . import glyphFlow
 from .layout import SegmentRect, findSegmentAtWindowPos, segmentPosToWindowPos
 from .pinnedRegions import PinnedRegion
-from .segments import BrailleBufferSegment
+from .segments import BrailleBufferSegment, isShowing
 
 if TYPE_CHECKING:
 	import textInfos
@@ -387,7 +387,7 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 		self.cursorPos = self.focusSegment.cursorPos
 
 	def updateDisplay(self) -> None:
-		if self is self.handler.buffer:
+		if isShowing(self, self.handler):
 			self.handler.update()
 
 	def saveWindow(self) -> None:

@@ -334,10 +334,14 @@ def _nativeScroll(handler: BrailleHandler, forward: bool) -> None:
 	"""Pan for NVDA's own panning commands, on the display whose key was pressed.
 
 	Two corrections to what NVDA would do, both from the keys belonging to one piece of
-	hardware: the direction is the pressed display's, and so is the segment. Everything else
-	is left exactly as it was, and deliberately so — while a message is showing, the handler's
-	buffer is the message buffer rather than the container, and panning must go on scrolling
-	the message and resetting its timeout.
+	hardware: the direction is the pressed display's, and so is the segment.
+
+	**While a message is up, only the display it is on pans it.** On that display panning goes
+	on scrolling the message and resetting its timeout, exactly as NVDA does. Another display's
+	keys pan that display's own segment and leave the message alone. Every key used to go to
+	the message, which on a Monarch beside a Focus 80 meant that panning the chat history on the
+	Monarch scrolled the message on the Focus instead, and kept it up longer by resetting its
+	timeout. Found on hardware.
 
 	:param handler: the braille handler.
 	:param forward: which of the two commands was run, before reversal.
@@ -345,7 +349,19 @@ def _nativeScroll(handler: BrailleHandler, forward: bool) -> None:
 	source = panning.sourceForNativeScroll()
 	if panning.shouldReverseForSource(source):
 		forward = not forward
-	container = handler.buffer if isinstance(handler.buffer, DisplayContainer) else None
+	buffer = handler.buffer
+	if isinstance(buffer, DisplayContainer):
+		container = buffer
+	elif (
+		getattr(buffer, "drawsMainBufferAround", False)
+		and isinstance(handler.mainBuffer, DisplayContainer)
+		and not panning.sourceHolds(source, buffer.rect)
+	):
+		# A key on a display the message is not on. That display's segment is drawn around the
+		# message, so panning it is seen at once. See `segments.isShowing`.
+		container = handler.mainBuffer
+	else:
+		container = None
 	segment = panning.nativeSegmentForSource(source, container)
 	if segment is None:
 		# No key press behind this scroll, an ordinary display, or a message showing. NVDA's

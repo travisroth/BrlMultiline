@@ -212,6 +212,22 @@ def _displayFor(gesture) -> str | None:
 		return getattr(gesture, "source", None)
 
 
+def sourceHolds(source: str | None, rect) -> bool:
+	"""Whether a display's keys belong to the rectangle given, which is where a message is.
+
+	:param source: the display whose key was pressed, or None if unknown.
+	:param rect: a rectangle of the composite display.
+	:return: True when that display holds the rectangle's first row, and True whenever it
+		cannot be told, so that anything not plainly another display keeps NVDA's behaviour.
+	"""
+	if source is None:
+		return True
+	for device in devices.deviceMap():
+		if device.driverName == source:
+			return device.rowStart <= rect.row < device.rowStart + device.numRows
+	return True
+
+
 def nativeSegmentForSource(source: str | None, container) -> int | None:
 	"""Find the segment a display's own panning keys should drive.
 

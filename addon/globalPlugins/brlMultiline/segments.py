@@ -74,6 +74,24 @@ class RectHandlerProxy:
 		return getattr(handler, name)
 
 
+def isShowing(container: Any, handler: Any) -> bool:
+	"""Whether what a display container draws reaches the display now.
+
+	When it is the handler's buffer, as it is almost always. And while a flash message is up in
+	a buffer that draws the main buffer around the message — `MessageBuffer` does — because
+	then everything outside the message is the container's, and holding its redraws back until
+	the message went froze the other displays: a pinned chat history stopped taking new
+	messages and stopped panning for as long as the message lasted. Found on hardware.
+
+	:param container: the display container.
+	:param handler: the real braille handler.
+	"""
+	buffer = handler.buffer
+	if buffer is container:
+		return True
+	return bool(getattr(buffer, "drawsMainBufferAround", False)) and handler.mainBuffer is container
+
+
 class _SegmentHandlerProxy(RectHandlerProxy):
 	"""A rectangle proxy for a segment of the container."""
 
@@ -104,13 +122,14 @@ class _SegmentHandlerProxy(RectHandlerProxy):
 		segment while the container is active lets that guard pass, so a segment can
 		refresh the display in the normal way.
 
-		A message buffer needs no such thing: it really is `handler.buffer` while it is
-		showing, so the forwarded attribute is already the right answer.
+		The same while a message is up in a buffer that draws the container around it, so a
+		segment the message is not over goes on drawing. See L{isShowing}. Otherwise a message
+		buffer really is `handler.buffer` while it is showing, so the forwarded attribute is
+		already the right answer.
 		"""
-		realBuffer = self._handler.buffer
-		if realBuffer is self._container:
+		if self._container is not None and isShowing(self._container, self._handler):
 			return self.segment
-		return realBuffer
+		return self._handler.buffer
 
 
 class BrailleBufferSegment(BrailleBuffer):

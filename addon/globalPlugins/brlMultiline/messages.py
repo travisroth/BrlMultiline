@@ -66,6 +66,16 @@ class MessageBuffer(BrailleBuffer):
 	wrapping it, panning it, timing it out, dismissing it on a routing key — is untouched.
 	"""
 
+	drawsMainBufferAround = True
+	"""Whether the rest of the display is drawn from the main buffer while a message is up.
+
+	Read by the display container, which otherwise holds its redraws back while it is not the
+	handler's buffer. Since this buffer shows the container's cells around the message, a
+	container redraw is worth sending: a pinned object or an app layout's chat history goes
+	on changing, and goes on panning, on the displays the message is not on. NVDA's own
+	message buffer blanks everything around a message and has no such attribute.
+	"""
+
 	def __init__(self, handler: "BrailleHandler", rect: SegmentRect) -> None:
 		"""
 		:param handler: the real braille handler.

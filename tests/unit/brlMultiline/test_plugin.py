@@ -59,6 +59,7 @@ import config  # noqa: E402
 from braille.brailleHandler import BrailleHandler  # noqa: E402
 
 from brlMultiline import patches  # noqa: E402
+from brlMultiline import panning  # noqa: E402
 from brlMultiline import bmConfig  # noqa: E402
 from brlMultiline import imagePins, imageSource  # noqa: E402
 from brlMultiline import flowObjects  # noqa: E402
@@ -4463,6 +4464,118 @@ class TestAppLayoutReviewBdd4c49(PluginTestCase):
 			self.assertEqual(reads, [])
 			self.assertFalse(self.plugin.refreshMonitorsInTurn(0.03))
 		self.assertEqual(reads, [True], "read on the next pass")
+
+
+class TestTheOtherDisplaysDuringAMessage(PluginTestCase):
+	"""A flash message on the Focus 80 leaves the Monarch beside it live and pannable."""
+
+	segmentCount = 1
+
+	def makeHandler(self):
+		handler = FakeHandler(MONARCH_ROWS + 1, 80)
+		handler.display = fakeVirtualDisplay(
+			("hidBrailleStandard", 0, MONARCH_ROWS, MONARCH_COLS),
+			("freedomScientific", MONARCH_ROWS, 1, 80),
+		)
+		return handler
+
+	def setUp(self):
+		super().setUp()
+		self.message = self.handler.messageBuffer
+		self.assertEqual(self.message.rect.row, MONARCH_ROWS, "the message goes beside the focus")
+
+	def showAMessage(self):
+		self.message.clear()
+		region = Region("a long message")
+		region.update()
+		self.message.regions.append(region)
+		self.message.update()
+		self.handler.buffer = self.message
+		self.handler._messageCallLater = FakeCallLater()
+
+	def monarchKey(self):
+		return next(spec.key for spec in self.container.specs if spec.rect.row == 0)
+
+	def panAsNVDA(self, source, forward=True):
+		"""NVDA's own panning command, run from a key on one display."""
+		from unittest import mock
+
+		calls = []
+		original = patches._originals["scrollForward" if forward else "scrollBack"]
+		with mock.patch.dict(
+			patches._originals,
+			{"scrollForward" if forward else "scrollBack": lambda handler: calls.append("message")},
+		):
+			previous = panning._activeSource
+			panning._activeSource = source
+			try:
+				patches._nativeScroll(self.handler, forward)
+			finally:
+				panning._activeSource = previous
+		del original
+		return calls
+
+	def test_aRedrawOfTheContainerReachesTheDisplay(self):
+		"""What a pin refresh or a new chat message on the Monarch ends in."""
+		self.showAMessage()
+		before = self.handler.updateCount
+		self.container.updateDisplay()
+		self.assertEqual(self.handler.updateCount, before + 1)
+
+	def test_aSegmentRedrawReachesTheDisplay(self):
+		self.showAMessage()
+		segment = self.container.segmentForKey(self.monarchKey())
+		self.assertIs(segment.handler.buffer, segment)
+		before = self.handler.updateCount
+		segment.updateDisplay()
+		self.assertEqual(self.handler.updateCount, before + 1)
+
+	def test_nvdasOwnMessageBufferStillHoldsRedrawsBack(self):
+		"""It blanks everything around a message, so a redraw of the container would be lost."""
+		self.handler.buffer = types.SimpleNamespace()
+		before = self.handler.updateCount
+		self.container.updateDisplay()
+		self.assertEqual(self.handler.updateCount, before)
+
+	def test_withNoMessageNothingChanges(self):
+		before = self.handler.updateCount
+		self.container.updateDisplay()
+		self.assertEqual(self.handler.updateCount, before + 1)
+
+	def test_theMonarchsKeysPanTheMonarch(self):
+		from unittest import mock
+
+		self.showAMessage()
+		with mock.patch.object(self.container, "scrollForward") as scrolled:
+			calls = self.panAsNVDA("hidBrailleStandard")
+		self.assertEqual(calls, [], "the message is left alone, and so is its timeout")
+		scrolled.assert_called_once_with(self.container.numberForKey(self.monarchKey()))
+
+	def test_theFocus80sKeysPanTheMessage(self):
+		from unittest import mock
+
+		self.showAMessage()
+		with mock.patch.object(self.container, "scrollForward") as scrolled:
+			calls = self.panAsNVDA("freedomScientific")
+		self.assertEqual(calls, ["message"])
+		scrolled.assert_not_called()
+
+	def test_aScrollWithNoKeyBehindItPansTheMessage(self):
+		"""Automatic scroll, or anything calling the handler directly, is NVDA's as before."""
+		self.showAMessage()
+		self.assertEqual(self.panAsNVDA(None), ["message"])
+
+	def test_aMessageOnTheMonarchIsPannedFromTheMonarch(self):
+		from unittest import mock
+
+		CONFIG["messageSegment"] = 0
+		self.plugin.rebuildBuffer()
+		self.assertEqual(self.message.rect.row, 0)
+		self.showAMessage()
+		with mock.patch.object(self.container, "scrollForward") as scrolled:
+			self.assertEqual(self.panAsNVDA("hidBrailleStandard"), ["message"])
+			self.assertEqual(self.panAsNVDA("freedomScientific"), [])
+		scrolled.assert_called_once()
 
 
 if __name__ == "__main__":
