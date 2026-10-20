@@ -4201,5 +4201,94 @@ class TestTheFocusDisplayCommandMovesALayout(PluginTestCase):
 		self.assertTrue(self.plugin.appLayouts.isUp)
 
 
+class TestTellingTheLayoutItChanged(PluginTestCase):
+	"""An app module saying its content changed, and the layout not waiting while the reader types."""
+
+	def setUp(self):
+		super().setUp()
+		CONFIG["appLayouts"] = True
+		self.chat = ScriptedAppModule(chatLayout(FakeNavigatorObject("Messages", role="list")))
+		focus = FakeNavigatorObject("Compose", role="editableText")
+		focus.appModule = self.chat
+		self.plugin.event_gainFocus(focus, lambda: None)
+		callLaterQueue.fire()
+		self.assertTrue(self.plugin.appLayouts.isUp)
+		self.reads = []
+		monitor = self.plugin.appLayouts.liveMonitors()["appLayout.0"]
+		original = monitor.refresh
+		monitor.refresh = lambda reveal=False: (self.reads.append(reveal), original(reveal=reveal))
+
+	def test_aChangeIsReadAMomentLater(self):
+		self.plugin.brlMultilineContentChanged(self.chat)
+		self.assertEqual(self.reads, [])
+		callLaterQueue.fire()
+		self.assertEqual(self.reads, [False])
+
+	def test_aBurstIsReadOnce(self):
+		for _ in range(5):
+			self.plugin.brlMultilineContentChanged(self.chat)
+		self.assertEqual(len(callLaterQueue.pending), 1)
+		callLaterQueue.fire()
+		self.assertEqual(len(self.reads), 1)
+
+	def test_anotherApplicationIsIgnored(self):
+		self.plugin.brlMultilineContentChanged(object())
+		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_noneMeansWhicheverIsUp(self):
+		self.plugin.brlMultilineContentChanged()
+		callLaterQueue.fire()
+		self.assertEqual(len(self.reads), 1)
+
+	def test_nothingIsReadBesideSpeech(self):
+		setSpeechOutputMode(True)
+		self.addCleanup(setSpeechOutputMode, False)
+		self.plugin.brlMultilineContentChanged(self.chat)
+		callLaterQueue.fire()
+		self.assertEqual(self.reads, [])
+
+	def test_takingTheLayoutDownForgetsAWaitingChange(self):
+		self.plugin.brlMultilineContentChanged(self.chat)
+		self.plugin.appLayouts.takeDown("test")
+		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_withNoLayoutUpItDoesNothing(self):
+		self.plugin.appLayouts.takeDown("test")
+		self.plugin.brlMultilineContentChanged(self.chat)
+		self.assertEqual(callLaterQueue.pending, [])
+
+	def test_theLayoutAloneIsRefreshedWhileTheReaderTypes(self):
+		"""The reader's own pins wait for the keystroke; the layout's segments beside it do not."""
+		self.plugin.appLayouts.takeDown("to pin first")
+		self.pin(0)
+		focus = FakeNavigatorObject("Compose", role="editableText")
+		focus.appModule = self.chat
+		self.plugin.event_gainFocus(focus, lambda: None)
+		callLaterQueue.fire()
+		layoutReads = []
+		monitor = self.plugin.appLayouts.liveMonitors()["appLayout.0"]
+		monitor.refresh = lambda reveal=False: layoutReads.append(reveal)
+		pinReads = []
+		self.plugin._monitors["display.0"].refresh = lambda reveal=False: pinReads.append(reveal)
+		self.plugin.refreshAppLayoutInTurn(1.0)
+		self.assertEqual(layoutReads, [False])
+		self.assertEqual(pinReads, [])
+
+	def test_theTimerRefreshesTheLayoutWhileTheReaderTypes(self):
+		import time
+
+		patches._lastMonitorRefresh = 0.0
+		patches._monitorsUnfinished = False
+		patches._monitorsRefreshedAt = time.monotonic()
+		patches._layoutRefreshedAt = 0.0
+		self.addCleanup(setattr, patches, "_monitorsRefreshedAt", 0.0)
+		self.addCleanup(setattr, patches, "_layoutRefreshedAt", 0.0)
+		patches._refreshPinnedObjects(busy=True)
+		self.assertEqual(len(self.reads), 1)
+		# And not on every keystroke after that: the ordinary interval still holds.
+		patches._refreshPinnedObjects(busy=True)
+		self.assertEqual(len(self.reads), 1)
+
+
 if __name__ == "__main__":
 	unittest.main()

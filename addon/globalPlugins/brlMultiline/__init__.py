@@ -2218,6 +2218,48 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("App layouts kept on the focus display"))
 		self.appLayouts.placeAgain()
 
+	def refreshAppLayoutInTurn(self, allowance: float) -> bool:
+		"""Refresh the app layout's segments alone, within an allowance. See `patches.LAYOUT_QUIET_AGE`.
+
+		:return: whether the callables' pass is unfinished.
+		"""
+		if bmConfig.isSpeechOutputMode():
+			return False
+		began = time.monotonic()
+		if self.appLayouts.resolveIfDue(deadline=began + allowance):
+			return True
+		for monitor in list(self.appLayouts.liveMonitors().values()):
+			monitor.refresh()
+			if time.monotonic() - began >= allowance:
+				break
+		return False
+
+	def brlMultilineContentChanged(self, appModule=None) -> None:
+		"""Tell BrlMultiline that what an app layout shows has changed. Part of the app module API.
+
+		For an app module to call when it knows something arrived, such as a new message in
+		a chat history or a new document in a reading pane, so the layout shows it now rather
+		than on the next tick of the clock. Found by name on the running global plugins, so the
+		caller imports nothing from this add-on:
+
+		```python
+		for plugin in globalPluginHandler.runningPlugins:
+			changed = getattr(plugin, "brlMultilineContentChanged", None)
+			if changed is not None:
+				changed(self)
+		```
+
+		Cheap to call often. Calls close together are answered once, a moment after the first,
+		and a call from an application whose layout is not up does nothing.
+
+		:param appModule: the app module calling. A call from any other than the one whose
+			layout is up is ignored. None means whichever is up.
+		"""
+		try:
+			self.appLayouts.contentChanged(appModule)
+		except Exception:
+			log.debugWarning("Could not answer a change in the app layout", exc_info=True)
+
 	def configuredFocusRect(self) -> SegmentRect | None:
 		""":return: where the reader's own arrangement puts the focus, whatever claims lie over it.
 

@@ -73,6 +73,12 @@ RESOLVE_SECONDS = 1.0
 Slower than the pin timer, because asking means a call into the application, and this only
 has to catch what loads after the focus has settled, such as a reading pane's document."""
 
+CHANGE_SETTLE_SECONDS = 0.05
+"""How long after an app module says its content changed the layout is read again.
+
+Short, because the point of saying so is not waiting. Long enough that a burst of changes, a
+message and its timestamp and its reactions arriving together, is read once."""
+
 MAX_FAILURES = 3
 """How many times running a segment's callable may raise before the layout is taken down."""
 
@@ -138,6 +144,8 @@ class AppLayoutHost:
 		self._resolvedAt = 0.0
 		self._resolveFrom = 0
 		"""Where an unfinished pass of the callables carries on. See L{resolveIfDue}."""
+		self._changeTimer = None
+		"""Set while a change an app module reported is waiting to be read. See L{contentChanged}."""
 
 	# What the plugin asks.
 
@@ -309,6 +317,7 @@ class AppLayoutHost:
 		if self.shown is None:
 			return
 		name = self.shown.layout.name
+		self._cancelChange()
 		self._stopMonitors()
 		self.shown = None
 		log.debug(f"BrlMultiline: app layout {name!r} taken down: {reason or 'asked'}")
@@ -357,10 +366,40 @@ class AppLayoutHost:
 
 	def terminate(self) -> None:
 		self._cancelPending()
+		self._cancelChange()
 		self._stopMonitors()
 		self.shown = None
 
 	# Keeping secondary segments current.
+
+	def contentChanged(self, appModule: Any = None) -> None:
+		"""An app module says what its layout shows has changed: read it again shortly.
+
+		See `GlobalPlugin.brlMultilineContentChanged`, which is how app modules reach this.
+		Calls while one is waiting are folded into it, so a burst costs one read.
+
+		:param appModule: the app module saying so, or None for whichever layout is up.
+		"""
+		shown = self.shown
+		if shown is None or (appModule is not None and appModule is not shown.appModule):
+			return
+		if self._changeTimer is not None:
+			return
+		self._changeTimer = wx.CallLater(int(CHANGE_SETTLE_SECONDS * 1000), self._readChange)
+
+	def _readChange(self) -> None:
+		"""Read the layout's segments again now, after an app module said they changed."""
+		self._changeTimer = None
+		if self.shown is None or self.plugin._terminated or bmConfig.isSpeechOutputMode():
+			return
+		self.resolve()
+		for monitor in list(self.liveMonitors().values()):
+			monitor.refresh()
+
+	def _cancelChange(self) -> None:
+		if self._changeTimer is not None:
+			self._changeTimer.Stop()
+			self._changeTimer = None
 
 	def resolveIfDue(self, deadline: float | None = None) -> bool:
 		"""Ask the callables again if L{RESOLVE_SECONDS} have passed. Called from the pin timer.

@@ -247,6 +247,19 @@ What milestones 2 to 4 settled that the design above left open.
    command, the settings or a profile switch, places the layout up again at once, asking the
    app module afresh because it is told a different area.
 
+8. **Responsiveness.** Found on hardware: new Teams messages reached the history segment
+   slowly. The segments were pins as far as the clock was concerned, and a pin waits up to
+   `MONITOR_QUIET_AGE`, two seconds, while the reader types, so a reply arriving while they
+   typed waited for them to stop. That rule is for windows the reader is not in, and a
+   layout's segments are in the one they are, so they now have `LAYOUT_QUIET_AGE`, the
+   ordinary interval, and the reader's pins keep theirs. For the rest of the wait, an app
+   module that knows something arrived calls `GlobalPlugin.brlMultilineContentChanged`, found
+   by name like everything else in the contract; calls are folded together for
+   `CHANGE_SETTLE_SECONDS`. BrlMultiline watching events itself was considered and left
+   undecided: which events mean "content changed" differs by application, Teams uses live
+   regions while focused and others UIA events or none, and watching busy events would cost
+   on every one of them. The app module receives its own events already and knows which matter.
+
 ## Review of ca7f5fc
 
 Six faults found by review, each reproduced by a failing test before it was fixed. The tests

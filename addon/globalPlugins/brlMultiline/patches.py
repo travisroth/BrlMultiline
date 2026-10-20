@@ -93,6 +93,16 @@ fingers. Not a pause without an end, though — a pinned clock that stopped for 
 somebody was typing would be a pin that fails exactly when it is being relied on.
 """
 
+LAYOUT_QUIET_AGE = MONITOR_REFRESH_INTERVAL
+"""How stale an app layout's segments may get while the reader is typing.
+
+Not `MONITOR_QUIET_AGE`, whose reason does not hold for them: a pin is in a window the reader
+is not working in, and an app layout's segments are in the one they are, beside the box they
+are typing into. A chat history that waited two seconds after every keystroke to show the
+reply was found on hardware to be the slowness the reader felt. So while they type, the
+layout's segments are kept on the ordinary interval and the reader's own pins still wait.
+"""
+
 _lastMonitorRefresh = 0.0
 _monitorsUnfinished = False
 """Whether a slice ran out with pins still waiting, so the rest are due at once."""
@@ -100,6 +110,9 @@ _monitorsUnfinished = False
 _monitorsRefreshedAt = 0.0
 """When the pins were last all refreshed, which is what `MONITOR_QUIET_AGE` is measured
 against. Not `_lastMonitorRefresh`, which a part-finished rotation also moves."""
+
+_layoutRefreshedAt = 0.0
+"""When an app layout's segments were last refreshed, measured against `LAYOUT_QUIET_AGE`."""
 
 
 def _applyFocusToHardLeft(handler: BrailleHandler, regions: list) -> None:
@@ -219,11 +232,12 @@ def _refreshPinnedObjects(busy: bool = False) -> None:
 	:param busy: whether NVDA had an update of its own pending on this core cycle, which is
 		what a keystroke looks like from here.
 	"""
-	global _lastMonitorRefresh, _monitorsUnfinished, _monitorsRefreshedAt
+	global _lastMonitorRefresh, _monitorsUnfinished, _monitorsRefreshedAt, _layoutRefreshedAt
 	from . import getPlugin
 
 	plugin = getPlugin()
-	if plugin is None or not (plugin.monitoredKeys or plugin.appLayouts.isUp):
+	layoutUp = plugin is not None and plugin.appLayouts.isUp
+	if plugin is None or not (plugin.monitoredKeys or layoutUp):
 		# An app layout counts even with every segment blank, since a blank reading pane is
 		# waiting for its document and only this clock will notice it arrive.
 		return
@@ -231,6 +245,13 @@ def _refreshPinnedObjects(busy: bool = False) -> None:
 	if not _monitorsUnfinished and now - _lastMonitorRefresh < MONITOR_REFRESH_INTERVAL:
 		return
 	if busy and now - _monitorsRefreshedAt < MONITOR_QUIET_AGE:
+		if layoutUp and now - _layoutRefreshedAt >= LAYOUT_QUIET_AGE:
+			# The reader's pins wait for the keystroke; the layout's segments do not.
+			_layoutRefreshedAt = now
+			try:
+				plugin.refreshAppLayoutInTurn(MONITOR_SLICE_SECONDS)
+			except Exception:
+				log.debugWarning("Could not refresh the app layout", exc_info=True)
 		return
 	_lastMonitorRefresh = now
 	try:
@@ -240,6 +261,7 @@ def _refreshPinnedObjects(busy: bool = False) -> None:
 		_monitorsUnfinished = False
 	if not _monitorsUnfinished:
 		_monitorsRefreshedAt = now
+		_layoutRefreshedAt = now
 
 
 def _handleUpdateTellingTheBand(self) -> None:

@@ -1749,6 +1749,31 @@ How it behaves once it is up:
 4. A segment showing an object reads like a pinned one: as a flow where it has room, following a
    growing run such as a chat, and panned with the per segment commands. Routing keys move within
    it and do not move the focus. The reader cannot pin anything into your segments.
+5. Your segments are read again about every 0.4 seconds, including while the reader types in
+   your application. The reader's own pins in other windows wait while they type, and yours do
+   not.
+
+#### Saying that something changed
+
+To have a change shown at once rather than on the next 0.4 second tick, call
+`brlMultilineContentChanged` on BrlMultiline's global plugin when you know something arrived,
+such as from the event your application sends for a new message. As with the rest, you find it
+by name, so you import nothing:
+
+```python
+import globalPluginHandler
+
+
+def _tellBrlMultiline(appModule):
+	for plugin in globalPluginHandler.runningPlugins:
+		changed = getattr(plugin, "brlMultilineContentChanged", None)
+		if changed is not None:
+			changed(appModule)
+```
+
+Pass your app module. It is cheap to call often: calls close together are answered once, about
+50 milliseconds after the first, and a call while your layout is not up does nothing. Your
+segments' functions are asked again too, so this also brings a replaced reading pane on at once.
 
 You do not need to know where one display ends and the next begins. When several displays are
 driven as one, the focus stays on the display the reader put it on, whatever order the displays
