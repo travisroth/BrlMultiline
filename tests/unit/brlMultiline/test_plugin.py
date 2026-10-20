@@ -3814,9 +3814,8 @@ class TestShowingAppLayouts(PluginTestCase):
 		self.focus()
 		self.settle()
 		after = self.plugin.appLayoutRoom()
-		self.assertEqual((after.area, after.bands), (before.area, before.bands))
-		# The focus segment is the layout's own now, and on the same display.
-		self.assertEqual(after.within, self.container.focusSegment.rect)
+		self.assertEqual(after, before)
+		# The reader's own focus segment, not the layout's, which says the same display.
 
 	def test_theFlowWaitsWithItsPlaceKept(self):
 		CONFIG["flowEnabled"] = True
@@ -4038,6 +4037,168 @@ class TestSpreadingAppLayouts(TestAppLayoutsKeepTheFocusOnItsDisplay):
 		self.plugin.script_toggleAppLayoutSpread(None)
 		self.assertTrue(bmConfig.shouldSpreadAppLayouts())
 		self.assertFalse(self.plugin.appLayouts.isUp)
+
+
+class TestAppLayoutReviewCa7f5fc(PluginTestCase):
+	"""What review of ca7f5fc found, each reproduced before it was fixed."""
+
+	def setUp(self):
+		super().setUp()
+		import api
+
+		CONFIG["appLayouts"] = True
+		self.messages = FakeNavigatorObject("Messages", role="list")
+		self.app = ScriptedAppModule(chatLayout(self.messages))
+		self.focus = focusIn(self.app)
+		original = api.getFocusObject
+		api.getFocusObject = lambda: self.focus
+		self.addCleanup(setattr, api, "getFocusObject", original)
+		self.addCleanup(setSpeechOutputMode, False)
+
+	def offer(self):
+		self.plugin.event_gainFocus(self.focus, lambda: None)
+
+	def show(self):
+		self.offer()
+		callLaterQueue.fire()
+		self.assertTrue(self.plugin.appLayouts.isUp)
+
+	def test_aPinMadeWhileTheLayoutWaitsIsKept(self):
+		"""The room is worked out when the focus settles, not when it arrived."""
+		self.offer()
+		self.pin(0, "Clock")
+		pin = self.plugin._monitors["display.0"]
+		callLaterQueue.fire()
+		self.assertTrue(self.plugin.appLayouts.isUp)
+		self.assertIs(self.plugin._monitors.get("display.0"), pin)
+		self.assertEqual(self.container.segmentForKey("appLayout.0").rect.row, 2)
+
+	def test_aClaimMadeWhileTheLayoutWaitsIsKept(self):
+		self.offer()
+		self.plugin.activatePanel(SinglePanel("readerPanel", SegmentRect(0, 0, 2, MONARCH_COLS)))
+		callLaterQueue.fire()
+		self.assertTrue(self.container.hasKey("readerPanel"))
+
+	def test_anUnreadableReplacementIsTriedAgainAndThenGivenUp(self):
+		import brlMultiline.appLayoutHost as host
+
+		self.current = self.messages
+		self.app.answer = chatLayout(lambda: self.current)
+		self.show()
+
+		class Vanished:
+			@property
+			def name(self):
+				raise RuntimeError("UIA element is no longer available")
+
+		self.current = Vanished()
+		self.offer()
+		self.assertTrue(self.plugin.appLayouts.isUp, "one failure keeps what was shown")
+		self.assertIs(self.plugin.appLayouts.shown.monitors["appLayout.0"].pinned, self.messages)
+		for _attempt in range(host.MAX_FAILURES):
+			self.plugin.appLayouts.resolve()
+		self.assertIsNone(self.plugin.appLayouts.shown)
+
+	def test_anUnreadableReplacementThatRecoversIsShown(self):
+		self.current = self.messages
+		self.app.answer = chatLayout(lambda: self.current)
+		self.show()
+
+		class Vanished:
+			@property
+			def name(self):
+				raise RuntimeError("gone")
+
+		self.current = Vanished()
+		self.offer()
+		recovered = FakeNavigatorObject("New message", role="list")
+		self.current = recovered
+		self.offer()
+		self.assertIs(self.plugin.appLayouts.shown.monitors["appLayout.0"].pinned, recovered)
+
+	def test_startingALayoutDrawsNothingBesideSpeech(self):
+		setSpeechOutputMode(True)
+		self.offer()
+		callLaterQueue.fire()
+		self.assertEqual(self.container.segmentForKey("appLayout.0").regions, [])
+		self.assertIn("appLayout.0", self.plugin.appLayouts.shown.monitors)
+
+	def test_aReplacementDrawsNothingBesideSpeech(self):
+		self.current = self.messages
+		self.app.answer = chatLayout(lambda: self.current)
+		self.show()
+		setSpeechOutputMode(True)
+		self.current = FakeNavigatorObject("New message", role="list")
+		self.offer()
+		self.assertEqual(self.container.segmentForKey("appLayout.0").regions, [])
+
+	def test_itIsDrawnWhenBrailleIsBack(self):
+		setSpeechOutputMode(True)
+		self.show()
+		setSpeechOutputMode(False)
+		self.plugin.refreshMonitorsInTurn(1.0)
+		self.assertNotEqual(self.container.segmentForKey("appLayout.0").regions, [])
+
+	def test_askingTheApplicationSharesTheRefreshAllowance(self):
+		from unittest import mock
+
+		import brlMultiline.appLayoutHost as host
+
+		clock = [100.0]
+		calls = []
+		armed = [False]
+
+		def pane(index):
+			if armed[0]:
+				calls.append(index)
+				clock[0] += 0.02
+			return None
+
+		self.app.answer = {
+			"name": "three panes",
+			"segments": [{"size": 1, "show": lambda index=index: pane(index)} for index in range(3)]
+			+ [{"show": "focus"}],
+		}
+		self.show()
+		armed[0] = True
+		self.plugin.appLayouts._resolvedAt = 0.0
+		with mock.patch.object(host.time, "monotonic", side_effect=lambda: clock[0]):
+			self.assertTrue(self.plugin.refreshMonitorsInTurn(0.03))
+			self.assertEqual(calls, [0, 1])
+			self.assertFalse(self.plugin.refreshMonitorsInTurn(0.03))
+		self.assertEqual(calls, [0, 1, 2], "the next pass carries on where the last stopped")
+
+
+class TestTheFocusDisplayCommandMovesALayout(PluginTestCase):
+	"""Moving the focus to another display with a layout up moves the layout's focus too."""
+
+	segmentCount = 1
+
+	def makeHandler(self):
+		handler = FakeHandler(MONARCH_ROWS + 1, 80)
+		handler.display = fakeVirtualDisplay(
+			("freedomScientific", 0, 1, 80),
+			("hidBrailleStandard", 1, MONARCH_ROWS, MONARCH_COLS),
+		)
+		return handler
+
+	def test_theFocusGoesWhereTheCommandSays(self):
+		import api
+
+		CONFIG["appLayouts"] = True
+		CONFIG["focusSegment"] = 0
+		self.plugin.rebuildBuffer()
+		focus = focusIn(ScriptedAppModule(chatLayout(FakeNavigatorObject("Messages"))))
+		original = api.getFocusObject
+		api.getFocusObject = lambda: focus
+		self.addCleanup(setattr, api, "getFocusObject", original)
+		self.plugin.event_gainFocus(focus, lambda: None)
+		callLaterQueue.fire()
+		self.assertEqual(self.container.focusSegment.rect.row, 0)
+		self.plugin.script_changeFocusTrackingDisplay(None)
+		callAfterQueue.flush()
+		self.assertGreaterEqual(self.container.focusSegment.rect.row, 1)
+		self.assertTrue(self.plugin.appLayouts.isUp)
 
 
 if __name__ == "__main__":

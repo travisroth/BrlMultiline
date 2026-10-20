@@ -92,6 +92,10 @@ class Shown:
 	spread: bool = False
 	"""Whether it was placed spread across displays. A change of mind places it again."""
 
+	within: SegmentRect | None = None
+	"""The reader's focus segment it was placed around. Moving the focus to another display
+	changes it, and the layout is placed again so the focus goes where the reader sent it."""
+
 	monitors: dict[str, ObjectMonitor] = dataclasses.field(default_factory=dict)
 	"""What each secondary segment is showing, by segment key. A blank segment has none."""
 
@@ -127,9 +131,13 @@ class AppLayoutHost:
 		self.plugin = plugin
 		self.shown: Shown | None = None
 		self._pending: tuple | None = None
-		"""What to show once the focus settles: (layout or None, area, bands, app module)."""
+		"""What the focus asked for, once it settles: (whether there is a layout, the focus, its
+		app module). Only the intent is kept. The room and the layout itself are worked out
+		again when it settles, since a pin, a claim or a setting may have changed meanwhile."""
 		self._timer = None
 		self._resolvedAt = 0.0
+		self._resolveFrom = 0
+		"""Where an unfinished pass of the callables carries on. See L{resolveIfDue}."""
 
 	# What the plugin asks.
 
@@ -199,7 +207,7 @@ class AppLayoutHost:
 		if self.shown is None and layout is None:
 			self._cancelPending()
 			return
-		self._pending = (layout, area, bands, within, spread, appModule)
+		self._pending = (layout is not None, focus, appModule)
 		if self._timer is not None:
 			self._timer.Stop()
 		self._timer = wx.CallLater(int(SETTLE_SECONDS * 1000), self._settle)
@@ -211,19 +219,40 @@ class AppLayoutHost:
 			self._timer = None
 
 	def _settle(self) -> None:
-		"""The focus has stayed put: show what it last asked for, or take the layout down."""
+		"""The focus has stayed put: show what it last asked for, or take the layout down.
+
+		**The room is worked out again now, not taken from when the focus arrived.** A reader
+		who pins something while the layout waits, or code that claims rows, changes what is
+		free, and a layout placed in the old room would cover the new pin and release it. So
+		the app module is asked again against the room as it is.
+		"""
 		self._timer = None
 		pending, self._pending = self._pending, None
 		if pending is None or self.plugin._terminated:
 			return
-		layout, area, bands, within, spread, appModule = pending
+		wanted, focus, appModule = pending
 		if not self.plugin.appLayoutsInForce():
 			self.takeDown("app layouts are not in force")
 			return
-		if layout is None:
+		if not wanted:
 			self.takeDown("the focus has no layout here")
 			return
-		self.show(layout, area, bands, appModule, within, spread)
+		self._placeFor(focus, appModule)
+
+	def _placeFor(self, focus: Any, appModule: Any) -> bool:
+		"""Ask the app module against the room as it is now, and show what it answers.
+
+		:return: whether a layout is up.
+		"""
+		area, bands, within, spread = self.plugin.appLayoutRoom()
+		if area is None:
+			self.takeDown("there is no room left")
+			return False
+		layout, problem = askAppModule(appModule, focus, displayArea(area, bands, within, spread))
+		if layout is None:
+			self.takeDown(problem or "the focus has no layout here")
+			return False
+		return self.show(layout, area, bands, appModule, within, spread)
 
 	# Showing and taking down.
 
@@ -262,6 +291,7 @@ class AppLayoutHost:
 			panel=panel,
 			appModule=appModule,
 			spread=spread,
+			within=within,
 		)
 		try:
 			self.plugin.activatePanel(panel)
@@ -306,6 +336,13 @@ class AppLayoutHost:
 			# Turned over in the settings, or by a profile switch. Placed again after the
 			# rebuild, since placing it is a rebuild too.
 			wx.CallAfter(self.placeAgain)
+			return
+		configured = self.plugin.configuredFocusRect()
+		if configured is not None and configured != shown.within:
+			# The reader moved the focus to another display, or changed which segment follows
+			# it. The layout's claim would otherwise go on offering its old focus segment, and
+			# the focus would stay where the reader had just moved it from.
+			wx.CallAfter(self.placeAgain)
 
 	def placeAgain(self) -> None:
 		"""Place the layout up again from where the focus is, as when spreading is turned over.
@@ -315,19 +352,8 @@ class AppLayoutHost:
 		"""
 		if self.shown is None or self.plugin._terminated:
 			return
-		appModule = self.shown.appModule
-		area, bands, within, spread = self.plugin.appLayoutRoom()
-		if area is None:
-			self.takeDown("there is no room left")
-			return
-		layout, problem = askAppModule(
-			appModule, api.getFocusObject(), displayArea(area, bands, within, spread)
-		)
-		if layout is None:
-			self.takeDown(problem or "the focus has no layout here")
-			return
 		self._cancelPending()
-		self.show(layout, area, bands, appModule, within, spread)
+		self._placeFor(api.getFocusObject(), self.shown.appModule)
 
 	def terminate(self) -> None:
 		self._cancelPending()
@@ -336,26 +362,39 @@ class AppLayoutHost:
 
 	# Keeping secondary segments current.
 
-	def resolveIfDue(self) -> None:
-		"""Ask the callables again if L{RESOLVE_SECONDS} have passed. Called from the pin timer."""
-		if self.shown is None:
-			return
-		now = time.monotonic()
-		if now - self._resolvedAt < RESOLVE_SECONDS:
-			return
-		self.resolve()
+	def resolveIfDue(self, deadline: float | None = None) -> bool:
+		"""Ask the callables again if L{RESOLVE_SECONDS} have passed. Called from the pin timer.
 
-	def resolve(self, reveal: bool = False) -> None:
+		:param deadline: when the timer's slice of this core cycle runs out, by
+			`time.monotonic`. The callables are calls into the application, so they share the
+			slice with the pins rather than running before its clock starts. One slow call
+			cannot be cut short, but the next is left for the next pass.
+		:return: whether a pass is unfinished, so the timer comes back at once.
+		"""
+		if self.shown is None:
+			self._resolveFrom = 0
+			return False
+		if not self._resolveFrom and time.monotonic() - self._resolvedAt < RESOLVE_SECONDS:
+			return False
+		return self.resolve(deadline=deadline)
+
+	def resolve(self, reveal: bool = False, deadline: float | None = None) -> bool:
 		"""Bring every secondary segment up to date with what it should show.
 
 		:param reveal: whether this is the layout's first showing, when every segment is
 			filled from the start.
+		:param deadline: when to stop and leave the rest for the next pass. See L{resolveIfDue}.
+		:return: whether the pass stopped at the deadline with segments still to ask.
 		"""
-		self._resolvedAt = time.monotonic()
 		shown = self.shown
 		if shown is None:
-			return
-		for index, segment in enumerate(shown.layout.segments):
+			self._resolveFrom = 0
+			return False
+		segments = shown.layout.segments
+		start = self._resolveFrom if deadline is not None and self._resolveFrom < len(segments) else 0
+		self._resolveFrom = 0
+		for index in range(start, len(segments)):
+			segment = segments[index]
 			if segment.isFocus:
 				continue
 			key = segmentKey(index)
@@ -363,43 +402,93 @@ class AppLayoutHost:
 				continue
 			obj, problem = resolveShown(segment)
 			if problem is not None:
-				failures = shown.failures.get(key, 0) + 1
-				shown.failures[key] = failures
-				log.debugWarning(
-					f"BrlMultiline: segment {index} of app layout {shown.layout.name!r}: the callable {problem}",
-				)
-				if failures >= MAX_FAILURES:
-					self.takeDown(f"segment {index}'s callable kept raising")
-					return
-				continue
-			shown.failures[key] = 0
-			if not reveal and sameObject(shown.objects.get(key), obj):
-				continue
-			self._showIn(key, obj)
-			if self.shown is not shown:
-				# Showing it rebuilt the display and the rebuild dropped the layout.
-				return
+				if not self._failed(index, f"the callable {problem}"):
+					return False
+			elif reveal or not sameObject(shown.objects.get(key), obj):
+				installed = self._showIn(key, obj)
+				if self.shown is not shown:
+					# Showing it rebuilt the display and the rebuild dropped the layout.
+					return False
+				if installed:
+					shown.failures[key] = 0
+				elif not self._failed(index, "its object could not be shown"):
+					return False
+			else:
+				shown.failures[key] = 0
+			if deadline is not None and time.monotonic() >= deadline and index + 1 < len(segments):
+				self._resolveFrom = index + 1
+				return True
+		self._resolvedAt = time.monotonic()
+		return False
 
-	def _showIn(self, key: str, obj: Any) -> None:
-		"""Show an object in a secondary segment from its start, or blank it for None."""
+	def _failed(self, index: int, problem: str) -> bool:
+		"""Count a failure for a segment, taking the layout down after L{MAX_FAILURES} running.
+
+		:return: whether the layout is still up.
+		"""
 		shown = self.shown
+		key = segmentKey(index)
+		failures = shown.failures.get(key, 0) + 1
+		shown.failures[key] = failures
+		log.debugWarning(f"BrlMultiline: segment {index} of app layout {shown.layout.name!r}: {problem}")
+		if failures >= MAX_FAILURES:
+			self.takeDown(f"segment {index} kept failing")
+			return False
+		return True
+
+	def _showIn(self, key: str, obj: Any) -> bool:
+		"""Show an object in a secondary segment from its start, or blank it for None.
+
+		**All or nothing.** The replacement is built before what it replaces is let go, and the
+		object is recorded as shown only once it is. An element that has vanished can raise as
+		soon as it is touched, and recording it first left the segment with no monitor and the
+		next pass believing the answer was already on the display, so it never tried again.
+
+		**Nothing is drawn beside speech.** While braille shows speech the segment's regions are
+		emptied and the monitor kept, and the pin timer draws it once braille is back, exactly
+		as it does for the reader's own pins.
+
+		:return: whether the segment now shows the object, or is blank for None.
+		"""
+		shown = self.shown
+		container = self.plugin.container
+		present = container is not None and container.hasKey(key)
+		speech = bmConfig.isSpeechOutputMode()
+		monitor = None
+		if obj is not None:
+			try:
+				monitor = ObjectMonitor(obj, key)
+			except Exception:
+				log.debugWarning(f"BrlMultiline: could not show an object in {key!r}", exc_info=True)
+				return False
 		old = shown.monitors.pop(key, None)
 		if old is not None:
-			old.stop()
-		shown.objects[key] = obj
-		container = self.plugin.container
-		if obj is None:
+			try:
+				old.stop()
+			except Exception:
+				log.debugWarning(f"BrlMultiline: could not stop what {key!r} showed", exc_info=True)
+		if monitor is None or speech:
 			# "No message selected" is a true thing for a reading pane to say, and stale
-			# content is not.
-			if container is not None and container.hasKey(key):
+			# content is not. Beside speech, nothing of the layout's is drawn either.
+			if present:
 				container.clear(key)
-				container.update()
-				container.updateDisplay()
-			return
-		monitor = ObjectMonitor(obj, key)
-		shown.monitors[key] = monitor
-		if container is not None and container.hasKey(key):
-			monitor.refresh(reveal=True)
+				if not speech:
+					container.update()
+					container.updateDisplay()
+		if monitor is not None:
+			if present and not speech:
+				try:
+					monitor.refresh(reveal=True)
+				except Exception:
+					log.debugWarning(f"BrlMultiline: could not draw {key!r}", exc_info=True)
+					try:
+						monitor.stop()
+					except Exception:
+						pass
+					return False
+			shown.monitors[key] = monitor
+		shown.objects[key] = obj
+		return True
 
 	def _stopMonitors(self) -> None:
 		shown = self.shown

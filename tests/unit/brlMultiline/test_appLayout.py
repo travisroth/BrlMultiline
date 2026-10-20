@@ -28,6 +28,7 @@ from brlMultiline.appLayout import (  # noqa: E402
 	displayArea,
 	freeArea,
 	isAppLayoutKey,
+	onHardware,
 	parseLayout,
 	placeSegments,
 	resolveShown,
@@ -544,6 +545,31 @@ class TestSpreadingAcrossDisplays(unittest.TestCase):
 	def test_theClaimCoversBothDisplays(self):
 		rects = placeSegments(self.chat(), self.area, COMBINED, self.onTheMonarch, spread=True)
 		self.assertEqual(claimFor(self.area, rects), self.area)
+
+
+class TestOneFreeRowOnANarrowDisplay(unittest.TestCase):
+	"""Review of ca7f5fc: a single free Monarch row was offered and divided as 80 cells."""
+
+	bands = [Band(0, 8, 32), Band(8, 1, 80)]
+	area = SegmentRect(7, 0, 1, 80)
+	focus = SegmentRect(7, 0, 1, 32)
+
+	def test_itIsOfferedAtItsOwnWidth(self):
+		self.assertEqual(displayArea(self.area, self.bands, self.focus), DisplayArea(1, 32))
+
+	def test_itIsPlacedOnItsHardware(self):
+		read = parseLayout({"name": "row", "segments": [{"show": FOCUS}]})
+		self.assertEqual(placeSegments(read, self.area, self.bands, self.focus), [self.focus])
+
+	def test_itIsDividedAtItsOwnWidth(self):
+		read = parseLayout(layout({"show": object()}, {"size": 12, "show": FOCUS}))
+		rects = placeSegments(read, self.area, self.bands, self.focus)
+		self.assertEqual(rects, [SegmentRect(7, 0, 1, 20), SegmentRect(7, 20, 1, 12)])
+		self.assertEqual(claimFor(self.area, rects), SegmentRect(7, 0, 1, 32))
+
+	def test_aFreeRowOnTheWideDisplayIsUnchanged(self):
+		area = SegmentRect(8, 0, 1, 80)
+		self.assertEqual(onHardware(area, self.bands), area)
 
 
 class FakeAppModule:

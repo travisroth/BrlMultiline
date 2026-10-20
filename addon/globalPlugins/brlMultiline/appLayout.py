@@ -320,6 +320,27 @@ class Plan(NamedTuple):
 		return self.focusBand is not None
 
 
+def onHardware(area: SegmentRect, bands: Sequence[Band] = ()) -> SegmentRect:
+	"""Clip a one row area to the cells the display holding it actually has.
+
+	A free area is as wide as the composite, which on a Monarch combined with a Focus 80 is 80
+	cells. Rows of several are placed a display at a time and take each display's width, but a
+	single free row on the Monarch would otherwise be offered, and divided, as 80 cells, and the
+	48 that reach no hardware would have the whole layout refused.
+
+	:return: the area, clipped where it is one row on a display narrower than it.
+	"""
+	if area.numRows != 1 or not bands:
+		return area
+	band = next((band for band in bands if band.rowStart <= area.row < band.rowEnd), None)
+	if band is None:
+		return area
+	end = min(area.endCol, band.numCols)
+	if end <= area.col or end == area.endCol:
+		return area
+	return SegmentRect(area.row, area.col, 1, end - area.col)
+
+
 def planFor(
 	area: SegmentRect,
 	bands: Sequence[Band] = (),
@@ -353,6 +374,7 @@ def planFor(
 	:param spread: whether to split the layout across displays even when the focus display has
 		room for all of it.
 	"""
+	area = onHardware(area, bands)
 	reached = bandsIn(area, bands)
 	if len(reached) < 2 or within is None:
 		return Plan(area, bands)
@@ -397,8 +419,12 @@ def claimFor(area: SegmentRect, rects: Sequence[SegmentRect]) -> SegmentRect:
 	Not the free area itself. Where the layout is on the focus display alone, the claim is that
 	display, so the other displays keep the reader's own arrangement rather than going blank.
 	"""
-	if area.numRows == 1 or not rects:
+	if not rects:
 		return area
+	if area.numRows == 1:
+		# The cells the segments use, which on a narrower display is less than the area.
+		left = min(rect.col for rect in rects)
+		return SegmentRect(area.row, left, 1, max(rect.endCol for rect in rects) - left)
 	top = min(rect.row for rect in rects)
 	end = max(rect.endRow for rect in rects)
 	return SegmentRect(top, area.col, end - top, area.numCols)

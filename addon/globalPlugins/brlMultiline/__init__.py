@@ -1597,10 +1597,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if bmConfig.isSpeechOutputMode():
 			# See `refreshMonitors`: a pin drawn beside speech has nothing to remove it.
 			return False
+		began = time.monotonic()
 		try:
 			# On the same clock, because an app layout's reading pane is a pin whose object
-			# can be replaced, and nothing announces the replacement either.
-			self.appLayouts.resolveIfDue()
+			# can be replaced, and nothing announces the replacement either. Within the same
+			# allowance, since asking is a call into the application too: a pass that runs out
+			# leaves the rest of the callables, and the pins, for the next.
+			if self.appLayouts.resolveIfDue(deadline=began + allowance):
+				return True
 		except Exception:
 			log.debugWarning("Could not bring the app layout up to date", exc_info=True)
 		monitors = self._everyMonitor()
@@ -1609,7 +1613,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._monitorTurn = 0
 			return False
 		start = self._monitorTurn if 0 <= self._monitorTurn < len(keys) else 0
-		began = time.monotonic()
 		for step in range(len(keys)):
 			index = (start + step) % len(keys)
 			monitor = monitors[keys[index]]
@@ -2215,6 +2218,24 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("App layouts kept on the focus display"))
 		self.appLayouts.placeAgain()
 
+	def configuredFocusRect(self) -> SegmentRect | None:
+		""":return: where the reader's own arrangement puts the focus, whatever claims lie over it.
+
+		Read from the view claims are composed over, which is what the focus segment setting
+		and the command moving the focus to another display both change. None if it cannot be
+		built, which only a display in the middle of changing can make it.
+		"""
+		numRows, numCols = self._displayDimensions()
+		try:
+			view = self._baseView(numRows, numCols, deviceMap())
+		except Exception:
+			log.debugWarning("Could not read where the reader's arrangement puts the focus", exc_info=True)
+			return None
+		for spec in view.flatten():
+			if spec.key == view.focusSegmentKey:
+				return spec.rect
+		return None
+
 	def appLayoutsInForce(self) -> bool:
 		""":return: whether an app module may arrange this display now: allowed, and not set aside."""
 		return bmConfig.shouldAllowAppLayouts() and not self._appLayoutsSuspended
@@ -2227,8 +2248,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		is the focus, and the focus is one of the things a layout arranges.
 
 		The focus segment's rectangle goes with it, because it says which display the reader put
-		the focus on, and placement keeps it there. With a layout up the focus segment is the
-		layout's own, which placement put on that same display, so the answer does not change.
+		the focus on, and placement keeps it there. It is the reader's own focus segment, from
+		the arrangement they configured, and not whatever is following the focus now: with a
+		layout up that is the layout's, and it would go on saying the layout's display after the
+		reader had moved the focus to another one. See L{configuredFocusRect}.
 		"""
 		numRows, numCols = self._displayDimensions()
 		container = self.container
@@ -2242,7 +2265,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					continue
 				if spec.key in self._monitors or (spec.isReserved and not spec.hostsSystemFocus):
 					occupied.append(spec.rect)
-			within = container.focusSegment.rect
+			within = self.configuredFocusRect() or container.focusSegment.rect
 		bands = [appLayout.Band(device.rowStart, device.numRows, device.numCols) for device in deviceMap()]
 		return appLayout.Room(
 			appLayout.freeArea(numRows, numCols, occupied, within),

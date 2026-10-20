@@ -246,3 +246,28 @@ What milestones 2 to 4 settled that the design above left open.
    writes to the profile in force, so pressing it in Teams answers for Teams. A change, by the
    command, the settings or a profile switch, places the layout up again at once, asking the
    app module afresh because it is told a different area.
+
+## Review of ca7f5fc
+
+Six faults found by review, each reproduced by a failing test before it was fixed. The tests
+are `TestAppLayoutReviewCa7f5fc`, `TestTheFocusDisplayCommandMovesALayout` and
+`TestOneFreeRowOnANarrowDisplay`.
+
+1. **A pin or claim made while a layout waited was covered.** The room was taken when the focus
+   arrived and used when it settled. Now only the intent waits; `_placeFor` works the room out
+   and asks the app module again when the focus settles.
+2. **The focus display command moved nothing while a layout was up.** The room took its focus
+   rectangle from the container, which with a layout up is the layout's own focus segment. It
+   now comes from `configuredFocusRect`, the reader's arrangement under the claims, and a
+   rebuild that changes it places the layout again.
+3. **An unreadable replacement left a segment stuck.** The old monitor was let go and the new
+   object recorded before the new monitor was built, so a vanished element left no monitor and
+   an answer the next pass thought was shown. `_showIn` is now all or nothing, and its failures
+   count towards `MAX_FAILURES` as a raising callable's do.
+4. **A layout drew beside speech.** `_showIn` refreshed directly, outside the guard the pin
+   timer has. Beside speech it now empties the segment and keeps the monitor, and the timer
+   draws it once braille is back.
+5. **One free row on a narrower display was offered at the composite's width.** `onHardware`
+   clips a one row area to its display before it is offered or divided.
+6. **Asking the callables ran outside the refresh allowance.** They now share the timer's
+   deadline, and a pass that runs out carries on from where it stopped.
