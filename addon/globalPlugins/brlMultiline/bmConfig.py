@@ -138,6 +138,7 @@ configSpec = {
 			"reverseScrollBtnsMigrated": "boolean(default=False)",
 			"drawGlyphs": "boolean(default=False)",
 			"appLayouts": "boolean(default=False)",
+			"appLayoutSpread": "boolean(default=False)",
 			"flowEnabled": "boolean(default=False)",
 			"flowRows": f"integer(default=0, min=0, max={MAX_FLOW_ROWS})",
 			"flowDisplay": 'string(default="")',
@@ -200,6 +201,10 @@ configSpec = {
 - `appLayouts`: whether an app module may arrange the part of this display no pin holds,
 	around where the focus is. Off by default: it is a privilege the reader grants. Per display
 	and per profile, so it can be allowed in a Teams profile and nowhere else. See `appLayout`.
+- `appLayoutSpread`: whether an app layout reaching several displays is spread across them,
+	the focus alone on its display and the rest on another, rather than kept on the focus
+	display when that has rows for all of it. Off by default. Per display and per profile, so
+	per application. See `appLayout.planFor`.
 - `flowEnabled`: whether a band of this display reads content as one flowing document.
 - `flow<Mode>`: one per entry in `FLOW_MODES`, whether that kind of content flows.
 - `flowRows`: how many rows the band takes, counted from the top of the display it is on.
@@ -722,6 +727,24 @@ def shouldAllowAppLayouts(displayKey: str | None = None) -> bool:
 	except Exception:
 		log.debugWarning("Could not read appLayouts", exc_info=True)
 		return False
+
+
+def shouldSpreadAppLayouts(displayKey: str | None = None) -> bool:
+	""":return: whether an app layout is spread across the displays it reaches. See `appLayout.planFor`."""
+	try:
+		return bool(getDisplayConfig(displayKey)["appLayoutSpread"])
+	except Exception:
+		log.debugWarning("Could not read appLayoutSpread", exc_info=True)
+		return False
+
+
+def setSpreadAppLayouts(spread: bool, displayKey: str | None = None) -> None:
+	"""Store whether app layouts are spread across displays.
+
+	Written through `config.conf`, so the answer belongs to the profile in force: pressed in
+	Teams, with a Teams profile, it is Teams' answer and nobody else's.
+	"""
+	getDisplayConfig(displayKey)["appLayoutSpread"] = bool(spread)
 
 
 def shouldWriteByParagraph(displayKey: str | None = None) -> bool:

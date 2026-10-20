@@ -161,6 +161,7 @@ class SegmentPanelTestCase(SettingsPanelTestCase):
 		self.panel.reverseScrollCtrl = FakeControl(False)
 		self.panel.glyphCtrl = FakeControl(False)
 		self.panel.appLayoutsCtrl = FakeControl(False)
+		self.panel.appLayoutSpreadCtrl = FakeControl(False)
 		self.panel.tableArrowsCtrl = FakeControl(False)
 		self.panel._showTarget(0)
 
@@ -197,6 +198,12 @@ class TestOrdinaryDisplay(SegmentPanelTestCase):
 		self.panel.appLayoutsCtrl.SetValue(True)
 		self.panel.onSave()
 		self.assertTrue(bmConfig.shouldAllowAppLayouts(self.displayKey))
+
+	def test_spreadingAppLayoutsIsSaved(self):
+		self.assertFalse(bmConfig.shouldSpreadAppLayouts(self.displayKey))
+		self.panel.appLayoutSpreadCtrl.SetValue(True)
+		self.panel.onSave()
+		self.assertTrue(bmConfig.shouldSpreadAppLayouts(self.displayKey))
 
 	def test_arrowsMovingByRowIsSaved(self):
 		"""Off until it is asked for: it changes what NVDA's own arrow keys do."""

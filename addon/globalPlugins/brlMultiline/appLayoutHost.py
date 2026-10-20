@@ -36,8 +36,11 @@ import dataclasses
 import time
 from typing import TYPE_CHECKING, Any
 
+import api
 import wx
 from logHandler import log
+
+from . import bmConfig
 
 from .appLayout import (
 	PANEL_NAME,
@@ -46,6 +49,7 @@ from .appLayout import (
 	Band,
 	LayoutError,
 	askAppModule,
+	claimFor,
 	displayArea,
 	placeSegments,
 	resolveShown,
@@ -84,6 +88,9 @@ class Shown:
 	panel: AppLayoutPanel
 	appModule: Any
 	"""The app module that offered it. Leaving it takes the layout down."""
+
+	spread: bool = False
+	"""Whether it was placed spread across displays. A change of mind places it again."""
 
 	monitors: dict[str, ObjectMonitor] = dataclasses.field(default_factory=dict)
 	"""What each secondary segment is showing, by segment key. A blank segment has none."""
@@ -170,15 +177,20 @@ class AppLayoutHost:
 		if appModule is None or not hasattr(appModule, "brlMultilineLayout"):
 			self._cancelPending()
 			return
-		area, bands = plugin.appLayoutRoom()
+		area, bands, within, spread = plugin.appLayoutRoom()
 		layout = None
 		if area is not None:
-			layout, problem = askAppModule(appModule, focus, displayArea(area, bands))
+			layout, problem = askAppModule(appModule, focus, displayArea(area, bands, within, spread))
 			if problem is not None:
 				log.debugWarning(
 					f"BrlMultiline: the app layout of {_appName(appModule)} was refused: {problem}"
 				)
-		if self.shown is not None and layout is not None and layout.name == self.shown.layout.name:
+		if (
+			self.shown is not None
+			and layout is not None
+			and layout.name == self.shown.layout.name
+			and spread == self.shown.spread
+		):
 			# The same layout: kept as it is, at once. A focus change within it is when a
 			# message list's selection moves, which is the moment its reading pane changes.
 			self._cancelPending()
@@ -187,7 +199,7 @@ class AppLayoutHost:
 		if self.shown is None and layout is None:
 			self._cancelPending()
 			return
-		self._pending = (layout, area, bands, appModule)
+		self._pending = (layout, area, bands, within, spread, appModule)
 		if self._timer is not None:
 			self._timer.Stop()
 		self._timer = wx.CallLater(int(SETTLE_SECONDS * 1000), self._settle)
@@ -204,34 +216,52 @@ class AppLayoutHost:
 		pending, self._pending = self._pending, None
 		if pending is None or self.plugin._terminated:
 			return
-		layout, area, bands, appModule = pending
+		layout, area, bands, within, spread, appModule = pending
 		if not self.plugin.appLayoutsInForce():
 			self.takeDown("app layouts are not in force")
 			return
 		if layout is None:
 			self.takeDown("the focus has no layout here")
 			return
-		self.show(layout, area, bands, appModule)
+		self.show(layout, area, bands, appModule, within, spread)
 
 	# Showing and taking down.
 
-	def show(self, layout: AppLayout, area: SegmentRect, bands: list[Band], appModule: Any) -> bool:
+	def show(
+		self,
+		layout: AppLayout,
+		area: SegmentRect,
+		bands: list[Band],
+		appModule: Any,
+		within: SegmentRect | None = None,
+		spread: bool = False,
+	) -> bool:
 		"""Put a layout on the display, replacing any that is up.
 
+		:param within: the focus segment's rectangle, which keeps the focus on its display.
+		:param spread: whether the reader wants the layout spread across displays.
 		:return: whether it is up. If not, the reader's own arrangement is, and the log says why.
 		"""
 		try:
-			rects = placeSegments(layout, area, bands)
+			rects = placeSegments(layout, area, bands, within, spread)
 		except LayoutError as error:
 			log.debugWarning(f"BrlMultiline: app layout {layout.name!r} cannot be placed: {error}")
 			self.takeDown("the layout could not be placed")
 			return False
 		self._stopMonitors()
-		panel = AppLayoutPanel(area, rects, layout.focusIndex)
+		# Only the rows the layout uses, so a display it leaves alone keeps the reader's own
+		# arrangement rather than going blank.
+		panel = AppLayoutPanel(claimFor(area, rects), rects, layout.focusIndex)
 		# Before the claim, because claiming rebuilds the display and the rebuild asks whether
 		# a layout is up: the flow waits for one rather than fighting it for the rows.
 		self.shown = Shown(
-			layout=layout, area=area, bands=list(bands), rects=rects, panel=panel, appModule=appModule
+			layout=layout,
+			area=area,
+			bands=list(bands),
+			rects=rects,
+			panel=panel,
+			appModule=appModule,
+			spread=spread,
 		)
 		try:
 			self.plugin.activatePanel(panel)
@@ -271,6 +301,33 @@ class AppLayoutHost:
 			return
 		if not self.plugin.appLayoutsInForce():
 			wx.CallAfter(self.takeDown, "app layouts are no longer in force")
+			return
+		if bmConfig.shouldSpreadAppLayouts() != shown.spread:
+			# Turned over in the settings, or by a profile switch. Placed again after the
+			# rebuild, since placing it is a rebuild too.
+			wx.CallAfter(self.placeAgain)
+
+	def placeAgain(self) -> None:
+		"""Place the layout up again from where the focus is, as when spreading is turned over.
+
+		Asked afresh rather than moved, because the app module is told a different area when
+		the layout is spread, and may want to arrange it differently.
+		"""
+		if self.shown is None or self.plugin._terminated:
+			return
+		appModule = self.shown.appModule
+		area, bands, within, spread = self.plugin.appLayoutRoom()
+		if area is None:
+			self.takeDown("there is no room left")
+			return
+		layout, problem = askAppModule(
+			appModule, api.getFocusObject(), displayArea(area, bands, within, spread)
+		)
+		if layout is None:
+			self.takeDown(problem or "the focus has no layout here")
+			return
+		self._cancelPending()
+		self.show(layout, area, bands, appModule, within, spread)
 
 	def terminate(self) -> None:
 		self._cancelPending()

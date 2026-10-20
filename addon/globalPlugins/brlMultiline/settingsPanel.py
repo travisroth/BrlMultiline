@@ -354,6 +354,24 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Translators: label of a checkbox in settings. When checked, an application's layout
+		# puts the focus alone on its display and everything else on another combined display.
+		spreadLabel = _("Spread app layouts acr&oss combined displays")
+		self.appLayoutSpreadCtrl = sHelper.addItem(wx.CheckBox(self, label=spreadLabel))
+		self.appLayoutSpreadCtrl.SetValue(bool(section["appLayoutSpread"]))
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the checkbox above, explaining what it
+					# does.
+					"With several displays combined, the display holding the focus shows only the "
+					"focus, and the rest of the application's layout goes on another display. When "
+					"this is off, a display with rows to spare keeps the whole layout. Set it in a "
+					"configuration profile to choose for one application.",
+				),
+			),
+		)
 		# Not per display like the rest of this panel: it is about the keyboard, and it is the
 		# same keys whichever display is connected. Off by default, because it changes what
 		# NVDA's own keys do. See `tableArrows`.
@@ -605,6 +623,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["messageSegment"] = self.messageSegmentCtrl.Value
 		section["drawGlyphs"] = self.glyphCtrl.IsChecked()
 		section["appLayouts"] = self.appLayoutsCtrl.IsChecked()
+		section["appLayoutSpread"] = self.appLayoutSpreadCtrl.IsChecked()
 		bmConfig.setArrowsMoveByRow(self.tableArrowsCtrl.IsChecked())
 
 	def postSave(self):

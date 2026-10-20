@@ -14,8 +14,12 @@ Added:
   above its compose box. The layout follows the focus: it comes up once the focus settles, stays
   while you move inside it, and goes when you leave, with a flow waiting and its place kept. A
   new debug command reports what the focus's application would arrange, and a new unassigned
-  command sets app layouts aside until NVDA restarts. The Teams add-on offers a chat layout.
-  Unit tested; not tried on hardware.
+  command sets app layouts aside until NVDA restarts. With several displays combined, the focus
+  stays on the display you put it on. A second setting, "Spread app layouts across combined
+  displays", and a command to turn it over, put the focus alone on its display and the rest of
+  the layout on another; set in a profile, it chooses for one application. The Teams add-on
+  offers a chat layout. Keeping the focus on its display and spreading are both tried on a
+  Focus 80 and a Monarch combined, in Teams.
 
 - **Stepping through a chart, with guide lines.** New commands move through a chart one point
   at a time, saying each point in the words a press on it gives, and go to its first and last

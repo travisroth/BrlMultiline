@@ -241,7 +241,19 @@ inside it, and goes when you move somewhere without one or leave the application
 your own arrangement back. While it is up, a flow on that display waits with your place kept.
 Like every setting here it can be set in a configuration profile, so you can allow it for one
 application and nowhere else. The [Teams add-on](https://github.com/travisroth/ms-teams) offers
-one: in a chat, the history above and the compose box or the message you are on below.
+one: while you type in a chat, the history above and the compose box below. Moving into the
+history takes the layout down, so the whole display follows you there.
+
+With several displays combined, the focus stays on the display you put it on. If that display
+has one row, such as a Focus 80, the rest of the layout goes on another display. If it has rows
+to spare, such as a Monarch, the whole layout stays on it and your other display keeps your own
+arrangement.
+
+**Spread app layouts across combined displays.** Off by default. When on, the display holding the
+focus shows only the focus, and the rest of the application's layout goes on another display,
+even when the focus display has rows to spare. With the focus on a Monarch in Teams, this puts the
+compose box on the Monarch and the chat history on a Focus 80. Set it in a configuration profile
+to choose for one application, or use the command below while you are in it.
 
 ## Reading as a flow
 
@@ -1235,6 +1247,12 @@ arrange the display, turns that off until NVDA restarts, and on again, without o
 Says "App layouts off" or "App layouts on". Where applications are not allowed to arrange the
 display, it says so and changes nothing.
 
+**App layouts: spreads them across combined displays, or keeps them on the focus display.** Turns
+over the "Spread app layouts across combined displays" setting. It is saved in the configuration
+profile in force, so pressing it in Teams, with a Teams profile, chooses for Teams only. A layout
+already up is placed again at once. Says "App layouts spread across displays" or "App layouts
+kept on the focus display".
+
 **Moves the focus onto another of the combined braille displays.** Only does something when
 several displays are combined. With two displays, each press moves the segment that follows the
 focus to the other display. With more than two, it opens a list to choose from. It keeps the
@@ -1732,10 +1750,22 @@ How it behaves once it is up:
    growing run such as a chat, and panned with the per segment commands. Routing keys move within
    it and do not move the focus. The reader cannot pin anything into your segments.
 
-You do not need to know where one display ends and the next begins. A segment that would cross
-from one to the other is moved onto the boundary, and the rows it gives up go to the segment
-without a size. A layout that cannot be used, or a method that raises, costs the reader nothing:
-they keep their own arrangement, and the debug command says why.
+You do not need to know where one display ends and the next begins. When several displays are
+driven as one, the focus stays on the display the reader put it on, whatever order the displays
+are stacked in:
+
+1. If that display has several rows, such as a Monarch, your whole layout goes on it, and you
+   are told only its rows. The other displays keep the reader's own arrangement.
+2. If it has one row, such as a Focus 80, or the reader has turned on "Spread app layouts
+   across combined displays", the focus segment takes that whole display, whatever size you
+   gave it. Your other segments go on the tallest of the other displays, in your order, and the
+   one without a size takes what is left there. If that display is a single row, your other
+   segments share its cells evenly. You are told the rows of the two together.
+
+So write your layout for the `area` you are given, and handle both shapes: one row, where sizes
+are cells across, and several rows. If your layout only makes sense with several rows, return
+`None` when `area.rows` is 1. A layout that cannot be used, or a method that raises, costs the
+reader nothing: they keep their own arrangement, and the debug command says why.
 
 BrlMultiline also has a `register` function for code that wants to supply a complete adapter for
 controls it doesn't own. That requires importing from this add-on, which creates a load-order

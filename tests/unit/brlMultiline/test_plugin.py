@@ -3491,19 +3491,19 @@ class TestAppLayouts(PluginTestCase):
 		self.assertIn("Allow it in the BrlMultiline settings", spokenMessages[-1])
 
 	def test_theWholeDisplayIsFreeWithNothingPinned(self):
-		area, bands = self.plugin.appLayoutRoom()
+		area, bands, _within, _spread = self.plugin.appLayoutRoom()
 		self.assertEqual(area, SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS))
 		self.assertEqual(bands, [])
 
 	def test_aPinnedSegmentIsNotFree(self):
 		"""The reader's pins come first: the top segment's two rows are not offered."""
 		self.pin(0)
-		area, _bands = self.plugin.appLayoutRoom()
+		area, _bands, _within, _spread = self.plugin.appLayoutRoom()
 		self.assertEqual(area, SegmentRect(2, 0, MONARCH_ROWS - 2, MONARCH_COLS))
 
 	def test_aClaimIsNotFree(self):
 		self.plugin.activatePanel(SinglePanel("table", SegmentRect(0, 0, 1, MONARCH_COLS)))
-		area, _bands = self.plugin.appLayoutRoom()
+		area, _bands, _within, _spread = self.plugin.appLayoutRoom()
 		self.assertEqual(area.row, 1)
 
 	def test_theReportShowsThePlacedLayout(self):
@@ -3557,7 +3557,7 @@ class TestAppLayouts(PluginTestCase):
 			if number != self.container.focusSegmentNumber:
 				self.pin(number)
 		# The focus segment is never pinned, so two rows stay free.
-		area, _bands = self.plugin.appLayoutRoom()
+		area, _bands, _within, _spread = self.plugin.appLayoutRoom()
 		self.assertEqual(area, self.container.focusSegment.rect)
 
 
@@ -3813,7 +3813,10 @@ class TestShowingAppLayouts(PluginTestCase):
 		before = self.plugin.appLayoutRoom()
 		self.focus()
 		self.settle()
-		self.assertEqual(self.plugin.appLayoutRoom(), before)
+		after = self.plugin.appLayoutRoom()
+		self.assertEqual((after.area, after.bands), (before.area, before.bands))
+		# The focus segment is the layout's own now, and on the same display.
+		self.assertEqual(after.within, self.container.focusSegment.rect)
 
 	def test_theFlowWaitsWithItsPlaceKept(self):
 		CONFIG["flowEnabled"] = True
@@ -3930,6 +3933,111 @@ class TestShowingAppLayouts(PluginTestCase):
 		self.focus()
 		self.focus()
 		self.assertFalse(self.host.isUp)
+
+
+class TestAppLayoutsKeepTheFocusOnItsDisplay(PluginTestCase):
+	"""A Focus 80 above a Monarch, the order the reader had when this was found."""
+
+	segmentCount = 1
+
+	def makeHandler(self):
+		handler = FakeHandler(MONARCH_ROWS + 1, 80)
+		handler.display = fakeVirtualDisplay(
+			("freedomScientific", 0, 1, 80),
+			("hidBrailleStandard", 1, MONARCH_ROWS, MONARCH_COLS),
+		)
+		return handler
+
+	def show(self):
+		CONFIG["appLayouts"] = True
+		answer = {
+			"name": "chat",
+			"segments": [{"show": FakeNavigatorObject("Messages")}, {"size": 2, "show": "focus"}],
+		}
+		self.plugin.event_gainFocus(focusIn(LayoutAppModule(answer=answer)), lambda: None)
+		callLaterQueue.fire()
+		self.assertTrue(self.plugin.appLayouts.isUp)
+
+	def test_theFocusStaysOnTheFocus80(self):
+		CONFIG["focusSegment"] = 0
+		self.plugin.rebuildBuffer()
+		self.assertEqual(self.container.focusSegment.rect, SegmentRect(0, 0, 1, 80))
+		self.show()
+		self.assertEqual(self.container.focusSegment.rect, SegmentRect(0, 0, 1, 80))
+		self.assertEqual(
+			self.container.segmentForKey("appLayout.0").rect,
+			SegmentRect(1, 0, MONARCH_ROWS, MONARCH_COLS),
+		)
+
+	def test_aMonarchHoldingTheFocusLeavesTheFocus80Alone(self):
+		CONFIG["focusSegment"] = -1
+		self.plugin.rebuildBuffer()
+		self.assertEqual(self.container.focusSegment.rect.row, 1)
+		before = [spec.key for spec in self.container.specs if spec.rect.row == 0]
+		self.show()
+		self.assertEqual(
+			self.container.segmentForKey("appLayout.0").rect,
+			SegmentRect(1, 0, MONARCH_ROWS - 2, MONARCH_COLS),
+		)
+		self.assertEqual(self.container.focusSegment.rect, SegmentRect(MONARCH_ROWS - 1, 0, 2, MONARCH_COLS))
+		self.assertEqual([spec.key for spec in self.container.specs if spec.rect.row == 0], before)
+
+
+class TestSpreadingAppLayouts(TestAppLayoutsKeepTheFocusOnItsDisplay):
+	"""With the Monarch holding the focus, spreading sends the history to the Focus 80."""
+
+	def setUp(self):
+		super().setUp()
+		CONFIG["focusSegment"] = -1
+		self.plugin.rebuildBuffer()
+
+	def test_theSettingSpreadsIt(self):
+		CONFIG["appLayoutSpread"] = True
+		self.show()
+		self.assertEqual(self.container.segmentForKey("appLayout.0").rect, SegmentRect(0, 0, 1, 80))
+		self.assertEqual(self.container.focusSegment.rect, SegmentRect(1, 0, MONARCH_ROWS, MONARCH_COLS))
+
+	def test_theCommandPlacesItAgainAtOnce(self):
+		import api
+
+		self.show()
+		self.assertEqual(self.container.focusSegment.rect.numRows, 2)
+		focus = focusIn(self.plugin.appLayouts.shown.appModule)
+		original = api.getFocusObject
+		api.getFocusObject = lambda: focus
+		self.addCleanup(setattr, api, "getFocusObject", original)
+		self.plugin.script_toggleAppLayoutSpread(None)
+		self.assertEqual(spokenMessages[-1], "App layouts spread across displays")
+		self.assertTrue(bmConfig.shouldSpreadAppLayouts())
+		self.assertEqual(self.container.segmentForKey("appLayout.0").rect, SegmentRect(0, 0, 1, 80))
+		self.plugin.script_toggleAppLayoutSpread(None)
+		self.assertEqual(spokenMessages[-1], "App layouts kept on the focus display")
+		self.assertEqual(self.container.focusSegment.rect, SegmentRect(MONARCH_ROWS - 1, 0, 2, MONARCH_COLS))
+
+	def test_aSettingChangedElsewherePlacesItAgainAfterTheRebuild(self):
+		import api
+
+		self.show()
+		focus = focusIn(self.plugin.appLayouts.shown.appModule)
+		original = api.getFocusObject
+		api.getFocusObject = lambda: focus
+		self.addCleanup(setattr, api, "getFocusObject", original)
+		CONFIG["appLayoutSpread"] = True
+		self.plugin.rebuildBuffer()
+		callAfterQueue.flush()
+		self.assertEqual(self.container.segmentForKey("appLayout.0").rect, SegmentRect(0, 0, 1, 80))
+
+	def test_theReportSaysSo(self):
+		CONFIG["appLayoutSpread"] = True
+		CONFIG["appLayouts"] = True
+		lines = self.plugin.appLayoutReport(focusIn(LayoutAppModule()))
+		self.assertIn("Spread across displays: yes", lines)
+		self.assertTrue(any(line.startswith("Focus display: rows 1 to") for line in lines), lines)
+
+	def test_theCommandWithNoLayoutUpOnlyChangesTheSetting(self):
+		self.plugin.script_toggleAppLayoutSpread(None)
+		self.assertTrue(bmConfig.shouldSpreadAppLayouts())
+		self.assertFalse(self.plugin.appLayouts.isUp)
 
 
 if __name__ == "__main__":

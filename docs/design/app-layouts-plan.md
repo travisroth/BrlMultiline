@@ -5,11 +5,13 @@ history of a Teams conversation in the top six rows of a Monarch with the compos
 rows below it, or an Outlook message list beside its reading pane, each coming up when the
 focus enters the place it is for and going away when the focus leaves.
 
-Status: milestones 1 to 4 are built and unit tested. The contract is in `appLayout.py`, the
-lifecycle in `appLayoutHost.py`, and the Teams add-on offers a chat layout. Nothing has been
-tried in a running NVDA or on hardware, and the Teams layout's search for the history beside
-the compose box is written against the Teams accessibility tree as the add-on already knows it,
-not checked against Teams itself.
+Status: milestones 1 to 4 are built and unit tested, with decisions 6 and 7 below added after
+trying them. The contract is in `appLayout.py`, the lifecycle in `appLayoutHost.py`, and the
+Teams add-on offers a chat layout. Tried in NVDA with Teams, on a Focus 80 alone and on a Focus
+80 and a Monarch combined: the layout comes up from the compose box, goes when the focus moves
+into the history, keeps the focus on its display, and spreads. A secondary segment whose object
+is replaced, as an Outlook reading pane's would be, is unit tested only, since no app module
+offers one yet.
 
 Read [architecture.md](architecture.md) for views, panels and segments, and the developer
 section of the readme for the flow attributes this extends. This document assumes both.
@@ -221,3 +223,26 @@ What milestones 2 to 4 settled that the design above left open.
    asks the callables again every `RESOLVE_SECONDS`.
 5. **A rebuild.** `AppLayoutHost.onRebuilt` runs before the flow is carried over. A claim the
    rebuild dropped forgets the layout; a setting turned off takes it down after the rebuild.
+6. **The focus stays on its display.** Found on hardware: with a Focus 80 stacked above a
+   Monarch and the focus on the Focus, the Teams layout, history then focus, put the history on
+   the Focus row and moved the focus onto the Monarch. Top to bottom is how the hardware is
+   stacked, not a choice anyone made, so `planFor` decides by the display holding the reader's
+   focus segment instead. A focus display with rows to spare takes the whole layout and the
+   claim is that display only. A one row focus display takes the focus segment alone, whatever
+   size it asked for, and the other segments go on the tallest other display, the one without
+   a size taking what is left there. The boundary rule of decision 5 now applies only when no
+   focus rectangle is given. A separate `grow` key was considered and not added: the segment
+   without a size already says which one grows. Handling a one row area and a tall one is the
+   app module's business, as the Teams layout does; one that only works with rows returns
+   None for a single row.
+7. **Spreading is the reader's choice.** Also found on hardware: with the focus on the Monarch,
+   the whole Teams layout stayed there, and the reader wanted the history on the Focus 80. No
+   rule can know that, and settings in each app module would make every add-on answer it
+   differently, so it is one BrlMultiline setting, `appLayoutSpread`, per display and per
+   profile, which makes it per application through NVDA's own profiles. With it on, `planFor`
+   splits the layout even when the focus display has rows to spare: the focus takes its whole
+   display, the rest goes on the tallest other one. On a one row other display the others share
+   its cells evenly, since their sizes were rows. An unassigned command turns it over and
+   writes to the profile in force, so pressing it in Teams answers for Teams. A change, by the
+   command, the settings or a profile switch, places the layout up again at once, asking the
+   app module afresh because it is told a different area.

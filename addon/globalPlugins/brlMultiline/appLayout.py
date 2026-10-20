@@ -284,13 +284,124 @@ def bandsIn(area: SegmentRect, bands: Sequence[Band]) -> list[Band]:
 	return clipped
 
 
-def displayArea(area: SegmentRect, bands: Sequence[Band] = ()) -> DisplayArea:
-	""":return: what the app module is told about an area. See L{DisplayArea.columns}."""
+class Room(NamedTuple):
+	"""Everything placement needs to know about the display, as the plugin finds it."""
+
+	area: SegmentRect | None
+	"""The free area, or None if nothing is free."""
+
+	bands: list[Band]
+	"""The physical displays, top first, or empty for an ordinary display."""
+
+	within: SegmentRect | None = None
+	"""The segment following the focus now, which says which display the focus is on."""
+
+	spread: bool = False
+	"""Whether the reader wants a layout spread across displays. See L{planFor}."""
+
+
+class Plan(NamedTuple):
+	"""How a free area is used, once the display holding the reader's focus is known."""
+
+	area: SegmentRect
+	"""What the layout is placed in. The focus display alone when the layout is kept on it."""
+
+	bands: Sequence[Band]
+	"""The physical displays, as given."""
+
+	focusBand: Band | None = None
+	"""Set when the layout is split across displays: the focus segment takes this one, alone."""
+
+	otherBand: Band | None = None
+	"""Set with L{focusBand}: the display every other segment goes on, the tallest of the rest."""
+
+	@property
+	def isSplit(self) -> bool:
+		return self.focusBand is not None
+
+
+def planFor(
+	area: SegmentRect,
+	bands: Sequence[Band] = (),
+	within: SegmentRect | None = None,
+	spread: bool = False,
+) -> Plan:
+	"""Decide how a layout uses an area that may reach several displays.
+
+	**The focus stays on the display the reader put it on.** Which display that is, is a choice
+	the reader has already made, with the focus segment setting and the command that moves the
+	focus to another display, and it is saved for each combination of displays. Top to bottom
+	is only how the hardware happens to be stacked, so it decides nothing here.
+
+	1. An area on one display is used as it is.
+	2. When the focus display has more than one row, the whole layout goes on it, placed as on
+	   a single display, and the other displays keep the reader's own arrangement. This is
+	   *keeping* the layout on the focus display, the default.
+	3. When the focus display is one row, such as a Focus 80 beside a Monarch, or the reader
+	   has asked for layouts to be *spread*, the layout is split: the focus segment takes the
+	   whole focus display and every other segment goes on the tallest of the other displays.
+	   A third display is left alone, unless it lies between those two.
+
+	Spreading is the reader's choice, per display and per profile, and so per application:
+	with the focus on a Monarch, a Teams profile can put the chat history on the Focus 80 while
+	every other application keeps its layout on the Monarch.
+
+	:param area: the free area, from L{freeArea}.
+	:param bands: every physical display, top first, or empty for an ordinary display.
+	:param within: the rectangle of the segment following the focus now. None, or a rectangle
+		on no display the area reaches, uses the area as it is.
+	:param spread: whether to split the layout across displays even when the focus display has
+		room for all of it.
+	"""
+	reached = bandsIn(area, bands)
+	if len(reached) < 2 or within is None:
+		return Plan(area, bands)
+	focusBand = next((band for band in reached if band.rowStart <= within.row < band.rowEnd), None)
+	if focusBand is None:
+		return Plan(area, bands)
+	if focusBand.numRows > 1 and not spread:
+		return Plan(SegmentRect(focusBand.rowStart, area.col, focusBand.numRows, area.numCols), bands)
+	others = [band for band in reached if band != focusBand]
+	otherBand = max(others, key=lambda band: band.numRows)
+	return Plan(area, bands, focusBand, otherBand)
+
+
+def displayArea(
+	area: SegmentRect,
+	bands: Sequence[Band] = (),
+	within: SegmentRect | None = None,
+	spread: bool = False,
+) -> DisplayArea:
+	""":return: what the app module is told about an area. See L{DisplayArea.columns}.
+
+	With a layout split across displays, the rows of the two together, so an app module sizing
+	its focus segment for a display with rows to spare is not refused for asking: the focus
+	segment takes its display whatever it asked for.
+	"""
+	plan = planFor(area, bands, within, spread)
+	if plan.isSplit:
+		rows = plan.focusBand.numRows + plan.otherBand.numRows
+		columns = min(plan.focusBand.numCols, plan.otherBand.numCols, area.numCols)
+		return DisplayArea(rows=rows, columns=columns)
+	area = plan.area
 	if area.numRows == 1:
 		return DisplayArea(rows=1, columns=area.numCols)
 	reached = bandsIn(area, bands)
 	columns = min((band.numCols for band in reached), default=area.numCols)
 	return DisplayArea(rows=area.numRows, columns=min(columns, area.numCols))
+
+
+def claimFor(area: SegmentRect, rects: Sequence[SegmentRect]) -> SegmentRect:
+	"""The rectangle an app layout claims: the rows its segments use, the area's full width.
+
+	Not the free area itself. Where the layout is on the focus display alone, the claim is that
+	display, so the other displays keep the reader's own arrangement rather than going blank.
+	"""
+	if area.numRows == 1 or not rects:
+		return area
+	top = min(rect.row for rect in rects)
+	end = max(rect.endRow for rect in rects)
+	return SegmentRect(top, area.col, end - top, area.numCols)
 
 
 def resolveSizes(layout: AppLayout, extent: int, unit: str = "rows") -> list[int]:
@@ -318,15 +429,25 @@ def resolveSizes(layout: AppLayout, extent: int, unit: str = "rows") -> list[int
 	return [segment.size for segment in layout.segments]
 
 
-def placeSegments(layout: AppLayout, area: SegmentRect, bands: Sequence[Band] = ()) -> list[SegmentRect]:
+def placeSegments(
+	layout: AppLayout,
+	area: SegmentRect,
+	bands: Sequence[Band] = (),
+	within: SegmentRect | None = None,
+	spread: bool = False,
+) -> list[SegmentRect]:
 	"""Where each segment of a layout goes, in display coordinates.
+
+	First L{planFor} decides which display the focus segment is on. The rest follows from it.
 
 	A one row area is divided left to right in cells. Any other is divided top to bottom in
 	rows, and each segment is as wide as the display it is on, so none reaches cells that no
 	hardware has.
 
 	**A segment never crosses from one display to another**, and the app module is not told
-	when one would have. A boundary inside a segment is settled by moving one edge onto it:
+	when one would have. Given the focus segment's rectangle, the plan already keeps every
+	segment on one display. Without it, a boundary inside a segment is settled by moving one
+	edge onto it:
 
 	1. The segment's lower edge, if anything comes after it. The rows it gives up go to the
 	   segment without a size if that comes after it, and otherwise to the segment directly
@@ -343,10 +464,16 @@ def placeSegments(layout: AppLayout, area: SegmentRect, bands: Sequence[Band] = 
 	:param layout: the layout.
 	:param area: the free area, from L{freeArea}.
 	:param bands: the physical displays, top first, or empty for an ordinary display.
+	:param within: the rectangle of the segment following the focus now.
+	:param spread: whether the reader wants the layout split across displays. See L{planFor}.
 	:return: one rectangle per segment, in the layout's order.
 	:raises LayoutError: if the sizes do not fit, or a boundary cannot be settled, as when a
 		layout of one segment covers two displays.
 	"""
+	plan = planFor(area, bands, within, spread)
+	if plan.isSplit:
+		return _placeSplit(layout, plan)
+	area = plan.area
 	if area.numRows == 1:
 		sizes = resolveSizes(layout, area.numCols, "cells")
 		rects = []
@@ -368,6 +495,61 @@ def placeSegments(layout: AppLayout, area: SegmentRect, bands: Sequence[Band] = 
 		index, boundary, start, end = crossing
 		_settle(layout.name, sizes, unsized, index, boundary, start, end)
 	raise LayoutError(f"layout {layout.name!r} could not be fitted to the displays it reaches")
+
+
+def _placeSplit(layout: AppLayout, plan: Plan) -> list[SegmentRect]:
+	"""Place a layout with the focus alone on its display. See L{planFor}.
+
+	The focus segment takes the whole of its display, whatever size it asked for: it was sized
+	for a display the app module could not see. The others go on the other display top to
+	bottom in the layout's order. The one without a size takes what is left there; if the focus
+	segment was the one without a size, the last of the others does, growing or shrinking to
+	fit.
+
+	**On a one row other display the others share its cells evenly**, the earlier ones taking
+	any remainder, since their sizes were given in rows and say nothing about cells.
+
+	:raises LayoutError: if the others ask for more rows than the other display has, or there
+		are more of them than a one row display has cells.
+	"""
+	focusBand, otherBand = plan.focusBand, plan.otherBand
+	focusIndex = layout.focusIndex
+	rects: list[SegmentRect | None] = [None] * len(layout.segments)
+	rects[focusIndex] = SegmentRect(focusBand.rowStart, 0, focusBand.numRows, focusBand.numCols)
+	others = [index for index in range(len(layout.segments)) if index != focusIndex]
+	if not others:
+		return rects
+	if otherBand.numRows == 1:
+		if len(others) > otherBand.numCols:
+			raise LayoutError(
+				f"layout {layout.name!r} has more segments than the display beside the focus has cells"
+			)
+		base, extra = divmod(otherBand.numCols, len(others))
+		col = 0
+		for place, index in enumerate(others):
+			width = base + (1 if place < extra else 0)
+			rects[index] = SegmentRect(otherBand.rowStart, col, 1, width)
+			col += width
+		return rects
+	extent = otherBand.numRows
+	sized = sum(layout.segments[index].size for index in others if layout.segments[index].size is not None)
+	unsized = next((index for index in others if layout.segments[index].size is None), None)
+	sizes = {index: layout.segments[index].size for index in others}
+	if unsized is not None:
+		sizes[unsized] = extent - sized
+	else:
+		last = others[-1]
+		sizes[last] = extent - (sized - sizes[last])
+	if any(size < 1 for size in sizes.values()):
+		raise LayoutError(
+			f"layout {layout.name!r} asks for {sized} rows beside the focus and the display there "
+			f"has {extent}",
+		)
+	row = otherBand.rowStart
+	for index in others:
+		rects[index] = SegmentRect(row, 0, sizes[index], otherBand.numCols)
+		row += sizes[index]
+	return rects
 
 
 def _starts(sizes: Sequence[int], top: int) -> list[int]:

@@ -2192,19 +2192,43 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Brought back where the reader is, rather than at the next focus change.
 			self.appLayouts.followFocus(api.getFocusObject())
 
+	@script(
+		# Translators: input help message for a command. An app layout is an application
+		# arranging the display around where the focus is.
+		description=_("App layouts: spreads them across combined displays, or keeps them on the focus display"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_toggleAppLayoutSpread(self, gesture):
+		"""Choose whether app layouts spread across displays, for the profile in force.
+
+		Pressed in Teams with a Teams profile, the answer is saved there and nowhere else, which
+		is how one application can put its chat history on another display while the rest keep
+		their layouts on the focus display. A layout already up is placed again at once.
+		"""
+		spread = not bmConfig.shouldSpreadAppLayouts()
+		bmConfig.setSpreadAppLayouts(spread)
+		if spread:
+			# Translators: reported when app layouts will be spread across combined displays.
+			ui.message(_("App layouts spread across displays"))
+		else:
+			# Translators: reported when app layouts will be kept on the display holding the focus.
+			ui.message(_("App layouts kept on the focus display"))
+		self.appLayouts.placeAgain()
+
 	def appLayoutsInForce(self) -> bool:
 		""":return: whether an app module may arrange this display now: allowed, and not set aside."""
 		return bmConfig.shouldAllowAppLayouts() and not self._appLayoutsSuspended
 
-	def appLayoutRoom(self) -> tuple[SegmentRect | None, list[appLayout.Band]]:
-		"""The part of the display an app layout may have, and the displays behind it.
+	def appLayoutRoom(self) -> appLayout.Room:
+		"""The part of the display an app layout may have, the displays behind it, and the focus.
 
 		Taken is anything holding a pin, and any claim that is not where the focus is drawn: a
 		drawing, a table someone claimed. A flow band is reserved and still free here, because it
 		is the focus, and the focus is one of the things a layout arranges.
 
-		:return: (the free area or None, the physical displays top first, empty for an ordinary
-			display).
+		The focus segment's rectangle goes with it, because it says which display the reader put
+		the focus on, and placement keeps it there. With a layout up the focus segment is the
+		layout's own, which placement put on that same display, so the answer does not change.
 		"""
 		numRows, numCols = self._displayDimensions()
 		container = self.container
@@ -2220,7 +2244,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					occupied.append(spec.rect)
 			within = container.focusSegment.rect
 		bands = [appLayout.Band(device.rowStart, device.numRows, device.numCols) for device in deviceMap()]
-		return appLayout.freeArea(numRows, numCols, occupied, within), bands
+		return appLayout.Room(
+			appLayout.freeArea(numRows, numCols, occupied, within),
+			bands,
+			within,
+			bmConfig.shouldSpreadAppLayouts(),
+		)
 
 	@script(
 		# Translators: input help message for a command.
@@ -3187,7 +3216,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			lines.append("App layouts: allowed, and set aside for now")
 		else:
 			lines.append("App layouts: allowed")
-		area, bands = self.appLayoutRoom()
+		area, bands, within, spread = self.appLayoutRoom()
 		if area is None:
 			lines.append("Free area: none, every row holds a pin")
 			return lines
@@ -3199,7 +3228,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				"Displays: "
 				+ ", ".join(f"rows {band.rowStart} to {band.rowEnd - 1} of {band.numCols} cells" for band in bands),
 			)
-		room = appLayout.displayArea(area, bands)
+			lines.append(f"Spread across displays: {'yes' if spread else 'no'}")
+			plan = appLayout.planFor(area, bands, within, spread)
+			if plan.isSplit:
+				lines.append(
+					f"Focus display: rows {plan.focusBand.rowStart} to {plan.focusBand.rowEnd - 1}, alone; the rest on rows "
+					f"{plan.otherBand.rowStart} to {plan.otherBand.rowEnd - 1}",
+				)
+			elif plan.area != area:
+				lines.append(f"Focus display: rows {plan.area.row} to {plan.area.endRow - 1}, the whole layout")
+		room = appLayout.displayArea(area, bands, within, spread)
 		lines.append(f"Offered: {room.rows} rows, {room.columns} columns")
 		if getattr(appModule, appLayout.LAYOUT_METHOD, None) is None:
 			lines.append(f"Layout: the app module has no {appLayout.LAYOUT_METHOD} method")
@@ -3212,7 +3250,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			lines.append("Layout: none here")
 			return lines
 		try:
-			rects = appLayout.placeSegments(layout, area, bands)
+			rects = appLayout.placeSegments(layout, area, bands, within, spread)
 		except appLayout.LayoutError as error:
 			lines.append(f"Layout refused: {error}")
 			return lines

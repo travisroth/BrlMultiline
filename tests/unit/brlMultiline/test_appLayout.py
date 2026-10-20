@@ -23,6 +23,7 @@ from brlMultiline.appLayout import (  # noqa: E402
 	DisplayArea,
 	LayoutError,
 	askAppModule,
+	claimFor,
 	describeLayout,
 	displayArea,
 	freeArea,
@@ -362,6 +363,187 @@ class TestPlacingAcrossDisplays(unittest.TestCase):
 				self.assertEqual(sum(rect.numRows for rect in rects), MONARCH_ROWS + 1)
 				for rect in rects:
 					self.assertFalse(rect.row < MONARCH_ROWS < rect.endRow, rect)
+
+
+class TestTheFocusStaysOnItsDisplay(unittest.TestCase):
+	"""The display the reader put the focus on keeps it, whichever way the displays are stacked."""
+
+	area = SegmentRect(0, 0, MONARCH_ROWS + 1, FOCUS_COLS)
+	focusOnTop = SegmentRect(0, 0, 1, FOCUS_COLS)
+	focusBelow = SegmentRect(MONARCH_ROWS, 0, 1, FOCUS_COLS)
+	onTheMonarch = SegmentRect(2, 0, 2, MONARCH_COLS)
+
+	def chat(self, focusRows=2):
+		""":return: what the Teams add-on offers: the history, then the compose box."""
+		return parseLayout(layout({"show": object()}, {"size": focusRows, "show": FOCUS}))
+
+	def test_aFocus80OnTopKeepsTheFocus(self):
+		"""The case that found this: the Focus 80 on top holding the focus. The history goes on
+		the Monarch below, though the layout lists it first."""
+		rects = placeSegments(self.chat(), self.area, FOCUS_ON_TOP, self.focusOnTop)
+		self.assertEqual(
+			rects, [SegmentRect(1, 0, MONARCH_ROWS, MONARCH_COLS), SegmentRect(0, 0, 1, FOCUS_COLS)]
+		)
+
+	def test_theSameWithTheDisplaysTheOtherWayUp(self):
+		rects = placeSegments(self.chat(), self.area, COMBINED, self.focusBelow)
+		self.assertEqual(
+			rects,
+			[SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS), SegmentRect(MONARCH_ROWS, 0, 1, FOCUS_COLS)],
+		)
+
+	def test_theFocusTakesItsWholeRowWhateverItAskedFor(self):
+		"""It asked for two rows of a display it could not see had one."""
+		rects = placeSegments(self.chat(focusRows=2), self.area, FOCUS_ON_TOP, self.focusOnTop)
+		self.assertEqual(rects[1].numRows, 1)
+		self.assertEqual(rects[1].numCols, FOCUS_COLS)
+
+	def test_aMonarchHoldingTheFocusTakesTheWholeLayout(self):
+		"""Placed as on a single display, with the Focus 80 left as the reader arranged it."""
+		rects = placeSegments(self.chat(), self.area, COMBINED, self.onTheMonarch)
+		self.assertEqual(rows(rects), [(0, 8), (8, 2)])
+		self.assertTrue(all(rect.numCols == MONARCH_COLS for rect in rects))
+		self.assertEqual(claimFor(self.area, rects), SegmentRect(0, 0, MONARCH_ROWS, FOCUS_COLS))
+
+	def test_theAppModuleIsToldTheFocusDisplayAloneWhenItHasRows(self):
+		self.assertEqual(
+			displayArea(self.area, COMBINED, self.onTheMonarch),
+			DisplayArea(rows=MONARCH_ROWS, columns=MONARCH_COLS),
+		)
+
+	def test_theAppModuleIsToldBothWhenTheFocusDisplayIsOneRow(self):
+		self.assertEqual(
+			displayArea(self.area, FOCUS_ON_TOP, self.focusOnTop),
+			DisplayArea(rows=MONARCH_ROWS + 1, columns=MONARCH_COLS),
+		)
+
+	def test_theClaimCoversBothDisplays(self):
+		rects = placeSegments(self.chat(), self.area, FOCUS_ON_TOP, self.focusOnTop)
+		self.assertEqual(claimFor(self.area, rects), self.area)
+
+	def test_theOthersShareTheOtherDisplayInTheirOrder(self):
+		read = parseLayout(
+			layout({"size": 3, "show": object()}, {"show": object()}, {"size": 1, "show": FOCUS}),
+		)
+		rects = placeSegments(read, self.area, FOCUS_ON_TOP, self.focusOnTop)
+		self.assertEqual(rows(rects), [(1, 3), (4, 7), (0, 1)])
+
+	def test_withTheFocusUnsizedTheLastOtherTakesWhatIsLeft(self):
+		read = parseLayout(layout({"size": 4, "show": object()}, {"show": FOCUS}))
+		rects = placeSegments(read, self.area, FOCUS_ON_TOP, self.focusOnTop)
+		self.assertEqual(rows(rects), [(1, MONARCH_ROWS), (0, 1)])
+
+	def test_othersTooBigForTheOtherDisplayAreRefused(self):
+		read = parseLayout(
+			layout(
+				{"size": 6, "show": object()},
+				{"size": 6, "show": object()},
+				{"show": object()},
+				{"size": 1, "show": FOCUS},
+			),
+		)
+		with self.assertRaises(LayoutError):
+			placeSegments(read, self.area, FOCUS_ON_TOP, self.focusOnTop)
+
+	def test_withTheFocusUnsizedTheLastOtherShrinksToFit(self):
+		"""Sized for eleven rows, placed in ten: the last of the others gives up the difference."""
+		read = parseLayout(
+			layout({"size": 6, "show": object()}, {"size": 6, "show": object()}, {"show": FOCUS}),
+		)
+		rects = placeSegments(read, self.area, FOCUS_ON_TOP, self.focusOnTop)
+		self.assertEqual(rows(rects), [(1, 6), (7, 4), (0, 1)])
+
+	def test_aLayoutOfOnlyTheFocus(self):
+		read = parseLayout(layout({"show": FOCUS}))
+		self.assertEqual(placeSegments(read, self.area, FOCUS_ON_TOP, self.focusOnTop), [self.focusOnTop])
+
+	def test_theTallestOtherDisplayIsChosen(self):
+		bands = [Band(0, 1, FOCUS_COLS), Band(1, 4, 40), Band(5, MONARCH_ROWS, MONARCH_COLS)]
+		area = SegmentRect(0, 0, 1 + 4 + MONARCH_ROWS, FOCUS_COLS)
+		rects = placeSegments(self.chat(), area, bands, SegmentRect(0, 0, 1, FOCUS_COLS))
+		self.assertEqual(rects[0], SegmentRect(5, 0, MONARCH_ROWS, MONARCH_COLS))
+
+	def test_oneDisplayIsUnchanged(self):
+		area = SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS)
+		self.assertEqual(
+			placeSegments(self.chat(), area, (), SegmentRect(9, 0, 1, MONARCH_COLS)),
+			placeSegments(self.chat(), area),
+		)
+
+	def test_aFocusOnNoDisplayOfTheAreaFallsBackToTheBoundaryRule(self):
+		elsewhere = SegmentRect(40, 0, 1, FOCUS_COLS)
+		self.assertEqual(
+			placeSegments(self.chat(), self.area, COMBINED, elsewhere),
+			placeSegments(self.chat(), self.area, COMBINED),
+		)
+
+
+class TestSpreadingAcrossDisplays(unittest.TestCase):
+	"""The reader's choice to put the focus alone on its display and the rest on another."""
+
+	area = SegmentRect(0, 0, MONARCH_ROWS + 1, FOCUS_COLS)
+	onTheMonarch = SegmentRect(2, 0, 2, MONARCH_COLS)
+
+	def chat(self):
+		return parseLayout(layout({"show": object()}, {"size": 2, "show": FOCUS}))
+
+	def test_aMonarchHoldingTheFocusSendsTheHistoryToTheFocus80(self):
+		"""What was asked for: the compose box on the Monarch, the history on the Focus 80."""
+		rects = placeSegments(self.chat(), self.area, COMBINED, self.onTheMonarch, spread=True)
+		self.assertEqual(
+			rects,
+			[SegmentRect(MONARCH_ROWS, 0, 1, FOCUS_COLS), SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS)],
+		)
+
+	def test_keptIsTheDefault(self):
+		rects = placeSegments(self.chat(), self.area, COMBINED, self.onTheMonarch)
+		self.assertEqual(rows(rects), [(0, 8), (8, 2)])
+
+	def test_aFocus80HoldingTheFocusIsTheSameEitherWay(self):
+		focus = SegmentRect(MONARCH_ROWS, 0, 1, FOCUS_COLS)
+		self.assertEqual(
+			placeSegments(self.chat(), self.area, COMBINED, focus, spread=True),
+			placeSegments(self.chat(), self.area, COMBINED, focus),
+		)
+
+	def test_oneDisplayIsTheSameEitherWay(self):
+		area = SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS)
+		focus = SegmentRect(9, 0, 1, MONARCH_COLS)
+		self.assertEqual(
+			placeSegments(self.chat(), area, (), focus, spread=True),
+			placeSegments(self.chat(), area, (), focus),
+		)
+
+	def test_theOthersShareAOneRowDisplayEvenly(self):
+		"""Their sizes were rows, which say nothing about cells."""
+		read = parseLayout(
+			layout(
+				{"size": 3, "show": object()},
+				{"show": object()},
+				{"show": object(), "size": 1},
+				{"size": 1, "show": FOCUS},
+			),
+		)
+		rects = placeSegments(read, self.area, COMBINED, self.onTheMonarch, spread=True)
+		self.assertEqual(
+			rects[:3],
+			[
+				SegmentRect(MONARCH_ROWS, 0, 1, 27),
+				SegmentRect(MONARCH_ROWS, 27, 1, 27),
+				SegmentRect(MONARCH_ROWS, 54, 1, 26),
+			],
+		)
+		self.assertEqual(rects[3], SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS))
+
+	def test_theAppModuleIsToldBothDisplays(self):
+		self.assertEqual(
+			displayArea(self.area, COMBINED, self.onTheMonarch, spread=True),
+			DisplayArea(rows=MONARCH_ROWS + 1, columns=MONARCH_COLS),
+		)
+
+	def test_theClaimCoversBothDisplays(self):
+		rects = placeSegments(self.chat(), self.area, COMBINED, self.onTheMonarch, spread=True)
+		self.assertEqual(claimFor(self.area, rects), self.area)
 
 
 class FakeAppModule:
