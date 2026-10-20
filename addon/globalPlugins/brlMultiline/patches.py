@@ -112,7 +112,11 @@ _monitorsRefreshedAt = 0.0
 against. Not `_lastMonitorRefresh`, which a part-finished rotation also moves."""
 
 _layoutRefreshedAt = 0.0
-"""When an app layout's segments were last refreshed, measured against `LAYOUT_QUIET_AGE`."""
+"""When an app layout's segments were last all refreshed, measured against `LAYOUT_QUIET_AGE`."""
+
+_layoutUnfinished = False
+"""Whether a layout-only pass while the reader typed ran out with segments still waiting, so the
+rest are due at once rather than after another interval."""
 
 
 def _applyFocusToHardLeft(handler: BrailleHandler, regions: list) -> None:
@@ -232,7 +236,7 @@ def _refreshPinnedObjects(busy: bool = False) -> None:
 	:param busy: whether NVDA had an update of its own pending on this core cycle, which is
 		what a keystroke looks like from here.
 	"""
-	global _lastMonitorRefresh, _monitorsUnfinished, _monitorsRefreshedAt, _layoutRefreshedAt
+	global _lastMonitorRefresh, _monitorsUnfinished, _monitorsRefreshedAt, _layoutRefreshedAt, _layoutUnfinished
 	from . import getPlugin
 
 	plugin = getPlugin()
@@ -242,17 +246,24 @@ def _refreshPinnedObjects(busy: bool = False) -> None:
 		# waiting for its document and only this clock will notice it arrive.
 		return
 	now = time.monotonic()
-	if not _monitorsUnfinished and now - _lastMonitorRefresh < MONITOR_REFRESH_INTERVAL:
+	unfinished = _monitorsUnfinished or (_layoutUnfinished and layoutUp)
+	if not unfinished and now - _lastMonitorRefresh < MONITOR_REFRESH_INTERVAL:
 		return
 	if busy and now - _monitorsRefreshedAt < MONITOR_QUIET_AGE:
-		if layoutUp and now - _layoutRefreshedAt >= LAYOUT_QUIET_AGE:
-			# The reader's pins wait for the keystroke; the layout's segments do not.
-			_layoutRefreshedAt = now
+		if layoutUp and (_layoutUnfinished or now - _layoutRefreshedAt >= LAYOUT_QUIET_AGE):
+			# The reader's pins wait for the keystroke; the layout's segments do not. A pass
+			# that ran out carries on next cycle, and the layout counts as refreshed only once
+			# a whole pass has finished.
 			try:
-				plugin.refreshAppLayoutInTurn(MONITOR_SLICE_SECONDS)
+				_layoutUnfinished = bool(plugin.refreshAppLayoutInTurn(MONITOR_SLICE_SECONDS))
 			except Exception:
 				log.debugWarning("Could not refresh the app layout", exc_info=True)
+				_layoutUnfinished = False
+			if not _layoutUnfinished:
+				_layoutRefreshedAt = now
 		return
+	# The whole pass reads the layout first and carries any of it left over.
+	_layoutUnfinished = False
 	_lastMonitorRefresh = now
 	try:
 		_monitorsUnfinished = bool(plugin.refreshMonitorsInTurn(MONITOR_SLICE_SECONDS))

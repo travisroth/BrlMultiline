@@ -79,6 +79,12 @@ CHANGE_SETTLE_SECONDS = 0.05
 Short, because the point of saying so is not waiting. Long enough that a burst of changes, a
 message and its timestamp and its reactions arriving together, is read once."""
 
+CHANGE_SLICE_SECONDS = 0.03
+"""How long one pass after a change may spend before carrying on in the next core cycle.
+
+The same as the pin timer's slice, `patches.MONITOR_SLICE_SECONDS`, so that being told about a
+change does not let a layout take more of a cycle than polling would."""
+
 MAX_FAILURES = 3
 """How many times running a segment's callable may raise before the layout is taken down."""
 
@@ -146,6 +152,12 @@ class AppLayoutHost:
 		"""Where an unfinished pass of the callables carries on. See L{resolveIfDue}."""
 		self._changeTimer = None
 		"""Set while a change an app module reported is waiting to be read. See L{contentChanged}."""
+		self._dirty = False
+		"""Whether an app module said its content changed since the callables were last asked."""
+		self._monitorTurn = 0
+		"""Which segment the next pass of L{refreshInTurn} reads first, so all get a turn."""
+		self._fresh: set[str] = set()
+		"""Segments drawn by the callables' phase of the pass under way, not to be read again in it."""
 
 	# What the plugin asks.
 
@@ -371,44 +383,104 @@ class AppLayoutHost:
 		self.shown = None
 
 	# Keeping secondary segments current.
+	#
+	# One scheduler, `refreshInTurn`, does all of it for every caller: the pin timer, the
+	# faster pass while the reader types, and an app module saying its content changed. Each
+	# caller hands it a deadline and comes back when it says the pass is unfinished, so no
+	# caller can spend more than its slice and every segment gets its turn.
 
 	def contentChanged(self, appModule: Any = None) -> None:
 		"""An app module says what its layout shows has changed: read it again shortly.
 
 		See `GlobalPlugin.brlMultilineContentChanged`, which is how app modules reach this.
-		Calls while one is waiting are folded into it, so a burst costs one read.
+		It marks the layout as changed and asks for a prompt pass of L{refreshInTurn}, which
+		asks the callables again and reads every segment, within a slice and in turn. Calls
+		while one is waiting are folded into it.
 
 		:param appModule: the app module saying so, or None for whichever layout is up.
 		"""
 		shown = self.shown
 		if shown is None or (appModule is not None and appModule is not shown.appModule):
 			return
+		self._dirty = True
 		if self._changeTimer is not None:
 			return
 		self._changeTimer = wx.CallLater(int(CHANGE_SETTLE_SECONDS * 1000), self._readChange)
 
 	def _readChange(self) -> None:
-		"""Read the layout's segments again now, after an app module said they changed."""
+		"""Read the layout again after an app module said it changed, a slice at a time."""
 		self._changeTimer = None
 		if self.shown is None or self.plugin._terminated or bmConfig.isSpeechOutputMode():
 			return
-		self.resolve()
-		for monitor in list(self.liveMonitors().values()):
-			monitor.refresh()
+		if self.refreshInTurn(time.monotonic() + CHANGE_SLICE_SECONDS) and self.shown is not None:
+			# Carried on at once rather than after the pin timer's interval, which is the
+			# point of having been told.
+			self._changeTimer = wx.CallLater(1, self._readChange)
 
 	def _cancelChange(self) -> None:
 		if self._changeTimer is not None:
 			self._changeTimer.Stop()
 			self._changeTimer = None
 
-	def resolveIfDue(self, deadline: float | None = None) -> bool:
-		"""Ask the callables again if L{RESOLVE_SECONDS} have passed. Called from the pin timer.
+	def refreshInTurn(self, deadline: float) -> bool:
+		"""Keep the layout current: one slice of asking the callables and reading the segments.
 
-		:param deadline: when the timer's slice of this core cycle runs out, by
-			`time.monotonic`. The callables are calls into the application, so they share the
-			slice with the pins rather than running before its clock starts. One slow call
-			cannot be cut short, but the next is left for the next pass.
-		:return: whether a pass is unfinished, so the timer comes back at once.
+		Two phases, each item of each checked against the one deadline:
+
+		1. **The callables**, when they are due, when an app module said something changed, or
+		   when the last pass stopped among them. See L{resolve}.
+		2. **The segments**, each read again, in a rotation that carries on from where the last
+		   pass stopped, so a slow first segment cannot keep the others from ever having a turn.
+		   A segment the first phase has just drawn is not read again straight after.
+
+		The deadline is checked before every item, the first included, so a slice the first
+		phase spent leaves the second for the next pass rather than starting it late. One slow
+		call into the application cannot be cut short; the next is what waits.
+
+		:param deadline: when this slice runs out, by `time.monotonic`.
+		:return: whether the pass is unfinished, so the caller comes back at once.
+		"""
+		shown = self.shown
+		if shown is None:
+			self._resolveFrom = 0
+			self._monitorTurn = 0
+			self._fresh.clear()
+			return False
+		if bmConfig.isSpeechOutputMode():
+			return False
+		due = time.monotonic() - self._resolvedAt >= RESOLVE_SECONDS
+		if self._resolveFrom or self._dirty or due:
+			if not self._resolveFrom:
+				self._dirty = False
+			if self.resolve(deadline=deadline, fresh=self._fresh):
+				return True
+			if self.shown is not shown:
+				return False
+		monitors = self.liveMonitors()
+		keys = [key for key in monitors if key not in self._fresh]
+		if not keys:
+			self._monitorTurn = 0
+			self._fresh.clear()
+			return False
+		start = self._monitorTurn % len(keys)
+		for step in range(len(keys)):
+			index = (start + step) % len(keys)
+			if time.monotonic() >= deadline:
+				self._monitorTurn = index
+				return True
+			monitor = self.liveMonitors().get(keys[index])
+			if monitor is not None:
+				monitor.refresh()
+			if self.shown is not shown:
+				return False
+		self._monitorTurn = 0
+		self._fresh.clear()
+		return False
+
+	def resolveIfDue(self, deadline: float | None = None) -> bool:
+		"""Ask the callables again if L{RESOLVE_SECONDS} have passed or a pass is unfinished.
+
+		:return: whether the pass stopped at the deadline with callables still to ask.
 		"""
 		if self.shown is None:
 			self._resolveFrom = 0
@@ -417,12 +489,20 @@ class AppLayoutHost:
 			return False
 		return self.resolve(deadline=deadline)
 
-	def resolve(self, reveal: bool = False, deadline: float | None = None) -> bool:
+	def resolve(
+		self,
+		reveal: bool = False,
+		deadline: float | None = None,
+		fresh: set | None = None,
+	) -> bool:
 		"""Bring every secondary segment up to date with what it should show.
 
 		:param reveal: whether this is the layout's first showing, when every segment is
 			filled from the start.
-		:param deadline: when to stop and leave the rest for the next pass. See L{resolveIfDue}.
+		:param deadline: when to stop and leave the rest for the next pass, checked before
+			each callable. See L{refreshInTurn}.
+		:param fresh: collects the keys of segments drawn here, so the pass reading the
+			segments next does not read them again.
 		:return: whether the pass stopped at the deadline with segments still to ask.
 		"""
 		shown = self.shown
@@ -439,6 +519,9 @@ class AppLayoutHost:
 			key = segmentKey(index)
 			if not reveal and not segment.isResolved:
 				continue
+			if deadline is not None and index > start and time.monotonic() >= deadline:
+				self._resolveFrom = index
+				return True
 			obj, problem = resolveShown(segment)
 			if problem is not None:
 				if not self._failed(index, f"the callable {problem}"):
@@ -450,13 +533,12 @@ class AppLayoutHost:
 					return False
 				if installed:
 					shown.failures[key] = 0
+					if fresh is not None:
+						fresh.add(key)
 				elif not self._failed(index, "its object could not be shown"):
 					return False
 			else:
 				shown.failures[key] = 0
-			if deadline is not None and time.monotonic() >= deadline and index + 1 < len(segments):
-				self._resolveFrom = index + 1
-				return True
 		self._resolvedAt = time.monotonic()
 		return False
 
@@ -479,9 +561,15 @@ class AppLayoutHost:
 		"""Show an object in a secondary segment from its start, or blank it for None.
 
 		**All or nothing.** The replacement is built before what it replaces is let go, and the
-		object is recorded as shown only once it is. An element that has vanished can raise as
-		soon as it is touched, and recording it first left the segment with no monitor and the
-		next pass believing the answer was already on the display, so it never tried again.
+		object is recorded as shown only once it is drawn. If building or drawing fails, the
+		segment goes back to the monitor and object it had, and is drawn from those again, so
+		what is recorded, what is monitored and what is on the display never disagree. An
+		element that has vanished can raise as soon as it is touched, and a display update can
+		fail; both are counted towards `MAX_FAILURES` by the caller.
+
+		The old monitor is stopped before the new one draws, not after, because stopping a
+		monitor read as a flow detaches whatever flow is attached to its segment, and after
+		the new one had drawn that would be the new one's.
 
 		**Nothing is drawn beside speech.** While braille shows speech the segment's regions are
 		emptied and the monitor kept, and the pin timer draws it once braille is back, exactly
@@ -506,28 +594,50 @@ class AppLayoutHost:
 				old.stop()
 			except Exception:
 				log.debugWarning(f"BrlMultiline: could not stop what {key!r} showed", exc_info=True)
-		if monitor is None or speech:
-			# "No message selected" is a true thing for a reading pane to say, and stale
-			# content is not. Beside speech, nothing of the layout's is drawn either.
-			if present:
-				container.clear(key)
-				if not speech:
-					container.update()
-					container.updateDisplay()
-		if monitor is not None:
-			if present and not speech:
+		try:
+			if monitor is None or speech:
+				# "No message selected" is a true thing for a reading pane to say, and stale
+				# content is not. Beside speech, nothing of the layout's is drawn either.
+				if present:
+					container.clear(key)
+					if not speech:
+						container.update()
+						container.updateDisplay()
+			if monitor is not None and present and not speech:
+				monitor.refresh(reveal=True)
+		except Exception:
+			log.debugWarning(f"BrlMultiline: could not draw {key!r}", exc_info=True)
+			if monitor is not None:
 				try:
-					monitor.refresh(reveal=True)
+					monitor.stop()
 				except Exception:
-					log.debugWarning(f"BrlMultiline: could not draw {key!r}", exc_info=True)
-					try:
-						monitor.stop()
-					except Exception:
-						pass
-					return False
+					pass
+			self._restore(key, old)
+			return False
+		if monitor is not None:
 			shown.monitors[key] = monitor
 		shown.objects[key] = obj
 		return True
+
+	def _restore(self, key: str, old: ObjectMonitor | None) -> None:
+		"""Put a segment back as it was before a replacement that failed, drawn again if it can be.
+
+		Its recorded object is left as it was, which is the old one, so a later answer of the
+		old object finds the old monitor showing it, and a later answer of the new one tries
+		the new one again.
+		"""
+		shown = self.shown
+		if old is None:
+			return
+		shown.monitors[key] = old
+		container = self.plugin.container
+		if container is None or not container.hasKey(key) or bmConfig.isSpeechOutputMode():
+			return
+		try:
+			old.refresh(reveal=False)
+		except Exception:
+			# Drawn by the next pass instead; it is filed, so it will be read.
+			log.debugWarning(f"BrlMultiline: could not draw {key!r} again after a failure", exc_info=True)
 
 	def _stopMonitors(self) -> None:
 		shown = self.shown

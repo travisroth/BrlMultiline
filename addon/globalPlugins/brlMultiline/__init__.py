@@ -1598,25 +1598,29 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# See `refreshMonitors`: a pin drawn beside speech has nothing to remove it.
 			return False
 		began = time.monotonic()
+		deadline = began + allowance
 		try:
-			# On the same clock, because an app layout's reading pane is a pin whose object
-			# can be replaced, and nothing announces the replacement either. Within the same
-			# allowance, since asking is a call into the application too: a pass that runs out
-			# leaves the rest of the callables, and the pins, for the next.
-			if self.appLayouts.resolveIfDue(deadline=began + allowance):
+			# The app layout first, through its own scheduler, within the same allowance: its
+			# callables are calls into the application and its segments are read like pins, and
+			# a pass that runs out leaves the rest, and the reader's pins, for the next. See
+			# `AppLayoutHost.refreshInTurn`.
+			if self.appLayouts.refreshInTurn(deadline):
 				return True
 		except Exception:
 			log.debugWarning("Could not bring the app layout up to date", exc_info=True)
-		monitors = self._everyMonitor()
+		monitors = dict(self._monitors)
 		keys = list(monitors)
 		if not keys:
 			self._monitorTurn = 0
 			return False
+		if time.monotonic() >= deadline:
+			# The layout spent the slice. The pins are next, not now.
+			return True
 		start = self._monitorTurn if 0 <= self._monitorTurn < len(keys) else 0
 		for step in range(len(keys)):
 			index = (start + step) % len(keys)
 			monitor = monitors[keys[index]]
-			if monitor not in self._everyMonitor().values():
+			if monitor not in self._monitors.values():
 				# Unpinned while this pass was running.
 				continue
 			monitor.refresh()
@@ -2221,18 +2225,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def refreshAppLayoutInTurn(self, allowance: float) -> bool:
 		"""Refresh the app layout's segments alone, within an allowance. See `patches.LAYOUT_QUIET_AGE`.
 
-		:return: whether the callables' pass is unfinished.
+		The same scheduler as every other refresh of the layout, so a pass that runs out carries
+		on from the segment after the last one read rather than starting again at the first.
+
+		:return: whether the pass is unfinished, so the timer comes back at once.
 		"""
 		if bmConfig.isSpeechOutputMode():
 			return False
-		began = time.monotonic()
-		if self.appLayouts.resolveIfDue(deadline=began + allowance):
-			return True
-		for monitor in list(self.appLayouts.liveMonitors().values()):
-			monitor.refresh()
-			if time.monotonic() - began >= allowance:
-				break
-		return False
+		return self.appLayouts.refreshInTurn(time.monotonic() + allowance)
 
 	def brlMultilineContentChanged(self, appModule=None) -> None:
 		"""Tell BrlMultiline that what an app layout shows has changed. Part of the app module API.

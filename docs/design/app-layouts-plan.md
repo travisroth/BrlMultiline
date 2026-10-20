@@ -284,3 +284,23 @@ are `TestAppLayoutReviewCa7f5fc`, `TestTheFocusDisplayCommandMovesALayout` and
    clips a one row area to its display before it is offered or divided.
 6. **Asking the callables ran outside the refresh allowance.** They now share the timer's
    deadline, and a pass that runs out carries on from where it stopped.
+
+## Review of bdd4c49
+
+Four more, each reproduced first, in `TestAppLayoutReviewBdd4c49`. Three were one fault: the
+layout was refreshed by three paths, the pin timer, the pass while the reader types and a
+change an app module reported, and only one of them was budgeted and fair. They now share one
+scheduler, `AppLayoutHost.refreshInTurn`.
+
+1. **A failed redraw left a segment with no monitor.** A replacement that built but failed to
+   draw had already let the old monitor go while the old object stayed recorded, so a return
+   to the old object was taken as already shown. `_showIn` now puts the old monitor back and
+   draws it again, leaving the record, the monitor and the display in agreement.
+2. **The pass while typing always started at the first segment,** and the timer ignored its
+   unfinished answer. `refreshInTurn` keeps a rotation, and `patches._layoutUnfinished` brings
+   an unfinished pass back on the next cycle.
+3. **A reported change was read without a budget, and a replacement was read twice.** A change
+   now marks the layout dirty and asks for a prompt pass of the same scheduler, one slice at a
+   time. A segment the callables' phase has just drawn is not read again in that pass.
+4. **A slice the callables spent could still start a read.** The deadline is checked before
+   every item of both phases, so a slice that ran out leaves the reads for the next pass.

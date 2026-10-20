@@ -4290,5 +4290,180 @@ class TestTellingTheLayoutItChanged(PluginTestCase):
 		self.assertEqual(len(self.reads), 1)
 
 
+class TestAppLayoutReviewBdd4c49(PluginTestCase):
+	"""What review of bdd4c49 found: replacement that did not roll back, and refreshes that were
+	not fair or not budgeted. Each reproduced before it was fixed."""
+
+	def setUp(self):
+		super().setUp()
+		import api
+
+		CONFIG["appLayouts"] = True
+		self.messages = FakeNavigatorObject("Message A", role="list")
+		self.app = ScriptedAppModule(chatLayout(self.messages))
+		self.focus = focusIn(self.app)
+		original = api.getFocusObject
+		api.getFocusObject = lambda: self.focus
+		self.addCleanup(setattr, api, "getFocusObject", original)
+		self.host = self.plugin.appLayouts
+
+	def show(self):
+		self.plugin.event_gainFocus(self.focus, lambda: None)
+		callLaterQueue.fire()
+		self.assertTrue(self.host.isUp)
+
+	def threePanes(self):
+		self.app.answer = {
+			"name": "three panes",
+			"segments": [{"size": 1, "show": FakeNavigatorObject(f"Pane {index}")} for index in range(3)]
+			+ [{"show": "focus"}],
+		}
+		self.show()
+
+	def slowReads(self, clock, reads, seconds):
+		for index, monitor in enumerate(self.host.liveMonitors().values()):
+
+			def read(reveal=False, index=index):
+				reads.append(index)
+				clock[0] += seconds
+
+			monitor.refresh = read
+
+	def test_aFailedDrawPutsTheOldMonitorBack(self):
+		from unittest import mock
+
+		self.current = self.messages
+		self.app.answer = chatLayout(lambda: self.current)
+		self.show()
+		before = self.host.shown.monitors["appLayout.0"]
+		self.current = FakeNavigatorObject("Message B", role="list")
+		with mock.patch.object(self.container, "update", side_effect=RuntimeError("display update failed")):
+			self.host.resolve()
+		self.assertTrue(self.host.isUp)
+		self.assertIs(self.host.shown.monitors["appLayout.0"], before)
+		self.assertIs(self.host.shown.objects["appLayout.0"], self.messages)
+		self.current = self.messages
+		for _attempt in range(4):
+			self.host.resolve()
+		self.assertIs(self.host.shown.monitors["appLayout.0"].pinned, self.messages)
+
+	def test_aFailedDrawIsTriedAgain(self):
+		from unittest import mock
+
+		self.current = self.messages
+		self.app.answer = chatLayout(lambda: self.current)
+		self.show()
+		second = FakeNavigatorObject("Message B", role="list")
+		self.current = second
+		with mock.patch.object(self.container, "update", side_effect=RuntimeError("display update failed")):
+			self.host.resolve()
+		self.host.resolve()
+		self.assertIs(self.host.shown.monitors["appLayout.0"].pinned, second)
+
+	def test_thePassWhileTypingTakesTheSegmentsInTurn(self):
+		from unittest import mock
+
+		import brlMultiline.appLayoutHost as host
+
+		self.threePanes()
+		clock = [1000.0]
+		reads = []
+		self.host._resolvedAt = clock[0]
+		self.slowReads(clock, reads, 0.04)
+		with mock.patch.object(host.time, "monotonic", side_effect=lambda: clock[0]):
+			for _tick in range(3):
+				self.plugin.refreshAppLayoutInTurn(0.03)
+		self.assertEqual(reads, [0, 1, 2])
+
+	def test_theTimerCarriesOnAnUnfinishedPassWhileTypingAtOnce(self):
+		from unittest import mock
+
+		import brlMultiline.appLayoutHost as host
+
+		self.show()
+		clock = [100.5]
+		with (
+			mock.patch.multiple(
+				patches,
+				_lastMonitorRefresh=0.0,
+				_monitorsUnfinished=False,
+				_monitorsRefreshedAt=100.0,
+				_layoutRefreshedAt=0.0,
+				_layoutUnfinished=False,
+			),
+			mock.patch.object(host.time, "monotonic", side_effect=lambda: clock[0]),
+			mock.patch.object(self.plugin, "refreshAppLayoutInTurn", return_value=True) as refresh,
+		):
+			patches._refreshPinnedObjects(busy=True)
+			clock[0] += 0.01
+			patches._refreshPinnedObjects(busy=True)
+			self.assertEqual(refresh.call_count, 2)
+
+	def test_aReplacementIsReadOnceForOneChange(self):
+		from unittest import mock
+
+		import brlMultiline.appLayoutHost as host
+
+		self.current = self.messages
+		self.app.answer = chatLayout(lambda: self.current)
+		self.show()
+		self.current = FakeNavigatorObject("Message B", role="list")
+		reads = []
+		original = host.ObjectMonitor.refresh
+
+		def refresh(monitor, reveal=False):
+			if monitor.pinned is self.current:
+				reads.append(reveal)
+			return original(monitor, reveal=reveal)
+
+		with mock.patch.object(host.ObjectMonitor, "refresh", new=refresh):
+			self.plugin.brlMultilineContentChanged(self.app)
+			callLaterQueue.fire()
+		self.assertEqual(reads, [True])
+
+	def test_aChangeIsReadWithinASliceAndCarriedOn(self):
+		from unittest import mock
+
+		import brlMultiline.appLayoutHost as host
+
+		self.threePanes()
+		clock = [1000.0]
+		reads = []
+		self.host._resolvedAt = clock[0]
+		self.slowReads(clock, reads, 0.04)
+		with mock.patch.object(host.time, "monotonic", side_effect=lambda: clock[0]):
+			self.plugin.brlMultilineContentChanged(self.app)
+			callLaterQueue.fire()
+			self.assertEqual(reads, [0])
+			callLaterQueue.fire()
+			callLaterQueue.fire()
+		self.assertEqual(reads, [0, 1, 2], "carried on promptly, one slice at a time")
+
+	def test_aSliceTheCallablesSpentStartsNoRead(self):
+		from unittest import mock
+
+		import brlMultiline.appLayoutHost as host
+
+		clock = [1000.0]
+		armed = [False]
+		reads = []
+
+		def pane():
+			if armed[0]:
+				clock[0] += 0.04
+			return self.messages
+
+		self.app.answer = {"name": "focus then pane", "segments": [{"show": "focus"}, {"size": 2, "show": pane}]}
+		self.show()
+		self.host.liveMonitors()["appLayout.1"].refresh = lambda reveal=False: reads.append(True)
+		self.host._resolvedAt = 0.0
+		armed[0] = True
+		with mock.patch.object(host.time, "monotonic", side_effect=lambda: clock[0]):
+			self.assertTrue(self.plugin.refreshMonitorsInTurn(0.03))
+			self.assertEqual(reads, [])
+			self.assertFalse(self.plugin.refreshMonitorsInTurn(0.03))
+		self.assertEqual(reads, [True], "read on the next pass")
+
+
 if __name__ == "__main__":
 	unittest.main()
