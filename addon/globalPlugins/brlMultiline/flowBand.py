@@ -2194,12 +2194,19 @@ class FlowBand(PanelOwner):
 		return None
 
 	def segment(self) -> Optional[FlowBufferSegment]:
-		""":return: the band's segment, or None if the claim is not on the display."""
+		""":return: the band's segment, or None if the claim is not on the display.
+
+		While an app layout whose focus segment asked for the flow is up, that segment is the
+		band's. The band's own claim is outranked meanwhile and comes back when the layout goes,
+		and the controller, which is where the reader's place is, carries over both ways.
+		"""
 		container = self._container()
 		if container is None:
 			return None
+		appLayouts = getattr(self.plugin, "appLayouts", None)
+		key = (appLayouts.flowSegmentKey() if appLayouts is not None else None) or BAND_NAME
 		try:
-			segment = container.segmentForKey(BAND_NAME)
+			segment = container.segmentForKey(key)
 		except LookupError:
 			return None
 		return segment if isinstance(segment, FlowBufferSegment) else None

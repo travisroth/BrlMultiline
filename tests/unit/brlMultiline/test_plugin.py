@@ -3617,6 +3617,15 @@ def chatLayout(show, name="chat", focusRows=1):
 	return {"name": name, "segments": [{"show": show}, {"size": focusRows, "show": "focus"}]}
 
 
+class _ReusedWindow(FakeNavigatorObject):
+	"""Equal to every other, as NVDA's objects for Outlook's one reading pane window are."""
+
+	def __eq__(self, other):
+		return isinstance(other, _ReusedWindow)
+
+	__hash__ = object.__hash__
+
+
 class TestShowingAppLayouts(PluginTestCase):
 	"""Milestones 2 and 3 of `docs/design/app-layouts-plan.md`: the layout on the display,
 	following the focus, and secondary segments kept current."""
@@ -3834,6 +3843,53 @@ class TestShowingAppLayouts(PluginTestCase):
 		self.assertIs(self.plugin.flowBand, band)
 		self.assertIsNotNone(band.segment())
 
+	def flowingList(self, focusRows=3):
+		""":return: the flow band, with a mail layout up whose focus asks for the flow."""
+		CONFIG["flowEnabled"] = True
+		self.plugin.rebuildBuffer()
+		band = self.plugin.flowBand
+		self.assertIsNotNone(band)
+		self.chat.answer = {
+			"name": "mail",
+			"segments": [{"size": focusRows, "show": "focus", "flow": True}, {"show": self.messages}],
+		}
+		self.focus(name="Message list")
+		self.settle()
+		self.assertTrue(self.host.isUp)
+		return band
+
+	def test_theFlowDrawsInAFocusSegmentThatAsksForIt(self):
+		band = self.flowingList()
+		self.assertIs(self.plugin.flowBand, band)
+		self.assertEqual(self.host.flowSegmentKey(), "appLayout.0")
+		self.assertIs(band.segment(), self.container.segmentForKey("appLayout.0"))
+		self.assertTrue(self.container.focusSegment.spec.ownerDrawsFocus)
+
+	def test_theSameBandGoesBackToItsOwnSegment(self):
+		band = self.flowingList()
+		self.chat.answer = None
+		self.focus()
+		self.settle()
+		self.assertFalse(self.host.isUp)
+		self.assertIs(self.plugin.flowBand, band)
+		self.assertEqual(band.segment().key, "flow")
+
+	def test_oneRowLeavesTheFlowWaiting(self):
+		band = self.flowingList(focusRows=1)
+		self.assertIsNone(self.host.flowSegmentKey())
+		self.assertIsNone(band.segment())
+
+	def test_withoutTheFlowTheFocusSegmentIsWrittenAsUsual(self):
+		self.chat.answer = {
+			"name": "mail",
+			"segments": [{"size": 3, "show": "focus", "flow": True}, {"show": self.messages}],
+		}
+		self.focus(name="Message list")
+		self.settle()
+		self.assertIsNone(self.plugin.flowBand)
+		segment = self.container.segmentForKey("appLayout.0")
+		self.assertFalse(segment.acceptFocusRegions([object()]))
+
 	def test_aRebuildThatDropsTheClaimForgetsTheLayout(self):
 		self.focus()
 		self.settle()
@@ -3886,6 +3942,49 @@ class TestShowingAppLayouts(PluginTestCase):
 		monitor = self.host.liveMonitors()["appLayout.0"]
 		self.focus(name="Compose")
 		self.assertIs(self.host.liveMonitors()["appLayout.0"], monitor)
+
+	def reusedPane(self, name: str, key):
+		""":return: a reading pane that compares equal to every other, as Outlook's reused window does."""
+		pane = _ReusedWindow(name, role="document")
+		if key is not None:
+			pane.brlMultilineShowKey = key
+		return pane
+
+	def test_aDifferentShowKeyReplacesAReusedWindow(self):
+		"""Outlook keeps one document window for every message: the key tells them apart."""
+		self.resolvedLayout(self.reusedPane("Message one", "row 1"))
+		self.focus()
+		self.settle()
+		second = self.reusedPane("Message two", "row 2")
+		self.pane = second
+		self.focus(name="Message two in the list")
+		self.assertIs(self.host.liveMonitors()["appLayout.0"].pinned, second)
+
+	def test_theSameShowKeyKeepsTheReadersPlace(self):
+		self.resolvedLayout(self.reusedPane("Message one", "row 1"))
+		self.focus()
+		self.settle()
+		monitor = self.host.liveMonitors()["appLayout.0"]
+		self.pane = self.reusedPane("Message one", "row 1")
+		self.focus()
+		self.assertIs(self.host.liveMonitors()["appLayout.0"], monitor)
+
+	def test_aKeyOnOneAnswerOnlyIsIgnored(self):
+		self.resolvedLayout(self.reusedPane("Message one", None))
+		self.focus()
+		self.settle()
+		monitor = self.host.liveMonitors()["appLayout.0"]
+		self.pane = self.reusedPane("Message one", "row 1")
+		self.focus()
+		self.assertIs(self.host.liveMonitors()["appLayout.0"], monitor)
+
+	def test_theSameKeyDoesNotKeepAReplacedObject(self):
+		import brlMultiline.appLayoutHost as host
+
+		first = FakeNavigatorObject("Message one", role="document")
+		second = FakeNavigatorObject("Message two", role="document")
+		first.brlMultilineShowKey = second.brlMultilineShowKey = "row 1"
+		self.assertFalse(host.sameObject(first, second))
 
 	def test_aNewAnswerIsPickedUpOnTheClock(self):
 		"""The pane loads after the selection does, with no focus change to say so."""

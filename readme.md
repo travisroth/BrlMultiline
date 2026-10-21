@@ -1738,6 +1738,11 @@ def brlMultilineLayout(self, focus, area):
    reading pane whose document changes with each message.
 5. `size` is optional on one segment, which takes what the others leave. Without one, the sizes
    must add up to the area. Exactly one segment must show the focus.
+6. `"flow": True` on the focus segment reads the focus as the reader's flow does, where the
+   reader has the flow on and the segment has at least two rows: a message list then shows the
+   messages around the focus rather than one row of it. Otherwise the flow waits while your
+   layout is up, keeping the reader's place, and the focus segment shows the focus as itself,
+   which is right for a compose box. Only the focus segment may ask for it.
 
 How it behaves once it is up:
 
@@ -1749,6 +1754,10 @@ How it behaves once it is up:
    different object replaces what is shown and starts at its top. The same object, by `==`,
    keeps the reader's place. `None` blanks the segment. A function that raises three times in a
    row takes the layout down.
+   If your application reuses one element for different content, so that `==` cannot tell them
+   apart, set `brlMultilineShowKey` on the object you return to anything naming what it shows
+   now, such as the selected message. A different key is a different object and starts at its
+   top. The same key still has to be the same object by `==`.
 4. A segment showing an object reads like a pinned one: as a flow where it has room, following a
    growing run such as a chat, and panned with the per segment commands. Routing keys move within
    it and do not move the focus. The reader cannot pin anything into your segments.

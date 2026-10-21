@@ -72,6 +72,15 @@ class TestReadingTheAnswer(unittest.TestCase):
 		self.assertTrue(read.segments[0].isResolved)
 		self.assertFalse(read.segments[1].isResolved)
 
+	def test_theFocusMayAskForTheFlow(self):
+		read = parseLayout(layout({"size": 2, "show": FOCUS, "flow": True}, {"show": object()}))
+		self.assertTrue(read.segments[0].flow)
+		self.assertFalse(read.segments[1].flow)
+
+	def test_theFlowIsOffUnlessAskedFor(self):
+		read = parseLayout(layout({"show": FOCUS}))
+		self.assertFalse(read.segments[0].flow)
+
 	def test_aTupleOfSegmentsIsAccepted(self):
 		read = parseLayout({"name": "chat", "segments": ({"show": FOCUS},)})
 		self.assertEqual(len(read.segments), 1)
@@ -96,6 +105,8 @@ class TestReadingTheAnswer(unittest.TestCase):
 			"size text": layout({"size": "6", "show": object()}, {"show": FOCUS}),
 			"size a fraction": layout({"size": 2.5, "show": object()}, {"show": FOCUS}),
 			"size True": layout({"size": True, "show": object()}, {"show": FOCUS}),
+			"flow not a bool": layout({"show": FOCUS, "flow": 1}),
+			"flow on an object": layout({"size": 2, "show": object(), "flow": True}, {"show": FOCUS}),
 		}
 		for case, raw in cases.items():
 			with self.subTest(case=case):
@@ -216,6 +227,33 @@ class TestTheClaim(unittest.TestCase):
 
 		self.assertGreater(AppLayoutPanel.priority, PRIORITY_FLOW)
 		self.assertLess(AppLayoutPanel.priority, PRIORITY_GRAPHICS)
+
+	def flowPanel(self, focusRows):
+		""":return: a layout with the focus on top, asking for the flow, in this many rows."""
+		area = SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS)
+		rects = [
+			SegmentRect(0, 0, focusRows, MONARCH_COLS),
+			SegmentRect(focusRows, 0, MONARCH_ROWS - focusRows, MONARCH_COLS),
+		]
+		return AppLayoutPanel(area, rects, focusIndex=0, flowFocus=True)
+
+	def test_aFocusAskingForTheFlowIsMarkedAsTheFlowsBandIs(self):
+		panel = self.flowPanel(2)
+		focus, objects = panel.segments()
+		self.assertEqual(panel.flowKey, "appLayout.0")
+		self.assertTrue(focus.ownerDrawsFocus)
+		self.assertFalse(focus.isReserved, "the reader's focus content still lands there without a flow")
+		self.assertFalse(objects.hostsSystemFocus)
+
+	def test_oneRowIsTooFewForTheFlow(self):
+		panel = self.flowPanel(1)
+		self.assertIsNone(panel.flowKey)
+		self.assertFalse(panel.segments()[0].ownerDrawsFocus)
+
+	def test_aFocusNotAskingIsOrdinary(self):
+		panel = self.panel()
+		self.assertIsNone(panel.flowKey)
+		self.assertFalse(panel.segments()[1].ownerDrawsFocus)
 
 	def test_itsKeysAreRecognised(self):
 		self.assertTrue(isAppLayoutKey("appLayout.3"))

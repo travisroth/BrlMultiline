@@ -52,6 +52,12 @@ on anything that is not an app module."""
 FOCUS = "focus"
 """The `show` value of the segment that follows the focus."""
 
+FLOW_MIN_ROWS = 2
+"""The fewest rows a focus segment asking for the flow must have to get it.
+
+The same as `flowBand.MIN_BAND_ROWS`, not imported from there because this module stays free of
+NVDA. A flow needs a second row to be anything but one line of the focus."""
+
 PANEL_NAME = "appLayout"
 """The name of the claim an app layout is shown in, and the prefix of its segment keys.
 
@@ -108,6 +114,12 @@ class LayoutSegment:
 
 	size: int | None = None
 	"""Rows, or cells on a display of one row. None takes what the others leave."""
+
+	flow: bool = False
+	"""For the focus segment only: read the focus as the reader's flow does, where the reader has
+	the flow on and the segment has L{FLOW_MIN_ROWS}. A message list then shows the messages
+	around the focus rather than one row of it. Off by default, because a compose box is better
+	shown as itself."""
 
 	@property
 	def isFocus(self) -> bool:
@@ -188,7 +200,12 @@ def _parseSegment(layoutName: str, index: int, raw: Any) -> LayoutSegment:
 			raise LayoutError(f"{where} has size {size!r}; a size is a whole number")
 		if size < 1:
 			raise LayoutError(f"{where} has size {size}; a size is at least 1")
-	return LayoutSegment(show=show, size=size)
+	flow = raw.get("flow", False)
+	if not isinstance(flow, bool):
+		raise LayoutError(f"{where} has flow {flow!r}; flow is True or False")
+	if flow and not (isinstance(show, str) and show == FOCUS):
+		raise LayoutError(f"{where} asks for the flow; only the segment showing {FOCUS!r} may")
+	return LayoutSegment(show=show, size=size, flow=flow)
 
 
 def freeArea(
@@ -651,19 +668,35 @@ class AppLayoutPanel(BraillePanel):
 	segment is, because what lands in it is NVDA's own focus content.
 
 	Ranked above the flow and below a drawing; see `panels.PRIORITY_APP_LAYOUT`.
+
+	**A focus segment asking for the flow** is marked as the flow's own band is, hosting the
+	focus with its owner drawing it, and the reader's flow, which waits while the layout is up,
+	draws there instead of in its band. Where the reader has no flow nothing registers to draw
+	it, and NVDA's focus content is written in as in any focus segment.
 	"""
 
 	priority = PRIORITY_APP_LAYOUT
 
-	def __init__(self, area: SegmentRect, rects: Sequence[SegmentRect], focusIndex: int) -> None:
+	def __init__(
+		self,
+		area: SegmentRect,
+		rects: Sequence[SegmentRect],
+		focusIndex: int,
+		flowFocus: bool = False,
+	) -> None:
 		"""
 		:param area: the free area, which is the claim.
 		:param rects: where each segment goes, from L{placeSegments}.
 		:param focusIndex: which of them follows the focus.
+		:param flowFocus: whether the focus segment asked for the flow.
 		"""
 		super().__init__(PANEL_NAME, area, reserve=True, focusSegmentKey=segmentKey(focusIndex))
 		self.rects = list(rects)
 		self.focusIndex = focusIndex
+		self.flowKey: str | None = (
+			segmentKey(focusIndex) if flowFocus and self.rects[focusIndex].numRows >= FLOW_MIN_ROWS else None
+		)
+		"""The key of the focus segment when the reader's flow may draw there, else None."""
 
 	def segments(self) -> list[SegmentSpec]:
 		specs = []
@@ -671,6 +704,8 @@ class AppLayoutPanel(BraillePanel):
 			spec = self.buildSpec(str(index), rect)
 			if index == self.focusIndex:
 				spec = dataclasses.replace(spec, owner=None)
+				if self.flowKey is not None:
+					spec = dataclasses.replace(spec, hostsSystemFocus=True, exclusive=True)
 			specs.append(spec)
 		return specs
 
@@ -744,7 +779,7 @@ def describeLayout(
 		where += f", cells {rect.col} to {rect.endCol - 1}"
 		asked = "asked for the rest" if segment.size is None else f"asked for {segment.size}"
 		if segment.isFocus:
-			what = "the focus"
+			what = "the focus, as a flow where the reader has one" if segment.flow else "the focus"
 		else:
 			shown, problem = resolve(segment)
 			if problem is not None:

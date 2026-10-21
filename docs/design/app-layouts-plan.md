@@ -259,6 +259,21 @@ What milestones 2 to 4 settled that the design above left open.
    undecided: which events mean "content changed" differs by application, Teams uses live
    regions while focused and others UIA events or none, and watching busy events would cost
    on every one of them. The app module receives its own events already and knows which matter.
+9. **A focus segment may ask for the flow.** Found on hardware with Outlook: spread across a
+   Monarch and a Focus 80, the message list had the whole Monarch and showed one message,
+   because the flow waits while a layout is up (item 2). A list wants the flow there and a
+   compose box does not, so it is the app module's choice, `"flow": True` on the focus
+   segment, honoured with at least `FLOW_MIN_ROWS` rows. `AppLayoutPanel` then marks that
+   segment as the flow band's own is, hosting the focus with its owner drawing it, and
+   `FlowBand.segment` answers it while the layout is up, so the waiting flow draws there with
+   its controller and the reader's place, and goes back to its band when the layout goes. A
+   reader without the flow loses nothing: no owner registers, and NVDA's focus content is
+   written in as before.
+10. **A key for a reused element.** Also from Outlook: its reading pane keeps one document
+   window for every message, so `==` saw one object and the reader's place carried from
+   message to message. An object a `show` callable returns may carry `brlMultilineShowKey`;
+   different keys make two answers different. Equal keys still need `==`, so a key cannot
+   keep a replaced object.
 
 ## Review of ca7f5fc
 

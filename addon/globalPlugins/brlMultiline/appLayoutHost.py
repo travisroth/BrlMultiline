@@ -118,6 +118,22 @@ class Shown:
 	"""How many times running each segment's callable has raised."""
 
 
+SHOW_KEY_ATTRIBUTE = "brlMultilineShowKey"
+"""An attribute an app module may set on the object a `show` callable returns, naming what it shows.
+
+For an element that an application reuses for different content, such as Outlook's reading pane,
+which keeps one document window for every message. NVDA compares the window, so every message is
+the same object and the reader's place would carry over from one to the next. Two answers whose
+keys differ are different, and the new one starts at its top."""
+
+
+def _showKey(obj: Any) -> Any:
+	try:
+		return getattr(obj, SHOW_KEY_ATTRIBUTE, None)
+	except Exception:
+		return None
+
+
 def sameObject(old: Any, new: Any) -> bool:
 	"""Whether two answers are the same object, as far as anyone can tell.
 
@@ -125,10 +141,17 @@ def sameObject(old: Any, new: Any) -> bool:
 	equal only through NVDA's own `__eq__`, which is a call into the application and can raise.
 	A raise counts as different: that costs a reset of the reading position and never shows the
 	wrong content.
+
+	When both carry L{SHOW_KEY_ATTRIBUTE}, different keys make them different. The same keys
+	still have to compare equal, so a key can never keep an object that was replaced.
 	"""
 	if old is new:
 		return True
 	if old is None or new is None:
+		return False
+	oldKey = _showKey(old)
+	newKey = _showKey(new)
+	if oldKey is not None and newKey is not None and oldKey != newKey:
 		return False
 	try:
 		return bool(old == new)
@@ -171,6 +194,15 @@ class AppLayoutHost:
 	def name(self) -> str | None:
 		""":return: the name of the layout up, or None."""
 		return self.shown.layout.name if self.shown is not None else None
+
+	def flowSegmentKey(self) -> str | None:
+		""":return: the key of the layout's focus segment when the reader's flow draws there, or None.
+
+		Asked by the flow band for its segment. See `AppLayoutPanel`.
+		"""
+		if not self.isUp:
+			return None
+		return self.shown.panel.flowKey
 
 	def liveMonitors(self) -> dict[str, ObjectMonitor]:
 		""":return: the secondary segments' monitors whose segments are on the display now.
@@ -300,7 +332,12 @@ class AppLayoutHost:
 		self._stopMonitors()
 		# Only the rows the layout uses, so a display it leaves alone keeps the reader's own
 		# arrangement rather than going blank.
-		panel = AppLayoutPanel(claimFor(area, rects), rects, layout.focusIndex)
+		panel = AppLayoutPanel(
+			claimFor(area, rects),
+			rects,
+			layout.focusIndex,
+			flowFocus=layout.segments[layout.focusIndex].flow,
+		)
 		# Before the claim, because claiming rebuilds the display and the rebuild asks whether
 		# a layout is up: the flow waits for one rather than fighting it for the rows.
 		self.shown = Shown(
