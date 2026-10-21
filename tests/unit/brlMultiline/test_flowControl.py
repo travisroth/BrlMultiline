@@ -11,6 +11,7 @@ One cell per character, which is what the harness's regions produce, so a row of
 cells is eight characters and a test can say what it expects to feel.
 """
 
+import types
 import unittest
 
 from ._stubs import (
@@ -658,6 +659,34 @@ class TestRouting(unittest.TestCase):
 		control = controllerOver(["abc"], numCols=8, numRows=4)
 		self.assertIsNone(control.regionAt(5))
 		self.assertIsNone(control.regionAt(20))
+
+
+class TestEnteringAtAPosition(unittest.TestCase):
+	"""For quick navigation in a pin, which goes to what it found without the cursor."""
+
+	def lines(self):
+		return ["one", "two", "three", "four", "five", "six"]
+
+	def test_thePositionsBlockIsPutAtTheTop(self):
+		control = controllerOver(self.lines(), numCols=8, numRows=2)
+		self.assertTrue(control.enterAtPosition(control.source.obj._position(3)))
+		self.assertEqual([row.strip() for row in rowTexts(control)[:2]], ["four", "five"])
+
+	def test_theCursorStaysWhereItWas(self):
+		control = controllerOver(self.lines(), caretIndex=1, numCols=8, numRows=2)
+		control.enterAtPosition(control.source.obj._position(4))
+		self.assertEqual(control.source.obj.caretIndex, 1)
+
+	def test_theTopPositionIsWhereTheTopBlockStarts(self):
+		control = controllerOver(self.lines(), numCols=8, numRows=2)
+		control.enterAtPosition(control.source.obj._position(2))
+		self.assertEqual(control.topPosition().index, 2)
+
+	def test_aSourceWithoutPositionsCannot(self):
+		control = controllerOver(self.lines(), numCols=8, numRows=2)
+		control.source = types.SimpleNamespace()
+		self.assertIsNone(control.topPosition())
+		self.assertFalse(control.enterAtPosition(object()))
 
 
 class TestDescribing(unittest.TestCase):

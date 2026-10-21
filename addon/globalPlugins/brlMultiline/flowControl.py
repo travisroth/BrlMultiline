@@ -362,6 +362,45 @@ class FlowController(PanelOwner):
 		if result.kind is not ResultKind.BLOCK or result.block is None:
 			log.debugWarning(f"A flow could not enter at the cursor: {result.kind} {result.message}")
 			return False
+		return self._enterAtBlock(result, contextRows, fill)
+
+	def topPosition(self):
+		""":return: where the block at the top of the window begins, or None.
+
+		A pin's reading position, which is where a search through the document starts. None for
+		a source that has no positions, such as a run of objects.
+		"""
+		blockId = getattr(self.window.anchor, "blockId", None)
+		positionOf = getattr(self.source, "positionOf", None)
+		if blockId is None or positionOf is None:
+			return None
+		return positionOf(blockId)
+
+	def enterAtPosition(self, info) -> bool:
+		"""Place the window afresh with the block holding a position at its top.
+
+		What a quick navigation key in a pin does with what it found: the place is set down at
+		the top and the document runs on from it, as `groundAt` does for the band, without the
+		cursor being involved. See `pinQuickNav`.
+
+		:param info: a position in this flow's document.
+		:return: whether anything is now on the display. False for a source that cannot read a
+			block at a position.
+		"""
+		blockAtPosition = getattr(self.source, "blockAtPosition", None)
+		if blockAtPosition is None:
+			return False
+		with self.operation():
+			self._owedAbove = 0
+			result = blockAtPosition(info)
+			self.lastResult = result
+			if result.kind is not ResultKind.BLOCK or result.block is None:
+				log.debugWarning(f"A flow could not enter at a position: {result.kind} {result.message}")
+				return False
+			return self._enterAtBlock(result, 0, True)
+
+	def _enterAtBlock(self, result, contextRows: int, fill: bool) -> bool:
+		"""Start the window afresh from a block just read. See `_enterAtCursor`."""
 		self.window.blocks.clear()
 		self.blocks.clear()
 		self._rereadFrom = 0

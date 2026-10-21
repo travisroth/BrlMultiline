@@ -56,7 +56,7 @@ ONE_SHOT = "oneShot"
 STAYS_ON = "staysOn"
 STYLES = (ONE_SHOT, STAYS_ON)
 
-CONTEXTS = ("chart", "picture", "graphics", "table", "unwrapped")
+CONTEXTS = ("chart", "picture", "graphics", "table", "unwrapped", "pinned")
 """Every context a layer can be for, most specific first. See `keyLayerContexts`."""
 
 SPACE_WITH_Z = "dot1+dot3+dot5+dot6+space"
@@ -75,7 +75,7 @@ found a keyboard layer that escape did not leave. With modifiers it is another k
 escape is left to NVDA.
 """
 
-SHIPPED = 6
+SHIPPED = 7
 """Which additions to the shipped layers a stored set has already been given. See L{SHIPPED_ADDITIONS}.
 
 Written with every set saved. A set stored before this was written has none, and reads as 1.
@@ -130,6 +130,10 @@ SHIPPED_ADDITIONS = {
 		"bindings": {
 			"graphics": ("dot8", "dot7"),
 		},
+	},
+	# Browse mode's quick navigation letters for a pinned document, on the display it is on.
+	7: {
+		"layers": ("pinnedDocument",),
 	},
 }
 """What each revision of the shipped layers added, for sets saved before it.
@@ -994,7 +998,35 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 				normalize(f"br({MONARCH}):zoomOut"): plugin("flowPanLinesLeft"),
 			},
 		)
-		return [default, graphics, charts, pictures, tables, unwrapped]
+		# Browse mode's letters, for the pinned document on the display they are pressed on, with dot
+		# 7 for the previous one as the chart layer's v has. s goes to the next pinned document on
+		# the display. Nothing else, so the d-pads, panning and routing are what they always are.
+		letters = {
+			"Heading": "dot1+dot2+dot5",
+			"Link": "dot1+dot3",
+			"Table": "dot2+dot3+dot4+dot5",
+			"List": "dot1+dot2+dot3",
+			"ListItem": "dot2+dot4",
+			"Graphic": "dot1+dot2+dot4+dot5",
+			"FormField": "dot1+dot2+dot4",
+			"Landmark": "dot1+dot4+dot5",
+			"BlockQuote": "dot1+dot2+dot3+dot4+dot5",
+		}
+		pinned = newLayer(
+			device,
+			"pinnedDocument",
+			"Pinned document",
+			"pinned",
+			bindings={
+				**{normalize(f"br({MONARCH}):{dots}"): plugin(f"pinNext{name}") for name, dots in letters.items()},
+				**{
+					normalize(f"br({MONARCH}):{dots}+dot7"): plugin(f"pinPrevious{name}")
+					for name, dots in letters.items()
+				},
+				normalize(f"br({MONARCH}):dot2+dot3+dot4"): plugin("pinNextDocument"),
+			},
+		)
+		return [default, graphics, charts, pictures, tables, unwrapped, pinned]
 	if device == KEYBOARD:
 
 		def keypad(names, target):

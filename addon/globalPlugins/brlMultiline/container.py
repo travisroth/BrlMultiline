@@ -50,6 +50,20 @@ position within it. Answers whether it dealt with the press. The plugin sets it 
 segment showing a monitored object goes to that object (see `monitorRouting`), without this
 module knowing what a monitor is."""
 
+segmentUsed: "Callable[[str, SegmentRect], None] | None" = None
+"""Told the key and rectangle of each segment a routing key or a pan reaches, so the plugin can
+remember which segment on each display the reader last used. See `pinQuickNav`."""
+
+
+def _noteUsed(segment) -> None:
+	note = segmentUsed
+	if note is None:
+		return
+	try:
+		note(segment.key, segment.rect)
+	except Exception:
+		log.debugWarning("Could not note the segment used", exc_info=True)
+
 
 class FakeRegionsList(MutableSequence):
 	"""Stands in for a buffer's `regions` list, resolving to the focus segment.
@@ -555,6 +569,7 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 			log.debug(f"Routing key at {windowPos} is not in any segment")
 			return
 		segment = self.segments[index]
+		_noteUsed(segment)
 		router = segmentRouter
 		if router is not None:
 			try:
@@ -598,6 +613,7 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 			log.debugWarning(f"Cannot scroll segment {segment!r}", exc_info=True)
 			return
 		buffer = self.segments[index]
+		_noteUsed(buffer)
 		if index == self._focusSegmentNumber:
 			# The focus segment scrolls exactly as an ordinary buffer does, including
 			# moving to the next or previous line when the window cannot scroll further.

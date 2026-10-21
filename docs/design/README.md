@@ -75,6 +75,9 @@ Read the files in this order:
    its compose box or an Outlook reading pane beside its message list. Built, with a Teams chat
    layout in that add-on, and tried on a Focus 80 and a Monarch.
    Read it before extending the app module API in the readme's developer section.
+15. [pinned-quick-nav-plan.md](pinned-quick-nav-plan.md) — the plan for browse mode's quick
+   navigation keys in a pinned document, from the display it is on, without moving the focus or
+   the caret.
 
 ## Project background
 

@@ -114,6 +114,8 @@ CONTEXT_LABELS = {
 	"table": _("Table"),
 	# Translators: a layer of keys that is for lines shown unwrapped, one to a row, and panned across.
 	"unwrapped": _("Unwrapped lines"),
+	# Translators: a layer of keys that is for a pinned document on the display it is pressed on.
+	"pinned": _("Pinned document"),
 }
 
 STYLE_LABELS = {

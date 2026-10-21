@@ -362,8 +362,9 @@ class TestTheKeys(unittest.TestCase):
 		self.assertIsNotNone(read.get("unwrapped"))
 		self.assertTrue(added)
 
-	def test_itIsTheLeastSpecificContext(self):
-		self.assertEqual("unwrapped", keyLayers.CONTEXTS[-1])
+	def test_itIsTheLeastSpecificContextOnTheBand(self):
+		"""Only a pinned document is less specific, and that is on a display of its own."""
+		self.assertEqual(("unwrapped", "pinned"), keyLayers.CONTEXTS[-2:])
 
 	def test_theContextIsPresentWhileTheBandUnwraps(self):
 		from brlMultiline import keyLayerContexts

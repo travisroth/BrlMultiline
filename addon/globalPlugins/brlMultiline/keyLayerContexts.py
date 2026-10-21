@@ -5,7 +5,7 @@
 
 """Which contexts are present, most specific first, for the context aware layer key.
 
-The list is `keyLayers.CONTEXTS`: chart, picture, graphics, table, unwrapped. A chart is also
+The list is `keyLayers.CONTEXTS`: chart, picture, graphics, table, unwrapped, pinned. A chart is also
 graphics, so both are present while one is on the display, and the layer key takes the most specific
 one the device has a layer for.
 
@@ -31,19 +31,44 @@ DETECTED = ("chart", "picture", "graphics", "unwrapped")
 context arriving or going, since the change is not watched for."""
 
 
-def presentContexts(plugin, tables: bool = True) -> list:
+def presentContexts(plugin, tables: bool = True, device=None) -> list:
 	""":return: the contexts present now, most specific first.
 
 	:param plugin: the running global plugin, or None.
 	:param tables: whether to look for a table too. False where only the followed contexts matter,
 		which is every time graphics mode changes, so the caret is not read then.
+	:param device: the display the layer key was pressed on, to look for a pinned document on it.
+		None where only the followed contexts matter.
 	"""
 	present = _graphics(plugin)
 	if tables and _inTable(plugin):
 		present.append("table")
 	if _unwrapped(plugin):
 		present.append("unwrapped")
+	if device is not None and _pinnedOn(plugin, device):
+		present.append("pinned")
 	return present
+
+
+def _pinnedOn(plugin, device) -> bool:
+	""":return: whether a display shows a pinned document that quick navigation can move.
+
+	**Only looked for, and only on the display pressed**, like a table: its letters stop typing while
+	its layer is on, so it never comes on by itself, and a pinned document on the other display is no
+	reason for this one's keys to change. Least specific of all, since the reader may be working in
+	something more particular on the same display. See `docs/design/pinned-quick-nav-plan.md`.
+	"""
+	try:
+		from . import pinQuickNav
+
+		monitors = plugin._everyMonitor()
+		return any(
+			key in monitors and pinQuickNav.documentOf(monitors[key]) is not None
+			for key in plugin._segmentKeysOn(device)
+		)
+	except Exception:
+		log.debugWarning("BrlMultiline key layers: could not look for a pinned document", exc_info=True)
+		return False
 
 
 def _unwrapped(plugin) -> bool:

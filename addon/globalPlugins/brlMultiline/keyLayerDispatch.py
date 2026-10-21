@@ -382,6 +382,9 @@ def _shippedName(layer: Layer) -> Optional[str]:
 		# Translators: the name of a layer of keys BrlMultiline comes with, for lines shown
 		# unwrapped, wider than the display.
 		"unwrapped": ("Unwrapped lines", pgettext("key layer", "Unwrapped lines")),
+		# Translators: the name of a layer of keys BrlMultiline comes with, for moving through a
+		# pinned document by headings, links and the rest.
+		"pinnedDocument": ("Pinned document", pgettext("key layer", "Pinned document")),
 	}
 	english, translated = names.get(layer.id, (None, None))
 	return translated if english is not None and layer.name == english else None

@@ -892,6 +892,22 @@ class DocumentFlowSource:
 		# the next prompt. Declared by the block, never produced by packing.
 		return self._blockAt(info, isControl=isControl)
 
+	def blockAtPosition(self, info) -> FetchResult:
+		""":return: the block holding a position, where the reader has not been, such as what a
+		quick navigation key found in a pin. See `FlowController.enterAtPosition`."""
+		self.budget.startUnlessActive()
+		return self._blockAt(info)
+
+	def positionOf(self, blockId: BlockId):
+		""":return: a copy of where a block begins, or None if it is not one this source read."""
+		start = self._positions.get(blockId.bookmark)
+		if start is None:
+			return None
+		try:
+			return start.copy()
+		except Exception:
+			return None
+
 	def caretPosition(self):
 		""":return: a mark for where this document's caret is, or None if it cannot be read.
 

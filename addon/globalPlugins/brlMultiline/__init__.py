@@ -42,7 +42,7 @@ from . import (
 )
 from . import tableHeaderSpeech
 from . import userBrailleTable
-from . import container as containerModule, monitorRouting
+from . import container as containerModule, monitorRouting, pinQuickNav
 from .container import DisplayContainer
 from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
 from . import appCollect, appLayout, appRegions, layoutCollect, layoutDraw, layoutRegions
@@ -279,6 +279,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		See L{refreshMonitorsInTurn}."""
 
+		self._lastSegmentOn: dict[str, str] = {}
+		"""The segment the reader last panned or routed in on each display, by driver name. Which
+		pinned document a quick navigation key there is for; see L{pinForQuickNav}."""
+
 		self._pinsTurn = False
 		"""Whether the reader's pins have the next slice rather than the app layout, so a slow
 		layout cannot keep them from ever being read. See L{refreshMonitorsInTurn}."""
@@ -411,6 +415,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		patches.install()
 		# A routing key in a segment showing an object goes to that object. See `monitorRouting`.
 		containerModule.segmentRouter = self._routeIntoMonitor
+		containerModule.segmentUsed = self._noteSegmentUsed
 		# Which display's keys are being pressed, for the per display panning direction.
 		panning.install()
 		# The arrow keys inside a browse mode table, which is a way of reading rather than a
@@ -483,6 +488,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Before the patches go, so a region already reading a row reads NVDA's line again.
 			tableRowLine.clear()
 			containerModule.segmentRouter = None
+			containerModule.segmentUsed = None
 			patches.remove()
 			panning.remove()
 			tableArrows.remove()
@@ -3106,6 +3112,78 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return [container.segments[index].key for index in segmentsForDevice(container.rects, device)]
 		return []
 
+	# Quick navigation in a pinned document. See `pinQuickNav`.
+
+	def _noteSegmentUsed(self, key: str, rect) -> None:
+		"""Remember a segment a routing key or a pan reached, as the last used on its display."""
+		for device in deviceMap():
+			if device.rowStart <= rect.row < device.rowEnd:
+				self._lastSegmentOn[device.driverName] = key
+				return
+
+	def _pinnedDocuments(self, gesture) -> tuple[str | None, list[str]]:
+		""":return: the pressed display, and the pinned documents a key there could be for.
+
+		Those on the pressed display, in display order. Failing that, as with paging a table, every
+		pinned document in display order: a key with no display behind it, an ordinary display, or a
+		display holding none.
+		"""
+		monitors = self._everyMonitor()
+		documents = {key for key, monitor in monitors.items() if pinQuickNav.documentOf(monitor) is not None}
+		display = keyLayerDispatch.displayFor(gesture)
+		onDisplay = [key for key in self._segmentKeysOn(display) if key in documents]
+		if onDisplay:
+			return display, onDisplay
+		container = self.container
+		order = [segment.key for segment in container.segments] if container is not None else []
+		return display, [key for key in order if key in documents]
+
+	def pinForQuickNav(self, gesture) -> tuple[str, ObjectMonitor] | None:
+		"""Which pinned document a quick navigation key is for.
+
+		The one the reader last panned or routed in on the pressed display, or chose with the next
+		pinned document command, and otherwise the first. See `_pinnedDocuments`.
+
+		:return: its segment key and monitor, or None if no pinned document is showing.
+		"""
+		display, keys = self._pinnedDocuments(gesture)
+		if not keys:
+			return None
+		last = self._lastSegmentOn.get(display) if display is not None else None
+		key = last if last in keys else keys[0]
+		return key, self._everyMonitor()[key]
+
+	def quickNavInPin(self, gesture, quickNavType, forward: bool) -> None:
+		"""Move a pinned document to its next or previous item of a type, or say why not."""
+		target = self.pinForQuickNav(gesture)
+		if target is None:
+			# Translators: said when a quick navigation key for a pinned document is pressed and no
+			# pinned document is on the display.
+			ui.message(_("No pinned document"))
+			return
+		key, monitor = target
+		problem = pinQuickNav.move(monitor, quickNavType, forward)
+		if problem is not None:
+			ui.message(problem)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Pinned document: Moves quick navigation to the next pinned document on this display"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_pinNextDocument(self, gesture):
+		display, keys = self._pinnedDocuments(gesture)
+		if not keys:
+			# Translators: said when a quick navigation key for a pinned document is pressed and no
+			# pinned document is on the display.
+			ui.message(_("No pinned document"))
+			return
+		current = self.pinForQuickNav(gesture)[0]
+		key = keys[(keys.index(current) + 1) % len(keys)]
+		if display is not None:
+			self._lastSegmentOn[display] = key
+		ui.message(self._everyMonitor()[key].name)
+
 	def _tableToPage(self, gesture) -> object:
 		""":return: which table a paging command should move, or None if there is none.
 
@@ -5125,7 +5203,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when the layer key is pressed on something that cannot have layers.
 			ui.message(_("No layers for this key"))
 			return
-		isOn, layer = keyLayerDispatch.toggle(device, keyLayerContexts.presentContexts(self))
+		isOn, layer = keyLayerDispatch.toggle(device, keyLayerContexts.presentContexts(self, device=device))
 		name = keyLayerDispatch.layerName(layer)
 		if isOn:
 			# Translators: reported when a layer of keys is turned on. The placeholder is its name.
@@ -5589,4 +5667,35 @@ def _generateSegmentScripts() -> None:
 		)
 
 
+def _makePinQuickNavScript(quickNavType, forward: bool):
+	"""Build one quick navigation script for a pinned document."""
+
+	def quickNavScript(self, gesture):
+		self.quickNavInPin(gesture, quickNavType, forward)
+
+	if forward:
+		# Translators: input help message for a command. The placeholder is a kind of thing in a
+		# document, such as heading or link.
+		quickNavScript.__doc__ = _("Pinned document: Moves to the next {item}").format(item=quickNavType.label)
+	else:
+		# Translators: input help message for a command. The placeholder is a kind of thing in a
+		# document, such as heading or link.
+		quickNavScript.__doc__ = _("Pinned document: Moves to the previous {item}").format(item=quickNavType.label)
+	quickNavScript.category = SCRIPT_CATEGORY
+	return quickNavScript
+
+
+def _generatePinQuickNavScripts() -> None:
+	"""Add browse mode's quick navigation commands for a pinned document, next and previous of each
+	type in `pinQuickNav.TYPES`. Bound in the pinned document layer; see `keyLayers`."""
+	for quickNavType in pinQuickNav.TYPES:
+		setattr(GlobalPlugin, f"script_pinNext{quickNavType.name}", _makePinQuickNavScript(quickNavType, True))
+		setattr(
+			GlobalPlugin,
+			f"script_pinPrevious{quickNavType.name}",
+			_makePinQuickNavScript(quickNavType, False),
+		)
+
+
 _generateSegmentScripts()
+_generatePinQuickNavScripts()

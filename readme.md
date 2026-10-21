@@ -1310,6 +1310,26 @@ there, or if the text cannot say where it is on the screen, the object is focuse
 cursor put where you pressed. The same goes for the parts of the display
 an application arranges, such as the Outlook reading pane beside its message list.
 
+### Moving through a pinned document
+
+A pinned web page or message, including the Outlook reading pane beside its message list, can be
+moved through by headings, links and the rest, as browse mode's quick navigation keys do, from the
+display it is on. The pin moves and nothing else does: the focus, the cursor and your other
+displays stay where they were. What is found is put at the top of the pin and spoken as NVDA
+speaks it.
+
+**Pinned document: Moves to the next heading**, and to the previous one, and the same for links,
+tables, lists, list items, graphics, form fields, landmarks and block quotes. No keys by default
+except in the Monarch's pinned document layer; see [Layered keys](#layered-keys).
+
+**Pinned document: Moves quick navigation to the next pinned document on this display.** With more
+than one pinned document on a display, chooses which one the keys move, and says its name.
+Otherwise the keys move the one you last panned or pressed a routing key in on that display, or
+the first one there.
+
+A pinned list of messages, such as a chat, has nothing to move through this way, and says "Not
+supported in this document".
+
 ### Reading as a flow
 
 **Toggle reading the whole display as one flowing document.** Turns the flow on or off, and saves
@@ -1478,6 +1498,12 @@ The Monarch and the keyboard come with these layers:
 - **Monarch, unwrapped lines layer.** Turns on by itself while lines are shown unwrapped, and off
   when they wrap again. The zoom keys pan across the lines; every other key works as usual. If you
   turn it off with the layer key, it stays off until lines wrap again.
+- **Monarch, pinned document layer.** With a pinned document on the Monarch, such as the Outlook
+  reading pane, press the layer key to turn it on. Browse mode's letters move that document: h
+  heading, k link, t table, l list, i list item, g graphic, f form field, d landmark and q block
+  quote, and with dot 7 the previous one. s chooses the next pinned document on the Monarch. It
+  stays on until you turn it off, and the d-pads, panning and routing keys work as usual. See
+  [Moving through a pinned document](#moving-through-a-pinned-document).
 - **Keyboard, default layer.** Press the layer key, then numpad 5 reads the current line.
 - **Keyboard, graphics layer.** The numpad arrows move the Monarch's drawing, numpad plus and
   minus magnify and shrink it, and numpad 5 reads the current line. Turn it on with the layer key.
