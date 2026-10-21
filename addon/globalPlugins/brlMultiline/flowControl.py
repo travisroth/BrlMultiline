@@ -365,16 +365,38 @@ class FlowController(PanelOwner):
 		return self._enterAtBlock(result, contextRows, fill)
 
 	def topPosition(self):
-		""":return: where the block at the top of the window begins, or None.
+		""":return: where the text on the window's top row begins, or None.
 
-		A pin's reading position, which is where a search through the document starts. None for
-		a source that has no positions, such as a run of objects.
+		A pin's reading position, which is where a search through the document starts. Read off
+		the top row's first cell through the region it came from, so a block wrapped over several
+		rows and panned part way through gives where the reader is, not where the block starts.
+		Where that cannot be read, the start of the block at the top. None for a source that has
+		no positions, such as a run of objects.
 		"""
-		blockId = getattr(self.window.anchor, "blockId", None)
 		positionOf = getattr(self.source, "positionOf", None)
-		if blockId is None or positionOf is None:
+		if positionOf is None:
 			return None
-		return positionOf(blockId)
+		for column in range(self.renderer.numCols):
+			found = self.regionAt(self.pinnedCells + column)
+			if found is None:
+				continue
+			region, at = found
+			getInfo = getattr(region, "getTextInfoForBraillePos", None)
+			if getInfo is None:
+				break
+			try:
+				return getInfo(at)
+			except Exception:
+				log.debugWarning("Could not read the position at the top of the window", exc_info=True)
+				break
+		blockId = getattr(self.window.anchor, "blockId", None)
+		return positionOf(blockId) if blockId is not None else None
+
+	def windowMark(self):
+		""":return: something that changes whenever the window moves, to tell a pin's own position
+		apart from one the reader has panned away from. See `pinQuickNav`."""
+		anchor = self.window.anchor
+		return None if anchor is None else (anchor.blockId, anchor.rowIndex)
 
 	def enterAtPosition(self, info) -> bool:
 		"""Place the window afresh with the block holding a position at its top.

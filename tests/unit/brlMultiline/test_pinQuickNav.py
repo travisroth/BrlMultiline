@@ -26,7 +26,9 @@ class FakeInfo:
 		self.collapsed = False
 
 	def copy(self):
-		return FakeInfo(self.where)
+		copied = FakeInfo(self.where)
+		copied.collapsed = self.collapsed
+		return copied
 
 	def collapse(self):
 		self.collapsed = True
@@ -193,7 +195,11 @@ class FakeProxyInfo:
 		self.innerTextInfo.collapse()
 
 
-class FakeBrowseMode(FakeDocument):
+class UIABrowseModeDocument:
+	"""Named as NVDA's own is, which is one of the kinds `pinQuickNav` may build to search."""
+
+
+class FakeBrowseMode(FakeDocument, UIABrowseModeDocument):
 	"""What NVDA+Space would make of a document object: it searches, and wraps its positions."""
 
 	made = []
@@ -209,7 +215,7 @@ class FakeBrowseMode(FakeDocument):
 	def _iterNodesByType(self, itemType, direction="next", pos=None):
 		assert isinstance(pos, FakeProxyInfo), "the search takes the browse mode document's own positions"
 		return iter(
-			types.SimpleNamespace(textInfo=FakeProxyInfo(item.textInfo), report=lambda: None)
+			types.SimpleNamespace(textInfo=FakeProxyInfo(item.textInfo), report=lambda readUnit=None: None)
 			for item in super()._iterNodesByType(itemType, direction, pos)
 		)
 

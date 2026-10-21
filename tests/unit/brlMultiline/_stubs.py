@@ -1475,8 +1475,20 @@ class TextInfoRegion(Region):
 		self.routedTo = pos
 
 	def getTextInfoForBraillePos(self, braillePos):
-		"""Where a cell of this region points, which routing asks for before acting."""
-		return self._getSelection()
+		"""Where a cell of this region points, which routing asks for before acting.
+
+		The character under the cell, counted from the start of the reading unit, as NVDA's own
+		maps a cell back through its text: one cell is one character here. A position that has no
+		offset into its line answers with the region's own position, as this always did.
+		"""
+		info = getattr(self, "_readingInfo", None) or self._getSelection()
+		if not hasattr(info, "offset") or not hasattr(info, "index"):
+			return self._getSelection()
+		position = info.copy()
+		position.expand(self._getReadingUnit())
+		position.collapse()
+		position.offset = max(0, min(braillePos, len(position.text)))
+		return position
 
 	def _moveLine(self, count):
 		dest = self._readingInfo.copy()

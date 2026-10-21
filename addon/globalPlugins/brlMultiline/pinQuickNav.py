@@ -49,6 +49,10 @@ class QuickNavType(NamedTuple):
 	label: str
 	"""What the commands call it, in this add-on's translation."""
 
+	readUnit: str | None = None
+	"""How much of what is found is spoken, as NVDA's own quick navigation has it: a line of a
+	table, a list or a landmark rather than the whole of it. None speaks the item."""
+
 
 TYPES = (
 	# Translators: a kind of thing in a document, in "Pinned document: next heading".
@@ -56,9 +60,9 @@ TYPES = (
 	# Translators: a kind of thing in a document, in "Pinned document: next link".
 	QuickNavType("link", "Link", "no next link", "no previous link", _("link")),
 	# Translators: a kind of thing in a document, in "Pinned document: next table".
-	QuickNavType("table", "Table", "no next table", "no previous table", _("table")),
+	QuickNavType("table", "Table", "no next table", "no previous table", _("table"), textInfos.UNIT_LINE),
 	# Translators: a kind of thing in a document, in "Pinned document: next list".
-	QuickNavType("list", "List", "no next list", "no previous list", _("list")),
+	QuickNavType("list", "List", "no next list", "no previous list", _("list"), textInfos.UNIT_LINE),
 	# Translators: a kind of thing in a document, in "Pinned document: next list item".
 	QuickNavType("listItem", "ListItem", "no next list item", "no previous list item", _("list item")),
 	# Translators: a kind of thing in a document, in "Pinned document: next graphic".
@@ -66,7 +70,9 @@ TYPES = (
 	# Translators: a kind of thing in a document, in "Pinned document: next form field".
 	QuickNavType("formField", "FormField", "no next form field", "no previous form field", _("form field")),
 	# Translators: a kind of thing in a document, in "Pinned document: next landmark".
-	QuickNavType("landmark", "Landmark", "no next landmark", "no previous landmark", _("landmark")),
+	QuickNavType(
+		"landmark", "Landmark", "no next landmark", "no previous landmark", _("landmark"), textInfos.UNIT_LINE
+	),
 	# Translators: a kind of thing in a document, in "Pinned document: next block quote".
 	QuickNavType(
 		"blockQuote", "BlockQuote", "no next block quote", "no previous block quote", _("block quote")
@@ -77,6 +83,12 @@ NVDA's translation of it is found; see L{nvdaMessage}."""
 
 NOT_SUPPORTED = "Not supported in this document"
 """NVDA's message for a quick navigation type a document cannot search, in English."""
+
+SAFE_TO_BUILD = frozenset({"UIABrowseModeDocument", "WordDocumentTreeInterceptor"})
+"""The browse mode documents a pin may build over an object only to search it, by class name.
+
+Their construction keeps what it learns to itself: UI Automation's, which Word through UI Automation
+is, and Word's through its object model. A virtual buffer is not among them. See L{searcherFor}."""
 
 
 def nvdaMessage(english: str) -> str:
@@ -133,15 +145,30 @@ def documentOf(monitor) -> Any:
 def searcherFor(document) -> Any:
 	""":return: what searches a document by structure: the document, or a browse mode document over it.
 
-	**Built and never registered.** Made only to search, it is not put in NVDA's running table, so
-	NVDA does not route events or keys through it and makes its own when the reader moves into the
-	document, exactly as it would have. Its positions wrap the object's own, so a position read from
-	the object goes in and one the object can read comes out; see L{_asSearched} and L{_asRead}.
+	**NVDA's own first.** A browse mode document NVDA already made for the object, and has ready, is
+	the one searched, so nothing new is made while one exists.
+
+	**Otherwise built and never registered, and only of a kind that is safe to build.** Made only to
+	search, it is not put in NVDA's running table, so NVDA routes no events or keys through it and
+	makes its own when the reader moves into the document, exactly as it would have. Not every kind
+	can be built that way: a virtual buffer, a web page's, records itself in NVDA's lookup of
+	documents as it is constructed, and a second one would take the live one's place there (found in
+	review). So only the kinds in L{SAFE_TO_BUILD}, whose construction touches nothing of NVDA's,
+	are built; any other says it cannot be searched.
+
+	Its positions wrap the object's own, so a position read from the object goes in and one the
+	object can read comes out; see L{_asSearched} and L{_asRead}.
 	"""
 	if hasattr(document, "_iterNodesByType"):
 		return document
+	try:
+		existing = getattr(document, "treeInterceptor", None)
+		if existing is not None and existing.isReady and hasattr(existing, "_iterNodesByType"):
+			return existing
+	except Exception:
+		log.debugWarning("BrlMultiline: could not consult a pin's browse mode document", exc_info=True)
 	cls = _browseModeClass(document)
-	if cls is None:
+	if cls is None or not any(base.__name__ in SAFE_TO_BUILD for base in cls.__mro__):
 		return None
 	try:
 		return cls(document)
@@ -172,10 +199,26 @@ def _pinnedRegion(monitor):
 	return None
 
 
+FOUND_AT_ATTRIBUTE = "_brlMultilineQuickNavFoundAt"
+"""Set on a pin's monitor: where quick navigation last put it, and where its window was then."""
+
+
 def positionOf(monitor, document):
-	""":return: where a search through a pin starts: the top of its window, or its own position."""
+	"""Where a search through a pin starts.
+
+	**Where the last search put it, while the reader has not moved it since.** A found item is put
+	at the top by the block it is in, so the top of the window is the start of that block; two links
+	in one line would otherwise find the first again from there, for ever (found in review). Panning
+	moves the window, and then the search starts where the reader is.
+
+	Otherwise the top of its window, or a pin read as regions its own position.
+	"""
 	control = getattr(monitor, "controller", None)
 	if control is not None:
+		found = getattr(monitor, FOUND_AT_ATTRIBUTE, None)
+		windowMark = getattr(control, "windowMark", None)
+		if found is not None and windowMark is not None and found[0] == windowMark():
+			return found[1].copy()
 		position = control.topPosition()
 		if position is not None:
 			return position
@@ -215,23 +258,48 @@ def move(monitor, quickNavType: QuickNavType, forward: bool) -> str | None:
 	if info is None:
 		return nvdaMessage(NOT_SUPPORTED)
 	try:
-		item.report()
+		# A copy, kept before speaking, since reporting may move the range it is given.
+		target = _asRead(searcher, document, info).copy()
+		target.collapse()
+	except Exception:
+		log.debugWarning("BrlMultiline: could not read where a quick navigation item is", exc_info=True)
+		return nvdaMessage(NOT_SUPPORTED)
+	try:
+		if quickNavType.readUnit is None:
+			item.report()
+		else:
+			item.report(readUnit=quickNavType.readUnit)
 	except Exception:
 		log.debugWarning("BrlMultiline: could not report a quick navigation item", exc_info=True)
-	placeAt(monitor, _asRead(searcher, document, info))
+	if not placeAt(monitor, target):
+		# Translators: said when a quick navigation key found something in a pinned document and the
+		# pin could not be moved to show it.
+		return _("Cannot show that in this pin")
 	return None
 
 
-def placeAt(monitor, info) -> None:
-	"""Put a pin's reading position at a place in its document, at the top of its segment."""
-	info = info.copy()
-	info.collapse()
+def placeAt(monitor, info) -> bool:
+	"""Put a pin's reading position at a place in its document, at the top of its segment.
+
+	:param info: a collapsed position in the pin's document.
+	:return: whether the pin moved.
+	"""
 	control = getattr(monitor, "controller", None)
-	if control is not None:
-		if control.enterAtPosition(info):
+	try:
+		if control is not None:
+			if not control.enterAtPosition(info.copy()):
+				return False
+			windowMark = getattr(control, "windowMark", None)
+			if windowMark is not None:
+				setattr(monitor, FOUND_AT_ATTRIBUTE, (windowMark(), info.copy()))
 			monitor.refresh()
-		return
-	region = _pinnedRegion(monitor)
-	if region is not None:
-		region._setCursor(info)
+			return True
+		region = _pinnedRegion(monitor)
+		if region is None:
+			return False
+		region._setCursor(info.copy())
 		monitor.refresh(reveal=True)
+		return True
+	except Exception:
+		log.debugWarning("BrlMultiline: could not move a pin to what quick navigation found", exc_info=True)
+		return False

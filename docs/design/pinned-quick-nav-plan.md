@@ -31,9 +31,11 @@ reading position without moving anything else.
    or for a pin read as regions its region's object, and it has to have `_iterNodesByType`. A run
    of objects, such as a chat, has no positions to search between, and says "Not supported in this
    document" like any document that cannot answer.
-2. **Searched from the top of the window.** A flow's reading position is its anchor, the block at
-   the top of the band. The source already keeps where each block starts, by bookmark, so the
-   anchor gives a position. A pin read as regions has a position of its own in its region.
+2. **Searched from where the reader is.** For a flow, the text at the start of the top row, read
+   off its first cell through the region it came from, so a wrapped block panned part way gives
+   the row shown. Where the last search put the pin and the reader has not moved it since, from
+   exactly what was found. A pin read as regions has a position of its own in its region. See
+   the review of 814bf39 below.
 3. **Grounded at what was found.** The found item's position becomes a block, through the same
    `_blockAt` the source uses for everything else, and the band is put down at it with
    `groundAt`, so the heading is at the top and the document runs on from it. That is what the
@@ -103,3 +105,28 @@ pressed on, and a display can hold more than one.
 3. The layer and its context, shipped for the Monarch as a revision of the shipped layers, so a set
    saved before it is given the layer once.
 4. The readme, and trying it on the Monarch with the Outlook layout and with a pinned web page.
+
+## Review of 814bf39
+
+Five faults found by review, each reproduced by the reviewer's failing test before it was fixed.
+The tests are in `test_review814bf39.py`.
+
+1. **A repeated key found the same item again.** The search started at the top of the window,
+   which after a jump is the start of the block the item is in, so two links in one line found the
+   first for ever. And panning a wrapped block left the search at its start. The pin now keeps
+   where it was put and where its window was then (`windowMark`), and searches from exactly there
+   until the window moves; `topPosition` reads the top row's first cell through its region.
+2. **An ordinary display was never found.** The layer context and the last used segment both
+   looked displays up in the combined display's map of members, which is empty for a display
+   connected on its own. Such a display now has every segment, under its own driver name, as the
+   per display layer key command already treated it.
+3. **Building a searcher could disturb NVDA.** A virtual buffer records itself in NVDA's lookup of
+   documents as it is constructed, so building one to search would take a live one's place. NVDA's
+   own browse mode document is used when it is ready, and otherwise only the kinds in
+   `SAFE_TO_BUILD`, UI Automation's and Word's, are built.
+4. **A table or a list was spoken whole.** NVDA speaks a line of a table, a list or a landmark when
+   quick navigation finds one. Each type now carries NVDA's reading unit, and what is spoken is a
+   copy of the position, since reporting may move it.
+5. **A pin that could not move said nothing.** `placeAt` now says whether the pin moved, a failure
+   or an error there is said, "Cannot show that in this pin", and the search's position is read
+   inside the same guard as the rest.

@@ -3100,13 +3100,20 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _segmentKeysOn(self, driverName: str | None) -> list[str]:
 		""":return: the keys of the segments lying on one physical display, in display order.
 
-		Empty for an unknown display, and for an ordinary one where there is nothing to
-		choose between.
+		Empty for an unknown display. An ordinary display, connected without the combined display
+		driver, has every segment: there is no map of members then, and it was answered as having
+		none, so a pinned document on a Monarch connected on its own was never found (found in
+		review).
 		"""
 		container = self.container
 		if driverName is None or container is None:
 			return []
-		for device in deviceMap():
+		devices = deviceMap()
+		if not devices:
+			if driverName == _ordinaryDisplayName():
+				return [segment.key for segment in container.segments]
+			return []
+		for device in devices:
 			if device.driverName != driverName:
 				continue
 			return [container.segments[index].key for index in segmentsForDevice(container.rects, device)]
@@ -3116,7 +3123,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def _noteSegmentUsed(self, key: str, rect) -> None:
 		"""Remember a segment a routing key or a pan reached, as the last used on its display."""
-		for device in deviceMap():
+		devices = deviceMap()
+		if not devices:
+			display = _ordinaryDisplayName()
+			if display is not None:
+				self._lastSegmentOn[display] = key
+			return
+		for device in devices:
 			if device.rowStart <= rect.row < device.rowEnd:
 				self._lastSegmentOn[device.driverName] = key
 				return
@@ -5665,6 +5678,16 @@ def _generateSegmentScripts() -> None:
 			f"script_stopMonitoringSegment{segmentNumber}",
 			_makeMonitorScript(segmentNumber, False),
 		)
+
+
+def _ordinaryDisplayName() -> str | None:
+	""":return: the driver name of a display connected on its own, without the combined display
+	driver, or None. Its keys are its gestures' source, as a combined display's members' are."""
+	if deviceMap():
+		return None
+	display = braille.handler.display if braille.handler else None
+	name = getattr(display, "name", None)
+	return None if name in (None, "noBraille") else name
 
 
 def _makePinQuickNavScript(quickNavType, forward: bool):
