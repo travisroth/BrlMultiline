@@ -28,7 +28,7 @@ The controller also owns the two things a flow must be exact about:
 """
 
 import contextlib
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from logHandler import log
 
@@ -3088,26 +3088,70 @@ class FlowController(PanelOwner):
 				return column
 		return None
 
+	def _pinnedAt(self, position: int) -> tuple[Any, int] | None:
+		""":return: the pinned row's region and the position in it under a cell, or None.
+
+		:param position: which cell of the pinned row.
+		"""
+		if self.pinned is None or self.pinnedBlock is None or not self.pinned.positions:
+			return None
+		marks = self.pinned.positions[0]
+		if not 0 <= position < len(marks) or marks[position] == NO_POSITION:
+			return None
+		return self.pinnedBlock.region, marks[position]
+
 	def _routePinned(self, position: int) -> bool:
 		"""Act on a routing key press within the pinned row.
 
 		:param position: which cell of it.
 		:return: whether the press reached content.
 		"""
-		if self.pinned is None or self.pinnedBlock is None or not self.pinned.positions:
+		found = self._pinnedAt(position)
+		if found is None:
 			return False
-		marks = self.pinned.positions[0]
-		if not 0 <= position < len(marks) or marks[position] == NO_POSITION:
-			return False
-		route = getattr(self.pinnedBlock.region, "routeTo", None)
+		region, at = found
+		route = getattr(region, "routeTo", None)
 		if route is None:
 			return False
 		try:
-			route(marks[position])
+			route(at)
 		except Exception:
 			log.debugWarning("Could not route into the pinned row", exc_info=True)
 			return False
 		return True
+
+	def _blockAt(self, position: int) -> tuple[Any, Any, int] | None:
+		""":return: the block id, its region and the position in it under a cell past the
+			pinned row, or None for padding, a gap, a blank row or a separator.
+
+		:param position: a flat row major position within the band.
+		"""
+		source = cellSource(self.window, self.renderer.numCols, position - self.pinnedCells)
+		if source is None:
+			return None
+		blockId, at = source
+		block = self.blocks.get(blockId)
+		if block is not None and getattr(block, "isDecoration", False):
+			# The blank row a menu separator stands for. There is nothing there to go to.
+			return None
+		region = self.regionFor(blockId)
+		if region is None:
+			return None
+		return blockId, region, at
+
+	def regionAt(self, position: int) -> tuple[Any, int] | None:
+		"""What a routing key press at a cell would reach, without acting on it.
+
+		:param position: a flat row major position within the band.
+		:return: the region and the position in it, or None where the press reaches nothing.
+		"""
+		if position < self.pinnedCells:
+			return self._pinnedAt(position)
+		found = self._blockAt(position)
+		if found is None:
+			return None
+		_blockId, region, at = found
+		return region, at
 
 	def routeTo(self, position: int) -> bool:
 		"""Act on a routing key press within the band.
@@ -3120,17 +3164,10 @@ class FlowController(PanelOwner):
 		"""
 		if position < self.pinnedCells:
 			return self._routePinned(position)
-		source = cellSource(self.window, self.renderer.numCols, position - self.pinnedCells)
-		if source is None:
+		found = self._blockAt(position)
+		if found is None:
 			return False
-		blockId, at = source
-		block = self.blocks.get(blockId)
-		if block is not None and getattr(block, "isDecoration", False):
-			# The blank row a menu separator stands for. There is nothing there to go to.
-			return False
-		region = self.regionFor(blockId)
-		if region is None:
-			return False
+		blockId, region, at = found
 		try:
 			# The region first, and the flow's own place afterwards. A region decides what a
 			# press means from whether the reader was already on that block — an object's

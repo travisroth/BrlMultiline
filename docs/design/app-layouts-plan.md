@@ -174,7 +174,8 @@ as new, which costs a reset of reading position and never shows the wrong conten
 
 **Routing in a secondary segment moves within what is shown there** and nothing else, as in a
 pin today. The focus stays where the reader put it, so routing into the chat history never
-takes the reader out of the compose box.
+takes the reader out of the compose box. *Superseded by As built item 11: a press there now goes
+to what it is on, as a click would.*
 
 ## Decided
 
@@ -183,7 +184,7 @@ takes the reader out of the compose box.
    one tall display to it.
 3. Pins are never touched. The layout gets only the free area. Setting pins aside is deferred
    until it is needed.
-4. Routing in a secondary segment moves within it only.
+4. Routing in a secondary segment moves within it only. Reversed; see As built item 11.
 5. **A segment across a display boundary is adjusted quietly.** On a Monarch and a Focus 80
    combined, a layout asking for six rows and then five would put a segment over the Monarch's
    last four rows and the Focus's one, and a segment cannot span two pieces of hardware of
@@ -274,6 +275,19 @@ What milestones 2 to 4 settled that the design above left open.
    message to message. An object a `show` callable returns may carry `brlMultilineShowKey`;
    different keys make two answers different. Equal keys still need `==`, so a key cannot
    keep a replaced object.
+11. **Routing goes where it points.** Decision 4 kept a press inside a secondary segment, and on
+   hardware that meant it did nothing: a pinned region keeps its own reading position and never
+   passes it to the application. The reader asked for a press to act as a click, which also
+   answers moving into the Outlook reading pane at the top of the message rather than where they
+   had panned to. It is done for every monitored segment, a reader's pin or a layout's, in
+   `monitorRouting`, reached through `container.segmentRouter` so the container stays ignorant
+   of monitors. A single press: the window comes forward, and after `FOREGROUND_SETTLE_MS`
+   Windows is asked what is at the point, the start of the text pressed or the middle of the
+   object. The click goes ahead only if that is the target's window, since a pin may be covered
+   or scrolled out of view and a blind click lands on whatever is on top. Otherwise the object
+   is focused and, after `CARET_SETTLE_MS` so the application's own placing on focus comes first,
+   its caret or browse mode cursor is put where the reader pressed. Two presses, as the layout
+   overview has, was considered and not chosen. The focus segment routes as it always has.
 
 ## Review of ca7f5fc
 

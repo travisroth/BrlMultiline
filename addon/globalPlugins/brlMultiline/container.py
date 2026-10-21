@@ -17,7 +17,7 @@ The view is kept so that the next view can be composed from it, and so that the 
 be reported, but no operation below consults it except to reach the panels for reporting.
 """
 
-from collections.abc import Iterator, MutableSequence
+from collections.abc import Callable, Iterator, MutableSequence
 from typing import TYPE_CHECKING, Any
 
 import baseObject
@@ -43,6 +43,12 @@ Namespaced because it is set on NVDA's own `Region` objects. Deliberately not
 `targetSegment`: that attribute is an owner's explicit destination, and conflating the two
 would make this add-on's bookkeeping indistinguishable from a claim.
 """
+
+segmentRouter: "Callable[[str, BrailleBufferSegment, int], bool] | None" = None
+"""Offered every routing key press before the segment's policy, by segment key, segment and
+position within it. Answers whether it dealt with the press. The plugin sets it so a press in a
+segment showing a monitored object goes to that object (see `monitorRouting`), without this
+module knowing what a monitor is."""
 
 
 class FakeRegionsList(MutableSequence):
@@ -548,7 +554,15 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 			# The key was pressed in space a panel is keeping blank, which is not an error.
 			log.debug(f"Routing key at {windowPos} is not in any segment")
 			return
-		self.segments[index].routingPolicy.route(self, index, segmentPos)
+		segment = self.segments[index]
+		router = segmentRouter
+		if router is not None:
+			try:
+				if router(segment.key, segment, segmentPos):
+					return
+			except Exception:
+				log.debugWarning(f"The segment router failed in {segment.key!r}", exc_info=True)
+		segment.routingPolicy.route(self, index, segmentPos)
 
 	def getTextInfoForWindowPos(self, windowPos: int) -> "textInfos.TextInfo | None":
 		try:

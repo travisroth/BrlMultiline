@@ -646,6 +646,19 @@ class TestRouting(unittest.TestCase):
 		control = controllerOver(["abc"], numCols=8, numRows=4)
 		self.assertFalse(control.routeTo(20))
 
+	def test_whatAPressWouldReachIsTheBlockARouteReaches(self):
+		"""For a monitored segment, which goes there rather than routing within the flow."""
+		control = controllerOver(["abc", "def"], numCols=8, numRows=4, live=True)
+		region, at = control.regionAt(9)
+		self.assertIs(region, control.regionFor(control.window.blocks[1].blockId))
+		self.assertEqual(at, 1)
+		self.assertFalse(hasattr(region, "routedTo"), "asking must not act")
+
+	def test_paddingAndBlankRowsReachNothing(self):
+		control = controllerOver(["abc"], numCols=8, numRows=4)
+		self.assertIsNone(control.regionAt(5))
+		self.assertIsNone(control.regionAt(20))
+
 
 class TestDescribing(unittest.TestCase):
 	def test_everyRowIsDescribed(self):

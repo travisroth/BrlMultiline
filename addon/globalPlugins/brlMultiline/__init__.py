@@ -42,6 +42,7 @@ from . import (
 )
 from . import tableHeaderSpeech
 from . import userBrailleTable
+from . import container as containerModule, monitorRouting
 from .container import DisplayContainer
 from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
 from . import appCollect, appLayout, appRegions, layoutCollect, layoutDraw, layoutRegions
@@ -404,6 +405,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""
 		bmConfig.initialize()
 		patches.install()
+		# A routing key in a segment showing an object goes to that object. See `monitorRouting`.
+		containerModule.segmentRouter = self._routeIntoMonitor
 		# Which display's keys are being pressed, for the per display panning direction.
 		panning.install()
 		# The arrow keys inside a browse mode table, which is a way of reading rather than a
@@ -475,6 +478,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._restoreOriginalBuffer()
 			# Before the patches go, so a region already reading a row reads NVDA's line again.
 			tableRowLine.clear()
+			containerModule.segmentRouter = None
 			patches.remove()
 			panning.remove()
 			tableArrows.remove()
@@ -1574,6 +1578,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		cannot collide, since the layout's are all under `appLayout.PANEL_NAME`.
 		"""
 		return {**self._monitors, **self.appLayouts.liveMonitors()}
+
+	def _routeIntoMonitor(self, key: str, segment, position: int) -> bool:
+		"""Take a routing key press in a segment showing an object, a pin or an app layout's.
+
+		:return: whether the press was in such a segment, and so dealt with here.
+		"""
+		if key not in self._everyMonitor():
+			return False
+		return monitorRouting.route(segment, position)
 
 	def refreshMonitorsInTurn(self, allowance: float) -> bool:
 		"""Refresh the pins that a timer asked about, a slice of a core cycle at a time.

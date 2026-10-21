@@ -3686,6 +3686,31 @@ class TestShowingAppLayouts(PluginTestCase):
 		self.assertFalse(self.host.isUp)
 		self.assertEqual(self.chat.asked, 0)
 
+	def routedSegments(self):
+		""":return: the keys of segments whose presses went to the object shown in them."""
+		import brlMultiline.monitorRouting as monitorRouting
+
+		routed = []
+		original = monitorRouting.route
+		monitorRouting.route = lambda segment, position: routed.append(segment.key) or True
+		self.addCleanup(setattr, monitorRouting, "route", original)
+		return routed
+
+	def test_aPressInTheObjectsSegmentGoesToTheObject(self):
+		self.focus()
+		self.settle()
+		routed = self.routedSegments()
+		self.container.routeTo(0)
+		self.assertEqual(routed, ["appLayout.0"])
+
+	def test_aPressInTheFocusSegmentRoutesAsUsual(self):
+		self.focus()
+		self.settle()
+		routed = self.routedSegments()
+		focus = self.container.focusSegment.rect
+		self.container.routeTo(focus.row * MONARCH_COLS)
+		self.assertEqual(routed, [])
+
 	def test_anApplicationWithoutAMethodCostsNothing(self):
 		self.focus(appModule=object())
 		self.assertEqual(callLaterQueue.pending, [])

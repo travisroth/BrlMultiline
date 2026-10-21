@@ -1301,6 +1301,13 @@ focus.
 
 **Stops showing an object in segment N.** Unpins and clears that segment.
 
+**A routing key in a pinned object goes there,** as clicking it would, even when it is in
+another application. Its window comes forward, and the click is made at the text or item you
+pressed, which in most applications also puts the cursor there. If the click would land on
+something else, because the window is covered or the item is scrolled out of view, the object is
+focused instead and its cursor put where you pressed. The same goes for the parts of the display
+an application arranges, such as the Outlook reading pane beside its message list.
+
 ### Reading as a flow
 
 **Toggle reading the whole display as one flowing document.** Turns the flow on or off, and saves
@@ -1759,8 +1766,9 @@ How it behaves once it is up:
    now, such as the selected message. A different key is a different object and starts at its
    top. The same key still has to be the same object by `==`.
 4. A segment showing an object reads like a pinned one: as a flow where it has room, following a
-   growing run such as a chat, and panned with the per segment commands. Routing keys move within
-   it and do not move the focus. The reader cannot pin anything into your segments.
+   growing run such as a chat, and panned with the per segment commands. A routing key there goes
+   to what it is on, as a click would, and so moves the focus. The reader cannot pin anything into
+   your segments.
 5. Your segments are read again about every 0.4 seconds, including while the reader types in
    your application. The reader's own pins in other windows wait while they type, and yours do
    not.
