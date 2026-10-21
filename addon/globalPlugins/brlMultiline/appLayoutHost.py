@@ -114,6 +114,9 @@ class Shown:
 	objects: dict[str, Any] = dataclasses.field(default_factory=dict)
 	"""The object each secondary segment was last given, to tell a new answer from the same."""
 
+	keys: dict[str, Any] = dataclasses.field(default_factory=dict)
+	"""The L{SHOW_KEY_ATTRIBUTE} each object had when it was shown. See L{sameAnswer}."""
+
 	failures: dict[str, int] = dataclasses.field(default_factory=dict)
 	"""How many times running each segment's callable has raised."""
 
@@ -141,22 +144,35 @@ def sameObject(old: Any, new: Any) -> bool:
 	equal only through NVDA's own `__eq__`, which is a call into the application and can raise.
 	A raise counts as different: that costs a reset of the reading position and never shows the
 	wrong content.
-
-	When both carry L{SHOW_KEY_ATTRIBUTE}, different keys make them different. The same keys
-	still have to compare equal, so a key can never keep an object that was replaced.
 	"""
 	if old is new:
 		return True
 	if old is None or new is None:
 		return False
-	oldKey = _showKey(old)
-	newKey = _showKey(new)
-	if oldKey is not None and newKey is not None and oldKey != newKey:
-		return False
 	try:
 		return bool(old == new)
 	except Exception:
 		return False
+
+
+def sameAnswer(old: Any, shownKey: Any, new: Any) -> bool:
+	"""Whether an answer shows what the segment already shows.
+
+	:param old: the object the segment was last given.
+	:param shownKey: its L{SHOW_KEY_ATTRIBUTE} when it was shown, kept then rather than read
+		from it now. An application may return the same Python object with its key changed, and
+		that object then carries the new key in both places, so a key read off the old object
+		could never differ from the new one.
+	:param new: the answer now.
+
+	When the key shown and the answer's both exist, different keys are different content, even
+	from the same object. The same keys still have to be the same object, so a key can never keep
+	an object that was replaced.
+	"""
+	newKey = _showKey(new)
+	if shownKey is not None and newKey is not None and shownKey != newKey:
+		return False
+	return sameObject(old, new)
 
 
 class AppLayoutHost:
@@ -177,8 +193,10 @@ class AppLayoutHost:
 		"""Set while a change an app module reported is waiting to be read. See L{contentChanged}."""
 		self._dirty = False
 		"""Whether an app module said its content changed since the callables were last asked."""
-		self._monitorTurn = 0
-		"""Which segment the next pass of L{refreshInTurn} reads first, so all get a turn."""
+		self._toRead: list[str] | None = None
+		"""The segments the pass of L{refreshInTurn} under way has still to read, or None between
+		passes. Fixed when the pass starts, so a pass that runs out carries on with what it had
+		left rather than starting another, and ends once each segment has had its turn."""
 		self._fresh: set[str] = set()
 		"""Segments drawn by the callables' phase of the pass under way, not to be read again in it."""
 
@@ -466,9 +484,10 @@ class AppLayoutHost:
 
 		1. **The callables**, when they are due, when an app module said something changed, or
 		   when the last pass stopped among them. See L{resolve}.
-		2. **The segments**, each read again, in a rotation that carries on from where the last
-		   pass stopped, so a slow first segment cannot keep the others from ever having a turn.
-		   A segment the first phase has just drawn is not read again straight after.
+		2. **The segments**, each read again once. Which ones is settled when the pass starts, and
+		   a slice that runs out leaves the rest of that list for the next, so a pass ends after
+		   every segment has had one turn, however slow each is. A segment the first phase has
+		   just drawn is not read again straight after.
 
 		The deadline is checked before every item, the first included, so a slice the first
 		phase spent leaves the second for the next pass rather than starting it late. One slow
@@ -480,7 +499,7 @@ class AppLayoutHost:
 		shown = self.shown
 		if shown is None:
 			self._resolveFrom = 0
-			self._monitorTurn = 0
+			self._toRead = None
 			self._fresh.clear()
 			return False
 		if bmConfig.isSpeechOutputMode():
@@ -493,24 +512,20 @@ class AppLayoutHost:
 				return True
 			if self.shown is not shown:
 				return False
-		monitors = self.liveMonitors()
-		keys = [key for key in monitors if key not in self._fresh]
-		if not keys:
-			self._monitorTurn = 0
-			self._fresh.clear()
-			return False
-		start = self._monitorTurn % len(keys)
-		for step in range(len(keys)):
-			index = (start + step) % len(keys)
+		if self._toRead is None:
+			self._toRead = list(self.liveMonitors())
+		while self._toRead:
 			if time.monotonic() >= deadline:
-				self._monitorTurn = index
 				return True
-			monitor = self.liveMonitors().get(keys[index])
+			key = self._toRead.pop(0)
+			if key in self._fresh:
+				continue
+			monitor = self.liveMonitors().get(key)
 			if monitor is not None:
 				monitor.refresh()
 			if self.shown is not shown:
 				return False
-		self._monitorTurn = 0
+		self._toRead = None
 		self._fresh.clear()
 		return False
 
@@ -563,7 +578,7 @@ class AppLayoutHost:
 			if problem is not None:
 				if not self._failed(index, f"the callable {problem}"):
 					return False
-			elif reveal or not sameObject(shown.objects.get(key), obj):
+			elif reveal or not sameAnswer(shown.objects.get(key), shown.keys.get(key), obj):
 				installed = self._showIn(key, obj)
 				if self.shown is not shown:
 					# Showing it rebuilt the display and the rebuild dropped the layout.
@@ -654,6 +669,7 @@ class AppLayoutHost:
 		if monitor is not None:
 			shown.monitors[key] = monitor
 		shown.objects[key] = obj
+		shown.keys[key] = _showKey(obj)
 		return True
 
 	def _restore(self, key: str, old: ObjectMonitor | None) -> None:

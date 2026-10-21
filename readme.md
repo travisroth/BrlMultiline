@@ -1303,9 +1303,11 @@ focus.
 
 **A routing key in a pinned object goes there,** as clicking it would, even when it is in
 another application. Its window comes forward, and the click is made at the text or item you
-pressed, which in most applications also puts the cursor there. If the click would land on
-something else, because the window is covered or the item is scrolled out of view, the object is
-focused instead and its cursor put where you pressed. The same goes for the parts of the display
+pressed, which in most applications also puts the cursor there. The click is made only when
+BrlMultiline can confirm it would land on that text or item. If it would land on something
+else, because the window is covered, the item is scrolled out of view, or another control is
+there, or if the text cannot say where it is on the screen, the object is focused instead and its
+cursor put where you pressed. The same goes for the parts of the display
 an application arranges, such as the Outlook reading pane beside its message list.
 
 ### Reading as a flow

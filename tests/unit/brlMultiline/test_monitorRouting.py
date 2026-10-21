@@ -14,7 +14,15 @@ from ._stubs import callLaterQueue, flashedMessages, installStubs
 installStubs()
 
 from brlMultiline import monitorRouting  # noqa: E402
-from brlMultiline.monitorRouting import Target, pointFor, regionAt, route, targetFor  # noqa: E402
+from brlMultiline.monitorRouting import (  # noqa: E402
+	Target,
+	expectedAt,
+	isWithin,
+	pointFor,
+	regionAt,
+	route,
+	targetFor,
+)
 
 
 def _location(left, top, width, height):
@@ -155,10 +163,50 @@ class TestWhereTheClickGoes(unittest.TestCase):
 	def test_theStartOfTheText(self):
 		self.assertEqual(pointFor(Target(FakeObject(), FakeInfo(point=(5, 6)))), (5, 6))
 
-	def test_textThatCannotSayWhereFallsBackToTheObjectItIsIn(self):
+	def test_textThatCannotSayWhereIsNotClicked(self):
+		"""The middle of the object it is in would put the caret somewhere else in it."""
 		inner = FakeObject(location=_location(10, 20, 30, 40))
 		target = Target(FakeObject(), FakeInfo(point=None, objectAtStart=inner))
-		self.assertEqual(pointFor(target), (25, 40))
+		self.assertIsNone(pointFor(target))
+
+	def test_theHitTestLooksForTheObjectTheTextStartsIn(self):
+		inner = FakeObject()
+		self.assertIs(expectedAt(Target(FakeObject(), FakeInfo(objectAtStart=inner))), inner)
+		outer = FakeObject()
+		self.assertIs(expectedAt(Target(outer, FakeInfo(objectAtStart=None))), outer)
+
+
+class TestWhatCountsAsAHit(unittest.TestCase):
+	def test_theTargetItself(self):
+		target = FakeObject()
+		self.assertTrue(isWithin(target, target))
+
+	def test_somethingInsideTheTarget(self):
+		target = FakeObject()
+		inner = FakeObject()
+		inner.parent = FakeObject()
+		inner.parent.parent = target
+		self.assertTrue(isWithin(inner, target))
+
+	def test_aNeighbourInTheSameWindowIsNot(self):
+		"""In a browser every control shares one window."""
+		self.assertFalse(isWithin(FakeObject(windowHandle=7), FakeObject(windowHandle=7)))
+
+	def test_aContainerAroundTheTargetIsNot(self):
+		container = FakeObject()
+		container.parent = None
+		target = FakeObject()
+		target.parent = container
+		self.assertFalse(isWithin(container, target))
+
+	def test_objectsThatCannotBeComparedAreNot(self):
+		class Unreadable(FakeObject):
+			def __eq__(self, other):
+				raise RuntimeError("COM failed")
+
+			__hash__ = object.__hash__
+
+		self.assertFalse(isWithin(Unreadable(), FakeObject()))
 
 	def test_theMiddleOfAnObject(self):
 		self.assertEqual(pointFor(Target(FakeObject(location=_location(100, 200, 40, 20)))), (120, 210))

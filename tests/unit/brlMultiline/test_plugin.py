@@ -4009,7 +4009,16 @@ class TestShowingAppLayouts(PluginTestCase):
 		first = FakeNavigatorObject("Message one", role="document")
 		second = FakeNavigatorObject("Message two", role="document")
 		first.brlMultilineShowKey = second.brlMultilineShowKey = "row 1"
-		self.assertFalse(host.sameObject(first, second))
+		self.assertFalse(host.sameAnswer(first, "row 1", second))
+
+	def test_theKeyShownIsKeptRatherThanReadAgain(self):
+		"""Review of 64197a4: one Python object, its key changed in place."""
+		import brlMultiline.appLayoutHost as host
+
+		pane = FakeNavigatorObject("Message one", role="document")
+		pane.brlMultilineShowKey = "message B"
+		self.assertFalse(host.sameAnswer(pane, "message A", pane))
+		self.assertTrue(host.sameAnswer(pane, "message B", pane))
 
 	def test_aNewAnswerIsPickedUpOnTheClock(self):
 		"""The pane loads after the selection does, with no focus change to say so."""

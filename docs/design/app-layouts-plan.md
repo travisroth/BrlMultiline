@@ -333,3 +333,35 @@ scheduler, `AppLayoutHost.refreshInTurn`.
    time. A segment the callables' phase has just drawn is not read again in that pass.
 4. **A slice the callables spent could still start a read.** The deadline is checked before
    every item of both phases, so a slice that ran out leaves the reads for the next pass.
+
+## Review of 64197a4
+
+Five faults found by review, each reproduced by the reviewer's failing test before it was fixed.
+The tests are in `test_review64197a4.py`.
+
+1. **The click was checked against the window, not the control.** In a browser, and in any
+   application drawing its own controls, every control shares one window, so a matching window
+   said nothing about which control the click would reach. `isTheTargetsAt` still checks the
+   window first, then asks accessibility what is at the point (`objectFromPoint`) and clicks
+   only if that is the object expected, the one the text starts in or the item pressed, or
+   something inside it within `HIT_TEST_DEPTH` parents. A container around it is not enough,
+   and objects that cannot be compared count as different. Anything unverified takes the focus
+   and caret path, which clicks nothing.
+2. **A sliced pass never finished, and a slow layout starved the pins.** Each continuation began
+   another full rotation, so with every read slower than the slice no pass ended, and a single
+   change notice re-armed its 1 ms continuation for ever. Both schedulers now settle what a pass
+   reads when it starts (`_toRead` in the host, `_pinsToRead` in the plugin) and end once each
+   has had a turn. The plugin alternates whole passes, the layout's then the pins', so a slow
+   layout pane can no longer take every slice before the reader's clock is reached.
+3. **A key changed on the same Python object went unseen.** The key was read off the old object
+   when comparing, and an application returning one object with its key changed shows the new
+   key on both sides. The host now keeps the key each object had when it was shown, in
+   `Shown.keys`, and `sameAnswer` compares that with the answer's key before the objects.
+4. **Text that could not say where it was clicked the middle of its editor.** That puts the caret
+   somewhere else in the editor, not where the reader pressed. Text is now clicked only at its
+   own point; without one it is gone to by focus and caret. An item is still clicked in its
+   middle.
+5. **Turning the flow on in a layout asking for it did nothing.** `_applyFlow` returned whenever a
+   layout was up. Where the layout's focus segment asked for the flow, the setting is now
+   answered there and then, starting or stopping the flow without leaving the layout. A layout
+   that did not ask keeps the flow waiting, as before.

@@ -14,9 +14,11 @@ mouse click on what is under the key would, in whichever window or application t
    gives its object.
 2. **Its window comes forward**, restored if it was minimised.
 3. **A click, where the click would land on it.** The point is the start of the text pressed, or
-   the middle of the object. Windows is asked what is at that point first, and the click goes
-   ahead only if it is the target's window: a pinned window may be covered by another one or
-   scrolled out of view, and a blind click lands on whatever is on top. A click is what puts
+   the middle of the object; text that cannot say where it starts is not clicked at all. Windows
+   is asked which window is at the point, and accessibility which object, and the click goes
+   ahead only if both are the target's: a pinned window may be covered or scrolled out of view,
+   and in a browser every control shares one window, so a blind click, or one checked only
+   against the window, lands on whatever is there. A click is what puts
    an application's own caret where the reader pressed, which Outlook's reading pane, for one,
    will not otherwise do: it puts the caret at the top of the message when it gets the focus.
 4. **Otherwise the object is focused** and its caret, or the browse mode cursor, is put at the
@@ -39,6 +41,10 @@ addonHandler.initTranslation()
 
 FOREGROUND_SETTLE_MS = 150
 """How long a window brought forward is given before Windows is asked what is at the point."""
+
+HIT_TEST_DEPTH = 8
+"""How many parents up from what is at the point the target is looked for. A click on an item
+lands on whatever is innermost there, which is rarely deeper than this below the item."""
 
 SW_RESTORE = 9
 """`ShowWindow`'s command to restore a minimised window, which `winUser` does not define."""
@@ -101,23 +107,39 @@ def targetFor(region, at: int) -> Target | None:
 
 
 def pointFor(target: Target) -> tuple[int, int] | None:
-	""":return: the screen point a click on the target would be made at, or None."""
+	"""The screen point a click on the target would be made at, or None where there is none.
+
+	Text is clicked only where it says it starts. Text that cannot say has no point, and is gone
+	to by its caret instead: a click in the middle of the object it is in would put the caret
+	somewhere else in it, which is not routing to what was pressed. An object is clicked in its
+	middle, which is where a click on it lands anyway.
+	"""
 	if target.info is not None:
 		try:
 			point = target.info.pointAtStart
 			return point.x, point.y
-		except Exception:
-			# Not every kind of text knows where it is on the screen. The object it is in does,
-			# and its middle is nearer the text than the middle of the whole document.
-			pass
-		try:
-			return _middleOf(target.info.NVDAObjectAtStart)
 		except Exception:
 			return None
 	try:
 		return _middleOf(target.obj)
 	except Exception:
 		return None
+
+
+def expectedAt(target: Target):
+	""":return: the object a click at the target's point should land on, for the hit test.
+
+	The object the text pressed starts in, which may be deep inside the document, or the object
+	pressed.
+	"""
+	if target.info is not None:
+		try:
+			inner = target.info.NVDAObjectAtStart
+		except Exception:
+			inner = None
+		if inner is not None:
+			return inner
+	return target.obj
 
 
 def _middleOf(obj) -> tuple[int, int] | None:
@@ -148,17 +170,48 @@ class _Desktop:
 		winUser.setForegroundWindow(window)
 
 	def isTheTargetsAt(self, obj, point: tuple[int, int]) -> bool:
-		"""Whether a click at the point would land in the object's window."""
+		"""Whether a click at the point would land on the object, or on something inside it.
+
+		Two checks. The window first, which is cheap and answers a covered or minimised window.
+		Then what is at the point, asked of accessibility: in a browser and in other applications
+		drawing their own controls, every control shares one window, so a window that matches
+		says nothing about whether the click would reach the control meant or the one beside it.
+		"""
 		import ctypes
 		from ctypes import wintypes
 
+		import api
 		import winUser
 
 		hit = ctypes.windll.user32.WindowFromPoint(wintypes.POINT(*point))
 		window = obj.windowHandle
-		if not hit or not window:
+		if not hit or not window or not winUser.isDescendantWindow(window, hit):
 			return False
-		return bool(winUser.isDescendantWindow(window, hit))
+		try:
+			found = api.getDesktopObject().objectFromPoint(*point)
+		except Exception:
+			return False
+		return isWithin(found, obj)
+
+
+def isWithin(found, obj) -> bool:
+	"""Whether an object is the one expected, or inside it within L{HIT_TEST_DEPTH} parents.
+
+	Inside it counts, because a click on a message lands on the text in the message. Around it
+	does not: the container a hit test answers with may hold the target and its neighbours, and
+	the click could be on either. Objects that cannot be compared count as different, which costs
+	a click and never makes the wrong one.
+	"""
+	for _level in range(HIT_TEST_DEPTH):
+		if found is None:
+			return False
+		try:
+			if found is obj or found == obj:
+				return True
+			found = found.parent
+		except Exception:
+			return False
+	return False
 
 	def click(self, point: tuple[int, int]) -> None:
 		import mouseHandler
@@ -183,7 +236,7 @@ def goTo(target: Target) -> None:
 def _clickOrFocus(target: Target) -> None:
 	point = pointFor(target)
 	try:
-		if point is not None and desktop.isTheTargetsAt(target.obj, point):
+		if point is not None and desktop.isTheTargetsAt(expectedAt(target), point):
 			desktop.click(point)
 			return
 	except Exception:

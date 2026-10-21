@@ -274,10 +274,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self.appLayouts = AppLayoutHost(self)
 		"""The focus's app layout, when one is up. See `appLayoutHost`."""
 
-		self._monitorTurn = 0
-		"""Which pin a timed refresh starts at, so that the rotation is fair.
+		self._pinsToRead: list[str] | None = None
+		"""The pins the timed pass under way has still to read, or None between passes.
 
 		See L{refreshMonitorsInTurn}."""
+
+		self._pinsTurn = False
+		"""Whether the reader's pins have the next slice rather than the app layout, so a slow
+		layout cannot keep them from ever being read. See L{refreshMonitorsInTurn}."""
 
 		self._pinsInFlight: list[ObjectMonitor] = []
 		"""Pins a focus move is carrying, until the display it caused has settled.
@@ -851,6 +855,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if self.appLayouts.isUp:
 			# The same, for an app layout: it outranks the flow, and the flow waits with its
 			# place kept until the layout goes. See `panels.PRIORITY_APP_LAYOUT`.
+			#
+			# Except where the layout's focus segment asked for the flow, which draws there and
+			# does not wait. The reader turning the flow on or off is answered there and then,
+			# without leaving the layout. Geometry is left alone: the segment is the layout's,
+			# and the band's own rectangle is checked again when the layout goes.
+			if self.appLayouts.flowSegmentKey() is not None:
+				self._startOrStopFlow(bmConfig.shouldClaimFlowBand())
 			return
 		wanted = bmConfig.shouldClaimFlowBand()
 		active = self.flowBand is not None
@@ -875,6 +886,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				self.stopFlow()
 				self.startFlow()
 			elif wanted:
+				self.startFlow()
+			else:
+				self.stopFlow()
+		finally:
+			self._applyingFlow = False
+
+	def _startOrStopFlow(self, wanted: bool) -> None:
+		"""Start the flow, or stop it, where that is not what it is doing now."""
+		if wanted == (self.flowBand is not None):
+			return
+		self._applyingFlow = True
+		try:
+			if wanted:
 				self.startFlow()
 			else:
 				self.stopFlow()
@@ -1598,7 +1622,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		tail and re-read its band in a single refresh, and there may be several of them.
 
 		So a pass is given an allowance and stops when it is spent, and the next pass carries
-		on from where it stopped rather than starting again at the first pin. The allowance
+		on from where it stopped rather than starting again at the first pin. Which pins a
+		pass reads is settled when it starts, so it ends once each has had a turn. The app
+		layout's pass and the pins' take turns, each finished before the other starts again,
+		so a slow layout pane cannot keep the reader's own pins from being read. The allowance
 		cannot shorten one slow pin — nothing here can, any more than `FetchBudget` can
 		shorten one slow block — but it stops the pin after it from being read in the same
 		cycle.
@@ -1610,37 +1637,38 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if bmConfig.isSpeechOutputMode():
 			# See `refreshMonitors`: a pin drawn beside speech has nothing to remove it.
 			return False
-		began = time.monotonic()
-		deadline = began + allowance
-		try:
-			# The app layout first, through its own scheduler, within the same allowance: its
-			# callables are calls into the application and its segments are read like pins, and
-			# a pass that runs out leaves the rest, and the reader's pins, for the next. See
-			# `AppLayoutHost.refreshInTurn`.
-			if self.appLayouts.refreshInTurn(deadline):
+		deadline = time.monotonic() + allowance
+		if not self._pinsTurn:
+			try:
+				# The app layout first, through its own scheduler, within the same allowance: its
+				# callables are calls into the application and its segments are read like pins.
+				# A pass that runs out carries on in the next slice. See
+				# `AppLayoutHost.refreshInTurn`.
+				if self.appLayouts.refreshInTurn(deadline):
+					return True
+			except Exception:
+				log.debugWarning("Could not bring the app layout up to date", exc_info=True)
+			# The layout's pass is over, so the pins' comes next whatever this slice has left.
+			# Starting the layout again first would let one slow pane take every slice.
+			self._pinsTurn = True
+			if not self._monitors:
+				self._pinsTurn = False
+				self._pinsToRead = None
+				return False
+			if time.monotonic() >= deadline:
 				return True
-		except Exception:
-			log.debugWarning("Could not bring the app layout up to date", exc_info=True)
-		monitors = dict(self._monitors)
-		keys = list(monitors)
-		if not keys:
-			self._monitorTurn = 0
-			return False
-		if time.monotonic() >= deadline:
-			# The layout spent the slice. The pins are next, not now.
-			return True
-		start = self._monitorTurn if 0 <= self._monitorTurn < len(keys) else 0
-		for step in range(len(keys)):
-			index = (start + step) % len(keys)
-			monitor = monitors[keys[index]]
-			if monitor not in self._monitors.values():
+		if self._pinsToRead is None:
+			self._pinsToRead = list(self._monitors)
+		while self._pinsToRead:
+			monitor = self._monitors.get(self._pinsToRead.pop(0))
+			if monitor is None:
 				# Unpinned while this pass was running.
 				continue
 			monitor.refresh()
-			if time.monotonic() - began >= allowance and step + 1 < len(keys):
-				self._monitorTurn = (index + 1) % len(keys)
+			if self._pinsToRead and time.monotonic() >= deadline:
 				return True
-		self._monitorTurn = 0
+		self._pinsToRead = None
+		self._pinsTurn = False
 		return False
 
 	# Scrolling
