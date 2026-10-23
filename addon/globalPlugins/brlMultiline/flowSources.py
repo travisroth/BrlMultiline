@@ -36,7 +36,7 @@ import textInfos
 from braille.regions.textInfo import CursorManagerRegion, TextInfoRegion
 from logHandler import log
 
-from . import flowForms
+from . import flowForms, flowListDepth
 from .flow import BlockId, ByIdentity, FetchResult, SourceBlock
 from .pinnedRegions import CursorOnlyWhereTheReaderIs
 
@@ -212,6 +212,15 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 	"""Defaults on the class, because the cursor is asked about while the region below is
 	still being built. See `holdsTheCursor`."""
 
+	listDepth: Optional[int] = None
+	"""How deep in the document's lists this block's line starts, or None for none.
+
+	Read while the line is, from the fields NVDA fetched to read it. See `_addTextWithFields`
+	and `flowListDepth`. On the class so that a region never updated answers too."""
+
+	_listDepthRead = False
+	"""Whether this reading has found the text `listDepth` is taken at."""
+
 	def holdsTheCursor(self) -> bool:
 		""":return: whether this is the block the reader is in.
 
@@ -355,7 +364,54 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 		except Exception:
 			log.debugWarning(f"Could not follow {self!r} after it moved", exc_info=True)
 
+	def _addTextWithFields(self, info, formatConfig, isSelection=False):
+		"""Read one part of the line as NVDA does, and note its list depth on the way past.
+
+		`TextInfoRegion.update` reads a line in up to three parts — before the cursor, the
+		selection, after it — and each is one `getTextWithFields`. That list opens with every
+		field enclosing the part, which is the depth, so it is counted as NVDA receives it
+		rather than fetched a second time. That second fetch on every block is what kept
+		browse mode lists flat; see `flowListDepth`.
+
+		The fetch is wrapped on this one position, which is a copy NVDA made for this part
+		alone, and unwrapped again afterwards. Only until a part with text has answered: the
+		first part is empty whenever the cursor is at the start of the line.
+		"""
+		original = None if self._listDepthRead else getattr(info, "getTextWithFields", None)
+		if original is None:
+			return super()._addTextWithFields(info, formatConfig, isSelection)
+
+		def recording(*args, **kwargs):
+			commands = original(*args, **kwargs)
+			try:
+				commands = list(commands)
+				lists = flowListDepth.depthBeforeText(commands)
+				if lists is not None:
+					self.listDepth = flowListDepth.blockDepth(lists)
+					self._listDepthRead = True
+			except Exception:
+				log.debugWarning(f"Could not read the list depth of {self!r}", exc_info=True)
+			return commands
+
+		try:
+			info.getTextWithFields = recording
+		except Exception:
+			# A position that will not take an attribute. The line reads as it always did,
+			# flat, which is what it was before depth was read at all.
+			return super()._addTextWithFields(info, formatConfig, isSelection)
+		try:
+			return super()._addTextWithFields(info, formatConfig, isSelection)
+		finally:
+			try:
+				del info.getTextWithFields
+			except Exception:
+				pass
+
 	def update(self) -> None:
+		# Forgotten first, because this reading may find no text at all, and a depth left from
+		# the last one would indent an emptied line as the item it used to be.
+		self.listDepth = None
+		self._listDepthRead = False
 		super().update()
 		self.dirty = True
 		# Set by TextInfoRegion.update for any block that is not at the start of its object,
@@ -1367,12 +1423,16 @@ class DocumentFlowSource:
 			# properly again — so a mark that outlived the text it was made from truncated
 			# the document at this block forever. A clean read is the evidence it is over.
 			self._swallowed.pop(blockId.bookmark)
+		isBlank = not region.rawText.strip()
 		return SourceBlock(
 			blockId=blockId,
 			region=region,
-			isBlank=not region.rawText.strip(),
+			isBlank=isBlank,
 			isControl=isControl,
 			gapAfter=isControl,
+			# A blank line has no depth even inside a list: it would draw the dots 7 and 8 style's
+			# marks on a row with nothing on it, and pull the band's baseline about for nothing.
+			depth=None if isBlank else getattr(region, "listDepth", None),
 		)
 
 	# Positions.

@@ -643,7 +643,7 @@ A document block's depth is in its control fields, which means `getTextWithField
 block of every document was a tax on all reading, to answer a question that mattered at one
 block, and on an eight row band it pushed the fetch budget over on arrival. Browse mode depth
 needs a cheaper mechanism than the obvious one, and it is a milestone of its own rather than
-a corner of this one.
+a corner of this one. It is M1b, below.
 
 **M1 — depth and indent.** DONE, PASS, except the orientation note, which is not built.
 Confirmed on a Monarch 8x32: a folder tree draws its depths, the band rebases when the true
@@ -755,6 +755,64 @@ a fast path for it — set the current object, follow the cursor, redraw — whi
 the case it was written for, where the focus changes on every arrow key, and exactly wrong
 when the run itself is what changed. Without dropping it the display kept the closed folder
 and moved its cursor about inside it.
+
+**M1b — depth in a browse mode list.** DONE, PASS in Chrome on a Monarch 8x32. M0's second
+customer: a nested list in a document now carries a depth, and everything M1 built draws it —
+the indent, the rebase, the continuation rule, the focus mark — with no change to the
+renderer, the window or routing.
+
+The cheaper mechanism M0 asked for turned out to be no extra fetch at all. NVDA's
+`TextInfoRegion._addTextWithFields` already calls `getTextWithFields` for every line it reads,
+and the list it returns opens with a `controlStart` for every field enclosing the range — the
+document, the list, the list item, the list inside it — before the first text. So
+`FlowRegion._addTextWithFields` wraps that one call on the one position NVDA made for that part
+of the line, counts the lists open at the first non-empty text, and unwraps it again. The count
+is `flowListDepth`, which imports nothing from NVDA. `DocumentFlowSource._buildBlock` copies
+the region's `listDepth` onto `SourceBlock.depth`, and from there it is M1's.
+
+Why the indent is not written into the region's cells, the way glyphs are: a region does not
+know the band, and the indent is the band's — its baseline moves when the reader pans. Written
+into the region, a wrapped row would start at the margin instead of past a child's indent, and
+every re-read NVDA makes on a caret move would have to put it back, which is the fault
+`glyphFlow.keepCompressed` exists for. Decision 10 already said the indent is the renderer's
+doing; this is the case that tested it. Drawn by the renderer, indent cells are `NO_POSITION`,
+so routing on them does nothing and the cursor and the glyphs are found through the real
+positions as they always were.
+
+The rules, each with a test in `test_flowListDepth.py`:
+
+1. A line's depth is the number of LIST fields open where its own text begins, not where it
+   ends. A line that closes its sublist after its words is still in the sublist.
+2. A line in no list has no depth, so prose draws flat. A top level list item is depth 1,
+   which `planFor` draws at the margin when the true depth fits, so a top level list sits
+   level with the prose around it. NVDA's own "lst" already marks where it begins.
+3. A focusable LIST is a control, not a level. A list box in a page calls itself a LIST, and
+   counting it would put its line one level deeper than the list item it sits in.
+4. NVDA reads a line in up to three parts, and the first is empty whenever the cursor is at
+   the start of it. The first part with text decides; an empty one says nothing.
+5. A blank line has no depth even inside a list. It would draw the dots 7 and 8 style's marks
+   on a row with nothing on it, and move the baseline for nothing.
+6. The interactive block — a focused edit read through its own fields — carries no depth.
+   Its fields are the edit's, not the page's.
+
+On hardware, in Chrome: nested lists indent, and they indent with NVDA's "report lists" turned
+off as well, since that setting governs presentation and not what the buffer hands back. The
+reader found that the nicer view of the two — the indent carries the structure, and "lst 3"
+and its like are no longer on the line to read past.
+
+Word does not indent yet, and the log says why. Word's UIA document gives a list item the
+LISTITEM role and never wraps the items in a LIST field: a top level item arrives as
+`LISTITEM, LINK` and a sub item as `LISTITEM, LISTITEM`. So every Word line counted 0 lists
+and carried no depth, which is the safe half — nothing drawn, nothing rebased. Counting
+LISTITEM as well would give Word its depth, and Chrome the same answer it has now.
+
+A Word fault was reported during this milestone and traced elsewhere. With the tap switched
+off entirely, Word was just as sluggish: every caret move rebuilt every block on the band, at
+10 to 25 ms a line, usually twice per keystroke. That is the writing path, not depth.
+
+Still to confirm on hardware: Firefox, and a clean rebase when panning back out of a sublist
+brings a shallower item in at the bottom. Not done here: Word's LISTITEM shape, ARIA trees in
+a document, which can take the item's own `level` field through the same tap, and block quotes.
 
 **M2b — presentation registry and recognition.** Not started. The `Presentation` record, the
 registry with its four-step lookup, identity-based recognition, and the application module
