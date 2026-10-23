@@ -297,6 +297,15 @@ class FlowController(PanelOwner):
 		ask for. So the debt is written down here and paid on that pass instead. See
 		`_contextAboveTheCaret` and `_payWhatIsOwedAbove`."""
 
+		self._writingSettled = False
+		"""Whether a settle pass has found the band, as last read in full while writing, unchanged.
+
+		What lets a caret move that typed nothing be answered as a reader's move rather than a band
+		of reads. Until a settle has come back with nothing to repair, the band may be the one a
+		transient left — a caret alone on the top row, a refused walk back — and the next update is
+		the repair, so it must read in full. Cleared whenever the band is entered afresh. See
+		`_caretMovedWithoutAnEdit` and `writingHasSettled`."""
+
 		self.rereadWhileWriting = False
 		"""Whether the last cursor move re-read the band as an edit being typed into.
 
@@ -357,6 +366,7 @@ class FlowController(PanelOwner):
 		"""
 		# Whatever was owed was owed by the band being replaced here.
 		self._owedAbove = 0
+		self._writingSettled = False
 		result = self.source.blockAtCursor(atObject)
 		self.lastResult = result
 		if result.kind is not ResultKind.BLOCK or result.block is None:
@@ -414,6 +424,7 @@ class FlowController(PanelOwner):
 			return False
 		with self.operation():
 			self._owedAbove = 0
+			self._writingSettled = False
 			result = blockAtPosition(info)
 			self.lastResult = result
 			if result.kind is not ResultKind.BLOCK or result.block is None:
@@ -2184,7 +2195,109 @@ class FlowController(PanelOwner):
 				"so the band was read again"
 			)
 			return self._readAgainKeeping(self.window.topBlockId(), trusted=True)
-		return self._readAgainKeeping(self._stableTop(), ground=ground)
+		top = self._stableTop()
+		if not ground:
+			moved = self._caretMovedWithoutAnEdit()
+			if moved is not None:
+				return self._followAnUneditedMove(moved)
+		return self._readAgainKeeping(top, ground=ground)
+
+	def _caretMovedWithoutAnEdit(self):
+		"""The caret's block, when this caret update was a move and nothing was typed.
+
+		**Most caret updates while writing are not writing.** An arrow key in Word is the
+		reader reading, and the whole band read twice over for it — once here, once by the
+		settle pass the re-read arms — was ten or more reads at ten to twenty five milliseconds
+		each in Word, on every press: a display that lagged behind the hand and froze NVDA for
+		half a second at a time.
+
+		An edit is made at the caret, so it changes the text at the caret's old place or its
+		new one. Typing changes the line the caret is on; Return splits it; Backspace at the
+		start of a line joins it to the one above, which is where the caret lands; undo takes
+		the caret to what it changed. So the block the caret left, read again, and the block it
+		arrived in, read anyway, are compared with what the band drew of them. Both the same,
+		under the same identities, and nothing was written.
+
+		One edit leaves both alone: Return at a block boundary that inserts a line reading
+		exactly like the line after it, the commonest being a blank line before a blank line.
+		That shows in the block after the caret's, which then starts somewhere the band does
+		not hold, so that one is checked too where the band has it.
+
+		Three reads at most, against a band of them twice. Anything this cannot vouch for — a
+		block that will not read, one the band does not hold, a text that differs — is the
+		whole re-read, exactly as it was.
+
+		**Only on a band a settle pass has found sound**, and with no rows above still owed. The
+		full re-read is also how a band left wrong by an editor's transient answer is repaired,
+		and that repair comes on an update where nothing was typed either. See
+		`_writingSettled`.
+
+		:return: the fetch result for the caret's block, or None to read the whole band again.
+		"""
+		if not self._writingSettled or self._owedAbove:
+			return None
+		left = self.activeBlockId
+		if left is None or not self.window.hasBlock(left):
+			return None
+		try:
+			result = self.source.blockAtCursor()
+		except Exception:
+			log.debugWarning("Could not read the caret's block while writing", exc_info=True)
+			return None
+		if result.kind is not ResultKind.BLOCK or result.block is None:
+			return None
+		arrived = result.block
+		if not self._drawnAs(arrived):
+			return None
+		if arrived.blockId != left:
+			again = self.source.blockAt(left)
+			if again.kind is not ResultKind.BLOCK or again.block is None or not self._drawnAs(again.block):
+				return None
+		index = self.window.blockIndex(arrived.blockId)
+		if index + 1 < len(self.window.blocks):
+			after = self.source.blockAfter(arrived.blockId)
+			if after.kind is not ResultKind.BLOCK or after.block is None or not self._drawnAs(after.block):
+				return None
+		return result
+
+	def writingHasSettled(self) -> None:
+		"""Say that a settle pass read the band again and found nothing to repair.
+
+		Called by the band's settle pass, which is the only thing that knows: it reads in full
+		a moment after a keystroke, when an editor's transient answers have healed, and an
+		unchanged frame then means the band the reader has is the document's. See
+		`_writingSettled`.
+		"""
+		if self._writing():
+			self._writingSettled = True
+
+	def _drawnAs(self, block) -> bool:
+		""":return: whether a block just read is the one the band holds under its identity, saying the same."""
+		if not self.window.hasBlock(block.blockId):
+			return False
+		try:
+			drawn = self.window.blocks[self.window.blockIndex(block.blockId)]
+		except LookupError:
+			return False
+		return drawn.rawText == getattr(block.region, "rawText", None)
+
+	def _followAnUneditedMove(self, result) -> bool:
+		"""Bring the band to a caret that moved without anything being typed, as a reader's move.
+
+		The arrival a document that is only being read gets: the block becomes active, its row
+		is laid out again for the cursor, and the window moves by the least that shows it. No
+		settle pass is armed, because nothing was edited for an editor to be transiently wrong
+		about.
+
+		:param result: the caret's block, from `_caretMovedWithoutAnEdit`.
+		:return: whether the window moved.
+		"""
+		blockId = result.block.blockId
+		forward = self._isForward(blockId)
+		held = self._keep(result.block)
+		self._setActive(blockId, freshlyRead=held is result.block)
+		self.refreshActive(reread=not self._activeIsFreshlyRead)
+		return self.syncToCursor(forward=forward, why="a caret move while writing, with nothing typed")
 
 	def _readAgainKeeping(self, topId, ground: bool = False, trusted: bool = False) -> Optional[bool]:
 		"""Read the band again from the caret, and put it back under a chosen top row.

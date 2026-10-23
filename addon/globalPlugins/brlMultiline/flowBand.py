@@ -444,6 +444,7 @@ class FlowBand(PanelOwner):
 				# unrelated reason, and spends a band's worth of reads settling something that
 				# settled long ago.
 				control.rereadWhileWriting = False
+				control.writingHasSettled()
 				return
 			if segment is not None:
 				segment.refresh()

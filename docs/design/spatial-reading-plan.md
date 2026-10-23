@@ -335,6 +335,34 @@ have to be kept apart, and collapsing any two of them has now caused a fault:
 Within the cursor's own block, the cursor's row must stay visible. That is what makes a
 long paragraph, or a multi line edit field being typed into, behave as described below.
 
+**A caret move in a document being written in is a reader's move until something was
+typed.** While writing, every caret update used to read the whole band again from the
+caret, because typing moves offsets and nothing else says which rows survived an edit. That
+is right for a keystroke that typed and ruinous for one that did not. In Word an arrow key
+read the band, and then the settle pass it armed read it again a moment later: ten or more
+reads at ten to twenty five milliseconds each, on every press, with NVDA's watchdog
+recovering from half second freezes in the log. Nothing in it was the list indent being
+built at the time; the depth tap switched off, the same log came back.
+
+An edit happens at the caret, so it changes the text where the caret was or where it has
+gone. `FlowController._caretMovedWithoutAnEdit` reads the block the caret arrived in, the
+block it left, and the block after its arrival where the band holds one, and compares each
+with what the band drew under the same identity. All the same, and the update is answered
+as a reader's move — `_followAnUneditedMove`, the least movement that shows the caret — with
+no settle pass armed. Anything different, unreadable or not on the band is the full re-read
+as before. The block after the arrival is there for Return at the end of a line before a
+line it happens to match, a blank before a blank: the line after then starts at an offset
+the band does not hold. A fake document whose identities are line numbers cannot show that
+case, so it is argued here rather than tested.
+
+**Only once a settle pass has found the band sound.** The full re-read is also the repair
+for a band an editor's transient answer left wrong — a caret alone on the top row, a walk
+back refused — and that repair comes on an update where nothing was typed either. So the
+shortcut waits for `FlowBand._settle` to come back with an unchanged frame
+(`writingHasSettled`), and anything that enters the band afresh, or rows still owed above the
+caret, puts it back to reading in full. The first press after arriving in a document still
+costs a band twice; the ones after it cost three or four reads.
+
 ### A block starts where its reading unit starts, and one block is read from the cursor
 
 Two rules, and the second is an exception to everything else this design says about pinned
