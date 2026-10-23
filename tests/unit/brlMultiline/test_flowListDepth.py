@@ -71,6 +71,27 @@ class TestCounting(unittest.TestCase):
 		commands = nested(1, "") + [start("LIST", states=["FOCUSABLE"]), "option"]
 		self.assertEqual(flowListDepth.depthBeforeText(commands), 1)
 
+	def test_wordGivesItemsAndNoList(self):
+		# The fields Word's UIA document gave on hardware, from the log of the Word session.
+		top = [start("EDITABLETEXT"), start("EDITABLETEXT"), start("EDITABLETEXT"), start("LISTITEM")]
+		self.assertEqual(flowListDepth.depthBeforeText(top + [start("LINK"), "Home and shared"]), 1)
+		self.assertEqual(flowListDepth.depthBeforeText(top + [start("LISTITEM"), "Header, navigation"]), 2)
+
+	def test_wordProseIsInNoList(self):
+		commands = [start("EDITABLETEXT"), start("EDITABLETEXT"), "reviewed October 8"]
+		self.assertEqual(flowListDepth.depthBeforeText(commands), 0)
+
+	def test_aBrowserListIsNotCountedTwice(self):
+		# A list and an item a level: either count is the depth, and the two are not added.
+		self.assertEqual(flowListDepth.depthBeforeText(nested(3)), 3)
+
+	def test_anItemWithNoListIsStillALevel(self):
+		self.assertEqual(flowListDepth.depthBeforeText([start("DOCUMENT"), start("LISTITEM"), "x"]), 1)
+
+	def test_theOptionsOfAFocusableListAreNotLevels(self):
+		commands = nested(1, "") + [start("LIST", states=["FOCUSABLE"]), start("LISTITEM"), "option"]
+		self.assertEqual(flowListDepth.depthBeforeText(commands), 1)
+
 	def test_rolesAreComparedByName(self):
 		# What NVDA's `controlTypes.Role` members look like: an enumeration with a name.
 		role = types.SimpleNamespace(name="LIST")

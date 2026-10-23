@@ -781,8 +781,10 @@ positions as they always were.
 
 The rules, each with a test in `test_flowListDepth.py`:
 
-1. A line's depth is the number of LIST fields open where its own text begins, not where it
-   ends. A line that closes its sublist after its words is still in the sublist.
+1. A line's depth is the number of list levels open where its own text begins, not where it
+   ends. A line that closes its sublist after its words is still in the sublist. Levels are
+   counted as LIST fields and as LISTITEM fields separately, and the larger count is the
+   depth: a browser gives both, one of each a level, and Word gives only the items.
 2. A line in no list has no depth, so prose draws flat. A top level list item is depth 1,
    which `planFor` draws at the margin when the true depth fits, so a top level list sits
    level with the prose around it. NVDA's own "lst" already marks where it begins.
@@ -800,11 +802,14 @@ off as well, since that setting governs presentation and not what the buffer han
 reader found that the nicer view of the two — the indent carries the structure, and "lst 3"
 and its like are no longer on the line to read past.
 
-Word does not indent yet, and the log says why. Word's UIA document gives a list item the
-LISTITEM role and never wraps the items in a LIST field: a top level item arrives as
+Word did not indent at first, and the log said why. Word's UIA document gives a list item
+the LISTITEM role and never wraps the items in a LIST field: a top level item arrives as
 `LISTITEM, LINK` and a sub item as `LISTITEM, LISTITEM`. So every Word line counted 0 lists
-and carried no depth, which is the safe half — nothing drawn, nothing rebased. Counting
-LISTITEM as well would give Word its depth, and Chrome the same answer it has now.
+and carried no depth, which is the safe half — nothing drawn, nothing rebased. Items are now
+counted as well, beside the lists, and the larger count taken (rule 1), which gives Word
+depths 1 and 2 for those two lines and gives Chrome the answer it already had. Items inside
+a focusable list are not counted, as the list itself is not: they are a list box's options.
+Confirmed on the Monarch: Word lists indent, and Chrome is unchanged.
 
 A Word fault was reported during this milestone and traced elsewhere. With the tap switched
 off entirely, Word was just as sluggish: every caret move rebuilt every block on the band, at
@@ -822,7 +827,7 @@ alike, and only the depth says which the indent is planned from. Tests in
 `TestTheBandFollowsADepthThatChanges`.
 
 Still to confirm on hardware: Firefox, and a clean rebase when panning back out of a sublist
-brings a shallower item in at the bottom. Not done here: Word's LISTITEM shape, ARIA trees in
+brings a shallower item in at the bottom. Not done here: ARIA trees in
 a document, which can take the item's own `level` field through the same tap, and block quotes.
 
 **M2b — presentation registry and recognition.** Not started. The `Presentation` record, the
