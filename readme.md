@@ -11,7 +11,7 @@ of two or more displays used together.
 
 NVDA was designed around single-line displays: it shows one thing at a time, and that thing
 follows the focus. NVDA 2026.1 introduced flowing that one thing across the rows of a
-multi-line display, but it is still one thing. This add-on uses the extra space in two ways:
+multi-line display, but it is still one element. This add-on uses the extra space in several ways:
 
 1. **Reading as a flow.** A web page, a document, a list, or a chat fills the display the way
    a printed page would: a heading with the text that follows it, a paragraph across as many
@@ -19,8 +19,7 @@ multi-line display, but it is still one thing. This add-on uses the extra space 
 2. **Showing different things in different places.** A display, or several displays combined,
    can be divided into segments. One segment follows the focus as usual, while another keeps
    something in view, such as a chat or a status line.
-
-There is also an experimental part for displays that can raise individual pins, such as the
+3. **Graphics.** There is also an experimental part for displays that can raise individual pins, such as the
 Humanware Monarch: tactile charts drawn from a spreadsheet selection, and pictures copied off
 the screen.
 
@@ -80,6 +79,7 @@ Flow is the main feature of the add-on and the best place to start.
 5. Under "Use it for," Browse mode is already checked. Check "Lists and menus" and "Editable
    text" as well if you want those read as a flow. (These work outside of browse mode.)
 6. Press OK and open a web page.
+7. Recommended: Define a gesture for the command "Toggle reading the whole display as one flowing document" under BrlMultiline in NVDA's Input Gestures dialog. Any time the Braille feels unfamiliar or uncertain or seems to not be quite right use this command to disable Flow and NVDA's Braille will revert to how it always has been.
 
 The page now fills the display. Here is what to expect:
 
@@ -201,11 +201,6 @@ normally scrolls back scrolls forward instead. Because it is stored per display,
 it reversed on a Focus 80, where the left-hand key is more comfortable for moving forward,
 and normal on a Monarch. NVDA itself has no such setting.
 
-With two displays combined, this follows the keys you press rather than what is on the
-display: pressing the Monarch's panning key uses the Monarch's setting, even when the segment
-that moves is on the other display. Use the "Segment settings for" box to set it for each. If
-you had reversed the keys for a combined display in an earlier version, when it was one
-setting for the pair, that choice is carried over to each display you have not set yourself.
 
 **Draw roles and states as shapes instead of words.** Off by default, and only offered on a
 display that can raise pins one at a time, such as a Monarch. Important: the display driver
@@ -260,7 +255,7 @@ to choose for one application, or use the command below while you are in it.
 
 ## Reading as a flow
 
-Normally a braille display shows one thing: the line the cursor is on, or the object with
+Traditionally  a braille display shows one thing: the line the cursor is on, or the object with
 focus. On a display with several rows, that can leave a heading alone on the top row with the
 rest of the display blank, or make a long paragraph pan one line at a time through rows that
 could have held all of it.
@@ -367,6 +362,7 @@ more columns on a page at readable widths, at the cost of fewer table rows at on
 row grows as tall as its longest cell needs, and every value is shown in full. On, each table
 row stays within its rows and long values are cut. Useful for a table you know well, where
 the first few characters of a value are enough to recognize it.
+Recommended to leave it off here and set this on an individual table basis using the table layout editor.
 
 **Repeat the first column on every page of a wide table.** A table too wide for the display is
 shown one page of columns at a time. With this on, the first column is repeated at the left of
@@ -385,7 +381,7 @@ when the page reports a change, such as a price on a watchlist, a score, or a st
 what is on the display is read again from the dynamic page to optimize API calls and keep the display feeling responsive.
 
 **Also re-read every (seconds).** At 0, the default, the display is updated only when the page
-reports a change. Set a number of seconds for a page that changes without reporting it. The
+reports a change. Set a number of seconds for a page that changes without reporting it to NVDA for some inaccessible reason. The
 display is only rewritten when something actually changed.
 
 **Scroll new content into view while you are at the end.** On by default. For something pinned
@@ -435,6 +431,7 @@ columns" and "Table: Previous columns" move across it without moving the cursor.
 turn to stays put while you read down the rows. With the first column repeated at the left of
 every page, the cell you are in is still on the display. If you move to a column the current
 page doesn't show, the display returns to your cursor.
+For the Monarch its recommended to assign these commands to the zoom keys. This is just an example option.
 
 **Arranging columns.** Three commands work on the column your cursor is in, for quick changes
 while exploring a table:
@@ -514,7 +511,7 @@ way instead.
 
 Separately from the flow: on any Excel cell, the header you marked is shown in NVDA's ordinary
 braille line, after the cell's coordinates. NVDA speaks this header but did not show it in
-braille. It follows NVDA's setting for reporting table headers in Document Formatting, and stays on the
+braille (it is an ommission in NVDA's Excel appModule)). It follows NVDA's setting for reporting table headers in Document Formatting, and stays on the
 display for every cell in the column rather than being shown once.
 
 ## Arrow keys in a table
@@ -838,7 +835,7 @@ Blank margins around a picture are left out, so what is in the picture fills as 
 display as it can. A picture that is mostly content is drawn whole. Positions you hear when
 exploring are still measured across the whole picture.
 
-In outlines, colour counts as well as brightness: a red shape on a green background of the same
+In outlines, color counts as well as brightness: a red shape on a green background of the same
 brightness still has an outline.
 
 If a picture can't be drawn, you are told why: the screen curtain is on, there is nothing there,
@@ -863,11 +860,11 @@ This command needs the Pillow image library. Installed copies of NVDA include it
 NVDA 2026.2), although it is not an official part of NVDA; if yours does not have it, you are
 told so, and drawing from the screen still works.
 
-### Colours in a picture
+### Colors in a picture
 
-When you press a routing key on a picture, you hear the colour under your finger before its
+When you press a routing key on a picture, you hear the color under your finger before its
 position, for example "red, 40 across, 60 down". If your finger is on a line or shape, that is
-its colour; if it is on the background, you hear the background's colour.
+its color; if it is on the background, you hear the background's color.
 
 **Graphics: Draw only the colour last touched on a picture, or all colours again** then redraws
 the picture with only that colour, in whichever style you are using. Use it for one line of a
@@ -876,7 +873,7 @@ only red", you stay on the part of the picture you were reading, and pressing th
 brings every colour back. If the last press was on the background, you are asked to press on a
 line or shape instead.
 
-Colours need the Pillow image library, like the clipboard. Without it, a press says only where
+Colors need the Pillow image library, like the clipboard. Without it, a press says only where
 you are, and asking for one colour tells you why it can't be done.
 
 ### Exploring a drawing
@@ -1018,7 +1015,7 @@ magnified, and where you are in it, without changing anything.
   curtain on.
 - Touch precision is based on a small number of tests on hardware, not a calibration. If
   pointing at a bar consistently names the wrong one, please report it.
-- No image library is needed. All image processing is done in plain Python inside the add-on,
+- No image library is needed. All image processing is done with Pilow when available or in plain Python inside the add-on,
   so there is nothing extra to install.
 
 ## The layout of a web page
@@ -1126,7 +1123,7 @@ also shows the focus, and stays up when the focus is on another display. If the 
 longer in front, or the area has gone, you are told to read the layout again. Older applications that are reached
 through Microsoft Active Accessibility are slow to read, a few seconds for a busy window, and
 you are told if only part of the window could be read in the time allowed. It has been tried on
-File Explorer, Excel, Outlook, Settings, Notepad and askSam.
+File Explorer, Excel, Outlook, Settings, Notepad and askSam (a very old legacy Windows app).
 
 ## Braille symbols and your own substitutions
 
@@ -1173,7 +1170,7 @@ with your personal tables (see below).
 Each entry finds some text and shows it in one of three ways:
 
 - **Text:** shown as other text, which the table then translates as if you had typed it. For
-  example, "Travis Roth" as "TR". Leave the replacement empty to show nothing at all.
+  example, "has attachment" as "atch". Leave the replacement empty to show nothing at all.
 - **Dots:** shown as dots you give, such as `1245-1235`. Separate cells with hyphens, and use
   `0` for a blank cell. Punctuation after the dots is written the way it would be after a
   word.
@@ -1183,7 +1180,7 @@ Each entry finds some text and shows it in one of three ways:
 And each entry has these options:
 
 - **Whole word only** (on by default): only where the text is not part of a longer word, so
-  "Travis Roth" does not change "Travis Roths".
+  "has attachment" does not change "has attachmentss".
 - **Match case** (off by default): only with the capitals as you typed them. Off, the text is
   also found in lower case, in capitals, and with each word or only the first letter
   capitalised.
@@ -1886,6 +1883,10 @@ explains what it does and does not prove.
 
 Design documentation, including notes on the parts of NVDA this add-on depends on, is in
 `docs/design/`.
+
+## Development & Acknowledgments
+
+This project was independently designed, architected, and maintained by Travis Roth, with AI assistants (such as Claude and ChatGPT) utilized for code drafting, refactoring, and documentation support.
 
 ## License
 
