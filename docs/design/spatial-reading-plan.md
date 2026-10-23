@@ -655,6 +655,17 @@ the answer is not the same for all of them.
 - Walking `NVDAObject` relations — `next`, `previous`, `parent`, `firstChild` — is the
   expensive one, because each is a cross process accessibility call, and lists and trees
   are where we would want to do it. This is where a budget is not optional.
+- **Comparing two bookmarks can be a cross process call too.** A virtual buffer's bookmark
+  is a pair of offsets, but a UIA document's — Word's, by default — is a copy of the
+  position, and its equality is `IUIAutomationTextRange.Compare`. The flow finds blocks by
+  bookmark in lists, and the display was worked out per cell, so a timing probe on a Monarch
+  in Word found about nine hundred comparisons a frame: four tenths of a second in
+  `cellGlyphs` alone, an arrow key costing 0.8 to 2.2 seconds, and NVDA's watchdog
+  recovering from freezes. Lookups now ask whether a key is the same object before whether
+  it is equal (`flow.findByIdentityFirst`), and a frame works out its visible rows once
+  rather than per cell. The same ten arrow presses then cost 0.2 to 0.56 seconds with no
+  freezes, nearly all of it Word reading its own lines. Anything that compares block ids in
+  a loop must go through identity first; `test_bookmarkCompares.py` counts them.
 - Decision 3 means lines rather than paragraphs will often be the unit, so there will be
   more fetches per display than a paragraph based design would need. The budget matters
   more for that reason, not less.

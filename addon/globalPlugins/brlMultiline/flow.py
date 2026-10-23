@@ -460,6 +460,35 @@ class Anchor:
 	entry: Entry
 
 
+def findByIdentityFirst(keys: Sequence, key) -> "int | None":
+	"""Where a key is among others, asking whether it is the same object before whether it is equal.
+
+	**Comparing two bookmarks can be a call into another process.** NVDA's bookmark for a UIA
+	document — Word, by default — is a copy of the position, and its equality is
+	`IUIAutomationTextRange.Compare`. Every linear scan here compares the key with each one ahead
+	of it, so finding the fifth block of a band asked Word four questions whose answer was no.
+	The display is worked out per cell, and on a Monarch that was several thousand calls into
+	Word per keystroke: four tenths of a second spent on `cellGlyphs` alone, and the arrowing in
+	Word that froze NVDA.
+
+	The same object is nearly always what is asked for — a row carries its block's own id, the
+	window's anchor is a block's own id — so a pass by identity answers without asking anyone.
+	Equality is still the answer when identity is not: a block read again has an id equal to the
+	old one and not the same object, and that is what the second pass is for.
+
+	:param keys: the keys to look among, in order.
+	:param key: the key to find.
+	:return: the index of the first match, or None.
+	"""
+	for index, candidate in enumerate(keys):
+		if candidate is key:
+			return index
+	for index, candidate in enumerate(keys):
+		if candidate == key:
+			return index
+	return None
+
+
 class ByIdentity:
 	"""A small store keyed by things that compare but cannot be hashed.
 
@@ -476,28 +505,28 @@ class ByIdentity:
 	def __init__(self) -> None:
 		self._items: list[list] = []
 
+	def _indexOf(self, key) -> "int | None":
+		return findByIdentityFirst([item[0] for item in self._items], key)
+
 	def get(self, key, default=None):
 		""":return: the value stored under a key, or `default`."""
-		for item in self._items:
-			if item[0] == key:
-				return item[1]
-		return default
+		index = self._indexOf(key)
+		return default if index is None else self._items[index][1]
 
 	def set(self, key, value) -> None:
 		"""Store a value under a key, replacing any value already there."""
-		for item in self._items:
-			if item[0] == key:
-				item[1] = value
-				return
-		self._items.append([key, value])
+		index = self._indexOf(key)
+		if index is None:
+			self._items.append([key, value])
+		else:
+			self._items[index][1] = value
 
 	def pop(self, key, default=None):
 		""":return: the value stored under a key, removing it."""
-		for index, item in enumerate(self._items):
-			if item[0] == key:
-				del self._items[index]
-				return item[1]
-		return default
+		index = self._indexOf(key)
+		if index is None:
+			return default
+		return self._items.pop(index)[1]
 
 	def clear(self) -> None:
 		"""Forget everything."""
@@ -567,10 +596,10 @@ class FlowWindow:
 		:return: its index among the cached blocks.
 		:raises LookupError: if it is not cached.
 		"""
-		for index, block in enumerate(self.blocks):
-			if block.blockId == blockId:
-				return index
-		raise LookupError(f"No cached block {blockId}")
+		index = findByIdentityFirst([block.blockId for block in self.blocks], blockId)
+		if index is None:
+			raise LookupError(f"No cached block {blockId}")
+		return index
 
 	def hasBlock(self, blockId: BlockId) -> bool:
 		""":return: whether this block is cached."""
@@ -696,11 +725,16 @@ class FlowWindow:
 		"""
 		if self.anchor is None:
 			raise LookupError("The flow has no anchor")
+		anchorId = self.anchor.blockId
+		# By identity first, which is nearly always the answer. See `findByIdentityFirst`.
+		for position, row in enumerate(rows):
+			if row.kind is RowKind.CONTENT and row.blockId is anchorId and row.rowIndex == self.anchor.rowIndex:
+				return position
 		for position, row in enumerate(rows):
 			if (
 				row.kind is RowKind.CONTENT
-				and row.blockId == self.anchor.blockId
 				and row.rowIndex == self.anchor.rowIndex
+				and row.blockId == anchorId
 			):
 				return position
 		raise LookupError(f"Anchor row {self.anchor.rowIndex} of {self.anchor.blockId} is not in the stream")
@@ -1150,7 +1184,12 @@ def assembleCells(window: FlowWindow, numCols: int) -> list[int]:
 	return cells
 
 
-def cellSource(window: FlowWindow, numCols: int, position: int) -> tuple[BlockId, int] | None:
+def cellSource(
+	window: FlowWindow,
+	numCols: int,
+	position: int,
+	rows: "Sequence[StreamRow] | None" = None,
+) -> tuple[BlockId, int] | None:
 	"""Work out what a cell of the window came from, for cursor routing.
 
 	:param window: the window that was drawn.
@@ -1158,8 +1197,12 @@ def cellSource(window: FlowWindow, numCols: int, position: int) -> tuple[BlockId
 	:param position: a flat row major position within the window.
 	:return: the block and the position within it, or None if the cell is padding, a gap,
 		a blank or a status marker. Routing into any of those must do nothing.
+	:param rows: the window's visible rows, for a caller asking of every cell in turn. Working
+		them out costs a walk of the window, and asked again for each of 256 cells it was most
+		of what a frame cost. See `findByIdentityFirst`.
 	"""
-	rows = window.visibleRows()
+	if rows is None:
+		rows = window.visibleRows()
 	rowIndex, col = divmod(position, numCols)
 	if not 0 <= rowIndex < len(rows):
 		return None

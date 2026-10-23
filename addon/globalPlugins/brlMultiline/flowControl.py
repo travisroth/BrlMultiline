@@ -2947,8 +2947,9 @@ class FlowController(PanelOwner):
 		# remembered answer serves the whole of it.
 		lastId = None
 		marks: dict = {}
+		rows = self.window.visibleRows()
 		for position in range(self.window.numRows * numCols):
-			source = cellSource(self.window, numCols, position)
+			source = cellSource(self.window, numCols, position, rows)
 			if source is None:
 				continue
 			blockId, at = source
@@ -3125,9 +3126,21 @@ class FlowController(PanelOwner):
 		if at is None:
 			return None
 		numCols = self.renderer.numCols
+		rows = self.window.visibleRows()
+		active = self.activeBlockId
+		# Whether each block is the active one is asked once per block rather than once per cell,
+		# and the position first, because asking is a call into the application for some
+		# documents. See `flow.findByIdentityFirst`.
+		lastId = None
+		isActive = False
 		for position in range(self.window.numRows * numCols):
-			source = cellSource(self.window, numCols, position)
-			if source is not None and source[0] == self.activeBlockId and source[1] == at:
+			source = cellSource(self.window, numCols, position, rows)
+			if source is None or source[1] != at:
+				continue
+			if source[0] is not lastId:
+				lastId = source[0]
+				isActive = lastId is active or lastId == active
+			if isActive:
 				return position + self.pinnedCells
 		return None
 
