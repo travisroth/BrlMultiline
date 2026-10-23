@@ -222,5 +222,57 @@ class TestBlocksCarryTheirDepth(unittest.TestCase):
 		self.assertIsNone(blank.depth)
 
 
+class TestTheBandFollowsADepthThatChanges(unittest.TestCase):
+	"""A held block's depth is read again whenever its region is.
+
+	From the review of 786be5c: the depth was fixed when the block was built, and an item moved to
+	another level without its text changing kept the indent it was built with.
+	"""
+
+	def flow(self, caretIndex=0):
+		from brlMultiline.flowControl import FlowController
+
+		from .test_flowControl import renderer
+
+		source = sourceOver(["parent", "child", "next"], [1, 2, 1], caretIndex=caretIndex)
+		control = FlowController(source, renderer(numCols=32), numRows=3, live=True)
+		control.enterAtCursor()
+		return control, source.obj
+
+	def depths(self, control, blockId):
+		held = control.blocks.get(blockId)
+		drawn = control.window.blocks[control.window.blockIndex(blockId)]
+		return held.depth, drawn.depth
+
+	def test_readingTheActiveBlockAgainTakesItsNewDepth(self):
+		control, document = self.flow(caretIndex=1)
+		self.assertEqual(self.depths(control, control.activeBlockId), (2, 2))
+		document.lists[1] = 3
+		control.refreshActive()
+		self.assertEqual(self.depths(control, control.activeBlockId), (3, 3))
+
+	def test_arrivingAtAHeldItemTakesItsNewDepth(self):
+		control, document = self.flow()
+		document.lists[1] = 3
+		document.caretIndex = 1
+		control.followCursor()
+		self.assertEqual(self.depths(control, control.activeBlockId), (3, 3))
+
+	def test_aListThatBecameProseLosesItsDepthThoughItsCellsDoNot(self):
+		# A top level item draws at the margin, exactly as prose does, so its cells are the same
+		# either way and only the depth says which it is.
+		control, document = self.flow()
+		document.lists[:] = [0, 0, 0]
+		control.rereadContent()
+		self.assertTrue(all(block.depth is None for block in control.blocks.values()))
+		self.assertEqual([block.depth for block in control.window.blocks], [None, None, None])
+
+	def test_aBlankLineStillHasNoDepth(self):
+		control, document = self.flow(caretIndex=1)
+		document.lines[1] = ""
+		control.refreshActive()
+		self.assertIsNone(control.blocks.get(control.activeBlockId).depth)
+
+
 if __name__ == "__main__":
 	unittest.main()

@@ -109,6 +109,35 @@ class TestAFrameComparesFewBookmarks(unittest.TestCase):
 			control.cellGlyphs()
 		self.assertLess(len(calls), 20, f"{len(calls)} comparisons for one frame's glyphs")
 
+	def test_aFrameAfterAReReadAsksAlmostNothing(self):
+		# From the review of 786be5c: a re-read stored equal ids that were not the same objects
+		# as the ones the renderings and the anchor carry, and every lookup then asked.
+		control = self.flow()
+		control.rereadContent()
+		with countingComparisons() as calls:
+			control.cellGlyphs()
+			control.cursorCell()
+			control.cells()
+		self.assertLess(len(calls), 20, f"{len(calls)} comparisons for a frame after a re-read")
+
+	def test_aFrameAfterCursorMovesAsksAlmostNothing(self):
+		control = self.flow()
+		for index in (6, 7, 8, 7):
+			control.source.obj.caretIndex = index
+			control.followCursor()
+		with countingComparisons() as calls:
+			control.cellGlyphs()
+			control.cursorCell()
+			control.cells()
+		self.assertLess(len(calls), 20, f"{len(calls)} comparisons for a frame after moving")
+
+	def test_aReReadKeepsTheIdsTheBandAlreadyHas(self):
+		control = self.flow()
+		before = [block.blockId for block in control.window.blocks]
+		control.rereadContent()
+		held = [control.blocks.get(blockId).blockId for blockId in before]
+		self.assertTrue(all(new is old for new, old in zip(held, before)))
+
 	def test_theCellsAskAlmostNothing(self):
 		control = self.flow()
 		with countingComparisons() as calls:

@@ -810,6 +810,17 @@ A Word fault was reported during this milestone and traced elsewhere. With the t
 off entirely, Word was just as sluggish: every caret move rebuilt every block on the band, at
 10 to 25 ms a line, usually twice per keystroke. That is the writing path, not depth.
 
+**From the review of 786be5c: a depth is read again whenever its region is.** The depth was
+copied onto the block when it was built, and a held block's region is read again on its own —
+NVDA re-reads the region under the caret, and an arrival keeps the region already held. So an
+item moved to another level without its text changing kept the indent it was built with. Now
+`_keep` takes the fresh reading's depth onto a held block, `refreshActive` asks the source's
+`currentDepth` after reading the region (the same rules as `_buildBlock`: blank lines and the
+focused edit have none), and `_renderingStands` refuses a rendering whose depth differs even
+when its cells do not — a top level item drawn at the margin and the prose it became look
+alike, and only the depth says which the indent is planned from. Tests in
+`TestTheBandFollowsADepthThatChanges`.
+
 Still to confirm on hardware: Firefox, and a clean rebase when panning back out of a sublist
 brings a shallower item in at the bottom. Not done here: Word's LISTITEM shape, ARIA trees in
 a document, which can take the item's own `level` field through the same tap, and block quotes.

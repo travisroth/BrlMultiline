@@ -1430,10 +1430,34 @@ class DocumentFlowSource:
 			isBlank=isBlank,
 			isControl=isControl,
 			gapAfter=isControl,
-			# A blank line has no depth even inside a list: it would draw the dots 7 and 8 style's
-			# marks on a row with nothing on it, and pull the band's baseline about for nothing.
-			depth=None if isBlank else getattr(region, "listDepth", None),
+			depth=self._depthOfRegion(region),
 		)
+
+	def currentDepth(self, block) -> Optional[int]:
+		"""How deep a block sits, as its region reads now rather than when it was built.
+
+		Asked by the controller after it reads a held block's region again, which is the one
+		reading a block's depth can change on without the block being built again. See
+		`FlowController._withCurrentDepth`.
+
+		:param block: a block this source built.
+		:return: its depth, by the same rules `_buildBlock` uses.
+		"""
+		if getattr(block, "isInteractive", False):
+			# A focused edit is read through its own fields, which are not the page's.
+			return None
+		return self._depthOfRegion(block.region)
+
+	@staticmethod
+	def _depthOfRegion(region) -> Optional[int]:
+		""":return: the depth a document line read through this region carries.
+
+		A blank line has no depth even inside a list: it would draw the dots 7 and 8 style's
+		marks on a row with nothing on it, and pull the band's baseline about for nothing.
+		"""
+		if not (getattr(region, "rawText", "") or "").strip():
+			return None
+		return getattr(region, "listDepth", None)
 
 	# Positions.
 

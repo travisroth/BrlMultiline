@@ -666,6 +666,10 @@ the answer is not the same for all of them.
   rather than per cell. The same ten arrow presses then cost 0.2 to 0.56 seconds with no
   freezes, nearly all of it Word reading its own lines. Anything that compares block ids in
   a loop must go through identity first; `test_bookmarkCompares.py` counts them.
+  Identity only helps while there is one id object per block, and the review of 786be5c
+  found a re-read broke that: it stored the equal, new id while the renderings and the
+  anchor kept the old one, and a frame after it asked 36 times. `FlowController._keep` now
+  gives a block read again the id object already held, and an arrival activates that one.
 - Decision 3 means lines rather than paragraphs will often be the unit, so there will be
   more fetches per display than a paragraph based design would need. The budget matters
   more for that reason, not less.

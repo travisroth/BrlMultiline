@@ -28,6 +28,7 @@ The controller also owns the two things a flow must be exact about:
 """
 
 import contextlib
+import dataclasses
 from typing import TYPE_CHECKING, Any, Optional
 
 from logHandler import log
@@ -435,7 +436,7 @@ class FlowController(PanelOwner):
 		# and laid out again to come out right, and that second reading is a call into the
 		# application on every keystroke. The block being entered at is the active one by
 		# construction, so the question was already answered before it was asked.
-		self._setActive(block.blockId, freshlyRead=block is result.block)
+		self._setActive(block.blockId, freshlyRead=block.region is result.block.region)
 		self.window.appendBlock(self.renderer.render(block))
 		self.window.enterAt(block.blockId)
 		# Still asked, for the one thing the first rendering cannot know: a caret beyond the
@@ -1344,6 +1345,11 @@ class FlowController(PanelOwner):
 			return False
 		if any(block.blockId == blockId for blockId in changed):
 			return False
+		if block.depth != source.depth:
+			# The cells can be the same and the rendering still wrong about the block: an item
+			# at the margin that became prose draws no differently, and the depth it carries is
+			# what the indent is planned from.
+			return False
 		try:
 			return block.renderKey == self.renderer.keyFor(source)
 		except Exception:
@@ -1604,7 +1610,19 @@ class FlowController(PanelOwner):
 		"""
 		existing = self.blocks.get(block.blockId)
 		if existing is not None and not replace and self._sameRegionOwner(existing, block):
+			if existing.depth != block.depth:
+				# The region is kept and the reading's structure taken: an item moved to another
+				# level without its text changing is still the item held, at its new depth.
+				existing = dataclasses.replace(existing, depth=block.depth)
+				self.blocks.set(existing.blockId, existing)
 			return existing
+		if existing is not None and block.blockId is not existing.blockId:
+			# **One id object per block, for as long as it is held.** The id read again is equal
+			# to the one held and not the same object, and the renderings and the anchor carry
+			# the old one. Storing the new one made every later lookup by those fall back to
+			# comparing bookmarks, which in Word is a call into Word. See
+			# `flow.findByIdentityFirst`.
+			block = dataclasses.replace(block, blockId=existing.blockId)
 		if existing is not None:
 			oldRegion = getattr(existing, "region", None)
 			if oldRegion is not None and hasattr(oldRegion, "onMoved"):
@@ -2053,7 +2071,9 @@ class FlowController(PanelOwner):
 		# a guessed direction is placing by a coin toss whenever the cursor leaves the window.
 		forward = self._isForward(blockId)
 		held = self._keep(result.block)
-		self._setActive(blockId, freshlyRead=held is result.block)
+		# The id held, not the one just read: equal, and the one every lookup finds by identity.
+		blockId = held.blockId
+		self._setActive(blockId, freshlyRead=held.region is result.block.region)
 		# The active region may have followed a caret within an edit, or replaced the
 		# document-bound region with the edit's own. Lay that out before asking which cursor
 		# row is visible; otherwise a cached block answers with yesterday's cursor position.
@@ -2750,6 +2770,30 @@ class FlowController(PanelOwner):
 		# otherwise go and take for itself a moment later.
 		self._activeIsFreshlyRead = True
 
+	def _withCurrentDepth(self, block):
+		"""Hold a block at the depth its region now reads, where its source can say.
+
+		A block's depth is fixed when it is built, and its region is read again on its own — the
+		caret moving within it is NVDA re-reading it. Without this an item moved to another level
+		without its text changing kept the indent it was built with. Found by review.
+
+		:param block: the block whose region has just been read.
+		:return: the block to use, the one held if nothing changed.
+		"""
+		currentDepth = getattr(self.source, "currentDepth", None)
+		if currentDepth is None:
+			return block
+		try:
+			depth = currentDepth(block)
+		except Exception:
+			log.debugWarning("Could not read a block's depth again", exc_info=True)
+			return block
+		if depth == block.depth:
+			return block
+		block = dataclasses.replace(block, depth=depth)
+		self.blocks.set(block.blockId, block)
+		return block
+
 	def refreshActive(self, reread: bool = True) -> bool:
 		"""Re-render the block the cursor is in, after it changed under the reader.
 
@@ -2778,6 +2822,7 @@ class FlowController(PanelOwner):
 				# `_keep`, where the same rule is applied to a block a fetch has just built.
 				block.region.dirty = False
 			self._activeIsFreshlyRead = True
+			block = self._withCurrentDepth(block)
 		try:
 			before = self.window.blocks[self.window.blockIndex(self.activeBlockId)]
 		except LookupError:
@@ -2787,6 +2832,7 @@ class FlowController(PanelOwner):
 			rendered.rows == before.rows
 			and rendered.positions == before.positions
 			and rendered.rowOffset == before.rowOffset
+			and rendered.depth == before.depth
 		):
 			return False
 		self.window.replaceBlock(rendered)
