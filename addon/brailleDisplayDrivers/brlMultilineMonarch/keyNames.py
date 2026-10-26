@@ -5,25 +5,14 @@
 
 """Names for keys that the HID braille driver names by usage alone.
 
-`hidBrailleStandard.InputGesture` builds a key's name from its usage and nothing else. The
-Monarch has two d-pads, and its descriptor declares the same d-pad usages for both: once under
-left controls and once under right controls, each with its own data index. Established on
-hardware on 14 September 2026, pressing up on the left pad and then on the right:
+`hidBrailleStandard.InputGesture` names a key by its usage alone, and the Monarch declares its
+two d-pads with the same usages under left and right control collections, so NVDA calls both
+`dpadUp`. A key whose usage is declared in more than one collection is given its collection's
+side, `leftDpadUp` and `rightDpadUp`, worked out from the descriptor; a key declared once is
+never renamed.
 
-	usage 0x216 = 1  [data index 18, collection 3 (link usage 0x20D)]
-	usage 0x216 = 1  [data index 14, collection 2 (link usage 0x20E)]
-
-NVDA named both presses `dpadUp`. The firmware says which pad is which, and the name discards
-it. JAWS separates the two pads, which is what raised the question.
-
-So a key whose usage is declared in more than one collection is given the side its collection
-names: `leftDpadUp` and `rightDpadUp`. It is worked out from the descriptor rather than written
-for the d-pad, so a joystick or rocker declared twice is treated the same, and a key declared
-once is never renamed.
-
-The two zoom keys are named too. They are usages 0x220 and 0x221, one past the last usage the
-braille page defines, so NVDA calls them `brailleUsage544` and `brailleUsage545`. Input help on
-the same day showed 544 is the key the Monarch's own software zooms in with.
+The zoom keys, usages 0x220 and 0x221, past the braille page, which NVDA calls
+`brailleUsage544` and `brailleUsage545`, are named too; 544 zooms in.
 
 **Every name here is offered in addition to NVDA's, never instead of it.** See
 `InputGesture._get_identifiers` in the driver for the order, and why nothing bound today stops

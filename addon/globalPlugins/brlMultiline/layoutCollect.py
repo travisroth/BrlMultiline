@@ -17,10 +17,9 @@ shape, so that what the add-on finds on a page is what a saved copy of it would 
 3. **The accessible tree**, only on a page with no landmarks: there the layout tables and the
    divs with telling ids are all there is, and they are not in browse mode's buffer.
 
-**Every rectangle is a call into the browser**, about 6 milliseconds each on the probe's pages,
-and a busy page wants several hundred. Done in one go that is seconds of NVDA saying nothing, so
-the work is cut into batches with a return to NVDA's message loop between them, and each part
-has a limit. The probe findings in `docs/design/layout-overview-plan.md` give the costs.
+**Every rectangle is a call into the browser**, and a busy page wants hundreds, so the work is
+batched with returns to NVDA's message loop, each part limited. See the probe findings in
+docs/design/layout-overview-plan.md.
 """
 
 from __future__ import annotations
@@ -39,9 +38,8 @@ from .layoutRegions import LANDMARKS, mentionsSearch
 #: than areas.
 CANDIDATE_TYPES = ("landmark", "heading1", "heading2", "edit", "button", "frame", "table")
 #: The kinds of content sampled for splitting areas by their gaps, each with its share of
-#: `MAX_LEAVES`. Shared out rather than taken in turn, since a news page has hundreds of links
-#: and taking links first spent the whole budget before a picture or a field was seen (found in
-#: review). A share one kind leaves unused goes to the others.
+#: `MAX_LEAVES`. Shared out rather than taken in turn, so a page's many links cannot spend the
+#: whole budget. A share one kind leaves unused goes to the others.
 LEAF_SHARES = (("link", 0.5), ("heading", 0.2), ("graphic", 0.2), ("formField", 0.1))
 #: The most leaves fetched. Enough to find a news page's columns on the probe's pages.
 MAX_LEAVES = 300
@@ -122,7 +120,7 @@ class Collector:
 		tabItems = _items(doc, "tab")
 		tabSet = {item.textInfo._startOffset for item in tabItems}
 		# Browse mode's form fields include its buttons and its tabs, and neither is something
-		# typed into (found in review: three tabs were also counted as three fields).
+		# typed into.
 		fields = [offset for offset in _starts(doc, "formField") if offset not in buttonSet | tabSet]
 		toggles = [item for item in _items(doc, "button") if _isExpandable(item)]
 		yield
@@ -407,8 +405,7 @@ def _walk(root, viewport, out: list[dict[str, Any]], collector: Collector) -> It
 	"""Walk the accessible tree into out, a batch at a time, not into text.
 
 	Each object is saved with browse mode's identifier for it and where it starts in browse mode's
-	text, so an area found from the tree can be moved to as one found from a landmark can (found
-	in use: on a page without landmarks, every area said it had no place in the page).
+	text, so an area found from the tree can be moved to as one found from a landmark can.
 	"""
 	stack = [(root, 0)]
 	calls = 0

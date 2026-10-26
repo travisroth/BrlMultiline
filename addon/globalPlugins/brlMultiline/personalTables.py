@@ -16,9 +16,8 @@ and the developer scratchpad. A table registered later is not there when NVDA re
 choice, and NVDA falls back to its default until restarted. So a personal table goes in the
 manifest, as installing or enabling an add-on is seen only after a restart.
 
-**The manifest is NVDA's to read and must not be broken by this.** A manifest NVDA cannot read
-disables the whole add-on, which happened once from a table name with a comma in it. So the
-manifest is read and written with `configobj`, which quotes what needs quoting; the result is read
+**The manifest is NVDA's to read and must not be broken by this**, since one NVDA cannot read
+disables the whole add-on. So it is read and written with `configobj`, which quotes; the result is read
 back with NVDA's own `AddonManifest` and refused if NVDA would find anything wrong in it, or if
 anything but the personal tables differs; and it replaces the old one in one step, which is kept as
 `manifest.ini.bak`. A failure leaves the manifest as it was.
@@ -45,10 +44,8 @@ def wrapperName(base: str) -> str:
 	""":return: the file name of the personal table made from an NVDA table: `es-g1.ctb` gives
 	`es-g1.ctb-brlMultiline-personal.utb`.
 
-	The whole of the table's file name, extension and all: NVDA has `bg.ctb` and `bg.utb`, Bulgarian
-	computer braille and Bulgarian grade 1, and named without the extension both were one file and one
-	manifest entry. A personal table named the earlier way is not wanted under either name, so it is
-	removed like any other, once NVDA no longer has it in use.
+	The whole file name, extension and all, since NVDA has both `bg.ctb` and `bg.utb`. A personal
+	table named without the extension is not wanted, and is removed once NVDA is not using it.
 	"""
 	return base + WRAPPER_SUFFIX
 

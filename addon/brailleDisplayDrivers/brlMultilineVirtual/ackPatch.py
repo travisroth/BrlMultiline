@@ -12,20 +12,13 @@ to happen between two acknowledging members.
 It is not. `_awaitingAck` is set to True in exactly one place in NVDA,
 `BrailleHandler._bgThreadExecutor`, and only ever for `self.display`. Under the virtual
 driver `self.display` is the virtual driver, which reports `receivesAckPackets = False`, so
-the handler's ack timer is never armed by anything and a member cancelling it cancels
-nothing. Phase 0 confirmed this on hardware: a Focus running as a member, acknowledging
-every packet, disturbed a Monarch primary not at all.
+the ack timer is never armed and a member cancelling it cancels nothing.
 
-What the patch is for is the other half of that call. Every acknowledged packet otherwise
-queues a `braille.handler._writeCellsInBackground()` that has nothing to write. At cursor
-blink rate against a chatty display that is a steady drip of pointless APCs on the shared
-I/O thread. Nothing is incorrect without this patch; it is noise the add-on has no business
-generating.
+The patch is for the other half: every acknowledged packet otherwise queues a
+`_writeCellsInBackground()` with nothing to write, noise on the shared I/O thread.
 
-Patching the base class rather than each instance is deliberate. Drivers that override
-`_handleAck` reach the base through `super()`, so a class level patch covers them without
-having to know which drivers override it. `freedomScientific` is exactly such a driver, and
-its own override goes on flushing cells queued while it was waiting.
+The base class is patched, since overriding drivers such as `freedomScientific` reach it
+through `super()`.
 
 Three drivers in NVDA are acknowledgement driven and so reach this at all:
 `freedomScientific`, `handyTech`, and `eurobraille` at firmware 3.0 and above.
@@ -43,9 +36,8 @@ _originalHandleAck = None
 _active = False
 """Whether the patch should do anything, as distinct from being installed.
 
-If another add-on wraps `_handleAck` after this patch is installed, restoring the saved
-method on the way out would erase that add-on's wrapper. So removal restores the attribute
-only when this patch is still the outermost one, and otherwise leaves it in place and inert.
+Removal restores the method only when this patch is still outermost, and otherwise leaves it
+in place and inert, as `handover` does.
 """
 
 

@@ -42,7 +42,7 @@ def _englishInContext(context: str, message: str) -> str:
 
 
 # The add-on's, where `initTranslation` set them, or else English; never whatever `builtins._`
-# holds, which outside NVDA can be the interactive interpreter's last result (found in review).
+# holds, which outside NVDA can be the interactive interpreter's last result.
 _ = globals().get("_", _english)
 ngettext = globals().get("ngettext", _englishPlural)
 pgettext = globals().get("pgettext", _englishInContext)

@@ -5,9 +5,8 @@
 
 """Routing in a segment that shows an object, a pin or an app layout's, goes to what is pressed.
 
-A pin shows something the reader is not working in. Routing there used to move the pin's own
-reading position and nothing else, so a press did nothing anyone could feel. Now it acts as a
-mouse click on what is under the key would, in whichever window or application that is:
+A press acts as a mouse click on what is under the key would, in whichever window or
+application that is:
 
 1. **What is under the key.** The region and position, read the way NVDA reads a press, or
    from the flow when the segment shows one. Text gives a position in the text; anything else
@@ -16,11 +15,8 @@ mouse click on what is under the key would, in whichever window or application t
 3. **A click, where the click would land on it.** The point is the start of the text pressed, or
    the middle of the object; text that cannot say where it starts is not clicked at all. Windows
    is asked which window is at the point, and accessibility which object, and the click goes
-   ahead only if both are the target's: a pinned window may be covered or scrolled out of view,
-   and in a browser every control shares one window, so a blind click, or one checked only
-   against the window, lands on whatever is there. A click is what puts
-   an application's own caret where the reader pressed, which Outlook's reading pane, for one,
-   will not otherwise do: it puts the caret at the top of the message when it gets the focus.
+   ahead only if both are the target's (see `_Desktop.isTheTargetsAt`). A click puts an
+   application's own caret where pressed, which Outlook's reading pane will not otherwise do.
 4. **Otherwise the object is focused** and its caret, or the browse mode cursor, is put at the
    position pressed, once the focus has settled so the application cannot move it back.
 
@@ -109,10 +105,8 @@ def targetFor(region, at: int) -> Target | None:
 def pointFor(target: Target) -> tuple[int, int] | None:
 	"""The screen point a click on the target would be made at, or None where there is none.
 
-	Text is clicked only where it says it starts. Text that cannot say has no point, and is gone
-	to by its caret instead: a click in the middle of the object it is in would put the caret
-	somewhere else in it, which is not routing to what was pressed. An object is clicked in its
-	middle, which is where a click on it lands anyway.
+	Text only where it says it starts; otherwise it is gone to by its caret. An object in its
+	middle.
 	"""
 	if target.info is not None:
 		try:
@@ -172,10 +166,8 @@ class _Desktop:
 	def isTheTargetsAt(self, obj, point: tuple[int, int]) -> bool:
 		"""Whether a click at the point would land on the object, or on something inside it.
 
-		Two checks. The window first, which is cheap and answers a covered or minimised window.
-		Then what is at the point, asked of accessibility: in a browser and in other applications
-		drawing their own controls, every control shares one window, so a window that matches
-		says nothing about whether the click would reach the control meant or the one beside it.
+		The window first, for a covered or minimised one; then accessibility, since in a browser
+		every control shares one window.
 		"""
 		import ctypes
 		from ctypes import wintypes
@@ -197,10 +189,8 @@ class _Desktop:
 def isWithin(found, obj) -> bool:
 	"""Whether an object is the one expected, or inside it within L{HIT_TEST_DEPTH} parents.
 
-	Inside it counts, because a click on a message lands on the text in the message. Around it
-	does not: the container a hit test answers with may hold the target and its neighbours, and
-	the click could be on either. Objects that cannot be compared count as different, which costs
-	a click and never makes the wrong one.
+	Inside counts, as a click on a message lands on its text; around does not, since a container
+	holds neighbours too. Objects that cannot be compared count as different.
 	"""
 	for _level in range(HIT_TEST_DEPTH):
 		if found is None:

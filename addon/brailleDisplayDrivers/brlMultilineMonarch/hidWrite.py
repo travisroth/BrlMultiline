@@ -6,15 +6,10 @@
 """Write to an overlapped handle, and stop waiting if the device never takes it.
 
 `hwIo.IoBase.write` starts an overlapped write and then waits for it with
-`GetOverlappedResult(..., bWait=True)`, which is to say forever. A device that stops taking
-output reports never completes that write, and whatever thread made it never returns. On the
-morning of 2026-09-14 that was a Monarch: its first pin report never finished, the handler's
-I/O thread sat in `GetOverlappedResult` holding the driver's write lock, and the main thread
-queued up behind the lock in a repaint. NVDA started and was frozen before it said a word.
-
-This is the same write with a deadline. If the device has not taken the report in time the
-write is cancelled and `WriteTimedOut` is raised, which the driver treats like any other
-failed write: the device is lost and recovery begins.
+`GetOverlappedResult(..., bWait=True)`, forever, so a device that stops taking output reports
+holds the calling thread, and with it the driver's write lock. This is the same write with a
+deadline: it is cancelled and `WriteTimedOut` raised, which the driver treats as any failed
+write.
 
 Imports nothing from NVDA, so it can be tested against a real Windows handle without NVDA
 standing behind it. The kernel32 functions are bound on a private `WinDLL`, so the argument

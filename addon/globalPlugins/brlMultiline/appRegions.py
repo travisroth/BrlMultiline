@@ -154,7 +154,7 @@ def _isMeaningful(name: str, record: dict, title: str) -> bool:
 def _isHidden(record: dict) -> bool:
 	""":return: whether an element cannot be seen: offscreen, covered by another of the
 	application's windows, or outside what holds it. Shared by finding areas and counting what
-	they hold, so an area does not count what it was found without (found in review)."""
+	they hold, so an area does not count what it was found without."""
 	return bool(record.get("offscreen") or record.get("covered") or record.get("outside"))
 
 
@@ -242,7 +242,7 @@ def _classify(record: dict, title: str, box: Box, window: Box, parent: str) -> t
 		return "search", ""
 	if kind == "Edit" and _isEditingSurface(box, window):
 		# The editor of an application that shows it as a plain edit control rather than a
-		# document, as a classic Notepad does (found in review). A form field is not one.
+		# document, as a classic Notepad does. A form field is not one.
 		return "document", label
 	if name.lower() == "ribbon":
 		return "ribbon", ""
