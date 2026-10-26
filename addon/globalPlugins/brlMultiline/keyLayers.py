@@ -9,32 +9,17 @@ Read `docs/design/layered-keys-plan.md` first. This is its model, and it imports
 NVDA, so every rule the plan settles is unit tested here without one. `keyLayerDispatch` is the
 NVDA side: it asks L{decide} what a key does and then makes it happen.
 
-**A device** — a braille display, named by its driver, or the keyboard — has a L{LayerSet}: a
-default layer that is always there and any number of the reader's own. One layer per device is
-on at a time.
-
-**A key the layer on does not bind is transparent.** It is looked up in the layer that one falls
-through to, and so on down to the device's default layer, and if nothing binds it NVDA does what
-it always does with it. Decided with the reader: braille typing and every ordinary command go on
-working in any layer, with no list of exceptions to maintain.
-
-**Two styles.** A one shot layer turns off after the next key, whatever that key did; it is the
-default for a layer with no context, and it is how twenty commands go behind one key. A layer
-that stays on turns off only when asked; it is the default for a layer with a context, because
-graphics is somewhere a reader stays.
-
-**Escape leaves**, and goes no further: never sent on, since a reader backing out of a layer does
-not mean to close the dialog under it. A key leaves if it is one of the layer's exit keys — space
-with z on a braille display, where `hidBrailleStandard` has escape somewhere else — or if its
-ordinary command is the emulated escape key. A layer that binds escape itself keeps it.
-
-**Routing and panning never end a layer**, not even a one shot one. In graphics a routing press
-asks what is under the finger, and panning is how the reader keeps reading.
-
-**The add-on ships default layers** for the Monarch and the keyboard, in L{defaultLayers}. They
-are what a device has until the reader saves layers of their own, and what the layered keys
-dialog's reset to factory defaults puts back. Decided with the reader, 14 September 2026: the
-Monarch should work out of the box, and the layout can be tuned from here.
+1. A device, a braille display named by its driver or the keyboard, has a `LayerSet`: a
+   default layer and any of the reader's own. One layer per device is on at a time.
+2. A key the layer does not bind falls through to the layers beneath, and then to NVDA.
+3. A one shot layer turns off after the next key, the default without a context; a layer that
+   stays on is the default with one.
+4. Escape leaves and is never sent on. A key leaves if it is one of the layer's exit keys, such
+   as space with z on a braille display, or its ordinary command is the emulated escape key. A
+   layer that binds escape keeps it.
+5. Routing and panning never end a layer.
+6. Shipped layers for the Monarch and the keyboard are in `defaultLayers`, used until the reader
+   saves their own.
 """
 
 import json
@@ -69,10 +54,8 @@ ESCAPE_SCRIPT = "kb:escape"
 ESCAPE_KEY = "kb:escape"
 """The keyboard's own escape key, normalized, which leaves a keyboard layer.
 
-A rule of its own because the ordinary script rule cannot find it: the escape key has no NVDA
-command, it goes straight to Windows, so its ordinary script is nothing at all. Phase 1 on hardware
-found a keyboard layer that escape did not leave. With modifiers it is another key, so shift with
-escape is left to NVDA.
+A rule of its own, since escape has no NVDA command for the ordinary script rule to find. With
+modifiers it is another key, left to NVDA.
 """
 
 SHIPPED = 7
@@ -99,9 +82,7 @@ SHIPPED_ADDITIONS = {
 	3: {
 		"layers": ("unwrapped",),
 	},
-	# The chart layer's keys for one pin per point, its views and stepping through its points. A
-	# chart layer saved before them had none, and the stepping keys did the Monarch's own next and
-	# previous line instead. Found on hardware.
+	# The chart layer's keys for one pin per point, its views and stepping through its points.
 	4: {
 		"bindings": {
 			"chart": (
@@ -138,17 +119,9 @@ SHIPPED_ADDITIONS = {
 }
 """What each revision of the shipped layers added, for sets saved before it.
 
-**Saved layers replace the shipped ones as a whole**, which is right for everything a reader
-changed and wrong for something the add-on moved. On 15 September 2026 zoom, pan and the braille
-line came out of NVDA's gesture map and into the graphics layer, and the chart and picture layers
-were added for the keys that came with them. A reader who had saved their layers the day before
-lost the chords and never got the layers: their saved set was read exactly as saved, so a chart
-came up with the graphics layer and nothing the chart keys were bound to. Found on hardware.
-
-So a set saved before a revision is given what that revision added, once: a shipped layer it has
-no layer of that id or context for, and a shipped key its layer of that id does not already bind.
-Nothing the reader changed is touched. Saving the set records the revision, so a layer the reader
-removes afterwards stays removed.
+Saved layers replace the shipped ones whole, so a set saved before a revision is given what it
+added, once: a shipped layer with no layer of that id or context, and a shipped key its layer
+does not bind. Nothing the reader changed is touched, and saving records the revision.
 
 Layers by id, bindings by layer id and key without the device, which is added per device.
 """
@@ -363,8 +336,7 @@ CIRCLE = "circle"
 
 class LayerIssue(NamedTuple):
 	"""One thing wrong with a set of layers, as data, so the dialog can say it in the reader's
-	language and the log in English (found in review: the dialog put an English reason into a
-	translated message)."""
+	language and the log in English."""
 
 	kind: str
 	"""`DUPLICATE`, `DEFAULT_FIXED`, `MISSING` or `CIRCLE`."""
@@ -628,19 +600,10 @@ _LAYER_PROPERTIES = ("name", "context", "autoEnable", "style", "exitKeys", "fall
 def stacked(device: str, texts: Iterable[str], factory: Iterable = ()) -> tuple:
 	"""A device's layers as the configuration profiles in force give them, each over the last.
 
-	**A profile changes only what it changes**, as it does every other NVDA setting. The normal
-	configuration's layers are the base, or the shipped layers where it has none; each profile in
-	force then changes the layers it changes, and only the keys in them it binds, removes or
-	changes. A key a profile leaves alone is looked up in the normal configuration's layer of the
-	same name, and a key bound in neither goes to NVDA, as before. A key bound to blocked is still
-	the trap.
-
-	A profile saved by an earlier version holds a whole copy of every layer, made when it was
-	saved, and replaced the normal configuration's layers outright: a key added in normal later
-	never reached it (found on the Monarch: the overview keys did nothing in Outlook, whose
-	profile had an older copy). A copy like that is read as the keys and layers it adds or changes
-	and nothing else, since it cannot say whether a key it lacks was removed on purpose or added to
-	normal after; so everything it lacks comes from normal.
+	A profile changes only what it changes. The normal configuration's layers, or the shipped
+	ones, are the base; each profile in force changes only the layers and keys it binds,
+	removes or changes. A whole copy saved by an earlier version is read as what it adds or
+	changes only, so anything it lacks comes from normal.
 
 	:param texts: each profile's stored text, the normal configuration's first, then each profile
 		in force in the order NVDA activated them; empty where a profile stores nothing.
@@ -849,26 +812,15 @@ def decide(
 def defaultLayers(device: str, pluginModule: str) -> list:
 	"""The layers a device ships with: what it has until the reader saves layers of their own.
 
-	The Monarch's default layer is one shot and reads: the layer key, then a direction on the left
-	d-pad. Its graphics layer stays on, pans with the left d-pad and zooms with the zoom keys, and
-	comes on by itself with a drawing, since putting a drawing up is already asking for it. It also
-	holds the space with dot 7 and dot 8 chords that pan, zoom and give the drawing the braille line,
-	which were global until 15 September 2026. Its chart layer and picture layer come on by themselves
-	instead of it for a chart or a picture, fall through to it for panning and zooming, and add plain
-	letters: on a chart o for one pin per point and v for the next set of lines, with dot 7 for the
-	previous, space with dot 4 and dot 1 for the next and previous point, space with dots 1 2 3 and
-	dots 4 5 6 for the first and last, u to unmark the point and l to move its level line; on a
-	picture o for outlines, b for brightness and r for brightness reversed. Its table
-	layer stays on and moves by table cell with the left d-pad, and turns column pages with the zoom
-	keys; it comes on only from the layer key, since a table is somewhere the caret passes through.
-	Its unwrapped layer comes on by itself while the band shows lines unwrapped, and pans across them
-	with the zoom keys; nothing else in it, so every other key is what it always was.
-	The right d-pad is in none of them, so it stays the arrow keys, and the d-pad centre is not a key.
+	On the Monarch: a one shot default layer; a graphics layer that stays on and comes on by
+	itself with a drawing; chart and picture layers that come on instead of it and fall through
+	to it; a table layer that comes on only from the layer key, since the caret passes through
+	tables; and an unwrapped layer that comes on while lines are unwrapped. The right d-pad is in
+	none, so it stays the arrow keys. The bindings are below; see
+	docs/design/layered-keys-plan.md.
 
-	The keyboard's graphics layer does the same from the keypad, acting for the Monarch; a command
-	that does not ask which display it is for ignores that, so it is harmless without one. It does not
-	come on by itself: the keypad is the review cursor on a desktop layout, and a drawing going up is
-	no reason to take it away.
+	The keyboard's graphics layer acts for the Monarch from the keypad, and does not come on by
+	itself, since the keypad is the review cursor on a desktop layout.
 
 	:param device: the device.
 	:param pluginModule: this add-on's plugin module, which is `globalPlugins.brlMultiline` in NVDA.

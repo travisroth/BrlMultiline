@@ -5,16 +5,9 @@
 
 """A stand-in for NVDA's single braille buffer that fans out to several segments.
 
-`BrailleHandler` owns exactly one `mainBuffer` and treats the display as one window onto
-it. `DisplayContainer` takes that buffer's place, presents the combined result of several
-segments as though it were one buffer, and dispatches individual operations to the segment
-they belong to.
-
-The container's own members are flat. A view composes panels, but `SegmentView.flatten`
-dissolves them into an ordered list of segment specifications before the container is
-built, so nothing here walks a tree: every operation iterates segments in display order.
-The view is kept so that the next view can be composed from it, and so that the layout can
-be reported, but no operation below consults it except to reach the panels for reporting.
+`DisplayContainer` takes the place of `BrailleHandler.mainBuffer`, presents several segments
+as one buffer, and dispatches each operation to its segment. Segments are flat, from
+`SegmentView.flatten`; the view is kept only for composing the next one and for reporting.
 """
 
 from collections.abc import Callable, Iterator, MutableSequence
@@ -39,9 +32,8 @@ if TYPE_CHECKING:
 PLACEMENT_KEY_ATTRIBUTE = "_brlMultilineSegmentKey"
 """Attribute this add-on writes on a region to note which segment it was placed in.
 
-Namespaced because it is set on NVDA's own `Region` objects. Deliberately not
-`targetSegment`: that attribute is an owner's explicit destination, and conflating the two
-would make this add-on's bookkeeping indistinguishable from a claim.
+Namespaced, as it is set on NVDA's own `Region` objects. Bookkeeping only, unlike
+`targetSegment`; see `DisplayContainer.resolvePlacementTarget`.
 """
 
 segmentRouter: "Callable[[str, BrailleBufferSegment, int], bool] | None" = None
@@ -68,10 +60,8 @@ def _noteUsed(segment) -> None:
 class FakeRegionsList(MutableSequence):
 	"""Stands in for a buffer's `regions` list, resolving to the focus segment.
 
-	`BrailleHandler` appends to and indexes `mainBuffer.regions` directly rather than
-	going through a method, so the container has to offer something list shaped. Every
-	operation resolves the focus segment afresh, so that changing which segment holds
-	focus does not leave this object pointing at the wrong list.
+	`BrailleHandler` uses `mainBuffer.regions` as a list. Each operation resolves the focus
+	segment afresh.
 	"""
 
 	def __init__(self, container: "DisplayContainer") -> None:
@@ -117,17 +107,14 @@ class FakeRegionsList(MutableSequence):
 class DisplayContainer(baseObject.AutoPropertyObject):
 	"""The whole braille display, divided into independently scrolling segments.
 
-	Presents the `BrailleBuffer` interface to `BrailleHandler`, without inheriting from
-	it: almost every method would have to be overridden anyway, and inheriting would
-	bring along a second set of unused buffer state.
+	Presents the `BrailleBuffer` interface without inheriting, which would bring unused state
+	and need nearly every method overridden.
 	"""
 
 	def __init__(self, handler: "BrailleHandler", view: "SegmentView") -> None:
 		"""
 		:param handler: the braille handler this container serves.
-		:param view: the arrangement of the display to build. Everything is a view,
-			including the plain single segment arrangement that matches NVDA's own
-			behaviour.
+		:param view: the arrangement of the display to build.
 		:raises ValueError: if the view's panels do not tile the display, or its segments
 			overlap or share a key.
 		:raises LookupError: if the view's focus segment does not exist.
@@ -253,14 +240,10 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 		Two different things can be recorded on a region, and they are not
 		interchangeable:
 
-		1. `targetSegment` is an owner's explicit destination. It is a promise about where
-			the content belongs, so a target that no longer exists means the owner's claim
-			has gone and the content has nowhere legitimate to go. Delivery fails rather
-			than falling back, because redirecting a table's cell content into the focus
-			segment would write over the user's ordinary braille output.
-		2. `PLACEMENT_KEY_ATTRIBUTE` is this add-on's own note of where an untargeted
-			region was put. It is bookkeeping, never a destination, and is not consulted
-			here at all. See L{findContainingSegment}.
+		1. `targetSegment` is an owner's explicit destination. If it no longer exists,
+			delivery fails rather than writing over the focus segment.
+		2. `PLACEMENT_KEY_ATTRIBUTE` is bookkeeping, never a destination, and not consulted
+			here. See `findContainingSegment`.
 
 		:param region: the region to place.
 		:return: the index to write into, or None if the region cannot be delivered.
@@ -283,10 +266,8 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 	def findContainingSegment(self, region: "Region") -> BrailleBufferSegment | None:
 		"""Find the segment a region is already in.
 
-		Used by the operations NVDA performs on a region it has handed over previously,
-		where the question is not where the region belongs but where it actually is.
-		Identity is checked first, because it is the only answer that cannot go stale: the
-		recorded key is a note from a container that may since have been replaced.
+		For NVDA's operations on a region it handed over earlier. Identity first, since the
+		recorded key may be from a replaced container.
 
 		:param region: a region already written into a segment.
 		:return: the segment holding it, or None if no segment does.
@@ -305,8 +286,7 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 	def recordPlacement(self, region: "Region", index: int) -> None:
 		"""Note which segment a region was written into.
 
-		Kept separate from `targetSegment` so that this add-on's bookkeeping can never be
-		mistaken for an owner's explicit claim on a segment.
+		See `PLACEMENT_KEY_ATTRIBUTE`.
 
 		:param region: the region that was placed.
 		:param index: the segment it went into.
@@ -322,12 +302,9 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 		return self._regionsProxy
 
 	def _set_regions(self, value: list["Region"]) -> None:
-		# NVDA assigns a fresh list when showing speech output in braille, meaning the
-		# assigned regions are now the whole of what the display shows. Write the contents
-		# into the focus segment rather than losing the proxy, and empty every other
-		# segment: in speech output mode NVDA stops handling focus, caret and review
-		# moves, so pinned objects left elsewhere would stay under the
-		# reader's fingers beside the speech, with nothing to ever refresh or remove them.
+		# NVDA assigns a fresh list for speech output in braille, which is then the whole
+		# display: written into the focus segment, every other segment emptied. See
+		# `bmConfig.isSpeechOutputMode`.
 		for segment in self.segments:
 			segment.clear()
 		self.focusSegment.regions = list(value)
@@ -338,15 +315,9 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 	def _get_visibleRegions(self) -> Iterator["Region"]:
 		"""Yield the visible regions of every segment, the focus segment's last.
 
-		The handler scans this to find the region belonging to an object that has
-		updated. Covering all segments means a monitored object in a segment that does
-		not hold focus still receives its updates.
-
-		The handler scans in reverse and stops at the first region whose object matches,
-		expecting the focus to be last. The regions showing the lines around the caret
-		carry the focus region's own object, so the focus segment is yielded last whatever
-		its position on the display; otherwise a layout whose focus segment is not the
-		bottom one would update one of those lines and leave the focus region stale.
+		All segments, so a monitored object anywhere gets its updates. The handler scans in
+		reverse for the first matching object, and lines around the caret share the focus
+		region's object, so the focus segment comes last wherever it is.
 		"""
 		for index, segment in enumerate(self.segments):
 			if index != self._focusSegmentNumber:
@@ -373,16 +344,8 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 	def _buildSegment(self, handler, spec) -> BrailleBufferSegment:
 		"""Build the segment one specification asks for.
 
-		Every segment is one that *can* hold a flow, and until a controller is attached it
-		behaves exactly as an ordinary segment does — every override in `FlowBufferSegment`
-		falls back to its parent while there is nothing attached. That is what makes it
-		reasonable to build them all this way, and what it buys is that a flow is no longer
-		something only the band can have: a pinned object gets one in its own segment.
-
-		The alternative was to decide the class from `ownerDrawsFocus`, which is a fact about
-		the *band* — it hosts the focus and draws it — and had nothing to do with whether a
-		flow could be shown. A pin hosts no focus and draws no focus, and was excluded by a
-		question it was never being asked.
+		Every segment is a `FlowBufferSegment`, ordinary until a controller is attached, so a
+		pinned object can have a flow in its own segment.
 
 		:param handler: the real braille handler.
 		:param spec: the specification to build.
@@ -442,10 +405,8 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 	def _get_windowBrailleCells(self) -> list[int]:
 		"""Composite every segment's cells into one display sized array.
 
-		NVDA's cell array is row major over the whole display, so a segment narrower
-		than the display cannot simply be concatenated; each segment's rows are copied
-		into place at its own origin. Cells no segment covers stay blank, which is how a
-		panel that claims space in order to keep it empty gets its way.
+		Row major over the whole display, each segment's rows copied in at its origin. Cells no
+		segment covers stay blank.
 		"""
 		cells = [0] * (self.numRows * self.numCols)
 		for segment in self.segments:
@@ -465,25 +426,16 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 	def _publishGlyphs(self) -> None:
 		"""Tell the display which of the cells it is about to be given are symbols.
 
-		**Here because this is the last thing that happens before the frame is written.**
-		`BrailleHandler.update` reads this property and hands the result to the driver, and a
-		glyph has to be registered before the frame it belongs to arrives: the driver matches
-		each one against the cells that come in and retires the ones that do not appear. So
-		registering here is what scopes a symbol to the frame that carries it, and the same
-		call with nothing in it is what takes the last frame's symbols away.
-
-		Only for the buffer NVDA is actually showing. Every other buffer is a scratch one — a
-		message being measured, a segment being laid out — and a symbol registered from one of
-		those would name cells on a frame nobody is going to send.
+		The last step before the frame is written, so each symbol is registered with the frame
+		that carries it, and an empty call clears the last frame's. Only for the buffer NVDA
+		is showing, not a scratch one.
 		"""
 		if self is not self.handler.buffer:
 			return
 		targets = glyphFlow.glyphTargets()
 		if not targets:
 			return
-		# One table per member, **including the empty ones**. Two displays driven as one are two
-		# pieces of hardware, each keeping its own registrations, and a member left unaddressed
-		# would go on drawing whatever it was last given until a frame happened to disturb it.
+		# One table per member, empty ones included, since each keeps its own registrations.
 		found = {id(target.driver): {} for target in targets}
 		for segment in self.segments:
 			ask = getattr(segment, "cellGlyphs", None)
@@ -623,17 +575,9 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 				buffer.scrollBack()
 			return
 		if getattr(buffer, "controller", None) is not None:
-			# A flow reading in a segment of its own — a pinned document, list or table. Its
-			# rows come from its controller rather than from this buffer's window, so moving
-			# the window moves nothing the reader can feel: the cells are recomposed from the
-			# controller on the next draw and come out exactly as they were. Panning belongs
-			# to the controller, and asking the segment is how to reach it.
-			#
-			# Safe here for the same reason the fall-through below is not. A pinned flow is a
-			# viewer: `FlowController.movesCursor` is false for a run of objects and the
-			# source is built with `live=False` for a document, so panning it moves the
-			# window and nothing else. What must never happen is the fall-through in NVDA's
-			# own `scrollForward`, and that only happens when there is no controller.
+			# A pinned flow's rows come from its controller, so panning goes there. Safe, since
+			# a pinned flow is a viewer and moves nothing else; NVDA's own `scrollForward`
+			# fall-through happens only without a controller.
 			if forward:
 				buffer.scrollForward()
 			else:
@@ -651,13 +595,9 @@ class DisplayContainer(baseObject.AutoPropertyObject):
 	def _panPinnedContent(self, buffer: BrailleBufferSegment, forward: bool) -> None:
 		"""Move pinned content to the next or previous line, if it is content that may move.
 
-		A segment holds one reading unit at a time, so a pin whose window has reached the end
-		of its line has nothing further to pan into and would otherwise simply stop — which
-		is the whole of a pinned document after its first line.
-
-		The objection above does not apply to a region that keeps a reading position of its
-		own: moving it changes nothing outside this segment, so there is no caret to drag the
-		focus with. See `pinnedRegions`.
+		A segment holds one reading unit, so without this a pin stops at the end of its line.
+		Only for a region with a reading position of its own, which moves no caret. See
+		`pinnedRegions`.
 
 		:param buffer: the segment to pan.
 		:param forward: True to move to the next line, False to the previous.

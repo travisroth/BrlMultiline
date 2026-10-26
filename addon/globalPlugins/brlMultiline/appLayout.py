@@ -61,17 +61,13 @@ NVDA. A flow needs a second row to be anything but one line of the focus."""
 PANEL_NAME = "appLayout"
 """The name of the claim an app layout is shown in, and the prefix of its segment keys.
 
-One name for every layout, whatever the app module called it: there is only ever one app
-layout up, and a fixed name is what lets the plugin find its own segments, and leave them
-out, when it works out the room for the next one.
+One name for every layout, since only one is ever up, so the plugin can find its segments.
 """
 
 MAX_ADJUSTMENTS = 16
 """How many times a placement may be moved off display boundaries before it is refused.
 
-Each adjustment settles one boundary and a composite has one per display after the first, so
-a placement that has not settled in this many has met a case the rule cannot settle rather
-than one it is slowly settling.
+Each adjustment settles one display boundary, so more than this means it cannot settle.
 """
 
 
@@ -219,14 +215,8 @@ def freeArea(
 	On a display of more than one row, a row is taken if anything occupied touches it, and the
 	area is an unbroken run of rows nothing touches. On a display of one row, the same in cells.
 
-	**The run the focus is in.** A layout arranges the focus among other things, so it has to
-	be where the focus is: the focus segment is never pinned, so it always lies in a free run,
-	and that run is the area. Only when no focus is given is it the longest run, the earlier on
-	a tie.
-
-	Taking one run rather than every free row is deliberate: one layout split around a pin
-	would be one layout read in two places, and a gap left over stays as the reader arranged
-	it.
+	The run the focus is in, since a layout arranges the focus; with no focus, the longest run,
+	the earlier on a tie. One run only, so a layout is never split around a pin.
 
 	:param numRows: rows on the display.
 	:param numCols: cells across it.
@@ -340,10 +330,8 @@ class Plan(NamedTuple):
 def onHardware(area: SegmentRect, bands: Sequence[Band] = ()) -> SegmentRect:
 	"""Clip a one row area to the cells the display holding it actually has.
 
-	A free area is as wide as the composite, which on a Monarch combined with a Focus 80 is 80
-	cells. Rows of several are placed a display at a time and take each display's width, but a
-	single free row on the Monarch would otherwise be offered, and divided, as 80 cells, and the
-	48 that reach no hardware would have the whole layout refused.
+	A free area is as wide as the composite, so a single row on a narrower display would
+	otherwise include cells no hardware has.
 
 	:return: the area, clipped where it is one row on a display narrower than it.
 	"""
@@ -366,10 +354,7 @@ def planFor(
 ) -> Plan:
 	"""Decide how a layout uses an area that may reach several displays.
 
-	**The focus stays on the display the reader put it on.** Which display that is, is a choice
-	the reader has already made, with the focus segment setting and the command that moves the
-	focus to another display, and it is saved for each combination of displays. Top to bottom
-	is only how the hardware happens to be stacked, so it decides nothing here.
+	The focus stays on the display the reader put it on; stacking order decides nothing.
 
 	1. An area on one display is used as it is.
 	2. When the focus display has more than one row, the whole layout goes on it, placed as on
@@ -380,9 +365,8 @@ def planFor(
 	   whole focus display and every other segment goes on the tallest of the other displays.
 	   A third display is left alone, unless it lies between those two.
 
-	Spreading is the reader's choice, per display and per profile, and so per application:
-	with the focus on a Monarch, a Teams profile can put the chat history on the Focus 80 while
-	every other application keeps its layout on the Monarch.
+	Spreading is the reader's choice, per display and per profile. See
+	`bmConfig.shouldSpreadAppLayouts`.
 
 	:param area: the free area, from L{freeArea}.
 	:param bands: every physical display, top first, or empty for an ordinary display.
@@ -413,9 +397,8 @@ def displayArea(
 ) -> DisplayArea:
 	""":return: what the app module is told about an area. See L{DisplayArea.columns}.
 
-	With a layout split across displays, the rows of the two together, so an app module sizing
-	its focus segment for a display with rows to spare is not refused for asking: the focus
-	segment takes its display whatever it asked for.
+	Split across displays, the rows of both together, since the focus segment takes its whole
+	display whatever it asked for.
 	"""
 	plan = planFor(area, bands, within, spread)
 	if plan.isSplit:
@@ -497,12 +480,6 @@ def placeSegments(
 	   after, so everything above the boundary stays as asked.
 	2. Its upper edge, if it is the last. The rows it gives up go to the segment without a size
 	   if that comes before it, and otherwise to the segment directly before.
-
-	So with a Monarch of ten rows above a Focus 80, a layout of six rows and the rest would put
-	its second segment over the Monarch's last four rows and the Focus. It is the last, so it
-	starts at the Focus instead, and the first grows to the whole Monarch. With the Focus on
-	top, a layout of three rows and the rest becomes one row on the Focus and ten on the
-	Monarch.
 
 	:param layout: the layout.
 	:param area: the free area, from L{freeArea}.
@@ -662,17 +639,12 @@ def isAppLayoutKey(key: str) -> bool:
 class AppLayoutPanel(BraillePanel):
 	"""The claim an app layout is shown in: the free area, cut into the placed segments.
 
-	**Reserved, except where the focus is.** The segments showing objects belong to the layout,
-	so the reader's pin commands refuse them as they refuse any claim, and nothing else draws
-	there. The focus segment is ordinary display space, exactly as the reader's own focus
-	segment is, because what lands in it is NVDA's own focus content.
+	Reserved, except the focus segment, which is ordinary display space for NVDA's focus content.
 
 	Ranked above the flow and below a drawing; see `panels.PRIORITY_APP_LAYOUT`.
 
-	**A focus segment asking for the flow** is marked as the flow's own band is, hosting the
-	focus with its owner drawing it, and the reader's flow, which waits while the layout is up,
-	draws there instead of in its band. Where the reader has no flow nothing registers to draw
-	it, and NVDA's focus content is written in as in any focus segment.
+	A focus segment asking for the flow is marked as the flow's band is, and the waiting flow
+	draws there; with no flow, NVDA's focus content is written in as usual.
 	"""
 
 	priority = PRIORITY_APP_LAYOUT
@@ -713,8 +685,7 @@ class AppLayoutPanel(BraillePanel):
 def askAppModule(appModule: Any, focus: Any, area: DisplayArea) -> tuple[AppLayout | None, str | None]:
 	"""Ask an app module for its layout here, and read the answer.
 
-	Never raises: an app module is someone else's code, and a mistake in it must cost the
-	reader nothing but the layout.
+	Never raises, so a mistake in another add-on's code costs only the layout.
 
 	:param appModule: the focus's app module, which may have no layout method at all.
 	:param focus: the focus, passed to the method.

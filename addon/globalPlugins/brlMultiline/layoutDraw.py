@@ -267,8 +267,7 @@ def placesFor(page: Region, view: str) -> dict[int, Box]:
 				continue
 			covered = header.left <= box.left and box.right <= header.right
 			if covered and header.top <= max(box.top, 0) and box.bottom <= header.bottom:
-				# Wholly behind the header, so none of it can be seen, nor anything in it (found
-				# in review: a form entirely under the banner was still drawn).
+				# Wholly behind the header, so none of it can be seen, nor anything in it.
 				box = Box(box.left, box.top, box.width, 0)
 				break
 			# The header covers the top of what is visible of this box, which may start above
@@ -283,8 +282,7 @@ def placesFor(page: Region, view: str) -> dict[int, Box]:
 def _clipInside(region: Region, bound: Box, places: dict[int, Box]) -> None:
 	"""What can be seen of each area inside a region is no more than what can be seen of it.
 
-	On the screen an area wholly under a sticky header is hidden, however big it is (found in
-	review: a form covered by the header was drawn filling the main area below it). One with
+	On the screen an area wholly under a sticky header is hidden, however big it is. One with
 	nothing visible gets no height, so nothing chooses it to draw, and nothing inside it either.
 	"""
 	for child in region.children:
@@ -389,12 +387,10 @@ def composeFitting(
 ) -> Overview | None:
 	"""Draw a view as tall as it has to be for everything in it to be drawn, up to a limit.
 
-	Braille takes more room than print, and a reader knows it: a screen squeezed onto one panel
-	by leaving its areas out is a picture of less than the screen, which is no use for checking
-	what a screenshot shows, and reads as suspicious. So a view that does not fit on one panel is
-	drawn half a panel taller at a time until nothing in it is left out, up to
-	`MAX_SCREEN_PANELS`, and the reader moves down it as they move down the whole page. What still
-	does not fit is in `Overview.omitted`.
+	A screen squeezed onto one panel by leaving areas out is a picture of less than the screen.
+	So a view that does not fit is drawn half a panel taller at a time, up to
+	`MAX_SCREEN_PANELS`, and the reader moves down it. What still does not fit is in
+	`Overview.omitted`.
 
 	:param height: one panel's height; the drawing is a whole number of half panels tall.
 	:return: the overview, whose buffer is that tall, or None if no buffer could be made.
@@ -508,9 +504,8 @@ def _choose(
 	"""The regions to draw, parents before children, with the level each is drawn at.
 
 	Down to `depth` levels, and below that only the areas that matter whatever their depth
-	(`MAJOR_KINDS`), drawn inside the deepest box that is drawn. Splitting by gaps nests blocks
-	in blocks, and a sign on form four levels down is still what the page is for (found on a
-	saved page, where it was cut off by the depth).
+	(`MAJOR_KINDS`), drawn inside the deepest box that is drawn, since splitting by gaps nests
+	blocks deeply.
 	"""
 	chosen = []
 	for region in sorted(regions, key=lambda r: (places[id(r)].top, places[id(r)].left)):
@@ -578,8 +573,7 @@ def _minWidth(cells: list[int], level: int) -> int:
 	"""The pins across a box asks the ruler for, so that it is still big enough once drawn.
 
 	A box inside another is drawn inside its outline, which takes a pin off each side where the
-	two touch, and a pin more for every level further in; so it asks for those too (found on a
-	saved page: a banner's navigation was dropped as too small at any height). A main area asks
+	two touch, and a pin more for every level further in; so it asks for those too. A main area asks
 	for room for its whole label where that is short; a long one gets a key letter instead, so it
 	is not allowed to claim the whole panel.
 	"""
@@ -632,11 +626,8 @@ def _labelSpot(box: DrawnBox, labelWidth: int) -> Box | None:
 
 	The top left corner first, where a hand looks for it; then the leftmost clear place along the
 	top, just past whatever box inside holds the corner; then the same along the bottom. A banner
-	whose search field sits at its left still has room further along.
-
-	Leftmost rather than the far corner (found on Fabula's coffee: a box whose first product
-	column held its top left corner had its label pushed against its right edge, its counts
-	under it, and the room just right of the column left empty).
+	whose search field sits at its left still has room further along. Leftmost rather than the
+	far corner, so the label stays near where a hand looks.
 	"""
 	if labelWidth <= 0:
 		return None
@@ -756,11 +747,8 @@ def _placeDetails(box: DrawnBox, counts: list[_Count]) -> None:
 
 	A count that does not fit where the last one ended is looked for on every line down the box
 	(up it, for a label at the bottom), at the label's left and then anywhere clear along the
-	line (found on Fabula's coffee: a box whose next line was blocked at the label's left by a
-	box inside got no count, with free lines below it). Where it fits on no line whole, its
-	number may go on one line and its word under it, so a narrow strip down the side of a box
-	still says what the box holds (found on Fabula's main content, whose only room was a strip
-	four cells wide beside the areas inside it).
+	line. Where it fits on no line whole, its number may go on one line and its word under it,
+	so a narrow strip down the side of a box still says what the box holds.
 
 	Never by making room: the boxes are laid out for their labels alone, and what does not fit,
 	clear of the boxes inside, is left for a press to say. A box with no label or key letter has
@@ -827,8 +815,7 @@ def _placeDetails(box: DrawnBox, counts: list[_Count]) -> None:
 		if len(spots) == 2:
 			line += 1
 		# Read on from the end of what is on the line now reached: after a count stacked over a
-		# label at the bottom, that is the number, above, not the word (found in review: the next
-		# count was placed from the word's end, over the number).
+		# label at the bottom, that is the number, above, not the word.
 		onLine = [spot for spot in spots if spot.top == lineTop(line)] or spots
 		x = onLine[-1].right + 1 + CELL_STRIDE
 
