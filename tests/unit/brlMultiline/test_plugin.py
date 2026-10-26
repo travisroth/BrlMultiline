@@ -793,6 +793,36 @@ class TestInstallation(PluginTestCase):
 		self.plugin.terminate()
 		self.assertTrue(self.plugin._terminated)
 
+	def test_aFailingTeardownStepDoesNotStopTheRest(self):
+		import gui
+		from brlMultiline import container as containerModule
+		from brlMultiline.settingsPanel import VirtualDisplaySettingsPanel
+
+		def fail():
+			raise RuntimeError("a teardown step")
+
+		self.plugin.graphicsMode.onTerminate = fail
+		self.plugin.terminate()
+		self.assertIs(self.handler.mainBuffer, self.originalBuffer)
+		self.assertEqual(patches._installedMethods, {})
+		self.assertIsNone(containerModule.segmentRouter)
+		self.assertNotIn(VirtualDisplaySettingsPanel, gui.settingsDialogs.NVDASettingsDialog.categoryClasses)
+
+	def test_aFailedStartTakesOutWhatWentIn(self):
+		from unittest import mock
+
+		import gui
+		from brlMultiline import container as containerModule
+		from brlMultiline import tableArrows
+
+		self.plugin.terminate()
+		with mock.patch.object(tableArrows, "install", side_effect=RuntimeError("install")):
+			with self.assertRaises(RuntimeError):
+				GlobalPlugin()
+		self.assertEqual(patches._installedMethods, {})
+		self.assertIsNone(containerModule.segmentRouter)
+		self.assertEqual(gui.settingsDialogs.NVDASettingsDialog.categoryClasses, [])
+
 
 class TestMonitorCarryOver(PluginTestCase):
 	segmentCount = 8

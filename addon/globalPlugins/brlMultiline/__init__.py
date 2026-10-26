@@ -243,6 +243,14 @@ def _pictureRoot(picture):
 	return picture
 
 
+def _runLoggingFailure(step, *args) -> None:
+	"""Run one step of the add-on's teardown, logging rather than raising if it fails."""
+	try:
+		step(*args)
+	except Exception:
+		log.error(f"BrlMultiline: a teardown step failed: {getattr(step, '__qualname__', step)}", exc_info=True)
+
+
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	scriptCategory = SCRIPT_CATEGORY
 
@@ -300,6 +308,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		opened for, so that it is said once rather than on every profile switch."""
 		self._terminated = False
 		"""Set by L{terminate}, so that work already queued does not run afterwards."""
+		self._teardown = contextlib.ExitStack()
+		"""The undo of everything `_install` put in place, registered beside it. See `_onTerminate`."""
 		self._activeView: SegmentView | None = None
 		"""A view installed by code rather than by the settings, if any.
 
@@ -361,27 +371,45 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		Kept across rebuilds and re-composed each time, so that a claim survives a settings
 		change or a display swap. A claim that no longer fits is dropped and reported.
 		"""
+		try:
+			self._install()
+		except BaseException:
+			# Whatever was put in place before the failure is taken out again, as on terminate.
+			self._teardown.close()
+			raise
+
+	def _install(self) -> None:
+		"""Put the add-on in place, registering each undo with `_onTerminate` as it goes."""
 		bmConfig.initialize()
 		patches.install()
+		self._onTerminate(patches.remove)
 		# A routing key in a segment showing an object goes to that object. See `monitorRouting`.
 		containerModule.segmentRouter = self._routeIntoMonitor
 		containerModule.segmentUsed = self._noteSegmentUsed
+		self._onTerminate(setattr, containerModule, "segmentRouter", None)
+		self._onTerminate(setattr, containerModule, "segmentUsed", None)
 		# Which display's keys are being pressed, for the per display panning direction.
 		panning.install()
+		self._onTerminate(panning.remove)
 		# The arrow keys inside a browse mode table, which is a way of reading rather than a
 		# way of displaying and so is not waited on a flow. See `tableArrows`.
 		tableArrows.install()
+		self._onTerminate(tableArrows.remove)
 		# Which tables' headers are not spoken, which is also how a table is read rather than
 		# displayed, and so is not waited on a flow either. See `tableHeaderSpeech`.
 		tableHeaderSpeech.install()
+		self._onTerminate(tableHeaderSpeech.remove)
 		# Layered keys. Reads each device's layers and passes every key through while no layer
 		# is on. See `keyLayerDispatch`.
 		keyLayerDispatch.install()
+		self._onTerminate(keyLayerDispatch.remove)
 		self._keyLayersMenuItem = self._addKeyLayersMenuItem()
+		self._onTerminate(self._removeKeyLayersMenuItem)
 		# The reader's braille substitutions: written into the rules file every BrlMultiline table
 		# includes, for the profiles in force, and again on every profile switch. See
 		# `userBrailleTable`. Guarded, because a list that cannot be put in force must not stop the
-		# rest of the add-on loading.
+		# rest of the add-on loading; removed on terminate whether or not it went in.
+		self._onTerminate(userBrailleTable.remove)
 		try:
 			if userBrailleTable.install(self._handleBrailleRulesChanged):
 				# The reader's personal tables were made again, after the add-on was updated or its
@@ -397,15 +425,23 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except Exception:
 			log.error("BrlMultiline: could not put the braille substitutions in force", exc_info=True)
 		self._substitutionsMenuItem = self._addSubstitutionsMenuItem()
-		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(BrailleMultilineSettingsPanel)
-		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(FlowSettingsPanel)
-		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(VirtualDisplaySettingsPanel)
+		self._onTerminate(self._removeSubstitutionsMenuItem)
+		categories = gui.settingsDialogs.NVDASettingsDialog.categoryClasses
+		for panel in (BrailleMultilineSettingsPanel, FlowSettingsPanel, VirtualDisplaySettingsPanel):
+			categories.append(panel)
+			self._onTerminate(categories.remove, panel)
+		# Registered before the handlers, so it runs after they are gone and nothing is left to
+		# rebuild the display it releases, and before the patches and hooks above come out.
+		self._onTerminate(self._releaseDisplay)
 		displaySizeChanged.register(self._handleDisplayChanged)
+		self._onTerminate(displaySizeChanged.unregister, self._handleDisplayChanged)
 		displayChanged.register(self._handleDisplayChanged)
+		self._onTerminate(displayChanged.unregister, self._handleDisplayChanged)
 		# Settings are read through `config.conf`, which is profile aware, so switching
 		# profile can change the layout, the focus segment and the panning direction
 		# without any braille event firing.
 		config.post_configProfileSwitch.register(self._handleProfileSwitch)
+		self._onTerminate(config.post_configProfileSwitch.unregister, self._handleProfileSwitch)
 		self._membersChanged = devicesModule.membersChangedAction()
 		"""The composite display's own notification, or None if the driver cannot be reached.
 
@@ -414,43 +450,45 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""
 		if self._membersChanged is not None:
 			self._membersChanged.register(self._handleDisplayChanged)
+			self._onTerminate(self._membersChanged.unregister, self._handleDisplayChanged)
 		self.rebuildBuffer()
 
-	def terminate(self):
-		# Set first, so that anything already queued sees it even if the teardown below
-		# raises part way through.
-		self._terminated = True
-		self._cancelPictureRequest()
-		try:
-			displaySizeChanged.unregister(self._handleDisplayChanged)
-			displayChanged.unregister(self._handleDisplayChanged)
-			config.post_configProfileSwitch.unregister(self._handleProfileSwitch)
-			if self._membersChanged is not None:
-				self._membersChanged.unregister(self._handleDisplayChanged)
-			if self.flowBand is not None:
-				self.flowBand.onTerminate()
-				self.flowBand = None
-			self.graphicsMode.onTerminate()
-			self.appLayouts.terminate()
-			self.stopAllMonitoring()
-			self._restoreOriginalBuffer()
+	def _onTerminate(self, undo, *args) -> None:
+		"""Register one step of the teardown, to run on terminate in reverse order of registering.
+
+		Each step that fails is logged and the rest still run, so one fault cannot leave NVDA
+		patched.
+		"""
+		self._teardown.callback(_runLoggingFailure, undo, *args)
+
+	def _releaseDisplay(self) -> None:
+		"""Take what the add-on shows off the display, and give NVDA its own buffers back.
+
+		Each part runs even if one before it fails.
+		"""
+		for part in (
+			self._endFlowBand,
+			self.graphicsMode.onTerminate,
+			self.appLayouts.terminate,
+			self.stopAllMonitoring,
+			self._restoreOriginalBuffer,
 			# Before the patches go, so a region already reading a row reads NVDA's line again.
-			tableRowLine.clear()
-			containerModule.segmentRouter = None
-			containerModule.segmentUsed = None
-			patches.remove()
-			panning.remove()
-			tableArrows.remove()
-			tableHeaderSpeech.remove()
-			keyLayerDispatch.remove()
-			self._removeKeyLayersMenuItem()
-			userBrailleTable.remove()
-			self._removeSubstitutionsMenuItem()
-			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(BrailleMultilineSettingsPanel)
-			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(FlowSettingsPanel)
-			gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(VirtualDisplaySettingsPanel)
-		except Exception:
-			log.error("Error while terminating BrlMultiline", exc_info=True)
+			tableRowLine.clear,
+		):
+			_runLoggingFailure(part)
+
+	def _endFlowBand(self) -> None:
+		"""Stop the flow band for good, if there is one."""
+		if self.flowBand is not None:
+			self.flowBand.onTerminate()
+			self.flowBand = None
+
+	def terminate(self):
+		# Set first, so that anything already queued sees it even if a step below fails.
+		self._terminated = True
+		_runLoggingFailure(self._cancelPictureRequest)
+		try:
+			self._teardown.close()
 		finally:
 			global _plugin
 			_plugin = None
