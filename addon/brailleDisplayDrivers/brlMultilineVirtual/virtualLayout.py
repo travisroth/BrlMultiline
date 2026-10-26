@@ -13,11 +13,8 @@ members have between them, and is as wide as the widest of them. Each device own
 contiguous band of virtual rows, and within its band the columns past its own width are
 dead: nothing ever writes them to hardware.
 
-Dead columns are the hazard this module exists to make visible. NVDA flowing one buffer
-across the whole rectangle would put text into cells no hardware receives, and it would
-simply vanish. `deadColumnCount` is what lets the driver say so at startup; the add-on's
-global plugin is what actually masks them, with a blank panel over each member's dead
-columns.
+Text in dead columns vanishes. `deadColumnCount` lets the driver say so at startup; the global
+plugin masks them.
 """
 
 from __future__ import annotations
@@ -34,21 +31,14 @@ device path full of colons and backslashes.
 VIRTUAL_DRIVER_NAME = "brlMultilineVirtual"
 """This driver's own name, which is the one name a member may not have.
 
-A member list naming this driver would have it construct itself, reading the same list and
-constructing itself again. Each level also retries every member it cannot open, so the
-recursion would not fail quickly and loudly; it would hang for a long time and then fail
-confusingly. Refused where the list is read instead.
-
-Duplicated from the driver class rather than imported from it, because this module stays
-free of NVDA so that it can be unit tested, and the driver class is not.
+A list naming it would recurse slowly, so it is refused where the list is read. Duplicated
+from the driver class, which imports NVDA.
 """
 
 DEFAULT_PORT = "auto"
 """The port used when an entry names only a driver.
 
-Deliberately not the port NVDA has stored for that driver. Phase 0 found a configured port
-outliving the connection it described, so that the driver reported finding no display while
-the hardware was plainly present. Detecting afresh is the behaviour that works.
+Detect afresh, not NVDA's stored port, which can outlive its connection.
 """
 
 
@@ -139,15 +129,9 @@ def formatDeviceSpec(spec: DeviceSpec) -> str:
 def memberShape(numRows: int, numCols: int, rows: int = 0) -> tuple[int, int]:
 	"""The shape a member display takes in the stack.
 
-	Its driver's own, unless the driver reports one row and the reader has said the display
-	physically has more. An Orbit Slate 340 on NVDA's HID standard driver reports one row of
-	120 cells and has three rows of forty, laid out in that order: cells 0 to 39 are the first
-	row, 40 to 79 the second. So reshaping it changes nothing about the cells or the routing
-	keys, which are both flat across the device — see `sliceBandCells` and
-	`deviceCellIndexToVirtual` — and only tells everything above the driver where the rows are.
-
-	A display reporting rows of its own already knows its shape, and rows that do not divide
-	the cells evenly describe no display, so both are left as reported.
+	Its driver's own, unless the driver reports one row and the reader says there are more,
+	as on an Orbit Slate 340 under HID standard. Cells and routing stay flat across the device
+	(see `sliceBandCells`). Rows that do not divide the cells evenly are ignored.
 
 	:param numRows: the rows the driver reports.
 	:param numCols: the columns the driver reports.
@@ -162,18 +146,8 @@ def memberShape(numRows: int, numCols: int, rows: int = 0) -> tuple[int, int]:
 def parseDeviceSpecs(entries: Iterable[str]) -> list[DeviceSpec]:
 	"""Read the configured device list, rejecting what cannot work.
 
-	Duplicate driver names are refused rather than merely warned about. Phase 0 confirmed
-	on hardware that two displays sharing a driver cannot be told apart: their gestures
-	carry identical sources, they arrive on the one shared I/O thread, and no gesture holds
-	a reference to the instance that made it. They would also share one settings section.
-	A configuration that cannot work should fail where it is written, not later and
-	mysteriously.
-
-	The virtual driver itself is refused as a member, for the reason given at
-	`VIRTUAL_DRIVER_NAME`.
-
-	Blank entries are skipped, since an empty string is what an empty configured list looks
-	like from some editors.
+	Duplicate driver names are refused, since their gestures and settings cannot be told
+	apart. The virtual driver is refused; see `VIRTUAL_DRIVER_NAME`. Blank entries are skipped.
 
 	:param entries: the stored entries.
 	:return: the specifications, in stacking order.
@@ -247,12 +221,7 @@ def sliceBandCells(cells: Sequence[int], virtualNumCols: int, band: DeviceBand) 
 def deviceCellIndexToVirtual(index: int, band: DeviceBand, virtualNumCols: int) -> int:
 	"""Translate a cell index reported by a device into one in the composite.
 
-	Devices report cell indexes flat across their own rows, which Phase 0 confirmed on a
-	Monarch: presses spread over its rows came back as 2, 39 and 102, the last being row 3
-	column 6 of an 8 by 32 display. This undoes that against the composite width.
-
-	Written now because it is geometry and belongs beside the rest of it. Nothing calls it
-	until routing keys are translated, which is the next phase.
+	Devices report indexes flat across their own rows; this maps them to the composite width.
 
 	:param index: the device's own flat cell index.
 	:param band: the device's band.

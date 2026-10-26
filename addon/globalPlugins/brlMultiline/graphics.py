@@ -5,30 +5,14 @@
 
 """Finding the drawable surface behind NVDA's display, and converting cells to pins.
 
-Some braille displays can raise individual pins rather than only whole braille cells. The
-add-on ships one such driver, `brailleDisplayDrivers.brlMultilineMonarch`, and there will be
-others. This module is the one place that knows how to find such a display and how to
-address it, so that everything above works in rectangles and nothing above imports a driver.
+The one place that finds a display that can raise individual pins, so everything above works
+in rectangles. The driver is not imported, for the reason `devices.py` gives; a display that
+can draw publishes `graphicsSize`, `newGraphicsBuffer`, `setGraphicsOverlay`,
+`clearGraphicsOverlay` and `lastTouch`, and that duck typing is the capability check.
 
-The driver is deliberately not imported, for the reason `devices.py` gives: it is in the same
-add-on, so importing it would work, but it pulls in `hwIo`, `inputCore` and the driver base
-class, and it would make everything above fail to import if anything in the driver ever
-failed to. A display that can draw publishes `graphicsSize`, `newGraphicsBuffer`,
-`setGraphicsOverlay`, `clearGraphicsOverlay` and `lastTouch`; one that cannot, does not, and
-that duck typing is the whole of the capability check.
-
-Two things make this more than an attribute lookup.
-
-**The composite.** When `brlMultilineVirtual` is the display, `braille.handler.display` is the
-composite and not the display that can draw. Its `__getattr__` proxies driver *settings*
-names only, so `setGraphicsOverlay` is not reachable through it. The drawable member has to
-be found among its slots and addressed directly, and its rows offset by where its band sits.
-
-**Cells against pins.** Panels claim rectangles in display rows and columns. A drawing is
-placed in pins. The conversion depends on the display's own pitch — a braille line is 5 pin
-rows where a display leaves a blank row between lines and 4 where it does not — which is not
-published as such and does not need to be: the pin grid divided by the cell grid gives it,
-and gives it for any display rather than for the one we happen to have.
+Behind `brlMultilineVirtual`, whose `__getattr__` proxies settings only, the drawable member
+is found among the slots and its rows offset by its band. Cells convert to pins by the pin
+grid divided by the cell grid, which gives any display's pitch.
 """
 
 from typing import NamedTuple, Optional
@@ -70,9 +54,8 @@ class PinRect(NamedTuple):
 class GraphicsSurface(NamedTuple):
 	"""A display that can draw, and where it sits in the display NVDA thinks it has.
 
-	Held for the length of one operation rather than cached. The drawable member of a
-	composite can be given up on between one command and the next, and a stale surface would
-	go on writing to a driver nothing is reading. `findSurface` is cheap; call it again.
+	Held for one operation, not cached, since a member can be given up on between commands.
+	`findSurface` is cheap; call it again.
 	"""
 
 	driver: object
@@ -93,10 +76,8 @@ class GraphicsSurface(NamedTuple):
 	rowStart: int
 	"""Which row of NVDA's display this one's first row is.
 
-	Zero when NVDA is driving it directly. Inside a composite it is where the member's band
-	begins, and it is *subtracted* from a claim's rows to reach the member's own coordinates,
-	because an overlay is placed in the member's pins and the member's pins start at its own
-	row 0 however far down the composite it sits.
+	Zero when NVDA drives it directly; in a composite, where its band begins, subtracted from a
+	claim's rows to reach the member's own pins.
 	"""
 
 	@property
@@ -149,9 +130,7 @@ class GraphicsSurface(NamedTuple):
 	def hide(self, key: Optional[str] = None) -> None:
 		"""Take a drawing off the display.
 
-		Never raises. This is called from teardown paths — an eviction, a rebuild, the add-on
-		terminating — where the display may already have gone, and a drawing left behind
-		because clearing it raised would be the worse outcome.
+		Never raises, since it is called from teardown paths where the display may be gone.
 
 		:param key: which drawing, or None for every one this display holds.
 		"""
@@ -174,12 +153,8 @@ class GraphicsSurface(NamedTuple):
 	def routingPin(self) -> Optional[tuple]:
 		"""Where the finger was at the last routing press, in this display's pins.
 
-		The pointing gesture. On a display like the Monarch you point at a place and press a
-		routing button there, which is one hand doing one thing, and it is the only way the
-		position can be read at all: the panel reports the touched pin as zero on release, and
-		NVDA runs a gesture's script from a queue rather than during dispatch, so by the time
-		anything here is asked, the live touch has gone. `touchedPin` is the live one and is only
-		of use to something polling while the finger is still down.
+		Kept at the press, since the panel reports zero on release before a queued script runs.
+		`touchedPin` is the live one, for polling while the finger is down.
 
 		:return: the pin, or None where the display does not report one. A drawable display that
 			cannot say where a press landed is allowed; the caller falls back to the cell.
@@ -193,10 +168,7 @@ class GraphicsSurface(NamedTuple):
 	def pinRectForCells(self, rect: SegmentRect) -> PinRect:
 		"""Convert a claim on cells into the pins it covers.
 
-		The whole cell slot is converted, gap column and blank row included. Those pins are
-		unused by braille and are the claim's to draw in: reserving two lines and getting the
-		dots of two lines but not the row between them would leave a stripe through every
-		drawing.
+		The whole cell slot, gap column and blank row included, or every drawing would be striped.
 
 		:param rect: the claim, in NVDA's display coordinates.
 		:return: the pins it covers, in this display's own coordinates. Empty where the claim
@@ -226,8 +198,7 @@ class GraphicsSurface(NamedTuple):
 	def cellForPin(self, x: int, y: int) -> Optional[tuple]:
 		"""Convert a pin on this display back to a cell of NVDA's display.
 
-		The inverse of `pinRectForCells` at a point, and the reason `rowStart` is kept: a
-		touch is reported in the member's pins and everything above works in NVDA's rows.
+		The inverse of `pinRectForCells` at a point.
 
 		:param x: pin column.
 		:param y: pin row.
@@ -290,8 +261,7 @@ def findSurface(display=None) -> Optional[GraphicsSurface]:
 	"""Find the display that can draw, whether or not it is behind a composite.
 
 	:param display: the display to look at, or None for the one NVDA is driving.
-	:return: the surface, or None where nothing attached can draw. Not an error: it is the
-		ordinary case on ordinary hardware, and callers fall back to text.
+	:return: the surface, or None where nothing attached can draw, the ordinary case.
 	"""
 	if display is None:
 		handler = braille.handler

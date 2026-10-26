@@ -34,12 +34,8 @@ if TYPE_CHECKING:
 class RectHandlerProxy:
 	"""Stands in for the braille handler, reporting one rectangle as the whole display.
 
-	This is the trick the module docstring describes, on its own: every geometry dependent
-	method in `BrailleBuffer` reads its dimensions from `self.handler`, so a buffer given one
-	of these wraps its text, places its continuation marks and moves its window inside the
-	rectangle without knowing there is anything else on the display.
-
-	Every attribute other than the display dimensions is forwarded to the real handler.
+	See the module docstring. Every attribute other than the display dimensions is forwarded
+	to the real handler.
 	"""
 
 	def __init__(self, handler: "BrailleHandler", rect: SegmentRect) -> None:
@@ -77,11 +73,8 @@ class RectHandlerProxy:
 def isShowing(container: Any, handler: Any) -> bool:
 	"""Whether what a display container draws reaches the display now.
 
-	When it is the handler's buffer, as it is almost always. And while a flash message is up in
-	a buffer that draws the main buffer around the message — `MessageBuffer` does — because
-	then everything outside the message is the container's, and holding its redraws back until
-	the message went froze the other displays: a pinned chat history stopped taking new
-	messages and stopped panning for as long as the message lasted. Found on hardware.
+	When it is the handler's buffer, and while a flash message is up in a buffer that draws the
+	main buffer around it, as `MessageBuffer` does, so the other segments go on drawing.
 
 	:param container: the display container.
 	:param handler: the real braille handler.
@@ -122,10 +115,8 @@ class _SegmentHandlerProxy(RectHandlerProxy):
 		segment while the container is active lets that guard pass, so a segment can
 		refresh the display in the normal way.
 
-		The same while a message is up in a buffer that draws the container around it, so a
-		segment the message is not over goes on drawing. See L{isShowing}. Otherwise a message
-		buffer really is `handler.buffer` while it is showing, so the forwarded attribute is
-		already the right answer.
+		Likewise while a message draws the container around it; see `isShowing`. Otherwise the
+		forwarded attribute is right.
 		"""
 		if self._container is not None and isShowing(self._container, self._handler):
 			return self.segment
@@ -160,10 +151,7 @@ class BrailleBufferSegment(BrailleBuffer):
 		self.isOnDisplay = container is not None
 		"""Whether this segment is a place on the display rather than a place to lay text out.
 
-		The renderer builds buffers of this class with no container, to cut a block into rows
-		in — see `flowRender._layoutBuffer`. Those must not decide anything for themselves: the
-		caller has already decided whether a shape may be drawn in this block, and a cell of a
-		table row is one where it may not.
+		False for `flowRender._layoutBuffer`'s buffers, whose caller decides about shapes.
 		"""
 		self.fillRows = spec.fillRows
 		self.markCuts = spec.markCuts
@@ -232,10 +220,8 @@ class BrailleBufferSegment(BrailleBuffer):
 		boundaries, snaps the start of the window to a word. With `fillRows` there are no
 		word boundaries to snap to, so the window is simply placed a whole segment back.
 
-		This also drops NVDA's restriction that scrolling back should not pass the start
-		of a region marked `focusToHardLeft`. That restriction is about keeping focus
-		context off the display, which is not a concern for a segment showing one
-		deliberately chosen thing.
+		This also drops NVDA's `focusToHardLeft` limit on scrolling back, which is about focus
+		context.
 		"""
 		if not self.fillRows:
 			return super()._set_windowEndPos(endPos)
@@ -244,12 +230,8 @@ class BrailleBufferSegment(BrailleBuffer):
 	def update(self) -> None:
 		"""Read the regions, drawing what can be drawn as a shape rather than written.
 
-		**Before the buffer concatenates them**, because the cells a shape gives back have to be
-		cells the row cutting can use. This is the one place every ordinary segment passes
-		through, whatever is in it — an object, a document, a menu bar — which is why it is the
-		place the substitution is made rather than somewhere that knows what kind of content it
-		is looking at. It costs one attribute read per region when the reader has not asked for
-		shapes; see `glyphFlow.compressRegion`.
+		Before the buffer concatenates them, so the row cutting can use the cells given back.
+		Every ordinary segment passes here; see `glyphFlow.compressRegion`.
 
 		A segment built only to lay text out is left alone. Its caller has already decided.
 		"""
@@ -263,11 +245,7 @@ class BrailleBufferSegment(BrailleBuffer):
 		""":return: the display this segment is drawn on, if one piece of hardware can draw a
 		shape in a cell on every row of it.
 
-		Asked of the rows rather than of the arrangement, because two displays driven as one are
-		two pieces of hardware. A segment on the Focus half of a Focus and Monarch must keep its
-		words even though the Monarch is plugged in, and a segment straddling the join between
-		them can only have its shapes registered against one of the two, so it keeps its words
-		as well.
+		Asked of the rows. See `glyphFlow.targetForRows`.
 		"""
 		if not self.isOnDisplay:
 			return None

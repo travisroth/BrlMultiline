@@ -5,24 +5,9 @@
 
 """What can be drawn from this selection, so the reader can say which of them they want.
 
-**A selection does not say what chart it is.** Four columns of numbers with dates down the
-side are a line chart if they are four measurements, and a candlestick chart if they are one
-day's trading; nothing in the cells distinguishes those, and guessing would be wrong often
-enough to be worse than asking. So the command asks, and this module is what it asks about:
-the chart types that can actually be drawn from what is selected, each already carrying the
-numbers it would draw.
-
-Two things follow from doing it this way rather than with a chart type setting.
-
-1. **The reader is only offered what will work.** A selection of one column of sales figures
-   offers bars and a line and nothing else, so the list is short and every entry in it is a
-   chart they can have. A setting would offer candlesticks over a column of sales and fail
-   afterwards.
-2. **The refusal still arrives when it is useful.** A price chart is offered whenever there
-   are four numeric columns, and the check that they really are open, high, low and close
-   happens when it is drawn. Offered and then explained beats not offered and unexplained:
-   a reader who selected their columns in the wrong order gets told so, which is a thing they
-   can fix.
+A selection does not say what chart it is, so the command asks, offering only the chart types
+that can be drawn from it, each carrying its numbers. A price chart is offered for four
+numeric columns and checked when drawn, so a wrong column order is explained.
 
 Pure. It reads a grid and hands back drawing instructions; the dialog is `__init__.py`'s and
 the drawing is each chart module's.
@@ -74,18 +59,14 @@ class Offer(NamedTuple):
 	draw: Callable
 	"""Draws it, given a buffer factory, a width, a height and a translator.
 
-	A closure over the numbers rather than a chart type to dispatch on later, so the reading
-	of the selection happens once and the command that shows the dialog does not have to know
-	what any chart type needs.
+	A closure over the numbers, so the selection is read once.
 	"""
 
 
 def offersFor(grid: "list[list]") -> "list[Offer]":
 	"""Work out which charts this selection could be drawn as.
 
-	In the order they are offered, which is least specialised first: bars are what most
-	selections are for, and a reader who wanted a candlestick chart knows they did and will
-	read the list.
+	Least specialised first.
 
 	:param grid: rows of `(text, value)`, as `Sheet.selectedValues` gives them.
 	:return: the charts on offer, which may be empty.
@@ -112,11 +93,7 @@ def _table(grid: "list[list]") -> Optional[chartSource.Table]:
 def _barOffer(grid: "list[list]", table: Optional[chartSource.Table]) -> "list[Offer]":
 	"""The bar chart, if one can be made, read whichever of the two ways works.
 
-	Straight from the grid first, because that path's rules about which column is charted and
-	which names the bars are the ones a reader has already learned. From the table when that
-	refuses, which is what a heading row does to it: a column with "Close" at the top of it is
-	not a column of numbers, and a selection with headings would otherwise offer every chart
-	except the simplest one.
+	From the grid first, then from the table when a heading row makes the grid refuse.
 
 	:param grid: the selection.
 	:param table: the same selection as columns, or None if it holds no numbers.
@@ -178,9 +155,7 @@ def _lineOffer(table: chartSource.Table) -> "list[Offer]":
 def _priceOffers(table: chartSource.Table) -> "list[Offer]":
 	"""The two price charts, offered together or not at all.
 
-	They are the same four numbers drawn two ways, and which of them reads better under a
-	finger is the question the reader is being invited to answer. Offering one of them would
-	make that choice for them.
+	Both, so the reader chooses which reads better.
 
 	:param table: the selection as columns.
 	:return: the offers.
@@ -345,10 +320,7 @@ def _chartPrices(definition: chartSource.ChartDefinition) -> Callable:
 def fromChart(drawing, definition: chartSource.ChartDefinition):
 	"""Mark a drawing as made from a chart, and give it the chart's title.
 
-	**Every window of it too.** Zooming and panning compose new drawings through `redraw`, and a
-	change of view through `nextView`, and each of those has to say which chart it is a window of,
-	or a point the reader arrives at in the screen reader's chart navigation could not be matched
-	to it. So both are wrapped to mark what they make the same way.
+	Every window too: `redraw` and `nextView` are wrapped, so chart navigation can match a point.
 
 	:param drawing: what the chart module drew.
 	:param definition: the chart it was drawn from.

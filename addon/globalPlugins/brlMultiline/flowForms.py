@@ -5,44 +5,14 @@
 
 """Arriving at a form control, and what a flow does differently for one.
 
-A form is where spatial context pays best, and it is also where a single line display is
-at its worst: the reader arrives at an edit field and is shown the field, with whatever
-said what the field was for now somewhere behind them. Everything else about a form
-follows from the packing rules already in `flow`, but two things do not.
+1. A control's prompt is context, so arriving at a control shows what precedes it above,
+   bounded by `MAX_CONTEXT_SHARE`.
+2. The control asks for a blank row after it, its declared spacing.
 
-**A control's prompt is context, and context goes above it.** Arriving at a control, the
-window is placed so that what precedes it is on the display with the control below, rather
-than putting the control on the top row and filling downward. The rows this costs are
-bounded, because a prompt that filled the display would be no better than the field that
-filled it.
-
-**A short answer does not deserve the whole display.** The control the reader is on asks
-for a blank row after it, so that a one row edit holding "Ada" is separated from the next
-prompt. This is rule 5 of the packing rules — spacing declared by the block.
-
-How a control is recognised was got wrong once, and the way it was wrong is worth keeping
-written down. The first attempt read the field commands of every block's own text, looking
-for a control role. It was wrong twice over.
-
-It was wrong about cost. Those fields are in NVDA's process, so one read looks cheap, but
-it ran on every block of every document — a tax on all reading, to answer a question that
-only matters at the one block the reader has arrived at. On an eight row band that pushed
-the fetch budget over on arrival, and the display filled with the marker that means "there
-is more I have not read".
-
-It was wrong about correctness, which is the more interesting half. Tabbing to an edit
-field or a combo box drops browse mode into focus mode, and the reading position is then
-*inside* the control, so the line the reader is on carries the control's field as an
-enclosing one rather than as its own. Every attempt to tell "this block is a control" from
-"this block is inside a control" by the field's `_startOfNode` therefore answered no for
-exactly the two controls a reader most wants a prompt for. A checkbox, which does not enter
-focus mode, worked — which is what the hardware run found.
-
-So the question is asked of the object instead. NVDA hands the band the focus object on
-every focus change, and its role is authoritative, free, and right in both modes. The
-control's own place in the document is then found from that object, which is also what puts
-the reading position back at the start of the control rather than inside it — so the block
-carries the control's name, role and value as browse mode presents them.
+A control is recognised from the focus object's role, which is right in both browse and focus
+mode and costs nothing, not from each block's fields, which cost every read and see a focused
+edit as enclosing. Its place in the document is found from that object. See "Controls, labels
+and edit fields" in docs/design/spatial-reading-plan.md.
 """
 
 CONTROL_ROLES = frozenset(
@@ -66,22 +36,14 @@ CONTROL_ROLES = frozenset(
 )
 """The roles a reader stops at and answers, by `controlTypes.Role` member name.
 
-Named rather than imported so that a role NVDA has not got — the set is written against
-several NVDA versions, and roles are added — costs nothing and matches nothing, and so that
-the policy can be read and tested without a running screen reader.
-
-What is not here matters as much. A link is not a control: a page of links would then spend
-a row of spacing on each of them. A list item is not one either. What is here is the things
-that have a prompt.
+Named, so a role an NVDA version lacks matches nothing. Only things with a prompt: not links,
+which would each spend a row, nor list items.
 """
 
 MAX_CONTEXT_SHARE = 2
 """The fraction of the band a control's prompt may take: one row in this many.
 
-Half. A prompt longer than that is shown by its last rows, since the rows nearest the
-control are the ones that say what it is for, and the control itself must stay on the
-display — a window filled with the prompt would be the same failure as a window filled with
-the field.
+Half. A longer prompt shows its last rows, nearest the control, which stays on the display.
 """
 
 
@@ -107,9 +69,7 @@ def isControlRole(role) -> bool:
 def isControlObject(obj) -> bool:
 	"""Whether the reader has arrived at a form control.
 
-	Asked of the object NVDA built its focus regions for, which is the only account of this
-	that is right in both browse mode and focus mode. See the module docstring for the two
-	ways reading it out of the document's own fields was wrong.
+	Asked of the object NVDA built its focus regions for. See the module docstring.
 
 	:param obj: what the reader has arrived at.
 	:return: whether to present it as a control.
@@ -127,15 +87,8 @@ def isControlObject(obj) -> bool:
 def isEditableObject(obj) -> bool:
 	"""Whether an object owns a text caret the reader may move.
 
-	Three answers are consulted, because no one of them covers the controls that exist. The
-	role answers for ordinary edit controls. The state covers document-like and custom
-	controls which expose editable text under a more general role. And NVDA's own judgement
-	— the `EditableText` behaviour it mixed into the object's class — covers the controls
-	that report neither: Windows 11 Notepad's editor answers UIA with role DOCUMENT and no
-	EDITABLE state at all, and NVDA still types into it, because NVDA decided what the
-	object *is* when it built it and recorded that decision in the class. Named values keep
-	the role and state halves usable in the unit harness across NVDA versions, as the role
-	helpers above do.
+	The role, the EDITABLE state, or NVDA's `EditableText` behaviour, which covers controls
+	reporting neither, such as Windows 11 Notepad's editor.
 
 	:param obj: the object to test.
 	:return: whether its text should be eligible for an editable spatial flow.
@@ -156,10 +109,7 @@ def isEditableObject(obj) -> bool:
 def _behavesAsEditableText(obj) -> bool:
 	"""Whether NVDA built this object with its editable text behaviour.
 
-	`editableText.EditableText` is the mixin NVDA gives everything it will treat as an
-	editable control — it is what makes typing echo and the caret events work — so an
-	instance of it is an editable control on NVDA's own authority, whatever the underlying
-	API failed to say about roles and states.
+	`editableText.EditableText`, which NVDA mixes into everything it treats as editable.
 
 	:param obj: the object to test.
 	:return: whether NVDA chose the editable text behaviour for it.
@@ -179,18 +129,9 @@ def _behavesAsEditableText(obj) -> bool:
 def isMultilineEditable(obj) -> bool:
 	"""Whether an object is an edit with lines of its own rather than a single field.
 
-	The difference decides what a flow reads while the reader is writing. A single line
-	field is one line of the page it sits in, and the page has its label and what follows
-	it. A multi line edit has a document's worth of its own, and the page cannot present it:
-	a virtual buffer holds the field's text as buffer lines *and* places the field at one of
-	them, so the line the reader was on appeared twice — once as the field and once as the
-	page — and the buffer's own caret does not move within the field at all.
-
-	The MULTILINE state is the direct answer where a control gives one. An editable
-	DOCUMENT is taken as multi line without it: a document is lines by nature, and the
-	controls that report the role without the state — Windows 11 Notepad's editor, a Word
-	document — are exactly the ones a reader wants read as their own lines. A single line
-	field never calls itself a document.
+	A single line field is read as a line of its page; a multi line edit is read as its own
+	lines, since the page cannot present it. The MULTILINE state, or an editable DOCUMENT
+	without it, as Notepad and Word report.
 
 	:param obj: the object to test.
 	:return: whether it is an edit the reader can put more than one line into.

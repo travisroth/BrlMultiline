@@ -11,23 +11,14 @@ write and one lock, belonging to whichever display it owns; several members need
 
 Two departures from the handler are deliberate:
 
-**Change detection.** The handler writes the whole display on every cursor blink, several
-times a second. Fanning that out unfiltered would put constant traffic on a member showing
-something static, which on a Bluetooth display is not free. A slot therefore drops a write
-that would not change what the device is showing. This is not an optimisation to add later;
-it is what makes a second display usable.
+**Change detection.** A write that would not change the device is dropped, since the handler
+rewrites on every cursor blink and a static member would otherwise get constant traffic.
 
-**No acknowledgement pacing.** Phase 0 established that the collision this was originally
-meant to avoid cannot occur, and that what remains is a member never being told to wait.
-See the acknowledgement section of `docs/design/virtual-display-plan.md`. Pacing is staged
-until an ack driven member is shown to drop frames under sustained writing.
+**No acknowledgement pacing.** See the acknowledgement section of
+docs/design/virtual-display-plan.md.
 
-And one addition: every call into the driver that can wait on its hardware is watched by
-`memberGuard`, so a display that stops answering is given up on and its I/O cancelled rather
-than holding a shared thread for good.
-
-Imports of NVDA are kept to the log and the background I/O thread, so that the scheduling
-can be tested with very little standing in for NVDA.
+Every call that can wait on hardware is watched by `memberGuard`. NVDA imports are kept to the
+log and the I/O thread, for testing.
 """
 
 from __future__ import annotations
@@ -51,8 +42,7 @@ class DeviceSlot:
 		:param driver: the live `BrailleDisplayDriver` instance.
 		:param band: the rows of the composite this member occupies.
 		:param onFailure: called with this slot, once, when the member is given up on. The
-			composite uses it to lay itself out again around what is left. Called from
-			whichever thread noticed, which is why the composite marshals from there.
+			composite lays itself out again. Called from whichever thread noticed.
 		:param guard: what watches calls into the driver; `memberGuard.guard` by default.
 		"""
 		self.spec = spec
@@ -61,9 +51,7 @@ class DeviceSlot:
 		self.failed = False
 		"""Set when the member has been given up on.
 
-		A failed member is skipped rather than taking the whole virtual display down with
-		it. NVDA's own `handleDisplayUnavailable` would fall back to no braille and lose
-		both displays, which is the wrong answer when one of two is still working.
+		A failed member is skipped, rather than NVDA's `handleDisplayUnavailable` losing all.
 		"""
 		self._onFailure = onFailure
 		self._lastCells: list[int] | None = None
@@ -71,10 +59,8 @@ class DeviceSlot:
 		self._writeLock = threading.Lock()
 		"""Guards the queued write, `failed`, and `_displaying`, and every move between them.
 
-		They are one piece of state. A member given up on while a frame is queued, or while one
-		is being taken off the queue, must not receive it: that frame is exactly the next write
-		to a display that has just stopped answering, and on a stuck display costs another
-		whole `MEMBER_WRITE_TIMEOUT` of every other display's writes.
+		One piece of state, so a member given up on never receives a queued frame, which on a
+		stuck display would cost another `MEMBER_WRITE_TIMEOUT`.
 		"""
 		self._guard = guard if guard is not None else memberGuard.guard
 		self._displaying = False
@@ -90,32 +76,11 @@ class DeviceSlot:
 	def watchForDisconnect(self) -> None:
 		"""Ask this member's device to say when it has gone, rather than waiting to find out.
 
-		A write is the obvious way to discover a display has been unplugged, and it is the slow
-		way: a member showing something that is not changing is not written to at all, so it can
-		be gone for a long time before anything notices. The read side knows at once. When a
-		Bluetooth display drops, the overlapped read completion fails immediately::
-
-			hwIo.ioThread._internalCompletionRoutine
-			OSError: [WinError 1167] The device is not connected.
-
-		`hwIo.IoBase._ioDone` offers that error to `self._onReadError` before raising, so
-		chaining onto it turns the failure into a notification. There is no other route: the
-		exception it raises is caught and logged by the I/O thread and goes no further.
-
-		Three cares, all of them about it being someone else's object:
-
-		- It chains rather than replaces. `freedomScientific` supplies one of these, which
-			handles a suspend induced broken pipe by restarting itself, and losing that would
-			cost the user their display over a laptop lid.
-		- The member is given up on only when the driver's own hook did not deal with the error.
-			A driver that says it has handled it is restarting, not dying.
-		- The return value is the driver's own, so the traceback in the log is unchanged. It is
-			how this was found, and someone else will need it.
-
-		Best effort throughout. `_dev` is a private attribute of somebody else's driver and not
-		every driver has one, so a member without a reachable device simply keeps the slower
-		detection. A driver that reopens its own device drops this hook with the old one, which
-		is the same case.
+		A static member is not written to, so the read side, which fails at once, is faster.
+		`hwIo.IoBase._ioDone` offers the error to `self._onReadError` before raising. The hook
+		chains onto any the driver has, such as `freedomScientific`'s restart; gives up only
+		when that did not handle it; and returns the driver's own value. Best effort, through
+		the private `_dev`.
 		"""
 		device = getattr(self.driver, "_dev", None)
 		if device is None or not hasattr(device, "_onReadError"):
@@ -143,9 +108,7 @@ class DeviceSlot:
 	def stopWatching(self) -> None:
 		"""Give the device its own read error hook back, for a member being closed.
 
-		Only if ours is still the one there, for the reason every other restore in this add-on
-		checks: putting something back over a replacement is how a monkey patch damages
-		something other than itself.
+		Only if ours is still the one there, as every restore here checks.
 		"""
 		if self._watched is None:
 			return
@@ -211,12 +174,8 @@ class DeviceSlot:
 	def _displayNow(self, cells: list[int]) -> None:
 		"""Hand cells to the driver, marking the member failed if it raises or never returns.
 
-		A write that never returns is given up on by the guard, which fails this member and
-		then cancels the write, so the thread comes back and nothing more is sent here.
-
-		`failed` is checked again, under the lock, as `_displaying` is set: the member may have
-		been given up on after the frame was taken off the queue, by a read failure or by the
-		guard rescuing a write to it on another thread.
+		A write that never returns is cancelled by the guard. `failed` is checked again under
+		the lock, since the member may have failed after the frame left the queue.
 		"""
 		with self._writeLock:
 			if self.failed:
@@ -240,16 +199,8 @@ class DeviceSlot:
 	def fail(self) -> None:
 		"""Stop writing to this member, and tell the composite it has one fewer display.
 
-		Once only, however many ways the same disconnection is noticed: a display coming apart
-		will often fail its read and its next write within a few milliseconds of each other,
-		and the composite must not lay itself out twice for one loss.
-
-		The callback runs on whichever thread noticed — the I/O thread for a read failure, and
-		either thread for a write — so what it must not do here is touch NVDA. The composite
-		marshals to the main thread; see `BrailleDisplayDriver._memberFailed`.
-
-		A frame still queued is dropped in the same step as the member is marked failed, so no
-		executor can take it off the queue in between and send it.
+		Once only, however the loss is noticed. The callback runs on the noticing thread; see
+		`BrailleDisplayDriver._memberFailed`. A queued frame is dropped in the same step.
 		"""
 		with self._writeLock:
 			if self.failed:
@@ -268,22 +219,12 @@ class DeviceSlot:
 	def terminate(self, suppressDisplayClear: bool = False) -> None:
 		"""Close this member.
 
-		A member that has already been given up on is never blanked, whatever is asked for.
-		Being given up on means a write to it has raised, so the blank cannot succeed either:
-		what it produces is `terminate` logging its own error about a device that is not
-		connected, at the moment the user has just plugged the display back in and is watching
-		the composite come back. The device handle is still closed, which is what closing a
-		member is for.
-
-		Nor is a member blanked while a write to it is still in progress. That write is using
-		the device's one write OVERLAPPED, so a second write on it is undefined, and if the
-		first is stuck the blank would be stuck behind it on the main thread. Closing the handle
-		ends the pending write instead. And the close itself is watched, since blanking is a
-		write from the main thread and a display can stop answering between writes.
+		Never blanked when given up on, since the blank would fail too, nor while a write is in
+		progress on the device's one write OVERLAPPED; closing the handle ends that write. The
+		handle is always closed, and the close is watched.
 
 		:param suppressDisplayClear: leave whatever is on the device rather than blanking
-			it. NVDA sets this on the way to the secure desktop, where clearing the display
-			is both pointless and slow.
+			it, as NVDA asks on the way to the secure desktop.
 		"""
 		with self._writeLock:
 			self._queuedWrite = None
