@@ -523,38 +523,38 @@ class TestDrawingOnlyAColour(ColourPluginTestCase):
 
 	def test_theTouchedColourIsDrawnAlone(self):
 		self.plugin.script_drawPicture(None)
-		self.plugin._picture.touched = (220, 0, 0)
+		self.plugin.pictures.picture.touched = (220, 0, 0)
 		self.plugin.script_pictureOnlyColour(None)
 		self.assertEqual(len(self.mode.shown), 2)
 		self.assertIn("only red", self.mode.source.name)
-		self.assertIsNotNone(self.plugin._picture.derivedFrom)
+		self.assertIsNotNone(self.plugin.pictures.picture.derivedFrom)
 
 	def test_itKeepsThePlaceAsAStyleChangeDoes(self):
 		self.plugin.script_drawPicture(None)
-		self.plugin._picture.touched = (220, 0, 0)
+		self.plugin.pictures.picture.touched = (220, 0, 0)
 		self.mode.askedFor = []
 		self.plugin.script_pictureOnlyColour(None)
 		self.assertEqual(self.mode.askedFor.count(None), 0)
 
 	def test_pressingAgainBringsEveryColourBack(self):
 		self.plugin.script_drawPicture(None)
-		original = self.plugin._picture
+		original = self.plugin.pictures.picture
 		original.touched = (220, 0, 0)
 		self.plugin.script_pictureOnlyColour(None)
 		self.plugin.script_pictureOnlyColour(None)
-		self.assertIs(self.plugin._picture, original)
+		self.assertIs(self.plugin.pictures.picture, original)
 		self.assertNotIn("only", self.mode.source.name)
 
 	def test_aStyleChangeKeepsTheColour(self):
 		self.plugin.script_drawPicture(None)
-		self.plugin._picture.touched = (220, 0, 0)
+		self.plugin.pictures.picture.touched = (220, 0, 0)
 		self.plugin.script_pictureOnlyColour(None)
 		self.plugin.script_pictureStyle(None)
 		self.assertIn("only red", self.mode.source.name)
 
 	def test_theBackgroundIsNotAColourToDraw(self):
 		self.plugin.script_drawPicture(None)
-		self.plugin._picture.touched = self.plugin._picture.paper
+		self.plugin.pictures.picture.touched = self.plugin.pictures.picture.paper
 		self.plugin.script_pictureOnlyColour(None)
 		self.assertTrue(any("background" in said for said in flashedMessages))
 		self.assertEqual(len(self.mode.shown), 1)

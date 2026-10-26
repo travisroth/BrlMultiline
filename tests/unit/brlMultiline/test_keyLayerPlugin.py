@@ -69,17 +69,17 @@ class FakeMode:
 
 class TestContexts(unittest.TestCase):
 	def test_nothingWhenGraphicsModeIsOff(self):
-		host = types.SimpleNamespace(graphicsMode=FakeMode(active=False), _pictureDrawing=None)
+		host = types.SimpleNamespace(graphicsMode=FakeMode(active=False), pictures=types.SimpleNamespace(drawing=None))
 		self.assertEqual([], keyLayerContexts.presentContexts(host))
 
 	def test_aChartIsAChartAndGraphics(self):
 		chart = types.SimpleNamespace(redraw=lambda *args: None)
-		host = types.SimpleNamespace(graphicsMode=FakeMode(source=chart), _pictureDrawing=None)
+		host = types.SimpleNamespace(graphicsMode=FakeMode(source=chart), pictures=types.SimpleNamespace(drawing=None))
 		self.assertEqual(["chart", "graphics"], keyLayerContexts.presentContexts(host))
 
 	def test_aPictureIsAPictureAndGraphics(self):
 		picture = types.SimpleNamespace(redraw=None)
-		host = types.SimpleNamespace(graphicsMode=FakeMode(source=picture), _pictureDrawing=picture)
+		host = types.SimpleNamespace(graphicsMode=FakeMode(source=picture), pictures=types.SimpleNamespace(drawing=picture))
 		self.assertEqual(["picture", "graphics"], keyLayerContexts.presentContexts(host))
 
 	def test_aPictureGoingUpIsAPictureBeforeThePluginHasRecordedIt(self):
@@ -87,18 +87,18 @@ class TestContexts(unittest.TestCase):
 		A picture redraws itself too, so by the record alone it read as a chart and got the chart
 		layer, and a change of style swapped the picture layer for the chart layer."""
 		picture = types.SimpleNamespace(redraw=lambda *args: None, windowsVertically=True)
-		host = types.SimpleNamespace(graphicsMode=FakeMode(source=picture), _pictureDrawing=None)
+		host = types.SimpleNamespace(graphicsMode=FakeMode(source=picture), pictures=types.SimpleNamespace(drawing=None))
 		self.assertEqual(["picture", "graphics"], keyLayerContexts.presentContexts(host))
 
 	def test_anythingElseDrawnIsGraphics(self):
 		"""The glyph catalogue and the test figure."""
 		figure = types.SimpleNamespace(redraw=None)
-		host = types.SimpleNamespace(graphicsMode=FakeMode(source=figure), _pictureDrawing=None)
+		host = types.SimpleNamespace(graphicsMode=FakeMode(source=figure), pictures=types.SimpleNamespace(drawing=None))
 		self.assertEqual(["graphics"], keyLayerContexts.presentContexts(host))
 
 	def test_theContextsAreInTheModelsOrder(self):
 		chart = types.SimpleNamespace(redraw=lambda *args: None)
-		host = types.SimpleNamespace(graphicsMode=FakeMode(source=chart), _pictureDrawing=None)
+		host = types.SimpleNamespace(graphicsMode=FakeMode(source=chart), pictures=types.SimpleNamespace(drawing=None))
 		present = keyLayerContexts.presentContexts(host)
 		self.assertEqual(present, [context for context in keyLayers.CONTEXTS if context in present])
 

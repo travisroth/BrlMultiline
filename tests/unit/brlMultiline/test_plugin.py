@@ -62,6 +62,7 @@ from brlMultiline import patches  # noqa: E402
 from brlMultiline import panning  # noqa: E402
 from brlMultiline import bmConfig  # noqa: E402
 from brlMultiline import imagePins, imageSource  # noqa: E402
+from brlMultiline import pictureCommands  # noqa: E402
 from brlMultiline import flowObjects  # noqa: E402
 from brlMultiline.container import PLACEMENT_KEY_ATTRIBUTE, DisplayContainer  # noqa: E402
 from brlMultiline.layout import SegmentRect  # noqa: E402
@@ -150,7 +151,7 @@ class TestDrawingThePictureHere(unittest.TestCase):
 			return tuple(sorted(self.raised))
 
 	class FakeMode:
-		"""The graphics mode, reduced to what `_drawPicture` asks of it.
+		"""The graphics mode, reduced to what `PictureCommands._draw` asks of it.
 
 		Models the three things the commands read back — whether it is active, what it is
 		showing, and how much braille is kept beside it — because all three are questions the
@@ -218,11 +219,11 @@ class TestDrawingThePictureHere(unittest.TestCase):
 		from the cached pixels and put it over A, on a command that says it changes the style.
 		"""
 		self.plugin.script_drawPicture(None)
-		first = self.plugin._picture
+		first = self.plugin.pictures.picture
 		self.assertIsNotNone(first)
 		self.mode.enter = lambda drawing=None, textLines=None: False
 		self.plugin.script_drawPicture(None)
-		self.assertIs(self.plugin._picture, first)
+		self.assertIs(self.plugin.pictures.picture, first)
 
 	def test_andTheStyleKeyStillDrawsTheOneOnTheDisplay(self):
 		"""What the divergence actually cost: the next style press drew the wrong picture."""
@@ -231,7 +232,7 @@ class TestDrawingThePictureHere(unittest.TestCase):
 		self.mode.enter = lambda drawing=None, textLines=None: False
 		self.plugin.script_drawPicture(None)
 		self.plugin.script_pictureStyle(None)
-		self.assertIs(self.plugin._pictureDrawing, self.mode.source)
+		self.assertIs(self.plugin.pictures.drawing, self.mode.source)
 		self.assertIsNot(self.mode.source, wasShowing)
 
 	def test_changingTheStyleKeepsTheReaderWhereTheyWere(self):
@@ -260,11 +261,11 @@ class TestDrawingThePictureHere(unittest.TestCase):
 		self.plugin.script_drawPicture(None)
 		self.mode.refuseReplace = True
 		self.plugin.script_pictureStyle(None)
-		self.assertEqual(self.plugin._pictureStyle, imageFigure.OUTLINES)
+		self.assertEqual(self.plugin.pictures.style, imageFigure.OUTLINES)
 		self.mode.refuseReplace = False
 		self.plugin.script_pictureStyle(None)
 		self.assertEqual(
-			self.plugin._pictureStyle, imageFigure.LINES, "the cycle resumes from what was shown"
+			self.plugin.pictures.style, imageFigure.LINES, "the cycle resumes from what was shown"
 		)
 
 	def test_aStyleThePictureWillNotDrawInLeavesTheStyleAlone(self):
@@ -283,7 +284,7 @@ class TestDrawingThePictureHere(unittest.TestCase):
 		self.addCleanup(setattr, imageFigure, "figureFor", realFigure)
 		self.plugin.script_pictureBrightness(None)
 		self.assertIn("There is too little in this picture to feel", flashedMessages)
-		self.assertEqual(self.plugin._pictureStyle, imageFigure.OUTLINES)
+		self.assertEqual(self.plugin.pictures.style, imageFigure.OUTLINES)
 		self.assertEqual(len(self.mode.shown), 1)
 
 	def setUp(self):
@@ -345,9 +346,9 @@ class TestDrawingThePictureHere(unittest.TestCase):
 		a page of diagrams."""
 		self.plugin.script_drawPicture(None)
 		self.plugin.script_pictureStyle(None)
-		chosen = self.plugin._pictureStyle
+		chosen = self.plugin.pictures.style
 		self.plugin.script_drawPicture(None)
-		self.assertEqual(self.plugin._pictureStyle, chosen)
+		self.assertEqual(self.plugin.pictures.style, chosen)
 
 	def test_aRefusalReachesTheReaderAsWords(self):
 		"""Every refusal names what went wrong, because a reader told only that it failed
@@ -404,13 +405,13 @@ class TestDrawingThePictureHere(unittest.TestCase):
 
 		self.plugin.script_drawPicture(None)
 		self.plugin.script_pictureReversed(None)
-		self.assertEqual(self.plugin._pictureStyle, imageFigure.REVERSED)
+		self.assertEqual(self.plugin.pictures.style, imageFigure.REVERSED)
 		self.plugin.script_pictureBrightness(None)
-		self.assertEqual(self.plugin._pictureStyle, imageFigure.SILHOUETTE)
+		self.assertEqual(self.plugin.pictures.style, imageFigure.SILHOUETTE)
 		self.plugin.script_pictureLines(None)
-		self.assertEqual(self.plugin._pictureStyle, imageFigure.LINES)
+		self.assertEqual(self.plugin.pictures.style, imageFigure.LINES)
 		self.plugin.script_pictureOutlines(None)
-		self.assertEqual(self.plugin._pictureStyle, imageFigure.OUTLINES)
+		self.assertEqual(self.plugin.pictures.style, imageFigure.OUTLINES)
 		self.assertEqual(len(self.mode.shown), 5)
 		self.assertEqual(len(self.captures), 1, "a change of style copies nothing off the screen")
 
@@ -534,7 +535,7 @@ class TestTheChartKeys(unittest.TestCase):
 		self.use()
 		callLaterQueue.pending.clear()
 		self.addCleanup(callLaterQueue.pending.clear)
-		self.plugin.drawChart(self.refused(), say=plugin._sayAfterDialog)
+		self.plugin.pictures.drawChart(self.refused(), say=pictureCommands.sayAfterDialog)
 		self.assertNotIn("277 periods will not fit; this display holds 24", flashedMessages)
 		callLaterQueue.fire()
 		self.assertEqual(flashedMessages[-1], "277 periods will not fit; this display holds 24")
@@ -543,7 +544,7 @@ class TestTheChartKeys(unittest.TestCase):
 		"""The log had nothing to show for a refusal, which made a lost one look like no answer."""
 		self.use()
 		log.messages.clear()
-		self.plugin.drawChart(self.refused())
+		self.plugin.pictures.drawChart(self.refused())
 		self.assertEqual(flashedMessages[-1], "277 periods will not fit; this display holds 24")
 		self.assertTrue(any("ohlc chart refused" in message for _level, message in log.messages))
 
@@ -711,7 +712,7 @@ class TestFollowingAnApplicationsChart(unittest.TestCase):
 		part = self.FakePart(self, self.KEY)
 		part.brlMultilineChart = lambda: self.FakeChart(self.KEY, definition)
 		self.focusOn(part)
-		self.assertTrue(self.plugin._drawFocusedChart())
+		self.assertTrue(self.plugin.pictures.drawFocusedChart())
 		self.assertEqual(len(mode.entered), 1)
 		self.assertEqual(mode.entered[0].chartKey, self.KEY)
 
@@ -730,13 +731,13 @@ class TestFollowingAnApplicationsChart(unittest.TestCase):
 		part = self.FakePart(self, self.KEY)
 		part.brlMultilineChart = lambda: self.FakeChart(self.KEY, definition)
 		self.focusOn(part)
-		self.assertTrue(self.plugin._drawFocusedChart())
+		self.assertTrue(self.plugin.pictures.drawFocusedChart())
 		self.assertEqual(flashedMessages[-1], "Scatter charts cannot be drawn yet")
 
 	def test_offAChartTheSelectionIsChartedAsBefore(self):
 		self.use()
 		self.focusOn(FakeNavigatorObject("a cell"))
-		self.assertFalse(self.plugin._drawFocusedChart())
+		self.assertFalse(self.plugin.pictures.drawFocusedChart())
 
 
 class PluginTestCase(unittest.TestCase):

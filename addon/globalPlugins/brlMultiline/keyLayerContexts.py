@@ -95,7 +95,7 @@ def _graphics(plugin) -> list:
 		if mode is None or not mode.active:
 			return present
 		source = mode.source
-		picture = getattr(plugin, "_pictureDrawing", None)
+		picture = getattr(getattr(plugin, "pictures", None), "drawing", None)
 		redraws = source is not None and getattr(source, "redraw", None) is not None
 		if source is not None and (
 			(picture is not None and source is picture)

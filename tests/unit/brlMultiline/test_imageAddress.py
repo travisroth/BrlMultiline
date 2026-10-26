@@ -310,8 +310,8 @@ class TestThePictureCommand(unittest.TestCase):
 		self.finish()
 		self.assertEqual(len(self.mode.shown), 1)
 		self.assertEqual(self.screens, [])
-		self.assertFalse(self.plugin._picture.fromScreen)
-		self.assertEqual((self.plugin._picture.width, self.plugin._picture.height), (325, 97))
+		self.assertFalse(self.plugin.pictures.picture.fromScreen)
+		self.assertEqual((self.plugin.pictures.picture.width, self.plugin.pictures.picture.height), (325, 97))
 
 	def test_aFileThatWillNotLoadFallsBackToTheScreen(self):
 		def refuse(address):
@@ -321,7 +321,7 @@ class TestThePictureCommand(unittest.TestCase):
 		self.plugin.script_drawPicture(None)
 		self.finish()
 		self.assertEqual(len(self.mode.shown), 1)
-		self.assertTrue(self.plugin._picture.fromScreen)
+		self.assertTrue(self.plugin.pictures.picture.fromScreen)
 
 	def test_andTheScreenIsCopiedForTheObjectThatWasPressedOn(self):
 		"""The navigator may have moved while the file was failing to load."""
@@ -380,7 +380,7 @@ class TestThePictureCommand(unittest.TestCase):
 		chart = types.SimpleNamespace(name="chart")
 		offer = types.SimpleNamespace(key="bar", draw=lambda *args: chart)
 		self.plugin.script_drawPicture(None)
-		self.plugin.drawChart(offer)
+		self.plugin.pictures.drawChart(offer)
 		self.finish()
 		self.assertEqual(self.mode.shown, [chart])
 
