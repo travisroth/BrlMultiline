@@ -230,6 +230,14 @@ class SourceBlock:
 	`flowIndent`'s decision.
 	"""
 
+	continuesItem: bool = False
+	"""Whether this block carries on an item that began in an earlier block.
+
+	A browse mode line is at most a hundred characters by default, so one long list item is
+	several blocks. Every row of the later ones is drawn as a wrapped row of the item rather than
+	as its first. See `flowListDepth.continuesItem`.
+	"""
+
 	collapsed: int = 1
 	"""How many blank blocks this one stands for.
 

@@ -1325,9 +1325,9 @@ class FlowController(PanelOwner):
 		"""
 		existing = self.blocks.get(block.blockId)
 		if existing is not None and not replace and self._sameRegionOwner(existing, block):
-			if existing.depth != block.depth:
+			if existing.depth != block.depth or existing.continuesItem != block.continuesItem:
 				# Keep the region, take the new depth.
-				existing = dataclasses.replace(existing, depth=block.depth)
+				existing = dataclasses.replace(existing, depth=block.depth, continuesItem=block.continuesItem)
 				self.blocks.set(existing.blockId, existing)
 			return existing
 		if existing is not None and block.blockId is not existing.blockId:
@@ -2185,14 +2185,16 @@ class FlowController(PanelOwner):
 		currentDepth = getattr(self.source, "currentDepth", None)
 		if currentDepth is None:
 			return block
+		currentContinues = getattr(self.source, "currentContinuesItem", None)
 		try:
 			depth = currentDepth(block)
+			continues = bool(currentContinues(block)) if currentContinues is not None else block.continuesItem
 		except Exception:
 			log.debugWarning("Could not read a block's depth again", exc_info=True)
 			return block
-		if depth == block.depth:
+		if depth == block.depth and continues == block.continuesItem:
 			return block
-		block = dataclasses.replace(block, depth=depth)
+		block = dataclasses.replace(block, depth=depth, continuesItem=continues)
 		self.blocks.set(block.blockId, block)
 		return block
 

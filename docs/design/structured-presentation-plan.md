@@ -826,6 +826,19 @@ when its cells do not — a top level item drawn at the margin and the prose it 
 alike, and only the depth says which the indent is planned from. Tests in
 `TestTheBandFollowsADepthThatChanges`.
 
+**A long item is several lines, and only the first is where it begins.** NVDA's browse mode
+cuts a paragraph into lines of at most "maximum number of characters on one line", a hundred
+by default, and each is a block. Reading an AppleVis article of long bullets on the Monarch,
+the second line of a top level item was drawn at the margin, under its first line's wrapped
+rows: "after the first 4 lines the 5th line is not indented, then every other line". The
+fields say which line is which. NVDA marks every enclosing field with `_startOfNode`, true
+only where the range begins at the field's start, in a virtual buffer and in Word, so
+`flowListDepth.continuesItem` reads it off the innermost list item and the block carries
+`SourceBlock.continuesItem`. The renderer then draws every row of such a block at the
+item's continuation indent, first row included, and its render key says so. A second
+paragraph inside an item reads the same way and is drawn the same way, which is right: it
+belongs to the item and is not a new one.
+
 Still to confirm on hardware: Firefox, and a clean rebase when panning back out of a sublist
 brings a shallower item in at the bottom. Not done here: ARIA trees in
 a document, which can take the item's own `level` field through the same tap, and block quotes.

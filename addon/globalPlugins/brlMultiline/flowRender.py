@@ -150,7 +150,7 @@ class FlowRenderer:
 		"""
 		if not self.columnPlan.isEmpty and rowCellsOf(block.region) is not None:
 			return self._keyWith(0)
-		return self._keyWith(len(self.indentPlan.prefixFor(block.depth)))
+		return self._keyWith(len(self._firstPrefix(block)))
 
 	def _keyWith(self, indent: int) -> RenderKey:
 		""":return: the render key for a block drawn with a given indent."""
@@ -198,7 +198,7 @@ class FlowRenderer:
 			return columns
 		if self.unwrappedPage is not None:
 			return self._unwrapped(block)
-		first = self.indentPlan.prefixFor(block.depth)
+		first = self._firstPrefix(block)
 		rest = self.indentPlan.continuationPrefixFor(block.depth)
 		rows, positions, more = self._indented(block, fromRow, first, rest)
 		if not rows:
@@ -417,7 +417,7 @@ class FlowRenderer:
 		:param block: the block to draw.
 		:return: one row, possibly blank, with `lineCells` saying how long the whole line is.
 		"""
-		prefix = self.indentPlan.prefixFor(block.depth)
+		prefix = self._firstPrefix(block)
 		fillRows, markCuts = self.fillRows, self.markCuts
 		self.fillRows, self.markCuts = True, False
 		try:
@@ -503,6 +503,17 @@ class FlowRenderer:
 				seen += 1
 			if buffer.windowEndPos >= len(cells) or not buffer._nextWindow():
 				return None
+
+	def _firstPrefix(self, block: SourceBlock) -> tuple[int, ...]:
+		""":return: the indent cells for a block's own first row.
+
+		A block that carries on an item from an earlier one is a wrapped row of that item from
+		its first row on, so it is drawn at the continuation indent throughout. See
+		`SourceBlock.continuesItem`.
+		"""
+		if getattr(block, "continuesItem", False):
+			return self.indentPlan.continuationPrefixFor(block.depth)
+		return self.indentPlan.prefixFor(block.depth)
 
 	def _indented(
 		self,

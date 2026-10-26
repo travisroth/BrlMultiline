@@ -165,6 +165,11 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 	Read while the line is, from the fields NVDA fetched to read it. See `_addTextWithFields`
 	and `flowListDepth`. On the class so that a region never updated answers too."""
 
+	listContinues = False
+	"""Whether this block's line carries on a list item that began on an earlier line.
+
+	Read with `listDepth`. See `flowListDepth.continuesItem`."""
+
 	_listDepthRead = False
 	"""Whether this reading has found the text `listDepth` is taken at."""
 
@@ -298,9 +303,10 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 			commands = original(*args, **kwargs)
 			try:
 				commands = list(commands)
-				lists = flowListDepth.depthBeforeText(commands)
-				if lists is not None:
-					self.listDepth = flowListDepth.blockDepth(lists)
+				place = flowListDepth.placeBeforeText(commands)
+				if place is not None:
+					self.listDepth = flowListDepth.blockDepth(place.levels)
+					self.listContinues = place.continues
 					self._listDepthRead = True
 			except Exception:
 				log.debugWarning(f"Could not read the list depth of {self!r}", exc_info=True)
@@ -323,6 +329,7 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 	def update(self) -> None:
 		# Forgotten first, in case this reading finds no text.
 		self.listDepth = None
+		self.listContinues = False
 		self._listDepthRead = False
 		super().update()
 		self.dirty = True
@@ -1201,6 +1208,7 @@ class DocumentFlowSource:
 			isControl=isControl,
 			gapAfter=isControl,
 			depth=self._depthOfRegion(region),
+			continuesItem=self._continuesItemOfRegion(region),
 		)
 
 	def currentDepth(self, block) -> Optional[int]:
@@ -1217,6 +1225,23 @@ class DocumentFlowSource:
 			# A focused edit is read through its own fields, which are not the page's.
 			return None
 		return self._depthOfRegion(block.region)
+
+	def currentContinuesItem(self, block) -> bool:
+		""":return: whether a block carries on a list item, as its region reads now. See `currentDepth`."""
+		if getattr(block, "isInteractive", False):
+			return False
+		return self._continuesItemOfRegion(block.region)
+
+	@classmethod
+	def _continuesItemOfRegion(cls, region) -> bool:
+		""":return: whether a document line read through this region carries on a list item.
+
+		Only for a line with a depth: a continuation is drawn at its item's continuation indent,
+		and a line with no depth has none.
+		"""
+		if cls._depthOfRegion(region) is None:
+			return False
+		return bool(getattr(region, "listContinues", False))
 
 	@staticmethod
 	def _depthOfRegion(region) -> Optional[int]:

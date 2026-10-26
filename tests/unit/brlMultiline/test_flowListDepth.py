@@ -42,6 +42,47 @@ def nested(lists: int, text: str = "item") -> list:
 	return commands + [text]
 
 
+def item(startOfNode) -> FieldCommand:
+	""":return: a list item's start, saying whether the range begins where the item does."""
+	return FieldCommand("controlStart", ControlField(role="LISTITEM", _startOfNode=startOfNode))
+
+
+class TestAnItemCarriedOn(unittest.TestCase):
+	"""A long item is several browse mode lines; the later ones carry it on."""
+
+	def place(self, *commands):
+		return flowListDepth.placeBeforeText(list(commands))
+
+	def test_theLineAnItemBeginsOnDoesNotCarryItOn(self):
+		place = self.place(start("DOCUMENT"), start("LIST"), item(True), "first words")
+		self.assertEqual(place, flowListDepth.ListPlace(levels=1, continues=False))
+
+	def test_aLaterLineOfTheItemCarriesItOn(self):
+		place = self.place(start("DOCUMENT"), start("LIST"), item(False), "more words")
+		self.assertEqual(place, flowListDepth.ListPlace(levels=1, continues=True))
+
+	def test_theInnermostItemDecides(self):
+		# The outer item began long ago; the sub item begins here.
+		place = self.place(start("LIST"), item(False), start("LIST"), item(True), "sub item")
+		self.assertEqual(place, flowListDepth.ListPlace(levels=2, continues=False))
+
+	def test_anItemThatDoesNotSayIsItsOwnStart(self):
+		place = self.place(start("LIST"), start("LISTITEM"), "x")
+		self.assertFalse(place.continues)
+
+	def test_proseCarriesNothingOn(self):
+		self.assertFalse(self.place(start("PARAGRAPH"), "words").continues)
+
+	def test_theOptionsOfAListBoxCarryNothingOn(self):
+		commands = [start("LIST"), item(True), start("LIST", states=["FOCUSABLE"]), item(False), "option"]
+		self.assertFalse(self.place(*commands).continues)
+
+	def test_wordsShapeToo(self):
+		# Word gives items and no list, and marks the start of each the same way.
+		top = [start("EDITABLETEXT"), item(False)]
+		self.assertEqual(self.place(*top, "rest of a long item"), flowListDepth.ListPlace(1, True))
+
+
 class TestCounting(unittest.TestCase):
 	def test_proseIsInNoList(self):
 		self.assertEqual(flowListDepth.depthBeforeText([start("DOCUMENT"), start("PARAGRAPH"), "words"]), 0)
@@ -193,12 +234,12 @@ class TestTheRegionNotesItsDepth(unittest.TestCase):
 
 	def test_aFailingCountStillReadsTheLine(self):
 		region = tapped(FieldedInfo([start("LIST"), "x"]))
-		original = flowListDepth.depthBeforeText
-		flowListDepth.depthBeforeText = lambda commands: 1 / 0
+		original = flowListDepth.placeBeforeText
+		flowListDepth.placeBeforeText = lambda commands: 1 / 0
 		try:
 			region.update()
 		finally:
-			flowListDepth.depthBeforeText = original
+			flowListDepth.placeBeforeText = original
 		self.assertIsNone(region.listDepth)
 		self.assertEqual(region.seen[0][-1], "x")
 
@@ -241,6 +282,44 @@ class TestBlocksCarryTheirDepth(unittest.TestCase):
 		blank = source.blockAfter(first.blockId).block
 		self.assertTrue(blank.isBlank)
 		self.assertIsNone(blank.depth)
+
+
+class CarriedDocument(ListDocument):
+	"""A document whose lines may carry on the list item of the line before."""
+
+	def __init__(self, lines, lists, carried, caretIndex=0):
+		super().__init__(lines, lists, caretIndex=caretIndex)
+		self.carried = carried
+
+
+class ReadsACarriedLine(ReadsItsLine):
+	def update(self):
+		info = self._getSelection()
+		document = self.obj
+		commands = [start("DOCUMENT")]
+		for level in range(document.lists[info.index]):
+			innermost = level == document.lists[info.index] - 1
+			commands += [start("LIST"), item(not (innermost and document.carried[info.index]))]
+		self.parts = [FieldedInfo(commands + [document.lines[info.index]])]
+		Tapped.update(self)
+
+
+class TestBlocksSayTheyCarryAnItemOn(unittest.TestCase):
+	def blocks(self):
+		document = CarriedDocument(["one starts", "one goes on", "two"], [1, 1, 1], [False, True, False])
+		source = DocumentFlowSource(document, lambda obj, info: ReadsACarriedLine(obj, info), generation=1)
+		block = source.blockAtCursor().block
+		found = [block]
+		for _ in range(2):
+			block = source.blockAfter(block.blockId).block
+			found.append(block)
+		return found
+
+	def test_onlyTheLaterLineOfAnItemCarriesItOn(self):
+		self.assertEqual([block.continuesItem for block in self.blocks()], [False, True, False])
+
+	def test_itKeepsItsItemsDepth(self):
+		self.assertEqual([block.depth for block in self.blocks()], [1, 1, 1])
 
 
 class TestTheBandFollowsADepthThatChanges(unittest.TestCase):

@@ -27,7 +27,7 @@ Like `flowIndent`, this imports nothing from NVDA, so the counting can be tested
 Roles are compared by name, as `flowForms` compares them.
 """
 
-from typing import Iterable, Optional
+from typing import Iterable, NamedTuple, Optional
 
 LIST_ROLES = frozenset({"LIST"})
 """The roles of a list that nests what is inside it, by `controlTypes.Role` member name."""
@@ -87,6 +87,64 @@ def _levels(enclosing: list) -> int:
 	return max(lists, items)
 
 
+def continuesItem(enclosing: list) -> bool:
+	"""Whether text inside a list item is not where that item begins.
+
+	**One item can be several lines.** NVDA's browse mode cuts a long paragraph into lines of at
+	most its "maximum number of characters on one line", a hundred by default, and each line is a
+	block of its own. The first is where the item begins; the rest carry on from it. Drawn alike,
+	the second line of a top level bullet sat at the margin under its own first line's wrapped rows
+	— the reader's "the fifth line is not indented, then every other line" on a page of long
+	bullets.
+
+	The field says. NVDA marks each enclosing field with `_startOfNode`, true only where the range
+	begins at the start of that field, in a virtual buffer and in Word alike. A field that does not
+	say is taken as the start, which is how every line was drawn before.
+
+	:param enclosing: the fields open at the text, outermost first.
+	:return: whether the innermost list item there began on an earlier line.
+	"""
+	innermost = None
+	for field in enclosing:
+		role = _roleOf(field)
+		if role in LIST_ROLES and _isControl(field):
+			# A list box's options are not the document's items, as in `_levels`.
+			break
+		if role in ITEM_ROLES:
+			innermost = field
+	return innermost is not None and innermost.get("_startOfNode", True) is False
+
+
+class ListPlace(NamedTuple):
+	"""Where a line's text sits in the document's lists."""
+
+	levels: int
+	"""How many levels of list enclose it. See `_levels`."""
+
+	continues: bool
+	"""Whether it carries on an item that began on an earlier line. See `continuesItem`."""
+
+
+def placeBeforeText(commands: Iterable) -> Optional[ListPlace]:
+	"""Where the first of a range's own text sits in the lists around it.
+
+	:param commands: what `getTextWithFields` returned — strings and field commands, in order.
+	:return: the place, or None when the range holds no text. See `depthBeforeText`.
+	"""
+	enclosing: list = []
+	for command in commands:
+		if isinstance(command, str):
+			if command:
+				return ListPlace(_levels(enclosing), continuesItem(enclosing))
+			continue
+		kind = getattr(command, "command", None)
+		if kind == "controlStart":
+			enclosing.append(getattr(command, "field", None))
+		elif kind == "controlEnd" and enclosing:
+			enclosing.pop()
+	return None
+
+
 def depthBeforeText(commands: Iterable) -> Optional[int]:
 	"""How many lists are open where the first of a range's own text begins.
 
@@ -98,18 +156,8 @@ def depthBeforeText(commands: Iterable) -> Optional[int]:
 		or None when the range holds no text at all. None is not 0: a collapsed range before
 		the cursor says nothing, and the next part of the line must be asked instead.
 	"""
-	enclosing: list = []
-	for command in commands:
-		if isinstance(command, str):
-			if command:
-				return _levels(enclosing)
-			continue
-		kind = getattr(command, "command", None)
-		if kind == "controlStart":
-			enclosing.append(getattr(command, "field", None))
-		elif kind == "controlEnd" and enclosing:
-			enclosing.pop()
-	return None
+	place = placeBeforeText(commands)
+	return None if place is None else place.levels
 
 
 def blockDepth(lists: Optional[int]) -> Optional[int]:

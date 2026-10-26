@@ -231,6 +231,46 @@ class TestWrapping(unittest.TestCase):
 		self.assertEqual(tuple(rendered.positions[1][:3]), (NO_POSITION,) * 3)
 
 
+class TestAnItemCarriedOnFromAnEarlierLine(unittest.TestCase):
+	"""A long bullet is several browse mode lines, and the later ones are not its first row.
+
+	On a page of long bullets the second line of a top level item sat at the margin under the
+	first line's wrapped rows: the fifth row unindented, then every other one.
+	"""
+
+	def setUp(self):
+		self.plan = planFor([1, 4], 12, style=TWO_SPACES)
+
+	def carried(self, text, depth=1):
+		import dataclasses
+
+		return dataclasses.replace(block(text, depth=depth), continuesItem=True)
+
+	def indentOf(self, row):
+		text = textOf(row)
+		return len(text) - len(text.lstrip())
+
+	def test_itsFirstRowIsDrawnAsAWrappedRow(self):
+		start = renderer(numCols=12, plan=self.plan).render(block("abcdefghijklmnop", depth=1))
+		carried = renderer(numCols=12, plan=self.plan).render(self.carried("qrstuvwx"))
+		self.assertEqual(self.indentOf(carried.rows[0]), self.indentOf(start.rows[1]))
+
+	def test_everyRowOfItLinesUp(self):
+		rendered = renderer(numCols=12, plan=self.plan).render(self.carried("abcdefghijklmnopqrst"))
+		self.assertGreater(len(rendered.rows), 1)
+		self.assertEqual({self.indentOf(row) for row in rendered.rows}, {3})
+
+	def test_itsKeySaysWhatItIsDrawnWith(self):
+		drawn = renderer(numCols=12, plan=self.plan)
+		carried = self.carried("qrst")
+		self.assertEqual(drawn.render(carried).renderKey, drawn.keyFor(carried))
+		self.assertNotEqual(drawn.keyFor(carried), drawn.keyFor(block("qrst", depth=1)))
+
+	def test_aLineWithNoDepthIsNotMovedByIt(self):
+		rendered = renderer(numCols=12, plan=self.plan).render(self.carried("abc", depth=None))
+		self.assertEqual(self.indentOf(rendered.rows[0]), 0)
+
+
 class TestReachingIntoALongParagraph(unittest.TestCase):
 	"""**The rendering cap bounds what is kept, and used to bound nothing about the work.**
 
