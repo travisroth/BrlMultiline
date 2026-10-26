@@ -5,34 +5,16 @@
 
 """A watch on every call into a member driver that can wait on its hardware.
 
-The virtual display does not write to hardware; its members' drivers do, and most of them
-are NVDA's. NVDA's `hwIo.IoBase.write` waits for an overlapped write with no limit, so a
-display that stops taking writes never lets the calling thread go. On 2026-09-14 that was a
-Monarch, and the add-on's own driver now bounds its writes. NVDA's drivers cannot be changed
-from here, and a Focus that hangs the same way would do the same damage:
+NVDA's `hwIo.IoBase.write` waits on an overlapped write with no limit, so a display that stops
+taking writes holds the shared I/O thread, stopping all braille, or freezes NVDA from the main
+thread.
 
-- A write from NVDA's I/O thread never returns, and that thread is shared. Every other
-  member's writes queue behind it, and so do the read completions that deliver keys, so the
-  whole of braille stops.
-- A write from the main thread — a member blanking itself as it closes, or a constructor
-  querying its display as the reconnect poll reopens it — freezes NVDA outright.
+So each such call runs inside `MemberGuard.watching`. A watchdog rescues one past its limit:
+the member is given up on, then its I/O cancelled, which lets the stuck write return. A driver
+stuck on something other than its device's I/O is logged as an error.
 
-So each such call is made inside `MemberGuard.watching`. A watchdog thread looks at what is in
-progress, and a call that has been running longer than its limit is rescued: the member is
-given up on first, so nothing more is queued to it, and then its pending I/O is cancelled.
-`hwIo.IoBase.write` ignores the result of the wait it was stuck in, so a cancelled write simply
-returns and the thread is free again. The composite lays itself out around the lost display,
-and the reconnect poll brings it back when it answers.
-
-What cancelling cannot free is a driver stuck on something other than I/O on its device — a
-lock, a loop. That is logged as an error, because the thread it holds is not coming back.
-
-**The rescue and the call are synchronised.** Cancellation only asks; it does not wait for
-the call to end. So a rescue waits a grace period for the watched call to actually return,
-and reports a thread that did not as stuck, whatever the cancellation said. And the watched
-thread, once its call returns, is held at the end of `watching` until the rescue has
-finished. Otherwise it could go straight on to its next call — on NVDA's shared I/O thread,
-another member's — while the watchdog was still cancelling I/O against that thread.
+The rescue waits a grace period for the call to return, and the returned call is held until
+the rescue finishes, so the thread cannot start another member's call mid cancellation.
 
 Imports of NVDA are kept to the log.
 """
@@ -51,9 +33,8 @@ from logHandler import log
 MEMBER_WRITE_TIMEOUT = 6.0
 """Seconds a member may spend writing, or closing, before it is taken to be stuck.
 
-A braille write takes milliseconds. This is set above the Monarch driver's own limit — three
-seconds for the write and one for its cancellation — so that a driver that bounds its own
-writes always gets to handle its own failure first.
+Above the Monarch driver's own limits, so a driver that bounds its writes handles its own
+failure first.
 """
 
 MEMBER_OPEN_TIMEOUT = 15.0
@@ -69,9 +50,7 @@ RESCUE_GRACE = 1.0
 RESCUE_HOLD_LIMIT = 10.0
 """The longest a returned call is held waiting for its rescue to finish.
 
-A rescue is bounded by `RESCUE_GRACE` and a couple of kernel calls, so this is never reached
-in practice. It exists so that a bug in a rescue cannot turn into the very freeze the guard
-is for.
+Never reached in practice; so a bug in a rescue cannot become a freeze.
 """
 
 THREAD_TERMINATE = 0x0001
@@ -235,9 +214,7 @@ class MemberGuard:
 	def _run(self) -> None:
 		"""Sleep while nothing is watched; otherwise look every `interval`.
 
-		Almost every watch lasts milliseconds, so the thread mostly waits on the condition and
-		costs nothing. It is daemonic because it holds nothing and must not keep NVDA from
-		exiting.
+		Daemonic, so it never keeps NVDA from exiting.
 		"""
 		while True:
 			with self._condition:

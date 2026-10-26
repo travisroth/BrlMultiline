@@ -6,28 +6,19 @@
 """Where the braille substitutions are kept, and how they reach liblouis. See `brailleSubstitutions`.
 
 **The list is a file of its own** in NVDA's configuration folder, `brlMultiline\\brailleSubstitutions
-.json`, saved the moment the reader presses OK, as NVDA saves its speech dictionaries. Not in
-`config.conf`, which is written only when NVDA saves its configuration: a reader who had turned off
-saving on exit would have typed a list in and lost it. One list for every profile; an entry names
-the profile it is for, if it is for one. One list rather than one a profile because a value a profile
-holds hides the base configuration's, which is what made the table layouts one store (see
-`bmConfig.tableLayouts`).
+.json`, saved on OK as NVDA saves its speech dictionaries, not in `config.conf`, which may never
+be saved. One list for every profile, each entry naming its profile if any, as with
+`bmConfig.tableLayouts`.
 
-**Written so that nothing is lost.** The new list goes to a temporary file that then takes the place
-of the old one, so a crash part way through leaves one or the other whole, never half of each; and
-the list it replaces is kept beside it as `.bak`. A list that cannot be read is set aside under a
-name of its own and the backup read instead. Nothing a reader typed is deleted by this module.
+**Written so that nothing is lost.** Through a temporary file that replaces the old, which is kept
+as `.bak`; an unreadable list is set aside and the backup read. Nothing a reader typed is deleted.
 
-**The rules file is in the add-on's own `brailleTables` folder**, because that is where liblouis
-looks for a file a table includes: NVDA's table resolver searches the including table's folder and
-then its own tables, nothing else. It is derived, written again whenever the list or the profile
-changes, and the list is never read back out of it.
+**The rules file is in the add-on's `brailleTables` folder**, where NVDA's resolver finds an
+included file. Derived, rewritten when the list or profile changes, never read back.
 
-**Nothing reaches the rules file without compiling first.** The candidate rules are compiled with
-every BrlMultiline table before the list is saved; if liblouis refuses them, nothing changes and the
-reader is told which entry and what liblouis said. Compiled under names of their own beside the
-real tables, since an absolute path in an `include` does not survive Windows' backslashes, and the
-real tables are not touched.
+**Nothing reaches the rules file without compiling first**, with every BrlMultiline table, under
+names of their own beside the real ones, since an absolute `include` path breaks on backslashes.
+A refusal says which entry and what liblouis said.
 
 **A reader's personal tables are kept in the same file**: NVDA tables they made a version of with
 their substitutions in front, for languages BrlMultiline has no tables of its own for. Writing those
@@ -383,8 +374,7 @@ def apply() -> bool:
 
 	:return: whether the rules changed. Translation then uses them from the next line on; what is on
 		the display was translated before, and is for the caller to draw again.
-	:raises NotApplied: if the file could not be written. It was once taken for "nothing changed",
-		and the dialog closed on a list that was saved and not in use.
+	:raises NotApplied: if the file could not be written.
 	"""
 	text = brailleSubstitutions.rulesText(entries(), activeProfiles())
 	path = rulesPath()

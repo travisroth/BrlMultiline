@@ -5,30 +5,14 @@
 
 """Which table is this, said in a way that survives the page being loaded again.
 
-The reader presses a key to see a table in columns, and today that is where it ends: leave
-the table and the layout is gone, come back tomorrow and it is gone again. What they asked
-for is a watchlist that comes up laid out. That needs a *name* for the table — something
-computed from what is in front of the reader, stable enough that the same table answers to
-it next time, and specific enough that the table beside it does not.
+A name in two parts, so a saved layout is found again:
 
-**A name has two parts, and they cost very different amounts.**
+1. `where`, the document or control: a URL, or an application and window class. One read.
+2. `what`, the columns by their headings, which tell two tables in one place apart and survive
+   regenerated markup. A read per column, so asked only when `where` has something saved. See
+   `flowTableLayouts.layoutFor`.
 
-`where` is the document or the control: a page's URL, or an application and the window class
-of the list inside it. One attribute read, always available, and never wrong in a way the
-reader can be hurt by — two tables on one page share it.
-
-`what` is the table's own columns, by the headings they declare. That is what tells two
-tables in one place apart, and it is what survives a page being regenerated with new
-identifiers, which is the case that matters for a watchlist. It costs a read per column, so
-it is asked for **only when `where` already has something saved against it** — see
-`flowTableLayouts.layoutFor`. A reader who has saved nothing pays one attribute read per
-table they walk into, and nothing else.
-
-**An identity is allowed to be a guess.** A wrong match lays a table out the way the reader
-laid out a different one, which they feel immediately and undo with one keystroke; a missed
-match lays it out the way it would have been laid out anyway. Neither is a failure worth
-making the reader wait for, which is the whole argument for bounding the signature and for
-not going looking for a better answer than the two above.
+An identity may be a guess: a wrong match is felt at once and undone with a keystroke.
 """
 
 import dataclasses
@@ -41,9 +25,7 @@ from .flow import CallCancelled
 SIGNATURE_COLUMNS = 8
 """How many of a table's columns are read to make its signature.
 
-Eight headings tell any two tables apart that a reader has both of; the twenty-ninth column
-of a watchlist adds a read and no certainty. It is also a bound on a call into the document,
-made at the moment the reader arrives somewhere, which is the moment they are waiting.
+Enough to tell tables apart, and a bound on reading as the reader arrives.
 """
 
 SEPARATOR = "␟"
@@ -62,9 +44,7 @@ class TableIdentity:
 	what: str = ""
 	"""Its columns, by the headings they declare, or "" where it declares none.
 
-	Empty is a real answer rather than a missing one: a list view that declares no headings
-	has only its place to be known by, and two such lists in one window cannot be told apart.
-	That is a limit worth having plainly rather than a signature invented out of the data.
+	Empty is a real answer; no signature is invented from the data.
 	"""
 
 	@property
@@ -79,12 +59,8 @@ class TableIdentity:
 def whereOf(handle) -> str:
 	""":return: the document or control a table is in, or "" if it will not say.
 
-	**NVDA's own answer where it has one.** A browse mode document knows
-	`documentConstantIdentifier`, which is the URL and is what NVDA itself remembers a caret
-	position against across loads — the same kind of memory as a saved layout, so the same
-	key. A list view has no such thing, and what stands in for it is the application and the
-	window class: File Explorer's Details view is one control by that name whichever folder is
-	open, which is what a reader means when they lay out "the file list".
+	A browse mode document's `documentConstantIdentifier`, as NVDA uses across loads; for a
+	control, the application and window class, as for File Explorer's file list.
 
 	:param handle: the table, as `flowTableSource.tableAt` returned it.
 	"""
@@ -103,11 +79,8 @@ def whereOf(handle) -> str:
 def _saysWhereItIs(document) -> str:
 	""":return: what a table says names the place it is in, or "" where it says nothing.
 
-	**For a table that is neither a page nor one control.** A review found two Excel workbooks
-	sharing an identity: the application and the window class are "excel" and "EXCEL7" for
-	every sheet of every workbook, so two sheets with the same headings were each other's
-	saved layout. A workbook has a path and a sheet has a name, and nothing else here can know
-	that — see `flowObjectTable.Sheet.whereIsIt`.
+	For a table that is neither, such as a sheet, whose window class is the same in every
+	workbook. See `flowObjectTable.Sheet.whereIsIt`.
 	"""
 	said = getattr(document, "whereIsIt", None)
 	if said is None:
@@ -162,14 +135,8 @@ def _controlIdentifier(obj) -> str:
 def signatureOf(handle, columns: Optional[Any] = None) -> str:
 	""":return: a table's columns by the headings they declare, joined, or "" if none do.
 
-	The expensive half of an identity, and the one that survives a page being regenerated:
-	identifiers change with the markup and the headings are what the table is *about*.
-
-	Bounded by `SIGNATURE_COLUMNS`, and asked only of a table whose place already has
-	something saved against it. `declaredHeaders` asks a few rows rather than one, because a
-	row that happens to be half built answers for the whole column — and a column that fell
-	silent here would name the table something else, so the layout saved against it would not
-	be found. That is a review finding: identity needs the same care measurement already took.
+	The expensive half, bounded by `SIGNATURE_COLUMNS`. `declaredHeaders` asks a few rows, since
+	one half built row would rename the table.
 
 	:param handle: the table.
 	:param columns: which columns to read, or None for the first few of the table's own.
@@ -197,9 +164,8 @@ def identityOf(handle, withSignature: bool = True) -> TableIdentity:
 	""":return: what names this table.
 
 	:param handle: the table, as `flowTableSource.tableAt` returned it.
-	:param withSignature: whether to read the headings. False answers the cheap half alone,
-		which is what a lookup asks for first: a place with nothing saved against it needs no
-		signature, and that is every place until the reader saves something.
+	:param withSignature: whether to read the headings. False, the cheap half alone, is what a
+		lookup asks first.
 	"""
 	where = whereOf(handle)
 	if not where:

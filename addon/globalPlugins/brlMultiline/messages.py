@@ -5,45 +5,14 @@
 
 """NVDA's flash messages, confined to one segment instead of the whole display.
 
-A flash message — the braille half of "5:57 PM", "selected", a settings change — does not
-go through the main buffer at all. `BrailleHandler.message` swaps the handler's buffer for
-`handler.messageBuffer`, a plain `BrailleBuffer`, and swaps it back when the message times
-out or a routing key dismisses it. So while a message is showing, the display container this
-add-on installs is bypassed completely, and NVDA's own flat buffer drives every cell.
+`BrailleHandler.message` swaps in `handler.messageBuffer`, bypassing the display container. On
+a divided display NVDA's flat buffer would put the message at the top left, lose text into dead
+columns, and blank every other segment.
 
-On a single display nobody notices: the message covers the display, which is what a message
-did before. Three things go wrong as soon as the display is divided, and one of them loses
-text.
-
-**Messages land at the top left.** A flat buffer starts at cell 0, and on a composite of two
-physical displays cell 0 is the top left of the *upper* display. So messages appear on the
-secondary display rather than beside the focus. The focus segment does not catch them,
-because the focus segment is a property of the main buffer and a message is never in it.
-
-**Long messages are silently truncated.** This is the real defect.
-`BrailleBuffer._get_windowBrailleCells` pads every row to `handler.displayDimensions.numCols`.
-On a Monarch above a Focus 80 that is 80, while the Monarch's rows only have 32 cells that
-reach hardware — so up to 48 characters of every row are written into cells nothing displays,
-and the rest of the message reads as though it were never there. It is the dead column trap
-of `views.deviceView`, reappearing through the one path that view cannot cover.
-
-**Everything else on the display goes blank.** A flat buffer holds the message and nothing
-else, so every cell outside it is written as blank — including, on a composite, a pinned object
-on the display the message is not even on. It also means every display is written to for every
-message, since every display's cells have changed, which is felt as the displays slowing down.
-Found on hardware, and the fix is L{MessageBuffer._cellsAroundTheMessage}.
-
-L{MessageBuffer} answers all three by doing to the message buffer what `segments` does to
-the main one: it is given a `RectHandlerProxy`, so NVDA's own wrapping lays the message out
-at the segment's width rather than the display's, and its cells are then composited into that
-segment's rectangle. Nothing can reach a dead column because nothing is laid out wider than
-the hardware it is going to, and *which* segment is a setting.
-
-The object is deliberately reused rather than rebuilt when the layout changes. The handler
-compares `self.buffer is self.messageBuffer` in six places to decide whether a message is
-showing, whether to reset its timer and whether to dismiss it; replacing the object those
-comparisons point at while a message was up would leave a message that could never be
-dismissed. Retargeting keeps the identity and moves the rectangle.
+`MessageBuffer` is given a `RectHandlerProxy`, as `segments` does, so the message is laid out at
+its segment's width and placed in its rectangle, over the main buffer's cells (see
+`_cellsAroundTheMessage`). The object is retargeted rather than rebuilt, since the handler
+compares `self.buffer is self.messageBuffer` to time out and dismiss a message.
 """
 
 from typing import TYPE_CHECKING, Any
@@ -69,11 +38,7 @@ class MessageBuffer(BrailleBuffer):
 	drawsMainBufferAround = True
 	"""Whether the rest of the display is drawn from the main buffer while a message is up.
 
-	Read by the display container, which otherwise holds its redraws back while it is not the
-	handler's buffer. Since this buffer shows the container's cells around the message, a
-	container redraw is worth sending: a pinned object or an app layout's chat history goes
-	on changing, and goes on panning, on the displays the message is not on. NVDA's own
-	message buffer blanks everything around a message and has no such attribute.
+	Read by `segments.isShowing`, so pins and app layouts go on updating around a message.
 	"""
 
 	def __init__(self, handler: "BrailleHandler", rect: SegmentRect) -> None:
@@ -101,12 +66,8 @@ class MessageBuffer(BrailleBuffer):
 			# out again is cheap and the alternative is a message half wrapped to a width it
 			# no longer has.
 			self.update()
-			# And written out, which nothing else will do. A message moves because the layout
-			# was rebuilt, and the rebuild redraws through `handleGainFocus`, which deliberately
-			# leaves the display alone while a message is showing. Without this the message
-			# stays under the reader's fingers where it was while every calculation about it —
-			# routing above all — has moved to where it now is. `updateDisplay` checks that this
-			# buffer is the one being shown, so it costs nothing when the message has gone.
+			# Written out here, since the rebuild's redraw leaves the display alone while a
+			# message shows. `updateDisplay` does nothing once the message has gone.
 			self.updateDisplay()
 
 	@property
@@ -117,20 +78,12 @@ class MessageBuffer(BrailleBuffer):
 	def _cellsAroundTheMessage(self, dimensions) -> list[int]:
 		"""What the rest of the display is showing, for the message to be placed onto.
 
-		Blanking it would be NVDA's behaviour, and on one display it is the right one: a
-		message covers the display it is on. On several it is wrong twice over. Everything
-		outside the message's segment goes blank for as long as the message lasts — including
-		a pinned object on the other display, which is precisely what the reader put there to
-		keep — and every display is written to, because every display's cells changed. Reading
-		the time should not clear the display beside it.
-
-		Taking the main buffer's cells instead leaves the other segments as they were, and the
-		display they are on then receives nothing at all: `DeviceSlot.write` compares against
-		what it last sent and skips a member whose cells have not changed.
+		The main buffer's cells, not blanks, so other segments stay and their displays, unchanged,
+		are not written to (see `DeviceSlot.write`).
 
 		:param dimensions: the whole display's dimensions.
 		:return: a display sized array. Blank if the main buffer cannot be read, which is what
-			this class did for every message before.
+			NVDA does.
 		"""
 		size = dimensions.displaySize
 		try:
@@ -149,9 +102,7 @@ class MessageBuffer(BrailleBuffer):
 	def _get_windowBrailleCells(self) -> list[int]:
 		"""Composite this segment's cells into a display sized array.
 
-		The handler pads whatever it is given out to the display size, so returning the
-		segment's cells alone would put the message at the top left and leave NVDA to pad
-		around it — which is the behaviour this class exists to stop.
+		The segment's cells alone would be padded by the handler at the top left.
 		"""
 		dimensions = self._realHandler.displayDimensions
 		cells = self._cellsAroundTheMessage(dimensions)
@@ -188,11 +139,8 @@ class MessageBuffer(BrailleBuffer):
 	def routeTo(self, windowPos: int) -> None:
 		"""Route within the message, from a position on the whole display.
 
-		NVDA dismisses the message immediately after this returns, and `TextRegion.routeTo`
-		does nothing, so today this is a translation with no observable effect. It is written
-		correctly anyway: the day a message holds something routable, an untranslated position
-		would act on a cell the user did not press, which is the failure this add-on has
-		already met once in cell index rebasing.
+		No effect today, since NVDA dismisses the message and `TextRegion.routeTo` does nothing,
+		but correct for a message that holds something routable.
 
 		:param windowPos: the position pressed, on the whole display.
 		"""

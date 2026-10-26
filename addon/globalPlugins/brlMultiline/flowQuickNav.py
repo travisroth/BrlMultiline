@@ -5,37 +5,14 @@
 
 """Telling a jump by structure apart from a move by reading.
 
-A flow keeps the reader's place: when the cursor moves onto something already on the
-display, nothing moves, and when it goes past the edge the window scrolls by the smallest
-amount that brings it back. That is right for arrowing and for tabbing, where the reader
-is working through what is in front of them.
+A structural jump, such as `h`, puts its target at the top of the band; every other move
+keeps the reader's window. Which are structural is stated in `GROUNDING_TYPES`, since it cannot
+be inferred. Every successful move is recorded, since a jump onto something focusable may never
+reach the band's region. See "Grounding a jump" in docs/design/spatial-reading-plan.md.
 
-It is wrong for a quick navigation key. Pressing `h` for the next heading skips a section
-the reader has decided they are done with, and what they want then is to be put down at
-the new heading with the document running on from it — a fresh place to start reading,
-not their old window nudged along. So a grounding move puts its target at the top of the
-band and flows from there.
-
-Not every quick navigation key means that, which is the point of the policy below. `l`
-moves to the next list, which is a change of section; `i` moves to the next list item,
-which is a step within one and reads like arrowing. The difference is not something the
-code can infer, so it is stated: structural jumps ground, everything else keeps the
-reader's window.
-
-Not grounding is not the same as doing nothing, and treating them as the same was a fault.
-Every successful move is recorded here, structural or not, because braille has to answer all
-of them and the caret move a jump causes is not something a flow reliably hears about: a key
-that lands on something focusable moves the focus as well, and browse mode then reports
-neither event to the region a band is holding. That is why `h` appeared to work — grounding
-was the one path that did not need the region to have been re-read — while `e` for the next
-edit field and `b` for the next button moved speech and left braille where it was.
-
-NVDA gives this two useful seams. Every quick navigation script — there are around forty
-of them, generated at import time — calls `BrowseModeTreeInterceptor._quickNavScript`,
-which carries the item type. A search that actually found something then calls
-`TextInfoQuickNavItem.moveTo`; hearing both is what keeps an unsuccessful search from
-grounding the next ordinary caret move. Patched only while a flow is showing, and taken
-back when it stops.
+Heard through `BrowseModeTreeInterceptor._quickNavScript`, which carries the item type, and
+`TextInfoQuickNavItem.moveTo`, which says a search found something. Patched only while a flow
+is showing.
 """
 
 import time
@@ -58,21 +35,14 @@ GROUNDING_TYPES = frozenset(
 )
 """Which quick navigation moves put their target at the top of the band.
 
-Structural jumps: the reader has left a section behind and wants to be set down in the
-next one. Anything named `heading` also grounds, including the numbered levels, which is
-handled by prefix rather than by listing `heading1` to `heading9`.
-
-Everything else keeps the reader's window and merely tracks the cursor. A list item, a
-link, a form field, a button, a paragraph: those are moves within what is being read, and
-a display that jumped for each of them would be unusable to read by.
+Structural jumps, and anything named `heading`, by prefix. A list item, link, field, button or
+paragraph is a move within what is read, and only tracks the cursor.
 """
 
 GROUNDING_WINDOW = 1.0
 """How long a quick navigation key stays answerable, in seconds.
 
-The caret move it causes arrives a moment later, on NVDA's own cycle. Anything older than
-this belongs to a keypress whose caret move has already been dealt with, and must not
-ground the next one — a stale note would jump the display on an ordinary arrow key.
+Its caret move arrives a moment later; an older note must not jump an ordinary arrow key.
 """
 
 _original = None
@@ -91,10 +61,7 @@ _activeItemType: str | None = None
 _pending: tuple[str, float, bool] | None = None
 """The last quick navigation move: its item type, when it happened, and whether it grounds.
 
-Every successful move is recorded, not only the grounding ones. Braille has to answer all
-of them — a jump to the next edit field must bring that field onto the display — and the
-caret move it causes is not always one the flow hears about by itself. Whether to *ground*
-is the second half of the note, and only the structural types say yes."""
+Every successful move, grounding or not; see the module docstring."""
 
 
 def groundsOn(itemType: str) -> bool:
@@ -119,15 +86,8 @@ def note(itemType: str) -> None:
 def take() -> bool | None:
 	"""Answer, once, whether a quick navigation key is behind what is happening now.
 
-	Consumed rather than read, because one keypress causes one move: leaving the note in
-	place would answer every arrow key that followed until something else replaced it.
-
-	Braille has to act on the answer whether or not it grounds. NVDA does not always tell a
-	flow that a jump's caret has moved — a quick navigation key that lands on something
-	focusable moves the focus too, and browse mode then reports neither the focus nor,
-	reliably, the caret to the region a band is holding. The display sat still while speech
-	announced the field the reader had jumped to. Hearing the keypress is what makes the
-	answer independent of which of those NVDA happens to send.
+	Consumed, since one keypress causes one move. Braille acts on it whether or not it
+	grounds; see the module docstring.
 
 	:return: None where no quick navigation move is waiting; otherwise whether to put its
 		target at the top of the band rather than merely bringing it into view.

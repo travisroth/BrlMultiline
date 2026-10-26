@@ -130,9 +130,8 @@ def _browseModeClass(document) -> Any:
 def documentOf(monitor) -> Any:
 	""":return: the document a pin is read from, if it can be searched by structure, else None.
 
-	A browse mode document can. So can a document object NVDA would give one: found on hardware,
-	the Outlook reading pane shown beside the message list is read from its Word document object,
-	since NVDA makes the browse mode document only when the pane gets the focus.
+	A browse mode document can, and so can a document object NVDA would give one, such as the
+	Outlook reading pane before it has the focus.
 	"""
 	document = _readFrom(monitor)
 	if document is None:
@@ -151,10 +150,9 @@ def searcherFor(document) -> Any:
 	**Otherwise built and never registered, and only of a kind that is safe to build.** Made only to
 	search, it is not put in NVDA's running table, so NVDA routes no events or keys through it and
 	makes its own when the reader moves into the document, exactly as it would have. Not every kind
-	can be built that way: a virtual buffer, a web page's, records itself in NVDA's lookup of
-	documents as it is constructed, and a second one would take the live one's place there (found in
-	review). So only the kinds in L{SAFE_TO_BUILD}, whose construction touches nothing of NVDA's,
-	are built; any other says it cannot be searched.
+	can be built that way: a virtual buffer records itself in NVDA's lookup as it is constructed,
+	taking the live one's place. So only the kinds in `SAFE_TO_BUILD` are built; any other says it
+	cannot be searched.
 
 	Its positions wrap the object's own, so a position read from the object goes in and one the
 	object can read comes out; see L{_asSearched} and L{_asRead}.
@@ -207,9 +205,8 @@ def positionOf(monitor, document):
 	"""Where a search through a pin starts.
 
 	**Where the last search put it, while the reader has not moved it since.** A found item is put
-	at the top by the block it is in, so the top of the window is the start of that block; two links
-	in one line would otherwise find the first again from there, for ever (found in review). Panning
-	moves the window, and then the search starts where the reader is.
+	at the top by its block, so two links in one line would otherwise find the first again for
+	ever. Panning moves the window, and then the search starts where the reader is.
 
 	Otherwise the top of its window, or a pin read as regions its own position.
 	"""

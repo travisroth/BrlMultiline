@@ -5,24 +5,10 @@
 
 """Text regions that keep a reading position of their own.
 
-NVDA's text regions are tied to a cursor at both ends. They render whatever the caret, or
-the browse mode cursor, is currently on, and panning off the end of the line writes a new
-position back to it. Neither half is right for a pinned region, because what it shows
-belongs to a window the user is not working in:
-
-1. Reading the object's cursor would make the pin jump about whenever anything else moved
-   it, so the segment would stop showing the place the user chose to pin.
-2. Writing to the object's cursor would move a caret behind the user's back, and in an
-   editable control that drags the system focus with it. That is exactly why
-   `DisplayContainer._scroll` refuses to let an ordinary region change lines in a segment
-   that does not hold focus.
-
-So a pinned region takes a copy of the position it starts at and answers both directions
-from that copy. NVDA's own `nextLine` and `previousLine` then work unaltered — they read
-through `_getSelection` and hand the new position to `_setCursor`, and both are served by
-the copy — which is what lets a pinned segment be panned line by line through a document
-the user is not in. Without it a pin can never leave the line it was made on, and a pinned
-document is unreadable past its first line.
+NVDA's text regions read and write the object's cursor, which for a pin would make it jump
+and would move a caret, and the focus, behind the user's back. So a pinned region keeps a copy
+of its position and serves `_getSelection` and `_setCursor` from it, and NVDA's own `nextLine`
+and `previousLine` then pan it line by line.
 """
 
 from braille.regions.textInfo import CursorManagerRegion, TextInfoRegion
@@ -32,22 +18,9 @@ from logHandler import log
 class CursorOnlyWhereTheReaderIs:
 	"""Mixin: a region that has a cursor only where the reader actually is.
 
-	**And a cursor decides more than where two dots go.** NVDA's "expand to computer braille
-	for the word at the cursor" is applied in `braille.regions.base.Region.update`, which asks
-	liblouis for `COMPBRL_AT_CURSOR` whenever that setting is on *and the region has a
-	cursor*. A region answering "yes, at character zero" therefore has its first word written
-	out uncontracted — and a display showing eight rows showed eight expanded first words, one
-	per row, on a page the reader was only reading.
-
-	Which is what a region reading a fixed position does by construction: NVDA asks where the
-	selection is, the region answers with its own position, and the cursor lands inside every
-	block. Clearing it afterwards — which is what these regions did — is too late by one
-	liblouis call: the cells have already been translated.
-
-	So the cursor is a property here, and it reads as nothing for a region the reader is not
-	in. `Region.update` then sees no cursor, asks for no computer braille, and the row comes
-	out in whatever table and contraction the reader chose. The setting still does what it
-	says on the one row it is about.
+	`Region.update` asks liblouis for `COMPBRL_AT_CURSOR` whenever the region has a cursor, so a
+	cursor on every block would expand a word on every row. The cursor is a property that reads
+	as nothing where the reader is not, set before translation rather than cleared after.
 
 	The region that needs this is a flow's block, which shows a place the reader is not
 	standing in. See `flowSources.FlowRegion`.
@@ -155,8 +128,7 @@ class PinnedCursorManagerRegion(PinnedRegion, CursorManagerRegion):
 def pinnedCounterpart(region):
 	"""Build the pinned equivalent of a region NVDA generated.
 
-	Used rather than deciding for ourselves which kind of region an object wants, so that
-	NVDA keeps that decision and this only replaces the cursor policy.
+	So NVDA decides the kind of region and this only replaces the cursor policy.
 
 	:param region: a region from `getFocusRegions`.
 	:return: a pinned region over the same object, or None if this kind of region has no

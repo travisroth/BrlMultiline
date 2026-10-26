@@ -5,40 +5,14 @@
 
 """Panning keys belong to the display they are on.
 
-Two things follow from that, and both were found on hardware rather than reasoned out.
+1. A display's panning keys pan that display: its focus segment if it holds it, else its first.
+2. Reversal is the pressed display's setting.
 
-**A display's panning keys should pan that display.** NVDA's own panning commands end in
-`BrailleHandler.scrollForward`, which scrolls the buffer's focus segment — right on one
-display, and wrong the moment there are two, because the Monarch's keys then scroll whatever
-the Focus is showing. Each display's keys now drive its own segment: the focus segment if
-that display holds it, otherwise that display's first segment.
-
-**Reversal belongs to the keys too.** Which of the two keys means "forward" is a fact about
-how they sit on a piece of hardware, so the setting that applies is the pressed display's,
-not that of the display holding the segment being scrolled.
-
-Both need to know which display was pressed, and the method that does the scrolling does not
-say: `BrailleHandler.scrollForward` takes no gesture. What does have the gesture is the
-command that calls it — NVDA's own `script_braille_scrollForward` and `script_braille_scrollBack`
-— so those two are wrapped, and each records the display it was given for as long as it runs.
-`_nativeScroll` in `patches` reads it from inside that call.
-
-**Why not the gesture itself, when it passes.** The first version of this registered on
-`inputCore.decide_executeGesture` and remembered the display there. It looks like the natural
-hook and it is the wrong one, for two reasons that both come from what `executeGesture` does
-after deciding. It does not run the script: it calls `scriptHandler.queueScript`, so the
-script runs later, on the main thread, while the decider ran on the thread the driver
-dispatched from. Two displays are two threads, so a pan on each could be decided before
-either script ran and the second would overwrite the first, leaving one scroll acting on the
-wrong display and the other on none. And several paths between the decider and the script
-abandon the gesture entirely — input help captures it, sleep mode refuses it, a modifier
-raises — each leaving a display recorded that no scroll would ever collect, for the next
-scroll with no gesture behind it, such as automatic scroll, to pick up instead.
-
-Wrapping the script puts the record and its only reader in one synchronous call on one
-thread, which is why what follows can be a plain module global with no locking and no
-consuming: it is set on entry and restored on exit, and nothing else can be running in
-between.
+`BrailleHandler.scrollForward` takes no gesture, so NVDA's `script_braille_scrollForward` and
+`script_braille_scrollBack` are wrapped to record the display for as long as they run, and
+`patches._nativeScroll` reads it. Not in `inputCore.decide_executeGesture`, which runs on the
+driver's thread before a queued script, and whose gesture may be abandoned. One synchronous
+call on one thread, so a plain module global, set on entry and restored on exit, is enough.
 
 Commands of this add-on's own already hold their gesture and never touch the global; they
 pass it in.
@@ -56,11 +30,7 @@ NATIVE_SCROLL_SCRIPTS = (
 )
 """NVDA's own panning commands, by attribute name on `globalCommands.GlobalCommands`.
 
-Those two names are what every braille display driver's own gesture map binds its panning
-keys to, through the `braille_scrollForward` and `braille_scrollBack` script names, so
-wrapping them catches the keys on every member of a composite without knowing anything about
-the hardware. A user who has rebound their panning keys to this add-on's own commands takes
-the other path entirely, since those receive their gesture directly.
+What every driver's gesture map binds its panning keys to, so every member is caught.
 """
 
 _activeSource: str | None = None
@@ -129,11 +99,7 @@ def install() -> None:
 def remove() -> None:
 	"""Stop. Safe to call when nothing is installed.
 
-	Each command goes back only if it is still the one this module put there. Another add-on
-	may have replaced or wrapped it since — this is a class attribute anyone can reach — and
-	restoring NVDA's own over that would silently undo their work, which is the more damaging
-	half of a shared monkey patch. Leaving theirs in place may leave this module's wrapper
-	reachable inside it; that costs one call and sets a global nothing reads any more.
+	Each command goes back only if it is still this module's. See `patches.remove`.
 	"""
 	global _installed, _activeSource
 	if not _installed:
@@ -231,9 +197,7 @@ def sourceHolds(source: str | None, rect) -> bool:
 def nativeSegmentForSource(source: str | None, container) -> int | None:
 	"""Find the segment a display's own panning keys should drive.
 
-	The focus segment when that display holds it, which keeps NVDA's arrangement intact for
-	the display the reader is following; otherwise that display's first segment, which is
-	what makes a second display's keys useful rather than confusing.
+	The focus segment when that display holds it, else that display's first segment.
 
 	:param source: the display whose key was pressed, or None if unknown.
 	:param container: the display container.

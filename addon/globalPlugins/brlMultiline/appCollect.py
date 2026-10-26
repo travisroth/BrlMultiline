@@ -19,11 +19,9 @@ holding the focus. What the probe learned is kept:
   inactive Explorer tab is, is marked covered and not walked. See `_isCovered`.
 - Each rectangle is clipped to the one around it.
 
-**Every element with children is a call into the application**, a millisecond in a modern one
-and 65 in an old one through the MSAA bridge (askSam, in the probe's captures). So the work is
-cut into batches with a return to NVDA's message loop between them, under a time limit, as the
-web page collector's is; and what a limit cut short is said, so part of a window does not pass
-for the whole.
+**Every element with children is a call into the application**, slow through the MSAA bridge.
+So the work is batched with returns to NVDA's message loop, under a time limit, as the web page
+collector's is, and a cut short read says so.
 """
 
 from __future__ import annotations
@@ -200,8 +198,7 @@ class AppCollector:
 			return record
 		if record.get("offscreen") or record.get("outside"):
 			# Nothing in it can be seen either, and the rules leave it out; asked for its children
-			# it would spend the budget on them (found in review: an offscreen pane of eight
-			# hundred buttons left the visible work area after it unread).
+			# it would spend the budget on them.
 			return record
 		if record.get("type") in LEAF_TYPES:
 			return record
@@ -216,8 +213,7 @@ class AppCollector:
 			self.calls += 1
 			if children is None:
 				# The application did not answer for what is inside it, which is not the same as
-				# there being nothing there: what it holds is missing, so say the read is partial
-				# (found in review: a provider that had gone away left a hole nobody was told of).
+				# there being nothing there: what it holds is missing, so say the read is partial.
 				_note(self.incomplete, "unread")
 				children = []
 			if self.calls % BATCH == 0:
@@ -383,10 +379,9 @@ def _isCovered(top: int, hwnd, rect: list, origin: tuple) -> bool:
 	""":return: whether another of the application's windows is on top of this element's window
 	at its middle and near each corner: one that is neither it, inside it, nor around it.
 
-	Asking Windows whether the window is visible does not do (found in the probe): Explorer's
-	inactive tabs are visible windows, and the input site of a XAML island, such as Explorer's
-	address bar, is a hidden window by design, under a visible one. All five points, so a small
-	window floating over part of a big pane does not hide the pane.
+	Not Windows' visibility: Explorer's inactive tabs are visible windows, and a XAML island's
+	input site is hidden by design. All five points, so a small window over a big pane does not
+	hide the pane.
 	"""
 	try:
 		user32 = ctypes.windll.user32
@@ -503,8 +498,7 @@ def elementOfWindow(hwnd, top) -> Any:
 	For an area whose element has no runtime id to find it by, or whose id has changed: a Win32
 	control, an old application's toolbar or pane, is a window, and its handle stays the same.
 	But Windows gives a handle out again once its window is gone, so the handle must still be in
-	the same top level window; that it exists says nothing (found in review: a handle recycled
-	for another application's window was accepted). Asked by ancestry, not visibility, since a
+	the same top level window; that it exists says nothing. Asked by ancestry, not visibility, since a
 	XAML island's input window is hidden by design.
 
 	:param top: the top level window the layout was read from.
