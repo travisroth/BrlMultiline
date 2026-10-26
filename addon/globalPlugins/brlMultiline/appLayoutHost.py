@@ -140,10 +140,8 @@ def _showKey(obj: Any) -> Any:
 def sameObject(old: Any, new: Any) -> bool:
 	"""Whether two answers are the same object, as far as anyone can tell.
 
-	Two reads of one element are often two Python objects, and on UI Automation they compare
-	equal only through NVDA's own `__eq__`, which is a call into the application and can raise.
-	A raise counts as different: that costs a reset of the reading position and never shows the
-	wrong content.
+	Through NVDA's `__eq__`, which can call the application and raise. A raise counts as
+	different, which costs only a reset of the reading position.
 	"""
 	if old is new:
 		return True
@@ -159,10 +157,8 @@ def sameAnswer(old: Any, shownKey: Any, new: Any) -> bool:
 	"""Whether an answer shows what the segment already shows.
 
 	:param old: the object the segment was last given.
-	:param shownKey: its L{SHOW_KEY_ATTRIBUTE} when it was shown, kept then rather than read
-		from it now. An application may return the same Python object with its key changed, and
-		that object then carries the new key in both places, so a key read off the old object
-		could never differ from the new one.
+	:param shownKey: its `SHOW_KEY_ATTRIBUTE` when it was shown, kept then, since the same
+		object may come back with its key changed.
 	:param new: the answer now.
 
 	When the key shown and the answer's both exist, different keys are different content, even
@@ -291,10 +287,7 @@ class AppLayoutHost:
 	def _settle(self) -> None:
 		"""The focus has stayed put: show what it last asked for, or take the layout down.
 
-		**The room is worked out again now, not taken from when the focus arrived.** A reader
-		who pins something while the layout waits, or code that claims rows, changes what is
-		free, and a layout placed in the old room would cover the new pin and release it. So
-		the app module is asked again against the room as it is.
+		The room is worked out again now, since a pin or claim made while waiting changes it.
 		"""
 		self._timer = None
 		pending, self._pending = self._pending, None
@@ -612,20 +605,10 @@ class AppLayoutHost:
 	def _showIn(self, key: str, obj: Any) -> bool:
 		"""Show an object in a secondary segment from its start, or blank it for None.
 
-		**All or nothing.** The replacement is built before what it replaces is let go, and the
-		object is recorded as shown only once it is drawn. If building or drawing fails, the
-		segment goes back to the monitor and object it had, and is drawn from those again, so
-		what is recorded, what is monitored and what is on the display never disagree. An
-		element that has vanished can raise as soon as it is touched, and a display update can
-		fail; both are counted towards `MAX_FAILURES` by the caller.
-
-		The old monitor is stopped before the new one draws, not after, because stopping a
-		monitor read as a flow detaches whatever flow is attached to its segment, and after
-		the new one had drawn that would be the new one's.
-
-		**Nothing is drawn beside speech.** While braille shows speech the segment's regions are
-		emptied and the monitor kept, and the pin timer draws it once braille is back, exactly
-		as it does for the reader's own pins.
+		All or nothing: on failure the segment goes back to its old monitor and object (see
+		`_restore`), and the caller counts it towards `MAX_FAILURES`. The old monitor stops
+		before the new one draws, since stopping detaches the segment's flow. Beside speech the
+		regions are emptied and the pin timer draws once braille is back.
 
 		:return: whether the segment now shows the object, or is blank for None.
 		"""

@@ -5,16 +5,12 @@
 
 """Where a reader edits the layers of keys each display and the keyboard has.
 
-Built to look and work like NVDA's Input Gestures dialog, because that is the dialog every reader
-already knows for this job: a filter, a tree of categories, commands and keys, and Add, Change and
-Remove. Above it, which device and which layer is being edited. See the layered keys plan's
-section on the dialog for every difference from Input Gestures and the reason for each.
+Built like NVDA's Input Gestures dialog, with the device and layer chosen above it. See the
+dialog section of docs/design/layered-keys-plan.md for the differences.
 
-**The editor is a plain object and the dialog is a shell over it**, the split `flowTableDesigner`
-makes. `LayerEditor` knows nothing about wx: it holds the working copy of every device's layers,
-builds the tree, refuses and asks about the keys that need refusing or asking about, and commits.
-Everything that decides anything is tested without a display. What is left to the dialog is
-widgets, capturing a key, and asking the reader a question.
+`LayerEditor` knows nothing about wx: it holds the working copy of every device's layers, builds
+the tree, checks keys and commits, so it is tested without a display. The dialog holds the
+widgets, key capture and questions, as `flowTableDesigner` splits it.
 """
 
 import re
@@ -237,9 +233,8 @@ class LayerEditor:
 	def categories(self) -> list:
 		""":return: the tree for the layer being edited, filtered as the reader has asked.
 
-		Keys the layer gets from further down its chain are listed under their commands too, each saying
-		which layer it comes from, because a stack the reader cannot see is one they have to hold in their
-		head. Every key the layer answers to is in the tree, and nothing it does not answer to is.
+		Every key the layer answers to, including those from further down its chain, each saying which
+		layer it comes from.
 		"""
 		bound: dict = {}
 		for identifier, target in sorted(self.layer.bindings.items()):
@@ -409,9 +404,8 @@ class LayerEditor:
 	def needsDisplay(self, command: Command) -> bool:
 		""":return: whether a keyboard key for this command should be asked which display it acts for.
 
-		Only for the keyboard, only when there is a display to name, and only for commands that can
-		ask which display they are for: this add-on's own, a braille display driver's, and NVDA's
-		braille commands. Asking of every command would be a question with no answer most of the time.
+		Only for the keyboard, with a display to name, and for commands that can ask which display
+		they are for: this add-on's, a braille display driver's, and NVDA's braille commands.
 		"""
 		if self.device != KEYBOARD or command.target.kind != keyLayers.SCRIPT:
 			return False
@@ -999,9 +993,8 @@ if wx is not None:
 		def _startAdding(self, command: Command, replacing: Optional[str] = None) -> None:
 			""":param replacing: the key being changed, which stays until its replacement is accepted."""
 			self.editor.pending = identity(command.target)
-			# Through `_refresh`, which expands the command before selecting a key row under it. Selecting
-			# the prompt directly failed on a collapsed command: a virtual tree has no rows for the children
-			# of an item it has not expanded, and the lookup ran off the end. Found on hardware.
+			# Through `_refresh`, which expands the command first, since a virtual tree has no rows for
+			# the children of a collapsed item.
 			self._refresh(focus=(identity(command.target), PROMPT_FOCUS))
 			self._capture(lambda gesture: self._finishAdding(command, gesture, replacing))
 

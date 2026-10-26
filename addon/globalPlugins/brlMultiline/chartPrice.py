@@ -5,27 +5,10 @@
 
 """Four numbers per period, drawn so a finger gets all four in one touch.
 
-A price chart is the case that makes a tactile display worth the trouble. Four numbers a day
-over a month is a hundred and twenty numbers, and read as a table that is a hundred and twenty
-things to hold in mind; drawn, it is a shape with a texture, and the questions a trader
-actually asks — is this trending, is the range widening, did it close near its high — are
-answered by the hand rather than by the memory.
-
-**Why the OHLC bar shape works here at all.** It is made of exactly the three strokes this
-resolution can carry: a vertical stem for the day's range, a tick left for where it opened, a
-tick right for where it closed. Three pins wide is enough for all three, so a ninety-six pin
-panel holds twenty-four periods — about a trading month. Nothing about it depends on colour,
-on line weight, or on hue, which is why it survives the translation to pins better than most
-chart types drawn for the eye do. The ticks point the way they do for a reason a finger can
-use: sweeping left to right along the row of stems, a tick met **before** its stem is an open
-and one met **after** it is a close.
-
-**Candlesticks are the same data with a different bet.** Instead of two ticks they draw a
-solid body between open and close, with the wick above and below. The body is a mass rather
-than a stroke, which is easier to find and gives the size of the day's move directly; the cost
-is that rising and falling have to be told apart by the body being hollow rather than filled,
-and at three pins wide a hollow body is one column of gap. Whether that reads under a finger
-is a hardware question, so both are offered and the reader decides.
+An OHLC bar is three strokes three pins wide: a stem for the range, a tick left for the open
+met before the stem, a tick right for the close met after. Candlesticks draw a solid body
+between open and close instead, hollow when rising, one column of gap at this width. Both are
+offered, for the reader to judge by touch. See docs/design/excel-chart-plan.md.
 
 Knows nothing about NVDA, Excel, or any display.
 """
@@ -59,10 +42,7 @@ __all__ = [
 MIN_SLOT = 4
 """Pins per period, including the gap after it, below which a price chart is refused.
 
-Three pins of bar and one of gap. Three is not a preference: it is the narrowest shape that
-can carry a stem with something on each side of it, and a bar with its ticks on top of its
-stem is a bar with no open and no close in it. Twenty-four periods on a ninety-six pin panel,
-which is about a trading month.
+Three pins of bar, the narrowest with a tick each side of the stem, and one of gap.
 """
 
 MIN_PLOT = 4
@@ -146,10 +126,7 @@ def _priceChart(
 ) -> Drawing:
 	"""Lay out and draw a price chart, whichever shape each period is drawn in.
 
-	The two shapes differ only in what is drawn inside one period's slot. Everything else —
-	the slot arithmetic, the shared scale over every high and low, the frame, what a press
-	answers — is the same for both, and has to be: a reader comparing an OHLC chart with a
-	candlestick chart of the same data is comparing shapes, not scales.
+	The two shapes differ only inside a period's slot, so the two charts compare by shape.
 
 	:param newBuffer: makes a blank buffer of a given width and height.
 	:param width: the rectangle's width in pins.
@@ -173,8 +150,7 @@ def _priceChart(
 		for number in (period.high, period.low, period.close)
 		+ (() if period.open is None else (period.open,))
 	):
-		# Refused rather than skipped: a period is four numbers that have to agree, and one of
-		# them missing is not a shorter bar, it is a bar nobody can read.
+		# Refused rather than skipped: a bar missing a price cannot be read.
 		# Translators: reported when a chart was asked for over a cell holding an error, an
 		# overflow or a division by zero.
 		raise ChartRefused(_("There is a value here that is not a number"))
@@ -233,15 +209,9 @@ def _tooWide(
 ) -> Drawing:
 	"""The whole of a price chart with more periods than the panel holds.
 
-	**Shown a window at a time rather than refused.** A bar needs four pins, so ninety-six hold
-	twenty-four days, and a year of prices was refused outright with a message the dialog closing
-	talked over. Panning and stepping already move a window over a chart; this lets them. The
-	drawing says how many periods fit, and the mode opens it at that view on the latest of them.
-
-	Nothing of this drawing is shown: the mode never zooms out past the widest view. It is the
-	frame the windows are cut from, so its width, its points and where it says each period sits
-	are what the mode's origin and a marked period are measured in. The windows are drawn by
-	`_reframer`, each to its own scale, as for any other window.
+	Shown a window at a time rather than refused, opened on the latest periods that fit. This
+	drawing itself is never shown; it is the frame windows are measured in, and `_reframer`
+	draws each window.
 
 	:param newBuffer: makes a blank buffer.
 	:param width: the rectangle's width in pins.
@@ -278,13 +248,8 @@ def _tooWide(
 def _edges(count: int, width: int) -> "list[int]":
 	"""Place the periods across the whole width.
 
-	**The last period ends at the right edge**, rather than the periods each taking a slot of
-	`width // count` and the remainder being left blank. Twenty periods on ninety-six pins is a
-	slot of four and sixteen pins of nothing, which would put the last date — written along the
-	bottom, right aligned to the panel — two braille cells past the bar it names. The spread
-	costs nothing: some slots come out a pin wider than others, which no finger can tell, and it
-	puts a price chart on the same footing as a line chart of the same period so the two can be
-	compared.
+	The last period ends at the right edge, under the right aligned last date, as on a line
+	chart; some slots are a pin wider.
 
 	:param count: how many periods there are.
 	:param width: the drawing's width in pins.
@@ -304,10 +269,7 @@ def _reframer(
 ) -> Callable:
 	"""Build the closure that draws this chart again for part of its periods.
 
-	A month of days magnified twice is a fortnight of fat blobs; drawn again it is a fortnight
-	of bars, each with a stem and two ticks the reader can actually feel, and with the right
-	two dates written under the ends. The numbers never went anywhere, so there is no reason to
-	settle for the blobs.
+	Drawn again rather than magnified, so the bars keep their shape and the dates are right.
 
 	:param newBuffer: makes a blank buffer.
 	:param width: the rectangle's width in pins.
@@ -317,9 +279,7 @@ def _reframer(
 	:param drawOne: draws one period.
 	:param name: says what the chart is called.
 	:return: a function taking where the window starts and how wide it is as fractions,
-		and the size to compose for. The size comes with the window because the
-		rectangle can change under a figure that is already up: toggling the braille
-		line beside the drawing is a command.
+		and the size to compose for, since the rectangle can change under a figure.
 	"""
 
 	def redraw(offset: float, span: float, pinWidth: int, pinHeight: int) -> Optional[Drawing]:
@@ -363,9 +323,7 @@ def _drawBar(buffer, period: Period, scale: Scale, left: int, barWidth: int) -> 
 def _drawCandle(buffer, period: Period, scale: Scale, left: int, barWidth: int) -> None:
 	"""Draw one period as a candlestick.
 
-	The wick is drawn only where the body is not, rather than up the whole range with the body
-	over it. Drawn through, it would fill the one column of gap that makes a rising body
-	hollow, and every candle would read as a falling one.
+	The wick is drawn only where the body is not, or it would fill a rising body's hollow.
 
 	:param buffer: what to draw on.
 	:param period: its four prices.
@@ -391,9 +349,7 @@ def _drawCandle(buffer, period: Period, scale: Scale, left: int, barWidth: int) 
 def _describer(periods: "list[Period]", width: int) -> Callable:
 	"""Build the lookup from a source dot back to the period under it.
 
-	All four prices, not the one nearest the finger. A press on a price chart is the reader
-	asking about that day, and answering "high 51.2" alone would make them press three more
-	times for the rest of a day they already had their finger on.
+	All four prices, since a press asks about the whole period.
 
 	:param periods: what was drawn.
 	:param width: the drawing's width in pins, which is what `_edges` divided up.
@@ -510,10 +466,7 @@ def _ohlcName(periods: "list[Period]") -> str:
 def _candleName(periods: "list[Period]") -> str:
 	""":return: what to call a candlestick chart.
 
-	**The dates are in the name because the zoom moves them.** A redrawn window writes its own
-	two dates on the panel, and saying them as well is what tells the reader the zoom did
-	something: the shape under the hand changed, and the spoken range is the confirmation of
-	what it changed to.
+	The dates are in the name, so a zoom is confirmed by the range spoken.
 
 	:param periods: what it holds.
 	"""

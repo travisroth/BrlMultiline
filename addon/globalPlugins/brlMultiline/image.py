@@ -9,16 +9,9 @@
 short piece between: it composes a `Drawing` for the panel and gives it a `redraw` so that
 zooming reduces from the pixels again rather than magnifying what is already there.
 
-**A picture redraws itself, and the plan said it would not.** The reasoning there was that a
-photograph is only its dots, so magnifying is all that can be done to it. That is true of a
-picture *once it is on the pins* and false of one that is still pixels: a capture six hundred
-wide reduced onto ninety-six pins threw away five sixths of what it knew, and a reader looking
-at a quarter of it should get that quarter reduced from its own pixels instead. The limit is
-the capture rather than the panel, and `zoomPoints` is where that limit is stated.
-
-It is the first figure that windows vertically. A chart refits its value axis to whatever
-periods are showing, so it has no up and down; the top half of a picture is the top half of a
-picture. See `graphicsMode.Drawing.windowsVertically`.
+A zoomed window is reduced from its own pixels, so the limit is the capture, stated in
+`zoomPoints`. Pictures window vertically too, unlike charts; see
+`graphicsMode.Drawing.windowsVertically`.
 """
 
 from typing import Optional
@@ -72,35 +65,17 @@ REVERSED = (BRIGHTNESS, True)
 STYLES = (OUTLINES, LINES, SILHOUETTE, REVERSED)
 """The ways of turning a picture into pins, in the order one key cycles them.
 
-Outlines first because it is what works on the widest range of what readers meet — diagrams,
-maps, logos, line art, and photographs as well as anything does. Single lines next, because on
-the drawn part of that range it says the same thing more plainly: one line per stroke, where
-outlines give two. Brightness third because it is what rescues a picture the lines made nothing
-of, and reversed last because the guess about which side of a silhouette is the subject is a
-guess: usually right, cheap to overturn, and impossible for anyone to check except by feeling
-both.
-
-**No reversed single lines.** The same guess is made for strokes, and it is a much safer one
-there: a stroke is thin by being a stroke, so the ink is almost always the smaller class. A
-fifth style on the cycling key would cost every reader a press on every picture for a case that
-rarely comes up, and white-on-dark line art is still readable reversed as a silhouette.
-
-**Four states on one key rather than a dialog.** None of these can be chosen in advance. The
-same picture as outlines and as brightness are two entirely different panels, nobody can predict
-which will read, and the whole cost of finding out is one keypress — so the answer is a key that
-cycles rather than a question the reader has no way to answer.
+Outlines first, working on the widest range; single lines, one line per stroke; brightness,
+for a picture the lines made nothing of; and reversed brightness, since which side is the
+subject is a guess. No reversed single lines, since the ink is almost always the thin side.
+One cycling key, since which will read cannot be known in advance.
 """
 
 
 def styleName(mode: str, invert: bool = False) -> str:
 	""":return: what to call one of the styles out loud.
 
-	Said every time it changes, because it is the thing the reader has just altered and the one
-	thing they cannot tell from the panel: the picture under their hand looks different, and
-	without being told why they would have to work out which of four it had become.
-
-	**"Single lines", not "lines".** Heard straight after "outlines", "lines" is the same word
-	with its first syllable lost, and a reader cycling quickly would hear no change at all.
+	Said on every change. "Single lines", since "lines" after "outlines" sounds the same.
 
 	:param mode: from `imagePins`.
 	:param invert: whether the silhouette is reversed.
@@ -139,17 +114,8 @@ def zoomPoints(picture: Picture, width: int, height: int, box: "tuple | None" = 
 	natural place to stop is where a pin stands on a single pixel, since past that there is no
 	more detail in the file to find.
 
-	**One step is allowed past it anyway**, which is what the `ZOOM_FACTOR` here is. Stopping
-	exactly at a pixel a pin is right about detail and wrong about hands: a pin is a small
-	thing to read a shape with, and a reader asking to magnify a toolbar that has run out of
-	pixels is asking for the shape to get bigger, not for new detail to appear. Half a pixel a
-	pin gives them that and costs nothing true -- the picture is no longer gaining information,
-	but it was not losing any either. Two steps past would be feeling the reduction rather than
-	the picture, so it is one.
-
-	It is arithmetic against the mode's own constants rather than a number chosen to feel
-	right, which is why it is written as one: a change to `MIN_WINDOW_POINTS` or to
-	`ZOOM_FACTOR` should move this and not silently mean something else.
+	One `ZOOM_FACTOR` step past a pixel a pin is allowed, so a shape can still be made bigger.
+	Written against the mode's constants, so changing them moves this.
 
 	:param picture: the capture.
 	:param width: pins across the panel.
@@ -169,9 +135,7 @@ def zoomPoints(picture: Picture, width: int, height: int, box: "tuple | None" = 
 def colourName(rgb: tuple) -> str:
 	""":return: what to call a colour out loud.
 
-	NVDA's own names, from `colors.RGB`, which are what it already says for the colour of text:
-	translated, and the same words a reader has heard for years. A hex value if they cannot be
-	had, which is ugly and still true.
+	NVDA's own translated names, from `colors.RGB`, else a hex value.
 
 	:param rgb: red, green and blue.
 	"""
@@ -194,28 +158,10 @@ def _original(picture: Picture) -> Picture:
 def _describer(picture: Picture, spot: Placement):
 	"""Build what a routing press on the picture answers with.
 
-	A picture cannot say what is at a point the way a bar chart can -- that is the machinery
-	that comes later -- but it can say *where* the point is, which is more than nothing and is
-	the thing a reader loses first when both hands are on a panel with no edges to count from.
-
-	**Where in the picture, not where on the panel.** The pin is put back through the
-	placement it was drawn from, so the answer is a percentage of the whole capture however
-	far in the reader has zoomed. Read off the panel instead -- which is what an earlier
-	version did, since it took a box and never used it -- the left edge says nought across
-	while the hand is three quarters of the way along the picture, and the number is wrong
-	exactly when the reader has most need of it: they zoomed in because they had lost the
-	place.
-
-	**A press in the margin says so.** A square picture on a panel over twice as wide has
-	margin on a third of it, and there is nothing there. Reporting the nearest edge as though
-	it were the picture would be a fact about the letterbox, so the margin is named instead.
-
-	**And it names the colour there**, when the capture kept its colour: the ink under the
-	finger if there is any, the paper if not. See `imagePins.Picture.colourAt` for why that is
-	not simply the average. The pixels looked at are the pin pressed and one pin round it,
-	because a routing press is a fingertip's guess and a line one pin away is what it was
-	aimed at. The colour is also kept on the captured picture, as `touched`, so that "draw only
-	this colour" knows which one was meant.
+	Where the point is, as a percentage of the whole capture however far in the reader has
+	zoomed, or that it is in the margin. With the colour kept, the colour there: the ink under
+	the finger or the paper (see `imagePins.Picture.colourAt`), from the pin and one pin round
+	it, kept as `touched` for "draw only this colour".
 
 	:param picture: the capture, for its size.
 	:param spot: the part of it being shown and where that part sits on the panel.
@@ -300,16 +246,9 @@ def figureFor(
 def canMagnify(points: int, fraction: float) -> bool:
 	""":return: whether the graphics mode will allow one more zoom in from here.
 
-	**The advice has to match the key.** A picture too dense for the pins says so and says to
-	magnify, and that was said unconditionally -- so a reader zoomed in as far as the capture
-	allowed heard "magnify to read it" and, pressing the key, "no more detail to show". Both
-	true, and together a contradiction: the second is the one that decides, so the first must
-	know it. Found on a logo whose lettering was too small for the pins at every zoom the
-	capture could support.
-
-	The same two limits the mode applies, restated here rather than asked of it, since a window
-	is composed before the mode knows whether it will keep it: the ladder's top step, and the
-	points left at the next step (`graphicsMode.GraphicsMode._tooFewPoints`).
+	So the advice to magnify matches the key. The mode's two limits, restated since a window
+	is composed before the mode decides: the ladder's top step, and the points left at the
+	next (`graphicsMode.GraphicsMode._tooFewPoints`).
 
 	:param points: the whole figure's zoom points, from `zoomPoints`.
 	:param fraction: how much of the whole the view shows across its narrower axis, 1 for all.
@@ -333,9 +272,7 @@ def _compose(
 ) -> Drawing:
 	"""Draw one rectangle of a picture at one size.
 
-	:param whole: whether this is the whole picture, which is what the name says and what
-		decides whether a `redraw` is attached — a window's own drawing is never asked to
-		window again, and attaching one would let a stale box be applied twice.
+	:param whole: whether this is the whole picture, which alone gets a `redraw`.
 	:param canMagnify: whether a zoom in from this view is possible, which decides what a
 		picture too detailed for the pins advises. See `canMagnify`.
 	:return: the figure.
@@ -386,10 +323,7 @@ def _compose(
 def _nameOf(picture: Picture, mode: str, invert: bool, whole: bool) -> str:
 	""":return: what to call this on the display and in speech.
 
-	The mode is in the name because it is the thing the reader changes and the thing they
-	cannot otherwise tell: the same picture as outlines and as brightness are two quite
-	different panels, and a reader who has just pressed the key needs to hear which one
-	arrived.
+	With the style in it. See `styleName`.
 	"""
 	said = picture.name or _("picture")
 	if picture.onlyColour is not None:
@@ -408,9 +342,7 @@ def _nameOf(picture: Picture, mode: str, invert: bool, whole: bool) -> str:
 def _reframer(newBuffer, picture: Picture, box, mode: str, invert: bool):
 	"""Build the closure that draws this picture again for part of itself.
 
-	The window arrives as fractions of the whole, which is what keeps the graphics mode from
-	learning that a picture is pixels — the same arrangement a chart has, where the mode does
-	not learn that the data is periods.
+	As fractions of the whole, as for a chart. See `chartDraw.windowOf`.
 
 	:param newBuffer: makes a blank buffer.
 	:param picture: the capture.
