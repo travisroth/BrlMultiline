@@ -5,33 +5,16 @@
 
 """A segment whose cells come from a flow controller rather than from NVDA's buffer.
 
-Everywhere else in this add-on, a segment is a stock `BrailleBuffer` that has been lied to
-about the size of the display, so that NVDA's own code lays text out inside it. A flow
-cannot work that way: a buffer concatenates its regions and cuts rows out of the result,
-which is the arrangement that puts a paragraph on the same row as the heading before it.
-So a flow band assembles its own rows and this segment simply presents them.
+A flow band assembles its own rows (see `flow`), and this segment presents them.
 
-That leaves one thing to be careful about, and it is the point of this milestone. NVDA
-moves the buffer's window on its own account — `saveWindow` and `restoreWindow` around
-every pending update, `scrollTo` whenever the caret moves, `focus` on a new object — and
-each of those would drag a flow off the rows the reader is holding. The window belongs to
-the anchor, so those calls are refused here. Following the cursor is the controller's
-`syncToCursor`, which moves by the smallest amount that brings the cursor into view, and
-does nothing at all when it is already there.
+NVDA moves a buffer's window itself, with `saveWindow`, `restoreWindow`, `scrollTo` and
+`focus`; here the window belongs to the anchor, so those are refused, and following the cursor
+is the controller's `syncToCursor`.
 
-The other half is what the band puts in its `regions` list. NVDA reaches for
-`mainBuffer.regions[-1]` in nine places — see
-[flow-last-region-audit.md](../../../docs/design/flow-last-region-audit.md) — and on a
-single line display that is the block the cursor is in. So that is what a band puts there:
-the active block's own region, and nothing else. A stand-in of our own was tried first and
-was wrong, because braille input only writes to the last region when it is a
-`TextInfoRegion`, so untranslated dots went nowhere and the erase that checks them could
-flush the input buffer. The real region is a `TextInfoRegion`, so those paths work
-unaltered, and the line commands move the browse mode cursor because it is a live region.
-
-What has to be added is the other direction: those commands move the region without telling
-anyone, so a live region calls back when its position changes, and the band follows it. The
-one call that must not reach the band is the window moving, and that is refused above.
+`regions` holds only the active block's own `TextInfoRegion`, since NVDA uses
+`mainBuffer.regions[-1]` for braille input and line commands; see
+docs/design/flow-last-region-audit.md. A live region calls back when those commands move it,
+and the band follows.
 """
 
 from typing import TYPE_CHECKING, Optional
@@ -52,9 +35,8 @@ if TYPE_CHECKING:
 class FlowBufferSegment(BrailleBufferSegment):
 	"""A segment showing a flow, drawn by its controller.
 
-	Built by the container for any specification whose owner draws the focus content
-	itself. Until a controller is attached it behaves as an ordinary segment, which is what
-	makes an unattached band blank rather than broken.
+	Until a controller is attached it behaves as an ordinary segment. See
+	`DisplayContainer._buildSegment`.
 	"""
 
 	def __init__(
@@ -76,31 +58,20 @@ class FlowBufferSegment(BrailleBufferSegment):
 		"""Called before each redraw, so the owner can check it is still reading the right
 		thing.
 
-		Browse mode can change what should be read without any focus change at all: Escape
-		leaves a form field with the focus still on it, and entering one is the same toggle
-		in reverse. A band that only ever asked on a focus event went on showing the field
-		the reader had left."""
+		Browse mode can change what should be read without a focus change, as Escape leaving
+		a form field does."""
 
 		self.onSettle = None
 		"""Called after an update that re-read an edit being typed into, so the owner can
 		come back for a second look.
 
-		A rich editor's answers at the instant of a keystroke can be transiently wrong, and
-		every wrong state heals on the next re-read — which used to arrive only with the
-		next keystroke. A reader who pauses right after pressing return is reading the
-		display, and what is under their fingers at that moment must not wait on them."""
+		A rich editor can answer wrongly for a moment after a keystroke, and a second look
+		heals it without waiting for the next key."""
 
 	# Lifetime.
 
 	def attach(self, controller: "FlowController") -> None:
 		"""Show a flow in this band.
-
-		This used to take the object being read as well, documented as being for NVDA's caret
-		handling to recognise, and did nothing whatever with it. The parameter is gone rather
-		than wired up, because the region is where NVDA looks — `handleCaretMove` reads `obj`
-		off the last region in the buffer — so the region is where it has to be set, and a
-		parameter here that claimed to do it is worse than none at all. It read as the place
-		that question was already answered.
 
 		:param controller: the flow to show.
 		"""
@@ -159,13 +130,8 @@ class FlowBufferSegment(BrailleBufferSegment):
 			self.controller.followCaretAcross()
 		except Exception:
 			log.debugWarning("A flow could not bring its page across to the caret", exc_info=True)
-		# Again, because following may have made a different block active. NVDA queues the
-		# region it finds *here* — `handleCaretMove` takes `mainBuffer.regions[-1]` — so a
-		# list left holding the block the reader has just left means the next caret move
-		# queues a region the band no longer shows, and the update after it finds nothing
-		# dirty and does nothing. The display then answered one keypress in two, which under
-		# the fingers is a cursor that moves a press late and a letter that appears only once
-		# the next one has been typed.
+		# Again, since following may have made another block active, and `handleCaretMove`
+		# queues whatever is here for the next caret move.
 		self._syncRegions()
 		self.brailleCells = self.cells()
 		self.rawText = ""
@@ -190,28 +156,17 @@ class FlowBufferSegment(BrailleBufferSegment):
 	def syncRegions(self) -> None:
 		"""Point NVDA at the region this band is actually drawing, without redrawing anything.
 
-		Public because reconciling the two is not the same question as writing cells to
-		hardware, and every path that rebuilds the flow's blocks has to answer it. A pass
-		that re-read the band and found the cells unchanged used to return without either:
-		the reader saw the right thing, NVDA was left holding the region the re-read
-		retired, and the *next* keystroke went to a region this band no longer draws. See
-		`FlowBand._settle`.
+		Public, since every path that rebuilds the blocks must do it, even when the cells are
+		unchanged. See `FlowBand._settle`.
 		"""
 		self._syncRegions()
 
 	def _syncRegions(self) -> None:
 		"""Put the active block's region where NVDA looks for the last one, and nothing else.
 
-		Cheap, and done twice per update on purpose: before reading it, because that is what
-		NVDA's commands act on, and after following, because that is what NVDA will queue
-		for the next event.
-
-		**A pending read is carried across the swap.** NVDA queues a region and comes back
-		to it a core cycle later — `handleCaretMove` takes `mainBuffer.regions[-1]`, and
-		`_handlePendingUpdate` re-reads it before updating the buffer. Anything that rebuilds
-		the band in between leaves that reading on a region nobody draws, and the replacement
-		is clean, so `_followIfRead` finds nothing to act on and the keystroke is lost. The
-		re-read was real news whichever object it landed on, so it moves with the block.
+		Twice per update: before reading, for NVDA's commands, and after following, for what
+		NVDA queues next. A pending re-read is carried across the swap, or a rebuild between
+		queueing and reading would lose the keystroke.
 		"""
 		if self.controller is None:
 			return
@@ -236,13 +191,8 @@ class FlowBufferSegment(BrailleBufferSegment):
 		is this. Re-reading is how a flow hears that the caret moved within the document, or
 		that braille input changed what the block says.
 
-		A quick navigation key is answered whether or not the region was re-read. It used to
-		be answered only inside that condition, which made it depend on NVDA having queued
-		our region — and a key whose caret move never reached us left the display sitting
-		where it was while speech announced what it had moved to. That was true of every
-		quick navigation key, not only the grounding ones: `h` appeared to work because
-		grounding was the one path that did not need the region to be dirty, and `e` and `b`
-		did nothing at all.
+		A quick navigation key is answered whether or not the region was re-read, since its
+		caret move may never reach this region.
 		"""
 		region = self.controller.activeRegion()
 		# Taken whether or not it is acted on, so that a jump the reader made before the
@@ -359,14 +309,8 @@ class FlowBufferSegment(BrailleBufferSegment):
 	def acceptFocusRegions(self, regions) -> bool:
 		"""Take a focus change instead of having NVDA's regions written into the band.
 
-		This is what `SegmentSpec.exclusive` means in practice: two producers would
-		otherwise write to one segment, and `_doNewObjectMultiSegment` clears and rewrites
-		the focus segment on every focus change, so the flow would be wiped and replaced by
-		one object's regions.
-
-		The owner decides what to do with it, because the focus may have gone to a different
-		document — or to something with no text at all, in which case the band is given back
-		and these regions are placed in it as they would be in any other segment.
+		What `SegmentSpec.exclusive` means in practice. The owner decides; for something with
+		no text the band is given back and the regions placed as usual.
 
 		:param regions: the regions NVDA built for the new focus.
 		:return: whether they were dealt with, so the caller does not place them.

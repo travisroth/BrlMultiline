@@ -8,15 +8,14 @@
 Read `docs/design/layered-keys-plan.md` first. `keyLayers` is the model and decides; this module
 reads the stored layers, keeps which one is on for each device, and carries a decision out.
 
-**The mechanism**, proven on hardware in phase 0. `inputCore.InputManager.executeGesture` asks
+**The mechanism.** `inputCore.InputManager.executeGesture` asks
 `decide_executeGesture` before it reads `gesture.script`. That property's getter has no setter,
 so an instance attribute assigned in the decider shadows it, and everything after — input help,
 sleep mode, speech cancel, the repeat count — treats the layer's command exactly as a key bound
 in Input Gestures. A key nothing in the layer binds is left alone.
 
 **Turning a layer on or off happens in scripts**, on the main thread, with one exception. The
-decider runs on the thread the driver dispatched from and input help or sleep mode can abandon a
-gesture after it, which is how `panning.py` went wrong when it recorded things at decision time.
+decider runs on the driver's thread, and input help or sleep mode can abandon a gesture after it.
 The exception is **the key a one shot layer was waiting for**, which ends the layer when it is
 decided: that key may have no script of ours to end it from — an unbound key passing through to
 Windows has no script at all — and wrapping every script NVDA runs would cost the repeat count.
@@ -314,9 +313,8 @@ def endLayersOutOfContext(present, detected) -> list:
 def reconcile(present, devices, detected) -> tuple:
 	"""Bring the layers into line with what is on the display: the one place that decides it.
 
-	Called whenever something that decides it may have changed without the drawing changing: the
-	drawing itself, a profile switch that read other layers, and a display reconnecting. Each of those
-	alone left a layer on that should have gone, or off that should have come on.
+	Called when the drawing changes, on a profile switch that read other layers, and when a display
+	reconnects.
 
 	1. A layer that came on by itself and is no longer marked to, since a profile or an edit changed
 	   it, goes. Nothing the reader chose is touched.
@@ -367,8 +365,7 @@ def layerName(layer: Optional[Layer]) -> str:
 def _shippedName(layer: Layer) -> Optional[str]:
 	""":return: a shipped layer's name in the reader's language, while it still has the English name it
 	shipped with, or None. A name the reader gave a layer, or changed a shipped one to, is theirs,
-	and is said as they wrote it (found in review: the shipped names were said in English in a
-	translated dialog)."""
+	and is said as they wrote it."""
 	names = {
 		# Translators: the name of a layer of keys BrlMultiline comes with, for drawings, as in
 		# "Graphics layer on".

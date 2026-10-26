@@ -5,45 +5,21 @@
 
 """The row the caret is in, drawn as one long line of its cells with a bar between each.
 
-**What it is for.** A flow lays a table out in columns, and a flow needs rows to do it in — so
-on a Focus 80 there is no band and NVDA's own line is what the reader gets. In a table that
-line is one cell: its header, then its value. Comparing a row means arrowing along it and
-holding every value in the head. This puts the whole row on the line instead, as the column
-layout puts it across a band, so the reader pans across the row the way they would pan across
-a long line of text::
+For a one row display, where there is no band to lay a table out in columns. The whole row
+goes on the line, panned like a long line of text::
 
 	AAPL | 310.34 | +1.2% | 48,201,300
 
-**On request, per table.** The command asks for the table the caret is in, and while it stands
-every visit to that table reads this way — arrowing out of it and back in again keeps it, as
-the column layout's request does. Pressing it again in that table, or anywhere outside a
-table, is how it is taken back. A table on another page is a different table; see
-`flowTableSource.sameTable`.
-
-**What moves the caret is `tableArrows`, unchanged.** Up and down change row and keep the
-column, left and right change cell; the caret lands in a cell, NVDA asks the region it is
-showing to update, and this region reads the row the caret is now in. Nothing here moves
-anything on a keypress, so nothing here can disagree with where NVDA's own table movement put
-the caret.
-
-**The region is NVDA's own until it is in the table asked for.** `TableRowLineRegion` is a
-`CursorManagerRegion` and falls back to being exactly that — NVDA's line, NVDA's routing,
-NVDA's next line — whenever the caret is anywhere else, so the rest of the page reads as it
-always has. An ordinary region becomes one by `adopt`, called from the patch on
-`TextInfoRegion.update` (see `patches`), because NVDA builds its region afresh on every focus
-change and there is no other moment to catch it at. Only while a request stands, and only a
-region that is exactly NVDA's, so a flow's regions are never touched.
-
-**Which columns, and in what order.** A layout the reader saved for this table decides, as it
-would for the columns — see `flowTableLayouts.layoutFor`. Otherwise every column, in the
-table's own order. An empty cell keeps its place between two bars, because the bars are how
-the reader counts which column they are in.
-
-**Panning is NVDA's.** The line is longer than any display, and NVDA's buffer already pans a
-long region a display at a time and brings the window to the cursor when the caret moves. Past
-the end of the line NVDA asks the region for its next line, and here that is the next row; past
-the start, the row before. At the first and last rows the question goes back to NVDA's own
-answer, so the reader pans out of the table exactly as the arrow keys let them walk out of it.
+1. On request, per table, as the column layout's request is; pressing again, or outside a
+   table, takes it back. See `flowTableSource.sameTable`.
+2. The caret is moved by `tableArrows`; this only reads the row the caret is in.
+3. `TableRowLineRegion` is a `CursorManagerRegion` that behaves exactly as NVDA's outside the
+   table asked for. NVDA's own region becomes one through `adopt`, from the patch on
+   `TextInfoRegion.update`, only while a request stands.
+4. Columns follow a saved layout (see `flowTableLayouts.layoutFor`), else all in order. An
+   empty cell keeps its place between bars, which are how the reader counts columns.
+5. Panning is NVDA's; past either end of the line comes the next or previous row, and past
+   the first or last row, NVDA's own answer.
 """
 
 import dataclasses
@@ -111,13 +87,8 @@ def clear() -> None:
 def adopt(region) -> bool:
 	"""Make one of NVDA's browse mode regions able to read a row, if a row is wanted anywhere.
 
-	**The class of the region is changed in place**, which is not something done lightly. It is
-	done here because the region is NVDA's — built in `getFocusRegions` on every focus change,
-	appended to the buffer, found again by `handleCaretMove` by what it is showing — and
-	replacing it with another object would mean finding every place that holds it. The subclass
-	adds no state NVDA's class lacks until it is updated, and falls back to NVDA's behaviour
-	whenever the caret is not in the table asked for, so the change is invisible everywhere a row
-	is not being read.
+	The class is changed in place, since NVDA holds the region in several places. The subclass
+	adds no state until updated and behaves as NVDA's outside the table asked for.
 
 	:param region: a region NVDA is about to update.
 	:return: whether it was adopted, in which case the caller should update it again as what it
@@ -140,10 +111,7 @@ def adopt(region) -> bool:
 def redraw(handler) -> None:
 	"""Have NVDA read its line again now, rather than at the next caret move.
 
-	The request changes what a region shows without the caret moving, so nothing else would
-	tell NVDA to look. Asked as a caret move rather than an update because that is what brings
-	the display to the cursor afterwards — the cell the reader is in, on a line that has just
-	grown to the width of a row.
+	As a caret move, so the display is brought to the cursor's cell on the longer line.
 
 	:param handler: NVDA's braille handler.
 	"""
@@ -195,9 +163,8 @@ class RowLine:
 	def cellAt(self, braillePos: int) -> Optional[LineCell]:
 		""":return: the cell a braille position falls in.
 
-		The last cell reaching from at or before it, so a bar belongs to the cell before it and
-		the space after a bar to the cell after. That is also what gives an empty cell somewhere
-		to be: it holds no cells of its own, and the space after its bar is its.
+		A bar belongs to the cell before it and the space after a bar to the cell after, which
+		gives an empty cell a place.
 		"""
 		found = None
 		for cell in self.cells:
@@ -222,9 +189,7 @@ class RowLine:
 def _separator() -> tuple:
 	""":return: the separator's text, cells and maps, translated as the reader's table translates it.
 
-	Translated rather than written as dots, because a bar is not the same cells in every braille
-	table and the reader's is the one they read. Asked afresh for every line: a reader who changes
-	table between two lines gets the new bar on the next one, and it is three characters.
+	Translated afresh for every line, since a bar differs between braille tables.
 	"""
 	region = TextRegion(SEPARATOR)
 	region.update()
@@ -367,9 +332,8 @@ class TableRowLineRegion(CursorManagerRegion):
 	def previousLine(self, start=False):
 		"""Panning back past the start of the row: the last cell of the row before, or its first.
 
-		The last, because that is where a reader panning backwards reads on from, as NVDA puts
-		the caret at the end of the line before. The first where NVDA's own command asks for the
-		start of the line.
+		The last, as NVDA puts the caret at the end of the line before; the first where NVDA's
+		command asks for the line's start.
 		"""
 		if self._rowLine is None:
 			return super().previousLine(start)

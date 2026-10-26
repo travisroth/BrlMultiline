@@ -5,19 +5,11 @@
 
 """Which physical displays are behind the display NVDA thinks it has.
 
-The add-on ships a braille display driver, `brailleDisplayDrivers.brlMultilineVirtual`, that
-presents several physical displays to NVDA as one. When it is the display in use, the rows
-of that composite are not uniform: each physical display owns a contiguous band of them, and
-a display narrower than the widest one has columns that reach no hardware at all.
+With `brlMultilineVirtual` in use, each physical display owns a band of rows, and a narrower
+one has dead columns. This is the one place that asks; everything above works in bands.
 
-This module is the one place that knows how to ask. Everything above it works in bands, and
-nothing above it imports the driver.
-
-The driver is deliberately not imported. It is in the same add-on, so importing it would
-work, but it pulls in `hwIo`, `inputCore` and the driver base class for the sake of one
-string and three integers per display, and it would make the whole view layer fail to import
-if anything in the driver ever failed to. Reading the live object the driver publishes costs
-nothing and cannot fail that way.
+The driver is not imported, which would pull in `hwIo` and the driver base and could break
+the view layer's import; its published live object is read instead.
 """
 
 from typing import NamedTuple
@@ -30,9 +22,8 @@ from .layout import SegmentRect, rectContains
 VIRTUAL_DISPLAY_NAME = "brlMultilineVirtual"
 """The name of the add-on's own braille display driver.
 
-Duplicated from the driver rather than imported, for the reason in the module docstring. It
-is a driver's module file name, which NVDA requires to equal its `name`, so it is as stable
-as an identifier gets.
+Duplicated rather than imported; see the module docstring. NVDA requires it to equal the
+module file name.
 """
 
 
@@ -61,10 +52,8 @@ class DeviceInfo(NamedTuple):
 	def displayKey(self) -> str:
 		""":return: the configuration key this display has when it is used on its own.
 
-		Deliberately the same key `bmConfig.getDisplayKey` composes for a display NVDA is
-		driving directly, which is what makes a member keep the layout the user already chose
-		for it. A Monarch divided into three segments on its own is divided into three
-		segments as a band of a composite, with nothing to set up and nothing to explain.
+		The key `bmConfig.getDisplayKey` composes for the display alone, so a member keeps its
+		layout.
 		"""
 		return f"{self.driverName}_{self.numRows}x{self.numCols}"
 
@@ -77,9 +66,7 @@ class DeviceInfo(NamedTuple):
 	def liveRect(self) -> SegmentRect:
 		""":return: the cells of the composite this display actually has, in composite coordinates.
 
-		The same rectangle `layout.deviceBandRects` calls a band's live part, and computable
-		without knowing the composite's width, because a display's own cells start at column 0
-		and end where the hardware does. What the composite's width adds is the dead part.
+		A band's live part, as `layout.deviceBandRects` has it, without the composite's width.
 		"""
 		return SegmentRect(row=self.rowStart, col=0, numRows=self.numRows, numCols=self.numCols)
 
@@ -87,9 +74,7 @@ class DeviceInfo(NamedTuple):
 MAX_UI_DISPLAYS = 3
 """How many physical displays the display relative commands are generated for.
 
-Three because the driver refuses two displays sharing a driver, so a fourth is unlikely to be
-tellable apart from one of the first three. A limit on the commands only: a composite may have
-as many members as the user can open.
+A limit on the commands only, not on members.
 """
 
 MAX_UI_DISPLAY_SEGMENTS = 4
@@ -103,14 +88,9 @@ outright; these exist to be stable, not to be exhaustive.
 def preferredDevice(preferred: str = "", devices: "list[DeviceInfo] | None" = None) -> "DeviceInfo | None":
 	"""Choose the physical display a claim covering a whole display should be made on.
 
-	A claim may not straddle two pieces of hardware, and on a composite it may not reach the
-	dead columns beside a narrow one, so anything wanting "the display" has to mean one of
-	them. This is that choice, in one place, so that the settings dialog and the code making
-	the claim cannot disagree about which display was meant.
-
-	The named display when it is there, and otherwise the tallest, because rows are what
-	spatial reading spends: a Monarch's eight rows of thirty-two are worth more to it than a
-	Focus 80's single row of eighty. Ties are broken by width.
+	A claim must lie on one display, so the settings dialog and the claim ask here. The named
+	display when present, else the tallest, since rows are what spatial reading spends; ties
+	by width.
 
 	:param preferred: the driver name asked for, empty to take the tallest.
 	:param devices: the physical displays, read from the driver when not given.
@@ -124,8 +104,7 @@ def preferredDevice(preferred: str = "", devices: "list[DeviceInfo] | None" = No
 		for device in devices:
 			if device.driverName == preferred:
 				return device
-		# Configured for hardware that is not here. The tallest is a better answer than
-		# nothing: a reader whose second display is switched off still wants their flow.
+		# Configured for hardware that is not here; the tallest still gives a flow.
 		log.debug(f"BrlMultiline: {preferred} is not among the displays in use")
 	return max(devices, key=lambda device: (device.numRows, device.numCols))
 
@@ -133,12 +112,8 @@ def preferredDevice(preferred: str = "", devices: "list[DeviceInfo] | None" = No
 def segmentsForDevice(rects, device: DeviceInfo) -> list[int]:
 	"""Find the segments lying on one physical display.
 
-	Full containment rather than "where does it start", so that a segment straddling two
-	displays belongs to neither rather than to whichever one holds its first row. Such a
-	segment is refused by `views.validateAgainstHardware` before it can be shown, so this is
-	the second line of the same defence — but it is the line that decides what a display's own
-	panning keys do, and answering "this display" for a segment half of which is on the other
-	one is worse than answering nothing.
+	Full containment, so a straddling segment belongs to neither; the second line behind
+	`views.validateAgainstHardware`, and what decides a display's panning keys.
 
 	:param rects: the segment rectangles, in display order.
 	:param device: the physical display.
@@ -159,11 +134,7 @@ def resolveDisplaySegment(
 ) -> int | None:
 	"""Find a segment by which display it is on and where it sits on that display.
 
-	This is the stable way to name a segment. A segment's index counts across the whole
-	display and moves whenever the layout changes — the focus might be segments 0 and 1 today
-	and 5 and 6 tomorrow — so a command bound to an index quietly starts addressing something
-	else. Which display a segment is on, and how far down that display it is, survives every
-	rearrangement that keeps the displays.
+	The stable way to name a segment, since an index moves when the layout changes.
 
 	An ordinary display answers as the first display, so a command bound for a composite goes
 	on working when the second display is unplugged.
@@ -191,12 +162,8 @@ def resolveDisplaySegment(
 def membersChangedAction():
 	"""Find the notification the composite raises when its displays change.
 
-	The one place in this module that does import the driver, and it is worth saying why the
-	rule bends here. The rule exists because everything else in this module runs while a view
-	is being built, several times a session; this runs once, when the plugin starts, and NVDA
-	has already imported every display driver by then in order to list them. What it must not
-	do is fail: an add-on installed without its driver, or a driver that will not import, is a
-	reason to go without this notification and not a reason to go without the plugin.
+	The one import of the driver, run once at start when NVDA has imported every driver
+	anyway. A failure means going without the notification, not without the plugin.
 
 	:return: the `extensionPoints.Action`, or None if the driver cannot be reached.
 	"""
@@ -216,17 +183,9 @@ def membersChangedAction():
 def memberStates(display=None) -> dict[str, bool] | None:
 	"""Say which of the composite's members it is actually driving.
 
-	Only the composite can answer this, and only while it is the display in use: a driver name
-	in the configuration is a choice, not a connection, and nothing outside the running display
-	knows which of those choices was opened.
-
-	What "being driven" means is worth being exact about, because it is narrower than
-	"connected". A member appears here if the composite opened it at braille start and has not
-	since given up on it, and it is given up on when a write to it raises — which is only ever
-	found out by writing. A display holding still content, a pinned object say, may be off or
-	out of range for some time before anything tries to write to it and notices. Watching for
-	that, and taking a display back when it returns, is the resilience work that has not been
-	done yet.
+	Only the running composite can answer. Driven is narrower than connected: a member is
+	given up on when a write or read to it fails, so a display holding still content may be off
+	for a while before that is noticed.
 
 	:param display: the display to read, or None for the one NVDA is driving.
 	:return: True for a member being driven and False for one given up on, by driver name; or
@@ -248,10 +207,8 @@ def memberStates(display=None) -> dict[str, bool] | None:
 def configuredMembers(display=None) -> list[str] | None:
 	"""Read which displays the running composite was opened for.
 
-	Not the same as which it is driving. A member switched off at startup, or one given up on
-	since, is still one of the displays the composite was built for, and only the composite
-	remembers that: the configuration says what is wanted now, and `deviceMap` says what is
-	working now, and neither answers what the running display was told.
+	Includes members off or given up on, unlike `memberStates`; the configuration says what is
+	wanted now, not what the running display was told.
 
 	:param display: the display to read, or None for the one NVDA is driving.
 	:return: the driver names in stacking order, or None when the composite is not the display
@@ -302,10 +259,7 @@ def deviceMap(display=None) -> list[DeviceInfo]:
 				numCols=slot.band.numCols,
 			)
 			for slot in display.slots
-			# A member the composite has given up on is not part of the display any more: its
-			# rows have been taken out of the geometry, and a band for it here would put
-			# segments on hardware that is not there. L{memberStates} is where it is still
-			# visible, because "configured and gone" is worth saying and this is not the place.
+			# A member given up on has no rows any more; `memberStates` still reports it.
 			if not slot.failed
 		]
 	except Exception:

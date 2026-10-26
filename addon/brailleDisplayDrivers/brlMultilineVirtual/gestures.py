@@ -5,13 +5,10 @@
 
 """Making keys on every member work, without disturbing what already works.
 
-Phase 0 established the good news on hardware: a member's keys reach NVDA on their own.
-Drivers dispatch input by constructing a gesture and calling
-`inputCore.manager.executeGesture` from their own read loop, and nothing in that path
-consults `braille.handler.display`. Every member's gestures therefore arrive already
-carrying `br(<its own driver name>):<its own key id>`, which means **every default gesture
-map NVDA ships keeps working on both displays with no mapping of any kind**. That is the
-single most valuable finding of the whole spike, and this module exists to avoid spoiling it.
+A member's keys reach NVDA on their own, as `br(<its driver name>):<key id>`, since drivers
+call `inputCore.manager.executeGesture` from their own read loop. So every shipped gesture map
+works unchanged; this module must not spoil that. See "Gestures already arrive without help"
+in docs/design/virtual-display-plan.md.
 
 Three things do consult `braille.handler.display` while a gesture is resolved, and each is
 answered here:
@@ -48,32 +45,18 @@ _driver = None
 _currentGesture = threading.local()
 """Which member raised the gesture currently being resolved.
 
-`BrailleDisplayGesture._get_script` asks the display for modifier gestures without saying
-which display the gesture came from, and the answer differs per member. The source is
-therefore noted as the gesture passes through the decider and read back a few lines later in
-the same `executeGesture` call, on the same thread — braille gestures are dispatched from
-their driver's read loop, and `executeGesture` is synchronous, so there is nothing to
-interleave between the two.
-
-Recorded for every braille gesture, including ones from displays that are not members, so
-that a gesture from elsewhere cannot be answered with the last member's modifiers.
+`BrailleDisplayGesture._get_script` does not say which display a gesture came from, so the
+source is noted in the decider and read back within the same synchronous `executeGesture`
+call. Recorded for every braille gesture, members or not.
 """
 
 
 class MemberGestureMap(inputCore.GlobalGestureMap):
 	"""A gesture map that answers out of the members' own maps, as they are now.
 
-	Deliberately a live view rather than a merged copy. `freedomScientific` rewrites its own
-	map whenever the user cycles what the wiz wheels do — `gestureMap.add(..., replace=True)`
-	in `script_toggleLeftWizWheelAction` — so a snapshot taken when the display was opened
-	would be wrong the first time that command was used.
-
-	Subclassing `GlobalGestureMap` rather than duck typing it keeps any `isinstance` check in
-	NVDA or another add-on honest. Its own map stays empty; only the two lookups are
-	overridden.
-
-	Members cannot collide, because every identifier is namespaced by its driver's name, so
-	chaining them is the whole of the merge.
+	A live view, since `freedomScientific` rewrites its map when the wiz wheel action changes.
+	A `GlobalGestureMap` subclass, for `isinstance` checks, with only the two lookups
+	overridden. Identifiers are namespaced by driver, so chaining is the whole merge.
 	"""
 
 	def __init__(self, driver):
@@ -102,15 +85,9 @@ class MemberGestureMap(inputCore.GlobalGestureMap):
 def _rebaseCellIndexes(gesture: BrailleDisplayGesture, slot) -> bool:
 	"""Move a gesture's cell indexes from its own display onto the composite.
 
-	Phase 0 confirmed the shape of what arrives: a Monarch reported 2, 39 and 102 for presses
-	spread across its rows, flat over its own 8 by 32. Those have to become positions in the
-	9 by 80 composite before anything routes with them.
-
-	The identifier is frozen first. `_get__cellIndexesStr` builds `routing40` and the like out
-	of `cellIndexes`, so rebasing without freezing would silently rewrite the identifier the
-	user's own gesture map is keyed on — a routing key bound by number would stop matching,
-	and worse, would start matching a different cell. `Getter` in `baseObject` defines only
-	`__get__`, so it is a non data descriptor and an instance attribute shadows it.
+	Indexes arrive flat over the member's own rows. The identifier is frozen first, since
+	`_get__cellIndexesStr` builds `routing40` and the like from `cellIndexes` and a key bound by
+	number would match a different cell. An instance attribute shadows `baseObject.Getter`.
 
 	:param gesture: the gesture to rebase, modified in place.
 	:param slot: the member that produced it.
@@ -143,23 +120,10 @@ def _rebaseCellIndexes(gesture: BrailleDisplayGesture, slot) -> bool:
 def _isDisplayInstalled() -> bool:
 	"""Whether NVDA has actually put this virtual display in place yet.
 
-	Installed from the constructor, this module goes live some way before NVDA agrees that
-	the virtual display exists: `_setDisplay` assigns `braille.handler.display` only after
-	the constructor has returned, the outgoing display has been terminated and `initSettings`
-	has run. Throughout that window the *outgoing* display is still NVDA's, still dispatching
-	input, and still being routed against — and when it was adopted as a member, it is the
-	very display whose indexes would be rebased.
-
-	A routing key pressed in that window would therefore be rebased onto a composite that
-	nothing is yet reading, and routed against a buffer still sized for the display the user
-	is leaving. Small window; wrong answer; cheap to exclude.
-
-	Identity alone does not answer it, and the case that proves it is NVDA reselecting a
-	display that is already in use — which is what reopening the composite after its member
-	list is edited does. `_switchDisplay` takes its `sameDisplayReInit` path there and
-	reconstructs *this same instance*, so `handler.display is _driver` never stops being true
-	while the members, the bands and the geometry are all replaced. The driver's own
-	`_installed`, set in `initSettings` and cleared in `terminate`, is what marks the interval.
+	This module goes live in the constructor, while the outgoing display is still NVDA's and
+	routed against. Identity cannot tell, since `sameDisplayReInit` reconstructs the same
+	instance; the driver's `_installed`, set in `initSettings` and cleared in `terminate`, can.
+	See `BrailleDisplayDriver.initSettings`.
 
 	:return: True once NVDA is driving this virtual display.
 	"""
@@ -172,15 +136,9 @@ def _isDisplayInstalled() -> bool:
 def _translateCellIndexes(gesture=None, **kwargs) -> bool:
 	"""Rebase a member's routing keys. Registered on `inputCore.decide_executeGesture`.
 
-	That extension point is the right hook because it runs before `gesture.script` is
-	resolved and before any identifier is consumed, and because NVDA's own remote client
-	already uses it to intercept braille gestures, so it is a supported pattern rather than a
-	trick.
-
-	It cancels exactly one thing: a member's cell addressed gesture whose cells cannot be
-	rebased, for the reason given in `_rebaseCellIndexes`. Everything else passes through.
-	It must never raise, since a decider that throws would break input for the whole session,
-	so an unexpected error lets the gesture through unchanged.
+	It runs before `gesture.script` is resolved, and NVDA's remote client uses it too. Cancels
+	only a member's cell gesture that cannot be rebased. Never raises, since that would break
+	input for the session.
 	"""
 	try:
 		if _driver is None or not isinstance(gesture, BrailleDisplayGesture):
@@ -210,12 +168,8 @@ def install(driver) -> None:
 		remove()
 	_driver = driver
 	inputCore.decide_executeGesture.register(_translateCellIndexes)
-	# `Decider` stops at the first handler returning False, and NVDA Remote's handler on this
-	# same extension point returns False for every braille gesture once it has forwarded it.
-	# Registered after Remote, this would never run, and a routing key on the second display
-	# would be sent as a cell index belonging to the first. Going first is also the right
-	# order on its own terms: Remote should forward the composite position, since the
-	# composite is the display it has told the other machine about.
+	# First, since `Decider` stops at the first False and NVDA Remote returns False for every
+	# braille gesture it forwards; Remote should forward the composite position anyway.
 	inputCore.decide_executeGesture.moveToEnd(_translateCellIndexes, last=False)
 	log.debug("BrlMultiline: gesture translation installed, ahead of any other decider")
 
@@ -233,23 +187,9 @@ def remove() -> None:
 def modifierGesturesForMembers(driver, model=None):
 	"""Give the modifier gestures of the member that raised the gesture being resolved.
 
-	Only that member's, which is the correction. Chaining every member looked right — each
-	one's `_getModifierGestures` filters its own map by its own `br(name):` prefix — but what
-	it yields is stripped of that namespace: bare sets of key names and modifier names. The
-	caller then matches on key names alone::
-
-		for keys, modifiers in braille.handler.display._getModifierGestures(self.model):
-			if keys < gestureKeys:
-				gestureModifiers |= modifiers
-
-	So a Monarch mapping and a Focus gesture sharing a key name would combine, and a press on
-	one display would pick up a modifier defined for the other — silently executing a
-	keyboard shortcut nobody asked for. The default maps happen not to collide, but a user's
-	own mappings easily could, and other display combinations more so.
-
-	When the source is unknown, nothing is yielded rather than everything. Modifier emulation
-	then simply does not resolve, which is a gesture that does nothing — much better than a
-	gesture that does something else.
+	Only that member's: what is yielded has lost its driver namespace and the caller matches on
+	key names, so another member's modifiers could apply. With the source unknown, nothing is
+	yielded, so the gesture does nothing rather than something else.
 
 	:param driver: the virtual display.
 	:param model: the optional display model, passed through unchanged.
@@ -276,12 +216,8 @@ def scriptForMember(driver, gesture):
 	virtual display rather than the member that has them. `freedomScientific` is such a
 	member; `hidBrailleStandard` is not, and is skipped by the `ScriptableObject` check.
 
-	This mirrors `scriptHandler._getObjScript` with the member standing in for the object
-	NVDA would have offered, rather than only calling `getScript`. The difference is user
-	bindings: `_getObjScript` first walks the global maps for an entry whose class the object
-	is an instance of, and a user who has bound a key to a member driver's own script has
-	written exactly such an entry. Tested against the virtual display, `isinstance` fails and
-	the binding is lost; tested against the member, it works as it always did.
+	Mirrors `scriptHandler._getObjScript` with the member as the object, so a user binding to a
+	member driver's script still passes its `isinstance` check.
 
 	:param driver: the virtual display.
 	:param gesture: the gesture being resolved.

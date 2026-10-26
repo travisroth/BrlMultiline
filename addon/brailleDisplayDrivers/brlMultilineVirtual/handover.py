@@ -14,59 +14,20 @@
 		if oldDisplay:
 			oldDisplay.terminate()
 
-For every driver in NVDA that ordering is harmless, because two different drivers do not
-normally want the same hardware. For this one it is the ordinary case: the display the user
-is switching away from is very often one of the displays this driver is being asked to open.
+For this driver the display being left is often one it must open, and NVDA still holds it.
 
-Switching from a Focus to the virtual display therefore has the virtual display try to open
-the Focus while NVDA still holds it. Every retry is spent before the old driver is released,
-so the member is dropped and the virtual display comes up missing the display the user was
-just using. Phase 0 already showed that a display released moments earlier can be slow to
-reopen; here it has not been released at all.
+**Into the virtual display.** `braille.handler.display` is still the old driver while our
+`__init__` runs, so it is adopted as a member as it stands, with its `terminate` replaced by a
+one-shot no-op. Not closed and reopened, because of an NVDA defect: `hwIo.base.IoBase.__del__`
+closes a handle `close` already closed, which Windows may have reused. See `_retireDriver` in
+the driver module.
 
-Both directions need answering, and they need different answers because in one of them this
-driver is being constructed and in the other it is being destroyed.
+**Out of the virtual display.** The new driver is built before we are told, so
+`_switchDisplay` is patched, only while such a driver is live: if the display being replaced
+is registered here, terminate it first. No extension point covers this.
 
-**Into the virtual display.** `braille.handler.display` still points at the old driver while
-our `__init__` runs, because `_setDisplay` assigns the new one only after `_switchDisplay`
-returns. So we can reach it — and rather than closing it and opening our own, we *adopt* it:
-the live, already initialised, already dispatching driver becomes our member as it stands.
-Its `terminate` is replaced by a one-shot no-op so that NVDA closing it a moment later does
-nothing, after which the real method is back and ours to call.
-
-Adopting rather than reopening was not the first design, and the reason it had to become one
-is worth writing down, because it is a defect in NVDA rather than in this add-on.
-
-`hwIo.base.IoBase.close` closes the device handle but never clears `self._file`, and
-`IoBase.__del__` calls `close` again. So once a driver has been terminated, finalising it
-closes its handle a *second* time — and by then Windows may have handed that handle value to
-something else. Closing a display and immediately opening it again therefore works, right up
-until the old driver object is garbage collected, at which point the new device's handle is
-pulled out from under it.
-
-That is exactly what a Phase 1 hardware run showed. The Focus was released and reopened
-successfully, `handler.display` was then assigned, dropping the last reference to the old
-driver, and the very next write failed with "the handle is invalid" nine milliseconds later.
-With two members it was worse: the Monarch, being opened first after the release, received
-the recycled handle value and lost it instead.
-
-The same log shows NVDA hitting this on its own, with no add-on involved: reinitialising the
-Focus from the braille settings failed identically, because `_switchDisplay` terminates and
-reconstructs the same driver instance. So this is upstream's to fix. What this module can do
-is stop provoking it — hence adoption, and hence `_retireDriver` in the driver module, which
-keeps a terminated driver alive so its finaliser never runs mid session.
-
-**Out of the virtual display.** Here we are the old driver, and the new one is constructed
-before we are told anything at all, so there is no method of ours to intervene in. That
-needs `_switchDisplay` itself, patched to close a departing virtual display before building
-its replacement. The patch is installed only while a virtual display is live and is narrow
-enough to state in one sentence: if the display being replaced is this driver, terminate it
-first.
-
-Patching NVDA is not free and the rest of this driver deliberately avoids it. The
-justification is that no extension point covers this, the alternative is telling users to
-select "no braille" between every display change, and the patched behaviour is what the
-unpatched code already does a few lines later.
+See "The display handover problem" and "The `hwIo` finaliser bug" in
+docs/design/virtual-display-plan.md.
 """
 
 from __future__ import annotations
@@ -83,34 +44,22 @@ _originalSwitchDisplay = None
 _releasingNames: set[str] = set()
 """The drivers this patch releases before their replacement is built.
 
-A set rather than the one virtual display it began as, because the add-on has a second
-driver with the same need: `brlMultilineMonarch` holds a HID device exclusively, so switching
-away from it left `hidBrailleStandard` unable to find the display it was being asked to open.
-The problem is not particular to either driver — it belongs to any driver holding hardware
-that the next one may want — so membership is registered rather than hard coded.
-
-Also what decides whether the patch is still wanted. It is removed when the last driver in it
-unregisters, so one driver leaving cannot pull the patch out from under another.
+Registered by any driver holding hardware the next may want, such as `brlMultilineMonarch`'s
+exclusive HID device. The patch goes when the last one unregisters.
 """
 
 _active = False
 """Whether the patch should do anything.
 
-Separate from being installed, because the two can come apart. If another add-on wraps
-`_switchDisplay` after this patch is installed, then restoring the saved method on the way
-out would erase that add-on's wrapper. So removal restores the attribute only when this
-patch is still the outermost one, and otherwise leaves it in place and inert — still called,
-still delegating, doing nothing of its own.
+Separate from being installed: if another add-on has wrapped `_switchDisplay` since, removal
+leaves this patch in place and inert. See `_uninstallIfUnwanted`.
 """
 
 
 def releaseDisplayNow(display) -> None:
 	"""Terminate a display now, and make terminating it again do nothing.
 
-	NVDA will call `terminate` on this instance itself once the switch completes. Letting
-	that reach a closed device would at best log an error and at worst raise out of the
-	switch, so the second call is disarmed. An instance attribute is enough: `terminate` is
-	an ordinary method, so assigning over it on one instance shadows the class's.
+	NVDA's own `terminate` after the switch is disarmed by an instance attribute.
 
 	:param display: the driver to close.
 	"""
@@ -127,10 +76,7 @@ def releaseDisplayNow(display) -> None:
 def _suppressOneTerminate(display) -> None:
 	"""Make the next `terminate` on this instance do nothing, and the ones after it normal.
 
-	NVDA calls `terminate` on the outgoing display exactly once, immediately after the
-	incoming driver is constructed. An adopted display must survive that call, but it must
-	still be closable afterwards by whoever now owns it — so the no-op removes itself,
-	uncovering the class's own method again.
+	The no-op removes itself, so the new owner can still close the display.
 
 	:param display: the driver to protect for one call.
 	"""
@@ -144,10 +90,8 @@ def _suppressOneTerminate(display) -> None:
 def adoptConflictingDisplay(driverNames: Iterable[str]):
 	"""Take over the display NVDA is switching away from, if it is to be one of our members.
 
-	Called from the virtual driver's constructor, where `braille.handler.display` is still
-	the outgoing driver. Returns it live rather than closing it, because closing and
-	reopening the same device provokes the `hwIo` finaliser bug described at the top of this
-	module, and because a driver that is already open is the fastest possible way to open it.
+	Called from the virtual driver's constructor. Returned live, not reopened; see the module
+	docstring.
 
 	:param driverNames: the drivers this virtual display is about to open.
 	:return: a (name, driver) pair, or None if there was no conflict.
@@ -169,9 +113,7 @@ def adoptConflictingDisplay(driverNames: Iterable[str]):
 def releaseAdoption(display) -> None:
 	"""Hand an adopted display back, so that NVDA can close it in the ordinary way.
 
-	For the path where the virtual display fails to construct after adopting something. Left
-	as it was, the one-shot would swallow NVDA's terminate and leave the device open with
-	nothing owning it.
+	For a construction that fails after adopting, so the device is not left open unowned.
 
 	:param display: the driver to hand back.
 	"""
@@ -255,9 +197,7 @@ def installSwitchPatch() -> None:
 def removeSwitchPatch() -> None:
 	"""Unregister the virtual display, and stand down if no other driver still wants this.
 
-	Safe to call when nothing is installed. Note that this no longer necessarily removes the
-	patch: another driver may have registered, and pulling the patch out from under it would
-	reintroduce for that driver exactly the failure this module exists to prevent.
+	Safe to call when nothing is installed. The patch stays while another driver is registered.
 	"""
 	from .virtualLayout import VIRTUAL_DRIVER_NAME
 
@@ -279,9 +219,7 @@ def _ensureInstalled() -> None:
 def _uninstallIfUnwanted() -> None:
 	"""Take the patch out, unless a registered driver still needs it.
 
-	Restores NVDA's own method only when this patch is still the outermost one. If something
-	else has wrapped `_switchDisplay` since, restoring would throw that wrapper away, so the
-	patch stays in the chain and simply stops acting.
+	Restores NVDA's method only when this patch is still outermost; otherwise it stays, inert.
 	"""
 	global _originalSwitchDisplay, _active
 	if _releasingNames:
