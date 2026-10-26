@@ -5,53 +5,27 @@
 
 """Packing blocks into rows, and the window that moves over them.
 
-A flow shows a run of content across several rows of the display: a document read straight
-through rather than one line at a time. The unit is a **block** — a reading unit of a
-document, a control with its label, an item in a list — and the rule that makes a flow
-read the way a page does is that a block always starts on a new **row**, and never starts
-a new window.
+A flow shows a run of content across several rows. The unit is a block (a reading unit, a
+control with its label, a list item), and a block always starts on a new row and never
+starts a new window. NVDA's buffer cannot express that, so blocks are rendered separately
+and the rows assembled here.
 
-NVDA's own buffer cannot express that rule. `BrailleBuffer.update` concatenates the cells
-of every region into one flat list and cuts rows out of the result afterwards, so a ten
-cell heading followed by a paragraph puts the paragraph at cell eleven of the same row.
-Padding each region to a multiple of the display width does not help either, because word
-wrapping means rendered rows are not all the same length. So a flow renders each block
-separately and assembles the rows itself, which is what this module does.
+Imports nothing from NVDA, so it can be unit tested alone. `flowRender` makes the
+`RenderedBlock` values and `flowSources` finds the blocks.
 
-This module deliberately imports nothing from NVDA. Everything here works on
-`RenderedBlock` values — cells and their mapping back to positions, already translated —
-so the packing, the window arithmetic and the recovery rules can be unit tested without a
-running screen reader or an attached display. Producing a `RenderedBlock` from an object
-is `flowRender`'s job, and finding the blocks is `flowSources`'.
-
-The window is held as an anchor and the direction it was entered from, not as a page
-number. Panning forward puts the row after the current bottom row at the **top** of the
-window; panning back puts the row before the current top row at the **bottom**. That
-symmetry is what makes panning reversible: re-entering a long paragraph from below shows
-its tail rather than an aligned window somewhere in its middle. It is the rule
-`DisplayContainer._panPinnedContent` already applies to a single region, generalised to a
-run of blocks.
-
-Panning forward and back are exact inverses only while the source generation and the
-render key are unchanged. Live content that rewrites itself is handled by the recovery
-rules in `replaceBlocks` instead.
+The window is an anchor and an entry direction, not a page number, so panning is
+reversible while the content is unchanged; `replaceBlocks` recovers when it is not. See
+"What NVDA's buffer does not give us" and "The window is an anchor, not a page number" in
+docs/design/spatial-reading-plan.md.
 """
 
 import dataclasses
 import enum
 from typing import Iterable, Optional, Sequence
 
-# **NVDA's own "that call was cancelled", named here so a reader can tell it from an empty
-# cell.** When the watchdog decides the core has frozen it sets `cancelCallEvent`, and from
-# that moment every COM call made on the main thread comes back as `RPC_E_CALL_CANCELED`;
-# NVDA's comtypes patch turns that into this exception. It is not a `COMError` and not an
-# `OSError`, so code that catches broadly and treats a failed fetch as "there is nothing at
-# this coordinate" reads a whole table as empty.
-#
-# Which is exactly what happened on an Excel sheet. Measuring it took the core past the
-# watchdog's patience, every read after that was cancelled, all twenty-one columns measured
-# nothing, and the reader was told the table could not be laid out in columns. It could not
-# be *read*, which is a different thing to be told and a different thing to do about it.
+# NVDA's "that call was cancelled": once the watchdog decides the core froze, every COM call
+# on the main thread raises this. It is not a `COMError` or `OSError`, and must not be read as
+# an empty cell.
 try:
 	from exceptions import CallCancelled
 except ImportError:  # Outside NVDA, and on an NVDA old enough not to have it.
@@ -66,10 +40,8 @@ BLANK_CELL = 0
 PENDING_CELL = 0xC0
 """Dots 7 and 8, the mark on a row that stands for content not fetched.
 
-`RowKind` has always distinguished the end of a document from a budget stop, but both were
-drawn as blank cells, so under the fingers they were the same thing — which is the very
-confusion the result states exist to prevent. NVDA uses the same shape for a row cut mid
-word, which reads as "there is more of this" and is what is meant here too.
+So a budget stop does not feel like the end of the document. NVDA uses the same shape for a
+row cut mid word.
 """
 
 PENDING_MARK_CELLS = 3
@@ -78,19 +50,14 @@ PENDING_MARK_CELLS = 3
 SEPARATOR_CELL = 0xC0
 """Dots 7 and 8, drawn the width of the band for a line between two groups.
 
-The same shape as `PENDING_CELL`, and told apart by how much of the row it covers: a pending
-row marks its first few cells and leaves the rest blank, and a separator is a line all the
-way across. Both mean "this row is not content", which is why they share a shape, and a
-reader asked for the line rather than the blank row it started as — a separator is
-decoration, and decoration is worth feeling.
+The shape of `PENDING_CELL`, told apart by running all the way across.
 """
 
 NO_POSITION = -1
 """Marks a cell that came from no position in a block: padding, a gap, a status row.
 
-Routing into such a cell must do nothing. NVDA's ordinary behaviour of mapping trailing
-blank columns back to the last content cell would otherwise activate the end of the
-preceding block when the reader presses a key in the space after a short field.
+Routing into such a cell does nothing, rather than reaching the end of the block before it
+as NVDA's mapping would.
 """
 
 
@@ -105,9 +72,7 @@ class BlockId:
 	generation: int
 	"""The source generation this block was fetched in.
 
-	Bumped when the document is replaced — a different tree interceptor, a different root
-	object, a document change event — so that a bookmark from the old document can never
-	match one from the new.
+	Bumped when the document is replaced, so an old bookmark never matches a new one.
 	"""
 
 	bookmark: object
@@ -122,9 +87,7 @@ class BlockId:
 class RenderKey:
 	"""Everything that changes cells without changing content.
 
-	Held beside a rendered block so that a changed braille table, a resized band or a
-	different wrapping rule invalidates the rendering while leaving block identity intact.
-	The anchor therefore survives a translation change, and the reader keeps their place.
+	A change invalidates the rendering but not the block's identity, so the anchor survives.
 	"""
 
 	numCols: int
@@ -147,10 +110,7 @@ class RenderKey:
 	indent: int = 0
 	"""How many cells of indent this block was drawn with.
 
-	Part of the key rather than of the identity, because indent changes the cells and
-	changes nothing about which block this is. It has to be here: an indented block is laid
-	out in the cells the indent leaves, so the same block at two depths is two different
-	renderings and serving one for the other would cut its rows in the wrong places.
+	Part of the key, not the identity: the same block at two depths is wrapped differently.
 	"""
 
 
@@ -174,10 +134,8 @@ class RenderedBlock:
 	rowOffset: int = 0
 	"""Which row of the block `rows[0]` is.
 
-	A block longer than one rendering is laid out in chunks, and a row is named by its
-	place in the whole block rather than in the chunk it happens to be in. That is what
-	lets the anchor survive a chunk changing underneath it, which is how a reader pans
-	through a very long paragraph and back again without losing their place.
+	A long block is rendered in chunks, and rows are numbered in the whole block so the anchor
+	survives a chunk changing.
 	"""
 
 	moreRows: bool = False
@@ -189,9 +147,8 @@ class RenderedBlock:
 	gapBefore: bool = False
 	"""Ask for a blank row before this block.
 
-	Spacing is declared by the block, never produced by packing: a short edit field is
-	separated from what follows it because the source said so. Sources do not set this on
-	the first block of a document, where it would show as a blank row above the top.
+	Spacing is declared by the source, never produced by packing, and never on a document's
+	first block.
 	"""
 
 	gapAfter: bool = False
@@ -200,9 +157,7 @@ class RenderedBlock:
 	isBlank: bool = False
 	"""Whether this block is empty content — a blank line in a document.
 
-	Collapsing a run of these is the source's decision, since only it knows whether the
-	reader is reading the content or writing it. A collapsed run keeps the identity of its
-	first member, which is the one that owns the visible row.
+	Collapsing a run of these is the source's decision. See `SourceBlock.collapsed`.
 	"""
 
 	isDecoration: bool = False
@@ -218,9 +173,7 @@ class RenderedBlock:
 	lineCells: int = 0
 	"""How many cells the whole line holds, where lines are unwrapped, and 0 otherwise.
 
-	An unwrapped block is drawn as the one row of it the band's page across reaches, so its
-	rows say nothing about how far across there is still something to show. This does, and it
-	is what stops panning across at the end of the longest line. See
+	What stops panning across at the end of the longest line. See
 	`FlowRenderer.unwrappedPage`.
 	"""
 
@@ -243,9 +196,7 @@ class RenderedBlock:
 class SourceBlock:
 	"""One block as a source found it, before it has been rendered.
 
-	The region is whatever the source built to read this block with — a position bound
-	text region, in practice. This module never looks inside it, which is what keeps the
-	packing arithmetic free of NVDA.
+	The region is whatever the source built to read it with; this module never looks inside.
 	"""
 
 	blockId: BlockId
@@ -256,45 +207,34 @@ class SourceBlock:
 	isControl: bool = False
 	"""Whether this block holds a form control the reader stops at and answers.
 
-	Two things follow from it, both in `flowForms`: the block declares a blank row after
-	itself, so a one row answer is separated from the next prompt; and arriving at it places
-	the window so that what precedes it — its label — is on the display above it, rather
-	than putting the control on the top row and filling downward.
+	Then, in `flowForms`, a blank row follows it and arriving at it shows its label above.
 	"""
 
 	isDecoration: bool = False
 	"""Whether this block is something drawn between items rather than one of them.
 
-	A menu separator, in practice. It occupies its row as a blank one, because the grouping
-	it stands for is worth the space, and a routing key on it does nothing: there is nothing
-	there to go to. See `flowObjects.isDecoration`.
+	A menu separator, in practice. Routing on it does nothing. See `flowObjects.isDecoration`.
 	"""
 
 	isInteractive: bool = False
 	"""Whether this block is being read through the focused editable object.
 
-	A form inside browse mode belongs to the surrounding document for placement and context,
-	but its live caret belongs to the edit control. The flag lets the controller replace the
-	document-bound region with the control-bound one, and put the document region back when
-	the reader leaves the field, without changing the block's document identity.
+	Lets the controller swap in the control's region for its live caret, and back on leaving,
+	without changing the block's identity.
 	"""
 
 	depth: Optional[int] = None
 	"""How deep this block sits in the structure it belongs to, or None where it has none.
 
-	One-based where it is set, because that is what `positionInfo["level"]` means and
-	converting it here would make two conventions where there is now one. Prose has no
-	depth and never sets this; a list item has depth 1 whether or not anything nests inside
-	it. What it is drawn as is `flowIndent`'s decision and the renderer's doing — this is
-	the fact, not the presentation.
+	One-based, as `positionInfo["level"]` is. Prose never sets it. How it is drawn is
+	`flowIndent`'s decision.
 	"""
 
 	collapsed: int = 1
 	"""How many blank blocks this one stands for.
 
-	A run of blank lines collapses to a single row while the reader is reading, and to one
-	row each while they are writing. The collapsed block keeps the identity of the first
-	member of the run, which is the one that owns the visible row.
+	Blank lines collapse to one row while reading, not while writing. The collapsed block keeps
+	the identity of the run's first member.
 	"""
 
 
@@ -318,9 +258,7 @@ class ResultKind(enum.Enum):
 class FetchResult:
 	"""A source's answer, which is not always a block.
 
-	Running out of budget and running out of document must not look the same on the
-	display, or the reader is told spatially that the page ended when it merely took too
-	long to read.
+	Running out of budget must not look like running out of document.
 	"""
 
 	kind: ResultKind
@@ -331,20 +269,14 @@ class FetchResult:
 	message: str = ""
 	"""Why, for an error, and which end was found for an end of stream.
 
-	Carried for an end of stream as well because "there is no more this way" is the one
-	answer a reader disputes: they can see the document goes on and NVDA pans through it. A
-	walk has several ways of concluding it has finished — the document said no, the step went
-	nowhere, the unit reached back over itself — and they are different faults with different
-	fixes. Without this the report said only "(end of content)", which is the claim rather
-	than the reason for it.
+	Carried for an end of stream too, since a walk can conclude it has finished in several
+	ways and each is a different fault.
 	"""
 
 	displaced: bool = False
 	"""For an error: the block is not where it was read from, because the document moved.
 
-	Different from every other refusal, because it says something about all the blocks and
-	not just this one. A document's blocks are found again by offset, and text growing or
-	shrinking earlier in the page moves every offset after it at once. See
+	About all the blocks, since a change earlier in the page moves every offset after it. See
 	`FlowController._readAgainWhereTheDocumentMoved`.
 	"""
 
@@ -463,18 +395,9 @@ class Anchor:
 def findByIdentityFirst(keys: Sequence, key) -> "int | None":
 	"""Where a key is among others, asking whether it is the same object before whether it is equal.
 
-	**Comparing two bookmarks can be a call into another process.** NVDA's bookmark for a UIA
-	document — Word, by default — is a copy of the position, and its equality is
-	`IUIAutomationTextRange.Compare`. Every linear scan here compares the key with each one ahead
-	of it, so finding the fifth block of a band asked Word four questions whose answer was no.
-	The display is worked out per cell, and on a Monarch that was several thousand calls into
-	Word per keystroke: four tenths of a second spent on `cellGlyphs` alone, and the arrowing in
-	Word that froze NVDA.
-
-	The same object is nearly always what is asked for — a row carries its block's own id, the
-	window's anchor is a block's own id — so a pass by identity answers without asking anyone.
-	Equality is still the answer when identity is not: a block read again has an id equal to the
-	old one and not the same object, and that is what the second pass is for.
+	Comparing two UIA bookmarks is a call into another process, and the same object is nearly
+	always what is asked for, so identity is tried first. Equality still answers for a block
+	read again.
 
 	:param keys: the keys to look among, in order.
 	:param key: the key to find.
@@ -492,14 +415,8 @@ def findByIdentityFirst(keys: Sequence, key) -> "int | None":
 class ByIdentity:
 	"""A small store keyed by things that compare but cannot be hashed.
 
-	A bookmark is whatever a `TextInfo` produces, and NVDA's own bookmark for a virtual
-	buffer is `textInfos.offsets.Offsets` — a plain dataclass, so it defines `__eq__` and
-	Python sets its `__hash__` to None. Keying a dictionary by one raises `TypeError`, and
-	a `BlockId` holding one cannot be a dictionary key either.
-
-	So lookup is a linear scan by equality. That is affordable precisely because a flow
-	holds so little: the window's blocks and a margin either side, a couple of dozen at
-	most, dropped by `FlowWindow.trim` as the reader moves.
+	NVDA's `textInfos.offsets.Offsets` is an unhashable dataclass, so lookup is a linear scan,
+	affordable because `FlowWindow.trim` keeps a flow to a couple of dozen blocks.
 	"""
 
 	def __init__(self) -> None:
@@ -546,9 +463,7 @@ class ByIdentity:
 class ContentNeeded(Exception):
 	"""Raised when an operation needs rows the cache does not have.
 
-	The controller answers this by asking the source for more and trying again, which is
-	how fetching stays on demand: nothing is read ahead that the window did not turn out
-	to need.
+	The controller fetches more and tries again, so nothing is read ahead of need.
 	"""
 
 	def __init__(self, edge: Edge, rows: int) -> None:
@@ -622,8 +537,7 @@ class FlowWindow:
 	def replaceBlock(self, block: RenderedBlock) -> None:
 		"""Swap a cached block for a freshly rendered one of the same identity.
 
-		Used when the block the cursor is in has changed under the reader, which is the
-		common case: only that block is re-read on the core cycle.
+		For the cursor's block, the one re-read on the core cycle.
 
 		:param block: the new rendering.
 		:raises LookupError: if no block of that identity is cached.
@@ -658,9 +572,6 @@ class FlowWindow:
 	def trim(self, marginRows: int) -> None:
 		"""Drop cached blocks further than `marginRows` from the window.
 
-		Keeps the cache to a window's worth either side, which is the whole of the memory
-		budget: on a Monarch that is at most sixteen rows outside the window.
-
 		:param marginRows: how many rows outside the window to keep.
 		"""
 		if self.anchor is None:
@@ -691,8 +602,7 @@ class FlowWindow:
 	def streamRows(self) -> list[StreamRow]:
 		"""Pack the cached blocks into rows.
 
-		A block starts on a new row and never starts a new window, which is the rule the
-		whole design rests on. Gaps are the blocks' own declared spacing.
+		A block starts on a new row. Gaps are the blocks' declared spacing.
 
 		:return: one entry per row of the cached run, in reading order.
 		"""
@@ -742,11 +652,8 @@ class FlowWindow:
 	def _bounds(self, rows: Sequence[StreamRow]) -> tuple[int, int]:
 		"""Work out which stream rows the window covers.
 
-		The result may run past either end of `rows`: past the start when content above has
-		not been fetched, past the end when the window is longer than what remains. Only
-		the start is clamped, and only when the source has said there is genuinely nothing
-		above — blank rows below content are how the end of a document reads, but blank
-		rows above content are never right.
+		May run past either end of `rows`. Only the start is clamped, and only when the source
+		says nothing is above, since blank rows above content are never right.
 
 		:return: start and end positions in `rows`, end exclusive.
 		"""
@@ -787,10 +694,7 @@ class FlowWindow:
 	def rowsAbove(self) -> int:
 		"""How many stream rows sit above the top row of the window.
 
-		What a caller wanting context above the window asks: the shortfall says only whether
-		the window is full, and a window anchored at its top row is full while having
-		nothing above it at all. Placing a control's label above it means fetching rows the
-		window does not need, so it has to be possible to ask how many are there.
+		For context above, such as a control's label, which `shortfall` cannot answer.
 
 		:return: the number of cached rows above the window, zero if it starts at the top of
 			what has been read.
@@ -805,9 +709,7 @@ class FlowWindow:
 	def rowsBelow(self) -> int:
 		"""How many stream rows sit below the bottom row of the window.
 
-		The mirror of L{rowsAbove}, and asked for the same kind of reason: whether there is
-		anything past what the reader can feel. A caller cannot work it out from the
-		shortfall, which reports only whether the window is full.
+		The mirror of `rowsAbove`.
 
 		:return: the number of cached rows below the window, zero when its bottom row is the
 			last one read.
@@ -846,9 +748,7 @@ class FlowWindow:
 	def isVisible(self, blockId: BlockId, rowIndex: int | None = None) -> bool:
 		"""Whether a block, or one row of it, is on the display.
 
-		This is the question that has to be asked before anything else when the cursor
-		moves: if the answer is yes, the window must not move at all. Landing on a heading
-		that is already on the display should not jerk the display to put it at the top.
+		Asked first when the cursor moves: if yes, the window does not move.
 
 		:param blockId: the block to look for.
 		:param rowIndex: a particular row of it, or None for any part of it.
@@ -868,8 +768,7 @@ class FlowWindow:
 	def topBlockId(self) -> BlockId | None:
 		"""The block owning the topmost content row.
 
-		This is where the cursor goes after a pan: reading onward with the arrow keys then
-		continues from the top of what is under the reader's hands, in both directions.
+		Where the cursor goes after a pan.
 
 		:return: the block, or None if the window holds no content.
 		"""
@@ -941,9 +840,8 @@ class FlowWindow:
 	def panBack(self) -> bool:
 		"""Move the window back by a whole display.
 
-		The row before the current top row becomes the new bottom row, which is what makes
-		panning back the exact inverse of panning forward: a paragraph re-entered from
-		below shows its tail at the bottom of the display.
+		The row before the current top row becomes the new bottom row, the inverse of
+		`panForward`.
 
 		:return: whether the window moved. False means the stream has ended above.
 		:raises ContentNeeded: if the rows to move onto have not been fetched.
@@ -966,14 +864,8 @@ class FlowWindow:
 	) -> bool:
 		"""Bring a row onto the display by the smallest movement that does so.
 
-		If it is already there, nothing moves at all. Otherwise it is brought on at the edge
-		it is nearest: a row above the window becomes the top row, one below it becomes the
-		bottom row. Either way the display moves by the distance to it and no further.
-
-		With `fullDisplay` it is brought on at the far edge instead, so that what lies beyond
-		it fills the display: a row below the window becomes the top row with what follows it
-		underneath, and one above becomes the bottom row with what precedes it above. That is
-		how a Monarch's own software scrolls a list, a display at a time rather than a line.
+		Already there, nothing moves; otherwise it comes on at the nearer edge. With
+		`fullDisplay` it comes on at the far edge, so what lies beyond it fills the display.
 
 		:param blockId: the block to show.
 		:param rowIndex: which of its rows must be visible.
@@ -997,22 +889,7 @@ class FlowWindow:
 	def _entryFor(self, blockId: BlockId, rowIndex: int, forward: bool) -> Entry:
 		"""Which edge of the display to bring a row on at.
 
-		Answered from where the row is, not from which way the reader is thought to be
-		going. The two agree whenever the guess is right, and the guess is the thing that
-		has gone wrong twice on hardware: a caller with no way of knowing passes `forward`
-		and gets a row that was *above* the window planted on the bottom row with a whole
-		display of what precedes it filled in behind — a display's worth of movement for a
-		reader who pressed the up arrow once.
-
-		`refreshActive` was the last such caller. It re-renders the block the cursor is in
-		and then asks for it to be shown, always forward, because the case it was written
-		for is an edit growing downward as it is typed into. On a focus move in a tree it
-		runs first and places the window, and the considered answer that follows it finds
-		the row already visible and lets the guess stand.
-
-		There is nothing to guess. A row the window has not reached yet is either before it
-		or after it, the stream says which, and the nearer edge is the smallest movement
-		that shows it — which is what this is for.
+		Answered from where the row is in the stream, not from the direction a caller guesses.
 
 		:param blockId: the block being shown.
 		:param rowIndex: which of its rows must be visible.
@@ -1062,11 +939,8 @@ class FlowWindow:
 	def stepBlock(self, forward: bool, fromBlockId: BlockId | None = None) -> BlockId | None:
 		"""The block one step from the one the cursor is in, for the line commands.
 
-		NVDA's next and previous line commands move by a reading unit, which is a block
-		here, and take the cursor with them. They act on `regions[-1]`, the last region in
-		the buffer, which on a single line display is the cursor's block and in a flow is
-		the block at the bottom of the window — so a flow must route them by identity
-		instead, which is what this supports.
+		NVDA's line commands act on `regions[-1]`, which in a flow is the bottom block, so a
+		flow routes them by identity instead.
 
 		:param forward: True for the next block, False for the previous.
 		:param fromBlockId: the block to step from. Defaults to the anchored one, which is
@@ -1090,10 +964,8 @@ class FlowWindow:
 	def _nextContent(self, rows: Sequence[StreamRow], position: int, forward: bool) -> int | None:
 		"""Find the nearest row that can hold an anchor.
 
-		A gap is not one: it belongs to a block rather than being one of its rows, so
-		anchoring to it puts the window back on that block's own first row and the pan
-		reports that it moved while showing the same thing. A one row window over a block
-		with a trailing gap would pan forever.
+		A gap is not one; anchoring to it would let a pan report moving while showing the same
+		thing.
 
 		:param rows: the stream.
 		:param position: where to start looking.
@@ -1110,9 +982,7 @@ class FlowWindow:
 	def _anchorTo(self, row: StreamRow, entry: Entry) -> bool:
 		"""Anchor the window to a stream row, skipping rows that cannot hold an anchor.
 
-		A gap is not a place the window can be anchored, because it belongs to a block
-		rather than being one of its rows. Anchoring moves to the block's own nearest row
-		in the direction of travel.
+		See `_nextContent`.
 
 		:return: whether an anchor was set.
 		"""
@@ -1170,9 +1040,7 @@ class FlowWindow:
 def assembleCells(window: FlowWindow, numCols: int) -> list[int]:
 	"""Lay the window's rows out as one flat list of cells, as the hardware wants them.
 
-	Each row is padded to the full width, which is what keeps the next block on the next
-	row: the padding is the reason a ten cell heading does not leave the paragraph after it
-	sharing its row.
+	Each row is padded to the full width, so the next block starts on the next row.
 
 	:param window: the window to draw.
 	:param numCols: the width of the band.
@@ -1197,9 +1065,8 @@ def cellSource(
 	:param position: a flat row major position within the window.
 	:return: the block and the position within it, or None if the cell is padding, a gap,
 		a blank or a status marker. Routing into any of those must do nothing.
-	:param rows: the window's visible rows, for a caller asking of every cell in turn. Working
-		them out costs a walk of the window, and asked again for each of 256 cells it was most
-		of what a frame cost. See `findByIdentityFirst`.
+	:param rows: the window's visible rows, for a caller asking of every cell in turn, so
+		they are worked out once.
 	"""
 	if rows is None:
 		rows = window.visibleRows()

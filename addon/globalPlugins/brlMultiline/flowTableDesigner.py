@@ -5,19 +5,12 @@
 
 """Where a reader says how one table is to be read, and the dialog that asks them.
 
-The commands on the band answer the questions worth answering with one keystroke while
-reading — hide this column, cut it from the other end. This is the other half: a table the
-reader comes back to every day, arranged once and remembered, with the things a keystroke
-cannot say. What to *call* a column whose heading is six lines of somebody's help text. How
-much room the description may have. Which column is repeated at the left of every page. Where
-a page begins.
+For what a keystroke on the band cannot say: column names, widths, the repeated column, and
+where a page begins, arranged once and remembered.
 
-**The arrangement is a plain object and the dialog is a shell over it.** `Arrangement` knows
-nothing about wx: it holds the columns in order, what the reader has decided about each, and
-turns that into a `flowTableLayouts.TableLayout`. Everything that decides anything is
-therefore testable without a display, which is the same split `flowTable` makes against
-`flowRender` — and the dialog is left holding only the parts that are genuinely about
-widgets.
+`Arrangement` knows nothing about wx and makes the `flowTableLayouts.TableLayout`, so every
+decision is testable; the dialog holds only the widgets. See "What a layout can hold: the
+shape of M7" in docs/design/structured-presentation-plan.md.
 """
 
 from typing import Optional
@@ -42,26 +35,11 @@ addonHandler.initTranslation()
 FOLLOW = ""
 """What a per-column control holds when the reader has decided nothing about that column.
 
-Not the same as a decision that happens to match: a column left alone changes when what it
-falls back to changes, and a column that was set does not. The control says which of the two
-it is, and names what being left alone currently means — a review found the cutting control
-reading "Wrapped" on an untouched column of a table that was cutting, which is the dialog
-describing something other than what is on the display.
+Not the same as a decision that matches: a column left alone is not written down, and follows
+what it falls back to. The control names what that currently is.
 
-**What it falls back to is not the same question for every control**, and saying "follow the
-table setting" for all of them was wrong in one place and vague in the other. A reader asked
-what the phrase meant and there was no honest answer to give:
-
-- **Cutting** falls back to a real setting — "Cut table cells that are too long, instead of
-  wrapping them", in this add-on's settings, which applies to every table — with this table's
-  saved record able to override it. So the option names the setting's scope, not "the table".
-- **Which end a heading keeps** falls back to nothing at all. There is no setting for it
-  anywhere; a heading that does not fit is cut at its end because `flowTable._asChosen` says
-  so when nothing else has. So the option there is called a default, which is what it is.
-
-Both are still worth having as an option rather than being folded into their answer, because
-the two mean different things in the record: a default is not written down and survives a
-change of mind about the setting, and a decision is written down and does not.
+- Cutting falls back to the setting for all tables, which this table's record may override.
+- Which end a heading keeps falls back to `flowTable._asChosen`'s default; there is no setting.
 """
 
 WRAPPED = "wrapped"
@@ -72,10 +50,8 @@ CUT_END = "cutEnd"
 FOLLOWS_THIS_TABLE = _("Follow this table's own setting")
 """The first cutting option's label where this table's saved record overrides the setting.
 
-Rare, and worth being right about: the record can carry a whole-table cutting decision that
-the dialog does not offer to change, so a column left alone follows *that* rather than the
-setting for all tables. Saying "the setting for all tables" there would name a source the
-answer did not come from, which is the mistake this whole set of labels was reworded for.
+The record can carry a whole-table cutting decision the dialog does not offer, and the label
+names where the answer comes from.
 """
 
 CUTTING: tuple[tuple[str, str], ...] = (
@@ -93,10 +69,8 @@ CUTTING: tuple[tuple[str, str], ...] = (
 )
 """What a column does with a cell too long for it, in the words the dialog offers.
 
-Three answers rather than two settings that interact: "cut or wrapped" and "which end" are
-one question to a reader looking at a column, and the second only means anything under the
-first. See `flowTable.OVERFLOW_STYLES` and `flowTable.KEEP_ENDS`, which are what these
-become — and `FOLLOW`, which is the fourth and the one every column starts on.
+One question, since which end only matters when cut. See `flowTable.OVERFLOW_STYLES`,
+`flowTable.KEEP_ENDS` and `FOLLOW`, where every column starts.
 """
 
 HEADER_ENDS: tuple[tuple[str, str], ...] = (
@@ -109,10 +83,7 @@ HEADER_ENDS: tuple[tuple[str, str], ...] = (
 )
 """Which end of a *heading* survives. Asked separately because they go wrong separately.
 
-A heading is always cut rather than wrapped — the pinned row is one row — so the only question
-is which end, and there is no setting for it: `flowTable._asChosen` keeps the start when
-nothing has said otherwise. See `FOLLOW`, which is why the first of these is a default and not
-a setting to follow.
+A heading is always cut, since the pinned row is one row. See `FOLLOW`.
 """
 
 # Translators: the option for repeating whichever column is drawn first on every page.
@@ -127,13 +98,8 @@ could not say that: the reader saw nothing checked and the display was repeating
 KEY_IS_NONE = _("No column repeated")
 """What the repeated-column control holds where this table repeats nothing.
 
-**The answer the control did not have.** Whether a column is repeated was a setting for every
-table at once, and which column it is was a decision per table — so a reader who wanted their
-cells to start at the left of every page on *this* table had to turn it off for all of them.
-Both belong to the table, and this is where the whole question is now asked.
-
-`flowTableLayouts.NO` in the record, which is a field that has always existed and was never
-written by this dialog. See `Arrangement.pinKey`.
+Whether and which are both this table's, so one table can repeat nothing. Recorded as
+`flowTableLayouts.NO`. See `Arrangement.pinKey`.
 """
 
 NO_LIMIT = 0
@@ -179,14 +145,8 @@ class Column:
 	def describe(self, repeated: bool = False) -> str:
 		""":return: the whole of what has been decided about this column, as one line.
 
-		The line a reader arrows onto in the list. Everything they have said about the column
-		is in it, because a list that says only the name means opening every column in turn to
-		find the one they changed. A review found two things missing from "everything": which
-		end of the heading survives, and whether this is the column repeated on every page.
-
-		**Except whether it is shown**, which is the checkbox on the line and is announced with
-		it. Saying it here as well would have the reader told "hidden" twice on every line they
-		arrow onto.
+		The list line, so the reader need not open each column. Except whether it is shown,
+		which the line's checkbox announces.
 
 		:param repeated: whether this is the column drawn again on every page after the first.
 		"""
@@ -224,10 +184,8 @@ class Column:
 class Arrangement:
 	"""Every column of one table, in the order they are drawn, and what was decided about them.
 
-	Built from the plan on the display and the layout in force, so what the reader opens is
-	what they are feeling: the columns they can see, in the order they see them, followed by
-	the ones their layout leaves out. Answers a `TableLayout`, which is the only thing that
-	leaves here.
+	The drawn columns in display order, then the ones the layout leaves out. Answers a
+	`TableLayout`.
 	"""
 
 	def __init__(
@@ -253,10 +211,8 @@ class Arrangement:
 			is a setting rather than a column and can be off.
 		:param followsThisTable: whether `following` came from this table's own saved record
 			rather than from the setting for all tables. See `FOLLOWS_THIS_TABLE`.
-		:param pinKey: whether this table repeats a column at all — `YES`, `NO`, or `FOLLOW`
-			for the setting. Held beside `keyColumn` because they are two halves of one
-			question and the dialog asks it once: *which* column, of which "none of them" is
-			an answer. See `KEY_IS_NONE`.
+		:param pinKey: whether this table repeats a column at all: `YES`, `NO`, or `FOLLOW`
+			for the setting. Asked with `keyColumn` as one question. See `KEY_IS_NONE`.
 		"""
 		self.columns = list(columns)
 		self.keyColumn = keyColumn
@@ -280,20 +236,13 @@ class Arrangement:
 		"""Build the arrangement of a table on the display.
 
 		:param plan: the column plan being drawn.
-		:param layout: the layout being read — what the reader arranged if they arranged
-			anything, and otherwise what was saved for this table. Not merely the transient
-			one: a remembered table normally has nothing arranged, and opening the designer
-			over an empty layout showed none of what was saved and then offered to save that
-			emptiness over it.
+		:param layout: the layout being read: what the reader arranged, else what was saved.
 		:param remembered: whether the table has a saved layout.
 		:param following: what a column left alone comes out as for a cell too long for it.
 		:param followsThisTable: whether that came from this table's record rather than from
 			the setting for all tables.
 		:param headings: what the table calls columns the plan does not draw, by column
-			number. **A hidden column has no place in the plan, so the plan cannot say what it
-			is called** — and it came back as "column 19", which is not a name and is no use to
-			a reader deciding whether to show it again. See `arrangeTheTable`, which asks the
-			table.
+			number, since the plan cannot say. See `_whatTheTableCallsTheRest`.
 		:return: the arrangement.
 		"""
 		layout = layout if layout is not None else flowTableLayouts.TableLayout()
@@ -345,19 +294,9 @@ class Arrangement:
 	def repeatedColumn(self) -> int:
 		""":return: the table's number for the column drawn again on every page, or 0.
 
-		The reader's own where they named one, and otherwise the first column that is drawn —
-		which is what zero means on the display and what nothing at all meant in the dialog.
-		Zero for a table that repeats no column, because the setting can be off and then there
-		is no such column to name.
-
-		**A hidden column is not repeated on every page**, whatever the record says. Naming a
-		column and then hiding it is two decisions that cannot both be met, and the planner
-		settles it by repeating the first drawn column instead — so a record naming a hidden
-		one would leave the dialog saying one thing and the display doing another. The named
-		column has to be showing to count.
-
-		Zero as well where the reader has said this table repeats nothing, which is the answer
-		that outranks a named column: `keyColumn` says *which*, and this says *whether*.
+		The reader's named column, if it is drawn (the planner repeats the first drawn column
+		otherwise), else the first drawn. Zero where the table repeats no column, which outranks
+		a named one.
 		"""
 		if self.pinKey == flowTableLayouts.NO:
 			return 0
@@ -372,21 +311,14 @@ class Arrangement:
 	def keyable(self) -> list:
 		""":return: the columns that could be the repeated one, which is the drawn ones.
 
-		A column that is not on the display cannot be the one repeated at the left of every
-		page of it, and offering it would let the reader choose something the planner would
-		quietly overrule.
+		The planner would overrule a hidden one.
 		"""
 		return [column for column in self.columns if column.shown]
 
 	def keyChoices(self) -> list:
 		""":return: the answers to which column is repeated, in the order they are offered.
 
-		Two before the columns: whichever is drawn first, which is what a table with nothing
-		decided does, and none at all.
-
-		Here rather than in the dialog because this class is what has no wx in it — the
-		question is which answers there are and what each means, and that is the same question
-		on a worksheet as on a web page.
+		Two before the columns: whichever is drawn first, and none at all.
 		"""
 		return [KEY_IS_THE_FIRST, KEY_IS_NONE, *(column.name for column in self.keyable)]
 
@@ -394,10 +326,7 @@ class Arrangement:
 	def keyChoice(self) -> int:
 		""":return: which of `keyChoices` this table's layout amounts to.
 
-		**"None" outranks a named column**, because the two answer different questions and a
-		record can hold both: `keyColumn` says which column and `pinKey` says whether there is
-		one. A table whose reader has said it repeats nothing repeats nothing, whatever column
-		was named before they said so.
+		"None" outranks a named column: `pinKey` says whether, `keyColumn` which.
 		"""
 		if self.pinKey == flowTableLayouts.NO:
 			return 1
@@ -413,12 +342,8 @@ class Arrangement:
 	def chooseKey(self, position: int) -> None:
 		"""Take the reader's answer to both halves of the question at once.
 
-		Choosing "none" is a decision about this table and is written down as one. Choosing
-		anything else leaves *whether* alone unless it was "none" — a reader moving off that
-		has just said they want one repeated, and a table whose record says nothing goes on
-		following the setting as it always did. A dialog must not decide what it was not
-		asked, and turning the repeat on for every table where somebody opened this and
-		pressed OK would be exactly that.
+		"None" is written down. Anything else leaves whether alone, unless it was "none", so a
+		table whose record says nothing still follows the setting.
 
 		:param position: which of `keyChoices` they chose.
 		"""
@@ -454,10 +379,8 @@ class Arrangement:
 	def complaint(self) -> str:
 		""":return: what is wrong with this arrangement, or "" if nothing is.
 
-		Only contradictions, and there is one to have: a floor above the ceiling is two
-		requests that cannot both be met, and the dialog closing on it would leave the reader
-		with a column drawn to neither. Said rather than silently normalised, because which of
-		the two numbers they meant is not ours to guess.
+		Only contradictions: a floor above the ceiling. Said rather than normalised, since which
+		number they meant is not ours to guess.
 		"""
 		for column in self.columns:
 			low, high = column.choice.minWidth, column.choice.maxWidth
@@ -542,15 +465,8 @@ class Arrangement:
 	def asLayout(self) -> "flowTableLayouts.TableLayout":
 		""":return: what the reader arranged, as the record that carries it.
 
-		Only what they decided, **laid over what the table was already being read with**. A
-		column they said nothing about is not written down, and the order is only written
-		down when it differs from the table's own — so a reader who opened the dialog, looked,
-		and pressed OK has changed nothing about how the table is read, which is what pressing
-		OK on a dialog they did not touch should mean.
-
-		The three fields the dialog does not offer — the row height, the table-wide cutting,
-		and whether headers are held above the band — come back out untouched rather than
-		reset, because a dialog that does not ask about something must not decide it.
+		Only what they decided, laid over the layout in force, so OK on an untouched dialog
+		changes nothing. Fields the dialog does not offer come back untouched.
 		"""
 		import dataclasses
 
@@ -607,16 +523,8 @@ def _nameOf(index: int, label: str) -> str:
 def arrangeTheTable(band) -> bool:
 	"""Put the designer up for the table on the display, and apply what comes back.
 
-	**The dialog is opened from the queue and not from the script.** A script runs inside
-	`queueHandler.pumpAll`, and a modal dialog shown there never gives the pump back: NVDA's
-	core stops turning, the watchdog reports it frozen every fifteen seconds, and the reader
-	has to end the process. This is what happened on hardware the first time the designer was
-	opened. So the script only asks for the dialog and returns; `wx.CallAfter` runs the rest
-	on the next turn of the event loop, outside the pump, which is what NVDA's own commands do
-	for every settings dialog they open and what `gui.runScriptModalDialog` was for.
-
-	What the reader is arranging is read *here*, while the table is certainly still on the
-	display, and carried to the dialog. Only the showing is put off.
+	The table is read here, and the dialog shown through `wx.CallAfter`: a modal dialog inside
+	`queueHandler.pumpAll` never gives the pump back and freezes NVDA's core.
 
 	:param band: the flow band showing the table.
 	:return: whether the designer is opening.
@@ -649,11 +557,8 @@ def arrangeTheTable(band) -> bool:
 def _whatTheTableCallsTheRest(handle, plan) -> dict:
 	""":return: the headings of the columns the plan does not draw, by column number.
 
-	A column the layout leaves out is not in the plan, so nothing on the display knows what it
-	is called — and the dialog showed it as "column 19", which is a position rather than a
-	name and tells a reader nothing about whether to show it again. So the table is asked,
-	here and once: the dialog is opened by a keystroke and this is a few cells read at the
-	reader's own row, against the alternative of measuring the whole table again.
+	A column left out is not in the plan, so the table is asked once, a few cells at the
+	reader's row, rather than measured again.
 
 	:param handle: the table, or None where nothing recognises one.
 	:param plan: the column plan being drawn.
@@ -728,12 +633,8 @@ def _stillThere(band, handle) -> bool:
 def _tableCutting(layout) -> str:
 	""":return: what this table does with a cell too long for its column, in the dialog's words.
 
-	What a column left alone comes out as, so the control can name it rather than leave the
-	reader to guess which of the other options they are already on.
-
-	The answer is the "cut table cells that are too long" setting, which is this add-on's and
-	applies to every table, unless this table's own saved record overrides it — see
-	`TableLayout.truncateOr` and `_cuttingIsThisTables`.
+	What a column left alone comes out as: the setting for all tables, unless this table's
+	record overrides it. See `TableLayout.truncateOr` and `_cuttingIsThisTables`.
 
 	:param layout: the layout the table is being read with, or None.
 	"""
@@ -756,10 +657,7 @@ def _cuttingIsThisTables(layout) -> bool:
 def _keepOrDrop(handle, layout, remembered: bool, keepIt: bool) -> None:
 	"""Save the arrangement against this table, or drop what was saved for it.
 
-	The checkbox is a state and not a button: ticking it saves, and *unticking* one that was
-	ticked means the reader does not want this table remembered any more. Skipping the save
-	on an untick left the old record in place, so the table came back laid out by a layout
-	they had just said they were finished with.
+	The checkbox is a state: ticked saves, and unticking one that was ticked drops the record.
 
 	:param handle: the table, or None where nothing can name it.
 	:param layout: what they arranged.
@@ -796,16 +694,8 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 	class TableDesignerDialog(wx.Dialog):
 		"""The columns of one table, in a checked list, with what has been decided about each.
 
-		**The list is the dialog.** Every column is one line that says everything decided
-		about it, so a reader arrows down it and hears the whole arrangement rather than
-		opening each column in turn to find the one they changed. The controls beside it act
-		on whichever line they are on.
-
-		**The checkbox on the line is whether the column is drawn.** This was a plain list
-		with a "Show or hide" button beside it, and the reader who used it said what was wrong
-		with that: the state was in the line's text and the way to change it was somewhere
-		else. A checked list says both in one place — the control announces "checked" with the
-		line, and space toggles it where the reader already is.
+		Each line says everything decided about its column, and its checkbox is whether the
+		column is drawn. The controls beside it act on the current line.
 		"""
 
 		def __init__(self, parent, arrangement: Arrangement) -> None:
@@ -815,18 +705,8 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 			self.keepIt = arrangement.remembered
 			main = wx.BoxSizer(wx.VERTICAL)
 			helper = guiHelper.BoxSizerHelper(self, sizer=main)
-			# **A checked list, and the checkbox is whether the column is drawn.** It was a
-			# plain list with a "Show or hide" button beside it, which is a worse way to say
-			# the same thing: the state lived on the line and the way to change it lived
-			# somewhere else, and a reader arrowing the list heard "hidden" in the text
-			# instead of hearing the control's own answer. A checkbox is announced with the
-			# line it is on and is toggled where it stands.
-			#
-			# A **list view** with checkboxes rather than a `wx.CheckListBox`, which is the
-			# obvious control and the wrong one: its checkboxes are drawn by wx rather than by
-			# the system, so nothing reaches a screen reader and the reader hears a list of
-			# names with no states in it. A list view's checkbox is the system's own, which
-			# NVDA reports as it reports every other one.
+			# A list view with checkboxes, not `wx.CheckListBox`, whose checkboxes wx draws
+			# itself so screen readers hear no states.
 			self.columnList = helper.addLabeledControl(
 				# Translators: the label of the list of a table's columns, each of which is
 				# ticked when that column is drawn.
@@ -897,16 +777,8 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 				wx.CheckBox(self, label=_("&No capital signs in this column")),
 			)
 			self.caseCtrl.Bind(wx.EVT_CHECKBOX, self._onCase)
-			# A choice of one column rather than a box on each, because that is the shape of
-			# the question: at most one column is repeated. A box on each column also had
-			# nothing to show for the default — the display repeated the first drawn column
-			# and no box was ticked.
-			#
-			# **And "none of them" is one of the answers**, which it was not: whether a column
-			# is repeated at all was a setting for every table at once while *which* column it
-			# is was decided per table, so a reader who wanted one table's rows to start at
-			# the left of every page had to turn the repeat off for all of them. Both halves
-			# are the table's, and both are asked here. See `KEY_IS_NONE`.
+			# One choice, since at most one column is repeated, with "none" among the answers.
+			# See `KEY_IS_NONE`.
 			self.keyCtrl = helper.addLabeledControl(
 				# Translators: the label of a choice of which column is drawn again on every page.
 				_("Column &repeated on every page:"),
@@ -930,10 +802,7 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 		def _withFollowing(offered, effective: str, named: str = "") -> list:
 			""":return: the labels for one choice, the first one naming what it comes out as.
 
-			The first option is `FOLLOW` and its own label says where the answer comes from —
-			a setting for the cutting, nothing at all for the heading; see `FOLLOW`. What is
-			added here is what it currently *is*, so the reader is not left to guess which of
-			the other options they are already on.
+			Adds to the `FOLLOW` option's label what it currently comes out as.
 
 			:param offered: pairs of value and label, `FOLLOW` first.
 			:param effective: the value that being left alone currently comes out as.
@@ -979,13 +848,8 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 		def _showChecks(self) -> None:
 			"""Tick the columns that are drawn, and untick the rest.
 
-			Every line rather than the one in hand, and after every redrawing of the text:
-			setting a line's text is not documented to leave its check alone, and the checks
-			move with the columns when one is moved up or down.
-
-			Guarded, because checking an item raises the same event the reader's own tick
-			does — and that event asks the arrangement, which redraws the lines, which checks
-			the items again.
+			Every line, after every redraw, since checks move with the columns. Guarded, since
+			checking an item raises the event a reader's tick does.
 			"""
 			self._settingChecks = True
 			try:
@@ -997,9 +861,7 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 		def _fillKeys(self) -> None:
 			"""Draw the repeated-column choice again, over the columns that are drawn.
 
-			What the answers are and what each means is the arrangement's — see
-			`Arrangement.keyChoices`, which is the half of this dialog that has no wx in it
-			and is the same on a worksheet as on a web page.
+			See `Arrangement.keyChoices`.
 			"""
 			self.keyCtrl.Set(self.arrangement.keyChoices())
 			self.keyCtrl.SetSelection(self.arrangement.keyChoice)
@@ -1036,10 +898,7 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 		def _onChecked(self, event) -> None:
 			"""Show or hide the column whose box was just ticked or unticked.
 
-			The one answer that can be refused: the last showing column is not something to
-			take away, because a table of no columns is not a layout but a blank display. The
-			tick goes back and the reader is told why, rather than the box staying clear over
-			a column that is still drawn.
+			Hiding the last shown column is refused: the tick goes back and the reader is told.
 			"""
 			if self._settingChecks:
 				return
@@ -1103,9 +962,7 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 		def _onOk(self, event) -> None:
 			"""Close, unless the reader asked for two things that cannot both be met.
 
-			Said rather than silently normalised: a floor above a ceiling is not a typo that
-			can be read through, and closing on it would leave the column drawn to neither
-			number.
+			See `Arrangement.complaint`.
 			"""
 			complaint = self.arrangement.complaint()
 			if not complaint:

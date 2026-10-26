@@ -5,40 +5,20 @@
 
 """Saying what NVDA says, in shapes rather than in letters.
 
-NVDA already writes short strings to stand for roles and states: "btn" for a button, "cbo" for
-a combo box, three cells for a checkbox. They are abbreviations because a braille line has
-nothing else to spend — and a display that can raise individual pins does. The cell slot a
-letter sits in is three pin columns by four, and nothing says those twelve pins have to spell.
+A glyph is a drawing in a cell slot, three pin columns by four, standing over the text NVDA
+writes for a role or state ("btn", "cbo"). It may be narrower than that text, giving cells back
+to the line; `compress` keeps routing and the cursor true when it does.
 
-So a glyph is a **drawing standing over the text it replaces**, and it may be narrower than
-that text. A shape the same width changes no layout at all: the cell after it starts exactly
-where it did. A shape one cell wide over "btn" gives two cells back to the line, which is the
-whole point — a Monarch has thirty-two cells and a DotPad twenty, and NVDA spends three of them
-saying "button" before the button's name. Moving everything after it is handled rather than
-avoided: `compress` shifts the position maps with the cells, so routing and the cursor stay
-true, and every cell of the run keeps pointing at the character the run started on — exactly
-what NVDA already does, where a routing press anywhere on "btn Search" reaches the button.
+In order of use:
 
-Three things live here, and the order they are in is the order they are used.
+1. The notation: how a shape is written down.
+2. The vocabulary: what each shape means and what text it stands in for. The driver never
+   learns a symbol's name.
+3. The fitting: making an entry drawable by a driver against the reader's braille table.
 
-1. **The notation.** How a human writes a shape down.
-2. **The vocabulary.** What each shape *means*, and what text it stands in for. The driver is
-   handed patterns and never learns a symbol's name, deliberately — so an Excel formula marker
-   and a Word checkmark never touch the driver file — which means the naming has to happen
-   somewhere, and this is where.
-3. **The fitting.** Turning a vocabulary entry into something a particular driver can draw
-   against a particular reader's braille table.
-
-**The fallback is not extra.** It is what the add-on writes into the ordinary cell
-buffer, so one composed frame serves a Monarch and a Focus 80 alike; it is the key the driver
-matches on, which is what scopes a glyph's life to the content it belongs to; and it is what a
-caret overrides, because a reader needs the caret more than the symbol. Making it NVDA's own
-wording is one less thing to keep in step: the text is right whether or not the drawing
-happens.
-
-Knows nothing about which objects get which symbol. `glyphFlow` is the module that answers
-that, by matching what NVDA actually wrote on the line; this file is deliberately usable from
-any other answer to it as well.
+The fallback is what goes in the ordinary cell buffer, what the driver matches on, and what a
+caret overrides. Which objects get which symbol is `glyphFlow`'s business. See "Cell glyphs" in
+docs/design/monarch-driver-plan.md.
 """
 
 from typing import Callable, NamedTuple, Optional
@@ -80,13 +60,8 @@ CELL_DOTS = {
 }
 """Where each dot of a glyph's cell slot is, as (column, row).
 
-**Dots 1 to 8 are exactly braille's own**, and 9 to 12 continue the same rule into the column
-braille leaves blank: down the left, down the middle, down the right, with the fourth row last
-in each. There is no standard for a three column tactile cell to follow, so this is ours — and
-starting from the numbering every braille reader already has.
-
-Twelve dots is the whole slot at either pitch: `slotSize` is the cell stride by the cell's dot
-rows, which is 3 by 4 whether the display is set to 8 rows or 10.
+Dots 1 to 8 are braille's own; 9 to 12 continue the rule into the third column, fourth row
+last. Twelve dots is the whole slot at either pitch.
 """
 
 CELL_HEIGHT = 4
@@ -98,9 +73,7 @@ CELL_WIDTH = 3
 GROUP = "|"
 """What separates one cell's dots from the next in a multi cell shape.
 
-Written per cell rather than numbering a nine by four shape from 1 to 36, because a reader
-writing one of these is thinking one cell at a time and 1 to 12 is the vocabulary they already
-have. "1,2,3|4,5,6" is two cells, each said in its own terms.
+Each cell is numbered 1 to 12 on its own: "1,2,3|4,5,6" is two cells.
 """
 
 
@@ -116,52 +89,40 @@ class Glyph(NamedTuple):
 	says: str = ""
 	"""The text it stands in for, translated through the reader's own braille table.
 
-	This or `fallbackDots`, never both. Use this for anything NVDA already has wording for —
-	"btn", "cbo", a state abbreviation — because then the fallback is right by construction and
-	the drawing is the only thing this file is deciding.
+	This or `fallbackDots`, never both. Use this wherever NVDA has wording, so the fallback is
+	right by construction.
 	"""
 
 	fallbackDots: str = ""
 	"""The cells it stands in for, as dot numbers, where no wording exists.
 
-	Braille's own dots 1 to 8 only: this is an ordinary braille cell, not a glyph slot, so 9 to
-	12 have nowhere to be and are refused. Written in the same notation as `dots` so that the
-	relationship between the two is legible — a focus indicator's fallback is its shape with
-	the third column taken away, and said like this you can see that.
+	Dots 1 to 8 only, since this is an ordinary braille cell; 9 to 12 are refused.
 	"""
 
 	stands: str = ""
 	"""What NVDA calls the thing this is drawn for: "Role.BUTTON", "State.CHECKED".
 
-	Documentary. Nothing reads it to decide anything, and it is here because a vocabulary
-	nobody can check against its source is a vocabulary that drifts from it — the checkbox
-	entries were written against a guess at NVDA's wording before anyone looked.
+	Documentary, so the vocabulary can be checked against NVDA.
 	"""
 
 	describes: str = ""
 	"""What the shape is meant to depict, in a phrase.
 
-	Said aloud when a reader points at the catalogue, and printed beside the shape in
-	`listing`. A shape whose description is hard to write is usually a shape that will be
-	hard to recognise, so writing it is part of choosing it.
+	Said when a reader points at the catalogue, and printed in `listing`.
 	"""
 
 	carries: str = ""
 	"""The braille cell to leave in the buffer where the text was, when this compresses.
 
-	Dot numbers, one cell. It is what a display without glyphs would show and what the
-	driver matches on, so something related to the text is better than something arbitrary:
-	the default is the first cell of the text itself, which turns "btn" into "b" if the
-	drawing ever fails to happen. Set it where a better single cell exists.
+	Dot numbers, one cell. Defaults to the text's first cell, so "btn" becomes "b" if the
+	drawing fails. See `_carrier`.
 	"""
 
 	@property
 	def width(self) -> int:
 		""":return: how many cells the shape is drawn in.
 
-		This against the width of the text is what decides whether the glyph compresses. One
-		group of dots over three cells of text gives two cells back to the line; three groups
-		over three cells is drawn in place and gives back nothing but legibility.
+		Narrower than its text, the glyph compresses; see `fittedGlyph`.
 		"""
 		return len(self.dots.split(GROUP))
 
@@ -208,21 +169,8 @@ def _numbers(group: str) -> "list[int]":
 
 # --- The vocabulary -----------------------------------------------------------------------
 #
-# Named because the driver never learns a name. It is handed a pattern and a run of cells, so
-# the decision that a solid square means "the focus is here" has to be written down somewhere,
-# and a file the add-on and its app modules can all read is the place.
-#
-# Every entry is a pair for a reason. The shape is what a pin display draws; the fallback is
-# what every other display shows, what the driver matches on to know the symbol still belongs
-# to the content under it, and what a caret overrides. An entry with a good shape and a poor
-# fallback is an entry that reads badly on most hardware.
-#
-# **The shapes below are first drafts and the fallbacks are not.** A fallback is right or wrong
-# and can be checked here: it either is what NVDA writes or it is not, and where it is not the
-# glyph simply does not draw and the reader gets the text. A shape is only right if a finger
-# says so, and no amount of looking at it settles that. They are set out one line each so that
-# revising one after a hardware run is editing that line, which is the whole reason the
-# vocabulary is a table of numbers rather than code.
+# Each entry pairs a shape with its fallback. The fallbacks must match what NVDA writes, or the
+# glyph does not draw; the shapes are drafts, to be judged by touch, one line each to revise.
 
 FOCUS = Glyph(
 	dots="1,2,3,4,5,6,9,10,11",
@@ -237,13 +185,8 @@ FOCUS = Glyph(
 	OOO
 	...
 
-A solid three by three with the fourth row clear. It is easy to find precisely because it is
-square, and square needs three columns, which braille's dots 3678 cannot give.
-
-Drawn by `flowControl._markLineFocus` rather than found in text: the square goes on the first
-cell of the mark and the second is left blank, as Monarch does it. The fallback is
-`flowIndent.FOCUS_CELL`, the cell the band writes there, because that is what the driver
-matches on. Where nothing draws, the mark stays dots 3678 twice.
+Drawn by `flowControl._markLineFocus` on the mark's first cell, the second left blank. The
+fallback is `flowIndent.FOCUS_CELL`; where nothing draws, the mark stays dots 3678 twice.
 """
 
 PENDING = Glyph(
@@ -259,22 +202,13 @@ PENDING = Glyph(
 	..O
 	..O
 
-A bar against the right hand edge of the cell, which is the direction the missing content is
-in. It was a low block, and that put it in a family with the edit field's baseline and the
-separator's rule — three low horizontals a finger has to count rows to tell apart.
-
-The fallback is `flow.PENDING_CELL` — dots 7 and 8, the mark the flow already writes — so this
-costs nothing to adopt and changes nothing for a display that cannot draw it.
+A bar at the right edge, the direction the missing content is in. The fallback is
+`flow.PENDING_CELL`.
 """
 
 # --- Controls, over the abbreviations NVDA writes for them ------------------------------------
 #
-# The saving is the point. "mnuitem" is seven cells of a twenty cell DotPad line before the menu
-# item has a name; drawn, it is one. The shapes are meant to look like what they stand for, on
-# the grounds that a reader who has met a hollow square and a hollow circle in the same places a
-# sighted user meets a checkbox and a radio button has one less arbitrary thing to memorise.
-#
-# The system across them, which matters more than any single shape:
+# The system across the shapes:
 #
 #   hollow means off or empty, filled means on or checked
 #   a square is a checkbox, a circle is a radio button, a slab is a button
@@ -321,15 +255,8 @@ CHECKED = Glyph(
 	OOO
 	OOO
 
-**The fallback is not text.** NVDA writes this state as three literal braille patterns rather
-than as an abbreviation — a box drawn in dots 1 to 8, which is the same idea this is, done with
-what a braille line has. So the fallback is given as dots, exactly, and does not depend on the
-reader's table at all.
-
-Which is also the argument for the glyph. NVDA's box has braille's blank column running through
-it, so a filled one reads `O.OO.O` across the middle and a finger meets a broken surface. Fill
-the gaps and it is a solid block; and drawn in one cell instead of three it costs two cells
-less.
+The fallback is dots, since NVDA writes this state as three braille patterns rather than as
+text.
 """
 
 UNCHECKED = Glyph(
@@ -344,10 +271,6 @@ UNCHECKED = Glyph(
 	O.O
 	O.O
 	OOO
-
-Solid against hollow is the difference between a surface and an edge, which is the one
-distinction touch makes instantly and never doubts. A tick drawn inside a three by four cell
-would be two dots a finger cannot separate from the box around them.
 """
 
 HALF_CHECKED = Glyph(
@@ -405,10 +328,8 @@ RADIO = Glyph(
 	.O.
 	...
 
-Three rows rather than four, so that it is not the circle `NOT_PRESSED` uses. NVDA reports a
-radio button's state with the *checkbox* patterns, so a selected radio reads as a diamond
-followed by a solid square — which is NVDA's inconsistency rather than this file's, and is
-worth a finger before anything is done about it.
+Three rows, so it is not the circle `NOT_PRESSED` uses. NVDA reports its state with the
+checkbox patterns.
 """
 
 EDIT = Glyph(
@@ -437,8 +358,6 @@ PASSWORD = Glyph(
 	O.O
 	...
 	OOO
-
-Six cells saved, which is nearly a third of a DotPad line.
 """
 
 COMBO = Glyph(
@@ -509,9 +428,6 @@ MENU_ITEM = Glyph(
 	OOO
 	O..
 	...
-
-Seven cells for one. The largest saving in the vocabulary, and menus are where a braille line
-runs out of room fastest.
 """
 
 TABLE = Glyph(
@@ -564,9 +480,7 @@ VISITED_LINK = Glyph(
 )
 """A link already followed.
 
-The mirror of `LINK`. Two opposite diagonals is about the largest difference two shapes this
-sparse can have, which is what a pair distinguished by one fact rather than by kind wants: the
-rising stroke is going somewhere and the falling one is coming back.
+The mirror of `LINK`: the falling stroke is coming back.
 """
 
 HEADING_1 = Glyph(
@@ -589,11 +503,7 @@ HEADING_3 = Glyph(
 )
 """The heading family: one roof, and the level counted along the bottom.
 
-Three levels and not six, because there are three places along the bottom row and counting
-dots is something a braille reader does without thinking. A deeper heading keeps NVDA's own
-"h4" and is the better for it: level four is rare, and a shape nobody meets often enough to
-learn is worse than three cells that spell it.
-
+Three levels, one per place along the bottom row. A deeper heading keeps NVDA's "h4".
 """
 
 SEPARATOR = Glyph(
@@ -608,8 +518,6 @@ SEPARATOR = Glyph(
 	...
 	OOO
 	...
-
-Four cells saved on a thing that carries no information beyond being there.
 """
 
 WIDE_BUTTON = Glyph(
@@ -625,10 +533,7 @@ WIDE_BUTTON = Glyph(
 	O.......O
 	.OOOOOOO.
 
-Here because the choice between the two is real and belongs to the reader rather than to this
-file. Compressing buys room and costs the certainty of three familiar letters; drawing in place
-buys legibility and costs nothing. Which is better is a question about a display's width and a
-reader's habits, and both answers are one line long.
+The alternative to compressing, for a reader who would rather keep the cells.
 """
 
 VOCABULARY = {
@@ -679,12 +584,8 @@ ALPHABET = {
 }
 """The uncontracted braille alphabet, for drawing an abbreviation in `listing`.
 
-**Only for the listing, and only to be looked at.** What actually goes on the display is the
-reader's own output table, asked for at the moment of use — see `fittedGlyph`, and the rule
-about a contracted table making a wording shorter than the shape drawn over it. This is here so
-that the vocabulary can be written out and studied without a running NVDA, and because a
-listing that showed a glyph and left the reader to imagine what it replaced was not showing
-them the thing they needed to compare.
+Only for the listing, which runs without NVDA. The display uses the reader's own table; see
+`fittedGlyph`.
 """
 
 DIGITS = {
@@ -693,10 +594,7 @@ DIGITS = {
 }
 """The digits, which braille writes as the first ten letters after a numeric indicator.
 
-Here for the same reason as `ALPHABET` and with the same warning: the listing draws with it so
-that a vocabulary can be studied without a running NVDA. A heading is the entry that needs it —
-NVDA writes "h1", and drawing that as one letter and a blank made the listing report a saving
-of one cell where the real one is two.
+For the listing only, as `ALPHABET`; headings need it.
 """
 
 NUMBER = "3,4,5,6"
@@ -713,15 +611,8 @@ fitted to each entry, because the point of the column is that a reader can run d
 def listing(entries: Optional[dict] = None) -> str:
 	"""The vocabulary written out, each glyph beside the braille it replaces.
 
-	**Both halves on the same lines.** A shape on its own cannot be judged: the question is
-	never "is this a good drawing of a button" but "is this better under a finger than the
-	three cells it is taking the place of", and that is a comparison, which needs the two
-	things next to each other. An earlier version of this printed them one after the other and
-	printed nothing at all for a wording, which left the more important half to be imagined.
-
-	The cell counts and the braille for anything given as a wording are what an uncontracted
-	table produces. A contracted one can be shorter, and where it is shorter than the shape the
-	glyph is simply not drawn; see `fittedGlyph`.
+	Both on the same lines, for comparison. Wordings are drawn uncontracted; a contracted
+	table can be shorter, and then the glyph is not drawn. See `fittedGlyph`.
 
 	:param entries: what to write out, by name. None for the whole vocabulary.
 	:return: the listing, as plain text.
@@ -760,9 +651,7 @@ def _written(glyph: Glyph) -> str:
 def _replacedRows(glyph: Glyph) -> "list[str]":
 	"""Draw what a glyph is standing in place of, whichever way it was written.
 
-	Two columns per cell rather than three, because that is what braille has — and seeing the
-	blank column missing from the picture is most of the argument for drawing the shape
-	instead. NVDA's checkbox is a box with a gap running through its middle.
+	Two columns per cell, as braille has.
 
 	:param glyph: the vocabulary entry.
 	:return: one string per dot row.
@@ -782,9 +671,8 @@ def _replacedRows(glyph: Glyph) -> "list[str]":
 def _spelled(says: str) -> "list[str]":
 	""":return: one cell's dots per cell a wording takes, for the listing to draw.
 
-	A numeric indicator goes in front of a run of digits, which is what braille does and what
-	makes "h1" three cells rather than two. Anything the alphabet has no entry for is drawn as a
-	blank cell rather than dropped, so the count still says how many cells the wording costs.
+	A numeric indicator goes before a run of digits. Anything without an entry is a blank cell,
+	so the count stays true.
 
 	:param says: the wording, as NVDA writes it.
 	"""
@@ -812,23 +700,8 @@ LINE = CELL_HEIGHT + 2
 def catalogue(newBuffer: Callable, width: int, height: int, entries: Optional[dict] = None):
 	"""Lay every symbol out on the panel so a finger can compare them.
 
-	**Shapes cannot be chosen by looking at them.** A drawing that is obvious on a screen can be
-	a smudge under a fingertip, two that look quite different can feel the same, and there is no
-	way to find that out except by putting them side by side and running a hand along them. So
-	the vocabulary comes with a way to feel all of it at once, and revising an entry afterwards
-	is one line.
-
-	**Each shape is followed by the braille it replaces**, so a hand running along the panel
-	reads the symbol and then the word it stands for, and nothing has to be pointed at to find
-	out what it was. That is also the comparison the catalogue is for: not whether a shape is a
-	good drawing, but whether it is better under a finger than the cells it is taking the place
-	of.
-
-	A blank slot after each pair, because the question is whether one shape is another and
-	shapes that touch each other answer it wrongly.
-
-	It holds what it holds. Twenty-two symbols with their braille beside them do not fit on a
-	Monarch, so this stops when the panel is full and `listing` is what has all of it.
+	Each shape is followed by the braille it replaces, then a blank slot. Stops when the panel
+	is full; `listing` has all of it.
 
 	:param newBuffer: makes a blank buffer of a given width and height.
 	:param width: the panel's width in pins.
@@ -876,10 +749,7 @@ def _stamp(buffer, rows: "list[str]", x: int, y: int) -> None:
 def _spaced(rows: "list[str]") -> "list[str]":
 	"""Space braille out to the pitch a glyph is drawn at.
 
-	A braille cell is two dot columns where a glyph slot is three, so a run of cells drawn two
-	columns apart would sit at a different pitch from the shape beside it and read as a
-	different kind of thing. This puts each cell in its own slot, which is where the display
-	would put it.
+	Each two column braille cell goes in its own three column slot, as the display puts it.
 
 	:param rows: the braille, two columns per cell.
 	:return: the same, three columns per cell.
@@ -895,10 +765,6 @@ def _spaced(rows: "list[str]") -> "list[str]":
 
 def _namer(placed: "list[tuple]") -> Callable:
 	"""Build the lookup from a point of the catalogue back to the symbol there.
-
-	Which is most of what makes the catalogue usable: a reader running a hand along a row of
-	shapes wants to know which one they have just met, and asking them to count is asking them
-	to hold the order in mind while judging the shapes.
 
 	:param placed: (name, glyph, x, y, width) per symbol drawn.
 	:return: a function taking a point and returning what is there.
@@ -918,14 +784,8 @@ def _namer(placed: "list[tuple]") -> Callable:
 def supported(driver) -> bool:
 	""":return: whether this display has anything to gain from glyphs.
 
-	A display whose cells are already gapless reports the same size for both, and a glyph on it
-	would be a braille cell drawn the long way round. Asked rather than assumed, so the answer
-	for hardware nobody here has is the honest one.
-
-	Compared per side rather than as tuples. `(3, 4) > (2, 8)` is true of tuples and false of
-	pins: a display whose cell is narrower but taller than the slot it reports would have been
-	told it had room it does not have, and a shape drawn into it would be clipped. Every side
-	has to be at least as big, and one of them bigger, or there is nothing to gain.
+	True when the slot is at least the braille cell's size on every side and bigger on one.
+	Compared per side, since `(3, 4) > (2, 8)` is true of tuples and false of pins.
 
 	:param driver: the live driver, duck typed and never imported.
 	"""
@@ -961,18 +821,9 @@ class Fitted(NamedTuple):
 def fittedGlyph(driver, glyph: Glyph, translate: Optional[Callable] = None) -> Optional[Fitted]:
 	"""Make a vocabulary entry ready for this driver and this reader's braille table.
 
-	**The text is translated now, not when the vocabulary was written.** "btn" is three cells in
-	one table and might be two in another, and both what the glyph replaces and what the driver
-	matches on have to come from the table in force.
-
-	Then the shape's own width decides what happens. Narrower than the text and it compresses:
-	one cell goes in the buffer, the rest of the room goes back to the line, and `compress` is
-	what keeps the position maps true. The same width and it is drawn in place over the text,
-	which changes no layout at all.
-
-	Wider than the text is refused. A shape needs the cells it is drawn in, and taking one it
-	was not given would paint over whatever came next — a symbol and half a letter, which is
-	neither.
+	The text is translated now, through the table in force. A shape narrower than it
+	compresses (see `compress`); the same width is drawn in place; wider is refused, as it
+	would paint over what follows.
 
 	:param driver: the live driver, for its `newGlyph` factory.
 	:param glyph: the vocabulary entry.
@@ -985,11 +836,8 @@ def fittedGlyph(driver, glyph: Glyph, translate: Optional[Callable] = None) -> O
 def fittedOver(driver, glyph: Glyph, text: "list[int]") -> Optional[Fitted]:
 	"""Fit a glyph over the cells that are actually on the line.
 
-	The same rule as `fittedGlyph` and the same result, for the caller that has already found
-	the cells rather than needing them translated. `glyphFlow` is that caller: it locates the
-	wording in what NVDA wrote and takes the cells from the region's own buffer, which is truer
-	than translating the wording a second time — a contraction, a capital sign or a table that
-	renders the abbreviation unexpectedly is then accounted for by construction.
+	As `fittedGlyph`, for a caller such as `glyphFlow` that already has the cells from the
+	region's buffer, which accounts for contractions by construction.
 
 	:param driver: the live driver, for its `newGlyph` factory.
 	:param glyph: the vocabulary entry.
@@ -1019,8 +867,7 @@ def fittedOver(driver, glyph: Glyph, text: "list[int]") -> Optional[Fitted]:
 def _carrier(glyph: Glyph, text: "list[int]") -> int:
 	""":return: the one cell a compressed glyph leaves behind.
 
-	The entry's own choice where it made one, and otherwise the first cell of the text — so a
-	drawing that fails to happen leaves "b" where "btn" was rather than something meaningless.
+	The entry's own choice, else the text's first cell.
 
 	:param glyph: the vocabulary entry.
 	:param text: the cells it stands over.
@@ -1043,18 +890,9 @@ def compress(
 ) -> tuple:
 	"""Put a fitted glyph into a line, moving everything after it and keeping routing true.
 
-	This is the only fiddly part of compressing, and it is fiddly because a braille line is
-	three lists that have to agree. The cells are what the display shows. `brailleToRaw` says
-	which character each cell came from, and is what a routing press is answered through.
-	`rawToBraille` says where each character went, and is what puts the cursor in the right
-	place. Shorten the cells without moving the other two and a routing key in the second half
-	of the line reaches the wrong word — which is the kind of fault a reader meets long after
-	the change that caused it and cannot possibly attribute.
-
-	Every cell of the run keeps pointing at the character the run started on, which is what
-	makes a press anywhere on the symbol reach the object: the same thing NVDA already does for
-	the abbreviation this replaces, where a routing key on any cell of "btn Search" arrives at
-	the button.
+	The cells and both position maps move together, or routing in the rest of the line reaches
+	the wrong word. Every cell of the run points at the run's first character, as NVDA does for
+	"btn".
 
 	:param cells: the line's cells.
 	:param rawToBraille: braille position per character.
@@ -1079,8 +917,7 @@ def compress(
 def movedPosition(position: int, at: int, replaces: int, into: int) -> int:
 	"""Where a braille position ends up once a run has been replaced by fewer cells.
 
-	Also for a cursor position, which a caller holds separately and which would otherwise be
-	left pointing past the end of a line that just got shorter.
+	Also for a cursor position the caller holds separately.
 
 	:param position: the position before.
 	:param at: the cell the replaced run starts on.
@@ -1125,8 +962,7 @@ def _fallbackCells(glyph: Glyph, translate: Optional[Callable]) -> "list[int]":
 def _readersTable(text: str) -> list:
 	""":return: text in the reader's own output table.
 
-	Imported where it is used rather than at the top, because this module is about shapes and
-	should not drag the graphics stack in behind it for the one line it borrows.
+	Imported here, to keep the graphics stack out of this module's imports.
 
 	:param text: what to translate.
 	"""
