@@ -280,14 +280,8 @@ class DeviceBandRects:
 def deviceBandRects(bands: list[tuple[int, int, int]], numCols: int) -> list[DeviceBandRects]:
 	"""Work out which cells of a composite display each physical display owns.
 
-	The virtual braille display driver stacks displays vertically and reports a rectangle as
-	wide as its widest member, so a narrower member has columns on its rows that reach no
-	hardware. Those dead columns are the hazard: NVDA flowing one buffer across the whole
-	rectangle would put text into them, and it would simply vanish under the reader's fingers
-	with nothing to say where it went.
-
-	This is the arithmetic behind masking them. Each band comes back split into the part that
-	can be shown and the part that has to be claimed and left blank.
+	A narrower member has dead columns on its rows, where text would silently vanish. Each band
+	comes back split into the part that can be shown and the part to claim and leave blank.
 
 	:param bands: each display's (rowStart, numRows, numCols), in stacking order, top first.
 	:param numCols: the width of the composite, which is the widest member's width.
@@ -367,13 +361,8 @@ def validateRects(rects: list[SegmentRect], numRows: int, numCols: int) -> None:
 def validateCoverage(rects: list[SegmentRect], numRows: int, numCols: int) -> None:
 	"""Check that a set of rectangles covers a display exactly once over.
 
-	This is the rule panels are held to, and it is stricter than L{validateRects}. Every
-	cell has to belong to exactly one panel, so that the question "who owns this cell" always
-	has an answer. Composition depends on it: a new claim can then only take cells from a
-	panel that can be named and evicted, rather than quietly landing on unowned ground.
-
-	Segments within a panel are not held to this rule, so a panel may still leave blank
-	cells between its segments. Those cells belong to the panel that chose to leave them.
+	The rule panels are held to, stricter than `validateRects`, so a new claim can only take
+	cells from a panel that can be named and evicted. Segments within a panel may leave gaps.
 
 	:param rects: the rectangles to check.
 	:param numRows: number of rows on the display.

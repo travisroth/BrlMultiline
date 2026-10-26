@@ -5,28 +5,10 @@
 
 """Turning numbers into a tactile bar chart.
 
-Phase 4 of the tactile graphics plan, and the first real content the graphics mode has been
-given. Charts rather than pictures for a reason the plan states plainly: at this resolution the
-panel is a diagram surface and not a screen, so it should be fed from structure rather than
-from pixels — and a chart drawn from live application data is something no other tool does.
-
-**It is drawn at the size of the space it is going in.** A photograph arrives at whatever size
-it was and has to be compressed to fit; a chart is composed for its rectangle, so the fitted
-view is the natural one and zooming is for looking closer at a bar rather than for discovering
-what the drawing was. That is why `GraphicsMode.fitScale` never magnifies.
-
-**A bar answers for itself.** The drawing carries a lookup from a source dot back to the bar
-under it, so a routing press inside the chart says which bar and what it is worth. That is the
-whole point of a chart on a display that can be pointed at, and it is the reason `Drawing`
-takes a `describeAt` rather than only a name: without it a reader can feel that one bar is
-taller than another and never learn what either of them is.
-
-The bar chart itself. The vocabulary it shares with the other chart types — the value to row
-mapping, the writing helpers, how many rows the writing costs — is in `chartDraw`, and the
-types that read numbers out of an application are in `chartSource`.
-
-This module knows nothing about NVDA or about Excel. It takes labels and numbers and a way to
-make a buffer, and gives back a drawing.
+Composed for its rectangle, so `GraphicsMode.fitScale` never magnifies it. A routing press on
+a bar names it and its value, through the drawing's `describeAt`. Shared drawing is in
+`chartDraw`, and reading numbers from an application is `chartSource`. Knows nothing of NVDA
+or Excel. See docs/design/tactile-graphics-plan.md, phase 4.
 """
 
 from typing import Callable, NamedTuple, Optional
@@ -60,9 +42,8 @@ __all__ = [
 MIN_SLOT = 2
 """Pins per bar, including the gap after it, below which a chart is refused.
 
-One pin of bar and one of gap is the least that can be told apart by a finger. Fewer bars drawn
-larger would be a different chart from the one asked for, and silently charting the first
-twenty of sixty values would be worse than saying it does not fit.
+One pin of bar and one of gap, the least a finger tells apart. More bars than fit are refused,
+not silently dropped.
 """
 
 class Bar(NamedTuple):
@@ -91,12 +72,8 @@ def barChart(
 ) -> Drawing:
 	"""Draw a bar chart to fill a rectangle exactly.
 
-	**Labels under the bars and values over them**, where there is room for both. Bars alone
-	say which is larger and nothing else: a reader can feel the shape of the data and has to
-	point at every bar to learn what any of it is. Written on, the chart is readable in one
-	pass — sweep the bottom for the categories, the top for the numbers, the middle for the
-	shape — and pointing becomes the way to ask about one bar rather than the only way to
-	read the chart at all.
+	Labels under the bars and values over them where there is room, so the chart reads in one
+	pass and pointing asks about one bar.
 
 	:param newBuffer: makes a blank buffer of a given width and height.
 	:param width: the rectangle's width in pins.
@@ -112,8 +89,7 @@ def barChart(
 		# Translators: reported when a chart was asked for with no numbers to chart.
 		raise ChartRefused(_("There are no numbers here to chart"))
 	if not all(isFinite(entry.value) for entry in series):
-		# Refused rather than skipped: a bar carries its own label, so leaving one out would
-		# move every label after it and quietly rename the bars.
+		# Refused rather than skipped, which would shift every later label.
 		# Translators: reported when a chart was asked for over a cell holding an error, an
 		# overflow or a division by zero.
 		raise ChartRefused(_("There is a value here that is not a number"))
@@ -165,9 +141,7 @@ def _reframer(
 ) -> Callable:
 	"""Build the closure that draws this chart again for some of its bars.
 
-	Zooming a bar chart magnifies it into fatter bars with their labels smeared; drawn again it
-	is fewer bars, each wider, each with room for a label that is still braille. Forty bars are
-	two pins each and unlabelled; ten of them are nine pins each and named.
+	Drawn again rather than magnified: fewer, wider bars with room for braille labels.
 
 	:param newBuffer: makes a blank buffer.
 	:param width: the rectangle's width in pins.
@@ -175,9 +149,7 @@ def _reframer(
 	:param series: all the numbers.
 	:param translate: turns a string into braille cells.
 	:return: a function taking where the window starts and how wide it is as fractions,
-		and the size to compose for. The size comes with the window because the
-		rectangle can change under a figure that is already up: toggling the braille
-		line beside the drawing is a command.
+		and the size to compose for, since the rectangle can change under a figure.
 	"""
 
 	def redraw(offset: float, span: float, pinWidth: int, pinHeight: int) -> Optional[Drawing]:
@@ -193,13 +165,7 @@ def _reframer(
 def _scaleFor(series: "list[Series]", top: int, bottom: int) -> Scale:
 	"""Fit one scale to the bars and to zero.
 
-	**One scale, and zero is one of the numbers it has to hold.** Anything else and the chart
-	lies. It used to place the zero line by the whole low-to-high range and then draw each bar
-	as a fraction of the largest magnitude, which are two different scales whenever the
-	positive and negative extremes differ: a chart of +25 and −75 put zero a quarter of the way
-	down, correctly, and then drew the +25 bar as a third of that quarter rather than filling
-	it. The reader felt a bar an eighth of the height of its neighbour where the numbers say a
-	third, and nothing on the panel could have told them.
+	One scale for the bars and the zero line, or bar heights would not be proportional.
 
 	:param series: what is being charted.
 	:param top: the first row the bars may occupy.
@@ -212,11 +178,7 @@ def _scaleFor(series: "list[Series]", top: int, bottom: int) -> Scale:
 def _baselineRow(scale: Scale) -> int:
 	"""Work out which row zero sits on.
 
-	The bottom of the bar area where nothing is negative, which is the ordinary case and
-	the one worth being exact about: a bar then grows up from the floor and its height is
-	the whole of what the reader has to compare. With negatives present the zero line moves
-	up into the area so bars can grow downwards from it, at the cost of the floor no longer
-	meaning zero — which is why it is only done when the numbers demand it.
+	The floor where nothing is negative; otherwise raised so bars can grow down from it.
 
 	:param scale: the chart's scale, which already holds zero.
 	:return: the row zero is drawn on.
@@ -253,12 +215,8 @@ def _layout(series: "list[Series]", slot: int, height: int) -> "list[Bar]":
 def _draw(buffer, bars: "list[Bar]", scale: Scale, baseline: int) -> None:
 	"""Put the bars and the zero line on the buffer.
 
-	The zero line is drawn first and the bars over it, so a bar of zero still shows as the
-	line passing through its slot rather than as a gap. A reader sweeping the baseline
-	should feel a continuous floor with bars standing on it, not a dotted one.
-
-	Every bar's tip comes from the same scale the baseline did, so the rows between them are
-	the rows the value is worth. See `_scaleFor`.
+	The zero line first, so a bar of zero is a continuous floor rather than a gap. Tips use the
+	baseline's scale; see `_scaleFor`.
 
 	:param buffer: what to draw on.
 	:param bars: where the bars go.
@@ -308,15 +266,8 @@ def _tipRow(scale: Scale, baseline: int, value: float) -> int:
 def _write(buffer, bars: "list[Bar]", slot: int, translate: Callable, valueTop: int, labelTop: int) -> None:
 	"""Write each bar's value above it and its name below it.
 
-	**Left aligned with the bar rather than centred under it.** Centring is what a printed
-	chart does, and it is the wrong choice for a finger: a reader following a bar downwards
-	hits its label where the bar's own left edge is, and a centred label would start
-	somewhere that depends on how long it happens to be.
-
-	**A label that does not fit is cut; a value that does not fit is left out.** They are
-	not the same kind of thing. "Wednes" is recognisably Wednesday and is worth having,
-	whereas "330" for 33000 is a different number said with confidence — so a value is
-	drawn whole or not at all, and the reader can still get it by pointing at the bar.
+	Left aligned with the bar, so a finger following it down meets the label. A label that does
+	not fit is cut; a value is drawn whole or not at all, since a cut number is a wrong one.
 
 	:param buffer: what to draw on.
 	:param bars: where the bars went.
@@ -388,10 +339,8 @@ def _pointFinder(bars: "list[Bar]", slot: int) -> Callable:
 def _marker(bars: "list[Bar]", scale: Scale, baseline: int, width: int) -> Callable:
 	"""Build the lookup from a bar to where its guides go.
 
-	The point line goes in the gap to the bar's left, so the bar itself is felt exactly as it
-	was drawn; the first bar has no gap to its left and takes the one to its right. The level
-	line is at the bar's tip, and cuts into every other bar it passes through, which is what
-	lets a finger along it feel which bars go past the marked one.
+	The point line in the gap left of the bar (right, for the first), so the bar is untouched.
+	The level line at the tip cuts into taller bars, so a finger feels which go past it.
 
 	:param bars: where the bars went.
 	:param scale: the chart's scale.

@@ -5,15 +5,9 @@
 
 """Where a reader sees every table layout they have saved, and fixes the ones that stopped applying.
 
-A saved layout is found again by the address of its table and the table's first headings, and
-either can change under the reader without their doing anything. A site renumbers a view in its
-address; a watchlist stops coming up laid out. Before this there was nothing to do about that
-except arrange the table again from nothing, and nothing to say which saved layout had been its
-own, or which of the rest belonged to pages that were gone. Found on hardware, 16 September 2026.
-
-So this lists them — the ones for the table the reader is in first — and says of each what it is
-called, where it applies, how strictly, and when it was last used. And it lets the reader do the
-things a changed site calls for:
+A layout's address and headings can change under the reader. This lists the layouts, the
+current table's first, each with its name, where it applies, how strictly, and when last used,
+and offers what a changed site calls for:
 
 1. **Use a layout for this table**, which points it at the table in front of them: its address and
    its headings. The watchlist whose address changed is one press.
@@ -105,9 +99,7 @@ class LayoutManager:
 		self._applied: Optional[tuple] = None
 		"""(the layouts it was worked out for, the layout that applies here), since every line of the
 		list asks."""
-		# Worked out before sorting and handed to the ranking, not asked for inside it: while a list is
-		# being sorted it reads as empty, so the ranking found nothing applying and a review saw a layout
-		# for other headings put first, where the dialog selects it.
+		# Worked out before sorting, since a list being sorted reads as empty.
 		applied = self.appliedId
 		self._layouts.sort(key=lambda saved: self._rank(saved, applied))
 
@@ -401,13 +393,8 @@ class LayoutManager:
 		How strictly the address matches is kept, unless it is a layout from before addresses were
 		kept, which gets the default for this address, or a looser match no longer means anything here.
 
-		**Only if it then applies.** A layout more particular about this address — an exact one, where
-		this matches the whole site — goes on winning, and a review found this reporting success for a
-		change the table would never show. So the change is tried against the list as it would be and
-		refused, naming the layout in the way, where it would not apply.
-
-		Given the date as now, since pointing a layout at a table is using it, and a date of months ago
-		would put it first in line to be dropped when the store is full.
+		Only if it then applies: a more particular layout would go on winning, so the change is tried
+		first and refused, naming the layout in the way. Dated now, since this is using it.
 
 		:return: why not, or "" when it was done.
 		"""
@@ -579,9 +566,7 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 	class LayoutManagerDialog(wx.Dialog):
 		"""The saved layouts in a list, the details of the one selected, and what can be done to it.
 
-		**The list says everything a reader choosing among them needs**, a line each, so arrowing it is
-		enough to find the layout for this table or the ones for pages that are gone. The details field
-		below says the rest of the one selected, and the controls under that change it.
+		A line each says enough to choose by; the details field says the rest of the one selected.
 		"""
 
 		def __init__(self, parent, manager: LayoutManager) -> None:

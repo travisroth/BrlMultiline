@@ -5,44 +5,15 @@
 
 """How deep a block sits, turned into cells.
 
-A tree has depth and the depth is information. NVDA does not draw it: in a nested list it
-marks each point where a list begins and leaves the reader to hold the level in their head,
-and in a tree view it says the level in words if asked. Neither survives being read across
-eight rows at once, which is the whole point of a flow — the reader is feeling the shape of
-several items together, and the shape is exactly what a flat left margin destroys.
+Imports nothing from NVDA. Where a depth comes from is the source's business.
 
-So a block carries a depth and the renderer draws it. This module is the arithmetic in
-between, and it is here on its own for the reason `flow.py` is: it imports nothing from
-NVDA, so every rule below can be tested without a screen reader or a display.
+1. True depth is drawn while the deepest item fits within `MAX_INDENT_SHARE` of the row;
+   otherwise the band rebases, its shallowest depth at the left margin.
+2. The whole band rebases at once, so items already shown can move. One baseline, no history.
+3. A wrapped row is indented past where a child would start, in blank cells, so it never
+   reads as a child. See `CONTINUATION_EXTRA`.
 
-**Indent is relative, and the band is the unit it is relative to.** Absolute indent from the
-root spends cells a 32 cell display has not got — six levels into a folder tree at two cells
-a level is a quarter of the row gone before a word of the item. So the shallowest depth on
-the band is drawn at the left margin and everything else is indented from it.
-
-**Relative, but only when it has to be.** If the deepest item on the band can be drawn at
-its true depth without spending more than a share of the row, that is what happens, and the
-reader gets the real picture for free. The rebasing is what the display falls back to, not
-what it does by default. `MAX_INDENT_SHARE` is where the line is drawn, and it is a share
-rather than a count because the answer is different on a 32 cell row and an 80 cell one.
-
-**The whole band rebases at once, and items already shown do move.** An item's indent
-depends on what else is on the band, so bringing a shallower item into view at the bottom
-shifts everything above it. That is chosen rather than tolerated: the alternative is
-remembering what indent each item was last drawn at, which is a second history to keep in
-step with the window and buys nothing the reader asked for. One baseline, one arithmetic.
-
-**A wrapped row is indented further than a child would be.** This is the rule that is easy
-to leave out and impossible to read without. A long item that does not fit on one row
-continues on the next, and a continuation drawn at the child indent is a child as far as the
-fingers are concerned. So a continuation goes past where a child would start — see
-`CONTINUATION_EXTRA` — and the cells it goes past with are blank even in a style that marks
-its levels, so that "further in than a child" and "one level deeper" never draw the same
-thing.
-
-What is *not* here: which blocks have a depth at all, and where the depth came from. That is
-the source's business — `positionInfo["level"]` for an object, a document's own control
-fields for a nested list — and this module only ever sees the number.
+See docs/design/structured-presentation-plan.md.
 """
 
 import dataclasses
@@ -54,32 +25,20 @@ BLANK_CELL = 0
 LEVEL_CELL = 0xC0
 """Dots 7 and 8, for the style that marks each level rather than spacing it.
 
-The same shape NVDA uses for a row cut mid word and this add-on uses for a pending row, and
-for the same reason in all three: it is the mark that means "structure", not content. It is
-never ambiguous with those here because it appears only in the indent, before any content.
+The structure mark, as for a pending row; unambiguous, since it appears only in the indent.
 """
 
 FOCUS_CELL = 0xE4
 """Dots 3, 6, 7 and 8: the mark on the left of the row the focus is on.
 
-The bottom four dots of the cell, drawn full width across two cells. A solid bar under the
-fingers, which is the loudest thing on a row that is otherwise text, and it contains the
-level mark — dots 7 and 8 — rather than resembling it, so a marked row in the dots 78 style
-cannot be read as one level deeper.
-
-The cursor already says where the focus is, and it is not enough. By default it is dots 7
-and 8 blinking *under* the text, which has to be found by reading the row it is under; a
-reader running a finger down eight rows of a folder tree to see where they are has to read
-every row to find it. A mark at the left margin is in the same column on every row, so the
-answer is one pass of the hand rather than eight readings.
+A solid bar across two cells, containing the level mark rather than resembling it. See
+`bmConfig.shouldMarkLineFocus`.
 """
 
 FOCUS_WIDTH = 2
 """How many cells the focus mark is drawn with.
 
-Two, so that it cannot be mistaken for the one cell of a level mark, and so that it is
-still there to feel when a hand is moving quickly. It is also exactly one level of the
-default style, which is what lets it be drawn without costing the row a cell of text.
+Two, unlike a one cell level mark, and one level of the default style.
 """
 
 TWO_SPACES = "twoSpaces"
@@ -89,10 +48,7 @@ DOTS_78 = "dots78"
 INDENT_STYLES: tuple[str, ...] = (TWO_SPACES, ONE_SPACE, DOTS_78)
 """How one level of depth may be drawn, in the order the settings dialog offers them.
 
-Two spaces is the default because it is what sighted readers see and what every text
-outline uses. One space is for a narrow band, where two is a luxury. Dots 7 and 8 is for a
-reader who would rather feel the level than count blank cells, and it is the only style
-whose indent can be told from a genuinely blank run of cells.
+Two spaces by default, one for a narrow band, and dots 7 and 8 to feel the level.
 """
 
 CELLS_PER_LEVEL: dict[str, int] = {TWO_SPACES: 2, ONE_SPACE: 1, DOTS_78: 1}
@@ -104,40 +60,23 @@ DEFAULT_STYLE = TWO_SPACES
 MAX_INDENT_SHARE = 4
 """The fraction of the row indent may take before the band rebases: one cell in this many.
 
-A quarter. Past that the indent is eating the content it exists to organise, which is the
-same failure `flowForms.MAX_CONTEXT_SHARE` guards against for a control's prompt — a display
-filled with context is no better than a display filled without it.
-
-A share rather than a number of levels, because the question is how many cells are left for
-the item, and that depends on the band. Eight cells of indent is a quarter of a Monarch's
-row and a tenth of an 80 cell one, and the reader of the wider display should get the deeper
-true picture rather than the narrower display's compromise.
+A quarter, so indent does not crowd out content, as `flowForms.MAX_CONTEXT_SHARE` keeps a
+prompt from doing. A share, so a wider band shows deeper true depth.
 """
 
 CONTINUATION_EXTRA = 1
 """How much further than a child a wrapped row is indented, in half levels.
 
-One half level, rounded up and never less than a cell. A continuation must sit *past* where
-a child would start or the fingers read it as one: at two cells a level, a child begins at
-two and a continuation at three, which leaves a grandchild at four and everything
-distinguishable. At one cell a level there is no half cell to spend, so a continuation lands
-where a grandchild would; the styles that mark their levels stay unambiguous anyway, because
-the extra cells are blank and a grandchild's are not.
+One half level, rounded up, at least a cell. At one cell a level it lands where a grandchild
+would; the marked styles stay unambiguous, since its extra cells are blank.
 """
 
 
 def focusMark(indentCells: int) -> tuple[int, ...]:
 	"""The cells to draw over the left of a row to say the focus is on it.
 
-	Drawn *into* the row's indent, never in front of it: the mark is only offered where the
-	indent is already at least as wide, so it costs no cell of text and moves nothing. A row
-	at the left margin — a top level item, a flat list, a paragraph — gets no mark, because
-	there is nowhere to put one that would not push the row's own content sideways and make
-	the focused row the one that does not line up with the rest.
-
-	That is a real limit rather than a compromise: at one cell a level, an item one level in
-	has one cell of indent and cannot carry the mark. It is the reason the width is offered
-	as an answer here instead of assumed by the caller.
+	Drawn into the indent, only where it is wide enough, so nothing moves; a row at the margin
+	gets none.
 
 	:param indentCells: how many cells of indent the row is drawn with.
 	:return: the cells to write at the left of the row, empty where there is no room.
@@ -150,9 +89,7 @@ def focusMark(indentCells: int) -> tuple[int, ...]:
 def cellsPerLevel(style: Optional[str]) -> int:
 	""":return: how many cells one level costs in a style, defaulting for an unknown one.
 
-	An unknown style is the setting written by a later version of the add-on, or by hand. It
-	reads as the default rather than raising, because an indent nobody recognises is not
-	worth refusing to draw a display over.
+	An unknown style, from a later version or by hand, reads as the default.
 	"""
 	return CELLS_PER_LEVEL.get(style or DEFAULT_STYLE, CELLS_PER_LEVEL[DEFAULT_STYLE])
 
@@ -168,10 +105,7 @@ def _levelCells(style: Optional[str]) -> tuple[int, ...]:
 class IndentPlan:
 	"""One band's indent arithmetic, fixed for as long as the band shows what it shows.
 
-	Built by `planFor` from the depths actually on the display, and then asked about each
-	block as it is rendered. Frozen because it is part of a rendering's key: two blocks drawn
-	under different plans are two different renderings, and one must never be served for the
-	other. See `flow.RenderKey.indent`.
+	Built by `planFor`. Frozen, as part of a rendering's key; see `flow.RenderKey.indent`.
 	"""
 
 	baseline: Optional[int] = None
@@ -187,18 +121,13 @@ class IndentPlan:
 	maxLevels: int = 0
 	"""How many levels of indent the band has cells for.
 
-	Depth past this is drawn at this indent rather than beyond it. The alternative is an item
-	pushed off the right of the display by its own position in a tree, which tells the reader
-	where it sits by refusing to tell them what it says.
+	Depth past this is drawn at this indent, so no item is pushed off the display.
 	"""
 
 	noteLevel: Optional[int] = None
 	"""The absolute level the left margin stands for, when that is worth saying.
 
-	Set only where the band has rebased to something other than the top of the structure, so
-	that the reader is not told "level 1" about a margin that is level 1. What is done with
-	it belongs to whatever draws the band's top row; this module only decides whether there
-	is anything to say.
+	Set only where the band has rebased below the top of the structure.
 	"""
 
 	def levelsFor(self, depth: Optional[int]) -> int:
@@ -224,9 +153,7 @@ class IndentPlan:
 	def continuationPrefixFor(self, depth: Optional[int]) -> tuple[int, ...]:
 		""":return: the indent cells for a block's second and later rows.
 
-		The item's own indent, then blank cells past where a child would begin. Blank in
-		every style, including the ones that mark their levels: the marks say "this is how
-		deep I am", and a continuation is not deeper, it is the same item still going.
+		The item's own indent, then blank cells past where a child would begin, in every style.
 		"""
 		if depth is None or self.baseline is None:
 			return ()
@@ -257,23 +184,12 @@ def shouldRebase(
 ) -> bool:
 	"""Whether a band's plan has stopped working for what the band is showing.
 
-	Asked instead of simply comparing against the ideal plan, and the difference is the
-	whole reason this exists. The ideal baseline changes every time a slightly different set
-	of items is on the display, and rebuilding on each of those would make the left margin
-	twitch under a reader's fingers while they arrow through a list — a display that moves
-	when nothing moved. So a plan is kept until it genuinely cannot draw what is there, and
-	the band pays the shift only when it has bought something.
+	Not a comparison with the ideal plan, which would make the margin twitch while arrowing.
+	A plan stops working when:
 
-	Three things stop a plan working:
-
-	1. **It would have to draw a negative indent.** Walking a tree in visible order comes
-	   back out of a subtree, so an item shallower than the baseline arrives at the bottom of
-	   the band. There is nothing to the left of the margin.
-	2. **The band has run out of levels.** The reader has gone deep enough that the deepest
-	   item is past the cap and items at different depths are drawing the same indent, which
-	   is the one thing indent exists to prevent.
-	3. **The plan is for something else** — a different style, a resized band, or depth
-	   arriving where there was none and the other way round.
+	1. It would draw a negative indent, for an item shallower than the baseline.
+	2. Items at different depths past the cap would draw the same indent.
+	3. It is for another style, band size, or presence of depth.
 
 	:param plan: the plan in force.
 	:param depths: the depth of each block the band is showing.
