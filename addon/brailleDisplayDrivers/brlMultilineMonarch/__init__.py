@@ -79,34 +79,23 @@ POLL_BACKOFF_LIMIT = 60.0
 WRITE_TIMEOUT = 3.0
 """Seconds the Monarch has to take a pin report before it is treated as gone.
 
-A report is 481 bytes on a USB link, which takes milliseconds; the pins move after the device
-has taken it. So this is not a latency budget. It is the longest a stuck device may hold
-NVDA's I/O thread, and through it every other display's writes. See `hidWrite`.
+Not a latency budget: the longest a stuck device may hold NVDA's I/O thread. See `hidWrite`.
 """
 
 ABANDONED_WRITE_LIMIT = 3
 """How many writes Windows may be holding past their cancellation before reconnecting stops.
 
-Such a write keeps its buffer and an event handle until it completes, which may be never. Each
-automatic reconnection probes the device with a write, so without a limit a device that ignores
-cancellation would leak one of each a minute for as long as NVDA ran. Past the limit the
-reader has to reselect the display or restart NVDA, which is a retry a person chose to make.
+Each holds a buffer and an event handle, possibly forever, and every reconnection probes with
+a write. Past the limit the reader must reselect the display or restart NVDA.
 """
 
 
 def _callLater(milliseconds: int, work, *args):
 	"""Schedule something, from whichever thread this is.
 
-	`core.callLater` rather than `wx.CallLater` because this driver declares `isThreadSafe`,
-	so NVDA may call into it from the I/O thread — and a read error, which is exactly what
-	starts a reconnection, arrives there. `wx.CallLater` constructs a timer on the calling
-	thread; `core.callLater` marshals that to the GUI thread first, which is the entire reason
-	NVDA offers it.
-
-	It also means the return value cannot be relied on: off the main thread `core.callLater`
-	returns whatever `wx.CallAfter` returned, which is None, and the timer is created later.
-	So the caller must not treat a returned handle as proof anything is scheduled, and must
-	not rely on being able to cancel it. `_stopPolling` covers that with a generation number.
+	`core.callLater`, which marshals to the GUI thread, since this driver is `isThreadSafe` and
+	a read error arrives on the I/O thread. Off the main thread it returns None, so a handle is
+	no proof of scheduling; `_stopPolling` uses a generation number instead.
 
 	:param milliseconds: how long to wait.
 	:param work: what to run.
@@ -140,21 +129,10 @@ def _stopTimer(timer) -> None:
 class CellGlyph:
 	"""A shape drawn in place of a run of braille cells, filling their whole slots.
 
-	A braille cell is two dot columns and a blank one; the blank is there so a reader can tell
-	one cell from the next, not because the hardware needs it. A glyph fills all three, giving
-	3 by 4 instead of 2 by 4 per cell without moving anything: the cell after the run still
-	starts where it did, so routing, layout and scrolling are untouched.
-
-	**A run rather than a single cell, because that is the shape of what it replaces.** NVDA
-	already writes short strings to stand for roles and states — "btn" for a button, "cbo" for
-	a combo box, three cells for a checkbox — and the useful thing a pin display can do is draw
-	those as a symbol instead of spelling them. Replacing three cells with one would shift
-	everything after it and break routing; replacing three cells with a nine by four drawing
-	changes nothing but what those pins say. So a glyph is exactly as wide as the text it
-	stands in for, and the fallback is that text's own cells.
-
-	Built through `BrailleDisplayDriver.newGlyph` rather than directly, so the add-on never
-	imports this package.
+	Fills the gap column too, giving 3 by 4 pins per cell instead of 2 by 4, without moving
+	anything. A run of cells, exactly as wide as the text it replaces, such as "btn", so
+	routing and layout are untouched; the fallback is that text's cells. Built through
+	`BrailleDisplayDriver.newGlyph`, so the add-on never imports this package.
 	"""
 
 	def __init__(self, pattern: PinBuffer, fallback):
@@ -187,10 +165,7 @@ class CellGlyph:
 def _withoutOverlaps(glyphs: dict) -> dict:
 	""":return: the glyphs whose runs do not tread on one another.
 
-	Two symbols sharing a cell is a caller's mistake with no sensible rendering — the second
-	would be drawn over the first and neither would be readable — so the run that starts later
-	is dropped. Taken in index order so the answer does not depend on how the caller happened
-	to build its dictionary.
+	Overlap is a caller's mistake, so the later run is dropped, in index order.
 
 	:param glyphs: the index of each glyph's first cell, to the glyph.
 	"""
@@ -230,9 +205,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	supportsAutomaticDetection = False
 	"""False deliberately.
 
-	Automatic detection would put this driver in competition with `hidBrailleStandard` for the
-	same device, and only one can hold it: `hwIo.hid.Hid` opens exclusively. The user chooses
-	a display here, as they already do for `brlMultilineVirtual`.
+	It would compete with `hidBrailleStandard` for a device `hwIo.hid.Hid` opens exclusively.
 	"""
 
 	# --- Construction ------------------------------------------------------------------
@@ -251,12 +224,10 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._lastTouchCell: Optional[int] = None
 		self._pinAtRouting: Optional[tuple[int, int]] = None
 		self._repaintPending = False
-		# Three locks, and the order between them is the whole of what keeps them from
-		# deadlocking: `_stateLock`, then `_lifecycleLock`, then `_writeLock`, and never the
-		# other way round. Only `_reopenDevice` ever holds two at once; everywhere else one is
-		# released before the next is taken. In particular a failed write reports the device
-		# lost *after* letting `_writeLock` go, and `terminate` sets its flag and releases
-		# `_lifecycleLock` before the base class blanks the display through `display`.
+		# Lock order: `_stateLock`, then `_lifecycleLock`, then `_writeLock`, never the reverse.
+		# Only `_reopenDevice` holds two at once; a failed write reports the device lost after
+		# releasing `_writeLock`, and `terminate` releases `_lifecycleLock` before the base
+		# class blanks the display.
 		self._stateLock = threading.RLock()
 		"""What the panel is made of: cells, glyphs, overlays, pitch, the pending flag."""
 		self._writeLock = threading.Lock()
@@ -273,11 +244,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._writesSuspended = False
 		"""Set, under `_writeLock`, by the write that finds the device lost.
 
-		Until a new handle is installed no write is attempted, because the handle that is there
-		has just failed one and the next would fail the same way: a hung device would hold NVDA's
-		I/O thread for another `WRITE_TIMEOUT` for every frame and repaint already queued. Nothing
-		is lost by dropping them. The cells, glyphs and overlays are all kept, and the repaint
-		after reconnecting draws from them.
+		No write is attempted until a new handle is installed, so a hung device does not hold
+		the I/O thread for every queued frame. Cells, glyphs and overlays are kept for the
+		repaint after reconnecting.
 		"""
 		self._gaveUp = False
 		"""Whether reconnection was stopped at `ABANDONED_WRITE_LIMIT`. Writes stay suspended."""
@@ -285,11 +254,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._port = port
 
 		self._openWithRetry(port)
-		# Everything from here on can raise on a device that opened perfectly well, and the
-		# handle is ours the moment it did. Nothing else can reach this instance once the
-		# constructor throws, so it has to let go of the device itself — a leaked exclusive
-		# handle takes the display away from every other driver until NVDA restarts, which is
-		# exactly what a failure here used to do.
+		# From here on a failure must release the device itself, since a leaked exclusive
+		# handle locks out every other driver until NVDA restarts.
 		try:
 			self._verifyDotOrder()
 			self._pinCap = self._findPinCap(self._dev)
@@ -317,10 +283,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _releaseAfterFailedInit(self) -> None:
 		"""Close the device after a constructor that got past opening it and then failed.
 
-		`_suppressDisplayClear` first, because the base class blanks the display on the way
-		out and a half built driver may not be able to: NVDA's own flag for "close this
-		without writing to it". `terminate` is safe to call here because everything it touches
-		is set before the device is opened.
+		Sets NVDA's `_suppressDisplayClear` first, so a half built driver is not asked to blank
+		the display. `terminate` is safe here, since all it touches is set before opening.
 		"""
 		self._suppressDisplayClear = True
 		try:
@@ -331,16 +295,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _openWithRetry(self, port) -> None:
 		"""Run the inherited constructor, retrying a device that is present but not openable.
 
-		`hidBrailleStandard.__init__` raises `RuntimeError` when it finds nothing. Phase 0 of
-		the virtual display plan established that a display NVDA released moments earlier can
-		refuse to open twice and then open normally, so a single attempt is not enough when
-		switching displays.
-
-		If every attempt fails, the display being switched away from is released and the
-		attempts are made again. `_switchDisplay` constructs the incoming driver *before*
-		terminating the outgoing one, so switching to this driver from `hidBrailleStandard`
-		on the same Monarch means racing a handle NVDA has not let go of yet — and no amount
-		of retrying inside that window can win, because the release comes afterwards.
+		See `_tryOpen`. If every attempt fails, the outgoing display is released and the
+		attempts made again, since NVDA's `_switchDisplay` builds the new driver before
+		terminating the old one, which may still hold the same Monarch.
 
 		:param port: as NVDA passes it.
 		:raises RuntimeError: if every attempt failed, twice over.
@@ -357,9 +314,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _tryOpen(self, port) -> Optional[BaseException]:
 		"""Run the inherited constructor a few times.
 
-		Phase 0 of the virtual display plan established that a display NVDA released moments
-		earlier can refuse to open twice and then open normally, so one attempt is not enough
-		when switching displays.
+		A display just released can refuse to open a couple of times. See
+		docs/design/virtual-display-plan.md, phase 0.
 
 		:param port: as NVDA passes it.
 		:return: the last error, or None if the device opened.
@@ -387,17 +343,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _releaseOutgoingDisplay(self) -> bool:
 		"""Close the display being switched away from, if it is holding a device.
 
-		`braille.handler.display` still points at the outgoing driver while this constructor
-		runs, because `_setDisplay` assigns the new one only once `_switchDisplay` returns. So
-		it can be reached, and closing it here is the only way to get a device it is holding
-		before our own attempts are exhausted.
-
-		`releaseDisplayNow` also disarms the driver's next `terminate`, because NVDA will call
-		it a moment later and a second close would at best log an error.
-
-		Only a driver with a device is touched: there is nothing to gain from terminating
-		`noBraille` or a serial display, and every reason not to close something we did not
-		need to.
+		`braille.handler.display` is still the outgoing driver during this constructor.
+		`releaseDisplayNow` also disarms its next `terminate`, which NVDA calls shortly. Only a
+		driver holding a device is touched.
 
 		:return: whether a display was released, and so whether another attempt is worthwhile.
 		"""
@@ -414,9 +362,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _closeStrayDevice(self) -> None:
 		"""Release a device left behind by a constructor that raised. Best effort.
 
-		`hidBrailleStandard.__init__` closes the devices it rejects, but an unexpected error
-		between opening one and finishing can leave `_dev` set on an instance that is about to
-		be thrown away, where nothing else can reach it.
+		An error after opening can leave `_dev` on an instance about to be thrown away.
 		"""
 		device = getattr(self, "_dev", None)
 		if device is None:
@@ -431,17 +377,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def getPossiblePorts(cls) -> "OrderedDict[str, str]":
 		"""Offer the automatic, USB and Bluetooth choices the settings dialog shows.
 
-		The third thing keyed on `cls.name` that a subclass of a HID braille driver silently
-		loses, after `check` and `_getAutoPorts`. The base implementation asks
-		`bdDetect.getConnectedUsbDevicesForDriver(cls.name)` and its Bluetooth twin, both of
-		which raise `LookupError` for a driver with no detection data, so it concludes neither
-		transport exists and returns an empty mapping. The dialog then shows no port control
-		at all, which is what made this driver look less capable than the standard one.
-
-		Answered from `_getAutoPorts` per transport instead, so a choice is offered only when
-		a device is actually reachable that way. The plumbing behind the choice already
-		worked: `_getTryPorts` passes the flags straight through, so picking USB really did
-		restrict to USB even while the dialog was refusing to say so.
+		Like `check` and `_getAutoPorts`, the base version keys on `cls.name`, which has no
+		detection data, so it would return nothing. Answered from `_getAutoPorts` per transport,
+		so a choice is offered only when a device is reachable that way.
 
 		:return: port name to displayable description, in the order the dialog shows them.
 		"""
@@ -464,22 +402,10 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def check(cls) -> bool:
 		"""Say whether this driver is worth offering, which decides whether it is listed.
 
-		`getDisplayList` drops any driver whose `check` is False, so without this the driver
-		never appears in NVDA's braille settings — which is exactly what happened. The base
-		implementation has two ways to say yes and we passed neither: its first branch needs
-		`supportsAutomaticDetection`, which is deliberately False here so as not to compete
-		with `hidBrailleStandard` for the device, and its second needs `getManualPorts`, which
-		is for serial ports and raises `NotImplementedError` for a HID driver.
-
-		`brlMultilineVirtual` lists its members from the drivers themselves rather than
-		through `getDisplayList`, which is why the driver showed up there and nowhere else.
-
-		Presence only, and deliberately not more. **This must not open the device**: `check`
-		runs for every driver when the settings dialog is built, and `hwIo.hid.Hid` opens
-		exclusively, so opening here would take the display away from whatever is driving it.
-		That means we cannot confirm a pin report and will answer True for any HID braille
-		display. A non Monarch is then listed and refused at construction with a message
-		saying so, which is a better failure than being invisible on the device we do support.
+		`getDisplayList` drops a driver whose `check` is False, and neither of the base
+		version's branches applies here. Presence only: this must not open the device, which
+		`hwIo.hid.Hid` opens exclusively, so any HID braille display answers True and a non
+		Monarch is refused at construction instead.
 
 		:return: whether a HID braille display is attached.
 		"""
@@ -493,15 +419,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _getAutoPorts(cls, usb=True, bluetooth=True):
 		"""Find HID braille devices, over both transports.
 
-		The inherited version asks `bdDetect` for devices registered against `cls.name`, and
-		HID braille has no such registration: `HidBrailleDriver.registerAutomaticDetection` is
-		a no-op because the matching is special cased inside `bdDetect` on usage page 0x41. A
-		subclass with a new name therefore finds nothing at all and cannot open anything.
-
-		So this asks the same questions `bdDetect` asks on NVDA's behalf and keeps the answers
-		it files under the standard HID driver, which is exactly the set `hidBrailleStandard`
-		would have found. Both transports, because the Monarch is used over USB as well as
-		Bluetooth and dropping either would be a regression against the standard driver.
+		HID braille matching is special cased in `bdDetect` on usage page 0x41, so a subclass
+		with a new name finds nothing through the inherited version. This keeps the matches
+		`bdDetect` files under the standard HID driver, over both transports.
 
 		:param usb: whether to look for USB devices.
 		:param bluetooth: whether to look for Bluetooth devices.
@@ -524,11 +444,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _verifyDotOrder(self) -> None:
 		"""Check our copy of the braille dot layout still matches NVDA's.
 
-		`monarch.py` cannot import from NVDA, so it carries its own copy of
-		`tactile.braille._brailleDotCoords`. A silent divergence would scramble every cell, so
-		it is compared once here where the import is available. A warning rather than a
-		refusal: a changed table upstream is a reason to look, not a reason to leave someone
-		without braille.
+		`monarch.py` carries its own copy of `tactile.braille._brailleDotCoords`, so it is
+		compared once here. A warning, not a refusal.
 		"""
 		try:
 			from tactile.braille import _brailleDotCoords
@@ -543,12 +460,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _findPinCap(self, device):
 		"""Look for the output button array that is the pin matrix.
 
-		Declared as one usage repeated 3,840 times rather than as a usage range, so the count
-		is in `ReportCount` and not in the usage span. Reading only the usage span is how this
-		report stayed hidden: it looks like a single bit.
-
-		Takes the device rather than reading `self._dev`, because a reconnection has to ask
-		this of a candidate handle before deciding to install it.
+		One usage repeated 3,840 times, so the count is in `ReportCount`, not the usage span.
+		Takes the device, so a reconnection can ask it of a candidate handle.
 
 		:param device: the open `hwIo.hid.Hid` to interrogate.
 		:return: the `HIDP_VALUE_CAPS`-shaped button cap, or None if this is not a Monarch.
@@ -587,22 +500,10 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _isPinCap(self, cap, outputLength: int) -> bool:
 		"""Decide whether one output button cap really is the Monarch's pin array.
 
-		Every fact `_writePins` depends on, checked before it is depended on, because a match
-		here is what authorises writing 480 raw bytes to output report 0x21. An earlier version
-		accepted any large output button array and wrote a Monarch shaped payload regardless of
-		which report or usage the capability actually named, which on some other display with a
-		big button array would be bytes sent somewhere they were never meant to go.
-
-		The bit width needs no check: a *button* cap is one bit per field by definition, which
-		is what distinguishes it from a value cap. What cannot be checked from the parsed caps
-		is the report's bit offset — Windows does not expose it here — so the payload's position
-		still rests on the pin array being the report's only content, which is what 3,840 bits
-		in a 481 byte report leaves room for and nothing else.
-
-		Neither is the VID and PID checked, deliberately: no Monarch identifier has been
-		confirmed across firmware revisions, and hard coding a guessed one would refuse real
-		hardware. The path is logged instead when a candidate is rejected, so a device that
-		should have matched can be identified from a log rather than from a second session.
+		Checks every fact `_writePins` relies on, since a match authorises writing raw bytes to
+		output report 0x21. A button cap is one bit per field by definition. The bit offset is
+		not exposed, so the payload position relies on the pins filling the report. VID and PID
+		are not checked, since none is confirmed across firmware; a rejected path is logged.
 
 		:param cap: one `HIDP_BUTTON_CAPS`.
 		:param outputLength: the device's output report byte length, including the report ID.
@@ -662,9 +563,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _applyPitch(self) -> None:
 		"""Tell NVDA the shape this pitch gives, so everything above sizes itself correctly.
 
-		Rows and columns only. `numCells` is a computed property — `numRows * numCols` — and
-		its setter *raises* on a multi line display rather than being merely redundant, which
-		is how an earlier version of this failed to load at all.
+		Rows and columns only; `numCells` is computed, and its setter raises on a multi line
+		display.
 		"""
 		self.numRows = self._pitch.numRows
 		self.numCols = self._pitch.numCols
@@ -680,14 +580,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	]
 	"""Deliberately not wrapped in a try for the import above.
 
-	It was, and that was a silent failure waiting to happen: if the import had failed for any
-	reason the class would simply have inherited an empty `supportedSettings` from the base
-	and the control would have vanished from NVDA's braille settings with nothing but a
-	swallowed ImportError to show for it. A driver that cannot build its settings should fail
-	loudly at load rather than quietly lose them.
-
-	The id stays `pitch` because it is the config key and the name behind `availablePitchs`;
-	only the label speaks of rows, which is what a reader chooses between.
+	So a failed import fails loudly at load instead of silently losing the setting. The id
+	stays `pitch`, the config key behind `availablePitchs`; only the label speaks of rows.
 	"""
 
 	def _get_availablePitchs(self) -> dict:
@@ -737,19 +631,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _announceGeometry(self) -> None:
 		"""Let NVDA notice that this display is now a different size.
 
-		One read of `handler.displayDimensions` does it: the handler recomputes it from the
-		driver every time and raises `displaySizeChanged` itself when the value has changed.
-		The same trick `brlMultilineVirtual._announceGeometry` uses, for the same reason.
-
-		This used to call `handler.handleDisplaySizeChanged()`, which does not exist. The
-		exception was swallowed, so changing the pitch quietly left NVDA believing the display
-		was still the old shape — 8 rows of 32, 256 cells — while the driver drew 10 rows of
-		32 and routed against 320. That is very likely why routing at 10 rows did nothing:
-		half the indexes were past the end of a buffer NVDA had never resized.
-
-		The update is queued rather than called, so it lands after whatever the notification
-		causes to be rebuilt. Nothing is announced unless this is the display NVDA has, which
-		keeps construction from announcing against the driver being replaced.
+		Reading `handler.displayDimensions` makes the handler raise `displaySizeChanged`, as in
+		`brlMultilineVirtual._announceGeometry`. Queued, so it lands after what the notification
+		rebuilds, and only when this is the display NVDA has.
 		"""
 		handler = braille.handler
 		if handler is None or handler.display is not self:
@@ -781,14 +665,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _onIoThread(work) -> None:
 		"""Run something on NVDA's background I/O thread, where writes to the device belong.
 
-		Nothing that writes may run on the main thread. A write can take up to
-		`WRITE_TIMEOUT`, and one in progress holds `_writeLock` that long, so a main thread
-		write is a frozen NVDA whenever the device is slow. That is how a hung Monarch stopped
-		NVDA starting: the main thread sat in a repaint waiting for the lock. The handler
-		already writes from this thread.
-
-		The thread holds bound methods weakly, which is what should happen: a driver that has
-		gone has nothing left to write.
+		Writes must not run on the main thread, since one can hold `_writeLock` for
+		`WRITE_TIMEOUT`. The thread holds bound methods weakly, so a gone driver writes nothing.
 
 		:param work: what to run, taking the APC's parameter.
 		"""
@@ -813,10 +691,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def newGraphicsBuffer(self, width: Optional[int] = None, height: Optional[int] = None) -> PinBuffer:
 		"""Make a blank buffer to draw into.
 
-		Sized to the whole panel by default, because that was the only thing the driver itself
-		needed. A caller drawing into part of the panel wants a buffer the size of its own
-		rectangle instead: an overlay is placed by its top left corner, so a right sized buffer
-		is positioned by where the rectangle starts and nothing has to be offset twice.
+		The whole panel by default. A caller drawing into part of it asks for its rectangle's
+		size, since an overlay is placed by its top left corner.
 
 		:param width: dots across, or None for the full pin width.
 		:param height: dots down, or None for the full pin height.
@@ -833,12 +709,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def glyphSize(self) -> tuple[int, int]:
 		"""The pins a glyph may fill, which is one cell slot including its gap column.
 
-		3 by 4 on the Monarch, against a braille cell's 2 by 4. A display whose cells have no
-		gap to reclaim would report the same size as its cell and a glyph would gain nothing;
-		the add-on can compare this with `cellSize` to find out whether glyphs are worth using.
-
-		**Per cell.** A glyph standing in for three cells of text has three of these to draw
-		in, so nine by four, and the pattern handed to `newGlyph` is that wide.
+		3 by 4 on the Monarch, against a cell's 2 by 4; compare with `cellSize` to see whether
+		glyphs gain anything. Per cell, so a three cell glyph is nine by four.
 
 		:return: width and height in pins.
 		"""
@@ -852,9 +724,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def newGlyph(self, rows: list[str], fallback) -> "CellGlyph":
 		"""Build a glyph this driver can draw, without the caller importing anything.
 
-		The add-on reaches the driver as a live object and does not import the package — the
-		same rule `devices.py` follows — so the factory lives here rather than the class being
-		imported there.
+		The add-on never imports this package, as in `devices.py`, so the factory is here.
 
 		:param rows: the shape, one string per row, as `PinBuffer.fromRows` takes it. Anything
 			past the run's slots is clipped, so the shape for a three cell glyph is nine
@@ -868,38 +738,16 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def setCellGlyphs(self, glyphs: dict[int, "CellGlyph"]) -> None:
 		"""Replace the set of cells that are drawn as glyphs rather than as braille.
 
-		Keyed by index into the flat cell array the handler writes, so a glyph sits in the
-		text and scrolls with it: it occupies exactly one cell slot and the next cell starts
-		where it always would.
+		Keyed by index into the flat cell array, so a glyph scrolls with the text. A glyph is
+		drawn only while the cells there still read its fallback, and a frame that does not
+		match retires it (see `_expireGlyphs`). So:
 
-		Each glyph carries the braille cell it stands in for, and is drawn **only if the cell
-		at that index still reads it**, on this frame or on frames redrawn from it. A frame
-		that does not match retires the glyph outright rather than leaving it registered, so a
-		later unrelated frame that happens to carry the same byte at the same index cannot
-		bring an old symbol back. That is the difference between "this glyph belongs to this
-		content" and "this byte looks familiar", and only the first is safe.
+		1. A frame the add-on did not compose, such as a message, is never drawn over.
+		2. Displays without glyphs show the fallback cells from the same buffer.
+		3. A caret wins, since NVDA ors it into the cell, which then no longer matches.
 
-		The match does three things at once:
-
-		1. A frame the add-on did not compose — a braille message, say — cannot get a glyph
-		   painted over unrelated content. The glyph is skipped and the cell shows instead.
-		2. The fallback is what a display without glyphs shows anyway, so the add-on writes
-		   one buffer and every display renders the best it can. A solid dots 1 to 6 becomes a
-		   true 3 by 3 square here and stays a recognisable block elsewhere.
-		3. A caret wins. NVDA ors the cursor shape into the cell before the driver sees it, so
-		   the cell no longer matches and the braille cell with its cursor is drawn. Deliberate:
-		   the reader needs the caret more than the symbol.
-
-		The whole set is replaced, so the add-on registers what it wants on each recompose and
-		never has to clear individually. It **must** re-register on each recompose, because a
-		glyph is retired by the first frame that does not carry its cell: a braille message
-		flashing over the content ends the registration, and the redraw afterwards is where it
-		comes back. That is the contract the add-on side is written to, and it is what stops a
-		glyph outliving the content it belonged to.
-
-		**A glyph occupies a run of cells and the runs may not overlap.** Two symbols
-		sharing a cell is a caller's mistake with no sensible rendering, so the later of
-		them is dropped here rather than being drawn over the earlier one.
+		The whole set is replaced each time, so the add-on must re-register on every
+		recompose. Overlapping runs are dropped; see `_withoutOverlaps`.
 
 		:param glyphs: the index of each glyph's first cell, to the glyph. Empty clears
 			them.
@@ -915,14 +763,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _expireGlyphs(self, cells: list[int]) -> None:
 		"""Drop glyphs the incoming frame does not claim. Call with `_stateLock` held.
 
-		A glyph is registered against the cells the add-on put in the buffer for it, and lives
-		exactly as long as a frame keeps carrying them at that index. The first frame that does
-		not — different content, or a caret or-ed into any cell of the run — retires it.
-
-		Retiring rather than merely skipping is the point. Skipping leaves the registration
-		standing, and some later frame with an unrelated 0x3F at the same index would then be
-		painted with a symbol belonging to content that scrolled away minutes ago. This bounds
-		a glyph's life to the run of frames that actually contain it.
+		Retired rather than skipped, so a later frame that happens to carry the same cells at
+		that index cannot bring an old glyph back.
 
 		:param cells: the frame just handed to `display`.
 		"""
@@ -939,9 +781,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def setGraphicsOverlay(self, key: str, x: int, y: int, buffer: PinBuffer) -> None:
 		"""Put a drawing on the panel, composited over the text on the next write.
 
-		Overlays are held rather than drawn immediately, because the panel is written whole:
-		drawing one now would mean writing the panel now, and the next ordinary braille update
-		would then be a second full mechanical refresh a moment later.
+		Held rather than drawn now, since the panel is written whole and drawing now would cost
+		an extra full refresh.
 
 		:param key: a name, so the same caller can replace its own overlay.
 		:param x: pin column of the drawing's left edge.
@@ -975,10 +816,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def lastTouchCell(self) -> Optional[tuple[int, int]]:
 		"""The braille line and column last touched, at the pitch being rendered.
 
-		At the native pitch this prefers the device's own routing cell, which is its
-		calibrated answer and better than anything derived: a fingertip covers several pins.
-		At any other pitch the device's cell assumes a layout we are not using, so the pin is
-		converted instead.
+		At the native pitch the device's own calibrated routing cell; at another pitch the pin,
+		converted, since the device's cell assumes the native layout.
 
 		:return: braille row and column, or None if nothing is being touched.
 		"""
@@ -991,19 +830,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _hidOnReceive(self, data: bytes):
 		"""Read the touch reports NVDA discards, then let the base class do its work.
 
-		`hidBrailleStandard` inspects input values only to find `NUMBER_OF_BRAILLE_CELLS`, so
-		usage 0x401 — the touched pin — is dropped on the floor and a touch on a graphic
-		reaches the log as an event with no number attached.
-
-		Both touch reports are kept. See `lastTouchCell` for why the cell one still earns its
-		place now that the pin one exists.
-
-		A report arriving while there is no device is dropped. That happens for a moment during
-		a reconnection: `hwIo.hid.Hid` starts reading the instant it is constructed, and the
-		callback it was given is this one, so a key pressed as the link comes back can arrive
-		before the candidate handle has been installed. Both this method and the inherited one
-		decode against `self._dev`, and against None the inherited one raises where nothing
-		catches it.
+		`hidBrailleStandard` drops usage 0x401, the touched pin. Both touch reports are kept;
+		see `lastTouchCell`. A report arriving with no device, as during a reconnection before
+		the new handle is installed, is dropped, since decoding against None would raise.
 
 		:param data: the raw input report.
 		"""
@@ -1018,11 +847,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _readTouch(self, data: bytes) -> None:
 		"""Decode a touch report, if this is one.
 
-		The pin is also snapshotted the moment a routing key goes down, and that snapshot is
-		what routing uses. It has to be, because of the order the panel speaks in: the pin
-		arrives first, then the routing cell, then the pin again as zero on release, and only
-		then does NVDA raise the gesture. By gesture time the live pin has been cleared, so
-		reading it there would find nothing.
+		The pin is snapshotted when a routing key goes down, since by the time NVDA raises the
+		gesture the panel has reported it as zero on release.
 
 		:param data: the raw input report.
 		"""
@@ -1047,23 +873,10 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _routingDecision(self, count: int) -> tuple[str, Optional[int]]:
 		"""Decide what a routing press means at the pitch being rendered.
 
-		`KEEP` at the native pitch, deliberately. There the device's own cell number is its
-		calibrated answer — a fingertip covers several pins and its algorithm knows more about
-		which one was meant than we do — and it already indexes the grid we are rendering, so
-		there is nothing to correct.
-
-		At any other pitch there is everything to correct. The device reports on its native
-		8 by 32 grid whatever we draw, so at 10 rows it can name only 256 of the 320 cells on
-		the panel and the ones it names sit on the wrong lines. That is why routing did not
-		work at 10 rows: not a missing feature so much as an unfinished one.
-
-		The correction needs the pin, and the pin is available for exactly one press: usage
-		0x401 reports a single touched point, so a range selection arrives as several routing
-		cells with one pin between them and there is no way to re-base its endpoints. Where the
-		answer cannot be derived — no pin, or more cells than pins — the press is **cancelled**
-		rather than passed through. Passing it through was activating a cell chosen on a layout
-		we are not drawing, which reads to a user as the display doing something at random; a
-		press that does nothing is a press they will simply make again.
+		`KEEP` at the native pitch, where the device's calibrated cell indexes the grid drawn.
+		At another pitch the device still reports on its native 8 by 32 grid, so the cell is
+		derived from the pin. The pin covers one press only, so with no pin or several cells
+		the press is cancelled rather than passed through to the wrong cell.
 
 		:param count: how many routing cells the device reported.
 		:return: what to do, and the index to use when that is `REPLACE_ROUTING`.
@@ -1095,16 +908,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _recordRouting(self, deviceCells, dispatched, action: str, corrected: Optional[int]) -> None:
 		"""Keep what the last routing press decided, so it can be read back after the fact.
 
-		Routing crosses three things that can each be wrong on their own — the device's cell,
-		the pin, and whatever the add-on above does with the index — and a press that does
-		nothing looks identical whichever it was. This records all of it in one place, and
-		keeps the raw and the substituted separately: an earlier version recorded
-		`cellIndexes` after it had already been replaced, so the field labelled "from the
-		device" was the driver's own answer read back to itself, which is the one reading that
-		can never disagree with anything.
-
-		Kept on the driver as well as logged, because reproducing a routing press with debug
-		logging on is a different session from the one where it misbehaved. Read it with::
+		Records the device's cell, the pin and the dispatched index separately, raw before any
+		substitution. Kept on the driver as well as logged, so it can be read in the session
+		where the press misbehaved::
 
 			braille.handler.display.lastRouting
 
@@ -1133,30 +939,17 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	lastRoutingPin: Optional[tuple[int, int]] = None
 	"""The pin under the finger at the last routing press, or None if there was none.
 
-	`lastTouch` cannot answer this and never will. The panel reports the touched pin as zero
-	the moment the finger lifts, and NVDA runs a gesture's script from a queue rather than
-	while the gesture is being dispatched — so by the time anything above the driver is asked
-	what a press meant, the live touch is already gone. Anything that wants to know where a
-	press landed, at pin resolution rather than cell resolution, has to read it from here.
-
-	Set for every dispatched press at both pitches, including the native one where the index
-	itself is the device's own. Deliberately *not* cleared when the press ends, unlike
-	`_pinAtRouting`: that one guards the correction and must not outlive its press, while this
-	one is the record of the last press and is replaced by the next.
+	By script time `lastTouch` is already zero, so where a press landed at pin resolution is
+	read from here. Set for every dispatched press at both pitches, and kept until the next,
+	unlike `_pinAtRouting`, which guards the correction for one press only.
 	"""
 
 	def _handleKeyRelease(self):
 		"""Raise the gesture, using ours so that routing can be corrected for the pitch.
 
-		Mirrors the inherited method, which names its own `InputGesture` class directly and so
-		cannot be steered by overriding an attribute.
-
-		A gesture that cancelled itself is not dispatched at all, rather than dispatched with
-		nothing to route to. See `_routingDecision` for when that happens and why doing nothing
-		is the right answer there.
-
-		The routing snapshot is dropped afterwards whatever happened, so a later press that
-		somehow arrives without a pin cannot be given this one's.
+		Mirrors the inherited method, which names its own `InputGesture` class directly. A
+		cancelled gesture is not dispatched; see `_routingDecision`. The routing snapshot is
+		always dropped afterwards.
 		"""
 		if self._ignoreKeyReleases or not self._keysDown:
 			return
@@ -1181,8 +974,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _collectInputButtonCapsByDataIndex(self):
 		"""Build NVDA's button map, and alongside it the names NVDA's map cannot give.
 
-		Hooked here because this is the one place both the inherited constructor and a reconnect
-		read the descriptor, so the names can never describe a different device from the keys.
+		Here, where both the constructor and a reconnect read the descriptor, so the names always
+		match the keys.
 
 		:return: the inherited map, unchanged.
 		"""
@@ -1249,11 +1042,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def display(self, cells: list[int]):
 		"""Draw the cells and any overlays into the pin buffer, and write the whole panel.
 
-		Never writes the cell reports. That is the point: they reach 2,048 of 3,840 pins and
-		leave a spacer column between every pair, while this reaches all of them.
-
-		Because the driver owns the panel, an ordinary braille update cannot wipe a drawing
-		and nothing above has to be suspended to keep one up.
+		Never writes the cell reports, which reach only 2,048 of 3,840 pins. Since the driver
+		owns the panel, a braille update cannot wipe a drawing.
 
 		:param cells: one dot pattern per cell, row major, as the handler supplies them.
 		"""
@@ -1271,15 +1061,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _snapshot(self) -> tuple:
 		"""Freeze everything the panel is composed from. Call with `_stateLock` held.
 
-		Composing reads four things that four different threads may be changing — the handler
-		writes cells from its I/O thread while the add-on sets overlays and glyphs from the
-		main one — and a frame built from a mixture of before and after is a frame that was
-		never asked for. Worse, iterating the overlays while another thread inserts one raises
-		`RuntimeError: dictionary changed size during iteration` and the panel simply does not
-		update.
-
-		So the state is copied under the lock and the drawing, which is the slow part, happens
-		outside it against something nothing can change underneath it.
+		Cells come from the I/O thread and overlays and glyphs from the main thread, so the
+		state is copied under the lock and drawn outside it, consistent and without iterating
+		a dictionary another thread is changing.
 
 		:return: pitch, cells, glyphs and overlays, as of now.
 		"""
@@ -1293,8 +1077,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _compose(self, snapshot: tuple) -> PinBuffer:
 		"""Draw a snapshot into a panel buffer.
 
-		Reads nothing from the driver, deliberately: everything it needs was frozen by
-		`_snapshot`, which is what makes the frame internally consistent.
+		Reads only the snapshot, never the driver.
 
 		:param snapshot: what `_snapshot` returned.
 		:return: the whole panel, ready to write.
@@ -1319,18 +1102,10 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _scheduleRepaint(self) -> None:
 		"""Ask for a repaint at the next opportunity, collapsing several requests into one.
 
-		Overlays and glyphs are set a few at a time — a chart, then its axes, then a focus
-		marker — and repainting on each would be several complete mechanical refreshes of a
-		panel nobody has read yet. The Monarch is a page turn device: each write clatters, and
-		the reader has to lift their hand for the pins to settle accurately. One write per
-		batch is not an optimisation here, it is the difference between a page and a flicker.
-
-		So the request is marked and handed to the main thread, and whichever comes first —
-		that deferred flush or an ordinary `display` — publishes everything pending.
-
-		Two hops, and both are needed. The main thread is what batches: its turn comes after
-		the caller has finished setting overlays. The write then goes to the I/O thread,
-		because a main thread waiting on the device is a frozen NVDA. See `_onIoThread`.
+		Every write is a full mechanical refresh, so overlays set a few at a time are written
+		once. The request goes to the main thread, whose turn comes after the caller has
+		finished; the write then goes to the I/O thread (see `_onIoThread`). An ordinary
+		`display` arriving first publishes the pending state too.
 		"""
 		with self._stateLock:
 			if self._repaintPending:
@@ -1357,15 +1132,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _drawCells(self, buffer: PinBuffer, cells: list[int], pitch, glyphs: dict) -> None:
 		"""Draw braille cells into the buffer at the current pitch.
 
-		Uses NVDA's own `drawBrailleCells` where it can, which is the same function the DotPad
-		driver uses for the same reason: when the only surface is a pin grid, characters are
-		drawn into it. Falls back to a local copy if that module is unavailable, so the driver
-		still works on an NVDA without the tactile package.
-
-		**Cells are passed through untouched.** All eight dots are drawn at every pitch, so a
-		caret shows and an eight dot table reads. At 10 rows the fourth row of a cell is the
-		one that would otherwise separate the lines, which is a density the reader chooses by
-		choosing the pitch — it is not the driver's business to decide a dot should not appear.
+		NVDA's `drawBrailleCells`, as the DotPad driver uses, or a local copy without the
+		tactile package. Cells pass through untouched, all eight dots at every pitch.
 
 		:param buffer: the panel buffer.
 		:param cells: one dot pattern per cell, row major.
@@ -1391,12 +1159,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	) -> None:
 		"""Replace any cell in this row that has a glyph registered and still matches it.
 
-		Drawn after the row rather than instead of it, and the slot is cleared first, so a
-		glyph replaces its cell rather than merging with it. Merging would be worse than
-		useless: a symbol or-ed with a letter is neither.
-
-		The match against the registered cells is what makes a stale registration harmless.
-		See `setCellGlyphs`.
+		The slot is cleared first, so a glyph replaces its cell rather than merging with it. See
+		`setCellGlyphs` for the match.
 
 		:param buffer: the panel buffer.
 		:param rowCells: the line's cells.
@@ -1453,25 +1217,10 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _writePins(self, buffer: PinBuffer) -> None:
 		"""Send a panel buffer as output report 0x21.
 
-		Serialised, because a repaint can come from the handler's I/O thread and from an
-		overlay set on the main thread, and two half written reports interleaved would be a
-		garbled panel. The same lock is what a reconnection takes to swap the handle, so a
-		write cannot land on a device that is being closed underneath it.
-
-		A failure is reported *after* the lock is released. `_onDeviceLost` takes the lifecycle
-		lock, and reporting from in here would be `_writeLock` then `_lifecycleLock` while a
-		reconnection holds them the other way round.
-
-		A device that does not take the report within `WRITE_TIMEOUT` is a failure like any
-		other. It used to be waited for without limit, holding `_writeLock` all the while.
-
-		A write that gets through puts the reconnect wait back to its shortest. That is the
-		only proof a device is really back: see `_poll`.
-
-		A write that fails suspends writing before it lets the lock go, so a write already
-		waiting for the lock finds the device lost and does not try it. See `_writesSuspended`.
-		The first write after a reconnection is therefore the only one that probes the new
-		handle: if it fails, writing is suspended again at once.
+		1. Serialised under `_writeLock`, which a reconnection also takes to swap the handle.
+		2. A failure, including a `WRITE_TIMEOUT`, suspends writing before the lock is released
+		   (see `_writesSuspended`), and is reported after, to keep the lock order.
+		3. A write that gets through resets the reconnect wait; see `_poll`.
 
 		:param buffer: the whole panel.
 		"""
@@ -1511,9 +1260,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _sendReport(self, device, data: bytes) -> None:
 		"""Write one output report, giving up if the device does not take it in time.
 
-		Not `device.write`, which waits for the write to finish however long that takes.
-		The buffer comes from the device's own `_prepareWriteBuffer`, so it is the size Windows
-		expects for this device's output reports, exactly as `write` would have sent it.
+		Not `device.write`, which waits indefinitely. The buffer comes from the device's own
+		`_prepareWriteBuffer`, as `write` would send it.
 
 		:param device: the open `hwIo.hid.Hid`.
 		:param data: the report, ID in the first byte.
@@ -1528,14 +1276,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _watchForDisconnect(self) -> None:
 		"""Learn about a dropped link from the read side, rather than waiting for a write.
 
-		A Bluetooth display that goes away fails the overlapped read at once with
-		`WinError 1167`, and `hwIo.IoBase._ioDone` offers that to `_onReadError` before
-		raising. Chaining onto it turns a silent death into a notification. A display showing
-		something static is not written to at all, so waiting for a write to fail can mean
-		waiting a long time.
-
-		Chained rather than replaced, and the driver's own answer is respected: a driver that
-		says it handled the error is restarting, not dying.
+		A lost Bluetooth link fails the read at once with `WinError 1167`, which
+		`hwIo.IoBase._ioDone` offers to `_onReadError`; a static display might not write for a
+		long time. Chained rather than replaced, respecting a driver that says it handled it.
 		"""
 		device = getattr(self, "_dev", None)
 		if device is None or not hasattr(device, "_onReadError"):
@@ -1577,23 +1320,12 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _onDeviceLost(self) -> bool:
 		"""Begin trying to get the device back. Safe to call more than once.
 
-		`_reopening` is cleared again if nothing could be scheduled. It used to be set before
-		the attempt and left set afterwards, so a failure to create a timer left the driver
-		claiming to be recovering with nothing recovering: every later loss answered "handled"
-		at once and returned, and a virtual display holding this member kept a display that was
-		never coming back.
+		If nothing could be scheduled, `_reopening` is cleared and writing resumed, so the next
+		failed write tries again. Past `ABANDONED_WRITE_LIMIT`, reconnection is refused and
+		writing stays suspended.
 
-		When nothing could be scheduled, writing is resumed as well. Nothing is going to install
-		a new handle, so a suspension would never end, and the next write failing is what tries
-		to schedule recovery again.
-
-		Reconnection is refused once Windows is holding `ABANDONED_WRITE_LIMIT` writes it never
-		let go of, and then writing is *not* resumed: every probe of that device can strand
-		another.
-
-		:return: whether recovery is now running, which is what the read error hook reports
-			upward. Saying True when nothing is actually retrying would have a virtual display
-			keep a member that is never coming back.
+		:return: whether recovery is now running, which the read error hook reports upward to
+			a virtual display.
 		"""
 		with self._lifecycleLock:
 			if self._terminated:
@@ -1624,16 +1356,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _startPolling(self, delay: float) -> bool:
 		"""Start the reconnect timer. Safe to call when one is already running.
 
-		The delay is passed in rather than fixed, which is the whole of a bug worth recording.
-		This used to schedule every tick `POLL_INTERVAL` apart and separately track a deadline
-		that each tick pushed further out — so after the first failure the deadline receded by
-		twice the time that passed, and no second attempt was ever made. The backoff now lives
-		in the timer itself and there is no deadline to outrun.
-
-		Each attempt carries a generation number, and `_stopPolling` moves the generation on.
-		That is what makes a timer we could not cancel harmless, and there will be such timers:
-		`core.callLater` off the main thread creates the timer later and hands back nothing to
-		cancel. A stale tick compares generations and returns.
+		The backoff lives in the delay passed to each timer. Each attempt carries a generation
+		number, which `_stopPolling` moves on, so a timer that could not be cancelled (see
+		`_callLater`) returns harmlessly.
 
 		:param delay: seconds until the next attempt.
 		:return: whether an attempt is scheduled.
@@ -1682,9 +1407,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		"""Try to reopen the device, and keep trying with a growing wait.
 
 		:param generation: which attempt this tick belongs to. A tick from before the last
-			`_stopPolling` is discarded: termination and a fresh loss both move the generation
-			on, and a timer that could not be cancelled would otherwise reopen a device this
-			driver has finished with.
+			`_stopPolling` is discarded.
 		"""
 		with self._lifecycleLock:
 			if generation != self._pollGeneration or self._terminated or not self._reopening:
@@ -1720,17 +1443,10 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _reopenDevice(self) -> bool:
 		"""Close the dead handle and open the device again, keeping this driver alive.
 
-		The difference from `brlMultilineVirtual`, which replaces a whole failed member: here
-		the driver stays and only its device is replaced. NVDA is never told the display went
-		away, so there is no display switch, no fallback to no braille, and no restart.
-
-		The candidate is opened into a local and installed only after `_terminated` has been
-		checked again under the lock. It has to be, because this runs concurrently with
-		`terminate`: `terminate` can see no device, decide there is nothing to close, and
-		finish, all while a handle is being opened here. Installing it then would leave an
-		exclusive handle on the hardware that nothing can reach and nothing will close, and
-		every later attempt to open the display — by any driver — fails until NVDA restarts.
-		That is the one failure here bad enough to be worth a lock.
+		Only the device is replaced, unlike `brlMultilineVirtual`, so NVDA sees no display
+		switch. The candidate is installed only after `_terminated` is checked again under the
+		lock, since `terminate` may run concurrently and an unreachable exclusive handle would
+		lock every driver out until NVDA restarts.
 
 		:return: whether the device is open again.
 		"""
@@ -1778,15 +1494,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def _resetInputSession(self) -> None:
 		"""Start the input side over on a device that has just been opened.
 
-		Everything the input path remembers describes the handle that went away: which keys
-		were down, whether releases were being ignored, where the last touch was, and — the
-		one that matters most — the capability structures every report is decoded against.
-		Data indexes are a property of a device's report descriptor, so keeping the old map
-		would mean decoding the new device's reports with the old device's key numbering.
-
-		Carrying the key state across is its own bug: a release arriving after the reconnect
-		would complete a combination begun on a device that is gone, and fire whatever that
-		combination is bound to.
+		Key state, touch state and the capability map all describe the old handle; data indexes
+		belong to the new device's descriptor, and old key state could complete a stale
+		combination.
 
 		Call with `_lifecycleLock` held, and only once `_dev` is the new device — the caps come
 		from it.
@@ -1810,21 +1520,10 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	def terminate(self):
 		"""Stop polling and unhook before letting the base class close the device.
 
-		`_terminated` is set first and every other path checks it, because shutdown is exactly
-		when a stale timer or a dying read can start work that outlives the driver. Blanking
-		the display on the way out goes through `display`, so without the flag a device that
-		had already gone would fail its write, be reported lost, and start a reconnection poll
-		during termination.
-
-		A driver whose device is gone must also not take the inherited path: it closes `_dev`
-		unconditionally and would raise on None. The base class's own cleanup still runs, with
-		the blanking suppressed, because there is nothing left to blank.
-
-		The flag is set under the lifecycle lock and the lock is then let go, rather than held
-		across the rest. Holding it would mean taking `_lifecycleLock` and then, through the
-		base class blanking the display, `_stateLock` and `_writeLock` — the reverse of the
-		order every other path takes them in, which is a deadlock waiting for a write to
-		coincide with a shutdown.
+		`_terminated` is set first, so no timer, read or blanking write starts a reconnection.
+		With no device the inherited close of `_dev` is skipped and blanking suppressed. The
+		flag is set under `_lifecycleLock`, which is released before the base class blanks the
+		display, to keep the lock order.
 		"""
 		with self._lifecycleLock:
 			self._terminated = True
@@ -1847,49 +1546,26 @@ class BrailleDisplayDriver(HidBrailleDriver):
 					super().terminate()
 					self._dev = None
 			finally:
-				# A reconnection that was already past its `_terminated` check when the flag
-				# went up closes its own candidate and stops. One that had installed a device
-				# a moment before is closed here: an exclusive handle nothing can reach holds
-				# the hardware away from every driver until NVDA restarts.
+				# A device a reconnection installed just before the flag is closed here.
 				self._closeStrayDevice()
 
 	gestureMap = HidBrailleDriver.gestureMap
 	"""Inherited wholesale.
 
-	The keys, routing and controls are the same hardware whichever report the pins arrive in,
-	so a user's existing `hidBrailleStandard` gestures keep working. The identifiers in this
-	map name that driver, and they keep matching because `InputGesture` offers them as aliases
-	after its own — see the source discussion there.
+	The same hardware keys, so existing `hidBrailleStandard` gestures keep working; see
+	`InputGesture`.
 	"""
 
 
 class InputGesture(HidInputGesture):
 	"""A HID braille gesture that says which driver it came from, and routes for the pitch.
 
-	**Source.** The inherited gesture reports `hidBrailleStandard`, because that is the driver
-	the class belongs to. Standing alone that is harmless — the identifiers still match, and
-	the driver's inherited `gestureMap` is written in those terms. Inside `brlMultilineVirtual`
-	it is not harmless at all: the virtual display finds the member a gesture came from by
-	driver name, so a Monarch reporting `hidBrailleStandard` matches no member. Routing indexes
-	are not rebased into the composite, panning cannot tell which band to move, and a pan can
-	end up scrolling a segment on the other display entirely.
-
-	So the source is this driver, and the `hidBrailleStandard` identifiers are kept as aliases
-	after it. Bindings a user already has for the standard driver keep working, the inherited
-	`gestureMap` keeps matching, and the virtual display gets an unambiguous answer. Order
-	matters: the specific identifier is offered first, so a Monarch-only binding can be made
-	without disturbing the shared one.
-
-	**Names.** A key NVDA cannot tell from another — the two d-pads, both `dpadUp` to NVDA — or
-	has no real name for — the zoom keys, `brailleUsage544` and `brailleUsage545` — is given one
-	from `keyNames`: `leftDpadUp`, `rightDpadUp`, `zoomIn`, `zoomOut`. The name is offered
-	*first* and NVDA's straight after it, so a binding can be made to one pad without disturbing
-	the other, and every binding to NVDA's name keeps matching. See `_get_identifiers`.
-
-	**Routing.** Only a single press can be corrected for the pitch, because the panel reports
-	one touched pin. At a non native pitch a press that cannot be corrected is *cancelled*
-	rather than passed through — see `BrailleDisplayDriver._routingDecision` — and `cancelled`
-	is how this says so, since a gesture cannot decline to exist once it is constructed.
+	1. Source: this driver, so `brlMultilineVirtual` can find the member by driver name. The
+	   `hidBrailleStandard` identifiers follow as aliases, so existing bindings keep working.
+	2. Names: keys NVDA cannot tell apart or has no name for, such as the two d-pads and the
+	   zoom keys, get names from `keyNames`, offered before NVDA's. See `_get_identifiers`.
+	3. Routing: a press that cannot be corrected for the pitch sets `cancelled`. See
+	   `BrailleDisplayDriver._routingDecision`.
 	"""
 
 	source = DRIVER_NAME
@@ -1909,11 +1585,9 @@ class InputGesture(HidInputGesture):
 		2. `br(brlMultilineMonarch):dpadUp`
 		3. `br(hidBrailleStandard):dpadUp`
 
-		NVDA searches the user's gesture map with every identifier before it searches the
-		locale's or the driver's, so a binding the user makes to one pad wins, and until they
-		make one both pads reach `hidBrailleStandard`'s arrow keys exactly as before. No
-		`hidBrailleStandard` form of a name of our own is offered: that driver never produces one,
-		so it could only ever be a binding nobody could have made.
+		NVDA searches the user's gesture map with every identifier first, so a binding to one
+		pad wins. No `hidBrailleStandard` form of our own names is offered, since that driver
+		never produces one.
 
 		:return: identifiers most specific first.
 		"""

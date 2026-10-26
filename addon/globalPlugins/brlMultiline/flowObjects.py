@@ -5,52 +5,18 @@
 
 """Blocks that are objects rather than lines of a document.
 
-A browse mode document hands a flow its content as text, and `flowSources` cuts that text
-into blocks. Most of what a reader meets is not a document: a list box, a menu, a tree, the
-choices of a combo box. Those are runs of objects, and on a single line display a run of
-objects is shown one at a time — which is the same loss of context spatial reading exists
-to answer, in the place it is easiest to feel. Eight rows of a Monarch can hold eight items
-of a list with the focused one among them.
+Lists, menus, trees and combo box choices, read as a run of objects. One object is one
+block, drawn by NVDA's own `NVDAObjectRegion`, so each block says what a single line
+display would. See docs/design/spatial-reading-plan.md, Sources, in two flavours.
 
-One object is one block, and its braille is `NVDAObjectRegion` — NVDA's own presentation of
-an object, with the name, role, value, states and position information the reader already
-knows. Nothing here re-derives any of that. A block of this source says exactly what a
-single line display would say about that object, and the flow's contribution is that seven
-of its neighbours are under the same fingers.
-
-Three things are different from a document source, and all three follow from what an object
-is rather than from taste.
-
-**Walking is expensive here.** Stepping a line in a virtual buffer stays inside NVDA's
-process; stepping to the next object is a call into the application, and on a slow one a
-run of them is exactly the lag this design has worried about from the start. So nothing
-reads ahead: the source is asked for one more block only when the window is short, and the
-operation budget bounds how many it will fetch. This is the case the budget was written
-for.
-
-**Nothing here moves anything.** Panning a document flow moves the browse mode cursor,
-which is a reading position with no consequences. The equivalent for a list would be moving
-the selection, and a selection is application state: it fires events, it changes what is
-shown, and in a menu it can act. So an object flow moves the window and nothing else. The
-reader's focus stays where they put it, and the display reads around it.
-
-**The focused object still shows the cursor.** Not to move it — to say which of the eight
-items on the display is the one the arrow keys will act on. Without it a list of eight
-reads as eight equal things, and the reader has lost the one fact they had before.
-
-Which objects are read this way is a registry rather than a list of roles buried in a
-condition, because the answer is a judgement about a kind of control and other code may
-have a better one. See `ObjectAdapter` and `register`.
-
-**What the run is, and what is merely beside it.** NVDA's own navigation of a list or a
-menu walks the items the reader can arrive at. This walks the accessibility siblings, which
-is a wider set: a menu's separators are in it, and so is a button sitting at the bottom of
-a list box. Handed straight to `NVDAObjectRegion` a separator reads as "unavailable"
-followed by its dashes, which is true and useless — the reader is told a command is
-disabled when what is there is a line drawn between two groups. So every step is classified
-before it is read: another member of the run, a decoration between two of them, or
-something that merely sits beside the run and ends it. See `ObjectAdapter.admits` and
-`isDecoration`.
+1. Walking is a call into the application, so nothing reads ahead and the operation budget
+   bounds fetching.
+2. Nothing moves the selection, which is application state; the flow moves only its window.
+3. The focused object still shows the cursor, to say which item the arrow keys act on.
+4. Which objects are read this way is a registry; see `ObjectAdapter` and `register`.
+5. The walk is over accessibility siblings, a wider set than NVDA's navigation, so each
+   step is classified as a member, a decoration such as a separator, or the end of the run.
+   See `ObjectAdapter.admits` and `isDecoration`.
 """
 
 import dataclasses
@@ -72,9 +38,7 @@ RUN_ROLES = frozenset(
 )
 """Roles whose objects come in runs, by `controlTypes.Role` member name.
 
-These are the things a reader arrows through one of and wants the others of. Named rather
-than imported for the reason `flowForms.CONTROL_ROLES` is: a role NVDA has not got costs
-nothing and matches nothing, and the policy can be read without a running screen reader.
+Named rather than imported, as `flowForms.CONTROL_ROLES` is.
 """
 
 TREE_ITEM_ROLES = frozenset({"TREEVIEWITEM"})
@@ -83,32 +47,22 @@ TREE_ITEM_ROLES = frozenset({"TREEVIEWITEM"})
 TREE_ROLES = frozenset({"TREEVIEW", "TREE", "OUTLINE"})
 """What a tree item's containing control calls itself, where it says so.
 
-Only used to stop a walk climbing out of the tree it started in. A control that names
-itself none of these still bounds the walk, because the climb stops at the first ancestor
-that is not itself a tree item.
+Only to stop a climb early; the climb also stops at the first ancestor that is not a tree
+item.
 """
 
 TRANSPARENT_ROLES = frozenset({"GROUPING"})
 """Roles that hold a tree's rows without being rows themselves.
 
-A tree item's children are not always its direct children. Several providers hang them off
-a grouping in between — UIA does it, and so do some IA2 implementations — and to a walk that
-reads `firstChild` and expects another tree item, that grouping is the end of the tree. On a
-control shaped that way the walk offered the grouping as the next row, the run refused it as
-something outside itself, and the reader was shown a parent whose contents had vanished.
-
-So a wrapper is stepped over in both directions rather than stopped at: it is scenery, not a
-row. Kept to a named set rather than "anything that is not a tree item", because the thing
-on the other side of a *real* boundary — the tree control, a toolbar beside it — is also not
-a tree item, and treating those as scenery would walk straight out of the tree.
+Some providers, including UIA, hang a tree item's children off a grouping, which is stepped
+over in both directions. A named set, since a real boundary such as the tree control is also
+not a tree item.
 """
 
 MAX_WRAPPERS = 4
 """How many wrappers deep to look before giving up.
 
-Bounded like every other walk here. Nesting groupings four deep between one row and the next
-is not a tree shape anybody has; the bound is there so a malformed or cyclic hierarchy costs
-four reads rather than the display.
+Bounded, so a malformed or cyclic hierarchy costs a few reads.
 """
 
 FIRST_LEVEL = 1
@@ -117,18 +71,13 @@ FIRST_LEVEL = 1
 MAX_TREE_DEPTH = 64
 """How far a walk may climb or descend before it decides the tree is lying to it.
 
-A folder tree sixty four deep does not exist; a tree whose `parent` eventually points back
-into itself does, because an accessibility bridge under load will answer anything. The walk
-is bounded rather than trusted, for the same reason `MAX_CHILDREN` is.
+A bridge under load can report a cycle, so the walk is bounded, as `MAX_CHILDREN` is.
 """
 
 MENU_ITEM_ROLES = frozenset({"MENUITEM", "CHECKMENUITEM", "RADIOMENUITEM"})
 """The roles one menu mixes freely.
 
-A run is otherwise all of one role — a list of list items, a tree of tree items — and a
-menu is the exception: a check item and a plain command sitting together are one menu, and
-showing only the ones whose role matches the item the reader happens to be on would give
-them a menu with holes in it.
+A run is otherwise all of one role; a menu mixes check items and commands.
 """
 
 CHOICE_ROLES = frozenset({"COMBOBOX", "LIST", "LISTBOX", "MENU", "TREEVIEW", "GROUPING"})
@@ -144,72 +93,42 @@ DECORATION_ROLES = frozenset({"SEPARATOR"})
 ACTIVATE_ROLES = frozenset({"TAB"}) | MENU_ITEM_ROLES
 """Roles a routing key acts on rather than merely goes to.
 
-A routing key is the braille equivalent of clicking on what is under your finger, so the
-rule is what a mouse click does to that kind of control. Clicking a menu item invokes it and
-clicking a tab chooses it; clicking a list item or a tree item selects it and waits. So a
-menu and a tab strip act, and everything else takes the focus — which is what "go there"
-means, and what stops a finger landing on a list item the reader was reading past from
-activating it.
+As a mouse click: menu items and tabs act, and everything else takes the focus.
 """
 
 MAX_RUN_DEPTH = 4
 """How far inside a container a declared run is looked for. See `_firstDeclaredWithin`.
 
-Four because the members may be wrapped: Teams puts each message in a wrapper of its own,
-so its run is two generations down, and a control that wraps twice is not hard to imagine.
-Deep enough to find a run that is really there, shallow enough that a container which
-declared one by mistake is not walked to the bottom of its tree.
+Members may be wrapped, as in Teams, two generations down. Shallow enough that a mistaken
+declaration does not walk the whole tree.
 """
 
 MAX_CHILDREN = 500
 """How many children of a container will be walked when finding where the focus sits.
 
-A guard against a list of tens of thousands, which is a real thing in a file manager. The
-children are walked one at a time from the first rather than asked for as a list: NVDA's
-own `children` builds the whole list before anything can count it, so a limit applied
-afterwards bounds this module's loop and not the work. The flow only ever shows a band's
-worth, so failing to place the focus in a list longer than this costs the reader the run
-rather than costing them time.
+A guard against very long lists. Walked one at a time, since NVDA's `children` builds the
+whole list first. Past it the run is given up rather than time.
 """
 
 MAX_GROUP_ITEMS = 2000
 """How far the walk to the end of a group will go when the container will not say.
 
-A different question from `MAX_CHILDREN`, which is about placing the focus in a list and
-gives up cheaply because the flow only shows a band's worth either way. This one is about
-the row directly above a group heading, and giving up in the middle of a day's messages is
-not a cheaper answer to it — it is a wrong one. So the walk is only ever the fallback: a
-container is asked for its last child first, which is one call whatever the group holds,
-and a walk from the first child happens only where that was refused or came back with
-something that is not one of the group's rows.
-
-Reaching this means the application answers neither question, and what is returned then is
-nothing at all rather than whichever row the walk stopped on. Five hundred used to be the
-limit and it was reported as the true end of the group: a day holding six hundred messages
-put the reader ninety-nine rows from where reading backward should have landed them, with
-nothing to say so.
+Only the fallback: a container is first asked for its last child, one call. Reaching this
+limit returns nothing, rather than a row partway through the group.
 """
 
 MAX_RUN_SEARCH = 500
 """How many objects the search for a declared run may look at, all told.
 
-One budget for the whole walk rather than a limit at each node, which is the difference
-between five hundred objects and five hundred to the power of the depth. Every one of them is
-a call into the application, so the worst case has to be a number and not a shape.
-
-The same five hundred as `MAX_CHILDREN` because it is the same judgement: far enough to find
-a run that is really there, and a container that declared one by mistake costs the reader the
-run rather than costing them the display while its tree is walked to the bottom.
+One budget for the whole walk rather than per node, so the worst case is a number. The same
+judgement as `MAX_CHILDREN`.
 """
 
 SELECTION_NAMED = "brlMultilineFlowNamedFromSelection"
 """The attribute an application sets to say its objects are named after the selection.
 
-Set on an overlay class by an application that knows its objects describe what is selected
-rather than what they are, and read only by L{namedFromTheSelection}. The same contract as
-`RUN_DECLARATION` below and inert in the same way. What it buys is that such an object is
-read while the reader is on it and not re-read afterwards, since a re-read would be a
-question about something else.
+Set on an overlay class, as `RUN_DECLARATION` is, and read by `namedFromTheSelection`. Such
+an object is read while the reader is on it and not re-read afterwards.
 """
 
 OUTLOOK = "outlook"
@@ -225,22 +144,12 @@ object and is not this class by identity.
 RUN_DECLARATION = "brlMultilineFlowRun"
 """The attribute an application sets to say its objects read as a run.
 
-This name and the three below are a public contract with application code, so they are
-spelled out here rather than assembled anywhere. An app module sets them on its overlay
-class and needs no import of this add-on, no registration call, and no dependency: they
-are inert data that only this module reads, so the module behaves identically when
-BrlMultiline is absent, disabled, or a version that has never heard of it.
+This name and the three below are a public contract with application code. An app module
+sets them on its overlay class with no import of this add-on, so it behaves the same when
+BrlMultiline is absent. Unlike `register`, which needs an import and a load order.
 
-That is the difference from L{register}, which is still there for code that wants to
-supply a whole adapter. Registration means importing a global plugin from another add-on,
-which is a load-order problem and a hard failure when the add-on is not installed. A
-declaration is neither.
-
-The worked case is Microsoft Teams. Its chat history is a run of messages that reports the
-role GROUPING, holds each message in a wrapper of its own so that no two messages are
-siblings, and puts a timestamp and an unnamed element beside each one — so neither the
-sibling walk nor NVDA's `simpleNext` reaches the next message, and `simpleNext` leaves the
-history entirely and lands on the compose box. Only the app module knows how to step it.
+The worked case is Microsoft Teams, whose messages are wrapped so no sibling walk or
+`simpleNext` reaches the next one; only the app module knows how to step it.
 """
 
 RUN_NEXT = "brlMultilineFlowNext"
@@ -252,26 +161,16 @@ RUN_PREVIOUS = "brlMultilineFlowPrevious"
 RUN_CONTAINER = "brlMultilineFlowRunContainer"
 """The attribute a container sets to say the run is somewhere inside it.
 
-The members declare themselves with L{RUN_DECLARATION}, which is what the *band* needs: the
-reader is on a message, and the run is read outward from there. A container needs its own
-declaration because of what else can be pointed at a run — a pin. Pinning the chat list
-hands this add-on the list, not a message, and nothing about a list says its grandchildren
-are a run.
-
-Teams again is the case. Its history is a SECTION holding one wrapper per message, so the
-members are grandchildren; an adapter looking at a container's own children would find
-wrappers and stop. What to read first is therefore the container's to answer, through
-L{RUN_START}, since only the application knows which message it wants shown — the newest,
-for a chat.
+For a pin, which is handed the container rather than a member declaring itself with
+`RUN_DECLARATION`. In Teams the members are grandchildren. Which to read first is the
+container's to say, through `RUN_START`.
 """
 
 RUN_START = "brlMultilineFlowRunStart"
 """A method a container may supply, returning the member to begin reading at.
 
-Wanted rather than optional in practice: without it a container is searched for a declared
-descendant, which is a walk into the application and answers with whichever comes first in
-its tree. That is the right first message for a list and the wrong one for a chat history,
-where the reader wants the newest.
+Without it the container is searched for its first declared descendant, which is wrong for
+a chat, where the newest is wanted.
 """
 
 RUN_ADMITS = "brlMultilineFlowAdmits"
@@ -284,10 +183,7 @@ unless two different declared runs can sit next to each other.
 LINE_CHARACTERS = frozenset("-_=~.*" + "‐‑‒–—―─━┄┅")
 """What a separator is drawn out of, for the fallback in `isDecoration`.
 
-Hyphens and underscores because that is what a toolkit usually names its line, and the
-dashes and box drawing characters because some name it with the character they would draw.
-The role is still the test; this only decides what counts as "nothing but a line" once a
-toolkit has already claimed its separator is a disabled menu item."""
+The role is still the test; this is only the fallback."""
 
 
 def roleName(role) -> str:
@@ -311,17 +207,8 @@ def _siblingPrevious(obj):
 def _depthFromPositionInfo(obj) -> Optional[int]:
 	"""How deep an object sits, on NVDA's own account.
 
-	`positionInfo["level"]` is the answer wherever an object has one, and a surprising number
-	of them do: `sysTreeView32` computes it by walking to the root, UIA reads it from the
-	tree item pattern or the ARIA level, IA2 takes it from the object's attributes, and
-	Outlook's own app module sets it by hand for the folder list. Deriving it here by counting
-	parents would be a second, worse implementation of all of that, and would cost a call into
-	the application per ancestor per block.
-
-	An object with no level has no depth, and a flat run of list items is exactly that: the
-	items of an ordinary list box report `indexInGroup` and no level at all, so they draw flat
-	and today's reading is unchanged. That is the point — depth is drawn where a control says
-	it has some, and nowhere else.
+	`positionInfo["level"]`, which each API and NVDA's app modules fill in. An object with no
+	level, such as an ordinary list item, has no depth and draws flat.
 
 	:param obj: the object a block is being built for.
 	:return: its one-based level, or None where it has none.
@@ -349,10 +236,7 @@ def _isTreeItem(obj) -> bool:
 def _isExpanded(obj) -> Optional[bool]:
 	""":return: whether a node is showing its children, or None if it has no such state.
 
-	Three answers rather than two, and the third is what stops a leaf being mistaken for a
-	collapsed node. A leaf reports neither state — it has nothing to expand — and a caller
-	that read that as "collapsed" would be right by accident here and wrong wherever the
-	distinction matters, such as deciding whether the run's shape has changed.
+	None for a leaf, which reports neither state, so it is not taken as collapsed.
 	"""
 	try:
 		names = {roleName(state) for state in (getattr(obj, "states", None) or ())}
@@ -397,8 +281,7 @@ def _rowBelow(obj):
 def _rowAbove(obj):
 	""":return: the nearest ancestor that is not scenery, stepping through any wrapper.
 
-	Not "the nearest ancestor that is a row": the caller has to be able to tell a parent row
-	from the tree control itself, and both are things this stops at.
+	May be a parent row or the tree control itself; the caller tells them apart.
 
 	:param obj: the node whose parent is wanted.
 	:return: the ancestor, or None.
@@ -419,11 +302,8 @@ def _rowAbove(obj):
 def _firstVisibleChild(obj):
 	""":return: a node's first child if the reader can see it, else None.
 
-	Gated on the state rather than on there being a child, because a tree control will hand
-	back the children of a collapsed node perfectly happily — `sysTreeView32` builds them
-	from the window's own item handles, which do not care what is on screen. Walking into
-	them would put rows on the display that are not on the reader's screen, which is the one
-	thing reading in visible order is defined not to do.
+	Gated on the expanded state, since a tree control such as `sysTreeView32` gives back the
+	children of a collapsed node too.
 
 	The child may be a wrapper's child rather than this node's own. See `TRANSPARENT_ROLES`.
 	"""
@@ -436,25 +316,16 @@ def _lastVisibleDescendant(obj):
 	""":return: the last row of a node's visible subtree, which is the row before its next
 	sibling.
 
-	Reading backward is not the mirror of reading forward. Forward, a node is followed by its
-	own first child; backward, a node is preceded by the *deepest last* thing under the
-	sibling above it, because that is the row directly above it on the screen. Getting this
-	wrong shows up as panning back landing several rows above where panning forward left,
-	which is the reversibility property the whole anchor design rests on.
+	Backward, a node is preceded by the deepest last row under the sibling above it, so
+	panning back retraces panning forward.
 	"""
 	node = obj
 	for _ in range(MAX_TREE_DEPTH):
 		child = _firstVisibleChild(node)
 		if child is None:
 			return node
-		# Asked of the container before its rows are walked, for the same reason the group
-		# walk asks: it is one call however many rows are open under a branch, and walking
-		# them is one call each. See `_lastChildOf`.
-		#
-		# Of the *first row's own* container rather than of the node, because they are not
-		# always the same one: several providers hang a tree item's rows off a grouping in
-		# between, and there `node.lastChild` is that grouping — scenery, not a row. Checked
-		# for being a row as well, since a container may end with something that is neither.
+		# Asked of the first row's own container, one call (see `_lastChildOf`), since the
+		# node's last child may be a wrapping grouping. Checked for being a row.
 		last = _lastChildOf(_containerOf(child))
 		if not _isTreeItem(last):
 			last = child
@@ -474,9 +345,8 @@ def _lastVisibleDescendant(obj):
 def _treeNext(obj):
 	""":return: the row below this one on the reader's screen, or None at the end of the tree.
 
-	The child if there is a visible one, else the next sibling, else the next sibling of the
-	nearest ancestor that has one. That last part is what today's sibling walk cannot do and
-	what leaving a subtree requires.
+	The visible child, else the next sibling, else the next sibling of the nearest ancestor
+	that has one.
 	"""
 	child = _firstVisibleChild(obj)
 	if child is not None:
@@ -515,11 +385,8 @@ def _treePrevious(obj):
 def _treeOf(obj):
 	""":return: the control a tree item belongs to, or None.
 
-	Found by climbing until something is not a tree item, rather than by looking for a role
-	in `TREE_ROLES`: a tree whose container calls itself a LIST, a GROUPING or nothing at all
-	is common, and a membership test that only worked for well behaved controls would make
-	the walk fall out of exactly the trees that need it most. The role set is only used to
-	stop early where it does apply.
+	By climbing until something is not a tree item, since many trees' containers do not use
+	a role in `TREE_ROLES`, which only stops the climb early.
 	"""
 	node = obj
 	for _ in range(MAX_TREE_DEPTH):
@@ -535,10 +402,8 @@ def _treeOf(obj):
 def _isSameTree(root, candidate) -> bool:
 	""":return: whether a candidate is another visible row of the tree `root` is in.
 
-	Not `_sameParent`, which is the whole difference. A child of an expanded node has a
-	different parent from its own parent's siblings and is still the very next row on the
-	screen; the sibling test threw exactly those away, which is how an expanded folder's
-	contents were stepped over.
+	Not `_sameParent`, since a child of an expanded node is the next row but has a
+	different parent.
 	"""
 	if root is None or candidate is None:
 		return False
@@ -562,9 +427,8 @@ def _isSameTree(root, candidate) -> bool:
 def _countedTreeDepth(obj) -> Optional[int]:
 	""":return: how deep a tree item sits, by counting the tree items above it.
 
-	One for an item whose parent is the tree control itself. Bounded like every other walk
-	here, and it stops at the first ancestor that is not a tree item, which is the same
-	boundary `_treeOf` and the walk use.
+	One for an item whose parent is the tree control. Bounded, and stops where `_treeOf`
+	stops.
 	"""
 	if not _isTreeItem(obj):
 		return None
@@ -585,29 +449,10 @@ def _countedTreeDepth(obj) -> Optional[int]:
 def _treeDepth(obj) -> Optional[int]:
 	""":return: how deep a tree item sits, from the structure the walk went through.
 
-	The counted depth wins wherever there is one to count, and that is the opposite of the
-	priority everywhere else in this module. The reason is a hardware report, and it is the
-	rule worth keeping rather than the case that produced it: **the depth drawn has to come
-	from the same structure the walk stepped through.** A walk that descends into a node's
-	child and then draws that child at its parent's indent is telling the reader two
-	different things about one tree.
-
-	Outlook's folder pane is where they part. Its account row and the Inbox beneath it both
-	report `positionInfo["level"]` of 1, while a folder inside a folder reports 2 — the
-	folders are numbered from one and the account row is not counted. The walk had already
-	descended into the account's `firstChild` to reach the Inbox, so the structure said one
-	deeper and the label said the same, and the whole account's contents drew flush with the
-	account. Counting says 2 and is right.
-
-	`positionInfo` is still the answer where there is no structure to count, and that is not
-	a rare case: an outline whose items are all direct children of the control, with the
-	level carried as an attribute, is a real shape and the only thing that knows its depth is
-	the attribute. So the count is consulted first and believed only when it found genuine
-	nesting; a count of one means "nothing above me", which is exactly when the label is
-	worth more than the structure.
-
-	It costs a `parent` read per level rather than one `positionInfo` read. That is the price
-	of agreeing with the walk, and the walk is doing the same reads a step later anyway.
+	The counted depth wins where it found real nesting, so the depth drawn comes from the
+	same structure the walk stepped through; Outlook's folder pane reports the same level for
+	an account and the Inbox under it. Where the count is one, `positionInfo` is used, for an
+	outline whose items are all direct children of the control.
 	"""
 	counted = _countedTreeDepth(obj)
 	if counted is not None and counted > 1:
@@ -646,11 +491,8 @@ def _sameParent(first, second) -> bool:
 def _isSameRun(root, candidate) -> bool:
 	""":return: whether a candidate is another member of the run `root` belongs to.
 
-	Sharing a parent is not enough on its own. A list box holds a button as often as not,
-	and a menu holds its separators, and either one read through the list item adapter is
-	presented to the reader as one of the things they are arrowing through. So the roles must
-	be of a kind as well — which is what keeps a button out of a list of ticked items, since
-	those report themselves as checkboxes and the button does not.
+	Same parent and roles of a kind, so a button in a list box or a separator in a menu is
+	not taken as a member.
 	"""
 	if root is None or candidate is None:
 		return False
@@ -665,37 +507,27 @@ def _isSameRun(root, candidate) -> bool:
 RUN_CONTAINERS = frozenset({"LIST", "LISTBOX", "TABLE", "DATAGRID", "TREEVIEW", "PANE"})
 """What a grouped list may call itself, and so what bounds the walk across its groups.
 
-A message list calls itself a list or a table depending on the provider, and Outlook's UIA
-one is a table of rows. The set is here to say where the walk *stops*: the end of the last
-group is the end of the list, and without something to compare against, the climb would carry
-on into the toolbar beside it.
+Where the walk stops, so it does not climb past the last group into a toolbar.
 """
 
 GROUP_ROLES = frozenset({"GROUPING"})
 """What a list puts between itself and its items when it groups them.
 
-Outlook's message list groups by day — "Today", "Yesterday", "Last week" — and each day is a
-`GROUPING` holding that day's messages. The role is deliberately narrow: a grouping is a real
-boundary in most controls, and the walk below steps across it only where the shape is
-unmistakable, which is a run member whose parent is one of these inside a list.
+As Outlook's message list groups by day. Narrow, since a grouping is usually a real
+boundary; crossed only for a run member in one of these inside a list.
 """
 
 MAX_GROUPS = 200
 """How many groups a walk may cross before it decides the list is lying to it.
 
-The same kind of bound as `MAX_TREE_DEPTH`: a message list has a group per day and a reader
-pans through a few of them, while a container whose `next` points back into itself would walk
-forever.
+A bound against cycles, as `MAX_TREE_DEPTH` is.
 """
 
 
 def _groupOf(obj):
 	""":return: the group an item sits in, or None if its list does not group its items.
 
-	One step, and it has to answer no for the ordinary list: the parent must call itself a
-	grouping, and there must be something above it holding the groups. A list box inside a
-	pane is not a grouped list, and reading it as one would let the walk out of the list and
-	into whatever the pane holds next.
+	The parent must be a grouping, held inside a list, so an ordinary list box answers no.
 
 	:param obj: a run member.
 	"""
@@ -712,8 +544,7 @@ def _groupOf(obj):
 def _listHolding(group):
 	""":return: the list a group belongs to, or None.
 
-	The thing that bounds the whole walk: at the end of the last group there is nothing more
-	to read, and without this the climb would carry on into the toolbar beside the list.
+	What bounds the walk. See `RUN_CONTAINERS`.
 
 	:param group: the grouping.
 	"""
@@ -759,11 +590,8 @@ def _isInAGroupedList(obj) -> bool:
 def _isInTheSameList(root, candidate) -> bool:
 	""":return: whether two rows belong to one grouped list.
 
-	The membership test the ordinary run cannot give: the items of one day and the items of
-	the next have different parents and are the same list, so what is compared is the list
-	they are all in. A heading is admitted too — see `_groupedNext`, which offers them as
-	rows, since "Yesterday" arriving under the reader's hand is the whole reason the boundary
-	is worth crossing rather than hiding.
+	Compares the list they are in, since items of different groups have different parents.
+	Headings are admitted too; see `_groupedNext`.
 	"""
 	if root is None or candidate is None:
 		return False
@@ -806,9 +634,7 @@ def _firstInGroup(group):
 def _containerOf(obj):
 	""":return: the object's own parent, whatever that parent is, or None.
 
-	Not `_rowAbove`, which climbs past scenery to the nearest row. What is wanted here is the
-	thing that literally holds this one, because that is what can be asked for its last
-	child.
+	Not `_rowAbove`, which climbs past scenery. This is what can be asked for its last child.
 	"""
 	if obj is None:
 		return None
@@ -822,11 +648,8 @@ def _containerOf(obj):
 def _lastChildOf(container):
 	""":return: a container's last child as it says itself, or None where it will not say.
 
-	One call whatever the container holds, which is the whole point: the alternative is
-	walking from the first child, and every step of that walk is a call into the
-	application. Not trusted blindly — the caller checks that what comes back belongs to
-	the run — because a list that puts a footer or a loading placeholder after its rows
-	would otherwise offer that as the reader's next row.
+	One call, instead of walking from the first child. The caller checks the answer belongs
+	to the run, since a list may end with a footer or placeholder.
 	"""
 	if container is None:
 		return None
@@ -840,10 +663,8 @@ def _lastChildOf(container):
 def _lastInGroup(group):
 	""":return: the last item of a group, or None. See `_firstInGroup`.
 
-	None also means "this could not be answered", which is not the same as the group being
-	empty and is treated the same way by the one caller: `_groupedPrevious` offers the group
-	heading instead. Reading backward out of a day lands on the heading above it rather than
-	partway into a day whose end was guessed at. See `MAX_GROUP_ITEMS`.
+	None also when it cannot be answered; `_groupedPrevious` then offers the group heading
+	rather than a guessed end. See `MAX_GROUP_ITEMS`.
 	"""
 	found = _firstInGroup(group)
 	if found is None:
@@ -889,10 +710,8 @@ def _groupBeside(group, forward: bool):
 def _groupedNext(obj):
 	""":return: the row below this one on the screen, crossing group boundaries.
 
-	The order the reader sees: a heading, then that group's messages, then the next heading.
-	At the end of a day the walk climbs to the group, steps to the next one and offers *it* —
-	the heading is a row, not something to be skipped past, because "Yesterday" arriving under
-	the hand is what tells the reader why the dates changed.
+	In screen order: a heading, its group's items, then the next heading. The heading is a
+	row, so the reader knows the group changed.
 	"""
 	if roleName(getattr(obj, "role", None)) in GROUP_ROLES:
 		inside = _firstInGroup(obj)
@@ -952,15 +771,9 @@ def _hasAction(obj) -> bool:
 def isDecoration(obj) -> bool:
 	"""Whether an object is something drawn between items rather than one of them.
 
-	A menu separator is the case, and a flow meets it because it walks the accessibility
-	siblings rather than the focusable items NVDA's own navigation walks. It is not a
-	disabled command and must not be read as one.
-
-	The role is the test. What follows it is a fallback for a toolkit that exposes its line
-	as a disabled menu item, and it is deliberately narrow: an object that cannot be
-	focused, has nothing to do, and is named with nothing but dashes. Disabled is never the
-	test on its own — a real command that is temporarily unavailable is meaningful content,
-	and the reader is entitled to be told that it is unavailable.
+	Such as a menu separator, which the sibling walk meets. The role is the test, with a narrow
+	fallback for a toolkit that exposes its line as a disabled item: not focusable, no action,
+	and named only with line characters. Disabled alone is never enough.
 
 	:param obj: the object stepped onto.
 	:return: whether to show a blank row instead of reading it.
@@ -986,9 +799,7 @@ def isDecoration(obj) -> bool:
 class ObjectAdapter:
 	"""How one kind of object is read as a run.
 
-	A registry entry rather than a branch in a condition: which objects read well this way is
-	a judgement about a kind of control, and an add-on that owns such a control has a better
-	one than this module does.
+	A registry entry, so an add-on that owns a control can supply its own.
 	"""
 
 	name: str
@@ -1019,50 +830,31 @@ class ObjectAdapter:
 	depthOf: Callable[[Any], Optional[int]] = _depthFromPositionInfo
 	"""How deep in its structure one of these sits, or None where the run is flat.
 
-	Here rather than in the layout for the reason the rest of this record is here: a control
-	that knows better than NVDA about its own shape is exactly the case an add-on registers an
-	adapter for, and depth is part of shape. What is drawn from the number is `flowIndent`'s
-	decision and no adapter's business.
+	Depth is part of a control's shape, which an adapter may know better than NVDA. How it is
+	drawn is `flowIndent`'s concern.
 	"""
 
 	openChildOf: Callable[[Any], Any] = lambda obj: None
 	"""The first row inside one of these, or None where it is showing none.
 
-	Asked only of a node that says it is open, and only to tell "open and showing nothing"
-	from "open and showing something". A tree that fills a node in after reporting it open —
-	which is what a provider that fetches children on demand does — changes what is on the
-	reader's display without changing any state anybody can watch. See `shapeChanged`.
-
-	A run whose members cannot be opened answers None and is never asked.
+	Asked only of an open node, since a provider that fetches children on demand reports the
+	node open before it has any. See `shapeChanged`.
 	"""
 
 	expandedOf: Callable[[Any], Optional[bool]] = lambda obj: None
 	"""Whether one of these is showing its children, or None where the idea does not apply.
 
-	A run whose members cannot be opened answers None to everything and pays nothing. Where
-	it does apply the answer is what tells the band that the run has changed shape under the
-	reader — expanding a node is not a focus change and NVDA reports it through no event the
-	band sees. See `ObjectFlowSource.shapeChanged`.
+	How the band notices a node being expanded, which sends no event. See
+	`ObjectFlowSource.shapeChanged`.
 	"""
 
 
 RUN_PARENTS = frozenset({"LIST", "LISTBOX"})
 """Containers all of whose children are one run, whatever the children call themselves.
 
-**Because a list item does not always say it is one.** A list view with checkboxes reports
-every item as a `CHECKBOX` — that is MSAA's answer, not NVDA's, and it is the right one for
-saying "ticked" — so a role test alone found no run at all and the band read the one item the
-reader was on as though it were a document. The dialog this add-on puts up for arranging a
-table was the first place it was noticed, and File Explorer's checkbox mode is another.
-
-Narrow on purpose, and narrower than `RUN_CONTAINERS`, which is about where a *walk stops*
-and admits a pane for that reason. A pane holds anything at all, and one child of a pane is
-no evidence about the next. Two things are deliberately not here:
-
-- **A tree.** Only a top-level node has the tree for a parent — a nested one hangs under
-  another node — so the parent says nothing about most of them, and a checkable tree wants
-  `VISIBLE_TREE` rather than a walk along one generation. It needs its own evidence.
-- **A table.** Its rows are a run, and a table has `flowTableSource` for exactly that.
+For list items that report another role, such as `CHECKBOX` in a checkbox list view. Narrower
+than `RUN_CONTAINERS`: no pane, which holds anything; no tree, which `VISIBLE_TREE` reads; no
+table, which `flowTableSource` reads.
 """
 
 
@@ -1091,11 +883,8 @@ def _hasChoices(obj) -> bool:
 def _focusedChild(obj):
 	"""Find which child of a container the reader is on.
 
-	The selected one, or the focused one, or the first — in that order, because a container
-	that reports neither is still worth reading from its start.
-
-	Walked from `firstChild` rather than taken from `children`, which builds the whole list
-	before a limit can be applied to it. See `MAX_CHILDREN`.
+	The selected one, the focused one, or the first. Walked from `firstChild`; see
+	`MAX_CHILDREN`.
 
 	:param obj: the container.
 	:return: the child to start at, or None if it has none.
@@ -1122,10 +911,8 @@ def _focusedChild(obj):
 def _chosenChild(root, current):
 	""":return: which of a container's children the reader is on.
 
-	The focus moves to the choice itself the moment the reader arrows within an open combo
-	box, and from then on the answer is simply where they are. Asking the container again
-	would walk its children on every keypress; asking the *choice* for its own children,
-	which is what an earlier version did, found nothing at all and lost the run.
+	In an open combo box the focus moves to the choice itself, so the answer is where the
+	reader is, without walking the container's children again.
 	"""
 	if current is not None and current is not root and _isChild(root, current):
 		return current
@@ -1145,8 +932,7 @@ def _isChosen(obj) -> bool:
 def _rowTextFor(obj, headers: Optional[dict] = None) -> str:
 	""":return: a row built from its own cells, or "" where that cannot be done.
 
-	Contained here rather than in the region, because a row that will not say what its cells
-	are is a row to read the ordinary way — not a row to fail on while the reader waits.
+	Failures are contained here, so such a row is read the ordinary way.
 
 	:param headers: where to remember what each column is called, so that a band of rows asks
 		the platform once per column. Kept by the source, since a run is one list.
@@ -1163,16 +949,9 @@ def _rowTextFor(obj, headers: Optional[dict] = None) -> str:
 class _NamedAs:
 	"""An object with one property answered differently, for the length of one reading.
 
-	**A stand-in is not the object**, and a review has already said so about a different one,
-	so this is as small as it can be: every attribute but `name` is the real object's, it is
-	made and thrown away inside `FlowObjectRegion.update`, and nothing else ever holds one. The
-	region goes back to the real object before anything can route into it or act on it.
-
-	What it buys is NVDA's own presentation. `braille.regions.NVDAObject.NVDAObjectRegion`
-	reads a dozen properties to say what an object is — role, states, position, description,
-	whether it is current — and only the *name* of an Outlook message row is untrustworthy.
-	Composing the line ourselves would mean keeping a copy of that dozen and watching it drift
-	between NVDA versions; this changes the one word that is wrong and lets NVDA say the rest.
+	Every attribute but `name` is the real object's. Made and thrown away inside
+	`FlowObjectRegion.update`, which goes back to the real object before anything can route
+	into it. This keeps NVDA's own `NVDAObjectRegion` presentation, changing only the name.
 	"""
 
 	def __init__(self, obj, name: str) -> None:
@@ -1189,18 +968,10 @@ class _NamedAs:
 def namedFromTheSelection(obj) -> bool:
 	""":return: whether an object's text describes what is selected rather than what it is.
 
-	**The one thing that cannot be read again out of context.** NVDA's Outlook module builds a
-	message row's name from `activeExplorer().selection` — the unread flag, the attachment
-	flag, the executed verb and the importance all come from whatever is selected rather than
-	from the row being named. Ask it about a row the reader has moved off and it answers about
-	the row they moved to, so a message they had read came back saying "unread" and nothing on
-	the display said which of the two rows the flag belonged to.
-
-	Declared by the application where it knows, in the same spirit as `RUN_DECLARATION`: an
-	attribute on an overlay class, inert to everything else. Known here for the one class that
-	does not declare it, and narrowly — Outlook's grid rows, asked for by NVDA's own name for
-	them. If NVDA renames that class this stops applying and the old fault comes back in
-	Outlook alone, which is a better failure than a rule that freezes every list in Windows.
+	NVDA's Outlook module builds a message row's name partly from the current selection, so
+	re-read elsewhere it describes another row. Declared through `SELECTION_NAMED`, as with
+	`RUN_DECLARATION`, and known here for Outlook's grid rows by NVDA's class name. If NVDA
+	renames that class, only Outlook is affected.
 
 	:param obj: the object about to be read again.
 	"""
@@ -1216,10 +987,8 @@ def namedFromTheSelection(obj) -> bool:
 def _isAnOutlookMessageRow(obj) -> bool:
 	""":return: whether an object is one of Outlook's message rows.
 
-	Two questions, both of NVDA rather than of the platform: which application this object
-	belongs to, and which of NVDA's classes it was built from. `UIAGridRow` is the class in
-	`appModules/outlook.py` whose `_get_name` reads the selection, and `mro` is where an
-	overlay class keeps the classes it was assembled from.
+	By application, and by `UIAGridRow` in the class's `mro`, the class in
+	`appModules/outlook.py` whose `_get_name` reads the selection.
 	"""
 	try:
 		if getattr(getattr(obj, "appModule", None), "appName", None) != OUTLOOK:
@@ -1233,11 +1002,8 @@ def _isAnOutlookMessageRow(obj) -> bool:
 def _isDeclaredRun(obj) -> bool:
 	""":return: whether an application has declared that its object reads as a run.
 
-	Read off the object rather than taken through L{register}, so that the application
-	needs no import of this add-on and no dependency on it. An app module setting a class
-	attribute keeps working when the add-on is absent, disabled or a different version,
-	which an import cannot promise — and NVDA app modules load before global plugins are
-	certain to be there at all.
+	Read off the object rather than through `register`, so the app module needs no import.
+	See `RUN_DECLARATION`.
 	"""
 	try:
 		return bool(getattr(obj, RUN_DECLARATION, False))
@@ -1264,18 +1030,9 @@ def _matchesDeclared(obj) -> bool:
 def _firstDeclaredWithin(root, depth: int = MAX_RUN_DEPTH, budget: int = MAX_RUN_SEARCH):
 	"""Search a container for a member of the run it says it holds.
 
-	The fallback for a container that supplies no L{RUN_START}. Bounded by **one budget for
-	the whole search** rather than by a limit at each node: every step is a call into the
-	application, and a limit per node multiplies by itself once per generation, so a container
-	that declared a run it does not hold could be read hundreds of thousands of times while
-	each individual bound was being respected.
-
-	Depth as well, because the members need not be children: Teams' are grandchildren, one
-	wrapper each.
-
-	Shallowest first — every child of a container is looked at before any grandchild — which
-	is a change from the recursion this replaced and is the better order anyway: a run
-	declared one generation down is the one the container meant.
+	The fallback for a container with no `RUN_START`. One budget for the whole search (see
+	`MAX_RUN_SEARCH`), to a limited depth, since members may be grandchildren as in Teams.
+	Shallowest first.
 
 	:param root: the container to search.
 	:param depth: how many generations below it to look.
@@ -1325,9 +1082,8 @@ def _nextOf(obj):
 def _declaredStart(root, current):
 	"""Which member of a declared run to begin reading at.
 
-	Three answers in order. Where the reader is, when they are on a member — which is the
-	band's case, and the common one. What the container says, when one was pointed at
-	instead — a pin. And failing both, the first member found inside it.
+	Where the reader is, if on a member; else what the container says, as for a pin; else the
+	first member found inside it.
 
 	:param root: what the run was found from: a member, or a container holding one.
 	:param current: where the reader is now, which may be the container itself.
@@ -1354,11 +1110,8 @@ def _declaredStart(root, current):
 def _admitsDeclared(root, candidate) -> bool:
 	""":return: whether a candidate belongs to a declared run.
 
-	The application's own answer where it gives one, and otherwise any other object bearing
-	the same declaration. Deliberately not `_sameParent`: the case this exists for is a run
-	whose members are *not* siblings — Teams' chat history holds each message in a wrapper
-	of its own, so every message has a different parent and a shared-parent rule would
-	admit none of them.
+	The application's own answer, else any object with the same declaration. Not
+	`_sameParent`, since declared members need not be siblings.
 	"""
 	if root is None or candidate is None:
 		return False
@@ -1375,10 +1128,8 @@ def _admitsDeclared(root, candidate) -> bool:
 def _declaredStep(obj, attribute: str, fallback):
 	"""Step through a declared run, by the application's own walk where it has one.
 
-	The fallback matters less than it looks. An application that declares a run and supplies
-	no walk is saying its objects are ordinary siblings, and if they are not, the step lands
-	on something outside the run and `ObjectFlowSource._step` ends the run there — a short
-	reading rather than a wrong one.
+	Without a walk the objects are taken as siblings; a wrong step ends the run in
+	`ObjectFlowSource._step`, giving a short reading rather than a wrong one.
 
 	:param obj: where the walk is now.
 	:param attribute: the method an application may supply for this direction.
@@ -1420,14 +1171,9 @@ VISIBLE_TREE = ObjectAdapter(
 )
 """A tree, read down the screen rather than along one generation of it.
 
-The reading the sibling walk could not give. A tree item's `next` is its next *sibling*, so
-a run built from it steps over everything inside an expanded node — in Outlook's Go To
-Folder dialog, an open folder's contents were simply absent — and `_sameParent` would have
-thrown those rows out even if the walk had reached them.
-
-Visible order, which is decision 1 of the structured presentation plan: what the arrow keys
-do, and what is on the screen. A collapsed node's children are not rows, and its expanding
-is a change the band has to notice without a focus event to tell it.
+A sibling walk would step over an expanded node's contents. Visible order, decision 1 of
+docs/design/structured-presentation-plan.md. Expanding a node is noticed through
+`shapeChanged`.
 """
 
 GROUPED_LIST = ObjectAdapter(
@@ -1441,21 +1187,10 @@ GROUPED_LIST = ObjectAdapter(
 )
 """A list whose items are grouped, read down the screen across the groups.
 
-Outlook's message list grouped by day is the case, and a review found the reader stuck at the
-boundary: the ordinary sibling run admits an object with a compatible role and *the same
-parent*, so the heading of the next day fails on its role and the first message of that day
-fails on its parent — and the run ends there, which on the display is panning that will not
-move. The tree adapter already knows this shape and cannot be used, because these are list
-items rather than tree items and Outlook's own row numbering is per group.
-
-So the walk is the tree's, over a list: down through a group, across to the next group's
-heading, down through that. The heading is a row rather than something to skip, because a day
-changing is what the reader needs to know; a collapsed group is a heading and no rows, exactly
-as it is on the screen; and membership is the list they are all in, which is what stops the
-climb at the toolbar.
-
-Asked before `SIBLING_RUN` and matching only a run member inside a grouping inside a list, so
-every ordinary list, menu and tab strip reads exactly as it did.
+Such as Outlook's message list grouped by day, where the sibling run would stop at each
+group. The tree's walk over a list: down a group, across to the next heading, which is a row;
+a collapsed group is a heading alone. Membership is the list, which stops the climb. Asked
+before `SIBLING_RUN` and matching only a run member in a grouping in a list.
 """
 
 SIBLING_RUN = ObjectAdapter(name="siblings", matches=_isRunMember)
@@ -1486,9 +1221,7 @@ def register(adapter: ObjectAdapter, first: bool = True) -> None:
 	"""Add a way of reading a kind of object as a run.
 
 	:param adapter: the adapter.
-	:param first: ask it before the built-in ones, which is what an add-on registering for
-		its own control wants: the built-in answer for a list item is a guess about every
-		list item there is, and a specific one is better.
+	:param first: ask it before the built-in ones, as an add-on for its own control wants.
 	"""
 	if first:
 		_adapters.insert(0, adapter)
@@ -1566,10 +1299,7 @@ def regionFactory(live: bool = False, adapter: Optional[ObjectAdapter] = None) -
 		def nextLine(self) -> None:
 			"""Move on by one item, as the braille display's line command asks.
 
-			The window only. Everywhere else in a flow this command takes the cursor with it,
-			and here the cursor is a selection: stepping it would arrow through a list the
-			reader is reading, activating things in a menu. So the display moves and the
-			reader's place does not, which is the rule for the whole of this source.
+			The window only, since here the cursor is a selection. See the module docstring.
 			"""
 			self._line(True)
 
@@ -1609,15 +1339,9 @@ def regionFactory(live: bool = False, adapter: Optional[ObjectAdapter] = None) -
 		def routeTo(self, braillePos: int) -> None:
 			"""Go to an object, or act on the one already there.
 
-			NVDA's own region acts on the object outright. That is right for the block the
-			reader is on and wrong for the other seven, which are only on the display because
-			this flow put them there: a finger landing on a list item the reader was reading
-			past must not activate it. So a press elsewhere moves the focus, which is what
-			"go there" means, and a press where they already are does what it always did.
-
-			The exception is a run whose adapter says a routing key acts — a tab strip, where
-			going to a tab is choosing it. There the focus is taken first and the action
-			follows, which is exactly what NVDA's own `ReviewNVDAObjectRegion` does.
+			A press on the reader's own block acts, as NVDA's region does; a press elsewhere moves
+			the focus there. Where the adapter says a routing key acts, as on a tab strip, the
+			focus is taken and then the action follows, as `ReviewNVDAObjectRegion` does.
 			"""
 			if self.isActive:
 				super().routeTo(braillePos)
@@ -1640,9 +1364,8 @@ def regionFactory(live: bool = False, adapter: Optional[ObjectAdapter] = None) -
 	class FlowDecorationRegion(Region):
 		"""A line drawn between groups, shown as the blank row it is.
 
-		Blank rather than absent: the separator is what the menu's author put between two
-		groups, and a blank row is how that grouping reads under the fingers. It holds no
-		text, so nothing routes into it and no cursor ever sits in it.
+		Blank rather than absent, so the grouping can be felt. Holds no text, so nothing routes
+		into it.
 		"""
 
 		def __init__(self, obj) -> None:
@@ -1722,10 +1445,7 @@ class ObjectFlowSource:
 		self.runRoot = obj
 		"""What the run was found from, and what decides what belongs to it.
 
-		Fixed for the life of the source. It was once the same attribute as `obj` below, and
-		moving the focus into an open combo box then replaced the box with the choice the
-		reader had arrowed to — after which the run was that choice's own children, which is
-		nothing at all, and the flow lost the list it had been showing."""
+		Fixed for the life of the source, separate from `obj`, which moves with the reader."""
 
 		self.obj = obj
 		"""Where in the run the reader is now. See `setCurrent`."""
@@ -1740,9 +1460,7 @@ class ObjectFlowSource:
 		self._columnHeaders: dict = {}
 		"""What each column of this list is called, filled in as rows are read.
 
-		A header belongs to the column rather than to the row, and asking the platform for it
-		once per cell of a full band is eight times the work for one answer. Kept for the life
-		of the source, which is the life of one reading of one list. See
+		Kept for the life of the source, so each column is asked once. See
 		`flowObjectTable.rowTextOf`."""
 
 		self._shape: Optional[tuple] = None
@@ -1766,22 +1484,10 @@ class ObjectFlowSource:
 	def shapeChanged(self) -> bool:
 		"""Whether the run has been opened or closed under the reader since it was last read.
 
-		Expanding a node in a tree changes what the rows below it are, and NVDA reports it
-		through no event the band sees: the focus does not move, so there are no fresh focus
-		regions, and the object is the same one the band was already reading. A band that
-		asked only on a focus change went on showing the closed folder.
-
-		One object is consulted, the one the reader is on, because that is the only one they
-		can have opened. Asking every object on the band would be eight calls into the
-		application on every redraw, to answer a question about one of them.
-
-		**Two things are watched, not one.** The state is the obvious half. The other is
-		whether an open node is actually showing anything, because a provider that fetches
-		children on demand reports the node open before it has any: the state is settled from
-		the first moment, the rows appear later, and a band watching only the state went on
-		showing an open folder with nothing in it. That second question is asked only of a
-		node that says it is open — a closed one cannot be showing children whatever it holds
-		— so a reader sitting in a flat list, a menu, or on a leaf pays nothing for it.
+		Expanding a node sends no event the band sees. Only the reader's own object is asked,
+		since it is the only one they can have opened. Both the state and, for an open node,
+		whether it shows any rows yet are watched, since children can arrive after the state
+		changes. Flat lists and leaves pay nothing.
 
 		:return: whether to read the run again.
 		"""
@@ -1849,9 +1555,7 @@ class ObjectFlowSource:
 	def _step(self, blockId: BlockId, forward: bool) -> FetchResult:
 		"""Walk one object in a direction.
 
-		Each step is a call into the application, which is the expensive kind of reading and
-		the reason nothing here is done speculatively. What the step lands on is classified
-		before it is read, because the siblings of a list item are not all list items.
+		A call into the application. What it lands on is classified before it is read.
 		"""
 		self.budget.startUnlessActive()
 		current = blockId.bookmark
@@ -1883,15 +1587,8 @@ class ObjectFlowSource:
 	def _sayWhereItEnded(self, current, found) -> None:
 		"""Write down what the walk stopped at, for the log.
 
-		**The end of a run is a normal answer, so nothing raised and nothing was logged** —
-		and on hardware "panning does not work" and "this list really does end here" feel the
-		same and read the same. A review asked for this while working out why Outlook's message
-		list stopped at each day boundary, which turned out to be two different refusals
-		wearing one message: a heading failing on its role, and the next day's first message
-		failing on its parent.
-
-		So the adapter, both objects, their roles and their parents, once per ending. It runs
-		where a fetch has already been made, so it costs nothing anybody is waiting on.
+		The end of a run is a normal answer that would otherwise log nothing. Logs the adapter,
+		both objects, their roles and parents, once per ending.
 
 		:param current: the object walked from.
 		:param found: what the walk landed on and would not admit.
@@ -1913,33 +1610,10 @@ class ObjectFlowSource:
 	def blockAt(self, blockId: BlockId) -> FetchResult:
 		""":return: one block again, read afresh from the object it was built for.
 
-		Trivial here, and it is worth saying why: an object *is* its own bookmark, so the
-		identity a block was given is the thing to read again. There is no position to have
-		gone stale and nothing to look up.
-
-		What it buys is a pinned list or tree that keeps up. A pin is re-read on a timer and
-		the re-read went through `FlowController.rereadContent`, which leaves alone any source
-		that cannot be asked for a block by its identity — and this could not be. A message
-		list whose subjects changed under the pin went on showing what it said when it was
-		pinned, and the counters reported reads that had read nothing.
-
-		Structural change is a different question and is not this: an item appearing or a node
-		opening changes which objects the run holds, which `shapeChanged` and the band's
-		`_runHasChangedShape` are for.
-
-		**One object is refused, and only one kind**: an object whose text describes what is
-		*selected* rather than what it is. See L{namedFromTheSelection}, which is Outlook's
-		message rows and whatever an application says the same about itself. Asked about such a
-		row while the reader is somewhere else, the application answers about somewhere else,
-		and the reader felt "unread" appear on a message they had read.
-
-		Everything else is read again as it always was, which is what this method is for: a
-		list whose items change under a pin, a chat message still being written, a status line.
-		Refusing those was a cure worse than the disease — it froze the rows a reader was not
-		on, so a deleted message stayed on the display and a row that changed did not.
-
-		A block this refuses is kept as it was rather than dropped; see
-		`FlowController._rereadBlocks`.
+		An object is its own bookmark, so this is simple. It lets a pinned list keep up through
+		`FlowController.rereadContent`. Structural change is `shapeChanged`'s concern. Refused
+		only for an object named from the selection (see `namedFromTheSelection`), which keeps
+		its old block; see `FlowController._rereadBlocks`.
 		"""
 		obj = blockId.bookmark
 		if obj is None:
@@ -1960,13 +1634,8 @@ class ObjectFlowSource:
 	def neighbourOf(self, obj, forward: bool):
 		""":return: the object the run puts beside this one, or None at its end.
 
-		The step `_step` takes, without reading anything from what it lands on: one call into
-		the application, and no block built. What asks is
-		`FlowController.runStillHoldsTheBand`, checking that the rows on the band are still
-		the rows the run has.
-
-		A decoration is a neighbour like any other — a separator holds a row of the band — so
-		nothing is stepped over here, and the order this gives is the order the band is in.
+		The step `_step` takes, without building a block, for
+		`FlowController.runStillHoldsTheBand`. Decorations are neighbours too, matching the band.
 
 		:param obj: where to step from.
 		:param forward: which way.
@@ -1982,10 +1651,7 @@ class ObjectFlowSource:
 	def isCurrentObject(self, obj) -> bool:
 		""":return: whether one object is the one the run is being read from.
 
-		Equality, not identity, because NVDA builds a fresh wrapper for an object every time
-		it is fetched: the row the focus handed over and the row a block was built from are
-		two objects for one message. A run with nowhere in it answers no to everything, which
-		is the safe direction.
+		By equality; see `sameObject`. A run with no current object answers no.
 
 		:param obj: the object to compare with the current one.
 		"""
@@ -2005,10 +1671,7 @@ class ObjectFlowSource:
 	def _buildBlock(self, obj, decoration: bool = False) -> SourceBlock:
 		"""Build one block from an object.
 
-		The object is the block's own bookmark, so there is nothing here to remember:
-		walking on from a block starts from the object that block was built for. An earlier
-		version kept a table of every object it had ever read, which grew for the life of the
-		run and held on to each of them.
+		The object is the block's own bookmark, so nothing else is remembered.
 		"""
 		blockId = BlockId(generation=self.generation, bookmark=obj, unit=self.unit)
 		region = self.regionFactory(obj)
@@ -2033,25 +1696,9 @@ class ObjectFlowSource:
 	def _depthOf(self, obj) -> Optional[int]:
 		"""How deep an object sits.
 
-		The adapter's answer, and **the first level of the run when it has none**. An item in
-		a run is in a structure by being in a run: a flat list is one level deep, not no
-		levels deep, and saying so costs it nothing on the display — level 1 is the baseline
-		and the baseline is the left margin, so a flat list still draws flush left exactly as
-		it did.
-
-		What it does buy is the hanging indent on a wrapped row, which `IndentPlan` can only
-		offer where there is a depth to hang relative to. Without this, whether a long item
-		wrapped with its continuations tucked in depended on whether the control happened to
-		report `positionInfo["level"]` — and on hardware, in one Outlook message list, one
-		message wrapped with the indent and the next did not. A reader cannot be asked to
-		read a layout that changes between two items of the same list.
-
-		A document is untouched by this: its blocks do not come through here, and prose that
-		has no depth still has none.
-
-		Asked once per block and never speculatively, like everything else in this source: it
-		can be a call into the application, and a run is walked one object at a time precisely
-		so that nothing is read that the reader will not see.
+		The adapter's answer, or the first level when it has none. A flat list still draws at
+		the left margin, but every item gets the hanging indent for wrapped rows, which
+		`IndentPlan` needs a depth for. Documents do not come through here. Asked once per block.
 
 		:param obj: the object a block is being built for.
 		:return: its one-based level.
@@ -2089,10 +1736,8 @@ class ObjectFlowSource:
 def sameObject(first, second) -> bool:
 	""":return: whether two references are to the same thing.
 
-	Equality, not identity, because NVDA builds a fresh wrapper for an object every time it is
-	fetched: the row the focus handed over and the row a block was built from are two objects
-	for one message. An object that will not compare is treated as a different one, which
-	costs a re-read and never claims a row is something it is not.
+	Equality, not identity, since NVDA builds a fresh wrapper on every fetch. An object that
+	will not compare counts as different, which costs only a re-read.
 	"""
 	if first is second:
 		return True
@@ -2108,9 +1753,8 @@ def sameObject(first, second) -> bool:
 def belongsTo(source: "ObjectFlowSource", obj) -> bool:
 	"""Whether an object is part of the run a source is already reading.
 
-	The question the band asks on every focus change, and in a list the focus changes on
-	every arrow key: getting it wrong means throwing the run away and walking it again for
-	each item the reader passes, which here is a call into the application per step.
+	Asked on every focus change, which in a list is every arrow key, so a wrong no would walk
+	the run again each time.
 
 	:param source: the run being read.
 	:param obj: what the reader has moved to.
