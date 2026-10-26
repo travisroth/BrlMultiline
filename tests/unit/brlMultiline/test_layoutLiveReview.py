@@ -158,7 +158,7 @@ class LayoutOverviewLiveRegressions(unittest.TestCase):
 				Region("main", "Original area", VIEW, "landmark", start=120),
 			],
 		)
-		drawing = fixture.plugin._layoutDrawing(
+		drawing = fixture.plugin.layouts.drawingFor(
 			page,
 			"screen",
 			VIEW,

@@ -262,43 +262,43 @@ class TestShowingAnApplication(unittest.TestCase):
 			self.payload = {"kind": "uia", **json.load(f)}
 
 	def test_drawnAsTheWindow(self):
-		self.plugin._showLayout(self.payload, "screen")
+		self.plugin.layouts.show(self.payload, "screen")
 		self.assertEqual(self.mode.source.name, "layout of the window")
 		self.assertIn("layout of the window", _stubs.flashedMessages[-1])
-		self.assertTrue(self.plugin._layoutView.app)
+		self.assertTrue(self.plugin.layouts.current.app)
 
 	def test_aWindowHasNoPageSoThePageViewIsTheScreen(self):
-		self.plugin._showLayout(self.payload, "page")
-		self.assertEqual(self.plugin._layoutView.view, "screen")
+		self.plugin.layouts.show(self.payload, "page")
+		self.assertEqual(self.plugin.layouts.current.view, "screen")
 
 	def test_aPressDescribesAndASecondMoves(self):
-		self.plugin._showLayout({**self.payload, "identity": [5]}, "screen")
+		self.plugin.layouts.show({**self.payload, "identity": [5]}, "screen")
 		said = self.mode.source.describeAt(2, 2)
 		self.assertTrue(said and said.startswith("tabs"), said)
 		moved = []
 		with mock.patch.object(
-			type(self.plugin),
-			"_moveToAppArea",
-			lambda plugin, region, identity: moved.append((region, identity)),
+			type(self.plugin.layouts),
+			"moveToAppArea",
+			lambda layouts, region, identity: moved.append((region, identity)),
 		):
 			self.mode.source.activateAt(2, 2)
 		self.assertEqual([r.kind for r, _ in moved], ["tabs"])
 		self.assertEqual(moved[0][1], (5,), "the window the layout was read from")
 
 	def test_drillingWorksAsOnAPage(self):
-		self.plugin._showLayout(self.payload, "screen")
+		self.plugin.layouts.show(self.payload, "screen")
 		drawing = self.mode.source
 		for y in range(drawing.buffer.height):
 			for x in range(drawing.buffer.width):
 				drawing.describeAt(x, y)
-				pressed = self.plugin._layoutView.pressed
+				pressed = self.plugin.layouts.current.pressed
 				if pressed is not None and pressed.kind == "area":
 					break
 			else:
 				continue
 			break
 		self.plugin.script_layoutDrillIn(None)
-		self.assertEqual(self.plugin._layoutView.focus.kind, "area")
+		self.assertEqual(self.plugin.layouts.current.focus.kind, "area")
 		self.assertIn("layout of area", self.mode.source.name)
 
 	def test_asText(self):
@@ -307,7 +307,7 @@ class TestShowingAnApplication(unittest.TestCase):
 		with mock.patch.object(
 			ui, "browseableMessage", lambda text, title: shown.append((text, title)), create=True
 		):
-			self.plugin._showLayout(self.payload, "text")
+			self.plugin.layouts.show(self.payload, "text")
 		text, title = shown[0]
 		self.assertEqual(title, "Window layout")
 		self.assertIn("status bar", text)
@@ -442,7 +442,7 @@ class TestMovingToAnAreaOfAWindow(unittest.TestCase):
 			mock.patch.object(appCollect, "findElement", lambda hwnd, runtimeId: element),
 			mock.patch.object(appCollect, "focusableWithin", lambda found: target),
 		):
-			self.plugin._moveToAppArea(self.region, (5,))
+			self.plugin.layouts.moveToAppArea(self.region, (5,))
 
 	def test_theFocusGoesToIt(self):
 		target = FakeFound()
@@ -501,7 +501,7 @@ class TestMovingToAnAreaOfAWindow(unittest.TestCase):
 				appCollect, "focusableWithin", lambda found: target if found is element else None
 			),
 		):
-			self.plugin._moveToAppArea(self.region, (5,))
+			self.plugin.layouts.moveToAppArea(self.region, (5,))
 		self.assertEqual(asked, [(77, 5)], "the handle, and the window it must still be in")
 		self.assertEqual(target.focused, 1)
 

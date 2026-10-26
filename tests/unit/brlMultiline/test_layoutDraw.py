@@ -625,17 +625,17 @@ class TestTheCountStyleForThisReader(unittest.TestCase):
 		from . import test_plugin
 
 		self.mock = mock
-		self.module = sys.modules[test_plugin.GlobalPlugin.__module__]
+		self.module = sys.modules["brlMultiline.layoutOverview"]
 
 	def styleWith(self, wanted, supported):
 		module, mock = self.module, self.mock
 		surface = mock.Mock(driver=object())
 		with (
-			mock.patch.object(module, "graphicsFindSurface", return_value=surface),
+			mock.patch.object(module, "findSurface", return_value=surface),
 			mock.patch.object(module.glyphFlow, "enabled", return_value=wanted),
 			mock.patch.object(module.glyphs, "supported", return_value=supported),
 		):
-			return module._layoutCountStyle()
+			return module.countStyle()
 
 	def test_nvdasWordsWithoutGlyphs(self):
 		style = self.styleWith(False, True)
@@ -668,10 +668,10 @@ class TestDrillingInAndBackingOut(unittest.TestCase):
 		_stubs.flashedMessages.clear()
 		page, viewport = loadPage("seekingalpha.json")
 		self.page = page
-		LayoutView = sys.modules[type(self.plugin).__module__]._LayoutView
+		LayoutView = sys.modules["brlMultiline.layoutOverview"].LayoutView
 		self.state = LayoutView(page, "screen", viewport, None)
-		self.plugin._layoutView = self.state
-		self.assertIsNotNone(self.plugin._enterLayout(self.state))
+		self.plugin.layouts.current = self.state
+		self.assertIsNotNone(self.plugin.layouts.enter(self.state))
 
 	def pressOn(self, kind):
 		"""Press inside the drawn box of an area of this kind, as a routing press would."""
@@ -809,7 +809,7 @@ class TestMovingToAnArea(unittest.TestCase):
 		return Region("navigation", "Primary", Box(0, 0, 100, 100), "landmark", start=start)
 
 	def test_theCursorGoesToTheStartAndTheDrawingComesDown(self):
-		self.plugin._moveToArea(self.document, self.area(120))
+		self.plugin.layouts.moveToArea(self.document, self.area(120))
 		self.assertEqual(self.document.selections, [((120, 120), "quicknav")])
 		self.assertEqual(self.plugin.graphicsMode.left, 1)
 		self.assertEqual(_stubs.spokenMessages[-1], "navigation, Primary")
@@ -819,12 +819,12 @@ class TestMovingToAnArea(unittest.TestCase):
 	def test_withTheFocusOnAnotherDisplayTheDrawingStaysUp(self):
 		"""A Monarch drawing beside a Focus 80 showing the focus: the line arrives there."""
 		self.plugin.graphicsMode = FakeLeavingMode(focusHere=False)
-		self.plugin._moveToArea(self.document, self.area(120))
+		self.plugin.layouts.moveToArea(self.document, self.area(120))
 		self.assertEqual(self.document.selections, [((120, 120), "quicknav")])
 		self.assertEqual(self.plugin.graphicsMode.left, 0)
 
 	def test_anAreaWithNoPlaceInTheTextSaysSo(self):
-		self.plugin._moveToArea(self.document, self.area(None))
+		self.plugin.layouts.moveToArea(self.document, self.area(None))
 		self.assertEqual(self.document.selections, [])
 		self.assertEqual(self.plugin.graphicsMode.left, 0)
 		self.assertIn("No place in the page", _stubs.flashedMessages[-1])
@@ -833,7 +833,7 @@ class TestMovingToAnArea(unittest.TestCase):
 		"""Seeking Alpha on screen: the bottom left pin is the sidebar, below its navigation."""
 		self.plugin.graphicsMode.newBuffer = PinBuffer
 		page, viewport = loadPage("seekingalpha.json")
-		drawing = self.plugin._layoutDrawing(
+		drawing = self.plugin.layouts.drawingFor(
 			page, "screen", viewport, (WIDTH, HEIGHT), "layout", self.document
 		)
 		self.assertIn("complementary", drawing.describeAt(0, HEIGHT - 1))
@@ -848,7 +848,7 @@ class TestMovingToAnArea(unittest.TestCase):
 		for name, tall in (("wsj.json", True), ("seekingalpha.json", False)):
 			with self.subTest(page=name):
 				page, viewport = loadPage(name)
-				drawing = self.plugin._layoutDrawing(
+				drawing = self.plugin.layouts.drawingFor(
 					page, "screen", viewport, (WIDTH, 32), "layout", self.document
 				)
 				self.assertEqual(drawing.opensAcross, tall)
@@ -860,13 +860,13 @@ class TestMovingToAnArea(unittest.TestCase):
 		area = Region("navigation", "Primary", Box(0, 0, 100, 100), "landmark", start=120, anchor=(1, 77))
 		self.document.documentConstantIdentifier, self.document.VBufHandle = "https://a.example/", 2
 		self.document.elements[(1, 77)] = (300, 340)
-		self.plugin._moveToArea(self.document, area, ("https://a.example/", 1))
+		self.plugin.layouts.moveToArea(self.document, area, ("https://a.example/", 1))
 		self.assertEqual(self.document.selections, [((300, 300), "quicknav")])
 
 	def test_anAreaWhoseElementIsGoneIsNotMovedTo(self):
 		area = Region("navigation", "Primary", Box(0, 0, 100, 100), "landmark", start=120, anchor=(1, 77))
 		self.document.documentConstantIdentifier, self.document.VBufHandle = "https://a.example/", 1
-		self.plugin._moveToArea(self.document, area, ("https://a.example/", 1))
+		self.plugin.layouts.moveToArea(self.document, area, ("https://a.example/", 1))
 		self.assertEqual(self.document.selections, [])
 		self.assertIn("page has changed", _stubs.flashedMessages[-1])
 
@@ -874,11 +874,11 @@ class TestMovingToAnArea(unittest.TestCase):
 		area = Region("navigation", "Primary", Box(0, 0, 100, 100), "landmark", start=120, anchor=(1, 77))
 		self.document.documentConstantIdentifier = "https://b.example/"
 		self.document.elements[(1, 77)] = (300, 340)
-		self.plugin._moveToArea(self.document, area, ("https://a.example/", 1))
+		self.plugin.layouts.moveToArea(self.document, area, ("https://a.example/", 1))
 		self.assertEqual(self.document.selections, [])
 
 	def test_aPageThatHasChangedIsNotMovedIn(self):
-		self.plugin._moveToArea(FakeBrowseDocument(), self.area(120))
+		self.plugin.layouts.moveToArea(FakeBrowseDocument(), self.area(120))
 		self.assertEqual(self.document.selections, [])
 		self.assertIn("page has changed", _stubs.flashedMessages[-1])
 

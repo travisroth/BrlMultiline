@@ -102,7 +102,7 @@ class NavigationRegressions(unittest.TestCase):
 			mock.patch.object(appCollect, "findElement", side_effect=lookup),
 			mock.patch.object(appCollect, "focusableWithin", return_value=target),
 		):
-			fixture.plugin._moveToAppArea(fixture.region, (5,))
+			fixture.plugin.layouts.moveToAppArea(fixture.region, (5,))
 		self.assertEqual(
 			target.focused, 0, "The old application's area was focused after the foreground changed."
 		)
@@ -140,7 +140,7 @@ class NavigationRegressions(unittest.TestCase):
 			mock.patch.object(appCollect, "findElement", return_value=None),
 			mock.patch.object(appCollect, "focusableWithin", return_value=target),
 		):
-			fixture.plugin._moveToAppArea(fixture.region, (5,))
+			fixture.plugin.layouts.moveToAppArea(fixture.region, (5,))
 		self.assertEqual(
 			target.focused, 0, "IsWindow accepted a recycled handle in another application's window."
 		)

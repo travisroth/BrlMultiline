@@ -146,7 +146,7 @@ class TestTheLayoutOverviewIsTranslated(unittest.TestCase):
 			return [0xFF] * len(word)
 
 		# The count words come from NVDA's own braille labels, in the reader's language; see
-		# `_layoutCountStyle`. Here, the same in x.
+		# `layoutOverview.countStyle`. Here, the same in x.
 		style = layoutDraw.CountStyle(words={k: _cross(v) for k, v in layoutDraw.COUNT_WORDS.items()})
 		with crossed():
 			page = findAppRegions(data["window"], data["windowRect"], data["focus"]["path"])

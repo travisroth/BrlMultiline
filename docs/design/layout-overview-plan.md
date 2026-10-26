@@ -219,7 +219,7 @@ limit reached is said ("Only part of the window could be read"). The drawing is 
 of the window; the page command draws the same, since a window does not scroll, and the text
 command lists it under "Window layout". Presses describe and drilling works as on a page.
 
-**A second press moves to an area of a window** (`_moveToAppArea`). The area's element is found
+**A second press moves to an area of a window** (`LayoutOverview.moveToAppArea`). The area's element is found
 again by its runtime id, in one search of the window (`appCollect.findElement`), since the window
 may have changed; the focus goes to the first element in the area, the area's own first, that is
 focusable, enabled and on screen (`appCollect.focusableWithin`): a list, tree or document itself,
@@ -294,7 +294,7 @@ collector as built" below. Step 5 is built: a press naming the box under it, a s
 moving to it, and drilling in and backing out.
 
 **Drilling in and backing out** goes into the area last pressed. A press records the area
-(`_LayoutView.pressed`, set as the drawing describes the point), and dot 8 redraws the overview
+(`LayoutView.pressed`, set as the drawing describes the point), and dot 8 redraws the overview
 with that area as the whole (`compose`'s `focus`, with `focusWindow`): its inside drawn three
 levels deep, grown taller if it needs to be, positions said within it, and on the screen view
 only the part of it on screen. Dot 7 goes back along the trail of areas drilled through, to the
@@ -502,7 +502,7 @@ reviewer's own tests for them are kept as `tests/unit/brlMultiline/test_layoutLi
 
 1. An old drawing could move into a buffer that had been replaced: browse mode can read a page
    again, or a page can become another, under the same document object. Now the layout records
-   the page's address and its buffer when it is read (`_pageIdentity`), every element keeps
+   the page's address and its buffer when it is read (`layoutOverview.pageIdentity`), every element keeps
    browse mode's identifier for it, and an area keeps the identifier of the element it starts at
    (`Region.anchor`). A move refuses another page, looks the element up where it now is, and
    refuses if it is gone; an offset alone is used only while the buffer is the one it came from.
@@ -535,7 +535,7 @@ as `tests/unit/brlMultiline/test_layoutFollowUps.py`:
    top the header covered was cut. Now one wholly covered gets no height, and so does everything
    in it. The page view is unaffected.
 4. Drilling in gave areas new key letters. Now the letters are kept on the layout
-   (`_LayoutView.keys`) for every drawing of it, drilled, backed out, zoomed or panned, and start
+   (`LayoutView.keys`) for every drawing of it, drilled, backed out, zoomed or panned, and start
    again only when the page is read again. The reviewer's test matched the area by its title;
    Seeking Alpha has two areas called Latest News, the column and the block heading it, so the
    test now follows the areas themselves, and checks that backing out gives the same key.
@@ -551,7 +551,7 @@ free room was a strip four cells wide down its side. So a count is now drawn as 
 NVDA's own braille abbreviation for the role ("lnk", "btn", "edt", "tab", "sect"), from NVDA's
 labels in the reader's language; with glyphs on, on a display that can show them, the role's
 glyph follows the number instead, straight after it, which makes a count three cells and a
-glyph where it was seven cells (`CountStyle`, `_layoutCountStyle`). A count that fits on no line
+glyph where it was seven cells (`CountStyle`, `layoutOverview.countStyle`). A count that fits on no line
 whole can go as its number on one line and its word on the next, from the same left, with the
 number always first. And the lines under a label follow one another with no blank row between,
 as the Monarch's lines of text do, which gives a box of three panel lines' height a third line.

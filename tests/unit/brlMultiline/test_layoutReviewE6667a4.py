@@ -113,7 +113,7 @@ class LayoutOverviewRegressions(unittest.TestCase):
 	def test_tab_word_falls_back_to_nvdas_localized_role_name(self):
 		from . import test_plugin
 
-		module = sys.modules[test_plugin.GlobalPlugin.__module__]
+		module = sys.modules["brlMultiline.layoutOverview"]
 		roles = SimpleNamespace(
 			**{
 				name: SimpleNamespace(name=name, displayString="onglet" if name == "TAB" else name.lower())
@@ -124,9 +124,9 @@ class LayoutOverviewRegressions(unittest.TestCase):
 		# braille property renderer uses Role.TAB.displayString instead.
 		with (
 			mock.patch.object(sys.modules["controlTypes"], "Role", roles),
-			mock.patch.object(module, "graphicsFindSurface", return_value=None),
+			mock.patch.object(module, "findSurface", return_value=None),
 		):
-			style = module._layoutCountStyle()
+			style = module.countStyle()
 		self.assertEqual(
 			style.words["tabs"], "onglet", "The fallback stayed English instead of matching NVDA."
 		)

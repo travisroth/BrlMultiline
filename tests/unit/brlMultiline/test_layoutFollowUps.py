@@ -38,7 +38,7 @@ class LayoutOverviewFixFollowups(unittest.TestCase):
 		document.VBufHandle = 1
 		# A dynamic insertion shifts offsets without replacing the live buffer.
 		document.elements[(1, 40)] = (300, 310)
-		fixture.plugin._moveToArea(document, strip, ("https://example.com/", 1))
+		fixture.plugin.layouts.moveToArea(document, strip, ("https://example.com/", 1))
 		self.assertEqual(
 			document.selections,
 			[((300, 300), "quicknav")],
