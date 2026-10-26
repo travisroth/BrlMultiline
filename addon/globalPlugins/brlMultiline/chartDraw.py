@@ -5,20 +5,9 @@
 
 """What a bar chart, a line chart and a price chart all need, in one place.
 
-Split out when the second and third chart types arrived. Each of them draws something quite
-different, and each of them has to do the same four things first: work out how many rows the
-writing costs, turn a number into a row, turn a string into cells that fit, and put the range
-of the data where a finger can find it. Three copies of that arithmetic would have been three
-chances for two charts to disagree about where the top of the plot is, which the reader would
-feel as two charts that cannot be compared.
-
-**The frame is deliberately the same on every chart that has an axis.** The top line is the
-value range and the bottom line is the period range, always, and both read left to right in
-ascending order — lowest to highest, earliest to latest. So a reader who has learned to sweep
-the top of a line chart for its range knows where that is on a candlestick chart too, and knows
-which end of it they are touching. Consistency between chart types is worth more here than on a
-screen: there is no glance, so every convention a reader does not have to re-learn is time they
-get back.
+The rows writing costs, a number's row, text cut to fit, and the frame, shared so charts never
+disagree. The frame is the same on every chart with an axis: the value range on top and the
+period range below, both ascending left to right. See `writeFrame`.
 
 Knows nothing about NVDA, Excel, or any display. Numbers and a buffer to draw on.
 """
@@ -62,37 +51,26 @@ CELL_COLUMNS = 3
 MIN_PLOT_ROWS = 6
 """Pin rows the drawing itself must keep for writing on it to be worth the space.
 
-Below this the labels would have taken so much of the chart that its shape stops being
-readable, which is the one thing a chart is for. A chart that small is drawn bare and the
-reader gets the numbers by pointing at it instead.
+Below this the chart is drawn bare and the numbers come from pointing.
 """
 
 NEAR_ROWS = 3
 """How far from a line a press may land and still count as that line's press.
 
-A fingertip is several pins wide, so an exact hit on a one pin line is not something a reader
-can be asked for. Three rows is a little under one braille line, which is about the pad of a
-finger at this pitch.
+About the pad of a finger, a little under one braille line.
 """
 
 NEAR_COLUMNS = 2
 """How far to either side of a press a line may pass and still count as under the finger.
 
-The other half of the finger. Asked for from hardware after a line that was plainly under a
-fingertip answered with the height instead: the press was checked only against the one data
-point nearest it, so a steep stretch of line a column or two over, or a point sharing a
-column with its neighbours, was never looked at. Two columns each way and three rows each
-way is about the pad of a finger resting on the panel.
+The other half of the finger; with `NEAR_ROWS`, about the pad of a finger on the panel.
 """
 
 
 GUIDE_SPACING = 4
 """Pins from one dot of a guide line to the next.
 
-Sparse so that a guide never reads as data: a bar is solid, a series is solid or dashed along
-its path, and the baseline is solid. The line chart's dotted series is a dot every third pin,
-which is the nearest thing to this, and whether the two can be told apart is the hardware
-question the plan leaves open; see `docs/design/chart-point-plan.md`. Change it here.
+Sparse, so a guide never reads as data. See docs/design/chart-point-plan.md.
 """
 
 GUIDE_TICK = 2
@@ -102,9 +80,7 @@ GUIDE_TICK = 2
 class PointMark(NamedTuple):
 	"""Where a chart drew one of its points, for the guides that show which point is marked.
 
-	A chart says where its points are; the mode decides which one is marked and draws the
-	guides over what the chart composed. So the chart never learns about the mark, and a step
-	inside a window costs one render and no composition.
+	The mode chooses the marked point and draws the guides, so a step costs no composition.
 	"""
 
 	column: int
@@ -175,9 +151,7 @@ def drawGuides(buffer, mark: PointMark) -> None:
 class ChartRefused(Exception):
 	"""There is a chart to be drawn but not in this space, or not from these numbers.
 
-	Raised rather than returning None, because every case carries a reason the reader can act
-	on — too many bars for the display, too many series to tell apart, nothing numeric in the
-	selection — and a caller that only knew it had failed could not tell them which.
+	Raised, since every case carries a reason the reader can act on.
 	"""
 
 
@@ -194,10 +168,8 @@ class Series(NamedTuple):
 def isFinite(value) -> bool:
 	""":return: whether a value is a number a row can be worked out from.
 
-	The second line of defence, and it is here rather than only at the reading end because a
-	chart may be handed its numbers by an app module or an add-on that never went through
-	`chartSource`. Not a number and infinity are floats and pass every type check; what they
-	fail is `int(round(...))`, several modules away from whatever produced them.
+	Here as well as in `chartSource`, since numbers may come from elsewhere. See
+	`chartSource._asNumber`.
 
 	:param value: anything, including None.
 	"""
@@ -210,10 +182,7 @@ def isFinite(value) -> bool:
 class Scale(NamedTuple):
 	"""The mapping between the numbers and the rows they are drawn on.
 
-	One object rather than arithmetic at each call site, because it is needed in both
-	directions. Drawing goes value to row; a press on a blank part of a plot goes row back to
-	value, which is how a reader asks "what price is my finger at" — a question a chart on
-	paper cannot answer and this one can.
+	Both ways: value to row for drawing, row to value for a press on a blank part of the plot.
 
 	Rows count down from the top, so the low value is at `bottom` and the high at `top`.
 	"""
@@ -234,9 +203,7 @@ class Scale(NamedTuple):
 	def forValues(cls, values, top: int, bottom: int) -> "Scale":
 		"""Fit a scale to what is being drawn.
 
-		**No padding above or below.** On a screen a chart leaves a margin so the extremes do
-		not touch the frame; here every row is a movement of the fingertip and there are about
-		twenty-seven of them, so a row spent on air is a row not spent on the shape of the data.
+		No padding, since every row is precious.
 
 		:param values: every number that has to fit, Nones ignored.
 		:param top: the first row the plot may use.
@@ -264,9 +231,7 @@ class Scale(NamedTuple):
 	def row(self, value: float) -> int:
 		"""Where a number is drawn.
 
-		A flat series — every value the same — is drawn through the middle rather than along
-		the floor, because a flat line along the bottom edge reads as a series of zeroes and a
-		flat line through the middle reads as what it is.
+		A flat series is drawn through the middle, not along the floor, where it reads as zeroes.
 
 		:param value: the number.
 		:return: the row, clamped to the plot.
@@ -297,10 +262,7 @@ class Scale(NamedTuple):
 def windowOf(count: int, offset: float, span: float, least: int) -> tuple:
 	"""Turn a fraction of a drawing into a run of data points.
 
-	The mode holds the zoom and the origin as a window in dots over a figure that is exactly
-	panel sized, so that window as a fraction of the whole is the part of the data the reader
-	is looking at. Fractions rather than indices because the mode must not learn that the data
-	is periods, or prices, or anything at all — the same reason `describeAt` takes dots.
+	Fractions, so the mode need not know what the data is, as `describeAt` takes dots.
 
 	:param count: how many points there are altogether.
 	:param offset: where the window starts, as a fraction of the whole.
@@ -311,9 +273,7 @@ def windowOf(count: int, offset: float, span: float, least: int) -> tuple:
 	"""
 	take = max(least, min(count, int(round(span * count))))
 	if offset + span >= 1 - EDGE_TOLERANCE:
-		# Against the end, so it ends at the end. Rounded separately, the start and the width could
-		# come to a point short of it, and panning right stopped a day before the data did: a year of
-		# prices whose last close could not be reached. Found on hardware.
+		# Against the end, so it ends at the end; rounding start and width apart can fall short.
 		return count - take, count
 	first = max(0, min(count - take, int(round(offset * count))))
 	return first, first + take
@@ -340,9 +300,6 @@ def textRowsFor(height: int, translate: Optional[Callable], minPlot: int = MIN_P
 
 def cellsFor(translate: Optional[Callable], text: str) -> list:
 	"""Turn a string into braille cells, tolerating a translator that cannot.
-
-	A chart with no writing on it is still a chart; one that failed to appear because the
-	braille tables were between states is not.
 
 	:param translate: the translator, or None.
 	:param text: what to write.
@@ -397,9 +354,7 @@ def writeRightAt(
 ) -> int:
 	"""Write a string with its right edge at a column.
 
-	Right aligned only where the thing written belongs to the right hand end of the chart —
-	the last date, the low of the range — so that a reader sweeping to the end of a line
-	arrives at it.
+	For what belongs at the right hand end, such as the last date.
 
 	:param buffer: what to draw on.
 	:param right: the last column the writing may occupy.
@@ -427,23 +382,9 @@ def writeFrame(
 ) -> None:
 	"""Write the value range across the top and the period range across the bottom.
 
-	The whole of the axis a chart of this size can afford. A drawn axis with ticks and numbers
-	up the side would cost a third of the width and tell the reader less than these two lines
-	do, because at ninety-six pins a number beside a tick has nowhere to be.
-
-	Four corners, and each says something a reader would otherwise have to hunt for: what the
-	plot's range is, where the data starts and where it ends. Everything between them is what
-	pointing is for.
-
-	**Both lines read left to right in ascending order**, which is the only arrangement that
-	does not have to be memorised. The bottom line goes earliest to latest because that is
-	where the data is drawn; so the top line goes lowest to highest, and a finger sweeping
-	either of them is reading a range the way a range is said — "fifty to sixty".
-
-	The high at the left was the first arrangement, on the reasoning that the top of a plot
-	is its high. That reasoning does not survive the two of them being on the same line,
-	where up and down mean nothing and only left and right are left, and it read backwards on
-	hardware to the person who asked for it.
+	The whole axis a chart this size can afford, instead of ticks up the side. Both lines read
+	left to right in ascending order, as a range is said ("fifty to sixty"); everything
+	between the corners is for pointing.
 
 	:param buffer: what to draw on.
 	:param translate: turns a string into braille cells.
@@ -466,8 +407,7 @@ def writeFrame(
 def numberText(value: float) -> str:
 	""":return: a number said the way a reader would write it.
 
-	Whole numbers without a decimal part, because a count of seventeen read as "17.0" is
-	seventeen said badly.
+	Whole numbers without a decimal part.
 
 	:param value: the number.
 	"""
@@ -479,9 +419,7 @@ def numberText(value: float) -> str:
 def roundedText(value: float, step: float) -> str:
 	"""Say a number to the precision the chart can actually distinguish.
 
-	For reading a value back off a position rather than out of the data. One row of a plot is
-	worth `step`, so a press between two rows cannot mean anything finer than that, and
-	answering "50.428571428" would be a precision the drawing does not have.
+	For a value read off a position, where one row is worth `step`.
 
 	:param value: the number.
 	:param step: how much one row is worth.

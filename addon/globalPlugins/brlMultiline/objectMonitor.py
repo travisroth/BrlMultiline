@@ -10,26 +10,14 @@ belong to. The replacement for `BrailleHandler._doNewObject` clears only the seg
 that are receiving new regions, so a pinned object survives focus changes without any
 further intervention.
 
-Three things separate a pin from the ordinary braille NVDA produces for the focus, and each
-costs something here:
+1. A browse mode document is read through its tree interceptor; see `resolveTarget`.
+2. The regions are built once and kept, so a refresh keeps the reader's panning. See
+   `pinnedRegions`.
+3. Nothing reports a change in a background window, so `patches` re-reads pins on a timer,
+   and `refresh` leaves the display alone when nothing changed.
 
-1. The object is read where it stands. A browse mode document is presented through its
-   tree interceptor, exactly as `BrailleHandler.handleGainFocus` does it, because the
-   `NVDAObject` under a browse mode cursor carries only the element the cursor is in and a
-   pin on one paragraph cannot be read past its end.
-2. The regions are built once and kept. Rebuilding them on every refresh would throw away
-   the reading position the user panned to, so a refresh re-renders the regions it already
-   has. See `pinnedRegions`.
-3. Nothing tells the add-on that a pinned object has changed. It is in a window the user is
-   not working in, so there is no focus or caret event to redraw from, and NVDA does not
-   even deliver events for a background window unless something has asked for them. So
-   `patches` re-reads pinned objects on a timer instead, and L{refresh} keeps that cheap by
-   leaving the display alone when nothing has changed.
-
-A monitor holds its segment's key rather than its number. Numbers are display order and are
-reassigned whenever the view changes; a key is not, so a pin survives a rebuild as long as
-the segment it names does. That is what lets a panel be laid over part of the display
-without disturbing an object pinned outside the claim.
+A monitor holds its segment's key, not its number, so it survives a rebuild that keeps the
+segment. See `panels.SegmentSpec.key`.
 """
 
 import itertools
@@ -57,37 +45,22 @@ _generations = itertools.count(1)
 MIN_FLOW_ROWS = 2
 """The fewest rows a segment can show a pinned document or table as a flow in.
 
-Two. A document in one row is a row, and what a document flow is for — the shape of a page
-under the hand, a table's columns lining up — needs a second one to exist at all. Below this
-such a pin reads as it always has, through NVDA's own regions.
+Two, since one row of a document is the line NVDA's own regions already show.
 """
 
 MIN_RUN_ROWS = 1
 """The fewest rows a segment can show a pinned *run of objects* as a flow in.
 
-One, and the difference from L{MIN_FLOW_ROWS} is the whole point. A run has no shape to
-spread out: it is one thing per row, and one row of it is one message, one list item, one
-menu entry, with panning moving to the next. That is a chat monitor on a Focus 80, and it is
-what the two row rule was quietly refusing.
-
-Reported from hardware. A chat pinned to a Monarch and carried to a single row Focus 80 by
-the focus command stopped being a flow, fell back to regions, and showed the list *object*
-rather than the messages in it — one line that could not be panned at all. The fallback is
-worse there than the flow it was protecting the reader from.
-
-A document is a different case and keeps the old rule: one row of a document is the line NVDA
-already shows, and the regions show it better.
+One, unlike `MIN_FLOW_ROWS`: one row of a run is one message or item, and panning moves to the
+next, where the regions would show only the list object.
 """
 
 
 def resolveTarget(obj: "NVDAObject"):
 	"""Substitute an object's tree interceptor, as NVDA's own focus handling does.
 
-	`BrailleHandler.handleGainFocus` presents a browse mode document through its interceptor
-	rather than through the `NVDAObject`, and a pin has to do the same. Without it the
-	regions are built over the single element the browse mode cursor happens to be in, which
-	reads correctly and then cannot be panned, because that element's text ends where the
-	element does.
+	As `BrailleHandler.handleGainFocus` does, or the pin could not be panned past the element
+	under the browse mode cursor.
 
 	:param obj: the object the user asked to pin.
 	:return: the interceptor if there is a ready one that is not in pass through, otherwise
@@ -134,10 +107,8 @@ class ObjectMonitor:
 		self.wantsColumns = False
 		"""Whether this pin's table is read in columns.
 
-		Set when the pin is made, from whether the reader was already reading that table in
-		columns — see `FlowBand.wantsColumnsFor`. It is a flag of this pin's own rather than a
-		reading of the band's, because the band drops its request the moment the reader leaves
-		the table and a pin is precisely a layout that outlives their being there.
+		Set when the pin is made (see `FlowBand.wantsColumnsFor`), and the pin's own, since the
+		band forgets its request when the reader leaves the table.
 		"""
 
 		self._builtFor: Optional[tuple[int, int]] = None
@@ -152,29 +123,16 @@ class ObjectMonitor:
 		self.counts = [0, 0]
 		"""How many times this pin was read, and how many of those read something different.
 
-		For the dry run, and it answers a question nothing else can. A pin that stops moving
-		has stopped somewhere, and there are three candidates: this add-on stopped asking, the
-		page stopped changing, or something between the two stopped delivering. The first is
-		the only one that is ours, and these two numbers separate it from the others — reads
-		climbing with changes at zero means the asking is fine and the answer is always the
-		same, which is the page.
+		For the dry run: reads climbing with changes at zero means the page is not changing,
+		not that this add-on stopped asking.
 		"""
 		log.debug(f"Monitoring {self.name!r} ({self.obj!r}) in segment {segmentKey!r}")
 
 	def moveTo(self, segmentKey: str) -> None:
 		"""Show this pin in a different segment from now on.
 
-		Two things have to move, and the key on this object is only the first. The regions built
-		for the pin carry `targetSegment`, which is what `_doNewObject` reads to decide where a
-		region belongs, so a region left stamped with the old key would be dropped as belonging
-		to a segment that no longer exists.
-
-		What was last written is forgotten as well, which is housekeeping rather than a third
-		necessity: `refresh` also asks whether the destination already holds these regions, and
-		a segment this pin has never been in does not, so it would install either way. Clearing
-		it keeps that from being the only thing standing between a move and a blank segment.
-
-		Used when the display a pin was on has gone and there is somewhere else for it.
+		The key and the regions' `targetSegment` both move, or `_doNewObject` would drop them.
+		What was last written is forgotten too. Used when a pin's display has gone.
 
 		:param segmentKey: the key of the segment to show it in.
 		"""
@@ -200,10 +158,8 @@ class ObjectMonitor:
 	def buildRegions(self) -> list["Region"]:
 		"""Generate the regions for the monitored object, marked for its segment.
 
-		NVDA decides what regions the object wants; this only replaces the cursor policy of
-		any text region among them, so that the pin reads from a position of its own rather
-		than from the object's cursor. The region NVDA built for that purpose is discarded,
-		which wastes one render per pin and keeps the choice of region in NVDA's hands.
+		NVDA chooses the regions; a text region is replaced by one reading from a position of its
+		own, keeping the choice of region in NVDA's hands.
 		"""
 		regions: list["Region"] = []
 		for region in getFocusRegions(self.obj, review=False):
@@ -218,9 +174,7 @@ class ObjectMonitor:
 	def refresh(self, reveal: bool = False) -> None:
 		"""Redraw the monitored object in its segment.
 
-		Called when the object may have changed, which on the refresh timer means several
-		times a second. The display is written only when what it would show has changed, so
-		the usual case costs a re-read of the object and nothing more.
+		Called several times a second; the display is written only when its cells changed.
 
 		:param reveal: show the pin from its start, as when it is first made. Otherwise the
 			segment's window position is kept, so a refresh does not undo the user's panning.
@@ -263,23 +217,9 @@ class ObjectMonitor:
 	def _asAFlow(self, segment) -> bool:
 		"""Whether this pin is being read as a flow, building one if it can be.
 
-		A pin is a document, a run of objects or a table just as much as the focus is, and
-		everything the band does for those it can do here — the reader said so, and the
-		display the focus is not on is now where pins live, so there is room to mean it.
-
-		Two things have to hold. The segment must be tall enough — see L{_minimumRows}, which
-		is two rows for a document and one for a run of objects — and `buildController` must
-		find something to read, the same question, asked the same way, that decides whether
-		the band lights up.
-
-		**Not gated on the flow settings**, deliberately, and the reader's own account is the
-		argument: they turned the flow off in order to pin something at all. Those settings say
-		what the band does with the focus. A pin is not the focus and is not automatic — it is
-		one thing the reader asked to see in one place — and refusing to read it well because
-		the band is reading something else badly would be the same frustration in a new place.
-
-		Rebuilt when the segment's size changes, because a controller is laid out for a band
-		of a particular shape and a display swap or a claim can change it.
+		When the segment is tall enough (see `_minimumRows`) and `buildController` finds
+		something to read. Not gated on the flow settings, which are about the focus, not pins.
+		Rebuilt when the segment's size changes.
 
 		:param segment: the segment this pin is in.
 		:return: whether there is a flow to draw.
@@ -303,10 +243,8 @@ class ObjectMonitor:
 		control = self._build(size)
 		if control is None:
 			return False
-		# Asked once, here, while the pin is being made: a band that filled exactly never
-		# probed past its last block, so nothing had established that this run ends where the
-		# display does — and what arrives next would then have arrived below a display that
-		# would not follow it. See `FlowController.lookPastTheEnd`.
+		# Once, as the pin is made, so a band that filled exactly knows whether the run ends
+		# there. See `FlowController.lookPastTheEnd`.
 		control.lookPastTheEnd()
 		self.controller = control
 		self._builtFor = size
@@ -317,10 +255,7 @@ class ObjectMonitor:
 	def _minimumRows(self, rows: int) -> int:
 		""":return: the fewest rows this pin can be read as a flow in.
 
-		Asked what is being read only when it matters. A segment with two rows or more can
-		flow anything, so the question is not put; a segment with one row asks whether this
-		pin is a run of objects, which is the same question `buildController` answers a moment
-		later and is answered here by the same function.
+		Only a one row segment asks whether this is a run of objects, as `buildController` will.
 
 		:param rows: how many rows the segment has.
 		"""
@@ -347,11 +282,7 @@ class ObjectMonitor:
 	def _build(self, size: tuple):
 		"""Build the flow for this pin, in columns if that is what was asked for.
 
-		The column layout is tried first and falls back rather than failing: what the reader
-		asked for was this table in columns, and a table that will not lay out is still a
-		table worth reading in order. Falling back also covers the pin outliving the table —
-		a page that reloaded under it — where insisting on columns would leave the segment
-		blank rather than showing whatever is there now.
+		Columns first, falling back to reading order, also when the page reloaded under the pin.
 
 		:param size: the segment's rows and columns.
 		:return: the controller, or None if there is nothing here to read.
@@ -405,9 +336,7 @@ class ObjectMonitor:
 	def _tableHasGrown(self) -> bool:
 		""":return: whether the table this pin is showing has gained a column.
 
-		Asked of the source's own handle rather than of the reader's position, because the
-		reader has gone somewhere else — which is what the pin is for. The band's shape check
-		cannot be used here for exactly that reason.
+		Asked of the source's handle, since the reader is elsewhere.
 		"""
 		grown = getattr(getattr(self.controller, "source", None), "hasGrown", None)
 		if grown is None:
@@ -421,9 +350,7 @@ class ObjectMonitor:
 	def _rereadPinnedRow(self) -> None:
 		"""Read this pin's header row again, since it is outside the window.
 
-		`rereadContent` walks the window's blocks and the pinned row is deliberately not one
-		of them, so a header renamed under the pin went on saying what it used to. The band
-		learnt this a few commits ago and the pin did not.
+		`rereadContent` walks only the window's blocks, as the band also handles.
 		"""
 		control = self.controller
 		if control is None or getattr(control, "pinnedBlock", None) is None:
@@ -439,11 +366,7 @@ class ObjectMonitor:
 	def _refreshFlow(self, container: DisplayContainer, segment, reveal: bool) -> None:
 		"""Read the flow again and draw it, if what it would show has changed.
 
-		The same bargain the region path makes and for the same reason: the display is
-		written only when the cells came out different, so a pin that is not changing costs a
-		read and no display traffic. Panning is the reader's and is not undone here — the
-		window keeps its place across a re-read, which is the whole of what `rereadContent`
-		is for.
+		As `refresh`, written only when the cells changed; `rereadContent` keeps the window.
 
 		:param container: the display.
 		:param segment: the segment this pin is in.
@@ -459,17 +382,9 @@ class ObjectMonitor:
 				# that is already ticking.
 				control.fill()
 			if control.isShowingTheTail:
-				# A pin is a thing the reader asked to watch, and some of what is worth
-				# watching is still being written: a chat history, a log, a build. The run was
-				# read to its end when the pin was made and nothing asked again, so a pinned
-				# conversation stopped at the message that was newest that minute. Asked only
-				# while the reader can feel the last row that has been read, so panning back
-				# into the history costs nothing, and only one fetch, which the source refuses
-				# again the moment there is really nothing more.
-				#
-				# Whether what comes back scrolls onto a full display is the reader's, per
-				# display and per profile: a chat is worth following and a page that rewrites
-				# itself for reasons of its own is not.
+				# What a pin watches may still be growing, such as a chat. Asked only while the
+				# last row read is on the display, one fetch at a time. Whether it scrolls on is
+				# `bmConfig.shouldFollowLiveContent`.
 				control.reconsiderEnd(scrollIntoView=bmConfig.shouldScrollToNewContent())
 			control.rereadContent()
 			cells = control.cells()
@@ -486,10 +401,8 @@ class ObjectMonitor:
 		if not attached:
 			segment.attach(control)
 		else:
-			# Drawn here and published below, rather than `refresh`, which does both. Two
-			# publications for one changed pin is two composites of every segment on the
-			# display and two frames to the hardware, and the second says exactly what the
-			# first did.
+			# Drawn here and published once below, not through `refresh`, which would send a
+			# second identical frame.
 			segment.update()
 		container.updateDisplay()
 
@@ -527,9 +440,7 @@ class ObjectMonitor:
 	) -> None:
 		"""Put the regions into the segment and show them.
 
-		The window position is saved across the swap and restored afterwards. Without that,
-		every refresh would send the segment back to the start of the pinned content, which
-		would make a pin that updates and a pin that can be panned mutually exclusive.
+		The window position is kept across the swap, so a pin can both update and be panned.
 		"""
 		saved = False
 		if not reveal and segment.regions:

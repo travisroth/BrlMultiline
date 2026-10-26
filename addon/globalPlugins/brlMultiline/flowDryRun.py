@@ -5,23 +5,10 @@
 
 """Writing what a flow would show to the log, and what one has cost.
 
-There is a gap between the flow being unit tested and the flow being on a display: the
-tests know what blocks a document has, and a real web page does not agree to be simple.
-This runs the whole stack — source, renderer, window — over the document the reader is
-actually in, and reports what the band would hold. No panel is claimed, no segment is
-written to, and nothing reaches the hardware.
-
-It is a viewer, deliberately. A live flow would move the browse mode cursor, and a
-diagnostic must not move the reader's place in the page it is diagnosing.
-
-The report covers three windows rather than one: where it arrived, where panning forward
-took it, and where panning back brought it. The third should be the first again, which is
-the property the whole anchor design exists for and the one hardest to be sure of by
-reading code.
-
-The flow itself is built by `flowBuild`, which is what the live band uses too — so what is
-reported here is the same construction the reader gets, rather than a second one that
-could drift from it.
+Runs the whole stack over the document the reader is in and reports what the band would
+hold, claiming nothing and writing nothing to the hardware. A viewer, so it never moves the
+reader's place. Three windows are reported: arrival, panned forward, and panned back, which
+should equal the first. Built by `flowBuild`, as the live band is.
 """
 
 import time
@@ -54,11 +41,7 @@ def _focusObject():
 def howTheLayoutWasMade(band) -> list[str]:
 	""":return: what `buildTableController` said as it made the layout on the band.
 
-	**Only a failure used to show these**, and that was a hole exactly where a hard fault
-	lives: the notes name each step — what the table measured, which columns name themselves,
-	whether a row was spent on a header — and a layout that comes out *wrong* is not a layout
-	that failed, so nothing printed them. A worksheet losing its header row was diagnosed for
-	three rounds without the one line that said whether the headings had been found.
+	Shown even when the layout succeeded, since a wrong layout is not a failed one.
 
 	:param band: the live band.
 	"""
@@ -71,19 +54,9 @@ def howTheLayoutWasMade(band) -> list[str]:
 def liveReport(band) -> list[str]:
 	"""What the band is showing at this moment, as opposed to what a fresh flow would show.
 
-	The gap this fills was found by trying to diagnose a hardware report without it. A dry
-	run builds its own flow, arrives, pans forward and pans back — so it reports arrival and
-	panning, and it can say nothing whatever about what the band did when the reader moved
-	the focus, because the reader's own window is not the one it built. Asked to explain a
-	display that had scrolled the wrong way on a focus move, the report had no line in it
-	that was about the display that scrolled.
-
-	So the report now begins with the live band: its window, where its anchor sits and which
-	edge that anchor was entered from, and what each row is holding. The entry is the line
-	that matters most for a scrolling complaint — `top` means the anchored block was placed
-	at the top of the band and the rest filled downward, `bottom` means it was placed at the
-	bottom and the rows above it filled in behind, and which of those happened is exactly
-	what a reader cannot tell from feeling the result.
+	A dry run's own flow says nothing about the reader's window. This gives the live band's
+	window, its anchor and entry edge, and each row. The entry matters for scrolling: `top`
+	filled downward from the anchored block, `bottom` filled upward behind it.
 
 	:param band: the live band, or None.
 	:return: the lines of the account.
@@ -146,19 +119,10 @@ this runs while the reader waits, on a page that may be large.
 def whatTheDocumentItselfSays(control) -> list:
 	""":return: the document's own lines around the caret, read straight from NVDA.
 
-	**The one question the rest of this report cannot answer.** Everything above is what the
-	flow made of the document; this is what the document said, fetched the way NVDA's own
-	movement fetches it — from the cursor, expand the line, collapse to its start, move one
-	line — with nothing of this add-on's in between. A reader who feels a blank row can then be
-	told which of the two things it is: a line the document has, which their own arrow keys
-	will land on too, or a row the flow invented, which is ours to fix.
-
-	Each line is reported with the offsets that identify it, what NVDA's own table navigation
-	says about it — `documentBase.DocumentWithTableNavigation._inTable` and the cell it names —
-	and its text, so an empty cell and an empty line between cells can be told apart.
-
-	Read-only, and deliberately so: it copies the caret's position and walks the copy. Nothing
-	here moves the caret, the cursor or the focus.
+	Fetched as NVDA's own line movement does, so a blank row can be told to be the document's
+	or the flow's. Each line has its offsets, what
+	`documentBase.DocumentWithTableNavigation._inTable` says of it, and its text. Walks a copy
+	of the caret's position; nothing moves.
 
 	:param control: the flow whose document to ask.
 	"""
@@ -219,10 +183,7 @@ def _offsetsOf(info) -> str:
 def describeObjectTable(control) -> list:
 	""":return: what a table made of objects found, or nothing if this is not one.
 
-	A table read out of a document is NVDA's own answer throughout and there is nothing to
-	report about how it was arrived at. A table made of objects is this add-on presenting one
-	as though it were a document, and every one of its answers is a choice between two or
-	three places to ask — which is exactly what a report has to be able to settle. See
+	Each of its answers is a choice of where to ask, which a report must show. See
 	`flowObjectTable.ObjectTable.describe`.
 	"""
 	source = getattr(control, "source", None)
@@ -247,14 +208,8 @@ def describeObjectTable(control) -> list:
 def describeRowsOnShow(control):
 	""":return: whether the band is holding a row the table has stopped showing, or None.
 
-	**The line the report that found this did not have.** A worksheet filtered down to one row
-	came up with the row above it on the display, and the report said everything about that
-	row except the one thing that mattered: that the sheet was no longer showing it. Every
-	other line was correct — the row was fetched correctly when it was fetched, and it answers
-	correctly still — so the report read as a band that was working.
-
-	None for anything that cannot hide a row, which is every table but a grid, so the line is
-	absent rather than reassuring where it would mean nothing.
+	Such as a filtered worksheet row. None for anything that cannot hide a row, every table but
+	a grid.
 	"""
 	asked = getattr(control.source, "rowNoLongerShown", None)
 	if asked is None:
@@ -272,10 +227,7 @@ def describeRowsOnShow(control):
 def describeEdges(control) -> str:
 	""":return: what the source said about each end of what it is reading, and why.
 
-	The reader's question when the band stops short: NVDA pans on through the document and
-	the band says there is no more. Which of the several ways a walk has of concluding it has
-	finished was taken is the whole of the answer, and "(end of content)" on a row is the
-	claim rather than the reason for it.
+	For a band that stops short. See `flow.FetchResult.message`.
 	"""
 	from .flow import Edge, EdgeState
 
@@ -298,9 +250,7 @@ def describeEdges(control) -> str:
 def describeLiveUpdates(band) -> str:
 	""":return: whether the band is being told about changes, and what has arrived.
 
-	The one thing about live updating that cannot be felt. A reader whose prices sit still
-	needs to know which half is not working: whether the news is reaching the band at all,
-	whether it is reading when it does, and whether what it reads is any different.
+	Whether news reaches the band, whether it reads, and whether what it reads differs.
 	"""
 	from . import patches
 
@@ -317,11 +267,7 @@ def describeLiveUpdates(band) -> str:
 def describePins() -> list[str]:
 	"""What each pinned object has been doing, for the log.
 
-	A pin that stops moving has stopped somewhere, and there are three candidates: this
-	add-on stopped asking, the page stopped changing, or something between them stopped
-	delivering. Only the first is ours, and only these numbers tell them apart — reads
-	climbing while changes sit still means the asking is fine and the answer is always the
-	same, which is the page and not the pin.
+	See `ObjectMonitor.counts`.
 
 	:return: one line per pin, or a line saying there are none.
 	"""
@@ -342,9 +288,8 @@ def describePins() -> list[str]:
 def describeDivision() -> list[str]:
 	"""How the display is divided right now, and the settings each physical display divides by.
 
-	A pin is only as tall as its segment, and a segment's height comes from a chain a reader
-	cannot feel: the composite's bands, then each display's own segment settings, then any claim
-	laid over them. Every link is named here.
+	Each link of the chain a segment's height comes from: the composite's bands, each display's
+	segment settings, and any claim over them.
 
 	:return: the lines of the account.
 	"""
@@ -378,10 +323,8 @@ def describeDivision() -> list[str]:
 def describePinReading(monitor) -> list[str]:
 	"""Whether a pin is being read as a flow, and if it is not, why not.
 
-	A pin that shows one line and will not pan is a pin reading through NVDA's regions, and
-	there are three ways to get there: the segment is too short, the segment cannot hold a flow,
-	or the flow would not build. Each looks the same under the fingers, so each is named here,
-	and a flow that would not build is asked again with notes so the step that failed is shown.
+	Names which: the segment too short, unable to hold a flow, or the flow would not build, in
+	which case it is built again with notes.
 
 	:param monitor: the pin.
 	:return: the lines of the account.
@@ -424,9 +367,7 @@ def describePinReading(monitor) -> list[str]:
 def describeLineFocus(control) -> str:
 	"""Whether the row the focus is on is marked, and which row got the mark.
 
-	Three answers rather than two, for the same reason `describeIndent` gives three: a band
-	with no mark on it is either a band with the setting off or a band whose focused row had
-	no indent to draw the mark into, and under the fingers those are the same nothing.
+	Three answers, as `describeIndent` gives: on, off, or no indent to draw the mark into.
 
 	:param control: the live controller.
 	:return: one sentence.
@@ -451,14 +392,8 @@ def describeLineFocus(control) -> str:
 def _bandGeometry(handler, band) -> tuple[int, int, str]:
 	"""How big a band to lay out in, and where the answer came from.
 
-	Said out loud in the report because a diagnostic measured at the wrong width answers a
-	different question from the display, and there is nothing in its output to show that it
-	did. Indent is the case that made this worth fixing: the same tree reads as its true
-	depth on eighty cells and as a rebased margin on thirty two.
-
-	The claimed segment first, which is the band the reader is feeling. Then what the band
-	would claim if it were turned on, so that a reader diagnosing with the flow off still
-	gets their own geometry. Then the whole display, which is a guess and is labelled as one.
+	Reported, since the wrong width changes the answer. The claimed segment, else what the band
+	would claim, else the whole display, labelled as a guess.
 
 	:param handler: the braille handler.
 	:param band: the live band, or None.
@@ -523,23 +458,15 @@ def report(control: FlowController) -> list[str]:
 CRLF = "\r\n"
 """How a report's rows are joined for the clipboard.
 
-A carriage return and a line feed rather than a bare line feed, so that what is pasted
-into Notepad is the report rather than one very long line. Named because a bare escape
-in the middle of a join reads as a typo the next time somebody passes it.
+A carriage return and a line feed, so Notepad shows separate lines.
 """
 
 
 def toClipboard(title: str, lines: list[str]) -> bool:
 	"""Put a diagnostic where the reader can actually get at it.
 
-	A report that only reaches the log is a report somebody has to go fishing for, in a file
-	that is also holding everything else NVDA said while they were reproducing the problem.
-	The hardware runs this project depends on are slow enough already.
-
-	Rows are joined with a carriage return and a line feed rather than a bare line feed, so
-	that what is pasted into Notepad is the report rather than one very long line. A heading
-	and the time go on the front because a reader comparing two runs pastes them one after
-	the other, and two reports with nothing between them are one report.
+	Joined by `CRLF`, with a heading and the time in front so two pasted reports
+	stay apart.
 
 	:param title: what this report is, for its heading.
 	:param lines: the report.
@@ -558,10 +485,7 @@ def toClipboard(title: str, lines: list[str]) -> bool:
 def describeIndent(control: FlowController) -> str:
 	"""How the band is drawing the depth of what it holds, in words.
 
-	Worth a line of every report because indent is the first thing that is wrong when a tree
-	reads oddly, and the two ways it goes wrong look the same on the display: the content has
-	no depth to draw, and the band decided not to draw the depth it has. Naming both keeps a
-	report from having to be re-run to tell them apart.
+	Tells apart content with no depth from depth the band chose not to draw.
 
 	:param control: the flow to ask.
 	:return: one line describing the plan in force.
@@ -579,10 +503,8 @@ def describeIndent(control: FlowController) -> str:
 def describeCost(control: FlowController) -> list[str]:
 	"""What a flow has cost so far, in words.
 
-	The measurement milestone 7 is: a budget that is never compared with what reading
-	actually costs is a number somebody guessed, and this project has twice had a guessed
-	number turn out to be the fault. What is wanted back from a hardware run is not "it felt
-	slow" but the slowest block, the slowest operation, and how often the budget was reached.
+	The slowest block, the slowest operation, and how often the budget was reached, so the
+	budget can be compared with real cost.
 
 	:param control: the flow to ask.
 	:return: the lines of the account, empty if it has no budget to ask.
@@ -601,9 +523,7 @@ def describeCost(control: FlowController) -> list[str]:
 def _whatTheBandIsDoing(band) -> str:
 	""":return: what the band has on it, for the title, or "nothing" if it has no flow.
 
-	Short and in the title's own words, because the whole point is that the reader should not
-	have to read as far as the detail to find out that the two halves of this report are about
-	two different things. See `dryRun`.
+	So the title says when the band and the dry run are about different things. See `dryRun`.
 
 	:param band: the live band.
 	"""
@@ -643,15 +563,9 @@ def dryRun(handler=None, obj: Optional["NVDAObject"] = None, band=None) -> list[
 		atObject=atObject,
 	)
 	if control is None:
-		# Every step is reported, because "nothing here can be flowed" was one message for
-		# four different failures and said nothing about which had happened.
-		#
-		# **And it is about this dry run's own flow, not about the band.** The two part
-		# company exactly where it matters: in Excel the band reads the worksheet as a table
-		# and the ordinary reading of the same place is a tree interceptor with no text in it,
-		# so a report headed "nothing here can be flowed" sat on top of a full account of a
-		# table the reader could feel under their fingers. The reader read the title, and the
-		# title was talking about something else.
+		# Every step is reported, since one message covers several failures. It is about this
+		# dry run's flow, not the band's, which can differ, as in Excel; see
+		# `_whatTheBandIsDoing`.
 		lines = [
 			"Flow dry run: nothing here can be flowed on its own"
 			+ (f", though the band is reading {_whatTheBandIsDoing(band)}" if band is not None else "")

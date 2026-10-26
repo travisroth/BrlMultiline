@@ -15,16 +15,13 @@
 4. `VirtualBuffer._handleUpdate` is where NVDA learns that a browse mode document changed
 	under it. The band wants to know as well, and nothing else says so.
 5. `TextInfoRegion._addFieldText` and `TextInfoRegion.update` record which stretches of a
-	document's braille NVDA wrote itself. Nothing else can tell them apart afterwards — the
-	roles, the states and the document's own words are joined into one string by single
-	spaces — and a shape may only be drawn over NVDA's own. See `glyphFlow.FIELDS`.
+	document's braille NVDA wrote itself, which a shape may be drawn over. See
+	`glyphFlow.FIELDS`.
 	`TextInfoRegion.update` is also where a browse mode region is adopted to read a table's row
 	on one line, while the reader has asked for that. See `tableRowLine`.
 
-All are installed and removed symmetrically, so that disabling the add-on restores NVDA's own
-behaviour without a restart. Symmetrically, but not unconditionally: these are attributes of a
-class anyone can reach, and a method that is no longer the one this module installed belongs
-to whoever put it there. See L{remove}.
+All are installed and removed symmetrically, so disabling the add-on restores NVDA without a
+restart, but a method another add-on has since replaced is left alone. See `remove`.
 """
 
 import time
@@ -45,9 +42,7 @@ _owners: dict[str, object] = {}
 _ATTRIBUTES = {"textInfoUpdate": "update"}
 """Where an entry's key is not the name of the attribute it replaces.
 
-Two classes can perfectly well have a method of the same name, and one of them is called
-`update`, which is about as common a name as there is. The key stays unique and this says what
-it actually patches.
+Two classes can share a method name, such as `update`, so the key stays unique.
 """
 
 
@@ -78,29 +73,21 @@ reading a document's text through a `TextInfo` is not being done on every core c
 MONITOR_SLICE_SECONDS = 0.03
 """How long one core cycle may spend on pins before leaving the rest to the next one.
 
-The pins share it, and the rotation carries on from where it stopped, so what a cycle costs
-does not grow with the number of things pinned. It cannot shorten one slow pin — a single
-`TextInfo` read is as long as it is — but it stops the pin behind a slow one being read in
-the same cycle. See `GlobalPlugin.refreshMonitorsInTurn`.
+Shared by the pins in rotation, so a cycle's cost does not grow with them. See
+`GlobalPlugin.refreshMonitorsInTurn`.
 """
 
 MONITOR_QUIET_AGE = 2.0
 """How stale a pin may get while the reader is typing before it is refreshed regardless.
 
-The reader's own keystroke has the core cycle: a pin is something they asked to watch in a
-window they are not working in, and the window they *are* working in is the one under their
-fingers. Not a pause without an end, though — a pinned clock that stopped for as long as
-somebody was typing would be a pin that fails exactly when it is being relied on.
+Typing has the core cycle, but not indefinitely, or a pinned clock would stop while typing.
 """
 
 LAYOUT_QUIET_AGE = MONITOR_REFRESH_INTERVAL
 """How stale an app layout's segments may get while the reader is typing.
 
-Not `MONITOR_QUIET_AGE`, whose reason does not hold for them: a pin is in a window the reader
-is not working in, and an app layout's segments are in the one they are, beside the box they
-are typing into. A chat history that waited two seconds after every keystroke to show the
-reply was found on hardware to be the slowness the reader felt. So while they type, the
-layout's segments are kept on the ordinary interval and the reader's own pins still wait.
+Not `MONITOR_QUIET_AGE`, since an app layout's segments are in the window being typed in. They
+keep the ordinary interval while the reader's pins wait.
 """
 
 _lastMonitorRefresh = 0.0
@@ -122,9 +109,7 @@ rest are due at once rather than after another interval."""
 def _applyFocusToHardLeft(handler: BrailleHandler, regions: list) -> None:
 	"""Apply NVDA's focusToHardLeft rule to one group of regions.
 
-	Taken from `BrailleHandler._doNewObject`. Applying it per segment rather than across
-	the whole display is the point: the rule is about a region's position within the
-	group it is displayed with.
+	From `BrailleHandler._doNewObject`, applied per segment.
 	"""
 	if not (
 		handler.getTether() == TetherTo.FOCUS.value
@@ -150,10 +135,8 @@ def _doNewObjectMultiSegment(self: BrailleHandler, regions) -> None:
 	if container.numSegments == 1 and not container.specs[0].ownerDrawsFocus:
 		# Nothing to sort. Let NVDA do exactly what it normally does.
 		#
-		# Not when the one segment draws its own focus content, though: a flow claiming the
-		# whole display is a single segment, and handing it to NVDA clears the band and
-		# appends NVDA's regions to it, which is the arrangement `exclusive` exists to
-		# prevent. The number of segments says nothing about who owns them.
+		# Unless that one segment draws its own focus content, as a whole display flow does.
+		# See `panels.SegmentSpec.ownerDrawsFocus`.
 		return _originals["_doNewObject"](self, regions)
 	self.autoScroll(enable=False)
 	grouped: dict[int, list] = {index: [] for index in range(container.numSegments)}
@@ -217,21 +200,9 @@ def _ownerTookTheFocus(segment, regions) -> bool:
 def _refreshPinnedObjects(busy: bool = False) -> None:
 	"""Re-read pinned objects, so that a pin shows the object as it is now.
 
-	A pin shows something in a window the user is not working in, and nothing NVDA does
-	announces that it has changed: there is no focus or caret event to redraw from, and
-	events in a background window are not delivered at all unless something has asked for
-	them. So the objects are re-read on a timer, and this is the timer — `_handlePendingUpdate`
-	already runs on every core cycle, which is far more often than any of this needs, hence
-	the interval. `ObjectMonitor.refresh` writes nothing when nothing has changed, so the
-	cost between changes is a read of each pinned object and no display traffic.
-
-	**Not in the same cycle as the reader's own keystroke, and not all of them at once.**
-	Both were true and both put background reading in front of foreground input: every pin
-	was refreshed synchronously on whichever core cycle the interval happened to expire on,
-	including the cycle that was carrying a caret update. Suppressing unchanged display
-	writes saved the hardware traffic and none of the reading. So a cycle NVDA has an update
-	pending on is left to it, and a cycle that does refresh spends an allowance rather than
-	however long the pins take.
+	The timer pins are re-read on, since nothing reports a change in a background window; see
+	`objectMonitor`. A cycle with an NVDA update pending is left to it, and a cycle that does
+	refresh spends `MONITOR_SLICE_SECONDS` rather than however long the pins take.
 
 	:param busy: whether NVDA had an update of its own pending on this core cycle, which is
 		what a keystroke looks like from here.
@@ -278,20 +249,10 @@ def _refreshPinnedObjects(busy: bool = False) -> None:
 def _handleUpdateTellingTheBand(self) -> None:
 	"""Tell the band that a browse mode document changed, then let NVDA have the news.
 
-	This is the one place NVDA learns that a virtual buffer's content moved under it, and it
-	is a far better signal than a clock. The chain behind it, worth knowing because none of it
-	is about ARIA: the buffer backend invalidates the subtree an accessibility event touched —
-	text inserted, removed or updated, a name, a value, a state, a reorder — re-renders it, and
-	calls `nvdaControllerInternal_vbufChangeNotify`, which arrives here. A page that says
-	nothing costs nothing.
-
-	NVDA's own answer to it is to mark the caret's region for update, and the caret's region
-	is the caret's line. That is the whole of why a watchlist read in columns went stale while
-	NVDA itself looked right: the buffer was fresh the entire time and there was nothing on
-	NVDA's display but the one line it was already refreshing.
-
-	The band is told first and NVDA second, because what the band does with it is schedule
-	work rather than do any, and because a failure here must not cost NVDA its own update.
+	Reached through `nvdaControllerInternal_vbufChangeNotify` whenever the buffer re-renders a
+	subtree an accessibility event touched, not only for ARIA. NVDA itself refreshes only the
+	caret's line. The band is told first, since it only schedules work, and a failure here
+	never costs NVDA its update.
 	"""
 	try:
 		_tellTheBand(self)
@@ -319,11 +280,8 @@ def _tellTheBand(document) -> None:
 def _handlePendingUpdateRefreshingPins(self: BrailleHandler) -> None:
 	"""Refresh pinned objects after NVDA has handled its own pending updates.
 
-	`_handlePendingUpdate` runs on every core cycle and clears its own pending set before
-	returning, so whether there was anything to do has to be noted before delegating to it.
-
-	Pinned objects are refreshed whether or not anything was pending: what they show is not
-	driven by the caret, so a pending update is no signal at all for them.
+	Whether anything was pending is noted first, since `_handlePendingUpdate` clears its set.
+	Pins are refreshed either way, as the caret does not drive them.
 	"""
 	hadPendingUpdate = bool(self._regionsPendingUpdate)
 	_originals["_handlePendingUpdate"](self)
@@ -336,12 +294,8 @@ def _nativeScroll(handler: BrailleHandler, forward: bool) -> None:
 	Two corrections to what NVDA would do, both from the keys belonging to one piece of
 	hardware: the direction is the pressed display's, and so is the segment.
 
-	**While a message is up, only the display it is on pans it.** On that display panning goes
-	on scrolling the message and resetting its timeout, exactly as NVDA does. Another display's
-	keys pan that display's own segment and leave the message alone. Every key used to go to
-	the message, which on a Monarch beside a Focus 80 meant that panning the chat history on the
-	Monarch scrolled the message on the Focus instead, and kept it up longer by resetting its
-	timeout. Found on hardware.
+	While a message is up, only the display it is on pans it, as NVDA does; another display's
+	keys pan that display's own segment.
 
 	:param handler: the braille handler.
 	:param forward: which of the two commands was run, before reversal.
@@ -384,13 +338,8 @@ def _scrollBackMaybeReversed(self: BrailleHandler) -> None:
 def _addFieldTextRecordingProvenance(self, *args, **kwargs) -> None:
 	"""Note which stretch of a document's braille NVDA has just written itself.
 
-	Every piece of control field text a `TextInfoRegion` shows goes through this one method;
-	the document's own words are appended by a different branch of the same loop. That is the
-	whole reason a shape can be drawn over "btn" without ever being drawn over somebody's
-	prose, and there is no way to tell them apart after the fact.
-
-	Wrapped rather than reimplemented, and the recording done afterwards, so a build that
-	changes what the method does changes what is recorded rather than diverging from it.
+	All control field text goes through this method, the document's words through another
+	branch. Wrapped, recording afterwards, so a changed NVDA build changes what is recorded.
 	"""
 	before = len(getattr(self, "rawText", "") or "")
 	_originals["_addFieldText"](self, *args, **kwargs)
@@ -400,9 +349,7 @@ def _addFieldTextRecordingProvenance(self, *args, **kwargs) -> None:
 def _textInfoUpdateForgettingProvenance(self) -> None:
 	"""Forget the last reading's fields, because this one begins by emptying the text.
 
-	Emptied to a list rather than removed: an empty list says the recording is in place and this
-	region has no fields, which is a different thing from not knowing, and the two lead to
-	opposite decisions.
+	Emptied, not removed. See `glyphFlow.FIELDS`.
 	"""
 	glyphFlow.restartFields(self)
 	if tableRowLine.adopt(self):
@@ -416,9 +363,7 @@ def _textInfoUpdateForgettingProvenance(self) -> None:
 def _textInfoRegionClass():
 	""":return: NVDA's `TextInfoRegion`, or None where there is none to patch.
 
-	Imported here rather than at the top for the same reason the virtual buffer is: it is a
-	failure the rest of the patches must survive. Without it a document simply gets no shapes,
-	which is the safe half of the decision.
+	Imported here, as `_virtualBufferClass` does. Without it a document gets no shapes.
 	"""
 	try:
 		from braille.regions.textInfo import TextInfoRegion
@@ -432,9 +377,7 @@ def _textInfoRegionClass():
 def _virtualBufferClass():
 	""":return: NVDA's `VirtualBuffer`, or None where there is none to patch.
 
-	Imported here rather than at the top because it is the only import in this module that
-	can reasonably fail — a build without virtual buffers, or one that has moved them — and
-	the rest of the patches must still go in when it does.
+	Imported here, since it can fail and the other patches must still go in.
 	"""
 	try:
 		import virtualBuffers
@@ -448,9 +391,8 @@ def _virtualBufferClass():
 def _replacements() -> dict[str, tuple]:
 	""":return: what this module installs, by the name each one replaces.
 
-	Each entry carries the class it belongs to as well, because they are no longer all on
-	`BrailleHandler`. The same function objects every call, since identity is what L{remove}
-	asks about.
+	Each entry carries its class. The same function objects every call, since `remove` checks
+	identity.
 	"""
 	entries = {
 		"_doNewObject": (BrailleHandler, _doNewObjectMultiSegment),
@@ -471,15 +413,8 @@ def _replacements() -> dict[str, tuple]:
 def liveUpdatesInstalled(document=None) -> bool:
 	""":return: whether a change to a document would be passed on to the band.
 
-	Asked by the band, which polls only when the answer is no, so answering yes too readily
-	costs the reader their updates and says nothing about it. Two ways it used to:
-
-	- **The method is no longer ours.** Another add-on may have replaced it since, and one
-		that replaced rather than wrapped it does not delegate. Being in `_originals` only
-		says this module once put something there.
-	- **The document is not of the patched class.** Only `VirtualBuffer` is patched, and it
-		is not the only kind of browse mode there is: UIA documents have their own path, and
-		nothing on it reaches here.
+	The band polls only on no, so a wrong yes silently costs updates. No when the method is no
+	longer ours, or the document is not a `VirtualBuffer`, as a UIA document is not.
 
 	:param document: the document being read, or None to ask only whether the patch is in.
 	"""
@@ -514,13 +449,8 @@ def install() -> None:
 def remove() -> None:
 	"""Restore NVDA's own methods. Safe to call when nothing is installed.
 
-	Each method goes back only if it is still the one this module installed. Another add-on may
-	have replaced or wrapped it since — these are attributes of a shared class — and putting
-	NVDA's own back over that would silently undo their work.
-
-	A method left in place keeps its entry in L{_originals}, because this module's replacement
-	is still there and still delegating to it. That entry is also what stops a later install
-	putting a second copy on top.
+	Only where the method is still this module's, or another add-on's work would be undone. A
+	method left in place keeps its `_originals` entry, which also stops a second install.
 	"""
 	for name in list(_originals):
 		owner = _owners.get(name, BrailleHandler)
