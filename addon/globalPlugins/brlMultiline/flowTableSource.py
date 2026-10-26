@@ -5,33 +5,15 @@
 
 """Blocks that are table rows, read cell by cell out of a browse mode document.
 
-Everything about finding the cells is NVDA's. `documentBase.DocumentWithTableNavigation`
-already knows how to say which cell a position is in, how big the table is, and how to fetch
-the cell at any coordinate — it is what NVDA's own control+alt+arrows move through. This module walks that API and
-turns its answers into blocks. It reimplements none of it, and the one place it was tempted
-to — deriving the table's shape by reading fields itself — is exactly what `_getTableDimensions`
-already does better.
+Finding cells is NVDA's: this module walks `documentBase.DocumentWithTableNavigation`, the
+API NVDA's control+alt+arrows use, and turns its answers into blocks.
 
-**A block is a row.** Not a cell: a cell on its own is what a single line display shows and
-what the reader is trying to get away from. Not the whole table either, because a table is
-longer than any band and the window's whole design is a stream of blocks. One row, holding
-its cells, drawn at the column plan's offsets by `FlowRenderer._asColumns`.
-
-**A cell's braille is its text.** The cells are read as plain text regions rather than as
-text-info regions over the document. That is deliberate and it is the difference between a
-cell and a line: a text-info region reads a *reading unit* around a position, so a cell in a
-one-line row would come back as the whole row, and a cell in a wrapped row as whatever
-fraction of it the unit happened to cover. What a column holds is the cell's own text, so the
-cell's own text is what is translated.
-
-Routing keeps the connection to the document that plain text would lose: a routing key over a
-cell puts the caret in that cell, which is where the reader wants to be if they are about to
-do anything with it.
-
-**A row that is missing a cell is normal.** `_getTableCellAt` raises `LookupError` for a
-coordinate with no cell, which is what a merged cell looks like from the outside and what a
-half-built row looks like from anywhere. The row is built without it, that column is left
-blank, and every other column stays where the reader's finger left it.
+1. A block is a row, holding its cells, drawn at the column plan's offsets by
+   `FlowRenderer._asColumns`.
+2. A cell is read as a plain text region, not a text-info region, which would read a whole
+   reading unit around the position. Routing to a cell still puts the caret in it.
+3. A missing cell, which `_getTableCellAt` reports with `LookupError` for a merged or
+   half-built row, leaves that column blank.
 """
 
 import dataclasses
@@ -53,13 +35,8 @@ UNIT = "row"
 HEADER_ROW = 1
 """Which row of a table to fall back to for its column headers.
 
-**The fallback, not the answer.** The answer is L{declaredHeader}: a document that marks its
-headers up says what each column's header is, per cell, and NVDA has already worked it out —
-see that function for where from. Row one is what is left for a table that declares nothing,
-which is a table whose headers this cannot know and can only guess at.
-
-Still row one for the other two questions that need *a* row rather than a header: the sample
-`measure` reads, and the probe `hasGrown` makes past the last known column.
+Only a fallback for a table that declares no headers; see `declaredHeader`. Also the row
+`measure` samples and `hasGrown` probes.
 """
 
 HEADER_ATTRIBUTES = {"column": "table-columnheadertext", "row": "table-rowheadertext"}
@@ -68,34 +45,23 @@ HEADER_ATTRIBUTES = {"column": "table-columnheadertext", "row": "table-rowheader
 HEADER_TRIES = flowObjectTable.HEADER_TRIES
 """How many of a column's cells are asked what its header is, before the column has none.
 
-Defined next door, because the same rule is applied at two levels and one number should say
-it: this module asks a few *rows* of a table, and an object table asks a few *cells* of a
-column. See `flowObjectTable.HEADER_TRIES`.
+Shared with `flowObjectTable.HEADER_TRIES`, which applies the same rule to cells.
 """
 
 MEASURE_ROWS = 8
 """How many rows are read to decide the column widths.
 
-A band's worth. The same principle the indent plan uses — plan from what the reader is about
-to feel — and the same reason not to read more: a table of four thousand rows would cost four
-thousand reads to answer a question a bandful answers well enough. Where it is wrong it is
-wrong by a cell or two and truncation covers it, which is what truncation is for.
+A band's worth, as the indent plan reads. Truncation covers the rare wider cell.
 """
 
 
 def tableDocumentFor(obj) -> Optional[Any]:
 	"""What can navigate the table this object is in.
 
-	The tree interceptor where there is one and browse mode is presenting the page, the object
-	itself where it navigates its own tables, and otherwise a list view presented as though it
-	did. Borrowed from Easy Table Navigator (https://github.com/josephsl/easyTableNavigator), which uses the same dispatch for the same reason:
-	it is what makes a list view the same code as a web page, and the bet it was making turned
-	out to be worth making — everything above this line is unchanged by the message list
-	arriving.
-
-	The order matters. A list view inside a browse mode document is part of the page, and the
-	page is what the reader is reading; a list view is asked about only where nothing else
-	claims the object.
+	In order: the tree interceptor in browse mode, the object itself where it navigates its own
+	tables, else a list view presented as one. The same dispatch as Easy Table Navigator
+	(https://github.com/josephsl/easyTableNavigator). A list view inside a page is part of
+	the page, hence the order.
 
 	:param obj: the object the reader is on.
 	:return: something answering `DocumentWithTableNavigation`'s three questions, or None.
@@ -138,24 +104,16 @@ class TableHandle:
 	contentRows: int = 0
 	"""How many rows the table had content in when this handle was made, or 0 for unknown.
 
-	**Read once and carried, because it is a snapshot and the point of it is comparing two.**
-	`numRows` reaches at least as far as the reader on a grid, so that the row they are
-	standing in is part of the table; that makes it move when they arrow below the data, and a
-	layout rebuilt on every keypress is a display that will not settle. This is the half that
-	only moves when the table does. See `flowObjectTable.SheetTable.contentRows` and
-	`flowBand.FlowBand._tableChangedShape`.
+	A snapshot, for comparing. Unlike `numRows` it moves only when the table does. See
+	`flowObjectTable.SheetTable.contentRows` and `flowBand.FlowBand._tableChangedShape`.
 	"""
 
 	@property
 	def key(self) -> tuple:
 		"""What names this table, and names it apart from every other one.
 
-		The document **and** the identifier, because NVDA's table identifier is only
-		documented as unique within a document: a virtual buffer numbers its tables from one,
-		so the first table of every page is table 1. Comparing identifiers alone said the
-		watchlist on one page and the layout table on the next were the same table, and a
-		focus change straight from one into the other carried the reader's column layout with
-		it.
+		The document and the identifier, since NVDA's table identifier is unique only within a
+		document.
 
 		:return: a key to compare with `sameTable`, which knows how to compare each half.
 		"""
@@ -168,16 +126,8 @@ class TableHandle:
 def tableAt(obj) -> Optional[TableHandle]:
 	"""Whether the reader is in a table, and which one.
 
-	The test Easy Table Navigator (https://github.com/josephsl/easyTableNavigator) uses, for the reason it uses it: `_getTableCellCoords`
-	answers the question by doing the work, so a test that agreed with it would be a second
-	implementation to keep in step and a test that disagreed would offer a layout the fetches
-	then could not fill.
-
-	**A layout table answers no, and that is NVDA's doing rather than ours.**
-	`_getTableCellCoords` consults `_maybeGetLayoutTableIds` and skips any table marked as
-	layout unless the reader has turned NVDA's own "include layout tables" setting on. Most
-	tables on a web page are page scaffolding, and this is what stops a column layout being
-	aimed at one by accident.
+	By `_getTableCellCoords`, as Easy Table Navigator does, so the test cannot disagree with
+	the fetches. Layout tables answer no unless NVDA's "include layout tables" setting is on.
 
 	:param obj: the object the reader is on.
 	:return: the table, or None if they are not in one.
@@ -229,16 +179,8 @@ def _contentRowsOf(document, numRows: int) -> int:
 def explain(obj) -> list:
 	"""Why `tableAt` answered as it did, in the terms it answered in.
 
-	`tableAt` swallows the three ways of saying no — nothing navigates a table here, the
-	cursor is not in a cell of it, it will not say how big it is — because for the ordinary
-	redraw they are all the same answer and none of them is news. For the reader pressing the
-	column command and being told they are not in a table they are the only news there is, so
-	the same questions are asked again, one at a time, with nothing swallowed.
-
-	Asked again rather than recorded on the way past, deliberately: the answers are what the
-	reading itself asks for and a record kept beside them is a record that can go stale. It
-	costs a second look at a control the reader is standing still in, which is a price only
-	paid when something has already gone wrong.
+	`tableAt` swallows its three ways of saying no. This asks the same questions again, one at
+	a time, rather than keeping a record that could go stale.
 
 	:param obj: the object the reader is on.
 	:return: one line per question, for the log.
@@ -294,10 +236,7 @@ def explain(obj) -> list:
 def logExplanation(obj, why: str) -> None:
 	"""Write down why a table could not be laid out, since the reader is being told it cannot.
 
-	At `info` rather than `debug`, and that is the point of it: the reader who hits this is
-	standing in front of hardware with a command that has just refused them, and asking them
-	to turn debug logging on and do it all again is asking them to reproduce something they
-	have already reproduced.
+	At `info`, so it is there without turning debug logging on.
 
 	:param obj: the object they are on.
 	:param why: what was being attempted, for the first line.
@@ -311,37 +250,22 @@ def logExplanation(obj, why: str) -> None:
 class TableRow(Region):
 	"""One row of a table, read as its cells rather than as a line of text.
 
-	**A real region, and that is the whole of the lesson here.** It began as a stand-in — an
-	object carrying the handful of attributes the code that draws a flow happens to ask for —
-	and that worked until the row reached NVDA's own buffer, which asked it for
-	`hidePreviousRegions` and got an `AttributeError` in the middle of a display update. The
-	list of things a region has is NVDA's to know and it is longer than any guess. Subclassing
-	means never guessing again, and it is why this class lives here rather than beside the
-	column arithmetic in `flowTable`, which imports nothing from NVDA on purpose.
-
-	What it adds to a region is the cells: `FlowRenderer._asColumns` asks for them and draws
-	each at its column's offset. Everything that has *not* been taught about columns — NVDA's
-	buffer, the dry run, a log line — reads `rawText` and `brailleCells` and gets the row run
-	together as one line, which is reading order and is the default a table gets.
+	A real `Region` subclass, because NVDA's buffer asks a region for attributes beyond any
+	stand-in's guess. That is why it lives here and not in the NVDA-free `flowTable`. It adds
+	the cells, which `FlowRenderer._asColumns` draws; anything else reads `rawText` and
+	`brailleCells` as one line.
 	"""
 
 	def __init__(self, cells, separator: str = "  ", obj=None, caretColumn=None) -> None:
 		"""
 		:param cells: the row's cells, in the table's own column order.
-		:param separator: what goes between them in the flat reading. Two spaces, which is
-			what a reader expects between fields and what NVDA's own table reading uses.
-		:param obj: the document this row was read out of. **Load bearing**, and the least
-			obvious thing in this file: `BrailleHandler.handleCaretMove` looks at the last
-			region in the buffer and does nothing at all unless its `obj` equals the object
-			whose caret moved. A row that did not know its document was a row NVDA never
-			queued, so the caret moved and no redraw followed — and with no redraw there was
-			no `recheck`, so the band could not notice the reader had walked out of the
-			table either. It sat on the first table it was given until NVDA redrew for some
-			other reason.
-		:param caretColumn: asked, on each update, which column of *this* row the caret is
-			in, or None for a row it is not on. Asked rather than told because a row is
-			re-read by NVDA at moments this source does not choose, and a cursor set once
-			and remembered is a cursor that stays where the caret used to be.
+		:param separator: what goes between them in the flat reading. Two spaces, as NVDA's
+			own table reading uses.
+		:param obj: the document this row was read out of. Required: `BrailleHandler.
+			handleCaretMove` ignores a caret move unless the last region's `obj` is the object
+			whose caret moved, and without that redraw the band never rechecks.
+		:param caretColumn: asked on each update which column of this row the caret is in, or
+			None. Asked rather than told, since NVDA re-reads a row at moments of its choosing.
 		"""
 		super().__init__()
 		self.cells = tuple(cells)
@@ -354,9 +278,7 @@ class TableRow(Region):
 	def cellFor(self, index: int):
 		""":return: the cell in one column of the table, or None if the row has not got it.
 
-		A row genuinely may not: a table with a merged cell, or one still being built, has
-		rows with fewer cells than the header promised. Drawing nothing in that column is the
-		honest answer, and it keeps every other column where the reader left it.
+		A merged or half-built row may lack cells; the column is then left blank.
 		"""
 		for cell in self.cells:
 			if cell.index == index:
@@ -366,14 +288,8 @@ class TableRow(Region):
 	def update(self) -> None:
 		"""Read every cell and run them together into this region's own text and braille.
 
-		Assembled from the cells rather than translated afresh. They have been translated
-		already by whatever read them, and translating the joined text a second time would be
-		a second answer that could disagree with the first about where a cell begins — which
-		is the same reason the columns are drawn from each cell's own translation.
-
-		The position maps are concatenated with them, because NVDA's buffer uses them to turn
-		a window of cells back into text and a routing press into a place. A row that carried
-		cells and no maps read as an empty window.
+		Assembled from the cells' own translations, so they agree with the drawn columns. The
+		position maps are concatenated too, since NVDA's buffer needs them for text and routing.
 		"""
 		rawText = ""
 		brailleCells: list[int] = []
@@ -402,17 +318,9 @@ class TableRow(Region):
 	def _caretPosition(self):
 		"""Where to draw the cursor in this row, in this region's own position space.
 
-		**Packed, not an index into `brailleCells`**, which is what `brailleCursorPos`
-		usually is. This region's positions are packed — which column, and where in it — and
-		the cursor has to be in the same space as them or nothing can find it: the flow looks
-		for the band cell whose position equals this one, and the flat reading's indices name
-		cells of a row nobody is looking at. Nothing hands this number to NVDA's own cursor
-		arithmetic, because the band computes its own cursor from the drawn rows.
-
-		At the start of the cell rather than at the character the caret is on. What the
-		reader lost and asked for is *which cell*, the offset inside it is not something
-		`_getTableCellCoords` reports, and working it out would mean measuring the caret
-		against the cell's own start on every redraw.
+		A packed position (column and place in it), the same space as this region's positions,
+		not an index into `brailleCells`. The band computes its own cursor from it. At the start
+		of the cell, since `_getTableCellCoords` gives only the cell.
 
 		:return: the packed position, or None if the caret is not on this row.
 		"""
@@ -430,10 +338,7 @@ class TableRow(Region):
 	def textForPositions(self, positions) -> str:
 		"""What a run of drawn positions reads as, for the log and the dry run.
 
-		Column by column, and only as much of each column as was drawn — which is the point.
-		A truncated column is the reader's whole complaint about a table too wide for the
-		band, and a report that showed the text a column *holds* rather than the text it
-		*shows* could not be used to check the widths at all.
+		Only as much of each column as was drawn, so the report can check the widths.
 
 		:param positions: the packed positions on one drawn row, padding already dropped.
 		:return: the row as it reads, cells separated as they are in the flat reading.
@@ -479,9 +384,7 @@ class TableRow(Region):
 def _sliceByBraille(region, positions) -> str:
 	""":return: the text a run of one region's braille positions stands for.
 
-	Through the region's own `brailleToRawPos`, which is where contraction is accounted for:
-	six cells of a contracted word are not six characters, and slicing the text by cell count
-	would report something the reader is not feeling.
+	Through the region's `brailleToRawPos`, which accounts for contraction.
 	"""
 	text = getattr(region, "rawText", "") or ""
 	if not text or not positions:
@@ -501,10 +404,8 @@ def _sliceByBraille(region, positions) -> str:
 def _readCell(region) -> tuple:
 	"""What one cell contributes to its row's flat reading.
 
-	The maps are rebuilt as straight runs where a region does not offer usable ones, so that
-	their lengths always match the text and the cells they map. NVDA reads them by index and
-	guards against running off the end, but a map of the wrong length maps to the wrong place
-	rather than to nowhere, which is worse.
+	Maps are rebuilt as straight runs where unusable, so their lengths always match, since a
+	map of the wrong length maps to the wrong place.
 
 	:param region: the cell's region.
 	:return: its text, its cells, its raw to braille map, and its braille to raw map.
@@ -523,21 +424,16 @@ def _readCell(region) -> tuple:
 class TableCellRegion(TextRegion):
 	"""One cell of a table, translated as the text it holds.
 
-	A `TextRegion` rather than a `TextInfoRegion`, which is the difference between a cell and
-	a line — see the module docstring. What it adds to a plain one is the way back: it keeps
-	the cell's position, so a routing key over the cell can put the caret in it.
+	A `TextRegion`; see the module docstring. Keeps the cell's position for routing.
 	"""
 
 	def __init__(self, document, info, live: bool = False, plainCase: bool = False) -> None:
 		"""
 		:param document: what navigates the table, for moving the caret.
 		:param info: the cell's position, as `_getTableCellAt` returned it.
-		:param live: whether this flow moves the reader's own cursor. A viewer routes
-			nowhere, exactly as it reads nothing else into the document.
+		:param live: whether this flow moves the reader's own cursor. A viewer routes nowhere.
 		:param plainCase: whether this column is drawn without capital signs. See
-			`withoutCapitals`. Routing is unaffected — a cell is routed to as a place rather
-			than at the character under the finger, so there is nothing for a changed text to
-			put the caret wrong in.
+			`withoutCapitals`. Routing is unaffected, since it goes to the cell, not a character.
 		"""
 		said = _textOf(info)
 		super().__init__(withoutCapitals(said) if plainCase else said)
@@ -549,14 +445,11 @@ class TableCellRegion(TextRegion):
 	def routeTo(self, braillePos: int) -> None:
 		"""Put the caret in this cell.
 
-		In the cell rather than at the character the finger landed on. A table cell is a place
-		in the document and its text is a rendering of what is there; the offsets inside it are
-		this region's, not the document's, and pretending otherwise would put the caret
-		somewhere arbitrary in a merged or reformatted cell. What the reader means by routing
-		into a column is "take me to this value".
+		In the cell, not at the character, since offsets inside it are this region's, not the
+		document's.
 
-		:param braillePos: where in this region's cells the finger landed. Not used, for the
-			reason above; taken so that this is the region interface everything else expects.
+		:param braillePos: where in this region's cells the finger landed. Unused; part of the
+			region interface.
 		"""
 		if not self.live:
 			return
@@ -574,18 +467,9 @@ class TableCellRegion(TextRegion):
 def declaredHeader(info, axis: str = "column") -> str:
 	""":return: the header a document declares for a cell's column or row, or "" if it declares none.
 
-	**Browse mode knows this, and it is better than anything that can be worked out from the
-	table's shape.** The virtual buffer backend asks IAccessible2 for a cell's header cells —
-	`IAccessibleTableCell::get_columnHeaderCells`, which is what `<th>`, `scope=` and
-	`headers=` produce — and records their identifiers on the cell's node;
-	`VirtualBuffer._normalizeControlField` then resolves those to text as
-	`table-columnheadertext`. The same attribute arrives from UIA and from Word by other
-	routes, so a document, a spreadsheet and a page all answer the same question the same way.
-
-	What that buys over reading row one is every case row one gets wrong: headers two rows
-	deep, a header column rather than a header row, a `headers=` attribute pointing somewhere
-	else entirely, and a table whose first row is data. None of those can be guessed at from
-	the outside, and all of them are already answered here.
+	The `table-columnheadertext` attribute, which NVDA resolves from `<th>`, `scope=` and
+	`headers=` through IAccessible2, and from UIA and Word by other routes. It handles
+	multi-row headers, header columns and tables whose first row is data, which row one cannot.
 
 	:param info: a cell's position, as `_getTableCellAt` returned it.
 	:param axis: "column" for the header above the cell, "row" for the one beside it.
@@ -594,16 +478,9 @@ def declaredHeader(info, axis: str = "column") -> str:
 	attribute = HEADER_ATTRIBUTES.get(axis)
 	if attribute is None or info is None:
 		return ""
-	# **A cell that carries its header says so directly.** An object table's cell holds the
-	# answer as a string — `flowObjectTable.ObjectCellInfo.header`, resolved once per column
-	# from the object — and then encodes it into a control field so that it looks like a
-	# document's cell to everything downstream. Reading it back out of that field is a round
-	# trip whose only purpose was uniformity, and a round trip is somewhere an answer can be
-	# lost: NVDA's `FieldCommand` and `ControlField` are particular about what they are made
-	# of, and this decoding is guarded so a failure comes back as "no header" rather than as
-	# an error. Where the answer is already in hand, it is taken.
-	#
-	# Only the column axis, because that is the only one such a cell answers for.
+	# An object table's cell already holds its column header as a string
+	# (`flowObjectTable.ObjectCellInfo.header`), so it is taken directly rather than decoded
+	# from the control field. Column axis only.
 	if axis == "column":
 		said = getattr(info, "header", None)
 		if isinstance(said, str):
@@ -631,9 +508,7 @@ def declaredHeader(info, axis: str = "column") -> str:
 def _textOf(info) -> str:
 	""":return: a cell's text, stripped of the whitespace the document pads it with.
 
-	Stripped because a cell's leading and trailing space is layout rather than content, and a
-	column that spends two of its six cells on the space a page put around a ticker is a
-	column two cells narrower than it looks.
+	Leading and trailing space is layout, and would waste column cells.
 	"""
 	try:
 		return (info.text or "").strip()
@@ -650,18 +525,9 @@ def declaredHeaders(
 ) -> dict:
 	""":return: the header each column declares, by column number, leaving out those that do not.
 
-	A declared header belongs to the column, so any cell of it answers — **but only a cell that
-	answers at all**, and the first row read is not always a witness. A row of a virtualised
-	list may be half built and a row of a document may hold a merged cell where its neighbours
-	hold real ones, and asked once, such a cell was the whole of what the column had said.
-	`measure` learnt that on hardware and took a few rows instead of one; a review found this
-	still asking a single row, which matters most where it is used to *name* a table — a
-	transient silence there saves or looks up a layout under a different identity. So the same
-	bounded strategy, in the one place all three callers share.
-
-	Only the columns that have not answered are asked again, and the walk stops as soon as they
-	all have — which for a table that declares its headings is the first row. A table that
-	declares nothing pays a read per column per try, which is what `HEADER_TRIES` is small for.
+	Any cell of a column can answer, but one cell can be a bad witness, so up to `tries` rows
+	are asked, only for columns still silent. This matters most when naming a table for a
+	saved layout. Shared by all three callers.
 
 	:param handle: the table.
 	:param columns: the table's own numbers for the columns to ask about.
@@ -689,9 +555,7 @@ def declaredHeaders(
 def _rowsToAsk(handle: TableHandle, row: Optional[int], tries: int) -> list:
 	""":return: which rows to ask for a declared header, the reader's own first.
 
-	Theirs first because it certainly exists and is certainly built — they are standing on it.
-	Then the first row and the one after theirs, which between them cover the two ways a single
-	cell goes quiet: a header row that is not where the reader is, and a half-built neighbour.
+	The reader's row, which certainly exists, then the first row and the one after theirs.
 
 	:param handle: the table.
 	:param row: the row to start from, or None for the reader's.
@@ -710,10 +574,8 @@ def _rowsToAsk(handle: TableHandle, row: Optional[int], tries: int) -> list:
 def widthOf(text: str) -> int:
 	""":return: how wide a piece of text is in braille cells, by translating it.
 
-	The only honest measurement — see the module docstring, which is about why a character
-	count is not one. Used wherever the text arrives as a string rather than as a cell of the
-	document: a declared header, and a row handed over whole by a grid that can read itself
-	cheaply. A region is made and thrown away, which is what measuring a cell does too.
+	A character count is not a braille width. For text that arrives as a string, such as a
+	declared header or a row from `rowTextOf`.
 
 	:param text: what will be drawn.
 	"""
@@ -736,13 +598,8 @@ def headerWidth(text: str) -> int:
 def _offeredBy(handle: TableHandle, name: str):
 	""":return: one of the optional methods of a table stand-in, or None if there is not one.
 
-	**Asked only of this add-on's own stand-ins**, and that is the whole of the care needed
-	here. The two optional seams are looked up by name, and the other kind of table this
-	reads is a browse mode document — a foreign object where a name means whatever the
-	application that wrote it decided it means. NVDA's own table document has no `rowText`;
-	the stand-in this add-on's tests use holds a table's column headers in an attribute called
-	exactly `columnHeaders`, and calling that as a method would have written a debug warning
-	on every measurement of every web page.
+	Only of this add-on's own stand-ins, since on a foreign document the same name could mean
+	anything.
 
 	:param handle: the table.
 	:param name: the method wanted.
@@ -756,9 +613,7 @@ def _offeredBy(handle: TableHandle, name: str):
 def columnsShowingIn(handle: TableHandle):
 	""":return: which of a table's columns are on show, or None for all of them.
 
-	A hidden column is still a column and answers for its cells like any other, so a layout
-	built from the count alone draws one the reader cannot arrow to. See
-	`flowObjectTable.Sheet.columnsShowing`.
+	See `flowObjectTable.Sheet.columnsShowing`.
 
 	:param handle: the table.
 	"""
@@ -777,18 +632,9 @@ def columnsShowingIn(handle: TableHandle):
 def rowTextOf(handle: TableHandle, row: int, first: int, last: int):
 	""":return: a row's text across a span of columns in one read, or None to read it cell by cell.
 
-	**The cheap seam, asked of the document and offered by almost nothing.** Only a grid that
-	can read itself in bulk answers — see `flowObjectTable.Sheet.textRow` — and everything
-	else is measured exactly as it was, one cell region at a time.
-
-	**All of the span or none of it.** A short answer used to be padded with empty strings, so
-	that a grid answering for part of a row still saved the reads it had answered for. That
-	reads an unfinished answer as a finished one: Excel's batch fetch walks the range with an
-	enumerator and stops at the first cell it cannot reach, so the tail it did not return is
-	the part nobody has read — and padded, the columns it covers measure as columns that hold
-	nothing while their values sit there in the ordinary cell objects. A table read as blank
-	is the failure this seam exists to prevent, so an answer that is not the length it was
-	asked for sends the whole row back to being read cell by cell.
+	Only a grid that can read itself in bulk answers; see `flowObjectTable.Sheet.textRow`. All
+	of the span or none: a short answer means unread cells, not empty ones, so the row is then
+	read cell by cell.
 
 	:param handle: the table.
 	:param row: the row to read.
@@ -824,10 +670,7 @@ def rowTextOf(handle: TableHandle, row: int, first: int, last: int):
 def columnHeadersOf(handle: TableHandle, first: int, last: int):
 	""":return: what the columns declare, from a document that can say without reading cells.
 
-	None where it cannot, which sends the caller to `declaredHeaders` or to asking each cell
-	as it is measured. An empty mapping is an answer rather than a silence: it means the
-	document was asked and no column of it declares anything, and it is what saves a
-	spreadsheet a cell fetch per column for a question whose answer is nothing. See
+	None sends the caller to the cells; an empty mapping means none are declared. See
 	`flowObjectTable.Sheet.columnHeaders`.
 
 	:param handle: the table.
@@ -852,15 +695,8 @@ def columnHeadersOf(handle: TableHandle, first: int, last: int):
 def firstRowIsHeadings(document) -> bool:
 	""":return: whether row one of a table may be read as its headings.
 
-	Asked of whatever is navigating the table rather than assumed. A document says nothing and
-	gets the assumption `HEADER_ROW` is named for, which is what NVDA's own table navigation
-	assumes too. **A list view says no**, and its first row is a file or a message.
-
-	One reader, because two things ask it and they were disagreeing. `TableFlowSource` asked
-	before pinning a header row, and so never pinned one over a list; `measure` did not ask at
-	all, and took row one's text as each column's *name*. So the layout knew a message list had
-	no headings while the report of it called the columns "report.docx" and "Yesterday, 4:32
-	PM" — the reader's own first row, read back to them as the names of the things it is one of.
+	Asked of whatever navigates the table. A document says nothing and gets yes, as NVDA
+	assumes; a list view says no. One function, so `TableFlowSource` and `measure` agree.
 
 	:param document: whatever is navigating the table.
 	"""
@@ -870,21 +706,9 @@ def firstRowIsHeadings(document) -> bool:
 def withoutCapitals(text: str) -> str:
 	""":return: text that will translate without capital signs.
 
-	**The only lever there is.** In a six dot table an all-capitals word carries the
-	capitals-word indicator in front of it — dot 6 twice — so `AAPL` is six cells and `aapl`
-	is four, which on a column sized for a stock symbol is the difference between the value
-	fitting and being cut. liblouis takes no mode for suppressing it (NVDA passes it
-	`compbrlAtCursor` and `partialTrans` and nothing else) and the indicator comes from the
-	table's own `capsletter` and `begcapsword` opcodes, so the choice is to lower the text, to
-	strip cells afterwards, or to translate the column through a different table. Stripping
-	cells means knowing which cell is an indicator in every table there is, and would leave
-	the position maps saying the wrong thing; a different table changes the contractions as
-	well. Lowering the text asks the table the question itself and changes nothing else.
-
-	Measured rather than assumed: twenty-three tickers, company names and headings translated
-	both ways in `en-ueb-g2` gave, in every case, the uppercase cells with the dot 6 cells
-	taken out. `CHTR` keeps its `ch` contraction, `T` keeps the grade one indicator that stops
-	it reading as "that", and nothing came out longer.
+	Capital indicators make `AAPL` six cells instead of four. liblouis has no mode to suppress
+	them, and stripping cells would break the position maps, so the text is lowered. In
+	`en-ueb-g2` this removes only the capital indicators and changes no contractions.
 
 	:param text: the cell's text.
 	"""
@@ -908,9 +732,7 @@ def cellRegion(
 	:param column: the column to read.
 	:param live: whether the region may move the reader's cursor.
 	:param plainCase: whether this column is drawn without capital signs. Applied here, where
-		the text becomes a region, because that is where it is translated — and because a
-		region is built afresh on every read, so a live re-read lowers what it has just read
-		rather than restoring the capitals under the reader's hand.
+		the text becomes a region and is translated, so every re-read applies it again.
 	"""
 	try:
 		info = handle.document._getTableCellAt(handle.tableID, handle.document.selection, row, column)
@@ -935,12 +757,7 @@ def cellRegion(
 def cellHasContent(handle: TableHandle, row: int, column: int, live: bool = False) -> bool:
 	""":return: whether one cell of a table holds anything the reader could read.
 
-	One cell, deliberately. `measure` reads a bounded sample and a column empty throughout it
-	is left out of the layout, which is right for a column of icons and wrong for a column
-	that happens to be blank in the eight rows that were looked at. Proving the difference
-	needs reading the whole column, which a wide table cannot afford; asking about the one
-	cell the reader has just arrived at costs a single search and answers the only case that
-	matters, because a column nobody visits does not need to be drawn.
+	One cell, deliberately. See `FlowBand._omittedColumnHasContent`.
 
 	:param handle: the table.
 	:param row: the row to look at.
@@ -961,27 +778,17 @@ def measure(
 ) -> list[Measurement]:
 	"""Read a bandful of rows and find out how wide each column needs to be.
 
-	In cells, by translating, because that is the only honest measurement — see `flowTable`.
-	The sample starts at the caret's own row and reads forward, so that what the widths are
-	decided from is what the reader is about to feel, and the header row is read whatever the
-	caret's row is because it is the widest thing in many a column and it is what a pinned
-	header will have to fit.
+	In cells, by translating; see `flowTable`. The sample is about the caret's row (see
+	`_sampleRows`), plus the header row, which a pinned header must fit.
 
 	:param handle: the table.
-	:param live: whether the regions built here move the reader's cursor. They do not, and
-		they are thrown away; the parameter is here so that measuring cannot quietly differ
-		from reading.
+	:param live: whether the regions built here move the reader's cursor. They do not; the
+		parameter keeps measuring the same as reading.
 	:param sample: how many rows to read.
-	:param plainCase: the table's numbers for the columns drawn without capital signs.
-		**Measured the way they are drawn, or the setting saves nothing**: a column sized from
-		text with the capitals-word indicator in it is two cells wider than what will be drawn
-		in it, which is exactly the two cells the reader turned it on to get back. See
-		`withoutCapitals`.
-	:return: one measurement per column of the table.
-
-	A column found empty here is *tentatively* empty: the sample is bounded, so this cannot
-	prove a column holds nothing anywhere. See `cellHasContent`, which is how the band asks
-	again about the one cell that turns out to matter.
+	:param plainCase: the table's numbers for the columns drawn without capital signs,
+		measured as drawn. See `withoutCapitals`.
+	:return: one measurement per column of the table. A column found empty is only
+		tentatively empty; see `cellHasContent`.
 	"""
 	showing = columnsShowingIn(handle)
 	columns = [
@@ -992,14 +799,8 @@ def measure(
 	"""The columns this table is measured across: every one it has, less the ones it is
 	hiding.
 
-	**Left out here rather than dropped later, because a column that is not measured does not
-	exist to anything downstream.** It takes no width, gets no place in the plan, is not
-	counted in "columns five to six of six", and its heading does not reach the pinned row —
-	all of which a reader hiding a column in Excel has already asked for once.
-
-	The reader's own column is kept whatever the sheet says. Arriving on a hidden column is
-	not something Excel ordinarily allows, and if it happens the answer that leaves them a
-	cursor to feel is better than the tidy one."""
+	Left out here, so a hidden column gets no width, place, count or heading downstream. The
+	reader's own column is always kept, so they keep a cursor."""
 
 	theirs = (
 		handle.col
@@ -1008,15 +809,7 @@ def measure(
 	)
 	"""The reader's own column, where an empty one of this table's is still a place.
 
-	**A column nobody visits does not need to be drawn**, which is what hiding an empty column
-	is for, and their own column is visited by definition. Left out, it took their cursor with
-	it: the row on the band has no cell there, so there is nothing to draw a cursor in and
-	nothing for a routing key to reach. On a sheet — the blank column beside the data, an empty
-	workbook with the active cell at D20 — that is where the reader means to be, and a blank
-	sheet could not be laid out at all.
-
-	Asked of the table rather than assumed, because the same rule read backwards is what keeps
-	a watchlist's column of unreadable icons off the band. See
+	Without it the reader's cursor would have no cell to be drawn in. Asked of the table; see
 	`flowObjectTable.ObjectTable.emptyColumnsArePlaces`.
 	"""
 
@@ -1044,15 +837,9 @@ def measure(
 	# See `columnHeadersOf` and `flowObjectTable.Sheet.columnHeaders`.
 	stated = columnHeadersOf(handle, 1, handle.numCols)
 	if stated is None and _offeredBy(handle, "rowText") is not None:
-		# **A grid read in bulk has no cells to ask on the way past.** Everything below reads
-		# rows rather than cells, so the per-cell question further down never runs for one;
-		# where it will not answer for its columns outright, they are asked for here instead.
-		#
-		# `None` and `{}` are different answers and telling them apart is the whole contract:
-		# empty means the table was asked and declares nothing, None means it could not say.
-		# Read as the same thing, an empty answer suppressed the ask outright and took an
-		# Excel worksheet's header row off the display — which is why what answers empty now
-		# has to have checked. See `flowObjectTable.Sheet.columnHeaders`.
+		# A grid read in bulk never reaches the per-cell header question below, so its headers
+		# are asked here. `{}` means none are declared; None means it could not say. See
+		# `flowObjectTable.Sheet.columnHeaders`.
 		stated = declaredHeaders(handle, columns)
 	for column, said in (stated or {}).items():
 		if said and column in labels:
@@ -1087,17 +874,8 @@ def measure(
 				and asked[column] < HEADER_TRIES
 				and column not in declared
 			):
-				# **Asked of more than one cell**, and that is the difference from asking
-				# once. A declared header is a property of the column, so any cell of it
-				# answers — but only if the cell that was asked is one that answers at all,
-				# and the first row read is not always a good witness: a row of a virtualised
-				# list may be half built, and a row of a document may hold a merged cell
-				# where its neighbours hold real ones. Asked once, one such cell was the
-				# whole of what the column had said, and the column then had no name.
-				#
-				# Bounded, because a table that declares nothing must not cost a read of the
-				# fields on every cell of the sample. Stopped the moment one answers, which
-				# for a table that does declare is the first cell.
+				# Asked of up to `HEADER_TRIES` cells, stopping at the first answer, as in
+				# `declaredHeaders`.
 				asked[column] += 1
 				said = declaredHeader(info)
 				if said:
@@ -1124,24 +902,9 @@ def measure(
 			label=labels[column],
 			declared=column in declared,
 			labelWidth=headers[column],
-			# Not a column this table is showing, in either of the two ways that happens.
-			#
-			# The first is a coordinate nothing answers to: a merged cell occupies one and
-			# leaves the others raising, so no sampled row had a cell there at all.
-			#
-			# The second is a column that answers and holds nothing, and it took the reader's
-			# own watchlist to find it. Its leftmost column is icons that NVDA cannot read —
-			# there is a cell, it is simply empty, in the header and in every row. Measured it
-			# came to nothing, was drawn at `MIN_COLUMN_CELLS` anyway, and cost four cells of a
-			# thirty-two cell band on every row for a column with nothing in it. Worse, it is
-			# the *first* column, so it was also what the key column pinned to every page: the
-			# thing repeated to say which row the reader was on was a blank.
-			#
-			# The header row is always sampled, which is what keeps the first test honest: a
-			# spanning cell looks the same from outside, and a real column has a header even
-			# where its body is merged away.
-			# Kept for the reader's own column of a grid even where nothing was found in
-			# it. See `theirs`.
+			# Not a column this table is showing: either no sampled row, header included, had a
+			# cell there (a merged span), or every cell was empty, such as a column of
+			# unreadable icons. Kept for the reader's own column of a grid; see `theirs`.
 			hidden=column not in found or (widths[column] == 0 and column != theirs),
 		)
 		for column in columns
@@ -1151,15 +914,9 @@ def measure(
 def _typicalOf(sizes: list[int]) -> int:
 	"""What a cell of a column usually holds, from the body rows that were read.
 
-	The three-quarter point of the sample rather than the widest or the middle. The widest is
-	what the widths used to be planned from and one long cell in ten then decided the layout
-	for all ten — a VPAT remarks column where nine rows hold a few words and the tenth holds
-	a paragraph laid the whole table out for the paragraph. The middle goes too far the other
-	way and leaves half the rows wrapping.
-
-	The header is not in this. It is often the widest thing in a column of numbers and it is
-	drawn once, where the body is drawn on every row; it is carried separately as
-	`Measurement.labelWidth`.
+	The three-quarter point of the sample: the widest lets one long cell decide the layout,
+	and the median leaves half the rows wrapping. The header is carried separately as
+	`Measurement.labelWidth`, since it is drawn once.
 
 	:param sizes: what was found in the body rows sampled, in cells.
 	:return: the typical width, or zero if no body row was read.
@@ -1173,10 +930,8 @@ def _typicalOf(sizes: list[int]) -> int:
 def rowBeside(handle: TableHandle, row: int, by: int) -> Optional[int]:
 	""":return: the row beside one, or None where the table says there is none beside it.
 
-	The row next to this one, unless the table hides rows and can say which: a filtered
-	worksheet answers for every row it has, including the ones the filter took away, so a walk
-	that adds one reads out of what the reader filtered to and into what they filtered away.
-	See `flowObjectTable.Sheet.rowAfter`.
+	The next row, unless the table hides rows and can say which. See
+	`flowObjectTable.Sheet.rowAfter`.
 
 	:param handle: the table.
 	:param row: the row to step from, one based.
@@ -1199,9 +954,7 @@ def rowBeside(handle: TableHandle, row: int, by: int) -> Optional[int]:
 def rowShowingIn(handle: TableHandle, row: int) -> Optional[bool]:
 	""":return: whether a table is still showing one row, or None where it will not say.
 
-	The question `rowBeside` does not answer: walking by that one means no hidden row is ever
-	fetched, and says nothing about a row fetched before the reader hid it. See
-	`flowObjectTable.Sheet.rowShowing`.
+	For rows fetched before a filter hid them. See `flowObjectTable.Sheet.rowShowing`.
 
 	:param handle: the table.
 	:param row: the row asked about, one based.
@@ -1221,19 +974,8 @@ def rowShowingIn(handle: TableHandle, row: int) -> Optional[bool]:
 def _sampleRows(handle: TableHandle, sample: int) -> list[int]:
 	""":return: which rows to measure: the header, then a bandful about the caret.
 
-	Forward from the caret, because what the widths are decided from should be what the
-	reader is about to feel. **And backwards when there is not a bandful ahead**, which is
-	the fix for a layout that came out differently depending on where it was asked for.
-
-	Reading forward alone, a reader standing on the blank row under a nine row worksheet
-	sampled exactly two rows: the header, and their own empty one. Every column was then
-	sized to its heading alone, every value in the table was too wide for the column it was
-	drawn in, and the same sheet laid out from the top — where there is a bandful ahead —
-	came out with different widths. The reader asked why the arithmetic differed when the
-	data had not, and there was no good answer: the data had not been read.
-
-	The rows behind are as much a description of the table as the rows ahead, and reading
-	them costs nothing extra, since the sample is the same size either way.
+	Forward from the caret, and backwards too when there is not a bandful ahead, so the
+	widths do not depend on where the reader stands. The sample is the same size either way.
 	"""
 	last = max(1, handle.numRows)
 	first = max(1, min(handle.row, last))
@@ -1279,8 +1021,7 @@ class TableFlowSource:
 		"""
 		:param handle: the table, and where in it the reader was when it was recognised.
 		:param columns: the table's own numbers for the columns to read, in drawing order.
-			Only these are fetched: reading a column the plan has dropped is a call into the
-			document for something nobody will feel.
+			Only these are fetched.
 		:param declared: what each column's header is, as the measurement found it, leaving
 			out the ones the table did not declare. None for a caller with no measurement to
 			hand, which asks the table here instead.
@@ -1289,11 +1030,9 @@ class TableFlowSource:
 		:param budget: how much work a fetch may do. One is made if none is given.
 		:param live: whether this flow is the reader's own.
 		:param pinHeaders: whether a header row is held above the window. It decides
-			L{firstRow}, and only this source can decide that, because only this source
-			knows whether the pinned row is row one or something the table declared.
-		:param plainCase: the table's numbers for the columns drawn without capital signs.
-			The whole table's, not this page's: a page turn hands over different columns and
-			the reader's decisions are about the table. See `withoutCapitals`.
+			`firstRow`, since only this source knows whether the pinned row is row one.
+		:param plainCase: the table's numbers for the columns drawn without capital signs,
+			for the whole table rather than this page. See `withoutCapitals`.
 		"""
 		self.handle = handle
 		self.columns = tuple(columns)
@@ -1306,18 +1045,13 @@ class TableFlowSource:
 		self._headersAsked = set()
 		"""Which columns have been asked what their header is, answer or no answer.
 
-		Separate from the answers because a column with no header leaves no trace in them, so
-		reading the two off one dictionary asked such a column again on every refresh — a
-		search of the document apiece, for a question already answered "nothing".
+		Separate from the answers, which hold nothing for a column with no header, so such a
+		column is not asked again.
 		"""
 
 		if pinHeaders and declared is not None:
-			# **Measured a moment ago, over a bandful of rows.** Asking here instead read one
-			# cell per column, at the caret's row, and took its silence for the column's
-			# answer — so a table whose first row was half built had headers everywhere in the
-			# layout and no header row over them. The measurement already asks several rows
-			# and already knows which answers the table *declared*, as against which it read
-			# off row one; those are what arrive here. See `measure` and `flowTable.Measurement`.
+			# From the measurement, which asked several rows and knows which headers were
+			# declared. See `measure` and `flowTable.Measurement`.
 			self._declared = {column: said for column, said in declared.items() if said}
 			self._headersAsked = set(declared)
 		elif pinHeaders:
@@ -1329,22 +1063,15 @@ class TableFlowSource:
 		)
 		"""Whether the row held above the band is row one of the table itself.
 
-		Two ways it can be, and they had to be told apart by different questions. Where
-		nothing is declared, row one is *borrowed* as the headings and the document is asked
-		whether that is fair — see `firstRowIsHeadings`. Where the table declares its headers,
-		it does not say which row they live on, and they may be two rows deep, in a column
-		rather than a row, or nowhere near the top at all. So row one is read and compared
-		against them. See `_declaredRowIsRowOne`.
+		With nothing declared, row one is borrowed if `firstRowIsHeadings` allows. With declared
+		headers, row one is compared against them. See `_declaredRowIsRowOne`.
 		"""
 
 		self._askedAboutRowOne = bool(self._declared)
 		"""Whether the row one question has been put to real headers yet.
 
-		It cannot be settled with nothing in hand — a table that declares no header pins no
-		declared row — and `_headersForThisPage` may find one later, on a page turn or where
-		the measurement came back empty and the cells answer perfectly well. That was the
-		shape of the fault that took a worksheet's headings off the display, so it is worth
-		not assuming it cannot happen again.
+		`_headersForThisPage` may find headers later, so this is settled only once some are in
+		hand.
 		"""
 
 		# Row one is skipped only when row one is what is pinned. Dropping it otherwise would
@@ -1377,13 +1104,9 @@ class TableFlowSource:
 	def setColumns(self, columns) -> bool:
 		"""Say which columns to read from now on.
 
-		The page being drawn, and only it. Every cell is a search of the document, so reading
-		a column that is on another page is a search for something nobody will feel — and a
-		twenty-nine column table read at four columns a page was doing that twenty-five times
-		per row, on every row, forever.
-
-		The rows already read are stale afterwards: they hold the cells of the old page. The
-		caller re-reads them — see `FlowController.setColumnPlan`.
+		Only the page being drawn, since every cell is a search of the document. The rows
+		already read are then stale; the caller re-reads them. See
+		`FlowController.setColumnPlan`.
 
 		:param columns: the table's own numbers for the columns to read, in drawing order.
 		:return: whether they changed.
@@ -1397,13 +1120,8 @@ class TableFlowSource:
 	def hasGrown(self) -> bool:
 		""":return: whether this table has a column beyond the ones it was measured with.
 
-		One cell read, on the header row, at the column after the last one known. A table that
-		gained a column answers it and a table that did not raises, which is the same test
-		`cellRegion` already makes for every cell it fetches.
-
-		Asked by a pin, which cannot use the band's check: that one compares the caret's
-		position against the plan, and the caret is somewhere else entirely — being somewhere
-		else is what a pin is for. This asks the table rather than the reader.
+		One cell read, on the header row, after the last known column. For a pin, which cannot
+		use the band's caret-based check.
 		"""
 		try:
 			return cellRegion(self.handle, HEADER_ROW, self.handle.numCols + 1, live=False) is not None
@@ -1414,18 +1132,14 @@ class TableFlowSource:
 	def blockAt(self, blockId: BlockId) -> FetchResult:
 		""":return: one row again, by the identity it already has.
 
-		What re-reading the band needs: the window knows which rows it is holding and wants
-		those same rows read again, which for a table is the whole of what changing page
-		means.
+		For re-reading the band, as on a page turn.
 		"""
 		return self._rowAt(blockId.bookmark)
 
 	def moveTo(self, handle: TableHandle) -> None:
 		"""Say where in the table the reader has moved to.
 
-		Takes the handle rather than looking it up, because the caller that notices the move
-		has just looked it up to notice it, and `_getTableCellCoords` is a read of the
-		document's fields — the kind of cost that is fine once per redraw and not fine twice.
+		Takes the handle the caller just looked up, to avoid a second read.
 
 		:param handle: where they are now, in the same table.
 		"""
@@ -1434,9 +1148,7 @@ class TableFlowSource:
 	def setCurrent(self, obj) -> None:
 		"""Say where the reader has moved to.
 
-		Taken from the document rather than from the object, because in a table the object
-		does not move: the caret moves between cells of the same page, and asking the document
-		where its selection is now is the only thing that answers.
+		From the document's selection, since in a table the object does not move.
 		"""
 		found = tableAt(obj if obj is not None else self.obj)
 		if found is not None and sameTable(found.key, self.handle.key):
@@ -1445,9 +1157,7 @@ class TableFlowSource:
 	def stillReading(self, handle: Optional[TableHandle]) -> bool:
 		""":return: whether a table just looked up is the one this source is reading.
 
-		The same question as `isStillHere` and without the lookup, for the caller that has the
-		handle already. A review counted the table resolved four times for one move between
-		cells, two of them here — and on a worksheet resolving it reads the used range.
+		`isStillHere` without the lookup, for a caller that has the handle.
 
 		:param handle: the table the reader is in now.
 		"""
@@ -1456,10 +1166,7 @@ class TableFlowSource:
 	def isStillHere(self, obj) -> bool:
 		""":return: whether the reader is still in the table this source is reading.
 
-		What the band asks before drawing again. A layout must not outlive its table: Easy
-		Table Navigator clears its key bindings on every focus change for the same reason, and
-		a column layout carried onto the next page is worse than no layout, because it is a
-		layout of something that is not there.
+		Asked before each redraw, so a layout never outlives its table.
 		"""
 		found = tableAt(obj)
 		return found is not None and sameTable(found.key, self.handle.key)
@@ -1469,9 +1176,7 @@ class TableFlowSource:
 	def headerBlock(self) -> Optional[SourceBlock]:
 		""":return: the table's header row, built for the page being drawn, or None.
 
-		Asked for separately because it is not part of the stream: when it is pinned it is
-		held above the window and this source does not serve it as content — see `firstRow`.
-		Built rather than remembered, because the page decides which columns are in it.
+		Not part of the stream when pinned; see `firstRow`. Built for each page.
 		"""
 		if self.handle.numRows < 1:
 			return None
@@ -1500,26 +1205,10 @@ class TableFlowSource:
 	def _declaredRowIsRowOne(self) -> bool:
 		""":return: whether what this table declares as its headers is row one's own text.
 
-		**Asked by reading row one, because nothing will say.** A declared header is resolved
-		from wherever the markup points — a marked range on a worksheet, a `<th>` in a page —
-		and neither NVDA nor the document reports which row that was. So the only witness is
-		the row itself: if every column being drawn holds, in row one, exactly what that
-		column declares as its heading, then row one is the header row.
-
-		On a worksheet it is, almost always: a reader marks the top row as the headings, and
-		then the pinned row and the first row of the flow are the same row. Drawn twice, that
-		cost a row of a seven row band and read as a table whose first record was its own
-		column names.
-
-		**Every column on the page, not only the ones with a heading.** A review found what
-		comparing the declared ones alone gives up: two columns matching their headings was
-		enough to drop row one, and the third column of that row held "Important" and no
-		heading of its own — a row of the reader's data, gone, with nothing saying so. A row
-		is given up only when there is nothing in it but the headings themselves.
-
-		Row one only, and only the columns on the page: one read of one row, which on a sheet
-		is one call. False for anything it cannot read or cannot decide, since drawing a
-		heading twice costs a row and dropping a row of data loses one.
+		Nothing reports which row declared headers come from, so row one is read: if every
+		column on the page holds exactly its heading there, row one is the header row and is not
+		drawn twice. Every column, including those without a heading, so no data is dropped.
+		False when it cannot tell, since a duplicated row is better than a lost one.
 		"""
 		wanted = {column: self._declared.get(column, "") for column in self.columns}
 		if not any(wanted.values()):
@@ -1558,19 +1247,8 @@ class TableFlowSource:
 	def _headersForThisPage(self) -> dict:
 		""":return: the declared header of each column being drawn, leaving out those without one.
 
-		Asked again for a column this source has not seen, which is what turning the page
-		brings: the columns change and their headers are a property of the columns. Nothing
-		is asked twice — including a column whose answer was that it has no header, which is
-		what L{_headersAsked} is for.
-
-		**And a measurement that found nothing does not settle it.** This used to answer
-		nothing at all when it started with no headers in hand, on the grounds that a table
-		which declares none has nothing to look up. That made one empty answer permanent: an
-		Excel worksheet whose every cell could name its column came out of the measurement
-		with none, and this then refused to ask a single cell — so no header row was built, the
-		band gave that row back to the table, and it stayed that way for as long as the layout
-		lived. The columns are asked once each, once, whatever the measurement thought;
-		`_headersAsked` is what keeps it to once.
+		Asks once for each column not yet seen, as a page turn brings, even if the measurement
+		found none. `_headersAsked` keeps it to once.
 		"""
 		missing = [column for column in self.columns if column not in self._headersAsked]
 		if missing:
@@ -1589,11 +1267,8 @@ class TableFlowSource:
 	def _askColumns(self, columns) -> dict:
 		""":return: what a run of columns declare, by the cheapest way this table will answer.
 
-		The table itself first, which for a grid is one read of its header row and for an
-		unmarked one is no read at all, and the cells of a few rows only where it will not say
-		— see `columnHeadersOf` and `declaredHeaders`. A review found the cells being asked
-		here for a second time on every page turn, having already been asked while the table
-		was measured, which on a worksheet is an `NVDAObject` and a header search apiece.
+		The table first, then a few rows' cells only where it will not say. See
+		`columnHeadersOf` and `declaredHeaders`.
 
 		:param columns: the table's own numbers for the columns to ask about.
 		"""
@@ -1608,11 +1283,9 @@ class TableFlowSource:
 	def _declaredRow(self, said: dict) -> SourceBlock:
 		"""Build the pinned row out of what the table says its headers are.
 
-		Text rather than cells, because that is what a declared header is: NVDA resolved it
-		from the header cells the markup points at, and those may be anywhere in the table or
-		may be several cells run together. A column that declares nothing is left blank rather
-		than filled in from row one, since mixing the two would put a guess beside an answer
-		and give the reader no way to tell them apart.
+		Text, since a declared header may come from anywhere or from several cells. A column
+		that declares nothing is left blank rather than filled from row one, so guesses and
+		answers are not mixed.
 
 		:param said: the declared header of each column, by column number.
 		"""
@@ -1627,12 +1300,8 @@ class TableFlowSource:
 		content = TableRow(
 			cells,
 			obj=self.obj,
-			# **Only where the pinned row is a row of the table.** The reader can stand on
-			# row one, and once it is drawn above the band and no longer in it, the pinned
-			# row is the only place their cursor can be — see `FlowController._pinnedCursor`,
-			# which asks the pinned region and nothing else. Where the headings were declared
-			# somewhere the reader cannot arrow to, row one is data and this row must claim
-			# no cursor at all.
+			# Only where the pinned row is row one, so the reader's cursor can be shown there.
+			# See `FlowController._pinnedCursor`.
 			caretColumn=functools.partial(self._caretColumn, HEADER_ROW) if self.pinnedIsRowOne else None,
 		)
 		return SourceBlock(
@@ -1644,10 +1313,7 @@ class TableFlowSource:
 	def describeHeader(self) -> str:
 		""":return: where the pinned row came from, for the log.
 
-		The line the last report needed and did not have. It showed a header row reading
-		"Column left  Position" over columns the same report said were headed "Name" and
-		"Status", and there was no way to tell which of the two ways a header can be built had
-		produced it.
+		Which of the two ways the header row was built.
 		"""
 		if self.handle.numRows < 1:
 			return "nothing: the table has no rows"
@@ -1668,18 +1334,8 @@ class TableFlowSource:
 	def rowNoLongerShown(self, rows) -> Optional[int]:
 		""":return: the first of these rows the table has stopped showing, or None if none has.
 
-		**What the band is holding, against what the table is showing now.** A filter is
-		applied to a sheet the band is already reading: the walk steps over the rows it took
-		away from that moment on — see `rowBeside` — and the rows walked before it was applied
-		stay in the window, are re-read by their own row numbers, and are drawn above and below
-		the row the reader filtered down to. Nothing else notices, because every one of those
-		rows was read correctly when it was read and answers correctly still.
-
-		Two rows are never judged. The reader's own row is where they are standing, and a row
-		that reads as hidden while somebody is in it is a wrong answer to act on — rebuilding
-		would put them right back on it. And a row before the first this source serves is the
-		pinned header, which is drawn above the band rather than walked to and would set off a
-		rebuild on every move for a reader who hid row one.
+		For rows read before a filter was applied, which `rowBeside` cannot catch. Never judged:
+		the reader's own row, and the pinned header row.
 
 		:param rows: the row numbers the band is holding, in any order.
 		"""
@@ -1710,9 +1366,7 @@ class TableFlowSource:
 	def _step(self, blockId: BlockId, by: int) -> FetchResult:
 		"""Walk one row up or down.
 
-		Bounded by the table's own dimensions rather than by trying and failing: a table knows
-		how many rows it has, and walking off the end to find out costs a search of the whole
-		buffer per column to learn something already known.
+		Bounded by the table's dimensions rather than by trying and failing.
 		"""
 		self.budget.startUnlessActive()
 		row = rowBeside(self.handle, blockId.bookmark, by)
@@ -1736,9 +1390,7 @@ class TableFlowSource:
 	def _buildRow(self, row: int) -> SourceBlock:
 		"""Build one block from one row of the table.
 
-		The row number is the bookmark, which is what makes a table cheap to walk: rows are
-		numbered by the table, the numbering survives a re-read, and it is what
-		`_getTableCellAt` takes. Nothing has to be remembered between fetches.
+		The row number is the bookmark: it survives a re-read and is what `_getTableCellAt` takes.
 		"""
 		cells = self._readInOneCall(row)
 		if cells is None:
@@ -1767,19 +1419,9 @@ class TableFlowSource:
 	def _readInOneCall(self, row: int) -> Optional[list]:
 		""":return: the drawn cells of one row from a single read, or None to read them singly.
 
-		**The rows on the display, not only the ones being measured.** The batch seam was
-		added for measuring and a review found what that left behind: every row the reader can
-		actually feel was still built a cell at a time — a coordinate lookup and an
-		`NVDAObject` with its overlay classes chosen, per column, per row — and the live pass
-		does it all again. Twelve cell objects for one re-read of a four by three window, on a
-		worksheet nobody had touched.
-
-		The object each cell stands for is not fetched at all. Nothing needs it until a
-		routing key lands on that one cell, and then it is one lookup at a moment the reader
-		is waiting for something to happen anyway. See `flowObjectTable.ObjectCellInfo`.
-
-		The header comes from what the table already declared, which is where the drawn cells
-		were getting it from in any case.
+		The batch seam for drawn rows, as well as for measuring. Cell objects are not fetched
+		until a routing key needs one; see `flowObjectTable.ObjectCellInfo`. Headers come from
+		what the table declared.
 
 		:param row: the row to read.
 		"""
@@ -1837,11 +1479,8 @@ class TableFlowSource:
 def wantsColumns(request, obj) -> bool:
 	""":return: whether a request to see a table in columns is about the table an object is in.
 
-	One place, because three callers ask it and they must not disagree: the band as it decides
-	what to draw, the plugin as it pins an object, and the command as it decides whether a
-	press means "on" or "off". It used to live on the band, which meant it could not be asked
-	at all on a one row display — where there is no band and the reader still wants to say
-	"this table, in columns" so that pinning it elsewhere carries the layout.
+	One function for the band, pinning and the column command, so they agree, including on a
+	display with no band.
 
 	:param request: the key of the table asked for, or None for no request.
 	:param obj: the object the reader is on.
@@ -1859,18 +1498,9 @@ def wantsColumns(request, obj) -> bool:
 def sameTable(first, second) -> bool:
 	""":return: whether two table keys name the same table. See `TableHandle.key`.
 
-	The two halves are compared differently and deliberately. The **document** is compared by
-	identity, because a tree interceptor is one object for as long as its page is loaded and
-	because being wrong in the safe direction here means giving a layout back rather than
-	carrying it into a page it was not made for. The **identifier** is compared by value,
-	because it is an integer for a virtual buffer and a tuple for UIA and neither survives
-	being the same object across two reads.
-
-	Identity is not everybody's answer, and a thing that has a better one says so by offering
-	`sameAs`. A list view is presented by a stand-in built afresh each time it is looked at,
-	over an `NVDAObject` that NVDA also builds afresh each time it is asked — so identity says
-	"a different table" every time the reader moves to the next message, and the layout would
-	be given back on every arrow key.
+	The document by identity, which errs towards giving a layout back, unless it offers
+	`sameAs`, as list view stand-ins do since they are rebuilt on every ask. The identifier by
+	value, since it is an integer or a tuple.
 	"""
 	if first is None or second is None:
 		return False
