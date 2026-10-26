@@ -5,27 +5,12 @@
 
 """The NVDA half of image import: which object, and its pixels.
 
-The only thing in the image path that knows about NVDA, and the counterpart of
-`chartSource.py` — one module that reads the world, so that `imagePins.py` can be arithmetic
-over a list of numbers and nothing else.
+The counterpart of `chartSource.py`, so `imagePins.py` can be arithmetic alone.
 
-**The picture is the one NVDA just found.** A reader arrowing a web page hears "graphic", and
-that is the moment this has to work in. So the source is the navigator object, which is what
-every other capture in NVDA uses and which, in browse mode, *is* the graphic: arrowing sets the
-review position, setting it clears the navigator object, and the next read of the navigator
-object comes back from the review position as the object under the caret. Nothing has to be
-aimed and nothing new has to be learned.
-
-**Not restricted to things NVDA calls a graphic.** A diagram in a canvas, a map, a floor plan,
-a chart somebody published as a picture — half of them report a role that says nothing useful,
-and a reader who has pointed at something and asked for it to be drawn has said what they want
-more clearly than a role ever will. What is refused is only what cannot work: no location, a
-location with nothing of it on a monitor, an object that says it is not in view, and something
-too small on screen to be a picture at all.
-
-**Occlusion is the limit this cannot reach.** A window sitting over the thing being captured is
-copied instead of it, because a screen grab is a grab of the screen and there is nothing else
-to ask. Nothing here can detect it; it is written down rather than worked around.
+The source is the navigator object, which in browse mode is the graphic under the caret. Any
+role is accepted; refused is only what cannot work: no location, nothing on a monitor, an
+object that says it is not in view, or too small to be a picture. A window over the object is
+copied instead of it, and cannot be detected. See docs/design/tactile-graphics-plan.md.
 """
 
 import os
@@ -63,51 +48,34 @@ __all__ = [
 MIN_SIDE = 16
 """How many screen pixels across and down something must be before it is worth drawing.
 
-A sixteen pixel square reduced onto a ninety-six by forty panel is six pins to a side, which is
-a smudge rather than a picture. Below this the honest answer is that the reader has pointed at
-something that is not a picture — a bullet, a spacer, a one pixel tracking image — and saying
-so is better than drawing them a blur they then have to interpret.
+Below this it is a bullet, spacer or tracking image, and saying so beats drawing a smudge.
 """
 
 MAX_PIXELS = 360000
 """How many pixels are worth keeping without Pillow, whatever the thing's size on screen.
 
-Six hundred square. The capture is held so that zooming can reduce from pixels rather than
-magnify pins, and every doubling of the pixels kept is one more doubling of zoom before a pin
-stands on a single pixel. The limit is time, not usefulness: this is about what Python reduces
-without a pause a reader would notice, which is why `PILLOW_PIXELS` is larger.
+Six hundred square. Kept so zoom reduces from pixels; bounded by what Python reduces without a
+noticeable pause. See `PILLOW_PIXELS`.
 """
 
 PILLOW_PIXELS = 1440000
 """How many pixels are worth keeping when Pillow does the work: twelve hundred square.
 
-Four times `MAX_PIXELS`, which is one more doubling of zoom before a pin stands on a single
-pixel. With Pillow a reduction to the panel takes well under a millisecond. The dearest style
-is single lines, whose ink reduction took about 35 milliseconds for a whole picture this size
-on the development machine, and under 50 for the whole drawing; a zoomed window is smaller and
-quicker. Worth most for an image from the clipboard or a file, which is often far larger than
-anything on the screen.
+Four times `MAX_PIXELS`, one more doubling of zoom, since Pillow reduces quickly.
 """
 
 GRAB_PIXELS = 2000000
 """How many pixels to copy off the screen when Pillow will shrink them to `PILLOW_PIXELS`.
 
-What is kept is `PILLOW_PIXELS`. This is how much is copied so that the shrink to it can be
-done properly: Windows can shrink while it copies, but in the mode NVDA's `ScreenBitmap` leaves
-it in, the pixels it drops are combined by a bitwise AND of their colours -- see
-`imagePins.pictureFromBgrx`. Two megapixels is a full HD screen, so nearly everything is copied
-at its own size and averaged down, and something larger than that is shrunk by Windows only as
-far as two megapixels. About eight megabytes of capture for a moment.
+Copied large so Pillow averages down, since Windows shrinking in `ScreenBitmap`'s mode ANDs
+the colours together; see `imagePins.pictureFromBgrx`. Two megapixels is a full HD screen.
 """
 
 
 def _screenCurtainIsUp() -> bool:
 	""":return: whether NVDA is blanking the screen.
 
-	Worth its own check because the failure is otherwise invisible in the wrong way: a GDI
-	capture under the screen curtain succeeds and comes back uniformly black, which reaches the
-	reader as "there is nothing in this picture to draw" — true of the capture, and quite wrong
-	as an account of what happened.
+	A capture under the curtain comes back black, so the reason is said instead.
 	"""
 	try:
 		from screenCurtain import screenCurtain
@@ -121,12 +89,8 @@ def _screenCurtainIsUp() -> bool:
 def _visibleScreen() -> "tuple | None":
 	""":return: the whole desktop across every monitor, or None if Windows will not say.
 
-	The virtual screen rather than the primary monitor, because a reader with two of them has
-	windows on the second one and those are as real as anything else.
-
-	None rather than a guess when the metrics cannot be read: not clipping is the safer
-	failure. A capture that should have been refused gives a picture that is wrong; a clip
-	against a wrong rectangle refuses pictures that would have worked.
+	The virtual screen, so a second monitor counts. None rather than a guess, since not
+	clipping is the safer failure.
 	"""
 	try:
 		from winAPI.winUser.constants import SystemMetrics
@@ -147,11 +111,7 @@ def _visibleScreen() -> "tuple | None":
 def _monitors() -> "list | None":
 	""":return: every monitor rectangle, or None if Windows will not enumerate them.
 
-	The virtual screen is a bounding box, and a bounding box of two monitors that are not
-	aligned contains ground that belongs to neither: put one screen above and right of the
-	other and the two corners between them are inside the box and on nothing. A window cannot
-	be there, but a stale or wrong object rectangle can, and clipping to the box alone said it
-	was visible.
+	The virtual screen's bounding box holds ground on no monitor when monitors are not aligned.
 	"""
 	try:
 		import ctypes
@@ -203,27 +163,9 @@ def _overlap(first, second) -> "tuple | None":
 def _onScreen(left: int, top: int, width: int, height: int) -> "tuple | None":
 	"""Cut a rectangle down to the part of it that is actually on a monitor.
 
-	**An object's location is where it would be, not where it can be seen.** A graphic scrolled
-	off the bottom of a page keeps a perfectly ordinary rectangle with a y coordinate past the
-	end of the screen, and copying that rectangle succeeds: it comes back as whatever the
-	graphics card has there, which is black, or the desktop, or another window. The reader is
-	then handed a picture that is not of the thing they pointed at, drawn as confidently as a
-	real one — and the size check alone will not catch it, since a large off-screen object is
-	still large.
-
-	A partly visible object is clipped to its visible part rather than refused. That is a
-	picture of part of the thing, which is what the reader can see and is worth having; it is
-	also why the size check below runs on what came back from here.
-
-	**The virtual screen is a bounding box and not a shape.** Two monitors that are not
-	aligned leave ground inside the box that belongs to neither, and a rectangle sitting there
-	passed a clip against the box while being on nothing at all. So the real monitors are
-	enumerated and the rectangle is measured against them; it keeps its full clipped extent
-	only when every pixel of it lands on some monitor.
-
-	**Occlusion is not solved by this and cannot be.** A window sitting over the object is
-	copied instead of it, because a screen grab is a grab of the screen. Documented rather than
-	worked around.
+	An object's location is where it would be, not where it is seen, and copying off screen
+	succeeds with whatever is there. A partly visible object is clipped rather than refused,
+	so the size check runs on the result. Measured against the real monitors; see `_monitors`.
 
 	:return: the visible rectangle, or None if none of it is on a monitor.
 	"""
@@ -254,10 +196,7 @@ def _onScreen(left: int, top: int, width: int, height: int) -> "tuple | None":
 def _isOffScreen(obj) -> bool:
 	""":return: whether the object itself says it is not being shown.
 
-	Asked as well as the rectangle being clipped, because the two catch different things. A
-	control scrolled out of a pane can keep a location that is still over the window it is in,
-	so the clip finds nothing wrong and the capture comes back as whatever is drawn there
-	instead — the rows that did scroll into view.
+	As well as clipping, since a control scrolled out of a pane can keep a location over it.
 	"""
 	try:
 		import controlTypes
@@ -290,9 +229,8 @@ def _captureSize(width: int, height: int, most: "int | None" = None) -> "tuple[i
 def _rawBytes(pixels: object, width: int, height: int) -> "bytes | None":
 	""":return: a capture's pixels as bytes, four to a pixel, or None if it is not that shape.
 
-	`ScreenBitmap.captureImage` returns a ctypes array of `RGBQUAD`, which is exactly the bytes
-	Pillow wants, in one piece of memory. Anything else -- a test's rows of pixel objects, or a
-	future NVDA that returns something different -- is None, and goes the Python way.
+	`ScreenBitmap.captureImage`'s `RGBQUAD` array is what Pillow wants; anything else goes the
+	Python way.
 	"""
 	try:
 		import ctypes
@@ -308,9 +246,7 @@ def _rawBytes(pixels: object, width: int, height: int) -> "bytes | None":
 def nameFor(obj) -> str:
 	"""What to call what is on the display.
 
-	The object's own words first — alt text on a web graphic, a file name in a picture
-	viewer — because that is what the reader was just told and what they will recognise. The
-	role is a fallback rather than a prefix: "graphic, graphic" says nothing twice.
+	The object's own words first, such as alt text; the role is a fallback, not a prefix.
 
 	:param obj: the object being drawn.
 	:return: a short phrase, never empty.
@@ -336,8 +272,7 @@ def captureNavigator(obj=None) -> Picture:
 	"""Take a picture of whatever the reader is pointing at, off the screen.
 
 	:param obj: the object to copy, or None for the navigator object. Given when the object
-		was chosen earlier -- a picture whose own file would not load falls back to this, a
-		moment after the press, and by then the navigator may have moved on.
+		was chosen earlier and the navigator may have moved on.
 	:return: the pixels, at or below `keepPixels`.
 	:raises ImageRefused: with a reason the reader can act on.
 	"""
@@ -388,18 +323,9 @@ def captureNavigator(obj=None) -> Picture:
 def captureClipboard() -> Picture:
 	"""Take a picture from the clipboard: an image copied, or an image file copied.
 
-	**Nothing here looks at the screen**, which is the point of it. The screen capture cannot
-	work under the screen curtain, copies whatever window is on top of the thing, and gets a
-	picture only at the size it is shown. A picture copied from a browser's context menu is
-	the image itself, at its own size, whatever is showing; and a file copied in File Explorer
-	is the same, for anything saved on disk.
-
-	Pillow reads both: `ImageGrab.grabclipboard` returns an image for copied image data and a
-	list of paths for copied files. Only the first file that opens as a picture is drawn.
-
-	**Needs Pillow, and says so.** There is no Python path for this one. Decoding PNG and JPEG
-	by hand is not a fallback worth carrying, and a reader on an NVDA without Pillow still has
-	the screen capture.
+	Not the screen, so the curtain and covering windows do not matter, at the image's own size.
+	`ImageGrab.grabclipboard` gives image data or file paths; the first file that opens is
+	drawn. Needs Pillow, and says so.
 
 	:return: the pixels, greyscale and colour, at or below `keepPixels`.
 	:raises ImageRefused: with a reason the reader can act on.
@@ -464,11 +390,8 @@ def captureClipboard() -> Picture:
 FETCH_SCHEMES = ("http", "https", "data")
 """The kinds of image address the add-on will load for itself.
 
-**Not `file`, deliberately.** The address comes from the web page, and a page can write any
-address into an image. A `file` address can name a network share, and opening one makes Windows
-offer the reader's login to whoever runs that share. A browser refuses such an image on a web
-page for that reason and draws nothing; the add-on refuses to fetch it and falls back to what
-the browser did draw. `blob` addresses exist only inside the browser, so they fall back too.
+Not `file`: a page's `file` address can name a network share, and opening it offers the
+reader's login to its owner. `blob` exists only in the browser. Both fall back to the screen.
 """
 
 FETCH_SECONDS = 8
@@ -480,21 +403,16 @@ FETCH_BYTES = 20 * 1024 * 1024
 DECODE_PIXELS = 25_000_000
 """The most pixels an image file may decode to, after a JPEG has been decoded at a reduced size.
 
-`FETCH_BYTES` bounds the download and says nothing about memory: a file of a few kilobytes can
-declare a picture of a hundred million pixels, all one colour, and decoding it takes gigabytes
-before anything shrinks it for the pins. So the size a file declares is checked before it is
-decoded. Twenty-five million is past a large phone photograph's twelve to twenty-four, whose
-JPEG is decoded at a half or a quarter anyway by `openImage`, and about a hundred megabytes
-decoded, which an NVDA process can spare for the moment it takes. Found in review.
+A small file can declare an enormous picture, so the declared size is checked before decoding.
+Past a large phone photograph, and about a hundred megabytes decoded. See `openImage`.
 """
 
 
 def _domAttribute(obj, name: str) -> "str | None":
 	""":return: an HTML attribute read through ISimpleDOMNode, or None.
 
-	The second way to ask. Chrome answers `src` through its IAccessible2 attributes and says
-	nothing here -- measured, in NVDA's console on a real page -- so this is for a browser that
-	answers the other way round. NVDA's own MathML support reads `data-mathml` the same way.
+	The second way to ask, for a browser that does not answer through IAccessible2 as Chrome
+	does.
 	"""
 	try:
 		from comtypes.automation import BSTR
@@ -520,16 +438,8 @@ def _documentAddress(obj) -> "str | None":
 def addressOf(obj) -> "str | None":
 	"""The address of an image's own file, if the browser will say it.
 
-	**The file is better than the screen in every way that matters here.** It is the image at
-	its own size rather than the size it was shown at, so there is more to magnify; nothing on
-	top of it on the screen gets into it; and it can be had with the screen curtain on. And it
-	takes no mouse, where the other way to get it -- route the mouse, right-click, find "Copy
-	image" -- was reported as unreliable enough to be the reason this exists.
-
-	Chrome gives it as the `src` IAccessible2 attribute of the image, which NVDA already reads
-	as `IA2Attributes`; checked in NVDA's console on the Accessibility Partners logo, which
-	answered with its full address. ISimpleDOMNode is asked second, for a browser that answers
-	there instead.
+	The file is the image at its own size, uncovered, and works under the screen curtain. Read
+	from the `src` of `IA2Attributes`, then ISimpleDOMNode.
 
 	:param obj: the object the reader is on.
 	:return: an absolute `http`, `https` or `data` address, or None to use the screen.
@@ -563,9 +473,7 @@ def addressOf(obj) -> "str | None":
 def _opener():
 	""":return: a URL opener that speaks HTTP and HTTPS and nothing else.
 
-	The default opener also follows a redirect to FTP, and reads `file` addresses. Built from
-	parts instead, so that a server cannot redirect the add-on anywhere `FETCH_SCHEMES` would
-	not have let it start.
+	Built from parts, so a redirect cannot reach anywhere `FETCH_SCHEMES` refuses.
 	"""
 	import urllib.request
 
@@ -607,10 +515,8 @@ def _download(address: str) -> bytes:
 def readAddress(address: str) -> bytes:
 	"""The bytes of an image, from the page itself or from the web.
 
-	A `data` address carries the image in it and is decoded here; nothing leaves the machine.
-	An `http` or `https` one is downloaded. **Without the browser's cookies**, which the add-on
-	does not have: an image a site shows only to someone signed in will not load, and the
-	screen capture is used instead.
+	A `data` address is decoded here; `http` and `https` are downloaded, without the browser's
+	cookies, so a signed-in-only image falls back to the screen.
 
 	Runs off NVDA's main thread; see `fetchPicture`.
 
@@ -675,14 +581,8 @@ def pictureFromBytes(raw: bytes, name: str = "") -> Picture:
 def openImage(source):
 	"""Open an image file and decode it, refusing one that would decode too large.
 
-	**The size is checked before the pixels exist.** Pillow reads only the header on `open`, so
-	the declared size is known while decoding costs nothing yet; `load` is what spends the
-	memory. A JPEG, which is most photographs, is first asked to decode at a reduced scale near
-	the size that is kept anyway (`keepPixels`), which is free and makes the full size
-	irrelevant. Anything still over `DECODE_PIXELS` is refused.
-
-	Pillow's own decompression bomb check only warns below twice its limit. Here the warning is
-	an error, so a file Pillow itself thinks is suspicious is never decoded.
+	Checked after `open` reads the header and before `load`. A JPEG is decoded at a reduced
+	scale near `keepPixels`. Pillow's decompression bomb warning is treated as an error.
 
 	:param source: a path or a file object.
 	:return: the decoded image.
@@ -728,10 +628,8 @@ def _startBackground(work) -> None:
 def fetchPicture(address: str, name: str, done) -> None:
 	"""Load an image's own file in the background, then hand the picture back.
 
-	**Never on NVDA's main thread.** A download can take seconds on a slow network, and NVDA
-	does not speak while its main thread waits. So the loading and decoding happen on a
-	thread of their own, which touches nothing of NVDA's, and the result comes back to the
-	main thread through `wx.CallAfter`.
+	On a thread of its own that touches nothing of NVDA's, since NVDA is silent while its main
+	thread waits; the result returns through `wx.CallAfter`.
 
 	:param address: from `addressOf`.
 	:param name: what to call the picture.
@@ -757,22 +655,15 @@ def fetchPicture(address: str, name: str, done) -> None:
 def capture(left: int, top: int, width: int, height: int, name: str = "") -> Picture:
 	"""Copy a rectangle of the screen and keep it as brightnesses.
 
-	Split out from `captureNavigator` so that the finding and the copying can be tested apart,
-	and so that a later caller with a rectangle of its own — an image file, a region the reader
-	drew — has somewhere to arrive.
+	With Pillow the rectangle is copied near its own size, then greyed and shrunk to
+	`keepPixels`, colour kept beside. Without it Windows shrinks during the copy and Python
+	reads each pixel. See `imagePins`.
 
 	:param left: screen x of the top left corner.
 	:param top: screen y.
 	:param width: how wide on screen.
 	:param height: how tall.
 	:param name: what to call it.
-	**Two ways, the same picture.** With Pillow the rectangle is copied near its own size and
-	Pillow turns it grey and shrinks it to `keepPixels`, without a Python loop over a pixel, and
-	the colour is kept beside the grey for the things that need it.
-	Without it Windows shrinks during the copy and each kept pixel is read in Python, which is
-	what every version of this did before and is kept whole for an NVDA whose build leaves
-	Pillow out. See `imagePins` for why that is possible.
-
 	:return: the pixels.
 	:raises ImageRefused: if the screen would not give them up.
 	"""

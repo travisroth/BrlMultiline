@@ -5,24 +5,10 @@
 
 """A view is a complete arrangement of the braille display.
 
-Everything the add-on puts on the display is a view, including the plain single segment
-arrangement that matches NVDA's own behaviour. A view is a recipe rather than live state:
-it is named, it is built from configuration or from code, and it is handed to the plugin to
-activate. Exactly one is active at a time, because a view arranges every cell of a display
-that can only be in one arrangement at once.
-
-A view is made of panels. Each panel claims a rectangle and decides how to subdivide it, so
-that code wanting part of the display can say so without knowing what holds the rest. The
-panels of a view must tile the display exactly: every cell belongs to one named panel, so a
-new claim can only take cells from a panel that can be identified and evicted.
-
-`flatten` dissolves the panels into the flat list of segment specifications the container
-builds from. Panels do not survive into the running display; they are kept on the view so
-that the next view can be composed from this one.
-
-The settings dialog produces views of one panel divided into whole row groups (or, on a
-single row display, column slices). Code driving the display directly can compose any view
-it likes, and `withPanel` is how it does so without disturbing what it did not claim.
+A view is a recipe, built from configuration or code and activated by the plugin; exactly one
+is active. It is made of panels that tile the display exactly, so a new claim can only take
+cells from a panel that can be named and evicted. `flatten` turns them into the segment
+specifications the container builds from, and `withPanel` composes a claim over a view.
 """
 
 from collections.abc import Sequence
@@ -92,10 +78,8 @@ survive a settings change wherever the segment itself does.
 DEVICE_PANEL_NAME = "device"
 """Prefix of the panels a composite display is built from.
 
-Distinct from L{DISPLAY_PANEL_NAME} because the two views are not interchangeable: keys of a
-configured view are numbered across the whole display, while a composite's are named after
-the physical display they sit on. A pin does not carry over between them, and it should not:
-the cells have moved to different hardware.
+Distinct from `DISPLAY_PANEL_NAME`, since a composite's keys are named after the physical
+display, so a pin does not carry over between the two.
 """
 
 
@@ -113,9 +97,8 @@ class SegmentView:
 		:param panels: the claims making up this view. They must tile the display, which
 			L{validate} checks against a specific display size.
 		:param focusSegmentKey: the key of the segment following the system focus. None
-			means the last segment in display order. A view must have one: NVDA reads
-			`mainBuffer.regions[-1]` in several places, so there always has to be a segment
-			for untargeted content to land in.
+			means the last segment in display order. A view must have one, since NVDA reads
+			`mainBuffer.regions[-1]`.
 		"""
 		self.name = name
 		self.panels = list(panels)
@@ -128,9 +111,7 @@ class SegmentView:
 		"""Dissolve the panels into the segments the container builds from.
 
 		:return: one specification per segment, sorted into display order, top to bottom
-			and then left to right. The order is the segment numbering the user's per
-			segment commands address, so it has to follow the display rather than the
-			order the panels happened to be composed in.
+			and then left to right, the numbering the per segment commands use.
 		"""
 		specs = [spec for panel in self.panels for spec in panel.segments()]
 		specs.sort(key=lambda spec: (spec.rect.row, spec.rect.col))
@@ -157,9 +138,7 @@ class SegmentView:
 		duplicates = {key for key in keys if keys.count(key) > 1}
 		if duplicates:
 			raise ValueError(f"View {self.name!r} reuses segment keys {sorted(duplicates)}")
-		# Panels have been checked against their own claims, and the claims tile the
-		# display, so this can only fail if a panel reported segments outside the rectangle
-		# it validated. Checking anyway keeps the compositor's assumption explicit.
+		# Implied by the checks above, and kept to make the compositor's assumption explicit.
 		validateRects([spec.rect for spec in specs], numRows, numCols)
 		if self.focusSegmentKey not in keys:
 			raise LookupError(
@@ -176,14 +155,8 @@ class SegmentView:
 	) -> "SegmentView":
 		"""Compose a new view by laying a panel over this one.
 
-		Panels this claim touches are evicted whole. A panel is a rectangle and has to stay
-		one, so there is no partial eviction: a claim overlapping half a panel takes all of
-		it. Cells freed that the new claim does not want are given to blank panels, so the
-		result still tiles the display.
-
-		Panels the claim does not touch are carried over untouched, keeping their segment
-		keys. That is what lets a pinned object survive: the panel holding it is not
-		involved in the claim, so its key still resolves after the rebuild.
+		Panels the claim touches are evicted whole, and freed cells it does not want go to
+		blank panels. Untouched panels keep their keys, so a pinned object elsewhere survives.
 
 		:param panel: the claim to lay over this view.
 		:param numRows: number of rows on the display.
@@ -233,10 +206,8 @@ class SegmentView:
 	) -> "SegmentView":
 		"""Compose a new view with one panel removed, its cells left blank.
 
-		Removing a panel leaves a hole rather than reflowing what is left, since the panels
-		around it claimed the cells they wanted and none of them asked for more. The usual
-		way back to a full display is to rebuild from the configured view instead, which is
-		what the plugin does when a claim is withdrawn.
+		Leaves a hole rather than reflowing. The plugin instead rebuilds from the configured view
+		when a claim is withdrawn.
 
 		:param name: the panel to remove.
 		:param numRows: number of rows on the display.
@@ -278,9 +249,7 @@ class SegmentView:
 def displaySegmentKey(index: int) -> str:
 	""":return: the key of one segment of a configured view.
 
-	The settings dialog counts segments; a view names them. Because a configured view puts
-	each segment in a panel of its own, the two agree: segment 3 of the display is always
-	keyed `display.3`, whatever else is on the display around it.
+	Segment 3 is always `display.3`, since each segment has a panel of its own.
 	"""
 	return f"{DISPLAY_PANEL_NAME}.{index}"
 
@@ -288,10 +257,7 @@ def displaySegmentKey(index: int) -> str:
 def displayPanels(rects: list[SegmentRect]) -> list[SinglePanel]:
 	"""Wrap each segment rectangle of a configured view in a panel of its own.
 
-	One panel per segment is the finest grained view there is, and it is what makes the
-	configured view composable. A claim laid over it evicts only the panels whose cells it
-	actually wants, so segments elsewhere on the display keep their keys, and anything
-	holding one of those keys, such as a pinned object, survives the rebuild.
+	So a claim evicts only the panels whose cells it wants. See `SegmentView.withPanel`.
 
 	:param rects: the segment rectangles, in display order.
 	:return: one panel per rectangle, none of them reserved.
@@ -319,9 +285,7 @@ def viewFromConfig(numRows: int, numCols: int, displayKey: str | None = None) ->
 	:return: the configured view, or a single segment if the user has turned division off.
 	"""
 	if not bmConfig.areSegmentsEnabled(displayKey):
-		# The layout stays in the configuration untouched, so turning division back on
-		# restores it. Reported as the single view rather than as a failed configured one,
-		# because this is a deliberate choice rather than a layout that would not fit.
+		# The layout stays configured, so turning division back on restores it.
 		return singleSegmentView(numRows, numCols)
 	layout = bmConfig.getLayout(displayKey)
 	try:
@@ -382,27 +346,10 @@ def unavailableRects(devices: Sequence[DeviceInfo], numCols: int) -> list[Segmen
 def validateAgainstHardware(view: SegmentView, devices: Sequence[DeviceInfo], numCols: int) -> None:
 	"""Check that every segment of a view sits on exactly one physical display.
 
-	This is an invariant of whatever is finally shown, not a property of the base view, and
-	that distinction is the point of this function. `deviceView` builds both halves of it in,
-	but a view can arrive here without having been through `deviceView` at all — an activated
-	view is composed by whatever code wanted the display — and even a view derived from
-	`deviceView` can lose them: `SegmentView.withPanel` evicts every panel a new claim
-	intersects, so a claim spanning a narrow display's full rows takes the dead column mask
-	with it.
-
-	Two ways to break it, and neither announces itself.
-
-	**Reaching a dead column loses text.** `sliceBandCells` takes only the first `numCols` of
-	each of a display's rows, so text laid out past that edge is dropped on the way to the
-	hardware with nothing raised, nothing logged and nothing to say where it went.
-
-	**Straddling two displays misplaces everything that addresses a segment.** These cells do
-	reach hardware, so nothing is lost, but the segment is no longer a thing one display owns:
-	`segmentsForDevice` can no longer say whose it is, so a display's own panning keys, the
-	display relative commands and a pin all end up reasoning about a segment that is half
-	somewhere else. It is also unreadable, a line of text continuing from the bottom of one
-	display onto another. This half of the check is why an all equal width composite is
-	validated too, where there are no dead columns to find.
+	An invariant of whatever is shown, since a composed view, or a claim over `deviceView`,
+	can lose the dead column mask. Reaching a dead column silently loses text in
+	`sliceBandCells`; straddling two displays leaves `segmentsForDevice` unable to say whose
+	the segment is, which is why equal width composites are checked too.
 
 	:param view: the view about to be shown.
 	:param devices: the physical displays behind it, empty for an ordinary display.
@@ -438,10 +385,7 @@ def validateAgainstHardware(view: SegmentView, devices: Sequence[DeviceInfo], nu
 def deviceSegmentKey(driverName: str, index: int) -> str:
 	""":return: the key of one segment of a composite display.
 
-	Named after the physical display it sits on rather than numbered across the composite, so
-	that a pin on the secondary display survives a settings change on the primary. A driver
-	name identifies a member uniquely, because the virtual driver refuses to list one driver
-	twice.
+	Named after its physical display, so a pin on one survives a settings change on another.
 	"""
 	return f"{DEVICE_PANEL_NAME}.{driverName}.{index}"
 
@@ -449,9 +393,7 @@ def deviceSegmentKey(driverName: str, index: int) -> str:
 def driverNameForSegmentKey(key: str) -> str | None:
 	"""Read back which display a segment key names.
 
-	The inverse of L{deviceSegmentKey}, and safe against every other kind of key: a driver name
-	is a module name, so it cannot contain a dot, and nothing else this add-on makes has this
-	shape.
+	The inverse of `deviceSegmentKey`, safe for any key, since a driver name has no dot.
 
 	:param key: any segment key.
 	:return: the driver name, or None if this key does not name a physical display.
@@ -465,15 +407,9 @@ def driverNameForSegmentKey(key: str) -> str | None:
 def deviceSegmentKeys(devices: Sequence[DeviceInfo], numCols: int) -> list[str]:
 	""":return: the keys of a composite's segments, in the order the focus segment setting counts them.
 
-	`focusSegment` and `messageSegment` are single numbers over the whole display, and this
-	is what they index. It is the arrangement the configuration describes rather than the
-	one on the display: a claim laid over the display evicts the segments it covers, so
-	numbering read off the container would name a different segment while the claim was up
-	and change again when it was given back.
-
-	Split out of L{deviceView} so that a command working out a segment number to store, and
-	the view that later reads it, cannot come to different answers: `deviceView` names its
-	own segments from this list rather than composing the keys again.
+	What `focusSegment` and `messageSegment` index: the configured arrangement, not the
+	container's, which changes under a claim. `deviceView` names its segments from this list,
+	so the two cannot disagree.
 
 	:param devices: the physical displays, in stacking order, top first.
 	:param numCols: the composite's width, the widest display's.
@@ -495,9 +431,7 @@ def focusDisplayDriver(
 ) -> str | None:
 	""":return: which physical display holds the segment that follows the system focus.
 
-	The same numbering `deviceSegmentKeys` hands the settings dialog and the command that
-	moves the focus between displays, so all three agree about which display a stored number
-	means.
+	Numbered by `deviceSegmentKeys`, as the settings dialog and commands are.
 
 	:param devices: the physical displays, in stacking order, top first.
 	:param numCols: the composite's width.
@@ -519,9 +453,7 @@ def focusDisplayDriver(
 def deviceBandSegmentRects(device: DeviceInfo, rect: SegmentRect) -> list[SegmentRect]:
 	"""Divide one physical display's rows using that display's own settings.
 
-	The key read is the one that display has when NVDA drives it on its own, so a Monarch
-	divided into three segments stays divided into three segments as part of a composite. The
-	settings the user already made are the settings that apply, with nothing to set up.
+	The settings it has when driven alone, so its division carries into a composite.
 
 	:param device: the physical display.
 	:param rect: the cells it actually has, in composite coordinates.
@@ -546,18 +478,9 @@ def deviceBandSegmentRects(device: DeviceInfo, rect: SegmentRect) -> list[Segmen
 def deviceFallbackView(numRows: int, numCols: int, devices: Sequence[DeviceInfo]) -> SegmentView:
 	"""Build the simplest arrangement a composite display can have.
 
-	One segment per physical display, and nothing else. This is what to show when the view that
-	should have been shown could not be built, and it differs from L{deviceView} in reading no
-	settings at all — deliberately, because a setting is the likeliest reason the other view
-	failed, and a fallback that consulted the same settings could fail the same way.
-
-	What it does keep is the dead column mask. Those columns are a fact about the hardware
-	rather than a preference, so the emergency arrangement has to respect them just as the
-	ordinary one does: `singleSegmentView` across a composite of unequal widths would flow text
-	into cells that no display has, which is the silent loss all of this exists to prevent.
-
-	The segment keys are the ones L{deviceView} gives a display's first segment, so a pinned
-	object on a display divided one way can survive the fall back to this.
+	One segment per display, reading no settings, since a setting is the likeliest reason
+	`deviceView` failed. Keeps the dead column mask, which is hardware. Keys are those
+	`deviceView` gives a display's first segment, so a pin can survive the fallback.
 
 	:param numRows: number of rows on the composite.
 	:param numCols: number of columns on the composite, the widest display's width.
@@ -588,19 +511,9 @@ def deviceView(
 ) -> SegmentView:
 	"""Build the view for a composite of several physical displays.
 
-	Two things make this different from L{viewFromConfig}, and both come from the composite
-	not being one piece of hardware.
-
-	The first is that no segment may straddle two displays. The composite is always divided at
-	the band boundaries, whatever the user has configured for it, and each display is then
-	divided within its own band by its own settings. So the composite has no segment count of
-	its own; the question "how many segments" is asked of each display separately, and answered
-	by the settings that display already had.
-
-	The second is the dead columns. A display narrower than the widest one has cells on its
-	rows that reach no hardware. They are claimed by a `BlankPanel` so that nothing is ever
-	flowed into them, which is the whole reason this view exists: without it, text landing in
-	those cells is silently lost.
+	Unlike `viewFromConfig`: always divided at the display boundaries, each display then by its
+	own settings; and a narrower display's dead columns are claimed by a `BlankPanel` so no
+	text is lost in them.
 
 	:param numRows: number of rows on the composite.
 	:param numCols: number of columns on the composite, the widest display's width.

@@ -5,21 +5,12 @@
 
 """Claims on the display, and the descriptions of the segments they contain.
 
-A `BraillePanel` is a claim: one owner, one rectangle, and a rule for subdividing it. It
-is the unit of composition. A table reader hands the plugin a panel saying "these rows are
-mine, laid out as a grid" without knowing or caring what the rest of the display holds.
+A `BraillePanel` is a claim: one owner, one rectangle, and a rule for subdividing it. A
+`SegmentSpec` is the leaf a panel produces: one rectangle, a stable key and a policy; the
+container builds one live `BrailleBufferSegment` per spec.
 
-A `SegmentSpec` is the leaf a panel produces: one rectangle, a stable key, and the policy
-the segment behaves by. The container builds one live `BrailleBufferSegment` per spec, in
-display order.
-
-Panels exist only while a view is being built. They are dissolved by `SegmentView.flatten`
-into the flat list of specs the container works from, so no container operation ever has
-to walk a tree. Panels remain reachable through the view for composing the next view and
-for reporting the layout, but they carry no live state.
-
-This module deliberately imports nothing from NVDA, so panel arithmetic can be unit tested
-without a running screen reader or an attached display.
+`SegmentView.flatten` dissolves panels into the flat list the container works from. Panels
+stay reachable through the view but carry no live state. Imports nothing from NVDA.
 """
 
 import dataclasses
@@ -42,25 +33,9 @@ PRIORITY_APP_LAYOUT = 15
 PRIORITY_GRAPHICS = 20
 """The ladder that decides which claim wins when two want the same cells.
 
-Claims are composed lowest first, and each is laid over what is already there, so the
-highest number wins. Ties keep the order they were made in, which is what it meant
-before there were any numbers.
-
-The ladder exists because the flow is on most of the time — it is the add-on's default,
-and it is wanted in Excel and on the web, which is most of a working day. Without an
-order, showing a drawing became a fight with it: whichever claim was made most recently
-took the rows, so a profile switch or a focus change could take a figure off the display
-mid-read. Ranking them settles it once instead of per occasion.
-
-Graphics outranks the flow because it is deliberate and temporary. A reader turns a
-figure on, reads it, and turns it off; the flow is a standing preference that should
-resume by itself afterwards, and it does. Nothing else is ranked yet: a table claim and a
-pinned object have never wanted the same rows as each other.
-
-An app layout sits between the two. It outranks the flow because it is the application's
-arrangement of where the reader is, which the flow is only one way of reading; the flow keeps
-its place while it waits, as it does for a drawing. A drawing outranks the layout for the
-same reason it outranks the flow: the reader asked for it, now, and will put it away.
+Claims are composed lowest first, so the highest wins; ties keep the order they were made in.
+Graphics is deliberate and temporary, so it outranks an app layout, which outranks the flow, a
+standing preference that resumes by itself.
 """
 
 
@@ -74,9 +49,8 @@ class SegmentSpec:
 	key: str
 	"""A stable identity for this segment, unique within a view.
 
-	Indices are display order and change whenever the layout does. A key does not, so
-	anything that has to survive a rebuild holds a key: which segment follows the focus,
-	which segment a pinned object lives in, which segment a claim is waiting for.
+	Indices change with the layout and a key does not, so anything surviving a rebuild holds a
+	key.
 	"""
 
 	owner: str | None = None
@@ -89,19 +63,14 @@ class SegmentSpec:
 	hostsSystemFocus: bool = False
 	"""Whether this segment is where NVDA's own focus content belongs.
 
-	Reserving a segment and hosting the focus were one flag until a flow needed both at
-	once. They are different questions: `owner` says who may draw here, and this says
-	whether NVDA's untargeted regions land here. A flow band is reserved *and* hosts the
-	focus, which is exactly the combination the old single flag could not express.
+	Separate from `owner`, which says who may draw here; a flow band is both.
 	"""
 
 	exclusive: bool = False
 	"""Whether the owner is the only producer of this segment's content.
 
-	Set on a segment whose owner draws NVDA's focus content itself, as a flow does: the
-	ordinary focus regions are handed to the owner instead of being written into the
-	segment beside what the owner drew. Without it the two producers fight, because
-	`_doNewObjectMultiSegment` clears and rewrites the focus segment on every focus change.
+	For an owner that draws the focus itself, as a flow does: the focus regions are handed to
+	it, or `_doNewObjectMultiSegment` would rewrite the segment on every focus change.
 	"""
 
 	fillRows: bool = False
@@ -216,16 +185,12 @@ class BraillePanel:
 	def validate(self) -> None:
 		"""Check this panel's segments fit inside its own claim and do not overlap.
 
-		Gaps between a panel's segments are allowed, and show as blank cells. They belong
-		to this panel, which is what lets a panel put space between its segments without
-		leaving cells unowned.
+		Gaps between segments are allowed, blank and owned by this panel.
 
 		:raises ValueError: if a segment falls outside the claim or overlaps another.
 		"""
 		specs = self.segments()
-		# Containment is checked first, because a segment that has escaped its panel would
-		# otherwise be reported as running past the edge of a display it was never measured
-		# against, which says nothing about what actually went wrong.
+		# Containment first, so an escaped segment is reported as that.
 		for spec in specs:
 			if not rectContains(self.rect, spec.rect):
 				raise ValueError(
@@ -248,10 +213,8 @@ class BraillePanel:
 class SinglePanel(BraillePanel):
 	"""A panel holding one segment that fills its whole claim.
 
-	Its segment takes the panel's own name as its key, since there is no sibling to tell it
-	apart from. A view built of one such panel per segment is therefore the finest grained
-	view there is, and that is what the configured view uses: a claim laid over it evicts
-	only the segments it actually covers, leaving the others with their keys intact.
+	Its segment's key is the panel's name. The configured view uses one per segment, so a claim
+	evicts only the segments it covers.
 	"""
 
 	def segments(self) -> list[SegmentSpec]:
@@ -338,9 +301,7 @@ class GridPanel(BraillePanel):
 class BlankPanel(BraillePanel):
 	"""A panel that claims cells in order to keep them blank.
 
-	Produces no segments at all, so no buffer is built and the cells composite as blank.
-	Used to give ownership to space that no other panel wants, which is what lets the
-	coverage rule hold without every view builder doing the arithmetic.
+	Produces no segments, so the cells composite as blank and the coverage rule holds.
 	"""
 
 	def __init__(self, rect: SegmentRect, name: str | None = None) -> None:
@@ -362,30 +323,11 @@ class GraphicsPanel(BraillePanel):
 	composites as blank and the overlay the driver holds shows through. The **text**
 	segment is an ordinary line of braille that hosts the system focus.
 
-	**Why the text line belongs to this panel rather than to whatever was there before.**
-	Panels are evicted whole. `SegmentView.withPanel` drops every panel a claim *touches*,
-	because a panel is a rectangle and has to stay one — so a claim on part of a band takes
-	the band's whole panel with it, focus segment included, however carefully the claim
-	avoided the focus segment's own rows. On a composite that is exactly what happens: a
-	member's rows are one device panel, and any claim inside them evicts all of it.
-
-	The first attempt at this left the focus segment's rows out of the claim and was
-	refused anyway, on hardware, with `LookupError: Panel 'graphics' would evict the focus
-	segment 'device.brlMultilineMonarch.0'`. Leaving rows free is not the same as leaving a
-	panel alone. So the claim takes the whole band and supplies the replacement line itself,
-	offering it as `focusSegmentKey`, which is the mechanism `withPanel` provides for
-	exactly this and the only way a claim may take a focus segment at all.
-
-	The drawing itself does not travel through the container: it is pins, sent to the
-	display as an overlay and composited over these cells by the driver. The two halves meet
-	only on the hardware, in one write.
-
-	**Why the drawing segment exists at all, being blank.** Routing. On a display like the
-	Monarch, pointing at the figure is pressing a routing key where you are touching, and a
-	routing press reaches the add-on only through the segment it lands in —
-	`DisplayContainer.routeTo` finds the segment and asks its policy, and a press in space
-	no segment covers is dropped with a debug line. So the drawing segment is there to carry
-	a routing policy, and the text segment keeps the ordinary one.
+	The text line is this panel's own because `SegmentView.withPanel` evicts every panel a claim
+	touches, focus segment included; offering it as `focusSegmentKey` is how a claim may take a
+	focus segment. The drawing is sent to the driver as an overlay, not through the container.
+	The blank drawing segment exists to carry a routing policy, since a press reaches the
+	add-on only through a segment (see `DisplayContainer.routeTo`).
 	"""
 
 	priority = PRIORITY_GRAPHICS
@@ -406,10 +348,8 @@ class GraphicsPanel(BraillePanel):
 		:param name: who this panel belongs to, and the prefix of its segment keys.
 		:param rect: the whole band claimed, drawing and text line together.
 		:param textRows: rows at the top of the claim kept as ordinary braille. Zero gives the
-			whole claim to the drawing, and the drawing segment then hosts the focus itself and
-			draws none of it — `exclusive`, so NVDA's focus regions are handed over and dropped
-			rather than written under the figure where they would be drawn over and lost. That
-			is a real cost and the reader has to ask for it; see the graphics mode's command.
+			whole claim to the drawing, which then hosts the focus as `exclusive` and draws none
+			of it. The reader has to ask for that.
 		:param drawingRoutingPolicy: what a routing press inside the drawing does. None
 			leaves it routing as any other segment would, which is what a press on blank
 			cells does: nothing.
@@ -480,11 +420,8 @@ class GraphicsPanel(BraillePanel):
 class FlowPanel(BraillePanel):
 	"""A band of rows presented as one continuous flow of content.
 
-	Geometry and ownership only. What is shown in the band, how blocks are packed into its
-	rows and where the window sits are the flow controller's business; this exists so that
-	a flow can claim its rows through the same mechanism as everything else.
-
-	Two arrangements, and the difference is decision 1 of the spatial reading plan:
+	Geometry and ownership only; the content is the flow controller's. Two arrangements, as in
+	decision 1 of docs/design/spatial-reading-plan.md:
 
 	1. **The focus flow** hosts the system focus and draws it itself, so it is reserved,
 		`hostsSystemFocus` and `exclusive` all at once. NVDA's untargeted focus regions are
@@ -492,10 +429,7 @@ class FlowPanel(BraillePanel):
 	2. **A viewer band** shows content the reader is not working in. It is reserved and
 		nothing else, shows no cursor, and moves nothing outside itself.
 
-	The band is one segment covering the whole claim, because the flow does its own row
-	assembly: `flow.assembleCells` pads each row to the band's width, which is what stops
-	the block after a short one sharing its row. Subdividing the band into a segment per
-	row would hand that job back to NVDA's buffer, which cannot do it.
+	One segment, since the flow assembles its own rows; see `flow.assembleCells`.
 	"""
 
 	priority = PRIORITY_FLOW
@@ -511,9 +445,7 @@ class FlowPanel(BraillePanel):
 		"""
 		:param name: who this band belongs to, and the key of its single segment.
 		:param rect: the rectangle claimed. It must lie within one physical display's live
-			band, which `views.validateAgainstHardware` enforces: a full width band across
-			a Monarch's rows in a Monarch and Focus composite would reach the Monarch's
-			dead columns and is refused.
+			band, as `views.validateAgainstHardware` enforces.
 		:param hostsSystemFocus: True for the focus flow, False for a viewer band.
 		:param routingPolicy: what a routing key press in the band does. The flow's own
 			policy maps a pressed cell back through the window to a position in a block,
@@ -536,13 +468,8 @@ class FlowPanel(BraillePanel):
 class PanelOwner:
 	"""What an owner of a claim must answer, so that its content survives the display changing.
 
-	Geometry survives a rebuild and content does not: a claim is re-composed and comes back
-	empty, with nothing telling its owner to draw again. That is recoverable for a pinned
-	object, which is re-read from its object, and is a permanently blank band for a flow.
-	These are the calls that close the gap.
-
-	Implemented by the flow controller, and available to any other owner. The base does
-	nothing, so an owner may override only what it cares about.
+	A claim comes back empty after a rebuild; these calls tell its owner to draw again. The
+	base does nothing, so an owner overrides only what it needs.
 	"""
 
 	def onRebuilt(self, keys: frozenset[str]) -> None:
@@ -554,8 +481,7 @@ class PanelOwner:
 	def onEvicted(self, keys: frozenset[str]) -> None:
 		"""This owner's claim no longer fits, and these segments have gone.
 
-		An owner told this must stop producing regions targeted at them. Until now eviction
-		was a log line, and an owner went on addressing segments that had departed.
+		An owner told this must stop producing regions targeted at them.
 
 		:param keys: the keys that are gone.
 		"""
