@@ -112,8 +112,7 @@ class _LayoutView:
 		#: The drawing on the display, so a drill can tell it is still this overview that is up.
 		self.drawing = None
 		#: Key letters given out, by region, kept for every drawing of this reading of the page,
-		#: so an area keeps its letter when drilled into, backed out of, zoomed or panned (found
-		#: in review: drilling into main content gave Latest News a new letter).
+		#: so an area keeps its letter when drilled into, backed out of, zoomed or panned.
 		self.keys: dict = {}
 
 
@@ -131,9 +130,8 @@ LAYOUT_COUNT_ROLES = {
 def _layoutCountStyle() -> "layoutDraw.CountStyle":
 	""":return: how a page layout's counts are drawn for this reader and this display.
 
-	With NVDA's own braille abbreviation for each role, in the reader's language, as every line
-	of braille they read has it; and with the role's glyph instead, where the reader has asked
-	for glyphs and the display drawing the layout can show them.
+	NVDA's own braille abbreviation for each role, in the reader's language, or the role's
+	glyph where glyphs are on and the display can show them.
 	"""
 	words = dict(layoutDraw.COUNT_WORDS)
 	written = {}
@@ -146,8 +144,7 @@ def _layoutCountStyle() -> "layoutDraw.CountStyle":
 	for count, (role, _glyph) in LAYOUT_COUNT_ROLES.items():
 		label = written.get(role)
 		if not label:
-			# As NVDA's braille does for a role with no abbreviation, a tab's among them: the
-			# role's own name, in the reader's language (found in review).
+			# As NVDA's braille does for a role with no abbreviation: the role's own name.
 			try:
 				import controlTypes
 
@@ -193,10 +190,7 @@ AFTER_DIALOG_MILLIS = 300
 def _sayAfterDialog(text: str) -> None:
 	"""Say something once a dialog has closed and the focus is back where it was.
 
-	**Said at once, it was never heard.** Closing a dialog gives the focus back to the
-	application, and NVDA announces the focus as it arrives, cutting off whatever was being
-	said. A chart refused from the chart dialog was spoken and lost, and the reader was left
-	with nothing happening.
+	NVDA announces the focus returning from a dialog, which would cut off anything said at once.
 
 	:param text: what to say.
 	"""
@@ -231,9 +225,8 @@ def getPlugin() -> "GlobalPlugin | None":
 class CarriedPin(NamedTuple):
 	"""A pin the focus move took with it, and what it was before it went.
 
-	What it was matters as much as where it went. A pin on eight rows is read as a flow and
-	a pin on one row cannot be, so the same swap can leave a chat that scrolled showing a
-	single unscrollable line — silently, until this said so.
+	What it was matters, because a pin moved from many rows to one stops being a flow, and
+	the reader is told.
 	"""
 
 	monitor: ObjectMonitor
@@ -267,9 +260,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._appLayoutsSuspended = False
 		"""Whether the reader has set app layouts aside for now, until NVDA restarts.
 
-		Over and above the setting, which is what allows them at all. Not stored: it is for the
-		one window where the reader wants their own arrangement back, not a second setting.
-		See L{script_toggleAppLayouts}.
+		On top of the setting, and not stored. See `script_toggleAppLayouts`.
 		"""
 
 		self.appLayouts = AppLayoutHost(self)
@@ -291,26 +282,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._pinsInFlight: list[ObjectMonitor] = []
 		"""Pins a focus move is carrying, until the display it caused has settled.
 
-		A pin displaced by the focus is moved before the display is rebuilt, and the segment
-		it is moved to may not be in the display that gets built: the flow band claims the
-		display the focus is on, so the rows the focus leaves come back as segments of the
-		reader's own layout under different keys. Without this the carry-over saw a pin on a
-		key that had gone and released it — the reader traded the pin for nothing.
-
-		The monitors themselves rather than the keys they are filed under, because one move
-		rebuilds the display more than once: claiming or releasing the band rebuilds it
-		again, so a pin can be re-homed by the first pass and have to survive the second
-		under a key nobody predicted.
-
-		Held only across the rebuilding one move causes, so that a pin released later for an
-		ordinary reason is still released.
+		A displaced pin is moved before the rebuild, and the segment it moves to may come back
+		under a different key once the flow band has claimed or released rows, so the
+		carry-over must not release it. Held as monitors rather than keys, because one move
+		can rebuild the display more than once. Held only across that one move's rebuilds.
 		"""
 		self._messageBuffer: MessageBuffer | None = None
 		"""NVDA's flash messages, confined to one segment. Made on the first rebuild.
 
-		Made once and retargeted, never replaced: the handler decides whether a message is
-		showing by comparing `buffer is messageBuffer`, so swapping the object under it would
-		leave a message that could not be dismissed. See L{_installMessageBuffer}.
+		Made once and retargeted, never replaced. See `_installMessageBuffer`.
 		"""
 		self._originalMessageBuffer = None
 		"""NVDA's own, kept to be put back on termination."""
@@ -338,49 +318,35 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self.graphicsMode = GraphicsMode(self)
 		"""The drawing on the display, and the zoom and origin that make it readable.
 
-		Built whether or not the display can draw: it answers `active` as False and reports
-		why when asked to show something, which is a better failure than a missing attribute
-		on hardware that has no pins to raise.
+		Built whether or not the display can draw. On one that cannot, `active` is False and
+		a request to show something reports why.
 		"""
 
 		self._lastChartKind = None
 		"""Which chart the reader picked last time, so the list opens on it.
 
-		A reader charting a sheet is usually charting it several times over — the same
-		columns, a different range — and asking them to find candlesticks in the list on
-		every one of those presses would be asking them to answer a question they have
-		already answered. Not remembered across sessions, because it is a convenience
-		within one piece of work rather than a preference.
+		Not remembered across sessions.
 		"""
 
 		self._picture = None
 		"""The pixels of the last thing the reader asked to be drawn, or None.
 
-		Held so that changing how it is drawn does not re-copy the screen. It would be
-		copying something else by then: the reader has moved on, the page has scrolled, and
-		a command that said it was changing the style would quietly have changed the picture
-		as well.
+		Held so that changing the style redraws the same picture rather than copying the
+		screen again, which may show something else by then.
 		"""
 
 		self._pictureDrawing = None
 		"""The figure last made from `_picture`, so the style key can tell whether it is still
 		what the display is showing.
 
-		Cached pixels outliving the figure they were drawn as is the whole difficulty: a reader
-		who drew a picture, left the drawing, charted a spreadsheet and then pressed the style
-		key would have had the old picture put back over the chart — a command that says it is
-		changing how something is drawn, changing what is drawn. Holding the figure rather than
-		a flag is what makes the question answerable, since leaving the mode does not tell
-		anybody here that it happened.
+		So the style key does not put an old picture back over something drawn since, such as
+		a chart. The figure rather than a flag, since nothing here is told when the mode is left.
 		"""
 
 		self._pictureStyle = imageFigure.OUTLINES
 		"""How pictures are being drawn, as a mode and whether it is reversed.
 
-		Carried from one picture to the next within a session. A reader who has found that
-		brightness works for the diagrams on a page is reading a page of diagrams, and making
-		them press the style key again on each one would be asking a question they have
-		already answered.
+		Carried from one picture to the next within a session.
 		"""
 		self._pictureRequest = None
 		"""The picture file being loaded for the last press, if one is; see `script_drawPicture`."""
@@ -443,9 +409,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._membersChanged = devicesModule.membersChangedAction()
 		"""The composite display's own notification, or None if the driver cannot be reached.
 
-		NVDA has nothing that means what this means. A member lost and reconnected leaves the
-		display exactly as big as it was, so `displaySizeChanged` never fires, while the
-		segments here are named after physical displays and have to be built again.
+		A member lost and reconnected leaves the display the same size, so `displaySizeChanged`
+		does not fire, but the segments are named after physical displays and must be rebuilt.
 		"""
 		if self._membersChanged is not None:
 			self._membersChanged.register(self._handleDisplayChanged)
@@ -496,16 +461,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def event_gainFocus(self, obj, nextHandler):
 		"""Let the focus through, then finish anything that was waiting for it.
 
-		The one event this add-on handles, and it is here for two things: routing into a
-		column of a list view, and keeping a chart on the display on the point the screen
-		reader's own chart navigation has moved to (see `_followChart`). The cell cannot take the focus, so the row is focused and the
-		navigator object is taken the rest of the way — and NVDA moves the navigator object
-		to whatever takes the focus, after the focus has arrived, which is after the routing
-		key has finished. The column asked for was set and then quietly undone.
-
-		After `nextHandler` rather than before, so that everything NVDA does with a new focus
-		has been done before the column is put back. Costs a `None` test on every focus
-		change and nothing else. See `flowObjectTable.columnWantedAfterFocus`.
+		For two things: routing into a column of a list view, and keeping a drawn chart on the
+		point NVDA's chart navigation moved to (see `_followChart`). A routed column is set on
+		the navigator object, which NVDA resets when the focus arrives, so it is put back after
+		`nextHandler`. See `flowObjectTable.columnWantedAfterFocus`.
 		"""
 		nextHandler()
 		try:
@@ -526,10 +485,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _followChart(self, obj) -> None:
 		"""Mark the point of the chart on the display that the screen reader has just moved to.
 
-		Silently, since the screen reader has just said it. Only for a point of the very chart
-		that is drawn: arrowing through another chart leaves the display alone. Costs one
-		`getattr` that finds nothing on every focus change that is not a chart point. See
-		`docs/design/excel-chart-plan.md`.
+		Silently, since the screen reader has just said it, and only for a point of the chart
+		that is drawn. See docs/design/excel-chart-plan.md.
 
 		:param obj: the new focus.
 		"""
@@ -610,12 +567,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def activateView(self, view: SegmentView) -> None:
 		"""Put a view on the display, taking over from the user's configured one.
 
-		Replaces the whole arrangement. Prefer L{activatePanel} where only part of the
-		display is wanted: a view replaces everything, including segments other code is
-		relying on, while a panel takes only what it claims.
-
-		Only one activated view is in force at a time: activating a second replaces the
-		first. Call L{restoreConfiguredView} to hand the display back.
+		Replaces the whole arrangement; prefer `activatePanel` where only part of the display
+		is wanted. One activated view at a time. Call `restoreConfiguredView` to hand the
+		display back.
 
 		:param view: the view to show.
 		:raises ValueError: if the view's panels do not tile the display, or a segment reaches
@@ -624,8 +578,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""
 		numRows, numCols = self._displayDimensions()
 		# Validate before storing, so a view that does not fit leaves the display as it was.
-		# A view arrives whole and bypasses `deviceView`, so it is the one place a caller can
-		# put a segment over cells that reach no hardware without being told.
+		# A view bypasses `deviceView`, so the hardware check is made here.
 		view.validate(numRows, numCols)
 		validateAgainstHardware(view, deviceMap(), numCols)
 		self._activeView = view
@@ -642,19 +595,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def activatePanel(self, panel: BraillePanel) -> None:
 		"""Lay a panel over the display, leaving everything it does not claim alone.
 
-		EXPERIMENTAL. The geometry half of this is settled, but the contract is not: an
-		owner is told nothing when its claim is rebuilt or dropped, and has no way to
-		redraw its cells except by noticing for itself. Expect this to gain a lease object
-		carrying those callbacks, which will change the return type. Do not depend on it
+		EXPERIMENTAL. An owner is not told when its claim is rebuilt or dropped; expect a lease
+		object with those callbacks, which will change the return type. Do not depend on it
 		from another add-on yet.
 
-		This is how code takes part of the display: a table reader claims the rows it wants
-		as a grid, and a pinned object elsewhere keeps both its segment and its content,
-		because the panel holding it was never involved in the claim.
-
-		A panel with the same name as one already active replaces it, so refreshing a
-		claim is a matter of activating it again. The panel is held by reference and read
-		again on every rebuild, so it must not be mutated after being passed in.
+		A panel with the same name as one already active replaces it. The panel is held by
+		reference and read again on every rebuild, so it must not be mutated afterwards.
 
 		:param panel: the claim to lay over the current view.
 		:raises ValueError: if the claim falls outside the display, its segments do not fit
@@ -779,9 +725,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _buildView(self, numRows: int, numCols: int) -> SegmentView:
 		"""Build the view to show, dropping any claim that no longer fits.
 
-		Claims are re-composed on every rebuild rather than being baked into a stored view,
-		so that a settings change or a display swap is answered by rebuilding the same
-		claims against the new base rather than by discarding them.
+		Claims are re-composed on every rebuild, so they survive a settings change or a
+		display swap.
 		"""
 		view, kept = self._composeView(numRows, numCols, self._activePanels, strict=False)
 		# Restored to the order they were claimed in. `kept` came out in priority order, and
@@ -834,45 +779,24 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _applyFlow(self) -> None:
 		"""Claim or give back the flow band, following the setting for this display and profile.
 
-		**A drawing outranks the flow, and this leaves the flow entirely alone while one is
-		up.** The priority ladder in `panels` decides who wins the cells; this decides that
-		nothing here touches the flow's lifecycle meanwhile. The first version stopped the flow
-		and started it again afterwards, which worked and lost the reader's place: `stop`
-		discards the controller, and a fresh one begins at the top of the document rather than
-		where they had got to. Reported from hardware, and the reason for `onSuspended`.
+		While a drawing or an app layout is up, the flow is left entirely alone: stopping it
+		would discard its controller and the reader's place. The priority ladder in `panels`
+		decides who gets the cells; see `FlowBand.onSuspended`. This applies whether or not
+		the two want the same rows.
 
-		Not conditioned on the two wanting the same rows, deliberately. Both default to the
-		tallest display — `devices.preferredDevice` with nothing named — so in practice they
-		always do, and a rule that reads "while a drawing is up, the flow waits" is one a
-		reader can hold in their head.
-
-		Called after every rebuild, which is what makes the setting answer a profile switch.
-		NVDA switches profile when the foreground application changes, the switch rebuilds
-		the display, and the rebuild arrives here — so a profile for one browser can read as
-		a flow while the normal configuration goes on as before, with nothing to press.
-
-		This is also what makes the flow survive a restart. It was a command and nothing
-		else until now, which meant a reader who wanted it had to ask for it again after
-		every display change, every profile switch and every session.
+		Called after every rebuild, so the setting follows profile switches and restarts.
 		"""
 		if self._terminated or self._applyingFlow:
 			# Claiming the band rebuilds the display, which arrives back here. One pass does it.
 			return
 		if self.graphicsMode.active:
-			# Hands off entirely while a figure is up. Not merely "do not claim": stopping the
-			# flow here would take its controller with it, and starting a fresh one on the way
-			# back put the reader at the top of the document rather than where they had got to.
-			# The claim stays in `_activePanels` and is simply outranked, so leaving the figure
-			# gives the rows back and `_carryOverFlow` redraws from the controller that survived.
+			# The claim stays in `_activePanels`, outranked, so leaving the figure gives the rows
+			# back and `_carryOverFlow` redraws from the surviving controller.
 			return
 		if self.appLayouts.isUp:
-			# The same, for an app layout: it outranks the flow, and the flow waits with its
-			# place kept until the layout goes. See `panels.PRIORITY_APP_LAYOUT`.
-			#
-			# Except where the layout's focus segment asked for the flow, which draws there and
-			# does not wait. The reader turning the flow on or off is answered there and then,
-			# without leaving the layout. Geometry is left alone: the segment is the layout's,
-			# and the band's own rectangle is checked again when the layout goes.
+			# The same for an app layout (see `panels.PRIORITY_APP_LAYOUT`), except where the
+			# layout's focus segment asked for the flow, which draws there. Geometry is checked
+			# again when the layout goes.
 			if self.appLayouts.flowSegmentKey() is not None:
 				self._startOrStopFlow(bmConfig.shouldClaimFlowBand())
 			return
@@ -929,9 +853,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def startFlow(self) -> bool:
 		"""Claim a band and read the reader's content as a flow in it.
 
-		:return: whether the band is claimed. It is kept whether or not there is anything to
-			flow at this moment, since a band with nothing to show presents the focus as an
-			undivided display would and lights up when the reader reaches a document.
+		:return: whether the band is claimed. It is kept even with nothing to flow, showing
+			the focus as an undivided display would.
 		"""
 		from .flowBand import FlowBand
 
@@ -955,14 +878,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _carryOverFlow(self, container: DisplayContainer) -> None:
 		"""Draw the flow again after a rebuild, or drop it if its band has gone.
 
-		Geometry survives a rebuild and content does not: a claim is re-composed and its
-		cells come back empty, with nothing telling its owner to redraw them. This is that
-		telling, and it is the first use of the lifecycle the claim contract was missing.
-
-		Three answers, not two. A band with its rows redraws. A band whose rows have gone for
-		good is evicted and the flow is over. A band whose rows have gone to a drawing is
-		*suspended*: it keeps its controller, and therefore the reader's place, until the
-		figure gives the rows back.
+		A re-composed claim comes back with empty cells, so its owner is told. A band with its
+		rows redraws; one whose rows are gone is evicted; one whose rows went to a drawing or
+		app layout is suspended, keeping its controller and the reader's place.
 
 		:param container: the container just installed.
 		"""
@@ -985,9 +903,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _carryOverGraphics(self) -> None:
 		"""Draw the figure again after a rebuild, or drop it if its claim has gone.
 
-		The same gap `_carryOverFlow` closes, answered differently because a graphics claim
-		has no segments to look for. Its claim is its own evidence: the rebuild drops a panel
-		that no longer fits, so a claim missing from the active panels is a claim that is gone.
+		As `_carryOverFlow`, but a graphics claim has no segments, so a claim missing from the
+		active panels is one the rebuild dropped.
 		"""
 		mode = self.graphicsMode
 		if not mode.active:
@@ -1001,14 +918,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _fallbackContainer(self, handler, dimensions) -> DisplayContainer:
 		"""Build the simplest container the connected display can have.
 
-		The arrangement to show when the one that should have been shown could not be built.
-		For a composite that is one segment per physical display rather than one segment across
-		everything, because a segment across everything covers the columns a narrower display
-		does not have — and text put there is dropped on the way to the hardware with nothing
-		to say where it went. An emergency is a poor moment to start losing text silently.
-
-		Ordinary displays keep the single segment, which is NVDA's own arrangement and cannot
-		be wrong about hardware there is only one of.
+		For when the intended arrangement could not be built. A composite gets one segment per
+		physical display, since one segment across everything would lose text on a narrower
+		display. An ordinary display gets NVDA's single segment.
 
 		:param handler: the braille handler.
 		:param dimensions: the display's dimensions.
@@ -1051,14 +963,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _installMessageBuffer(self, handler, container: DisplayContainer) -> None:
 		"""Put messages in a segment rather than across the whole display.
 
-		NVDA's own message buffer wraps to the display's full width and starts at cell 0, so
-		on a divided display messages land wherever the top left happens to be, and on a
-		composite of displays of unequal width the overhang is written to cells that reach no
-		hardware. See `messages`.
+		NVDA's message buffer spans the full width from cell 0, which on a composite of unequal
+		displays reaches cells no hardware has. See `messages`.
 
-		The buffer object is made once and retargeted afterwards, never replaced. The handler
-		decides whether a message is showing by comparing `buffer is messageBuffer`, so a
-		replacement made while a message was up would leave one that could never be dismissed.
+		Made once and retargeted, never replaced, because the handler tests
+		`buffer is messageBuffer` to decide whether a message is showing.
 
 		:param handler: the braille handler.
 		:param container: the container just installed, for the segment rectangles.
@@ -1070,11 +979,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			else:
 				self._messageBuffer.setRect(rect)
 			if handler.messageBuffer is not self._messageBuffer:
-				# Either the first install, or something has put a buffer of its own there since.
-				# Whatever it is, it is what has to go back on termination — otherwise this
-				# restores a buffer that stopped being NVDA's while another add-on's is thrown
-				# away. (Not NVDA itself: `messageBuffer` is assigned once, in
-				# `BrailleHandler.__init__`, so a rebuilt one comes with a whole new handler.)
+				# The first install, or another add-on put its own buffer there since. Whatever it
+				# is goes back on termination.
 				self._originalMessageBuffer = handler.messageBuffer
 				if handler.buffer is handler.messageBuffer:
 					# A message is up in the buffer about to be replaced. Its regions belong to
@@ -1090,14 +996,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _dismissShowingMessage(handler) -> None:
 		"""Take down the message being shown, before the buffer showing it changes hands.
 
-		NVDA's own dismissal, because a message is not only some cells: `_dismissMessage`
-		clears it, returns the display to the main buffer, stops the timeout and tells
-		`_post_dismissBrailleMessage`. Doing part of that is what left the display showing an
-		empty buffer belonging to nobody — until the next key press moved it on, and with
-		messages configured to be shown indefinitely there is no next anything.
-
-		`shouldUpdate=False` because every caller here redraws straight afterwards, from the
-		buffer that is by then the right one.
+		Through NVDA's own `_dismissMessage`, which also returns to the main buffer, stops the
+		timeout and notifies `_post_dismissBrailleMessage`. `shouldUpdate=False` because every
+		caller redraws straight afterwards.
 
 		:param handler: the braille handler, with a message showing.
 		"""
@@ -1142,11 +1043,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		1. Its segment is gone.
 		2. A claim has taken over a segment of the same key, since the new owner would
 			redraw over the pin and the two would fight for the cells.
-		3. Its segment now follows the system focus. `startMonitoring` refuses the focus
-			segment for that reason, and a settings change can move the focus onto a
-			segment that was pinned when the pin was made. Keeping it would let
-			`refreshMonitors` clear the freshly drawn focus content and replace it with the
-			pinned object.
+		3. Its segment now follows the system focus, which `startMonitoring` also refuses.
 
 		A pin whose segment has gone gets one chance at a new home first; see L{_rehomeMonitor}.
 
@@ -1167,12 +1064,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			gone = driverName is not None and driverName not in present
 			carrying = any(monitor is self._monitors[key] for monitor in self._pinsInFlight)
 			if gone or carrying:
-				# Two reasons to look for somewhere else rather than let go. The display this
-				# pin was on has gone; or the focus command moved it a moment ago onto a
-				# segment this rebuild has dissolved, which is the flow band handing its rows
-				# back as the focus leaves them. Every other way a segment can go — a claim
-				# taking it, the focus moving onto it, the user rearranging — is a decision,
-				# and a pin released by a decision stays released.
+				# Re-homed only when its display has gone or a focus move is carrying it. Any
+				# other loss of a segment is a decision, and the pin stays released.
 				why = (
 					f"{driverName} has gone"
 					if gone
@@ -1206,16 +1099,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _rehomeMonitor(self, container: DisplayContainer, taken: dict) -> str | None:
 		"""Find somewhere for a pin whose segment has gone.
 
-		This is what a display disappearing costs, made as small as it can honestly be made. If
-		what is left has room — a segment that is not the focus, not claimed by a panel, and not
-		already showing something pinned — the object moves there and the reader keeps it. If
-		what is left is a single segment, it does not: that segment follows the focus, and
-		taking it for a pinned object would leave the reader with a display showing something
-		they did not ask to be looking at and no focus at all. Then the pin is dropped, and
-		reconnecting or rearranging is the user's move.
-
-		The first free segment in display order, because there is nothing better to go on: the
-		segment the pin came from is not there to be near.
+		The first segment in display order that is not the focus, not claimed and not already
+		pinned. Never the focus segment, so with one segment left the pin is dropped.
 
 		:param container: the container about to be installed.
 		:param taken: the homes already spoken for, which are not offered twice.
@@ -1251,15 +1136,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _handleDisplayChanged(self, **kwargs) -> None:
 		"""Rebuild when the display or its dimensions change.
 
-		Both `displaySizeChanged` and `displayChanged` are listened for. The first alone is
-		not enough: NVDA raises it only when the dimensions actually differ, so swapping
-		one display for another of the same geometry would go unnoticed, and settings are
-		stored per driver name as well as per size. The second alone is not enough either,
-		as it is not raised when a display keeps its driver but changes size.
-
-		The rebuild is deferred: this can run from within the handler's displayDimensions
-		property, which has not finished updating its own cache yet, and reading those
-		dimensions again from here would re-enter it.
+		Both events are needed: `displaySizeChanged` misses a swap to a display of the same
+		size, and `displayChanged` misses a size change under the same driver. Deferred,
+		because this can run inside the handler's `displayDimensions` property.
 		"""
 		glyphFlow.forget()
 		self._scheduleRebuild()
@@ -1267,14 +1146,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _handleProfileSwitch(self, **kwargs) -> None:
 		"""Rebuild when NVDA switches configuration profile.
 
-		The layout, the focus segment and the panning direction all live in `config.conf`,
-		which is profile aware, so a profile switch can change them with no braille event
-		to announce it. Deferred for the same reason a display change is: the switch is
-		still being applied when this runs.
-
-		The glyph vocabulary's words are dropped as well. They are NVDA's own braille labels
-		and those are translated strings, so a profile that changes the language changes which
-		word a shape is standing over.
+		The settings are profile aware, so a switch can change them with no braille event.
+		Deferred, because the switch is still being applied. The glyph vocabulary's words are
+		dropped too, since a profile can change the language.
 		"""
 		glyphFlow.forget()
 		self._reloadKeyLayers()
@@ -1284,9 +1158,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _reloadKeyLayers(self) -> None:
 		"""Read the layered keys the new profile holds, and say which layer that turned off.
 
-		A layer that is on and whose id is still in the new profile's layers stays on. One that is
-		not cannot go on answering keys it no longer has, and the reader has to be told, or the
-		next key they press does something they did not expect.
+		A layer that is on stays on if the new profile still has it; otherwise it goes off and
+		the reader is told.
 		"""
 		try:
 			gone = keyLayerDispatch.reload()
@@ -1301,22 +1174,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _reportMemberDivergence(self) -> None:
 		"""Say so in the log when the configured members are not the ones the composite opened for.
 
-		A profile can no longer cause this: `vdConfig` stores the member list in the base
-		configuration only, for the reasons in that module. What is left is the honest case —
-		the list was edited without the composite being reopened, which the settings panel does
-		for the user but a console edit does not. NVDA does not reinitialise a display whose
-		driver name has not changed, so the composite goes on driving the members it opened.
-
-		What is compared matters here, and getting it wrong is worse than not looking. The right
-		side is the composite's *configured* members, not the ones it is driving: a display that
-		is switched off is not being driven and is not a changed list. Comparing against the
-		driven ones reported every disconnected display as a configuration problem, on every
-		profile switch, for as long as it stayed away — a hardware run with two profiles and one
-		display powered down filled the log with exactly that.
-
-		Said once per distinct divergence, for the same reason. This runs on every profile switch
-		because that is a cheap moment to look, not because a profile is expected to be the cause,
-		and a real divergence does not become truer for being repeated.
+		The member list lives only in the base configuration (see `vdConfig`), so this means it
+		was edited without reopening the composite, which NVDA does not do while the driver
+		name is unchanged. Compared against the composite's configured members, not the ones it
+		is driving, so a display that is switched off is not reported. Said once per distinct
+		divergence.
 		"""
 		running = configuredMembers()
 		if running is None:
@@ -1494,9 +1356,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _inAnotherTable(self, obj) -> bool:
 		""":return: whether the reader is in a table other than the one already asked for.
 
-		False when they are in the one asked for, and false when they are in no table at all,
-		which is what makes pressing the command outside a table the way to clear a request
-		left behind.
+		False in the table asked for and in no table at all, so pressing the command outside a
+		table clears a request left behind.
 
 		:param obj: the object the reader is on.
 		"""
@@ -1512,8 +1373,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _wantTableHere(self, obj) -> bool:
 		"""Record that the table an object is in should be read in columns.
 
-		What `FlowBand.layOutTable` does without the half that shows it, for the case where
-		there is nothing to show it in.
+		`FlowBand.layOutTable` without showing it, for when there is no band.
 
 		:param obj: the object the reader is on.
 		:return: whether they were in a table.
@@ -1536,19 +1396,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def reportAboutTheDisplay(self, text: str) -> None:
 		"""Say something about what the display is showing, without writing it there.
 
-		**`ui.message` writes to the display as well as speaking**, and a message written to
-		the display sits on top of what is there until it times out. For a message *about*
-		what is on the display that is the worst of both: the reader turns to the next page
-		of columns, the display flashes the sentence describing the page, and the page itself
-		— which is the thing they pressed the key to feel — arrives when the flash expires.
-		The words are a description of what their hands were already on.
-
-		So the speech half only, which is what `ui.message` does with the other half of
-		itself. The display keeps showing the table, and it is showing the answer.
-
-		This is for messages the display is already answering. A message about something the
-		display cannot show — that there is no table here, that nothing is laid out — keeps
-		`ui.message`, because for a reader who is not listening the flash *is* the message.
+		Speech only, because `ui.message` would also flash the text over the very content it
+		describes. Use `ui.message` for anything the display cannot show, such as "not in a
+		table", where the flash is the message.
 
 		:param text: what to say.
 		"""
@@ -1563,9 +1413,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def layOutPinnedTables(self, wanted: bool, obj) -> int:
 		"""Show or stop showing the pins on one table in columns.
 
-		So that changing your mind reaches the pins as well as the band, without unpinning and
-		pinning again. Only the pins on *this* table: another pin showing another table is not
-		what the reader was talking about.
+		So the column command reaches pins as well as the band. Only pins on this table.
 
 		:param wanted: whether that table should be read in columns.
 		:param obj: an object in the table, as the reader's own position gives it.
@@ -1596,20 +1444,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def refreshMonitors(self, reveal: str | None = None) -> None:
 		"""Redraw every pinned object. Called when a monitored object may have changed.
 
-		The single place pins are drawn, so that the one condition under which they must not
-		be drawn is checked once. Registrations are kept either way: a pin is not lost by
-		being unable to draw, it simply waits for the next refresh.
+		The single place pins are drawn. A pin that cannot be drawn now is kept and waits for
+		the next refresh.
 
-		:param reveal: the key of a segment to show from the start of its content, rather
-			than at the window position it was already panned to. Given when a pin is first
-			made, so that the user sees the beginning of what they just pinned; withheld
-			everywhere else, so that a refresh does not undo their panning.
+		:param reveal: the key of a segment to show from the start of its content rather than
+			where it was panned to, for a pin just made.
 		"""
 		if bmConfig.isSpeechOutputMode():
-			# NVDA is showing speech on the display and has stopped handling focus, caret
-			# and review moves. A pin drawn now would sit beside the speech with nothing to
-			# refresh or remove it, and a rebuild is exactly when that would happen, since
-			# `_refreshDisplay` above draws nothing in this mode.
+			# NVDA is showing speech on the display and handles no moves, so nothing would
+			# refresh or remove a pin drawn now.
 			log.debug("BrlMultiline: not drawing pinned objects while braille shows speech")
 			return
 		for key, monitor in list(self.everyMonitor().items()):
@@ -1618,9 +1461,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def everyMonitor(self) -> dict[str, ObjectMonitor]:
 		""":return: the reader's pins and the app layout's segments, which are refreshed alike.
 
-		Kept in two places because they are not alike in anything else: the reader's pins are
-		carried, rehomed and counted as pins, and the layout's are none of those. Their keys
-		cannot collide, since the layout's are all under `appLayout.PANEL_NAME`.
+		Held separately because only the reader's pins are carried, re-homed and counted. The
+		keys cannot collide: the layout's are all under `appLayout.PANEL_NAME`.
 		"""
 		return {**self._monitors, **self.appLayouts.liveMonitors()}
 
@@ -1636,20 +1478,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def refreshMonitorsInTurn(self, allowance: float) -> bool:
 		"""Refresh the pins that a timer asked about, a slice of a core cycle at a time.
 
-		The other half of `refreshMonitors`, for the one caller that is not answering
-		anything the reader did. A pin has no event behind it, so it is re-read on a clock —
-		and re-reading every pin on that clock put the whole cost of every pin on one core
-		cycle, between the reader's keystrokes. A pin showing a flow can fill, look past its
-		tail and re-read its band in a single refresh, and there may be several of them.
-
-		So a pass is given an allowance and stops when it is spent, and the next pass carries
-		on from where it stopped rather than starting again at the first pin. Which pins a
-		pass reads is settled when it starts, so it ends once each has had a turn. The app
-		layout's pass and the pins' take turns, each finished before the other starts again,
-		so a slow layout pane cannot keep the reader's own pins from being read. The allowance
-		cannot shorten one slow pin — nothing here can, any more than `FetchBudget` can
-		shorten one slow block — but it stops the pin after it from being read in the same
-		cycle.
+		Pins are re-read on a timer, so a pass stops when its allowance is spent and the next
+		pass carries on from there. The pins a pass reads are fixed when it starts. The app
+		layout and the pins take turns, so a slow layout cannot starve the pins. One slow pin
+		is not shortened, but the next waits for the next cycle.
 
 		:param allowance: how long this pass may spend before leaving the rest for the next.
 		:return: whether any pin is still waiting, so the caller knows to come back at once
@@ -1699,10 +1531,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		:param segmentNumber: the segment to scroll.
 		:param forward: True to scroll forward, False to scroll back.
-		:param gesture: the gesture that asked, if there was one. Its display decides which
-			way the panning keys go, since the keys are on one piece of hardware. Taken from
-			the gesture rather than from `panning`'s record, which is kept only for NVDA's own
-			panning commands.
+		:param gesture: the gesture that asked, if any. Its display decides which way the
+			panning keys go. `panning`'s record covers only NVDA's own panning commands.
 		"""
 		container = self.container
 		if container is None:
@@ -1746,15 +1576,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def focusDisplayTargets(self) -> list[FocusDisplayTarget]:
 		""":return: the displays the focus could be made to follow, in stacking order.
 
-		Numbered by `views.deviceSegmentKeys` rather than off the display as it stands,
-		because the number this ends in is written to the configuration and that is the
-		numbering the configuration means. A claim laid over the display — the flow band is
-		one — evicts the segments it covers, so a number read off the container would name
-		a different segment while the claim was up and change again when it was given back.
-
-		Empty for an ordinary display, which has no such choice to make, and empty when
-		something has taken the whole layout over, since then the setting is not what
-		decides.
+		Numbered by `views.deviceSegmentKeys`, the configuration's numbering, not the
+		container's, which changes while a claim such as the flow band is up. Empty for an
+		ordinary display, and while an activated view has the whole display.
 		"""
 		handler = braille.handler
 		if handler is None or handler.displaySize == 0:
@@ -1769,9 +1593,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			log.debugWarning("BrlMultiline: could not read the display's arrangement", exc_info=True)
 			return []
 		if view.name != "devices":
-			# An activated view is a claim about what the whole display is being used for, and
-			# it names its own focus segment. The setting is not read while it is up, so
-			# writing one would be a command that reported success and did nothing.
+			# An activated view names its own focus segment, so the setting is not read.
 			return []
 		try:
 			keys = deviceSegmentKeys(devices, dimensions.numCols)
@@ -1825,15 +1647,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def pinsDisplacedBy(self, number: int) -> list[str]:
 		"""Which pinned objects the focus would evict by landing where it is going.
 
-		A pin and the focus cannot share a segment: `refreshMonitors` would draw the pinned
-		object over the focus content that was just written there, and the two would fight
-		for the cells on every redraw. `startMonitoring` refuses the focus segment for that
-		reason and `_carryOverMonitors` releases a pin the focus has moved onto.
-
-		Released quietly, which is what made this worth asking first. Rearranging the layout
-		in the settings is a decision made while looking at the layout; pressing a key to move
-		the focus is a decision about the focus, and the pin is not in the reader's head at
-		that moment. Losing it is then a surprise rather than a choice.
+		A pin and the focus cannot share a segment, so `_carryOverMonitors` would release the
+		pin quietly. Asked first, because a reader moving the focus is not thinking about the
+		pin.
 
 		:param number: the segment the focus is going to, in the configuration's numbering.
 		:return: the keys of the segments whose pins would go, in display order.
@@ -1852,9 +1668,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def segmentKeyFor(self, number: int) -> str | None:
 		""":return: the segment a configured number names, or None if it names none.
 
-		The configuration's numbering rather than the container's, for the reason
-		`focusDisplayTargets` gives: a claim renumbers what the container holds and this
-		number is going into the configuration.
+		The configuration's numbering, as in `focusDisplayTargets`.
 		"""
 		handler = braille.handler
 		devices = deviceMap()
@@ -1872,25 +1686,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def homesForDisplacedPins(self, number: int) -> list[str]:
 		"""Where a pin evicted by the focus could go instead, best first.
 
-		The segment the focus is *leaving* comes first, because that is the swap the reader
-		is really asking for: the two things trade places, and moving the focus back trades
-		them back. After it, the rest of the display in order, so that a reader who has
-		divided a single row display into several — which this add-on allows on purpose, and
-		which gets crowded fast but is theirs to decide — has those segments offered too.
+		The segment the focus is leaving comes first, so the two trade places and moving back
+		trades them back; then the rest of the display in order. The segment being left
+		counts even if the flow band claims it, since the band moves with the focus.
 
-		A claim on the segment the focus is leaving does not disqualify it, and that is not a
-		liberty: the flow band claims the display *the focus is on*, by design and at this
-		reader's request, so moving the focus takes the band with it and gives those rows
-		back. The alternative was reported from hardware. With the focus and its band on a
-		Monarch and a chat pinned to a Focus 80, toggling back found the Focus 80 wanted by
-		the focus and the whole Monarch owned by the band — no home anywhere, a dialog about
-		losing the pin, and a pin lost on the way to a display that was about to be free.
-
-		What the claim leaves behind may not be a segment of this key, or of any key: a
-		rectangle claimed as one panel can come back divided. So this answers where a pin
-		could go, not where it will end up. `_carryOverMonitors` settles that against the
-		display that actually gets built, and re-homes a pin whose provisional segment did
-		not survive rather than dropping it.
+		This is where a pin could go, not where it will end up: `_carryOverMonitors` settles
+		that against the display actually built.
 
 		:param number: the segment the focus is going to.
 		:return: the keys of segments that could hold a pin, best first.
@@ -1921,11 +1722,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		:param target: the display to move it to.
 		:param position: how far down its display the focus segment is now, kept if the new
 			display is divided finely enough and clamped to its last segment if it is not.
-			Keeping the position is what makes moving back and forth a round trip on two
-			displays divided alike, rather than a walk towards the bottom.
-		:param keep: pins to carry somewhere else rather than let go, as the key they are on
-			now to the key they should move to. Anything not named here is released by
-			`_carryOverMonitors` as it always was.
+		:param keep: pins to carry rather than let go, from the key they are on now to the key
+			they should move to. Others are released by `_carryOverMonitors`.
 		"""
 		number = self.focusSegmentFor(target, position)
 		carried = self._carryPinsClearOfTheFocus(keep or {})
@@ -1948,13 +1746,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _landPinsInFlight(self) -> None:
 		"""Put the pins a focus move carried into the display it ended up building.
 
-		Most of them are already there: the carry-over files a pin whose segment survived,
-		and re-homes one whose segment did not. What is left is a pin that had nowhere to go
-		in the middle of the rebuilding — the pass before the flow band gave its rows back —
-		and was held rather than released. That is the pass this answers for.
-
-		Released here, once, if there really is nowhere. Then the reader is told, which is
-		the whole difference between a pin that was traded away and one that vanished.
+		Handles a pin that was held, not released, because it had nowhere to go part way
+		through the rebuilds. If there is still nowhere, it is released here and the reader is
+		told.
 		"""
 		inFlight, self._pinsInFlight = self._pinsInFlight, []
 		container = self.container
@@ -1980,16 +1774,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _whatBecameOfTheCarriedPins(self, carried: "list[CarriedPin]") -> list[str]:
 		""":return: what to tell the reader about the pins a focus move took with it.
 
-		Said after the rebuild rather than before it, because before it this was a promise.
-		The display that gets built decides where a pin lands and how many rows it has there,
-		and both can differ from what was intended: a segment can dissolve into the reader's
-		own layout, and the rows on the other display may be fewer.
-
-		Two things worth saying, and the second was the reported one. A pin that could not be
-		kept must be reported, or the reader is told their object moved and finds it gone. And
-		a pin that is no longer read as a flow must be reported, because that is a chat which
-		scrolled becoming a single line that does not — nothing on the display says why, and
-		the reader's account of it was that panning had broken.
+		After the rebuild, which decides where each pin landed and how many rows it has.
+		Reports a pin that could not be kept, and a pin that is no longer read as a flow.
 
 		:param carried: what the move took with it, before the rebuild.
 		"""
@@ -2034,15 +1820,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _carryPinsClearOfTheFocus(self, keep: "dict[str, str]") -> "list[CarriedPin]":
 		"""Move pins to their new homes before the display is rebuilt.
 
-		Before, deliberately. `_carryOverMonitors` decides what survives by looking at where
-		each pin *is* when the new container arrives, so a pin already moved is simply a pin
-		whose segment survived — the carry-over needs to know nothing about why it moved.
-
-		Except when the home was a segment the move itself dissolves, which is the flow band
-		giving its rows back as the focus leaves. Then the key the pin was filed under is not
-		in the new display at all, and the carry-over would drop it as gone. So what moved is
-		recorded here, and the carry-over gives those pins a home in the display that was
-		actually built. See L{_pinsMovedByTheFocus}.
+		Before the rebuild, so `_carryOverMonitors` sees each pin where it now is. A home the
+		move itself dissolves, such as rows the flow band gives back, is handled through
+		`_pinsInFlight`.
 
 		:param keep: the key each pin is on now, to the key it should move to.
 		:return: what moved, so the caller can say what became of it.
@@ -2073,12 +1853,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	) -> None:
 		"""Ask which pinned objects to keep before moving the focus over them.
 
-		The reader may keep as many as there are free segments and no more. Which ones is
-		theirs to say, and so is not moving at all: forgetting a pin is exactly how this
-		command loses one, and cancelling is the answer to that.
-
-		The one seam wx is behind on this path, so the decision above can be tested without a
-		running application.
+		The reader may keep as many as there are free segments, or cancel the move. The only
+		place on this path that uses wx, so the rest can be tested without it.
 
 		:param target: the display the focus would move to.
 		:param position: how far down it the focus would sit.
@@ -2159,9 +1935,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _chooseFocusDisplay(self, targets: list[FocusDisplayTarget], position: int) -> None:
 		"""Ask which display should follow the focus, then move it there.
 
-		Reached only when there are more than two to choose between, where a command that
-		toggled would be a command that walked round a ring. The one seam wx is behind, so
-		everything above can be tested without a running application.
+		Only with more than two displays. The only place on this path that uses wx.
 
 		:param targets: the displays to offer, in stacking order.
 		:param position: passed on to L{moveFocusWithItsPins}.
@@ -2270,9 +2044,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_toggleAppLayoutSpread(self, gesture):
 		"""Choose whether app layouts spread across displays, for the profile in force.
 
-		Pressed in Teams with a Teams profile, the answer is saved there and nowhere else, which
-		is how one application can put its chat history on another display while the rest keep
-		their layouts on the focus display. A layout already up is placed again at once.
+		Saved in the profile in force, so it can differ per application. A layout already up
+		is placed again at once.
 		"""
 		spread = not bmConfig.shouldSpreadAppLayouts()
 		bmConfig.setSpreadAppLayouts(spread)
@@ -2325,9 +2098,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def configuredFocusRect(self) -> SegmentRect | None:
 		""":return: where the reader's own arrangement puts the focus, whatever claims lie over it.
 
-		Read from the view claims are composed over, which is what the focus segment setting
-		and the command moving the focus to another display both change. None if it cannot be
-		built, which only a display in the middle of changing can make it.
+		Read from the base view claims are composed over. None if it cannot be built, as while
+		the display is changing.
 		"""
 		numRows, numCols = self._displayDimensions()
 		try:
@@ -2347,15 +2119,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def appLayoutRoom(self) -> appLayout.Room:
 		"""The part of the display an app layout may have, the displays behind it, and the focus.
 
-		Taken is anything holding a pin, and any claim that is not where the focus is drawn: a
-		drawing, a table someone claimed. A flow band is reserved and still free here, because it
-		is the focus, and the focus is one of the things a layout arranges.
-
-		The focus segment's rectangle goes with it, because it says which display the reader put
-		the focus on, and placement keeps it there. It is the reader's own focus segment, from
-		the arrangement they configured, and not whatever is following the focus now: with a
-		layout up that is the layout's, and it would go on saying the layout's display after the
-		reader had moved the focus to another one. See L{configuredFocusRect}.
+		Taken means holding a pin, or a claim other than the focus, such as a drawing. The flow
+		band counts as free, since it is the focus, which a layout arranges. The focus
+		rectangle is the reader's configured one, not the layout's. See `configuredFocusRect`.
 		"""
 		numRows, numCols = self._displayDimensions()
 		container = self.container
@@ -2386,14 +2152,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_changeFocusTrackingDisplay(self, gesture):
 		"""Put the segment that follows the system focus on another of the displays.
 
-		Which display the focus is on is a setting, and on a display made of two it is a
-		setting with two answers — so pressing this is the whole of it, and there is no
-		number to work out. With more than two, a choice has to be made rather than
-		guessed, and the list is the honest way to make it: a command that cycled would
-		leave a reader with four displays pressing it three times and counting.
-
-		The answer is stored, in the profile in force, so it survives a rebuild and a
-		restart and can differ per application, as every other setting here can.
+		With two displays this toggles; with more, it offers a list. Stored in the profile in
+		force.
 		"""
 		targets = self.focusDisplayTargets()
 		if len(targets) < 2:
@@ -2420,22 +2180,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def moveFocusWithItsPins(self, target: FocusDisplayTarget, position: int = 0) -> None:
 		"""Move the focus to a display, taking any pin it would evict with it.
 
-		Three cases, and the reader is only asked about the third.
-
-		**Nothing in the way.** The focus moves.
-
-		**One pin, and somewhere to put it.** They trade places: the pin goes to the segment
-		the focus is leaving, which is free by definition, and moving the focus back trades
-		them back. No question, because there is nothing to decide — this is what the reader
-		meant, and asking would turn a one-key toggle into a two-step operation, which is the
-		thing the command exists to avoid.
-
-		**Anything else.** More than one pin is in the way, or there is nowhere to put what
-		is. Then it is a decision: which to keep, or not to move at all — a reader who had
-		forgotten the pin was there wants the chance to leave things as they were, and one
-		who wants to keep more than there is room for can divide a segment further and try
-		again. Even a single row display can be divided, which gets crowded fast and is
-		theirs to judge.
+		1. Nothing in the way: the focus moves.
+		2. One pin and somewhere to put it: they trade places, without asking.
+		3. Anything else: the reader chooses which pins to keep, or cancels.
 
 		:param target: the display to move the focus to.
 		:param position: how far down its display the focus segment is now.
@@ -2459,11 +2206,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_toggleFlow(self, gesture):
 		"""Turn the flowing reading of the display on or off, and remember the answer.
 
-		The same switch the flow settings hold, so a reader who turns it off from the
-		keyboard finds it off when they open the dialog, and a display or profile that has
-		it on gets it back without the command being pressed again. Stored against the
-		display in the profile in force, which is what makes it possible to have it on in
-		one application and off in another.
+		The same switch as the flow settings, stored against the display in the profile in
+		force.
 		"""
 		enabled = not bmConfig.isFlowEnabled()
 		bmConfig.setFlowEnabled(enabled)
@@ -2494,9 +2238,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_flowToggleUnwrapLines(self, gesture):
 		"""Unwrap the lines on the band, or wrap them again, for the time being.
 
-		Not the setting, which stays as it is: the same file wants both, code to feel the indent of
-		and prose to read, and a command that wrote to the profile in force would leave the choice
-		behind in it. See `FlowBand.unwrapLines` for how long the choice lasts.
+		The setting is not changed. See `FlowBand.unwrapLines` for how long the choice lasts.
 		"""
 		band = self.flowBand
 		if band is None:
@@ -2534,8 +2276,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _panLinesAcross(self, by: int) -> None:
 		"""Pan the band across its unwrapped lines, and say which cell of the lines is at the left.
 
-		Said, because every page of code feels like code: nothing on the display says how far
-		across the lines it is. Spoken only, for the reason `reportAboutTheDisplay` gives.
+		Nothing on the display shows how far across it is. Spoken only; see
+		`reportAboutTheDisplay`.
 
 		:param by: how many widths to move, negative for left.
 		"""
@@ -2601,16 +2343,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_flowTableColumns(self, gesture):
 		"""Read the table the reader is in as columns, or stop.
 
-		A command rather than something that happens by itself, and the reason is not effort.
-		Most tables on a web page are not tables of data — they are how the page is laid out —
-		and turning those into columns would wreck pages that read perfectly well today. NVDA
-		declines to call a layout table a table at all unless the reader has said otherwise,
-		which is most of the protection, and a command the reader presses is the rest of it.
-
-		It is also one keystroke to undo, which is what makes a layout that comes out wrong
-		cost nothing. The end state is a layout remembered against the table so that a
-		watchlist comes up laid out; this is what exists before that, and it stays afterwards
-		as the way to say "not this one" and "this one too".
+		A command rather than automatic, because most web tables are for layout. Saved layouts
+		apply by themselves; see `script_rememberTableLayout`.
 		"""
 		band = self.flowBand
 		target = api.getNavigatorObject()
@@ -2631,12 +2365,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when a table stops being laid out in columns.
 			self.reportAboutTheDisplay(_("Table columns off"))
 			return
-		# A band with no flow on it is not a reason to refuse: a table in a document whose kind
-		# of content the flow settings have turned off is still a table the reader can ask for
-		# by name, and `FlowBand.refresh` lets a named table through those settings for that
-		# reason. **No band at all is not a reason either.** On a one row display there is no
-		# band to claim, and the reader still wants to say "this table, in columns" so that
-		# pinning it to a display with room carries the layout.
+		# Neither an empty band nor no band is a reason to refuse: `FlowBand.refresh` lets a
+		# requested table through the flow settings, and on a one row display the request
+		# carries to a pin.
 		if band is None or not band.isClaimed:
 			if not self._wantTableHere(target):
 				# Translators: reported when a command needs the cursor to be in a table.
@@ -2725,12 +2456,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_tableRowLine(self, gesture):
 		"""Read the table the caret is in a row at a time on NVDA's one line, or stop.
 
-		For a display with no band, which is every display of one row: there a table is read
-		through NVDA's own line, and that line is one cell. See `tableRowLine`.
-
-		Off when the request is about where the reader is standing, or when they are not in a
-		table at all, which is how a request left behind is cleared — the same rule the column
-		command keeps. In a different table it means that table instead.
+		For a display with no band. See `tableRowLine`. On and off follow the same rule as
+		`script_flowTableColumns`.
 		"""
 		from . import flowObjectTable, flowTableLayouts
 		from .flowTableSource import sameTable
@@ -2771,9 +2498,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _columnUnderTheCursor(self):
 		""":return: the band and the table column the cursor is in, or (None, 0).
 
-		The column the *reader* is in rather than the one at the left of the display: these
-		commands are "do this to what I am reading", and on a table wide enough to need pages
-		the two are often not the same column.
+		The column the reader is in, not the one at the left of the display.
 		"""
 		band = self.flowBand
 		if band is None or band.columnPlan() is None:
@@ -2812,10 +2537,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_flowTableToggleColumn(self, gesture):
 		"""Take the column the cursor is in out of the layout, or put it back.
 
-		What a reader does while exploring a table they have not arranged: a column of icons, a
-		column of internal identifiers, a column repeating what the one beside it says. Working
-		out which columns are worth the display is what the first minute in a table *is*, and
-		it should not need a dialog.
+		For exploring a table without opening the designer.
 		"""
 		band, column = self._columnUnderTheCursor()
 		if band is None or not column:
@@ -2850,9 +2572,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_flowTableCutColumn(self, gesture):
 		"""Cycle one column between wrapping, cut at the start, and cut at the end.
 
-		The reported case, in one keystroke: a column whose cells begin with six lines of help
-		text somebody thought was useful reads as that help text on every row, and the thing
-		that names the row is at the other end.
+		For a column whose useful text is at the end of each cell.
 		"""
 		from . import flowTable
 
@@ -2892,9 +2612,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_flowTableResetLayout(self, gesture):
 		"""Drop what has been arranged from the band, without touching what was saved.
 
-		The way out of an experiment. What was remembered for this table is still remembered —
-		`script_forgetTableLayout` is how that goes — so a reader who has been trying things on
-		a table they arranged last week gets that arrangement back rather than nothing.
+		A saved layout comes back; `script_forgetTableLayout` removes it.
 		"""
 		band = self.flowBand
 		if band is None or band.columnPlan() is None:
@@ -2918,15 +2636,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_flowTableDesigner(self, gesture):
 		"""Open the designer for the table on the display.
 
-		The other half of the band commands: those answer what a keystroke can answer while
-		reading, and this is for a table the reader comes back to — what to call a column whose
-		heading is unreadable, how much room the description may have, which column is repeated
-		on every page, where a page begins. See `flowTableDesigner`.
-
-		**Asks for the dialog and returns.** The dialog itself is opened from the event loop:
-		a script runs inside `queueHandler.pumpAll`, and a modal dialog shown there never
-		gives the pump back — NVDA froze on hardware the first time this was pressed. See
-		`flowTableDesigner.arrangeTheTable`.
+		For arrangements a keystroke cannot make, such as column names and widths. See
+		`flowTableDesigner`. Only asks for the dialog: a modal dialog shown from a script,
+		inside `queueHandler.pumpAll`, would hang NVDA. See `flowTableDesigner.arrangeTheTable`.
 		"""
 		from . import flowTableDesigner
 
@@ -2949,12 +2661,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_rememberTableLayout(self, gesture):
 		"""Save the layout on the display against the table it is showing.
 
-		The end the column command was always pointed at: a watchlist that comes up laid out.
-		**What is saved is what the reader arranged**, which for one press and nothing else is
-		the request alone — read this table in columns — and after the band commands or the
-		dialog is whatever they said there. Never the columns as they came out: those are a
-		measurement, and writing one down as though it were a decision froze a reader's first
-		column out of their watchlist for good.
+		Saves what the reader arranged, never the measured columns, so a measurement is not
+		stored as a decision.
 		"""
 		from . import flowTableLayouts
 
@@ -3060,9 +2768,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _tableHere(self):
 		""":return: the table the reader is in, or None, without disturbing anything.
 
-		The navigator object rather than the focus, which is what the column command uses and
-		what a reader means by "the table I am in": on a one row display there is no band, and
-		the pin they are working with is where the navigator object is.
+		From the navigator object, as the column command uses.
 		"""
 		from .flowTableSource import logExplanation, tableAt
 
@@ -3115,10 +2821,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def segmentKeysOn(self, driverName: str | None) -> list[str]:
 		""":return: the keys of the segments lying on one physical display, in display order.
 
-		Empty for an unknown display. An ordinary display, connected without the combined display
-		driver, has every segment: there is no map of members then, and it was answered as having
-		none, so a pinned document on a Monarch connected on its own was never found (found in
-		review).
+		Empty for an unknown display. An ordinary display, without the combined display driver,
+		has every segment.
 		"""
 		container = self.container
 		if driverName is None or container is None:
@@ -3215,14 +2919,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _tableToPage(self, gesture) -> object:
 		""":return: which table a paging command should move, or None if there is none.
 
-		**The display whose key was pressed, first.** The reader put a table on the Monarch
-		precisely so that it is not where they are working, so "the table in front of you" is
-		the wrong answer for it: the answer is the table under the hand that pressed. That is
-		the same rule the panning keys already follow, and it is what the reader asked for.
-
-		Failing that — no key behind the command, an ordinary display, or nothing laid out on
-		the pressed one — the first table in display order, which on a display showing one is
-		the only one there is.
+		The table on the display whose key was pressed, as the panning keys do; failing that,
+		the first table in display order.
 
 		:param gesture: the gesture that ran the command, if there was one.
 		"""
@@ -3240,9 +2938,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _turnColumnPage(self, by: int, gesture=None) -> None:
 		"""Move a table by pages of columns, and say where it landed.
 
-		Said rather than left to the fingers, because which page of a twenty-nine column table
-		is on the display is exactly what the display cannot tell you: every page looks like a
-		table, and the headers are on the first row of the table rather than on the band.
+		Said, because the display cannot show which page of columns it is on.
 
 		:param by: how many pages to move, negative for back.
 		:param gesture: the gesture that ran the command, which says which display's table is
@@ -3291,10 +2987,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_flowCost(self, gesture):
 		"""Say what the flow has cost, and write the detail to the log.
 
-		The measurement the budget was always meant to be checked against. A budget nobody
-		compares with real reading is a number somebody guessed, and a guessed number here
-		has twice turned out to be the fault rather than the safety limit — so this is what
-		a reader on a heavy page can press to say something better than "it felt slow".
+		The measurement to check the fetch budget against on a real page.
 		"""
 		band = self.flowBand
 		control = band.controller if band is not None else None
@@ -3339,14 +3032,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_flowDryRun(self, gesture):
 		"""Read the object under the navigator as a flow, onto the clipboard.
 
-		A diagnostic for the spatial reading work. It claims nothing and moves nothing: the
-		flow it builds is a viewer, so the browse mode cursor stays where the reader left it.
-
-		The clipboard rather than the log, because the log is where a report goes to be
-		fished for. A hardware run means reproducing something on a display and then reading
-		back what happened, and asking the reader to find their report among everything else
-		NVDA said while they were doing it is a tax on the slowest part of this project. The
-		log is still written, since it is what survives a session that crashed.
+		A diagnostic. It claims and moves nothing: the flow is a viewer. Copied to the
+		clipboard so the report is easy to find, and also logged, in case NVDA crashes.
 		"""
 		from .flowDryRun import dryRun, toClipboard
 
@@ -3384,9 +3071,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_appLayoutReport(self, gesture):
 		"""Ask the focus's app module for its layout here, and report what would be shown.
 
-		Shows nothing and claims nothing. It asks even where the setting does not allow app
-		layouts, and says so, because an app module's author needs the answer before the reader
-		has any reason to allow it.
+		Shows and claims nothing. Asks even where the setting does not allow app layouts, and
+		says so, for app module authors.
 		"""
 		from .flowDryRun import toClipboard
 
@@ -3471,28 +3157,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	# --- Graphics ------------------------------------------------------------------------
 	#
-	# Only the commands that put a drawing up arrive bound here: show or hide a drawing, chart
-	# the selection, draw the picture. Everything else in this add-on is unbound on purpose, a
-	# reader assigns what they want, and an add-on helping itself to keystrokes is a nuisance.
-	# Those three are different because the reader is at the display with a hand on the panel,
-	# and a command that needs the keyboard means taking that hand off the figure.
+	# Only the commands that put a drawing up are bound by default, since the reader's hand is
+	# on the display. Everything used while a drawing is up is in a key layer, in
+	# `keyLayers.defaultLayers`, which comes and goes with the drawing. See
+	# docs/design/layered-keys-plan.md.
 	#
-	# **Everything used while a drawing is up lives in a layer instead**, in
-	# `keyLayers.defaultLayers`: zoom, pan, the braille line, the chart's views and the picture's
-	# styles. They were global chords once, which took eleven chords off the Monarch's keyboard
-	# for good to serve something that is only on the display some of the time. A layer comes
-	# on with the drawing and goes with it, so the same keys are free the rest of the time, and
-	# a chart layer or a picture layer can use plain letters because nobody is typing into the
-	# drawing.
-	#
-	# The chords that remain are collision free rather than mnemonic. `hidBrailleStandard`'s
-	# gesture map, which the Monarch driver inherits whole, uses no chord containing dot 7 or
-	# dot 8 anywhere, so they sit in space the standard map left empty.
-	#
-	# Named for the Monarch driver rather than for `hidBrailleStandard`, deliberately. The
-	# gesture offers both identifiers, and binding the standard one would take these chords
-	# on every HID braille display, including ones that cannot draw and would answer nothing
-	# but "No drawing". All of it is rebindable in Input Gestures under BrlMultiline.
+	# The bound chords contain dot 7 or dot 8, which `hidBrailleStandard`'s gesture map never
+	# uses. They are bound for the Monarch driver, not `hidBrailleStandard`, so displays that
+	# cannot draw are not affected. All are rebindable in Input Gestures under BrlMultiline.
 
 	@script(
 		# Translators: input help message for a command.
@@ -3538,21 +3210,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_chartSelection(self, gesture):
 		"""Draw what the reader has selected as a tactile chart, of a type they choose.
 
-		The thing the whole graphics path exists for: a chart drawn from live application
-		data, on a display the reader can point at. Pressing a routing key on it says what
-		is under the finger — which bar, which series at which date, or a whole day's four
-		prices.
-
-		**It asks which chart rather than guessing.** Four columns of numbers with dates
-		down the side are four measurements over time or one instrument's trading, and
-		nothing in the cells says which; a wrong guess costs the reader a chart they then
-		have to undo. So the list of what can be drawn from this selection is put to them,
-		and it is short because it only ever contains charts that will actually draw.
-
-		Every way this can fail carries a reason the reader can act on — not a spreadsheet,
-		nothing numeric selected, more bars than the display holds, columns that are not
-		prices — because a command that only said it had failed would leave them guessing
-		at which.
+		A routing press on the chart says what is under the finger. Asks which chart rather
+		than guessing, since the same cells can mean different charts; the list holds only
+		charts that will draw. Every failure says a reason the reader can act on.
 		"""
 		self._cancelPictureRequest()
 		if self.graphicsMode.drawingSize() is None:
@@ -3624,8 +3284,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _chooseChart(self, offers: list) -> None:
 		"""Ask which of several charts to draw, then draw it.
 
-		The one seam wx is behind, exactly as `_chooseFocusDisplay` is: everything that
-		decides *what* is on offer is in `chartMenu` and is tested without an application.
+		The only place on this path that uses wx; what is on offer is decided in `chartMenu`.
 
 		:param offers: the charts that can be drawn, in the order to offer them.
 		"""
@@ -3668,13 +3327,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def drawChart(self, offer, say: Optional[Callable] = None, remember: bool = True) -> None:
 		"""Draw one of the charts on offer and put it on the display.
 
-		The size is asked for again here rather than carried in from the command, because
-		a dialog was open in between and a display can be unplugged while one is.
+		The size is read again here, since the display may have changed while a dialog was open.
 
 		:param offer: what to draw, from `chartMenu.offersFor`.
 		:param say: speaks the answer, `ui.message` if not given. `_sayAfterDialog` when the
-			chart was chosen in the dialog, whose closing gives the focus back and would talk
-			over the answer.
+			chart was chosen in the dialog.
 		:param remember: whether this is the kind to open the chart dialog on next time. Not for
 			an application's own chart, which was never chosen in the dialog.
 		"""
@@ -3716,21 +3373,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_drawPicture(self, gesture):
 		"""Put whatever the reader is pointing at on the pins as a tactile picture.
 
-		**The picture is the one NVDA just found.** A reader arrowing a web page hears
-		"graphic", and this is the command for that moment: it takes the navigator object,
-		which in browse mode is that graphic, and copies its rectangle off the screen.
-		Nothing has to be aimed first.
-
-		Deliberately not restricted to things NVDA calls a graphic. A diagram in a canvas,
-		a map, a floor plan and a chart somebody published as a picture are all worth a
-		hand, and half of them report a role that says nothing. A reader who has pointed at
-		something and pressed this has said what they want more clearly than a role would.
-
-		**An image on a web page is loaded from its own file when the browser says where it
-		is**, which is better than the screen: the full size, nothing covering it, and the
-		screen curtain can stay on. Loaded in the background so NVDA keeps talking, and if it
-		will not load -- an image that needs the reader signed in, a kind Pillow cannot read,
-		no network -- the same object is copied off the screen instead, as it always was.
+		The navigator object, whatever its role, copied off the screen. A web image whose
+		address the browser gives is loaded from its file instead, in the background, which
+		gives full size and works with the screen curtain on; if it will not load, the screen
+		copy is used.
 		"""
 		obj = None
 		try:
@@ -3770,13 +3416,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_drawClipboardPicture(self, gesture):
 		"""Draw an image copied to the clipboard, or an image file copied in File Explorer.
 
-		The way round everything a screen capture cannot do: it works with the screen curtain
-		on, nothing covering the picture on screen can get into it, and it has the image at
-		its own size rather than the size it was shown at. In a browser, Copy image from the
-		context menu; in File Explorer, copy the file.
-
-		Unbound by default, like the glyph catalogue. The Monarch's free chords are few, and
-		which of them NVDA's own driver has not taken is not something this add-on can check.
+		Works with the screen curtain on and gives the image at its own size. Unbound by
+		default.
 		"""
 		# A newer request than any picture file still loading, which must not land on top.
 		self._cancelPictureRequest()
@@ -3785,14 +3426,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _cancelPictureRequest(self) -> None:
 		"""Forget a picture file still loading, so it is never drawn when it arrives.
 
-		Only the last thing asked for counts. A picture whose file is slow is still the reader's
-		request when it lands, unless they asked for something else in between: another picture,
-		a chart, the glyph catalogue, or the drawing on or off. Each of those calls this, and so
-		does `terminate`, so a file arriving after NVDA has moved on draws nothing. Found in
-		review: a late image replaced a chart chosen after it, and one drew after shutdown.
-
-		A page layout still being gathered for an overview is the same kind of late arrival,
-		and is stopped here for the same reason.
+		Only the last request counts, so every other drawing command and `terminate` call
+		this. Also stops a page layout still being gathered for an overview.
 		"""
 		self._pictureRequest = None
 		if self._layoutCollector is not None:
@@ -3807,13 +3442,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_pictureOnlyColour(self, gesture):
 		"""Redraw the picture with only the colour under the last routing press, or undo that.
 
-		A routing press on a picture names the colour under the finger; this then draws that
-		colour alone, in whatever style is up. One series of a chart, the rivers on a map, the
-		highlighted route. Pressed again, every colour comes back.
-
-		Kept to the part of the picture the reader is on, the way a change of style is: the
-		colour picture is the same size and starts from the same box, so a reader zoomed into a
-		legend can pick a colour there and stay there.
+		Draws that colour alone in the current style; pressed again, every colour comes back.
+		Keeps the reader's zoom and place, as a change of style does.
 		"""
 		mode = self.graphicsMode
 		picture = self._picture
@@ -3842,8 +3472,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		paper = picture.paper
 		fromPaper = max(abs(a - b) for a, b in zip(picture.touched, paper)) if paper is not None else 255
 		if fromPaper < imagePins.INK_FROM_PAPER:
-			# Drawing only the paper raises everything that is not a line, which is the picture
-			# inside out rather than a colour of it. The press almost certainly missed.
+			# The background colour: the press almost certainly missed.
 			# Translators: reported when only one colour of a picture was asked for and the colour
 			# last touched is the background. Says how to choose a colour that is drawn.
 			ui.message(_("That is the background; press a routing key on a line or shape first"))
@@ -3868,15 +3497,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_pictureStyle(self, gesture):
 		"""Draw the same picture the other way, without copying the screen again.
 
-		Outlines, single lines, brightness, brightness reversed. None of the four can be chosen
-		in advance — the same picture as outlines and as brightness are two entirely different
-		panels, and which one reads depends on the picture — so the answer is a key that
-		cycles rather than a question nobody can answer before feeling it.
-
-		The pixels are kept from the first press, which is what makes this a change of style
-		rather than a fresh capture. Copying again would be copying something else: the page
-		has scrolled, the focus has moved, and a command that said it was changing the style
-		would have changed the picture too.
+		Cycles through outlines, single lines, brightness and brightness reversed, since which
+		reads best depends on the picture. Uses the pixels kept from the first press. See
+		`_picture`.
 		"""
 		self._choosePictureStyle(imageFigure.nextStyle(*self._pictureStyle))
 
@@ -3915,17 +3538,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _choosePictureStyle(self, style: tuple) -> None:
 		"""Draw the picture up in one style, the one the cycling key or a direct key asked for.
 
-		A key for each as well as one that cycles, because once a reader has learned which style
-		reads a kind of picture, cycling through the others to reach it is panels of something
-		they already know they do not want.
+		There is a key for each style as well as the cycling one.
 
 		:param style: one of `image.STYLES`.
 		"""
 		mode = self.graphicsMode
 		if self._picture is None or not mode.active or mode.source is not self._pictureDrawing:
-			# Not "is there a picture in hand" but "is the picture in hand the thing being
-			# read". The pixels outlive the figure, so a reader who left the drawing or put a
-			# chart up would otherwise have the old picture put back over it.
+			# Whether the held picture is what is being read. See `_pictureDrawing`.
 			# Translators: reported when the style key was pressed and no picture is up.
 			ui.message(_("There is no picture to change"))
 			return
@@ -3934,11 +3553,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# under the hand, so this only says what is there.
 			ui.message(mode.describe())
 			return
-		# Handed over rather than set here, and kept only if it draws. Set first, a style that
-		# was refused -- it would not draw the part the reader is on, or the picture had nothing
-		# in it that way -- stayed chosen while the old drawing stayed on the display, so the
-		# next press of the cycling key moved on from a style the reader never felt. Found by
-		# review.
+		# Passed in rather than set here, and kept only if it draws, so a refused style is not
+		# left chosen.
 		self._drawPicture(again=True, style=tuple(style))
 
 	def _drawPicture(
@@ -3951,9 +3567,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	) -> None:
 		"""Capture if needed, compose, and put a picture on the display.
 
-		The size is asked for here rather than carried in, because the rectangle a drawing
-		gets can change between one press and the next — the braille line beside it is a
-		command — and composing for the old one would cut a row off.
+		The size is read here, since the drawing's rectangle can change between presses.
 
 		:param again: whether to re-use the pixels already captured rather than copying the
 			screen. True for a change of style, False for a new picture.
@@ -4045,18 +3659,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_glyphCatalogue(self, gesture):
 		"""Put every symbol the add-on knows on the panel, so a hand can compare them.
 
-		**Shapes cannot be chosen by looking at them.** A drawing that is obvious on a
-		screen can be a smudge under a fingertip, two that look quite different can feel
-		the same, and there is no way to find that out except by putting them side by side
-		and running a hand along them.
-
-		Pressing a routing key on one says which it is, which is what makes it a catalogue
-		rather than a row of shapes: the question a reader has is always "is this the one I
-		just felt", and counting along a line to answer it is holding the order in mind
-		while judging the shapes.
-
-		Unbound by default. It is a tool for choosing a vocabulary rather than something
-		used while reading, and the graphics chords are spent on things that are.
+		Shapes can only be judged by touch, side by side. A routing press on one names it.
+		Unbound by default.
 		"""
 		self._cancelPictureRequest()
 		mode = self.graphicsMode
@@ -4089,11 +3693,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_layoutOverview(self, gesture):
 		"""Draw the main areas of the web page on screen as labelled boxes in their places.
 
-		Browse mode reads a page in one line and loses its shape: whether the navigation runs
-		across the top or down the left, where search is, whether the page is in columns. This
-		draws that shape, an outline for each area with a short label or a key letter in it,
-		and a press inside a box names the area in full. See
-		`docs/design/layout-overview-plan.md`.
+		An outline for each area with a short label or key letter, and a press inside a box
+		names the area. See docs/design/layout-overview-plan.md.
 
 		Outside a web page in browse mode, it draws the window the focus is in instead: its
 		toolbars, ribbon, panes, lists and status bar, from UI Automation. See `appRegions`.
@@ -4322,9 +3923,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_layoutDrillIn(self, gesture):
 		"""Draw the area last pressed as the whole drawing, with the areas inside it.
 
-		A press names a box; this goes into it, so a reader can see what is in the navigation or
-		the main content in the room the whole panel gives. Positions are then said within that
-		area. Dot 8 on the Monarch in the graphics layer, as enter goes in.
+		Positions are then said within that area. Dot 8 in the Monarch's graphics layer.
 		"""
 		state = self._layoutUp()
 		if state is None:
@@ -4388,19 +3987,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	):
 		"""The drawing of a page's layout, which draws itself again when zoomed or moved.
 
-		**The whole page is drawn tall**: a screen of the page to a panel's height, so its
-		areas have room for their labels and the areas inside them, and it opens a panel wide at
-		its top for the reader to move down (see `Drawing.opensAcross`). Squeezed onto one panel
-		a long page lost everything but its main areas.
-
-		**Zooming and moving compose the view again rather than magnifying it**, through
-		`Drawing.redraw`, so the labels stay braille at the panel's own size instead of growing
-		into blobs, and an area keeps the key letter it was given wherever it appears. The key
-		for what is on the panel is the drawing's note, said after each move.
-
-		**Pressing in a box a second time moves to it**: the browse mode cursor goes to where
-		the area starts in the page, through `Drawing.activateAt` and `Drawing.areaAt`. See
-		`_moveToArea`.
+		1. The page is drawn tall, a screen of it to a panel's height, opening at its top. See
+		   `Drawing.opensAcross`.
+		2. Zooming and moving compose the view again through `Drawing.redraw`, so labels stay
+		   at braille size and areas keep their key letters.
+		3. A second press in a box moves the browse mode cursor there. See `_moveToArea`.
 
 		:return: the drawing, or None.
 		"""
@@ -4538,25 +4129,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _moveToArea(self, document, region, identity: Optional[tuple] = None) -> None:
 		"""Put the browse mode cursor where an area of the page starts, and leave the drawing.
 
-		What quick navigation does for a heading or a landmark, done for an area found on the
-		page: the cursor goes to the area's first content, the area's name is said, then the line
-		there.
+		Like quick navigation: the area's name is said, then the line there. The drawing comes
+		down only when its display also shows the focus.
 
-		**The drawing comes down only when its display is also showing the focus**, as one
-		display doing everything is, so braille can show the line arrived at. With the focus on
-		another display, such as a Focus 80 beside the Monarch drawing, the line arrives there
-		and the drawing stays up for the next area.
-
-		**Where the area starts is found again, not remembered.** An offset is only good for the
-		reading of the page it came from, and browse mode reads a page again, or a page becomes
-		another, under the same document object (found in review: an old drawing moved to an
-		offset in a buffer that had been replaced). So the area's first element is looked up by
-		browse mode's identifier for it (`Region.anchor`), which finds it wherever it now is; an
-		offset alone is used only while the buffer is the one it came from.
-
-		Refused, with the reason said, when the area has no place in the text (an area found from
-		the accessible tree on a page without landmarks), or when the page under the focus is no
-		longer the one the layout was read from, or its first element is gone.
+		The start is found again by the area's first element (`Region.anchor`), since browse
+		mode can re-read a page under the same document; an offset is used only while the buffer
+		is unchanged. Refused, with a reason, when the area has no place in the text, the page
+		has changed, or the element is gone.
 
 		:param document: the browse mode document the layout was read from.
 		:param region: the area pressed.
@@ -4619,14 +4198,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""Move to an area of an application window: the focus to it, or to the first thing in it
 		that can take the focus, or the navigator object to it when nothing in it can.
 
-		The application's equivalent of `_moveToArea`. A list, a tree or a document takes the focus
-		itself; a toolbar or a pane gives it to its first button or field, as moving between a
-		window's panes with F6 does; a status bar, which nothing in can take the focus, gets the
-		navigator, which is how it is read anyway.
-
-		**The area is found again by its element's runtime id**, not by where it was, since the
-		window may have changed since its layout was read; and refused, with the reason said, when
-		the window is no longer the one in front or the element is gone.
+		The application counterpart of `_moveToArea`, moving as F6 between panes does. Found
+		again by the element's runtime id, and refused, with a reason, when the window is no
+		longer in front or the element is gone.
 
 		:param region: the area pressed, whose `anchor` is its element's runtime id.
 		:param identity: the window the layout was read from, as `[window handle]`.
@@ -4661,8 +4235,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return
 		target = appCollect.focusableWithin(element)
 		if not inFront():
-			# The lookups go into the application and can take a while, long enough to switch
-			# windows; then the move is stale, and leaves the drawing as it is (found in review).
+			# The lookups can take long enough for the reader to switch windows; then the move
+			# is stale.
 			ui.message(notInFront)
 			return
 		if self.graphicsMode.holdsFocus():
@@ -4716,18 +4290,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return
 		marked = mode.markedPoint
 		moved = mode.zoomBy(step)
-		# Reported whether or not it moved: at the ends of the ladder the useful answer is
-		# still where the reader now is, and silence would read as the command having missed.
-		# `describe` says "whole drawing" at the bottom of the ladder rather than a number,
-		# because a magnification figure for a compressed drawing means nothing to a reader.
+		# Reported whether or not it moved, so the command never seems to have missed.
 		said = mode.describe()
 		movedMark = self._markMovedWords(mode, marked)
 		if movedMark:
 			said += ", " + movedMark
 		if not moved:
-			# And when it did not move, why. Without this the answer to a refused zoom is the
-			# same sentence as the answer to the zoom before it, which is indistinguishable
-			# from a key that does nothing -- and was reported as one.
+			# And when it did not move, why.
 			why = mode.zoomRefusal(step)
 			if why:
 				said += ", " + why
@@ -4737,15 +4306,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _captureSizeWords(self, mode) -> str:
 		""":return: how big the capture was, when that is what answered the reader question.
 
-		Said only on a refused zoom of a picture, and it is the whole answer to the commonest
-		confusion about one: a toolbar with six icons plainly visible on the screen will not
-		magnify, and nothing on the panel says why. What limits it is not the display and not
-		the drawing but how many screen pixels the thing was in the first place -- a toolbar
-		160 pixels wide across 96 pins is already under two pixels to a pin, so magnifying it
-		would enlarge the pins and show nothing that was not already there.
-
-		Empty unless the drawing on the display is the captured picture, since a chart is
-		limited by its periods rather than by any number of pixels.
+		Said on a refused zoom of a picture, since what limits zoom is how many screen pixels
+		were captured. Empty unless the drawing is the captured picture.
 		"""
 		if self._picture is None or mode.source is not self._pictureDrawing:
 			return ""
@@ -4765,9 +4327,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_graphicsZoomToPoints(self, gesture):
 		"""Zoom a line chart to exactly where every point has a pin column of its own.
 
-		Its own key rather than a rung on the zoom ladder, because it is almost never a
-		doubling: it depends on how many points there are and how wide the panel is. O in the
-		Monarch's chart layer, for one.
+		Its own key, since it is rarely a doubling. O in the Monarch's chart layer.
 		"""
 		mode = self.graphicsMode
 		if not mode.active:
@@ -4802,9 +4362,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _changeGraphicsView(self, direction: int) -> None:
 		"""Step through a chart's views, and say which lines are now showing.
 
-		V for view in the Monarch's chart layer, with dot 7 added to go back. The whole chart, each
-		line alone, then the first line with each of the others; see `chartLine.viewsFor`. The
-		zoom and the place are kept, so the same days can be felt with and without the rest.
+		V in the Monarch's chart layer, with dot 7 to go back. See `chartLine.viewsFor`. The zoom
+		and place are kept.
 
 		:param direction: 1 for the next view, -1 for the previous.
 		"""
@@ -4933,9 +4492,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _panGraphics(self, across: int, down: int, whole: bool = False) -> None:
 		"""Move the visible part of the drawing, and say where it now starts.
 
-		Written out four times rather than generated, unlike the segment commands, because a
-		generated script cannot carry a default gesture: the metaclass collects a decorator's
-		gestures from the class body, and anything attached afterwards is never seen.
+		The pan scripts are written out rather than generated, because NVDA collects default
+		gestures from the class body only.
 
 		:param across: steps right, negative for left.
 		:param down: steps down, negative for up.
@@ -4946,9 +4504,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("No drawing"))
 			return
 		if mode.zoom == GRAPHICS_FIT:
-			# Not an edge and not a failure: at the bottom of the zoom ladder the whole drawing
-			# is on the panel, so there is nowhere to move to and nothing off the display to go
-			# looking for. Saying that is more use than saying the pan did not happen.
+			# The whole drawing is on the panel, so there is nowhere to move to.
 			# Translators: reported when panning is asked for but the whole drawing is already
 			# on the display.
 			ui.message(_("Whole drawing is shown; magnify to move around it"))
@@ -4990,14 +4546,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_toggleGraphicsTextLine(self, gesture):
 		"""Give the drawing the whole display, or give the braille line back.
 
-		A figure on the Monarch is 96 by 35 pins with a line kept beside it and 96 by 40
-		without — about a seventh more, and the seventh across the middle of the panel where
-		a reader's hands already are. Worth having at times, which is why it is a command
-		rather than a setting decided once.
-
-		The cost is stated rather than hidden: with no line left, NVDA's focus braille has
-		nowhere to go and is dropped for as long as the figure is up. A reader with a second
-		display does not pay it at all — their focus segment is over there, untouched.
+		On the Monarch, 96 by 40 pins instead of 96 by 35. Without the line, focus braille is
+		dropped while the figure is up, unless the focus is on another display.
 		"""
 		mode = self.graphicsMode
 		if not mode.active:
@@ -5336,17 +4886,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_reportLayout(self, gesture):
 		"""Say what is on the display, and who claimed it.
 
-		The counts alone were not enough to debug with. A reader whose display had stopped
-		dividing was told "devices+flow view, 3 panels, 2 segments", which contains the
-		answer — the `+` means a claim was laid over the configured view, and the flow had
-		taken the rows the segments were meant to occupy — but only to someone who knows how
-		`SegmentView.withPanel` names a composed view. What was missing was plain: which
-		claim, and which rows.
-
-		So the summary now names every claim and the rows it holds, and the full breakdown —
-		every panel and every segment, with its rectangle, its owner and whether it follows
-		the focus — goes to the log at INFO, where it needs no debug logging to appear and can
-		be sent on.
+		The summary names every claim and the rows it holds. The full breakdown of panels and
+		segments, with rectangles, owners and which follows the focus, goes to the log at INFO.
 		"""
 		container = self.container
 		if container is None:
@@ -5401,8 +4942,7 @@ def _rectWords(rect) -> str:
 def _layoutLines(container, claims: list) -> list[str]:
 	"""Describe the whole arrangement, for the log.
 
-	English rather than translated, like the flow dry run's output and for the same reason:
-	this is read by whoever is diagnosing a display, often from a log someone else sent.
+	In English, like the other diagnostic reports.
 
 	:param container: the live display.
 	:param claims: the panels code has laid over the configured view, which is what
@@ -5442,8 +4982,7 @@ def _layoutLines(container, claims: list) -> list[str]:
 def _byPriority(panels) -> list:
 	"""Order claims so the highest priority is laid over the rest.
 
-	Stable, so claims of equal rank keep the order they were made in, which is what decided
-	them before the ladder existed.
+	Stable, so claims of equal rank keep the order they were made in.
 
 	:param panels: the claims, in the order they were made.
 	:return: the same claims, lowest priority first.
@@ -5454,10 +4993,7 @@ def _byPriority(panels) -> list:
 def _columnName(column) -> str:
 	""":return: what to call one column of a table when saying which ones are showing.
 
-	Its heading, where the table has one to give. Where it has none the number, said as a
-	number *of* something: a message list declares no headings and has no header row to
-	borrow them from, so the reader turning to the next page of one heard "six, seven" —
-	numbers with nothing attached to them, which is a worse answer than the column count.
+	Its heading, or failing that "column" and its number.
 
 	:param column: the column, as the layout planned it.
 	"""
@@ -5634,15 +5170,9 @@ def _makeMonitorScript(segmentNumber: int, start: bool):
 def _generateSegmentScripts() -> None:
 	"""Add the per segment commands to the plugin class.
 
-	Two families, and they answer different questions. The display relative ones name a
-	segment by which display it is on and how far down that display it sits, which survives
-	every rearrangement that keeps the displays — bind these to the keys you keep reaching
-	for. The ones that name a segment outright count across the whole display, so they can
-	reach a segment the first family cannot, at the cost of moving when the layout does.
-
-	One set is generated for every segment the add-on can offer, whether or not the current
-	layout has that many. None are bound by default: assign the ones wanted through NVDA's
-	Input Gestures dialog, ideally to keys on the display itself.
+	Two families. The display relative ones name a segment by its display and its place on
+	it, which survives rearrangements; the others count across the whole display. One set
+	for every segment the add-on can offer. None are bound by default.
 	"""
 	for displayOrdinal in range(devicesModule.MAX_UI_DISPLAYS):
 		setattr(
