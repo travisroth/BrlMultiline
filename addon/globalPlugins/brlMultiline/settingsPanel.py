@@ -5,24 +5,13 @@
 
 """NVDA settings categories for BrlMultiline.
 
-Three of them, because they are answers to different questions.
+1. `BrailleMultilineSettingsPanel` divides the connected display. On a composite, a chooser
+   picks which physical display is being divided, since a segment cannot straddle two.
+2. `FlowSettingsPanel` turns spatial reading on per kind of content, often per profile.
+3. `VirtualDisplaySettingsPanel` chooses which displays are combined, and in what order,
+   whether or not the composite is in use.
 
-L{BrailleMultilineSettingsPanel} arranges the display that is connected now, and stores
-against it. When that display is several physical displays combined, division is asked of
-each of them separately, since a segment may not straddle two pieces of hardware — so the
-panel gains a chooser, and everything under it applies to the chosen display.
-
-L{FlowSettingsPanel} turns spatial reading on, and says which kinds of content it applies
-to. That is a question about how content is presented rather than about how the display is
-divided, and the reader's answer to it changes from one application to the next, so it has
-a category of its own where a configuration profile is the obvious thing to reach for.
-
-L{VirtualDisplaySettingsPanel} chooses which physical displays are combined, and in what
-order. That is a standing arrangement rather than a property of what is connected, so it is
-stored on its own and is editable whether or not the combined display is in use.
-
-All three write through `config.conf`, so every setting here belongs to the configuration
-profile being edited. NVDA says which that is in the dialog's own title.
+All write through `config.conf`, to the profile being edited.
 """
 
 from typing import NamedTuple
@@ -61,9 +50,7 @@ def followingChoices() -> tuple[tuple[str, str], ...]:
 def followingIndex(stored: str) -> int:
 	""":return: which entry of a chooser a stored state means, 0 — following — for anything else.
 
-	The same rule `_indentStyleIndex` follows, and for the same reason: a value this version
-	has not got must read here as what `bmConfig` will actually do with it, or saving without
-	touching the control would quietly change the setting.
+	As `_indentStyleIndex`: an unknown value reads as what `bmConfig` will do with it.
 	"""
 	for index, (state, _label) in enumerate(followingChoices()):
 		if state == stored:
@@ -74,11 +61,8 @@ def followingIndex(stored: str) -> int:
 def indentStyleChoices() -> tuple[tuple[str, str], ...]:
 	""":return: the indent styles and their labels, in the order the dialog offers them.
 
-	A function rather than a constant because the labels are translated, and a constant
-	built at import time is translated once into whatever language was current then. Ordered
-	by `flowIndent.INDENT_STYLES` so that the one definition of what a style is decides what
-	the dialog shows, and a style added there without a label here is offered by its name
-	rather than silently dropped.
+	A function, so the labels are translated when asked. Ordered by
+	`flowIndent.INDENT_STYLES`; a style with no label here is offered by its name.
 	"""
 	labels = {
 		# Translators: a choice of how the depth of a tree item is shown in braille.
@@ -124,9 +108,6 @@ def parseSegmentSizes(text: str) -> list[int]:
 def reportSettingsError(panel, message: str, control) -> None:
 	"""Tell the reader why a setting was refused, and put them on the control it was about.
 
-	The focus move is the point: a message box saying what is wrong, followed by the reader
-	having to find the field again, is a message box that has only half worked.
-
 	:param panel: the settings category the error is about, which owns the dialog.
 	:param message: what is wrong, as the reader should hear it.
 	:param control: the control to put the focus on.
@@ -144,9 +125,7 @@ def reportSettingsError(panel, message: str, control) -> None:
 def displayDescriptions() -> dict[str, str]:
 	"""Read the name NVDA shows for each braille display driver.
 
-	Every driver is listed, including those whose hardware is not connected, because a member
-	of a combined display is chosen once and used whenever it is switched on. A driver list
-	that hid a display that happened to be off would be a list the user could not finish.
+	Every driver, connected or not, since a member is chosen once and used when switched on.
 
 	:return: driver name to description. Empty if NVDA would not say, in which case callers
 		fall back to the driver names, which are at least unique.
@@ -191,9 +170,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 	)
 	"""What NVDA announces about this category beyond its name.
 
-	`SettingsPanelAccessible.GetDescription` reads this, and a panel that leaves it empty
-	announces nothing but its title — which is what a hardware run heard as an empty panel in
-	the tab order. NVDA's own categories set it; see `gui.settingsDialogs`.
+	Read by `SettingsPanelAccessible.GetDescription`, as NVDA's own categories set it.
 	"""
 
 	def makeSettings(self, settingsSizer):
@@ -210,9 +187,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		self.pending = {target.displayKey: self._readTarget(target.displayKey) for target in self.targets}
 		"""The unsaved segment settings of every display this panel can edit.
 
-		The controls show one display at a time, so edits to the others have to live
-		somewhere until the dialog is closed. Held here rather than written straight to the
-		configuration, so that cancelling the dialog still cancels everything.
+		The controls show one display at a time; held here so Cancel still cancels everything.
 		"""
 		self.targetIndex = 0
 
@@ -405,9 +380,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 	def _displayDrawsGlyphs(self) -> bool:
 		""":return: whether the display in use can draw a shape in a cell.
 
-		Greyed out rather than hidden where it cannot, so that a reader who has heard of the
-		setting finds it and finds out why it is not available, rather than looking for
-		something that is not there.
+		Where it cannot, the setting is greyed out rather than hidden.
 		"""
 		from . import glyphFlow
 
@@ -420,15 +393,8 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 	def _highestSegmentNumber(self) -> int:
 		""":return: the largest segment number the spin controls should offer.
 
-		Segments are numbered across the whole display, so on a composite the count to
-		bound by is the sum of what each display behind it may be divided into rather than
-		what one of them may. A control bounded by the latter cannot express the last
-		segment of a tall composite, which is a number the reader can perfectly well
-		reach — the display relative commands and the command that moves the focus from
-		one display to another both produce it.
-
-		This is a bound on what can be typed, not on what is right: L{isValid} checks the
-		number against the segments the configured layout actually has.
+		On a composite, the sum over its displays, since segments are numbered across all of
+		them. A bound on typing only; `isValid` checks the number against the layout.
 		"""
 		return bmConfig.MAX_UI_SEGMENTS * max(1, len(self.devices)) - 1
 
@@ -437,10 +403,8 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 	def _divisionTargets(self) -> list[_DivisionTarget]:
 		""":return: the displays whose division this panel can edit.
 
-		The connected display itself, or, when it is several displays combined, each of those.
-		The combined display is not among them: it has no segment count of its own, because a
-		segment may not straddle two pieces of hardware, so it is always divided at the
-		boundaries between them.
+		The connected display, or each display of a composite. The composite itself is always
+		divided at the boundaries between them.
 		"""
 		if not self.devices:
 			return [
@@ -478,9 +442,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 	def _readTarget(self, displayKey: str) -> dict:
 		""":return: one display's stored segment settings, as this panel holds them.
 
-		Sizes are kept as the user's own text rather than as numbers, so that text which does
-		not parse is reported against the display it was typed for rather than silently lost
-		on the way to another one.
+		Sizes are kept as typed, so bad text is reported against the display it was typed for.
 		"""
 		section = bmConfig.getDisplayConfig(displayKey)
 		return {
@@ -570,10 +532,8 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				return False
 			totalSegments += len(rects)
 		if not anyEnabled and len(self.targets) == 1:
-			# An ordinary display with division turned off has one segment, and the focus
-			# setting is not going to be read. A composite is different: it is divided at the
-			# hardware boundaries whatever the switches say, so it still has one segment per
-			# display and the focus number still has to name one of them.
+			# An undivided ordinary display ignores the focus setting; a composite is always
+			# divided at its hardware boundaries, so the number must still name a segment.
 			return True
 		for control in (self.focusSegmentCtrl, self.messageSegmentCtrl):
 			if control.Value >= totalSegments:
@@ -1001,10 +961,8 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 	def _bandTargets(self) -> list[_BandTarget]:
 		""":return: the places the band can be put, the automatic choice first.
 
-		A band must lie inside one physical display's live cells, so on a display made of
-		several there is a choice to make and the reader may want it made for them. On an
-		ordinary display there is nothing to choose and the list holds the one answer, which
-		is what leaves the chooser out of the dialog.
+		A band lies inside one physical display. On an ordinary display the list holds one
+		answer, and the chooser is left out.
 		"""
 		import braille
 
@@ -1054,9 +1012,8 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 	def _indentStyleIndex(self, style: str) -> int:
 		""":return: which entry of the chooser a stored style means, 0 for the default.
 
-		A style this version has not got reads as the default, which is what
-		`bmConfig.flowIndentStyle` will actually use for it. The dialog must agree with the
-		band, or saving without touching the control would quietly change the setting.
+		An unknown style reads as the default, as `bmConfig.flowIndentStyle` treats it, so
+		saving an untouched control changes nothing.
 		"""
 		for index, (name, _label) in enumerate(indentStyleChoices()):
 			if name == style:
@@ -1189,9 +1146,7 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 	)
 	"""What NVDA announces about this category, and the paragraph at the top of it.
 
-	One string serving both, which is NVDA's own arrangement for a category that needs
-	explaining: `SettingsPanelAccessible.GetDescription` reads this attribute, and the visible
-	text is added from it in `makeSettings`.
+	One string for both, as NVDA arranges it; `makeSettings` adds the visible text.
 	"""
 
 	rowsCtrl = None
@@ -1203,9 +1158,7 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 	_states: dict[str, bool] | None = None
 	"""Which chosen displays the composite is driving, or None if it is not the display in use.
 
-	Read once, when the category is opened: this reports what the running display has, and
-	nothing in this panel changes that. None until then, and None whenever there is no composite
-	to ask, in which case the list says nothing about any display's state rather than guessing.
+	Read once, when the category opens. With no composite to ask, the list gives no states.
 	"""
 
 	def makeSettings(self, settingsSizer):
@@ -1215,9 +1168,7 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 		self.storedSpecs = self._readDevices()
 		"""What each chosen display was configured as, keyed on driver name.
 
-		Kept so that a port set outside this panel survives being reordered here. The panel
-		offers no port control, because members are detected afresh, but a value it cannot
-		show is not a value it may quietly discard.
+		Kept so a port set elsewhere survives reordering here.
 		"""
 		self.chosen = list(self.storedSpecs)
 		self._original = list(self.chosen)
@@ -1308,9 +1259,7 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 	def _describeChosen(self, driverName: str) -> str:
 		""":return: what to call a chosen display, with what is known about it now.
 
-		Only the running composite knows which of these it opened, so when something else is
-		the display in use the names are given plainly rather than with a state that would be
-		a guess.
+		States only when the composite is running, since only it knows.
 		"""
 		name = self._describe(driverName)
 		if self._states is None:
@@ -1329,9 +1278,7 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 	def _addable(self) -> list[str]:
 		""":return: the drivers that may still be added, in NVDA's own order.
 
-		Neither "no braille", which is the absence of a display rather than one, nor the
-		combined display itself, which would construct another of itself reading the same
-		list.
+		Neither "no braille" nor the combined display itself.
 		"""
 		return [
 			name
@@ -1469,10 +1416,8 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 	def specsToStore(self) -> list:
 		""":return: the chosen displays as specifications, in stacking order.
 
-		A display that was already configured keeps the specification it had, so that a port
-		set from the console is not silently changed to automatic detection by someone opening
-		this category and pressing OK. A newly added one is stored as a name alone, which means
-		detect afresh. Either way it carries the rows given it here.
+		A display already configured keeps its specification, port and all; a new one is a name
+		alone, meaning detect. Either way it carries the rows given here.
 		"""
 		from brailleDisplayDrivers.brlMultilineVirtual.virtualLayout import DeviceSpec
 

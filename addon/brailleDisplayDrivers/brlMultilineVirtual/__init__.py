@@ -5,11 +5,9 @@
 
 """One display as far as NVDA is concerned, several displays in fact.
 
-NVDA drives one braille display at a time, and almost all of that assumption lives in
-`BrailleHandler`, which talks to hardware through a narrow interface: geometry, one flat
-row major cell array, a few write scheduling flags, and terminate. This driver implements
-that interface by owning a list of other drivers, so NVDA's ordinary driver loading,
-buffers and cell writing all run untouched above it.
+This driver implements `BrailleHandler`'s narrow driver interface by owning a list of other
+drivers, so NVDA's driver loading, buffers and cell writing run untouched above it. See
+docs/design/virtual-display-plan.md.
 
 Members stack vertically. See `virtualLayout` for the geometry and for what dead columns
 are; see `deviceSlot` for how writes are scheduled and why unchanged frames are dropped;
@@ -20,13 +18,8 @@ Input is handled in `gestures`. Members' keys already reach NVDA on their own, s
 there is rebasing routing cell indexes onto the composite and answering the three things NVDA
 looks up on `braille.handler.display` while resolving a gesture.
 
-**Not done here, by design.** The composite is a rectangle as wide as its widest member, so a
-narrower member has dead columns that reach no hardware, and NVDA flowing one buffer across
-the whole rectangle loses text into them. Masking them is the add-on's job rather than the
-driver's, because by the time cells arrive here they have already been laid out: the global
-plugin builds a view with one panel per member and a blank panel over each member's dead
-columns. With the plugin disabled, a mixed width arrangement reads gappily and loses whatever
-lands past the narrower display's edge. The driver says so in the log when it starts.
+Masking a narrower member's dead columns is the global plugin's job, not this driver's, since
+cells arrive here already laid out. Without the plugin, text is lost into them; the log says so.
 """
 
 from __future__ import annotations
@@ -66,10 +59,8 @@ except Exception:
 OPEN_ATTEMPTS = 3
 """How many times to try opening a member before giving up on it.
 
-Phase 0 found that a display NVDA had released moments earlier refused to open twice, while
-Windows still listed it and the driver still had a port to try, and then opened normally a
-short time later. Presence in the device enumeration does not imply openability, and the
-handover from NVDA owning a display to this driver owning it is exactly when that bites.
+A display NVDA has just released can refuse to open for a moment. See "Phase 0 results" in
+docs/design/virtual-display-plan.md.
 """
 
 OPEN_RETRY_DELAY = 0.3
@@ -86,18 +77,14 @@ switching one on is answered while the user still has their hand on it.
 POLL_BACKOFF_LIMIT = 60.0
 """How far apart attempts on one member may grow.
 
-A display that is off, or paired but out of range, can be listed by Windows and still refuse to
-open. Trying it every five seconds for a working day is the wasteful case this bounds; a minute
-is still soon enough that switching it on is noticed while the user is looking at it.
+Bounds the cost of a display left off, while still noticing it switched on within a minute.
 """
 
 
 class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObject.ScriptableObject):
 	"""Presents several physical displays to NVDA as one.
 
-	A `ScriptableObject` because NVDA offers `braille.handler.display` when it is looking for
-	a display's own scripts, and that is now this driver rather than the member that has
-	them. See `getScript`.
+	A `ScriptableObject`, since NVDA looks for display scripts here. See `getScript`.
 	"""
 
 	name = "brlMultilineVirtual"
@@ -107,17 +94,8 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	isThreadSafe = False
 	"""False so that members decide their own threading, rather than having ours forced on them.
 
-	Reporting True would have `BrailleHandler._writeCells` queue our `display` onto the
-	background I/O thread, and a member that is not thread safe would then be called from
-	it — the one thing `isThreadSafe = False` exists to promise will not happen. Reporting
-	False puts the fan out on the main thread, where the only work is slicing an array and
-	comparing it, and leaves each member free to be driven the way it asked for: a thread
-	safe one still gets its actual I/O queued onto the background thread by its slot, and an
-	unsafe one is called on the main thread as it requires.
-
-	Both target displays happen to be thread safe, so this does not change their behaviour.
-	It matters because a member list is a thing the user composes, and it should not be
-	possible to compose one that is unsafe.
+	True would call an unsafe member from the I/O thread. False fans out on the main thread,
+	and each slot queues a thread safe member's I/O onto the background thread itself.
 	"""
 
 	receivesAckPackets = False
@@ -132,9 +110,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def check(cls) -> bool:
 		"""Always available.
 
-		Deliberately not "available only when members are configured". The members are
-		chosen in the add-on's own settings, and a driver that hid itself until configured
-		could never be selected in order to be configured.
+		Even unconfigured, or it could never be selected in order to be configured.
 		"""
 		return True
 
@@ -148,9 +124,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 
 		:param port: accepted and ignored, so that NVDA's `_setDisplay` can pass one.
 		:raise RuntimeError: if nothing is configured, the configuration is unusable, or no
-			member could be opened. Raising is the contract every display driver has for
-			"there is no display here", and leaves NVDA to fall back to no braille and tell
-			the user.
+			member could be opened, the driver contract for "no display here".
 		"""
 		super().__init__()
 		self._slots: list[DeviceSlot] = []
@@ -163,12 +137,8 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		self._settingNames: set[str] = set()
 		"""Every name that has stood for a member's setting, whether or not it does now.
 
-		A write to one of these while its display is away must not be kept: ordinary attribute
-		storage would put it on this driver, where it would shadow the member for good once the
-		display came back, since normal lookup finds it before `__getattr__` is ever asked.
-		NVDA's settings controls are alive while a member disconnects, and closing the dialog
-		can produce control events of its own, so this is a real sequence rather than a
-		theoretical one.
+		A write to one while its display is away is dropped, since storing it on this driver
+		would shadow the member for good once it came back.
 		"""
 		self._settingProxies: dict = {}
 		self._reportedDeadColumns = 0
@@ -221,14 +191,9 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def _openMembers(self, specs: list[DeviceSpec], adopted=None) -> None:
 		"""Open what can be opened, lay it out, and report what the result is.
 
-		A member that will not open is dropped rather than fatal, so that two configured
-		displays with one of them switched off still gives the user the other one. One that
-		Windows cannot see at all is not even attempted; see `_isPresent` for why that answer
-		is trusted in one direction only.
-
-		Everything opened is closed again if the layout cannot be built, because until the
-		slots exist there is nothing else holding these drivers, and a dropped driver keeps
-		its port.
+		A member that will not open is dropped rather than fatal; one Windows cannot see is not
+		attempted (see `_isPresent`). Everything opened is closed again if the layout cannot be
+		built, or a dropped driver keeps its port.
 
 		:param specs: the members to open, in stacking order.
 		:param adopted: an optional (name, driver) pair taken over from NVDA, used in place
@@ -312,21 +277,8 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def _pollForMembers(self) -> None:
 		"""Try to bring back a configured display that is not being driven.
 
-		Runs on the main thread, which is where opening a display has to happen and also where
-		it is felt: a driver's constructor talks to hardware and can take a moment. Three things
-		keep that from being a stutter every few seconds.
-
-		The presence check comes first. `bdDetect` is asked whether Windows can see anything
-		this driver knows how to talk to, and a driver that is nowhere in the enumeration is
-		not opened at all. It is a filter and not a proof — a paired Bluetooth device is often
-		still listed while it is switched off — so the other two matter as much.
-
-		One attempt per member per tick, rather than the three the startup path takes: the poll
-		is the retry, and it is the retry Phase 0 asked for.
-
-		And each failure pushes that member's next attempt further out, up to a minute, so a
-		display left switched off costs almost nothing while a display being switched on is
-		found within a few seconds.
+		On the main thread, where opening is felt, so: a presence check first (see
+		`_isPresent`), one attempt per member per tick, and a growing wait after each failure.
 		"""
 		self._pollTimer = None
 		try:
@@ -371,10 +323,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def _deferAttempt(self, driverName: str, now: float) -> None:
 		"""Wait longer before trying this member again, up to L{POLL_BACKOFF_LIMIT}.
 
-		The delay is remembered rather than worked back out from the deadline. This is only
-		ever called once that deadline has passed, so the time still to wait is zero and every
-		wait would start again from the beginning — five seconds, for as long as the display
-		stayed away, which is exactly what the backoff is for.
+		The delay is remembered, since the deadline has always passed when this is called.
 
 		:param driverName: the member that is not there.
 		:param now: the current monotonic time.
@@ -418,9 +367,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def _memberFailed(self, slot: DeviceSlot) -> None:
 		"""A member has been given up on. Lay the composite out again around the rest.
 
-		Called from whichever thread noticed, which for a read failure is NVDA's I/O thread, so
-		nothing here may touch NVDA. The work is handed to the main thread, where changing the
-		geometry and letting the handler notice are both safe.
+		Called from any thread, so the work is handed to the main thread.
 
 		:param slot: the member that has gone.
 		"""
@@ -446,20 +393,10 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def _relayout(self) -> None:
 		"""Rebuild the geometry from the members still being driven.
 
-		A lost member leaves a hole otherwise: its band stays in the composite, so NVDA goes on
-		laying text into rows that reach nothing, and if the segment following the focus was one
-		of them the reader is left with a working display showing nothing at all. Taking the
-		rows away is what puts the focus back on hardware that exists.
-
-		NVDA is told by the ordinary route rather than a special one. `_get_displayDimensions`
-		recomputes from this driver's `numRows` and `numCols` on every read and raises
-		`displaySizeChanged` when the answer differs, so reading it once here is the whole
-		notification; the add-on's plugin is already listening and rebuilds its segments.
-
-		Every member being gone is deliberately not treated as no display. The geometry is left
-		as it was, dark, so that a member coming back finds a composite to come back to — where
-		handing NVDA `handleDisplayUnavailable` would fall back to no braille and, with
-		automatic detection on, could hand the returning display straight to NVDA instead.
+		Otherwise a lost member's rows stay, and the focus may be on hardware that is gone.
+		Reading `_get_displayDimensions` once raises `displaySizeChanged`, which the plugin
+		answers. Every member gone leaves the geometry as it was, dark, so a member coming back
+		finds a composite rather than NVDA taking the display.
 		"""
 		if not self._installed:
 			# Terminated between the loss being noticed and this running, or still being
@@ -507,20 +444,9 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def _announceMembership(self, write: bool = True) -> None:
 		"""Say that the displays behind this one have changed, and write to what is there now.
 
-		Two things, and the second is what a returning display needs. The notification is for
-		the add-on's plugin, which names its segments after physical displays and so has to
-		build them again whether or not the composite changed size. The write is for the case
-		where nothing else will do one: a member that has just opened is showing whatever it
-		was showing before NVDA ever saw it, and `handler.update` puts the current braille on
-		it at once rather than at the next thing that happens to change.
-
-		The write goes behind the handlers rather than before them, always. The buffer above
-		this driver was laid out for the arrangement that has just changed, and what corrects it
-		is a handler — the plugin rebuilds on the main thread queue. Writing first would slice
-		yesterday's arrangement into today's bands and put one display's row onto another, which
-		is not merely a wasted frame on hardware that cannot be told to forget it. Queueing lands
-		it after the rebuild, the queue being first in first out, and `_writeCurrentCells` checks
-		by then that this is still the display NVDA has.
+		The notification lets the plugin rebuild its segments; the write puts current braille on
+		a member that has just opened. The write is queued behind the handlers, so it lands after
+		the rebuild rather than slicing the old arrangement into the new bands.
 
 		:param write: whether there is anything to write to. False when no member is left.
 		"""
@@ -557,12 +483,8 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def _describe(self, geometry: VirtualGeometry) -> None:
 		"""Log what was built, including the one thing that will otherwise mystify.
 
-		Only the members actually in the layout, which is not the same as every slot. A member
-		given up on keeps its slot until something replaces it, and keeps the band it had before
-		the display was laid out again — so walking all of them describes a display that does not
-		exist, at the rows it used to be at, and counts it in the total. A hardware log read
-		"1 rows of 80, 2 display(s)" with the display that had just gone still listed as
-		occupying rows 0 to 7. The ones that are away are worth a line of their own instead.
+		Only the members in the layout, since a member given up on keeps its old slot and band.
+		Those away get a line of their own.
 		"""
 		live = [slot for slot in self._slots if not slot.failed]
 		for slot in live:
@@ -579,13 +501,8 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 			log.info(f"BrlMultiline: configured and not in the display: {away}")
 		dead = deadColumnCount(geometry)
 		if dead and dead != self._reportedDeadColumns:
-			# Once per arrangement, not once per layout. The count is a fact about the shape of
-			# the composite, so it does not become truer for being repeated, and repeating it on
-			# every reconnect made a user reasonably ask what they had done wrong.
-			#
-			# Deliberately not cleared when an arrangement has no dead columns. Losing the narrow
-			# display is exactly such an arrangement, so clearing it would warn again every time
-			# that display came back — which is the case this is about.
+			# Once per arrangement, not per layout. Not cleared when there are no dead columns,
+			# or it would warn again each time the narrow display came back.
 			log.warning(
 				f"BrlMultiline: {dead} cells of the virtual display reach no hardware, because the "
 				"displays are not the same width. The add-on's own plugin masks them, arranging "
@@ -596,16 +513,9 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def initSettings(self) -> None:
 		"""Note that NVDA has finished the switch, as well as reading the settings.
 
-		`_switchDisplay` calls this last, after the incoming driver is constructed and the
-		outgoing one terminated, so it is the earliest honest answer to "is this display in
-		place". Object identity is not, and the case that proves it is NVDA reselecting a
-		display that is already in use: `sameDisplayReInit` terminates and reconstructs *this
-		same instance*, so `braille.handler.display is self` stays true throughout, while the
-		members, the bands and the geometry are all being replaced underneath it.
-
-		Reopening the composite after its member list is edited takes exactly that path. A
-		routing key pressed during it would otherwise be rebased onto the new bands and routed
-		against the arrangement built for the old ones.
+		`_switchDisplay` calls this last, so it is the earliest true answer to "is this display
+		in place". Identity is not: `sameDisplayReInit` reconstructs this same instance, as
+		reopening after a member list edit does.
 		"""
 		super().initSettings()
 		self._installed = True
@@ -616,9 +526,8 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def display(self, cells: list[int]) -> None:
 		"""Fan one composite cell array out to the members.
 
-		NVDA pads to the handler's display size before calling this, but the array is
-		normalised again rather than trusted: a short write here would raise out of a
-		background thread, and the cost of checking is a length comparison.
+		The array's length is checked again, since a short write would raise on a background
+		thread.
 
 		:param cells: the composite array, row major over the whole rectangle.
 		"""
@@ -636,9 +545,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def terminate(self) -> None:
 		"""Close every member, then put NVDA's acknowledgement handling back.
 
-		`_suppressDisplayClear` is read before delegating, because the base class consumes
-		it, and is passed on to the members so that a switch to the secure desktop does not
-		spend time blanking displays that are about to be closed anyway.
+		`_suppressDisplayClear` is read before the base class consumes it, and passed to members.
 		"""
 		# First, so that nothing treats this display as NVDA's while it is being taken apart.
 		# On the `sameDisplayReInit` path this instance is about to be reconstructed rather
@@ -667,11 +574,8 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def configuredMembers(self) -> tuple[str, ...]:
 		"""The members this composite was opened for, in stacking order.
 
-		A different question from `slots`, and the difference is the point of having both. A
-		display that was switched off at startup, or that has since been given up on, is not in
-		`slots` and is still one of the displays this composite is for. Anything asking "has the
-		configured list changed since the display was opened" has to ask this one, or a display
-		merely switched off reads as a changed list.
+		Unlike `slots`, includes displays that are off or given up on. Ask this whether the
+		configured list has changed.
 		"""
 		return tuple(spec.driverName for spec in self._specs)
 
@@ -687,8 +591,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def slotForDriverName(self, driverName: str) -> DeviceSlot | None:
 		"""Find the member a gesture came from.
 
-		A gesture's `source` is its driver's name, and a driver name identifies a member
-		uniquely because the configuration refuses to list one twice.
+		A gesture's `source` is its driver's name, unique among members.
 
 		:param driverName: the name to look for.
 		:return: the member, or None if no member has that name.
@@ -700,17 +603,10 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 
 	# Member settings
 	#
-	# NVDA's Braille settings dialog builds its controls from `supportedSettings` on the
-	# display in use, which is this driver. Left alone, that means selecting the composite
-	# hides every setting the displays behind it have — dot firmness, a Focus's wiz wheel
-	# action — with no way to reach them short of selecting that display on its own.
-	#
-	# So the members' settings are offered as this driver's own, under names that say which
-	# display each belongs to, and reads and writes are passed through to the member. What is
-	# deliberately not passed through is storage: each copy is marked `useConfig = False`, so
-	# the composite keeps none of them, and the value is saved by the member itself into the
-	# section it reads when it is used alone. One display, one place its settings live,
-	# whichever way it is being driven.
+	# The members' settings are offered as this driver's own, named per display, with reads
+	# and writes passed through. Each copy is `useConfig = False`, so the member saves it in
+	# its own section, as when used alone. See "Phase 5 results" in
+	# docs/design/virtual-display-plan.md.
 
 	def _get_supportedSettings(self):
 		""":return: every setting of every member, named for the display it belongs to."""
@@ -744,11 +640,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 				)
 		self._settingProxies = proxies
 		self._settingNames.update(proxies)
-		# Most braille display drivers have no settings of their own: `BrailleDisplayDriver`
-		# defines `supportedSettings = ()` and only a few override it, so a composite showing
-		# nothing in NVDA's Braille settings is the ordinary answer rather than a fault. Said
-		# at debug level because it is the question a hardware run actually asked, and there is
-		# otherwise nothing anywhere to distinguish "no settings" from "not working".
+		# Most drivers have no settings, so none is ordinary; logged to tell it from a fault.
 		log.debug(f"BrlMultiline: members offer {len(settings)} setting(s) between them")
 		for name in proxies:
 			# Anything of this name stored on the composite is a value that was written while
@@ -819,14 +711,8 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def loadSettings(self, onlyChanged: bool = False) -> None:
 		"""Read this display's settings back, and have each member read its own back too.
 
-		This is what Cancel does. NVDA writes a driver's settings as the dialog is used rather
-		than when it is closed, so pressing Cancel means `loadSettings`, and a member that was
-		never asked keeps whatever the user was trying out. Worse, it keeps it until the next
-		configuration save writes it down.
-
-		The composite has nothing of its own to read — every copied setting is marked
-		`useConfig = False` — so this is almost entirely delegation. One member failing must not
-		stop the others being put back.
+		What Cancel does, since NVDA writes settings as the dialog is used. Almost all
+		delegation; one member failing does not stop the others.
 
 		:param onlyChanged: passed through, and passed the way NVDA passes it: a driver whose
 			override does not take it still gets called.
@@ -861,9 +747,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def getScript(self, gesture):
 		"""Hand a gesture to the member that raised it, for that member's own scripts.
 
-		NVDA offers `braille.handler.display` when looking for display specific scripts, and
-		that is this driver now. Without this, a Focus running as a member would lose every
-		command of its own.
+		NVDA looks for display scripts on this driver, so members' own commands go through here.
 
 		:param gesture: the gesture being resolved.
 		:return: the bound script, or None.
@@ -876,8 +760,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 	def _getModifierGestures(self, model=None):
 		"""Chain every member's modifier gestures.
 
-		Shadows the base class's classmethod deliberately: `BrailleDisplayGesture._get_script`
-		calls this on the instance, and only the instance knows what the members are.
+		Shadows the base classmethod, since only the instance knows its members.
 
 		:param model: the optional display model, passed through unchanged.
 		"""
@@ -887,15 +770,9 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 def _isPresent(spec: DeviceSpec) -> bool:
 	"""Ask Windows whether anything this member could be is there.
 
-	A filter rather than a proof, and it is worth being clear which way it errs. A paired
-	Bluetooth display is often still enumerated while it is switched off, so True means "worth
-	trying" and not "connected". False is the trustworthy answer, and it is the one that saves
-	the work: opening a driver talks to hardware on the main thread.
-
-	Two members are never ruled out. One configured with a port of its own is not being detected
-	at all — the user has said where it is — and a driver `bdDetect` has no data for cannot be
-	ruled out by it either. Both are simply attempted, and the growing wait between attempts is
-	what keeps that from costing anything.
+	A filter: True means worth trying, since a paired Bluetooth display is listed while off;
+	False is trustworthy. A member with its own port, or one `bdDetect` has no data for, is
+	always attempted.
 
 	:param spec: the member to look for.
 	:return: whether to attempt it.
@@ -928,13 +805,8 @@ def _shapeOf(
 ) -> tuple[int, int]:
 	"""Read a driver's geometry the way `BrailleHandler` reads it.
 
-	A single row driver may report its size through `numCells` and leave `numCols` alone, so
-	the handler prefers `numCells` in that case. Mirrored here rather than reinvented.
-
-	Then the rows the reader configured for it, where it has any: a display whose driver
-	reports one row but which physically has several is stacked as those rows. See
-	`virtualLayout.memberShape`. Rows that cannot apply are said in the log, because the
-	reader asked for something and would otherwise feel only that it did not happen.
+	Prefers `numCells` for a single row driver, as the handler does, then applies any rows the
+	reader configured; see `virtualLayout.memberShape`. Rows that cannot apply are logged.
 
 	:param driver: the driver.
 	:param spec: the member's configuration, or None for the driver's own shape.
@@ -955,16 +827,9 @@ def _shapeOf(
 _retiredDrivers: list[braille.display.driver.BrailleDisplayDriver] = []
 """Every member this driver has closed, kept alive for the rest of the session.
 
-A deliberate, bounded leak, and it is working around a defect in NVDA rather than in this
-add-on. `hwIo.base.IoBase.close` closes the device handle without clearing `self._file`, and
-`IoBase.__del__` calls `close` again — so finalising a driver that was already terminated
-closes its handle a second time, by which point Windows may have given that handle value to
-something else entirely. A Phase 1 hardware run watched exactly that kill a freshly opened
-display nine milliseconds after it was opened.
-
-Holding a reference means the finaliser never runs while NVDA is up, so the second close
-never happens. What leaks is a handful of inert Python objects — a closed driver has had its
-receive callback cleared and its reads cancelled — one per member per display switch.
+A deliberate, bounded leak around an NVDA defect: `hwIo.base.IoBase.__del__` closes a handle
+`close` already closed, which Windows may have reused. Holding a reference keeps the finaliser
+from running. See "The `hwIo` finaliser bug" in docs/design/virtual-display-plan.md.
 
 Remove this once `hwIo` clears its handle fields on close. See the top of `handover`.
 """
@@ -983,23 +848,13 @@ def _terminateQuietly(driver: braille.display.driver.BrailleDisplayDriver, parti
 	"""Close a driver that is being dropped rather than used, reporting a failure but not raising.
 
 	:param driver: the driver to close.
-	:param partial: whether this driver failed part way through construction. Such a driver
-		may be missing anything its constructor had not reached, so `terminate` raising is
-		unremarkable and is reported quietly. A display that is simply not plugged in takes
-		this path on every attempt, and should not fill the log with errors.
+	:param partial: whether this driver failed part way through construction, so `terminate`
+		raising is expected and reported quietly.
 	"""
 	name = getattr(driver, "name", "?")
 	if partial:
-		# The base class blanks the display on the way out, and a constructor that raised may
-		# never have reached the fields its own `display` needs — `hidBrailleStandard` sets
-		# `_maxNumberOfCells` only once it has read the device's report descriptor. The blank
-		# then raises inside `terminate`, which catches and logs it as an error of its own, so
-		# it is out of reach of the `except` below: a hardware run of a display switched off at
-		# startup put three such tracebacks in the log for one absent display.
-		#
-		# NVDA's own flag for "close this without writing to it". Both target drivers call
-		# `super().terminate()` before closing their device, so suppressing the blank still
-		# closes the handle, which is the whole point of coming here.
+		# A half constructed driver can raise while the base class blanks it, and `terminate`
+		# logs that itself. NVDA's flag closes without writing, and still closes the handle.
 		driver._suppressDisplayClear = True
 	try:
 		# Watched, because blanking is a write and a display that did not open properly is the
@@ -1023,24 +878,16 @@ def _openDriver(
 ) -> braille.display.driver.BrailleDisplayDriver | None:
 	"""Construct one member, retrying a device that is present but not yet openable.
 
-	Construction follows `BrailleHandler._setDisplay` exactly — `__new__`, `__init__` through
-	`callWithSupportedKwargs` so that a driver taking no port still works, then
-	`initSettings`. Phase 0 established that nothing about that path is privileged.
+	Constructed as `BrailleHandler._setDisplay` does.
 
 	:param spec: the member to open.
-	:param attempts: how many times to try, or None for L{OPEN_ATTEMPTS}. The reconnect poll
-		passes one: it is itself the retry, and sleeping between attempts on the main thread is
-		affordable once at startup and not every few seconds afterwards.
-	:param quiet: report a failure at debug level rather than as an error. For the reconnect
-		poll, where a display simply not being there is the ordinary case, and an error every
-		few seconds for a display left switched off is noise in the one file a user is asked
-		to send when something is wrong.
+	:param attempts: how many times to try, or None for `OPEN_ATTEMPTS`. The reconnect poll
+		passes one.
+	:param quiet: report a failure at debug level, for the reconnect poll.
 	:return: the live driver, or None if it could not be opened.
 
-	Construction is watched by `memberGuard`, because a constructor talks to its display and
-	runs on the main thread: a display that has stopped answering, being reopened by the poll,
-	would otherwise freeze NVDA every time it was tried. A constructor the guard had to rescue
-	is not retried and not kept, whatever it returned: it was answered by a cancelled device.
+	Watched by `memberGuard`, so an unanswering display cannot freeze NVDA. A constructor the
+	guard rescued is neither retried nor kept.
 	"""
 	attempts = OPEN_ATTEMPTS if attempts is None else attempts
 	try:
@@ -1066,13 +913,8 @@ def _openDriver(
 				_terminateQuietly(driver, partial=True)
 				log.debugWarning(f"BrlMultiline: {spec.driverName} did not answer while opening", exc_info=True)
 				return None
-			# A constructor that raises may still have opened the device: both target
-			# drivers assign `self._dev` before they are finished, and `initSettings` runs
-			# after the device is open in every case. Their own failure paths close it, but
-			# an unexpected error between opening and returning does not, and the instance
-			# is about to be dropped where nothing else can reach it. So it is closed here,
-			# best effort, before the next attempt — which would otherwise be competing with
-			# the handle this one is still holding.
+			# A constructor that raised may still hold the device, so close it, best effort,
+			# before the next attempt.
 			if driver is not None:
 				_terminateQuietly(driver, partial=True)
 			if attempt == attempts:

@@ -5,48 +5,20 @@
 
 """Where a symbol actually replaces something the reader would otherwise have to read.
 
-`glyphs` holds the shapes and the arithmetic and deliberately knows nothing about which object
-gets which one. This is the module that answers that question, and the answer is: **whichever
-one NVDA already wrote a word for.**
+`glyphs` holds the shapes; this decides which object gets one: whichever NVDA already wrote a
+word for. It is a substitution over NVDA's own wording, so:
 
-NVDA writes "btn" before a button's name, "cbo" before a combo box, and three cells of braille
-patterns for a checked box. It does that because a braille line has nothing else to spend. So
-the wiring is not a new decision about what to announce — it is a substitution over what NVDA
-decided already, which is why it can be switched on without changing a single thing about what
-the display says. Every symbol stands over a token NVDA put there, the fallback is that token's
-own cells, and turning the setting off gives the words back.
+1. Nothing is announced that NVDA would not announce.
+2. The cells come from the region's own buffer, so a contracted table cannot misalign a shape.
+3. Failing means showing the word as NVDA wrote it.
 
-Three things follow from doing it that way, and all three are the reason for doing it that way.
+Applied wherever a region is read, before the line is cut: `segments.BrailleBufferSegment.update`
+and `flowRender._layoutBuffer`. Whole words are matched anywhere in the line, since NVDA puts the
+role on either side of the name.
 
-1. **Nothing has to be announced twice.** NVDA's own rules decide when a role or a state is
-   worth the cells; this never adds one and never removes one.
-2. **The cells are taken from the region's own buffer**, not translated a second time. Whatever
-   the reader's table made of "btn" is what the glyph stands over and what the driver matches
-   on, so a contracted table cannot leave a shape drawn over the wrong number of cells.
-3. **Failing means showing the word.** Every path out of here that cannot draw a shape leaves
-   the line exactly as NVDA wrote it. A reader who loses a glyph loses nothing but the shape.
-
-**Everything the display shows, not only a flow.** A menu bar in File Explorer is full of
-buttons and never goes near browse mode; the three cells NVDA spends saying "btn" cost the same
-there and the shape saves the same. So the substitution is made where every region is read —
-`segments.BrailleBufferSegment.update` for an ordinary segment, `flowRender._layoutBuffer` for a
-block of a flow — rather than anywhere that knows what kind of content it is looking at.
-
-**Position within the line does not matter.** NVDA is not consistent about which side of the
-name the word goes: browse mode writes "btn Search" and an ordinary window writes it the other
-way about. Matching whole words wherever they fall in the line is what makes that somebody
-else's problem rather than this module's.
-
-**Before the line is cut, in both places.** That is the difference between a symbol and a
-saving: compressing after the row was cut would shorten a row and change nothing about how much
-fits on it.
-
-**Where it is drawn.** The marks left on the region say which of its cells are symbols. An
-ordinary segment turns those into places on itself, a flow band asks its controller
-(`flowControl.cellGlyphs`), and `container` turns either into places on the display and hands
-them to the driver. It is done afresh on every frame, because the driver retires a glyph the
-moment a frame arrives without its cells — which is what stops a symbol outliving the object it
-belonged to.
+The marks on a region say which cells are symbols. A segment or `flowControl.cellGlyphs` turns
+them into places, and `container` hands them to the driver, afresh each frame, since the driver
+retires a glyph when its cells change.
 """
 
 from typing import NamedTuple, Optional
@@ -59,39 +31,29 @@ from .devices import VIRTUAL_DISPLAY_NAME
 MARKS = "brlMultilineGlyphs"
 """Attribute a compressed region carries: `{cell index: the fitted glyph starting there}`.
 
-On the region rather than in a table of our own, because the region is the thing every stage
-after this already has in its hand — the renderer, the controller and routing all reach for it
-by block — and a side table would need keeping in step with regions being built and dropped.
+On the region, which every later stage already holds, rather than in a side table to keep in
+step.
 """
 
 STAMP = "_brlMultilineGlyphCells"
 """Attribute holding the cells `MARKS` was worked out over.
 
-A region is laid out several times per reading — once per width the indent leaves — and each
-of those would otherwise re-find and re-fit every symbol. More importantly the second pass
-would find nothing to save, the text having already been compressed, and would replace a good
-set of marks with an empty one. So the cells are the receipt: unchanged means the marks still
-describe them, and a fresh `update` rebuilds them and invalidates it by construction.
+A receipt: a region is laid out several times, and a second pass over compressed text would
+find nothing and replace good marks with none. Unchanged cells mean the marks still hold.
 """
 
 DRIVER = "_brlMultilineGlyphDriver"
 """Attribute holding the driver that built a region's shapes.
 
-**A shape belongs to the driver that built it.** `glyphs.fittedOver` asks the driver for each one, and
-what comes back is that driver's own and means nothing to another. The receipt was the cells alone, so
-a band moved from one display that draws to another handed the second the first one's shapes, laid out
-again over unchanged cells. Found by review. Held beside `STAMP`, and a different driver is a different
-receipt.
+A shape belongs to the driver that built it, so a different driver is a different receipt. Held
+beside `STAMP`.
 """
 
 BEFORE = "_brlMultilineBeforeGlyphs"
 """Attribute holding the region exactly as NVDA left it, so it can be given back.
 
-Compression rewrites the cells and both position maps in place, and a region is not always
-read again before it is drawn again — a flow keeps the rendering it has when the text has not
-changed, and a display rebuild or a profile switch can hand the same region back. Without this
-the words could not return: turning the setting off left "b Search" on the line with no shape
-registered for it, which is a cell that means nothing.
+Compression rewrites the region in place, and it is not always read again before being drawn,
+so this is how the words return.
 
 Restored only where the region is still the one that was compressed. See `_restore`.
 """
@@ -99,21 +61,11 @@ Restored only where the region is still the one that was compressed. See `_resto
 FIELDS = "_brlMultilineFieldSpans"
 """Attribute a document region carries: which stretches of its text NVDA wrote itself.
 
-**The whole safety of the feature rests on this.** NVDA flattens everything it has to say
-about a line into one string joined by single spaces — the document's own words, the roles, the
-states, an object's name, its description — and nothing in the result says which is which. So a
-line of somebody's prose containing the word "btn" is, to anything reading the finished text,
-indistinguishable from a button. Replacing it would take the middle out of a word the writer
-typed and draw a symbol over it.
+The feature's safety: NVDA's finished line does not say which words are the writer's, so
+"btn" in prose looks like a button. A patch on `TextInfoRegion._addFieldText`, the one door
+for control field text, records NVDA's own. See `patches._addFieldTextRecordingProvenance`.
 
-`TextInfoRegion._addFieldText` is the one door every piece of control field text goes through;
-document content is appended by a different branch of the same loop. So a patch on that method
-records exactly what NVDA contributed, and everything else is left alone. See
-`patches._addFieldTextRecordingProvenance`.
-
-An empty list means the patch is in and this region had no fields — nothing to replace. The
-attribute missing altogether means no provenance is available, and then nothing is replaced at
-all.
+An empty list means no fields; the attribute missing means nothing is replaced at all.
 """
 
 SAID = "_brlMultilineSaid"
@@ -136,19 +88,14 @@ OBJECT_TEXT = (
 )
 """What an object contributes to its own line that is not NVDA's own wording.
 
-Everything `getPropertiesBraille` is handed that came from the application rather than from
-NVDA's tables. A stretch of the line matching any of them is refused, whichever of them it
-matched: a button named "btn" reads as "btn btn" and there is nothing in the finished string to
-say which of the two is the role, so neither is replaced. A lost symbol is a symbol; a mangled
-name is a fault the reader cannot see.
+What `getPropertiesBraille` is handed from the application. Any stretch matching one is
+refused: in "btn btn" for a button named "btn", neither is replaced.
 """
 
 MOVED = ("brailleCursorPos", "brailleSelectionStart", "brailleSelectionEnd")
 """The region's other positions into its cells, which have to move when the cells do.
 
-`compress` keeps the two position maps true. These three are single positions NVDA worked out
-from those maps before we shortened them, and a cursor left where the uncompressed line put it
-is a cursor one word to the right of the letter it belongs to.
+`compress` keeps the position maps true; these single positions are moved by `_moveMarks`.
 """
 
 ROLE_GLYPHS = {
@@ -168,11 +115,8 @@ ROLE_GLYPHS = {
 }
 """Which vocabulary entry stands over each of NVDA's role abbreviations, by member name.
 
-Keyed on `controlTypes.Role.<name>.name` rather than on the abbreviation, so that the word this
-replaces is read out of NVDA at run time. A reader running NVDA in French gets "btn" translated
-to whatever their braille labels say and the shape still lands on it; keying on the English
-string would have quietly given them nothing, which is the failure nobody reports because it
-looks exactly like the feature being off.
+Keyed on `controlTypes.Role.<name>.name`, so the word is read from NVDA at run time in the
+reader's language.
 """
 
 POSITIVE_GLYPHS = {
@@ -184,9 +128,7 @@ POSITIVE_GLYPHS = {
 }
 """Which entry stands over each state NVDA writes when the state is present.
 
-`ON` and `CHECKED` share a shape because NVDA writes them the same three cells — a switch that
-is on and a box that is checked are one picture in braille today, and inventing a difference
-here would be this add-on saying something NVDA does not.
+`ON` and `CHECKED` share a shape, as NVDA writes them the same three cells.
 """
 
 NEGATIVE_GLYPHS = {
@@ -199,9 +141,7 @@ NEGATIVE_GLYPHS = {
 COUNTED = ("list",)
 """Entries whose word NVDA may run straight into a count: "lst6" for a list of six.
 
-`getPropertiesBraille` appends a list's `childControlCount` to its role text with no separator
-between them, so the word was never a word on its own and whole word matching did not find it.
-Only the label is drawn over; the count stays on the line, because the shape does not carry it.
+`getPropertiesBraille` appends the count with no separator. Only the label is drawn over.
 """
 
 HEADING_LEVELS = (1, 2, 3)
@@ -210,10 +150,7 @@ HEADING_LEVELS = (1, 2, 3)
 VISITED_LINK = "vlnk"
 """NVDA's own message for a link already followed, as its catalogue lists it.
 
-Not in `braille.labels`: `getPropertiesBraille` composes it where it finds `State.VISITED` on
-a link, so there is no dictionary to read it out of. What is written here is the message id,
-and it goes through NVDA's own catalogue before it is used — see `_nvdaSays` — so this is not
-the English text being matched, it is the key that finds the reader's own.
+Not in `braille.labels`, so the message id is put through NVDA's catalogue. See `_nvdaSays`.
 """
 
 MULTISELECT_LIST = "mslst"
@@ -232,9 +169,7 @@ except Exception:  # pragma: no cover - an NVDA that has moved it
 	SEPARATOR = " "
 """What NVDA parts one thing on a braille line from the next by.
 
-Taken from NVDA rather than assumed, with a space behind it so that this module can still say
-what a whole word is if the constant ever moves. Whole words are the whole of the safety here:
-"btn" as a token is a role NVDA wrote, and "btn" inside a word is somebody's text.
+Taken from NVDA, with a space as fallback. Whole words are what make matching safe.
 """
 
 _TOKENS: Optional[dict] = None
@@ -247,9 +182,7 @@ _ORDERED: "Optional[list[str]]" = None
 class Target(NamedTuple):
 	"""The display a glyph would be drawn on, and where its rows start.
 
-	The same shape of answer `graphics.findSurface` gives and for the same reason: a member of
-	a composite knows nothing about the rows above it, so a place on NVDA's display has to be
-	brought back to a place on the display that will draw it.
+	As `graphics.findSurface` gives, since a composite member knows nothing of rows above it.
 	"""
 
 	driver: object
@@ -279,10 +212,8 @@ class Target(NamedTuple):
 def canDraw(driver) -> bool:
 	""":return: whether a driver offers glyphs and has anything to gain from them.
 
-	Duck typed and never imported, like every other capability here. Deliberately not asked
-	through `graphics.findSurface`: that one duck types the four *graphics* methods, and a
-	display that can draw a glyph in a cell without being able to hold a picture over the whole
-	panel is a display this would otherwise have skipped.
+	Duck typed. Not through `graphics.findSurface`, since a display may draw glyphs without
+	graphics.
 
 	:param driver: any object, including None.
 	"""
@@ -296,12 +227,7 @@ def canDraw(driver) -> bool:
 def glyphTargets(display=None) -> "list[Target]":
 	"""Find every display that can draw glyphs, behind a composite or not.
 
-	**All of them, not the first.** Two displays driven as one are two pieces of hardware, and
-	a Monarch stacked with a Focus is the arrangement this add-on exists for. Taking the first
-	that could draw and treating it as *the* display meant a region bound for the Focus was
-	compressed because the Monarch was plugged in: the container then rightly refused to send
-	the shape to a row outside the Monarch, and the reader was left with "b Search", a word
-	with its middle removed and nothing drawn over it.
+	All of them, so a region is compressed only for the display it is going to.
 
 	:param display: the display to look at, or None for the one NVDA is driving.
 	:return: one target per member that draws, in row order. Empty where nothing attached can,
@@ -347,10 +273,7 @@ def glyphTargets(display=None) -> "list[Target]":
 def glyphTarget(display=None) -> Optional[Target]:
 	""":return: any display that can draw glyphs, for asking whether one is attached at all.
 
-	The settings panel is what wants this: whether to offer the choice is a question about the
-	arrangement rather than about a place on it. Anything deciding what to *do* with a
-	particular region wants `targetForRows`, which asks which piece of hardware that region is
-	going to.
+	For the settings panel. Deciding about a region wants `targetForRows`.
 
 	:param display: the display to look at, or None for the one NVDA is driving.
 	"""
@@ -361,10 +284,7 @@ def glyphTarget(display=None) -> Optional[Target]:
 def targetForRows(row: int, numRows: int, display=None) -> Optional[Target]:
 	"""Find the display a run of rows is on, if one piece of hardware holds all of them.
 
-	**All of them, or none.** A segment spanning the join between two displays is drawn partly
-	on each, and a shape can only be registered against one of them; compressing such a region
-	would take cells out of the half that cannot draw. Rare — segments are usually cut to a
-	display — and cheap to refuse.
+	All or none, since a shape registers against one display.
 
 	:param row: the first row on NVDA's display.
 	:param numRows: how many rows.
@@ -419,9 +339,7 @@ def forget() -> None:
 def tokens() -> dict:
 	""":return: every word NVDA writes that a shape stands over, to the entry that stands there.
 
-	Built from `braille.labels` where it can be read, so the words are NVDA's own in NVDA's own
-	language. Where it cannot — a test, or an NVDA that has moved them — the vocabulary's own
-	English wordings are used, which is what it was written against.
+	From `braille.labels` where readable, else the vocabulary's English wordings.
 	"""
 	global _TOKENS
 	if _TOKENS is None:
@@ -445,15 +363,8 @@ def _buildTokens() -> dict:
 def _nvdaSays(message: str) -> str:
 	"""Put one of NVDA's own messages through NVDA's own catalogue.
 
-	**Deliberately not written as a call to this add-on's underscore.** The message ids it is
-	given are NVDA's, and translating them against this add-on's catalogue would find nothing
-	and hand back the English — the failure that looks exactly like the feature being off. It
-	would also offer them to this add-on's translators, who have no business being asked to
-	translate somebody else's strings.
-
-	NVDA installs its gettext into builtins, which is why it is reached that way rather than
-	imported. A build that has installed none leaves the message as it is, and the English is
-	then the honest answer rather than a crash.
+	Not this add-on's `_`, whose catalogue lacks NVDA's ids and whose translators should not see
+	them. Reached through builtins, where NVDA installs it; without it the English is returned.
 
 	:param message: the message id, exactly as NVDA's source writes it.
 	:return: what NVDA would put on the line.
@@ -473,10 +384,8 @@ def _nvdaSays(message: str) -> str:
 def _fromComposition() -> dict:
 	""":return: the words NVDA builds rather than looks up, to the entry standing over each.
 
-	A visited link, a multi select list and a heading are not in `braille.labels`.
-	`getPropertiesBraille` composes them where it meets the role — a link carrying
-	`State.VISITED`, a list carrying `State.MULTISELECTABLE`, a heading with a level — so there is
-	no dictionary to read, and the message is asked of NVDA's catalogue instead.
+	A visited link, a multi select list and a heading level are composed by
+	`getPropertiesBraille`, not in `braille.labels`.
 	"""
 	found: dict = {}
 	_offer(found, _nvdaSays(VISITED_LINK), "visitedLink")
@@ -533,18 +442,8 @@ def _fromVocabulary() -> dict:
 def _offer(found: dict, label: str, name: str) -> None:
 	"""Put one word in the table.
 
-	**Whether it saves anything is not decided here.** How many cells a word costs is a
-	question about the reader's braille table and not about how many characters it has: "btn"
-	is three cells uncontracted and may be fewer contracted. `fittedOver` asks that question of
-	the cells actually on the line, at the moment of use, which is the only place it can be
-	answered truthfully.
-
-	**A word two shapes want is given to neither.** Two properties can translate to the same
-	abbreviation — nothing stops a language rendering two roles alike — and a table built by
-	overwriting would then draw whichever was offered last, silently, and differently in
-	different languages. Where they are the same shape there is nothing to argue about: NVDA
-	writes a switch that is on and a box that is checked as the same three cells, and this add-on
-	should not invent a difference NVDA does not make.
+	Whether it saves cells is `fittedOver`'s question, at the moment of use. A word two
+	different shapes want is given to neither.
 
 	:param found: the table being built.
 	:param label: what NVDA writes.
@@ -571,10 +470,7 @@ def _offer(found: dict, label: str, name: str) -> None:
 def _brailleText(glyph) -> str:
 	""":return: a dotted fallback as the braille characters NVDA would have written.
 
-	NVDA writes a checkbox as three literal braille pattern characters rather than as a word.
-	The vocabulary records the same three cells in this add-on's own dot notation, because that
-	is the notation the shapes are written in, so this converts one to the other rather than
-	writing the characters down twice and letting them disagree.
+	Converted from the vocabulary's dot notation, so the two cannot disagree.
 
 	:param glyph: the vocabulary entry.
 	"""
@@ -592,8 +488,7 @@ def _brailleText(glyph) -> str:
 def recordFieldText(region, start: int, end: int) -> None:
 	"""Note that NVDA wrote this stretch of a document region's text itself.
 
-	Called from the patch on `_addFieldText`, which is where every control field's text is
-	added. Nothing else appends to that list, so what is in it is exactly what NVDA said.
+	Called from the patch on `_addFieldText`. See `FIELDS`.
 
 	:param region: the region being built.
 	:param start: where its text stood before the field was added.
@@ -615,10 +510,7 @@ def recordFieldText(region, start: int, end: int) -> None:
 def restartFields(region) -> None:
 	"""Forget what was recorded, because the region is about to be read again.
 
-	Called from the patch on `TextInfoRegion.update`, which begins by emptying the text. An
-	empty list rather than no list at all: the difference between "the patch is in and this
-	region has no fields" and "there is no provenance here" is the difference between replacing
-	nothing and not knowing whether it would be safe to.
+	Called from the patch on `TextInfoRegion.update`. An empty list, not none; see `FIELDS`.
 
 	:param region: the region about to be read.
 	"""
@@ -652,8 +544,7 @@ def replaceableSpans(region) -> "Optional[list[tuple]]":
 def _isObjectRegion(region) -> bool:
 	""":return: whether a region's whole line is `getPropertiesBraille` output.
 
-	Asked by class rather than by duck typing, because the question is exactly "did NVDA compose
-	the whole of this", and a document region carries an object too.
+	By class, since a document region carries an object too.
 
 	:param region: the region.
 	"""
@@ -668,12 +559,7 @@ def _isObjectRegion(region) -> bool:
 def _outsideItsOwnWords(region, rawText: str) -> "list[tuple]":
 	"""Everything in an object's line except what the application put there.
 
-	An object region's whole line is composed by NVDA, so the question is not which parts are
-	NVDA's but which parts are the object's own — its name, its value, its description. Those
-	are known, so every occurrence of each is cut out and what is left is NVDA's wording.
-
-	Every occurrence, not the likely one. "btn btn" is a button named "btn" and nothing in the
-	finished string says which is the role.
+	Every occurrence of each of `OBJECT_TEXT` is cut out; what is left is NVDA's wording.
 
 	:param region: the object's region.
 	:param rawText: its line.
@@ -713,22 +599,8 @@ def _outside(forbidden: "list[tuple]", length: int) -> "list[tuple]":
 def marksIn(rawText: str, spans: "Optional[list[tuple]]" = None) -> "list[tuple]":
 	"""Find everything in a line that a shape stands over.
 
-	**Whole words only, and nothing to do with which words they are.** NVDA joins the things it
-	says about an object with a single space, so what it wrote is always a token of its own;
-	"btn" inside somebody's text is their text. Matching anywhere in the line would have put a
-	button in the middle of a word, which reads as a shape that means nothing and cannot be
-	traced back.
-
-	**Nor with where in the line they fall.** NVDA is not consistent about which side of the
-	name the word goes: browse mode writes "btn Search" and an ordinary window writes it the
-	other way about. Scanning from every word boundary makes that somebody else's problem.
-
-	**A word here may be several.** The labels are NVDA's translated ones, and nothing says a
-	language has to render a role in one word — NVDA's own "sorted asc" already does not. So
-	the longest label that fits at a boundary wins, rather than one token being looked up.
-
-	**And only where NVDA wrote the line.** See `replaceableSpans`: a word is a role because of
-	where it came from, never because of what it says.
+	Whole words, from every word boundary, within `replaceableSpans`. A label may be several
+	words ("sorted asc"), so the longest that fits wins.
 
 	:param rawText: the line as NVDA wrote it.
 	:param spans: the stretches that may be replaced. None means the whole line, which is for
@@ -773,11 +645,8 @@ def _marksBetween(rawText: str, start: int, end: int, labels: "list[str]", table
 def _labelAt(rawText: str, at: int, labels: "list[str]", table: dict, limit: int):
 	""":return: (start, end, glyph) for the label starting here, or None.
 
-	Longest first, so a label that begins with another one is not lost to it. What follows has
-	to be a separator or the end of what may be replaced, which is what makes "h1" fail to match
-	inside "h10" and what stops a label running off the end of NVDA's own words into somebody's.
-	The one exception is a count after an entry in `COUNTED`, which NVDA writes with no
-	separator; the match still ends at the label, so the count is left on the line.
+	Longest first. What follows must be a separator or the end of the stretch, so "h1" does not
+	match in "h10", except a count after an entry in `COUNTED`.
 
 	:param rawText: the line.
 	:param at: a word boundary in it.
@@ -815,18 +684,12 @@ def _byLength() -> "list[str]":
 def compressRegion(region, target: Optional[Target] = None) -> dict:
 	"""Replace the words a shape stands over with the shape, in one region's cells.
 
-	Called after the region has been read and before it is laid out, which is what makes the
-	cells given back cells the wrapping can use.
-
-	Everything is done right to left, so that a place already found stays where it was found
-	while the line in front of it is shortened; the marks already recorded are the ones after
-	the cut, and those are moved along with the cells.
+	After reading and before layout, so wrapping can use the cells given back. Right to left,
+	so places found stay put; marks after each cut move with the cells.
 
 	:param region: the region to compress, which may be anything or nothing.
-	:param target: the display this region is going to. **None means it is not known and
-		nothing is compressed**, and any words already taken out are put back. Whoever knows
-		where the region is being drawn — a segment knows its rows — is who decides, because a
-		region bound for a display that cannot draw must keep its words.
+	:param target: the display this region is going to, decided by whoever knows. None means
+		unknown: nothing is compressed and words taken out are put back.
 	:return: `{cell index: the fitted glyph}`, empty when nothing was drawn.
 	"""
 	if region is None:
@@ -924,12 +787,8 @@ def _moveMarks(region, at: int, fitted) -> None:
 def _forget(region) -> dict:
 	"""Give a region its words back, and leave no marks on it.
 
-	Cleared rather than left alone, because a region that was compressed on one pass and is not
-	on the next — the setting turned off, the display unplugged, the profile switched — would
-	otherwise carry marks naming cells that are no longer symbols. **And the cells put back**,
-	because a region is not always read again in between: turning the setting off used to leave
-	"b Search" on the line with nothing registered to draw over it, which is a cell that means
-	nothing at all.
+	Marks cleared and cells put back, since the region may not be read again in between. See
+	`BEFORE`.
 
 	:param region: the region.
 	:return: an empty table, for the caller to return in turn.
@@ -950,11 +809,7 @@ def _forget(region) -> dict:
 def _restore(region) -> None:
 	"""Put a compressed region back the way NVDA left it.
 
-	**Only where it is still the region that was compressed.** A re-read rebuilds the cells and
-	the maps from the text, so a snapshot taken before that is a description of something that
-	no longer exists, and writing it back would undo the re-reading. The stamp is what answers
-	that: it holds the cells compression produced, so cells that still match it are cells
-	nothing else has touched.
+	Only where its cells still match `STAMP`, or the restore would undo a re-read.
 
 	:param region: the region.
 	"""
@@ -975,17 +830,9 @@ def _restore(region) -> None:
 def keepCompressed(region, target: Optional[Target] = None) -> None:
 	"""Put the shapes back on a region that has been read again since it was laid out.
 
-	**The reason this exists is a routing key reaching the wrong word.** NVDA re-reads the
-	region the flow is drawing on its own account — `_handlePendingUpdate` does it every time
-	the caret moves — and a re-read rebuilds the cells and both position maps from the text.
-	When the text has not changed the flow keeps the rendering it already has, which is the
-	right thing and the cheap thing; but that rendering was cut from compressed cells while the
-	maps are now the uncompressed ones. A press on the second half of the row then answered
-	through a map two cells out of step with what the reader was touching.
-
-	Compressing is deterministic, so doing it again over the same text gives the same cells and
-	the same marks the rendering was cut from. Costs one attribute read for a region that has
-	never carried a shape, which is nearly all of them.
+	NVDA's `_handlePendingUpdate` re-reads the region, rebuilding uncompressed maps under a kept
+	rendering cut from compressed cells, so routing would be out of step. Compressing again is
+	deterministic, and costs one attribute read where there was never a shape.
 
 	:param region: the region about to be used, which may be anything or nothing.
 	:param target: the display it is going to, as `compressRegion` means it.

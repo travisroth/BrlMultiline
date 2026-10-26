@@ -470,7 +470,7 @@ def _placeOnScreen(region: Region, scroll: int, inherited: int) -> None:
 	that put a sticky header back in its place.
 
 	An area found by geometry has no node of its own, so it takes the move of the region it is
-	in (found in review: the columns inside a pinned banner were placed far above the screen).
+	in.
 	"""
 	shift = region.node.shift if region.node is not None and region.kind != "page" else inherited
 	region.screenBox = region.box.moved(dy=-scroll - shift)
@@ -482,8 +482,7 @@ def _anchor(region: Region) -> int | None:
 	"""Where a region starts in browse mode's text: its own start or its earliest child's.
 
 	Worked out bottom up, after everything is built, so a block found by geometry starts at the
-	earliest of what it holds, including regions whose starts were set from their nodes (found
-	in review: a block holding a table at offset 10 started at the links after it, at 100).
+	earliest of what it holds, including regions whose starts were set from their nodes.
 	"""
 	for child in region.children:
 		_anchor(child)
@@ -522,9 +521,8 @@ def _widgets(region: Region) -> None:
 		_widgets(child)
 	if region.node is None or region.kind in ("search", "tabs", "accordion"):
 		return
-	# A plain wrapper is layout, not an area with meaning of its own, so it does not keep the tab
-	# or the header in it from the others (found in review: four tabs, each in a list item, made
-	# no strip). Anything named does.
+	# A plain wrapper is layout, so it does not keep the tab or the header in it from the others,
+	# as with tabs each in a list item. Anything named does.
 	taken = _takenWithin(region)
 	free = []
 	seen = set()
@@ -548,8 +546,7 @@ def _widgets(region: Region) -> None:
 		box = unionOf(n.box for n in run)
 		if box is None or not _isSizeable(box):
 			continue
-		# Where the first member is, and what finds it again once the text around it has moved
-		# (found in review: a strip kept its first tab's offset and lost its identifier).
+		# Where the first member is, and what finds it again once the text around it has moved.
 		starts = [(n.start, n.ident) for n in run if n.start is not None]
 		widget = Region(kind, "", box, "widget")
 		if starts:
@@ -561,8 +558,7 @@ def _widgets(region: Region) -> None:
 		added.append(widget)
 	if added:
 		# The plain wrappers a strip or an accordion was found through are part of it now; the
-		# areas with meaning inside them go into it, not away with the wrapper (found in review:
-		# a named form in a wrapper between an accordion's headers was lost).
+		# areas with meaning inside them go into it, not away with the wrapper.
 		kept = []
 		for c in region.children:
 			holder = _isPlainWrapper(c) and next(
@@ -681,7 +677,7 @@ def estimateScroll(root: Node, viewport: Box) -> int:
 	with three kinds of element left out because pages park hidden things far above the top:
 
 	1. Anything that is not a container. A skip link or a button is a control, and a hidden one
-	   can be any width (found in review: a wide skip link at minus 9999).
+	   can be any width.
 	2. Anything narrower than 40 percent of the view, or absurdly wide.
 	3. An outlier: a top with nothing else starting within a screen of where it ends. A page's
 	   content runs on from its top; a hidden container parked thousands of pixels up does not.
@@ -781,9 +777,7 @@ def _countContent(node: Node) -> None:
 	"""Fill in the counts the caller did not have, from the node itself and its children.
 
 	A caller that counted everything says so (`Node.counted`). One that gave only links and
-	text, as pages saved before the other counts did, keeps those, and has the rest added up
-	here (found on a saved page: a sign on form with four fields counted none, and was not an
-	area).
+	text, as older saved pages do, keeps those, and has the rest added up here.
 	"""
 	for child in node.children:
 		_countContent(child)
@@ -854,10 +848,8 @@ def words(text: str) -> list[str]:
 	In any alphabet: a page or a window named in Spanish or Russian has its words in its own
 	letters, "Búsqueda" or "Поиск", not only A to Z.
 
-	**A combining mark belongs to the word it is in**, an accent or a vowel sign, and the text is
-	put in its composed form first (found in review: a decomposed "búsqueda", with its accent as
-	a mark of its own, was split at the accent; and a Hindi vowel sign split "खोज" into single
-	letters, which then matched words that only started with one of them).
+	A combining mark, an accent or a vowel sign, belongs to the word it is in, and the text is
+	put in its composed form first.
 	"""
 	found: list[str] = []
 	current: list[str] = []
@@ -893,9 +885,8 @@ def searchWords() -> tuple[str, ...]:
 def mentionsSearch(*texts: str) -> bool:
 	"""Whether any of the texts has search as a word, or a word starting with it.
 
-	Search box, searchbox, search-form and siteSearch count; research does not (found in
-	review: a "Research grants" form became a search field). Shared with the collector and the
-	probe, so all three agree on what search is. In the reader's language as well as English;
+	Search box, searchbox, search-form and siteSearch count; research does not. Shared with the
+	collector and the probe, so all three agree on what search is. In the reader's language as well as English;
 	see `searchWords`.
 	"""
 	starts = searchWords()
@@ -957,8 +948,7 @@ def _classify(node: Node) -> tuple[str, str, str]:
 	if node.isSearch:
 		return "search", "", "search"
 	if node.role == "form":
-		# The form role alone, without the landmark attribute some browsers add, is the same
-		# form (found in review: three fields in a plain form were left as an area).
+		# The form role alone, without the landmark attribute some browsers add, is the same form.
 		return _classifyForm(node, "structure")
 	if node.role in ("internalframe", "frame"):
 		return "frame", "", "frame"
@@ -1037,9 +1027,8 @@ def _isRecord(region: Region) -> bool:
 def _dropRepeats(children: list[Region]) -> list[Region]:
 	"""Leave out the records of a list, such as Hacker News's rows of stories.
 
-	Found in review: dropping any six areas of one size took six titled sections with them. A
-	record is a row or a list item with no heading, so a section, or a row with its own heading,
-	is always kept.
+	A record is a row or a list item with no heading, so a section, or a row with its own
+	heading, is always kept.
 	"""
 	plain = [c for c in children if _isRecord(c)]
 	if len(plain) < REPEAT_MIN:
@@ -1138,8 +1127,7 @@ def _split(region: Region, viewport: Box) -> None:
 	if any(c.kind in PAGE_LANDMARKS for c in region.children):
 		# The page's own landmarks say how most of it is divided, and wrapping them in
 		# geometric guesses would only hide that. But content outside every landmark is still
-		# content (found in review: a navigation landmark hid a whole unmarked article), so it
-		# is found from its own gaps and set beside the landmarks.
+		# content, so it is found from its own gaps and set beside the landmarks.
 		region.children = sorted(
 			region.children + _uncovered(leaves, taken, region.box),
 			key=lambda r: (r.box.top, r.box.left),
@@ -1158,8 +1146,7 @@ def _uncovered(leaves: list[Item], taken: list[Box], bounds: Box) -> list[Region
 	already is not dropped but divided around it: into what is above it, below it, and to
 	each side, and each of those again around any other region it still reaches across. The
 	content's own rectangles are all outside the regions, so dividing always ends in blocks
-	clear of them (found in review: content on all four sides of a narrow navigation landmark,
-	with no straight gutter between, was discarded as one block crossing it).
+	clear of them.
 	"""
 	blocks = splitByGeometry(leaves, bounds) or [_block(leaves, bounds)]
 	result: list[Region] = []
@@ -1210,10 +1197,9 @@ def _block(members: list[Item], bounds: Box) -> Region | None:
 def _fillBlock(block: Region, members: list[Item], countLoose: bool) -> None:
 	"""Name a block found by geometry, count what lies loose in it, and find where it starts.
 
-	Shared by both ways blocks are made, so neither forgets a count (found in review: the blocks
-	made beside landmarks counted their links and not their fields or buttons). Links are counted
-	whole, regions' included; fields and buttons only where they lie loose and the block is not
-	split again, since a split block's are its parts', which `_tally` adds up.
+	Shared by both ways blocks are made, so neither forgets a count. Links are counted whole,
+	regions' included; fields and buttons only where they lie loose and the block is not split
+	again, since a split block's are its parts', which `_tally` adds up.
 	"""
 	nodes = [(b, n) for b, n in members if isinstance(n, Node)]
 	regions = [m for _, m in members if isinstance(m, Region)]
@@ -1267,8 +1253,7 @@ def _cut(items: list[Item], bounds: Box, axis: str) -> list[tuple[Box, list[Item
 	columns, since a picture across two columns would otherwise hide the gutter between them.
 	It is still placed, in whichever part holds its center. A region found already is different:
 	it is never cut through, whatever its width, so that it stays whole inside the part that
-	holds it (found in review: a wide table ended up outside the column it was put in). Parts
-	are clipped to the area: a carousel's slides parked off to the right are part of the
+	holds it. Parts are clipped to the area: a carousel's slides parked off to the right are part of the
 	carousel, not a column of their own.
 	"""
 	if axis == "x":
