@@ -235,35 +235,34 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		try:
 			self._install()
 		except BaseException:
-			# Whatever was put in place before the failure is taken out again, as on terminate.
-			self._teardown.close()
+			self._shutDown()
 			raise
 
 	def _install(self) -> None:
 		"""Put the add-on in place, registering each undo with `_onTerminate` as it goes."""
 		bmConfig.initialize()
-		patches.install()
 		self._onTerminate(patches.remove)
+		patches.install()
 		# A routing key in a segment showing an object goes to that object. See `monitorRouting`.
 		containerModule.segmentRouter = self._routeIntoMonitor
 		containerModule.segmentUsed = self._noteSegmentUsed
 		self._onTerminate(setattr, containerModule, "segmentRouter", None)
 		self._onTerminate(setattr, containerModule, "segmentUsed", None)
 		# Which display's keys are being pressed, for the per display panning direction.
-		panning.install()
 		self._onTerminate(panning.remove)
+		panning.install()
 		# The arrow keys inside a browse mode table, which is a way of reading rather than a
 		# way of displaying and so is not waited on a flow. See `tableArrows`.
-		tableArrows.install()
 		self._onTerminate(tableArrows.remove)
+		tableArrows.install()
 		# Which tables' headers are not spoken, which is also how a table is read rather than
 		# displayed, and so is not waited on a flow either. See `tableHeaderSpeech`.
-		tableHeaderSpeech.install()
 		self._onTerminate(tableHeaderSpeech.remove)
+		tableHeaderSpeech.install()
 		# Layered keys. Reads each device's layers and passes every key through while no layer
 		# is on. See `keyLayerDispatch`.
-		keyLayerDispatch.install()
 		self._onTerminate(keyLayerDispatch.remove)
+		keyLayerDispatch.install()
 		self._keyLayersMenuItem = self._addKeyLayersMenuItem()
 		self._onTerminate(self._removeKeyLayersMenuItem)
 		# The reader's braille substitutions: written into the rules file every BrlMultiline table
@@ -318,7 +317,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""Register one step of the teardown, to run on terminate in reverse order of registering.
 
 		Each step that fails is logged and the rest still run, so one fault cannot leave NVDA
-		patched.
+		patched. An installer that changes several things has its undo registered before it runs,
+		so a failure part way through is undone too; such an undo is safe whatever went in.
 		"""
 		self._teardown.callback(_runLoggingFailure, undo, *args)
 
@@ -344,7 +344,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self.flowBand.onTerminate()
 			self.flowBand = None
 
-	def terminate(self):
+	def _shutDown(self) -> None:
+		"""Take out everything `_install` put in, and stop anything still queued from running.
+
+		Shared by `terminate` and a start that failed part way, and safe to run twice.
+		"""
 		# Set first, so that anything already queued sees it even if a step below fails.
 		self._terminated = True
 		_runLoggingFailure(self.cancelPendingDrawings)
@@ -352,7 +356,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._teardown.close()
 		finally:
 			global _plugin
-			_plugin = None
+			if _plugin is self:
+				_plugin = None
+
+	def terminate(self):
+		try:
+			self._shutDown()
+		finally:
 			super().terminate()
 
 	# Events

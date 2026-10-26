@@ -89,11 +89,12 @@ def install() -> None:
 			exc_info=True,
 		)
 		return
+	# Set before anything is replaced, so `remove` puts back whatever went in if this stops part way.
+	_installed = True
 	for name, wrapper in wrapped.items():
 		_originals[name] = getattr(commands, name)
 		_wrappers[name] = wrapper
 		setattr(commands, name, wrapper)
-	_installed = True
 
 
 def remove() -> None:

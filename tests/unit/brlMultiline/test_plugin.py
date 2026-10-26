@@ -824,6 +824,59 @@ class TestInstallation(PluginTestCase):
 		self.assertIsNone(containerModule.segmentRouter)
 		self.assertEqual(gui.settingsDialogs.NVDASettingsDialog.categoryClasses, [])
 
+	def failToStart(self, queueRebuild=False):
+		""":return: a plugin whose first rebuild raised, after queueing another if asked."""
+		from unittest import mock
+
+		self.plugin.terminate()
+		callAfterQueue.discard()
+		started = []
+
+		def rebuild(instance):
+			started.append(instance)
+			if queueRebuild:
+				instance._scheduleRebuild()
+			raise RuntimeError("rebuild")
+
+		with mock.patch.object(GlobalPlugin, "rebuildBuffer", rebuild):
+			with self.assertRaises(RuntimeError):
+				GlobalPlugin()
+		self.addCleanup(started[0].terminate)
+		return started[0]
+
+	def test_aFailedStartIsTerminatedAndGone(self):
+		failed = self.failToStart()
+		self.assertTrue(failed.isTerminated)
+		self.assertIsNone(plugin.getPlugin())
+
+	def test_aRebuildQueuedByAFailedStartDoesNothing(self):
+		self.failToStart(queueRebuild=True)
+		self.assertEqual(callAfterQueue.flush(), 1)
+		self.assertIs(self.handler.mainBuffer, self.originalBuffer)
+
+	def test_anInstallerThatFailsPartWayIsUndone(self):
+		from unittest import mock
+
+		self.plugin.terminate()
+		attributeFor = patches._attributeFor
+
+		def failOnScrollForward(name):
+			if name == "scrollForward":
+				raise RuntimeError("attribute")
+			return attributeFor(name)
+
+		with mock.patch.object(patches, "_attributeFor", failOnScrollForward):
+			with self.assertRaises(RuntimeError):
+				GlobalPlugin()
+		self.assertEqual(patches._installedMethods, {})
+
+	def test_terminatingAnOldInstanceLeavesTheNewOneRegistered(self):
+		self.plugin.terminate()
+		newer = GlobalPlugin()
+		self.addCleanup(newer.terminate)
+		self.plugin.terminate()
+		self.assertIs(plugin.getPlugin(), newer)
+
 
 class TestMonitorCarryOver(PluginTestCase):
 	segmentCount = 8
