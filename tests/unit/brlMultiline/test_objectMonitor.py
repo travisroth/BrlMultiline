@@ -844,7 +844,7 @@ class TestPagingAPinnedTable(MonitorTestCase):
 
 	def test_theCommandFindsItWithNoBandAtAll(self):
 		monitor = self.pinWideTable()
-		self.assertIs(self.plugin._tableToPage(None), monitor)
+		self.assertIs(self.plugin.tables.tableToPage(None), monitor)
 
 	def test_turningThePageMovesIt(self):
 		monitor = self.pinWideTable()
@@ -871,4 +871,4 @@ class TestPagingAPinnedTable(MonitorTestCase):
 	def test_aPinNotShowingATableIsNotOffered(self):
 		self.pinDocument()
 		self.assertEqual(self.plugin.tablesInColumns(), {})
-		self.assertIsNone(self.plugin._tableToPage(None))
+		self.assertIsNone(self.plugin.tables.tableToPage(None))

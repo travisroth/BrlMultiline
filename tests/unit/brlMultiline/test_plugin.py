@@ -3496,7 +3496,7 @@ class TestWhichTableAPagingCommandMoves(PluginTestCase):
 		keys = self.keys()
 		self.plugin.tablesInColumns = lambda: self.showing(keys)
 		self.plugin.segmentKeysOn = lambda driver: [keys[2]]
-		self.assertEqual(self.plugin._tableToPage(None), "the third")
+		self.assertEqual(self.plugin.tables.tableToPage(None), "the third")
 
 	def test_withNoKeyBehindItTheFirstInDisplayOrderWins(self):
 		"""An ordinary display, or a command run from the keyboard: there is nothing to
@@ -3504,18 +3504,18 @@ class TestWhichTableAPagingCommandMoves(PluginTestCase):
 		keys = self.keys()
 		self.plugin.tablesInColumns = lambda: self.showing(keys)
 		self.plugin.segmentKeysOn = lambda driver: []
-		self.assertEqual(self.plugin._tableToPage(None), "the first")
+		self.assertEqual(self.plugin.tables.tableToPage(None), "the first")
 
 	def test_aDisplayWithNothingLaidOutFallsBackToDisplayOrder(self):
 		keys = self.keys()
 		self.plugin.tablesInColumns = lambda: self.showing(keys)
 		self.plugin.segmentKeysOn = lambda driver: [keys[1]]
-		self.assertEqual(self.plugin._tableToPage(None), "the first")
+		self.assertEqual(self.plugin.tables.tableToPage(None), "the first")
 
 	def test_nothingLaidOutAnywhereIsNothingToMove(self):
 		self.keys()
 		self.plugin.tablesInColumns = lambda: {}
-		self.assertIsNone(self.plugin._tableToPage(None))
+		self.assertIsNone(self.plugin.tables.tableToPage(None))
 
 
 class LayoutAppModule:

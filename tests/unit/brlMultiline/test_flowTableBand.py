@@ -58,24 +58,19 @@ class CommandHolder:
 
 	def __init__(self, band, withBand=True):
 		from brlMultiline import GlobalPlugin
+		from brlMultiline.tableCommands import TableCommands
 
 		self.band = band
 		self.flowBand = band if withBand else None
 		self._monitors = {}
+		self.tables = TableCommands(self)
 		self.layOutPinnedTables = GlobalPlugin.layOutPinnedTables.__get__(self)
-		self._wantTableHere = GlobalPlugin._wantTableHere.__get__(self)
 		self.reportAboutTheDisplay = GlobalPlugin.reportAboutTheDisplay.__get__(self)
-		self._tableHere = GlobalPlugin._tableHere.__get__(self)
-		# The paging commands go through the plugin to find which table to move, so the
-		# stand-in has to be able to answer that too: what is being tested is the command.
-		self._tableToPage = GlobalPlugin._tableToPage.__get__(self)
+		# The paging commands ask the plugin which tables are showing, so the stand-in has to be
+		# able to answer that too: what is being tested is the command.
 		self.tablesInColumns = GlobalPlugin.tablesInColumns.__get__(self)
 		self.container = band.plugin.container
 		self.segmentKeysOn = GlobalPlugin.segmentKeysOn.__get__(self)
-		self._inAnotherTable = GlobalPlugin._inAnotherTable.__get__(self)
-		# The band commands ask which column the reader is in and how to name it back to them.
-		self._columnUnderTheCursor = GlobalPlugin._columnUnderTheCursor.__get__(self)
-		self._sayAboutTheColumn = GlobalPlugin._sayAboutTheColumn.__get__(self)
 
 	@property
 	def tableRequest(self):
@@ -2375,8 +2370,6 @@ class TestSayingWhichColumnsAreShowing(TableBandTestCase):
 
 	def _pageOf(self, view, by=1):
 		""":return: what the reader was told, having turned a page of columns."""
-		from brlMultiline import GlobalPlugin
-
 		item = view.item(1)
 		self.api.getFocusObject = lambda: item
 		self.api.getNavigatorObject = lambda: item
@@ -2386,7 +2379,7 @@ class TestSayingWhichColumnsAreShowing(TableBandTestCase):
 		holder = CommandHolder(self.band)
 		spokenMessages.clear()
 		flashedMessages.clear()
-		GlobalPlugin._turnColumnPage.__get__(holder)(by)
+		holder.tables.turnColumnPage(by)
 		return list(spokenMessages)
 
 	def test_aListsColumnsAreNotNamedAfterItsFirstRow(self):
