@@ -57,19 +57,16 @@ if TYPE_CHECKING:
 MAX_FETCHES = 24
 """How many blocks one operation may add before giving up.
 
-A backstop under the source's own budget, for the case where a source keeps answering with
-blocks that add no rows. Never reached in ordinary reading: filling a Monarch from nothing
-costs eight.
+A backstop under the source's own budget, for a source that keeps answering with blocks that
+add no rows.
 """
 
 
 def rowText(region, rendered, rowIndex: int) -> str:
-	"""What one row of a rendered block actually reads.
+	"""What one row of a rendered block reads, for the log and the dry run.
 
-	For the log and the dry run. The block's own text is not the answer: a paragraph
-	occupying five rows would then be reported five times over, which reads as a repeated
-	paragraph rather than as one paragraph laid out. The row's cells are mapped back through
-	the region's `brailleToRawPos`, which is where contraction is accounted for.
+	The row's cells are mapped back through the region's `brailleToRawPos`, which accounts
+	for contraction, so a block spanning several rows is reported row by row.
 
 	:param region: the region the block was read through.
 	:param rendered: the rendering the row belongs to.
@@ -85,13 +82,8 @@ def rowText(region, rendered, rowIndex: int) -> str:
 		return ""
 	own = getattr(region, "textForPositions", None)
 	if own is not None:
-		# A region whose positions are not offsets into one run of text answers for itself.
-		# A table row is the case: its cells come from different places, so its positions
-		# carry which column as well as where in it, and read as offsets they are enormous
-		# numbers that fall off the end of any map. This function then returned the row's
-		# whole flat text for every row of it — so the report showed a reader the full
-		# contents of columns their display was truncating, which is the opposite of what a
-		# report is for.
+		# A region whose positions are not offsets into one run of text, such as a table row
+		# whose positions also carry the column, answers for itself.
 		return own(positions)
 	mapping = getattr(region, "brailleToRawPos", None)
 	if not mapping:
@@ -144,8 +136,7 @@ class FlowController(PanelOwner):
 		self.live = live
 		self.movesCursor = True if movesCursor is None else movesCursor
 		self.indentStyle = indentStyle
-		"""How one level of depth is drawn. Read once, since a setting changed mid reading
-		rebuilds the band anyway."""
+		"""How one level of depth is drawn. See `reconfigure` for a change of setting."""
 
 		self.lineFocus = lineFocus
 		"""Whether the focused row is marked at the left. See `_markLineFocus`."""
@@ -167,56 +158,30 @@ class FlowController(PanelOwner):
 		"""The block the cursor is in, and the only one that may show a cursor."""
 
 		self._activeIsFreshlyRead = False
-		"""Whether the active block's region has been read since it became the active one.
-
-		What stops one keystroke asking the application for the same line three times.
-		Fetching a block reads it, activating it reads it again for its cursor, and
-		`refreshActive` read it a third time immediately afterwards — three calls into the
-		document with nothing between them that could have changed the answer. See
-		`refreshActive`."""
+		"""Whether the active block's region has been read since it became the active one, so
+		`refreshActive` can skip reading the same line again."""
 
 		self._rereadFrom = 0
-		"""Which of the window's blocks the next live re-read should carry on from.
-
-		A live re-read is bounded by the same allowance everything else is, and a pass that
-		always began at the top row would re-read the rows it could afford and never reach
-		the ones it could not. See `_rereadBlocks`."""
+		"""Which of the window's blocks the next live re-read carries on from, so a re-read cut
+		short by the budget does not start at the top row every time. See `_rereadBlocks`."""
 
 		self.lastResult = None
 		"""The source's last answer, so a caller can say why nothing appeared."""
 
 		self._lastDirection = "not yet asked"
-		"""What the direction test last concluded, for the diagnostics.
-
-		Which end a block is brought onto the display at is the difference between a one row
-		scroll and a whole display of movement, and it is decided by a comparison the reader
-		cannot see and cannot feel the inputs to. Three hardware reports have now turned on
-		it.
-		"""
+		"""What the direction test last concluded, for the diagnostics. See `_isForward`."""
 
 		self.hasBeenToTheEnd = False
 		"""Whether the source has ever said there is no more after the last block read.
 
-		What tells content that is *growing* from content that is merely longer than the
-		band, and the difference decides whether anything is allowed to scroll on its own.
-		A pinned page has more below it from the moment it is pinned, and following that
-		would walk the display through the document a block at a time on a timer. A chat
-		read to its end and then written in has the same open edge a moment later — the
-		difference is that somebody once reached the end of it.
-
-		Never unset. A reader who has been to the end of a thing has been there, and panning
-		back into its history does not make what arrives afterwards new content of a
-		different kind. What stops the display moving while they read back is that it only
-		ever moves at the tail.
+		Tells content that is growing, such as a chat, from content that is merely longer than
+		the band: only content whose end has been reached may scroll on its own. Never unset;
+		the display still only moves on its own at the tail. See `reconsiderEnd`.
 		"""
 
 		self.edgeReasons: dict = {}
-		"""Why each end of the stream was declared, by edge, for the report.
-
-		"There is no more this way" is the one answer a reader disputes: they can see the
-		document goes on and NVDA pans through it. A walk has several ways of concluding it
-		has finished and they are different faults, so the report has to name which.
-		"""
+		"""Why each end of the stream was declared, by edge, so the report can name which of
+		the several ways a walk can conclude it has finished was the one taken."""
 
 		self._placements: list[str] = []
 		"""What has actually moved the band, most recent last. See `_note`."""
@@ -230,15 +195,9 @@ class FlowController(PanelOwner):
 		self.pinnedBlock: Optional["SourceBlock"] = None
 		"""A block held above the window and drawn on the band's top row, or None.
 
-		A table's header row is the case it exists for, and the reason it is not simply the
-		first block of the stream is what the reader found: a layout turned on from the middle
-		of a table never showed the headers at all, because the window starts where the reader
-		is. A pinned row is outside the window, so where the reader is does not decide whether
-		they can see what the columns are.
-
-		The window is one row shorter when there is one. That is decided when the controller
-		is built and does not change while it lives, so nothing under the pinned row ever
-		moves because of it.
+		A table's header row, kept outside the window so it shows wherever in the table the
+		reader starts. The window is one row shorter when there is one, decided when the
+		controller is built.
 		"""
 
 		self.pinned: Optional["RenderedBlock"] = None
@@ -253,59 +212,37 @@ class FlowController(PanelOwner):
 		self._pannedAt = None
 		"""Where the caret was when the reader last panned, or None if they have not.
 
-		What stops panning being undone by the cursor move panning itself caused. A live flow
-		writes its reading position back as it pans, NVDA reports that position, and the band
-		is asked to show the caret — whose row is the one that was just panned away from. On a
-		band several rows tall the caret's row is usually still on it and nothing happens; on
-		a band one row tall it is never on it, so every pan snapped straight back and the
-		display flickered between the two. See `_panIsTheReadersChoice`.
+		Stops a pan being undone by the cursor move the pan itself caused, which on a one row
+		band would snap straight back. See `_panIsTheReadersChoice`.
 		"""
 
 		self._writingTop = None
-		"""The last top block the reader was shown that was not the caret's own. See L{_stableTop}."""
+		"""The last top block the reader was shown that was not the caret's own. See `_stableTop`."""
 
 		self._acrossCaret = None
 		"""Where the caret was when the reader last panned across unwrapped lines, or None.
-
-		The across twin of `_pannedAt`: while the caret is still there, the page is the
-		reader's and a caret off it is one they left behind on purpose. See
-		`followCaretAcross`."""
+		The across counterpart of `_pannedAt`. See `followCaretAcross`."""
 
 		self._pannedCaret: tuple = ()
 		"""Where the caret counts as being if nothing has been typed since the reader panned.
 
-		The claim a written-in document's re-read has to respect. Not `_pannedAt`, which is
-		the *active block* and the cursor within it: panning moves the active block itself —
-		see `_cursorToTop` — so it answers "has the band moved", and what a re-read needs to
-		know before it throws the band away is "has anything been typed".
-
-		More than one position, because a caret moved by panning has two right answers while
-		the application catches up. See `_caretsAfterAPan`."""
+		Answers "has anything been typed", where `_pannedAt` answers "has the band moved".
+		Several positions, because a caret moved by panning has two right answers while the
+		application catches up. See `_caretsAfterAPan`."""
 
 		self._owedAbove = 0
-		"""How many rows of context above the caret a writing re-read could not afford.
+		"""Rows of context above the caret that a writing re-read could not afford.
 
-		**The rows above are the ones that go missing, because they are read last.** A
-		keystroke re-reads the band from the caret: the caret's own block, then the rows
-		below it, and only then the walk back to what was above. On a tall display that walk
-		is most of the work — nine rows of a Monarch against four of a Focus — and it is what
-		the allowance runs out during, so the reader typing at the end of a document was left
-		with their line and blank rows where everything they had written should be.
-
-		Nothing healed it either. The band asks again whenever an end of it is short, and
-		this end is not short: the window is anchored at the caret's block with nothing above
-		it, so there is no shortfall to make up and the pass that comes back had nothing to
-		ask for. So the debt is written down here and paid on that pass instead. See
-		`_contextAboveTheCaret` and `_payWhatIsOwedAbove`."""
+		Those rows are read last, so they are the ones the budget cuts, and nothing else asks
+		for them again because the window has no shortfall at its top. They are paid on the
+		next pass. See `_contextAboveTheCaret` and `_payWhatIsOwedAbove`."""
 
 		self.rereadWhileWriting = False
 		"""Whether the last cursor move re-read the band as an edit being typed into.
 
-		The segment consumes this to schedule a settle pass: a rich editor's answers at the
-		moment of a keystroke can be transiently wrong — the probe caught a textarea
-		answering the paragraph at the caret as everything before it — and every such state
-		heals on the next re-read. A reader who pauses right after pressing return, which is
-		exactly when they read the display, should not be the one to supply that re-read."""
+		The segment consumes this to schedule a settle pass, since a rich editor can answer
+		transiently wrong at the moment of a keystroke. See docs/design/spatial-reading-plan.md,
+		Following the cursor."""
 
 	@contextlib.contextmanager
 	def operation(self):
@@ -349,10 +286,8 @@ class FlowController(PanelOwner):
 
 	def _enterAtCursor(self, contextRows: int = 0, atObject=None, fill: bool = True) -> bool:
 		"""
-		:param fill: whether to fill the band before returning. False for a caller that has
-			not chosen the window yet: a writing re-read enters at the caret and then puts
-			the band back under the row the reader had, and filling downward first read the
-			rows below the caret that the restore was about to push off the bottom. See
+		:param fill: whether to fill the band before returning. False for a caller that will
+			move the window first, so rows are not read only to be pushed off. See
 			`_readAgainKeeping`.
 		:return: whether anything is now on the display. See `enterAtCursor`.
 		"""
@@ -430,24 +365,18 @@ class FlowController(PanelOwner):
 		self.window.setEdge(Edge.BEFORE, EdgeState.OPEN)
 		self.window.setEdge(Edge.AFTER, EdgeState.OPEN)
 		block = self._keep(result.block)
-		# Activated before the first rendering rather than after it. Whether a block holds
-		# the cursor decides how it is translated — NVDA expands the word at the cursor to
-		# computer braille — so a block laid out while it was still inactive had to be read
-		# and laid out again to come out right, and that second reading is a call into the
-		# application on every keystroke. The block being entered at is the active one by
-		# construction, so the question was already answered before it was asked.
+		# Activated before the first rendering, because whether a block holds the cursor
+		# decides how it is translated (NVDA expands the word at the cursor).
 		self._setActive(block.blockId, freshlyRead=block.region is result.block.region)
 		self.window.appendBlock(self.renderer.render(block))
 		self.window.enterAt(block.blockId)
-		# Still asked, for the one thing the first rendering cannot know: a caret beyond the
-		# rendering work set belongs to a later chunk, which `_renderActiveChunk` locates.
+		# A caret beyond the rendering work set belongs to a later chunk, which
+		# `_renderActiveChunk` locates.
 		self.refreshActive(reread=not self._activeIsFreshlyRead)
 		if contextRows > 0:
 			self._reachBack(contextRows)
 		elif result.block.isControl:
-			# A control's prompt is context, and context goes above it. What the reader has
-			# arrived at is the field; what says what the field is for is behind them, and
-			# on one row there has never been anywhere to put it.
+			# A control's prompt goes above it.
 			contextRows = self._labelContext(result.block.blockId)
 		if contextRows > 0:
 			self.window.enterAt(result.block.blockId, contextRows=contextRows)
@@ -458,12 +387,8 @@ class FlowController(PanelOwner):
 	def _labelContext(self, blockId: "BlockId") -> int:
 		"""How far above a control to start the window, so that its prompt is on the display.
 
-		One block is read backwards, and one is enough: the prompt is what immediately
-		precedes the control, and how far above the window should start is decided from that
-		block's own height. An earlier version asked for half a band of *rows* instead,
-		which on an eight row Monarch fetched four blocks to use one and spent a third of
-		the operation's budget doing it — the display then filled with the marker meaning
-		there is more we have not read.
+		One block is read backwards, since the prompt is what immediately precedes the control,
+		and the offset is taken from that block's own height.
 
 		:param blockId: the control's block.
 		:return: how many rows above it the window should start, 0 to leave it at the top.
@@ -480,8 +405,7 @@ class FlowController(PanelOwner):
 			except LookupError:
 				return 0
 		if index <= 0:
-			# Nothing above it: the control is the first thing in the document, or what is
-			# above could not be read. It sits at the top, as any block does.
+			# Nothing above it, or what is above could not be read.
 			return 0
 		control = self.window.blocks[index]
 		previous = self.window.blocks[index - 1]
@@ -491,9 +415,8 @@ class FlowController(PanelOwner):
 	def _reachBack(self, rows: int) -> None:
 		"""Fetch rows above the window, which the window itself would never ask for.
 
-		`_fill` makes up a shortfall, and a window anchored at its own top row has none: it
-		is full, and there is nothing above it. Showing a control's label means reading what
-		the window does not need, so this asks by row count instead.
+		`_fill` makes up a shortfall, and a window anchored at its own top row has none, so
+		this asks by row count instead.
 
 		:param rows: how many rows are wanted above the top of the window.
 		"""
@@ -512,20 +435,15 @@ class FlowController(PanelOwner):
 	def hasMoreToFetch(self) -> bool:
 		""":return: whether an end of the band is short of content the source still has.
 
-		Deferred, which is the budget having run out rather than the document having ended.
-		The two look the same to a reader — rows with nothing in them — and are opposites:
-		one is the document finishing and the other is this add-on giving up part way.
+		Deferred means the budget ran out, as opposed to the document ending.
 		"""
 		return any(state is EdgeState.DEFERRED for state in self.window.edges.values())
 
 	def fill(self) -> bool:
 		"""Fetch whatever the window is short of, at both ends, and drop what is far away.
 
-		:return: whether anything came back. **Not whether the band is full**: a fill cut
-			short by the budget adds what it could and leaves the rest, and the caller that
-			comes back for the rest — see `FlowBand._fillMore` — needs to know that asking
-			again is worth it. A pass that adds nothing is a document that will not answer,
-			and asking it again is how a refusal turns into a loop.
+		:return: whether anything came back, not whether the band is full. A caller that comes
+			back for the rest, such as `FlowBand._fillMore`, stops when a pass adds nothing.
 		"""
 		with self.operation():
 			return self._fillBothEnds()
@@ -543,10 +461,8 @@ class FlowController(PanelOwner):
 	def _payWhatIsOwedAbove(self) -> bool:
 		"""Fetch context above the caret that a writing re-read could not afford at the time.
 
-		Asked on every fill, which is what the band's continuation pass calls: the debt is
-		paid a fetch or two at a time, on a fresh allowance each pass, until the rows the
-		reader had above them are back or the document says there are no more. Neither the
-		reader's keystroke nor their next arrival waits for any of it.
+		Asked on every fill, so the band's continuation pass pays the debt a fetch or two at a
+		time, on a fresh budget each pass, until the rows are back or the document starts.
 
 		:return: whether anything came back, so that the pass knows to come again.
 		"""
@@ -559,12 +475,10 @@ class FlowController(PanelOwner):
 		self._reachBack(wanted)
 		rowsAbove = self.window.rowsAbove()
 		if rowsAbove < wanted and self.window.edges[Edge.BEFORE] is EdgeState.DEFERRED:
-			# Short still, and still being refused rather than answered. The rows are kept and
-			# the band is left exactly where it is: moving it up a row per pass would walk the
-			# display under a reading hand three times to arrive where one move gets it.
+			# Still refused. The band stays where it is until the debt is paid, so it moves
+			# once rather than a row per pass.
 			return rowsAbove > before
-		# Paid, or there is nothing left to pay it with — the document starts here. Either way
-		# the debt is over and what was reached goes above the caret.
+		# Paid, or the document starts here. What was reached goes above the caret.
 		self._owedAbove = 0
 		if rowsAbove <= 0:
 			return False
@@ -577,26 +491,17 @@ class FlowController(PanelOwner):
 	def _rebaseIndent(self) -> None:
 		"""Draw the band's depths again if the plan in force has stopped working.
 
-		At the end of every operation rather than at any one of them, because arriving,
-		filling, panning and following the cursor all change what is on the band, and the
-		indent depends on nothing else. One pass, never a loop: laying the band out again
-		changes how many rows each block takes, which can change which blocks are on the
-		band, which could ask for a different plan again — and a display that settles only
-		after several passes is a display that moves while the reader is reading it.
-
-		`flowIndent.shouldRebase` is what keeps this quiet. It answers no while the plan can
-		still draw what is there, so arrowing through a run of items at the same depth costs
-		one comparison and nothing else, and prose costs the same comparison over a band of
-		`None`.
+		Run at the end of every operation, since every operation can change what is on the
+		band. One pass, never a loop: laying the band out again can change which blocks are on
+		it, and repeating would move the display while the reader reads it.
+		`flowIndent.shouldRebase` keeps this to one comparison while the plan still fits.
 		"""
 		rendered = list(self.window.blocks)
 		if not rendered:
 			return
 		depths = self._visibleDepths(rendered)
 		if not depths:
-			# Nothing on the band to plan for. The plan in force is left alone rather than
-			# reset: a band with no content rows says nothing about how deep anything is, and
-			# answering "flat" to that would redraw the reader's indent on no evidence.
+			# Nothing on the band to plan for, so the plan in force stands.
 			return
 		numCols = self.renderer.numCols
 		if not flowIndent.shouldRebase(
@@ -615,25 +520,10 @@ class FlowController(PanelOwner):
 	def drawGlyphsOn(self, target) -> None:
 		"""Say which display the band is on, and lay it out again if that is news.
 
-		**Every block already on the band was laid out without it.** A controller is built and
-		entered before any band holds it, so the renderer has no display to compress for and
-		every block it reads on the way in keeps its words. Those renderings then stand — a
-		block nobody re-read is not laid out again — and only the block under the caret, which
-		NVDA re-reads on every move, ever got its shapes. On a page of links that was one
-		symbol on the band and the rest written out. The same is true of a band moved to
-		another display, in either direction.
-
-		**An operation, like every other redraw.** A symbol shortens a row, so the band can come
-		out short and fetch the block below — and a fetch outside an operation starts the
-		budget with nothing to finish it. Every pan after that ran inside one endless
-		operation, and a quarter second later every fetch was refused: a band of rows saying
-		there was more that would not pan to it.
-
-		**And whether the setting still asks for them.** Only the display was compared, so turning
-		the setting off or on — or a profile switch that changed it — on a band that stayed on the
-		same display laid nothing out again: "l Search" stayed on the line after the words had been
-		asked for back. Found by review. Both are the state a layout was drawn in, and a change to
-		either draws it again.
+		A controller is entered before any band holds it, so the blocks already on the band were
+		laid out with no display to draw glyphs for. A change of display, or of the glyph
+		setting, lays them all out again. Inside an operation, because a shorter row can make
+		the band fetch, and a fetch needs an operation's budget.
 
 		:param target: the display the band is drawn on, as `glyphFlow.targetForRows` gives it.
 		"""
@@ -655,17 +545,9 @@ class FlowController(PanelOwner):
 	def useColumnPage(self, plan) -> bool:
 		"""Show a page of columns, and read what the page needs.
 
-		Three things that have to happen together and in this order, which is why they are
-		one method rather than a caller's job. The source is told which columns to read,
-		because every cell is a search of the document and a column on another page is a
-		search for something nobody will feel. The rows are read again, because the ones read
-		for the old page hold the wrong cells and drawing them under the new plan would put
-		the old page's values at the new page's offsets. And the pinned header is rebuilt,
-		for the same reason and because it is outside the window that the re-read walks.
-
-		It lived on the band until a pinned table could be laid out in columns too. A pin is
-		a flow like any other and pages like one; what the band adds is only which flow the
-		reader meant.
+		Three steps, together and in this order: the source is told which columns to read, so
+		cells on other pages are not searched for; the rows are read again, since they hold the
+		old page's cells; and the pinned header, which is outside the window, is rebuilt.
 
 		:param plan: the layout, on the page wanted.
 		:return: whether the page changed.
@@ -687,24 +569,20 @@ class FlowController(PanelOwner):
 				if said is not None:
 					self.setPinned(said)
 				else:
-					# The columns that have just come on may be ones the table names nothing
-					# for, and a page of unnamed columns is not a table without headers. What
-					# stands is the row that was there, which is at worst out of date and at
-					# best exactly right; clearing it costs the reader the row itself, and
-					# nothing asks again until the layout is made afresh.
+					# The new page's columns may have no names. The old header row stands,
+					# since clearing it would leave nothing to ask for it again.
 					log.debugWarning("No header row for this page of columns, so the last one stands")
 		return changed
 
 	def setColumnPlan(self, plan, reread: bool = False) -> bool:
 		"""Draw the band's table again with a different column layout.
 
-		What moves the band across a table too wide for it: the plan holds every column and
-		says which page each is on, and this is how a different page reaches the display.
+		The plan holds every column and which page each is on, so this is how a different page
+		of a wide table reaches the display.
 
 		:param plan: the layout to draw with. See `flowTable.ColumnPlan`.
-		:param reread: read the rows again before drawing them. Wanted when the source has
-			been told to read different columns, since the rows it read before hold the cells
-			of the page that has just been left.
+		:param reread: read the rows again before drawing them, for when the source has been
+			told to read different columns.
 		:return: whether anything changed.
 		"""
 		if plan == self.renderer.columnPlan and not reread:
@@ -732,16 +610,11 @@ class FlowController(PanelOwner):
 	def reconfigure(self, indentStyle: str, lineFocus: bool) -> bool:
 		"""Draw the band again under settings that may have changed while it was kept.
 
-		**A controller outlives a profile switch, and what it was built with does not.** The band
-		keeps its controller across a rebuild so the reader keeps their place, but the indent
-		style and the focus mark were read when it was built, and every rendering it holds was
-		made under the braille table, wrapping and cursor expansion in force then. A profile for
-		one application with a different indent went on drawing the other profile's. Found in
-		review.
-
-		Only what changes how blocks are drawn is answered here. What changes what a block *is* —
-		the reading unit, the band's size — cannot be, and the band builds a new controller for
-		it instead. See `FlowBand._keptControllerFits`.
+		The band keeps its controller across a profile switch so the reader keeps their place,
+		but its renderings were made under the settings in force then. Only settings that
+		change how blocks are drawn are handled here; a change to what a block is, such as the
+		reading unit or the band's size, gets a new controller. See
+		`FlowBand._keptControllerFits`.
 
 		:param indentStyle: the indent style in force now.
 		:param lineFocus: whether the focus mark is wanted now.
@@ -778,10 +651,8 @@ class FlowController(PanelOwner):
 	def setUnwrapped(self, unwrapped: bool) -> bool:
 		"""Draw each block as one row the band's width, or wrap them again.
 
-		Turned on at the page the caret is in, so the reader's cursor is under their hand
-		whichever way they were looking. Turned off, the page is forgotten: the next time lines
-		are unwrapped, starting at a page chosen for a caret that has since moved would put the
-		reader somewhere they never were.
+		Turned on at the page the caret is in. Turned off, the page is forgotten, so the next
+		unwrap starts from wherever the caret is then.
 
 		:param unwrapped: True to unwrap, False to wrap.
 		:return: whether anything changed.
@@ -805,13 +676,9 @@ class FlowController(PanelOwner):
 	def panAcross(self, by: int) -> bool:
 		"""Move every line of the band across by pages the band's width, leaving the caret alone.
 
-		Looking along the lines rather than going anywhere, as turning a table's page of
-		columns is, so the caret stays where it is and a caret that then moves somewhere the
-		page does not show brings the band back to it. See `followCaretAcross`.
-
-		Stops at the end of the longest line on the band, rather than at the end of the one the
-		caret is on: what the reader is feeling for is whatever is still to the right of *any*
-		line under their hands. Lines shorter than the page go blank until the band comes back.
+		The caret stays where it is; a caret that then moves off the page brings the band back
+		to it. See `followCaretAcross`. Stops at the end of the longest line on the band, not
+		the caret's line.
 
 		:param by: how many pages to move, negative for back towards the start of the lines.
 		:return: whether the band moved. False when lines are not unwrapped, and at either end.
@@ -836,23 +703,10 @@ class FlowController(PanelOwner):
 		"""Bring the page across back to the caret, if the caret has moved somewhere it does not
 		show.
 
-		**Brought back, not dragged back.** A caret already on the page moves nothing, and nor
-		does one that has stayed exactly where it was since the reader panned away from it:
-		that is the reader reading the rest of a line, and snapping the band back at the next
-		redraw would take it away from them. The same bargain `_panIsTheReadersChoice` makes
-		for rows, and `FlowBand._showColumn` makes for a table's columns.
-
-		**The pan stops being theirs the moment the caret moves, wherever it moves to.** Asked
-		only when the caret had left the page, a caret moved onto the page the reader panned to
-		kept the mark from before, and moving it back to where it started — Home, after walking
-		into the panned part of the line — matched that mark, read as a caret that had never
-		moved, and left the display where the cursor was not. Found in review.
-
-		**And the page is never further across than anything on the band reaches.** Panning
-		right stops at the longest line, but what is on the band changes afterwards: a run of
-		objects pans down without moving its selection, and a live line can get shorter. A page
-		past every line is a blank band, so it comes back to the last page a line reaches. Found
-		in review.
+		Nothing moves while the caret is still where it was when the reader panned away, as
+		`_panIsTheReadersChoice` does for rows. Any caret move ends that, even a move back to
+		the same place. The page is also brought back to the last one a line on the band
+		reaches, since what is on the band can get shorter after a pan.
 
 		:return: whether the page changed.
 		"""
@@ -934,16 +788,12 @@ class FlowController(PanelOwner):
 	def rereadContent(self) -> bool:
 		"""Read the blocks on the band again, in place, and draw what comes back.
 
-		The window keeps its place, the blocks keep their identities, and what changes is what
-		the source now says is in them. That is the difference between this and rebuilding:
-		a reader whose hand is on row four wants row four to hold this second's price, not to
-		be moved somewhere while the band starts again.
+		The window keeps its place and the blocks keep their identities; only their content is
+		read again. Only a source that can be asked for a block by its identity, such as a
+		table, answers.
 
-		Only a source that can be asked for a block by its identity answers — a table can,
-		because a row is named by its number — and everything else is left exactly as it was.
-
-		:return: whether anything was re-read at all. Whether it *changed* is the caller's to
-			decide, by looking at the cells before and after; see `FlowBand._refreshLiveContent`.
+		:return: whether anything was re-read. Whether it changed is the caller's to decide.
+			See `FlowBand._refreshLiveContent`.
 		"""
 		if getattr(self.source, "blockAt", None) is None:
 			return False
@@ -958,20 +808,11 @@ class FlowController(PanelOwner):
 	def _readAgainWhereTheDocumentMoved(self, why: str, atObject=None) -> bool:
 		"""Read the band again from the caret, with the reader's row where it was.
 
-		**Reached when text earlier in the page grew or shrank**, which moves the offset of
-		every block on the band at once. Re-reading at the old offsets refuses most blocks and
-		answers some wrongly; walking from them finds lines the band already holds. A live
-		region above the reader does this continuously: a stock index ticking at the top of a
-		news page moved the headline list under it several times a second.
-
-		The caret is the one position that is still right, because the document keeps it with
-		the text. So every cached position is forgotten, the band is entered at the caret, and
-		the caret's block is put back on the row it had. Where only the moving text changed,
-		the cells come out the same, and the band's live pass then writes nothing.
-
-		**Not when the reader's row is off the band.** They panned away from the caret, and
-		entering there would take the display back from under them. The old readings stand
-		instead, which is honest about everything except the values, until their next move.
+		For when text earlier in the page grew or shrank, which moves the offset of every block
+		on the band. The caret is the one position still right, so cached positions are
+		forgotten, the band is entered at the caret, and the caret's block goes back on the row
+		it had. Not done when the reader's row is off the band, since they panned away from the
+		caret on purpose.
 
 		:param why: what asked, for the report.
 		:param atObject: what the reader is arriving at, for an arrival. See `_arrive`.
@@ -985,8 +826,7 @@ class FlowController(PanelOwner):
 		above, rowIndex = place
 		self.source.forget()
 		if self.source.budget.stopped:
-			# A re-read that found the move may have spent the allowance getting there, and the
-			# reading that follows is the one that matters. See `_placeAfresh`.
+			# The re-read that found the move may have spent the budget. See `_placeAfresh`.
 			self.source.budget.renew()
 		if not self._enterAtCursor(atObject=atObject, fill=False):
 			return False
@@ -1028,9 +868,8 @@ class FlowController(PanelOwner):
 	def _documentMovedUnderTheBand(self) -> bool:
 		""":return: whether the block the reader is on no longer begins where it was read.
 
-		Asked on arrival, before anything walks from the cached positions. A band's live pass
-		notices the same thing within a settle delay, and a reader tabbing down a list on a
-		page that changes several times a second arrives inside that delay as often as not.
+		Asked on arrival, before anything walks from the cached positions, since an arrival
+		can come before the band's live pass has noticed.
 		"""
 		moved = getattr(self.source, "hasMoved", None)
 		if not self.live or moved is None or self.activeBlockId is None:
@@ -1044,23 +883,10 @@ class FlowController(PanelOwner):
 	def runStillHoldsTheBand(self) -> bool:
 		""":return: whether the rows beside the reader are still the ones the run has.
 
-		**Asked when the reader arrives, because that is when a run changes under them.** They
-		delete a message and the focus moves to the next one; the row they deleted is still on
-		the band, and nothing about the arrival says otherwise — the object they are on is in
-		the run, the band is showing it, and every other block is one that was read correctly
-		when it was read.
-
-		Two questions, one either side: is the block above the arrival still what the run puts
-		before it, and the block below still what it puts after. That is two steps in the run
-		for a focus move, against the alternative of walking the whole run on every arrow key,
-		and it catches the case that matters — the change is where the reader's hand is,
-		because their hand is what made it.
-
-		What it cannot catch is a row taken away at the far end of the band while the reader
-		stands still. The live pass is what covers that, and a keystroke reads the band afresh.
-
-		Only for a run of objects: a document's blocks are positions, and positions do not have
-		neighbours to disagree with.
+		Asked on arrival, because that is when a run changes under the reader, for example
+		when they delete a message. Checks only the blocks either side of the arrival: two
+		steps in the run rather than a walk of the whole run. A change at the far end of the
+		band is left to the live pass. Only for a run of objects.
 
 		:return: True when nothing has changed, and True when there is nothing to check.
 		"""
@@ -1079,8 +905,7 @@ class FlowController(PanelOwner):
 			log.debugWarning("Could not find the block the reader is on", exc_info=True)
 			return True
 		if here is None:
-			# The reader is not on the band at all, so there is nothing to compare them with.
-			# Placing them is `followCursor`'s work and it is about to happen.
+			# The reader is not on the band. Placing them is `followCursor`'s work.
 			return True
 		current = blocks[here].blockId.bookmark
 		for offset, forward in ((-1, False), (1, True)):
@@ -1098,19 +923,10 @@ class FlowController(PanelOwner):
 	def tableStillHoldsTheBand(self) -> bool:
 		""":return: whether the rows on the band are still rows the table is showing.
 
-		**The table's answer to `runStillHoldsTheBand`, and asked at the same moment.** A run
-		changes under a reader when something in it is deleted; a table changes under them when
-		they filter it, and the two leave the band in the same state — holding rows that were
-		read correctly, answer correctly, and are no longer there. The reader filtered a sheet
-		down to one row and the row above it stayed on the display.
-
-		Every row held rather than the two beside the reader, because a filter takes away
-		whatever it takes away and the band may be holding several of them, and because it
-		costs nothing to ask about all of them: the rows a sheet is showing are one answer,
-		fetched once for a reading. Which rows are not judged is `TableFlowSource.rowNoLongerShown`.
-
-		Only for a table that can hide rows. A document's table and a list have no filter, so
-		they answer that nothing has changed without looking.
+		The table counterpart of `runStillHoldsTheBand`, asked at the same moment, for rows a
+		filter has hidden. Every row on the band is checked, since a filter can hide any of
+		them and the rows shown are one answer. See `TableFlowSource.rowNoLongerShown`. Only
+		for a table that can hide rows.
 
 		:return: True when nothing has changed, and True when there is nothing to check.
 		"""
@@ -1130,18 +946,10 @@ class FlowController(PanelOwner):
 	def rereadArrival(self) -> bool:
 		"""Read the block for the object the reader has just arrived on again.
 
-		**The one moment an application answers about an object with certainty is while the
-		reader is on it.** Outlook names a message row after the selection, so a row that was
-		walked onto the band while a different message was selected carries that message's
-		flags — and the reader arriving on an unread message was shown it as read, because that
-		is what the row had said when it was walked.
-
-		The live pass would ask again a tick later, and only for a reader who has live updates
-		on. This asks now, and costs one call into the application for the one block the reader
-		is about to put their hand on.
-
-		Only for a run of objects: `ObjectFlowSource.isCurrentObject` is what says which block
-		the arrival is, and it is the only source that can say.
+		Some applications, such as Outlook, describe an object correctly only while it is
+		selected, so a row read while another was selected can carry the wrong state. This
+		costs one call for the one block the reader is on. Only for a run of objects, since
+		`ObjectFlowSource.isCurrentObject` is what says which block the arrival is.
 
 		:return: whether anything was read again.
 		"""
@@ -1167,10 +975,8 @@ class FlowController(PanelOwner):
 				if result.kind is not ResultKind.BLOCK or result.block is None:
 					continue
 				if self._readsTheSame(self.blocks.get(rendered.blockId), result.block):
-					# The ordinary case, and it must cost nothing: arrowing down a list asks
-					# about each row as the reader lands on it and almost always gets the same
-					# answer back. Keeping the block the flow already holds also keeps the
-					# region NVDA may have queued for update — see `_keep`.
+					# The usual case. Keeping the held block also keeps the region NVDA may
+					# have queued for update. See `_keep`.
 					continue
 				self._keep(result.block, replace=True)
 				changed = True
@@ -1181,9 +987,8 @@ class FlowController(PanelOwner):
 	def _readsTheSame(self, held, incoming) -> bool:
 		""":return: whether a block read again says what the one already held says.
 
-		Text alone, because that is what a re-read is for and what the reader would feel
-		change. A block this cannot compare is treated as different, which costs a redraw and
-		never costs the reader an answer.
+		Compares text only. A block that cannot be compared counts as different, which costs
+		only a redraw.
 
 		:param held: the block the flow is holding, or None if it holds none.
 		:param incoming: what the source has just said.
@@ -1199,17 +1004,9 @@ class FlowController(PanelOwner):
 	def _rereadOrder(self, count: int) -> list[int]:
 		"""Which of the window's blocks to read again, and in what order.
 
-		A sweep begins at the reader's own row, because that is the one their hand is on, and
-		a sweep already under way carries on from where it was cut short, wrapping round to
-		the rows before it.
-
-		Those two are in tension and the resolution is the point. A pass that always began at
-		the top row re-read the rows it could afford and never once reached the rows it could
-		not, so on a table slow enough to be stopped the bottom of the band kept saying
-		whatever it said when the reader arrived. A pass that always began at the reader's
-		row does the same thing with a different row: with an allowance of one read, that row
-		is refreshed forever and nothing else ever is. So the reader's row leads each sweep
-		and the sweep then goes all the way round.
+		A new sweep begins at the reader's row, and a sweep cut short by the budget carries on
+		from where it stopped, wrapping round. Either fixed starting point alone would leave
+		some rows never refreshed on a slow source.
 
 		:param count: how many blocks the window holds.
 		:return: their indices, in the order to read them.
@@ -1225,45 +1022,18 @@ class FlowController(PanelOwner):
 	def _rereadBlocks(self) -> list:
 		"""Read every block the band is holding again, keeping its identity.
 
-		Only sources that can be asked for a block by its identity answer this — a table by its
-		row number, a document by the position the block was read from — and the rest are left
-		alone. It is not a general re-read: the window keeps its place, the blocks keep their
-		identities, and what changes is what the source now says is in them.
+		Only for sources that can be asked for a block by its identity, such as a table by row
+		number or a document by position. The window keeps its place; only content changes.
 
-		A block the source will not vouch for is left as it was rather than dropped. A page
-		that grew or shrank earlier in the document has moved every position after it, and the
-		honest answer to "is this still the same block" is then no; showing yesterday's text
-		is better than showing a neighbour's under this block's name, and the reader's next
-		keystroke reads the document afresh either way.
-
-		**The block the reader is on is made active again afterwards.** A re-read replaces a
-		block's region, and a region is born inactive — every block holds a collapsed position
-		and would otherwise all claim a cursor, so nothing is active until something says so.
-		The controller went on knowing which block was active and the new region did not, and
-		`cursorCell` asks the region. On hardware that was the cursor vanishing from a list
-		about two seconds after arriving in it: nothing logged, nothing moved, and on a flat
-		list there is no indent marker left to say which row is which. See `_setActive`.
-
-		**The allowance is checked between blocks, as it is everywhere else.** It was not,
-		and a re-read is the one walk here that nobody asked for by name: the operation was
-		entered, the whole held window was fetched without a gate, and a table whose rows
-		each took longer than a whole operation is given spent twenty times its allowance
-		on a timer, between the reader's keystrokes. Where it stops it says so, and the next
-		pass carries on from there rather than starting again at the top. See `_rereadOrder`.
-
-		**A block the document moved under throws the whole pass away.** Text growing or
-		shrinking earlier in the page moves every offset after it at once, so one block found
-		displaced says the rest are displaced too — and some of them will still have been
-		answered, because a stale offset can land exactly on the start of a *different* line.
-		A short one does it most easily: a headline list with a two letter age under each item
-		showed the next headline under an age's name and then put it back on the next tick, as
-		a stock index above it grew and shrank. Nothing read in such a pass is kept, and the
-		caller reads the band again from the document. See `_readAgainWhereTheDocumentMoved`.
-
-		Only where that reading can be made: a band whose reader's row is on it. A pin has no
-		caret to go by, and a reader who panned away would be taken back, so there the blocks
-		that still answer are kept, as they always were, and the ones that moved keep the text
-		they had.
+		1. A block the source will not vouch for keeps its old text rather than being dropped.
+		2. The reader's block is made active again afterwards, because a re-read replaces its
+		   region and a new region is inactive. See `_setActive`.
+		3. The budget is checked between blocks, and a pass cut short carries on from there
+		   next time. See `_rereadOrder`.
+		4. One displaced block means every offset after it moved, so the whole pass is thrown
+		   away and the caller reads again from the caret. See
+		   `_readAgainWhereTheDocumentMoved`. Only where the reader's row is on the band;
+		   otherwise, as in a pin, the blocks that still answer are kept.
 
 		:return: the ids of the blocks that came back saying something different, for the
 			redraw that follows. A block nobody re-read does not have to be laid out again.
@@ -1273,12 +1043,10 @@ class FlowController(PanelOwner):
 		if fetch is None:
 			return []
 		if getattr(self.source, "writing", False):
-			# The reader is typing into this content. Everything moves on every keystroke and
-			# the block they are in is the one being edited; re-reading under them would
-			# fight the editor rather than follow it.
+			# The reader is typing, and the keystroke path re-reads the band. See
+			# `_readAgainWhileWriting`.
 			return []
-		# The window's blocks rather than the whole cache: they are what `_redrawBlocks` is
-		# about to draw, and the cache is keyed by a bookmark that cannot be hashed or walked.
+		# The window's blocks, which are what `_redrawBlocks` draws.
 		blocks = list(self.window.blocks)
 		lostTheCursor = False
 		changed: list = []
@@ -1290,10 +1058,8 @@ class FlowController(PanelOwner):
 			rendered = blocks[index]
 			held = self.blocks.get(rendered.blockId)
 			if held is not None and getattr(held, "isControl", False):
-				# A control's block carries what it is as well as what it says — that it is a
-				# control, and that a gap follows it — and a plain re-read of the position
-				# would give back neither. Its text is also the one thing on the band NVDA
-				# keeps fresh on its own account.
+				# A plain re-read would lose that it is a control, and NVDA keeps a control's
+				# text fresh itself.
 				continue
 			if self.source.budget.refuseIfExhausted():
 				self._rereadFrom = index
@@ -1318,24 +1084,16 @@ class FlowController(PanelOwner):
 		if not cutShort:
 			self._rereadFrom = 0
 		if lostTheCursor:
-			# Only when the reader's own block was one of the ones replaced. Every other
-			# re-read leaves the active region alone, and saying it again would re-read that
-			# region for nothing on every tick of the live timer.
+			# Only when the reader's block was replaced, to avoid re-reading it on every tick.
 			self._setActive(self.activeBlockId)
 		return changed
 
 	def _renderingStands(self, block, source, changed) -> bool:
 		""":return: whether a rendering already on the band is still the right one.
 
-		Asked only where the caller could say which blocks it re-read. A rendering depends on
-		the block's cells and on everything in its render key, so a block nobody re-read
-		whose key is unchanged comes out of the renderer exactly as it went in — and laying
-		out a whole band to arrive at the cells already on it is the one piece of work in a
-		live pass that nobody asked for.
-
-		**The cursor's own block is always drawn again.** Its cells depend on where within it
-		the cursor is, and that is not part of the key: NVDA expands the word at the cursor to
-		computer braille, and the caret moves without the block's text changing at all.
+		A block that was not re-read and whose render key is unchanged would render the same.
+		The cursor's block is always drawn again, because its cells depend on where the cursor
+		is (NVDA expands the word at the cursor), which is not part of the key.
 
 		:param block: the rendering the band is holding.
 		:param source: the block behind it.
@@ -1346,9 +1104,7 @@ class FlowController(PanelOwner):
 		if any(block.blockId == blockId for blockId in changed):
 			return False
 		if block.depth != source.depth:
-			# The cells can be the same and the rendering still wrong about the block: an item
-			# at the margin that became prose draws no differently, and the depth it carries is
-			# what the indent is planned from.
+			# The cells may match, but the indent is planned from the depth.
 			return False
 		try:
 			return block.renderKey == self.renderer.keyFor(source)
@@ -1359,24 +1115,15 @@ class FlowController(PanelOwner):
 	def _redrawBlocks(self, why: str, changed=None) -> None:
 		"""Lay every block on the band out again, under whatever the renderer says now.
 
-		Shared by the things that change how the band is drawn without changing what it is
-		reading — the indent rebasing, the column page, a re-read. All of them replace the
-		whole window rather than the visible part of it, because a block in the margin drawn
-		under the old layout is a block that is wrong the moment the reader scrolls to it.
-
-		**The whole window, and it takes no list.** This used to be given the blocks to draw,
-		and `window.replaceBlocks` takes what it is given as the window — so a caller that
-		passed only the block it had just re-read left the window holding that one block. On a
-		tree that was the reader moving from a folder to the first thing inside it: the band
-		emptied, the child landed on the top row, and everything around it had to be fetched
-		again. Every caller wanted every block, so there is nothing left to pass.
+		For changes to how the band is drawn rather than what it reads, such as a rebased
+		indent, a column page or a re-read. Always the whole window, including the margin
+		blocks off the display, since `window.replaceBlocks` takes what it is given as the
+		whole window.
 
 		:param why: what asked, for the log.
-		:param changed: the ids of the blocks whose content was just re-read and came back
-			different, so that the rest can keep the rendering they already have. None for a
-			caller that changed how every block is drawn rather than what any of them says —
-			a rebased indent, a different page of columns — where every rendering is stale by
-			construction.
+		:param changed: the ids of the blocks just re-read that came back different, so the
+			rest keep their renderings. None when every rendering is stale, such as after a
+			rebased indent or a different page of columns.
 		"""
 		rendered = list(self.window.blocks)
 		if not rendered:
@@ -1386,17 +1133,14 @@ class FlowController(PanelOwner):
 		for block in rendered:
 			source = self.blocks.get(block.blockId)
 			if source is None:
-				# Rendered but no longer held, which `_trim` does not do to a window block.
-				# Kept as it is rather than dropped: a row drawn at the old indent is wrong by
-				# a few cells, and a row missing is wrong by a row.
+				# Rendered but no longer held. Kept as it is rather than dropped.
 				fresh.append(block)
 				continue
 			if changed is not None and self._renderingStands(block, source, changed):
 				fresh.append(block)
 				continue
 			fresh.append(self.renderer.render(source, fromRow=block.rowOffset))
-		# Laying the band out again is charged for, as a fetch and a chunk are. It is the one
-		# piece of work here the reader did not ask for by name.
+		# Charged to the budget, as a fetch is.
 		self.source.budget.spend(self.source.budget.clock() - began)
 		if not self.window.replaceBlocks(fresh):
 			log.debug(f"BrlMultiline flow: the anchor did not survive {why}")
@@ -1408,16 +1152,9 @@ class FlowController(PanelOwner):
 	def _visibleDepths(self, rendered) -> list[Optional[int]]:
 		"""The depths the reader can actually feel, in the order they are on the band.
 
-		The band is the unit indent is relative to — `flowIndent` says so, and the whole
-		point of a relative indent is that the shallowest thing *on the display* sits at the
-		left margin. The cache is wider than the display: `_trim` keeps a window's worth
-		either side, so a level 1 row that has scrolled off the top is still a block in the
-		window's list. Planning from the list rather than from the rows kept that row's depth
-		as the baseline after it was gone, which left a band of level 8 rows indented four
-		cells from a margin standing for a level nothing on it had, and no note saying so.
-
-		Each block once, however many rows it has: a block that wraps over three rows is one
-		item at one depth, and counting it three times would say nothing different.
+		Indent is relative to the shallowest thing on the display, so this reads the visible
+		rows rather than the window's blocks, which include a margin off the display. Each
+		block is counted once, however many rows it has.
 
 		:param rendered: the window's blocks, in reading order.
 		:return: one depth per visible block, `None` for those with none.
@@ -1444,10 +1181,8 @@ class FlowController(PanelOwner):
 	def _trim(self) -> None:
 		"""Keep the cache to the window and a margin either side.
 
-		Without this a long reading session accumulates every block it has ever passed, and
-		the margin rule — a window's worth either side, no more — is only a comment. The
-		active block is kept whatever happens, since the commands act on it and it may sit
-		outside the window while the reader pans away from their cursor.
+		The margin is a window's worth either side. The active block is always kept, since
+		commands act on it and it may be outside the window after a pan.
 		"""
 		self.window.trim(marginRows=self.window.numRows)
 		kept = ByIdentity()
@@ -1462,18 +1197,14 @@ class FlowController(PanelOwner):
 
 		:param edge: which end to fetch at.
 		:param rows: how many rows are wanted.
-		:return: whether anything came back. **Not whether the shortfall was made up**: a
-			fill cut short by the budget has answered the reader with what it got, and the
-			pass that comes back for the rest needs to tell that from a document that will
-			not answer at all. See `fill`.
+		:return: whether anything came back, not whether the shortfall was made up. See `fill`.
 		"""
 		added = False
 		for _ in range(MAX_FETCHES):
 			if self.window.shortfall(edge) <= 0:
 				return added
 			if self.source.budget.refuseIfExhausted():
-				# Out of budget, not out of document. Said so on the display, so that the
-				# rows the reader cannot see yet do not read as the end of the page.
+				# Out of budget, not out of document, and the display says so.
 				self._deferEdge(edge)
 				return added
 			if not self._fetchOne(edge):
@@ -1485,10 +1216,8 @@ class FlowController(PanelOwner):
 	def _deferEdge(self, edge: Edge) -> None:
 		"""Close one end of the band for want of budget, and say which budget.
 
-		The reason is recorded here as well as the state. Only the source's own answers used to
-		record one, so a budget stop reported whatever an earlier answer had said: a band
-		stalled for time was diagnosed as "this block already holds the line that follows it",
-		which sent the search to the wrong module.
+		Records the reason as well as the state, so the report does not show an earlier
+		answer's reason for a budget stop.
 
 		:param edge: which end ran out.
 		"""
@@ -1509,29 +1238,22 @@ class FlowController(PanelOwner):
 		if not blocks:
 			return False
 		if self.source.budget.refuseIfExhausted():
-			# Every path that fetches — filling, panning, cursor reach and long-block
-			# continuation — comes through here. Keeping the gate at that shared boundary
-			# prevents a caller from accidentally turning a per-operation budget into a hint.
+			# Every path that fetches comes through here, so the budget is enforced here.
 			self._deferEdge(edge)
 			return False
 		if self._continueBlock(edge):
-			# The block at this end has more rows of its own. They come before the next
-			# block does, or a long paragraph would be stepped over half read.
+			# The block at this end has more rows of its own, which come before the next block.
 			return True
 		anchorId = blocks[0].blockId if edge is Edge.BEFORE else blocks[-1].blockId
 		result = (
 			self.source.blockBefore(anchorId) if edge is Edge.BEFORE else self.source.blockAfter(anchorId)
 		)
 		if result.kind is not ResultKind.BLOCK or result.block is None:
-			# END, DEFERRED and ERROR each mean something different on the display: the end
-			# of the stream reads as blank rows, the other two as rows that say there is
-			# more we have not got.
+			# The end of the stream shows as blank rows; DEFERRED and ERROR show as more to come.
 			self.window.setEdge(edge, result.edgeState)
 			self.edgeReasons[edge] = result.message or result.kind.value
 			if edge is Edge.AFTER and result.edgeState is EdgeState.END:
-				# Recorded here rather than at any one caller, because reaching the end is
-				# something panning, filling and the tail watch all do. See
-				# L{hasBeenToTheEnd}.
+				# Here, because every path that reaches the end comes through here.
 				self.hasBeenToTheEnd = True
 			return False
 		block = self._keep(result.block)
@@ -1578,9 +1300,7 @@ class FlowController(PanelOwner):
 			return False
 		began = self.source.budget.clock()
 		fresh = self.renderer.render(block, fromRow=fromRow)
-		# A continuation is layout work just as a newly fetched block is. Without charging
-		# it, one pathological paragraph can consume an unbounded operation one chunk at a
-		# time while the block counter stays at zero.
+		# Charged to the budget, so one huge paragraph cannot run an operation unbounded.
 		self.source.budget.spend(self.source.budget.clock() - began)
 		if not fresh.rows or fresh.rowOffset == rendered.rowOffset:
 			return False
@@ -1593,35 +1313,26 @@ class FlowController(PanelOwner):
 	def _keep(self, block, replace: bool = False):
 		"""Remember a source block, so its region can be reached from its identity.
 
-		A block already held keeps the region it was first read with, and the newly built
-		one is discarded. Two things depend on that. NVDA queues a region object for update
-		and comes back to it later, so swapping the object underneath would leave it
-		holding one this flow no longer draws. And the region is where the block's own
-		reading position lives, which is what a viewer pans within.
+		A block already held keeps the region it was first read with, because NVDA may have
+		queued that region object for update, and the region holds the block's reading
+		position.
 
 		:param block: the block just read.
-		:param replace: take the new reading even so. For a caller that read the block again
-			*on purpose* and knows the old one is wrong — a table changing page reads
-			different columns out of the same rows, so the region it kept is a region of the
-			page just left. The regions NVDA may be holding are re-pointed on the next
-			update by `flowSegment._syncRegions`, which is the same thing that happens when a
-			block is replaced for any other reason.
+		:param replace: take the new reading anyway, for a caller that re-read the block on
+			purpose, such as a table changing page. `flowSegment._syncRegions` re-points the
+			regions NVDA holds on the next update.
 		:return: the block to use, which may be one already held.
 		"""
 		existing = self.blocks.get(block.blockId)
 		if existing is not None and not replace and self._sameRegionOwner(existing, block):
 			if existing.depth != block.depth:
-				# The region is kept and the reading's structure taken: an item moved to another
-				# level without its text changing is still the item held, at its new depth.
+				# Keep the region, take the new depth.
 				existing = dataclasses.replace(existing, depth=block.depth)
 				self.blocks.set(existing.blockId, existing)
 			return existing
 		if existing is not None and block.blockId is not existing.blockId:
-			# **One id object per block, for as long as it is held.** The id read again is equal
-			# to the one held and not the same object, and the renderings and the anchor carry
-			# the old one. Storing the new one made every later lookup by those fall back to
-			# comparing bookmarks, which in Word is a call into Word. See
-			# `flow.findByIdentityFirst`.
+			# One id object per block while it is held, so lookups by identity keep working
+			# instead of comparing bookmarks. See `flow.findByIdentityFirst`.
 			block = dataclasses.replace(block, blockId=existing.blockId)
 		if existing is not None:
 			oldRegion = getattr(existing, "region", None)
@@ -1636,11 +1347,8 @@ class FlowController(PanelOwner):
 		if region is not None and hasattr(region, "onLine"):
 			region.onLine = self.shiftWindow
 		if region is not None and hasattr(region, "dirty"):
-			# Reading a block marks its region as read again, and this flow is the one that
-			# asked. `dirty` means NVDA re-read the region, which is how a caret move inside
-			# a document reaches a flow; a block the flow itself has just fetched would
-			# otherwise read as a move the reader made, and send the window to the cursor
-			# they are panning away from.
+			# `dirty` signals a caret move from NVDA. A block this flow fetched itself is not
+			# one, so it must not send the window to the cursor.
 			region.dirty = False
 		return block
 
@@ -1669,9 +1377,8 @@ class FlowController(PanelOwner):
 	def shiftWindow(self, forward: bool) -> bool:
 		"""Move the window by one block, taking nothing with it.
 
-		What the line commands mean where the cursor must not move: a run of objects, whose
-		cursor is a selection. Everywhere else `stepBlock` is the answer, and it takes the
-		cursor because there the cursor is a reading position.
+		The line commands for a run of objects, whose cursor is a selection that must not
+		move. Elsewhere `stepBlock` is used, which takes the cursor.
 
 		:param forward: True to move on, False to move back.
 		:return: whether the window moved.
@@ -1711,9 +1418,8 @@ class FlowController(PanelOwner):
 		if self._following:
 			return
 		if self.live and self.movesCursor:
-			# The real cursor moved, so the window follows it. Any other flow moved a
-			# position of its own, which the object's cursor knows nothing about: asking
-			# where the cursor is would send the band back to where the reader is not.
+			# The real cursor moved, so the window follows it. Other flows moved a position
+			# of their own, which the cursor knows nothing about.
 			self._following = True
 			try:
 				self.followCursor()
@@ -1728,9 +1434,8 @@ class FlowController(PanelOwner):
 	def regionFor(self, blockId: "BlockId"):
 		""":return: the region reading one block, or None if it is not held.
 
-		The one door to a block's region, which is why the check that its shapes still describe
-		its cells is here: routing, the cursor and what NVDA's own commands act on all come
-		through it. See `glyphFlow.keepCompressed`, and the routing fault it is there for.
+		Every use of a block's region comes through here, so this is where its glyphs are
+		checked against its cells. See `glyphFlow.keepCompressed`.
 		"""
 		block = self.blocks.get(blockId)
 		region = getattr(block, "region", None)
@@ -1751,79 +1456,41 @@ class FlowController(PanelOwner):
 	def isShowingTheTail(self) -> bool:
 		""":return: whether the band's last content row is the last row that has been read.
 
-		What decides whether a live run is worth asking to grow. A reader who has panned
-		back into the history, or who has not panned onto something that arrived while they
-		were reading, is not waiting on what lies past it, and asking on their behalf would
-		be a call into the application on every refresh tick to fetch something nobody is
-		looking at.
-
-		The tail of what has been read, not the end of the stream, and the difference is
-		worth recording because the first version of this asked for the second. It required
-		the edge to be END — but a fetch that finds something leaves the edge OPEN, so the
-		first message ever to arrive turned this gate off and the pin watched nothing again.
-		A band that is exactly full stops with the edge open as well, which the ordinary
-		`fill` leaves behind every time. Whether the reader can feel everything that has been
-		read is the question; the edge answers a different one.
+		Decides whether a live run is worth asking to grow: only a reader who can feel
+		everything read so far is waiting for more. This is the tail of what has been read,
+		not the end of the stream, so it does not depend on the edge state.
 		"""
 		if self.window.edges[Edge.AFTER] in (EdgeState.DEFERRED, EdgeState.ERROR):
-			# Out of budget, or a source that failed. Another fetch here is not the answer to
-			# either: `hasMoreToFetch` and `fill` carry the deferred case on the same tick.
+			# `hasMoreToFetch` and `fill` handle these.
 			return False
-		# Measured in rows rather than against the last cached block, because `_trim` drops
-		# what is far from the window: a reader who panned back would find the cache ending
-		# just below them and look, wrongly, as though they were at the end of the run.
+		# Measured in rows, because `_trim` drops cached blocks far from the window.
 		return self.window.rowsBelow() == 0
 
 	def reconsiderEnd(self, scrollIntoView: bool = False) -> bool:
 		"""Ask the source again for whatever may have arrived past the tail.
 
-		A stream that has ended stays ended: `_fetchOne` records `EdgeState.END` from the
-		source's own answer, `shortfall` then reports nothing missing at that edge, and
-		`panForward` refuses without consulting anybody. For a document that is right and
-		cheap — the end of a page is the end of a page.
+		An ended stream otherwise stays ended, which is wrong for content still being written,
+		such as a pinned chat. The edge is opened and one fetch made; if the stream really has
+		ended, `_fetchOne` records it again, so content that is not growing costs one refused
+		fetch. Asked at an open edge too, since a band that is exactly full stops with its edge
+		open. Only the far end: panning back reaches anything new before the start.
 
-		For content that is still being written it is wrong, and the case is a pinned chat
-		history. Messages arrive at the tail after the run has been read to its end, the
-		walk offers them perfectly well — a held tail object's `brlMultilineFlowNext` returns
-		the new message — but nothing ever asks again, so a pinned monitor stopped at
-		whatever was there when it was pinned and could not be panned to anything newer.
-
-		Self-correcting rather than optimistic: the edge is opened, one fetch is made, and if
-		the stream really has ended `_fetchOne` records it as ended again. So a document that
-		is not growing costs one refused fetch and returns to exactly the state it was in.
-
-		Only the far end. Content arriving *before* the start is a different thing — a
-		virtualized list materialising older rows as the reader travels — and re-asking there
-		on a timer would churn a cache that `_trim` is already bounding. Panning back reaches
-		it, because the edge before the start is only END once the walk has genuinely refused.
-
-		Asked at an open edge as well as an ended one. A band that is exactly full stops
-		fetching with its edge still open — `fill` asks only for the rows it is short of —
-		and a run that grows into that band would otherwise sit unasked behind a gate that
-		was watching for the wrong thing.
-
-		:param scrollIntoView: bring what arrives onto the display, moving the window on. The
-			caller's setting to make — see `bmConfig.shouldScrollToNewContent` — and it
-			applies only where the reader was at the tail of something whose end has been
-			reached before. A page that is simply longer than the band has more below it from
-			the moment it is pinned, and following *that* would walk the display through the
-			document a block at a time on a timer. See L{hasBeenToTheEnd}.
+		:param scrollIntoView: bring what arrives onto the display. See
+			`bmConfig.shouldScrollToNewContent`. Applies only where the reader was at the tail
+			of something whose end has been reached before. See `hasBeenToTheEnd`.
 		:return: whether anything new was found.
 		"""
 		if self.window.edges[Edge.AFTER] not in (EdgeState.END, EdgeState.OPEN):
 			# DEFERRED or ERROR. The budget and the failure paths own those.
 			return False
-		# Asked before the fetch, because fetching is what stops them being true: a message
-		# added below a full band puts a row under the reader that they have not seen, and
-		# the edge that said the stream had ended is about to be opened.
+		# Asked before the fetch, which changes both answers.
 		wasAtTheTail = self.isShowingTheTail
 		wasEnded = self.hasBeenToTheEnd
 		with self.operation():
 			self.window.setEdge(Edge.AFTER, EdgeState.OPEN)
 			if not self._fetchOne(Edge.AFTER):
 				return False
-			# More than one may have arrived between two ticks, and the rows below the reader
-			# may have been blank and waiting for them.
+			# More than one may have arrived.
 			self._fillBothEnds()
 			if scrollIntoView and wasAtTheTail and wasEnded:
 				self._showWhatArrived()
@@ -1832,17 +1499,9 @@ class FlowController(PanelOwner):
 	def lookPastTheEnd(self) -> bool:
 		""":return: whether the stream ends after the last block on the band, having asked.
 
-		**A band that filled exactly has never asked.** Filling stops when the rows run out,
-		so four messages on a four row band leave the edge open with nothing having been told
-		that the run ends there — and `hasBeenToTheEnd`, which is what tells content that is
-		*growing* from content that is merely longer than the band, stays false. A review found
-		what that costs: the fifth message arrived below the display, nothing brought it on,
-		and the tail watch then went quiet because a row it had not shown sat under the reader.
-
-		One call, made when a pin is built, and what it fetches is thrown away. This is a
-		question about the edge rather than a fetch for the window: a block that comes back
-		says the run goes on, which is the answer, and the window will read it again when it
-		has somewhere to put it.
+		A band that filled exactly never asked whether the run ends there, so
+		`hasBeenToTheEnd` would stay false. One call, made when a pin is built; a block that
+		comes back is discarded, since it only answers the question.
 		"""
 		blocks = self.window.blocks
 		if self.hasBeenToTheEnd:
@@ -1850,18 +1509,13 @@ class FlowController(PanelOwner):
 		if not blocks:
 			return False
 		if self.window.edges[Edge.AFTER] is EdgeState.END:
-			# Something already reached it — a run shorter than the band, most often.
+			# Something already reached it, usually a run shorter than the band.
 			self.hasBeenToTheEnd = True
 			return True
 		if self.window.edges[Edge.AFTER] is not EdgeState.OPEN:
-			# DEFERRED or ERROR: the budget and the failure paths own those, and a probe now
-			# would ask the question they are already answering.
+			# DEFERRED or ERROR. The budget and the failure paths own those.
 			return False
-		# Inside an operation, because the source starts its budget on the first call and
-		# something has to finish it. A probe that started a budget and left it running made
-		# every later fetch part of one endless operation: once its allowance was spent, the
-		# next item to arrive was refused and the edge went to DEFERRED with nothing to reset
-		# it — a pin that stopped following its list some minutes after it was made.
+		# Inside an operation, so the budget the source starts is also finished.
 		with self.operation():
 			try:
 				result = self.source.blockAfter(blocks[-1].blockId)
@@ -1877,17 +1531,9 @@ class FlowController(PanelOwner):
 	def _showWhatArrived(self) -> None:
 		"""Move the window on so that what has just arrived is on the display.
 
-		By the smallest movement that shows it, which is what `ensureVisible` is: the newest
-		row becomes the bottom row and the rest move up one, rather than the display jumping
-		a page the way panning does. A band that had blank rows does not move at all, because
-		what arrived is already visible in them.
-
-		Its *first* row, not its last. A message longer than the band would otherwise be
-		shown from its end, which is the one part of it the reader has no way to make sense
-		of. Landing on its first row leaves the rest below, so the tail watch goes quiet —
-		`isShowingTheTail` is false while anything read is unseen — until the reader has
-		panned through what arrived. A long arrival therefore waits for them, and a chat's
-		one line messages, which is what this is for, do not.
+		By the smallest movement that shows its first row, through `ensureVisible`. An
+		arrival longer than the band leaves the rest below, so `isShowingTheTail` is false and
+		the tail watch waits until the reader has panned through it.
 		"""
 		blocks = self.window.blocks
 		if not blocks:
@@ -1900,11 +1546,7 @@ class FlowController(PanelOwner):
 	def _pan(self, forward: bool) -> bool:
 		"""Pan, answering `ContentNeeded` by fetching and trying again.
 
-		Recorded in the move history like everything else that moves the band. It was not,
-		and the omission cost a diagnosis: a reader reported panning that "falls back", the
-		history showed six arrivals and no pans, and there was no way to tell whether the
-		pans had never happened or had happened and been undone. A history that records only
-		half of what moves the band cannot answer the question it exists for.
+		Recorded in the move history, like everything else that moves the band.
 
 		:param forward: the direction to pan.
 		:return: whether the window moved.
@@ -1912,18 +1554,14 @@ class FlowController(PanelOwner):
 		with self.operation():
 			moved = self._panWithin(forward)
 		if not moved and forward and self.reconsiderEnd():
-			# The stream had ended when it was last asked, and has since grown. Panning is
-			# the reader saying they want what is past the end of what they can feel, so it
-			# is the right moment to ask again, and it costs nothing until they do.
+			# The stream has grown since it ended.
 			with self.operation():
 				moved = self._panWithin(forward)
 		if moved:
-			# After the pan, so that the caret this remembers is the one the pan left behind.
+			# After the pan, so this remembers the caret the pan left behind.
 			self._pannedAt = self._caretMark()
 			self._pannedCaret = self._caretsAfterAPan()
-			# The window the reader had is the one they have just panned to, so the claim a
-			# writing re-read would go back to is out of date. Kept, it drags the band back
-			# to a window the reader left deliberately, the moment they type.
+			# The reader chose a new window, so a writing re-read must not go back to the old one.
 			self._writingTop = None
 		entry = getattr(getattr(self.window.anchor, "entry", None), "value", "?")
 		self._note(
@@ -1940,8 +1578,7 @@ class FlowController(PanelOwner):
 			except ContentNeeded as needed:
 				if self._fetchOne(needed.edge):
 					continue
-				# Nothing more that way: the window stays where it is rather than sliding
-				# onto rows that are not there.
+				# Nothing more that way, so the window stays where it is.
 				return False
 			if moved:
 				self.fill()
@@ -1983,10 +1620,7 @@ class FlowController(PanelOwner):
 	def activeRegion(self):
 		""":return: the region reading the block the cursor is in, or None.
 
-		This is what NVDA's own commands must reach. `regions[-1]` is a real text region in
-		a flow band for that reason: braille input only writes to the last region when it is
-		a `TextInfoRegion`, and a stand-in would silently swallow untranslated dots and the
-		erase that checks them.
+		What NVDA's own commands must reach. See docs/design/flow-last-region-audit.md.
 		"""
 		if self.activeBlockId is None:
 			return None
@@ -1995,15 +1629,12 @@ class FlowController(PanelOwner):
 	def followCursor(self, ground: bool = False) -> bool:
 		"""Answer a cursor move that was not a pan.
 
-		Asks the source where the cursor is now, and moves the window by the smallest
-		amount that brings that block into view — which is nothing at all when it is
-		already there. A cursor that has gone somewhere the cache does not reach is a jump,
-		and the window is placed afresh rather than scrolled to it.
+		Moves the window by the smallest amount that brings the cursor's block into view,
+		which is nothing when it is already there. A cursor the cache cannot reach is a jump,
+		and the window is placed afresh.
 
-		:param ground: put the cursor's block at the top of the band instead, with the
-			document running on from it. What a jump by structure wants: the reader has
-			left a section behind and is being set down in the next one, and a window
-			nudged along from where they were says nothing about where they have arrived.
+		:param ground: put the cursor's block at the top of the band instead, for a jump by
+			structure. See docs/design/spatial-reading-plan.md, Grounding a jump.
 		:return: whether anything changed.
 		"""
 		with self.operation():
@@ -2016,19 +1647,13 @@ class FlowController(PanelOwner):
 	def arriveAt(self, atObject=None, ground: bool = False) -> bool:
 		"""Answer the reader arriving somewhere in the document already being read.
 
-		Tab, the arrow keys and a quick navigation key all land here, and they do not mean
-		the same thing. Tab is a move within a page the reader has their hands on: a target
-		already on the display must not move it at all, and one just off it wants the least
-		movement that shows it. Only a jump by structure grounds — there the reader has left
-		a section behind and is being set down in the next one. Only a target the cache
-		cannot reach is entered afresh.
-
-		Placing the window afresh on every focus change was the earlier answer, and it moved
-		the display on a Tab press to something the reader could already feel.
+		Tab, the arrow keys and quick navigation keys all land here. A target already on the
+		display moves nothing, and one just off it gets the least movement that shows it. Only
+		a jump by structure grounds, and only a target the cache cannot reach is entered
+		afresh.
 
 		:param atObject: what they arrived at, read at its own place in the document rather
-			than at the cursor: a form control, a link, anything the document can locate.
-			None reads at the cursor as ever.
+			than at the cursor, or None to read at the cursor.
 		:param ground: put what they arrived at on the top row. See `followCursor`.
 		:return: whether anything is on the display.
 		"""
@@ -2043,12 +1668,9 @@ class FlowController(PanelOwner):
 		if self._writing():
 			return self._readAgainWhileWriting(ground=ground)
 		if self._documentMovedUnderTheBand():
-			# Before the walk below, which starts from the cached positions and would find the
-			# line the reader is on a second time. Read again here, the band holds the block
-			# they arrived at, and the arrival goes on as an ordinary one.
+			# Before the walk below, which would start from cached positions that are now wrong.
 			if not self._readAgainWhereTheDocumentMoved(why="the reader arriving", atObject=atObject):
-				# Their row was not on the band to keep, so there is no place to hold, and the
-				# positions are still wrong. The band is placed afresh around them.
+				# Their row was not on the band, so the band is placed afresh around them.
 				self.source.forget()
 				return True if self._placeAfresh(atObject) else None
 		result = self.source.blockAtCursor(atObject)
@@ -2059,29 +1681,16 @@ class FlowController(PanelOwner):
 		forward = self._isForward(blockId)
 		if not self.window.hasBlock(blockId) and not self._reach(blockId, forward):
 			return True if self._placeAfresh(atObject) else None
-		# Asked again, now that it can be answered. The first call was a guess: the block was
-		# not in the window, so there was nothing to compare it with and `_isForward` says
-		# "forward" when it cannot tell — which is the right guess for `_reach`, since reading
-		# on is the commoner move, and the wrong one to place the window by. Fetching has
-		# since put the block in the window, so the comparison is now a real one.
-		#
-		# On hardware this was moving from a folder up to the account above it: the account
-		# was placed at the *bottom* of the band with its previous siblings filled in above,
-		# a whole display of movement for a reader who had asked to move one item. Placing by
-		# a guessed direction is placing by a coin toss whenever the cursor leaves the window.
+		# Asked again. The first answer was a guess, because the block was not in the window
+		# yet; now that it is, the direction is measured, and the window is placed by that.
 		forward = self._isForward(blockId)
 		held = self._keep(result.block)
-		# The id held, not the one just read: equal, and the one every lookup finds by identity.
+		# The id held, not the one just read, so lookups by identity find it.
 		blockId = held.blockId
 		self._setActive(blockId, freshlyRead=held.region is result.block.region)
-		# The active region may have followed a caret within an edit, or replaced the
-		# document-bound region with the edit's own. Lay that out before asking which cursor
-		# row is visible; otherwise a cached block answers with yesterday's cursor position.
-		#
-		# The reading behind it is skipped only when there has just been one. `_keep` gives
-		# back the region it was already holding whenever that region still belongs to this
-		# block, and that region is the one this arrival came to refresh — so the fresh
-		# reading it discarded has to be taken again here.
+		# Lay out the active region before asking which cursor row is visible, so a cached
+		# block does not answer with an old cursor position. Re-read unless `_keep` just took
+		# the fresh reading.
 		self.refreshActive(reread=not self._activeIsFreshlyRead)
 		moved = (
 			self.groundAt(blockId)
@@ -2093,26 +1702,14 @@ class FlowController(PanelOwner):
 	def _placeAfresh(self, atObject) -> bool:
 		"""Put the band around the reader, after reaching for them failed.
 
-		**With a fresh allowance where the reaching spent the old one.** Reaching and placing
-		are two answers to one keypress and only the second is any use to the reader: on a
-		slow application — Outlook's grouped inbox, where one step into the list took twice
-		what a whole operation is given — the walk towards where they moved could spend the
-		lot and arrive nowhere, and the placing that followed it then had nothing left to fill
-		the band with. The reader who arrowed up one row got the row they were on and blank
-		rows under it, and the band only came back when they left the folder and returned,
-		which builds a controller with a budget of its own. That is the bug, and it is the
-		budget rather than the fallback: the fallback was there and could not afford to run.
-
-		Only here, and only after a refusal. An arrival costs two allowances at the very
-		worst, never three, and an arrival that reached the reader the ordinary way costs one
-		as it always did. See `FetchBudget.renew`.
+		Renews the budget if the failed reach spent it, so placing the band has a budget to
+		fill with. An arrival therefore costs at most two budgets. See `FetchBudget.renew`.
 
 		:param atObject: what the reader arrived at, if the document can place it.
 		:return: whether anything is on the display.
 		"""
 		if self.source.budget.stopped:
-			# Refused rather than answered. A reach that ended because the document ends
-			# there has spent nothing worth giving back.
+			# Only when the reach was refused, not when it reached the end of the document.
 			self.source.budget.renew()
 			self._note("the reach ran out of time, so placing the band afresh was given its own")
 		return self._enterAtCursor(atObject=atObject)
@@ -2120,19 +1717,10 @@ class FlowController(PanelOwner):
 	def _activeLength(self) -> Optional[int]:
 		""":return: how many characters the block under the caret holds, or None if unreadable.
 
-		The signal that an edit has moved everything after it. A block's position is an
-		offset, so the positions of the blocks below shift exactly when this block's length
-		changes — a rewrite of the same length leaves them all where they were, and a
-		character added or taken away moves every one of them.
-
-		Length rather than the text itself, because that is the invariant: comparing the text
-		would also rebuild for a same-length rewrite, which has moved nothing and cost the
-		reader their cheap path for no reason.
-
-		This sees the caret's own row and no other. An application rewriting a *different*
-		line while the caret sits still would shift offsets without changing this, and is not
-		something a caret update can be asked about — it is what the band's ordinary re-read
-		and a pin's refresh tick are for.
+		The signal that an edit has moved everything after it: block positions are offsets,
+		so they shift exactly when this block's length changes. Length rather than text, so a
+		same-length rewrite keeps the cheap path. Changes on other lines are left to the
+		band's ordinary re-read.
 		"""
 		region = self.activeRegion()
 		if region is None:
@@ -2147,37 +1735,19 @@ class FlowController(PanelOwner):
 	def _readAgainWhileWriting(self, ground: bool = False) -> Optional[bool]:
 		"""Read the whole band again from the caret, keeping it on the row it was on.
 
-		A block's position is an offset into the document, and typing moves offsets. Insert a
-		line and every position after it has moved; delete a selection and most of what the
-		band was holding no longer exists. Re-rendering only the block the caret is in leaves
-		the others reading at offsets that have gone, which on hardware was a line copied
-		onto the row above it, and lines deleted by select-all and overtype still under the
-		reader's fingers until the focus changed and forced a rebuild.
-
-		So while the reader is writing, a caret update rebuilds the band rather than
-		refreshing one block of it. It costs a band's worth of reads on each one, which is
-		what the budget bounds and what the cost command measures; nothing cheaper is
-		honest, because there is no way to know which of the other rows survived.
-
-		The band is then put back where the reader had it, by the block that was on its top
-		row. Typing must not scroll the display: what was above them stays above them, and
-		adding a line moves the caret down a row rather than throwing the rest of the band
-		upward. A top block that the edit removed cannot be gone back to, and there the
-		caret's own block is the anchor — which is what select-all and overtype leaves.
-
-		**Unless the reader panned and the caret has not moved.** Then the band stays where
-		they put it and only the row they are standing on is read again. See
-		`_caretIsWhereThePanLeftIt` for what asking this too late cost on hardware.
+		Typing moves the offsets every block position is, so while the reader is writing a
+		caret update re-reads the whole band, within the budget. The band is then put back
+		under the block that was on its top row, so typing does not scroll the display; if
+		the edit removed that block, the caret leads. When the reader has panned and the caret
+		has not moved, only the caret's row is read again. See
+		docs/design/spatial-reading-plan.md, Following the cursor.
 
 		:param ground: put the caret's block on the top row instead.
 		:return: whether anything is on the display, in the shape `_arrive` answers with.
 		"""
 		if not ground and self._caretIsWhereThePanLeftIt():
-			# Not nothing. Forward Delete changes the line without moving the caret off it,
-			# and so does an editor rewriting it, so the caret's own block is read again — the
-			# one block that can have changed under a caret that has not moved. The window is
-			# not touched: the block is on the band by construction, being the one
-			# `_cursorToTop` put the cursor on.
+			# The caret's line can still change, as with forward Delete, so its block is read
+			# again. It is on the band, being the one `_cursorToTop` put the cursor on.
 			was = self._activeLength()
 			self.refreshActive()
 			if was == self._activeLength():
@@ -2186,19 +1756,9 @@ class FlowController(PanelOwner):
 					"so only its own row was read again"
 				)
 				return True
-			# The row under the caret changed length, so every position after it has moved
-			# and the rest of the band is reading at offsets that have gone. Falling through
-			# is the whole re-read, which forgets those positions and puts the band back
-			# under the row the reader had. It costs what a keystroke costs everywhere else,
-			# and only where something actually changed: a caret settling after a pan, which
-			# is what this branch was written for, still costs one block.
-			#
-			# The top row is the reader's own: they panned to it, which is what got us into
-			# this branch at all. So it is recorded as the trustworthy top before falling
-			# through, because `_stableTop` otherwise refuses a top that is the caret's own
-			# block — a rule written against a *transient* merged block appearing at the top
-			# while typing, which is not this. Without it the band jumped backwards by half
-			# its height on the first forward Delete after a pan.
+			# The caret's row changed length, so every position after it moved and the whole
+			# band is read again. The top row is the one the reader panned to, so it is
+			# trusted even if it is the caret's own block. See `_restoreTop`.
 			self._note(
 				"a keystroke while writing: the caret stayed put but its row changed length, "
 				"so the band was read again"
@@ -2214,19 +1774,10 @@ class FlowController(PanelOwner):
 		:param trusted: whether that top may be the caret's own block. See `_restoreTop`.
 		:return: whether anything is on the display, in the shape `_arrive` answers with.
 		"""
-		# Everything the source remembers about this document is an answer the edit may just
-		# have changed: cached positions are offsets that typing moves, the exits of a
-		# collapsed blank run point where the run was, and a block marked as having swallowed
-		# the next line keeps truncating the stream after the editor has recovered. The
-		# re-read exists because none of it can be trusted, so none of it is kept. The top
-		# block is found again by value — a block id compares by where it starts, not by
-		# which reading produced it — which is what the restore below has always relied on.
+		# Nothing the source cached about this document can be trusted after an edit. The top
+		# block is found again by value, since a block id compares by where it starts.
 		self.source.forget()
-		# Entered without filling, because the band is about to be moved. Filling here read
-		# downward from the caret, and the restore below then anchors the window a screen
-		# further back — so on a ten row band five of the rows just read were pushed off the
-		# bottom before anything drew them. The rows the reader gets are chosen first and
-		# fetched once, by the single `fill` at the end.
+		# Without filling, because the window is moved first and filled once at the end.
 		if not self._enterAtCursor(fill=False):
 			self._writingTop = None
 			return None
@@ -2239,33 +1790,20 @@ class FlowController(PanelOwner):
 			self._writingTop = topId
 			why = "a keystroke while writing, put back under the row the band had"
 		else:
-			# The claim is kept: a restore that failed this moment — a transient refusal, a
-			# top the edit removed — may succeed on the next keystroke, and dropping it here
-			# would hand the next restore whatever block the heal below leaves on the top
-			# row instead of the window the reader actually had.
+			# `_writingTop` is kept, since the restore may succeed on the next keystroke.
 			self._contextAboveTheCaret()
 			why = "a keystroke while writing, no old top to go back to so the caret leads"
 		self.fill()
-		# Which of the two branches ran, because the history could not say. It recorded
-		# "nothing moved" — the verdict of the `syncToCursor` at the end — on a pass that had
-		# already thrown the reader's window away and rebuilt it somewhere else, and a
-		# history that names only the last of the things that moved the band cannot answer
-		# the question it exists for.
+		# `why` names which branch ran, for the move history.
 		self.syncToCursor(forward=True, why=why)
 		return True
 
 	def _stableTop(self):
 		"""The block the band's top row should be put back under, or None for no claim.
 
-		The top row is only believed when it is not the caret's own block. At the moment a
-		rich editor answers a return, the block built at the caret can be transiently merged
-		— the probe caught a textarea answering the paragraph at the caret as everything
-		before it — and that block takes the top row under an identity partway into the
-		document. A restore that trusted the top row then anchored the band there on the
-		next keystroke, and the reader's first lines were scrolled off the band by a block
-		that never really existed. When the top row is the caret's, the claim used instead
-		is the last top the reader was shown that was not — which after a transient is the
-		window they actually had.
+		The top row is believed only when it is not the caret's own block, because a rich
+		editor answering a return can briefly give a merged block at the caret. Otherwise the
+		last top the reader was shown that was not the caret's is used.
 		"""
 		top = self.window.topBlockId()
 		if top is not None and (self.activeBlockId is None or top != self.activeBlockId):
@@ -2277,14 +1815,10 @@ class FlowController(PanelOwner):
 		"""Put the band back under the row it was showing before a writing re-read.
 
 		:param topId: the block that was on the top row, or None for an empty band.
-		:param trusted: whether the reader put the band there themselves. A top that is the
-			caret's own block is otherwise refused, because a rich editor answering a return
-			with a transiently merged block puts that block on the top row and a band anchored
-			to it never recovers — but a reader who *panned* to their caret's row chose it,
-			and refusing it throws their window away on the next forward Delete.
+		:param trusted: whether the reader put the band there themselves, by panning. A top
+			that is the caret's own block is otherwise refused. See `_stableTop`.
 		:return: whether the band is anchored there again. False when reading back to it
-			failed this moment — where the caller has a better answer than leaving the line
-			being typed pinned to the top row.
+			failed, so the caller can choose another anchor.
 		"""
 		if topId is None or (not trusted and topId == self.activeBlockId):
 			return False
@@ -2302,18 +1836,9 @@ class FlowController(PanelOwner):
 	def _contextAboveTheCaret(self) -> None:
 		"""Show the rows before the caret above it, as many as half the band.
 
-		Reached when a writing re-read cannot put the band back by its old top row: the top
-		was the caret's own block, or reading it back failed this moment. Anchoring the
-		caret's line to the top row was the old answer, and it was sticky: the next
-		keystroke found the caret's block already on the top row and kept it there, so one
-		transient refusal in a rich editor left the reader typing on the top row with their
-		earlier lines gone until the focus changed. Asking for the context afresh on every
-		re-read heals the band the moment the editor answers again.
-
-		Half the band, so the caret keeps rows below it for what follows. At the end of a
-		document, where most writing happens, the rows above are the document and the rows
-		below are blank either way, and a caret that has stopped moving row to row as lines
-		are added is the sign the reader is at the half-way mark rather than lost.
+		For a writing re-read that cannot put the band back by its old top row. Asked afresh on
+		every re-read, so the band recovers as soon as the editor answers again. Half the
+		band, so the caret keeps rows below it for what follows.
 		"""
 		active = self.activeBlockId
 		if active is None:
@@ -2323,19 +1848,12 @@ class FlowController(PanelOwner):
 		try:
 			self.window.enterAt(active)
 			rowsAbove = self.window.rowsAbove()
-			# What could not be afforded this time, for the pass that comes back with a fresh
-			# allowance. The rows above are the first thing a slow editor costs the reader;
-			# see `_owedAbove`.
+			# Short only when refused by the budget, not when the document starts here. See
+			# `_owedAbove`.
 			short = rowsAbove < wanted and self.window.edges[Edge.BEFORE] is EdgeState.DEFERRED
+			# Nothing moves for a part payment, as in `_payWhatIsOwedAbove`.
 			if rowsAbove > 0 and not short:
 				self.window.enterAt(active, contextRows=min(wanted, rowsAbove))
-			# **Nothing moves for a part payment**, which is the rule `_payWhatIsOwedAbove`
-			# already keeps and this had no occasion to until the fill below the caret stopped
-			# spending the allowance first. Moving the band up by whatever one pass could
-			# reach walks the display under a reading hand once per pass to arrive where one
-			# move gets it. A caret near the top of the document is not a part payment: there
-			# are simply fewer rows above it, the walk was answered rather than refused, and
-			# what there is goes above the caret now.
 			self._owedAbove = wanted if short else 0
 		except LookupError:
 			log.debugWarning("Could not anchor the band at the caret", exc_info=True)
@@ -2356,25 +1874,9 @@ class FlowController(PanelOwner):
 	def _isForward(self, blockId: "BlockId") -> bool:
 		"""Which way the cursor went, so that a scroll shows what it came from.
 
-		Measured against the block the cursor was in, and against the anchor when that block
-		is no longer one the window holds. The fallback is the point.
-
-		The block the cursor was in is not guaranteed to survive: `_trim` keeps the cache to
-		the window and a margin either side, and the block the reader has just left can be
-		outside that — it stays in the controller's own cache, which is what the commands act
-		through, but it goes from the window's list, which is what `blockIndex` reads. The
-		comparison then raised, the answer was the fallback "forward", and a cursor that had
-		gone *back* was placed at the bottom of the band with everything before it filled in
-		above. On hardware that was moving up to the account row in a folder tree and getting
-		a whole display of other accounts, which is a display's worth of movement for one
-		keypress.
-
-		The anchor cannot go the same way: it is where the window is, so the window holds it
-		by definition. Comparing against it answers a slightly different question — is the
-		cursor before or after where the display is sitting — and that is the question
-		placement actually needs. Which is why it is the fallback and not the rule: while the
-		cursor's own last block is still there, where the reader came *from* is the better
-		account of which way they are travelling.
+		Measured against the block the cursor was in, which is the better account of which
+		way the reader is travelling. That block can have been trimmed from the window, so
+		the fallback is the window's anchor, which the window always holds.
 
 		:param blockId: where the cursor is now.
 		:return: True when it moved on from what is shown, or when it cannot be told.
@@ -2403,15 +1905,8 @@ class FlowController(PanelOwner):
 	def _note(self, text: str) -> None:
 		"""Record something that moved the band, for a report to be able to say what did.
 
-		Kept as a short history rather than one line, because the line was misleading: the
-		display's placement was read off the direction test's verdict, and on the report
-		that finally located this bug the verdict was *correct* while the placement was
-		wrong. Something else had moved the window first — `refreshActive`, re-rendering the
-		row the reader had just arrived on — and then a second, no-op call had overwritten
-		the note with a reading of a decision that changed nothing.
-
-		A history says which call moved the band and which found there was nothing to do,
-		in the order they happened, so neither can be mistaken for the other again.
+		A short history of the last eight, in order, so a report shows which call moved the
+		band and which found nothing to do.
 
 		:param text: what happened, as one line.
 		"""
@@ -2437,10 +1932,7 @@ class FlowController(PanelOwner):
 		:param forward: which way to look for it.
 		:return: whether it was reached.
 		"""
-		# Both ways, because which way the cursor went cannot always be told: the block it
-		# is in is not in the window, so there is nothing to compare it with. Looking the
-		# wrong way first costs a few reads; not looking the other way at all throws the
-		# reader's window away and rebuilds it around the cursor.
+		# Both ways, because the direction is only a guess while the block is not in the window.
 		for edge in self._edgesToTry(forward):
 			for _ in range(self.window.numRows):
 				if not self._fetchOne(edge):
@@ -2456,15 +1948,12 @@ class FlowController(PanelOwner):
 	def syncToCursor(self, forward: bool = True, why: str = "asked to") -> bool:
 		"""Bring the active block onto the display, moving as little as possible.
 
-		If it is already there, nothing moves at all: landing on a heading that is already
-		under the reader's fingers must not jerk the display.
+		If it is already there, nothing moves.
 
-		:param forward: the direction the reader is travelling. `FlowWindow.ensureVisible`
-			uses it only as a tiebreak: which edge a row comes on at is decided by which
-			side of the window it is on, so a caller with no way of knowing may pass either.
-		:param why: what is asking, for the report. Four things call this and they do not
-			all know which way the reader went; when one of them moves the band unexpectedly
-			the report has to be able to name it.
+		:param forward: the direction the reader is travelling, used by
+			`FlowWindow.ensureVisible` only as a tiebreak. A caller that cannot tell may pass
+			either.
+		:param why: what is asking, for the move history.
 		:return: whether the window moved.
 		"""
 		if self.activeBlockId is None:
@@ -2472,10 +1961,7 @@ class FlowController(PanelOwner):
 		if self._panIsTheReadersChoice():
 			self._note(f"{why}: the reader panned here and has not moved, so nothing moved")
 			return False
-		# The cursor's own row, not the block's first: a paragraph or an edit field taller
-		# than the band would otherwise be brought on by its top while the reader is at the
-		# bottom of it, which is the whole of what "the cursor's row must stay visible" is
-		# about.
+		# The cursor's own row, not the block's first, for a block taller than the band.
 		row = self.cursorRow()
 		try:
 			moved = self.window.ensureVisible(
@@ -2500,20 +1986,9 @@ class FlowController(PanelOwner):
 	def _showTheWholeOfIt(self, blockId: "BlockId") -> bool:
 		"""Bring the rest of the block the cursor is in onto the band, where it fits.
 
-		**A row that wraps is one row of the table and the reader is standing on all of it.**
-		Bringing a block on by the line the cursor is on is the right rule for keeping the
-		cursor in view, and it is the wrong amount to show when the block has just become the
-		reader's own: scrolling down onto a record two lines tall put its first line on the
-		bottom row and left the second off the band, so the values in the columns that had
-		wrapped were the ones the reader could not read. The same on a list of files whose
-		names run to two lines.
-
-		So the cursor's row is brought on first — that is what must be visible, and it is what
-		decides which edge the block arrives at — and then the far end of the block is asked
-		for as well. Where the whole block fits on the band that shows all of it; where the
-		block is taller than the band it is refused, because the alternative is scrolling the
-		cursor's own row off to show a part of the row nobody asked for. Panning through a
-		block taller than the band is what panning is for.
+		The cursor's row is brought on first, then the far end of the block, so a wrapped table
+		row or a two-line file name shows whole. A block taller than the band is left alone,
+		since showing its far end would scroll the cursor's row off.
 
 		:param blockId: the block the cursor is in.
 		:return: whether the window moved.
@@ -2524,11 +1999,7 @@ class FlowController(PanelOwner):
 		if last < 1 or rendered.numRows > self.window.numRows:
 			return False
 		if rendered.rowOffset or rendered.moreRows:
-			# A chunk of a block rather than the whole of it, which is what a long edit is
-			# rendered as: sixty-four rows is the renderer's working set and the reader may be
-			# on row seventy-four of their own field. The far end of a chunk is not the far end
-			# of anything the reader is standing on, and going to it takes their caret off the
-			# band.
+			# A chunk of a long edit, whose far end is not the end of the block.
 			return False
 		if self.window.isVisible(blockId, last):
 			return False
@@ -2537,9 +2008,8 @@ class FlowController(PanelOwner):
 	def _caretMark(self):
 		""":return: where the caret is, as something two calls can compare.
 
-		The active block and the position within it. Not the row, because the row is what the
-		question is about: a caret that has not moved may be on a row the band no longer
-		shows, and that is exactly the state panning leaves behind.
+		The active block and the position within it, not the row, since after a pan the
+		caret's row may be off the band.
 		"""
 		if self.activeBlockId is None:
 			return None
@@ -2549,14 +2019,9 @@ class FlowController(PanelOwner):
 	def _panIsTheReadersChoice(self) -> bool:
 		"""Whether the window is where the reader panned it and the caret has not moved since.
 
-		Panning within the block the caret is in is the reader deliberately looking at another
-		part of what they are standing in — the rest of a long line, the tail of a paragraph —
-		and following the cursor afterwards would take it back from them. The rule it suspends
-		is right for a *caret move*: a caret at the bottom of a long paragraph must not be
-		shown by the paragraph's top. It is wrong when the caret did not move at all.
-
-		Only while the block is still on the band. Once the reader has left it there is
-		nothing of theirs to protect and the ordinary rule applies again.
+		A pan within the caret's block is the reader looking at another part of it, so the
+		cursor is not followed until the caret moves. Only while the block is still on the
+		band.
 
 		:return: whether to leave the window where it is.
 		"""
@@ -2567,18 +2032,15 @@ class FlowController(PanelOwner):
 		except LookupError:
 			held = False
 		if not held:
-			# Forgotten rather than merely not matching. A reader who moves away and comes
-			# back to the same place has not re-panned, and a rule that re-engaged on the
-			# way back would leave the band stuck where it was minutes ago.
+			# Forgotten, because coming back to the same place is not panning again.
 			self._pannedAt = None
 		return held
 
 	def _caretPosition(self):
 		""":return: where the document's own caret is, or None if it cannot be asked.
 
-		A position the document hands out, compared by value, and nothing more. What it is
-		worth is that it comes from the document rather than from anything the flow has
-		rendered — and the rendering is what a re-read is about to replace.
+		Compared by value. It comes from the document rather than from the rendering, which a
+		re-read is about to replace.
 		"""
 		where = getattr(self.source, "caretPosition", None)
 		if where is None:
@@ -2592,41 +2054,14 @@ class FlowController(PanelOwner):
 	def _caretIsWhereThePanLeftIt(self) -> bool:
 		"""Whether the reader panned the band somewhere and the caret has not moved since.
 
-		Not "has anything been typed", which was the first claim made here and is not the
-		same question: forward Delete takes out the character *after* the caret and leaves it
-		exactly where it was, and an editor rewriting the line under it moves nothing at all.
-		What this answers is only that the reader has not gone anywhere — which is what makes
-		the window theirs. What is on the row they are standing on is a separate question,
-		and the caller reads that row again rather than trusting it.
+		This says only that the reader has not moved, not that nothing was typed: forward
+		Delete changes the line without moving the caret, so the caller still re-reads the
+		caret's row.
 
-		The question a written-in document's re-read has to ask before it does anything at
-		all, because a pan cannot survive that re-read deciding where the band goes.
-
-		Finding the caret is not the problem: panning a live document takes the cursor with
-		it — see `_cursorToTop` — so entering at the caret does land on the row the reader
-		panned to. What loses the pan is the anchoring afterwards, and both of its branches
-		lose it. `_stableTop` can never accept the row the band is actually showing, because
-		`_cursorToTop` has just made that block the caret's own and the top row is only
-		believed when it is not; so the restore target is always a top row from before the
-		pan. Reach that row and the band goes back to the window the pan left — the pan did
-		nothing. Fail to reach it and `_contextAboveTheCaret` runs instead, which puts the
-		caret half a band down from the top: the band lands half a display behind where the
-		pan put it.
-
-		On hardware this was a markdown file open in VSCode, a plain editable text with no
-		browse mode behind it and so written in for as long as the reader is in it, where
-		every display update brings a settle pass a quarter of a second later. The reader
-		got both branches and named both: it "was panning by one line instead of whole
-		display" — a pan of eight rows with four given back — "and at the point of this log
-		it would not pan forward at all" — the stale top row within reach. They also said
-		"pan back seems better", and it was: half a display of drift *backwards* adds to a
-		backward pan and subtracts from a forward one.
-
-		Answered from the document's own caret rather than from anything the flow rendered,
-		which is what lets it be asked before the re-read rather than after it. Typing moves
-		the caret, so a caret still where the pan left it is a caret nobody has touched — and
-		then there is nothing to re-read at all, which is also the whole cost of the pass
-		saved for as long as the reader is reading rather than writing.
+		A writing re-read asks this first, because its anchoring would otherwise undo the pan:
+		`_cursorToTop` makes the new top block the caret's own, which `_stableTop` refuses, so
+		the re-read would go back to the window before the pan or put the caret half a band
+		down. Answered from the document's own caret, so it can be asked before the re-read.
 
 		:return: whether to leave the band exactly where the reader panned it.
 		"""
@@ -2634,37 +2069,20 @@ class FlowController(PanelOwner):
 			return False
 		here = self._caretPosition()
 		if here not in self._pannedCaret:
-			# Forgotten rather than merely not matching, as `_panIsTheReadersChoice` forgets:
-			# a reader who moves away and comes back has not re-panned.
+			# Forgotten, as in `_panIsTheReadersChoice`.
 			self._pannedCaret = ()
 			return False
-		# The answers this was waiting to move *past* stop counting once it has. They are
-		# ordered oldest first, so seeing the settled one drops the stale read-back with it,
-		# and a reader who then goes back to where they panned from — control+home, a routing
-		# key onto the line they came from — is a reader who moved.
+		# Drop the older answers once a newer one is seen, so going back to where the pan
+		# started counts as a move.
 		self._pannedCaret = self._pannedCaret[self._pannedCaret.index(here) :]
 		return True
 
 	def _caretsAfterAPan(self) -> tuple:
 		"""Where the caret may be found after a pan without the reader having typed.
 
-		Two answers, because moving the caret is a request to the application and reading it
-		back is a question to the application, and between one keystroke and the next those
-		do not have to agree. Panning tells the editor to put its caret at the top of what
-		is now shown; a read taken in the same breath can still be the caret the pan moved
-		*from*, and the settled answer arrives with the caret event a moment later.
-
-		Both count as "nothing was typed", and the pair is what made the difference between
-		a pan that stuck and one that did not. Where the new top row continued the block the
-		caret was already in, the cursor was asked to go where it already was, the read-back
-		agreed, and the pan held. Where it began a new block the caret really moved, the
-		read-back was stale, and the next caret event re-read the band and dragged it half a
-		display back — a reader panning through a file got "the full display, to moving just
-		a couple lines" depending on nothing they could see.
-
-		A caret move lands on neither: it goes away from where the caret was *and* away from
-		where the pan put it. An edit that moves no caret lands on one of them, and is caught
-		by the caller reading that row again rather than by this.
+		Two answers: the caret read back straight after the pan can still be where it was
+		before, and the settled position arrives with the caret event a moment later. Both
+		mean the reader has not moved.
 
 		:return: the marks that mean the reader has not typed, newest first, possibly empty.
 		"""
@@ -2677,9 +2095,8 @@ class FlowController(PanelOwner):
 	def _cursorMark(self, blockId):
 		""":return: the mark for where this flow put the cursor in a block, or None.
 
-		The position the flow *asked* for, taken from the block rather than from the
-		document, which is the half of the answer a read of the document cannot give until
-		the application has caught up.
+		The position the flow asked for, taken from the block, since the document may not
+		have caught up yet.
 		"""
 		if blockId is None or not (self.live and self.movesCursor):
 			return None
@@ -2688,9 +2105,8 @@ class FlowController(PanelOwner):
 	def _takeCursor(self, blockId: "BlockId") -> bool:
 		"""Move the real cursor to a block, for a live flow.
 
-		Selecting a block and moving the cursor to it are two things, and only the second
-		is what makes speech follow, what the arrow keys carry on from, and what a routing
-		key would activate. A viewer does neither.
+		Moving the real cursor is what makes speech follow and the arrow keys carry on from
+		there. A viewer does not.
 
 		:param blockId: the block to move to.
 		:return: whether the cursor was moved.
@@ -2706,14 +2122,9 @@ class FlowController(PanelOwner):
 	def _cursorToTop(self) -> None:
 		"""Put the cursor on the top block of the window, after a pan.
 
-		Reading onward with the arrow keys then continues from the top of what is under the
-		reader's hands, in both directions.
-
-		Only where the flow owns the cursor. A run of objects does not: the reader's place
-		is the focused item and panning is reading past it, so making the new top row active
-		would claim they had moved. It did claim exactly that — and because the focus had of
-		course not moved, the next refresh followed the real focus and dragged the display
-		back to where the reader had panned away from.
+		So the arrow keys continue from the top of what is shown. Only where the flow owns the
+		cursor; in a run of objects the reader's place is the focused item and panning is
+		reading past it.
 		"""
 		if not self.movesCursor:
 			return
@@ -2730,11 +2141,8 @@ class FlowController(PanelOwner):
 		a cursor. Only the active one is allowed to say so.
 
 		:param freshlyRead: whether the region now held for this block is a reading just
-			taken. What lets `refreshActive` skip a reading it would otherwise repeat: a
-			block fetched and then activated has been read twice in a row with nothing
-			between the two, and a reading is a call into the application. `_keep` may keep
-			the region it already had instead of the fresh one, which is why the caller says
-			rather than the fetch.
+			taken, so `refreshActive` can skip repeating it. The caller says, because `_keep`
+			may have kept an older region.
 		"""
 		self._activeIsFreshlyRead = freshlyRead
 		self.activeBlockId = blockId
@@ -2748,11 +2156,8 @@ class FlowController(PanelOwner):
 	def _giveTheActiveBlockItsCursor(self) -> None:
 		"""Re-read the block that has just become active, so that it has a cursor.
 
-		A block is read before anything knows whether it is the one the cursor is in, and a
-		block that is not active suppresses its cursor — so the reading that built it left
-		no cursor behind. Every path that ends by activating a block without reading it
-		again would then show none, which is what happened after a jump backwards: the
-		display moved to the right place with nothing on it to say where the cursor was.
+		An inactive block suppresses its cursor, so a block read before it became active has
+		none until it is read again.
 		"""
 		if not self.live:
 			return
@@ -2764,18 +2169,15 @@ class FlowController(PanelOwner):
 		except Exception:
 			log.debugWarning("Could not read the active block for its cursor", exc_info=True)
 			return
-		# The flow asked for this reading, so it is not news to be acted on again.
+		# The flow asked for this reading, so it is not a caret move. See `_keep`.
 		region.dirty = False
-		# And it is a reading of the block as it is now, which is what `refreshActive` would
-		# otherwise go and take for itself a moment later.
 		self._activeIsFreshlyRead = True
 
 	def _withCurrentDepth(self, block):
 		"""Hold a block at the depth its region now reads, where its source can say.
 
-		A block's depth is fixed when it is built, and its region is read again on its own — the
-		caret moving within it is NVDA re-reading it. Without this an item moved to another level
-		without its text changing kept the indent it was built with. Found by review.
+		A block's depth is fixed when it is built, but NVDA re-reads its region on its own, so
+		an item moved to another level is caught here.
 
 		:param block: the block whose region has just been read.
 		:return: the block to use, the one held if nothing changed.
@@ -2800,10 +2202,8 @@ class FlowController(PanelOwner):
 		Only that block, because that is the one NVDA marks as pending on the core cycle.
 
 		:param reread: whether to ask the application for the block again first. False where
-			the caller knows the region was read since it became active — activating a block
-			reads it for its cursor, and the reading that followed was the same question
-			asked twice in a row. The re-rendering still happens, because that is what picks
-			the chunk of a long edit the caret is actually in.
+			the region was read since it became active. The re-rendering still happens, since
+			it picks the chunk of a long edit the caret is in.
 		:return: whether the rendering changed.
 		"""
 		if self.activeBlockId is None:
@@ -2818,8 +2218,7 @@ class FlowController(PanelOwner):
 				log.debugWarning(f"Could not refresh {self.activeBlockId}", exc_info=True)
 				return False
 			if hasattr(block.region, "dirty"):
-				# This flow asked for the reading, so it is not news to be acted on again. See
-				# `_keep`, where the same rule is applied to a block a fetch has just built.
+				# The flow asked for this reading, so it is not a caret move. See `_keep`.
 				block.region.dirty = False
 			self._activeIsFreshlyRead = True
 			block = self._withCurrentDepth(block)
@@ -2836,14 +2235,8 @@ class FlowController(PanelOwner):
 		):
 			return False
 		self.window.replaceBlock(rendered)
-		# A multi line edit grows into the space as it is typed into, and what the reader
-		# wants on the display is what they have just written rather than the top of the
-		# field. The window follows the growing end down.
-		#
-		# Forward is this caller's case and not always the reader's: this runs on arrival
-		# too, before anything has worked out which way they went. It is safe because
-		# `FlowWindow.ensureVisible` decides the edge from where the row is; it was not
-		# before, and a row the reader had arrowed up to arrived at the bottom of the band.
+		# The window follows the growing end of an edit being typed into. Forward is only a
+		# tiebreak; `FlowWindow.ensureVisible` decides the edge from where the row is.
 		self.syncToCursor(forward=True, why="a re-render of the cursor's block")
 		self.fill()
 		return True
@@ -2859,8 +2252,7 @@ class FlowController(PanelOwner):
 		at = getattr(block.region, "brailleCursorPos", None)
 		rendered = self.renderer.render(block, fromRow=before.rowOffset)
 		if at is None or self.isUnwrapped or any(at in row for row in rendered.positions):
-			# Unwrapped, a block is one row and there is no other chunk to find: a caret that is
-			# not in it is on another page across, which is `followCaretAcross`'s to answer.
+			# Unwrapped, a caret off the row is on another page across. See `followCaretAcross`.
 			return rendered
 		return self.renderer.renderAround(
 			block,
@@ -2871,8 +2263,7 @@ class FlowController(PanelOwner):
 	def cursorRow(self) -> Optional[int]:
 		"""Which row of the active block the cursor is on, counted within the whole block.
 
-		Not which row of the display: the point of asking is usually that it is not on the
-		display and has to be brought back.
+		Not the display row, since the usual reason to ask is that it is off the display.
 
 		:return: the row, or None if there is no cursor or the block is not cached.
 		"""
@@ -2892,15 +2283,11 @@ class FlowController(PanelOwner):
 				return rendered.rowOffset + index
 			for where in positions:
 				highest = max(highest, where)
-		# A cursor the chunk on the display cannot place. `refreshActive` normally replaces
-		# that chunk with the one holding it, so this is the gap between the caret moving and
-		# the flow noticing — and which way to guess depends on which way it went.
+		# The chunk does not hold the cursor, until `refreshActive` replaces it.
 		if not rendered.rows or at <= highest:
-			# Behind what is shown, or nowhere the rendering can account for. Naming a row
-			# would move the window to the wrong end of a long edit on no evidence.
+			# Behind what is shown, or unaccounted for, so no guess.
 			return None
-		# Past the end of what is shown, which is where a reader writing always is: the last
-		# row is the honest guess, and the one that keeps what they have typed on the display.
+		# Past the end, where a reader who is writing is: the last row.
 		return rendered.endRow - 1
 
 	# Showing.
@@ -2916,11 +2303,8 @@ class FlowController(PanelOwner):
 	def refreshPinned(self) -> None:
 		"""Draw the pinned block again from what its region says now.
 
-		Done on every `cells`, which is once per write to the display and is where it has to
-		be: the row itself does not change, but whether the cursor is in it does, and a
-		region works its cursor out when it is asked to update rather than when it was made.
-		Nothing here reads the document — the cells were read when the block was built, and
-		this re-translates them.
+		Done on every `cells`, because whether the cursor is in the row can change and a region
+		works out its cursor when updated. This re-translates; it does not read the document.
 		"""
 		if self.pinnedBlock is None:
 			self.pinned = None
@@ -2953,12 +2337,8 @@ class FlowController(PanelOwner):
 	def cells(self) -> list[int]:
 		"""The band's cells, row major, padded to the full width.
 
-		The padding is the point: it is what stops the block after a short one sharing its
-		row, which NVDA's own buffer cannot avoid.
-
-		The pinned row goes on top and is not part of the window, so everything the window
-		says about rows — the focus mark, the cursor, routing — is worked out first and then
-		moved down by a row. See `pinnedBlock`.
+		The padding keeps the block after a short one off its row. The pinned row goes on top
+		and is not part of the window, so window positions are offset by it. See `pinnedBlock`.
 		"""
 		self.refreshPinned()
 		try:
@@ -2972,15 +2352,8 @@ class FlowController(PanelOwner):
 	def cellGlyphs(self) -> dict:
 		"""Where every symbol on the band is now, for the driver to draw.
 
-		Worked out afresh each frame rather than remembered, because a glyph is registered
-		against the cells it stands on and the driver retires it the moment a frame arrives
-		without them. Anything else would let a symbol outlive the object it belonged to — a
-		button drawn over a braille message, on the row the button used to be.
-
-		The band is walked and each cell asked where it came from, which is the same question
-		routing asks and the same answer: a mark is recorded against a cell of a block, and
-		this finds where that cell was drawn. Two hundred and fifty six lookups on a Monarch,
-		against a translation of the same content, so the walk is not where the time goes.
+		Worked out afresh each frame, because the driver retires a glyph as soon as a frame
+		arrives without it. Each cell is asked where it came from, as routing does.
 
 		:return: `{band position: the fitted glyph}`, empty when there is nothing to draw.
 		"""
@@ -2988,9 +2361,8 @@ class FlowController(PanelOwner):
 		self._pinnedGlyphs(found)
 		self._focusGlyphs(found)
 		numCols = self.renderer.numCols
-		# The last block rather than a table of them, because a bookmark is comparable and not
-		# hashable — NVDA's own are — and because a block's cells are consecutive, so one
-		# remembered answer serves the whole of it.
+		# Only the last block is remembered: bookmarks do not hash, and a block's cells are
+		# consecutive.
 		lastId = None
 		marks: dict = {}
 		rows = self.window.visibleRows()
@@ -3010,9 +2382,7 @@ class FlowController(PanelOwner):
 	def _pinnedGlyphs(self, found: dict) -> None:
 		"""Add the pinned row's symbols, which are not in the window and so are not walked.
 
-		The row is a rendering of one block, one row tall, and its position map is the same
-		kind of map every other row has. See `_pinnedCursor`, which asks the same question of
-		the same map.
+		See `_pinnedCursor`, which reads the same position map.
 
 		:param found: the table being built, by band position.
 		"""
@@ -3029,37 +2399,21 @@ class FlowController(PanelOwner):
 	def displayFrame(self) -> tuple:
 		""":return: everything a redraw would put on the display, for comparing two passes.
 
-		The cells and the cursor, because a pass that only moved the cursor has still changed
-		what is under the reader's fingers. Comparing the cells alone let a re-read that put
-		the caret on a different cell of the same line decide it had changed nothing, and the
-		display then carried a cursor a keystroke behind.
+		The cells and the cursor, since a pass that only moved the cursor has still changed
+		the display.
 		"""
 		return (tuple(self.cells()), self.cursorCell())
 
 	def _markLineFocus(self, cells: list[int]) -> None:
 		"""Mark the left of the rows the focus is on.
 
-		Drawn here rather than rendered into the block, for the same reason the cursor is:
-		the focus moves without the rows changing. Baking the mark in would mean re-rendering
-		the block the reader left as well as the one they arrived at, and the one they left
-		is often no longer in the window to re-render.
+		Drawn here rather than rendered into the block, like the cursor, because the focus
+		moves without the rows changing. Every row of the focused block is marked. Whether
+		there is room is asked once of the item, not of each row, since wrapped rows carry
+		extra indent. See `flowIndent.focusMark`.
 
-		Every row of the focused block is marked, not only its first. A wrapped item is two
-		rows of the same item, and a hand running down the left margin should feel the whole
-		of what has the focus rather than its first row and then a gap.
-
-		Whether there is room is asked of the *item*, once, and not of each row. A wrapped row
-		carries more indent than its item does — that is what says it is a continuation rather
-		than a child — so asking per row marked the hanging rows of an item that sits at the
-		margin and left its first row bare. On hardware that was a message in Outlook's list:
-		seven rows of one item, six of them marked, and the marked ones were the six that were
-		not the item's own first row.
-
-		Rows too near the left margin to carry it are left alone. See `flowIndent.focusMark`.
-
-		**Where the band draws glyphs, the mark is Monarch's own.** The square goes on the first
-		cell of the mark and the second is left blank, which is how the firmware draws its list
-		focus; the dots 3678 under the square are what the driver matches on. See `_focusGlyph`.
+		Where the band draws glyphs, the mark is the Monarch's own: the square on the first
+		cell and the second left blank. See `_focusGlyph`.
 
 		:param cells: the assembled band, modified in place.
 		"""
@@ -3096,9 +2450,7 @@ class FlowController(PanelOwner):
 			if row.kind is not RowKind.CONTENT or row.blockId != self.activeBlockId:
 				continue
 			if self._indentOfRow(row) < len(mark):
-				# Belt and braces rather than policy: the plan the mark was measured by is the
-				# one the block was rendered under, so this cannot fire — and if it ever did,
-				# the mark would be sitting on a cell of the reader's text.
+				# A safeguard so the mark never covers text. It should not fire.
 				continue
 			marked.append(index)
 		return mark, marked
@@ -3135,10 +2487,7 @@ class FlowController(PanelOwner):
 	def _indentOfRow(self, row) -> int:
 		"""How many cells of indent one row of the window was drawn with.
 
-		Read off the rendering rather than worked out again from the plan: a rendered row
-		says where each of its cells came from, and the indent is exactly the run at the
-		front that came from nowhere. Asking the plan a second time would be a second answer
-		to keep in step with the first.
+		Read off the rendering: the indent is the run of cells at the front with no position.
 
 		:param row: a content row of the window.
 		:return: the number of indent cells, 0 if the row cannot be read.
@@ -3174,9 +2523,8 @@ class FlowController(PanelOwner):
 		numCols = self.renderer.numCols
 		rows = self.window.visibleRows()
 		active = self.activeBlockId
-		# Whether each block is the active one is asked once per block rather than once per cell,
-		# and the position first, because asking is a call into the application for some
-		# documents. See `flow.findByIdentityFirst`.
+		# Asked once per block, and the position first, because comparing ids can call into the
+		# application. See `flow.findByIdentityFirst`.
 		lastId = None
 		isActive = False
 		for position in range(self.window.numRows * numCols):
@@ -3193,10 +2541,7 @@ class FlowController(PanelOwner):
 	def _pinnedCursor(self) -> Optional[int]:
 		""":return: where the cursor is within the pinned row, or None if it is not in it.
 
-		Asked of the pinned block's own region rather than of `activeBlockId`, because a
-		pinned row is not in the window and so is never the active block. A table row says it
-		holds the cursor when the caret is in one of its cells and says nothing on every other
-		row, which is exactly the question here.
+		Asked of the pinned block's own region, since a pinned row is never the active block.
 		"""
 		if self.pinned is None or self.pinnedBlock is None or not self.pinned.positions:
 			return None
@@ -3277,10 +2622,8 @@ class FlowController(PanelOwner):
 		"""Act on a routing key press within the band.
 
 		:param position: a flat row major position within the band.
-		:return: whether the press reached content. Padding, gaps and blank rows reach
-			nothing, and must do nothing: NVDA's habit of mapping trailing blank columns
-			back to the last content cell would otherwise activate the end of a short field
-			when the reader pressed a key in the space after it.
+		:return: whether the press reached content. Padding, gaps and blank rows do nothing,
+			unlike NVDA's own buffer, which maps trailing blanks to the last content cell.
 		"""
 		if position < self.pinnedCells:
 			return self._routePinned(position)
@@ -3289,11 +2632,8 @@ class FlowController(PanelOwner):
 			return False
 		blockId, region, at = found
 		try:
-			# The region first, and the flow's own place afterwards. A region decides what a
-			# press means from whether the reader was already on that block — an object's
-			# does, because a press where they are acts and a press elsewhere goes — and
-			# making the block active first told it they had been there all along, so a
-			# routing key meant to reach a list item activated it.
+			# The region first, because it decides what a press means from whether the reader
+			# was already on the block, and activating it first would say they were.
 			region.routeTo(at)
 		except Exception:
 			log.debugWarning(f"Could not route into {blockId}", exc_info=True)
@@ -3305,9 +2645,7 @@ class FlowController(PanelOwner):
 	def fillStats(self) -> tuple[int, int]:
 		"""How much of the band is content rather than the space after a row's last cell.
 
-		The measure that tells one reading unit apart from another on a given display: a
-		block always starts a new row, so every block leaves the tail of its last row empty,
-		and how much that costs depends on the block's length against the band's width.
+		Every block starts a new row, so this measures what a reading unit costs on a display.
 
 		:return: the cells holding content, and the cells in the band.
 		"""
@@ -3342,8 +2680,7 @@ class FlowController(PanelOwner):
 	def describeRows(self) -> list[str]:
 		"""What each row of the band holds, in words rather than cells.
 
-		For the dry run command and for the log: it shows the packing and the window
-		without a display attached, which is where the design is easiest to get wrong.
+		For the dry run command and the log, which show the packing without a display.
 
 		:return: one line per row of the band.
 		"""
@@ -3353,10 +2690,7 @@ class FlowController(PanelOwner):
 			held = rowText(self.pinnedBlock.region, self.pinned, 0) if self.pinnedBlock else ""
 			lines.append(f"pinned: {held!r}")
 		elif self.pinnedBlock is not None:
-			# Said rather than left out, and only in the case worth a line: a header row this
-			# flow is holding and did not draw. A report that shows nothing where the header
-			# should be reads the same whether the band never had one or lost it, and those
-			# are different faults. A flow with no header at all says nothing here, as before.
+			# Tells a header that failed to draw from no header at all.
 			lines.append("pinned: held but not drawn")
 		try:
 			visible = self.window.visibleRows()
@@ -3378,19 +2712,13 @@ class FlowController(PanelOwner):
 			cells = rendered.rows[localRow] if 0 <= localRow < len(rendered.rows) else ()
 			active = " *" if row.blockId == self.activeBlockId else "  "
 			block = self.blocks.get(row.blockId)
-			# Said on every row of the block rather than only its first: the log is read a
-			# row at a time, and a form is exactly where knowing which rows are the control
-			# and which are its prompt is the thing being checked.
+			# On every row of the block, since the log is read a row at a time.
 			kind = " control" if block is not None and block.isControl else ""
 			if block is not None and block.isBlank:
-				# The one row a reader cannot tell from a fault: an empty line the document gave
-				# us reads exactly like a row we could not fill, and a report of "a blank between
-				# every cell" cost a second log for want of this word. The count says how many
-				# lines the row stands for, since a collapsed run is one row for many.
+				# Tells an empty line from a row that could not be filled. The count is how many
+				# lines a collapsed run stands for.
 				kind += " blank" if block.collapsed < 2 else f" blank x{block.collapsed}"
-			# Said per row, because a block's first row and its wrapped rows are deliberately
-			# indented by different amounts, and one number for the whole block could not
-			# show that rule working.
+			# Per row, since first and wrapped rows are indented differently.
 			depth = ""
 			if rendered.depth is not None:
 				plan = self.renderer.indentPlan
@@ -3402,9 +2730,7 @@ class FlowController(PanelOwner):
 				depth = f" depth {rendered.depth} indent {drawn}"
 			rowExtent = f"block row {row.rowIndex + 1}"
 			if not rendered.moreRows:
-				# The last chunk knows the complete extent. An earlier chunk does not, and
-				# calling its working-set size the block total produced reports such as
-				# "block row 13 of 8".
+				# Only the last chunk knows the block's full extent.
 				rowExtent += f" of {rendered.endRow}"
 			lines.append(
 				f"{index}:{active}[{len(cells)}/{numCols} cells]{kind}{depth} "
