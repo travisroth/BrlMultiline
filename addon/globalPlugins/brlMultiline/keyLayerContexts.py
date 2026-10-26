@@ -61,10 +61,10 @@ def _pinnedOn(plugin, device) -> bool:
 	try:
 		from . import pinQuickNav
 
-		monitors = plugin._everyMonitor()
+		monitors = plugin.everyMonitor()
 		return any(
 			key in monitors and pinQuickNav.documentOf(monitors[key]) is not None
-			for key in plugin._segmentKeysOn(device)
+			for key in plugin.segmentKeysOn(device)
 		)
 	except Exception:
 		log.debugWarning("BrlMultiline key layers: could not look for a pinned document", exc_info=True)

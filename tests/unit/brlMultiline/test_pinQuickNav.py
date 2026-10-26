@@ -291,7 +291,7 @@ class TestWhichPin(unittest.TestCase):
 		self.case.pin(2, "doc two")
 		self.keys = [segment.key for segment in self.plugin.container.segments]
 		onMonarch = self.keys[0:3]
-		patch(self.plugin, "_segmentKeysOn", lambda display: onMonarch if display == "monarch" else [])
+		patch(self.plugin, "segmentKeysOn", lambda display: onMonarch if display == "monarch" else [])
 		patch(pluginModule, "deviceMap", lambda: [DeviceInfo("monarch", 0, 100, 100)])
 
 	def target(self, display="monarch"):

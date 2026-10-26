@@ -3411,7 +3411,7 @@ class TestWhichTableAPagingCommandMoves(PluginTestCase):
 	def test_thePressedDisplaysTableWins(self):
 		keys = self.keys()
 		self.plugin.tablesInColumns = lambda: self.showing(keys)
-		self.plugin._segmentKeysOn = lambda driver: [keys[2]]
+		self.plugin.segmentKeysOn = lambda driver: [keys[2]]
 		self.assertEqual(self.plugin._tableToPage(None), "the third")
 
 	def test_withNoKeyBehindItTheFirstInDisplayOrderWins(self):
@@ -3419,13 +3419,13 @@ class TestWhichTableAPagingCommandMoves(PluginTestCase):
 		choose between, and the first is the only one on a display showing one."""
 		keys = self.keys()
 		self.plugin.tablesInColumns = lambda: self.showing(keys)
-		self.plugin._segmentKeysOn = lambda driver: []
+		self.plugin.segmentKeysOn = lambda driver: []
 		self.assertEqual(self.plugin._tableToPage(None), "the first")
 
 	def test_aDisplayWithNothingLaidOutFallsBackToDisplayOrder(self):
 		keys = self.keys()
 		self.plugin.tablesInColumns = lambda: self.showing(keys)
-		self.plugin._segmentKeysOn = lambda driver: [keys[1]]
+		self.plugin.segmentKeysOn = lambda driver: [keys[1]]
 		self.assertEqual(self.plugin._tableToPage(None), "the first")
 
 	def test_nothingLaidOutAnywhereIsNothingToMove(self):
@@ -3672,7 +3672,7 @@ class TestShowingAppLayouts(PluginTestCase):
 		self.settle()
 		monitor = self.host.liveMonitors()["appLayout.0"]
 		self.assertIs(monitor.pinned, self.messages)
-		self.assertIn("appLayout.0", self.plugin._everyMonitor())
+		self.assertIn("appLayout.0", self.plugin.everyMonitor())
 
 	def test_theLayoutsSegmentsAreNotTheReadersPins(self):
 		self.focus()

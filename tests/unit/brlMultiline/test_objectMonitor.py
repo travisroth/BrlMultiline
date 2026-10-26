@@ -727,7 +727,7 @@ class TestAPinnedTableInColumns(MonitorTestCase):
 		from brlMultiline.flowTableSource import tableAt
 
 		obj = self._atATable()
-		self.plugin.tableWanted = tableAt(obj).key
+		self.plugin.tableRequest.wanted = tableAt(obj).key
 		self.plugin.startMonitoring(PINNED_SEGMENT)
 		self.assertTrue(self.plugin._monitors[PINNED_KEY].wantsColumns)
 
@@ -739,19 +739,19 @@ class TestAPinnedTableInColumns(MonitorTestCase):
 
 		obj = self._atATable()
 		self.plugin.flowBand = None
-		self.plugin.tableWanted = tableAt(obj).key
+		self.plugin.tableRequest.wanted = tableAt(obj).key
 		self.plugin.startMonitoring(PINNED_SEGMENT)
 		self.assertTrue(self.plugin._monitors[PINNED_KEY].wantsColumns)
 
 	def test_pinningOneThatIsNotPinsItInOrder(self):
 		self._atATable()
-		self.plugin.tableWanted = None
+		self.plugin.tableRequest.wanted = None
 		self.plugin.startMonitoring(PINNED_SEGMENT)
 		self.assertFalse(self.plugin._monitors[PINNED_KEY].wantsColumns)
 
 	def test_aRequestAboutAnotherTableIsNotThisOne(self):
 		self._atATable()
-		self.plugin.tableWanted = ("some other document", 7)
+		self.plugin.tableRequest.wanted = ("some other document", 7)
 		self.plugin.startMonitoring(PINNED_SEGMENT)
 		self.assertFalse(self.plugin._monitors[PINNED_KEY].wantsColumns)
 

@@ -1311,51 +1311,29 @@ class FlowBand(PanelOwner):
 
 	@property
 	def tableWanted(self) -> Any:
-		""":return: the table the reader asked for in columns, from the plugin that holds it."""
-		return getattr(self.plugin, "tableWanted", None)
+		""":return: the table the reader asked for in columns. See `TableRequest.wanted`."""
+		return self.plugin.tableRequest.wanted
 
 	@tableWanted.setter
 	def tableWanted(self, key: Any) -> None:
-		self.plugin.tableWanted = key
+		self.plugin.tableRequest.wanted = key
 
 	@property
 	def tableLayoutInForce(self):
 		""":return: the layout the table on the band is being read with, or None.
 
-		Kept on the plugin beside `tableWanted`, and for the same reason: a one row display
-		moves the table off the band, and a request that lived on the band would go with it.
-
-		None means "however this table reads by itself" — the measurement and the settings,
-		or whatever was saved for it. A layout appears here when the reader arranges one from
-		the band or the dialog, and it is what `script_rememberTableLayout` writes down.
-
-		**Kept with the table it was arranged for**, and answered as None for any other. It
-		is stored beside `tableWanted` but it is not the same thing: the request is dropped
-		on several paths — leaving the table, a table that stopped being recognised, a build
-		that could not fit the band — and an arrangement that outlived one of those would be
-		waiting for the next table the reader laid out. Hidden columns and widths measured
-		from a watchlist, applied to a message list, are worse than no columns at all, and
-		the reader has no way to feel that is what has happened. So the key is stored with
-		the layout and checked on the way out.
+		A layout appears here when the reader arranges one from the band or the dialog, and it
+		is what `script_rememberTableLayout` writes down. See `TableRequest.layout`.
 		"""
-		held = getattr(self.plugin, "tableLayout", None)
-		if held is None:
-			return None
-		key, layout = held
-		return layout if flowTableSource.sameTable(key, self.tableWanted) else None
+		return self.plugin.tableRequest.layout
 
 	@tableLayoutInForce.setter
 	def tableLayoutInForce(self, layout) -> None:
-		self.plugin.tableLayout = None if layout is None else (self.tableWanted, layout)
+		self.plugin.tableRequest.layout = layout
 
 	def _forgetTheTable(self) -> None:
-		"""Drop the reader's request for this table, and the arrangement that went with it.
-
-		One place, because the two must go together and there are four paths that drop the
-		request. See `tableLayoutInForce`.
-		"""
-		self.tableWanted = None
-		self.tableLayoutInForce = None
+		"""Drop the reader's request for this table, and the arrangement that went with it."""
+		self.plugin.tableRequest.forget()
 
 	def arrangeColumn(self, column: int, **changes) -> bool:
 		"""Change one column of the layout in force, and read the table again.
@@ -1975,7 +1953,8 @@ class FlowBand(PanelOwner):
 		redraw would put it straight back, which is a toggle that does nothing. Held until the
 		reader leaves the table, since coming back to it is them asking for it again.
 		"""
-		refused = getattr(self.plugin, "tableRefused", None)
+		request = self.plugin.tableRequest
+		refused = request.refused
 		if refused is None:
 			return False
 		try:
@@ -1985,7 +1964,7 @@ class FlowBand(PanelOwner):
 			return False
 		if not here:
 			# Somewhere else, so the refusal is spent. It was about the table they were in.
-			self.plugin.tableRefused = None
+			request.refused = None
 		return here
 
 	def _setInteractiveObject(self, obj: Any, target: Any, regions) -> bool:

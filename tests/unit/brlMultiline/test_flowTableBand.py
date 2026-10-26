@@ -71,30 +71,18 @@ class CommandHolder:
 		self._tableToPage = GlobalPlugin._tableToPage.__get__(self)
 		self.tablesInColumns = GlobalPlugin.tablesInColumns.__get__(self)
 		self.container = band.plugin.container
-		self._segmentKeysOn = GlobalPlugin._segmentKeysOn.__get__(self)
+		self.segmentKeysOn = GlobalPlugin.segmentKeysOn.__get__(self)
 		self._inAnotherTable = GlobalPlugin._inAnotherTable.__get__(self)
 		# The band commands ask which column the reader is in and how to name it back to them.
 		self._columnUnderTheCursor = GlobalPlugin._columnUnderTheCursor.__get__(self)
 		self._sayAboutTheColumn = GlobalPlugin._sayAboutTheColumn.__get__(self)
 
 	@property
-	def tableWanted(self):
-		return self.band.plugin.tableWanted
-
-	@tableWanted.setter
-	def tableWanted(self, key):
-		self.band.plugin.tableWanted = key
-
-	@property
-	def tableRefused(self):
-		"""Shared with the band for the reason `tableWanted` is: in a real installation the
-		band's plugin and the plugin running the command are one object, and two stores would
-		let the command's "off" and the band's "the store says on" disagree."""
-		return getattr(self.band.plugin, "tableRefused", None)
-
-	@tableRefused.setter
-	def tableRefused(self, key):
-		self.band.plugin.tableRefused = key
+	def tableRequest(self):
+		"""Shared with the band: in a real installation the band's plugin and the plugin running
+		the command are one object, and two stores would let the command's "off" and the band's
+		"the store says on" disagree."""
+		return self.band.plugin.tableRequest
 
 	def refreshMonitors(self, reveal=None):
 		pass
@@ -213,7 +201,7 @@ class TestTheCommandItself(TableBandTestCase):
 		holder = CommandHolder(self.band, withBand=False)
 		spokenMessages.clear()
 		GlobalPlugin.script_flowTableColumns(holder, None)
-		self.assertIsNotNone(holder.tableWanted)
+		self.assertIsNotNone(holder.tableRequest.wanted)
 		self.assertTrue(any("columns on" in message for message in spokenMessages))
 
 	def test_pressingItInADifferentTableLaysThatOneOut(self):
@@ -223,11 +211,11 @@ class TestTheCommandItself(TableBandTestCase):
 
 		self._inTable()
 		holder = CommandHolder(self.band, withBand=False)
-		holder.tableWanted = ("another document", 9)
+		holder.tableRequest.wanted = ("another document", 9)
 		spokenMessages.clear()
 		GlobalPlugin.script_flowTableColumns(holder, None)
 		self.assertTrue(any("columns on" in message for message in spokenMessages))
-		self.assertNotEqual(holder.tableWanted, ("another document", 9))
+		self.assertNotEqual(holder.tableRequest.wanted, ("another document", 9))
 
 	def test_pressingItOutsideAnyTableClearsAStaleRequest(self):
 		"""Which is how a request left behind is got rid of, with no band to drop it."""
@@ -237,10 +225,10 @@ class TestTheCommandItself(TableBandTestCase):
 		self.api.getFocusObject = lambda: obj
 		self.api.getNavigatorObject = lambda: obj
 		holder = CommandHolder(self.band, withBand=False)
-		holder.tableWanted = ("another document", 9)
+		holder.tableRequest.wanted = ("another document", 9)
 		spokenMessages.clear()
 		GlobalPlugin.script_flowTableColumns(holder, None)
-		self.assertIsNone(holder.tableWanted)
+		self.assertIsNone(holder.tableRequest.wanted)
 		self.assertIn("Table columns off", spokenMessages)
 
 	def test_pressingItWithNoBandAndNoTableSaysSo(self):

@@ -1894,11 +1894,64 @@ def _sameContainer(first, second) -> bool:
 	return bool(sameAs(second)) if callable(sameAs) else False
 
 
+class TableRequest:
+	"""The reader's request to see a table in columns, and what goes with it.
+
+	Held by the plugin rather than the band, because a one row display has no band and the
+	reader still wants to ask — see `flowBand.MIN_BAND_ROWS`. The band, the plugin's commands
+	and pinning all read this one object, so there is one answer whether or not a band is
+	showing the table.
+	"""
+
+	def __init__(self) -> None:
+		self.wanted = None
+		"""The key of the table asked for, or None. See `TableHandle.key` and `wantsColumns`."""
+
+		self.refused = None
+		"""A table whose saved layout the reader has just turned off, for as long as they are
+		in it.
+
+		A saved layout applies itself the moment the reader arrives, so turning it off has to
+		outlast the redraw that follows, or the toggle does nothing. Cleared when they leave
+		the table. See `FlowBand._refusedTable`, and `script_forgetTableLayout` for the way to
+		make it stop for good.
+		"""
+
+		self._arranged: tuple | None = None
+		"""The table a layout was arranged for, and the layout. See `layout`."""
+
+	@property
+	def layout(self):
+		""":return: the layout the reader arranged for the table asked for, or None.
+
+		None means "however this table reads by itself". Stored with the table it was arranged
+		for and answered only for that table: the request is dropped on several paths, and an
+		arrangement that outlived one of them would be applied to the next table laid out.
+		"""
+		if self._arranged is None:
+			return None
+		key, layout = self._arranged
+		return layout if sameTable(key, self.wanted) else None
+
+	@layout.setter
+	def layout(self, layout) -> None:
+		self._arranged = None if layout is None else (self.wanted, layout)
+
+	def forget(self) -> None:
+		"""Drop the request and the arrangement that went with it, which must go together."""
+		self.wanted = None
+		self._arranged = None
+
+	def __repr__(self) -> str:
+		return f"<TableRequest wanted={self.wanted!r} refused={self.refused!r}>"
+
+
 __all__ = [
 	"MEASURE_ROWS",
 	"TableCellRegion",
 	"TableFlowSource",
 	"TableHandle",
+	"TableRequest",
 	"cellRegion",
 	"explain",
 	"logExplanation",

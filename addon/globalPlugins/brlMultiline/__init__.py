@@ -15,6 +15,7 @@ lost when the user saves a setting. Pinned objects are held by segment key, so a
 that keeps their segment keeps the pin.
 """
 
+import contextlib
 import time
 from typing import Callable, NamedTuple, Optional
 
@@ -48,7 +49,7 @@ from . import chartDraw, chartMenu, chartSource, glyphFlow, glyphs, graphicsMode
 from . import appCollect, appLayout, appRegions, layoutCollect, layoutDraw, layoutRegions
 from .appLayoutHost import AppLayoutHost
 from . import image as imageFigure, imagePins, imageSource
-from .flowTableSource import wantsColumns
+from .flowTableSource import TableRequest, wantsColumns
 from .graphics import findSurface as graphicsFindSurface
 from .graphicsMode import FIT as GRAPHICS_FIT, PANEL_NAME as GRAPHICS_PANEL_NAME, GraphicsMode
 from . import devices as devicesModule
@@ -328,25 +329,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self.flowBand = None
 		"""The flow claiming part of the display, or None. See L{_applyFlow}."""
 
-		self.tableWanted = None
-		"""The table the reader has asked to see in columns, as a document and an identifier.
-
-		Held here rather than on the band because a one row display has no band and the reader
-		still wants to ask — see `flowBand.MIN_BAND_ROWS`. `FlowBand.tableWanted` reads and
-		writes this, so there is one answer whether or not a band is showing it.
-		"""
-
-		self.tableRefused = None
-		"""A table whose saved layout the reader has just turned off, for as long as they are
-		in it.
-
-		A saved layout applies itself the moment the reader arrives, so turning it off has to
-		mean something for longer than the redraw that follows — otherwise the command drops
-		the request and the next redraw puts it straight back, which is a toggle that does
-		nothing. Cleared when they leave the table, since coming back to it is asking again.
-		See `FlowBand._refusedTable`, and `script_forgetTableLayout` for the way to make it
-		stop for good.
-		"""
+		self.tableRequest = TableRequest()
+		"""The table the reader has asked to see in columns. See `TableRequest`."""
 
 		self._applyingFlow = False
 		"""Guards L{_applyFlow} against itself: claiming the band rebuilds the display."""
@@ -391,12 +375,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""
 
 		self._pictureStyle = imageFigure.OUTLINES
-		self._pictureRequest = None
-		"""The picture file being loaded for the last press, if one is; see `script_drawPicture`."""
-		self._layoutCollector = None
-		"""The page layout being gathered for an overview, if one is; see `_layoutOverview`."""
-		self._layoutView: Optional[_LayoutView] = None
-		"""The overview of a page's layout last drawn, for drilling into it; see `_LayoutView`."""
 		"""How pictures are being drawn, as a mode and whether it is reversed.
 
 		Carried from one picture to the next within a session. A reader who has found that
@@ -404,6 +382,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		them press the style key again on each one would be asking a question they have
 		already answered.
 		"""
+		self._pictureRequest = None
+		"""The picture file being loaded for the last press, if one is; see `script_drawPicture`."""
+		self._layoutCollector = None
+		"""The page layout being gathered for an overview, if one is; see `_layoutOverview`."""
+		self._layoutView: Optional[_LayoutView] = None
+		"""The overview of a page's layout last drawn, for drilling into it; see `_LayoutView`."""
 
 		self._activePanels: list[BraillePanel] = []
 		"""Claims laid over whatever view is in force, in the order they were made.
@@ -599,6 +583,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		container = self.container
 		return container.view if container is not None else None
 
+	@property
+	def activePanels(self) -> tuple[BraillePanel, ...]:
+		""":return: the claims laid over the view in force, in the order they were made.
+
+		A copy: claims are changed only through L{activatePanel} and L{deactivatePanel}.
+		"""
+		return tuple(self._activePanels)
+
+	@property
+	def isTerminated(self) -> bool:
+		""":return: whether L{terminate} has run, so work already queued should not."""
+		return self._terminated
+
 	def _displayDimensions(self) -> tuple[int, int]:
 		""":return: the rows and columns of the connected display.
 
@@ -670,7 +667,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		candidate = [*self._panelsExcept(panel.name), panel]
 		# Compose against the view in force to find out whether this claim can be honoured,
 		# before storing anything. A claim that cannot leaves the display as it was.
-		self._composeView(numRows, numCols, candidate).validate(numRows, numCols)
+		view, _kept = self._composeView(numRows, numCols, candidate, strict=True)
+		view.validate(numRows, numCols)
 		self._activePanels = candidate
 		self.rebuildBuffer()
 
@@ -689,23 +687,50 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		""":return: the active panels other than the one with a given name."""
 		return [panel for panel in self._activePanels if panel.name != name]
 
-	def _composeView(self, numRows: int, numCols: int, panels: list[BraillePanel]) -> SegmentView:
-		"""Lay a list of claims over the base view, in order.
+	def _composeView(
+		self,
+		numRows: int,
+		numCols: int,
+		panels: list[BraillePanel],
+		strict: bool,
+	) -> tuple[SegmentView, list[BraillePanel]]:
+		"""Lay a list of claims over the base view, in priority order.
+
+		One loop for both callers, so that a claim `activatePanel` accepts is a claim the
+		rebuild keeps.
+
+		Each claim is composed into a candidate rather than into the view, so that a claim
+		which reaches cells no hardware has is dropped whole rather than leaving the eviction
+		it caused behind — including the eviction of a dead column mask.
 
 		:param numRows: number of rows on the display.
 		:param numCols: number of columns on the display.
 		:param panels: the claims to lay over it.
-		:return: the composed view.
-		:raises ValueError: if a claim does not fit, or would put a segment over cells that no
-			display behind a composite one has.
-		:raises LookupError: if a claim takes the focus segment without replacing it.
+		:param strict: raise on the first claim that does not fit, rather than dropping it.
+		:return: the composed view, and the claims it kept, in priority order.
+		:raises ValueError: if strict and a claim does not fit, or would put a segment over
+			cells that no display behind a composite one has.
+		:raises LookupError: if strict and a claim takes the focus segment without replacing it.
 		"""
 		devices = deviceMap()
 		view = self._baseView(numRows, numCols, devices)
+		kept: list[BraillePanel] = []
 		for panel in _byPriority(panels):
-			view = view.withPanel(panel, numRows, numCols)
-		validateAgainstHardware(view, devices, numCols)
-		return view
+			try:
+				candidate = view.withPanel(panel, numRows, numCols)
+				validateAgainstHardware(candidate, devices, numCols)
+			except (ValueError, LookupError):
+				if strict:
+					raise
+				log.warning(
+					f"BrlMultiline: panel {panel.name!r} cannot be shown on "
+					f"a {numRows} by {numCols} display; dropping it",
+					exc_info=True,
+				)
+				continue
+			view = candidate
+			kept.append(panel)
+		return view, kept
 
 	def _baseView(self, numRows: int, numCols: int, devices: list[DeviceInfo]) -> SegmentView:
 		""":return: the view claims are laid over: an activated one, else the configured one.
@@ -758,25 +783,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		so that a settings change or a display swap is answered by rebuilding the same
 		claims against the new base rather than by discarding them.
 		"""
-		devices = deviceMap()
-		view = self._baseView(numRows, numCols, devices)
-		kept: list[BraillePanel] = []
-		for panel in _byPriority(self._activePanels):
-			try:
-				candidate = view.withPanel(panel, numRows, numCols)
-				# Composed into a candidate rather than into `view`, so that a claim which
-				# reaches cells no hardware has is dropped whole rather than leaving the
-				# eviction it caused behind — including the eviction of a dead column mask.
-				validateAgainstHardware(candidate, devices, numCols)
-			except (ValueError, LookupError):
-				log.warning(
-					f"BrlMultiline: panel {panel.name!r} cannot be shown on "
-					f"a {numRows} by {numCols} display; dropping it",
-					exc_info=True,
-				)
-				continue
-			view = candidate
-			kept.append(panel)
+		view, kept = self._composeView(numRows, numCols, self._activePanels, strict=False)
 		# Restored to the order they were claimed in. `kept` came out in priority order, and
 		# storing that would make the sort cumulative: a claim that lost a tie once would keep
 		# losing it, and the order a reader made their claims in would quietly stop meaning
@@ -870,44 +877,52 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				self._startOrStopFlow(bmConfig.shouldClaimFlowBand())
 			return
 		wanted = bmConfig.shouldClaimFlowBand()
-		active = self.flowBand is not None
-		geometryChanged = False
-		if wanted and active:
-			# A panel claim carries the rectangle it was activated with. Re-composing that
-			# panel after a settings or profile change preserves the old rectangle, so an
-			# enabled flow has to be reclaimed when its configured rows or display changed.
-			segment = self.flowBand.segment()
-			try:
-				geometryChanged = segment is None or segment.rect != self.flowBand.bandRect()
-			except Exception:
-				# Treat an unreadable target as changed and let `startFlow` give the complete
-				# account of why the replacement could not be shown.
-				log.debugWarning("BrlMultiline: could not compare the flow band geometry", exc_info=True)
-				geometryChanged = True
-		if wanted == active and not geometryChanged:
+		if wanted and self._flowBandMoved():
+			with self._changingFlow():
+				self.stopFlow()
+				self.startFlow()
 			return
-		self._applyingFlow = True
+		self._startOrStopFlow(wanted)
+
+	def _flowBandMoved(self) -> bool:
+		""":return: whether the flow band showing now is not where the settings put it.
+
+		A panel claim carries the rectangle it was activated with. Re-composing that panel
+		after a settings or profile change preserves the old rectangle, so an enabled flow has
+		to be reclaimed when its configured rows or display changed. False with no band.
+		"""
+		band = self.flowBand
+		if band is None:
+			return False
+		segment = band.segment()
 		try:
-			if geometryChanged:
-				self.stopFlow()
-				self.startFlow()
-			elif wanted:
-				self.startFlow()
-			else:
-				self.stopFlow()
-		finally:
-			self._applyingFlow = False
+			return segment is None or segment.rect != band.bandRect()
+		except Exception:
+			# Treat an unreadable target as moved and let `startFlow` give the complete
+			# account of why the replacement could not be shown.
+			log.debugWarning("BrlMultiline: could not compare the flow band geometry", exc_info=True)
+			return True
 
 	def _startOrStopFlow(self, wanted: bool) -> None:
 		"""Start the flow, or stop it, where that is not what it is doing now."""
 		if wanted == (self.flowBand is not None):
 			return
-		self._applyingFlow = True
-		try:
+		with self._changingFlow():
 			if wanted:
 				self.startFlow()
 			else:
 				self.stopFlow()
+
+	@contextlib.contextmanager
+	def _changingFlow(self):
+		"""Hold off L{_applyFlow} while the flow is started or stopped here.
+
+		Claiming or giving back the band rebuilds the display, and the rebuild calls
+		L{_applyFlow} again. One pass does it.
+		"""
+		self._applyingFlow = True
+		try:
+			yield
 		finally:
 			self._applyingFlow = False
 
@@ -1428,7 +1443,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# that is exactly the arrangement this exists for: ask for columns on the Focus, pin
 		# the table to the Monarch, read it there. Going through the band meant the answer
 		# was always no in the one case it was built for.
-		monitor.wantsColumns = wantsColumns(self.tableWanted, obj)
+		monitor.wantsColumns = wantsColumns(self.tableRequest.wanted, obj)
 		self._monitors[segment.key] = monitor
 		# Through `refreshMonitors` rather than straight to the monitor, so that pinning
 		# while the display is showing speech registers the pin without drawing it.
@@ -1492,7 +1507,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except Exception:
 			log.debugWarning("Could not look for the table the reader is in", exc_info=True)
 			return False
-		return handle is not None and not wantsColumns(self.tableWanted, obj)
+		return handle is not None and not wantsColumns(self.tableRequest.wanted, obj)
 
 	def _wantTableHere(self, obj) -> bool:
 		"""Record that the table an object is in should be read in columns.
@@ -1515,7 +1530,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# refusal reaching the reader through the display that has no band.
 			logExplanation(obj, "asked for a table in columns and found none")
 			return False
-		self.tableWanted = handle.key
+		self.tableRequest.wanted = handle.key
 		return True
 
 	def reportAboutTheDisplay(self, text: str) -> None:
@@ -1597,10 +1612,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# `_refreshDisplay` above draws nothing in this mode.
 			log.debug("BrlMultiline: not drawing pinned objects while braille shows speech")
 			return
-		for key, monitor in list(self._everyMonitor().items()):
+		for key, monitor in list(self.everyMonitor().items()):
 			monitor.refresh(reveal=key == reveal)
 
-	def _everyMonitor(self) -> dict[str, ObjectMonitor]:
+	def everyMonitor(self) -> dict[str, ObjectMonitor]:
 		""":return: the reader's pins and the app layout's segments, which are refreshed alike.
 
 		Kept in two places because they are not alike in anything else: the reader's pins are
@@ -1614,7 +1629,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		:return: whether the press was in such a segment, and so dealt with here.
 		"""
-		if key not in self._everyMonitor():
+		if key not in self.everyMonitor():
 			return False
 		return monitorRouting.route(segment, position)
 
@@ -2604,14 +2619,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# cleared. Pressing it in a *different* table means that table, not this one off: with
 		# no band nothing drops the old request, so the press that should have laid out the
 		# second table was turning the first one off instead.
-		if self.tableWanted is not None and not self._inAnotherTable(target):
+		if self.tableRequest.wanted is not None and not self._inAnotherTable(target):
 			# Remembered before the request is dropped, because dropping it is what lets a
-			# saved layout put it back. See `tableRefused`.
-			self.tableRefused = self.tableWanted
+			# saved layout put it back. See `TableRequest.refused`.
+			self.tableRequest.refused = self.tableRequest.wanted
 			if band is not None:
 				band.clearTable()
 			else:
-				self.tableWanted = None
+				self.tableRequest.wanted = None
 			self.layOutPinnedTables(False, target)
 			# Translators: reported when a table stops being laid out in columns.
 			self.reportAboutTheDisplay(_("Table columns off"))
@@ -3004,8 +3019,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		band = self.flowBand
 		if band is not None and band.tableWanted is not None:
 			band.clearTable()
-		self.tableWanted = None
-		self.tableRefused = None
+		self.tableRequest.wanted = None
+		self.tableRequest.refused = None
 		# Translators: reported when a table's saved layout is dropped.
 		ui.message(_("Table layout deleted"))
 
@@ -3097,7 +3112,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				showing[key] = monitor
 		return showing
 
-	def _segmentKeysOn(self, driverName: str | None) -> list[str]:
+	def segmentKeysOn(self, driverName: str | None) -> list[str]:
 		""":return: the keys of the segments lying on one physical display, in display order.
 
 		Empty for an unknown display. An ordinary display, connected without the combined display
@@ -3141,10 +3156,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		pinned document in display order: a key with no display behind it, an ordinary display, or a
 		display holding none.
 		"""
-		monitors = self._everyMonitor()
+		monitors = self.everyMonitor()
 		documents = {key for key, monitor in monitors.items() if pinQuickNav.documentOf(monitor) is not None}
 		display = keyLayerDispatch.displayFor(gesture)
-		onDisplay = [key for key in self._segmentKeysOn(display) if key in documents]
+		onDisplay = [key for key in self.segmentKeysOn(display) if key in documents]
 		if onDisplay:
 			return display, onDisplay
 		container = self.container
@@ -3164,7 +3179,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return None
 		last = self._lastSegmentOn.get(display) if display is not None else None
 		key = last if last in keys else keys[0]
-		return key, self._everyMonitor()[key]
+		return key, self.everyMonitor()[key]
 
 	def quickNavInPin(self, gesture, quickNavType, forward: bool) -> None:
 		"""Move a pinned document to its next or previous item of a type, or say why not."""
@@ -3195,7 +3210,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		key = keys[(keys.index(current) + 1) % len(keys)]
 		if display is not None:
 			self._lastSegmentOn[display] = key
-		ui.message(self._everyMonitor()[key].name)
+		ui.message(self.everyMonitor()[key].name)
 
 	def _tableToPage(self, gesture) -> object:
 		""":return: which table a paging command should move, or None if there is none.
@@ -3216,7 +3231,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return None
 		container = self.container
 		order = [segment.key for segment in container.segments] if container is not None else []
-		pressed = self._segmentKeysOn(keyLayerDispatch.displayFor(gesture))
+		pressed = self.segmentKeysOn(keyLayerDispatch.displayFor(gesture))
 		for key in [*pressed, *order]:
 			if key in showing:
 				return showing[key]

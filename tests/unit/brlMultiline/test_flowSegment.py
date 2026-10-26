@@ -336,7 +336,9 @@ class FakePlugin:
 	def __init__(self, container):
 		self.container = container
 		self.claimed = []
-		self.tableWanted = None
+		from brlMultiline.flowTableSource import TableRequest
+
+		self.tableRequest = TableRequest()
 		"""The request to see a table in columns, which the band reads off its plugin."""
 
 	def activatePanel(self, panel):

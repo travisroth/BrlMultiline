@@ -206,7 +206,7 @@ class AppLayoutHost:
 	def isUp(self) -> bool:
 		""":return: whether a layout's claim is among the plugin's active ones."""
 		shown = self.shown
-		return shown is not None and any(panel is shown.panel for panel in self.plugin._activePanels)
+		return shown is not None and any(panel is shown.panel for panel in self.plugin.activePanels)
 
 	@property
 	def name(self) -> str | None:
@@ -298,7 +298,7 @@ class AppLayoutHost:
 		"""
 		self._timer = None
 		pending, self._pending = self._pending, None
-		if pending is None or self.plugin._terminated:
+		if pending is None or self.plugin.isTerminated:
 			return
 		wanted, focus, appModule = pending
 		if not self.plugin.appLayoutsInForce():
@@ -400,7 +400,7 @@ class AppLayoutHost:
 		shown = self.shown
 		if shown is None:
 			return
-		if not any(panel is shown.panel for panel in self.plugin._activePanels):
+		if not any(panel is shown.panel for panel in self.plugin.activePanels):
 			log.debug(f"BrlMultiline: app layout {shown.layout.name!r} was dropped by a rebuild")
 			self._stopMonitors()
 			self.shown = None
@@ -426,7 +426,7 @@ class AppLayoutHost:
 		Asked afresh rather than moved, because the app module is told a different area when
 		the layout is spread, and may want to arrange it differently.
 		"""
-		if self.shown is None or self.plugin._terminated:
+		if self.shown is None or self.plugin.isTerminated:
 			return
 		self._cancelPending()
 		self._placeFor(api.getFocusObject(), self.shown.appModule)
@@ -465,7 +465,7 @@ class AppLayoutHost:
 	def _readChange(self) -> None:
 		"""Read the layout again after an app module said it changed, a slice at a time."""
 		self._changeTimer = None
-		if self.shown is None or self.plugin._terminated or bmConfig.isSpeechOutputMode():
+		if self.shown is None or self.plugin.isTerminated or bmConfig.isSpeechOutputMode():
 			return
 		if self.refreshInTurn(time.monotonic() + CHANGE_SLICE_SECONDS) and self.shown is not None:
 			# Carried on at once rather than after the pin timer's interval, which is the
