@@ -622,10 +622,10 @@ class TestTheCountStyleForThisReader(unittest.TestCase):
 	def setUp(self):
 		from unittest import mock
 
-		from . import test_plugin
+		from brlMultiline import layoutOverview
 
 		self.mock = mock
-		self.module = sys.modules["brlMultiline.layoutOverview"]
+		self.module = layoutOverview
 
 	def styleWith(self, wanted, supported):
 		module, mock = self.module, self.mock

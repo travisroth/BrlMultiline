@@ -111,9 +111,7 @@ class LayoutOverviewRegressions(unittest.TestCase):
 		)
 
 	def test_tab_word_falls_back_to_nvdas_localized_role_name(self):
-		from . import test_plugin
-
-		module = sys.modules["brlMultiline.layoutOverview"]
+		from brlMultiline import layoutOverview as module
 		roles = SimpleNamespace(
 			**{
 				name: SimpleNamespace(name=name, displayString="onglet" if name == "TAB" else name.lower())
