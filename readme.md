@@ -1,9 +1,7 @@
 # BrlMultiline
 
 * Author: Travis Roth
-* NVDA compatibility: 2026.3 and later. 2026.3 is not released yet, so for now this means
-  an NVDA alpha snapshot. The add-on uses NVDA's `braille` package, which replaced the old
-  single `braille.py` module after 2026.2 branched.
+* NVDA compatibility: 2026.3 and later. 
 * Download: development version
 
 BrlMultiline is an NVDA add-on for getting more out of a multi-line braille display, or out
@@ -49,6 +47,11 @@ where you are.
 I don't claim any of this is the best way to present information. It is one way. Likewise,
 the add-on's code is meant to show what is possible, and may or may not be the best way to
 build this into NVDA itself.
+
+## Compatibility Warning
+
+BrlMultiline patches parts of NVDA's core Braille handling. Other popular Braille add-ons including BrailleExtender and Braille Essentials also use the technique. Running these add-ons together has not been tested and is likely to conflict or one add-on override another add-on's work. 
+If you use one of these add-ons it is recommended to temporarily disable it while running BrlMultiline, or using a separate opy of NVDA such as a portable copy. 
 
 ## Getting started
 
@@ -143,7 +146,7 @@ the focus is, choose it in "Display the flow appears on" in the BrlMultiline flo
    object in segment 0 of the second display" and "Monitoring: Stops showing an object in
    segment 0 of the second display." Segments are numbered from 0 on each display. Use the
    "first display" versions instead if the display you want to pin to is on top.
-2. Move to what you want to keep in view, such as the chat message list in Teams. NVDA's
+2. Move to what you want to keep in view, such as the chat message list in Teams, this readme in your web browser. NVDA's
    navigator object follows the focus, so moving the focus there is usually enough; object
    navigation works too.
 3. Press your pin key.
@@ -151,7 +154,7 @@ the focus is, choose it in "Display the flow appears on" in the BrlMultiline flo
 What you pinned stays on that display while you go back to work on the other one. To pan it,
 use that display's own panning keys, or assign keys to "Navigation: Scrolls segment 0 of the
 second display forward" and "back."
-
+(Note: by default a display's panning keys scroll the first segment on the display. To scroll subsequent segments on a display define gestures to scroll those segments.)
 A pinned chat, list, or menu needs only one row: each item is one line, and panning moves to
 the next item. That makes a single-line display a good chat monitor. When you are at the end
 of a pinned chat, new messages scroll into view as they arrive. If you have panned back to
@@ -1887,6 +1890,10 @@ Design documentation, including notes on the parts of NVDA this add-on depends o
 ## Development & Acknowledgments
 
 This project was independently designed, architected, and maintained by Travis Roth, with AI assistants (such as Claude and ChatGPT) utilized for code drafting, refactoring, and documentation support.
+
+## Copyright
+
+Copyright (c) 2026, Travis Roth.
 
 ## License
 
