@@ -5,39 +5,17 @@
 
 """Excel, and the only file in this add-on that knows Excel exists.
 
-**Why this is an application module and not part of the global plugin.** A global plugin is
-loaded for the whole session and asked about every object in every application. Excel is one
-application; the code that knows how to read its worksheets has no business being resident
-while the reader is in their mail, and its questions have no business being asked of every
-list item in Windows. An application module is loaded when its application runs and unloaded
-when it stops, which is exactly the lifetime this code wants.
-
-What makes that possible is that the flow needs *one* thing from an application that it
-cannot work out for itself: the cell at a coordinate. Everything else a table is asked — what
-a cell says, which row and column it is, what its column's header is, where the caret goes
-when a routing key lands on it — NVDA already answers on the object, once per accessibility
-API and tuned per application, and the flow asks the object exactly as it does for a list view
-or a message list. So the seam is one method: an overlay class on a spreadsheet cell offers
-`brlMultilineSheet`, the flow asks every object it meets whether it has that name, and what
-comes back answers four questions. See `flowObjectTable.Sheet` and
-`flowObjectTable.SheetTable`, neither of which mentions Excel.
-
-**This module replaces NVDA's own Excel application module**, because an add-on's module of a
-given name is loaded instead of the built-in one. So it extends it rather than standing beside
-it: `nvdaBuiltin` is the package NVDA keeps for exactly this, and everything NVDA's module
-does — the formula bar redirect, the broken data validation list, the UI Automation window
-choices — goes on happening through `super`.
-
-**Two object models, and only one of them can be read this way today.** By default NVDA
-reaches Excel through its COM object model, and `NVDAObjects.window.excel.ExcelCell` carries
-`excelCellObject`, whose worksheet answers `cells(row, column)` — the same call NVDA's own
-`ExcelWorksheet._get_firstChild` makes. That is an exact, cheap coordinate lookup and it is
-what this reads. With "Use UI Automation to access Microsoft Excel spreadsheet controls when
-available" turned on — off by default, `config.conf["UIA"]["useInMSExcelWhenAvailable"]` — the
-cells are `NVDAObjects.UIA.excel.ExcelCell` instead, and there is no equivalent: NVDA does not
-wrap the grid pattern's item lookup, and a spreadsheet's cells cannot be walked as children.
-Such a cell is left alone, so the reader keeps NVDA's ordinary reading of it rather than a
-layout drawn from numbers this could not check.
+1. An application module rather than part of the global plugin, so it is loaded only while
+   Excel runs and its questions are not asked of every object.
+2. The flow needs one thing NVDA cannot answer: the cell at a coordinate. An overlay class on
+   a cell offers `brlMultilineSheet`, which answers `flowObjectTable.Sheet`; neither
+   `flowObjectTable.Sheet` nor `SheetTable` mentions Excel.
+3. It replaces NVDA's own Excel module, so it extends it through `nvdaBuiltin`, and NVDA's
+   behaviour continues through `super`.
+4. Only the default COM object model can be read: `ExcelCell.excelCellObject` answers
+   `cells(row, column)`. With UI Automation for Excel turned on
+   (`config.conf["UIA"]["useInMSExcelWhenAvailable"]`) there is no coordinate lookup, and
+   the cell is left to NVDA's ordinary reading.
 """
 
 import ctypes
@@ -220,12 +198,8 @@ def _chartValue(value) -> Optional[float]:
 def seriesArguments(formula: str, separator: str) -> list:
 	""":return: the arguments of a series formula, `=SERIES(name, categories, values, order)`.
 
-	**Split only where the separator separates.** A sheet name with the separator in it is quoted,
-	`'Sales, Q1'!$A$2:$A$9`, and so is a series named in the formula, `"Close, adjusted"`; a
-	quote inside either is doubled. A range of several areas is in brackets and an array of
-	constants in braces. Split on every separator, any of those made the categories the wrong
-	argument, and a chart of dates was labelled with the numbers Excel keeps them as. Found in
-	review.
+	Split only on separators outside quotes, which may be doubled inside, and outside brackets
+	and braces, as in `'Sales, Q1'!$A$2:$A$9` or `"Close, adjusted"`.
 
 	:param formula: the series' `Formula`.
 	:param separator: the reader's list separator, a comma or a semicolon, as Excel says it is.
@@ -293,9 +267,7 @@ def _chartTypeName(chartType) -> str:
 class ExcelChart:
 	"""One of Excel's charts, read as a whole for drawing.
 
-	**Read in bulk, where NVDA reads a point at a time.** NVDA's point objects ask Excel for one
-	value as the reader arrives at it, which is right for speech. A drawing wants every value at
-	once, and `Series.Values` gives a whole series in one call.
+	Read in bulk through `Series.Values`, where NVDA reads a point at a time for speech.
 	"""
 
 	def __init__(self, chart):
@@ -401,10 +373,8 @@ class ExcelChart:
 	def _categories(self, series, count: int) -> list:
 		""":return: what each point is called, as the sheet shows it.
 
-		**Read the way NVDA reads them**, as the text of the cells the series formula names, so
-		a date category is the date the sheet shows and not the number Excel keeps it as. NVDA's
-		version is inside its point's speech and cannot be called; this follows its logic, and
-		falls back to `XValues` exactly where it does, then to counting.
+		As NVDA reads them, from the text of the cells the series formula names, so dates show
+		as dates. Falls back to `XValues` where NVDA does, then to counting.
 
 		:param series: the series to read the categories of.
 		:param count: how many points it has.
@@ -455,20 +425,10 @@ def _chartNumberText(value: float) -> str:
 class ChartNumber(float):
 	"""A value of a chart series that subtracts and prints the way a reader expects.
 
-	**NVDA's chart navigation speaks the raw arithmetic.** Arriving at a point of a line chart,
-	NVDA subtracts the previous point's value from this one and puts the result straight into
-	what it says: 344.37 less 341.37 is 3.0000000000000004 in binary, and every digit was spoken.
-	The value itself is spoken the same way, so 3 was "3.0" and a moving average was sixteen
-	digits long.
-
-	That arithmetic is inline in NVDA's `OfficeChartElementPoint._getChartElementText`, which
-	builds the whole sentence; there is no smaller function to replace. So the numbers it is
-	given are these: an ordinary float to everything NVDA does with them -- comparing, summing a
-	pie, dividing for a percentage -- except that taking one from another rounds the difference
-	to `CHART_DIGITS` significant digits, and formatting one with no format specification prints
-	it without the noise. NVDA's own wording, order and translations are untouched, and if NVDA
-	ever formats these itself, its formatting wins, because a format specification is passed
-	straight through.
+	NVDA's `OfficeChartElementPoint._getChartElementText` speaks raw float arithmetic, such as
+	3.0000000000000004, and has no smaller function to replace. This float behaves normally
+	except that subtraction rounds to `CHART_DIGITS` significant digits and plain formatting
+	drops the noise. An explicit format specification is passed straight through.
 	"""
 
 	def __sub__(self, other):
@@ -556,9 +516,7 @@ class SpreadsheetChart:
 		"""Give a point the chart through `ChartWithChartNumbers`, so what NVDA says of it is
 		said without the noise of binary arithmetic. See `ChartNumber`.
 
-		Here because NVDA runs this once the overlay is on, after its own constructor has stored
-		the chart: nothing of NVDA's has used it yet. Points only; the chart, its series and its
-		other parts keep Excel's own object, and the drawing reads that.
+		Here, because NVDA calls this after storing the chart and before using it. Points only.
 		"""
 		pointClass = getattr(officeChart, "OfficeChartElementPoint", None)
 		if pointClass is None or not isinstance(self, pointClass):
@@ -611,15 +569,9 @@ class SpreadsheetChart:
 		the point in Excel, then queues a focus event for the point exactly as NVDA's own
 		`navigateToElement` does.
 
-		**The focus event is the whole of NVDA moving there**, not a formality. It first left
-		it out, to keep NVDA from saying the point the step had just said, and NVDA's focus stayed
-		on the old point: with a second display showing NVDA's braille, the step's message
-		flashed and then the old point came back. Found on hardware. So the event is sent and
-		NVDA's chain runs in full -- the focus, the navigator object, braille, vision -- and only
-		the spoken report is left out, once, by `reportFocus`.
-
-		**This reaches into NVDA's objects**, `elementList` and `activeElement`, which nothing
-		promises. Kept here alone, so a change in NVDA costs only this, never the step.
+		The focus event is what moves NVDA's focus, navigator object and braille, so it is
+		sent; only its speech is skipped, once, by `reportFocus`. Reaches into NVDA's
+		`elementList` and `activeElement`, which are not promised, so that is kept here alone.
 
 		:param index: the point, counting from 0.
 		:return: whether NVDA's place moved. False on anything that is not a series or a point
@@ -636,8 +588,7 @@ class SpreadsheetChart:
 		if not elements or not 0 <= index < min(count, len(elements)):
 			return False
 		element = elements[index]
-		# Selected first and moved to after: a selection Excel refused would otherwise leave NVDA's
-		# next arrow going on from a point Excel never went to. Found in review.
+		# Selected first, so a refused selection does not move NVDA's place.
 		element.select()
 		series.activeElement = element
 		element._brlMultilineQuiet = True
@@ -670,15 +621,9 @@ _UNASKED = object()
 MAX_SELECTED_ROWS = 500
 """Rows of a selection that may be read, however many the reader selected.
 
-Ctrl+Space selects a whole column: 1,048,576 rows. Read without a ceiling that was a ten
-second freeze and a cancelled COM call, reported from hardware — and a ceiling that the
-caller could raise or forget would be no ceiling at all, so this one is not negotiable and
-sits beside the calls it protects. `ExcelSheet._clipToData` cuts the selection to the used
-range first, which is what makes a whole column selection into the rows that hold data; this
-is what stands behind that when the sheet will not say where its data is.
-
-Generous against what any chart can use — ninety-six pins cannot draw ninety-six distinguishable
-columns of anything — and small enough that reading it is quick.
+Ctrl+Space selects 1,048,576 rows. Fixed here beside the calls it protects, so no caller can
+raise or forget it. `ExcelSheet._clipToData` cuts to the used range first; this backs it up.
+More than any chart can use, and quick to read.
 """
 
 MAX_SELECTED_COLUMNS = 64
@@ -687,42 +632,24 @@ MAX_SELECTED_COLUMNS = 64
 MAX_SELECTED_CELLS = 4000
 """Cells of a selection that may be read, which is the ceiling the other two do not give.
 
-Rows and columns capped separately still multiply: five hundred by sixty-four is thirty-two
-thousand cells to fetch and an array to hold them in. And a wide selection is not far-fetched,
-because **Excel's used range lies large** — it grows to whatever has ever been written in or
-*formatted* and does not shrink — so a sheet with a fill once applied across it reports itself
-as sixteen thousand columns wide and the clip gives nothing back.
-
-**Rows come down to fit it, never columns.** The columns are which series there are, and a
-chart missing one is a different chart drawn silently; the rows are how long the series is, and
-a chart with fewer points is the same chart. Four thousand cells is four hundred points across
-ten columns, which is more of both than ninety-six pins can distinguish.
+Row and column caps still multiply, and Excel's used range can be very wide, since it grows
+with formatting and never shrinks. Rows come down to fit, never columns: a missing column is
+a missing series, while fewer rows is the same chart.
 """
 
 MAX_ROWS_ONE_AT_A_TIME = 100
 """Rows to read when the whole block could not be had in one call.
 
-Ten milliseconds a row was measured on hardware, so this is a second of reading. The block
-fetch is the fast path and this is what happens when it is not available; a chart of a hundred
-points is a chart, and four seconds of a stopped screen reader is not.
+About a second at the measured ten milliseconds a row. The fallback when the block fetch is
+not available.
 """
 
 MAX_COLUMNS = 250
 """How wide a sheet may be before it is left to NVDA's ordinary reading.
 
-**Because Excel's used range lies, and lies large.** It grows to whatever has ever been
-written in or *formatted* and does not shrink when the content is deleted, so a sheet with a
-fill colour once applied to a whole row reports itself as sixteen thousand columns wide. The
-measurement reads a bandful of rows across every column of the table — see
-`flowTableSource.measure` — so an honest reading of that sheet is a hundred and fifty thousand
-COM calls and translations, in one go, on the thread NVDA answers the reader on. The display
-would stop and the reader would have no way to know why.
-
-So a sheet wider than this is refused, and refusing means the reader keeps NVDA's ordinary
-cell-at-a-time reading rather than waiting for a layout that was never going to arrive. The
-number is generous for anything anybody arranges by hand — two hundred and fifty columns is
-already forty pages on a Monarch — and it bounds the measurement at a couple of thousand
-reads.
+Excel's used range grows with formatting and never shrinks, and `flowTableSource.measure`
+reads every column, so a wider sheet is refused and keeps NVDA's ordinary reading. Generous
+for anything arranged by hand, and bounds the measurement at a couple of thousand reads.
 """
 
 
@@ -752,13 +679,8 @@ def columnNumberOf(letters: str) -> int:
 def columnSpansIn(address: Optional[str]) -> Optional[list]:
 	""":return: the runs of columns an address covers, as (first, last) pairs, or None.
 
-	The other half of what the same address says. A sheet with column 5 hidden answers with
-	its used range split in two — "$A$1:$D$129,$F$1:$F$129" — and the letters are what says
-	which columns those are.
-
-	None where any area of it names no column at all, which is what a reference to whole rows
-	looks like: every column is showing there, and an answer built from the other areas alone
-	would hide columns the sheet is perfectly willing to show.
+	A sheet with column 5 hidden answers "$A$1:$D$129,$F$1:$F$129". None where an area names
+	no column, as a whole-row reference does, since every column shows there.
 
 	:param address: what Excel called the range, or None.
 	"""
@@ -779,11 +701,8 @@ def columnSpansIn(address: Optional[str]) -> Optional[list]:
 def rowSpansIn(address: Optional[str]) -> Optional[list]:
 	""":return: the runs of rows an address covers, as (first, last) pairs, or None.
 
-	An address of several areas — "$A$1:$F$3,$A$9:$F$20" — is what a filtered sheet answers
-	when it is asked which of its cells are showing, and the row numbers in it are the whole
-	of what this needs. Parsed from the string rather than walked as `Areas`, because the
-	string is one call into Excel and the walk is two per area: a filter that leaves fifty
-	scattered rows would cost a hundred calls to learn what one already said.
+	As a filtered sheet answers, such as "$A$1:$F$3,$A$9:$F$20". Parsed from the string, one
+	call, rather than walking `Areas` at two calls per area.
 
 	:param address: what Excel called the range, or None.
 	"""
@@ -806,9 +725,7 @@ def rowSpansIn(address: Optional[str]) -> Optional[list]:
 class ExcelSheet:
 	"""One worksheet, addressed by coordinate. Answers `flowObjectTable.Sheet`.
 
-	Built afresh for each reading rather than held, because it is a couple of attribute reads
-	over a COM object the cell already has, and because a worksheet held across a sheet change
-	is a worksheet the reader has left.
+	Built afresh for each reading: it is cheap, and a held one could outlast a sheet change.
 	"""
 
 	def __init__(self, cell) -> None:
@@ -839,10 +756,8 @@ class ExcelSheet:
 	def _application(self):
 		""":return: Excel itself, whichever kind of object this sheet was built from.
 
-		A worksheet cell carries `excelCellObject` and a selected range carries
-		`excelRangeObject`, and both are ranges as far as Excel is concerned. Everything else
-		on this class already works from either — `where` reads `rowNumber`, `_sheet` goes
-		through the parent worksheet — so this is the whole of the difference between them.
+		From `excelCellObject` or `excelRangeObject`, both Excel ranges; the only place the two
+		differ.
 		"""
 		range_ = getattr(self.cell, "excelCellObject", None)
 		if range_ is None:
@@ -852,11 +767,8 @@ class ExcelSheet:
 	def _selectedRange(self):
 		""":return: the range the reader has selected, or None.
 
-		**A selection object's own range, in preference to asking Excel what is selected.**
-		They are the same range when they agree, and when they do not it is because the
-		selection moved between NVDA building the object and this being asked — in which case
-		the object the reader is on is the one they meant, and Excel's idea of now is a
-		different question from the one being answered.
+		The selection object's own range in preference to Excel's current selection, which may
+		have moved since NVDA built the object.
 		"""
 		range_ = getattr(self.cell, "excelRangeObject", None)
 		if range_ is not None:
@@ -871,16 +783,9 @@ class ExcelSheet:
 	def where(self) -> tuple:
 		""":return: the row and column the reader is on, as Excel numbers them.
 
-		NVDA's answer first: `rowNumber` and `columnNumber` are on the cell, and they are the
-		same numbers `cells(row, column)` takes, which is the reason to keep the table's
-		coordinates as the sheet's own.
-
-		**Excel's own answer second, and nothing third.** NVDA's two come from its Excel
-		helper, and that can be silent — not yet started, or unable to reach the sheet — while
-		the COM range beside it still knows perfectly well where it is. Reading a silence as
-		A1 would attach the whole reading to the wrong place and say nothing had gone wrong,
-		which is the worst of the three outcomes. See `sheetFor`, which declines the reading
-		when neither answers.
+		NVDA's `rowNumber` and `columnNumber`, the numbers `cells(row, column)` takes; else
+		Excel's own, since NVDA's helper can be silent. Never assumed to be A1; see `sheetFor`,
+		which declines when neither answers.
 		"""
 		return (self._coordinate("rowNumber", "row"), self._coordinate("columnNumber", "column"))
 
@@ -915,26 +820,9 @@ class ExcelSheet:
 	def shape(self) -> tuple:
 		""":return: how far the sheet is used, as (rows, columns), counted from A1.
 
-		From A1 rather than from the corner of the used range, so that a row number here is
-		Excel's row number and a column number is Excel's column number. A sheet whose data
-		starts at C5 has four empty rows above it and they are read as four empty rows; the
-		alternative is an offset that every coordinate in the add-on would have to carry, to
-		save the reader a scroll they can make in one keystroke.
-
-		A sheet is a million rows by sixteen thousand columns and nearly all of it is empty,
-		so the used range is what makes a layout possible at all: it is what Excel considers
-		written in, and it is one call. **One call per adapter**, which is what the caching is
-		for: recognising the table asks the shape twice on its own — once to find out whether
-		the sheet is too wide, once for the table's dimensions — and a review counted eight
-		used range reads for one move between cells. Where the reader is, though, is asked
-		afresh every time, since that is what the answer is stretched to cover and it costs
-		nothing to ask.
-
-		**And the cell the reader is standing in, whether or not Excel counts it as used.**
-		Arrowing about a blank sheet does not enlarge the used range: on an empty workbook the
-		active cell can be D20 while the used range is still A1, and a table of one row by one
-		column with the reader at row 20 column 4 is a reading with nowhere to put them. The
-		table therefore reaches at least as far as they do.
+		From A1, so coordinates are Excel's own with no offset to carry. From the used range,
+		read once per adapter; the reader's position is asked afresh each time. Reaches at least
+		as far as the reader's cell, which on a blank sheet can be past the used range.
 		"""
 		row, column = self.where()
 		if self._used is None:
@@ -947,12 +835,8 @@ class ExcelSheet:
 			except CallCancelled:
 				raise
 			except Exception:
-				# **Unknown rather than nothing.** Falling back to zero left the reader's own
-				# coordinate as the whole of the answer, so a worksheet that would not say how
-				# far it goes was presented as a table one cell bigger than wherever they were
-				# standing — a truncated sheet, offered as though it were the sheet. Refused
-				# instead, which leaves them NVDA's ordinary reading of the cell. See
-				# `sheetFor`, which is what turns this into a no.
+				# Unknown rather than zero, which would present a truncated sheet. `sheetFor`
+				# then declines.
 				log.debugWarning("Could not ask a worksheet how far it is used", exc_info=True)
 				raise LookupError("The worksheet would not say how far it is used") from None
 		rows, columns = self._used
@@ -961,14 +845,8 @@ class ExcelSheet:
 	def whereIsIt(self) -> Optional[str]:
 		""":return: the workbook and the sheet, which is what tells one worksheet from another.
 
-		The ordinary answer for a control is its application and window class, and every
-		worksheet of every workbook is "excel" and "EXCEL7" — so two workbooks with the same
-		headings were each other's saved layout. A review found it; the fix is that a sheet
-		can say. Written down as a digest and never in full. See
-		`flowObjectTable.Sheet.whereIsIt` and `flowTableLayouts.keyFor`.
-
-		The workbook's own name where the path cannot be had — an unsaved workbook has no path
-		— which is still a great deal better than naming every sheet the same thing.
+		See `flowObjectTable.Sheet.whereIsIt` and `flowTableLayouts.keyFor`. The workbook's name
+		where it has no path, as when unsaved.
 		"""
 		try:
 			sheet = self._sheet
@@ -984,11 +862,8 @@ class ExcelSheet:
 	def usedShape(self) -> tuple:
 		""":return: how far Excel considers this sheet *used*, as (rows, columns).
 
-		`shape` stretches its answer to wherever the reader is standing, because a table that
-		stops short of them is a reading with nowhere to put them. That makes it the wrong
-		number to notice a change by: on a blank sheet, arrowing from D20 to D21 moves it, and
-		a layout rebuilt on every keypress is a display that will not settle. This is the half
-		that only moves when the sheet does. See `flowObjectTable.Sheet.usedShape`.
+		Unlike `shape`, which reaches as far as the reader, this moves only when the sheet does.
+		See `flowObjectTable.Sheet.usedShape`.
 		"""
 		self.shape()
 		return self._used
@@ -1004,25 +879,10 @@ class ExcelSheet:
 	def textRow(self, row: int, first: int, last: int) -> Optional[list]:
 		""":return: a row's text across a span of columns, in one call, or None.
 
-		**One cross-process call for the whole row, where asking cell by cell was eight or so
-		per column.** This is the batch fetch NVDA's own quick navigation uses —
-		`ExcelCellInfoQuicknavIterator.iterate` — pointed at a contiguous range instead of a
-		sparse collection: the helper is given an address and a count and fills in one
-		`EXCEL_CELLINFO` per cell, of which this wants two fields.
-
-		The measurement is what needs it. Reading twenty-one columns of two rows a cell at a
-		time took over ten seconds on hardware, because each cell was a coordinate lookup, an
-		`NVDAObject` built with its overlay classes chosen, and a separate helper call
-		fetching that one cell's text, address, states, comments and formula. NVDA never does
-		that: it fetches ranges. Neither does this, now.
-
-		**The text is what is displayed**, which is the point of going through the helper
-		rather than through `Range.Value2`. A one-call value read exists, but it hands back
-		what is stored — a date as a serial number, a percentage as a fraction — and a column
-		sized from that is a column sized for something the reader will never feel.
-
-		None wherever this cannot be sure, and None means the caller reads the row cell by
-		cell as it always did. See `flowObjectTable.Sheet.textRow`.
+		One cross-process call, through the batch fetch NVDA's quick navigation uses
+		(`ExcelCellInfoQuicknavIterator.iterate`) pointed at a contiguous range. Gives the
+		displayed text, unlike `Range.Value2`, which gives stored values. None wherever it
+		cannot be sure, and the caller reads cell by cell. See `flowObjectTable.Sheet.textRow`.
 
 		:param row: the row to read.
 		:param first: the first column of the span.
@@ -1077,16 +937,8 @@ class ExcelSheet:
 	def rowAfter(self, row: int, by: int) -> Optional[int]:
 		""":return: the next row Excel is showing, or None where it is showing no more.
 
-		**A filter hides rows; it does not remove them.** Ask a filtered worksheet for row 40
-		and it hands over row 40's cells whether or not the filter left it on show, so a band
-		that walks by adding one to a row number walks straight out of the rows the reader
-		filtered to and into the ones they filtered away — which is what they met at each end
-		of a filtered block. Excel is asked which rows are showing instead, once per reading,
-		and the walk steps between them.
-
-		Where the answer cannot be had, the next row along is given rather than None: None
-		ends the walk, and ending it because a question failed would cost the reader the rest
-		of the sheet over something that will very likely answer next time.
+		A filter hides rows without removing them, so Excel is asked once per reading which
+		rows show. Where it cannot say, the next row is given, since None ends the walk.
 
 		:param row: the row walked from, one based.
 		:param by: which way, as 1 or -1.
@@ -1111,24 +963,10 @@ class ExcelSheet:
 	def rowShowing(self, row: int) -> Optional[bool]:
 		""":return: whether Excel is showing one row, or None where it will not say.
 
-		**A row already on the band is never walked to again.** `rowAfter` steps over the rows
-		a filter took away, so nothing is ever *fetched* out of them — but a row fetched before
-		the filter was applied is held in the band's cache, and every question asked about it
-		afterwards is answered perfectly well by a row that should no longer be there. Which is
-		what the reader met: they filtered a sheet down to one row, and the row above it, which
-		the filter had taken away, stayed on the display over the one they had asked for.
-
-		From the same answer `rowAfter` walks by, so asking about a bandful of rows costs what
-		asking about one costs.
-
-		**Only about the part of the sheet Excel calls used**, which is the part this answer
-		describes: a row past either end of it is not hidden but empty, and a sheet is read
-		from A1 to at least as far as the reader stands — see `shape`, and the reader who
-		arrows about a blank sheet is standing well past anything Excel counts as used. Said
-		to be hidden, those rows would have the whole reading built again on every arrow key.
-		So the answer is "cannot say" outside the runs, which is read as showing. The cost is
-		that a filter hiding the very first or very last used rows is not caught for those
-		rows, and the reader's next move through them is.
+		For rows fetched before a filter was applied. From the same answer `rowAfter` uses.
+		Only within the used range; outside it the answer is "cannot say", read as showing, so
+		empty rows past the data are not taken as hidden. A filter hiding the very first or last
+		used rows is caught on the reader's next move instead.
 
 		:param row: the row asked about, one based.
 		"""
@@ -1142,32 +980,14 @@ class ExcelSheet:
 	def selectedValues(self, maxRows: int = 0, maxColumns: int = 0) -> Optional[list]:
 		"""What is selected in this sheet, as text and as numbers together.
 
-		Answers `flowObjectTable.Sheet.selectedValues`, which is what a chart is drawn from.
-		The Excel half of charting lives here and only here: the rest of the add-on asks the
-		sheet and never learns that Excel has an object model, exactly as it does for reading.
+		Answers `flowObjectTable.Sheet.selectedValues`, for charts.
 
-		**`Value2` and not `Value`**, and it is the same choice `textRow` makes in the other
-		direction. `Value2` hands back what is stored — a date as a serial number, a percentage
-		as a fraction — which is the number a bar's height has to come from. A chart built from
-		displayed text instead is wrong in a way that looks entirely plausible.
+		1. Values from `Value2`, the stored numbers, which bar heights need.
+		2. Text from `_textBlock`, since `Range.Text` is Null for a multi-cell range, so labels
+		   match what the reader reads.
+		3. The selection is clipped to the used range (see `_clipToData`), then capped.
 
-		**The text comes from the helper and not from `Range.Text`.** A range's `Text` is only
-		meaningful for a single cell: ask a multi-cell range and Excel answers Null, because
-		there is no one string to give. `_textBlock` is the batch fetch already tuned for
-		this, and using it means the labels on a chart are the same strings the reader feels
-		when they read the sheet.
-
-		**The selection is clipped to the cells the sheet actually uses, and then capped.**
-		Ctrl+Space selects a whole column, which is what a reader should press rather than
-		arrowing down forty-eight rows — and a whole column is 1,048,576 cells. Asked for
-		those, this read a million rows of values and then started fetching a million rows of
-		text one row at a time; NVDA's watchdog reported a ten second freeze and cancelled the
-		call. See `_clipToData`, which turns that selection into the seventy-three rows that
-		have data in them.
-
-		:param maxRows: rows to read at most, or 0 for the ceiling here. A caller that knows
-			how many points its chart can use says so; the ceiling applies either way, because
-			no caller should be able to ask a question that stops NVDA.
+		:param maxRows: rows to read at most, or 0 for the ceiling here, which applies either way.
 		:param maxColumns: columns to read at most, on the same terms.
 		:return: rows of `(text, value)`, or None if Excel will not say.
 		"""
@@ -1198,10 +1018,7 @@ class ExcelSheet:
 		width = max(len(row) for row in values)
 		texts = self._textBlock(firstRow, firstColumn, len(values), width)
 		if texts is None:
-			# One call for the whole block was not to be had, so it is a call per row — which
-			# is what this did before the block fetch existed, and is slow enough that the
-			# number of rows has to come down with it. Ten milliseconds a row was measured on
-			# hardware: four hundred rows that way is four seconds of a stopped screen reader.
+			# No block fetch, so a call per row, with fewer rows. See `MAX_ROWS_ONE_AT_A_TIME`.
 			values = values[:MAX_ROWS_ONE_AT_A_TIME]
 			texts = [
 				self.textRow(firstRow + offset, firstColumn, firstColumn + width - 1)
@@ -1254,20 +1071,9 @@ class ExcelSheet:
 	def _clipToData(self, selection, maxRows: int, maxColumns: int) -> Optional[tuple]:
 		"""Cut a selection down to what can be read without stopping NVDA.
 
-		Two cuts, and they are different in kind.
-
-		**The clip to the used range is the one that makes whole column selections work.**
-		Ctrl+Space is how a reader selects a column without arrowing down it, and it selects
-		all 1,048,576 rows — of which perhaps seventy-three have anything in them. Excel's
-		used range is one call and says where the sheet stops, so the intersection of the two
-		is the data the reader was pointing at. Without it the selection is not merely slow to
-		read: it is a million rows of empty cells with the data lost among them, and no chart
-		could be made from it anyway.
-
-		**The cap is the guard, and it applies whether or not the clip worked.** A used range
-		that cannot be read must not leave the ceiling off, because the failure this is here to
-		prevent is a screen reader that stops for ten seconds — and that must not be reachable
-		by any selection, from any caller, however the sheet answers.
+		1. Clip to the used range, one call, so a whole-column selection becomes the rows with
+		   data.
+		2. Then cap, whether or not the clip worked, so no selection can stop NVDA.
 
 		:param selection: Excel's own range.
 		:param maxRows: rows the caller can use, or 0 for the ceiling.
@@ -1303,15 +1109,9 @@ class ExcelSheet:
 	def _usedBox(self) -> Optional[tuple]:
 		""":return: the corners of the used range, or None where the sheet will not say.
 
-		All four corners, where `shape` wants only the far one: it measures from A1 so that a
-		row number here is Excel's row number, and this has to *intersect* with a selection, so
-		where the data starts matters as much as where it stops.
-
-		Its own read rather than one shared with `shape`, and its own failure too. `shape`
-		refuses the whole table when the sheet will not say how far it is used, because a
-		truncated sheet offered as the sheet is worse than no table; a chart can carry on
-		without the answer, on the cap alone, and refusing to chart would be the harsher of
-		the two mistakes. Asked once and kept, like everything else here.
+		All four corners, for intersecting with a selection. Separate from `shape`, which
+		refuses a table without an answer, while a chart can carry on with the cap alone.
+		Asked once.
 		"""
 		if self._usedCorners is _UNASKED:
 			self._usedCorners = None
@@ -1334,18 +1134,9 @@ class ExcelSheet:
 	def _textBlock(self, firstRow: int, firstColumn: int, height: int, width: int) -> Optional[list]:
 		"""Read a rectangle's displayed text in one call.
 
-		`textRow` is this for one row, and one row at a time is the right shape for reading a
-		table a band at a time — a few rows, every column. A chart is the other shape: a few
-		columns, hundreds of rows, and a call per row is a call per *point*. The helper takes
-		an address and a count and does not care that the range is more than one row high, so
-		the whole selection is one call.
-
-		**Placed by the coordinates the helper reports, never by position in the answer.** A
-		row's worth of cells can be placed by counting along, because there is only one row to
-		be in; a rectangle cannot, and a range walked in a different order than assumed would
-		put every value under the wrong label while looking entirely correct. So a block that
-		comes back without coordinates is refused here, and the caller reads it a row at a
-		time instead.
+		`textRow` for a whole rectangle, for charts. Cells are placed by the coordinates the
+		helper reports, not by position, so a block without coordinates is refused and the
+		caller reads a row at a time.
 
 		:param firstRow: the top row of the rectangle.
 		:param firstColumn: its leftmost column.
@@ -1388,15 +1179,8 @@ class ExcelSheet:
 	def columnsShowing(self) -> Optional[set]:
 		""":return: the columns Excel is showing, or None where every column is showing.
 
-		**A hidden column is still a column.** Ask a worksheet for column 5 with column 5
-		hidden and it hands over column 5's cells exactly as it does for any other, so a
-		layout built from the columns the sheet *has* drew one the reader could not arrow to,
-		counted it among the columns, and put its heading in the pinned row. Hiding a column
-		is the reader saying they do not want it, once.
-
-		From the same answer the rows come from, so it costs nothing beyond that: what Excel
-		hands back as showing is split at a hidden column as much as at a filtered row, and
-		the letters in the address are which columns those are.
+		A hidden column still answers for its cells. From the same answer as the rows, at no
+		extra cost.
 		"""
 		spans = self._whatIsShowing()[1]
 		if spans is None:
@@ -1413,10 +1197,7 @@ class ExcelSheet:
 	def _whatIsShowing(self) -> tuple:
 		""":return: what Excel is showing, as (runs of rows, runs of columns).
 
-		Asked once for this reading, as the used range and the headings are: a band walks a
-		row at a time and asks about the columns once more on top of that, and the answer is
-		the same for all of them. It changes when the reader changes the filter or unhides a
-		column — which builds the sheet afresh anyway.
+		Asked once per reading; changing a filter builds the sheet afresh anyway.
 		"""
 		if self._shown is _UNASKED:
 			address = self._askWhatIsShowing()
@@ -1426,9 +1207,7 @@ class ExcelSheet:
 	def _askWhatIsShowing(self) -> Optional[str]:
 		""":return: how Excel describes the part of this sheet on show, or None if it will not.
 
-		One call for the range and one for its address. A sheet with no filter answers with
-		its whole used range in one area, which costs the same two calls and says the walk may
-		step by one anywhere — so nothing here is a tax on the ordinary sheet beyond that.
+		Two calls. An unfiltered sheet answers with one area.
 		"""
 		try:
 			showing = self._sheet.usedRange.SpecialCells(XL_CELL_TYPE_VISIBLE)
@@ -1447,30 +1226,12 @@ class ExcelSheet:
 	def columnHeaders(self, first: int, last: int) -> Optional[dict]:
 		""":return: what each column of a span is called, {} where none is, or None to ask cells.
 
-		**The question that nearly froze a worksheet.** Asked cell by cell it costs an
-		`ExcelCell` built and a header search per column, three times over for a column that
-		says nothing — sixty three cell objects on a twenty one column sheet nobody has marked
-		up, before a single row the reader can feel has been read. Forty two of them was
-		already enough to pass the watchdog on hardware.
-
-		Where a reader marks a header row, NVDA writes it into the workbook as a defined name
-		and keeps what it found in the worksheet's header cell tracker. The tracker says which
-		cell heads which columns; what that cell *says* is the text at (its row, the column),
-		which is `fetchAssociatedHeaderCellText` exactly — and a row of text is one batch
-		call. So a marked sheet is answered by one read of its header row rather than one read
-		per column, and an unmarked one is answered without reading anything at all.
-
-		**An empty answer is only given after a walk that finished.** This is the second time
-		the tracker has been asked and the first time cost the reader their header row: NVDA
-		builds one lazily by walking every defined name in the workbook and keeps whatever
-		that walk produced, an empty one included where it failed part way, while every cell
-		of that same sheet could name its column perfectly well. Read off the worksheet, an
-		empty tracker cannot tell "no headings" from "the walk did not finish". Filled here,
-		the difference is the difference between returning and raising. See `_trackerNow`.
-
-		None for anything this cannot work out exactly, which sends the caller back to asking
-		the cells: a heading several rows tall, which NVDA joins together itself, and one that
-		applies to a run of rows rather than to the column.
+		Asking cell by cell is very slow. NVDA's header cell tracker says which cell heads
+		which columns, so a marked sheet is answered by one batch read of its header row
+		(as `fetchAssociatedHeaderCellText` would), and an unmarked one by no read at all.
+		An empty answer is given only from a tracker filled here; see `_trackerNow`. None for
+		a heading several rows tall or one bounded to a run of rows, so the caller asks the
+		cells.
 
 		:param first: the first column of the span, one based.
 		:param last: the last column, inclusive.
@@ -1519,14 +1280,8 @@ class ExcelSheet:
 	def _markedHeaders(self) -> Optional[list]:
 		""":return: (row, first column, last column) per marked column heading, or None.
 
-		Read off NVDA's own tracker, which is where what the reader marked ends up. An entry
-		heads the columns from its own rightwards, bounded by whatever the defined name said —
-		see `tableUtils.HeaderCellTracker.iterPossibleHeaderCellInfosFor`, which is the rule
-		this follows.
-
-		None where the tracker could not be finished, and where an entry is a shape that cannot
-		be read off one row: a heading several rows tall, which NVDA joins together, or one
-		bounded to a run of rows, which is not a property of the column at all.
+		From NVDA's tracker, following `tableUtils.HeaderCellTracker.iterPossibleHeaderCellInfosFor`.
+		None where the tracker could not be finished, or for shapes `columnHeaders` refuses.
 		"""
 		tracker = self._trackerNow()
 		if tracker is None:
@@ -1550,23 +1305,10 @@ class ExcelSheet:
 	def _trackerNow(self):
 		""":return: a header cell tracker filled here and now, or None if it cannot be.
 
-		**Filled rather than read off the worksheet, and that is the whole of the safeguard.**
-		NVDA builds one lazily, by walking every defined name in the workbook, and keeps
-		whatever the walk produced — so a walk interrupted part way leaves an empty tracker
-		cached on the worksheet, and reading it back cannot tell that from a sheet with no
-		headings. That is what took the reader's header row off the display, and asking a cell
-		instead would not have caught it either: a cell resolves `columnHeaderText` through
-		its worksheet's tracker, and the cells this hands out are given this same worksheet.
-		One poisoned answer, asked twice.
-
-		Filling one here makes the question answerable: the walk either finishes, and an empty
-		tracker then means the sheet has no marked headings, or it raises, and this says so by
-		answering None.
-
-		The finished tracker is put on the worksheet, which is where NVDA keeps its own and
-		what every cell built from this sheet resolves its column's header through — so the
-		two paths cannot answer differently, and a worksheet whose tracker was left empty by a
-		failed walk is mended rather than worked around.
+		NVDA's lazily built tracker keeps whatever its walk produced, so an interrupted walk
+		looks like a sheet with no headings. Filled here, the walk either finishes or raises,
+		giving None. The result is put on the worksheet, so cells resolve headers through the
+		same tracker.
 		"""
 		populate = getattr(self.obj, "populateHeaderCellTrackerFromNames", None)
 		if populate is None or HeaderCellTracker is None:
@@ -1579,27 +1321,10 @@ class ExcelSheet:
 	def cellAt(self, row: int, column: int):
 		""":return: the cell at one coordinate, or None if it cannot be reached.
 
-		**`ExcelCell` itself, and never the class of the cell in hand.** That is exactly what
-		`ExcelWorksheet._get_firstChild` and `navigationHelper` do, and the reason is the one
-		that cost a whole reading: NVDA's objects are *composed*. `DynamicNVDAObjectType`
-		builds an object from an API class, asks the application module for overlay classes,
-		and mutates the object into a new type made of both — so the cell the reader is
-		standing on is a `Dynamic_SpreadsheetCellExcelCell`, whose bases are this module's
-		overlay and NVDA's cell.
-
-		Ask for another of *those* and the metaclass does it all again: it offers the
-		composite as the only class, this module inserts its overlay in front of it, and the
-		bases come out as (overlay, (overlay, cell)) — which cannot be linearised. Python
-		raises `TypeError: Cannot create a consistent method resolution order`, this returned
-		None, and every cell of the band became "no cell at this coordinate". The layout was
-		planned, the command said the columns were showing, and the display was blank.
-
-		So the API class, which is what NVDA composes *from*, and the overlay is added to the
-		result exactly as it is to any other cell Excel hands over. A merged coordinate reads
-		as its top left content, which is what NVDA's own first child does.
-
-		**For the cells that are drawn and routed into**, which after `textRow` is what this
-		is for. Measuring a bandful of a sheet no longer comes through here.
+		Built from `ExcelCell` itself, as `ExcelWorksheet._get_firstChild` does, never from
+		the composed class of the cell in hand, which would give bases with no consistent method
+		resolution order. A merged coordinate reads as its top left content. For cells that are
+		drawn and routed into; measuring uses `textRow`.
 		"""
 		try:
 			found = ExcelCell(
@@ -1619,12 +1344,8 @@ class ExcelSheet:
 			# The metaclass answers None rather than raising when it will not build one.
 			log.debugWarning(f"NVDA would not build a cell at row {row} column {column}")
 			return None
-		# **The worksheet already in hand, given to the cell rather than left to be built.**
-		# `ExcelCell._get_parent` makes a new `ExcelWorksheet` for every cell that is asked,
-		# and a worksheet's header tracker is populated by walking every defined name in the
-		# workbook — so asking a bandful of cells what their column's header is would have
-		# walked the workbook once per cell. `parent` is an auto-property, so assigning it is
-		# what stops the getter ever running.
+		# Give the cell this worksheet, since `ExcelCell._get_parent` would build a new one per
+		# cell, each walking the workbook for headers. Assigning the auto-property skips it.
 		found.parent = self.obj
 		return found
 
@@ -1632,17 +1353,10 @@ class ExcelSheet:
 def _cellInfosFor(cell, address: str, count: int) -> Optional[list]:
 	""":return: where each cell of a range is, what it says, and its merge area, or None.
 
-	The call itself, kept apart from `ExcelSheet.textRow` because it is the only ctypes in
-	this file and because what it does is one sentence: hand NVDA's in-process helper an
-	address and a count, and read back what it filled in.
-
-	Only two of the twelve fields of an `EXCEL_CELLINFO` are asked for. The flags matter as
-	much as the batching does — `NVCELLINFOFLAG_ALL`, which is what building a cell object
-	fetches, gathers comments and formulas and states nobody is going to read.
-
-	The address is asked for as well as the text and the coordinates, and it is what tells a
-	merged cell from a blank one: the helper reports a cell's *merge area's* address, so every
-	member of one merge answers with the same string. See `ExcelSheet.textRow`.
+	The only ctypes in this file: hand NVDA's in-process helper an address and a count, and
+	read back what it filled in. Only the needed fields are requested, rather than
+	`NVCELLINFOFLAG_ALL`. The address is the merge area's, which tells a merged cell from a
+	blank one. See `ExcelSheet.textRow`.
 
 	:param cell: any cell of the sheet, for the window and the helper's binding handle.
 	:param address: the range, already in the application's own notation.
@@ -1650,17 +1364,9 @@ def _cellInfosFor(cell, address: str, count: int) -> Optional[list]:
 	:return: one (row number, column number, text, address) per cell of the range, or None
 		for anything short of the whole range.
 
-	The row number is there for the block read. One row's worth of cells can be placed by
-	counting along the answer, because there is only one row for them to be in; a
-	rectangle cannot, and a range walked in a different order than assumed would put every
-	value under the wrong label while looking entirely correct. See `ExcelSheet._textBlock`.
-
-	**Short is incomplete, not empty.** The helper walks the range with an enumerator and
-	stops at the first cell it cannot get — `IEnumVARIANT::Next` failing breaks the loop and
-	leaves the count where it got to — so the cells it did not reach are cells nobody has
-	read. Padded with empty strings they measured as a table whose columns hold nothing,
-	which is the failure this seam exists to prevent. The whole row goes back to being read
-	cell by cell instead, which is slow and right.
+	The row number is for placing cells in a block read; see `ExcelSheet._textBlock`. A short
+	answer is incomplete, not empty, since the helper stops at the first cell it cannot get,
+	so it gives None.
 	"""
 	binding = cell.appModule.helperLocalBindingHandle
 	if not binding:
@@ -1697,9 +1403,7 @@ def _cellInfosFor(cell, address: str, count: int) -> Optional[list]:
 def _asGrid(value) -> list:
 	"""Normalise what `Range.Value2` hands back into rows of cells.
 
-	A range of several cells answers a tuple of row tuples; a single cell answers the value
-	itself, with no tuple anywhere. Both have to be charted from, and a caller written for
-	one shape breaks on the other, so the shape is settled once here.
+	Several cells answer a tuple of row tuples, one cell answers a bare value.
 
 	:param value: whatever the property returned.
 	:return: rows of cell values.
@@ -1714,9 +1418,7 @@ def _asGrid(value) -> list:
 def _pairUp(texts: Optional[list], values: list, row: int, firstColumn: int) -> list:
 	"""Put each cell's displayed text beside its stored value.
 
-	Where the text could not be had — `textRow` answers None for a row it cannot batch —
-	the cell's address stands in. A poor name for a bar and better than none, because a
-	reader told "B7" can go and look at it.
+	Where the text could not be had, the cell's address stands in.
 
 	:param texts: what the row displays, or None.
 	:param values: what it stores.
@@ -1750,8 +1452,7 @@ def _cellName(row: int, column: int) -> str:
 def sheetFor(cell):
 	""":return: the worksheet a cell is in, or None if it cannot be read by coordinate.
 
-	Three ways to answer no, and each of them leaves the reader with NVDA's ordinary reading
-	of the cell rather than with a layout that is wrong or a display that has stopped:
+	Each no leaves NVDA's ordinary reading of the cell:
 
 	- **Nothing will say where the reader is.** See `ExcelSheet.where`.
 	- **The sheet is too wide to measure.** See `MAX_COLUMNS`.
@@ -1786,13 +1487,8 @@ def sheetFor(cell):
 def wantedHeaders() -> tuple:
 	""":return: which of a cell's headers to show, as the attribute names to read them from.
 
-	The reader's own setting, and the one speech obeys: "report table headers" in Document
-	Formatting, which is one setting with two axes — rows, columns, both, or off. The order
-	is speech's order too: the row's header, then the column's. See
-	`speech.getPropertiesSpeech`, which appends them in that order after the coordinates.
-
-	Read on each call rather than kept, because the reader can change it at any moment and
-	the next cell they land on should be drawn under the answer that is true then.
+	The Document Formatting "report table headers" setting that speech obeys, in speech's order:
+	row header, then column header. See `speech.getPropertiesSpeech`. Read on each call.
 	"""
 	try:
 		setting = config.conf["documentFormatting"]["reportTableHeaders"]
@@ -1810,9 +1506,8 @@ def wantedHeaders() -> tuple:
 def headerTextFor(cell) -> str:
 	""":return: what a cell's headers say, or "" where there are none to say.
 
-	The cell is asked exactly as speech asks it — `columnHeaderText` and `rowHeaderText` are
-	NVDA's own properties, and on a worksheet cell they resolve through the header rows and
-	columns the reader marked with NVDA+shift+c. Nothing here works out what a header is.
+	As speech asks: NVDA's `columnHeaderText` and `rowHeaderText`, which resolve through the
+	headers the reader marked.
 
 	:param cell: the `NVDAObjects.window.excel.ExcelCell` being drawn.
 	"""
@@ -1836,27 +1531,11 @@ def headerTextFor(cell) -> str:
 class CellHeaders:
 	"""A cell's one line of braille, with the header the reader marked after the coordinates.
 
-	**Speech says it and braille did not.** Land on a cell in a sheet whose header row has
-	been marked and NVDA speaks "9/4/2026  A2  Date"; the same cell in braille is "9/4/2026
-	A2", and the only way to find out what the column was called was to leave the cell and
-	come back. That is not a decision anybody took. `getPropertiesBraille` knows perfectly
-	well what to do with a `columnHeaderText` — it is simply never given one, because it only
-	looks for it beside a `columnNumber`, and `NVDAObjectRegion.update` sends neither. It
-	sends the coordinates and stops.
-
-	So the headers are put where speech puts them, after the coordinates, on the region that
-	draws the cell.
-
-	**Through `appendText` rather than into `rawText` afterwards.** `rawText` is what has
-	already been handed to liblouis; changing it means translating the line a second time.
-	`appendText` is what the base concatenates *before* translating, so this costs nothing —
-	and it is put back afterwards, because a region is updated again whenever the cell
-	changes underneath it and a header appended twice would be shown twice.
-
-	Unlike speech, this does not go quiet on the second cell of a column. Speech is a stream
-	of announcements and repeating the header on every cell of a row would be unbearable;
-	braille is a standing description of where the reader is, and a header that vanished
-	after the first cell would be a header the reader could not read.
+	NVDA speaks a marked header but braille omits it, since `NVDAObjectRegion.update` never
+	passes `columnHeaderText` to `getPropertiesBraille`. Added after the coordinates, as
+	speech does, through `appendText`, which is joined before translation, and reset
+	afterwards so an update does not add it twice. Shown on every cell, unlike speech,
+	since braille is a standing description.
 	"""
 
 	def update(self):
@@ -1877,31 +1556,23 @@ class CellRegion(CellHeaders, NVDAObjectRegion):
 class ReviewCellRegion(CellHeaders, ReviewNVDAObjectRegion):
 	"""The same cell while braille follows the review cursor.
 
-	NVDA's review region differs in one thing — a routing key focuses the object first — and
-	that difference is worth keeping, so there are two classes rather than one.
+	Separate because NVDA's review region focuses the object first on a routing key.
 	"""
 
 
 class HeadersInBraille:
 	"""The overlay that gives a worksheet cell its header in braille.
 
-	Separate from `SpreadsheetCell`, and not folded into it, because it is a different claim:
-	`SpreadsheetCell` says this cell can be read by coordinate and is the seam the flow uses,
-	while this says only that NVDA is about to draw a cell on one line and should say what
-	its column is called. A cell this add-on will not lay out still deserves its header.
+	Separate from `SpreadsheetCell`, the flow's seam, since a cell that cannot be laid out
+	still deserves its header.
 	"""
 
 	def getBrailleRegions(self, review: bool = False):
 		"""Yield the regions braille should draw this cell from, which is one region.
 
-		**One is the whole answer for a cell**, and not an abbreviation of NVDA's own
-		`braille.regions.focus.getFocusRegions`: that yields a second, text-reading region
-		for an object with navigable text, and a worksheet cell has none — its role is a
-		table cell, it is not editable text, and it carries no tree interceptor. So what NVDA
-		makes for a cell is exactly one `NVDAObjectRegion`, and this is that region with the
-		header added.
-
-		The region is not updated here: `getFocusRegions` updates whatever this yields.
+		NVDA's `getFocusRegions` makes exactly one `NVDAObjectRegion` for a cell, since it has
+		no navigable text; this is that region with the header added. `getFocusRegions`
+		updates it.
 
 		:param review: whether braille is following the review cursor rather than the focus.
 		"""
@@ -1922,15 +1593,9 @@ class SpreadsheetCell:
 	def setFocus(self):
 		"""Go to this cell, which is what a routing key over it means.
 
-		**`NVDAObject.setFocus` does nothing at all by default**, and an Excel cell inherits
-		that — so routing into a column did exactly nothing, silently, which is the worst way
-		for a core interaction to fail. NVDA's own Excel navigation says what going to a cell
-		means and this is that sequence: select it, activate it, and tell NVDA the focus has
-		arrived. See `ExcelBrowseModeTreeInterceptor.navigationHelper`, which is what the arrow
-		keys do inside a sheet.
-
-		The event is fired on this object rather than on a fresh one, since this object is
-		already the cell being gone to.
+		`NVDAObject.setFocus` does nothing by default. This is NVDA's own sequence from
+		`ExcelBrowseModeTreeInterceptor.navigationHelper`: select, activate, then fire the
+		focus event on this object.
 		"""
 		try:
 			cell = self.excelCellObject
@@ -1945,20 +1610,10 @@ class SpreadsheetCell:
 class SpreadsheetSelection:
 	"""The overlay on a selected range: it offers a sheet, and nothing else.
 
-	**Selecting a range replaces the focus object.** NVDA builds an `ExcelSelection` rather
-	than an `ExcelCell` for as long as more than one cell is selected — a different class on
-	a different branch, so the cell overlay does not apply to it and the seam vanished at
-	exactly the moment a reader had selected something to do with. Charting a selection
-	failed on hardware with "charts need a spreadsheet cell" *while the reader was in a
-	spreadsheet with cells selected*, which is the most confusing form a refusal can take.
-
-	It answers the seam because it can: NVDA gives it `rowNumber`, `columnNumber` and a
-	worksheet parent, which is everything `ExcelSheet` reads, and `excelRangeObject`, which
-	is the selection itself and better than asking Excel what is selected now.
-
-	`setFocus` is deliberately not offered, unlike `SpreadsheetCell`. Going to a selection
-	is not a thing — a routing key lands on a cell — and a `Select()` on the range would
-	reselect what is already selected while pretending to be navigation.
+	With several cells selected NVDA builds an `ExcelSelection`, which the cell overlay
+	does not cover, so the seam would vanish. It has `rowNumber`, `columnNumber`, a worksheet
+	parent and `excelRangeObject`, all `ExcelSheet` needs. No `setFocus`, since a routing key
+	lands on a cell, not a selection.
 	"""
 
 	def brlMultilineSheet(self):
@@ -1969,29 +1624,11 @@ class SpreadsheetSelection:
 class CellOutlivingItsWorkbook:
 	"""A cell that answers None, rather than raising, once Excel has let go of what is behind it.
 
-	**Nothing this covers is this add-on's fault, and that is exactly why it is here.** Close a
-	workbook with control+W and NVDA raises a `typedCharacter` event for that same keystroke on
-	the cell that had the focus — a cell whose workbook has just gone. Deciding whether to echo
-	the character asks the cell whether typing is protected, which asks for its states, which
-	asks NVDA's own `_get_excelCellInfo`, which asks Excel for the cell's address over COM.
-	The cell is dead by then and Excel answers 0x800A01A8, "object required". Every frame of
-	the traceback NVDA then logs is NVDA's own; not one of them is this add-on's.
-
-	But the object at the top of it is called `Dynamic_SpreadsheetCellHeadersInBrailleExcelCell`,
-	because NVDA names a composed class after the overlays in it and every worksheet cell wears
-	this module's overlays once the add-on is installed. A reader reading their log sees this
-	add-on's name over a crash it did not cause and has no way to tell otherwise. That is worth
-	a method to prevent.
-
-	**None is not an invention.** It is what NVDA's own `_get_excelCellInfo` already answers
-	when the in-process helper is not there or the fetch comes back empty, so every caller in
-	NVDA is written for it: `_get_states` returns the states it has and `_get_name` falls back
-	to the cell's own text. Answering it for a cell that no longer exists is truthful — there
-	is no cell information to be had — and it is the answer that costs the reader least.
-
-	This covers the one property a keystroke passes through, and not every way a dead cell can
-	be touched, because a fix aimed at a race is worth only what it quiets: the log line a
-	reader actually meets, on the way out of a workbook they have just closed.
+	Closing a workbook with control+W raises a `typedCharacter` event on the dead cell, and
+	NVDA's `_get_excelCellInfo` then raises a COM error (0x800A01A8). The fault is NVDA's, but
+	the logged class name carries this add-on's overlays. None is what NVDA's own
+	`_get_excelCellInfo` answers when the helper is missing, so every caller handles it. Only
+	this one property is covered.
 	"""
 
 	def _get_excelCellInfo(self):
@@ -2009,10 +1646,8 @@ class CellOutlivingItsWorkbook:
 def isAWorksheetCell(obj) -> bool:
 	""":return: whether this object is a cell of Excel's COM object model.
 
-	Which is the model whose cells carry the headers a reader marks: the marking scripts and
-	`ExcelWorksheet.fetchAssociatedHeaderCellText` are on this branch. A UI Automation cell
-	is a different class on a different branch and is left to NVDA, as it is for reading —
-	see the module docstring.
+	The model whose cells carry marked headers. A UI Automation cell is left to NVDA; see the
+	module docstring.
 
 	:param obj: the object NVDA has just built.
 	"""
@@ -2022,9 +1657,7 @@ def isAWorksheetCell(obj) -> bool:
 def isASelectedRange(obj) -> bool:
 	""":return: whether this object is a selection of several cells in the COM model.
 
-	The class NVDA swaps in while more than one cell is selected. Recognised so that the
-	seam survives a selection, which is when a reader is most likely to want something done
-	with one. See `SpreadsheetSelection`.
+	See `SpreadsheetSelection`.
 
 	:param obj: the object NVDA has just built.
 	"""
@@ -2039,19 +1672,9 @@ def isASelectedRange(obj) -> bool:
 def readsByCoordinate(obj) -> bool:
 	""":return: whether this object is a worksheet cell that can be read by coordinate.
 
-	The COM model's cell and only that one. `NVDAObjects.UIA.excel.ExcelCell` is a different
-	class on a different branch — it derives from `UIA`, not from `Window` — so this tells the
-	two models apart exactly, and the two attributes are what the reading is actually made of.
-	See the module docstring for why the UI Automation model is left alone.
-
-	**And nothing here may ask the cell for its parent**, which is what this used to do to
-	prove the worksheet was reachable. This runs inside `DynamicNVDAObjectType.__call__` —
-	NVDA asks the application module to choose overlay classes for *every* object it builds —
-	and `ExcelCell._get_parent` makes a whole `ExcelWorksheet`, whose header tracker is
-	populated by walking every defined name in the workbook. So the one question asked to
-	recognise a cell undid the sharing of the worksheet that `ExcelSheet.cellAt` arranges
-	afterwards, once per cell of every band. It proved nothing either: a COM model cell's
-	parent is an `ExcelWorksheet` by construction.
+	The COM model's cell only; see the module docstring. Must not ask for the cell's parent:
+	this runs for every object NVDA builds, and `ExcelCell._get_parent` builds a worksheet
+	that walks the workbook.
 
 	:param obj: the object NVDA has just built.
 	"""
@@ -2069,12 +1692,8 @@ OVERLAYS = (
 )
 """The overlay classes this module adds, and what each of them is for.
 
-Several, and deliberately not one. What a cell says its column is called is worth showing in
-braille whether or not this add-on can lay the sheet out, and those two questions are answered
-by different things about a cell — see `HeadersInBraille`. `CellOutlivingItsWorkbook` is not
-about reading at all: it keeps a race of NVDA's own from being written into the log under this
-add-on's name. `SpreadsheetChart` is on NVDA's chart objects, not on cells: it offers a chart
-for drawing and follows NVDA's chart navigation. See `docs/design/excel-chart-plan.md`.
+Several, each with its own purpose: see `HeadersInBraille`, `CellOutlivingItsWorkbook` and
+`SpreadsheetChart`, and docs/design/excel-chart-plan.md.
 """
 
 
@@ -2089,12 +1708,9 @@ class AppModule(ExcelAppModule):
 		super().chooseNVDAObjectOverlayClasses(obj, clsList)
 		try:
 			for overlay, belongs in OVERLAYS:
-				# Not twice, and a class *made of* an overlay counts as having it. Such a
-				# class is one NVDA already composed being offered for composing again, and
-				# the bases would come out as (overlay, (overlay, cell)) — a pair with no
-				# consistent method resolution order, so `type` raises and NVDA is left with
-				# no object at all. See `ExcelSheet.cellAt` for what that looked like from
-				# the display.
+				# Not twice, and a class made of an overlay counts as having it, since composing
+				# again gives bases with no consistent method resolution order. See
+				# `ExcelSheet.cellAt`.
 				if any(issubclass(found, overlay) for found in clsList):
 					continue
 				if belongs(obj):

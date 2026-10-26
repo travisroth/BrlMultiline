@@ -7,29 +7,14 @@
 
 Read the tactile graphics plan's phase 2 before changing anything here.
 
-**Why a mode and not merely a panel.** A drawing has state a rectangle does not: a scale, an
-origin within the source, and the question of what a touch inside it means. A panel that
-tiles a rectangle has nowhere to keep any of that. So the claim on the display is an ordinary
-panel, composed through the same machinery as every other claim, and this object is what owns
-it and holds the state — a `PanelOwner`, not a second way of arranging the display.
-
-**The drawing does not travel through the container.** Everything else the add-on shows
-becomes braille cells in a buffer NVDA writes. A drawing is pins, handed to the display as an
-overlay, and composited by the driver over whatever cells arrive. `GraphicsPanel` claims the
-rectangle so that nothing writes cells underneath, and the two halves meet only on the
-hardware, in one write.
-
-**Pointing is a routing press.** The claim holds one blank segment, and it is there for one
-reason: a routing press reaches the add-on only through the segment it lands in. On this
-hardware a reader points by putting a finger on the panel and pressing a routing key there,
-which is one hand doing one thing. There is no second gesture available — running a command
-means lifting the hand, and the panel reports the touch as released the moment they do. See
-`GraphicsRoutingPolicy`.
-
-**Refresh discipline.** The panel is a page turning device: every write is a full mechanical
-refresh, it clatters, and the reader has to lift their hand for it to settle. So this redraws
-on deliberate events only — entering, zooming, panning, a new drawing — and never on caret
-movement or a focus change.
+1. A mode, not just a panel: a drawing has a scale, an origin and a meaning for a touch. The
+   claim is an ordinary panel, and this object is its `PanelOwner` and holds that state.
+2. The drawing is pins, sent to the driver as an overlay over the cells. `GraphicsPanel`
+   claims the rectangle so nothing writes cells underneath.
+3. Pointing is a routing press, which reaches the add-on only through a segment, so the claim
+   holds one blank segment. See `GraphicsRoutingPolicy`.
+4. Every write is a full mechanical refresh, so this redraws only on deliberate events, never
+   on caret or focus moves.
 """
 
 import math
@@ -66,10 +51,7 @@ OVERLAY_KEY = "brlMultiline.graphics"
 DEFAULT_TEXT_LINES = 1
 """Braille lines left to NVDA above the drawing, by default.
 
-Taken from the **top** of the drawable display for two reasons. On a display NVDA is driving
-directly the first segment is usually the focus segment, and a claim that took it without
-offering one in its place would be refused outright. And a label above a figure is where a
-reader looks for it.
+From the top, where the focus segment usually is and where a label is looked for.
 """
 
 FIT = 0
@@ -77,28 +59,16 @@ MAX_ZOOM_STEP = 5
 ZOOM_FACTOR = 2
 """The zoom ladder, counted in steps out from the whole drawing.
 
-**Step 0 shows all of it.** That is what a tactile viewer is for: you put a hand on the panel
-and feel the shape of the thing, compressed as far as it needs to be to fit. It is also why
-panning does not exist at step 0 — there is nothing off the edge to pan to — and the Monarch's
-own tactile viewer works the same way.
-
-Each step doubles, and magnification is what makes panning mean anything: past the point where
-the drawing no longer fits, moving the window is the only way to reach the rest of it.
-
-Five steps is 32 times the fitted size, which for a drawing that started at a quarter scale is
-8 pins per source dot. `MAX_SCALE` stops it there whatever the ladder says, because beyond
-that a single source dot is wider than a braille cell and the reader is feeling the
-magnification rather than the figure. It applies only to a drawing that is magnified; one that
-redraws itself for each view never has a dot wider than a pin, and stops where what it is drawn
-from runs out.
+Step 0 shows all of it, so there is nothing to pan to, as in the Monarch's own viewer. Each
+step doubles. `MAX_SCALE` caps a magnified drawing; one that redraws itself for each view
+stops where its data runs out.
 """
 
 MIN_WINDOW_POINTS = 3
 """Data points below which a redrawn figure will not be zoomed in any further.
 
-A chart of twenty periods magnified thirty-two times is a chart of half a period. Three is the
-least that still has a shape to feel — a rise and a fall — and refusing at that point keeps the
-zoom the reader is told matching the zoom they are feeling, which clamping silently would not.
+Three is the least with a shape to feel. Refusing rather than clamping keeps the reported
+zoom true.
 """
 
 TURN_ATTEMPTS = 4
@@ -133,25 +103,10 @@ def labelCells(text: str) -> list[int]:
 class Drawing:
 	"""A figure at its natural size, and what to call it.
 
-	The source, never the thing on the display. What reaches the display is this sampled
-	through the zoom and origin, which is why the source keeps its own size however far in the
-	reader has magnified it.
-
-	**A drawing that knows how it was made can be drawn again instead of magnified**, and that
-	is what `redraw` is for. Magnifying is the only thing that can be done to a photograph: the
-	dots are all there is, so zooming in makes each of them bigger and the parts that no longer
-	fit go off the edges. A chart is not like that. It was composed for this panel out of
-	numbers that are still to hand, so zooming into a date range can *recompose* it — the same
-	panel, fewer periods, drawn at full resolution with their own dates written under them.
-
-	The difference is not a nicety. Magnified, a chart's braille labels become smears of
-	enlarged dots and say nothing, and the dates written at the two ends go on naming the whole
-	range while the reader is looking at a tenth of it. Redrawn, the writing is writing and the
-	dates are the dates of what is actually under the hand. Reported from hardware, which is
-	where the two are told apart.
-
-	A picture supplies no `redraw` and keeps the sampling. Both work; they are answers to
-	different questions.
+	The source, sampled through the zoom and origin for the display. A drawing that can be
+	composed again, such as a chart, supplies `redraw`, so zooming recomposes it at full
+	resolution with readable labels and correct dates, instead of magnifying its dots. A
+	picture has no `redraw` and is magnified.
 	"""
 
 	def __init__(
@@ -180,43 +135,26 @@ class Drawing:
 		:param buffer: the dots, a buffer from `GraphicsSurface.newBuffer`.
 		:param name: what to call this when the reader asks what is on the display.
 		:param describeAt: what is at a point of this drawing, taking source coordinates and
-			returning a phrase or None. Optional, and it is the difference between a drawing a
-			reader can feel and one they can interrogate: without it a press can only report a
-			dot, so a reader learns that one bar is taller than another and never learns what
-			either of them is. A chart supplies one; a scanned picture has nothing to say.
+			returning a phrase or None. Optional; without it a press can only report a dot.
 		:param redraw: composes this drawing again for a part of itself, taking where that part
-			starts and how much of it there is, both as fractions of the whole, and giving back
-			the width and height to compose for, and giving back a `Drawing` of that size.
-			Optional, and the second thing only a drawing built from structure can offer. See
-			the note above on what it changes.
+			starts and how much of it there is as fractions of the whole, and the width and
+			height to compose for, and giving back a `Drawing` of that size. Optional.
 		:param points: how many data points the whole drawing covers, for deciding how far in
 			the reader can usefully zoom. Zero where the drawing is not made of points.
-		:param windowsVertically: whether this figure has a vertical extent to window over as
-			well as a horizontal one. False for a chart and True for a picture, and the
-			difference is real rather than a convenience: a chart refits its value axis to
-			whatever periods it is showing, so there is never anything above or below the
-			panel to pan to, while half of a photograph is still half of a photograph. Only a
-			figure that says yes is offered the vertical part of the window, because a chart
-			handed one might honour it, and a chart that scrolled its values would be showing
-			a range whose own axis no longer named it.
-		:param note: something about this drawing a reader has to be told rather than left to
-			work out from the panel. Empty for almost everything. The case it exists for is a
-			drawing that is legitimately blank -- a window on the empty middle of a shape --
-			where the panel has nothing to say and silence would read as a fault.
-		:param nextView: draws the whole of this figure shown another way, taking 1 for the
-			next way and -1 for the previous, and giving back a `Drawing`. Optional. A line
-			chart supplies one to show some of its lines and put the others aside; the figure
-			decides what its views are, and the mode only keeps the reader's place across them.
-		:param pinsPerPoint: how many pins across one point needs to be felt on its own, for a
-			figure whose zoom is counted in points. One for a line chart. Zero where there is
-			no such thing, which is everything a zoom to one pin per point means nothing for.
-		:param firstPoint: which point of the whole figure this drawing starts at. Zero for
-			the whole figure; a window composed by `redraw` says where it cut the data. It is
-			what lets the mode hold a marked point as an index into the whole chart while the
-			panel shows a window of it. See `docs/design/chart-point-plan.md`.
+		:param windowsVertically: whether this figure can be windowed vertically as well.
+			False for a chart, which refits its value axis to what it shows; True for a
+			picture.
+		:param note: something the reader must be told, such as that a window is legitimately
+			blank. Usually empty.
+		:param nextView: draws the whole figure shown another way, taking 1 or -1, and giving
+			back a `Drawing`. Optional; the figure decides its views.
+		:param pinsPerPoint: how many pins one point needs to be felt on its own, for a figure
+			whose zoom is counted in points. Zero where that means nothing.
+		:param firstPoint: which point of the whole figure this drawing starts at, so a marked
+			point can be held as an index into the whole. See docs/design/chart-point-plan.md.
 		:param pointAt: which point, counted from this drawing's first, a source column
-			belongs to, or None between points. Optional, and with the two below it is what
-			makes a figure one the reader can step through a point at a time.
+			belongs to, or None between points. Optional; with the next two, lets the reader
+			step through points.
 		:param markFor: where a point of this drawing was drawn, taking its index from this
 			drawing's first and which of `levelNames` the level follows, and giving back a
 			`chartDraw.PointMark` or None. The figure describes its geometry; the mode decides
@@ -228,23 +166,14 @@ class Drawing:
 		:param levelKeys: what identifies each of `levelNames`, in the same order, where a name may
 			not: two series of an application's chart can share one. Empty where the names are
 			enough. See `GraphicsMode.markPoint`.
-		:param widestView: the most points one view of a redrawable figure can show, or zero for
-			no limit. A price chart of a year of days cannot be shown whole, since a bar needs
-			four pins; it says how many fit, and the mode opens it at the widest view it has, on
-			its latest points, for the reader to pan back through.
-		:param opensAcross: whether the figure opens at the panel's full width, at its top,
-			rather than whole. For a figure much taller than it is wide that is read by moving
-			down it, such as the layout of a long web page: shown whole it is squeezed until its
-			parts are slivers, and shown a panel wide it reads at its own size with the rest a
-			pan down. Shrinking from there still shows it whole.
-		:param activateAt: what pressing a point a second time does, taking source
-			coordinates. Optional. The first press says what is there, as for every drawing; the
-			next press in the same area acts on it, however long after. The layout of a web page
-			supplies one that moves the browse mode cursor to the area pressed.
-		:param areaAt: which area a point is in, as anything that compares equal for the same
-			area, or None outside every area. Optional, and only asked of a drawing with
-			`activateAt`. It is what makes two presses "on the same thing" when a finger lands a
-			pin or a cell away the second time; without it the same cell has to be pressed.
+		:param widestView: the most points one view can show, or zero for no limit. The mode
+			opens such a figure at its widest view, on its latest points.
+		:param opensAcross: whether the figure opens a panel wide at its top rather than
+			whole, for a tall figure read by moving down it, such as a page layout.
+		:param activateAt: what a second press in the same area does, taking source
+			coordinates. Optional. A page layout moves the browse mode cursor there.
+		:param areaAt: which area a point is in, as anything comparable, or None. Optional,
+			and asked only with `activateAt`, so a second press need not hit the same cell.
 		"""
 		self.buffer = buffer
 		self.firstPoint = firstPoint
@@ -280,14 +209,9 @@ class Drawing:
 def testFigure(surface: GraphicsSurface, width: int, height: int) -> Optional[Drawing]:
 	"""Build the figure phase 2 is verified with.
 
-	Deliberately not a chart. Phase 2 is the enter, the claim, the transform and the leave;
-	the first real content is phase 4. What this has to do is make every one of those visible
-	to a finger: a border says where the claim's edges are, the diagonals say the drawing is
-	not stretched or offset, the markers say a point lands where it was asked to, and the
-	caption says text and graphics arrived in the same write.
-
-	Drawn at twice the rectangle's size so that zooming has somewhere to go and panning has
-	something to reach.
+	A border, diagonals, markers and a caption, so the claim's edges, the transform and a
+	combined text and graphics write can all be felt. Twice the rectangle's size, so zoom and
+	pan have room.
 
 	:param surface: the display to make a buffer on.
 	:param width: the rectangle's pin width. The figure is twice this.
@@ -327,23 +251,8 @@ def _afterThePress(func, *args) -> None:
 def _sayAfterThePress(text: str) -> None:
 	"""Say something in speech and braille, once the routing press has finished.
 
-	**Not `ui.message` directly, and the reason is a rule of NVDA's that this walks into.**
-	`BrailleHandler.routeTo` is:
-
-		self.buffer.routeTo(windowPos)
-		if self.buffer is self.messageBuffer:
-			self._dismissMessage()
-
-	The first line is what runs the routing policy, so a message raised from inside a policy
-	arrives *before* the second — and the second exists to make a routing key dismiss a
-	message that is up. NVDA says so in its own docstring: "The message will be dismissed
-	immediately if the user presses a cursor routing key." The press and the message were
-	meant to be two events; here they are one, so the message dismissed itself the instant it
-	appeared. It was spoken, and never reached braille, which is exactly how it behaved on
-	hardware and is a difference no log would have shown.
-
-	Queued onto the event queue, so it lands after `routeTo` has returned and the press is
-	over. Then it is an ordinary message and stands for its ordinary timeout.
+	Queued, because `BrailleHandler.routeTo` dismisses any message shown during the routing
+	press itself, so `ui.message` from inside a policy would never reach braille.
 
 	:param text: what to say.
 	"""
@@ -361,18 +270,10 @@ def _sayAfterThePress(text: str) -> None:
 class GraphicsRoutingPolicy(RoutingPolicy):
 	"""Turns a routing press inside the drawing into a report of what is there.
 
-	The Monarch answers a finger with the touched pin, and the driver keeps the pin that was
-	under the finger at the moment a routing key went down. A press is therefore a *pointing*
-	gesture with a position attached, at pin resolution rather than cell resolution, and it
-	is the only pointing gesture this hardware can offer. A separate command cannot do it:
-	the reader's hand is on the panel, running a command means lifting it, and the panel
-	reports the touch as released the moment they do. NVDA compounds that by running a
-	gesture's script from a queue rather than during dispatch, so even the press's own live
-	touch has gone by the time a script sees it. The pin the driver kept is what is left.
-
-	So the press does not route a cursor here. There is no text under the drawing to route
-	into: the claim's segment is blank by design and exists so that this policy has
-	somewhere to live.
+	The driver keeps the pin under the finger when a routing key went down, so a press points
+	at pin resolution. It is the only pointing gesture available: by the time a script runs,
+	the live touch is gone. No cursor is routed; the claim's segment is blank and exists for
+	this policy.
 	"""
 
 	def __init__(self, mode: "GraphicsMode"):
@@ -417,9 +318,7 @@ class GraphicsMode(PanelOwner):
 		self._source: Optional[Drawing] = None
 		"""The figure as it was given, which is what the zoom and origin are a window onto.
 
-		Kept apart from `_drawing` so that every window is computed from the whole rather
-		than from the last window: zooming in and out again has to arrive back where it
-		started, and a window taken of a window would drift.
+		Kept apart from `_drawing`, so every window is computed from the whole and does not drift.
 		"""
 
 		self._window: Optional[tuple] = None
@@ -448,9 +347,8 @@ class GraphicsMode(PanelOwner):
 		self._marked: Optional[int] = None
 		"""The point of the whole figure the reader stepped to or pressed, or None.
 
-		An index into the whole figure rather than into the window on the panel, so it survives
-		zooming, panning and a change of view: each of those composes a different window, and
-		`Drawing.firstPoint` is how a window says where it is in the whole.
+		An index into the whole figure, so it survives zoom, pan and view changes. See
+		`Drawing.firstPoint`.
 		"""
 
 		self._level = 0
@@ -487,15 +385,8 @@ class GraphicsMode(PanelOwner):
 	def fitScale(self, pins: PinRect) -> float:
 		"""Pins per source dot that puts the whole drawing on the panel.
 
-		The smaller of the two ratios, so nothing is cut off in either direction. Below 1 for a
-		drawing larger than the display, which is the ordinary case for a real image and the
-		reason the sampler has to compress rather than only magnify.
-
-		**Never above 1.** Fitting a drawing smaller than the display would mean magnifying it
-		to fill the panel, and that is not what showing the whole of something means: a figure
-		authored at the panel's own size — a chart we generated, say — should come out at the
-		size it was drawn. So this is "the whole drawing, at natural size or smaller", and
-		magnification is always something the reader asked for.
+		The smaller of the two ratios, so nothing is cut off. Never above 1: a small drawing is
+		shown at its natural size, and magnification is only ever asked for.
 
 		:param pins: the rectangle the drawing occupies.
 		:return: the scale, above zero and at most 1.
@@ -514,17 +405,8 @@ class GraphicsMode(PanelOwner):
 		"""
 		scale = self.fitScale(pins) * (ZOOM_FACTOR**self._zoomStep)
 		if self._windows:
-			# `MAX_SCALE` is about a dot growing wider than a finger, and a figure that redraws
-			# itself never grows a dot: every view is composed again at the panel's own size.
-			# Its limit is running out of what it is drawn from, which `_tooFewPoints` already
-			# says. Capped, a chart of a thousand days could never be zoomed closer than an
-			# eighth of them, which is still several days to a pin.
-			#
-			# This used to be only for a figure counting its zoom in points, which left a
-			# picture capped at eight times: a picture's first view is composed at the panel's
-			# size too, so eight times the fit was the end however many pixels were behind it.
-			# The number of pixels was meant to be the limit (see `image.zoomPoints`), and a
-			# picture kept at four times the pixels got not one step more for it.
+			# A figure that redraws itself never grows a dot, so `MAX_SCALE` does not apply.
+			# Its limit is its data (see `_tooFewPoints` and `image.zoomPoints`).
 			return scale
 		return min(MAX_SCALE, scale)
 
@@ -544,13 +426,8 @@ class GraphicsMode(PanelOwner):
 	def openingTextLines(self) -> int:
 		""":return: the braille lines a drawing keeps when it is put up, before the reader says.
 
-		**The line is kept only where it is the focus line.** On a display doing double duty,
-		the drawing's band is where the reader's focus braille is, and the line beside the
-		drawing is that braille. On a composite whose focus is on another display, the line was
-		kept all the same and showed nothing anyone was reading: a row of pins taken from every
-		chart for no reason. So there the drawing takes the whole band.
-
-		The line can still be given or taken back with the reader's own command either way.
+		The line is kept only where it is the focus line; with the focus on another display the
+		drawing takes the whole band. The reader's command can change it either way.
 		"""
 		surface = findSurface()
 		if surface is None or self._bandHoldsFocus(surface):
@@ -560,8 +437,7 @@ class GraphicsMode(PanelOwner):
 	def _bandHoldsFocus(self, surface: GraphicsSurface) -> bool:
 		""":return: whether the focus segment is on the rows a drawing would claim.
 
-		True when that cannot be told, which keeps the line: a line kept for nothing costs a
-		row of pins, and a focus line lost costs the reader where they are.
+		True when that cannot be told, since keeping the line is the cheaper mistake.
 
 		:param surface: the display that can draw.
 		"""
@@ -579,11 +455,8 @@ class GraphicsMode(PanelOwner):
 	def drawingSize(self, textLines: Optional[int] = None) -> Optional[tuple]:
 		"""How big a drawing would be if one were shown now.
 
-		For a caller composing a drawing for this display rather than bringing one that
-		already exists. A chart is drawn to fill its rectangle exactly, so it has to know the
-		rectangle before it can be built, and asking here keeps the claim's arithmetic — the
-		band, the pitch, the text line, the composite's offset — in one place instead of
-		being repeated by everything that wants to draw.
+		For a caller composing a drawing to fit, such as a chart. Keeps the claim's arithmetic
+		in one place.
 
 		:param textLines: braille lines that would be kept beside it. None for what a drawing
 			put up now would keep, see `openingTextLines`.
@@ -715,9 +588,7 @@ class GraphicsMode(PanelOwner):
 	def source(self) -> Optional[Drawing]:
 		""":return: the figure that was entered, rather than the window of it being shown.
 
-		What a caller holding a figure asks to find out whether it is still the one on the
-		display. `drawing` is the window; this is the thing the window is of, and it is the
-		one that does not change as the reader zooms.
+		For asking whether a figure is still the one up. `drawing` is the window onto this.
 		"""
 		return self._source
 
@@ -729,16 +600,9 @@ class GraphicsMode(PanelOwner):
 	def replaceSource(self, drawing: Drawing) -> bool:
 		"""Show a different figure of the same thing, without losing the view.
 
-		What a change of style needs. Going through `enter` claims the panel again and resets
-		the zoom and both origins, so a reader who had magnified a corner of a diagram and
-		switched from outlines to brightness was put back at the whole picture -- which
-		defeats the purpose of having two styles, since the way to tell which reads better is
-		to feel the same part of the picture in both.
-
-		The window is kept and recomposed from the new figure. `_window` is cleared so that
-		the recomposition actually happens, and `_drawing` is deliberately left alone: a
-		figure that will not compose the current window has to be a refusal, and `_reframe`
-		treats a null drawing as "nothing composed yet" and falls back to the whole figure.
+		For a change of style, which `enter` would reset to the whole picture. `_window` is
+		cleared so the window is recomposed; `_drawing` is left, so a figure that will not
+		compose it is a refusal rather than a fallback to the whole.
 
 		:param drawing: the new figure, which must be of the same thing at the same size.
 		:return: whether it is up. False leaves the previous figure exactly as it was.
@@ -777,9 +641,7 @@ class GraphicsMode(PanelOwner):
 	def changeView(self, direction: int) -> bool:
 		"""Show the figure the next or previous way it offers, keeping the zoom and the place.
 
-		Through `replaceSource`, for the reason it exists: the way to tell what one line of a
-		chart is doing is to feel the same days with and without the others, and a view change
-		that put the reader back at the whole chart would take them off those days.
+		Through `replaceSource`, so the reader stays on the same part of the chart.
 
 		:param direction: 1 for the next view, -1 for the previous.
 		:return: whether the new view is up. False leaves the old one exactly as it was.
@@ -799,26 +661,9 @@ class GraphicsMode(PanelOwner):
 	def setTextLines(self, lines: int) -> bool:
 		"""Change how much of the band stays braille, keeping the figure and where it is read.
 
-		The reason this exists rather than being decided once at `enter`: a reader wants the
-		whole panel for a figure *at times*, and asking them to leave, change a setting and
-		come back would lose their zoom and their place in the drawing, which is most of what
-		they had built up.
-
-		At zero the drawing takes the band and the focus line goes with it. That is a real
-		cost — NVDA's focus braille has nowhere to go and is dropped rather than drawn under
-		the figure — so it is a thing the reader asks for and can undo with the same command,
-		and the caller is expected to say so.
-
-		**Transactional, for the same reason zoom is.** It used to claim the new rectangle,
-		record the new size, call `render` and return True without looking at what `render`
-		said. A figure that would not compose for the new shape then left the old overlay on
-		the display -- the old 96 by 35 drawing, still at pin row 5 -- while the mode reported
-		no braille line and a full panel rectangle, and the command announced "full panel, no
-		braille line" over a drawing that had not moved. That is the same disagreement between
-		the panel and the words that the zoom rollback was written to end, reached through a
-		different door.
-
-		So the old claim and the old state are both put back when the new composition fails.
+		Keeps the zoom and place. At zero NVDA's focus braille is dropped, so the caller should
+		say so. Transactional: if the figure will not compose for the new shape, the old claim
+		and state are put back.
 
 		:param lines: braille lines to keep, zero for the whole band.
 		:return: whether the display took it. False leaves the figure exactly as it was.
@@ -864,10 +709,7 @@ class GraphicsMode(PanelOwner):
 	def _reclaim(self, surface: GraphicsSurface, textLines: int) -> bool:
 		"""Put the previous claim back after a change of shape that would not draw.
 
-		Rebuilt from `_claimFor` rather than kept as an object, because the claim is a
-		function of the surface and the number of text lines and nothing else -- holding the
-		old one would be holding a second copy of something already derivable, and the copy is
-		the thing that goes stale.
+		Rebuilt from `_claimFor`, since the claim follows from the surface and the text lines.
 
 		:param surface: the drawable display.
 		:param textLines: how many braille lines the old claim left.
@@ -895,15 +737,9 @@ class GraphicsMode(PanelOwner):
 	def _claimFor(self, surface: GraphicsSurface, textLines: int) -> Optional[SegmentRect]:
 		"""Work out which cells to claim.
 
-		The drawable display's whole band, and on a composite that is the member's rows
-		rather than the display's, which keeps a figure on the Monarch from claiming rows
-		belonging to a display beside it.
-
-		**The whole band, and not a careful subset.** Panels are evicted whole, so a claim on
-		part of a band takes the band's panel with it — focus segment included, however
-		carefully the claim avoided the focus segment's own rows. An earlier version left
-		those rows out and was refused on hardware all the same. `GraphicsPanel` therefore
-		takes the band and supplies the replacement braille line itself; see its docstring.
+		The drawable member's whole band, since panels are evicted whole and a partial claim
+		would still take the focus segment. `GraphicsPanel` supplies the replacement braille
+		line.
 
 		:param surface: the display that can draw.
 		:param textLines: braille lines the panel will keep at the top of the claim.
@@ -927,9 +763,7 @@ class GraphicsMode(PanelOwner):
 	def _windows(self) -> bool:
 		""":return: whether the figure redraws itself for a window rather than being magnified.
 
-		Asked of the figure rather than of a type or a flag, exactly as `describeAt` is: a
-		drawing either can do this or cannot, and what kind of thing it is is beside the point.
-		A chart can; a scanned picture cannot; anything later that can will say so the same way.
+		Asked of the figure, as `describeAt` is, rather than of its type.
 		"""
 		return self._source is not None and self._source.redraw is not None
 
@@ -937,34 +771,17 @@ class GraphicsMode(PanelOwner):
 	def _windowsVertically(self) -> bool:
 		""":return: whether the figure windows up and down as well as left and right.
 
-		Asked of the figure for the same reason `_windows` is. A picture has a top and a
-		bottom that stay where they are; a chart's value axis is refitted to whatever is
-		showing, so it has neither.
+		See `Drawing.windowsVertically`.
 		"""
 		return self._windows and bool(getattr(self._source, "windowsVertically", False))
 
 	def _reframe(self, pins: PinRect) -> bool:
 		"""Ask the figure to draw itself again for what is visible, if it can.
 
-		The origin and the zoom are already a window over the source in dots, and the source of
-		a redrawable figure is exactly panel sized — so that window, as a fraction of the whole,
-		is the part of the data the reader is looking at. Handing it over as a fraction keeps
-		this from knowing that the data is periods, or prices, or anything at all.
-
-		**The size goes with it**, because the rectangle can change under a figure that is
-		already up: toggling the braille line beside the drawing is a command, and a figure
-		composed for the old rectangle would be blitted into the new one with a row of it
-		cut off — the row its dates are written on.
-
-		Skipped when the window has not moved, so an ordinary refresh — a rebuild, a settings
-		change, the flow giving rows back — costs nothing.
-
-		**A figure that will not compose the window says no, and nothing here pretends
-		otherwise.** It used to fall back to the whole figure and record the refused window as
-		though it had been drawn, which left the panel showing one thing and the zoom, the
-		origin and the spoken position describing another — a reader told "50 across, 47 down"
-		with the whole picture under their hands. Wrong in the worst way available: confidently.
-		So it answers False and the caller that moved is the one that puts it back.
+		The window is handed over as fractions of the whole, so this knows nothing about the
+		data, with the current size, since the rectangle can change. Skipped when the window
+		has not moved. A figure that refuses answers False, and the caller puts its state back
+		so the panel and the spoken position agree.
 
 		:param pins: the rectangle the drawing occupies.
 		:return: whether the drawing now matches the window. False only where the figure
@@ -1022,8 +839,7 @@ class GraphicsMode(PanelOwner):
 	def render(self, surface: Optional[GraphicsSurface] = None) -> bool:
 		"""Sample the source through the zoom and origin and put it on the display.
 
-		One overlay write, which is one mechanical refresh. Every caller here is a deliberate
-		event for exactly that reason.
+		One overlay write, one mechanical refresh, so only deliberate events call this.
 
 		:param surface: the display, or None to find it again.
 		:return: whether the display took the drawing.
@@ -1042,10 +858,7 @@ class GraphicsMode(PanelOwner):
 			return False
 		self._clampOrigin(pins)
 		if not self._reframe(pins):
-			# The figure would not compose this window. The overlay already on the display is
-			# the last one that was composed and is still correct for the state the caller is
-			# about to put back, so it is left alone rather than rewritten with something that
-			# does not match what is being reported.
+			# Refused. The overlay on the display matches the state the caller will put back.
 			return False
 		if self._windows:
 			self._keepPointsOnPanel()
@@ -1060,19 +873,9 @@ class GraphicsMode(PanelOwner):
 	def _sample(self, buffer, pins: PinRect) -> None:
 		"""Draw the visible part of the source into a buffer the size of the claim.
 
-		Each pin stands for a rectangle of the source — one dot or a fraction of one when
-		magnified, several when the drawing is compressed to fit — and the pin is **raised if
-		any dot in that rectangle is raised**.
-
-		That rule rather than sampling the middle dot, because compression is where a tactile
-		drawing is most easily ruined: a line one dot wide, reduced to a quarter scale, is
-		missed by three sample points out of four and comes out as a dashed line or as
-		nothing. Taking any dot in the rectangle keeps every line the drawing had, at the cost
-		of thickening a dense area into a solid one — which is the right way round: a reader
-		can feel that a region is busy, and cannot feel a line that is not there.
-
-		At a scale of 1 or more the rectangle is a single dot and this degenerates to nearest
-		neighbour, so magnification costs nothing extra.
+		A pin is raised if any dot in the source rectangle it stands for is raised, so
+		compression keeps thin lines, at the cost of thickening dense areas. At a scale of 1
+		or more this is nearest neighbour.
 
 		:param buffer: the destination, the size of `pins`.
 		:param pins: the rectangle being filled, for its size.
@@ -1114,8 +917,7 @@ class GraphicsMode(PanelOwner):
 	def _visible(self, pins: PinRect) -> tuple:
 		""":return: how many source dots across and down are on the display.
 
-		Rounded up, because a source dot showing only partly is still one the reader can feel
-		and one that panning has to be able to reach.
+		Rounded up, since a partly shown dot can still be felt and must be reachable by panning.
 
 		:param pins: the rectangle the drawing occupies.
 		"""
@@ -1125,23 +927,10 @@ class GraphicsMode(PanelOwner):
 	def positionWords(self, surface: Optional[GraphicsSurface] = None) -> str:
 		"""Where the window sits in the drawing, for a reader rather than for a debugger.
 
-		The origin is held as a source dot, which is the right thing to compute with and the
-		wrong thing to say. "At 48, 18" means the source dot now at the top left corner, and a
-		reader has no way to know what that is a fraction of: the number depends on how large
-		the drawing happens to be in dots, which is a fact about the file and not about what
-		they are feeling. Panning by a quarter of the view produced a different pair of
-		numbers each time with nothing to measure them against.
-
-		So it is said as a percentage of **how far the window can move**, which is the
-		question a reader panning around a magnified drawing actually has: 0 is hard against
-		one edge, 100 hard against the other, and the ends are named rather than numbered
-		because hitting an edge is worth hearing as an edge. An axis with nothing to pan along
-		— a drawing wider than the display but not taller, say — is left out rather than
-		reported as a meaningless zero. A figure that redraws itself for its window has no
-		up and down to report at all: it fits its value axis to whatever it is showing, so
-		there is never anything above or below the panel and "top edge" would be a fact
-		about nothing. A picture redraws itself too and does have an up and a down, so it
-		is asked rather than assumed — see `Drawing.windowsVertically`.
+		As a percentage of how far the window can move, with the ends named, rather than the
+		source dot, which means nothing to a reader. An axis that cannot move is left out, as
+		is the vertical axis of a figure that does not window vertically (see
+		`Drawing.windowsVertically`).
 
 		:param surface: the display, or None to find it again.
 		:return: a short phrase, empty when nothing can move in either direction.
@@ -1209,8 +998,7 @@ class GraphicsMode(PanelOwner):
 	def showsWholeDrawing(self, pins: PinRect) -> bool:
 		"""Whether everything the drawing has is on the panel.
 
-		True at `FIT` by construction, and the reason panning says so rather than reporting an
-		edge: there is no edge to have reached, the whole thing is under the reader's hands.
+		True at `FIT`, where panning says so rather than reporting an edge.
 
 		:param pins: the rectangle the drawing occupies.
 		:return: whether nothing is off the panel.
@@ -1243,8 +1031,7 @@ class GraphicsMode(PanelOwner):
 	def zoomBy(self, step: int) -> bool:
 		"""Magnify the figure, keeping what is under the middle of the claim in the middle.
 
-		Zooming about the centre rather than the corner, because the reader's hand is on the
-		figure and the thing they were feeling should still be under it afterwards.
+		About the centre, so what the reader was feeling stays under their hand.
 
 		:param step: how many levels in, negative for out.
 		:return: whether the zoom changed.
@@ -1266,25 +1053,16 @@ class GraphicsMode(PanelOwner):
 			# the reader is told matches the one they are feeling.
 			return False
 		if wanted > self._zoomStep and self._atScaleCap(pins):
-			# The ladder has steps left but the scale cap has been reached, which happens to a
-			# drawing that started near the panel's own size. Saying no here keeps the reported
-			# zoom honest: a step that changes nothing on the panel should not change the number.
+			# The scale cap is reached, so the reported zoom does not change either.
 			return False
 		return self._zoomTo(wanted, pins, surface)
 
 	def _stepFrom(self, step: int, pins: PinRect) -> float:
 		"""The ladder step a zoom key goes to from here.
 
-		From a step on the ladder that is simply the next one. From a zoom to one pin per
-		point, which is usually between two of them, it is the rung on the side the key points
-		to, so magnifying from 2.6 times goes to 4 and shrinking goes to 2, and the ladder is
-		back on its own numbers after one press rather than drifting at 5.2 and 1.3.
-
-		Past the top of the ladder, which only a zoom to one pin per point reaches, magnifying
-		stays where it is rather than going back down to the top rung.
-
-		Below the widest view a figure has, which is the whole of it for everything but a chart
-		too wide to show whole, shrinking stops at that view.
+		The next rung; from between rungs, as after a zoom to one pin per point, the rung on
+		the side the key points to. Magnifying past the top stays put, and shrinking stops at
+		the widest view.
 
 		:param step: how many levels in, negative for out.
 		:param pins: the rectangle the drawing occupies.
@@ -1302,11 +1080,8 @@ class GraphicsMode(PanelOwner):
 	def _widestStep(self, pins: PinRect) -> float:
 		""":return: the zoom showing as much of the figure as it can show at once.
 
-		`FIT` for every figure that can be shown whole. For one that says it cannot, see
-		`Drawing.widestView`, the step at which the panel holds as many whole dots of the figure
-		as it can without the window coming to more points than fit: the window is whole dots
-		of a figure a panel wide, and one dot more would be a few points too many and a view the
-		figure refuses to draw.
+		`FIT`, unless the figure cannot be shown whole (see `Drawing.widestView`): then the step
+		whose window holds the most points that still fit.
 
 		:param pins: the rectangle the drawing occupies.
 		"""
@@ -1323,9 +1098,7 @@ class GraphicsMode(PanelOwner):
 	def _openingStep(self, pins: PinRect) -> float:
 		""":return: the zoom a figure opens at: its widest view, or its full width.
 
-		See `Drawing.opensAcross`. The step that makes the figure's width the panel's width,
-		which for a figure drawn a panel wide is the scale of one pin per dot: what it was
-		composed at, so nothing is magnified or squeezed.
+		See `Drawing.opensAcross`: the step at which the figure's width is the panel's.
 
 		:param pins: the rectangle the drawing occupies.
 		"""
@@ -1386,15 +1159,8 @@ class GraphicsMode(PanelOwner):
 		""":return: why a zoom did not happen, for a reader who pressed the key and felt
 		nothing change. Empty if nothing is in the way.
 
-		**A refusal a reader cannot account for is the same as a broken key.** Every guard
-		below was written with a reason and none of them said it out loud: the announcement
-		after a zoom reports where the reader now is, so a refused zoom reported where they
-		already were, in the same words, however many times they pressed. That reads exactly
-		like a command that is not wired up -- and it was reported as one, on a toolbar whose
-		capture simply had no more detail in it.
-
-		Recomputed from the same guards rather than recorded by `zoomBy`, so that there is no
-		second piece of state to fall out of step with the first.
+		So a refused zoom does not sound like a broken key. Recomputed from the same guards as
+		`zoomBy` rather than recorded.
 
 		:param step: the step that was asked for, negative for out.
 		"""
@@ -1458,15 +1224,8 @@ class GraphicsMode(PanelOwner):
 	def zoomToPoints(self) -> bool:
 		"""Zoom a figure made of points to where each point has its own pin, and no more.
 
-		The view a ladder of doublings almost never lands on. Two hundred and fifty days across
-		ninety-six pins is 2.6 days to a pin whole and 1.3 at the first doubling, which is still
-		two days sharing a pin somewhere, and 0.65 at the next, which is every day a pin and a
-		half wide and a third of the panel's width given to spacing. The number that matters is
-		the one where nothing is shared and nothing is spent, and it is a fact about the data
-		and the panel rather than a power of two.
-
-		About the middle of the view, as every zoom is. The figure is then left to space the
-		points exactly, since the window a dot of origin can express is only close.
+		A view the doubling ladder rarely lands on, set by the data and the panel. About the
+		middle of the view; the figure then spaces the points exactly.
 
 		:return: whether the view is now at one pin per point. True where it already was.
 		"""
@@ -1536,11 +1295,8 @@ class GraphicsMode(PanelOwner):
 	def _state(self) -> tuple:
 		""":return: everything a refused window has to be able to put back.
 
-		Zoom, origin, which window was last composed and what was composed for it. Taken before
-		a move rather than reconstructed afterwards, because the composed drawing cannot be
-		reconstructed at all: the figure has already said it will not make that window, and
-		asking it again for the one before would be a second composition of something the
-		display is already showing.
+		Zoom, origin, and the last composed window and drawing. Taken before a move, since the
+		composed drawing cannot be rebuilt afterwards.
 		"""
 		return (
 			self._zoomStep,
@@ -1554,9 +1310,7 @@ class GraphicsMode(PanelOwner):
 	def _restore(self, state: tuple) -> None:
 		"""Put back what `_state` took.
 
-		Nothing is written to the display here, and that is the point: the overlay on it was
-		never replaced, so it already agrees with what is being put back. The mark goes back
-		with the window, since `render` moves it onto whatever window it composed.
+		Writes nothing, since the overlay was never replaced. The mark goes back too.
 
 		:param state: from `_state`.
 		"""
@@ -1572,9 +1326,7 @@ class GraphicsMode(PanelOwner):
 	def panStep(self) -> tuple:
 		""":return: a sensible pan distance across and down, in source dots.
 
-		A quarter of what is visible, so a pan moves usefully and still leaves three quarters
-		of the previous view to reorient by. One dot at minimum, so panning never does nothing
-		on a very small claim.
+		A quarter of what is visible, leaving most of the view to reorient by. At least one dot.
 		"""
 		if not self.active or self._rect is None:
 			return 0, 0
@@ -1590,9 +1342,7 @@ class GraphicsMode(PanelOwner):
 	def panelStep(self) -> tuple:
 		""":return: the pan distance for a whole panel across and down, in source dots.
 
-		For reading a tall figure a panel at a time, as a page is read a screen at a time:
-		nothing of the last view is left to reorient by, but nothing is skipped and nothing is
-		felt twice.
+		For reading a tall figure a panel at a time, with nothing skipped or repeated.
 		"""
 		if not self.active or self._rect is None:
 			return 0, 0
@@ -1640,15 +1390,9 @@ class GraphicsMode(PanelOwner):
 	def _keepPointsOnPanel(self) -> None:
 		"""Bring the mark onto the panel after the window moved out from under it.
 
-		**The mark is where the next step starts, so it has to be a point the reader can feel.**
-		A zoom, or the braille line taking pins back, can move the window without stepping, and
-		a mark left behind meant the next step read out a date nowhere on the panel and then
-		turned a page back to it. A pan does not get this far with a mark: `panBy` lets it go. So
-		a mark the window has left goes to the nearest point still shown, which is the edge it
-		went off by.
-
-		Called from `render`, after the window is composed and before the guides are drawn, so
-		the guides and the mark agree with the one write.
+		The next step starts at the mark, so after a zoom or a change of text lines it moves to
+		the nearest point still shown. A pan drops the mark instead (see `panBy`). Called from
+		`render`, before the guides are drawn.
 		"""
 		if not self.hasPoints or self._drawing is None or not self._drawing.points:
 			return
@@ -1670,9 +1414,8 @@ class GraphicsMode(PanelOwner):
 	def _pointX(self, index: int) -> Optional[int]:
 		"""Where a point of the whole figure is, in the whole figure's dots.
 
-		Which is the space the origin is held in, so this is what a page turn and a zoom about
-		the point both need. A bar's own left edge rather than the gap its point line uses, so a
-		window turned to start at it starts at the bar.
+		The space the origin is held in. A bar's left edge, so a window turned to it starts at
+		the bar.
 
 		:param index: the point.
 		:return: the column, or None if the figure will not say.
@@ -1691,8 +1434,7 @@ class GraphicsMode(PanelOwner):
 	def _drawGuides(self, buffer) -> None:
 		"""Show which point is marked, over what the figure composed.
 
-		On the panel's copy and never on the drawing, so moving the mark within a window costs
-		one render and no composition, and unmarking is just a render without them.
+		On the panel's copy, never the drawing, so moving the mark needs no composition.
 
 		:param buffer: the panel's buffer, the drawing already copied onto it.
 		"""
@@ -1712,11 +1454,8 @@ class GraphicsMode(PanelOwner):
 	def _notePress(self, point: Optional[tuple]) -> None:
 		"""Mark the point a press landed on, so the next step goes on from it.
 
-		**A press moves the stepper.** The first plan only remembered the point and left the
-		panel alone, so as not to redraw it under the finger that pressed; on hardware a reader
-		pressing a point and then stepping expected to step from the point they pressed, and a
-		mark left elsewhere stepped from somewhere else. So the press marks the point and draws
-		its guides, in one write, and only when it is not the point already marked.
+		The press marks the point and draws its guides in one write, unless it is already
+		marked, so stepping continues from where the reader pressed.
 
 		:param point: the source dot of the drawing on the panel the press mapped to.
 		"""
@@ -1764,9 +1503,8 @@ class GraphicsMode(PanelOwner):
 
 		:param index: the point of the whole figure.
 		:param levelName: the series the reader is moving through, or None to leave the level.
-		:param levelKey: the same series as one of the drawing's `levelKeys`, which is what is
-			matched where the drawing has them. A name alone put the level on the first of two
-			series called the same thing. Found in review.
+		:param levelKey: the same series as one of the drawing's `levelKeys`, matched where the
+			drawing has them, since two series can share a name.
 		:return: whether the point is marked and on the panel.
 		"""
 		if not self.hasPoints or not 0 <= index < self._source.points:
@@ -1935,22 +1673,10 @@ class GraphicsMode(PanelOwner):
 	def _turnTo(self, index: int, forward: bool, pins: PinRect, surface: GraphicsSurface) -> bool:
 		"""Turn the window a page, so a point that was off the panel is on it.
 
-		**A page and not a point.** The point goes to the edge the reader is moving away from,
-		with a panel's worth of points ahead of it they have not felt yet: going right it lands
-		at the left. Moving the window one point at a time would redraw the whole panel on every
-		step once the point reached the edge, and the reader would feel everything shift each
-		time. The same choice as the flow's full display scroll for the caret, for the same
-		reason.
-
-		The window is held in dots and a figure turns it into points with its own rounding, and a
-		line chart then respaces it evenly about its middle, so the point can land one outside.
-		Then the window is nudged a point's width towards it, a few times, and centred on it as a
-		last resort.
-
-		**Only the window that holds the point is written to the display.** The candidates are
-		composed and checked first, since each write is a mechanical refresh of the whole panel
-		and a reader feels every one. Found in review: a 200 point chart wrote twice on some
-		page turns, the first a window one point short.
+		A page, not a point, so the panel is not redrawn on every step: the point goes to the
+		edge the reader is moving away from. Rounding can leave it one outside, so the window is
+		nudged towards it a few times, then centred as a last resort. Candidates are composed
+		and checked first, and only the one holding the point is written.
 
 		:param index: the point of the whole figure.
 		:param forward: which way the reader is going.
@@ -1990,8 +1716,7 @@ class GraphicsMode(PanelOwner):
 	) -> Optional[tuple]:
 		"""Where in the source a pin of the display falls.
 
-		The inverse of the claim's cell to pin conversion and of the zoom and origin, which is
-		the whole reason both are kept rather than baked into the buffer.
+		The inverse of the claim's cell to pin conversion and of the zoom and origin.
 
 		:param pinX: pin column on the display.
 		:param pinY: pin row on the display.
@@ -2033,10 +1758,8 @@ class GraphicsMode(PanelOwner):
 	) -> Optional[tuple]:
 		"""Where in the source a routing cell of the claim falls.
 
-		The fallback for a drawable display that does not report a touched pin. A cell is
-		3 by 5 pins at the 8 row pitch, so this is a much coarser answer than `pointForPin`,
-		and the middle of the cell is the least wrong point in it. Used only when the display
-		will not say better.
+		A coarser fallback for a display that does not report a touched pin: the middle of the
+		cell.
 
 		:param segmentPos: the pressed cell, as a flat row major index into the claim.
 		:param surface: the display, or None to find it again.
@@ -2059,9 +1782,7 @@ class GraphicsMode(PanelOwner):
 	def reportPress(self, segmentPos: int) -> None:
 		"""Say what is under the finger, for a routing press inside the drawing.
 
-		Called from `GraphicsRoutingPolicy`, which is to say from the reader pointing at the
-		figure and pressing where they are pointing. That is the whole gesture: no second
-		command, no second hand, and nothing to press while holding a position.
+		Called from `GraphicsRoutingPolicy`.
 
 		:param segmentPos: the pressed cell, as a flat row major index into the claim.
 		"""
@@ -2072,9 +1793,7 @@ class GraphicsMode(PanelOwner):
 			if pin:
 				point = self.pointForPin(pin[0], pin[1], surface)
 			if point is None:
-				# Either the display does not report a pin, or the one it reported was outside
-				# the claim, which happens when a press was decided from the device's own cell
-				# index instead. The cell is coarser and is still an answer.
+				# No pin reported, or one outside the claim, so fall back to the cell.
 				point = self.pointForCell(segmentPos, surface)
 		if point is not None and self._isSecondPress(segmentPos, point):
 			activateAt = self._drawing.activateAt
@@ -2089,15 +1808,9 @@ class GraphicsMode(PanelOwner):
 	def _isSecondPress(self, segmentPos: int, point: tuple) -> bool:
 		"""Whether this press lands on what the last one did, so it acts rather than describes.
 
-		**No time limit.** The first version wanted the same cell within NVDA's multiple press
-		timeout, and on a Monarch it never fired: a second routing press there is slow, and a
-		finger seldom comes down on the same cell twice. So a press records what it landed on,
-		and the next press acts if it lands on the same thing, however long after. A press on
-		anything else describes that and becomes the new first press. The same thing is the
-		same area where the drawing can say (`Drawing.areaAt`), and the same cell where not.
-
-		Kept here rather than asked of NVDA, which counts repeats by script and time alone, and
-		to which every routing key is the one script.
+		No time limit, since a second routing press on the Monarch is slow. The same thing is
+		the same area where the drawing can say (`Drawing.areaAt`), else the same cell. Kept
+		here, since NVDA counts repeats by script and every routing key is one script.
 
 		:param segmentPos: the pressed cell within the claim.
 		:param point: the source dot the press mapped to.
@@ -2143,24 +1856,10 @@ class GraphicsMode(PanelOwner):
 	def searchRadius(self, surface: Optional[GraphicsSurface] = None) -> int:
 		"""How far from the reported pin to look for a dot, in source dots.
 
-		A fingertip is far wider than a pin. Asking what is at the single pin the panel names
-		makes a thin line almost unfindable: a border one dot wide, touched squarely, reports
-		"blank" whenever the contact centre lands a pin to either side of it — which is most
-		of the time, and was what the first hardware run of this found for every feature on the
-		test figure.
-
-		So the answer is the nearest raised dot within half a braille line, rounded up: 3 pins at
-		the 8 row pitch and 2 at the 10 row pitch. Half a line because that is about how far the
-		panel's idea of the contact centre can sit from the ridge a finger is actually on — a
-		finger pad rests below the fingertip tracing a line, and the camera reports one point for
-		the whole patch. Three deliberate touches on hardware missed by 1, 2 and 3 pins, which is
-		what this number is set from; it is a starting point from a small sample rather than a
-		calibration, and worth revisiting with more of them.
-
-		Divided by the zoom, because magnification is exactly the act of making a source dot
-		bigger than a finger: past about 3 times a single source dot is wider than a cell slot,
-		the reader can place a finger on it, and searching would start answering about a dot they
-		are not touching.
+		A fingertip is wider than a pin, and the panel reports one point for the contact patch,
+		so the nearest raised dot within half a braille line is used: 3 pins at the 8 row pitch,
+		2 at the 10. Set from a small sample; see docs/design/tactile-graphics-plan.md. Divided
+		by the zoom, since a magnified dot can be touched directly.
 
 		:param surface: the display, or None to find it again.
 		:return: the radius in source dots, possibly zero.
@@ -2184,9 +1883,7 @@ class GraphicsMode(PanelOwner):
 	def nearestDot(self, point: tuple, radius: int) -> Optional[tuple]:
 		"""Find the raised dot closest to a point of the source.
 
-		Searched outward a ring at a time, so the first hit is the closest and a tie goes to
-		whichever the scan reaches first. Precision beyond that would be false: the point this
-		is measuring from is itself the panel's guess at the middle of a contact patch.
+		Outward a ring at a time, so the first hit is the closest; ties go to the first found.
 
 		:param point: the source dot the press mapped to.
 		:param radius: how far to look, in source dots. Zero asks about that dot alone.
@@ -2207,14 +1904,8 @@ class GraphicsMode(PanelOwner):
 	def _meaningAt(self, point: tuple) -> Optional[str]:
 		"""Ask the drawing what is at a point of it.
 
-		Preferred over reporting a dot, because a drawing that knows what it is made of has
-		a better answer than "raised at 26, 9": a chart can say which bar and what it is
-		worth. Only a drawing built from structure has one — a picture does not — so this
-		falls through to the dot when there is nothing to ask.
-
-		A drawing's own answer is trusted about a *blank* point too, which is why this comes
-		before the search: the space above a short bar still belongs to that bar, and naming
-		it is more use than finding the nearest raised dot somewhere else.
+		Preferred over a dot, and asked before the search, since even a blank point, such as
+		the space above a bar, can belong to something.
 
 		:param point: the source dot the press mapped to.
 		:return: what is there, or None if the drawing does not say.
@@ -2231,9 +1922,7 @@ class GraphicsMode(PanelOwner):
 	def describePoint(self, point: Optional[tuple], surface: Optional[GraphicsSurface] = None) -> str:
 		"""Say what the finger is on.
 
-		Reports the nearest raised dot rather than the exact one pressed, for the reason
-		`searchRadius` gives. The coordinates given are that dot's, which is what a reader
-		following a line wants: "where is the line here", not "where exactly did I press".
+		The nearest raised dot and its coordinates; see `searchRadius`.
 
 		:param point: the source dot, or None if the press was not on the figure.
 		:param surface: the display, or None to find it again.
@@ -2306,11 +1995,7 @@ class GraphicsMode(PanelOwner):
 	def note(self) -> str:
 		""":return: anything the reader has to be told about the drawing itself.
 
-		Almost always empty. It carries the one case where the panel cannot speak for itself:
-		a window that is blank because the picture is blank there. Exposed separately from
-		`describe` because panning reports only a position, and a reader panning across the
-		empty middle of a shape needs to hear why they are feeling nothing every time, not
-		only on the zoom that took them there.
+		Usually empty. See `Drawing.note`. Separate from `describe`, so panning can say it too.
 		"""
 		return getattr(self._drawing, "note", "") if self.active and self._drawing else ""
 
@@ -2319,9 +2004,8 @@ class GraphicsMode(PanelOwner):
 	def onRebuilt(self, keys: frozenset = frozenset()) -> None:
 		"""The display was rebuilt and the claim survived, so draw again.
 
-		The overlay itself lives on the driver and survives a rebuild — it is not made of
-		cells — but the claim may have landed somewhere else, and the drawing has to follow it.
-		A claim that no longer reaches the drawable display at all is treated as gone.
+		The overlay survives on the driver, but the claim may have moved. A claim no longer on
+		the drawable display counts as gone.
 
 		:param keys: unused. A graphics panel has no segments; the claim is its own answer.
 		"""
@@ -2351,10 +2035,8 @@ class GraphicsMode(PanelOwner):
 	def onEvicted(self, keys: frozenset = frozenset()) -> None:
 		"""The claim is gone. Stop showing a figure over rows that belong to someone else.
 
-		Reached when a display change leaves the claim unable to fit — a pitch change from 10
-		rows to 8 is the everyday case, since it takes two lines off the display. The figure is
-		dropped rather than resized: a drawing squeezed into a rectangle the reader did not
-		choose is worse than one they are told has gone.
+		When a display change, such as a pitch change, leaves no room. Dropped rather than
+		resized into a rectangle the reader did not choose.
 
 		:param keys: unused, as for `onRebuilt`.
 		"""
