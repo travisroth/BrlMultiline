@@ -5,23 +5,12 @@
 
 """How many lists a document line sits inside, read from what NVDA already fetched.
 
-An object knows its own level and says so in `positionInfo["level"]`. A line of a browse mode
-document does not: a nested list there is text in document order, and its depth is carried
-only by the control fields around the text. Reading those fields for every block is the tax
-M0 of the structured presentation plan warned against — `getTextWithFields` once more per
-line, to answer a question most lines do not have.
+A browse mode line's depth is carried only by the control fields around its text. These are
+already in hand: `TextInfoRegion._addTextWithFields` fetches them for every line it reads, and
+`flowSources.FlowRegion` passes them here, so the only cost is a walk.
 
-**But NVDA has already asked.** `TextInfoRegion._addTextWithFields` calls `getTextWithFields`
-for every line it reads, and what comes back opens with a `controlStart` for every field that
-encloses the start of the range — the document, the list, the list item, the list inside it —
-before the first piece of text. So the depth is a count over a list that is already in hand,
-and the only cost is the walk. `flowSources.FlowRegion` hands that list here on its way past.
-
-**Lists are counted two ways, and the larger answer is taken.** A browser's virtual buffer
-wraps each level in a LIST and each item in a LISTITEM, so either count gives the depth. Word's
-UIA document gives the items and never the list around them: a top level item arrives as
-`LISTITEM, LINK` and an item one level in as `LISTITEM, LISTITEM`. Counting lists alone left
-every Word line at 0, which is why Word drew flat until this said otherwise.
+Lists and items are counted apart and the larger is taken, since a browser gives both and
+Word's UIA document gives only the items. See docs/design/structured-presentation-plan.md.
 
 Like `flowIndent`, this imports nothing from NVDA, so the counting can be tested without one.
 Roles are compared by name, as `flowForms` compares them.
@@ -38,9 +27,8 @@ ITEM_ROLES = frozenset({"LISTITEM"})
 CONTROL_STATES = frozenset({"FOCUSABLE"})
 """States that make a list a control rather than a document's structure.
 
-A list box in a page — `<select size="5">` — calls itself a LIST in NVDA, and is read as one
-line however many options it holds. Counting it would put the line holding it one level
-deeper than the list item it sits in, so a list the reader can focus is not a level.
+A list box (`<select size="5">`) calls itself a LIST but is one line, so a list the reader can
+focus is not a level.
 """
 
 
@@ -90,16 +78,9 @@ def _levels(enclosing: list) -> int:
 def continuesItem(enclosing: list) -> bool:
 	"""Whether text inside a list item is not where that item begins.
 
-	**One item can be several lines.** NVDA's browse mode cuts a long paragraph into lines of at
-	most its "maximum number of characters on one line", a hundred by default, and each line is a
-	block of its own. The first is where the item begins; the rest carry on from it. Drawn alike,
-	the second line of a top level bullet sat at the margin under its own first line's wrapped rows
-	— the reader's "the fifth line is not indented, then every other line" on a page of long
-	bullets.
-
-	The field says. NVDA marks each enclosing field with `_startOfNode`, true only where the range
-	begins at the start of that field, in a virtual buffer and in Word alike. A field that does not
-	say is taken as the start, which is how every line was drawn before.
+	Browse mode cuts a long item into lines of at most a hundred characters by default, each a
+	block. NVDA's `_startOfNode` on the enclosing field says whether the range begins at the
+	field's start, in a virtual buffer and in Word; a field that does not say is taken as the start.
 
 	:param enclosing: the fields open at the text, outermost first.
 	:return: whether the innermost list item there began on an earlier line.
@@ -148,8 +129,7 @@ def placeBeforeText(commands: Iterable) -> Optional[ListPlace]:
 def depthBeforeText(commands: Iterable) -> Optional[int]:
 	"""How many lists are open where the first of a range's own text begins.
 
-	The first text and not the line's end, because a line belongs where it starts: a line can
-	close a sublist after its own words, and the reader is reading the item, not what follows.
+	The first text, not the line's end, since a line can close a sublist after its own words.
 
 	:param commands: what `getTextWithFields` returned — strings and field commands, in order.
 	:return: the levels of list enclosing the first non-empty text, 0 for text in no list,
