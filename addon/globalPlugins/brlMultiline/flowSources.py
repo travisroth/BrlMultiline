@@ -18,15 +18,10 @@ Two flavours, and the difference is only whether a move is written back:
 2. **Viewer**, for a band the reader is not working in. It keeps a position of its own and
 	moves nothing outside itself.
 
-Both are position bound, which is not optional. Every `CursorManagerRegion` over one
-document answers `_getSelection` from the same live `obj.selection`, so a run of stock
-regions would all render the cursor's block rather than the blocks around it. The regions
-here answer from the position they were built with.
-
-Only the block the cursor is in exposes a braille cursor. `BrailleBuffer.update` assigns
-the buffer's cursor from every region that reports one, last wins, so a collapsed position
-in each block would otherwise put the cursor in whichever block happened to be last. See
-[flow-last-region-audit.md](../../../docs/design/flow-last-region-audit.md).
+Both are position bound, since stock `CursorManagerRegion`s all answer `_getSelection` from
+the live selection and would all render the cursor's block. Only the block the cursor is in
+exposes a braille cursor, since `BrailleBuffer.update` takes the last region that reports
+one. See docs/design/flow-last-region-audit.md.
 """
 
 import time
@@ -49,33 +44,18 @@ See L{budgetForBand}, which is what anything with a band to fill should use inst
 DEFAULT_MAX_SECONDS = 0.12
 """How long one operation may take before showing what it has.
 
-A budget between blocks cannot make a single slow read fast — see `FetchBudget.spend` — so
-this bounds the number of slow reads, not the worst one.
-
-Was fifty milliseconds, which was measured against nothing: the hardware run that produced
-a number put the slowest block on a Chromium buffer at two milliseconds, so eight rows of a
-Monarch cost around twenty. That left almost no margin, and an arrival that did any extra
-reading — a control's prompt, a run of blank lines — spent it. A budget the ordinary case
-trips over is not a safety limit, it is a fault.
+Bounds the number of slow reads, not the worst one; see `FetchBudget.spend`. Sized with
+margin over ordinary reading, so only a genuinely slow page meets it.
 """
 
 
 def documentFor(obj):
 	"""Which object a flow reads a document from.
 
-	The tree interceptor when there is a ready one, whether or not browse mode is presenting
-	it at this moment. That last part is the whole difference from
-	`objectMonitor.resolveTarget`, and it is deliberate.
-
-	`resolveTarget` answers a different question — what to pin — and gives back the object
-	itself when browse mode has stood aside for a control the reader has entered. A form
-	field the reader has entered is still placed in this document, because the page is what
-	has its label and neighbours. `setInteractiveObject` then reads only that active block
-	through the real edit object, because that is what owns its caret and value events.
-
-	The one exception is a multi line edit the reader is writing in. There the edit is the
-	document: its own lines are the blocks and its own caret is the reading position, and
-	the page can give neither. See `_isBeingEditedInside`.
+	The ready tree interceptor, even while browse mode stands aside for a control, unlike
+	`objectMonitor.resolveTarget`, so a field keeps its page's label and neighbours;
+	`setInteractiveObject` reads its block through the edit. The exception is a multi line
+	edit being written in, which is its own document; see `_isBeingEditedInside`.
 
 	:param obj: the object the reader is on.
 	:return: the document to read, or the object unchanged when there is none.
@@ -98,15 +78,9 @@ def documentFor(obj):
 def _isBeingEditedInside(obj, interceptor) -> bool:
 	"""Whether the reader is writing in a multi line edit inside a page.
 
-	Then the edit is the document rather than a block of the page. A virtual buffer holds a
-	textarea's text as its own lines *and* answers where the field is with one of them, so a
-	flow that placed the field among those lines showed the reader's line twice — once as
-	the field and once as the page — and the buffer's caret does not move within the field
-	at all, so neither line followed what they typed.
-
-	Only a multi line edit. A single line field is one line of the page, and the page has
-	its label and what follows it; that case is answered by `setInteractiveObject`, which
-	keeps the page and hands only the active block to the control.
+	Then the edit is the document, since the buffer's own copy of the text does not follow
+	the caret. Only a multi line edit; a single line field stays a line of the page through
+	`setInteractiveObject`.
 
 	:param obj: the object the reader is on.
 	:param interceptor: the document it belongs to.
@@ -124,31 +98,17 @@ def _isBeingEditedInside(obj, interceptor) -> bool:
 BAND_MAX_SECONDS = 0.25
 """How long one operation over a band may take before showing what it has.
 
-Twice the default, because a band's operations are not all the cheap kind. The default was
-sized against a virtual buffer, whose text is already in NVDA's process; a multi line edit
-being written in is read through the real control, where every position crosses the
-process, and a caret update while writing re-reads the whole band — enter at the caret,
-walk back to the row the reader was on, fill. On hardware that combination met the limit
-routinely, and meeting it looks like rows of the marker meaning there is more we have not
-read. A limit the ordinary case trips over is not a safety limit, it is a fault.
+Twice the default, since a writing re-read reads the whole band through the real control,
+where every position crosses the process.
 """
 
 
 def budgetForBand(numRows: int) -> "FetchBudget":
 	"""How much work one operation may do to fill a band of a given height.
 
-	The budget exists to stop a heavy page being walked further than the display can show,
-	*not* to stop the display being filled. Filling a band of eight rows costs at least
-	eight blocks, and more where blank lines are collapsed or a prompt is read above a
-	control, so a limit near the band's own height is one the reader meets constantly — and
-	meeting it looks like a display of markers saying there is more we have not read.
-
-	Three passes over the band plus a margin, because that is what the dearest ordinary
-	operation costs: a caret update while writing enters at the caret, walks back up to a
-	band of rows to the one the reader was on, and fills. Twice the band was the earlier
-	answer, sized for an arrival before that operation existed, and the writing re-read met
-	it. Reaching this one means something is genuinely wrong with the page rather than tall
-	with the display.
+	To stop a heavy page being walked past what the display shows, not to stop the band
+	filling. Three passes over the band plus a margin, the cost of a writing re-read, the
+	dearest ordinary operation.
 
 	:param numRows: the height of the band.
 	:return: a budget for it.
@@ -159,21 +119,9 @@ def budgetForBand(numRows: int) -> "FetchBudget":
 class PositionMark:
 	"""A block's identity where the document cannot mark a position.
 
-	Everything above rests on recognising a block already read: `hasBlock` decides whether
-	the window is showing the cursor's block, `refreshActive` finds the block to lay out
-	again, and the anchor is a block identity that has to survive a re-read. All three are
-	comparison, and a bookmark is what makes a position comparable.
-
-	`TextInfo.bookmark` is the proper answer and nearly every document gives one — including
-	the ones that hand back a copy of the position itself, since those define an `__eq__`
-	that compares where the position is. This is for a document whose `bookmark` raises. The
-	position object is then all there is, and a bare `TextInfo` has no equality of its own,
-	so every reading of one line would be a different block and nothing would ever be
-	recognised again.
-
-	Two positions are the same block when their reading units start in the same place, which
-	is what `compareEndPoints` answers and what a bookmark would have said. Unhashable, like
-	NVDA's own bookmark, which is what `flow.ByIdentity` exists for.
+	For a document whose `TextInfo.bookmark` raises, since a bare `TextInfo` has no equality
+	and blocks must be recognised by comparison. Equal when `compareEndPoints` says their
+	units start in the same place. Unhashable, like NVDA's bookmark; see `flow.ByIdentity`.
 	"""
 
 	__slots__ = ("info",)
@@ -202,9 +150,8 @@ class PositionMark:
 class FlowRegion(CursorOnlyWhereTheReaderIs):
 	"""Mixin giving a region a fixed position, and a cursor only when it is the active one.
 
-	Mixed in ahead of the region class whose cursor policy it adjusts, so that
-	`super()._getSelection` still reaches the right one. The same arrangement
-	`pinnedRegions` uses, for the same reason.
+	Mixed in ahead of the region class, as in `pinnedRegions`, so `super()._getSelection`
+	reaches it.
 	"""
 
 	live = False
@@ -224,14 +171,9 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 	def holdsTheCursor(self) -> bool:
 		""":return: whether this is the block the reader is in.
 
-		One cursor on the display and it belongs to the focus, so: the active block, and only
-		in a live flow. A viewer band shows none at all.
-
-		**Asked before the translation and not after it**, which is the whole of what this
-		answers — see `pinnedRegions.CursorOnlyWhereTheReaderIs`. Every block of a flow reads
-		a fixed position and answers that position when NVDA asks where the selection is, so
-		the cursor falls inside all of them; clearing it after `update` left every row already
-		translated with its first word expanded to computer braille.
+		The active block, in a live flow only. Asked before translation, since a cursor
+		cleared afterwards leaves words expanded to computer braille. See
+		`pinnedRegions.CursorOnlyWhereTheReaderIs`.
 		"""
 		return bool(self.isActive and self.live)
 
@@ -264,22 +206,15 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 		self.tracksLiveCursorAcrossUnits = False
 		"""Whether the whole focused edit is one document block.
 
-		The surrounding browse-mode document places an edit as one block, while the control's
-		own caret can cross any number of its lines. Such a block follows the control's live
-		reading unit without pretending that each line has a different place in the surrounding
-		document. Ordinary document blocks keep the containment rule below.
+		The page places an edit as one block while its caret crosses many lines, so such a
+		block follows the control's live reading unit.
 		"""
 
 		self.unit = None
 		"""The reading unit this block is, when the source has chosen one. None keeps NVDA's.
 
-		Set by the source that builds the block, because the block's identity and its text
-		must be the same unit or they are not about the same thing. NVDA's own answer reads
-		the reader's read by paragraph setting, and the source may have chosen differently —
-		a multi line edit being written in is read by paragraph whatever that setting says.
-		A block identified as a paragraph but rendered as a line showed only the line at the
-		paragraph's start, and in the very editor the paragraph choice exists for, the line
-		at that start is transiently everything before it. See L{_getReadingUnit}.
+		Set by the source, so the block's identity and text use the same unit even when it
+		differs from NVDA's read by paragraph setting. See `_getReadingUnit`.
 		"""
 
 	@property
@@ -290,12 +225,7 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 	def _getReadingUnit(self):
 		"""What one block of this flow is, which is the source's choice rather than NVDA's.
 
-		Everything a region does by unit comes through here: `update` expands the block's
-		position by it, the line commands move by it, and L{_liveCursorHere} uses it to ask
-		whether the caret is still inside this block. Answering with a different unit from
-		the one the block was identified by split every one of those from the source — the
-		region rendered the line at a paragraph's start and called it the paragraph, and the
-		caret on a paragraph's second line was ruled outside its own block.
+		Used by `update`, the line commands and `_liveCursorHere`, so all agree with the source.
 		"""
 		if self.unit is not None:
 			return self.unit
@@ -316,19 +246,8 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 	def _liveCursorHere(self):
 		"""The reader's real cursor, when it is inside this block.
 
-		A block's position is the start of its reading unit. That is what gives it an
-		identity that survives the reader moving within it, and it is what every block but
-		one has to be read from — a stock region over a document answers from the live
-		cursor, so a run of them would all render the cursor's block rather than the blocks
-		around it.
-
-		The exception is the block the reader is *in*. Read from its start it shows a cursor
-		on its first cell and leaves it there, which on hardware was an edit field whose
-		cursor never moved and a long field that never scrolled to what was being typed.
-
-		Only while the cursor is still inside this block. One that has left belongs to
-		another block, and rendering that block's line under this block's identity would put
-		content somewhere it does not belong for as long as it took the flow to notice.
+		Blocks read from the start of their unit, except the one the reader is in, which must
+		follow the live caret. Only while the caret is still inside this block.
 
 		:return: the live position, or None to read from this block's own start.
 		"""
@@ -367,15 +286,9 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 	def _addTextWithFields(self, info, formatConfig, isSelection=False):
 		"""Read one part of the line as NVDA does, and note its list depth on the way past.
 
-		`TextInfoRegion.update` reads a line in up to three parts — before the cursor, the
-		selection, after it — and each is one `getTextWithFields`. That list opens with every
-		field enclosing the part, which is the depth, so it is counted as NVDA receives it
-		rather than fetched a second time. That second fetch on every block is what kept
-		browse mode lists flat; see `flowListDepth`.
-
-		The fetch is wrapped on this one position, which is a copy NVDA made for this part
-		alone, and unwrapped again afterwards. Only until a part with text has answered: the
-		first part is empty whenever the cursor is at the start of the line.
+		Each part `TextInfoRegion.update` reads opens with its enclosing fields, so the depth is
+		counted from what NVDA receives rather than a second fetch; see `flowListDepth`.
+		Wrapped on this part's own position copy, until a part with text has answered.
 		"""
 		original = None if self._listDepthRead else getattr(info, "getTextWithFields", None)
 		if original is None:
@@ -408,8 +321,7 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 				pass
 
 	def update(self) -> None:
-		# Forgotten first, because this reading may find no text at all, and a depth left from
-		# the last one would indent an emptied line as the item it used to be.
+		# Forgotten first, in case this reading finds no text.
 		self.listDepth = None
 		self._listDepthRead = False
 		super().update()
@@ -427,9 +339,8 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 	def takeCursor(self) -> bool:
 		"""Move the real cursor to this block, for a live flow.
 
-		What panning does in a live flow: the browse mode cursor follows the window to the
-		top block of what is now shown, so speech and braille agree and the arrow keys
-		carry on from what is under the reader's hands. A viewer moves nothing.
+		On a pan the cursor follows the window to its top block, so speech and braille agree.
+		A viewer moves nothing.
 
 		:return: whether the cursor was moved.
 		"""
@@ -449,13 +360,8 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 	def cursorMark(self):
 		""":return: a mark for where `takeCursor` would put the cursor, or None.
 
-		Collapsed, because that is what the caret becomes once it is moved there, and the
-		two are compared against each other: `takeCursor` moves the caret to this position,
-		and moving it to a *range* leaves the caret at that range's start with nothing
-		selected. See `FlowController._caretsAfterAPan`.
-
-		Whether the cursor is one this flow would move at all is the caller's question, not
-		this one's — see `FlowController._cursorMark`.
+		Collapsed, as the caret will be, for comparing. See `FlowController._caretsAfterAPan`
+		and `FlowController._cursorMark`.
 		"""
 		if self._position is None:
 			return None
@@ -498,9 +404,8 @@ class FlowCursorManagerRegion(FlowRegion, CursorManagerRegion):
 def regionFactoryFor(template, live: bool) -> Callable:
 	"""Choose the region class for a document, from one NVDA built for it.
 
-	Taken from NVDA's own decision rather than made here, so that which kind of region an
-	object wants stays NVDA's judgement and only the cursor policy is ours. The same
-	reasoning as `pinnedRegions.pinnedCounterpart`.
+	NVDA chooses the region class; only the cursor policy is ours, as in
+	`pinnedRegions.pinnedCounterpart`.
 
 	:param template: a region from `getFocusRegions` for the object in question.
 	:param live: whether the flow moves the real cursor.
@@ -524,10 +429,8 @@ def regionFactoryFor(template, live: bool) -> Callable:
 def _hasText(obj) -> bool:
 	"""Whether an object has text to read.
 
-	Asked by reading a position out of it rather than by looking for `makeTextInfo`, which
-	every `NVDAObject` has: the base raises `NotImplementedError` for the ones with no text,
-	so the presence of the method says nothing. A button would otherwise be flowed, and
-	would fail one step further on with a worse account of why.
+	By reading a position, since every `NVDAObject` has `makeTextInfo` but some raise
+	`NotImplementedError`.
 
 	:param obj: the object to test.
 	:return: whether it can be read.
@@ -546,9 +449,7 @@ def _hasText(obj) -> bool:
 def regionFactoryForObject(obj, live: bool) -> Callable:
 	"""Choose the region class from the object itself, when NVDA has offered no template.
 
-	`regionFactoryFor` is preferred, because it keeps the choice NVDA's. This is the
-	fallback for the case where `getFocusRegions` produced nothing usable, which should not
-	happen for a browse mode document and is worth reading rather than giving up over.
+	The fallback to `regionFactoryFor` when `getFocusRegions` produced nothing usable.
 
 	:param obj: the object or tree interceptor to read.
 	:param live: whether the flow moves the real cursor.
@@ -573,10 +474,8 @@ def regionFactoryForObject(obj, live: bool) -> Callable:
 class FetchBudget:
 	"""How much work one fetch may do before showing what it has.
 
-	Deliberately crude. It counts blocks and checks the clock between them, which bounds
-	how many slow reads happen in a row but cannot shorten one slow read: a single
-	`Region.update` on a heavy page is as long as it is. That is why per block latency is
-	recorded from this milestone rather than only measured at the end.
+	Counts blocks and checks the clock between them, so it bounds how many slow reads happen
+	but cannot shorten one. Per block latency is recorded too.
 	"""
 
 	def __init__(
@@ -599,11 +498,8 @@ class FetchBudget:
 		self.operationBlocks = 0
 		"""When the whole operation began, and what it had spent before its last renewal.
 
-		Kept beside `started` and `blocks` rather than instead of them, because the two
-		clocks answer different questions. The allowance is what `exhausted` compares itself
-		against and it is what `renew` resets; the operation is what the reader waited
-		through. A measurement that forgot the failed reach standing in front of the placing
-		reported a third of the latency it was asked about. See L{renew}."""
+		Separate from `started`, which `renew` resets, since this is what the reader waited
+		through. See `renew`."""
 
 		self.active = False
 		"""Whether an operation is under way.
@@ -625,9 +521,7 @@ class FetchBudget:
 		"""How many operations were cut short, and so showed the reader less than the band
 		could hold. The number that says whether the budget is sized right.
 
-		Counted from a fetch actually refused, never from the allowance being used up. An
-		operation whose last permitted block filled the display stopped nothing: there was
-		nothing more it wanted."""
+		Counted only when a fetch is actually refused. See `refuseIfExhausted`."""
 
 		self.stopsBy = {"blocks": 0, "time": 0}
 		"""How many fetches were refused for each reason.
@@ -664,12 +558,7 @@ class FetchBudget:
 	def finish(self) -> None:
 		"""End the operation, and keep what it cost.
 
-		The numbers kept here are the whole of the measurement this design promised itself
-		when it decided to bound work rather than to trust it. A budget that is never
-		compared with what reading actually costs is a number somebody guessed, and this
-		project has now twice had a guessed number turn out to be the fault — see
-		`budgetForBand`. What is wanted from a reader is not "it felt slow" but "the slowest
-		block was two milliseconds and nine operations in a hundred stopped early".
+		The numbers the budget is checked against; see `budgetForBand` and the flow cost command.
 		"""
 		self.active = False
 		# The whole operation, renewals included. See L{renew}.
@@ -687,28 +576,10 @@ class FetchBudget:
 	def renew(self) -> None:
 		"""Give the operation under way a fresh allowance, without ending it.
 
-		**For one thing: showing the reader where they are, after the reaching failed.** An
-		arrival first tries to extend the band to the block the reader has moved to, and on a
-		slow application that walk can spend the whole allowance and not get there — in
-		Outlook a single step took twice what a whole operation is given. What follows is the
-		fallback that places the band afresh around them, and run on the spent allowance it
-		places one block and refuses every other, so the reader who moved one row is left
-		with one row. The reaching cost them nothing they can use; the placing is the answer
-		to the key they pressed.
-
-		Bounded by being asked for in one place: an arrival may cost two allowances and never
-		three, so the longest a keypress can take is doubled and not unbounded.
-
-		`stopped` is deliberately left as it is. The operation *was* cut short, the reader did
-		feel it, and an operation that hid its own stop from the count would leave the numbers
-		saying the budget fits when it does not. What the renewal is worth is counted
-		separately, in L{renewals}.
-
-		**The allowance is renewed and the measurement is not.** Both were reset here, so an
-		arrival that spent two hundred milliseconds failing to reach the reader and a hundred
-		placing the band reported a hundred — and the reader had waited three. The number the
-		whole design is judged by was hiding the half of the latency this renewal exists
-		because of.
+		Only for placing the band afresh after a reach spent the budget; see
+		`FlowController._placeAfresh`. Called in one place, so an arrival costs at most two
+		allowances. `stopped` is left set, so the count stays honest, and renewals are counted
+		in `renewals`. The allowance is renewed; the operation's own measurement is not.
 		"""
 		self.renewals += 1
 		self.operationBlocks += self.blocks
@@ -730,10 +601,8 @@ class FetchBudget:
 	def refuseIfExhausted(self) -> bool:
 		"""Turn a wanted fetch away, if there is nothing left to make it with.
 
-		Asked at the moment a fetch is wanted rather than at the end of the operation. The
-		difference is the whole worth of the count: an operation that spent its last block
-		filling the last row of the band wanted nothing more and stopped nothing, and
-		counting it as a stop would have the reader chasing an allowance that fits.
+		Asked when a fetch is wanted, so an operation that used its last block and wanted no more
+		is not counted as stopped.
 
 		:return: whether the fetch is refused.
 		"""
@@ -747,8 +616,7 @@ class FetchBudget:
 	def observe(self, seconds: float) -> None:
 		"""Record how long a block took without spending any of the budget on it.
 
-		Reading one block is not optional, so it is measured rather than charged for. What
-		the budget limits is how many more are read after it.
+		For a block that must be read; the budget limits how many more follow.
 
 		:param seconds: how long that block took.
 		"""
@@ -757,8 +625,7 @@ class FetchBudget:
 	def spend(self, seconds: float = 0.0) -> bool:
 		"""Account for one block, and say whether there is room for another.
 
-		Charged for reading a block and again for laying it out, since both are work the
-		reader waits through and either can be the slow one.
+		Charged for reading a block and again for laying it out.
 
 		:param seconds: how long that block took, for the latency record.
 		:return: whether the budget allows going on.
@@ -798,20 +665,15 @@ LINE_BREAKS = "\n\r\v\f\x85\u2028\u2029"
 Carriage return and line feed; the vertical tab and form feed, which is what Word puts in for
 a manual line break and a page break; the Unicode next-line, line and paragraph separators.
 
-What is deliberately *not* here is the rest of what `str.splitlines` splits on — the file,
-group and record separators, `0x1C` to `0x1E`. No document uses those to end a line, and Word
-uses two of them for hyphens: `0x1E` is a non-breaking hyphen and `0x1F` an optional one. See
-`DocumentFlowSource._hasSwallowedWhatFollows`, which ended a reader's Outlook message at the
-word "trade-in".
+Not the rest of what `str.splitlines` splits on (`0x1C` to `0x1E`), since Word uses `0x1E`
+for a non-breaking hyphen. See `DocumentFlowSource._hasSwallowedWhatFollows`.
 """
 
 
 class DocumentFlowSource:
 	"""Blocks read out of a document, by reading unit.
 
-	Cheap by construction: moving a `TextInfo` inside a browse mode document does not cross
-	to the application, because the virtual buffer's text is already in NVDA's process.
-	Walking `NVDAObject` relations is the expensive kind of reading and is not done here.
+	Cheap: a virtual buffer's text is already in NVDA's process.
 	"""
 
 	def __init__(
@@ -842,10 +704,8 @@ class DocumentFlowSource:
 		self.writing = interactive
 		"""Whether the reader is typing into the document this source reads.
 
-		Different from `interactive` below, which is also turned on for a page holding an
-		edit the reader has entered. This one is about the document itself, and it is what
-		says that everything in the band can move on every keystroke: a line inserted or
-		deleted moves every position after it, and on a rich edit the ones before it too."""
+		Unlike `interactive`, about the document itself: every position can move on each
+		keystroke."""
 		self.budget = budget if budget is not None else FetchBudget()
 		self._positions = ByIdentity()
 		"""The position each block starts at, by bookmark.
@@ -864,11 +724,8 @@ class DocumentFlowSource:
 		self._swallowed = ByIdentity()
 		"""Blocks that came back holding more than their own reading unit.
 
-		A line is one line. Chromium's rich editor answers otherwise for a moment after a
-		return at the end of the text: the line at the caret comes back as everything from
-		the start of the document up to it. NVDA's own region shows the same, so the flow is
-		reading faithfully — but a band that then walks *on* from such a block fetches the
-		line it already contains, and shows it twice. See `_step`."""
+		Chromium's rich editor can briefly answer a line as everything before it, and walking on
+		from such a block would show a line twice. See `_step`."""
 
 		self._interactiveObject = None
 		"""The focused edit whose caret owns the active block, or None."""
@@ -882,10 +739,8 @@ class DocumentFlowSource:
 	def setInteractiveObject(self, obj, regionFactory: Optional[Callable] = None) -> bool:
 		"""Read one document block through its focused editable object.
 
-		The block keeps its place in this document, so the surrounding label and following
-		content still come from the tree interceptor. Only the region which reads the active
-		block changes: its ``obj`` is the real edit control, which is the object NVDA names in
-		caret and value-change events.
+		The block keeps its place in the document; only its region changes, to one whose `obj`
+		is the edit control, which NVDA names in caret and value events.
 
 		:param obj: the focused edit, or None to return to ordinary document regions.
 		:param regionFactory: builds the edit's flow region, chosen from NVDA's own region.
@@ -914,16 +769,9 @@ class DocumentFlowSource:
 	def blockAtCursor(self, atObject=None) -> FetchResult:
 		"""The block the cursor is in, or the one a given object starts.
 
-		:param atObject: what the reader arrived at. Its own place in the document is read
-			rather than the cursor's, because a focus event can land before the browse mode
-			cursor has caught up — and because tabbing into an edit field or a combo box
-			drops browse mode into focus mode and puts the cursor *inside* the control,
-			where the line is the value being edited and the control's name, role and state
-			are an enclosing field rather than this line's own. Starting at the object gives
-			the line browse mode would show for it, which is the one carrying the name.
-
-			Any focus target the document can place: a link is read at its own place for the
-			first of those reasons, though none of the second applies to it.
+		:param atObject: what the reader arrived at, read at its own place in the document,
+			since the cursor can lag the focus event and, in focus mode, sits inside the
+			control rather than on the line that carries its name.
 		:return: the block, or an error if the document could not be read.
 		"""
 		self.budget.startUnlessActive()
@@ -967,10 +815,8 @@ class DocumentFlowSource:
 	def caretPosition(self):
 		""":return: a mark for where this document's caret is, or None if it cannot be read.
 
-		Compared by value between two readings, and nothing more. What it is worth is that it
-		comes from the document rather than from anything the flow rendered, so it can say
-		whether the reader typed while the band was looking somewhere else. See
-		`FlowController._backToWhereTheyPanned`.
+		Compared by value. From the document, not the rendering. See
+		`FlowController._caretIsWhereThePanLeftIt`.
 		"""
 		try:
 			return self.obj.makeTextInfo(textInfos.POSITION_SELECTION).bookmark
@@ -1015,14 +861,9 @@ class DocumentFlowSource:
 	def _interactiveOwnsTheCaret(self) -> bool:
 		"""Whether the focused edit is still the one the reader is typing in.
 
-		Browse mode can take itself back without a focus change: Escape leaves the field with
-		the focus still on it, and from that moment the reader's place belongs to the document
-		again. Consulted only where an edit was set, because without it the flow would go on
-		answering every caret move with the field the reader had left, and the display would
-		sit on that field while they arrowed down the page.
-
-		Not cleared, only bypassed. Entering the field again is the same toggle in reverse and
-		need not be a focus change either.
+		Escape returns to browse mode without a focus change, giving the caret back to the
+		document. Bypassed rather than cleared, since entering the field again need not be a
+		focus change either.
 
 		:return: whether to read the active block through the edit.
 		"""
@@ -1051,9 +892,8 @@ class DocumentFlowSource:
 		"""Where an object starts in this document.
 
 		:param obj: the object to find.
-		:return: a position at its start, or None if this document cannot place it — which is
-			the ordinary answer for anything that is not in it, and leaves the caller reading
-			from the cursor as it always has.
+		:return: a position at its start, or None if this document cannot place it, and the
+			caller reads from the cursor.
 		"""
 		try:
 			info = self.obj.makeTextInfo(obj)
@@ -1069,23 +909,10 @@ class DocumentFlowSource:
 	def blockAt(self, blockId: BlockId) -> FetchResult:
 		""":return: one block again, read afresh from the position it was read from.
 
-		What live updating needs, and the reason a document can have it at all: a page whose
-		values change under the reader has to be re-read without the band moving, and the band
-		does not move because every block keeps the identity it already had.
-
-		**A block is only given back when it still begins where it did.** The bookmark is an
-		offset into the buffer, so text growing or shrinking *earlier* in the document moves
-		every block after it: the cached position then lands inside some other unit, and
-		expanding it would hand back a neighbour under this block's name — a line drawn twice
-		on the band, which is worse than a line that is out of date. So the unit at the cached
-		position is asked where it begins, and a block whose answer has moved is refused. The
-		reader's next keystroke reads the document afresh, which is the repair.
-
-		Text changing *within* a block does not move it, and that is the ordinary case this
-		exists for: a price going from 309.48 to 309.46 leaves every position alone.
-
-		The refusal is marked as a displacement, because it is news about every block the band
-		holds and not only this one. See `FetchResult.displaced`.
+		For live updates without moving the band. Given back only when the unit still begins
+		where it did, since the bookmark is an offset and earlier text changes move it; the
+		refusal is marked as a displacement (see `FetchResult.displaced`). Changes within a
+		block, such as a price, move nothing.
 		"""
 		self.budget.startUnlessActive()
 		start = self._positions.get(blockId.bookmark)
@@ -1103,13 +930,8 @@ class DocumentFlowSource:
 	def hasMoved(self, blockId: BlockId) -> bool:
 		""":return: whether a block no longer begins where it was read from.
 
-		`blockAt`'s question without the reading: one expansion at the cached position, with
-		no region built. What an arrival asks of the block the reader is leaving, because an
-		arrival walks from the cached positions to find the new one, and walking from offsets
-		that have moved found the line the reader was already on a second time. On a stock
-		page, whose index ticks above the headlines, that was the focused link drawn twice.
-
-		False when it cannot be told, which leaves things as they were before this was asked.
+		`blockAt`'s check without building a region, asked on arrival before walking from cached
+		positions. False when it cannot be told.
 		"""
 		start = self._positions.get(blockId.bookmark)
 		if start is None:
@@ -1189,21 +1011,9 @@ class DocumentFlowSource:
 	def _startsWhereItLanded(self, moved, start) -> bool:
 		"""Whether the unit at a walked-to position starts at that position.
 
-		A walk lands on unit boundaries, so the unit found at the landing must begin there.
-		A rich editor being typed into transiently says otherwise: asked to expand at a
-		fresh boundary it reaches back — sometimes to the start of the document — and a
-		block built from that answer renders everything it reached over. Walking forward
-		past the caret that is the reader's text repeated below the line they are on;
-		walking *back*, which is what restoring the band's top row does on every keystroke,
-		L{_advanced} cannot catch it, because the reach-back does land earlier and earlier
-		is what walking back means. On hardware the restore then either anchored the band
-		on a block holding the whole edit — the reader's first lines merged into one row —
-		or, where the editor refused the walk another way, pinned the line being typed to
-		the top row with everything above it gone.
-
-		Asked only while writing, where the transient lives: every keystroke re-reads the
-		band, so a step refused this moment is read properly the next. A document merely
-		being read holds still, and an implementation quirk there should not cost content.
+		A rich editor being typed into can briefly expand a unit back past the landing, which
+		`_advanced` cannot catch when walking back. Asked only while writing, since each
+		keystroke re-reads the band anyway.
 
 		:param moved: where the walk landed.
 		:param start: where the unit at that landing claims to begin.
@@ -1220,25 +1030,10 @@ class DocumentFlowSource:
 	def _overlapsWhereItCameFrom(self, start, origin, forward: bool) -> bool:
 		"""Whether a walked block covers text the block it came from already covers.
 
-		**The one shape a duplicate on the display can have that nothing else here catches.**
-		Two blocks are two rows, and two rows must be two different pieces of the document;
-		when the ranges behind them overlap, whatever they share is drawn twice and the
-		reader reads a line they have already read. `_advanced` compares where the two blocks
-		*begin*, which is a different question — a block can begin earlier and still reach
-		forward over its neighbour — and `_hasSwallowedWhatFollows` asks the text of a line
-		rather than the extent of a unit, so it says nothing about a paragraph and nothing
-		about the walk backwards.
-
-		Backwards is where this earns its place. Restoring the band's top row walks back from
-		the caret on every keystroke, and a rich editor being typed into answers the unit at
-		that landing by reaching *forward* over the boundary, so the block above ends inside
-		the line being typed and the reader feels their own line twice: once above and once
-		under the caret. That is the twin of the reach-back `_startsWhereItLanded` refuses,
-		and the same answer is right for it.
-
-		Asked only while writing, for the reason given there: the transient lives in an editor
-		answering during a keystroke, a document being read holds still, and content is too
-		expensive to refuse over an implementation quirk that is not happening.
+		Overlapping blocks draw their shared text twice. Neither `_advanced`, which compares
+		starts, nor `_hasSwallowedWhatFollows`, which checks a line's text, catches it. The
+		forward-reaching counterpart of `_startsWhereItLanded`, and asked only while writing,
+		for the same reason.
 
 		:param start: where the unit the walk found begins.
 		:param origin: the position the walk set out from, which is the boundary the new
@@ -1266,11 +1061,8 @@ class DocumentFlowSource:
 	def _advanced(self, origin, start, forward: bool) -> bool:
 		"""Whether a walked block really is the next one along.
 
-		The invariant the whole stream rests on and had never been stated: walking forward
-		lands *after* where it started, and walking back lands before it. A document that
-		answers otherwise is not being disbelieved out of caution — a block that does not
-		advance is the block already on the display, and showing it again is the duplicate
-		row that reading a comment box produced after every return.
+		The stream's invariant: forward lands after where it started, back lands before. A
+		block that does not advance is already on the display.
 
 		:param origin: where the block being walked from starts.
 		:param start: where the block found starts.
@@ -1288,18 +1080,9 @@ class DocumentFlowSource:
 	def _pastTheBreak(self, info, forward: bool):
 		"""Step over the empty unit a paragraph walk lands on between two paragraphs.
 
-		A paragraph break is what separates one paragraph from the next, and in a rich editor
-		the walk lands *on* it rather than past it: reading by paragraph, one return read as
-		two rows, with a blank between every pair. That empty unit is the break, not a line
-		the reader made — in this unit the break is already the row boundary, so giving it a
-		row of its own says they pressed return twice.
-
-		Exactly one is stepped over, which is what keeps the distinction: a single return
-		leaves one empty unit and it goes, while two leave two and the second is a paragraph
-		the reader meant and keeps its row.
-
-		Only for paragraphs. An empty *line* is a line, and decision 6 — blank lines are the
-		document while somebody is writing — is about those.
+		In a rich editor a paragraph walk lands on the break itself. Exactly one is stepped
+		over, so two returns still leave one blank paragraph. Paragraphs only; empty lines follow
+		decision 6 of docs/design/spatial-reading-plan.md.
 
 		:param info: where the walk landed.
 		:param forward: which way it was going.
@@ -1372,22 +1155,9 @@ class DocumentFlowSource:
 	def _hasSwallowedWhatFollows(self, region) -> bool:
 		"""Whether a block came back holding more than the reading unit it was asked for.
 
-		A line holds one line. A region's text carries no line terminator — NVDA strips it
-		and puts a space there instead — so a break inside one means the document answered
-		with more than was asked of it, and what it swallowed is the block that would be
-		fetched next.
-
-		Only for lines. A paragraph may legitimately hold soft breaks, and asking this of one
-		would end every reading at the first of them.
-
-		**The break characters are named rather than left to `str.splitlines`.** That was how
-		this was written, on the reasoning that whatever a document separates its lines with
-		should count — and `splitlines` also splits on the file, group and record separators,
-		which no document uses as a line break and Word uses for something else entirely.
-		`0x1E` there is a *non-breaking hyphen*, so an Outlook message reading "trade-in" made
-		this say the block had swallowed the next line, the walk ended the stream, and the
-		reader could pan no further into a message NVDA read to the end. Found by the reason
-		this now gives for stopping.
+		NVDA replaces a line's terminator with a space, so a break inside a line means the
+		document returned more than one. Lines only, since paragraphs may hold soft breaks. The
+		break characters are listed explicitly; see `LINE_BREAKS`.
 
 		:param region: the region the block was read through.
 		:return: whether this block already contains what follows it.

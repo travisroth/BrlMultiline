@@ -5,50 +5,17 @@
 
 """Where a table's columns sit on the band, and how wide each of them is.
 
-A table read one cell at a time is a table nobody can compare. NVDA reads a row left to
-right, reproducing each cell's header before its value, and on one line that is the only
-thing it could do — but the whole reason a watchlist is a table is that the reader wants to
-run a finger *down* a column. That needs the same column to start at the same cell offset on
-every row, and it needs enough rows on the display at once for "down" to mean anything.
+So a column starts at the same cell offset on every row and can be read down. Arithmetic
+only, importing nothing from NVDA, like `flowIndent`, so it can be tested on its own.
 
-This module is the arithmetic and nothing else, and it is here on its own for the reason
-`flowIndent` is: it imports nothing from NVDA, so every rule below can be tested without a
-screen reader or a display. What it never sees is a table — only a list of measurements and
-a width to fit them into.
-
-**Widths are measured in cells, not characters.** A caller that measures text length is
-measuring the wrong thing: a contracted table translates "Change" to four cells and "%" to
-one, and columns aligned by character count are columns that are not aligned. Measuring
-means translating, which is the caller's business and costs what it costs; this module takes
-the answer.
-
-**The plan is made once and kept.** Indent rebases as the band moves, because a margin that
-shifts by two cells is a small thing beside drawing the wrong depth. Columns are the
-opposite: a column that moves is a column the reader has to find again, and they would move
-on every scroll if the widths came from whatever rows happen to be on the display. So a plan
-is made from what was measured when the reader entered the table and kept until something
-makes it wrong — see `shouldReplan`, which answers no to almost everything.
-
-**A row may take more than one row of the band.** Five columns that want thirty-four cells
-do not fit on thirty-two, and there are only two honest answers: give every column less, or
-let the row run onto a second band row. Which one is `maxRows`, a setting, because a reader
-comparing four numbers wants them side by side at any cost and a reader reading addresses
-wants them legible.
-
-**And a table may have more columns than any band can hold.** Twenty-nine of them is an
-ordinary watchlist and thirty-two cells is an ordinary display, and no arithmetic reconciles
-those. So the columns are dealt into bandfuls — as many as fit at readable widths, then the
-next — which is what decides the widths, and the band then shows a *run* of them starting
-wherever the reader has scrolled to. The first attempt at this squeezed what it could into one
-band and dropped the rest, which gave three cells of each of eight columns and eleven columns
-that did not exist. Nothing is dropped.
-
-**The run scrolls; it does not turn like leaves.** The second attempt showed one fixed page at
-a time, so a caret moving one column past the right edge replaced everything under the
-reader's hands at once. The row axis has never worked that way and the reader asked for the
-same here: one column on at the right, one off at the left. The page turn command is still
-there and still moves a whole bandful — of whatever is showing at the time, so the two cannot
-get out of step. See `ColumnPlan.at`.
+1. Widths are in cells, not characters; the caller measures by translating.
+2. The plan is made once on entering the table and kept, so columns do not move; see
+   `shouldReplan`.
+3. A table row may take more than one band row; see `maxRows`, a setting.
+4. Columns are dealt into bandfuls at readable widths, which decides the widths. Nothing
+   is dropped.
+5. The band shows a run of columns that scrolls one column at a time, as rows do; the page
+   turn moves by however many are showing. See `ColumnPlan.at`.
 """
 
 import dataclasses
@@ -64,17 +31,8 @@ Wrap continues it on the next band row of the same table row, in the same column
 indented, so the table row grows as tall as its longest cell needs. Truncate cuts it at the
 column's width and the table row stays one row tall.
 
-**Wrap is the default, because a display that silently drops data is not a display of the
-data.** Truncation keeps a beautiful shape down the band and the reader cannot tell a cell
-that ended from a cell that was cut, which is the wrong way round: the shape is what they
-are reading the table *for*, and the values are what they are reading it *about*.
-
-Truncation is kept and it earns its place — it is what a reader who knows the table wants.
-An options watchlist has symbols long enough to push every other column into uselessness,
-and a reader who can recognise a contract from its first six cells would rather have the
-whole table on one row of the band than have every row grow to fit the one column they can
-already read. That is a judgement about a particular table by somebody who knows it, which
-is exactly what a setting is for and exactly what a default must not assume.
+Wrap is the default, since truncation silently drops data. Truncation is a setting for a
+reader who knows a table well enough to recognise values from their start.
 """
 
 DEFAULT_OVERFLOW = WRAP
@@ -82,105 +40,68 @@ DEFAULT_OVERFLOW = WRAP
 COLUMN_GAP = 1
 """Cells between one column and the next.
 
-One, and blank. Two is a cell a 32 cell display has not got to spare four times over, and
-none at all runs the columns together — a truncated cell ends mid word and the next column
-starts immediately, which reads as one word.
+One blank cell; none would run a cut cell into the next column.
 """
 
 CELL_INDENT = 2
 """How far a wrapped cell's continuation is indented within its own column.
 
-Less than a list's or a tree's, which is what `flowIndent.CONTINUATION_EXTRA` spends, because
-a column has far fewer cells to spend than a row does: two of a six cell column is a third of
-it, where two of a thirty-two cell row is a sixteenth.
-
-It is still worth spending. The column boundary already says *which* column a continuation
-belongs to; what it cannot say is that the row below is the same value still going rather
-than the next value down, and in a column of numbers that is the difference between reading
-a price and reading two.
-
-Narrowed further on a narrow column — see `indentFor` — because a third of a column is a
-great deal and the alternative to indenting less is not indenting at all.
+Less than `flowIndent.CONTINUATION_EXTRA`, since a column has fewer cells to spare, but enough
+to show the row below continues the same value. Narrowed further on narrow columns; see
+`indentFor`.
 """
 
 READABLE_CELLS = 6
 """The narrowest a column is shrunk to in order to make room for another.
 
-Six, because below it a column stops being a value and becomes a fragment of one. A price of
-"310.34" in three cells is "310" on one row and ".34" on the next, or with the continuation
-indent a digit at a time — and a reader running down a column of those is not comparing
-prices, they are assembling them.
-
-It is a floor on *shrinking*, not a size. A column of one-character flags keeps its own
-width; what this stops is a wide column being cut down past reading to make room for a
-neighbour. What will not fit goes on the next page instead, which costs a keypress and
-costs nothing else.
-
-`MIN_COLUMN_CELLS` is the harder floor below it, for a column whose content is genuinely
-that short.
+Below six a value becomes fragments. A floor on shrinking, not a size: a short column keeps
+its own width, and what will not fit goes to the next page. `MIN_COLUMN_CELLS` is the hard
+floor.
 """
 
 MIN_COLUMN_CELLS = 3
 """The narrowest a column may be drawn.
 
-Below this a column is not short, it is gone: three cells of a contracted word is a letter
-and a bit, and a reader cannot tell "AAPL" from "AAL" in it. A column that cannot have three
-cells is left out of the plan instead, which at least says plainly that it is not there.
+Below this a column is unreadable, so it is left out of the plan instead.
 """
 
 MAX_COLUMN_CELLS = 40
 """The widest a column may be drawn, however long its content is.
 
-A description column in a table of files is hundreds of characters and would take the whole
-band for itself. The cap is generous — wider than a Monarch's row — so that it only bites on
-the genuinely runaway column, and a reader who wants more sets it.
+Generous, wider than a Monarch's row, so it only stops a runaway column such as a description.
 """
 
 MAX_TABLE_ROWS = 4
 """How many band rows one table row may use.
 
-Four of a Monarch's eight, so that at the very worst two table rows are on the display at
-once. A "table" laid out taller than that is not being read as a table any more, and reading
-order — which NVDA already does well — is the better answer for it.
+Half a Monarch, so at least two table rows show; taller is better read in reading order.
 """
 
 DEFAULT_MAX_ROWS = 1
 """How many band rows one table row uses unless the reader says otherwise.
 
-One. The comparison a table is for is between rows, and rows the reader can hold under one
-hand at once. Eight one-row records beat two four-row ones for every question a watchlist is
-asked, and a reader who needs the fourth column legible can raise this or hide a column.
+One, since a table is for comparing rows, and more records under the hand is better.
 """
 
 DEFAULT_TARGET_HEIGHT = 2
 """How tall one table row may be, in band rows, before a page gives up a column.
 
-Not the same number as `maxRows`, and the two are easy to confuse. `maxRows` is how many
-band rows the *columns* are packed into — a shape decision, and the reader's setting.
-This is how tall the drawn row is allowed to become once its cells have wrapped, and it is
-what decides how many columns go on a page.
-
-Two, so that four records are under the hand at once on an eight row band. The first cut of
-this counted only the horizontal fit, and on a real table it produced four columns at seven
-cells that added up to exactly thirty-two — a flawless fit on the axis nobody reads on, with
-every cell wrapping to four rows underneath it. Two records on the display, and the reason
-to lay a table out in columns is gone.
+Not `maxRows`, which is how many band rows the columns are packed into. This is how tall a
+row may become once its cells wrap, and it decides how many columns go on a page, so that
+four records show on an eight row band.
 """
 
 TARGET_SHARE = 4
 """What fraction of the band one table row may fill, which is where the target comes from.
 
-A quarter. See `targetHeightFor`: on an eight row band that is the two of
-`DEFAULT_TARGET_HEIGHT`, and on a taller display it is more, because what matters is how
-many records are under the hand rather than how many rows one of them takes.
+A quarter: `DEFAULT_TARGET_HEIGHT` on an eight row band, more on a taller one. See
+`targetHeightFor`.
 """
 
 KEY_SHARE = 3
 """The most of the band a pinned key column may take, as a fraction of it.
 
-A third. The pin is an orientation aid rather than the data — see `ColumnPlan.keyColumn` —
-and a pin that took half the band would be paying for orientation with the columns being
-oriented.
+A third, since the pin is an orientation aid; see `ColumnPlan.keyColumn`.
 """
 
 
@@ -196,14 +117,8 @@ def targetHeightFor(bandRows: int) -> int:
 def rowsNeeded(content: int, width: int) -> int:
 	"""How many band rows a cell of a given length takes in a column of a given width.
 
-	The arithmetic the width decision was missing. A column is chosen by how many cells it
-	is given, and what the reader feels is how many rows that costs — those are not the same
-	question, and a plan that answers only the first fits four columns into thirty-two cells
-	perfectly and puts two records on an eight row band.
-
-	The continuation rows are narrower than the first by the column's indent, so this is not
-	a plain division. Wrapping is assumed: a truncated column is always one row and callers
-	that know they are cutting do not ask.
+	What a width costs in rows. Continuation rows are narrower by the column's indent, so
+	this is not a plain division. Assumes wrapping; a cut column is always one row.
 
 	:param content: how many cells the value translates to.
 	:param width: how many cells the column is drawn in.
@@ -223,13 +138,9 @@ KEEP_END = "end"
 KEEP_ENDS: tuple[str, ...] = (KEEP_START, KEEP_END)
 """Which half of a cut cell is kept.
 
-The start, which is what cutting has always meant, or the end. The reader has a table whose
-first column carries six lines of help text before the thing that identifies the row: cut from
-the start it reads as six words of somebody else's advice on every row, and cut from the end it
-reads as the row's own name. Neither is right in general, which is why it is a choice.
-
-A cell is cut by drawing it in full at the column's width and keeping one of the rows that
-makes — the first or the last. See `flowRender.FlowRenderer._cellRows`.
+The start or the end, since some columns put what identifies the row at the end. A cell is
+cut by drawing it in full and keeping its first or last row. See
+`flowRender.FlowRenderer._cellRows`.
 """
 
 
@@ -237,11 +148,8 @@ makes — the first or the last. See `flowRender.FlowRenderer._cellRows`.
 class ColumnChoice:
 	"""What a reader decided about one column, or nothing where they have said nothing.
 
-	Every field is empty by default and empty means "not my business": the measurement and the
-	settings answer, as they do for a table nobody has laid out by hand. That is the rule
-	`flowTableLayouts.TableLayout` follows for a whole table, for the same reason — a decision
-	written down survives a display, a page redesign and a version of this add-on, and a
-	measurement written down as though it were a decision is a trap.
+	Empty fields defer to the measurement and settings, as in `flowTableLayouts.TableLayout`,
+	so a measurement is never stored as a decision.
 	"""
 
 	label: str = ""
@@ -279,23 +187,8 @@ class ColumnChoice:
 	plainCase: bool = False
 	"""Whether this column is drawn without capital signs, values and heading alike.
 
-	**Two cells of a seven cell column.** A stock symbol is written in capitals, and in a six
-	dot table an all-capitals word carries the capitals-word indicator in front of it — dot 6
-	twice. `AAPL` is six cells, `aapl` is four, `BRK.B` is eight against five. On a column
-	sized for a symbol that is the difference between the value fitting and being cut.
-
-	Done by lowering the text before it is translated, which is the only lever there is:
-	liblouis takes no mode for this — NVDA passes it `compbrlAtCursor` and `partialTrans` and
-	nothing else — and the indicator comes from the table's own `capsletter` and `begcapsword`
-	opcodes. Removing the cells afterwards would mean knowing which cell is an indicator in
-	every table there is; lowering the text asks the table that question itself.
-
-	It costs nothing but the capitals. Translating twenty-three tickers, names and headings
-	both ways in `en-ueb-g2`, the lowercase cells were in every case the uppercase cells with
-	the dot 6 cells taken out: `CHTR` keeps its `ch` contraction, `T` keeps the grade one
-	indicator that stops it reading as "that", and nothing came out longer. A reader on an
-	eight dot computer braille table will see no change, because there the capital is dot 7
-	inside the cell and costs nothing to begin with.
+	Saves the capital indicator cells in six dot tables. See `flowTableSource.withoutCapitals`.
+	No change in eight dot computer braille, where a capital costs nothing.
 	"""
 
 	@property
@@ -324,9 +217,7 @@ class Column:
 	index: int
 	"""The table's own column number, one based, as NVDA reports it.
 
-	Kept rather than the position in the plan, because the plan's order is the drawing order
-	and a hidden column leaves a hole in it. Everything that has to go back to the table —
-	fetching the cell, routing a finger press into it — needs the table's number.
+	Not the plan position, since fetching and routing need the table's own number.
 	"""
 
 	width: int
@@ -335,10 +226,8 @@ class Column:
 	label: str = ""
 	"""The header, where the table has one.
 
-	Carried through the plan although nothing in this milestone draws it: it is what the
-	pinned header row will hold, and it is what a saved layout matches a table by. Measuring
-	it is also the only honest way to decide a default width for a column whose content is
-	all short — a column of one character flags under a header called "Watched".
+	Used for the pinned header row, for matching saved layouts, and for the width of a column
+	whose content is all short.
 	"""
 
 	overflow: str = DEFAULT_OVERFLOW
@@ -353,17 +242,14 @@ class Column:
 	pinned: bool = False
 	"""Whether this is the repeated copy of the key column rather than the column itself.
 
-	The same table column, drawn again at the left of a later page so that the reader knows
-	whose row they are reading. It is a copy in the plan and not in the table: it carries the
-	table's own column number, so routing a finger press over it goes to the real cell.
+	Drawn again at the left of a later page. Carries the table's own number, so routing goes
+	to the real cell.
 	"""
 
 	startsAPage: bool = False
 	"""Whether the reader said a page of columns begins here. See `ColumnChoice.startsAPage`.
 
-	Carried on the column because the band no longer shows fixed pages: it shows a run of
-	columns starting wherever the reader has scrolled to, so the one break that is *theirs*
-	has to travel with the column it is at. Everything else falls where it fits.
+	On the column, since the band shows a scrolling run rather than fixed pages.
 	"""
 
 	@property
@@ -375,9 +261,7 @@ class Column:
 def indentFor(width: int) -> int:
 	"""How far to indent a wrapped cell's continuation in a column of a given width.
 
-	`CELL_INDENT`, and less on a column too narrow to spare it: never more than a third of
-	the column, and never less than one cell, because a continuation drawn flush with the
-	value above it reads as a second value.
+	`CELL_INDENT`, at most a third of the column and at least one cell.
 
 	:param width: the column's width in cells.
 	:return: the indent, in cells.
@@ -406,9 +290,7 @@ class Placement:
 class ColumnPlan:
 	"""One table's layout, fixed for as long as the reader is in that table.
 
-	Frozen because it is part of a rendering's key, exactly as `IndentPlan` is: two rows drawn
-	under different plans are two different renderings and one must never be served for the
-	other.
+	Frozen, since it is part of a rendering's key, as `IndentPlan` is.
 	"""
 
 	columns: tuple[Column, ...] = ()
@@ -426,52 +308,23 @@ class ColumnPlan:
 	at: int = 0
 	"""Which column the band starts at, as an index into `columns`.
 
-	A table of twenty-nine columns cannot be shown on thirty-two cells and never could. The
-	first cut of this squeezed what it could into the band and dropped the rest, which gave a
-	reader three cells of every column and eleven columns that did not exist — a table you
-	could not read and could not reach the rest of. Nothing is dropped: the band shows a run
-	of columns and the reader moves along it, which is what the window does for rows, one
-	axis over.
-
-	**A place in the run rather than a page number**, and that is the second cut. The columns
-	were dealt into fixed pages and the band showed one whole page at a time, so a caret
-	moving one column to the right past the edge changed everything under the reader's hands
-	at once. The row axis has never worked that way — a row past the bottom comes on at the
-	bottom and one row goes off the top — and the reader asked for the same here: one column
-	on, one column off. So this is an offset, the page turn command moves it by however many
-	columns are showing, and the two cannot get out of step because there is only one number.
-
-	The deal into pages is still what decided the widths — see `assignment` — and the one
-	break the reader named is still kept, because it is theirs. See `Column.startsAPage`.
+	An offset into the run, not a page number, so the band scrolls a column at a time and a
+	page turn moves by however many are showing. The pages still decide the widths (see
+	`assignment`), and a break the reader named is kept (see `Column.startsAPage`).
 	"""
 
 	assignment: tuple[tuple[int, ...], ...] = ()
 	"""Which columns are on which page, by the table's own column numbers.
 
-	Empty in a plan built by hand, and then the pages are worked out by packing greedily —
-	see `_packedPages`, which is what this did before and is still what a plan with no
-	assignment means.
-
-	It is a field rather than a calculation because it is about to be a reader's choice. The
-	custom layout is "show these columns together and those apart", and that is exactly this
-	tuple with different contents; deriving it every time would mean the reader's grouping
-	had nowhere to live. Making it a field now is small. Making it one later, under a
-	shipped feature, is not.
+	Empty means pages are packed greedily; see `_packedPages`. A field rather than a
+	calculation, so a reader's grouping has somewhere to live.
 	"""
 
 	keyColumn: Optional[int] = None
 	"""The column repeated at the left of every page after the first, if any.
 
-	Six columns into a watchlist the reader is feeling four numbers with nothing to say whose
-	numbers they are, and the symbol that would say so is two pages back. So the first column
-	is drawn again at the left of each later page: the same table column, at the same offset
-	every time, cut to `keyWidth` rather than wrapped.
-
-	Cut, and only on the later pages, because it is doing a different job there. On its own
-	page it is a column and the reader is reading it, so it is drawn whole like any other.
-	On a later page it is a label — the answer to "whose row is this" — and the first few
-	cells of an identifier answer that. Nothing is lost by cutting the copy: the column
-	itself is one page turn away, drawn in full.
+	Drawn again at the left of each later page, cut to `keyWidth`, so the reader knows whose
+	row they are on. On its own page it is drawn whole like any other column.
 	"""
 
 	keyWidth: int = 0
@@ -480,35 +333,21 @@ class ColumnPlan:
 	omitted: tuple[int, ...] = ()
 	"""The table's numbers for columns that were measured and are not drawn.
 
-	Reported rather than merely skipped, because a missing column is the one kind of wrongness
-	a reader cannot see: the band looks like a table with fewer columns in it, and there is
-	nothing to say whether that is the table or the layout. See `Measurement.hidden` for what
-	puts a column here.
+	Reported, since a missing column cannot be felt. See `Measurement.hidden`.
 	"""
 
 	excluded: tuple[int, ...] = ()
 	"""The table's numbers for columns the reader's own saved layout leaves out.
 
-	Different from `omitted`, which is a column the *measurement* found nothing in, and the
-	difference is what the band does when the caret lands in one. An omitted column may turn
-	out to hold something the bounded sample missed, and is worth one look; an excluded column
-	holds whatever it holds and the reader has said they do not want it, so there is nothing to
-	look for and nothing to rebuild.
-
-	Both are *known*, which is the point. A column the plan has never heard of is evidence that
-	the table changed under the layout; hardware found the band rebuilding on every redraw
-	because the columns a saved layout dropped were, to `knows`, columns of another table.
+	Unlike `omitted`, which the measurement found empty and is worth one more look, an
+	excluded column is never rebuilt for. Both are known to `knows`, so the caret in one is
+	not taken as a changed table.
 	"""
 
 	narrowed: tuple[int, ...] = ()
 	"""The table's numbers for columns drawn narrower than their content asked for.
 
-	The half a reader meets most often. Three columns of
-	real text on a thirty-two cell band leave ten cells each, and ten cells of "Software
-	Engineer" is "Software E" — the layout is working exactly as designed and the reader is
-	looking at cut words with nothing to say they are cut. What they do about it is a
-	decision — raise the row height, hide a column, live with it — and they cannot make it
-	from a display that looks like a table with short entries in it.
+	Reported, since cut words look like short entries, so the reader can decide what to do.
 	"""
 
 	@property
@@ -520,24 +359,15 @@ class ColumnPlan:
 	def cuts(self) -> bool:
 		""":return: whether a cell too long for its column is cut rather than wrapped.
 
-		Asked of the columns rather than kept beside them, because it is the columns that
-		carry it: an application module or a saved layout may one day cut one column and wrap
-		another, and a plan-wide flag would have to be kept in step with that or quietly
-		disagree with it.
+		Asked of the columns, which carry it, rather than a plan-wide flag.
 		"""
 		return any(column.overflow == TRUNCATE for column in self.columns)
 
 	def _placeFrom(self, start: int) -> tuple[Placement, ...]:
 		"""Lay out as many columns as the band holds, beginning at one of them.
 
-		Packed greedily across the rows allowed: the reader's eye and hand both go left to
-		right and then down, so the first row of a record holds as much of it as it can.
-		Balancing would move a column to the next row for the sake of an even shape nobody is
-		reading.
-
-		Columns keep their order and their widths, so a column drawn twice in a row's life is
-		drawn the same both times. Where it *sits* depends on where the band starts, which is
-		the difference from paging: the reader is scrolling a run rather than turning leaves.
+		Packed greedily across the rows allowed, so a record's first row holds as much as it
+		can. Columns keep their order and widths; only where they sit depends on the start.
 
 		:param start: which column to begin at, as an index into `columns`.
 		:return: where each drawn column goes.
@@ -568,9 +398,7 @@ class ColumnPlan:
 	def _pinFor(self, start: int) -> Optional["Column"]:
 		""":return: the key column's repeated copy for a band starting here, or None.
 
-		Only where the column itself is off to the left. A band that starts at or before the
-		key column draws the real thing, and drawing the copy beside it would spend cells
-		saying twice what the row already says once.
+		Only where the key column itself is off to the left.
 
 		:param start: which column the band begins at, as an index into `columns`.
 		"""
@@ -593,9 +421,7 @@ class ColumnPlan:
 	def lastStart(self) -> int:
 		""":return: the furthest along the run the band can start and still show something new.
 
-		The first place from which the last column is drawn. Scrolling past it would take
-		columns off the left for nothing to come on at the right, which is the column axis of
-		what the window refuses to do with rows.
+		The first start from which the last column is drawn, as the window does for rows.
 		"""
 		if not self.columns:
 			return 0
@@ -609,18 +435,14 @@ class ColumnPlan:
 	def shown(self) -> int:
 		""":return: how many of the table's own columns the band is showing.
 
-		Not counting the repeated key column, which is a copy of one that is off the band.
-		This is what a page turn moves by, so counting the copy would move the reader by one
-		column less than they can see each time.
+		Not counting the repeated key column. A page turn moves by this.
 		"""
 		return sum(1 for place in self.placements() if not place.column.pinned)
 
 	def scrolledTo(self, start: int) -> "ColumnPlan":
 		""":return: this plan with the band starting at another column, clamped to the run.
 
-		**The one place the run ends**, and every other way of moving comes through here. That
-		is what makes "keep turning until it stops" terminate: without the clamp a page turn
-		moves the band every time it is asked and answers yes for ever.
+		Every move comes through this clamp, so turning repeatedly stops at the end.
 		"""
 		return dataclasses.replace(self, at=max(0, min(start, self.lastStart)))
 
@@ -631,10 +453,7 @@ class ColumnPlan:
 	def turnedBy(self, pages: int) -> "ColumnPlan":
 		""":return: this plan moved by whole bandfuls of columns.
 
-		A bandful is however many are showing *now*, which is what keeps the page turn and
-		the column-by-column scroll from getting out of step: a reader who has scrolled two
-		columns along and then asks for the next page gets the next band's worth from where
-		they are, not from where a fixed page would have started.
+		A bandful is however many are showing now, from where the band is.
 
 		:param pages: how many bandfuls, negative for back towards the first column.
 		"""
@@ -644,10 +463,8 @@ class ColumnPlan:
 		""":return: where the band would have to start to draw a column, moving as little as
 		possible.
 
-		The column axis of `FlowWindow.ensureVisible`, and the same rule: a column already on
-		the band moves nothing at all, one off the left end becomes the leftmost, and one off
-		the right end is brought on by the smallest scroll that reaches it — which for the
-		next column along is one column.
+		The column counterpart of `FlowWindow.ensureVisible`: no move if shown, else the least
+		scroll that reaches it.
 
 		:param column: the table's own column number.
 		"""
@@ -669,14 +486,7 @@ class ColumnPlan:
 	def showing(self, column: int) -> bool:
 		""":return: whether a table column is on the band as it is drawn now.
 
-		A different question from `holds`, which answers whether the plan draws the column at
-		all, and the two differ for the one column that is drawn in more than one place: the
-		key column is repeated at the left whenever it is itself off to the left. A reader
-		whose cursor is in it can feel it wherever they have scrolled to, which is what the
-		pin is for.
-
-		What asks is `FlowBand._showColumn`, deciding whether a caret that has moved is still
-		on the display.
+		Unlike `holds`, counts the repeated key column. For `FlowBand._showColumn`.
 
 		:param column: the table's own column number.
 		"""
@@ -722,10 +532,8 @@ class ColumnPlan:
 	def page(self) -> int:
 		""":return: which bandful the band is in, zero based.
 
-		The last one that begins at or before where the band starts, because after a scroll of
-		one column the band sits *between* bandfuls and there is no exact answer. Which is why
-		nothing reports this to the reader: `whereItIs` says which columns are showing, and
-		that is true wherever the band has been scrolled to.
+		The last bandful starting at or before the band, since after a scroll it sits between
+		them. Not reported to the reader; see `whereItIs`.
 		"""
 		starts = self.pageStarts()
 		return max((number for number, start in enumerate(starts) if start <= self.at), default=0)
@@ -753,25 +561,16 @@ class ColumnPlan:
 	def whereItIs(self) -> tuple[int, int, int]:
 		""":return: which columns of the run are showing, as (first, last, how many in all).
 
-		Counted along the run and one based, which is what a reader can act on: "columns six
-		to nine of twenty-one" says both where they are and how far there is to go. The
-		table's own numbers would be the wrong answer — a layout that hides columns leaves
-		holes in them, so they do not count anything.
+		Counted along the run, one based, not by the table's numbers, which have holes.
 		"""
 		return (self.at + 1, self.at + max(1, self.shown), self.numColumns)
 
 	def cutting(self) -> "ColumnPlan":
 		""":return: this layout with every column cut rather than wrapped.
 
-		What a pinned header row is drawn with. A header is orientation and not the data —
-		the same argument the repeated key column is made of — and one that wrapped would
-		take two of the band's rows away from the table to say "%Change" instead of "%Chang".
-		One row, always, so that the rows below it never move.
-
-		**And cut at the end the reader asked for, which is the heading's own answer rather
-		than the data's.** They go wrong separately: a column of short values can sit under a
-		heading of six lines of help text, where what identifies the column is the last word
-		of it. See `ColumnChoice.headerKeep`.
+		For the pinned header row, which is orientation and always one row, so the rows below
+		never move. Cut at the end the reader chose for the heading, separately from the data.
+		See `ColumnChoice.headerKeep`.
 		"""
 		return dataclasses.replace(
 			self,
@@ -784,17 +583,8 @@ class ColumnPlan:
 	def knows(self, column: int) -> bool:
 		""":return: whether this plan was made from a table that had this column.
 
-		Two ways of knowing it, and the second is the one that was missed. A column is known
-		if it is drawn somewhere in the run — `holds` answers that — and it is *also* known if it was
-		measured and deliberately left out, because a column holding nothing the reader can
-		read is a decision this plan made rather than a column it has never heard of.
-
-		The distinction is what tells a table that changed shape from a caret sitting
-		somewhere ordinary. Quick navigation to a table lands the caret in the first cell, and
-		on the reader's own watchlist the first cell is an unreadable icon: the band read that
-		as "a column the plan has no page for", rebuilt the whole layout, and did it again on
-		every redraw. Panning did nothing at all until the caret was moved off that column,
-		because every pan was undone by the rebuild that followed it.
+		Drawn somewhere in the run (see `holds`), or measured and left out, so a caret in an
+		omitted column is not taken as a changed table.
 
 		:param column: the table's own column number.
 		"""
@@ -813,9 +603,7 @@ class ColumnPlan:
 	def columnAt(self, row: int, offset: int) -> Optional[Column]:
 		"""Which column a cell of a drawn row belongs to.
 
-		What routing needs: a finger lands on a cell of the band and the answer has to be a
-		cell of the table, or the press must do nothing. The gaps between columns belong to
-		no column and answer None, which is the same answer padding gives.
+		For routing. Gaps between columns answer None, like padding.
 
 		:param row: which band row of the table row, zero based.
 		:param offset: which cell of it.
@@ -838,9 +626,7 @@ class ColumnPlan:
 READING_ORDER = ColumnPlan()
 """The plan that draws nothing, and what a table gets until the reader asks for otherwise.
 
-Not a placeholder: reading order is what NVDA does today, it is right for a table of prose,
-and decision 16 says it survives. A flow with this plan reads a table exactly as it reads
-anything else.
+Reading order, as NVDA reads a table; decision 16 of docs/design/structured-presentation-plan.md.
 """
 
 
@@ -857,17 +643,9 @@ class Measurement:
 	typicalWidth: int = 0
 	"""What a cell of it usually holds, in cells. Zero where the caller did not measure it.
 
-	The widest is the wrong number to plan a width from and it took a real document to see
-	why. A VPAT has a remarks column where nine rows in ten hold a few words and the tenth
-	holds a paragraph; planned from the widest, every row of the table is laid out for the
-	paragraph, and the reader pays for it on the nine rows that do not have one.
-
-	So the width is chosen for the typical cell and the occasional long one wraps taller than
-	the target. That is honest — since a tall row became a block with more rows, nothing is
-	lost by it and it costs a keypress on the rows that earn it.
-
-	Zero means the caller measured only the widest, and `typical` then answers with that,
-	which is the old behaviour and is right for a caller that knows its table.
+	Widths are planned for the typical cell, not the widest, so one long cell wraps rather
+	than widening every row. Zero means only the widest was measured, which `typical` then
+	uses.
 	"""
 
 	label: str = ""
@@ -876,33 +654,21 @@ class Measurement:
 	declared: bool = False
 	"""Whether the table *said* that is its header, rather than it being read off row one.
 
-	The two are not interchangeable and one caller needs to know which it has: a header row
-	is pinned above the band from what a table declares, and a label borrowed from row one is
-	already on the band as row one. See `flowTableSource.measure`, which is where the
-	difference is known, and `TableFlowSource`, which is given the declared ones so that it
-	does not have to go and ask again.
+	A declared header is pinned above the band; one borrowed from row one is already on it.
+	See `flowTableSource.measure` and `TableFlowSource`.
 	"""
 
 	labelWidth: int = 0
 	"""How wide the header is in cells, where it was measured separately.
 
-	Zero where the caller's `width` already covers it, which is the ordinary case:
-	`flowTableSource.measure` reads the header row along with the rest and the widest content
-	it found includes the header. This exists for a caller that measured the body and knows
-	the header separately — an application module, a saved layout — and it exists in *cells*
-	because the obvious alternative is not.
-
-	The obvious alternative was `len(label)`, which is what this used, and it quietly put
-	character counts back into an arithmetic that is careful everywhere else to work in cells.
-	A header contracted to four cells was given six because it has six characters.
+	Zero where `width` already covers it, as from `flowTableSource.measure`. For a caller that
+	knows the header separately. In cells, not `len(label)`.
 	"""
 
 	hidden: bool = False
 	"""Whether the table itself is not showing this column.
 
-	A zero width column in a list view, a `display: none` cell on a page. Excluded from the
-	plan rather than given a width, because a column the sighted reader cannot see is not a
-	column the braille reader is missing.
+	Such as a zero width list view column or a `display: none` cell. Excluded from the plan.
 	"""
 
 	@property
@@ -932,29 +698,12 @@ def planFor(
 ) -> ColumnPlan:
 	"""Work out how wide each of a table's columns is drawn, and which of them share a page.
 
-	**A page holds as many columns as it can without the row growing taller than
-	`targetHeight`.** That is the whole rule and it is worth stating plainly, because the
-	rule it replaces was "as many columns as fit across the band", which is a different
-	question with a much worse answer. Four columns at seven cells each add up to exactly
-	thirty-two and every one of them wraps to four rows underneath; the fit is perfect on the
-	axis nobody is reading on, and two records reach an eight row display.
-
-	So the page size is searched downwards. Try every remaining column, work out the widths,
-	predict the height; if it is over the target, try one column fewer, which gives the ones
-	that remain more cells each and drops the height faster than linearly. One column is the
-	floor, and a column that cannot meet the target even with the whole band to itself gets
-	the whole band to itself. That is the right answer for a VPAT remarks column and it is
-	not a special case — it falls out of the search reaching one.
-
-	**Spare cells are given away rather than left.** A column gives up cells while it has
-	more than `READABLE_CELLS` to spare, widest first; and when the page has cells nobody
-	claimed, they go one at a time to whichever column is predicted tallest. On a page of a
-	criterion, a level and a remark, that hands the remark everything the other two do not
-	need, which is the single change that does most of the work here.
-
-	**Nothing is shrunk below what can be read.** Below `READABLE_CELLS` a column stops being
-	a value and becomes a fragment of one; on hardware a table of twenty-nine columns came
-	out as one digit of each. What will not fit at a readable width goes on the next page.
+	1. A page holds as many columns as it can without a row growing taller than
+	   `targetHeight`, found by searching down from all remaining columns; see
+	   `_howManyFit`. A column that cannot meet it alone gets a page to itself.
+	2. Spare cells are given away: wide columns shrink while above `READABLE_CELLS`, and
+	   unclaimed cells go one at a time to the tallest predicted column.
+	3. Nothing shrinks below `READABLE_CELLS`; what will not fit goes to the next page.
 
 	:param measured: what was found in each column. Hidden ones are ignored.
 	:param numCols: the width of the band.
@@ -969,11 +718,9 @@ def planFor(
 	:param excluded: the table's numbers for columns the reader's saved layout leaves out.
 		Not measured here and never drawn, but *known* — see `ColumnPlan.excluded`.
 	:param choices: what the reader decided about individual columns, by column number. See
-		`ColumnChoice`; a column not named here is drawn as the measurement and the settings
-		say, which is every column until somebody says otherwise.
+		`ColumnChoice`.
 	:param keyColumn: the column to repeat at the left of every later page, or None for the
-		first one drawn. Theirs to choose: the first drawn column is the symbol on a watchlist
-		and an icon on the table beside it.
+		first one drawn.
 	:return: the plan, or `READING_ORDER` when there is nothing to lay out.
 	"""
 	measured = list(measured)
@@ -1034,12 +781,8 @@ def planFor(
 def effectiveOverflow(choice: "ColumnChoice", overflow: str) -> str:
 	""":return: what actually becomes of a cell too long for one column.
 
-	The reader's own answer where they gave one, and the table's otherwise. **One function,
-	asked in both places**: the pages are decided by predicting how tall a row comes out, and
-	the rows are drawn by `_asChosen`. A review found the prediction reading only the
-	table-wide value while the drawing read the reader's, so a table set to wrap with two wide
-	columns cut by hand was given two pages for a row that came out one high, and a table set
-	to cut with two columns wrapped by hand was given one page for a row that came out four.
+	The reader's choice, else the table's. One function, used by both the height prediction
+	and `_asChosen`, so they agree.
 
 	:param choice: what the reader decided about this column.
 	:param overflow: what the table does with a cell too long for its column.
@@ -1076,23 +819,16 @@ def _keyFor(
 ) -> tuple[Optional[int], int]:
 	"""Which column is repeated at the left of every later page, and how wide.
 
-	The first column that is drawn, which is the row's own label in every table that has one:
-	the symbol in a watchlist, the criterion in a VPAT, the date in a statement. Asked of the
-	plan's own order rather than of the table, so a hidden first column does not pin a column
-	nobody can see.
-
-	Its width is what a typical cell of it holds, capped at `KEY_SHARE` of the band. The cap
-	is what keeps this an orientation aid: a pin wide enough to hold the longest criterion in
-	full would be spending on the label what the columns being labelled need.
+	The first drawn column, usually the row's label, by the plan's order so a hidden column is
+	not pinned. Typical width, capped at `KEY_SHARE`.
 
 	:param wanted: the columns being drawn, in order.
 	:param numCols: the width of the band.
 	:param gap: cells between columns.
 	:param minWidth: the narrowest a column may be drawn.
 	:param pinKey: whether the reader wants this at all.
-	:param chosen: the column the reader picked for it, or None for the first drawn. The first
-		is the row's own label in most tables and an icon in some, which is why it is theirs to
-		say. A choice the plan is not drawing is no choice at all, and the first stands.
+	:param chosen: the column the reader picked for it, or None for the first drawn. A choice
+		the plan is not drawing is ignored.
 	:return: the column's number and its pinned width, or None and zero.
 	"""
 	if not pinKey or len(wanted) < 2:
@@ -1119,9 +855,7 @@ def _dealIntoPages(
 ) -> tuple[dict, tuple[tuple[int, ...], ...]]:
 	"""Walk the columns left to right, filling one page at a time.
 
-	Left to right and greedily, because a column that moves is a column the reader has to
-	find again: the order is the table's, and which page a column lands on must not depend on
-	anything but the columns before it.
+	Greedily in table order, so a column's page depends only on the columns before it.
 
 	:param wanted: the columns being drawn, in order.
 	:param reserve: cells taken out of every page after the first, for a pinned key column.
@@ -1168,15 +902,8 @@ def _howManyFit(
 ) -> tuple[int, dict]:
 	"""How many of the columns still to place go on this page.
 
-	The search: most first, one fewer each time, stopping at the first count whose predicted
-	height is within the target. Downwards rather than upwards because the answer wanted is
-	the largest that works, and a search that grows would have to keep going after it found
-	one to know it was the largest.
-
-	One is the floor and it is returned without asking about height. A column that cannot
-	meet the target with the whole band to itself exists — a remarks column in a VPAT is
-	exactly that — and the answer for it is a page of its own, which is what the reader asked
-	for when they said to go one column at a time.
+	Searched downwards, stopping at the first count within the target height, which is the
+	largest that works. One is the floor, returned without checking height.
 
 	:param rest: the columns still to place, in order.
 	:param room: cells available on the first band row of this page.
@@ -1215,8 +942,7 @@ def _howManyFit(
 def _upToTheirBreak(rest: Sequence[Measurement], choices: dict) -> Sequence[Measurement]:
 	""":return: the columns up to the next page the reader asked to begin.
 
-	The first column is always taken — a break at the column a page starts with is that page
-	starting, not an empty one — so this only ever shortens what the packing may consider.
+	The first column is always taken, so this only shortens what the packing may consider.
 
 	:param rest: the columns still to place, in order.
 	:param choices: what the reader decided per column.
@@ -1230,10 +956,7 @@ def _upToTheirBreak(rest: Sequence[Measurement], choices: dict) -> Sequence[Meas
 def _budgetFor(room: int, numCols: int, maxRows: int, count: int, gap: int) -> int:
 	""":return: how many cells of content one page of the band has room for.
 
-	An upper bound rather than an exact answer: the gaps are counted as though every column
-	sat on one row, which over-counts by one gap for each row after the first. Over-counting
-	makes the shrinking slightly less eager and never more, and being less eager here costs a
-	page where being more eager costs legibility.
+	An upper bound: gaps are counted as if on one row, which only makes shrinking less eager.
 
 	:param room: cells on the first band row, which a pinned key column has taken from.
 	:param numCols: cells on the rest, which it has not.
@@ -1256,16 +979,8 @@ def _stackedHeight(
 ) -> Optional[int]:
 	"""How tall a row of these columns actually comes out, or None if they do not fit.
 
-	**Lane by lane, and summed.** A plan may pack its columns across more than one row of the
-	band, and each of those lanes is as tall as the tallest cell in it — `flowRender._laidOut`
-	stacks them by their own heights, which is what stops a wrapped cell being written through
-	by the lane below. Taking the tallest column overall was the first cut of this and it
-	under-counts by exactly the lanes it ignores: two lanes of two rows each is four rows on
-	the band, reported as two.
-
-	The packing is walked rather than derived from a sum, for the same reason
-	`ColumnPlan._placePage` walks it: a total that fits can still fail to pack, since three
-	columns of eleven cells on a thirty-two cell row is thirty-three with the gaps.
+	Lane by lane and summed, each lane as tall as its tallest cell, as `flowRender._laidOut`
+	stacks them. The packing is walked, since a total that fits may still not pack.
 
 	:param items: the columns, in drawing order.
 	:param widths: column number to width.
@@ -1275,10 +990,7 @@ def _stackedHeight(
 	:param gap: cells between columns.
 	:param overflow: what becomes of a cell too long for its column. A cut one is always one
 		row, however much it holds.
-	:param choices: what the reader decided per column, because a column they cut by hand is
-		one row here whatever the table says and a column they wrapped by hand is as many as
-		it needs. Read through `effectiveOverflow`, which is the same question the drawing
-		asks, so that the prediction and the display cannot part company.
+	:param choices: what the reader decided per column, read through `effectiveOverflow`.
 	:return: the height in band rows, or None if these columns do not fit.
 	"""
 	choices = dict(choices or {})
@@ -1308,17 +1020,13 @@ def _fitWidths(
 ) -> dict:
 	"""Decide a width for each column of one page.
 
-	Both directions. What was here shrank the widest columns towards fitting and stopped; it
-	never gave anything back, so a page whose columns all happened to be short left cells
-	unspent while a column beside them wrapped.
+	Shrinks wide columns and also gives unspent cells back.
 
 	:param items: the columns on this page.
 	:param budget: how many cells of content the page holds.
 	:param minWidth: the narrowest a column may be drawn.
 	:param maxWidth: the widest.
-	:param choices: what the reader decided per column, which may bound either end. A column
-		they gave a floor to keeps it through the shrinking, so what will not fit beside it
-		goes on the next page rather than being narrowed past what they asked for.
+	:param choices: what the reader decided per column, which may bound either end.
 	:return: column number to width.
 	"""
 	choices = dict(choices or {})
@@ -1349,12 +1057,8 @@ def _shrinkTowardsFitting(
 ) -> None:
 	"""Take cells from the widest columns while they have any to spare.
 
-	*Towards* fitting, not until it fits. Whether every column fits on one page is not this
-	function's business and often cannot be arranged: it stops when nothing has more than
-	`READABLE_CELLS` left, and what is still over goes on the next page.
-
-	From the widest first, one cell at a time, which is what keeps a short column whole and a
-	long one merely shorter.
+	Towards fitting, stopping at `READABLE_CELLS`; what is still over goes to the next page.
+	Widest first, one cell at a time.
 
 	:param widths: column number to width, narrowed in place.
 	:param budget: how many cells of content one page has room for.
@@ -1390,16 +1094,8 @@ def shouldReplan(
 ) -> bool:
 	"""Whether a plan in force has stopped being usable.
 
-	It answers no to almost everything, and that is the design rather than an optimisation.
-	Indent rebases as the band moves because a margin two cells out is a small wrong; a column
-	that moves is a column the reader has to find again, and finding it is the work the layout
-	existed to save. So the widths are decided once, from what was measured on the way in, and
-	kept while they still draw the table they were made for.
-
-	What makes a plan unusable is a change to what it is a plan *of*: a different band width,
-	a different row height, or a different set of columns. Content growing wider than its
-	column is not one of those — that is what truncation is for, and re-jigging the whole
-	table because one cell grew is exactly the dance this prevents.
+	No to almost everything, by design, so columns do not move. Only a different band width,
+	row height or set of columns replans; wider content does not.
 
 	:param plan: the plan in force.
 	:param measured: what is in the table now.
@@ -1421,11 +1117,7 @@ def shouldReplan(
 def predictedHeight(plan: ColumnPlan, measured: Iterable[Measurement]) -> int:
 	"""How tall the page being drawn is expected to make a typical row.
 
-	For the report, and for a test that wants the number the search was aiming at rather than
-	a rendering to count the rows of. A truncated column is one row whatever it holds.
-
-	Lane by lane and summed, because that is how the rows actually stack — see
-	`_stackedHeight`, which is the same arithmetic on the way in.
+	For the report and tests. The same arithmetic as `_stackedHeight`.
 
 	:param plan: the layout, on the page being asked about.
 	:param measured: what was found in the table.
@@ -1446,9 +1138,7 @@ def predictedHeight(plan: ColumnPlan, measured: Iterable[Measurement]) -> int:
 def describe(plan: ColumnPlan) -> str:
 	""":return: the plan in one line, for the dry run's report.
 
-	Says which page and how many, as well as what is on this one, because those are the two
-	questions a reader asks of a table that looks wrong and only one of them can be answered
-	by feeling the display.
+	Includes which page and how many, which the display cannot show.
 	"""
 	if plan.isEmpty:
 		return "reading order; no columns are laid out."
@@ -1490,30 +1180,17 @@ SEPARATOR_CELL = 0
 POSITION_STRIDE = 1 << 16
 """How far apart two columns' positions are in a drawn row's position map.
 
-A rendered row maps each of its cells back to a position, and everything that reads that
-map — routing a finger press, finding the cursor's row — treats a position as one number.
-A table row's cells come from several places, so a position has to carry both which column
-it is in and where in that column it is, and this is the base it is packed in.
-
-Sixty-five thousand cells for one table cell, which no cell of any table reaches, and the
-whole row is still a small number. Packed rather than kept as a table of its own, because a
-map that lived beside the rendering would have to be kept in step with it, and a rendering
-that is served from the cache with the wrong map routes the reader into the wrong column.
+A position is one number to routing and cursor code, so a table cell's position packs its
+column and its place in the column in this base. Packed into the rendering rather than a
+separate map, which could fall out of step with a cached rendering.
 """
 
 
 def cellPosition(column: int, offset: int) -> int:
 	"""Pack which column a cell came from, and where in it.
 
-	**The table's own column number, not the column's place in the drawing order.** They are
-	the same number only while every row holds every column the plan draws, and a row with a
-	merged cell in it does not: the plan draws columns 1, 2, 3 and 4, the row holds 1, 3 and
-	4, and the third thing drawn is the row's *second* cell. Packing the drawing order and
-	unpacking it as a cell index sent a routing press into the wrong column of exactly the
-	rows that are hardest to read, and reported the wrong text for them.
-
-	The table's number is the one thing both sides already agree on — it is what the plan
-	names its columns by and what the row names its cells by — so it is what travels.
+	The table's own column number, not the drawing order, which differs in a row with a
+	merged cell. Both the plan and the row name columns by it.
 
 	:param column: the table's own column number, one based.
 	:param offset: the braille position within that column's own content.
@@ -1541,9 +1218,7 @@ class RowCell:
 def rowCellsOf(region) -> Optional[Sequence[RowCell]]:
 	""":return: a region's table cells, or None if it is not a table row.
 
-	Asked of the region rather than recorded on the block, so that nothing in `flow.py` or
-	`flowControl.py` has to learn what a table is. A row knows it is a row; everything else
-	asks and gets None.
+	Asked of the region, so `flow.py` and `flowControl.py` need not know about tables.
 	"""
 	cells = getattr(region, "cells", None)
 	if not cells:
