@@ -11,9 +11,8 @@ output report, how a touch value becomes a pin, and the pitches text can be draw
 DotPad X driver would supply its own version of this file and reuse `pinBuffer.py` and most
 of the driver unchanged.
 
-Like `pinBuffer.py` it imports nothing from NVDA, so it can be unit tested without one.
-Everything here was established against hardware and two readings of it were wrong first;
-see the tactile graphics plan for what the wrong ones looked like.
+Like `pinBuffer.py` it imports nothing from NVDA. Everything here was established against
+hardware; see docs/design/tactile-graphics-plan.md.
 """
 
 try:
@@ -52,10 +51,8 @@ PIN_REPORT_BYTES = PIN_COUNT // 8
 PIN_USAGE = 0x301
 """The usage the pin array is declared under, on the braille page.
 
-Above everything HUTRR78 defines — the braille page's own usages stop at 0x21E — so it is a
-vendor extension and, on the braille page, a strong signature. Checked before the driver will
-write a raw report, because a large output button array on some other display is not licence
-to send it 480 bytes on report 0x21.
+A vendor extension above HUTRR78's usages, checked before the driver writes a raw report to a
+device.
 """
 
 TOUCH_PIN_USAGE = 0x401
@@ -71,20 +68,15 @@ NATIVE_ROUTING_ROWS = 8
 _BRAILLE_DOT_COORDS = BRAILLE_DOT_COORDS
 """Where each dot sits inside a cell, matching NVDA's `tactile.braille._brailleDotCoords`.
 
-Kept as a name here because this is the module the packing is reasoned about in, but it is
-braille geometry rather than Monarch geometry, so the one copy lives in `pinBuffer.py` beside
-the drawing that also needs it. Neither imports NVDA; the driver asserts the copy agrees with
-NVDA's at load time, so a change upstream is caught rather than inherited.
+Re-exported from `pinBuffer.py`, which holds the one copy. See `pinBuffer.BRAILLE_DOT_COORDS`.
 """
 
 BIT_FOR_BLOCK_POSITION = {coords: bit for bit, coords in enumerate(_BRAILLE_DOT_COORDS)}
 """Which bit of a block byte raises the pin at a position within that block.
 
-**Braille dot numbering**, not the column major nibble layout
-`dotPad.driver.DpTactileGraphicsBuffer` uses. The Monarch raises a byte's pins by dot number
-whichever report the byte arrives in, so the DotPad's graphics packing is wrong here even
-though the pin report is unambiguously a graphics buffer. This was tried and the hardware
-refused it: a vertical line came out as a column of *p* and a horizontal one as a row of *e*.
+Braille dot numbering, not the column major nibble layout of
+`dotPad.driver.DpTactileGraphicsBuffer`: the Monarch raises a byte's pins by dot number in
+every report.
 """
 
 
@@ -136,13 +128,8 @@ class Pitch:
 	def slotSize(self) -> tuple[int, int]:
 		"""The pins a single cell owns, including the gap column after it.
 
-		Braille uses only `cellCols` of those columns and leaves the gap blank, because a
-		reader needs the separation to tell one cell from the next. Nothing in the hardware
-		requires it: in graphics the whole slot is addressable, which is what makes a glyph
-		one column wider than a braille cell without moving anything.
-
-		The slot is what a glyph may fill. It stops at the cell boundary, so the next cell
-		still starts exactly where it would have.
+		Braille leaves the gap blank; a glyph may fill the whole slot, which stops at the cell
+		boundary so the next cell does not move.
 
 		:return: slot width and height in pins.
 		"""
@@ -158,12 +145,8 @@ The two lines terminal mode appears to withhold are not withheld, they are this 
 PITCH_10_ROW = Pitch("10row", gapRows=0)
 """10 lines of 32. Four dot rows and no blank one: 10 x 4 = 40.
 
-What the Monarch's own software offers, and the reason it can. Dots 7 and 8 are still drawn:
-the fourth row of a cell is where they live, so what this spends is the separation between
-lines rather than the lower two dots. Six dot content leaves that row empty and the lines
-look separated anyway; a caret or an eight dot table fills it and the lines meet there.
-
-Which is the user's trade to make, not the driver's. Nothing masks a dot.
+As the Monarch's own software offers. Dots 7 and 8 are still drawn; what is spent is the
+separation between lines, the user's trade to make.
 """
 
 PITCHES = {pitch.name: pitch for pitch in (PITCH_8_ROW, PITCH_10_ROW)}
@@ -202,10 +185,8 @@ def packPins(buffer) -> bytes:
 def touchedPin(value: int) -> tuple[int, int] | None:
 	"""Convert an input usage 0x401 value to the pin the reader touched.
 
-	The value is a **row major** index over the grid, one based, with 0 meaning released.
-	Note that this is not the block packing the output uses: pins are written as blocks of
-	braille dots and read back as a plain raster. Two orders on one device, and decoding the
-	input with the output's mapping gives plausible nonsense.
+	A row major index over the grid, one based, 0 meaning released; not the output's block
+	packing.
 
 	:param value: the raw value.
 	:return: pin column and row, or None when nothing is touched or the value is out of range.
@@ -220,9 +201,7 @@ def touchedPin(value: int) -> tuple[int, int] | None:
 def nativeRoutingCell(x: int, y: int) -> int:
 	"""Convert a touched pin to the routing cell the device reports alongside it.
 
-	The device's routing grid is its native 8 by 32 layout, whatever pitch we are rendering
-	at. Six touches were checked against this and every one agreed, which is what established
-	`touchedPin`.
+	On the device's native 8 by 32 layout, whatever pitch is rendered.
 
 	:param x: pin column.
 	:param y: pin row.
@@ -235,12 +214,8 @@ def nativeRoutingCell(x: int, y: int) -> int:
 def cellAtPin(x: int, y: int, pitch: Pitch) -> tuple[int, int] | None:
 	"""Convert a touched pin to a braille line and column at the pitch being rendered.
 
-	This is what routing on a graphic needs, and why the pin report matters: the device's own
-	routing cell assumes its native pitch and stops meaning anything at any other.
-
-	A touch landing in a gap row or gap column still belongs to the cell it follows, because a
-	fingertip covers several pins and refusing the ones between lines would make the bottom of
-	every line dead.
+	A touch in a gap row or column belongs to the cell it follows, since a fingertip covers
+	several pins.
 
 	:param x: pin column.
 	:param y: pin row.
@@ -257,11 +232,7 @@ def cellAtPin(x: int, y: int, pitch: Pitch) -> tuple[int, int] | None:
 def routingIndexForPin(x: int, y: int, pitch: Pitch) -> int | None:
 	"""Convert a touched pin to an index into the flat cell array NVDA routes against.
 
-	The device reports routing on its native 8 by 32 grid whatever we are rendering, so at any
-	other pitch its cell number addresses the wrong place: at 10 rows the panel has 320 cells
-	and the device can only ever name 256 of them, and even the ones it names land on the
-	wrong line. Deriving the index from the touched pin is what makes routing work at a pitch
-	the device knows nothing about.
+	From the touched pin, since the device's own routing cell assumes its native pitch.
 
 	:param x: pin column.
 	:param y: pin row.

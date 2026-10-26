@@ -5,18 +5,9 @@
 
 """A rectangular grid of dots, and the drawing you can do on one.
 
-Deliberately knows nothing about any display. Width, height, and which dots are raised; how
-those dots reach hardware is a device's business and lives beside this, in `monarch.py` for
-the one device we have. A second display would supply its own equivalent of that file and
-reuse this unchanged, which is the whole point of the split.
-
-It imports nothing from NVDA, so it can be unit tested without one. That is not incidental:
-the packing this feeds is the part that was got wrong twice against real hardware, and the
-tests are how it stays right.
-
-The interface mirrors NVDA's `tactile.TactileGraphicsBuffer` — `width`, `height`, `setDot` —
-so that `tactile.braille.drawBrailleCells` can draw into it directly. It does not subclass
-it, because that module is not importable outside NVDA and this one has to be.
+Knows nothing about any display; how dots reach hardware is `monarch.py`'s business. Imports
+nothing from NVDA. Mirrors `tactile.TactileGraphicsBuffer` (`width`, `height`, `setDot`) so
+`tactile.braille.drawBrailleCells` can draw into it, without subclassing it.
 """
 
 
@@ -32,10 +23,8 @@ BRAILLE_DOT_COORDS = [
 ]
 """Where each dot sits inside a braille cell, matching NVDA's `tactile.braille._brailleDotCoords`.
 
-Braille geometry rather than device geometry, which is why it lives here rather than beside
-the Monarch's pin order: any display drawing a cell into dots puts the dots in these places.
-`monarch.py` re-exports it under its own name and the driver checks it against NVDA's at load,
-so there is one copy and it is verified.
+Braille geometry, so here rather than in `monarch.py`, which re-exports it. The driver checks
+it against NVDA's at load.
 """
 
 MARKERS = {
@@ -63,10 +52,7 @@ MARKERS = {
 }
 """The shapes `PinBuffer.marker` can stamp, as `fromRows` patterns.
 
-Small and few on purpose. At this resolution a marker has about three dots to distinguish
-itself with, so the useful vocabulary is short and the shapes have to differ in their outline
-rather than in their detail. Odd sizes throughout, so that a marker has a centre dot to be
-placed by.
+Few, differing in outline, and odd sized so each has a centre dot.
 """
 
 
@@ -91,8 +77,7 @@ class PinBuffer:
 	def fromRows(cls, rows: list[str]) -> "PinBuffer":
 		"""Build a buffer from text, the inverse of `rows`.
 
-		Written for glyph literals, where being able to see the shape in the source is worth
-		more than compactness::
+		For glyph literals, so the shape is visible in the source::
 
 			PinBuffer.fromRows(["OOO", "OOO", "OOO", "..."])
 
@@ -156,10 +141,6 @@ class PinBuffer:
 	def line(self, x0: int, y0: int, x1: int, y1: int) -> None:
 		"""Draw a straight line, by Bresenham.
 
-		There is nothing to antialias with one bit pins, so a shallow diagonal is a series of
-		horizontal runs stepping across. That is not a defect and is what a slope looks like
-		at this resolution.
-
 		:param x0: start column.
 		:param y0: start row.
 		:param x1: end column.
@@ -214,9 +195,8 @@ class PinBuffer:
 	def blit(self, other: "PinBuffer", x: int = 0, y: int = 0) -> None:
 		"""Draw another buffer onto this one, raising dots and never lowering them.
 
-		Additive because that is what compositing text and a graphic wants: whichever is
-		drawn second must not punch a hole in the other. A caller wanting a graphic to
-		replace what is under it clears that rectangle first.
+		Additive, so neither layer punches a hole in the other; clear the rectangle first to
+		replace.
 
 		:param other: the buffer to draw.
 		:param x: where its left edge goes.
@@ -229,10 +209,6 @@ class PinBuffer:
 
 	def marker(self, x: int, y: int, kind: str = "dot") -> None:
 		"""Stamp a small named shape centred on a point.
-
-		Centred rather than placed by its corner, because a marker stands for a position —
-		a data point, a callout — and the caller knows where that position is, not where the
-		shape's top left corner would have to go to put it there.
 
 		:param x: the point's column.
 		:param y: the point's row.
@@ -248,12 +224,8 @@ class PinBuffer:
 	def text(self, x: int, y: int, cells: list[int], cellStride: int = 3) -> None:
 		"""Draw braille cells into this buffer as dots.
 
-		The driver draws whole lines across the panel at the display's own pitch. This is the
-		same operation scoped to a rectangle, so a caption can sit inside a figure at a
-		position the figure chose rather than on a line boundary.
-
-		Additive, like everything else here: a caption over a drawing raises its dots and
-		lowers nothing. Call `clearRect` first for a caption on a cleared strip.
+		At any position, unlike the driver's lines. Additive; call `clearRect` first for a
+		cleared strip.
 
 		:param x: left edge of the first cell.
 		:param y: top edge of the line.
@@ -284,9 +256,7 @@ class PinBuffer:
 	def rows(self) -> list[str]:
 		"""Render as text, one string per row, for tests and for the log.
 
-		A raised dot is ``O`` and a lowered one ``.``, because a drawing that is wrong is
-		much easier to see than to reason about, and neither of the two packing errors this
-		module exists to prevent was obvious from the numbers.
+		A raised dot is ``O`` and a lowered one ``.``.
 
 		:return: one string per row of the buffer.
 		"""

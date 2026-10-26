@@ -5,53 +5,23 @@
 
 """Silencing the spoken headers of the table the reader is in, and only that table.
 
-Some tables on the web declare good headers, and some put a paragraph of help text in every
-one of them. NVDA's "report table headers" is one setting for every table there is: it can be
-set per profile, but a profile per website — or per table on one website — is not a way to
-live. Braille already has its own answer, a layout that cuts a header short. Speech had none,
-and speech and braille are read together.
+NVDA's "report table headers" is one setting for every table, which suits neither a table
+with help text in every header nor a profile per site.
 
-**Two ways, one on top of the other.** A saved table layout can say which of its table's headers
-are spoken — none, the rows' only, the columns' only, or as NVDA's setting says — and that applies
-whenever the reader is in the table. See `flowTableLayouts.TableLayout.speakHeaders`. Over that, a
-command turns the headers of the table at the cursor off, or back on, until the page is loaded
-again; another saves what the command left, so a table silenced once and saved stays silenced.
+1. A saved layout can say which headers are spoken (see
+   `flowTableLayouts.TableLayout.speakHeaders`); over that, a command silences the table at the
+   cursor until the page reloads, and another saves what it left.
+2. NVDA's configuration is not touched, since the change would be saved into a profile and
+   would also take the headers off braille (see `bmConfig.wantsColumnHeaders`).
+3. Done in `speech.speech.getPropertiesSpeech`, where browse mode and focused cells meet, by
+   leaving out `rowHeaderText` and `columnHeaderText` for a silenced `_tableID`.
+4. Installed when the add-on loads, like `tableArrows`; no flow is needed.
+5. It can only take headers away; where NVDA reports none, the command says so.
 
-**Neither touches NVDA's configuration.** The obvious way to do this is to switch
-`reportTableHeaders` off while the reader is in the table and on again when they leave, and it
-has two faults. The value is written into whichever profile is active, and saved with it if NVDA
-saves on the way — on exit, by default. And the add-on's own braille reads that setting too: the
-pinned header row and the repeated key column follow it (see `bmConfig.wantsColumnHeaders`), so
-switching it off for speech would take the headers off the display as well, which is the opposite
-of what a reader who wants braille and speech to differ asked for.
-
-**So it is done in speech, at the one place both routes to a header meet.** A browse mode
-cell's headers reach speech through `getControlFieldSpeech`, and a focused cell's — a list
-view, a grid in focus mode, a worksheet — through `getObjectPropertiesSpeech`. Both end in
-`speech.speech.getPropertiesSpeech`, with the header text as `rowHeaderText` and
-`columnHeaderText` and the table named by `_tableID`. That call is wrapped, and for a silenced
-table the headers are left out. Everything else about the cell — its coordinates, its
-content, its states — is spoken as NVDA would speak it.
-
-**Nothing here needs a flow, or a multi line display.** It is how a table is heard, not how one
-is drawn, so it is installed when the add-on loads, like `tableArrows`, and works the same on a
-single line display with no band running. The saved layout is looked up here, from the table at
-the cursor, rather than taken from the band.
-
-**It can only take headers away.** Where NVDA has been told to report none, it never reads them,
-so there is nothing here to put back; the command says so rather than claiming to turn on what
-it cannot.
-
-**Which table, and for how long.** A browse mode table is named by NVDA's own table ID, which is
-unique only within its document, so it is kept with a weak reference to that document: loading
-the page again makes a new document, and the old one's tables go with it. A focused cell's table
-ID names its window as well — `(windowHandle, uniqueID)` for IAccessible, a runtime ID for UI
-Automation — so it is kept on its own, until NVDA restarts.
-
-**A saved layout is looked up once per table per page**, the first time speech describes one of
-its cells, and the answer kept until the store changes. It is looked up from the table at the
-cursor, so it is only taken where that is the table speech is describing: say all reads ahead of
-the cursor, and a table it reads before the cursor reaches it has its headers spoken.
+A browse mode table ID is unique only within its document, so it is kept with a weak reference
+to the document; a focused cell's ID names its window, and is kept until NVDA restarts. A
+saved layout is looked up once per table per page, from the table at the cursor, so say all
+reading ahead of the cursor speaks the headers.
 """
 
 import dataclasses

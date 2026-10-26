@@ -5,27 +5,12 @@
 
 """Which physical displays make up the virtual one.
 
-Stored in a section of its own rather than under the add-on's `BrlMultiline` section, and
-the reason is timing. NVDA initialises braille at `core.py` line 829 and global plugins at
-line 928, so this driver reads its configuration a hundred lines before the plugin
-registers `BrlMultiline`. `bmConfig.initialize` assigns that whole section's specification
-at once, which would replace anything the driver had added to it. Two sections, and no
-ordering hazard to remember.
+A section of its own, since braille starts before the global plugin, whose
+`bmConfig.initialize` replaces its whole section's specification.
 
-The plugin may read this module freely once it is running; by then braille is long up.
-
-**The section is base only.** This list is which pieces of hardware are wired together, not
-a per-application preference, and NVDA cannot honour a per-profile answer anyway:
-`_switchDisplay` is not called when the driver name has not changed, so the composite goes on
-driving the members it opened while the configuration describes a different set. Honouring it
-would mean closing and reopening two Bluetooth displays every time a profile triggered, which
-is a worse answer than the problem.
-
-Getting there needs more than adding a name to a set, because everything NVDA does for a
-base only section happens at startup and this driver registers long afterwards. See
-L{_makeBaseOnly} and L{_baseSection} for the three things that follow from that, and
-L{_migrateFromProfiles} for not losing a list that was stored under a profile before this
-was so.
+Base only: it is which hardware is wired together, and NVDA does not reopen the display when a
+profile changes it. NVDA's base only handling happens at startup, before this registers; see
+`_makeBaseOnly`, `_baseSection` and `_migrateFromProfiles`.
 """
 
 from __future__ import annotations
@@ -48,9 +33,7 @@ configSpec = {
 	after a second `|`, is the rows a display reporting one row physically has, as in
 	`hidBrailleStandard||3`; see `virtualLayout.memberShape`.
 
-Registered so that NVDA validates the section wherever it can, but never depended on: this
-driver reads the section long after the base configuration was validated, so nothing may
-assume the specification has been applied. See L{_readEntries}.
+Registered, but never depended on, since it may not have been applied. See `_readEntries`.
 """
 
 _initialised = False
@@ -59,9 +42,7 @@ _initialised = False
 def initialize() -> None:
 	"""Register the specification and settle where the list lives. Safe to call repeatedly.
 
-	Called at import rather than at construction, because NVDA imports every display driver
-	module whenever it builds the list of available displays, and the settings panel wants
-	to read this without a virtual display being live.
+	At import, so the settings panel can read it without a virtual display live.
 	"""
 	global _initialised
 	if _initialised:
@@ -78,17 +59,9 @@ def initialize() -> None:
 def _makeBaseOnly() -> None:
 	"""Ask NVDA to read this section from the base configuration only.
 
-	`ConfigManager.BASE_ONLY_SECTIONS` is documented as extensible by add-ons and is mutated
-	in place, so adding to it is the sanctioned move. It is deliberately not done through
-	`config.configSections.registerSection`, which persists the registration to a file that
-	`_loadCustomSections` reads at the *next* start: that would take effect a session late and
-	would outlive the add-on, needing an uninstall hook to clean up. This module registers
-	itself every session instead, which needs no cleaning up.
-
-	Best effort. If the attribute is ever renamed, everything here still works — the list is
-	read and written through `_baseSection`, which goes to the base profile directly. What
-	would be lost is only that some other reader of `config.conf[CONFIG_SECTION]` might see a
-	profile's copy, and nothing else reads it.
+	Through `ConfigManager.BASE_ONLY_SECTIONS`, extensible by add-ons, every session; not
+	`config.configSections.registerSection`, which persists and acts a session late. Best
+	effort, since `_baseSection` reads the base profile directly anyway.
 	"""
 	try:
 		config.ConfigManager.BASE_ONLY_SECTIONS.add(CONFIG_SECTION)
@@ -103,12 +76,8 @@ def _makeBaseOnly() -> None:
 def _baseSection():
 	"""Get the section out of the base configuration, creating it if it is not there.
 
-	Not `config.conf[CONFIG_SECTION]`, and the difference matters twice. NVDA materialises and
-	validates a base only section in `_initBaseConf`, which loops over the sections registered
-	at that point — long before this driver exists — so ours is neither created nor validated
-	and reading it through the manager would raise `KeyError`. Going to the base profile
-	directly also means the list is written to the base configuration whether or not
-	L{_makeBaseOnly} succeeded.
+	Not `config.conf[CONFIG_SECTION]`, which raises `KeyError`, since `_initBaseConf` ran before
+	this registered. Also writes to base whether or not `_makeBaseOnly` succeeded.
 
 	:return: the section, which may be empty but is never missing.
 	"""
@@ -121,9 +90,7 @@ def _baseSection():
 def _coerceEntries(entries) -> list[str] | None:
 	"""Make a list of driver names out of whatever was stored.
 
-	A list of exactly one entry comes back from configobj as a bare string when it has not been
-	validated, so a single member composite would otherwise be read as one driver name per
-	character. That is the whole of this function's reason to exist.
+	Unvalidated, configobj gives a one entry list as a bare string.
 
 	:param entries: the stored value.
 	:return: the entries, or None if the value is not something a list could be made of.
@@ -139,10 +106,7 @@ def _coerceEntries(entries) -> list[str] | None:
 def _readEntries() -> list[str]:
 	"""Read the stored entries, tolerating everything an unvalidated section can be.
 
-	Three things can go wrong here and none of them is the user's fault, so none of them
-	raises. The section may be missing, because nothing validated it into existence. The key
-	may be missing, because the specification's default was never applied. And the value may
-	be the bare string L{_coerceEntries} is about.
+	Never raises for a missing section or key, or the bare string `_coerceEntries` handles.
 
 	:return: the entries, or an empty list if there is nothing readable there.
 	"""
@@ -161,16 +125,8 @@ def _readEntries() -> list[str]:
 def _eachProfile():
 	"""Yield every configuration profile a stored device list could be hiding in.
 
-	Two places, because neither is the whole answer. `config.conf.profiles` is the *active*
-	stack, which is the only place a profile created in this session and not yet saved appears.
-	`listProfiles` names every profile saved on disk, which is where an application profile
-	that happens not to be triggered right now lives — and that is the case the first version
-	of this missed, since a list saved under a profile the user was not in became unreachable
-	the moment reads were redirected to base.
-
-	`_getProfile` rather than the public `getProfile`, because the public one returns only
-	profiles NVDA has already loaded and loading them is the entire point. It caches into
-	NVDA's own profile cache, which is where a triggered profile would have put it anyway.
+	The active stack, for unsaved profiles, and `listProfiles`, for saved ones not active.
+	`_getProfile`, since the public `getProfile` returns only loaded profiles.
 
 	:return: pairs of a name to report and the profile, skipping any that cannot be read.
 	"""
@@ -211,19 +167,8 @@ def _devicesInProfiles() -> dict[str, list[str]]:
 def _migrateFromProfiles() -> None:
 	"""Copy a list stored under a configuration profile into the base configuration.
 
-	Until this section was base only, NVDA wrote it to whichever profile was active when the
-	user changed it. Anyone who edited the member list with a profile active has their list
-	there, and it would silently become invisible the moment reads were redirected to base.
-
-	Only ever copies up, never down, and never overwrites: a list already in the base
-	configuration is the authority. A profile's leftover copy is left in place rather than
-	deleted, because deleting from someone's saved profile is not this driver's business, but
-	it is reported so that a puzzling `.ini` file has an explanation.
-
-	Profiles disagreeing is the one case nothing is copied. There is no way to tell which of
-	them the user meant, and picking one silently would leave them with a composite of displays
-	they did not choose — worse than choosing again, which is a page of settings away and which
-	the log then asks for by name.
+	For a list written to a profile before the section was base only. Never overwrites base,
+	leaves the profile's copy in place and logs it, and copies nothing when profiles disagree.
 	"""
 	try:
 		base = _baseSection()
@@ -263,9 +208,7 @@ def getDevices() -> list[DeviceSpec]:
 
 	:return: the specifications, in stacking order. Empty when none are configured, and empty
 		rather than raising when the section itself cannot be read.
-	:raise ValueError: if the stored list names a driver twice or names this driver. Those are
-		the user's own configuration errors and are worth reporting rather than silently
-		reducing to no display.
+	:raise ValueError: if the stored list names a driver twice or names this driver.
 	"""
 	initialize()
 	return parseDeviceSpecs(_readEntries())
@@ -274,8 +217,7 @@ def getDevices() -> list[DeviceSpec]:
 def setDevices(specs: list[DeviceSpec]) -> None:
 	"""Store the member displays in the base configuration.
 
-	Validates before writing, so that a list which could never be opened is refused at the
-	point it is set rather than at the next braille restart.
+	Validates before writing.
 
 	:param specs: the specifications, in stacking order.
 	:raise ValueError: if the list names a driver twice.

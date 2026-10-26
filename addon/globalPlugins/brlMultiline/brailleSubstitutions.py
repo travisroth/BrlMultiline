@@ -12,31 +12,25 @@ table: nothing is patched. `userBrailleTable` writes and loads it; `substitution
 
 **Nothing here imports NVDA**, so everything that decides anything is tested without it.
 
-**Every entry becomes `correct` rules**, liblouis's pass that rewrites the text before it is
-translated. That is the only rule that matched names reliably when tested: `word` and `always`
-rules written with capitals never matched at all, and written in lower case did not match a name
-in title case and doubled the capital sign when they did. A `correct` rule matches exactly what it
-is given, so an entry that should match whatever the capitals gets one rule for each form it is
-likely to meet. See `caseForms`.
+**Every entry becomes `correct` rules**, liblouis's pass that rewrites the text before
+translation; `word` and `always` rules mishandle capitals. A `correct` rule matches exactly, so
+an entry matching any capitals gets one rule per likely form. See `caseForms`.
 
 **Text is translated after it is put in**, so "TR" gets the table's capital signs and a
 replacement is contracted in grade 2 as if it had been typed.
 
-**Dots go through a character of their own.** The match is rewritten to a character from Unicode's
-private use plane 15, which no document uses, and that character is defined as the dots. Defined as
-a `letter`, so the punctuation after it is a word's punctuation: as a `sign`, US grade 2 wrote the
-period after it as a decimal point. And `noletsign`, or grade 1 put a letter sign in front of it when
-it stood alone.
+**Dots go through a character of their own**, from Unicode's private use plane 15, defined as
+the dots: a `letter`, so following punctuation is a word's, and `noletsign`, so grade 1 adds no
+letter sign.
 
 **Whole words take four rules.** A `correct` test can look at the character before the match and
 the one after, but not past either end of the text, so the start and the end of the text each need a
 rule of their own. Each test of the character after steps back with `_`, so it does not swallow the
 character it looked at.
 
-**What each costs.** liblouis tries every `correct` rule at every position of every line, unlike
-its translation rules, which it looks up by character. A whole word entry that matches any capitals
-is up to twenty rules. Measured: forty of those, 640 rules in all, took a line from 0.15 ms to 1 ms.
-A list of tens of entries costs nothing anyone will notice; a list of hundreds would.
+**What each costs.** liblouis tries every `correct` rule at every position, and a whole word
+entry matching any capitals is up to twenty rules: tens of entries go unnoticed, hundreds would
+not.
 """
 
 import dataclasses
@@ -251,8 +245,8 @@ def escape(text: str) -> str:
 
 	A space or tab ends an operand, so they are escaped; a backslash starts an escape; a quotation
 	mark ends a quoted string, and is written `\\"`, which liblouis takes as one inside a test or an
-	action. Not by its code: liblouis turns `\\x0022` into a quotation mark before it looks for the
-	string's end, and the rule stopped compiling. Anything outside printable ASCII is written by its
+	action, not by its code, which liblouis expands before finding the string's end. Anything
+	outside printable ASCII is written by its
 	code, so the file is the same whatever encoding liblouis reads it in.
 	"""
 	out = []

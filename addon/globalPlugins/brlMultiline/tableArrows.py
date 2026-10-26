@@ -9,47 +9,18 @@ Inside a table, up and down move a row and keep the column, left and right move 
 keep the row, and home and end go to the first and last cell of the row. Outside a table not
 one key changes.
 
-**Why the arrows.** A table is two dimensional and browse mode's arrow keys are not. Reading
-down a column with the down arrow means reading every cell of every row in between, so the
-one thing a table is for — comparing what is under a heading — is the one thing the reading
-keys cannot do. NVDA answers that with a second set of commands, control+alt+arrows, which
-works and costs a four finger chord per cell; other screen readers answer it with a mode the
-reader turns on and off and must remember the state of.
+1. Off until the reader turns it on, since these are NVDA's keys. See
+   `bmConfig.shouldArrowsMoveByRow`.
+2. Not a mode: being in a table is the state.
+3. Nothing is trapped: with no cell to move to, the key goes to NVDA untouched, so the arrows
+   walk out of the table.
+4. Six of `cursorManager.CursorManager`'s movement scripts are wrapped; shift and control
+   variants are other scripts and untouched.
+5. The movement is NVDA's own `documentBase.DocumentWithTableNavigation._tableFindNewCell`,
+   with `raiseOnEdge`, reported as NVDA's table movement reports.
 
-**Off until the reader turns it on.** "Arrows move by row" in the BrlMultiline settings,
-because these are NVDA's own keys and the add-on changes nothing of NVDA's by default. See
-`bmConfig.shouldArrowsMoveByRow`.
-
-**Once on, it is not a mode.** There is nothing to switch while reading and no state to
-remember, because being in a table is already the state: the reader arrows into a table and
-the arrows read the table, arrows out of it and they read the page. What makes that safe is
-the second half:
-
-**Nothing is ever trapped.** A key is taken only when there is a cell to move to. When there
-is not, the key goes to NVDA untouched and does exactly what it does everywhere else — so
-the down arrow on the last row leaves the table, the up arrow on the first row leaves it
-upwards, and the right arrow in the last cell of a row walks on into whatever follows it.
-There is no edge announcement and no special case at the boundary, because there is no
-boundary: the fallback *is* NVDA's own key. That is the whole difference between this and a
-navigation mode, and it is why nothing has to be turned off to get out.
-
-**How.** Six of `cursorManager.CursorManager`'s movement scripts are wrapped — the ones
-browse mode binds the plain arrows, home and end to. The wrapper asks for a destination cell
-and, if there is one, moves and reports and NVDA's own script never runs. Shift and control
-with the arrows are different scripts and are untouched, so selecting and moving by word
-inside a cell still work as they always did.
-
-**The movement is NVDA's own.** `documentBase.DocumentWithTableNavigation._tableFindNewCell`
-is what control+alt+arrow moves with, and this calls it with `raiseOnEdge`, which is the same
-arithmetic — merged cells, missing cells, the reader's layout table setting — with the edge
-raising instead of announcing itself. What is reported on arrival is what NVDA's own table
-movement reports. So a reader who uses both gets one behaviour, and this file contains no
-opinion about what a table is.
-
-Left alone deliberately: a key with a selection under it, a key resuming say all, a backed up
-key queue, focus mode, and a reader who has turned tables off in NVDA's Document Formatting.
-Each of those is a case where moving by cell is the wrong answer rather than one where it
-would fail. See L{wantsCellMovement}.
+Left alone: a selection, say all resuming, a backed up key queue, focus mode, and tables turned
+off in Document Formatting. See `wantsCellMovement`.
 """
 
 import functools
@@ -70,9 +41,7 @@ except ImportError:  # pragma: no cover - an NVDA whose table navigation has mov
 	_Movement = None
 """NVDA's table navigation, which every one of these keys is answered out of.
 
-Guarded because it is the one thing here with no fallback: without it there is no table
-movement to offer and the arrow keys are left exactly as they are, which is what a reader had
-before this existed.
+Guarded; without it the arrow keys are left as they are.
 """
 
 
@@ -90,15 +59,8 @@ MOVES = (
 )
 """Which of NVDA's movement scripts this stands in front of, and what each means in a table.
 
-By script name rather than by keystroke because the script is what NVDA binds: `kb:downArrow`
-is `moveByLine_forward` on a cursor manager, and a reader who has bound another key to the
-same script means the same thing by it. Which also draws the line around what is touched —
-selecting, moving by word and moving by paragraph are other scripts and keep their behaviour.
-
-Up and down are the row axis: the same column, the next row along, which is what reading down
-a column of figures is. Left and right are the column axis. Home and end are the first and
-last cell of the row rather than of the column, because a row is what home and end have
-always meant.
+By script name, so a reader's own binding to the same script counts. Up and down keep the
+column; left and right keep the row; home and end are the row's first and last cells.
 """
 
 _originals: dict[str, object] = {}
@@ -113,9 +75,7 @@ _installed = False
 def wantsCellMovement(document, gesture) -> bool:
 	""":return: whether this keypress is one to answer with a move by cell at all.
 
-	Every no here is a case where moving by cell is the wrong answer, and is settled before
-	anything is read out of the document. Whether there *is* a cell that way is a different
-	question, and L{moveToCell} asks it afterwards.
+	Settled before reading the document; whether there is a cell is `moveToCell`'s question.
 
 	:param document: what NVDA ran the movement script on.
 	:param gesture: the keypress behind it.
@@ -156,9 +116,7 @@ def moveToCell(document, gesture, movement, axis) -> bool:
 	:param gesture: the keypress behind it.
 	:param movement: which way, as `documentBase._Movement`.
 	:param axis: along rows or along columns, as `documentBase._Axis`.
-	:return: whether the key was answered here. **False is the important answer**: it means
-		the reader gets NVDA's own movement for that key, and it is what keeps the table from
-		trapping them.
+	:return: whether the key was answered here. False gives NVDA's own movement.
 	"""
 	if not wantsCellMovement(document, gesture):
 		return False
@@ -212,11 +170,8 @@ def _movingByCell(original, movement, axis):
 	:param original: the script as NVDA defines it.
 	:param movement: which way this key moves, as `documentBase._Movement`.
 	:param axis: which axis it moves along, as `documentBase._Axis`.
-	:return: the replacement, indistinguishable from the original to everything that inspects
-		a script. The say all resume mark on the line movement scripts and the description
-		input help reads both live on the function object, and `functools.wraps` carries them
-		over — including the description, which is left saying what the key does on a page,
-		because that is what it does everywhere but in a table.
+	:return: the replacement, carrying the say all mark and description over through
+		`functools.wraps`.
 	"""
 
 	@functools.wraps(original)
@@ -231,9 +186,7 @@ def _movingByCell(original, movement, axis):
 def install() -> None:
 	"""Start answering the arrow keys inside browse mode tables.
 
-	Installed when the add-on loads rather than when a flow starts: this is how a table is
-	read, not how one is displayed, and it is as much use to a reader who never lays a table
-	out in columns as to one who always does.
+	When the add-on loads, not with a flow, since this is how a table is read.
 	"""
 	global _installed
 	if _installed:
@@ -270,11 +223,7 @@ def install() -> None:
 def remove() -> None:
 	"""Stop, putting browse mode's own keys back. Safe to call when nothing is installed.
 
-	Each script goes back only if it is still the one this module put there. Another add-on
-	may have wrapped it since — this is a class attribute anyone can reach — and restoring
-	NVDA's own over that would silently undo their work, which is the more damaging half of a
-	shared monkey patch. See `panning.remove`, which says the same thing about NVDA's panning
-	commands.
+	Each script goes back only if it is still this module's. See `patches.remove`.
 	"""
 	global _installed
 	if not _installed:
