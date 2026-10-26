@@ -5,24 +5,9 @@
 
 """Laying one block out as rows, without reimplementing any of NVDA's text handling.
 
-`flow` needs each block cut into rows of the band's width, with a map from each cell back
-to the position in the block it came from. NVDA has all of that already — translation,
-contraction, word boundary wrapping, syllable hyphenation, continuation marks — but only
-inside a `BrailleBuffer`, and a buffer holding several regions concatenates them and cuts
-rows out of the result, which is exactly the arrangement a flow cannot use.
-
-So a block is laid out in a buffer of its own: one region, a rectangle the width of the
-band, and nothing else in it to run together with. This is `RectHandlerProxy` doing the
-same job it does for a segment — telling a stock `BrailleBuffer` that the display is the
-size of a rectangle — with the rectangle here being a place to lay text out rather than a
-place on the display. `BrailleBufferSegment` is reused rather than subclassed afresh, so
-the block is cut by the same rules the band itself would use, including the fill mode a
-narrow band wants.
-
-Nothing is copied out of NVDA. The one thing assembled here that NVDA also assembles is
-the padded row, in `_rowFrom`, and that is because NVDA's version
-(`BrailleBuffer._get_windowBrailleCells`) produces cells alone, while a flow needs the
-positions beside them or routing has nothing to aim at.
+Each block is laid out in a `BrailleBuffer` of its own, one region the band's width, through
+`RectHandlerProxy` and `BrailleBufferSegment`, so NVDA's translation and wrapping cut it.
+`_rowFrom` builds rows with the positions beside the cells, which NVDA's version lacks.
 """
 
 import dataclasses
@@ -61,21 +46,14 @@ rather than a limit. Eight is a Monarch's height, which makes the common case on
 CHUNK_ROWS = 64
 """How many rows of one block are laid out at a time.
 
-A working set, not a limit: a block longer than this is rendered in chunks, and the
-controller asks for the next one when the reader pans towards it. What it bounds is the
-cells held for a pathological block — a whole document rendered as one paragraph, a
-minified script in a code view — not how much of it can be read.
+A working set, not a limit: a longer block is rendered in chunks as the reader pans.
 """
 
 
 def _rowsAreFixedWidth(buffer: BrailleBufferSegment) -> bool:
 	""":return: whether every row of a buffer is exactly its width, so rows can be counted.
 
-	True for the fill mode with no continuation marks, which is what
-	`layout.calculateFilledRowOffsets` produces when it is given no cut test: each row is the
-	full width and the next one starts where it ended. A mark costs a row its last cell, and
-	word wrapping moves the cut to a boundary, so in either of those where a row ends depends
-	on where the one before it ended and the rows have to be walked.
+	True for the fill mode with no continuation marks; otherwise rows must be walked.
 
 	:param buffer: the buffer a block is being laid out in.
 	"""
@@ -110,10 +88,8 @@ class FlowRenderer:
 		:param markCuts: spend a cell on a continuation mark where a row was cut mid word.
 		:param layoutRows: how many rows to lay out per pass.
 		:param maxRows: how many rows of one block to hold at a time.
-		:param indentPlan: how a block's depth is drawn. The default draws nothing, which is
-			what prose wants and what everything wanted before depth existed.
-		:param columnPlan: where a table row's columns go. The default draws nothing, which
-			is reading order and is what every block that is not a table row gets.
+		:param indentPlan: how a block's depth is drawn. The default draws nothing.
+		:param columnPlan: where a table row's columns go. The default is reading order.
 		:raises ValueError: if the width is not positive.
 		"""
 		if numCols < 1:
@@ -121,28 +97,20 @@ class FlowRenderer:
 		self.glyphTarget = None
 		"""The display this band's blocks are being drawn on, or None if none of them draws.
 
-		Set by the band, because where the band is is not something a renderer can see and is
-		not fixed: the band can be moved between displays, and a member of a composite can be
-		unplugged. None means no shape is drawn and no word is taken out — which is what a
-		region bound for a display that cannot draw one must get. See `glyphFlow.targetForRows`.
+		Set by the band, which can move. None means no shape is drawn. See
+		`glyphFlow.targetForRows`.
 		"""
 		self.unwrappedPage: Optional[int] = None
 		"""Which page across of unwrapped lines to draw, or None to wrap as ever.
 
-		Unwrapped, every block is one row whatever its length: the line laid out end to end and
-		cut into pages the band's width, of which only this one is drawn. A line too short to
-		reach it is a blank row, and still its own row, so a hand running down the left margin
-		meets every line of the document where it would in the editor. What code wants: the
-		indent at the start of each line is only worth anything while each line starts a row.
-
-		A table row laid out in columns is not affected, because it has pages of its own. See
-		`FlowController.setUnwrapped`.
+		Unwrapped, every block is one row: only this page of the line is drawn, blank if the line
+		is short, so each line keeps its row, as code wants. Table rows in columns have pages of
+		their own. See `FlowController.setUnwrapped`.
 		"""
 		self.glyphsWanted = False
 		"""Whether the reader's setting asked for shapes when the band was last laid out for them.
 
-		Kept beside `glyphTarget` because both decide what a block looks like, and a review found the
-		setting turned off on a band that stayed on the same display leaving every shape in place. See
+		Beside `glyphTarget`, since both decide what a block looks like. See
 		`FlowController.drawGlyphsOn`.
 		"""
 		self.handler = handler
@@ -154,36 +122,29 @@ class FlowRenderer:
 		self.indentPlan = indentPlan
 		"""How deep a block sits, turned into cells. See `flowIndent`.
 
-		Held rather than passed, so that none of the controller's six render calls has to
-		know about depth. Replaced wholesale when the band rebases, which is also what
-		invalidates the renderings drawn under the old one — see `flow.RenderKey.indent`.
+		Held, so render calls need not know about depth. Replaced when the band rebases; see
+		`flow.RenderKey.indent`.
 		"""
 
 		self.columnPlan = columnPlan
 		"""Where a table row's columns go. See `flowTable`.
 
-		Held for the same reason `indentPlan` is, and part of the rendering key for the same
-		reason: a row drawn under one set of column widths must never be served for a row
-		drawn under another, or the reader's finger finds the previous layout's columns.
+		As `indentPlan`, and part of the rendering key so old column widths are never served.
 		"""
 
 	@property
 	def renderKey(self) -> RenderKey:
 		"""What this renderer's output depends on, beyond the content itself.
 
-		A rendering carries this so that a changed braille table or a resized band
-		invalidates the cells while leaving block identity alone, and the reader keeps
-		their place across the change.
+		See `flow.RenderKey`.
 		"""
 		return self._keyWith(0)
 
 	def keyFor(self, block: SourceBlock) -> RenderKey:
 		""":return: the key a rendering of one block would carry if it were made now.
 
-		So that a caller holding a rendering can ask whether it is still the one this
-		renderer would produce, rather than producing it again to find out. The indent is
-		the block's own, which is what `render` puts in the key; a table row drawn at its
-		plan's offsets carries no indent, exactly as `_chunkOf` records.
+		So a held rendering can be checked without rendering again. A table row drawn at its
+		plan's offsets carries no indent, as `_chunkOf` records.
 
 		:param block: the block in question.
 		"""
@@ -262,15 +223,8 @@ class FlowRenderer:
 	def renderPinned(self, block: SourceBlock) -> RenderedBlock:
 		"""Lay a block out as the one row that stays above the window.
 
-		Cut rather than wrapped, and one row whatever it holds. A pinned row that changed
-		height would move every row under it, which is the one thing a pinned row exists not
-		to do: the reader finds a column by its offset, and they can only do that while the
-		offsets stay where they were.
-
-		The plan is swapped for its cutting form for the duration rather than the rows being
-		trimmed afterwards, because trimming would keep the *wrapped* first line — a header
-		laid out for two rows shows only `width - indent` cells on the first, so "%Change" in
-		an eight cell column would come out as "%Chang" with two cells of nothing beside it.
+		Cut, never wrapped, so the rows under it never move. The plan is swapped for its cutting
+		form rather than trimming afterwards, which would keep the narrower wrapped first line.
 
 		:param block: the block to draw.
 		:return: its rendering, one row tall.
@@ -291,23 +245,9 @@ class FlowRenderer:
 	def _asColumns(self, block: SourceBlock, fromRow: int = 0) -> Optional[RenderedBlock]:
 		"""Lay a table row out at its plan's offsets, if it is one and there is a plan.
 
-		The one thing in this file that does not go through a braille buffer holding the
-		whole block. It cannot: the row's cells come from different places in the document
-		and each has to be translated on its own, or the widths are character counts and the
-		columns do not line up. So each cell is laid out in a buffer of its own at its own
-		column's width — the same machinery, several times — and the results are placed.
-
-		**A packing row is a lane, and a lane is as tall as the tallest cell in it.** The
-		plan may put columns on more than one row of the band; a cell in the first of those
-		that wraps needs the rows underneath it, and those rows are not the second lane's to
-		take. Adding the wrapped line's index to the lane number gave both of them the same
-		row and the later column won — a wrapped value with the next column written through
-		the middle of it. Lanes are stacked by their own heights instead.
-
-		Every drawn row is the full width of the band, padding included, which is the one
-		place a rendering here is padded. `assembleCells` pads a short row at its right hand
-		end; a table row needs padding *between* its columns as well, and that padding is
-		what puts the next column where the reader's finger expects it.
+		Each cell is translated in a buffer of its own at its column's width, then placed. A
+		packing row is a lane, as tall as its tallest cell, and lanes are stacked by height.
+		Rows are padded to the full width here, since columns need padding between them.
 
 		:param block: the block being rendered.
 		:param fromRow: which row of the table row to start at, for a row taller than the
@@ -336,9 +276,7 @@ class FlowRenderer:
 	def _laidOut(self, lanes: dict, plan) -> tuple[list, list]:
 		"""Draw every lane, one under the last, and give back the whole table row.
 
-		The whole of it, however tall: what the band shows is decided afterwards, by
-		`_chunkOf`. Deciding it here is what let content be dropped without anything saying
-		so.
+		However tall; what the band shows is `_chunkOf`'s decision.
 
 		:param lanes: the drawn cells, by lane.
 		:param plan: the layout.
@@ -365,40 +303,19 @@ class FlowRenderer:
 						break
 					for offset, value in enumerate(line[: place.column.width]):
 						rows[target][place.offset + offset] = value
-						# A cell that came from nowhere stays from nowhere. Packing
-						# `NO_POSITION` was packing a negative number, which came back out of
-						# `positionParts` as a real column one lower with an enormous offset —
-						# so the continuation indent of one column claimed to be content of
-						# the column before it, and a routing key over it would have gone
-						# there.
+						# A cell from nowhere stays from nowhere; packing `NO_POSITION` would
+						# unpack as a real position in the column before.
 						mark = marks[offset]
 						if mark != NO_POSITION:
 							drawn = True
 						where[target][place.offset + offset] = (
 							NO_POSITION if mark == NO_POSITION else cellPosition(place.column.index, mark)
 						)
-				# **An empty cell is still a place, and it is as wide as its column.** It
-				# draws nothing, so without this it left no position anywhere on the row —
-				# and a position is what the cursor is found by and what a routing key is
-				# turned back into. So the reader arriving in an empty cell got no cursor at
-				# all and could not tell which column they were in, and no routing key would
-				# take them into one. Reported from an Excel sheet, on the first blank row
-				# under the data, where *every* cell is empty and the whole row was
-				# unreachable and unmarked.
-				#
-				# Marking only the column's first band cell fixed the cursor and did not fix
-				# routing, which is the second report: on a blank row nothing is drawn, so
-				# there is no way to feel which single cell of thirty-two is the live one,
-				# and every press either side of it reached nothing. The reader's own way of
-				# aiming is the pinned header — press under the heading you want — and that
-				# only works if the whole of the column answers.
-				#
-				# So every band cell the column occupies says which column it is. All at
-				# offset zero, not at their own offsets: a cell is routed to as a place
-				# rather than at the character under the finger (see
-				# `flowTableSource.TableCellRegion.routeTo`), and one position for the whole
-				# of it also keeps the cursor at the column's start, since
-				# `FlowController.cursorCell` takes the first band cell that matches.
+				# An empty cell is still a place as wide as its column, so the cursor can show
+				# and any routing key under its heading reaches it. Every band cell is at
+				# offset zero: a cell is routed to as a place (see
+				# `flowTableSource.TableCellRegion.routeTo`), and `FlowController.cursorCell`
+				# then puts the cursor at the column's start.
 				if not drawn and start < total:
 					for offset in range(place.column.width):
 						at = place.offset + offset
@@ -410,12 +327,8 @@ class FlowRenderer:
 	def _chunkOf(self, block: SourceBlock, rows: list, where: list, fromRow: int) -> RenderedBlock:
 		"""Take the part of a table row the band will show, and say whether there is more.
 
-		A table row taller than `flowTable.MAX_TABLE_ROWS` is not refused and is not silently
-		cut: it is a block with more rows, which is the same thing a paragraph longer than the
-		band is, and the window pans through it by the machinery that already exists. Saying
-		`moreRows` is false while dropping the rest was the alternative and it is the one
-		thing that must not happen — the reader is promised every value and has no way to
-		tell they are not getting one.
+		A row taller than `flowTable.MAX_TABLE_ROWS` is a block with more rows, panned through
+		like a long paragraph, never silently cut.
 
 		:param block: the block being rendered.
 		:param rows: every row of the table row.
@@ -444,15 +357,9 @@ class FlowRenderer:
 	def _cellRows(self, cell, column) -> tuple[list, list]:
 		"""Translate one cell of a table row and cut it to its column.
 
-		Cut, not wrapped at word boundaries: a column six cells wide has no room to keep
-		words whole, and a reader comparing values down a column is reading positions rather
-		than prose. That is the renderer's fill mode, which a table always asks for.
-
-		A cell that fits is one row and this is one layout. A cell that does not is laid out
-		again at the column's width less its indent, because its continuation rows are
-		indented — see `flowTable.indentFor`. The first row is cut at the narrower width too,
-		which costs it the indent in blank cells at the right; the alternative is re-cutting
-		a remainder, which is a second way of cutting text to keep in step with the first.
+		Cut in fill mode, not at word boundaries. A cell that does not fit is laid out again at
+		the column's width less its indent (see `flowTable.indentFor`), first row included, so
+		there is one way of cutting.
 
 		:param cell: the cell to read.
 		:param column: the column it goes in.
@@ -504,15 +411,8 @@ class FlowRenderer:
 	def _unwrapped(self, block: SourceBlock) -> RenderedBlock:
 		"""Lay a block out as one line, and draw the page of it the band is across at.
 
-		Filled rather than wrapped whatever the band's own rule, because a page across has to be
-		exactly the band's width: then page *n* of every line starts at the same cell of the
-		line, and panning moves the whole band across by the same distance. Word wrapping cuts
-		each line at its own places, and no continuation mark is spent, since the next page is
-		where the rest of the line is.
-
-		The indent, where a block has depth, is put in front of the whole line before it is cut,
-		so a nested item's text keeps its place relative to its parent's on every page rather
-		than only on the first.
+		Filled, with no continuation mark, so page n of every line starts at the same cell. The
+		indent goes in front before cutting, so nesting holds on every page.
 
 		:param block: the block to draw.
 		:return: one row, possibly blank, with `lineCells` saying how long the whole line is.
@@ -556,9 +456,7 @@ class FlowRenderer:
 	def renderAround(self, block: SourceBlock, position: int, contextRows: int = 0) -> RenderedBlock:
 		"""Lay out the chunk containing one braille position.
 
-		The 64-row chunk is a working-set bound, not a text-length limit. A caret can be well
-		past that first chunk in a large edit, so locating its row is a separate streaming
-		pass and does not guess that an unseen cursor belongs on the chunk's last row.
+		A caret can be past the first chunk, so its row is found by a separate pass.
 
 		:param block: the block whose active region owns ``position``.
 		:param position: the region-relative braille cell holding the caret.
@@ -574,9 +472,7 @@ class FlowRenderer:
 	def _rowContaining(self, block: SourceBlock, position: int) -> Optional[int]:
 		""":return: the whole-block row containing a braille position, or None.
 
-		Measured at the width a wrapped block is laid out in, since a position past the
-		first row belongs to a block that wraps by definition. Measuring at the wider width
-		would name a row the rendering does not have.
+		Measured at the narrower width a wrapped block is laid out in.
 		"""
 		rest = self.indentPlan.continuationPrefixFor(block.depth)
 		buffer = self._layoutBuffer(block, width=self.numCols - len(rest) if rest else None)
@@ -617,16 +513,8 @@ class FlowRenderer:
 	) -> tuple[list, list, bool]:
 		"""Lay a block out in the cells its indent leaves, and put the indent in front.
 
-		Two widths, because a wrapped row is indented further than the first one is — see
-		`flowIndent.CONTINUATION_EXTRA` — and a buffer cuts every row of a block at one
-		width. An item that fits on a row is laid out in the wider of the two and never
-		pays for a continuation it does not have; only an item that actually wraps is laid
-		out again in the narrower one. The second pass costs a second translation of one
-		block, and it is spent only where the reader can see what it bought.
-
-		The indent cells map back to `NO_POSITION`, which is how the continuation mark and
-		the padding after a short row are already handled, and is what stops a routing key
-		in the margin aiming at the first character of the item.
+		Wrapped rows are indented further (see `flowIndent.CONTINUATION_EXTRA`), so only an item
+		that wraps is laid out again at the narrower width. Indent cells map to `NO_POSITION`.
 
 		:param block: the block to lay out.
 		:param fromRow: the first row of the block to keep.
@@ -664,9 +552,8 @@ class FlowRenderer:
 	) -> tuple[list, list]:
 		"""Put the indent cells in front of each row.
 
-		The block's own first row gets `first` and every other row gets `rest`, counted by
-		the row's place in the whole block rather than in this chunk — a chunk starting part
-		way through a long block holds no first row at all.
+		The block's own first row gets `first`, every other row `rest`, counted in the whole
+		block rather than this chunk.
 		"""
 		out: list[tuple[int, ...]] = []
 		where: list[tuple[int, ...]] = []
@@ -687,11 +574,8 @@ class FlowRenderer:
 		:param block: the block to lay out.
 		:param width: how many cells wide to cut its rows, defaulting to the whole band. An
 			indented block is laid out in what its indent leaves.
-		:param glyphs: whether a role or state in this block may be drawn as a shape. False
-			for one cell of a table row: a cell's positions are packed with the column they
-			came from — see `flowTable.cellPosition` — so a mark naming one of its cells would
-			never be found again, and compressing it would leave the cell the shape was meant
-			to stand on with nothing drawn over it.
+		:param glyphs: whether a role or state may be drawn as a shape. False for a table cell,
+			whose positions are packed (see `flowTable.cellPosition`).
 		:return: the buffer, its window at the start of the block, or None if the block
 			could not be laid out at all.
 		"""
@@ -726,9 +610,7 @@ class FlowRenderer:
 	def _layout(self, buffer: BrailleBufferSegment, fromRow: int = 0) -> tuple[list, list, bool]:
 		"""Walk a laid out block, a pass at a time, collecting the rows wanted.
 
-		Rows before `fromRow` are walked and discarded rather than skipped: where a row ends
-		depends on where the one before it ended, so the only way to know is to cut them.
-		The translation is done once either way, when the region is read.
+		Rows before `fromRow` are walked and discarded, since each row's end depends on the last.
 
 		:param buffer: the buffer holding the block.
 		:param fromRow: the first row of the block to keep.
@@ -784,25 +666,9 @@ class FlowRenderer:
 	) -> tuple[list, list, bool]:
 		"""Drop a last row that holds nothing but blank cells.
 
-		**A row of the band is too expensive for the space NVDA parks a caret on.** Every
-		reading unit NVDA hands over ends with a space it added on purpose — see
-		`TextInfoRegion.update`, "in case the cursor is at the end of the reading unit" — and
-		that space is a cell like any other. A block whose content fills the band exactly
-		therefore needs one more cell than the row has, and the wrap put that one blank cell on
-		a row of its own. On an eight row band that is an eighth of the display spent on
-		nothing, and under the fingers it reads as a line skipped between two links, as though
-		the first were continuing.
-
-		**Unless the cursor is in it**, which is the case the space was added for. In a document
-		the caret sits on a character and never on that space, so the row goes; in an edit box
-		filled to exactly the width the caret does sit there, and a caret with no cell is worse
-		than a wasted row. The block is read again on every keystroke while it is being written
-		in, so the question is asked afresh exactly when the answer can change.
-
-		Only the last row, and only when the block ends here: a blank row in the middle of a
-		block is a blank line the document really has, and a chunk that stops short does not
-		know what follows it. A block that is nothing but a blank row keeps it, because that is
-		a blank line and a blank line is a row.
+		`TextInfoRegion.update` ends each unit with a space for the cursor, which can wrap onto a
+		row of its own. Kept when the cursor is in it, as in an edit box filled to the width.
+		Only the last row of a block that ends here, and never a block that is only a blank row.
 
 		:param buffer: the buffer the block was laid out in, asked where its cursor is.
 		:param rows: the rows cut from it.
@@ -820,16 +686,8 @@ class FlowRenderer:
 	def _filledLayout(self, buffer: BrailleBufferSegment, fromRow: int) -> tuple[list, list, bool]:
 		"""Cut a block into rows by arithmetic, for the mode where every row is the same width.
 
-		The same rows `_layout` walks to, without the walk. Filling a row means carrying
-		straight on at the width the buffer was given — see `layout.calculateFilledRowOffsets`
-		— so row *n* is the cells from `n * width`, and the tail of a long block can be
-		reached without cutting everything in front of it first.
-
-		The walk is not wasteful by accident: where a row ends genuinely depends on where the
-		one before it ended, which is why word wrapping still has to be walked. It is only
-		this mode that has nothing to remember, and this mode is what a narrow band and every
-		table cell use. A reader typing at the end of a very long paragraph was paying for a
-		re-cut of the whole of it on each keystroke to be shown ten rows.
+		The rows `_layout` walks to, without the walk: row n is the cells from `n * width` (see
+		`layout.calculateFilledRowOffsets`). Used by narrow bands and every table cell.
 
 		:param buffer: the buffer holding the block.
 		:param fromRow: the first row of the block to keep.
@@ -853,15 +711,8 @@ class FlowRenderer:
 	def _rowFrom(self, cells: list, rowPositions) -> tuple[tuple[int, ...], tuple[int, ...]]:
 		"""Build one row and the map back to where each of its cells came from.
 
-		The shape of `BrailleBuffer._get_windowBrailleCells`, which cannot be used directly
-		because it returns cells alone: a flow needs to know which position in the block
-		each cell holds, or a routing key press has nothing to aim at. A continuation mark
-		and the padding after a short row come from no position at all, and routing into
-		them must do nothing.
-
-		A row is left at its natural length rather than padded out. Padding is
-		`flow.assembleCells`' job, done once when the window is drawn, and doing it here as
-		well would bury cells belonging to no position inside a block's own rows.
+		As `BrailleBuffer._get_windowBrailleCells`, with positions; a continuation mark comes
+		from no position. Left unpadded, since padding is `flow.assembleCells`' job.
 
 		:param cells: the block's cells.
 		:param rowPositions: where this row starts and ends in them.

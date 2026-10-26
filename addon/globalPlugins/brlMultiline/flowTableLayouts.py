@@ -5,51 +5,19 @@
 
 """A layout the reader saved, kept against the table it was made for.
 
-The command that lays a table out in columns says of itself that the end state is "a layout
-remembered against the table so that a watchlist comes up laid out". This is that: a record
-per table, looked up when the reader arrives, applied without a keystroke.
+A record per table, looked up when the reader arrives and applied without a keystroke.
 
-**What is saved is the reader's choices, not the arithmetic.** A column plan holds widths in
-cells, and cells belong to the display it was made on — a plan saved on a Monarch's
-thirty-two would be nonsense on a Focus 80's eighty, and this reader carries both. So the
-record holds what the reader *decided*: which columns to show and in what order, how tall a
-row may be, whether a long cell is cut, whether the key column is repeated, whether a header
-row is pinned. The widths are worked out again by `flowTable.planFor` for whatever band the
-table lands on, which is the same code that works them out today.
+1. The reader's choices are saved, not widths; `flowTable.planFor` works widths out again for
+   whatever band the table lands on.
+2. An unset field means "whatever the settings say".
+3. Each layout is a `SavedLayout`, kept readably with its name, full address, how strictly
+   the address matches, and the table's headings, so `flowTableManager` can list and edit it.
+4. A web page matches by site and path by default, ignoring the query string; the headings
+   must match too.
+5. Column settings follow their column by heading.
+6. One store, in the base configuration, as one JSON string. See `bmConfig.tableLayouts`.
 
-**Every field can say "not my business."** A record made by turning columns on and saving
-says nothing about row height, and a reader who later changes the row height setting expects
-that change to reach this table too. So an unset field means "whatever the settings say", and
-only what the reader chose *for this table* is written down. That is also what keeps a record
-from silently freezing a default the add-on later improves.
-
-**A saved layout is something the reader can find again, name and move.** The first store kept
-each table only as a digest of its address and its headings, so that the configuration file
-carried no URLs. It worked until a site changed its address: the watchlist stopped coming up
-laid out, nothing could say which saved layout had been its own, and nothing could point that
-layout at the new address. Found on hardware, 16 September 2026. So each layout is now a
-`SavedLayout` that keeps, readably, the reader's name for it, the address it was saved at, how
-strictly that address has to match, and the table's headings — which is what the layout
-manager, `flowTableManager`, lists and edits. The reader chose to keep the full address,
-query string and all, knowing the file then carries it.
-
-**How strictly an address matches is the reader's to set, per layout.** A web page is matched
-by its site and path by default, ignoring the query string, because the query string is what a
-site changes: a view renumbered, a parameter added. The headings still have to match, which is
-what keeps two tables on one path apart. Exactly, or anywhere on the site, are the other two
-answers.
-
-**Column settings follow their column by heading.** A record names columns by number, and a
-site that inserts one moves every column after it — so each decision would land silently on
-its neighbour. The heading of each column the record names is saved beside it, and a column
-whose heading has moved is followed to where it went.
-
-**One store, in the base configuration, whatever profile is active.** Written through NVDA's
-ordinary configuration it went into whichever profile was active, and a layout saved while an
-application's profile was on was hidden everywhere else. See `bmConfig.tableLayouts`.
-
-Stored as one JSON string, because the keys would be URLs and window classes and a
-configuration key is not allowed to be either.
+See "Saved layouts" in docs/design/structured-presentation-plan.md.
 """
 
 import dataclasses
@@ -138,10 +106,8 @@ def keyFor(said: str) -> str:
 MAX_SAVED = 200
 """How many tables may be remembered before the least recently used is dropped.
 
-A bound on the configuration file rather than on the reader: two hundred tables is more than
-anyone lays out by hand, and a store that grows without limit is a file that eventually
-cannot be written. Ranked by when each was last used, which is written down at most once a day;
-see `USED_EVERY`.
+A bound on the configuration file. Ranked by last use, written at most once a day; see
+`USED_EVERY`.
 """
 
 
@@ -185,19 +151,13 @@ class TableLayout:
 	speechOnly: bool = False
 	"""Whether this layout was saved for its header speech alone, and does not ask for columns.
 
-	A saved layout, even an empty one, has always meant "lay this table out in columns", which is
-	what saving one from the band says. A reader who saves only how a table's headers are spoken has
-	asked for nothing on the display, so a layout made that way says so, and the band leaves the
-	table as it would any other. Saving the table's columns into it later makes it an ordinary
-	layout. See `rememberHeaderSpeech` and `remember`."""
+	Any other saved layout means "lay this table out in columns". Saving columns into it later
+	makes it ordinary. See `rememberHeaderSpeech` and `remember`."""
 
 	perColumn: dict = dataclasses.field(default_factory=dict)
 	"""What they decided about individual columns, by the table's own column number.
 
-	By number rather than by position, so that a table which gains or loses a column does not
-	shift everybody's settings onto their neighbours. See `flowTable.ColumnChoice` for what one
-	holds; a column named here that the table has not got is dropped on reading, exactly as a
-	named column already is."""
+	See `flowTable.ColumnChoice`. A column the table has not got is dropped on reading."""
 
 	columnHeadings: dict = dataclasses.field(default_factory=dict, compare=False)
 	"""The heading each column this layout names had when it was saved, by column number.
@@ -285,9 +245,8 @@ def _decide(said: str, setting: bool) -> bool:
 def fromRecord(record: Any) -> TableLayout:
 	""":return: a layout read back out of the store, defaulting anything it cannot read.
 
-	Forgiving on purpose. This reads a file a reader may have edited and a record an older
-	or newer version of the add-on wrote, and the honest failure for either is the layout
-	losing a field rather than the table losing its layout.
+	Forgiving, since the file may be hand edited or from another version: a field is lost
+	rather than the layout.
 	"""
 	if not isinstance(record, dict):
 		return TableLayout()
@@ -357,9 +316,7 @@ def _choiceAsRecord(choice) -> dict:
 def _perColumnFrom(said: Any) -> dict:
 	""":return: the per-column decisions read back, dropping anything unreadable.
 
-	As forgiving as the rest of the store, and for the same reason: this file is edited by hand
-	and written by other versions, and the honest failure is one column losing a setting rather
-	than a reader losing their table.
+	Forgiving, as `TableLayout.fromRecord` is.
 
 	:param said: whatever the record held under "perColumn".
 	"""
@@ -670,9 +627,7 @@ class _Headings:
 class KnownHeadings:
 	"""Headings already read, answering what `_Headings` answers without a table to read.
 
-	For the manager, which asks which layout would apply after an edit and has only what it read of
-	the table when it opened. So a heading beyond the first few is not known, and an inserted column
-	is judged on those alone.
+	For the manager, which has only the first few headings it read when it opened.
 	"""
 
 	def __init__(self, first):
@@ -698,9 +653,8 @@ def headingsOf(handle) -> tuple:
 def headingsMatch(saved: SavedLayout, headings, candidates: int = 1) -> bool:
 	""":return: whether a table's headings are the ones a layout was saved against.
 
-	The first headings in order, which is what they were saved as. Failing that, every saved heading
-	still somewhere in the table: a site that inserts a column among the first few has changed the
-	sequence and not the table, and the layout's own columns follow by heading. See `_followColumns`.
+	The first headings in order, else every saved heading somewhere in the table, as when a
+	column is inserted. See `_followColumns`.
 
 	:param saved: a layout whose address already matched.
 	:param headings: the table's.
@@ -745,9 +699,7 @@ def stored() -> list:
 def _fromStoredText(text: str) -> list:
 	""":return: the layouts a stored text holds, in either version, leaving out what cannot be read.
 
-	**Forgiving all the way down.** A stored `1`, or a place whose value is a string, once reached
-	the lookup and raised there — in the middle of the reader walking into a table, which is a
-	braille refresh that stops rather than an error anybody sees. One bad entry costs that entry.
+	Forgiving all the way down: one bad entry costs that entry, not a braille refresh.
 	"""
 	if not text:
 		return []
@@ -813,9 +765,7 @@ def replaceAll(layouts) -> None:
 class LayoutsNotSaved(Exception):
 	"""The configuration would not take the saved layouts, so nothing asked for was saved.
 
-	Raised rather than logged and swallowed, which is what the store did: a review found the reader
-	told "saved" and "deleted" of changes that were never written, and the manager forgetting it had
-	anything left to write.
+	Raised, so the reader is never told "saved" of a change that was not written.
 	"""
 
 
@@ -879,10 +829,8 @@ def find(
 ) -> Found:
 	""":return: which saved layout applies to this table, and why not if none does.
 
-	**Cheap where nothing is saved at the address**, which is every table until the reader saves one:
-	the address is one attribute read and its headings are not read at all. Among the layouts that
-	match, the one most particular about its address wins, then one that asks for headings over one
-	that does not, then the one used most recently.
+	Cheap where nothing is saved at the address: headings are not read. Among matches, the most
+	particular address wins, then one asking for headings, then the most recently used.
 
 	:param handle: the table, as `flowTableSource.tableAt` returned it.
 	:param layouts: the store, to look in something other than what is saved.
@@ -931,17 +879,12 @@ def bestOf(matching: list) -> SavedLayout:
 def layoutFor(handle, follow: bool = True) -> Optional[TableLayout]:
 	""":return: the layout saved for this table, with its columns followed to where they are now, or None.
 
-	What it writes it writes seldom: a layout from the version 1 store is written down readably the
-	first time it is seen, and the date a layout was used at most once a day. See `USED_EVERY`. A
-	write that fails is logged and costs nothing else, since the layout is still the one to read with.
+	Writes seldom: a version 1 layout once, readably, and the date used at most daily (see
+	`USED_EVERY`). A failed write is logged only.
 
 	:param handle: the table, as `flowTableSource.tableAt` returned it.
-	:param follow: whether to follow the columns it names to where they are now. **Only for a caller
-		about to read the table with it**, since following reads the headings of those columns, and the
-		band asks on every redraw only whether a layout applies. So columns are followed once per table
-		the band builds, and nothing followed is kept to go stale: a review found a remembered following
-		carried to the next page load of a table whose first headings were the same and whose later
-		columns had moved again.
+	:param follow: whether to follow the columns it names to where they are now. Only for a caller
+		about to read the table, since it reads headings; nothing followed is kept to go stale.
 	"""
 	layouts = stored()
 	if not layouts or handle is None:
@@ -981,14 +924,9 @@ def layoutFor(handle, follow: bool = True) -> Optional[TableLayout]:
 def _followColumns(saved: SavedLayout, where: str, headings: _Headings) -> TableLayout:
 	""":return: a saved layout with every column it names moved to where that column's heading is now.
 
-	A column whose heading is where it was stays. One whose heading is now under another number is
-	followed there — **only where that is the one place it can have gone**: its heading is not shared
-	with another column the layout names, exactly one column of the table has it now, and no other
-	column has already been given that place. A review found two saved columns both called "Value"
-	followed onto the one "Value" the table had, and what was decided about one silently overwriting
-	the other. Anything that cannot be followed keeps its number, which is right for a column the site
-	renamed and a guess for one it removed, unless another column was followed onto that number, in
-	which case it is left out rather than drawn twice. Either way it is logged.
+	Followed only where it is the one place the column can have gone: its heading unshared among
+	the layout's columns, held by exactly one table column, and that place not taken. Otherwise
+	it keeps its number, or is left out if another was followed there. Either way it is logged.
 
 	:param saved: the layout that applies.
 	:param where: where the table is.
@@ -1063,10 +1001,8 @@ _explained: set = set()
 def _explainMiss(said: str, about) -> None:
 	"""Say in the log why a table was not laid out as saved, once for each place and table.
 
-	**A saved layout that stops applying was silent.** A site that adds a query string to its
-	address or renames a column has changed what a layout is matched on without the reader doing
-	anything. Reported from hardware as a watchlist that stopped coming up laid out, with nothing in
-	the log to say which half had moved.
+	A site can change its address or headings without the reader doing anything, so the log
+	says which half stopped matching.
 
 	:param said: why.
 	:param about: what it was about, so the same miss is said once.
@@ -1085,12 +1021,8 @@ def _explainMiss(said: str, about) -> None:
 def remember(handle, layout: TableLayout) -> bool:
 	"""Save a layout against the table in front of the reader.
 
-	**Into the layout that already applies here, where one does**, keeping its name, its address and
-	how strictly that matches. Saving again after arranging a column is changing that layout, not
-	making a second one beside it that the first would then compete with.
-
-	The headings of the columns it names are read and written down with it, which is what lets those
-	columns be followed if the site moves them. See `_followColumns`.
+	Into the layout that already applies, where one does, keeping its name and address, rather
+	than a competing second one. The named columns' headings are saved too; see `_followColumns`.
 
 	:param handle: the table.
 	:param layout: what they decided.
@@ -1157,11 +1089,8 @@ def _readably(saved: SavedLayout, where: str, first: tuple) -> SavedLayout:
 def rememberHeaderSpeech(handle, speakHeaders: str) -> bool:
 	"""Save which of this table's headers speech says, and nothing else about it.
 
-	**Into the layout that already applies here, where one does**, changing that one field. Where
-	none does, a layout is made for it that asks for nothing on the display, so a table saved this
-	way on a one row display is not laid out in columns the day a flow reads it. See
-	`TableLayout.speechOnly`. Saving `FOLLOW` into such a layout leaves it deciding nothing, and it is
-	deleted rather than kept.
+	Into the layout that applies, where one does; else a new one asking nothing of the display
+	(see `TableLayout.speechOnly`). `FOLLOW` into such a layout deletes it.
 
 	:param handle: the table, as `flowTableSource.tableAt` returned it.
 	:param speakHeaders: one of `SPEAK_HEADERS`.
@@ -1208,9 +1137,8 @@ def rememberHeaderSpeech(handle, speakHeaders: str) -> bool:
 def decidesHeaderSpeech() -> bool:
 	""":return: whether any saved layout says how its table's headers are spoken.
 
-	What speech asks first, on every table cell it describes, so that a reader who has never saved
-	one pays for nothing more than reading the store. The store is parsed once per change of its
-	text; see `stored`.
+	Asked first by speech on every table cell, so cheap; the store is parsed once per change. See
+	`stored`.
 	"""
 	return any(
 		saved.layout.get("speakHeaders") in (SPEAK_OFF, SPEAK_ROWS, SPEAK_COLUMNS) for saved in stored()
@@ -1244,26 +1172,12 @@ def dateWords(seconds: int) -> str:
 def layoutFrom(plan, handle=None, arranged: Optional[TableLayout] = None) -> TableLayout:
 	""":return: what the remember command saves, which today is the *request* and nothing else.
 
-	**A measurement is not a decision.** The first cut of this wrote down the columns as they
-	were drawn, on the reasoning that a reader who has paged through a layout and pressed
-	remember is looking at something they want back. What they are looking at, though, is what
-	the measurement made of the table a moment ago: a column blank in the bandful that was
-	sampled is not drawn, and writing that into the record froze it out of every later reading —
-	so a column that fills in later, or was merely empty where the reader happened to be, could
-	never come back. The reader who found this had configured nothing at all; they had pressed
-	one key, and their watchlist's first column was excluded for good.
+	A measurement is not a decision: a column blank where it was sampled would be frozen out
+	for good. So without an arrangement the record says only "lay this table out", and the
+	columns are measured afresh each time.
 
-	So the record says only "lay this table out", and the columns are measured afresh each time,
-	which is what happens for a table with no record at all. Every other field still says "not
-	my business" and follows the settings.
-
-	**When there is a way to choose columns there will be something to write here** — M7's
-	designer, or M6b's favourite by name — and the field is kept for it: a record that names
-	columns is still honoured, which is also what a record saved by an older build does.
-
-	:param plan: the column plan in force. Read for nothing, and kept because a caller with
-		a plan and no arrangement is the ordinary case and should not have to say so twice.
-	:param handle: the table, for a future field that needs it. Unused today.
+	:param plan: the column plan in force. Unused.
+	:param handle: the table. Unused.
 	:param arranged: what the reader has arranged for this table with the band commands or the
 		dialog, where they have arranged anything. That *is* a decision, and it is what this
 		hands back when there is one.

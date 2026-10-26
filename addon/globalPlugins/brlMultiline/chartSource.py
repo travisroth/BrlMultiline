@@ -5,22 +5,10 @@
 
 """Turning what the reader has selected into a series a chart can be drawn from.
 
-**This module does not know that Excel exists**, and neither does anything else outside
-`appModules/excel.py`. It asks the focused object for its grid through `flowObjectTable.SHEET`
-— the one seam an application module joins the add-on at — and asks that grid what is
-selected. The Excel half of charting is `ExcelSheet.selectedValues`, beside the reading code
-that already talks to that object model, and is loaded only while Excel is running.
-
-That is the same arrangement the flow uses, and it is worth restating why it is worth the
-indirection. The alternative was for this module to reach into `cell.excelCellObject` itself,
-which works and puts knowledge of one application's object model in the part of the add-on
-that is always loaded. Then a second application means a second special case here, a bug in
-Excel handling can stop the graphics commands importing at all, and the rule that
-`appModules/excel.py` owns everything Excel-shaped stops being true — which is the rule that
-keeps the reading path testable without a spreadsheet.
-
-What is left here is the part that is not about any application: which column holds the
-numbers, which holds the labels, and what to do when neither does.
+Knows nothing of Excel: it asks the focused object for its grid through
+`flowObjectTable.SHEET`, and Excel's half is `ExcelSheet.selectedValues` in
+`appModules/excel.py`. What is here is not about any application: which column holds the
+numbers, which the labels, and what to do when neither does.
 """
 
 import math
@@ -68,19 +56,15 @@ __all__ = [
 MAX_BARS = 96
 """How many rows to take from a selection before cutting it short.
 
-The widest a chart could ever be on a 96 pin panel is 48 bars, so anything past this is a
-reader who has selected a whole column rather than a range within it. A limit on the *reading*
-rather than on the chart: it keeps a stray Ctrl+Space from turning a million cells into a
-million tuples, and the chart's own `MIN_SLOT` gives the useful message about how many fit.
+A limit on reading, so a whole selected column is not read; the chart's `MIN_SLOT` says how
+many fit.
 """
 
 
 CHART = "brlMultilineChart"
 """What an object that is part of a chart offers, to say which chart. See `chartOf`.
 
-The chart's twin of `flowObjectTable.SHEET`, and the same kind of seam: an application module
-puts it on its own objects and nothing here learns which application that is. Excel's is in
-`appModules/excel.py`, on NVDA's own Office chart objects.
+The chart's twin of `flowObjectTable.SHEET`. Excel's is in `appModules/excel.py`.
 """
 
 POINT = "brlMultilinePoint"
@@ -208,9 +192,7 @@ def chartFromFocus():
 class NoNumbers(Exception):
 	"""There is no series to be had here, and the message says why.
 
-	Every case is something the reader can act on — nothing that offers a grid, nothing
-	selected, a selection with no numbers in it — so it carries the explanation rather than
-	being a bare failure.
+	Every case is one the reader can act on, so it carries the explanation.
 	"""
 
 
@@ -226,9 +208,8 @@ def seriesFromFocus() -> "list[Series]":
 class Grid(list):
 	"""The cells of a selection, and what the application could say about them.
 
-	A list, because that is what every reader of it wants and what the seam promises. The extra
-	is one question the values cannot answer and the application sometimes can: whether the
-	first row names the columns. See `flowObjectTable.Sheet.selectedHeadings`.
+	A list, plus whether the application says the first row names the columns. See
+	`flowObjectTable.Sheet.selectedHeadings`.
 	"""
 
 	headings: Optional[bool] = None
@@ -238,9 +219,7 @@ class Grid(list):
 def gridFromFocus() -> "Grid":
 	"""Read what the reader has selected, without deciding what it means yet.
 
-	Separate from `seriesFromGrid` because there is more than one chart to be made from the
-	same cells now, and which one is the reader's choice rather than this module's. So the
-	selection is read once, and each chart type says whether it can be drawn from it.
+	Read once; each chart type then says whether it can be drawn from it.
 
 	:return: rows of `(text, value)`.
 	:raises NoNumbers: if there is nothing chartable here.
@@ -283,10 +262,8 @@ def gridFromFocus() -> "Grid":
 def _withHeadings(grid, sheet) -> Grid:
 	""":return: the selection, carrying what the grid could say about its first row.
 
-	Asked here rather than left to the reading rules, because whether a row names the
-	columns is a fact about the application and not about the numbers: a table headed
-	"Metric, 2025, 2026" is cell for cell the same shape as a table of years. Optional on
-	the seam, so a grid that does not offer it leaves the guessing exactly as it was.
+	A fact the numbers cannot give ("Metric, 2025, 2026"). Optional on the seam; without it,
+	`_headerNames` guesses.
 
 	:param grid: the rows read.
 	:param sheet: the grid they came from.
@@ -309,12 +286,8 @@ def _withHeadings(grid, sheet) -> Grid:
 def _focusedSheet():
 	"""Find what the reader is on and the grid it offers.
 
-	Both, because a refusal that can name what the reader *was* on is one they can act on:
-	"charts need a spreadsheet cell; this is a list item" says where to go, and "charts need a
-	spreadsheet" said over a spreadsheet says only that something is broken.
-
-	`api` is imported here rather than at the top so that this module can be unit tested
-	without a running NVDA, which is what keeps the column-picking rules below testable.
+	Both, so a refusal can name what the reader was on. `api` is imported here so the module
+	can be tested without NVDA.
 
 	:return: the focused object and its grid, either of which may be None.
 	"""
@@ -355,14 +328,8 @@ def seriesFromGrid(grid: "list[list]") -> "list[Series]":
 def _asNumber(value) -> Optional[float]:
 	""":return: a cell's stored value as a number, or None if it is not one.
 
-	Booleans are refused deliberately. Excel stores TRUE as -1 and Python calls a bool an int,
-	so a column of flags would chart as bars of equal height and look like data.
-
-	**Not a number and infinity are refused too**, and they are the ones worth naming: they
-	are floats, they pass every type check, and they turn into `cannot convert float NaN to
-	integer` several modules later, at the moment of drawing, where nothing left says which
-	cell it came from. A sheet gets them from a division by zero, from an overflow, and from a
-	COM error code arriving where a number was expected.
+	Booleans are refused, since Excel stores TRUE as -1. So are NaN and infinity, which would
+	otherwise fail at drawing time with nothing to say which cell they came from.
 
 	:param value: one cell's stored value.
 	"""
@@ -387,9 +354,7 @@ def _column(grid: "list[list]", index: int) -> list:
 def _numericColumn(grid: "list[list]") -> Optional[int]:
 	"""Find the column to chart.
 
-	The **rightmost** column that is numeric throughout, because that is where a total or a
-	computed result sits in a sheet laid out the ordinary way, and because a reader selecting
-	two columns of a table means "these labels, those numbers".
+	The rightmost column numeric throughout, where a total or result usually sits.
 
 	:param grid: rows of `(text, value)`.
 	:return: the column index, or None if no column is numeric.
@@ -406,11 +371,7 @@ def _numericColumn(grid: "list[list]") -> Optional[int]:
 def _labelColumn(grid: "list[list]", numeric: int) -> "list[str]":
 	"""Work out what to call each bar.
 
-	The column to the left of the numbers where the selection has one, because that is how a
-	table is laid out and it is what the reader meant by selecting both. Otherwise the charted
-	cells' own displayed text, which for a bare column of numbers is the numbers themselves —
-	and a bar called by its value is at least true, where a bar called by its position is one
-	more thing to hold in mind.
+	The column left of the numbers where there is one, else the charted cells' own text.
 
 	:param grid: rows of `(text, value)`.
 	:param numeric: which column holds the numbers.
@@ -420,13 +381,8 @@ def _labelColumn(grid: "list[list]", numeric: int) -> "list[str]":
 	return [str(cell[0]) for cell in _column(grid, source)]
 # --- Several columns at once ----------------------------------------------------------------
 #
-# A bar chart is one column of numbers with something to call each of them. Everything after
-# it — a line chart of a closing price with its moving average, a candlestick chart — is
-# several columns that have to stay together, so the selection is read once into a table and
-# each chart type takes what it needs from that.
-#
-# The rules here are the ones that are not about any application: which column is the labels,
-# which are data, and what a blank cell means. Excel is still nowhere in this file.
+# Line and candlestick charts need several columns together, so the selection is read once
+# into a table and each chart type takes what it needs.
 
 
 class Column(NamedTuple):
@@ -457,11 +413,7 @@ class Table(NamedTuple):
 MAX_POINTS = 400
 """Rows to take from a selection before cutting it short.
 
-Larger than `MAX_BARS` because a line chart is not limited by the panel the way a bar chart
-is: more points than pins draw as a compressed line, which is still the right shape, whereas
-more bars than pins is nothing at all. Four hundred trading days is about eighteen months,
-which is more history than ninety-six pins can say anything useful about and is a sane place
-to stop turning cells into tuples.
+Larger than `MAX_BARS`, since more points than pins still draw as a compressed line.
 """
 
 FORMATTING = "$£€¥%,\u00a0\u202f "
@@ -530,21 +482,9 @@ def tableFromGrid(grid: "list[list]") -> Table:
 def _headerNames(rows: "list[list]", told: Optional[bool] = None) -> Optional[list]:
 	"""Decide whether the first row names the columns.
 
-	**Where the application has said so, it is taken at its word.** A spreadsheet's structured
-	table declares its header row, and that settles a question the values cannot: a table headed
-	"Metric, 2025, 2026" is cell for cell the same shape as a table of years, and guessed wrong
-	it charts 2025 and 2026 as data points. What follows is what to do when nobody has said.
-
-	**A heading row has no numbers in it and names every column that does.** The first half
-	is the plain rule and is right about almost everything: a row of headings has no numbers
-	in it and a row of data has at least one. The second half is for the case the first gets
-	wrong — a first row whose only numeric column happens to be empty, which is data with a
-	hole in it and looks exactly like a heading row. A real heading names the columns it
-	heads, so a column with numbers under it and nothing at the top of it says the row was
-	data. Getting this wrong drops a point off the chart and says nothing.
-
-	Anything subtler than these two — matching known words, looking at formatting — would
-	be a rule that works on the sheets it was written against.
+	The application's answer where it gives one. Otherwise a heading row has no numbers and
+	names every column that has numbers under it, so a data row with an empty cell is not
+	taken for headings.
 
 	:param rows: the selection.
 	:param told: what the application said, or None if it could not say.
@@ -587,19 +527,8 @@ def _nameFor(names: Optional[list], index: int) -> str:
 def _labelIndex(rows: "list[list]", width: int) -> Optional[int]:
 	"""Decide which column names the rows.
 
-	**The leftmost, when it is not itself data.** Two ways it can fail to be data: it holds
-	text, which is the ordinary table of a name and its numbers; or it holds numbers that are
-	*not shown as numbers*, which is what a date is. Excel stores a date as a serial number, so
-	a column of dates is numeric to anything that only looks at what is stored — and a stock
-	chart whose first series is the dates would be a straight line climbing off the top of the
-	panel, drawn confidently.
-
-	**Shown as a number, not shown as the same number.** This used to ask whether the displayed
-	text differed from what the stored value would print as, which is true of a date and also
-	true of every number the sheet has formatted: a column of prices shown as "$1,000" was taken
-	for labels and dropped out of the chart, and so was anything with a thousands separator, a
-	percent sign, or a rounded number of decimals. What separates a date from a formatted number
-	is that a date does not read as a number at all.
+	The leftmost, when it holds text or numbers not shown as numbers, as a date stored as a
+	serial is. A formatted number ("$1,000") still reads as one; see `_readsAsANumber`.
 
 	:param rows: the selection, headings removed.
 	:param width: how many columns it has.
@@ -632,10 +561,7 @@ def _readsAsANumber(text: str) -> bool:
 	negative are all formatting; what is left has to parse. A date does not: it carries slashes,
 	dashes or a month's name, and none of those survive into a number.
 
-	Deliberately generous about what counts as formatting, because the two mistakes are not
-	equal. Reading a formatted number as a date drops a whole series out of the chart and says
-	nothing about it. Reading a date as a number draws a line climbing off the panel, which is
-	visible the moment a finger touches it.
+	Generous, since dropping a series silently is worse than a date drawn as an obvious line.
 
 	:param text: what the cell shows.
 	"""
@@ -654,12 +580,7 @@ def _readsAsANumber(text: str) -> bool:
 def _dataColumn(cells: list) -> Optional[list]:
 	"""Read one column as numbers, if that is what it is.
 
-	**An empty cell is a gap, not a zero.** A twenty day moving average has nineteen empty
-	cells above it, and a column that refused them would leave a stock chart with no moving
-	average on it at all; a column that read them as zero would draw the average diving to the
-	floor and climbing back, which looks exactly like a crash. Text in the middle of the
-	numbers is a different matter and disqualifies the column, because that is a column of
-	something else.
+	An empty cell is a gap, not a zero. Text among the numbers disqualifies the column.
 
 	:param cells: the column's `(text, value)` pairs.
 	:return: one number or None per row, or None if this is not a column of numbers.
@@ -681,13 +602,8 @@ def _dataColumn(cells: list) -> Optional[list]:
 def seriesFromTable(table: Table) -> "list[Series]":
 	"""Read a table as one series of bars.
 
-	The way in for a selection `seriesFromGrid` cannot read: one with a heading row. That path
-	works straight from the grid and wants every cell of a column to be a number, which a
-	heading makes false, and it is left alone because its rule about which column is charted and
-	which names the bars is what a reader without headings has learned.
-
-	The rightmost column, for the same reason as there: that is where a total or a computed
-	result sits in a sheet laid out the ordinary way.
+	For a selection with a heading row, which `seriesFromGrid` cannot read. The rightmost
+	column, as there.
 
 	:param table: the selection.
 	:return: the labelled numbers, rows with no value left out.
@@ -764,13 +680,8 @@ def _periodLabel(table: Table, index: int) -> str:
 def _priceColumns(columns: "list[Column]") -> Optional[list]:
 	"""Work out which columns are the open, the high, the low and the close.
 
-	By heading where there is one, because a reader who has labelled their columns has already
-	said which is which. By position otherwise, in the order the whole industry writes them —
-	open, high, low, close, left to right — with anything after the fourth column, a volume
-	usually, left out.
-
-	Nothing here checks that the numbers make sense; `periodsFrom` does that, and does it after
-	the columns are picked so that the message can say which period gave it away.
+	By heading where there is one, else by position in the usual order, anything after the
+	fourth left out. `periodsFrom` checks the numbers.
 
 	:param columns: the table's numeric columns.
 	:return: the four columns in open, high, low, close order, or None.

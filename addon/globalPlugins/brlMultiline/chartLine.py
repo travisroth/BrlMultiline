@@ -5,36 +5,17 @@
 
 """Several numbers over the same period, drawn as lines a finger can tell apart.
 
-A bar chart compares a handful of things to each other. A line chart follows one thing over
-time, and the reason it earns its own module is that the interesting case is more than one
-line at once: a closing price with a moving average through it and a pair of Bollinger bands
-around it is four series that only mean anything **against each other**. Charting them
-separately would answer none of the questions they exist to answer.
+Series such as a price with its moving average and bands only mean something against each
+other, so:
 
-Three decisions carry that:
+1. One scale for every series.
+2. Lines are told apart by texture along the path (see `PATTERNS`), and on a busy chart the
+   first is two pins thick (see `THICK_FROM`).
+3. Four series at most, as many textures as touch can tell apart.
 
-1. **One scale for every series.** They are drawn against a single low and high taken across
-   all of them, because a band that is not on the same scale as the price it bands is not a
-   band. This is the whole reason the series are drawn together rather than as four charts.
-2. **Lines are told apart by texture, not by weight.** There is no colour, and every line but
-   one is one pin thick. So each series gets a pattern along its own path — solid, dashed,
-   dotted, dash dot — which is the convention tactile graphics standards already use, and
-   which a finger reads as a difference in surface rather than in position. The one exception
-   is the first series on a busy chart, which is drawn two pins thick; see `THICK_FROM`.
-3. **Four series is the limit.** Not an arbitrary number: it is how many patterns can be told
-   apart by touch on a path that is often diagonal. A fifth would have to repeat a pattern,
-   and two lines with the same texture crossing each other is a chart that lies.
-
-**A gap in a series is drawn as a gap.** A twenty day moving average has nineteen empty cells
-at the top of its column, and a chart that treated those as zero would draw the average
-plunging to the floor and climbing back — which looks exactly like a crash. So a run of
-missing values breaks the line, and the reader feels the line start where the data starts.
-
-**Some of the lines can be put aside.** Four textures crossing each other are four textures
-to hold apart at once, and the way a tactile reader untangles that on paper is to have the
-lines on separate sheets. `Drawing.nextView` is that: each line alone, and the first line with
-each of the others, on the same scale and in the same textures as the whole chart, so what is
-learned from one line on its own is still true when the others come back.
+A gap in a series is drawn as a gap, never as zero. `Drawing.nextView` shows each line alone
+and the first with each other, on the same scale and textures. See
+docs/design/excel-chart-plan.md.
 
 Knows nothing about NVDA, Excel, or any display.
 """
@@ -88,14 +69,8 @@ PATTERNS = [
 ]
 """How each series is drawn, in the order the series arrive.
 
-The pattern runs along the path rather than across the drawing, so a steep line dashes at the
-same rate as a flat one. Drawn across the columns instead, a near vertical line would put its
-whole dash in one column and read as solid.
-
-Solid first because the first series is the one the reader came for — the closing price, the
-measured quantity — and a solid line is the easiest to follow. The rest are in descending
-order of how much of them is actually there, so the busiest chart still has its most
-important line the most continuous.
+Along the path, so a steep line dashes at the same rate as a flat one. Solid first, for the
+series the reader came for, then in descending order of how much of each is raised.
 """
 
 MAX_LINES = len(PATTERNS)
@@ -104,28 +79,15 @@ MAX_LINES = len(PATTERNS)
 THICK_FROM = 3
 """Series in a chart from which its first series is drawn two pins thick.
 
-Solid against dashed is a real difference on a flat line and a faint one on a steep line, and
-with three or four textures crossing each other the line the reader came for is the one they
-lose. Weight is the one thing a finger reads before texture, so the first line gets it. Two
-series are left one pin each: a solid line beside one dashed line is still easy to follow,
-and a second pin costs a row of the plot's precision.
-
-Decided by how many series the chart has, not by how many a view is showing, so the first
-line is the same thickness whenever it is felt.
+With three or more textures crossing, weight is what keeps the first line findable. Decided by
+the chart's series, not the view's, so the first line's thickness never changes.
 """
 
 SNAP_FROM = 0.75
 """Pins per point, zoomed in, above which points are spaced a whole number of pins apart.
 
-Spreading forty points exactly across ninety-six pins puts them 2.4 pins apart, which rounds
-to gaps of 2, 3, 2, 2, 3 — and a finger reads that unevenness as a wobble in the line that the
-data does not have. So a zoomed window is widened or narrowed a little, until every point is
-the same whole number of pins from the next: one, two, three. The rhythm is then something a
-reader can count along.
-
-Below this the window has more points than pins and is compressed, and no spacing will make
-that even; it is left as it is. The whole chart is never snapped, because the whole chart has
-to show every point, and there is nothing beyond its ends to widen into.
+Uneven gaps read as a wobble the data does not have, so a zoomed window is widened or narrowed
+until the spacing is even. Below this, or for the whole chart, it is left as it is.
 """
 
 
@@ -146,9 +108,7 @@ class Line(NamedTuple):
 def patternName(index: int) -> str:
 	"""Say which texture a series was drawn with.
 
-	Spoken rather than drawn, because a key drawn on the chart would cost a quarter of the
-	panel to say what one sentence says once. It goes into the drawing's name, so entering the
-	chart reads out the legend and pointing at a line confirms it.
+	Spoken rather than drawn, in the drawing's name, so entering the chart reads the legend.
 
 	:param index: the series' position.
 	:return: the name of its pattern.
@@ -170,10 +130,8 @@ def patternName(index: int) -> str:
 def viewsFor(count: int) -> "list[tuple]":
 	"""Which series each view of a chart shows, in the order a reader steps through them.
 
-	The whole chart, then each line on its own, then — where there are three or more — the
-	first line with each of the others. Alone first because the question that sends a reader
-	to a view is usually "what is this one doing", and the pairs after because the next
-	question is "what is it doing against the price".
+	The whole chart, then each line alone, then, where there are three or more, the first line
+	with each of the others.
 
 	:param count: how many series the chart has.
 	:return: one tuple of series positions per view, the whole chart first. A single series
@@ -343,12 +301,8 @@ def _reframer(
 ) -> Callable:
 	"""Build the closure that draws this chart again for part of its period.
 
-	**Zoom on a chart is not magnification.** Magnifying is the only thing that can be done to
-	a photograph, and done to a chart it makes the braille labels into smears of enlarged dots
-	while the dates written at the two ends go on naming the whole range — so the reader is
-	looking at a tenth of the data with the wrong dates under it, which is what hardware
-	reported. The numbers are still to hand, so the chart is composed again instead: the same
-	panel, fewer days, drawn at full resolution with their own dates written under them.
+	Zoom composes the chart again for fewer points, with their own dates, rather than
+	magnifying.
 
 	The window asked for is adjusted to space its points evenly; see `SNAP_FROM`.
 
@@ -358,9 +312,7 @@ def _reframer(
 	:param translate: turns a string into braille cells.
 	:param shown: which series are drawn, carried into every window.
 	:return: a function taking where the window starts and how wide it is as fractions,
-		and the size to compose for. The size comes with the window because the
-		rectangle can change under a figure that is already up: toggling the braille
-		line beside the drawing is a command.
+		and the size to compose for, since the rectangle can change under a figure.
 	"""
 	count = max(len(line.values) for line in lines)
 
@@ -390,10 +342,8 @@ def _reframer(
 def _snapped(count: int, first: int, last: int, width: int) -> tuple:
 	"""Adjust a window so its points are a whole number of pins apart.
 
-	About the window's middle, which is where the mode keeps the reader's place, except at an end of
-	the data. A window against an end stays against it: widened or narrowed about its middle, one
-	that ended on the last day came back a day short of it, and no amount of panning reached the
-	last close. Found on hardware, a year of prices at one pin per point.
+	About the window's middle, except that a window against an end of the data stays against it,
+	so panning can still reach the last point.
 
 	:param count: how many points the whole chart has.
 	:param first: the window's first point.
@@ -457,10 +407,8 @@ def _viewChanger(
 def _columns(count: int, width: int, pitch: Optional[int] = None) -> "list[int]":
 	"""Place the points across the drawing.
 
-	Spread, the first point is against the left edge and the last against the right, so the
-	chart uses its whole width and the two ends are where the writing under them says they
-	are. At a pitch, every point is that many pins from the last, and whatever is left over is
-	less than one pitch at the right.
+	Spread, the first and last points are against the edges. At a pitch, each point is that many
+	pins from the last.
 
 	:param count: how many points there are.
 	:param width: the drawing's width in pins.
@@ -529,9 +477,8 @@ def _runs(values: list, columns: "list[int]", scale: Scale) -> "list[list]":
 def _drawPath(buffer, points: "list[tuple]", pattern: tuple, thick: bool, scale: Scale) -> None:
 	"""Draw a run of points with a pattern running along it.
 
-	The phase carries across the joins between segments, so a dash is not restarted at every
-	data point. Restarted, a chart with points three pins apart would draw the same first
-	three dots of the pattern over and over and every series would look solid.
+	The phase carries across joins, or close points would repeat the pattern's start and look
+	solid.
 
 	:param buffer: what to draw on.
 	:param points: the run, in order, as (x, y, which point).
@@ -556,10 +503,8 @@ def _drawPath(buffer, points: "list[tuple]", pattern: tuple, thick: bool, scale:
 def _raise(buffer, x: int, y: int, steep: bool, thick: bool, scale: Scale) -> None:
 	"""Raise one dot of a line, and its second pin if the line is thick.
 
-	The second pin goes **across** the direction of travel: below a shallow stretch and beside
-	a steep one. Always below would leave a near vertical stretch one pin wide, since the pin
-	below each dot of it is the next dot of the line. It goes the other way at the edge of the
-	plot rather than into the writing under it or off the panel.
+	The second pin goes across the direction of travel: below a shallow stretch, beside a steep
+	one, and the other way at the edge of the plot.
 
 	:param buffer: what to draw on.
 	:param x: the dot's column.
@@ -580,8 +525,7 @@ def _raise(buffer, x: int, y: int, steep: bool, thick: bool, scale: Scale) -> No
 def _segmentDots(x0: int, y0: int, x1: int, y1: int):
 	"""Walk the dots of a straight line, by Bresenham.
 
-	The buffer can draw a line but cannot hand back the dots it drew, and a pattern needs
-	them one at a time. Same algorithm, yielding rather than setting.
+	Yielding rather than setting, since a pattern needs the dots one at a time.
 
 	:param x0: start column.
 	:param y0: start row.
@@ -610,14 +554,8 @@ def _segmentDots(x0: int, y0: int, x1: int, y1: int):
 def _pathOf(values: list, columns: "list[int]", scale: Scale) -> dict:
 	"""Every dot a series' line passes through, and which point each belongs to.
 
-	The line as drawn rather than the points it was drawn from, which is the difference
-	between answering a finger and answering a column. Between two points three rows and two
-	columns apart, the line crosses rows neither point is on; with more points than pins, a
-	column holds several points and the line runs up and down through all of them. Checked
-	against the points alone, a finger squarely on either of those found nothing.
-
-	The pattern's gaps are included, since a finger on a dashed line is on the line whether or
-	not it landed on a dash.
+	The line as drawn, not its points, so a finger between points finds it. The pattern's gaps
+	are included.
 
 	:param values: the series.
 	:param columns: the column each point is drawn in.
@@ -647,16 +585,9 @@ def _describer(
 ) -> Callable:
 	"""Build the lookup from a source dot back to what is under it.
 
-	Two answers, and the second is the one a printed chart cannot give. Near a line, it names
-	the series, its value and the point — every line under the finger, nearest first, so a
-	crossing or a tight squeeze says why it feels crowded. Off every line, it reads the
-	**height** back as a value: "51.4 at June 3" is the reader asking what price their finger is
-	at, which is how you find out whether a line is near a level without following the line to
-	get there.
-
-	Near means within the pad of a finger, `NEAR_COLUMNS` either side and `NEAR_ROWS` above and
-	below, measured against the line as drawn. Only the lines being shown answer: a line that
-	has been put aside is not under anyone's finger.
+	Near a line, every shown line under the finger, nearest first, with its value and point.
+	Off every line, the height read back as a value. Near is `NEAR_COLUMNS` and `NEAR_ROWS`
+	against the line as drawn.
 
 	:param lines: every series.
 	:param shown: which of them are drawn.
@@ -750,10 +681,7 @@ def _valueAt(line: Line, index: int):
 def _reading(lines: "list[Line]", shown: tuple, labels: Optional[list], index: int) -> str:
 	"""Say every line being shown at one point, for a step onto it.
 
-	Every line, not only the nearest: a step is not a finger, so there is no "nearest", and the
-	question a step answers is "what is everything doing on this day". A line with nothing on
-	that day says so rather than being left out, so the reader is not left wondering whether a
-	line was missed.
+	Every shown line, since a step has no nearest; one with no value says so.
 
 	:param lines: every series.
 	:param shown: which of them are drawn.
@@ -807,9 +735,7 @@ def _marker(lines: "list[Line]", shown: tuple, columns: "list[int]", scale: Scal
 def _nearestPoint(columns: "list[int]", x: int) -> int:
 	""":return: which point a column belongs to.
 
-	With more points than pins several of them share a column, and the first of those wins.
-	That is a limit of the display rather than a choice, and it is why the drawing's name says
-	how many points there are.
+	Where points share a column, the first wins; the drawing's name gives the count.
 
 	:param columns: the column each point is drawn in.
 	:param x: the column pressed.
@@ -844,11 +770,8 @@ def _chartName(
 ) -> str:
 	""":return: what to call the chart, which is also its key.
 
-	Each series shown with the texture it was drawn in, because that mapping is the one thing
-	the reader cannot get from the drawing and needs before the drawing means anything. Then
-	how many of the lines are showing, if not all of them, and how many points there are and
-	how they sit on the pins — "1 pin per point" is the view where every point can be felt, and
-	"2.6 points per pin" says that some of them cannot.
+	Each shown series with its texture, how many are showing if not all, and how the points sit
+	on the pins ("1 pin per point", "2.6 points per pin").
 
 	:param lines: every series.
 	:param shown: which of them are drawn.
