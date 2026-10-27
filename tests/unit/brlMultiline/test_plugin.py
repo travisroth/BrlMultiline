@@ -62,6 +62,7 @@ from brlMultiline import patches  # noqa: E402
 from brlMultiline import panning  # noqa: E402
 from brlMultiline import bmConfig  # noqa: E402
 from brlMultiline import imagePins, imageSource  # noqa: E402
+from brlMultiline import focusDisplays  # noqa: E402
 from brlMultiline import pictureCommands  # noqa: E402
 from brlMultiline import flowObjects  # noqa: E402
 from brlMultiline.container import PLACEMENT_KEY_ATTRIBUTE, DisplayContainer  # noqa: E402
@@ -2803,7 +2804,7 @@ class FocusTrackingDisplayTestCase(PluginTestCase):
 
 class TestTwoDisplays(FocusTrackingDisplayTestCase):
 	def test_thereAreTwoToChooseBetween(self):
-		targets = self.plugin.focusDisplayTargets()
+		targets = self.plugin.focusMoves.targets()
 		self.assertEqual(
 			[target.driverName for target in targets], ["hidBrailleStandard", "freedomScientific"]
 		)
@@ -2811,7 +2812,7 @@ class TestTwoDisplays(FocusTrackingDisplayTestCase):
 
 	def test_theFocusStartsOnTheLastSegment(self):
 		"""Which is the default, and is on the second display."""
-		targets = self.plugin.focusDisplayTargets()
+		targets = self.plugin.focusMoves.targets()
 		self.assertEqual([target.holdsFocus for target in targets], [False, True])
 
 	def test_pressingItMovesTheFocusToTheOtherDisplay(self):
@@ -2866,13 +2867,13 @@ class TestMovingTheFocusOverAPin(FocusTrackingDisplayTestCase):
 	def setUp(self):
 		super().setUp()
 		self.asked = []
-		self.plugin._askAboutDisplacedPins = lambda *args: self.asked.append(args)
+		self.plugin.focusMoves.askAboutDisplacedPins = lambda *args: self.asked.append(args)
 
 	def moveToTheMonarch(self):
 		"""Move the focus from the Focus 80 onto the Monarch, where the pins are."""
-		targets = self.plugin.focusDisplayTargets()
+		targets = self.plugin.focusMoves.targets()
 		monarch = next(t for t in targets if t.driverName == "hidBrailleStandard")
-		self.plugin.moveFocusWithItsPins(monarch, position=0)
+		self.plugin.focusMoves.moveWithPins(monarch, position=0)
 
 	def test_aFocusMoveWithNothingInItsWayJustMoves(self):
 		self.moveToTheMonarch()
@@ -2881,11 +2882,11 @@ class TestMovingTheFocusOverAPin(FocusTrackingDisplayTestCase):
 
 	def test_thePinInTheWayIsSeen(self):
 		self.pin(0)
-		self.assertEqual(self.plugin.pinsDisplacedBy(0), ["device.hidBrailleStandard.0"])
+		self.assertEqual(self.plugin.focusMoves.pinsDisplacedBy(0), ["device.hidBrailleStandard.0"])
 
 	def test_aPinElsewhereIsNotInTheWay(self):
 		self.pin(1)
-		self.assertEqual(self.plugin.pinsDisplacedBy(0), [])
+		self.assertEqual(self.plugin.focusMoves.pinsDisplacedBy(0), [])
 
 	def test_theSwapNeedsNoDialog(self):
 		"""One pin and somewhere to put it is what the reader meant; asking would be noise."""
@@ -2907,12 +2908,12 @@ class TestMovingTheFocusOverAPin(FocusTrackingDisplayTestCase):
 
 	def test_theSegmentTheFocusIsLeavingIsOfferedFirst(self):
 		self.pin(0)
-		self.assertEqual(self.plugin.homesForDisplacedPins(0)[0], "device.freedomScientific.0")
+		self.assertEqual(self.plugin.focusMoves.homesForDisplacedPins(0)[0], "device.freedomScientific.0")
 
 	def test_aSegmentAlreadyPinnedIsNotOfferedAsAHome(self):
 		self.pin(0)
 		self.pin(1)
-		self.assertNotIn("device.hidBrailleStandard.1", self.plugin.homesForDisplacedPins(0))
+		self.assertNotIn("device.hidBrailleStandard.1", self.plugin.focusMoves.homesForDisplacedPins(0))
 
 	def test_aPinBesideItDoesNotCostItItsHome(self):
 		"""The segment the focus vacates is free whatever else is pinned, so the swap holds."""
@@ -2930,7 +2931,7 @@ class TestMovingTheFocusOverAPin(FocusTrackingDisplayTestCase):
 		here would be building a claim to test a rule about pins. The rule is "no home means
 		ask", so it is told no home.
 		"""
-		self.plugin.homesForDisplacedPins = lambda number: []
+		self.plugin.focusMoves.homesForDisplacedPins = lambda number: []
 
 	def test_withNowhereToPutItTheReaderIsAsked(self):
 		"""Rather than losing it: forgetting a pin is exactly how this command lost one."""
@@ -2956,7 +2957,7 @@ class TestMovingTheFocusOverAPin(FocusTrackingDisplayTestCase):
 		self.moveToTheMonarch()
 		target, position, displaced, _homes = self.asked[0]
 		# The reader divides something further, and there is room after all.
-		self.plugin.moveFocusToDisplay(target, position, keep={displaced[0]: "device.freedomScientific.0"})
+		self.plugin.focusMoves.moveTo(target, position, keep={displaced[0]: "device.freedomScientific.0"})
 		self.assertEqual(self.focusDriver, "hidBrailleStandard")
 		self.assertIn("device.freedomScientific.0", self.plugin._monitors)
 
@@ -2965,7 +2966,7 @@ class TestMovingTheFocusOverAPin(FocusTrackingDisplayTestCase):
 		self.noRoomAnywhere()
 		self.moveToTheMonarch()
 		target, position, _displaced, _homes = self.asked[0]
-		self.plugin.moveFocusToDisplay(target, position)
+		self.plugin.focusMoves.moveTo(target, position)
 		self.assertEqual(self.focusDriver, "hidBrailleStandard")
 		self.assertNotIn("device.hidBrailleStandard.0", self.plugin._monitors)
 
@@ -3003,7 +3004,7 @@ class TestSwappingWhileTheBandIsClaimed(FocusTrackingDisplayTestCase):
 		CONFIG["flowBrowseMode"] = True
 		self.plugin.rebuildBuffer()
 		self.asked = []
-		self.plugin._askAboutDisplacedPins = lambda *args: self.asked.append(args)
+		self.plugin.focusMoves.askAboutDisplacedPins = lambda *args: self.asked.append(args)
 
 	def pinTheChat(self, number=0):
 		"""Pin something that flows, since what the reader lost was a flowing chat."""
@@ -3055,7 +3056,7 @@ class TestSwappingWhileTheBandIsClaimed(FocusTrackingDisplayTestCase):
 		"""The band on it goes where the focus goes, so those rows are about to be free."""
 		self.pinTheChat()
 		self.press()
-		self.assertEqual(self.plugin.homesForDisplacedPins(1), ["flow"])
+		self.assertEqual(self.plugin.focusMoves.homesForDisplacedPins(1), ["flow"])
 
 	def test_aClaimTheFocusIsNotOnIsStillNotOffered(self):
 		"""Only the focus's own claim is leaving. Anything else would be drawn over."""
@@ -3064,7 +3065,7 @@ class TestSwappingWhileTheBandIsClaimed(FocusTrackingDisplayTestCase):
 		claimed = self.container.specs[0]
 		self.assertTrue(claimed.isReserved)
 		self.plugin.container._focusSegmentNumber = 1
-		self.assertEqual(self.plugin.homesForDisplacedPins(1), [])
+		self.assertEqual(self.plugin.focusMoves.homesForDisplacedPins(1), [])
 
 	def test_theReaderIsToldWhenItLandsSomewhereTooShort(self):
 		"""One row cannot hold a flow, so a chat that scrolled becomes a line that does not.
@@ -3138,8 +3139,8 @@ class TestSwappingWhileTheBandIsClaimed(FocusTrackingDisplayTestCase):
 		self.pinTheChat()
 		monitor = self.pin()
 		self.plugin._monitors.clear()
-		messages = self.plugin._whatBecameOfTheCarriedPins(
-			[plugin.CarriedPin(monitor=monitor, home="device.freedomScientific.0", wasFlowing=True)],
+		messages = self.plugin.focusMoves.describeCarriedPins(
+			[focusDisplays.CarriedPin(monitor=monitor, home="device.freedomScientific.0", wasFlowing=True)],
 		)
 		self.assertTrue(messages)
 		self.assertIn("could not be kept", messages[-1])
@@ -3158,14 +3159,14 @@ class TestTheDialogAboutDisplacedPins(FocusTrackingDisplayTestCase):
 	segmentCounts = {"hidBrailleStandard_8x32": 2, "freedomScientific_1x80": 1}
 
 	def monarch(self):
-		targets = self.plugin.focusDisplayTargets()
+		targets = self.plugin.focusMoves.targets()
 		return next(target for target in targets if target.driverName == "hidBrailleStandard")
 
 	def moveWithNoRoom(self, answer):
 		"""Move the focus onto a pin with nowhere to put it, and answer the question."""
-		self.plugin.homesForDisplacedPins = lambda number: []
+		self.plugin.focusMoves.homesForDisplacedPins = lambda number: []
 		dialogAnswers.messageAnswer = answer
-		self.plugin.moveFocusWithItsPins(self.monarch(), position=0)
+		self.plugin.focusMoves.moveWithPins(self.monarch(), position=0)
 		callAfterQueue.flush()
 
 	def test_theQuestionNamesWhatIsInTheWay(self):
@@ -3207,7 +3208,7 @@ class TestTheDialogAboutDisplacedPins(FocusTrackingDisplayTestCase):
 		displaced = ["device.hidBrailleStandard.0", "device.hidBrailleStandard.1"]
 		dialogAnswers.answer = ID_OK
 		dialogAnswers.select = [1]
-		self.plugin._askAboutDisplacedPins(self.monarch(), 0, displaced, ["device.freedomScientific.0"])
+		self.plugin.focusMoves.askAboutDisplacedPins(self.monarch(), 0, displaced, ["device.freedomScientific.0"])
 		callAfterQueue.flush()
 		self.assertEqual(dialogAnswers.shown[0].kind, "multi")
 		self.assertIn("device.freedomScientific.0", self.plugin._monitors)
@@ -3218,7 +3219,7 @@ class TestTheDialogAboutDisplacedPins(FocusTrackingDisplayTestCase):
 		self.pin(1)
 		before = self.focusDriver
 		dialogAnswers.answer = ID_CANCEL
-		self.plugin._askAboutDisplacedPins(
+		self.plugin.focusMoves.askAboutDisplacedPins(
 			self.monarch(),
 			0,
 			["device.hidBrailleStandard.0", "device.hidBrailleStandard.1"],
@@ -3269,7 +3270,7 @@ class TestMoreThanTwoDisplays(FocusTrackingDisplayTestCase):
 	def setUp(self):
 		super().setUp()
 		self.asked = []
-		self.plugin._chooseFocusDisplay = lambda targets, position: self.asked.append((targets, position))
+		self.plugin.focusMoves.chooseDisplay = lambda targets, position: self.asked.append((targets, position))
 
 	def test_theUserIsAsked(self):
 		self.press()
@@ -3285,7 +3286,7 @@ class TestMoreThanTwoDisplays(FocusTrackingDisplayTestCase):
 	def test_answeringMovesTheFocus(self):
 		self.press()
 		targets, position = self.asked[0]
-		self.plugin.moveFocusToDisplay(targets[0], position)
+		self.plugin.focusMoves.moveTo(targets[0], position)
 		self.assertEqual(self.focusDriver, "hidBrailleStandard")
 
 
@@ -3465,7 +3466,7 @@ class TestOneDisplay(PluginTestCase):
 	"""An ordinary display, where there is nowhere else for the focus to go."""
 
 	def test_thereIsNothingToChooseBetween(self):
-		self.assertEqual(self.plugin.focusDisplayTargets(), [])
+		self.assertEqual(self.plugin.focusMoves.targets(), [])
 
 	def test_pressingItSaysSo(self):
 		spokenMessages.clear()
