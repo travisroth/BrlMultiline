@@ -33,7 +33,8 @@ import os
 import re
 import shutil
 import time
-from typing import Callable, Iterable, NamedTuple, Optional
+from typing import NamedTuple
+from collections.abc import Callable, Iterable
 
 import config
 from logHandler import log
@@ -54,11 +55,11 @@ CHECK_STEM = "brlMultiline-user.check"
 
 TABLE_SUFFIX = "-brlMultiline.utb"
 
-_store: Optional[Store] = None
+_store: Store | None = None
 """The list and the personal tables as last read or saved. Read once; the dialog edits a copy and
 `save` replaces it."""
 
-_loadProblem: Optional[str] = None
+_loadProblem: str | None = None
 """What went wrong reading the list, for the dialog to say. None when it was read as it was."""
 
 
@@ -145,7 +146,7 @@ def usesSubstitutions(tableFileName: str) -> bool:
 	}
 
 
-def loadProblem() -> Optional[str]:
+def loadProblem() -> str | None:
 	""":return: what went wrong reading the list, in words for the reader, or None."""
 	return _loadProblem
 
@@ -196,7 +197,7 @@ def _read() -> Store:
 	return found
 
 
-def _readBackup(path: str) -> Optional[Store]:
+def _readBackup(path: str) -> Store | None:
 	try:
 		with open(f"{path}.bak", encoding="utf-8") as file:
 			return brailleSubstitutions.fromText(file.read())
@@ -204,7 +205,7 @@ def _readBackup(path: str) -> Optional[Store]:
 		return None
 
 
-def _setAside(path: str) -> Optional[str]:
+def _setAside(path: str) -> str | None:
 	""":return: where a list that could not be read was moved to, or None if it could not be."""
 	kept = f"{path}.damaged-{time.strftime('%Y%m%d-%H%M%S')}"
 	try:
@@ -219,7 +220,7 @@ class NotSaved(Exception):
 	"""The list could not be saved. Nothing was changed."""
 
 
-def save(newEntries: Iterable[Substitution], newTables: Optional[Iterable[PersonalTable]] = None) -> None:
+def save(newEntries: Iterable[Substitution], newTables: Iterable[PersonalTable] | None = None) -> None:
 	"""Store the list, and the personal tables.
 
 	Validate first; this does not. See `validate`.
@@ -250,7 +251,7 @@ def save(newEntries: Iterable[Substitution], newTables: Optional[Iterable[Person
 class Refusal(NamedTuple):
 	"""Something liblouis would not compile."""
 
-	entry: Optional[int]
+	entry: int | None
 	"""Which entry it was in, from 0, or None if it could not be told."""
 
 	message: str
@@ -427,7 +428,7 @@ def restartNeeded(wanted: Iterable[PersonalTable]) -> bool:
 	return _knownPersonalTables() != {personalTables.wrapperName(table.base) for table in wanted}
 
 
-_onChanged: Optional[Callable[[], None]] = None
+_onChanged: Callable[[], None] | None = None
 
 
 def install(onChanged: Callable[[], None]) -> bool:
@@ -473,7 +474,7 @@ class NotListed(Exception):
 	"""The list was saved and is in force, but the personal tables could not be listed for NVDA."""
 
 
-def commit(newEntries: Iterable[Substitution], newTables: Optional[Iterable[PersonalTable]] = None) -> bool:
+def commit(newEntries: Iterable[Substitution], newTables: Iterable[PersonalTable] | None = None) -> bool:
 	"""Save a list the dialog has validated, and put it in force.
 
 	:param newTables: the personal tables, or None to keep those stored.

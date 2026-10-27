@@ -23,7 +23,6 @@ goes on the line, panned like a long line of text::
 """
 
 import dataclasses
-from typing import Optional
 
 from braille.regions.base import TextRegion
 from braille.regions.textInfo import CursorManagerRegion
@@ -57,11 +56,11 @@ class Request:
 	"""The table's own column numbers, in the order to show them, or empty for every column."""
 
 
-_request: Optional[Request] = None
+_request: Request | None = None
 """What the reader asked for, or None. One table at a time, as the column layout's request is."""
 
 
-def wanted() -> Optional[Request]:
+def wanted() -> Request | None:
 	""":return: the table asked for, or None."""
 	return _request
 
@@ -132,7 +131,7 @@ class LineCell:
 	column: int
 	"""The table's own number for the column."""
 
-	region: Optional[object]
+	region: object | None
 	"""The cell's region, which is what routing goes through, or None for a cell the row has not
 	got."""
 
@@ -157,11 +156,11 @@ class RowLine:
 	rawToBraillePos: list = dataclasses.field(default_factory=list)
 	brailleToRawPos: list = dataclasses.field(default_factory=list)
 
-	def cellFor(self, column: int) -> Optional[LineCell]:
+	def cellFor(self, column: int) -> LineCell | None:
 		""":return: the cell of one column, or None where the line does not show that column."""
 		return next((cell for cell in self.cells if cell.column == column), None)
 
-	def cellAt(self, braillePos: int) -> Optional[LineCell]:
+	def cellAt(self, braillePos: int) -> LineCell | None:
 		""":return: the cell a braille position falls in.
 
 		A bar belongs to the cell before it and the space after a bar to the cell after, which
@@ -197,7 +196,7 @@ def _separator() -> tuple:
 	return _readCell(region)
 
 
-def readRow(obj) -> Optional[RowLine]:
+def readRow(obj) -> RowLine | None:
 	""":return: the row the caret is in, as one line, or None where NVDA's own line should show.
 
 	None whenever nothing was asked for, the caret is not in the table that was, or something is
@@ -253,7 +252,7 @@ class TableRowLineRegion(CursorManagerRegion):
 	it did not, is NVDA's own.
 	"""
 
-	_rowLine: Optional[RowLine] = None
+	_rowLine: RowLine | None = None
 	"""The row the last update read, or None when it read NVDA's line instead."""
 
 	def update(self):

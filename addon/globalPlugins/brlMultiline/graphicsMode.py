@@ -18,7 +18,6 @@ Read the tactile graphics plan's phase 2 before changing anything here.
 """
 
 import math
-from typing import Optional
 
 import braille
 import ui
@@ -206,7 +205,7 @@ class Drawing:
 		return self.buffer.height
 
 
-def testFigure(surface: GraphicsSurface, width: int, height: int) -> Optional[Drawing]:
+def testFigure(surface: GraphicsSurface, width: int, height: int) -> Drawing | None:
 	"""Build the figure phase 2 is verified with.
 
 	A border, diagonals, markers and a caption, so the claim's edges, the transform and a
@@ -305,34 +304,34 @@ class GraphicsMode(PanelOwner):
 		"""
 		self.plugin = plugin
 
-		self.lastError: Optional[str] = None
+		self.lastError: str | None = None
 		"""Why the figure could not be shown, for a command to report."""
 
-		self._drawing: Optional[Drawing] = None
+		self._drawing: Drawing | None = None
 		"""What is on the panel. None means the mode is not up, and is the whole of that test.
 
 		The same object as `_source` for a drawing that is magnified rather than redrawn,
 		and the current window's own drawing for one that redraws itself.
 		"""
 
-		self._source: Optional[Drawing] = None
+		self._source: Drawing | None = None
 		"""The figure as it was given, which is what the zoom and origin are a window onto.
 
 		Kept apart from `_drawing`, so every window is computed from the whole and does not drift.
 		"""
 
-		self._window: Optional[tuple] = None
+		self._window: tuple | None = None
 		"""Which part of the source `_drawing` was redrawn for, so it is not redrawn again
 		for the same part on every refresh."""
 
-		self._rect: Optional[SegmentRect] = None
+		self._rect: SegmentRect | None = None
 		"""The part of the display the drawing occupies, in NVDA's display coordinates.
 
 		Not the whole claim. The claim covers the drawable display's band and includes the
 		braille line the panel keeps beside the figure; this is what is left for pins.
 		"""
 
-		self._lastPress: Optional[tuple] = None
+		self._lastPress: tuple | None = None
 		"""What the last routing press on the drawing landed on, and on which figure, so a second
 		press can be told from a first. See `_isSecondPress`."""
 		self._zoomStep = FIT
@@ -344,7 +343,7 @@ class GraphicsMode(PanelOwner):
 		to its corner; it starts mattering the moment there is more drawing than display.
 		"""
 
-		self._marked: Optional[int] = None
+		self._marked: int | None = None
 		"""The point of the whole figure the reader stepped to or pressed, or None.
 
 		An index into the whole figure, so it survives zoom, pan and view changes. See
@@ -369,7 +368,7 @@ class GraphicsMode(PanelOwner):
 		return self._drawing is not None
 
 	@property
-	def drawing(self) -> Optional[Drawing]:
+	def drawing(self) -> Drawing | None:
 		""":return: the source being shown, or None."""
 		return self._drawing
 
@@ -452,7 +451,7 @@ class GraphicsMode(PanelOwner):
 		top = surface.rowStart
 		return rect.row < top + surface.numRows and top < rect.row + rect.numRows
 
-	def drawingSize(self, textLines: Optional[int] = None) -> Optional[tuple]:
+	def drawingSize(self, textLines: int | None = None) -> tuple | None:
 		"""How big a drawing would be if one were shown now.
 
 		For a caller composing a drawing to fit, such as a chart. Keeps the claim's arithmetic
@@ -486,7 +485,7 @@ class GraphicsMode(PanelOwner):
 		surface = findSurface()
 		return None if surface is None else surface.newBuffer(width, height)
 
-	def enter(self, drawing: Optional[Drawing] = None, textLines: Optional[int] = None) -> bool:
+	def enter(self, drawing: Drawing | None = None, textLines: int | None = None) -> bool:
 		"""Claim a rectangle and show a figure in it.
 
 		:param drawing: the figure, or None for the test figure sized to the claim.
@@ -585,7 +584,7 @@ class GraphicsMode(PanelOwner):
 		self._notifyChanged()
 
 	@property
-	def source(self) -> Optional[Drawing]:
+	def source(self) -> Drawing | None:
 		""":return: the figure that was entered, rather than the window of it being shown.
 
 		For asking whether a figure is still the one up. `drawing` is the window onto this.
@@ -734,7 +733,7 @@ class GraphicsMode(PanelOwner):
 		self.render(surface)
 		return True
 
-	def _claimFor(self, surface: GraphicsSurface, textLines: int) -> Optional[SegmentRect]:
+	def _claimFor(self, surface: GraphicsSurface, textLines: int) -> SegmentRect | None:
 		"""Work out which cells to claim.
 
 		The drawable member's whole band, since panels are evicted whole and a partial claim
@@ -836,7 +835,7 @@ class GraphicsMode(PanelOwner):
 		self._window = window
 		return True
 
-	def render(self, surface: Optional[GraphicsSurface] = None) -> bool:
+	def render(self, surface: GraphicsSurface | None = None) -> bool:
 		"""Sample the source through the zoom and origin and put it on the display.
 
 		One overlay write, one mechanical refresh, so only deliberate events call this.
@@ -924,7 +923,7 @@ class GraphicsMode(PanelOwner):
 		scale = self.scale(pins)
 		return math.ceil(pins.width / scale), math.ceil(pins.height / scale)
 
-	def positionWords(self, surface: Optional[GraphicsSurface] = None) -> str:
+	def positionWords(self, surface: GraphicsSurface | None = None) -> str:
 		"""Where the window sits in the drawing, for a reader rather than for a debugger.
 
 		As a percentage of how far the window can move, with the ends named, rather than the
@@ -1374,7 +1373,7 @@ class GraphicsMode(PanelOwner):
 		)
 
 	@property
-	def markedPoint(self) -> Optional[int]:
+	def markedPoint(self) -> int | None:
 		""":return: the marked point of the whole figure, counting from 0, or None."""
 		return self._marked
 
@@ -1411,7 +1410,7 @@ class GraphicsMode(PanelOwner):
 		drawing = self._drawing
 		return drawing.firstPoint, drawing.firstPoint + drawing.points
 
-	def _pointX(self, index: int) -> Optional[int]:
+	def _pointX(self, index: int) -> int | None:
 		"""Where a point of the whole figure is, in the whole figure's dots.
 
 		The space the origin is held in. A bar's left edge, so a window turned to it starts at
@@ -1425,7 +1424,7 @@ class GraphicsMode(PanelOwner):
 			return None
 		return mark.own[0] if mark.own[1] > mark.own[0] else mark.column
 
-	def _markedColumn(self) -> Optional[int]:
+	def _markedColumn(self) -> int | None:
 		""":return: the marked point's column in the whole figure, if it is on the panel."""
 		if self._marked is None or not self.hasPoints or not self._holds(self._marked):
 			return None
@@ -1451,7 +1450,7 @@ class GraphicsMode(PanelOwner):
 		if mark is not None:
 			drawGuides(buffer, mark)
 
-	def _notePress(self, point: Optional[tuple]) -> None:
+	def _notePress(self, point: tuple | None) -> None:
 		"""Mark the point a press landed on, so the next step goes on from it.
 
 		The press marks the point and draws its guides in one write, unless it is already
@@ -1494,7 +1493,7 @@ class GraphicsMode(PanelOwner):
 		except Exception:
 			log.error("BrlMultiline: could not tell the plugin a point was marked", exc_info=True)
 
-	def markPoint(self, index: int, levelName: Optional[str] = None, levelKey=None) -> bool:
+	def markPoint(self, index: int, levelName: str | None = None, levelKey=None) -> bool:
 		"""Mark a point the screen reader's own chart navigation has arrived at, saying nothing.
 
 		The screen reader has just said the point, so saying it again here would be two voices for
@@ -1712,8 +1711,8 @@ class GraphicsMode(PanelOwner):
 		self,
 		pinX: int,
 		pinY: int,
-		surface: Optional[GraphicsSurface] = None,
-	) -> Optional[tuple]:
+		surface: GraphicsSurface | None = None,
+	) -> tuple | None:
 		"""Where in the source a pin of the display falls.
 
 		The inverse of the claim's cell to pin conversion and of the zoom and origin.
@@ -1754,8 +1753,8 @@ class GraphicsMode(PanelOwner):
 	def pointForCell(
 		self,
 		segmentPos: int,
-		surface: Optional[GraphicsSurface] = None,
-	) -> Optional[tuple]:
+		surface: GraphicsSurface | None = None,
+	) -> tuple | None:
 		"""Where in the source a routing cell of the claim falls.
 
 		A coarser fallback for a display that does not report a touched pin: the middle of the
@@ -1853,7 +1852,7 @@ class GraphicsMode(PanelOwner):
 		surface = findSurface()
 		return True if surface is None else self._bandHoldsFocus(surface)
 
-	def searchRadius(self, surface: Optional[GraphicsSurface] = None) -> int:
+	def searchRadius(self, surface: GraphicsSurface | None = None) -> int:
 		"""How far from the reported pin to look for a dot, in source dots.
 
 		A fingertip is wider than a pin, and the panel reports one point for the contact patch,
@@ -1880,7 +1879,7 @@ class GraphicsMode(PanelOwner):
 		scale = 1.0 if self._windows else self.scale(pins)
 		return max(0, int(((surface.pinsPerRow + 1) // 2) / scale))
 
-	def nearestDot(self, point: tuple, radius: int) -> Optional[tuple]:
+	def nearestDot(self, point: tuple, radius: int) -> tuple | None:
 		"""Find the raised dot closest to a point of the source.
 
 		Outward a ring at a time, so the first hit is the closest; ties go to the first found.
@@ -1901,7 +1900,7 @@ class GraphicsMode(PanelOwner):
 						return x + dx, y + dy
 		return None
 
-	def _meaningAt(self, point: tuple) -> Optional[str]:
+	def _meaningAt(self, point: tuple) -> str | None:
 		"""Ask the drawing what is at a point of it.
 
 		Preferred over a dot, and asked before the search, since even a blank point, such as
@@ -1919,7 +1918,7 @@ class GraphicsMode(PanelOwner):
 			log.error("BrlMultiline: a drawing could not say what is at a point", exc_info=True)
 			return None
 
-	def describePoint(self, point: Optional[tuple], surface: Optional[GraphicsSurface] = None) -> str:
+	def describePoint(self, point: tuple | None, surface: GraphicsSurface | None = None) -> str:
 		"""Say what the finger is on.
 
 		The nearest raised dot and its coordinates; see `searchRadius`.

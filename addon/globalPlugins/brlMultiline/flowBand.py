@@ -21,7 +21,7 @@ cells no hardware has. See `bandRect`.
 import dataclasses
 import itertools
 import time
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import api
 from logHandler import log
@@ -150,10 +150,10 @@ class FlowBand(PanelOwner):
 		:param plugin: the global plugin, for the display and its claims.
 		"""
 		self.plugin = plugin
-		self.lastError: Optional[str] = None
+		self.lastError: str | None = None
 		"""Why the band could not be shown, for a command to report."""
 
-		self.controller: Optional[FlowController] = None
+		self.controller: FlowController | None = None
 		self.obj: Any = None
 		"""What the current controller is reading, so a focus change can be recognised."""
 
@@ -176,7 +176,7 @@ class FlowBand(PanelOwner):
 		self._fillTimer = None
 		"""The pending pass to finish a fill the budget cut short. See L{_scheduleFill}."""
 
-		self._unwrapTurnedOver: Optional[tuple[bool, bool]] = None
+		self._unwrapTurnedOver: tuple[bool, bool] | None = None
 		"""The setting when the reader last turned unwrapped lines over, and what they chose, or
 		None. See L{unwrapLines}."""
 
@@ -185,7 +185,7 @@ class FlowBand(PanelOwner):
 		place: whether the event reaches us at all is the one thing about this that cannot be
 		felt, and a reader whose prices sit still needs to know which half is not working."""
 
-		self.tableProblem: Optional[str] = None
+		self.tableProblem: str | None = None
 		"""Why the last request for columns came to nothing, for the command to report.
 
 		`NO_TABLE` or `NO_LAYOUT`, and None when the last one worked. See `layOutTable`."""
@@ -243,7 +243,7 @@ class FlowBand(PanelOwner):
 			self.lastError = "nothing here reads as a flow"
 		return True
 
-	def bandRect(self, devices: "Optional[list[DeviceInfo]]" = None) -> SegmentRect:
+	def bandRect(self, devices: "list[DeviceInfo] | None" = None) -> SegmentRect:
 		"""Choose the rectangle to claim.
 
 		Inside one physical display's live cells: the whole of an ordinary display, or on a
@@ -415,7 +415,7 @@ class FlowBand(PanelOwner):
 		self._scheduleLiveRead()
 		self._scheduleFill()
 
-	def _scheduleLiveRead(self, millis: Optional[int] = None) -> None:
+	def _scheduleLiveRead(self, millis: int | None = None) -> None:
 		"""Arrange to read a table laid out in columns again.
 
 		:param millis: how long to wait, or None for the fallback poll — which is nothing at
@@ -1415,7 +1415,7 @@ class FlowBand(PanelOwner):
 		source = getattr(self.controller, "source", None)
 		return isinstance(source, flowTableSource.TableFlowSource)
 
-	def _showTable(self, obj: Any, segment, force: bool = False) -> Optional[bool]:
+	def _showTable(self, obj: Any, segment, force: bool = False) -> bool | None:
 		"""Show the reader's table, and say when NVDA stopped waiting rather than pretending.
 
 		The cancellation boundary covers recognition and the saved-layout lookup as well as the
@@ -1438,7 +1438,7 @@ class FlowBand(PanelOwner):
 			log.debugWarning("A table reading was cancelled while the table was recognised")
 			return None
 
-	def _showTheTable(self, obj: Any, segment, force: bool = False) -> Optional[bool]:
+	def _showTheTable(self, obj: Any, segment, force: bool = False) -> bool | None:
 		"""Show the reader's table in columns, or say that this is not the moment to.
 
 		None means "not a table for this path", where False would mean a blank band. The layout
@@ -1737,7 +1737,7 @@ class FlowBand(PanelOwner):
 				return obj
 		return None
 
-	def segment(self) -> Optional[FlowBufferSegment]:
+	def segment(self) -> FlowBufferSegment | None:
 		""":return: the band's segment, or None if the claim is not on the display.
 
 		While an app layout whose focus segment asked for the flow is up, that segment is the
@@ -1802,7 +1802,7 @@ class FlowBand(PanelOwner):
 			obj = None
 		return obj if obj is not None else api.getNavigatorObject()
 
-	def _container(self) -> "Optional[DisplayContainer]":
+	def _container(self) -> "DisplayContainer | None":
 		return getattr(self.plugin, "container", None)
 
 	def _handler(self):

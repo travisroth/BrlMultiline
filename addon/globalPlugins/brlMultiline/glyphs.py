@@ -21,7 +21,8 @@ caret overrides. Which objects get which symbol is `glyphFlow`'s business. See "
 docs/design/monarch-driver-plan.md.
 """
 
-from typing import Callable, NamedTuple, Optional
+from typing import NamedTuple
+from collections.abc import Callable
 
 from logHandler import log
 
@@ -636,7 +637,7 @@ fitted to each entry, because the point of the column is that a reader can run d
 """
 
 
-def listing(entries: Optional[dict] = None) -> str:
+def listing(entries: dict | None = None) -> str:
 	"""The vocabulary written out, each glyph beside the braille it replaces.
 
 	Both on the same lines, for comparison. Wordings are drawn uncontracted; a contracted
@@ -725,7 +726,7 @@ LINE = CELL_HEIGHT + 2
 """Pin rows from one row of the catalogue to the next: a cell, and two rows of air."""
 
 
-def catalogue(newBuffer: Callable, width: int, height: int, entries: Optional[dict] = None):
+def catalogue(newBuffer: Callable, width: int, height: int, entries: dict | None = None):
 	"""Lay every symbol out on the panel so a finger can compare them.
 
 	Each shape is followed by the braille it replaces, then a blank slot. Stops when the panel
@@ -798,7 +799,7 @@ def _namer(placed: "list[tuple]") -> Callable:
 	:return: a function taking a point and returning what is there.
 	"""
 
-	def describeAt(x: int, y: int) -> Optional[str]:
+	def describeAt(x: int, y: int) -> str | None:
 		for name, glyph, left, top, width in placed:
 			if left <= x < left + width + CELL_WIDTH and top <= y < top + LINE:
 				# Translators: reported for a touch on the glyph catalogue. Placeholders are
@@ -846,7 +847,7 @@ class Fitted(NamedTuple):
 		return self.replaces - len(self.cells)
 
 
-def fittedGlyph(driver, glyph: Glyph, translate: Optional[Callable] = None) -> Optional[Fitted]:
+def fittedGlyph(driver, glyph: Glyph, translate: Callable | None = None) -> Fitted | None:
 	"""Make a vocabulary entry ready for this driver and this reader's braille table.
 
 	The text is translated now, through the table in force. A shape narrower than it
@@ -861,7 +862,7 @@ def fittedGlyph(driver, glyph: Glyph, translate: Optional[Callable] = None) -> O
 	return fittedOver(driver, glyph, _fallbackCells(glyph, translate))
 
 
-def fittedOver(driver, glyph: Glyph, text: "list[int]") -> Optional[Fitted]:
+def fittedOver(driver, glyph: Glyph, text: "list[int]") -> Fitted | None:
 	"""Fit a glyph over the cells that are actually on the line.
 
 	As `fittedGlyph`, for a caller such as `glyphFlow` that already has the cells from the
@@ -958,7 +959,7 @@ def movedPosition(position: int, at: int, replaces: int, into: int) -> int:
 	return at
 
 
-def _fallbackCells(glyph: Glyph, translate: Optional[Callable]) -> "list[int]":
+def _fallbackCells(glyph: Glyph, translate: Callable | None) -> "list[int]":
 	""":return: the braille cells a glyph stands in for, or an empty list.
 
 	:param glyph: the vocabulary entry.

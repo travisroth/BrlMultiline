@@ -30,7 +30,7 @@ What that buys, beyond graphics:
 import collections
 import threading
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import addonHandler
 from autoSettingsUtils.driverSetting import DriverSetting
@@ -220,9 +220,9 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._overlays: dict[str, tuple[int, int, PinBuffer]] = {}
 		self._lastCells: list[int] = []
 		self._glyphs: dict[int, CellGlyph] = {}
-		self._lastTouchPin: Optional[tuple[int, int]] = None
-		self._lastTouchCell: Optional[int] = None
-		self._pinAtRouting: Optional[tuple[int, int]] = None
+		self._lastTouchPin: tuple[int, int] | None = None
+		self._lastTouchCell: int | None = None
+		self._pinAtRouting: tuple[int, int] | None = None
 		self._repaintPending = False
 		# Lock order: `_stateLock`, then `_lifecycleLock`, then `_writeLock`, never the reverse.
 		# Only `_reopenDevice` holds two at once; a failed write reports the device lost after
@@ -235,7 +235,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._lifecycleLock = threading.RLock()
 		"""The device handle, the termination flag, and the reconnect timer."""
 		self._pinCap = None
-		self._watched: Optional[tuple] = None
+		self._watched: tuple | None = None
 		self._pollTimer = None
 		self._pollScheduled = False
 		self._pollGeneration = 0
@@ -311,7 +311,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 				return
 		raise RuntimeError(f"Monarch did not open after {OPEN_ATTEMPTS} attempts") from error
 
-	def _tryOpen(self, port) -> Optional[BaseException]:
+	def _tryOpen(self, port) -> BaseException | None:
 		"""Run the inherited constructor a few times.
 
 		A display just released can refuse to open a couple of times. See
@@ -320,7 +320,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		:param port: as NVDA passes it.
 		:return: the last error, or None if the device opened.
 		"""
-		lastError: Optional[BaseException] = None
+		lastError: BaseException | None = None
 		for attempt in range(1, OPEN_ATTEMPTS + 1):
 			try:
 				super().__init__(port)
@@ -688,7 +688,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		"""
 		return monarch.PIN_WIDTH, monarch.PIN_HEIGHT
 
-	def newGraphicsBuffer(self, width: Optional[int] = None, height: Optional[int] = None) -> PinBuffer:
+	def newGraphicsBuffer(self, width: int | None = None, height: int | None = None) -> PinBuffer:
 		"""Make a blank buffer to draw into.
 
 		The whole panel by default. A caller drawing into part of it asks for its rectangle's
@@ -789,7 +789,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			self._overlays[key] = (x, y, buffer)
 		self._scheduleRepaint()
 
-	def clearGraphicsOverlay(self, key: Optional[str] = None) -> None:
+	def clearGraphicsOverlay(self, key: str | None = None) -> None:
 		"""Remove one overlay, or all of them.
 
 		:param key: which overlay, or None for every one.
@@ -804,12 +804,12 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	# --- Touch ---------------------------------------------------------------------------
 
 	@property
-	def lastTouch(self) -> Optional[tuple[int, int]]:
+	def lastTouch(self) -> tuple[int, int] | None:
 		""":return: the pin last touched, or None if the panel is not being touched."""
 		return self._lastTouchPin
 
 	@property
-	def lastTouchCell(self) -> Optional[tuple[int, int]]:
+	def lastTouchCell(self) -> tuple[int, int] | None:
 		"""The braille line and column last touched, at the pitch being rendered.
 
 		At the native pitch the device's own calibrated routing cell; at another pitch the pin,
@@ -866,7 +866,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 	CANCEL_ROUTING = "cancel"
 	"""What to do with the cell indexes the device reported. See `_routingDecision`."""
 
-	def _routingDecision(self, count: int) -> tuple[str, Optional[int]]:
+	def _routingDecision(self, count: int) -> tuple[str, int | None]:
 		"""Decide what a routing press means at the pitch being rendered.
 
 		`KEEP` at the native pitch, where the device's calibrated cell indexes the grid drawn.
@@ -901,7 +901,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			return self.CANCEL_ROUTING, None
 		return self.REPLACE_ROUTING, index
 
-	def _recordRouting(self, deviceCells, dispatched, action: str, corrected: Optional[int]) -> None:
+	def _recordRouting(self, deviceCells, dispatched, action: str, corrected: int | None) -> None:
 		"""Keep what the last routing press decided, so it can be read back after the fact.
 
 		Records the device's cell, the pin and the dispatched index separately, raw before any
@@ -929,10 +929,10 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		}
 		log.debug(f"BrlMultiline: routing {self.lastRouting}")
 
-	lastRouting: Optional[dict] = None
+	lastRouting: dict | None = None
 	"""What the last routing press decided. See `_recordRouting`."""
 
-	lastRoutingPin: Optional[tuple[int, int]] = None
+	lastRoutingPin: tuple[int, int] | None = None
 	"""The pin under the finger at the last routing press, or None if there was none.
 
 	By script time `lastTouch` is already zero, so where a press landed at pin resolution is
@@ -999,7 +999,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			)
 		return capsByDataIndex
 
-	def _inputUsageForDataIndex(self, dataIndex: int) -> Optional[int]:
+	def _inputUsageForDataIndex(self, dataIndex: int) -> int | None:
 		"""Map an input data index to its usage, building the map once.
 
 		:param dataIndex: the index from a received data item.
@@ -1569,7 +1569,7 @@ class InputGesture(HidInputGesture):
 	cancelled = False
 	"""Whether this gesture should be dropped rather than dispatched."""
 
-	_nvdaId: Optional[str] = None
+	_nvdaId: str | None = None
 	"""The id NVDA built, when `id` has been given names of our own. None when it has not."""
 
 	def _get_identifiers(self):

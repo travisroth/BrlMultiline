@@ -13,7 +13,8 @@ Knows nothing about NVDA, Excel, or any display. Numbers and a buffer to draw on
 """
 
 import math
-from typing import Callable, NamedTuple, Optional
+from typing import NamedTuple
+from collections.abc import Callable
 
 from logHandler import log
 
@@ -86,7 +87,7 @@ class PointMark(NamedTuple):
 	column: int
 	"""Where the line up and down the plot goes."""
 
-	row: Optional[int]
+	row: int | None
 	"""Where the line across the plot goes: the row of the point's value. None for no level,
 	which is a line chart's gap."""
 
@@ -105,7 +106,7 @@ class PointMark(NamedTuple):
 	own: tuple = (0, 0)
 	"""Columns, as a slice, of the marked point's own shape, which a cut never touches."""
 
-	value: Optional[float] = None
+	value: float | None = None
 	"""What the level line stands for, so it can be said."""
 
 	name: str = ""
@@ -287,7 +288,7 @@ one; this only absorbs the float division that says so.
 """
 
 
-def textRowsFor(height: int, translate: Optional[Callable], minPlot: int = MIN_PLOT_ROWS) -> int:
+def textRowsFor(height: int, translate: Callable | None, minPlot: int = MIN_PLOT_ROWS) -> int:
 	"""Decide whether the chart can afford to be written on.
 
 	:param height: the drawing's height in pins.
@@ -298,7 +299,7 @@ def textRowsFor(height: int, translate: Optional[Callable], minPlot: int = MIN_P
 	return TEXT_ROWS if translate and height >= minPlot + 2 * TEXT_ROWS else 0
 
 
-def cellsFor(translate: Optional[Callable], text: str) -> list:
+def cellsFor(translate: Callable | None, text: str) -> list:
 	"""Turn a string into braille cells, tolerating a translator that cannot.
 
 	:param translate: the translator, or None.
@@ -318,7 +319,7 @@ def writeAt(
 	buffer,
 	x: int,
 	y: int,
-	translate: Optional[Callable],
+	translate: Callable | None,
 	text: str,
 	room: int,
 	whole: bool = False,
@@ -347,7 +348,7 @@ def writeRightAt(
 	buffer,
 	right: int,
 	y: int,
-	translate: Optional[Callable],
+	translate: Callable | None,
 	text: str,
 	room: int,
 	whole: bool = False,
@@ -375,7 +376,7 @@ def writeRightAt(
 
 def writeFrame(
 	buffer,
-	translate: Optional[Callable],
+	translate: Callable | None,
 	scale: Scale,
 	firstLabel: str = "",
 	lastLabel: str = "",

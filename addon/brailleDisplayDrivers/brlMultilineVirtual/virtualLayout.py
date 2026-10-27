@@ -19,7 +19,8 @@ plugin masks them.
 
 from __future__ import annotations
 
-from typing import Iterable, NamedTuple, Sequence
+from typing import NamedTuple
+from collections.abc import Iterable, Sequence
 
 DEVICE_FIELD_SEPARATOR = "|"
 """Separates a driver name from its port in a stored device entry.

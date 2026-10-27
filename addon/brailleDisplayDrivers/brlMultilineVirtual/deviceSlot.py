@@ -24,7 +24,7 @@ log and the I/O thread, for testing.
 from __future__ import annotations
 
 import threading
-from typing import Sequence
+from collections.abc import Sequence
 
 import hwIo
 from logHandler import log

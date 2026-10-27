@@ -39,7 +39,6 @@ Everything logged here starts `BrlMultiline key layers:` so a run can be read ba
 
 import importlib
 import sys
-from typing import Optional
 
 import inputCore
 import ui
@@ -196,7 +195,7 @@ def save(layers: LayerSet) -> None:
 # Which layer is on
 
 
-def activeLayer(device: Optional[str]) -> Optional[Layer]:
+def activeLayer(device: str | None) -> Layer | None:
 	activeId = _active.get(device)
 	return layerSet(device).get(activeId) if activeId is not None else None
 
@@ -206,7 +205,7 @@ def activeLayers() -> list:
 	return [(device, layer) for device in sorted(_active) if (layer := activeLayer(device)) is not None]
 
 
-def activate(device: str, layerId: str) -> Optional[Layer]:
+def activate(device: str, layerId: str) -> Layer | None:
 	""":return: the layer now on, or None if the device has no such layer. Turned on by the reader.
 
 	Choosing another layer in place of one that came on by itself turns that one off by the reader's
@@ -224,7 +223,7 @@ def activate(device: str, layerId: str) -> Optional[Layer]:
 	return layer
 
 
-def deactivate(device: str, byReader: bool = True) -> Optional[Layer]:
+def deactivate(device: str, byReader: bool = True) -> Layer | None:
 	""":return: the layer that was on, now off, or None if none was.
 
 	:param byReader: whether the reader turned it off. An automatic layer the reader turns off keeps
@@ -349,7 +348,7 @@ def allOff() -> list:
 	return was
 
 
-def layerName(layer: Optional[Layer]) -> str:
+def layerName(layer: Layer | None) -> str:
 	""":return: what to call a layer when speaking of it."""
 	if layer is None:
 		return ""
@@ -362,7 +361,7 @@ def layerName(layer: Optional[Layer]) -> str:
 	return layer.name or layer.id
 
 
-def _shippedName(layer: Layer) -> Optional[str]:
+def _shippedName(layer: Layer) -> str | None:
 	""":return: a shipped layer's name in the reader's language, while it still has the English name it
 	shipped with, or None. A name the reader gave a layer, or changed a shipped one to, is theirs,
 	and is said as they wrote it."""
@@ -390,7 +389,7 @@ def _shippedName(layer: Layer) -> Optional[str]:
 # Which device
 
 
-def deviceOf(gesture) -> Optional[str]:
+def deviceOf(gesture) -> str | None:
 	""":return: the device that raised a gesture: a braille driver's name, `keyboard`, or None."""
 	from braille.display.gesture import BrailleDisplayGesture
 
@@ -403,12 +402,12 @@ def deviceOf(gesture) -> Optional[str]:
 	return KEYBOARD if isinstance(gesture, KeyboardInputGesture) else None
 
 
-def deviceFor(gesture) -> Optional[str]:
+def deviceFor(gesture) -> str | None:
 	""":return: the display a binding said a gesture acts for, else the device that raised it."""
 	return getattr(gesture, ACTS_FOR_ATTRIBUTE, None) or deviceOf(gesture)
 
 
-def displayFor(gesture) -> Optional[str]:
+def displayFor(gesture) -> str | None:
 	""":return: the braille display a gesture is for, or None for a keyboard key acting for none.
 
 	What a command that used to read `gesture.source` reads instead: the same answer for a
@@ -441,7 +440,7 @@ def _standAside(gesture) -> bool:
 	return _capturing() and not getattr(inputCore.manager, "isInputHelpActive", False)
 
 
-def _ordinaryScriptName(gesture) -> Optional[str]:
+def _ordinaryScriptName(gesture) -> str | None:
 	""":return: what NVDA's own lookup finds for a key, as a script name without `script_`.
 
 	Reading `gesture.script` runs the lookup NVDA was about to run anyway, and caches it there.
@@ -452,7 +451,7 @@ def _ordinaryScriptName(gesture) -> Optional[str]:
 	return name[len("script_") :] if name.startswith("script_") else name
 
 
-def _isLayerCommand(name: Optional[str]) -> bool:
+def _isLayerCommand(name: str | None) -> bool:
 	return bool(name) and name.startswith(LAYER_COMMAND_PREFIX)
 
 

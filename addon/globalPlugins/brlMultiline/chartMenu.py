@@ -13,7 +13,8 @@ Pure. It reads a grid and hands back drawing instructions; the dialog is `__init
 the drawing is each chart module's.
 """
 
-from typing import Callable, NamedTuple, Optional
+from typing import NamedTuple
+from collections.abc import Callable
 
 from . import chart, chartDraw, chartLine, chartPrice, chartSource
 
@@ -80,7 +81,7 @@ def offersFor(grid: "list[list]") -> "list[Offer]":
 	return offers
 
 
-def _table(grid: "list[list]") -> Optional[chartSource.Table]:
+def _table(grid: "list[list]") -> chartSource.Table | None:
 	""":return: the selection as columns, or None if it holds no numbers.
 
 	:param grid: the selection.
@@ -91,7 +92,7 @@ def _table(grid: "list[list]") -> Optional[chartSource.Table]:
 		return None
 
 
-def _barOffer(grid: "list[list]", table: Optional[chartSource.Table]) -> "list[Offer]":
+def _barOffer(grid: "list[list]", table: chartSource.Table | None) -> "list[Offer]":
 	"""The bar chart, if one can be made, read whichever of the two ways works.
 
 	From the grid first, then from the table when a heading row makes the grid refuse.

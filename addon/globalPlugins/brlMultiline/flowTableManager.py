@@ -23,7 +23,6 @@ everything, tested without a display; the dialog is widgets. Nothing is written 
 """
 
 import dataclasses
-from typing import Optional
 
 from logHandler import log
 
@@ -68,7 +67,7 @@ class Here:
 	"""Why no layout applied to it, when none did."""
 
 
-def hereFor(handle) -> Optional[Here]:
+def hereFor(handle) -> Here | None:
 	""":return: what the manager needs to know about the table the reader is in, or None for no table.
 
 	Read once, when the manager is opened, since the reader is not in the table while the dialog is up.
@@ -87,7 +86,7 @@ def hereFor(handle) -> Optional[Here]:
 class LayoutManager:
 	"""A working copy of the saved layouts, and every change the manager can make to it."""
 
-	def __init__(self, layouts, here: Optional[Here] = None) -> None:
+	def __init__(self, layouts, here: Here | None = None) -> None:
 		"""
 		:param layouts: the store, as `flowTableLayouts.stored` reads it.
 		:param here: the table the reader was in, or None.
@@ -96,7 +95,7 @@ class LayoutManager:
 		self.changed = False
 		"""Whether anything has been changed, so OK with nothing changed writes nothing."""
 		self._layouts = list(layouts)
-		self._applied: Optional[tuple] = None
+		self._applied: tuple | None = None
 		"""(the layouts it was worked out for, the layout that applies here), since every line of the
 		list asks."""
 		# Worked out before sorting, since a list being sorted reads as empty.
@@ -105,7 +104,7 @@ class LayoutManager:
 
 	# Reading
 
-	def _rank(self, saved: SavedLayout, applied: Optional[str]) -> tuple:
+	def _rank(self, saved: SavedLayout, applied: str | None) -> tuple:
 		""":return: where a layout goes in the list: the one that applies here, then others at this
 		address, then others on this site, then the rest, most recently used first.
 
@@ -138,7 +137,7 @@ class LayoutManager:
 		""":return: the working copy, as it would be stored."""
 		return list(self._layouts)
 
-	def at(self, index: int) -> Optional[SavedLayout]:
+	def at(self, index: int) -> SavedLayout | None:
 		return self._layouts[index] if 0 <= index < len(self._layouts) else None
 
 	def indexOf(self, layoutId: str) -> int:
@@ -146,7 +145,7 @@ class LayoutManager:
 		return next((index for index, saved in enumerate(self._layouts) if saved.id == layoutId), -1)
 
 	@property
-	def appliedId(self) -> Optional[str]:
+	def appliedId(self) -> str | None:
 		""":return: the layout that would apply to the table the reader was in, as the list now stands.
 
 		Judged on what was read of the table when the manager opened. See `KnownHeadings`.
@@ -642,7 +641,7 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 		def _index(self) -> int:
 			return self.layoutList.GetSelection()
 
-		def _refresh(self, select: Optional[int] = None) -> None:
+		def _refresh(self, select: int | None = None) -> None:
 			"""Say the list again, since one change can move which layout applies here."""
 			at = self._index() if select is None else select
 			self.layoutList.Set([self.manager.label(index) for index in range(len(self.manager))])
@@ -790,7 +789,7 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 
 else:
 
-	class LayoutManagerDialog:  # type: ignore[no-redef]
+	class LayoutManagerDialog:
 		"""What the manager is where there is no wx to build one with."""
 
 		def __init__(self, parent, manager: LayoutManager) -> None:

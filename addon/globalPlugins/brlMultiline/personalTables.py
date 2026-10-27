@@ -31,7 +31,7 @@ while the add-on is being installed.
 """
 
 import os
-from typing import Callable, Iterable, Optional
+from collections.abc import Callable, Iterable
 
 WRAPPER_SUFFIX = "-brlMultiline-personal.utb"
 RULES_FILE = "brlMultiline-user.cti"
@@ -92,7 +92,7 @@ class NotListed(Exception):
 	"""The manifest could not be changed. It is as it was."""
 
 
-def nvdaValidation(path: str) -> Optional[str]:
+def nvdaValidation(path: str) -> str | None:
 	""":return: what NVDA's own manifest reader finds wrong with a manifest, or None."""
 	import addonHandler
 
@@ -104,7 +104,7 @@ def nvdaValidation(path: str) -> Optional[str]:
 def sync(
 	addonDir: str,
 	tables: Iterable,
-	validate: Callable[[str], Optional[str]] = nvdaValidation,
+	validate: Callable[[str], str | None] = nvdaValidation,
 	inUse: Iterable[str] = (),
 ) -> bool:
 	"""Make the personal tables, and the manifest's list of them, what the reader's list says.
@@ -153,7 +153,7 @@ def _syncWrappers(folder: str, tables: list, inUse: set = frozenset()) -> bool:
 	return changed
 
 
-def _syncManifest(path: str, tables: list, validate: Callable[[str], Optional[str]]) -> bool:
+def _syncManifest(path: str, tables: list, validate: Callable[[str], str | None]) -> bool:
 	from configobj import ConfigObj
 
 	manifest = ConfigObj(path, encoding="utf-8", default_encoding="utf-8")
@@ -189,7 +189,7 @@ def _syncManifest(path: str, tables: list, validate: Callable[[str], Optional[st
 	return True
 
 
-def _changedBeyondPersonalTables(oldPath: str, newPath: str) -> Optional[str]:
+def _changedBeyondPersonalTables(oldPath: str, newPath: str) -> str | None:
 	""":return: what differs between two manifests besides the personal tables, or None."""
 	from configobj import ConfigObj
 

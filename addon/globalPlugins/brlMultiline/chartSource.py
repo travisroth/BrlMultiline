@@ -12,7 +12,7 @@ numbers, which the labels, and what to do when neither does.
 """
 
 import math
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 from logHandler import log
 
@@ -20,7 +20,7 @@ try:
 	from exceptions import CallCancelled
 except ImportError:  # Outside NVDA, and on an NVDA old enough not to have it.
 
-	class CallCancelled(Exception):  # type: ignore[no-redef]
+	class CallCancelled(Exception):
 		"""Stand-in for NVDA's own, so this package imports where NVDA is not."""
 
 
@@ -155,7 +155,7 @@ def chartOf(obj):
 		return None
 
 
-def pointOf(obj) -> Optional[ChartPoint]:
+def pointOf(obj) -> ChartPoint | None:
 	""":return: which point of which chart an object is, or None if it is not a point.
 
 	Asked on every change of focus, by `GlobalPlugin.event_gainFocus`, so it costs one `getattr`
@@ -212,7 +212,7 @@ class Grid(list):
 	`flowObjectTable.Sheet.selectedHeadings`.
 	"""
 
-	headings: Optional[bool] = None
+	headings: bool | None = None
 	"""True if the first row names the columns, False if it does not, None if nobody knows."""
 
 
@@ -324,7 +324,7 @@ def seriesFromGrid(grid: "list[list]") -> "list[Series]":
 	]
 
 
-def _asNumber(value) -> Optional[float]:
+def _asNumber(value) -> float | None:
 	""":return: a cell's stored value as a number, or None if it is not one.
 
 	Booleans are refused, since Excel stores TRUE as -1. So are NaN and infinity, which would
@@ -350,7 +350,7 @@ def _column(grid: "list[list]", index: int) -> list:
 	return [row[index] if index < len(row) else ("", None) for row in grid]
 
 
-def _numericColumn(grid: "list[list]") -> Optional[int]:
+def _numericColumn(grid: "list[list]") -> int | None:
 	"""Find the column to chart.
 
 	The rightmost column numeric throughout, where a total or result usually sits.
@@ -399,7 +399,7 @@ class Column(NamedTuple):
 class Table(NamedTuple):
 	"""A selection read as labelled columns of numbers."""
 
-	labels: Optional[list]
+	labels: list | None
 	"""What each row is called, or None where no column of the selection said."""
 
 	columns: "list[Column]"
@@ -480,7 +480,7 @@ def tableFromGrid(grid: "list[list]") -> Table:
 	return Table(labels=labels, columns=columns)
 
 
-def _headerNames(rows: "list[list]", told: Optional[bool] = None) -> Optional[list]:
+def _headerNames(rows: "list[list]", told: bool | None = None) -> list | None:
 	"""Decide whether the first row names the columns.
 
 	The application's answer where it gives one. Otherwise a heading row has no numbers and
@@ -512,7 +512,7 @@ def _headerNames(rows: "list[list]", told: Optional[bool] = None) -> Optional[li
 	return names
 
 
-def _nameFor(names: Optional[list], index: int) -> str:
+def _nameFor(names: list | None, index: int) -> str:
 	""":return: what to call one column.
 
 	:param names: the headings, or None.
@@ -525,7 +525,7 @@ def _nameFor(names: Optional[list], index: int) -> str:
 	return _("column {number}").format(number=index + 1)
 
 
-def _labelIndex(rows: "list[list]", width: int) -> Optional[int]:
+def _labelIndex(rows: "list[list]", width: int) -> int | None:
 	"""Decide which column names the rows.
 
 	The leftmost, when it holds text or numbers not shown as numbers, as a date stored as a
@@ -578,7 +578,7 @@ def _readsAsANumber(text: str) -> bool:
 	return True
 
 
-def _dataColumn(cells: list) -> Optional[list]:
+def _dataColumn(cells: list) -> list | None:
 	"""Read one column as numbers, if that is what it is.
 
 	An empty cell is a gap, not a zero. Text among the numbers disqualifies the column.
@@ -676,7 +676,7 @@ def _periodLabel(table: Table, index: int) -> str:
 	return str(index + 1)
 
 
-def _priceColumns(columns: "list[Column]") -> Optional[list]:
+def _priceColumns(columns: "list[Column]") -> list | None:
 	"""Work out which columns are the open, the high, the low and the close.
 
 	By heading where there is one, else by position in the usual order, anything after the
@@ -697,7 +697,7 @@ def _priceColumns(columns: "list[Column]") -> Optional[list]:
 	return None
 
 
-def _priceKey(name: str) -> Optional[str]:
+def _priceKey(name: str) -> str | None:
 	""":return: which of the four prices a heading names, or None.
 
 	:param name: the heading.

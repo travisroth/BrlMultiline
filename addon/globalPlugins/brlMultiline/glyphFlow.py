@@ -21,7 +21,7 @@ them into places, and `container` hands them to the driver, afresh each frame, s
 retires a glyph when its cells change.
 """
 
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 from logHandler import log
 
@@ -172,10 +172,10 @@ except Exception:  # pragma: no cover - an NVDA that has moved it
 Taken from NVDA, with a space as fallback. Whole words are what make matching safe.
 """
 
-_TOKENS: Optional[dict] = None
+_TOKENS: dict | None = None
 """The token table, built once. Cleared by `forget`."""
 
-_ORDERED: "Optional[list[str]]" = None
+_ORDERED: "list[str] | None" = None
 """Its labels, longest first, so that one beginning with another is not lost to it."""
 
 
@@ -197,7 +197,7 @@ class Target(NamedTuple):
 	numCols: int
 	"""How many cells to a row it has."""
 
-	def indexFor(self, row: int, col: int) -> Optional[int]:
+	def indexFor(self, row: int, col: int) -> int | None:
 		""":return: the driver's own flat cell index, or None if the place is not on it.
 
 		:param row: the row on NVDA's display.
@@ -273,7 +273,7 @@ def glyphTargets(display=None) -> "list[Target]":
 	return sorted(targets, key=lambda target: target.rowStart)
 
 
-def glyphTarget(display=None) -> Optional[Target]:
+def glyphTarget(display=None) -> Target | None:
 	""":return: any display that can draw glyphs, for asking whether one is attached at all.
 
 	For the settings panel. Deciding about a region wants `targetForRows`.
@@ -284,7 +284,7 @@ def glyphTarget(display=None) -> Optional[Target]:
 	return targets[0] if targets else None
 
 
-def targetForRows(row: int, numRows: int, display=None) -> Optional[Target]:
+def targetForRows(row: int, numRows: int, display=None) -> Target | None:
 	"""Find the display a run of rows is on, if one piece of hardware holds all of them.
 
 	All or none, since a shape registers against one display.
@@ -302,7 +302,7 @@ def targetForRows(row: int, numRows: int, display=None) -> Optional[Target]:
 	return None
 
 
-def _targetFor(driver, rowStart: int) -> Optional[Target]:
+def _targetFor(driver, rowStart: int) -> Target | None:
 	""":return: a driver's geometry, or None if it would not say or it makes no sense.
 
 	:param driver: a driver already known to publish the capability.
@@ -523,7 +523,7 @@ def restartFields(region) -> None:
 		log.debugWarning("BrlMultiline: a region would not carry its field spans", exc_info=True)
 
 
-def replaceableSpans(region) -> "Optional[list[tuple]]":
+def replaceableSpans(region) -> "list[tuple] | None":
 	"""Work out which parts of a region's line NVDA wrote and which belong to somebody else.
 
 	:param region: the region.
@@ -599,7 +599,7 @@ def _outside(forbidden: "list[tuple]", length: int) -> "list[tuple]":
 	return spans
 
 
-def marksIn(rawText: str, spans: "Optional[list[tuple]]" = None) -> "list[tuple]":
+def marksIn(rawText: str, spans: "list[tuple] | None" = None) -> "list[tuple]":
 	"""Find everything in a line that a shape stands over.
 
 	Whole words, from every word boundary, within `replaceableSpans`. A label may be several
@@ -684,7 +684,7 @@ def _byLength() -> "list[str]":
 	return _ORDERED
 
 
-def compressRegion(region, target: Optional[Target] = None) -> dict:
+def compressRegion(region, target: Target | None = None) -> dict:
 	"""Replace the words a shape stands over with the shape, in one region's cells.
 
 	After reading and before layout, so wrapping can use the cells given back. Right to left,
@@ -830,7 +830,7 @@ def _restore(region) -> None:
 		setattr(region, name, before[name])
 
 
-def keepCompressed(region, target: Optional[Target] = None) -> None:
+def keepCompressed(region, target: Target | None = None) -> None:
 	"""Put the shapes back on a region that has been read again since it was laid out.
 
 	NVDA's `_handlePendingUpdate` re-reads the region, rebuilding uncompressed maps under a kept

@@ -20,7 +20,8 @@ docs/design/excel-chart-plan.md.
 Knows nothing about NVDA, Excel, or any display.
 """
 
-from typing import Callable, NamedTuple, Optional
+from typing import NamedTuple
+from collections.abc import Callable
 
 from .chartDraw import (
 	NEAR_COLUMNS,
@@ -151,9 +152,9 @@ def lineChart(
 	width: int,
 	height: int,
 	lines: "list[Line]",
-	labels: Optional[list] = None,
-	translate: Optional[Callable] = None,
-	shown: Optional[tuple] = None,
+	labels: list | None = None,
+	translate: Callable | None = None,
+	shown: tuple | None = None,
 ) -> Drawing:
 	"""Draw several series over a shared period, to fill a rectangle exactly.
 
@@ -210,12 +211,12 @@ def _compose(
 	width: int,
 	height: int,
 	lines: "list[Line]",
-	labels: Optional[list],
-	translate: Optional[Callable],
+	labels: list | None,
+	translate: Callable | None,
 	shown: tuple,
-	pitch: Optional[int],
-	redraw: Optional[Callable] = None,
-	nextView: Optional[Callable] = None,
+	pitch: int | None,
+	redraw: Callable | None = None,
+	nextView: Callable | None = None,
 	firstPoint: int = 0,
 ) -> Drawing:
 	"""Draw the chart for one run of points, whole or windowed.
@@ -302,8 +303,8 @@ def _compose(
 def _reframer(
 	newBuffer: Callable,
 	lines: "list[Line]",
-	labels: Optional[list],
-	translate: Optional[Callable],
+	labels: list | None,
+	translate: Callable | None,
 	shown: tuple,
 ) -> Callable:
 	"""Build the closure that draws this chart again for part of its period.
@@ -323,7 +324,7 @@ def _reframer(
 	"""
 	count = max(len(line.values) for line in lines)
 
-	def redraw(offset: float, span: float, pinWidth: int, pinHeight: int) -> Optional[Drawing]:
+	def redraw(offset: float, span: float, pinWidth: int, pinHeight: int) -> Drawing | None:
 		first, last = windowOf(count, offset, span, MIN_POINTS)
 		first, last, pitch = _snapped(count, first, last, pinWidth)
 		try:
@@ -382,10 +383,10 @@ def _viewChanger(
 	width: int,
 	height: int,
 	lines: "list[Line]",
-	labels: Optional[list],
-	translate: Optional[Callable],
+	labels: list | None,
+	translate: Callable | None,
 	shown: tuple,
-) -> Optional[Callable]:
+) -> Callable | None:
 	"""Build the closure that draws the whole chart with the next or previous set of lines.
 
 	:return: a function taking a direction, 1 for the next view and -1 for the previous,
@@ -411,7 +412,7 @@ def _viewChanger(
 	return nextView
 
 
-def _columns(count: int, width: int, pitch: Optional[int] = None) -> "list[int]":
+def _columns(count: int, width: int, pitch: int | None = None) -> "list[int]":
 	"""Place the points across the drawing.
 
 	Spread, the first and last points are against the edges. At a pitch, each point is that many
@@ -429,7 +430,7 @@ def _columns(count: int, width: int, pitch: Optional[int] = None) -> "list[int]"
 	return [int(round(index * (width - 1) / (count - 1))) for index in range(count)]
 
 
-def _labelAt(labels: Optional[list], index: int) -> str:
+def _labelAt(labels: list | None, index: int) -> str:
 	""":return: what a point is called, or its position where there is nothing to call it.
 
 	:param labels: the labels, or None.
@@ -588,7 +589,7 @@ def _describer(
 	shown: tuple,
 	columns: "list[int]",
 	scale: Scale,
-	labels: Optional[list],
+	labels: list | None,
 ) -> Callable:
 	"""Build the lookup from a source dot back to what is under it.
 
@@ -614,7 +615,7 @@ def _describer(
 			paths[index] = _pathOf(lines[index].values, columns, scale)
 		return paths[index]
 
-	def describeAt(x: int, y: int) -> Optional[str]:
+	def describeAt(x: int, y: int) -> str | None:
 		hits = []
 		for index in shown:
 			path = pathOf(index)
@@ -686,7 +687,7 @@ def _valueAt(line: Line, index: int):
 	return line.values[index] if 0 <= index < len(line.values) else None
 
 
-def _reading(lines: "list[Line]", shown: tuple, labels: Optional[list], index: int) -> str:
+def _reading(lines: "list[Line]", shown: tuple, labels: list | None, index: int) -> str:
 	"""Say every line being shown at one point, for a step onto it.
 
 	Every shown line, since a step has no nearest; one with no value says so.
@@ -723,7 +724,7 @@ def _marker(lines: "list[Line]", shown: tuple, columns: "list[int]", scale: Scal
 	:return: a function taking a point and a position in `shown`, and returning a `PointMark`.
 	"""
 
-	def markFor(index: int, level: int = 0) -> Optional[PointMark]:
+	def markFor(index: int, level: int = 0) -> PointMark | None:
 		if not 0 <= index < len(columns) or not shown:
 			return None
 		line = lines[shown[level % len(shown)]]
@@ -772,8 +773,8 @@ def _chartName(
 	lines: "list[Line]",
 	shown: tuple,
 	count: int,
-	labels: Optional[list],
-	pitch: Optional[int],
+	labels: list | None,
+	pitch: int | None,
 	width: int,
 ) -> str:
 	""":return: what to call the chart, which is also its key.

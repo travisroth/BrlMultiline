@@ -14,7 +14,7 @@ See docs/design/layout-overview-plan.md.
 
 from __future__ import annotations
 
-from typing import Optional, Protocol, TYPE_CHECKING
+from typing import Protocol, TYPE_CHECKING
 
 import addonHandler
 import api
@@ -153,7 +153,7 @@ class LayoutOverview:
 		self.plugin = plugin
 		self._collector = None
 		"""The layout being gathered, if one is; see `draw`."""
-		self.current: Optional[LayoutView] = None
+		self.current: LayoutView | None = None
 		"""The overview last drawn, for drilling into it; see `LayoutView`."""
 
 	def cancel(self) -> None:
@@ -304,7 +304,7 @@ class LayoutOverview:
 			message = f"{message}. {partialNote}"
 		ui.message(message)
 
-	def enter(self, state: "LayoutView") -> Optional[str]:
+	def enter(self, state: "LayoutView") -> str | None:
 		"""Draw the overview for where the reader is in it and put it up.
 
 		:return: what to say, or None when it could not be drawn, the reason having been said.
@@ -345,7 +345,7 @@ class LayoutOverview:
 		# The key to the letters on the panel is the drawing's note, which this includes.
 		return mode.describe()
 
-	def _shown(self) -> Optional["LayoutView"]:
+	def _shown(self) -> "LayoutView | None":
 		""":return: the overview of a page's layout, if that is what is on the display."""
 		state = self.current
 		mode = self.plugin.graphicsMode
@@ -413,7 +413,7 @@ class LayoutOverview:
 		name: str,
 		document=None,
 		focus=None,
-		state: Optional["LayoutView"] = None,
+		state: "LayoutView | None" = None,
 	):
 		"""The drawing of a page's layout, which draws itself again when zoomed or moved.
 
@@ -556,7 +556,7 @@ class LayoutOverview:
 		)
 		return drawing
 
-	def moveToArea(self, document, region, identity: Optional[tuple] = None) -> None:
+	def moveToArea(self, document, region, identity: tuple | None = None) -> None:
 		"""Put the browse mode cursor where an area of the page starts, and leave the drawing.
 
 		Like quick navigation: the area's name is said, then the line there. The drawing comes
@@ -624,7 +624,7 @@ class LayoutOverview:
 		line.expand(textInfos.UNIT_LINE)
 		speech.speakTextInfo(line, reason=controlTypes.OutputReason.QUICKNAV)
 
-	def moveToAppArea(self, region, identity: Optional[tuple] = None) -> None:
+	def moveToAppArea(self, region, identity: tuple | None = None) -> None:
 		"""Move to an area of an application window: the focus to it, or to the first thing in it
 		that can take the focus, or the navigator object to it when nothing in it can.
 

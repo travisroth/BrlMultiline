@@ -12,7 +12,8 @@ pictures are drawn in, and the picture file still loading, if any.
 
 from __future__ import annotations
 
-from typing import Callable, Optional, Protocol, TYPE_CHECKING
+from typing import Protocol, TYPE_CHECKING
+from collections.abc import Callable
 
 import addonHandler
 import api
@@ -225,7 +226,7 @@ class PictureCommands:
 
 		wx.CallAfter(ask)
 
-	def drawChart(self, offer, say: Optional[Callable] = None, remember: bool = True) -> None:
+	def drawChart(self, offer, say: Callable | None = None, remember: bool = True) -> None:
 		"""Draw one of the charts on offer and put it on the display.
 
 		The size is read again here, since the display may have changed while a dialog was open.

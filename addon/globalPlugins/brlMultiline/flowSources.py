@@ -25,7 +25,7 @@ one. See docs/design/flow-last-region-audit.md.
 """
 
 import time
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import textInfos
 from braille.regions.textInfo import CursorManagerRegion, TextInfoRegion
@@ -159,7 +159,7 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 	"""Defaults on the class, because the cursor is asked about while the region below is
 	still being built. See `holdsTheCursor`."""
 
-	listDepth: Optional[int] = None
+	listDepth: int | None = None
 	"""How deep in the document's lists this block's line starts, or None for none.
 
 	Read while the line is, from the fields NVDA fetched to read it. See `_addTextWithFields`
@@ -690,7 +690,7 @@ class DocumentFlowSource:
 		unit: str = textInfos.UNIT_LINE,
 		generation: int = 0,
 		interactive: bool = False,
-		budget: Optional[FetchBudget] = None,
+		budget: FetchBudget | None = None,
 	) -> None:
 		"""
 		:param obj: the object or tree interceptor to read.
@@ -740,10 +740,10 @@ class DocumentFlowSource:
 		self._interactiveFactory = None
 		"""Builds a flow counterpart of that edit's own NVDA text region."""
 
-		self._interactiveBlock: Optional[SourceBlock] = None
+		self._interactiveBlock: SourceBlock | None = None
 		"""The edit block, kept so NVDA can queue its region object for later updates."""
 
-	def setInteractiveObject(self, obj, regionFactory: Optional[Callable] = None) -> bool:
+	def setInteractiveObject(self, obj, regionFactory: Callable | None = None) -> bool:
 		"""Read one document block through its focused editable object.
 
 		The block keeps its place in the document; only its region changes, to one whose `obj`
@@ -1211,7 +1211,7 @@ class DocumentFlowSource:
 			continuesItem=self._continuesItemOfRegion(region),
 		)
 
-	def currentDepth(self, block) -> Optional[int]:
+	def currentDepth(self, block) -> int | None:
 		"""How deep a block sits, as its region reads now rather than when it was built.
 
 		Asked by the controller after it reads a held block's region again, which is the one
@@ -1244,7 +1244,7 @@ class DocumentFlowSource:
 		return bool(getattr(region, "listContinues", False))
 
 	@staticmethod
-	def _depthOfRegion(region) -> Optional[int]:
+	def _depthOfRegion(region) -> int | None:
 		""":return: the depth a document line read through this region carries.
 
 		A blank line has no depth even inside a list: it would draw the dots 7 and 8 style's

@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import collections
 import time
-import typing
 
 import baseObject
 import braille
@@ -115,7 +114,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		return True
 
 	@classmethod
-	def getPossiblePorts(cls) -> typing.OrderedDict[str, str]:
+	def getPossiblePorts(cls) -> collections.OrderedDict[str, str]:
 		"""No ports. NVDA's port control has no meaning here; members carry their own."""
 		return collections.OrderedDict()
 

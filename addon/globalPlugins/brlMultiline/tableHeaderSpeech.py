@@ -27,7 +27,7 @@ reading ahead of the cursor speaks the headers.
 import dataclasses
 import functools
 import weakref
-from typing import Any, Optional
+from typing import Any
 
 import api
 from logHandler import log
@@ -67,7 +67,7 @@ class Here:
 	tableID: Any
 	"""The table, as `_key` made it hashable."""
 
-	document: Optional[weakref.ref] = None
+	document: weakref.ref | None = None
 	"""The browse mode document the table ID belongs to, or None for a focused table's ID,
 	which says its window and needs no document to be unique."""
 
@@ -147,7 +147,7 @@ def _browseDocument(focus: Any) -> Any:
 	return document
 
 
-def tableHere() -> Optional[Here]:
+def tableHere() -> Here | None:
 	""":return: the table at the reader's cursor, named as speech names it, or None.
 
 	In browse mode, the cell at the browse mode cursor. Anywhere else, including focus mode in a
@@ -232,7 +232,7 @@ def _prune() -> None:
 	_overrides[:] = [override for override in _overrides if not override.here.isGone]
 
 
-def _overrideOf(here: Here) -> Optional[Override]:
+def _overrideOf(here: Here) -> Override | None:
 	""":return: what the command said of this table, or None."""
 	document = here.document() if here.document is not None else None
 	for override in _overrides:
@@ -241,7 +241,7 @@ def _overrideOf(here: Here) -> Optional[Override]:
 	return None
 
 
-def _setOverride(here: Here, speakHeaders: Optional[str]) -> None:
+def _setOverride(here: Here, speakHeaders: str | None) -> None:
 	"""Say how this table's headers are spoken until the page is loaded again, or None to go back to its saved setting."""
 	_prune()
 	override = _overrideOf(here)

@@ -14,8 +14,6 @@ A zoomed window is reduced from its own pixels, so the limit is the capture, sta
 `graphicsMode.Drawing.windowsVertically`.
 """
 
-from typing import Optional
-
 from logHandler import log
 
 import math
@@ -169,7 +167,7 @@ def _describer(picture: Picture, spot: Placement):
 	"""
 	left, top, across, down = spot.source
 
-	def describeAt(x: int, y: int) -> Optional[str]:
+	def describeAt(x: int, y: int) -> str | None:
 		if spot.width <= 0 or spot.height <= 0 or not picture.width or not picture.height:
 			return None
 		insideX = x - spot.left
@@ -359,7 +357,7 @@ def _reframer(newBuffer, picture: Picture, box, mode: str, invert: bool):
 		pinHeight: int,
 		top: float = 0.0,
 		down: float = 1.0,
-	) -> Optional[Drawing]:
+	) -> Drawing | None:
 		narrowed = windowOf(picture, box, offset, top, span, down)
 		try:
 			return _compose(

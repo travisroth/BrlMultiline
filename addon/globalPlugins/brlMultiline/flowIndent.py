@@ -17,7 +17,7 @@ See docs/design/structured-presentation-plan.md.
 """
 
 import dataclasses
-from typing import Iterable, Optional, Sequence
+from collections.abc import Iterable, Sequence
 
 BLANK_CELL = 0
 """A blank cell, matching `flow.BLANK_CELL` and NVDA's own use of 0."""
@@ -86,7 +86,7 @@ def focusMark(indentCells: int) -> tuple[int, ...]:
 	return (FOCUS_CELL,) * FOCUS_WIDTH
 
 
-def cellsPerLevel(style: Optional[str]) -> int:
+def cellsPerLevel(style: str | None) -> int:
 	""":return: how many cells one level costs in a style, defaulting for an unknown one.
 
 	An unknown style, from a later version or by hand, reads as the default.
@@ -94,7 +94,7 @@ def cellsPerLevel(style: Optional[str]) -> int:
 	return CELLS_PER_LEVEL.get(style or DEFAULT_STYLE, CELLS_PER_LEVEL[DEFAULT_STYLE])
 
 
-def _levelCells(style: Optional[str]) -> tuple[int, ...]:
+def _levelCells(style: str | None) -> tuple[int, ...]:
 	""":return: the cells one level of indent is drawn with."""
 	if style == DOTS_78:
 		return (LEVEL_CELL,)
@@ -108,7 +108,7 @@ class IndentPlan:
 	Built by `planFor`. Frozen, as part of a rendering's key; see `flow.RenderKey.indent`.
 	"""
 
-	baseline: Optional[int] = None
+	baseline: int | None = None
 	"""The depth drawn flush left, or None when nothing on the band has a depth at all.
 
 	None is the ordinary case and the one that must cost nothing: prose has no depth, and a
@@ -124,33 +124,33 @@ class IndentPlan:
 	Depth past this is drawn at this indent, so no item is pushed off the display.
 	"""
 
-	noteLevel: Optional[int] = None
+	noteLevel: int | None = None
 	"""The absolute level the left margin stands for, when that is worth saying.
 
 	Set only where the band has rebased below the top of the structure.
 	"""
 
-	def levelsFor(self, depth: Optional[int]) -> int:
+	def levelsFor(self, depth: int | None) -> int:
 		""":return: how many levels of indent a block of this depth is drawn with."""
 		if depth is None or self.baseline is None:
 			return 0
 		return max(0, min(depth - self.baseline, self.maxLevels))
 
-	def cellsFor(self, depth: Optional[int]) -> int:
+	def cellsFor(self, depth: int | None) -> int:
 		""":return: how many cells of indent a block of this depth is drawn with."""
 		return self.levelsFor(depth) * cellsPerLevel(self.style)
 
-	def prefixFor(self, depth: Optional[int]) -> tuple[int, ...]:
+	def prefixFor(self, depth: int | None) -> tuple[int, ...]:
 		""":return: the indent cells for a block's first row."""
 		return _levelCells(self.style) * self.levelsFor(depth)
 
-	def continuationCellsFor(self, depth: Optional[int]) -> int:
+	def continuationCellsFor(self, depth: int | None) -> int:
 		""":return: how many cells of indent this block's wrapped rows are drawn with."""
 		if depth is None or self.baseline is None:
 			return 0
 		return self.cellsFor(depth) + self._extraCells()
 
-	def continuationPrefixFor(self, depth: Optional[int]) -> tuple[int, ...]:
+	def continuationPrefixFor(self, depth: int | None) -> tuple[int, ...]:
 		""":return: the indent cells for a block's second and later rows.
 
 		The item's own indent, then blank cells past where a child would begin, in every style.
@@ -177,9 +177,9 @@ FLAT = IndentPlan()
 
 def shouldRebase(
 	plan: IndentPlan,
-	depths: Iterable[Optional[int]],
+	depths: Iterable[int | None],
 	numCols: int,
-	style: Optional[str] = None,
+	style: str | None = None,
 	maxShare: int = MAX_INDENT_SHARE,
 ) -> bool:
 	"""Whether a band's plan has stopped working for what the band is showing.
@@ -215,9 +215,9 @@ def shouldRebase(
 
 
 def planFor(
-	depths: Iterable[Optional[int]],
+	depths: Iterable[int | None],
 	numCols: int,
-	style: Optional[str] = None,
+	style: str | None = None,
 	maxShare: int = MAX_INDENT_SHARE,
 ) -> IndentPlan:
 	"""Work out how a band's depths are drawn.

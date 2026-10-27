@@ -17,7 +17,7 @@ docs/design/flow-last-region-audit.md. A live region calls back when those comma
 and the band follows.
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from logHandler import log
 
@@ -46,7 +46,7 @@ class FlowBufferSegment(BrailleBufferSegment):
 		spec: "SegmentSpec",
 	) -> None:
 		super().__init__(handler, container, spec)
-		self.controller: "Optional[FlowController]" = None
+		self.controller: "FlowController | None" = None
 		self.onFocusRegions = None
 		"""Called with the regions NVDA built for a new focus, returning whether it took them.
 
@@ -245,7 +245,7 @@ class FlowBufferSegment(BrailleBufferSegment):
 			return super()._get_windowBrailleCells()
 		return self.cells()
 
-	def _get_cursorWindowPos(self) -> Optional[int]:
+	def _get_cursorWindowPos(self) -> int | None:
 		if self.controller is None:
 			return super()._get_cursorWindowPos()
 		return self.controller.cursorCell()

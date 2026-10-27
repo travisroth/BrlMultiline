@@ -21,7 +21,8 @@ matching.
 Imports nothing from NVDA, so it is unit tested without one, like `monarch.py`.
 """
 
-from typing import Iterable, NamedTuple, Optional
+from typing import NamedTuple
+from collections.abc import Iterable
 
 BRAILLE_PAGE = 0x41
 
@@ -183,7 +184,7 @@ nothing unless NVDA's name for the key is the one recorded.
 """
 
 
-def standardName(usage: int) -> Optional[str]:
+def standardName(usage: int) -> str | None:
 	""":return: NVDA's name for a braille page control usage, or None for one not listed."""
 	return _STANDARD_NAMES.get(usage)
 
@@ -193,7 +194,7 @@ def specificId(
 	dataIndices: Iterable[int],
 	routing: frozenset[int],
 	names: dict[int, KeyName],
-) -> Optional[str]:
+) -> str | None:
 	"""Build a gesture's id with the keys that have names of their own renamed.
 
 	Mirrors how `hidBrailleStandard.InputGesture` builds `id`: one name per key, in the order the

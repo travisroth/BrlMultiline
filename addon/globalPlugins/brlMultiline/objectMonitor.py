@@ -21,7 +21,7 @@ segment. See `panels.SegmentSpec.key`.
 """
 
 import itertools
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import braille
 import controlTypes
@@ -92,7 +92,7 @@ class ObjectMonitor:
 		document."""
 		self.obj = resolveTarget(obj)
 		self.segmentKey = segmentKey
-		self.regions: Optional[list["Region"]] = None
+		self.regions: list["Region"] | None = None
 		"""The regions being shown, built on first refresh and kept thereafter."""
 		self.pinned = obj
 		"""The object the reader chose, before the tree interceptor was substituted for it.
@@ -111,13 +111,13 @@ class ObjectMonitor:
 		band forgets its request when the reader leaves the table.
 		"""
 
-		self._builtFor: Optional[tuple[int, int]] = None
+		self._builtFor: tuple[int, int] | None = None
 		"""The segment size the controller was built for, since a rebuild may change it."""
 
 		self._builtInColumns = False
 		"""Whether the controller in hand was built in columns, so a change of mind rebuilds."""
 
-		self._lastCells: Optional[list[int]] = None
+		self._lastCells: list[int] | None = None
 		"""What was last written, so an unchanged refresh can leave the display alone."""
 
 		self.counts = [0, 0]

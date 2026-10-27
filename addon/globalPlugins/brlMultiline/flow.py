@@ -21,7 +21,7 @@ docs/design/spatial-reading-plan.md.
 
 import dataclasses
 import enum
-from typing import Iterable, Optional, Sequence
+from collections.abc import Iterable, Sequence
 
 # NVDA's "that call was cancelled": once the watchdog decides the core froze, every COM call
 # on the main thread raises this. It is not a `COMError` or `OSError`, and must not be read as
@@ -30,7 +30,7 @@ try:
 	from exceptions import CallCancelled
 except ImportError:  # Outside NVDA, and on an NVDA old enough not to have it.
 
-	class CallCancelled(Exception):  # type: ignore[no-redef]
+	class CallCancelled(Exception):
 		"""Stand-in for NVDA's own, so this package imports where NVDA is not."""
 
 
@@ -163,7 +163,7 @@ class RenderedBlock:
 	isDecoration: bool = False
 	"""Whether this block is drawn rather than read. See `SourceBlock.isDecoration`."""
 
-	depth: Optional[int] = None
+	depth: int | None = None
 	"""How deep this block sits in a structure, carried through from `SourceBlock.depth`.
 
 	Here so that the band can find the depths of what it is showing without going back to
@@ -223,7 +223,7 @@ class SourceBlock:
 	without changing the block's identity.
 	"""
 
-	depth: Optional[int] = None
+	depth: int | None = None
 	"""How deep this block sits in the structure it belongs to, or None where it has none.
 
 	One-based, as `positionInfo["level"]` is. Prose never sets it. How it is drawn is

@@ -16,7 +16,8 @@ Like `flowIndent`, this imports nothing from NVDA, so the counting can be tested
 Roles are compared by name, as `flowForms` compares them.
 """
 
-from typing import Iterable, NamedTuple, Optional
+from typing import NamedTuple
+from collections.abc import Iterable
 
 LIST_ROLES = frozenset({"LIST"})
 """The roles of a list that nests what is inside it, by `controlTypes.Role` member name."""
@@ -106,7 +107,7 @@ class ListPlace(NamedTuple):
 	"""Whether it carries on an item that began on an earlier line. See `continuesItem`."""
 
 
-def placeBeforeText(commands: Iterable) -> Optional[ListPlace]:
+def placeBeforeText(commands: Iterable) -> ListPlace | None:
 	"""Where the first of a range's own text sits in the lists around it.
 
 	:param commands: what `getTextWithFields` returned — strings and field commands, in order.
@@ -126,7 +127,7 @@ def placeBeforeText(commands: Iterable) -> Optional[ListPlace]:
 	return None
 
 
-def depthBeforeText(commands: Iterable) -> Optional[int]:
+def depthBeforeText(commands: Iterable) -> int | None:
 	"""How many lists are open where the first of a range's own text begins.
 
 	The first text, not the line's end, since a line can close a sublist after its own words.
@@ -140,7 +141,7 @@ def depthBeforeText(commands: Iterable) -> Optional[int]:
 	return None if place is None else place.levels
 
 
-def blockDepth(lists: Optional[int]) -> Optional[int]:
+def blockDepth(lists: int | None) -> int | None:
 	""":return: the depth a block carries for a count of enclosing lists.
 
 	A line in no list has no depth, which is prose, and draws flat. A line in one list is at

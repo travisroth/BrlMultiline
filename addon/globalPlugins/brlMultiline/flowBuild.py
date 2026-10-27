@@ -12,7 +12,7 @@ nothing outside itself. The one `live` flag is the difference.
 """
 
 import dataclasses
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import api
 import config
@@ -88,7 +88,7 @@ def describeObject(obj) -> str:
 	return f"{type(obj).__name__} role={role} name={name!r}"
 
 
-def templateRegion(obj, notes: Optional[list] = None) -> Optional[TextInfoRegion]:
+def templateRegion(obj, notes: list | None = None) -> TextInfoRegion | None:
 	"""Ask NVDA which kind of region this object wants.
 
 	From NVDA, so the dry run flows what a flow would. No text region means no lines.
@@ -139,7 +139,7 @@ def isBeingWrittenIn(target, obj) -> bool:
 	return editable
 
 
-def interactiveRegionFactory(target, obj, live: bool, template=None, notes: Optional[list] = None):
+def interactiveRegionFactory(target, obj, live: bool, template=None, notes: list | None = None):
 	"""Build the region factory for an edit inside a browse-mode document.
 
 	The document continues to own placement and neighbouring blocks. The focused edit owns
@@ -208,7 +208,7 @@ def _objectController(
 	live: bool,
 	generation: int,
 	notes: list,
-) -> Optional[FlowController]:
+) -> FlowController | None:
 	"""Build a flow over a run of objects. See `buildController`."""
 	source = flowObjects.ObjectFlowSource(
 		obj,
@@ -252,19 +252,19 @@ class Unreadable(str):
 
 
 def buildTableController(
-	obj: Optional["NVDAObject"] = None,
+	obj: "NVDAObject | None" = None,
 	numRows: int = DEFAULT_ROWS,
 	numCols: int = DEFAULT_COLS,
 	handler=None,
 	live: bool = False,
 	generation: int = 0,
-	maxRows: Optional[int] = None,
-	notes: Optional[list] = None,
-	layout: Optional["flowTableLayouts.TableLayout"] = None,
+	maxRows: int | None = None,
+	notes: list | None = None,
+	layout: "flowTableLayouts.TableLayout | None" = None,
 	handle=None,
-	atRow: Optional[int] = None,
+	atRow: int | None = None,
 	atPage: int = 0,
-) -> Optional[FlowController]:
+) -> FlowController | None:
 	"""Build the table flow, and say so where NVDA stopped waiting part way through.
 
 	Every stage calls into the application and can be cancelled; all mean the core was busy,
@@ -300,19 +300,19 @@ def buildTableController(
 
 
 def buildTheTable(
-	obj: Optional["NVDAObject"] = None,
+	obj: "NVDAObject | None" = None,
 	numRows: int = DEFAULT_ROWS,
 	numCols: int = DEFAULT_COLS,
 	handler=None,
 	live: bool = False,
 	generation: int = 0,
-	maxRows: Optional[int] = None,
-	notes: Optional[list] = None,
-	layout: Optional["flowTableLayouts.TableLayout"] = None,
+	maxRows: int | None = None,
+	notes: list | None = None,
+	layout: "flowTableLayouts.TableLayout | None" = None,
 	handle=None,
-	atRow: Optional[int] = None,
+	atRow: int | None = None,
 	atPage: int = 0,
-) -> Optional[FlowController]:
+) -> FlowController | None:
 	"""Build a flow that reads the table the reader is in, laid out in columns.
 
 	Separate from `buildController`: not in a table, the answer is no rather than another
@@ -485,7 +485,7 @@ def buildTheTable(
 	return control
 
 
-def _entered(control, source, handle, atRow: Optional[int]) -> bool:
+def _entered(control, source, handle, atRow: int | None) -> bool:
 	"""Place the window, at a given row where one was asked for.
 
 	A rebuild wants the window's row, not the caret's, so the source is pointed at it for the
@@ -534,16 +534,16 @@ def _asTheReaderWantsThem(measured, saved, notes: list):
 
 
 def buildController(
-	obj: Optional["NVDAObject"] = None,
+	obj: "NVDAObject | None" = None,
 	numRows: int = DEFAULT_ROWS,
 	numCols: int = DEFAULT_COLS,
 	handler=None,
 	live: bool = False,
 	generation: int = 0,
-	notes: Optional[list] = None,
-	atObject: Optional["NVDAObject"] = None,
+	notes: list | None = None,
+	atObject: "NVDAObject | None" = None,
 	atRegion=None,
-) -> Optional[FlowController]:
+) -> FlowController | None:
 	"""Build a flow over an object, ready to be asked what it would show.
 
 	:param obj: what to read. Defaults to the navigator object.

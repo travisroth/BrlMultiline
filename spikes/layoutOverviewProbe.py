@@ -56,7 +56,7 @@ import re
 import sys
 import time
 from collections import Counter
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 import api
@@ -127,13 +127,13 @@ def _browser(doc) -> str:
 		return "unknown"
 
 
-def _viewport(doc) -> Optional[tuple]:
+def _viewport(doc) -> tuple | None:
 	"""The document's visible rectangle on screen as (left, top, width, height)."""
 	loc = doc.rootNVDAObject.location
 	return tuple(loc) if loc else None
 
 
-def _relative(loc, viewport) -> Optional[list]:
+def _relative(loc, viewport) -> list | None:
 	if not loc:
 		return None
 	return [loc[0] - viewport[0], loc[1] - viewport[1], loc[2], loc[3]]
@@ -196,7 +196,7 @@ def _isSearchField(attrs: dict, name: str) -> bool:
 	)
 
 
-def collect(doc=None) -> Optional[dict]:
+def collect(doc=None) -> dict | None:
 	"""Gather every candidate with its rectangle and attributes. Returns the data `dump` prints."""
 	if doc is None:
 		return None
@@ -321,7 +321,7 @@ def dump(obj=None) -> None:
 	return None
 
 
-def walkTree(doc, maxDepth: int = 5, maxNodes: int = 300) -> Optional[dict]:
+def walkTree(doc, maxDepth: int = 5, maxNodes: int = 300) -> dict | None:
 	"""Walk the browser's accessible tree, not the buffer, to see which containers survive.
 
 	The buffer hides generic containers; the tree shows whether a div class="sidebar" is still
@@ -401,7 +401,7 @@ def tree(obj=None, maxDepth: int = 5, maxNodes: int = 300) -> None:
 		print(_treeReport(data, _viewport(doc)))
 
 
-def sampleLeaves(doc, limit: int = 400) -> Optional[dict]:
+def sampleLeaves(doc, limit: int = 400) -> dict | None:
 	"""Rectangles of small content elements, the input a geometric page split would use."""
 	if doc is None:
 		return None
@@ -459,7 +459,7 @@ def leaves(obj=None, limit: int = 400) -> None:
 
 def save(
 	obj=None,
-	folder: Optional[str] = None,
+	folder: str | None = None,
 	maxDepth: int = 5,
 	maxNodes: int = 300,
 	limit: int = 400,

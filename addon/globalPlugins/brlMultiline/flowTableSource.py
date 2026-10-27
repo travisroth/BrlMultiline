@@ -18,7 +18,7 @@ API NVDA's control+alt+arrows use, and turns its answers into blocks.
 
 import dataclasses
 import functools
-from typing import Any, Optional
+from typing import Any
 
 import documentBase
 from braille.regions.base import Region, TextRegion
@@ -55,7 +55,7 @@ A band's worth, as the indent plan reads. Truncation covers the rare wider cell.
 """
 
 
-def tableDocumentFor(obj) -> Optional[Any]:
+def tableDocumentFor(obj) -> Any | None:
 	"""What can navigate the table this object is in.
 
 	In order: the tree interceptor in browse mode, the object itself where it navigates its own
@@ -123,7 +123,7 @@ class TableHandle:
 		return f"<TableHandle {self.numRows}x{self.numCols} at row {self.row} column {self.col}>"
 
 
-def tableAt(obj) -> Optional[TableHandle]:
+def tableAt(obj) -> TableHandle | None:
 	"""Whether the reader is in a table, and which one.
 
 	By `_getTableCellCoords`, as Easy Table Navigator does, so the test cannot disagree with
@@ -518,7 +518,7 @@ def _textOf(info) -> str:
 def declaredHeaders(
 	handle: TableHandle,
 	columns,
-	row: Optional[int] = None,
+	row: int | None = None,
 	tries: int = HEADER_TRIES,
 ) -> dict:
 	""":return: the header each column declares, by column number, leaving out those that do not.
@@ -550,7 +550,7 @@ def declaredHeaders(
 	return found
 
 
-def _rowsToAsk(handle: TableHandle, row: Optional[int], tries: int) -> list:
+def _rowsToAsk(handle: TableHandle, row: int | None, tries: int) -> list:
 	""":return: which rows to ask for a declared header, the reader's own first.
 
 	The reader's row, which certainly exists, then the first row and the one after theirs.
@@ -925,7 +925,7 @@ def _typicalOf(sizes: list[int]) -> int:
 	return ordered[min(len(ordered) - 1, (len(ordered) * 3) // 4)]
 
 
-def rowBeside(handle: TableHandle, row: int, by: int) -> Optional[int]:
+def rowBeside(handle: TableHandle, row: int, by: int) -> int | None:
 	""":return: the row beside one, or None where the table says there is none beside it.
 
 	The next row, unless the table hides rows and can say which. See
@@ -949,7 +949,7 @@ def rowBeside(handle: TableHandle, row: int, by: int) -> Optional[int]:
 	return found
 
 
-def rowShowingIn(handle: TableHandle, row: int) -> Optional[bool]:
+def rowShowingIn(handle: TableHandle, row: int) -> bool | None:
 	""":return: whether a table is still showing one row, or None where it will not say.
 
 	For rows fetched before a filter hid them. See `flowObjectTable.Sheet.rowShowing`.
@@ -1009,9 +1009,9 @@ class TableFlowSource:
 		self,
 		handle: TableHandle,
 		columns: tuple,
-		declared: Optional[dict] = None,
+		declared: dict | None = None,
 		generation: int = 0,
-		budget: Optional[FetchBudget] = None,
+		budget: FetchBudget | None = None,
 		live: bool = False,
 		pinHeaders: bool = False,
 		plainCase=(),
@@ -1152,7 +1152,7 @@ class TableFlowSource:
 		if found is not None and sameTable(found.key, self.handle.key):
 			self.handle = found
 
-	def stillReading(self, handle: Optional[TableHandle]) -> bool:
+	def stillReading(self, handle: TableHandle | None) -> bool:
 		""":return: whether a table just looked up is the one this source is reading.
 
 		`isStillHere` without the lookup, for a caller that has the handle.
@@ -1171,7 +1171,7 @@ class TableFlowSource:
 
 	# Reading.
 
-	def headerBlock(self) -> Optional[SourceBlock]:
+	def headerBlock(self) -> SourceBlock | None:
 		""":return: the table's header row, built for the page being drawn, or None.
 
 		Not part of the stream when pinned; see `firstRow`. Built for each page.
@@ -1329,7 +1329,7 @@ class TableFlowSource:
 			return "nothing: this table declares no headers and its first row is not headings"
 		return f"row {HEADER_ROW}, since this table declares none"
 
-	def rowNoLongerShown(self, rows) -> Optional[int]:
+	def rowNoLongerShown(self, rows) -> int | None:
 		""":return: the first of these rows the table has stopped showing, or None if none has.
 
 		For rows read before a filter was applied, which `rowBeside` cannot catch. Never judged:
@@ -1414,7 +1414,7 @@ class TableFlowSource:
 			isBlank=not content.rawText.strip(),
 		)
 
-	def _readInOneCall(self, row: int) -> Optional[list]:
+	def _readInOneCall(self, row: int) -> list | None:
 		""":return: the drawn cells of one row from a single read, or None to read them singly.
 
 		The batch seam for drawn rows, as well as for measuring. Cell objects are not fetched

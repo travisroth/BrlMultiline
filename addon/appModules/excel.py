@@ -21,7 +21,7 @@
 import ctypes
 import math
 import re
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 import addonHandler
 import config
@@ -54,7 +54,7 @@ try:
 	from exceptions import CallCancelled
 except ImportError:  # Outside NVDA, and on an NVDA old enough not to have it.
 
-	class CallCancelled(Exception):  # type: ignore[no-redef]
+	class CallCancelled(Exception):
 		"""Stand-in for NVDA's own. See `globalPlugins.brlMultiline.flow`."""
 
 
@@ -175,7 +175,7 @@ class PointReading(NamedTuple):
 	"""The series' number in Excel's `SeriesCollection`, as `SeriesReading.key`."""
 
 
-def _chartValue(value) -> Optional[float]:
+def _chartValue(value) -> float | None:
 	""":return: one value of a series, or None where the point has none.
 
 	The rules of `chartSource._asNumber`: no booleans, no infinities, nothing that is not a
@@ -537,7 +537,7 @@ class SpreadsheetChart:
 		""":return: the chart this is part of. See `chartSource.chartOf`."""
 		return ExcelChart(self.officeChartObject)
 
-	def brlMultilinePoint(self) -> Optional[PointReading]:
+	def brlMultilinePoint(self) -> PointReading | None:
 		""":return: which point of which chart this is, or None if it is not a point.
 
 		NVDA's point carries its series and its point, counting from 1, as `arg1` and `arg2`;
@@ -684,7 +684,7 @@ def columnNumberOf(letters: str) -> int:
 	return number
 
 
-def columnSpansIn(address: Optional[str]) -> Optional[list]:
+def columnSpansIn(address: str | None) -> list | None:
 	""":return: the runs of columns an address covers, as (first, last) pairs, or None.
 
 	A sheet with column 5 hidden answers "$A$1:$D$129,$F$1:$F$129". None where an area names
@@ -706,7 +706,7 @@ def columnSpansIn(address: Optional[str]) -> Optional[list]:
 	return sorted(spans)
 
 
-def rowSpansIn(address: Optional[str]) -> Optional[list]:
+def rowSpansIn(address: str | None) -> list | None:
 	""":return: the runs of rows an address covers, as (first, last) pairs, or None.
 
 	As a filtered sheet answers, such as "$A$1:$F$3,$A$9:$F$20". Parsed from the string, one
@@ -850,7 +850,7 @@ class ExcelSheet:
 		rows, columns = self._used
 		return (max(1, rows, row), max(1, columns, column))
 
-	def whereIsIt(self) -> Optional[str]:
+	def whereIsIt(self) -> str | None:
 		""":return: the workbook and the sheet, which is what tells one worksheet from another.
 
 		See `flowObjectTable.Sheet.whereIsIt` and `flowTableLayouts.keyFor`. The workbook's name
@@ -884,7 +884,7 @@ class ExcelSheet:
 		"""
 		return self.shape()[1] > MAX_COLUMNS
 
-	def textRow(self, row: int, first: int, last: int) -> Optional[list]:
+	def textRow(self, row: int, first: int, last: int) -> list | None:
 		""":return: a row's text across a span of columns, in one call, or None.
 
 		One cross-process call, through the batch fetch NVDA's quick navigation uses
@@ -942,7 +942,7 @@ class ExcelSheet:
 					texts[place] = said
 		return texts
 
-	def rowAfter(self, row: int, by: int) -> Optional[int]:
+	def rowAfter(self, row: int, by: int) -> int | None:
 		""":return: the next row Excel is showing, or None where it is showing no more.
 
 		A filter hides rows without removing them, so Excel is asked once per reading which
@@ -968,7 +968,7 @@ class ExcelSheet:
 				return row - 1
 		return None
 
-	def rowShowing(self, row: int) -> Optional[bool]:
+	def rowShowing(self, row: int) -> bool | None:
 		""":return: whether Excel is showing one row, or None where it will not say.
 
 		For rows fetched before a filter was applied. From the same answer `rowAfter` uses.
@@ -985,7 +985,7 @@ class ExcelSheet:
 			return None
 		return any(first <= row <= last for first, last in spans)
 
-	def selectedValues(self, maxRows: int = 0, maxColumns: int = 0) -> Optional[list]:
+	def selectedValues(self, maxRows: int = 0, maxColumns: int = 0) -> list | None:
 		"""What is selected in this sheet, as text and as numbers together.
 
 		Answers `flowObjectTable.Sheet.selectedValues`, for charts.
@@ -1037,7 +1037,7 @@ class ExcelSheet:
 			for offset, valueRow in enumerate(values)
 		]
 
-	def selectedHeadings(self) -> Optional[bool]:
+	def selectedHeadings(self) -> bool | None:
 		"""Whether the first row of the last selection read is a row of headings.
 
 		Answers `flowObjectTable.Sheet.selectedHeadings`, and Excel can answer it properly for a
@@ -1076,7 +1076,7 @@ class ExcelSheet:
 			log.debugWarning("Could not read where an Excel table's headings are", exc_info=True)
 			return None
 
-	def _clipToData(self, selection, maxRows: int, maxColumns: int) -> Optional[tuple]:
+	def _clipToData(self, selection, maxRows: int, maxColumns: int) -> tuple | None:
 		"""Cut a selection down to what can be read without stopping NVDA.
 
 		1. Clip to the used range, one call, so a whole-column selection becomes the rows with
@@ -1113,7 +1113,7 @@ class ExcelSheet:
 		)
 		return (firstRow, firstColumn, lastRow, lastColumn)
 
-	def _usedBox(self) -> Optional[tuple]:
+	def _usedBox(self) -> tuple | None:
 		""":return: the corners of the used range, or None where the sheet will not say.
 
 		All four corners, for intersecting with a selection. Separate from `shape`, which
@@ -1138,7 +1138,7 @@ class ExcelSheet:
 				log.debugWarning("Could not ask a worksheet where its data is", exc_info=True)
 		return self._usedCorners
 
-	def _textBlock(self, firstRow: int, firstColumn: int, height: int, width: int) -> Optional[list]:
+	def _textBlock(self, firstRow: int, firstColumn: int, height: int, width: int) -> list | None:
 		"""Read a rectangle's displayed text in one call.
 
 		`textRow` for a whole rectangle, for charts. Cells are placed by the coordinates the
@@ -1183,7 +1183,7 @@ class ExcelSheet:
 				texts[down][across] = (text or "").strip()
 		return texts
 
-	def columnsShowing(self) -> Optional[set]:
+	def columnsShowing(self) -> set | None:
 		""":return: the columns Excel is showing, or None where every column is showing.
 
 		A hidden column still answers for its cells. From the same answer as the rows, at no
@@ -1197,7 +1197,7 @@ class ExcelSheet:
 			showing.update(range(first, last + 1))
 		return showing or None
 
-	def _shownRows(self) -> Optional[list]:
+	def _shownRows(self) -> list | None:
 		""":return: the runs of rows Excel is showing, or None where it would not say."""
 		return self._whatIsShowing()[0]
 
@@ -1211,7 +1211,7 @@ class ExcelSheet:
 			self._shown = (rowSpansIn(address), columnSpansIn(address))
 		return self._shown
 
-	def _askWhatIsShowing(self) -> Optional[str]:
+	def _askWhatIsShowing(self) -> str | None:
 		""":return: how Excel describes the part of this sheet on show, or None if it will not.
 
 		Two calls. An unfiltered sheet answers with one area.
@@ -1230,7 +1230,7 @@ class ExcelSheet:
 			return None
 		return address
 
-	def columnHeaders(self, first: int, last: int) -> Optional[dict]:
+	def columnHeaders(self, first: int, last: int) -> dict | None:
 		""":return: what each column of a span is called, {} where none is, or None to ask cells.
 
 		Asking cell by cell is very slow. NVDA's header cell tracker says which cell heads
@@ -1249,7 +1249,7 @@ class ExcelSheet:
 			return None
 		return {column: said for column, said in self._headers.items() if first <= column <= last}
 
-	def _askedHeaders(self) -> Optional[dict]:
+	def _askedHeaders(self) -> dict | None:
 		"""Work out what every column of the sheet is called, once. See `columnHeaders`.
 
 		The whole sheet rather than the span in hand, because the answer is cached and a later
@@ -1284,7 +1284,7 @@ class ExcelSheet:
 					found[low + index] = text
 		return found
 
-	def _markedHeaders(self) -> Optional[list]:
+	def _markedHeaders(self) -> list | None:
 		""":return: (row, first column, last column) per marked column heading, or None.
 
 		From NVDA's tracker, following `tableUtils.HeaderCellTracker.iterPossibleHeaderCellInfosFor`.
@@ -1357,7 +1357,7 @@ class ExcelSheet:
 		return found
 
 
-def _cellInfosFor(cell, address: str, count: int) -> Optional[list]:
+def _cellInfosFor(cell, address: str, count: int) -> list | None:
 	""":return: where each cell of a range is, what it says, and its merge area, or None.
 
 	The only ctypes in this file: hand NVDA's in-process helper an address and a count, and
@@ -1422,7 +1422,7 @@ def _asGrid(value) -> list:
 	return [[value]]
 
 
-def _pairUp(texts: Optional[list], values: list, row: int, firstColumn: int) -> list:
+def _pairUp(texts: list | None, values: list, row: int, firstColumn: int) -> list:
 	"""Put each cell's displayed text beside its stored value.
 
 	Where the text could not be had, the cell's address stands in.

@@ -16,7 +16,7 @@ An identity may be a guess: a wrong match is felt at once and undone with a keys
 """
 
 import dataclasses
-from typing import Any, Optional
+from typing import Any
 
 from logHandler import log
 
@@ -132,7 +132,7 @@ def _controlIdentifier(obj) -> str:
 	return "/".join(found) if any(found) else ""
 
 
-def signatureOf(handle, columns: Optional[Any] = None) -> str:
+def signatureOf(handle, columns: Any | None = None) -> str:
 	""":return: a table's columns by the headings they declare, joined, or "" if none do.
 
 	The expensive half, bounded by `SIGNATURE_COLUMNS`. `declaredHeaders` asks a few rows, since

@@ -55,7 +55,7 @@ from __future__ import annotations
 import threading
 import time
 from collections import deque
-from typing import Any, Deque, Optional
+from typing import Any
 
 import braille
 import config
@@ -71,8 +71,8 @@ MAX_EVENTS = 200
 """How many gestures to keep. Enough for a long session of pressing keys, small enough that
 `report` cannot flood the console."""
 
-_secondary: Optional[BrailleDisplayDriver] = None
-_events: Deque[dict[str, Any]] = deque(maxlen=MAX_EVENTS)
+_secondary: BrailleDisplayDriver | None = None
+_events: deque[dict[str, Any]] = deque(maxlen=MAX_EVENTS)
 _watching: bool = False
 _originalHandleAck = None
 """`BrailleDisplayDriver._handleAck` as it was before `_isolateAck` replaced it."""
@@ -118,7 +118,7 @@ def candidates() -> None:
 		_say(f"{name}: {description}{marker}")
 
 
-def devices(name: Optional[str] = None) -> None:
+def devices(name: str | None = None) -> None:
 	"""List braille hardware that NVDA's detection can actually see right now.
 
 	This is the one to use when deciding what to pass to `start`. It reports concrete
@@ -273,7 +273,7 @@ def debugLogging(enable: bool = True) -> None:
 # --- Starting and stopping the secondary --------------------------------------------
 
 
-def start(name: str, port: Optional[Any] = None, isolateAck: bool = True, force: bool = False) -> None:
+def start(name: str, port: Any | None = None, isolateAck: bool = True, force: bool = False) -> None:
 	"""Construct a second driver alongside the one NVDA owns.
 
 	This follows `BrailleHandler._setDisplay` exactly: `__new__`, then `__init__` through
@@ -479,7 +479,7 @@ def pokePrimary(text: str = "primary still works") -> None:
 # --- Watching gestures ---------------------------------------------------------------
 
 
-def _findDriverReference(gesture: BrailleDisplayGesture) -> Optional[str]:
+def _findDriverReference(gesture: BrailleDisplayGesture) -> str | None:
 	"""Find an attribute on a gesture holding a driver instance, if there is one.
 
 	This is the question behind the plan's "one display per driver name" limit. Two displays

@@ -11,7 +11,7 @@ Each block is laid out in a `BrailleBuffer` of its own, one region the band's wi
 """
 
 import dataclasses
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import config
 from braille.constants import CONTINUATION_SHAPE
@@ -100,7 +100,7 @@ class FlowRenderer:
 		Set by the band, which can move. None means no shape is drawn. See
 		`glyphFlow.targetForRows`.
 		"""
-		self.unwrappedPage: Optional[int] = None
+		self.unwrappedPage: int | None = None
 		"""Which page across of unwrapped lines to draw, or None to wrap as ever.
 
 		Unwrapped, every block is one row: only this page of the line is drawn, blank if the line
@@ -242,7 +242,7 @@ class FlowRenderer:
 			moreRows=False,
 		)
 
-	def _asColumns(self, block: SourceBlock, fromRow: int = 0) -> Optional[RenderedBlock]:
+	def _asColumns(self, block: SourceBlock, fromRow: int = 0) -> RenderedBlock | None:
 		"""Lay a table row out at its plan's offsets, if it is one and there is a plan.
 
 		Each cell is translated in a buffer of its own at its column's width, then placed. A
@@ -469,7 +469,7 @@ class FlowRenderer:
 			return self.render(block)
 		return self.render(block, fromRow=max(0, row - max(0, contextRows)))
 
-	def _rowContaining(self, block: SourceBlock, position: int) -> Optional[int]:
+	def _rowContaining(self, block: SourceBlock, position: int) -> int | None:
 		""":return: the whole-block row containing a braille position, or None.
 
 		Measured at the narrower width a wrapped block is laid out in.
@@ -577,9 +577,9 @@ class FlowRenderer:
 	def _layoutBuffer(
 		self,
 		block: SourceBlock,
-		width: Optional[int] = None,
+		width: int | None = None,
 		glyphs: bool = True,
-	) -> Optional[BrailleBufferSegment]:
+	) -> BrailleBufferSegment | None:
 		"""Build the buffer one block is laid out in.
 
 		:param block: the block to lay out.

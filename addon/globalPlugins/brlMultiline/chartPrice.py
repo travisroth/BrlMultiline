@@ -13,7 +13,8 @@ offered, for the reader to judge by touch. See docs/design/excel-chart-plan.md.
 Knows nothing about NVDA, Excel, or any display.
 """
 
-from typing import Callable, NamedTuple, Optional
+from typing import NamedTuple
+from collections.abc import Callable
 
 from .chartDraw import (
 	GAP,
@@ -55,7 +56,7 @@ class Period(NamedTuple):
 	label: str
 	"""The date, usually: what the reader sees in the sheet."""
 
-	open: Optional[float]
+	open: float | None
 	"""What it opened at. None for a high, low, close chart, which has no open to draw: its bars
 	are drawn without the left hand tick, and a press or a step says the other three."""
 
@@ -74,7 +75,7 @@ def ohlcChart(
 	width: int,
 	height: int,
 	periods: "list[Period]",
-	translate: Optional[Callable] = None,
+	translate: Callable | None = None,
 ) -> Drawing:
 	"""Draw open, high, low and close bars to fill a rectangle exactly.
 
@@ -94,7 +95,7 @@ def candleChart(
 	width: int,
 	height: int,
 	periods: "list[Period]",
-	translate: Optional[Callable] = None,
+	translate: Callable | None = None,
 ) -> Drawing:
 	"""Draw the same four numbers as candlesticks.
 
@@ -118,7 +119,7 @@ def _priceChart(
 	width: int,
 	height: int,
 	periods: "list[Period]",
-	translate: Optional[Callable],
+	translate: Callable | None,
 	drawOne: Callable,
 	name: Callable,
 	firstPoint: int = 0,
@@ -203,7 +204,7 @@ def _tooWide(
 	width: int,
 	height: int,
 	periods: "list[Period]",
-	translate: Optional[Callable],
+	translate: Callable | None,
 	drawOne: Callable,
 	name: Callable,
 ) -> Drawing:
@@ -263,7 +264,7 @@ def _reframer(
 	width: int,
 	height: int,
 	periods: "list[Period]",
-	translate: Optional[Callable],
+	translate: Callable | None,
 	drawOne: Callable,
 	name: Callable,
 ) -> Callable:
@@ -282,7 +283,7 @@ def _reframer(
 		and the size to compose for, since the rectangle can change under a figure.
 	"""
 
-	def redraw(offset: float, span: float, pinWidth: int, pinHeight: int) -> Optional[Drawing]:
+	def redraw(offset: float, span: float, pinWidth: int, pinHeight: int) -> Drawing | None:
 		first, last = windowOf(len(periods), offset, span, 1)
 		try:
 			return _priceChart(
@@ -356,7 +357,7 @@ def _describer(periods: "list[Period]", width: int) -> Callable:
 	:return: a function taking source coordinates and returning what is there.
 	"""
 
-	def describeAt(x: int, y: int) -> Optional[str]:
+	def describeAt(x: int, y: int) -> str | None:
 		# The exact inverse of `_edges`, so a press anywhere in a period's slot — bar, tick
 		# or the gap after it — is that period's press.
 		index = max(0, min(len(periods) - 1, x * len(periods) // width if width else 0))
@@ -401,7 +402,7 @@ def _pointFinder(count: int, width: int) -> Callable:
 	:return: a function taking a column and returning a period's index, or None off the drawing.
 	"""
 
-	def pointAt(x: int) -> Optional[int]:
+	def pointAt(x: int) -> int | None:
 		if not width or not 0 <= x < width:
 			return None
 		return min(count - 1, x * count // width)
@@ -422,7 +423,7 @@ def _marker(periods: "list[Period]", edges: "list[int]", scale: Scale) -> Callab
 		returning a `PointMark`.
 	"""
 
-	def markFor(index: int, level: int = 0) -> Optional[PointMark]:
+	def markFor(index: int, level: int = 0) -> PointMark | None:
 		if not 0 <= index < len(periods):
 			return None
 		left = edges[index]

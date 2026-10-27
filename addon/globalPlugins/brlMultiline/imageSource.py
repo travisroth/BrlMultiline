@@ -14,7 +14,6 @@ copied instead of it, and cannot be detected. See docs/design/tactile-graphics-p
 """
 
 import os
-from typing import Optional
 
 import api
 from logHandler import log
@@ -694,7 +693,7 @@ def capture(left: int, top: int, width: int, height: int, name: str = "") -> Pic
 	return Picture(greysFromPixels(pixels, *keep), keep[0], keep[1], name)
 
 
-def sizeWords(picture: Optional[Picture]) -> str:
+def sizeWords(picture: Picture | None) -> str:
 	""":return: how big the captured picture is, for a reader asking what they have.
 
 	:param picture: what was captured, or None.

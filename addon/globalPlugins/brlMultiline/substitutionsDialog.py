@@ -20,8 +20,6 @@ one only once it restarts, so OK offers to restart it, as NVDA's add-on store do
 `personalTables`.
 """
 
-from typing import Optional
-
 import wx
 
 import braille
@@ -178,7 +176,7 @@ class SubstitutionsDialog(SettingsDialog):
 		used = _("yes") if entry.enabled else _("no")
 		return (entry.match, kindLabels()[entry.kind], replacement, profilesLabel(entry.profiles), used)
 
-	def _fill(self, select: Optional[int]) -> None:
+	def _fill(self, select: int | None) -> None:
 		self.list.DeleteAllItems()
 		for entry in self.entries:
 			self.list.Append(self._row(entry))
@@ -226,7 +224,7 @@ class SubstitutionsDialog(SettingsDialog):
 
 	# Personal tables
 
-	def _fillTables(self, select: Optional[int]) -> None:
+	def _fillTables(self, select: int | None) -> None:
 		self.tableList.SetItems([f"{table.displayName}{personalTables.NAME_SUFFIX}" for table in self.tables])
 		if self.tables and select is not None:
 			self.tableList.SetSelection(max(0, min(select, len(self.tables) - 1)))
@@ -274,7 +272,7 @@ class SubstitutionsDialog(SettingsDialog):
 		self._fillTables(index)
 		self.tableList.SetFocus()
 
-	def _ask(self, entry: Substitution, add: bool) -> Optional[Substitution]:
+	def _ask(self, entry: Substitution, add: bool) -> Substitution | None:
 		with EntryDialog(self, entry, add) as dialog:
 			if dialog.ShowModal() != wx.ID_OK:
 				return None
@@ -289,7 +287,7 @@ class SubstitutionsDialog(SettingsDialog):
 			if restart:
 				wx.CallAfter(_offerRestart)
 
-	def _refuse(self, index: Optional[int], message: str) -> None:
+	def _refuse(self, index: int | None, message: str) -> None:
 		if index is not None and 0 <= index < len(self.entries):
 			self.list.Select(index)
 			self.list.Focus(index)
@@ -300,7 +298,7 @@ class SubstitutionsDialog(SettingsDialog):
 		self.list.SetFocus()
 		return None
 
-	def _commit(self) -> Optional[bool]:
+	def _commit(self) -> bool | None:
 		""":return: None if nothing was saved, otherwise whether NVDA has to restart for the personal tables."""
 		for index, entry in enumerate(self.entries):
 			problem = brailleSubstitutions.problemOf(entry)
@@ -371,7 +369,7 @@ class EntryDialog(wx.Dialog):
 			# Translators: the title of the dialog adding a braille substitution.
 			title=_("Add substitution") if add else _("Edit substitution"),
 		)
-		self.entry: Optional[Substitution] = None
+		self.entry: Substitution | None = None
 		self.profiles = sorted(config.conf.listProfiles())
 		for name in entry.profiles:
 			if name not in self.profiles:

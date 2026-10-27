@@ -12,7 +12,7 @@ should equal the first. Built by `flowBuild`, as the live band is.
 """
 
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import api
 import braille
@@ -541,7 +541,7 @@ def _whatTheBandIsDoing(band) -> str:
 	return "a flow of its own"
 
 
-def dryRun(handler=None, obj: Optional["NVDAObject"] = None, band=None) -> list[str]:
+def dryRun(handler=None, obj: "NVDAObject | None" = None, band=None) -> list[str]:
 	"""Run a flow over what the reader is in and report the result.
 
 	:param handler: the braille handler, for the layout settings and the fallback size.

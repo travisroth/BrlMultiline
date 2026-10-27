@@ -19,7 +19,7 @@ only, importing nothing from NVDA, like `flowIndent`, so it can be tested on its
 """
 
 import dataclasses
-from typing import Iterable, Optional, Sequence
+from collections.abc import Iterable, Sequence
 
 TRUNCATE = "truncate"
 WRAP = "wrap"
@@ -320,7 +320,7 @@ class ColumnPlan:
 	calculation, so a reader's grouping has somewhere to live.
 	"""
 
-	keyColumn: Optional[int] = None
+	keyColumn: int | None = None
 	"""The column repeated at the left of every page after the first, if any.
 
 	Drawn again at the left of each later page, cut to `keyWidth`, so the reader knows whose
@@ -395,7 +395,7 @@ class ColumnPlan:
 			offset += column.width + self.gap
 		return tuple(placed)
 
-	def _pinFor(self, start: int) -> Optional["Column"]:
+	def _pinFor(self, start: int) -> "Column | None":
 		""":return: the key column's repeated copy for a band starting here, or None.
 
 		Only where the key column itself is off to the left.
@@ -545,7 +545,7 @@ class ColumnPlan:
 			return self
 		return self.scrolledTo(starts[max(0, min(page, len(starts) - 1))])
 
-	def pageOf(self, column: int) -> Optional[int]:
+	def pageOf(self, column: int) -> int | None:
 		""":return: which bandful a table column falls in, or None if the plan does not draw it."""
 		for number, page in enumerate(self.pages()):
 			if any(place.column.index == column and not place.column.pinned for place in page):
@@ -600,7 +600,7 @@ class ColumnPlan:
 		placed = self.placements()
 		return 1 + max((place.row for place in placed), default=0) if placed else 1
 
-	def columnAt(self, row: int, offset: int) -> Optional[Column]:
+	def columnAt(self, row: int, offset: int) -> Column | None:
 		"""Which column a cell of a drawn row belongs to.
 
 		For routing. Gaps between columns answer None, like padding.
@@ -693,8 +693,8 @@ def planFor(
 	targetHeight: int = DEFAULT_TARGET_HEIGHT,
 	pinKey: bool = True,
 	excluded: Sequence[int] = (),
-	choices: Optional[dict] = None,
-	keyColumn: Optional[int] = None,
+	choices: dict | None = None,
+	keyColumn: int | None = None,
 ) -> ColumnPlan:
 	"""Work out how wide each of a table's columns is drawn, and which of them share a page.
 
@@ -815,8 +815,8 @@ def _keyFor(
 	gap: int,
 	minWidth: int,
 	pinKey: bool,
-	chosen: Optional[int] = None,
-) -> tuple[Optional[int], int]:
+	chosen: int | None = None,
+) -> tuple[int | None, int]:
 	"""Which column is repeated at the left of every later page, and how wide.
 
 	The first drawn column, usually the row's label, by the plan's order so a hidden column is
@@ -851,7 +851,7 @@ def _dealIntoPages(
 	maxWidth: int,
 	targetHeight: int,
 	overflow: str,
-	choices: Optional[dict] = None,
+	choices: dict | None = None,
 ) -> tuple[dict, tuple[tuple[int, ...], ...]]:
 	"""Walk the columns left to right, filling one page at a time.
 
@@ -907,7 +907,7 @@ def _howManyFit(
 	maxWidth: int,
 	targetHeight: int,
 	overflow: str,
-	choices: Optional[dict] = None,
+	choices: dict | None = None,
 ) -> tuple[int, dict]:
 	"""How many of the columns still to place go on this page.
 
@@ -984,8 +984,8 @@ def _stackedHeight(
 	maxRows: int,
 	gap: int,
 	overflow: str,
-	choices: Optional[dict] = None,
-) -> Optional[int]:
+	choices: dict | None = None,
+) -> int | None:
 	"""How tall a row of these columns actually comes out, or None if they do not fit.
 
 	Lane by lane and summed, each lane as tall as its tallest cell, as `flowRender._laidOut`
@@ -1025,7 +1025,7 @@ def _fitWidths(
 	budget: int,
 	minWidth: int,
 	maxWidth: int,
-	choices: Optional[dict] = None,
+	choices: dict | None = None,
 ) -> dict:
 	"""Decide a width for each column of one page.
 
@@ -1059,7 +1059,7 @@ def _shrinkTowardsFitting(
 	budget: int,
 	minWidth: int,
 	wants: dict,
-	floors: Optional[dict] = None,
+	floors: dict | None = None,
 ) -> None:
 	"""Take cells from the widest columns while they have any to spare.
 
@@ -1221,7 +1221,7 @@ class RowCell:
 	"""Whatever reads that cell: a braille region, and nothing here looks inside it."""
 
 
-def rowCellsOf(region) -> Optional[Sequence[RowCell]]:
+def rowCellsOf(region) -> Sequence[RowCell] | None:
 	""":return: a region's table cells, or None if it is not a table row.
 
 	Asked of the region, so `flow.py` and `flowControl.py` need not know about tables.

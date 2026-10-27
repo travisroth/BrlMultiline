@@ -22,7 +22,7 @@ A list view cell cannot be pointed at, so routing into a cell focuses what can t
 focus. See `ObjectCellInfo.updateCaret`.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 from logHandler import log
 
@@ -91,7 +91,7 @@ One column is a list, which NVDA reads well already.
 """
 
 
-def rowsTable(obj) -> Optional[Any]:
+def rowsTable(obj) -> Any | None:
 	""":return: the table an object is a row of, or None if its cells are not answered by it.
 
 	The `RowWithoutCellObjects` contract, asked for rather than tested with `isinstance`, since
@@ -112,7 +112,7 @@ def rowsTable(obj) -> Optional[Any]:
 	return table if columns >= MIN_COLUMNS else None
 
 
-def cellsRow(obj) -> Optional[Any]:
+def cellsRow(obj) -> Any | None:
 	""":return: the row an object is a cell of, or None if it is not one.
 
 	An object answering `columnNumber` is a cell, and its parent is the row. File Explorer puts
@@ -553,7 +553,7 @@ class ObjectTable:
 		self._rows: dict = {}
 		"""Row objects by row number, so that a bandful of cells costs a bandful of rows."""
 
-		self._rowsBegin: Optional[int] = None
+		self._rowsBegin: int | None = None
 		"""How many children come before the rows, once something has looked. See
 		`rowsBeginAt`."""
 
@@ -661,7 +661,7 @@ class ObjectTable:
 		"""
 		return self.whyItNumbersAGroup() is None
 
-	def whyItNumbersAGroup(self) -> Optional[str]:
+	def whyItNumbersAGroup(self) -> str | None:
 		""":return: which sign said the numbers count a group, or None if none of them did.
 
 		The reader hears only "not in a table", so the reason goes in the report. See `describe`.
@@ -716,7 +716,7 @@ class ObjectTable:
 		cannot be worked out either."""
 		return 0
 
-	def rowNumberOf(self, item) -> Optional[int]:
+	def rowNumberOf(self, item) -> int | None:
 		""":return: which row of the table an object is, one based, or None.
 
 		`rowNumber`, or `indexInGroup` where the group is the whole table (see
@@ -994,7 +994,7 @@ class RowCellTable(ObjectTable):
 			log.debugWarning("Could not count a row's columns", exc_info=True)
 			return 0
 
-	def contentOf(self, item, column: int, cell) -> Optional[str]:
+	def contentOf(self, item, column: int, cell) -> str | None:
 		""":return: what one column of a row says, or None if it could not be read.
 
 		The cell's `name`, which is where `RowWithoutCellObjects` puts a column's content.
@@ -1112,7 +1112,7 @@ class CellObjectTable(ObjectTable):
 		return self._cellsByRow
 
 
-def columnNumberOf(cell) -> Optional[int]:
+def columnNumberOf(cell) -> int | None:
 	""":return: which column an object says it is in, or None if it does not say.
 
 	NVDA's `columnNumber`. `NotImplementedError` means the platform does not number cells.
@@ -1179,7 +1179,7 @@ As `appModules/outlook.py` joins a message row's fields.
 """
 
 
-def rowTextOf(row, withHeaders: Optional[bool] = None, headers: Optional[dict] = None) -> str:
+def rowTextOf(row, withHeaders: bool | None = None, headers: dict | None = None) -> str:
 	""":return: what a row says about *itself*, built from its own cells, or "" if it has none.
 
 	The cell readers the column layout uses, joined into one line. Used because NVDA's Outlook
@@ -1231,7 +1231,7 @@ def _isNothingButItsOwnHeader(cell, header: str) -> bool:
 	return not value and name == header
 
 
-def _headerFor(cell, index: int, headers: Optional[dict]) -> str:
+def _headerFor(cell, index: int, headers: dict | None) -> str:
 	""":return: what a cell's column is called, asking the platform once per column.
 
 	Resolved even when headers are not drawn, since `_isNothingButItsOwnHeader` needs it.
@@ -1296,7 +1296,7 @@ class Sheet:
 	# instead and answers everything above; they exist because *measuring* asks a different
 	# question from *reading*, and a grid can often answer it far more cheaply.
 
-	def usedShape(self) -> Optional[tuple]:
+	def usedShape(self) -> tuple | None:
 		""":return: how far this grid is written in, as (rows, columns), or None if it cannot say.
 
 		Optional. Unlike `shape`, which reaches as far as the reader, this changes only when the
@@ -1304,7 +1304,7 @@ class Sheet:
 		"""
 		return None
 
-	def selectedHeadings(self) -> Optional[bool]:
+	def selectedHeadings(self) -> bool | None:
 		""":return: whether the first row of the last selection read is a row of headings.
 
 		Optional. The values cannot settle it, but a structured table declares its header row.
@@ -1313,7 +1313,7 @@ class Sheet:
 		"""
 		return None
 
-	def whereIsIt(self) -> Optional[str]:
+	def whereIsIt(self) -> str | None:
 		""":return: what names the place this grid is in, or None to be named the ordinary way.
 
 		Optional. Saved layouts are keyed by place (see `flowTableIdentity`), and for a worksheet
@@ -1604,7 +1604,7 @@ class SheetTable(ObjectTable):
 		""":return: the row number itself, which is what a cell is fetched by."""
 		return row if 1 <= row <= self.numRows else None
 
-	def rowNumberOf(self, item) -> Optional[int]:
+	def rowNumberOf(self, item) -> int | None:
 		""":return: the row number, which here is the thing itself."""
 		return int(item) if isinstance(item, int) and item > 0 else None
 
@@ -1648,7 +1648,7 @@ class SheetTable(ObjectTable):
 		]
 
 
-def tableFor(obj) -> Optional[ObjectTable]:
+def tableFor(obj) -> ObjectTable | None:
 	""":return: the object table the reader is in, or None if they are not in one.
 
 	Where the focus lands differs by application, so three questions are asked in turn: a row

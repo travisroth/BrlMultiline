@@ -24,7 +24,8 @@ NVDA side: it asks L{decide} what a key does and then makes it happen.
 
 import json
 from dataclasses import dataclass, field, replace
-from typing import Callable, Iterable, NamedTuple, Optional
+from typing import NamedTuple
+from collections.abc import Callable, Iterable
 
 VERSION = 1
 """The stored form's version. Written with every layer set and checked on reading."""
@@ -181,16 +182,16 @@ class Target(NamedTuple):
 	"""For a script, its name without `script_`, as NVDA's gesture maps name one. For a key, the
 	key as Input Gestures' emulated keys store it, such as `kb:downArrow`."""
 
-	actsFor: Optional[str] = None
+	actsFor: str | None = None
 	"""The display this binding acts for, when a keyboard key runs a command that asks which
 	display it is for. See `keyLayerDispatch.deviceFor`."""
 
 	@classmethod
-	def script(cls, moduleName: str, className: str, scriptName: str, actsFor: Optional[str] = None):
+	def script(cls, moduleName: str, className: str, scriptName: str, actsFor: str | None = None):
 		return cls(SCRIPT, moduleName, className, scriptName, actsFor)
 
 	@classmethod
-	def key(cls, key: str, actsFor: Optional[str] = None):
+	def key(cls, key: str, actsFor: str | None = None):
 		return cls(KEY, scriptName=key if key.startswith("kb:") else f"kb:{key}", actsFor=actsFor)
 
 	@classmethod
@@ -218,7 +219,7 @@ class Target(NamedTuple):
 		return stored
 
 	@classmethod
-	def fromStored(cls, stored) -> Optional["Target"]:
+	def fromStored(cls, stored) -> "Target | None":
 		""":return: the target, or None for a form this version cannot read."""
 		if not isinstance(stored, dict):
 			return None
@@ -238,7 +239,7 @@ class Target(NamedTuple):
 # Layers
 
 
-def defaultStyle(context: Optional[str]) -> str:
+def defaultStyle(context: str | None) -> str:
 	""":return: one shot for a layer with no context, stays on for one with. See the module docstring."""
 	return STAYS_ON if context else ONE_SHOT
 
@@ -251,7 +252,7 @@ class Layer:
 	name: str = ""
 	"""What the reader called it. Empty for the default layer, which is named when it is spoken."""
 
-	context: Optional[str] = None
+	context: str | None = None
 	autoEnable: bool = False
 	"""Whether it comes on by itself with its context. Honoured from phase 3."""
 
@@ -259,7 +260,7 @@ class Layer:
 	exitKeys: frozenset = frozenset()
 	"""Keys, normalized, that turn this layer off whatever it binds."""
 
-	fallsThrough: Optional[str] = None
+	fallsThrough: str | None = None
 	"""The id of the layer an unbound key is looked up in next, before the default layer."""
 
 	bindings: dict = field(default_factory=dict)
@@ -288,7 +289,7 @@ class Layer:
 		return stored
 
 	@classmethod
-	def fromStored(cls, stored) -> Optional["Layer"]:
+	def fromStored(cls, stored) -> "Layer | None":
 		if not isinstance(stored, dict) or not isinstance(stored.get("id"), str) or not stored["id"]:
 			return None
 		context = stored.get("context") if stored.get("context") in CONTEXTS else None
@@ -319,7 +320,7 @@ class Layer:
 		)
 
 
-def newLayer(device: str, id: str, name: str = "", context: Optional[str] = None, **changes) -> Layer:
+def newLayer(device: str, id: str, name: str = "", context: str | None = None, **changes) -> Layer:
 	"""Make a layer as a reader creating one would get it: its style from its context, and space
 	with z to leave it on a braille display."""
 	exitKeys = frozenset({spaceWithZ(device)}) if isBrailleDevice(device) else frozenset()
@@ -378,7 +379,7 @@ class LayerSet:
 	def default(self) -> Layer:
 		return self.layers[0]
 
-	def get(self, id: Optional[str]) -> Optional[Layer]:
+	def get(self, id: str | None) -> Layer | None:
 		for layer in self.layers:
 			if layer.id == id:
 				return layer
@@ -400,7 +401,7 @@ class LayerSet:
 		chain.append(self.default)
 		return chain
 
-	def lookup(self, id: str, identifiers: Iterable[str]) -> Optional[tuple]:
+	def lookup(self, id: str, identifiers: Iterable[str]) -> tuple | None:
 		""":return: the target a key runs in this layer's chain, and the layer that binds it, or None."""
 		identifiers = list(identifiers)
 		for layer in self.chain(id):
@@ -421,7 +422,7 @@ class LayerSet:
 					return layer
 		return self.default
 
-	def autoLayerFor(self, present: Iterable[str], declined: Iterable[str] = ()) -> Optional[Layer]:
+	def autoLayerFor(self, present: Iterable[str], declined: Iterable[str] = ()) -> Layer | None:
 		""":return: the layer that comes on by itself for the most specific context present, or None.
 
 		:param present: the contexts present now, most specific first.
@@ -760,8 +761,8 @@ class Decision(NamedTuple):
 	action: str
 	"""L{PASS} to leave the key to NVDA, L{RUN} to run L{target}, L{LEAVE} to turn the layer off."""
 
-	target: Optional[Target] = None
-	layer: Optional[Layer] = None
+	target: Target | None = None
+	layer: Layer | None = None
 	"""For L{RUN}, the layer in the chain that binds the key."""
 
 	endsOneShot: bool = False
@@ -772,9 +773,9 @@ def decide(
 	layerSet: LayerSet,
 	activeId: str,
 	identifiers: Iterable[str],
-	ordinaryScriptName: Callable[[], Optional[str]],
+	ordinaryScriptName: Callable[[], str | None],
 	hasCells: bool = False,
-	isLayerCommand: Callable[[Optional[str]], bool] = lambda name: False,
+	isLayerCommand: Callable[[str | None], bool] = lambda name: False,
 ) -> Decision:
 	"""Decide what a key does while a layer is on.
 

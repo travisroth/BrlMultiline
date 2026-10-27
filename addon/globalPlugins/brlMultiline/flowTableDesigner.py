@@ -13,8 +13,6 @@ decision is testable; the dialog holds only the widgets. See "What a layout can 
 shape of M7" in docs/design/structured-presentation-plan.md.
 """
 
-from typing import Optional
-
 from logHandler import log
 
 from . import flowTable, flowTableLayouts
@@ -284,7 +282,7 @@ class Arrangement:
 			pinKey=layout.pinKey,
 		)
 
-	def at(self, position: int) -> Optional[Column]:
+	def at(self, position: int) -> Column | None:
 		""":return: the column at one place in the list, or None if there is none there."""
 		if 0 <= position < len(self.columns):
 			return self.columns[position]
@@ -352,7 +350,7 @@ class Arrangement:
 		column = keyable[position - 2] if 1 < position <= len(keyable) + 1 else None
 		self.keyColumn = column.index if column is not None else 0
 
-	def named(self, index: int) -> Optional[Column]:
+	def named(self, index: int) -> Column | None:
 		""":return: the column with one of the table's own numbers, or None.
 
 		:param index: the table's number for it, or 0 for no column at all.
@@ -970,7 +968,7 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 
 else:
 
-	class TableDesignerDialog:  # type: ignore[no-redef]
+	class TableDesignerDialog:
 		"""What the designer is where there is no wx to build one with."""
 
 		def __init__(self, parent, arrangement: Arrangement) -> None:

@@ -78,7 +78,7 @@ import os
 import re
 import time
 from collections import Counter
-from typing import Any, Optional
+from typing import Any
 
 import ctypes
 from ctypes import wintypes
@@ -257,7 +257,7 @@ def _children(element, request) -> list:
 	return [children.GetElement(i) for i in range(children.Length)]
 
 
-def _intersect(rect: list, clip: list) -> Optional[list]:
+def _intersect(rect: list, clip: list) -> list | None:
 	left, top = max(rect[0], clip[0]), max(rect[1], clip[1])
 	right = min(rect[0] + rect[2], clip[0] + clip[2])
 	bottom = min(rect[1] + rect[3], clip[1] + clip[3])
@@ -342,7 +342,7 @@ def _focusPath(focus) -> list:
 		return []
 
 
-def walk(obj=None, maxDepth: int = 12, maxNodes: int = 800) -> Optional[dict]:
+def walk(obj=None, maxDepth: int = 12, maxNodes: int = 800) -> dict | None:
 	"""Read the window's control view tree, one call per element that can hold others.
 
 	See the module's description for what is counted rather than walked, and what is clipped.
@@ -369,7 +369,7 @@ def walk(obj=None, maxDepth: int = 12, maxNodes: int = 800) -> Optional[dict]:
 	hidden = 0
 	truncated = False
 
-	def visit(element, depth: int, clip: Optional[list], children: Optional[list] = None) -> dict:
+	def visit(element, depth: int, clip: list | None, children: list | None = None) -> dict:
 		nonlocal count, calls, items, hidden, truncated
 		count += 1
 		record = _record(element, origin)
@@ -453,7 +453,7 @@ def _app(obj) -> dict:
 		return {}
 
 
-def _focus(origin: tuple) -> Optional[dict]:
+def _focus(origin: tuple) -> dict | None:
 	"""Where the focus was when the console opened, and what NVDA calls it."""
 	focus = _snapshot("focus") or api.getFocusObject()
 	if focus is None:
@@ -642,7 +642,7 @@ def cost(obj=None) -> None:
 
 def save(
 	obj=None,
-	folder: Optional[str] = None,
+	folder: str | None = None,
 	maxDepth: int = 12,
 	maxNodes: int = 800,
 	cost: bool = False,

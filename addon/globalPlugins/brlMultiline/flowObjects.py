@@ -20,7 +20,8 @@ display would. See docs/design/spatial-reading-plan.md, Sources, in two flavours
 """
 
 import dataclasses
-from typing import Any, Callable, Optional
+from typing import Any
+from collections.abc import Callable
 
 from logHandler import log
 
@@ -204,7 +205,7 @@ def _siblingPrevious(obj):
 	return getattr(obj, "previous", None)
 
 
-def _depthFromPositionInfo(obj) -> Optional[int]:
+def _depthFromPositionInfo(obj) -> int | None:
 	"""How deep an object sits, on NVDA's own account.
 
 	`positionInfo["level"]`, which each API and NVDA's app modules fill in. An object with no
@@ -233,7 +234,7 @@ def _isTreeItem(obj) -> bool:
 	return obj is not None and roleName(getattr(obj, "role", None)) in TREE_ITEM_ROLES
 
 
-def _isExpanded(obj) -> Optional[bool]:
+def _isExpanded(obj) -> bool | None:
 	""":return: whether a node is showing its children, or None if it has no such state.
 
 	None for a leaf, which reports neither state, so it is not taken as collapsed.
@@ -424,7 +425,7 @@ def _isSameTree(root, candidate) -> bool:
 		return False
 
 
-def _countedTreeDepth(obj) -> Optional[int]:
+def _countedTreeDepth(obj) -> int | None:
 	""":return: how deep a tree item sits, by counting the tree items above it.
 
 	One for an item whose parent is the tree control. Bounded, and stops where `_treeOf`
@@ -446,7 +447,7 @@ def _countedTreeDepth(obj) -> Optional[int]:
 	return depth
 
 
-def _treeDepth(obj) -> Optional[int]:
+def _treeDepth(obj) -> int | None:
 	""":return: how deep a tree item sits, from the structure the walk went through.
 
 	The counted depth wins where it found real nesting, so the depth drawn comes from the
@@ -827,7 +828,7 @@ class ObjectAdapter:
 	"""How to step through the run. Siblings, unless a control is stitched together some
 	other way."""
 
-	depthOf: Callable[[Any], Optional[int]] = _depthFromPositionInfo
+	depthOf: Callable[[Any], int | None] = _depthFromPositionInfo
 	"""How deep in its structure one of these sits, or None where the run is flat.
 
 	Depth is part of a control's shape, which an adapter may know better than NVDA. How it is
@@ -841,7 +842,7 @@ class ObjectAdapter:
 	node open before it has any. See `shapeChanged`.
 	"""
 
-	expandedOf: Callable[[Any], Optional[bool]] = lambda obj: None
+	expandedOf: Callable[[Any], bool | None] = lambda obj: None
 	"""Whether one of these is showing its children, or None where the idea does not apply.
 
 	How the band notices a node being expanded, which sends no event. See
@@ -929,7 +930,7 @@ def _isChosen(obj) -> bool:
 	return bool(names & {"SELECTED", "FOCUSED"})
 
 
-def _rowTextFor(obj, headers: Optional[dict] = None) -> str:
+def _rowTextFor(obj, headers: dict | None = None) -> str:
 	""":return: a row built from its own cells, or "" where that cannot be done.
 
 	Failures are contained here, so such a row is read the ordinary way.
@@ -1235,7 +1236,7 @@ def unregister(adapter: ObjectAdapter) -> None:
 		_adapters.remove(adapter)
 
 
-def adapterFor(obj) -> Optional[ObjectAdapter]:
+def adapterFor(obj) -> ObjectAdapter | None:
 	""":return: how to read an object as a run, or None if it is not read that way.
 
 	An object with no adapter is left to NVDA, which presents it as it always has. That is
@@ -1252,7 +1253,7 @@ def adapterFor(obj) -> Optional[ObjectAdapter]:
 	return None
 
 
-def regionFactory(live: bool = False, adapter: Optional[ObjectAdapter] = None) -> Callable:
+def regionFactory(live: bool = False, adapter: ObjectAdapter | None = None) -> Callable:
 	"""Build the regions object blocks are read through.
 
 	:param live: whether this flow is the one the reader is working in, which decides only
@@ -1297,7 +1298,7 @@ class _LineMoves:
 			log.debugWarning("Could not move a run by a line", exc_info=True)
 
 
-def _objectRegionClass(live: bool, adapter: Optional[ObjectAdapter]) -> type:
+def _objectRegionClass(live: bool, adapter: ObjectAdapter | None) -> type:
 	""":return: the region class an object block is read through. See `regionFactory`."""
 	from braille.regions.NVDAObject import NVDAObjectRegion
 
@@ -1467,7 +1468,7 @@ class ObjectFlowSource:
 		Kept for the life of the source, so each column is asked once. See
 		`flowObjectTable.rowTextOf`."""
 
-		self._shape: Optional[tuple] = None
+		self._shape: tuple | None = None
 		"""What the run looked like under the object the reader is on, when last looked at.
 
 		Whether it was open, and whether it was showing anything. None until something has
@@ -1697,7 +1698,7 @@ class ObjectFlowSource:
 			depth=self._depthOf(obj),
 		)
 
-	def _depthOf(self, obj) -> Optional[int]:
+	def _depthOf(self, obj) -> int | None:
 		"""How deep an object sits.
 
 		The adapter's answer, or the first level when it has none. A flat list still draws at

@@ -30,7 +30,7 @@ The controller also owns the two things a flow must be exact about:
 import contextlib
 import dataclasses
 import enum
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from logHandler import log
 
@@ -120,7 +120,7 @@ class FlowController(PanelOwner):
 		renderer: "FlowRenderer",
 		numRows: int,
 		live: bool = False,
-		movesCursor: Optional[bool] = None,
+		movesCursor: bool | None = None,
 		indentStyle: str = flowIndent.DEFAULT_STYLE,
 		lineFocus: bool = True,
 		caretByDisplay: bool = False,
@@ -162,13 +162,13 @@ class FlowController(PanelOwner):
 		self._presentation = self._presentationFor(indentStyle, lineFocus)
 		"""The settings the band was last drawn under. See `reconfigure`."""
 
-		self._focusFitted: Optional[tuple] = None
+		self._focusFitted: tuple | None = None
 		"""The driver the focus square was last fitted for, and the square. See `_focusGlyph`."""
 
 		self._following = False
 		"""Guards against following a cursor move that this controller made itself."""
 
-		self.activeBlockId: Optional["BlockId"] = None
+		self.activeBlockId: "BlockId | None" = None
 		"""The block the cursor is in, and the only one that may show a cursor."""
 
 		self._activeIsFreshlyRead = False
@@ -206,7 +206,7 @@ class FlowController(PanelOwner):
 		Set by the segment showing this flow. NVDA's commands reach the active region
 		directly, so a move can start below the controller rather than above it."""
 
-		self.pinnedBlock: Optional["SourceBlock"] = None
+		self.pinnedBlock: "SourceBlock | None" = None
 		"""A block held above the window and drawn on the band's top row, or None.
 
 		A table's header row, kept outside the window so it shows wherever in the table the
@@ -214,7 +214,7 @@ class FlowController(PanelOwner):
 		controller is built.
 		"""
 
-		self.pinned: Optional["RenderedBlock"] = None
+		self.pinned: "RenderedBlock | None" = None
 		"""The pinned block as it is drawn. Redrawn on each `cells`; see `refreshPinned`."""
 
 		self.blocks = ByIdentity()
@@ -661,7 +661,7 @@ class FlowController(PanelOwner):
 		return self.renderer.unwrappedPage is not None
 
 	@property
-	def pageAcross(self) -> Optional[int]:
+	def pageAcross(self) -> int | None:
 		""":return: which page across the band is at, 0 for the start of every line, or None
 		when lines wrap."""
 		return self.renderer.unwrappedPage
@@ -761,7 +761,7 @@ class FlowController(PanelOwner):
 		self._note(f"no line reaches that far across: now at page {last}")
 		return True
 
-	def describeAcross(self) -> Optional[tuple[int, int, int]]:
+	def describeAcross(self) -> tuple[int, int, int] | None:
 		""":return: the first and last cells across the band shows, counted from 1, and how many
 		cells the longest line on the band holds; or None when lines are not unwrapped."""
 		page = self.renderer.unwrappedPage
@@ -770,7 +770,7 @@ class FlowController(PanelOwner):
 		first = page * self.renderer.numCols + 1
 		return first, first + self.renderer.numCols - 1, self._widestVisibleLine() or 0
 
-	def _caretPageAcross(self) -> Optional[int]:
+	def _caretPageAcross(self) -> int | None:
 		""":return: which page across the caret's cell is on, or None if there is no caret on
 		the band to ask about."""
 		if self.activeBlockId is None:
@@ -785,7 +785,7 @@ class FlowController(PanelOwner):
 		indent = getattr(rendered.renderKey, "indent", 0)
 		return max(0, at + indent) // max(1, self.renderer.numCols)
 
-	def _widestVisibleLine(self) -> Optional[int]:
+	def _widestVisibleLine(self) -> int | None:
 		""":return: how many cells the longest line on the band holds, or None if the band cannot
 		say what it is showing."""
 		try:
@@ -865,7 +865,7 @@ class FlowController(PanelOwner):
 		""":return: whether `_readAgainWhereTheDocumentMoved` has a place to keep."""
 		return self.live and self._readersPlaceOnTheBand() is not None
 
-	def _readersPlaceOnTheBand(self) -> Optional[tuple[int, int]]:
+	def _readersPlaceOnTheBand(self) -> tuple[int, int] | None:
 		"""Where the cursor's block sits on the display.
 
 		:return: how many rows are above its first row, and which of its rows is the top row
@@ -1167,7 +1167,7 @@ class FlowController(PanelOwner):
 		# A deeper one only ever makes them taller, and the window trims its own surplus.
 		self._fillBothEnds()
 
-	def _visibleDepths(self, rendered) -> list[Optional[int]]:
+	def _visibleDepths(self, rendered) -> list[int | None]:
 		"""The depths the reader can actually feel, in the order they are on the band.
 
 		Indent is relative to the shallowest thing on the display, so this reads the visible
@@ -1181,7 +1181,7 @@ class FlowController(PanelOwner):
 			rows = self.window.visibleRows()
 		except LookupError:
 			return []
-		depths: list[Optional[int]] = []
+		depths: list[int | None] = []
 		seen: set[int] = set()
 		for row in rows:
 			if row.kind is not RowKind.CONTENT or row.blockId is None:
@@ -1729,7 +1729,7 @@ class FlowController(PanelOwner):
 			self._note("the reach ran out of time, so placing the band afresh was given its own")
 		return self._enterAtCursor(atObject=atObject)
 
-	def _activeLength(self) -> Optional[int]:
+	def _activeLength(self) -> int | None:
 		""":return: how many characters the block under the caret holds, or None if unreadable.
 
 		The signal that an edit has moved everything after it: block positions are offsets,
@@ -1928,7 +1928,7 @@ class FlowController(PanelOwner):
 		self._placements.append(text)
 		del self._placements[:-8]
 
-	def _windowIndex(self, blockId: "Optional[BlockId]") -> Optional[int]:
+	def _windowIndex(self, blockId: "BlockId | None") -> int | None:
 		""":return: where a block sits in the window's list, or None if it is not in it."""
 		if blockId is None:
 			return None
@@ -2277,7 +2277,7 @@ class FlowController(PanelOwner):
 			contextRows=max(0, self.window.numRows - 1),
 		)
 
-	def cursorRow(self) -> Optional[int]:
+	def cursorRow(self) -> int | None:
 		"""Which row of the active block the cursor is on, counted within the whole block.
 
 		Not the display row, since the usual reason to ask is that it is off the display.
@@ -2309,7 +2309,7 @@ class FlowController(PanelOwner):
 
 	# Showing.
 
-	def setPinned(self, block: Optional["SourceBlock"]) -> None:
+	def setPinned(self, block: "SourceBlock | None") -> None:
 		"""Hold one block above the window, on the band's top row.
 
 		:param block: the block to pin, or None to stop pinning one.
@@ -2472,7 +2472,7 @@ class FlowController(PanelOwner):
 			marked.append(index)
 		return mark, marked
 
-	def _focusGlyph(self) -> "Optional[glyphs.Fitted]":
+	def _focusGlyph(self) -> "glyphs.Fitted | None":
 		""":return: the focus square fitted for the band's display, or None where none is drawn.
 
 		Fitted over the one cell it stands on, so it is drawn in place and moves nothing. Kept
@@ -2522,7 +2522,7 @@ class FlowController(PanelOwner):
 			indent += 1
 		return indent
 
-	def cursorCell(self) -> Optional[int]:
+	def cursorCell(self) -> int | None:
 		"""Where the cursor is within the band, as a flat row major position.
 
 		:return: the position, or None if the active block is not on the display or has no
@@ -2555,7 +2555,7 @@ class FlowController(PanelOwner):
 				return position + self.pinnedCells
 		return None
 
-	def _pinnedCursor(self) -> Optional[int]:
+	def _pinnedCursor(self) -> int | None:
 		""":return: where the cursor is within the pinned row, or None if it is not in it.
 
 		Asked of the pinned block's own region, since a pinned row is never the active block.

@@ -36,7 +36,8 @@ not.
 import dataclasses
 import json
 import re
-from typing import Iterable, NamedTuple, Optional
+from typing import NamedTuple
+from collections.abc import Iterable
 
 TEXT = "text"
 """Shown as other text, which the table then translates."""
@@ -112,7 +113,7 @@ class Substitution:
 		return not self.profiles or not other.profiles or bool(set(self.profiles) & set(other.profiles))
 
 	@classmethod
-	def fromStored(cls, stored) -> Optional["Substitution"]:
+	def fromStored(cls, stored) -> "Substitution | None":
 		""":return: the entry a stored record describes, or None if it is not one.
 
 		An entry saved before an entry could have several profiles has `profile`, one name or empty,
@@ -176,7 +177,7 @@ RULE_INCLUDES = Problem("ruleIncludes")
 LINE_BREAK = Problem("lineBreak")
 
 
-def problemOf(entry: Substitution) -> Optional[Problem]:
+def problemOf(entry: Substitution) -> Problem | None:
 	""":return: why the entry cannot be turned into rules, or None if it can.
 
 	Whether liblouis accepts the rules is another question, which only liblouis can answer. See
@@ -205,7 +206,7 @@ def problemOf(entry: Substitution) -> Optional[Problem]:
 	return None
 
 
-def clash(entries: list) -> Optional[tuple[int, int]]:
+def clash(entries: list) -> tuple[int, int] | None:
 	""":return: the first two entries that would match the same text in the same profile, or None.
 
 	Two `correct` rules for the same text leave liblouis to use one of them, and the reader would
@@ -313,7 +314,7 @@ def _correctRules(form: str, action: str, wholeWord: bool) -> list[str]:
 	]
 
 
-def rulesFor(entry: Substitution, placeholder: Optional[int] = None) -> list[str]:
+def rulesFor(entry: Substitution, placeholder: int | None = None) -> list[str]:
 	""":return: the liblouis rules for one entry.
 
 	:param placeholder: the character a dots entry is rewritten to. Required for one.
@@ -377,7 +378,7 @@ def winners(entries: list, activeProfiles: list) -> set:
 	return {index for index, _entry in inForce} - beaten
 
 
-def rulesText(entries: Iterable[Substitution], activeProfiles: Optional[Iterable[str]] = None) -> str:
+def rulesText(entries: Iterable[Substitution], activeProfiles: Iterable[str] | None = None) -> str:
 	""":return: the whole rules file, for the entries that apply.
 
 	Entries that cannot be turned into rules are left out; the dialog does not save one, so only a
@@ -434,7 +435,7 @@ class PersonalTable:
 		return dataclasses.asdict(self)
 
 	@classmethod
-	def fromStored(cls, stored) -> Optional["PersonalTable"]:
+	def fromStored(cls, stored) -> "PersonalTable | None":
 		if not isinstance(stored, dict):
 			return None
 		base, displayName = stored.get("base"), stored.get("displayName")

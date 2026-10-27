@@ -79,7 +79,7 @@ import time
 from collections import deque
 from ctypes import byref
 from ctypes.wintypes import ULONG, USHORT
-from typing import Any, Optional
+from typing import Any
 
 import braille
 import core
@@ -130,7 +130,7 @@ try:
 	from tactile import TactileGraphicsBuffer as _BufferBase
 except ImportError:  # NVDA older than 2025.1.
 
-	class _BufferBase:  # type: ignore[no-redef]
+	class _BufferBase:
 		def __init__(self, width: int, height: int):
 			self.width = width
 			self.height = height
@@ -159,7 +159,7 @@ def _say(message: str) -> None:
 	log.info(f"tactileGraphicsSpike: {message}")
 
 
-def _display() -> Optional[Any]:
+def _display() -> Any | None:
 	""":return: the driver NVDA is currently using, or None with a complaint printed."""
 	handler = braille.handler
 	if handler is None:
@@ -172,7 +172,7 @@ def _display() -> Optional[Any]:
 	return display
 
 
-def _hidDriver() -> Optional[Any]:
+def _hidDriver() -> Any | None:
 	""":return: the HID braille driver to inspect, or None with a complaint printed.
 
 	The display itself when NVDA drives it directly. Through `brlMultilineVirtual` the display
@@ -191,7 +191,7 @@ def _hidDriver() -> Optional[Any]:
 	return None
 
 
-def _device() -> Optional[Any]:
+def _device() -> Any | None:
 	""":return: the `hwIo.hid.Hid` the current driver opened, or None."""
 	driver = _hidDriver()
 	return None if driver is None else driver._dev
@@ -568,7 +568,7 @@ def hunt() -> None:
 # --- The pin report ---------------------------------------------------------------------
 
 
-def pinCap() -> Optional[Any]:
+def pinCap() -> Any | None:
 	""":return: the output button cap that looks like a pin array, or None.
 
 	Looks for an output button array of many bits. Deliberately loose about the exact count:
@@ -955,7 +955,7 @@ def pinBox() -> None:
 	_say(f"Box with diagonals on the full {PIN_WIDTH} by {PIN_HEIGHT} panel.")
 
 
-def pinBars(values: Optional[list[int]] = None) -> None:
+def pinBars(values: list[int] | None = None) -> None:
 	"""Draw a bar chart at full panel resolution, as a taste of phase 4.
 
 	:param values: percentages, 0 to 100. A default set is used when omitted.
@@ -1105,7 +1105,7 @@ really hand contact that produces them, not idleness. Counted rather than kept e
 """
 
 
-def _pristineOnReceive(display: Any) -> Optional[Any]:
+def _pristineOnReceive(display: Any) -> Any | None:
 	"""The callback the device should have when nothing of ours is installed.
 
 	`hidBrailleStandard` constructs its device with `onReceive=self._hidOnReceive`, so the
@@ -1168,7 +1168,7 @@ def _inputUsageByDataIndex(device: Any) -> dict[int, tuple[int, int, str, str]]:
 	return byIndex
 
 
-def touchPositionFor(value: int) -> Optional[tuple[int, int]]:
+def touchPositionFor(value: int) -> tuple[int, int] | None:
 	"""Convert a report 0x40 usage 0x401 value to the pin the reader touched.
 
 	:param value: the raw value, 0 for released.
@@ -1591,7 +1591,7 @@ class CellCanvas(_BufferBase):
 		raw(list(self.cells))
 
 
-def canvas() -> Optional[CellCanvas]:
+def canvas() -> CellCanvas | None:
 	""":return: a blank canvas the size of the current display, or None."""
 	display = _display()
 	if display is None:
@@ -1637,7 +1637,7 @@ def box() -> None:
 	_say(f"Box with diagonals on a {buffer.width} by {buffer.height} canvas.")
 
 
-def bars(values: Optional[list[int]] = None) -> None:
+def bars(values: list[int] | None = None) -> None:
 	"""Draw a bar chart, as a taste of what phase 4 would produce.
 
 	:param values: percentages, 0 to 100. A default set is used when omitted.

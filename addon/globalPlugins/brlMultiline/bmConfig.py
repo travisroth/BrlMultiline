@@ -17,8 +17,6 @@ they are NVDA's settings rather than this add-on's, and live here because every 
 has to consult them reads its configuration through this module already.
 """
 
-from typing import Optional
-
 import braille
 import config
 from config.configFlags import BrailleMode, ReportTableHeaders
@@ -201,7 +199,7 @@ All of it is read through `config.conf`, so all of it can differ per profile.
 """
 
 
-def flowIndentStyle(displayKey: Optional[str] = None) -> str:
+def flowIndentStyle(displayKey: str | None = None) -> str:
 	""":return: how one level of depth is drawn on this display.
 
 	See `flowIndent.INDENT_STYLES`. An unreadable setting reads as the default, as with every

@@ -26,7 +26,7 @@ import ctypes
 import threading
 import time
 from ctypes import wintypes
-from typing import Callable, Iterator
+from collections.abc import Callable, Iterator
 
 from logHandler import log
 

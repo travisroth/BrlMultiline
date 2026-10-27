@@ -27,7 +27,7 @@ import json
 
 import urllib.parse
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from logHandler import log
 
@@ -435,7 +435,7 @@ class SavedLayout:
 		return stored
 
 	@classmethod
-	def fromStored(cls, stored: Any) -> Optional["SavedLayout"]:
+	def fromStored(cls, stored: Any) -> "SavedLayout | None":
 		""":return: a record read back, or None for something that is not one.
 
 		As forgiving as `fromRecord`, for the same reason: the file is edited by hand and written by
@@ -486,7 +486,7 @@ def newId() -> str:
 # Addresses
 
 
-def _address(where: str) -> Optional[tuple]:
+def _address(where: str) -> tuple | None:
 	""":return: (site, path) for a web address, or None for anything else — a workbook, a control.
 
 	The site is the host in lower case, with its port if it has one. The path loses a trailing
@@ -585,7 +585,7 @@ class _Headings:
 
 	def __init__(self, handle):
 		self.handle = handle
-		self._signature: Optional[str] = None
+		self._signature: str | None = None
 		self._columns: dict = {}
 
 	@property
@@ -814,7 +814,7 @@ class Found:
 	headings: tuple = ()
 	"""Its first headings, where anything was saved at its address to make reading them worth it."""
 
-	saved: Optional[SavedLayout] = None
+	saved: SavedLayout | None = None
 	"""The layout that applies, or None."""
 
 	reason: str = ""
@@ -823,9 +823,9 @@ class Found:
 
 def find(
 	handle,
-	layouts: Optional[list] = None,
-	headings: Optional["_Headings"] = None,
-	where: Optional[str] = None,
+	layouts: list | None = None,
+	headings: "_Headings | None" = None,
+	where: str | None = None,
 ) -> Found:
 	""":return: which saved layout applies to this table, and why not if none does.
 
@@ -876,7 +876,7 @@ def bestOf(matching: list) -> SavedLayout:
 	)
 
 
-def layoutFor(handle, follow: bool = True) -> Optional[TableLayout]:
+def layoutFor(handle, follow: bool = True) -> TableLayout | None:
 	""":return: the layout saved for this table, with its columns followed to where they are now, or None.
 
 	Writes seldom: a version 1 layout once, readably, and the date used at most daily (see
@@ -958,7 +958,7 @@ def _followColumns(saved: SavedLayout, where: str, headings: _Headings) -> Table
 			lost.append(column)
 	destinations = set(mapping.values())
 
-	def to(column: int) -> Optional[int]:
+	def to(column: int) -> int | None:
 		if column in mapping:
 			return mapping[column]
 		if column in moved and column in destinations:
@@ -1173,7 +1173,7 @@ def dateWords(seconds: int) -> str:
 	return f"{day.strftime('%B')} {day.day}, {day.year}"
 
 
-def layoutFrom(plan, handle=None, arranged: Optional[TableLayout] = None) -> TableLayout:
+def layoutFrom(plan, handle=None, arranged: TableLayout | None = None) -> TableLayout:
 	""":return: what the remember command saves, which today is the *request* and nothing else.
 
 	A measurement is not a decision: a column blank where it was sampled would be frozen out

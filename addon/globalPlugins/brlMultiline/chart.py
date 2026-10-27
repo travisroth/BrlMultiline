@@ -11,7 +11,8 @@ a bar names it and its value, through the drawing's `describeAt`. Shared drawing
 or Excel. See docs/design/tactile-graphics-plan.md, phase 4.
 """
 
-from typing import Callable, NamedTuple, Optional
+from typing import NamedTuple
+from collections.abc import Callable
 
 from .chartDraw import (
 	CELL_COLUMNS,
@@ -68,7 +69,7 @@ def barChart(
 	width: int,
 	height: int,
 	series: "list[Series]",
-	translate: Optional[Callable] = None,
+	translate: Callable | None = None,
 	firstPoint: int = 0,
 ) -> Drawing:
 	"""Draw a bar chart to fill a rectangle exactly.
@@ -138,7 +139,7 @@ def _reframer(
 	width: int,
 	height: int,
 	series: "list[Series]",
-	translate: Optional[Callable],
+	translate: Callable | None,
 ) -> Callable:
 	"""Build the closure that draws this chart again for some of its bars.
 
@@ -153,7 +154,7 @@ def _reframer(
 		and the size to compose for, since the rectangle can change under a figure.
 	"""
 
-	def redraw(offset: float, span: float, pinWidth: int, pinHeight: int) -> Optional[Drawing]:
+	def redraw(offset: float, span: float, pinWidth: int, pinHeight: int) -> Drawing | None:
 		first, last = windowOf(len(series), offset, span, 1)
 		try:
 			return barChart(newBuffer, pinWidth, pinHeight, series[first:last], translate, first)
@@ -295,7 +296,7 @@ def _describer(bars: "list[Bar]", baseline: int) -> Callable:
 	:return: a function taking source coordinates and returning what is there, or None.
 	"""
 
-	def describeAt(x: int, y: int) -> Optional[str]:
+	def describeAt(x: int, y: int) -> str | None:
 		for bar in bars:
 			if bar.left <= x < bar.right:
 				return _say(bar)
@@ -328,7 +329,7 @@ def _pointFinder(bars: "list[Bar]", slot: int) -> Callable:
 	:return: a function taking a column and returning a bar's index, or None past the last.
 	"""
 
-	def pointAt(x: int) -> Optional[int]:
+	def pointAt(x: int) -> int | None:
 		index = x // slot if slot else -1
 		return index if 0 <= index < len(bars) else None
 
@@ -349,7 +350,7 @@ def _marker(bars: "list[Bar]", scale: Scale, baseline: int, width: int) -> Calla
 		returning a `PointMark`.
 	"""
 
-	def markFor(index: int, level: int = 0) -> Optional[PointMark]:
+	def markFor(index: int, level: int = 0) -> PointMark | None:
 		if not 0 <= index < len(bars):
 			return None
 		bar = bars[index]

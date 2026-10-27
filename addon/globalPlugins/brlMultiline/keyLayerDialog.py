@@ -14,7 +14,8 @@ widgets, key capture and questions, as `flowTableDesigner` splits it.
 """
 
 import re
-from typing import Callable, Iterable, NamedTuple, Optional
+from typing import NamedTuple
+from collections.abc import Callable, Iterable
 
 from logHandler import log
 
@@ -59,11 +60,11 @@ class Command(NamedTuple):
 
 
 class KeyNode(NamedTuple):
-	identifier: Optional[str]
+	identifier: str | None
 	"""None for the prompt shown while a key is being waited for."""
 
 	name: str
-	fromLayer: Optional[str] = None
+	fromLayer: str | None = None
 	"""The name of the layer further down the chain the key comes from, or None for this layer's own."""
 
 
@@ -125,13 +126,13 @@ STYLE_LABELS = {
 class Check(NamedTuple):
 	"""What adding a key to a command needs first."""
 
-	refusal: Optional[str] = None
+	refusal: str | None = None
 	"""Why it cannot be added at all."""
 
-	conflict: Optional[str] = None
+	conflict: str | None = None
 	"""The command the key already runs in this layer, to ask before moving it."""
 
-	conflictLayer: Optional[str] = None
+	conflictLayer: str | None = None
 	"""Where the key's command comes from when that is a layer further down, whose key is not moved but
 	overridden in this one."""
 
@@ -150,7 +151,7 @@ class LayerEditor:
 		emulatedCategory: str = "Emulated system keyboard keys",
 		blockedCategory: str = "BrlMultiline",
 		reservedKeys: Iterable[str] = (),
-		device: Optional[str] = None,
+		device: str | None = None,
 	):
 		"""
 		:param devices: the devices to offer, in the order to offer them.
@@ -183,7 +184,7 @@ class LayerEditor:
 		self.layerId = DEFAULT_ID
 		self.filterText = ""
 		self.onlyBound = False
-		self.pending: Optional[tuple] = None
+		self.pending: tuple | None = None
 		"""The command a key is being waited for, by identity, so the tree can show the prompt."""
 		if device is not None:
 			self.selectDevice(device)
@@ -218,7 +219,7 @@ class LayerEditor:
 		self.layerId = layerId
 		self.pending = None
 
-	def deviceLabel(self, name: Optional[str]) -> str:
+	def deviceLabel(self, name: str | None) -> str:
 		for device in self.devices:
 			if device.name == name:
 				return device.label
@@ -297,7 +298,7 @@ class LayerEditor:
 		words = [re.escape(word) for word in self.filterText.split()]
 		return re.compile("".join(f"(?=.*?{word})" for word in words), re.IGNORECASE)
 
-	def _keyNode(self, identifier: str, target: Target, below: Optional[Layer]) -> KeyNode:
+	def _keyNode(self, identifier: str, target: Target, below: Layer | None) -> KeyNode:
 		name = self._keyName(identifier, target)
 		if below is None:
 			return KeyNode(identifier, name)
@@ -352,8 +353,8 @@ class LayerEditor:
 		self,
 		command: Command,
 		identifier: str,
-		actsFor: Optional[str] = None,
-		replacing: Optional[str] = None,
+		actsFor: str | None = None,
+		replacing: str | None = None,
 	) -> None:
 		"""Bind a key to a command in the layer being edited, replacing what it did in this layer.
 
@@ -460,12 +461,12 @@ class LayerEditor:
 	def setProperties(
 		self,
 		name: str,
-		context: Optional[str],
+		context: str | None,
 		autoEnable: bool,
 		style: str,
-		fallsThrough: Optional[str],
+		fallsThrough: str | None,
 		exitKeys: Iterable[str],
-	) -> Optional[str]:
+	) -> str | None:
 		""":return: why the properties cannot be kept, or None when they have been."""
 		if style not in STYLES:
 			raise ValueError(style)
@@ -669,7 +670,7 @@ def profileNote() -> str:
 	)
 
 
-def dialogTitle(profileName: Optional[str]) -> str:
+def dialogTitle(profileName: str | None) -> str:
 	# Translators: the title of the layered keys dialog. The placeholder is the configuration profile
 	# being edited.
 	return _("Layered keys ({profile})").format(
@@ -844,7 +845,7 @@ if wx is not None:
 			self.renameButton.Enable(not isDefault)
 			self.deleteButton.Enable(not isDefault)
 
-		def _refresh(self, focus: Optional[tuple] = None) -> None:
+		def _refresh(self, focus: tuple | None = None) -> None:
 			"""Rebuild the tree from the editor, keeping the reader where they were where possible.
 
 			:param focus: (command identity, key identifier, L{PROMPT_FOCUS}, or None for the command)
@@ -869,7 +870,7 @@ if wx is not None:
 				self.tree.SetFocus()
 			self._refreshButtons()
 
-		def _indexOf(self, focus: tuple) -> Optional[tuple]:
+		def _indexOf(self, focus: tuple) -> tuple | None:
 			commandKey, identifier = focus
 			for categoryIndex, category in enumerate(self.nodes):
 				for commandIndex, node in enumerate(category.commands):
@@ -948,7 +949,7 @@ if wx is not None:
 				return
 			self._refresh(focus=(pending, None))
 
-		def _wrongDevice(self, source: Optional[str], wanted: str) -> None:
+		def _wrongDevice(self, source: str | None, wanted: str) -> None:
 			import ui
 
 			ui.message(
@@ -962,7 +963,7 @@ if wx is not None:
 				),
 			)
 
-		def _identifierFor(self, gesture) -> Optional[str]:
+		def _identifierFor(self, gesture) -> str | None:
 			"""The identifier to store: the most specific for a display, and the reader's choice for a keyboard."""
 			identifiers = list(gesture.normalizedIdentifiers)
 			if not identifiers:
@@ -995,7 +996,7 @@ if wx is not None:
 				return
 			self._startAdding(command.command)
 
-		def _startAdding(self, command: Command, replacing: Optional[str] = None) -> None:
+		def _startAdding(self, command: Command, replacing: str | None = None) -> None:
 			""":param replacing: the key being changed, which stays until its replacement is accepted."""
 			self.editor.pending = identity(command.target)
 			# Through `_refresh`, which expands the command first, since a virtual tree has no rows for
@@ -1015,7 +1016,7 @@ if wx is not None:
 			command = self.editor.addEmulatedKey(identifiers[-1])
 			self._refresh(focus=(identity(command.target), None))
 
-		def _finishAdding(self, command: Command, gesture, replacing: Optional[str] = None) -> None:
+		def _finishAdding(self, command: Command, gesture, replacing: str | None = None) -> None:
 			if not self:
 				# Closed between the key and this running.
 				return
@@ -1152,7 +1153,7 @@ if wx is not None:
 			self._fillLayers()
 			self._refresh()
 
-		def _ask(self, message: str, value: str = "") -> Optional[str]:
+		def _ask(self, message: str, value: str = "") -> str | None:
 			with wx.TextEntryDialog(self, message, self.title, value) as dialog:
 				if dialog.ShowModal() != wx.ID_OK:
 					return None

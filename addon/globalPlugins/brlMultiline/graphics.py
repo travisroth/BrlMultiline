@@ -15,7 +15,7 @@ is found among the slots and its rows offset by its band. Cells convert to pins 
 grid divided by the cell grid, which gives any display's pitch.
 """
 
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 import braille
 from logHandler import log
@@ -127,7 +127,7 @@ class GraphicsSurface(NamedTuple):
 			log.error("BrlMultiline: could not put a drawing on the display", exc_info=True)
 			return False
 
-	def hide(self, key: Optional[str] = None) -> None:
+	def hide(self, key: str | None = None) -> None:
 		"""Take a drawing off the display.
 
 		Never raises, since it is called from teardown paths where the display may be gone.
@@ -139,7 +139,7 @@ class GraphicsSurface(NamedTuple):
 		except Exception:
 			log.debugWarning("BrlMultiline: could not clear a drawing", exc_info=True)
 
-	def touchedPin(self) -> Optional[tuple]:
+	def touchedPin(self) -> tuple | None:
 		""":return: the pin last touched on this display, or None if none was.
 
 		In this display's own pin coordinates, which is what `pointInRect` expects.
@@ -150,7 +150,7 @@ class GraphicsSurface(NamedTuple):
 			log.debugWarning("BrlMultiline: could not read the touched pin", exc_info=True)
 			return None
 
-	def routingPin(self) -> Optional[tuple]:
+	def routingPin(self) -> tuple | None:
 		"""Where the finger was at the last routing press, in this display's pins.
 
 		Kept at the press, since the panel reports zero on release before a queued script runs.
@@ -195,7 +195,7 @@ class GraphicsSurface(NamedTuple):
 			height=(bottom - top) * perRow,
 		)
 
-	def cellForPin(self, x: int, y: int) -> Optional[tuple]:
+	def cellForPin(self, x: int, y: int) -> tuple | None:
 		"""Convert a pin on this display back to a cell of NVDA's display.
 
 		The inverse of `pinRectForCells` at a point.
@@ -227,7 +227,7 @@ def _isDrawable(driver) -> bool:
 	)
 
 
-def _surfaceFor(driver, rowStart: int) -> Optional[GraphicsSurface]:
+def _surfaceFor(driver, rowStart: int) -> GraphicsSurface | None:
 	"""Read a drawable driver's geometry.
 
 	:param driver: a driver already known to publish the capability.
@@ -257,7 +257,7 @@ def _surfaceFor(driver, rowStart: int) -> Optional[GraphicsSurface]:
 	)
 
 
-def findSurface(display=None) -> Optional[GraphicsSurface]:
+def findSurface(display=None) -> GraphicsSurface | None:
 	"""Find the display that can draw, whether or not it is behind a composite.
 
 	:param display: the display to look at, or None for the one NVDA is driving.

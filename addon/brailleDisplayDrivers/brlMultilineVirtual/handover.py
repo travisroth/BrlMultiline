@@ -32,7 +32,7 @@ docs/design/virtual-display-plan.md.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import braille
 from braille.brailleHandler import BrailleHandler
