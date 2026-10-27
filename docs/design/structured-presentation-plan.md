@@ -330,6 +330,17 @@ are not re-argued.
     pinned header — moved off the band and onto the flow, because a pin is a flow like any
     other and pages like one. What the band adds is only which flow the reader meant.
 
+    **A command that changes a table's arrangement means the band's table only.** Showing or
+    hiding the column under the cursor, cutting it short, resetting the layout, opening the
+    designer and remembering a layout all act on `FlowBand`, and say no table columns are
+    showing when the band has none, even while a pin shows a table that pages. Forgetting a
+    layout is asked of the table the reader is in, so it needs no band. This
+    is decided, not overlooked. Those commands work from the column under the caret, and a pin's
+    table is the one the caret is not in. A pin also lacks the band's editing operations, so
+    pointing the commands at the table under the hand that pressed would need an editable table
+    interface shared by the band and a pin, with a way to pick which one is meant. Paging needs
+    neither, which is why it alone follows the display pressed. See `TableCommands.tableToPage`.
+
     **A pinned table is read in columns if that is what the reader was already doing with
     it.** Reading order was what a pin got, which is what NVDA already gives; the shape is
     what the table was pinned for. The request is a flag of the pin's own rather than a
