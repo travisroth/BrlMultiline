@@ -46,6 +46,13 @@ established there.
   `GraphicsMode` and `FlowBand`. Each owns its feature's state; the plugin's scripts stay on the
   plugin, for NVDA, and each is one call into its feature.
 
+  Each feature object takes the plugin typed as a `Protocol` that names the plugin members the
+  feature uses: `PictureHost`, `LayoutHost`, `TableHost`, `FocusHost`, and for the key layers
+  `keyLayerContexts.ContextHost`. The plugin fits each one without declaring it. The protocol is
+  the feature's dependency on the plugin, written down: when a feature starts using another
+  member of the plugin, add that member to its protocol. Nothing checks this at run time, and the
+  project runs no type checker, so keeping the lists true is up to whoever changes the code.
+
 ## The problem in one paragraph
 
 `BrailleHandler` owns exactly one `mainBuffer` and treats the display as one window onto

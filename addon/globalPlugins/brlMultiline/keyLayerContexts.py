@@ -24,14 +24,38 @@ Every test here is guarded: a context that cannot be read is absent, never an er
 layer key has to work whatever else on the display has gone wrong.
 """
 
+from __future__ import annotations
+
+from typing import Protocol, TYPE_CHECKING
+
 from logHandler import log
+
+if TYPE_CHECKING:
+	from .flowBand import FlowBand
+	from .graphicsMode import GraphicsMode
+	from .objectMonitor import ObjectMonitor
+	from .pictureCommands import PictureCommands
 
 DETECTED = ("chart", "picture", "graphics", "unwrapped")
 """The contexts followed as they change. A layer for any other is never turned on or off for its
 context arriving or going, since the change is not watched for."""
 
 
-def presentContexts(plugin, tables: bool = True, device=None) -> list:
+class ContextHost(Protocol):
+	"""What `presentContexts` and `KeyLayerCommands` use of the plugin. See docs/design/architecture.md, Module map."""
+
+	flowBand: FlowBand | None
+	graphicsMode: GraphicsMode
+	pictures: PictureCommands
+
+	def everyMonitor(self) -> dict[str, ObjectMonitor]: ...
+
+	def segmentKeysOn(self, driverName: str | None) -> list[str]: ...
+
+	def tablesInColumns(self) -> dict: ...
+
+
+def presentContexts(plugin: ContextHost | None, tables: bool = True, device=None) -> list:
 	""":return: the contexts present now, most specific first.
 
 	:param plugin: the running global plugin, or None.

@@ -9,6 +9,8 @@ The plugin's scripts call into this; which keys a layer holds and deciding each 
 `keyLayerDispatch`'s. See docs/design/layered-keys-plan.md.
 """
 
+from __future__ import annotations
+
 import contextlib
 
 import addonHandler
@@ -28,7 +30,7 @@ addonHandler.initTranslation()
 class KeyLayerCommands:
 	"""The layered keys commands, for the plugin's scripts."""
 
-	def __init__(self, plugin):
+	def __init__(self, plugin: keyLayerContexts.ContextHost):
 		"""
 		:param plugin: the global plugin, for what is on its display.
 		"""

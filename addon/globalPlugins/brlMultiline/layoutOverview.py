@@ -12,7 +12,9 @@ them; this gathers, draws, and keeps the overview up so it can be drilled into a
 See docs/design/layout-overview-plan.md.
 """
 
-from typing import Optional
+from __future__ import annotations
+
+from typing import Optional, Protocol, TYPE_CHECKING
 
 import addonHandler
 import api
@@ -23,6 +25,9 @@ from . import appCollect, appRegions, glyphFlow, glyphs, graphicsMode, layoutCol
 from .graphics import findSurface
 
 addonHandler.initTranslation()
+
+if TYPE_CHECKING:
+	from .graphicsMode import GraphicsMode
 
 
 class LayoutView:
@@ -118,10 +123,21 @@ LAYOUT_SMALLEST_VIEW = 200
 """Pixels of a web page, top to bottom, that the most magnified view of its layout shows."""
 
 
+class LayoutHost(Protocol):
+	"""What `LayoutOverview` uses of the plugin. See docs/design/architecture.md, Module map."""
+
+	graphicsMode: GraphicsMode
+
+	@property
+	def isTerminated(self) -> bool: ...
+
+	def cancelPendingDrawings(self) -> None: ...
+
+
 class LayoutOverview:
 	"""The layout overview of the page or window the focus is in, for the plugin's scripts."""
 
-	def __init__(self, plugin):
+	def __init__(self, plugin: LayoutHost):
 		"""
 		:param plugin: the global plugin, for its graphics mode and to cancel other drawings.
 		"""

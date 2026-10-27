@@ -10,7 +10,9 @@ chart was picked last, the picture last captured and the drawing made from it, t
 pictures are drawn in, and the picture file still loading, if any.
 """
 
-from typing import Callable, Optional
+from __future__ import annotations
+
+from typing import Callable, Optional, Protocol, TYPE_CHECKING
 
 import addonHandler
 import api
@@ -23,6 +25,9 @@ from . import chartDraw, chartMenu, chartSource, graphicsMode
 from . import image as imageFigure, imagePins, imageSource
 
 addonHandler.initTranslation()
+
+if TYPE_CHECKING:
+	from .graphicsMode import GraphicsMode
 
 
 AFTER_DIALOG_MILLIS = 300
@@ -46,10 +51,21 @@ def _pictureRoot(picture):
 	return picture
 
 
+class PictureHost(Protocol):
+	"""What `PictureCommands` uses of the plugin. See docs/design/architecture.md, Module map."""
+
+	graphicsMode: GraphicsMode
+
+	@property
+	def isTerminated(self) -> bool: ...
+
+	def cancelPendingDrawings(self) -> None: ...
+
+
 class PictureCommands:
 	"""Charts and pictures put on the display, for the plugin's graphics scripts."""
 
-	def __init__(self, plugin):
+	def __init__(self, plugin: PictureHost):
 		"""
 		:param plugin: the global plugin, for its graphics mode and to cancel other drawings.
 		"""

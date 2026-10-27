@@ -9,6 +9,10 @@ The plugin's scripts call into this. The table is drawn by the flow band or by a
 them for it and says what came of it. See docs/design/structured-presentation-plan.md, Tables, in two milestones.
 """
 
+from __future__ import annotations
+
+from typing import Protocol, TYPE_CHECKING
+
 import addonHandler
 import api
 import braille
@@ -19,6 +23,11 @@ from . import keyLayerDispatch, tableRowLine
 from .flowTableSource import wantsColumns
 
 addonHandler.initTranslation()
+
+if TYPE_CHECKING:
+	from .container import DisplayContainer
+	from .flowBand import FlowBand
+	from .flowTableSource import TableRequest
 
 
 def columnName(column) -> str:
@@ -35,10 +44,28 @@ def columnName(column) -> str:
 	return _("column {index}").format(index=column.index)
 
 
+class TableHost(Protocol):
+	"""What `TableCommands` uses of the plugin. See docs/design/architecture.md, Module map."""
+
+	flowBand: FlowBand | None
+	tableRequest: TableRequest
+
+	@property
+	def container(self) -> DisplayContainer | None: ...
+
+	def layOutPinnedTables(self, wanted: bool, obj) -> int: ...
+
+	def reportAboutTheDisplay(self, text: str) -> None: ...
+
+	def segmentKeysOn(self, driverName: str | None) -> list[str]: ...
+
+	def tablesInColumns(self) -> dict: ...
+
+
 class TableCommands:
 	"""The table commands, for the plugin's scripts."""
 
-	def __init__(self, plugin):
+	def __init__(self, plugin: TableHost):
 		"""
 		:param plugin: the global plugin, for its band, its pins and its table request.
 		"""

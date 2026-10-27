@@ -9,7 +9,9 @@ The plugin's script calls into this. The focus segment is stored in the configur
 the way is carried to another segment, or the reader is asked which pins to keep.
 """
 
-from typing import NamedTuple
+from __future__ import annotations
+
+from typing import NamedTuple, Protocol, TYPE_CHECKING
 
 import addonHandler
 import braille
@@ -25,6 +27,11 @@ from .objectMonitor import ObjectMonitor
 from .views import deviceSegmentKeys, driverNameForSegmentKey
 
 addonHandler.initTranslation()
+
+if TYPE_CHECKING:
+	from .container import DisplayContainer
+	from .devices import DeviceInfo
+	from .views import SegmentView
 
 BREAK = chr(10)
 """A line break in a dialog's text, spelled so no escape has to survive a shell."""
@@ -64,10 +71,28 @@ class CarriedPin(NamedTuple):
 	wasFlowing: bool
 
 
+class FocusHost(Protocol):
+	"""What `FocusDisplayMoves` uses of the plugin. See docs/design/architecture.md, Module map."""
+
+	@property
+	def container(self) -> DisplayContainer | None: ...
+
+	@property
+	def pins(self) -> dict[str, ObjectMonitor]: ...
+
+	def baseView(self, numRows: int, numCols: int, devices: list[DeviceInfo]) -> SegmentView: ...
+
+	def rebuildBuffer(self) -> None: ...
+
+	def refreshMonitors(self, reveal: str | None = None) -> None: ...
+
+	def rehomeMonitor(self, container: DisplayContainer, taken: dict) -> str | None: ...
+
+
 class FocusDisplayMoves:
 	"""Moving the focus between combined displays, for the plugin's script."""
 
-	def __init__(self, plugin):
+	def __init__(self, plugin: FocusHost):
 		"""
 		:param plugin: the global plugin, for its display, its pins and to rebuild.
 		"""
