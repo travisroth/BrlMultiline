@@ -16,6 +16,8 @@ Run both before calling a change done:
 
 - Unit tests: `uv run python -m unittest discover -s tests`
 - Lint: `uv run ruff check .`
+- Types: `uv run pyright`, with the rules NVDA itself turns off left off. The build workflow
+  runs it through prek, as `uv run prek run --all-files` does.
 
 ## Comments and docstrings
 

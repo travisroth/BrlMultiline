@@ -34,9 +34,7 @@ jobs:
         uv sync
 
     - name: Code checks
-      # Pyright is skipped: strict mode, with none of the rules NVDA itself turns off, does not
-      # pass on this add-on. The unit tests and ruff are the project's checks.
-      run: export PREK_SKIP=no-commit-to-branch,pyright; uv run prek run --all-files
+      run: export PREK_SKIP=no-commit-to-branch; uv run prek run --all-files
 
     - name: building addon
       run: uv run scons && uv run scons pot

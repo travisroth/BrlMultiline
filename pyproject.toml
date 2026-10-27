@@ -155,6 +155,9 @@ extraPaths = [
 	"../nvda/source",
 ]
 
+# Declares the translation functions NVDA puts in builtins, which CI has no NVDA to supply.
+stubPath = ".vscode/typings"
+
 # General config
 analyzeUnannotatedFunctions = true
 deprecateTypingAliases = true
@@ -166,84 +169,36 @@ strictDictionaryInference = true
 strictSetInference = true
 
 # Compliant rules
-reportAbstractUsage = true
-reportArgumentType = true
 reportAssertAlwaysTrue = true
 reportAssertTypeFailure = true
-reportAssignmentType = true
-reportAttributeAccessIssue = true
-reportCallInDefaultInitializer = true
-reportCallIssue = true
-reportConstantRedefinition = true
 reportDuplicateImport = true
-reportFunctionMemberAccess = true
-reportGeneralTypeIssues = true
-reportImplicitOverride = true
-reportImplicitStringConcatenation = true
-reportImportCycles = true
-reportIncompatibleMethodOverride = true
-reportIncompatibleVariableOverride = true
 reportIncompleteStub = true
 reportInconsistentConstructor = true
 reportInconsistentOverload = true
-reportIndexIssue = true
 reportInvalidStringEscapeSequence = true
 reportInvalidStubStatement = true
-reportInvalidTypeArguments = true
-reportInvalidTypeForm = true
 reportInvalidTypeVarUse = true
 reportMatchNotExhaustive = true
-reportMissingImports = true
 reportMissingModuleSource = true
-reportMissingParameterType = true
-reportMissingSuperCall = true
-reportMissingTypeArgument = true
 reportNoOverloadImplementation = true
-reportOperatorIssue = true
-reportOptionalCall = true
 reportOptionalContextManager = true
-reportOptionalIterable = true
-reportOptionalMemberAccess = true
-reportOptionalOperand = true
-reportOptionalSubscript = true
 reportOverlappingOverload = true
-reportPossiblyUnboundVariable = true
 reportPrivateImportUsage = true
-reportPrivateUsage = true
 reportPropertyTypeMismatch = true
-reportRedeclaration = true
-reportReturnType = true
 reportSelfClsParameterName = true
 reportTypeCommentUsage = true
 reportTypedDictNotRequiredAccess = true
 reportUnboundVariable = true
 reportUndefinedVariable = true
 reportUnhashable = true
-reportUninitializedInstanceVariable = true
-reportUnknownArgumentType = true
-reportUnknownLambdaType = true
-reportUnknownMemberType = true
-reportUnknownParameterType = true
-reportUnknownVariableType = true
 reportUnnecessaryCast = true
-reportUnnecessaryComparison = true
 reportUnnecessaryContains = true
-reportUnnecessaryIsInstance = true
 reportUnnecessaryTypeIgnoreComment = true
-reportUnsupportedDunderAll = true
-reportUntypedBaseClass = true
 reportUntypedClassDecorator = true
-reportUntypedFunctionDecorator = true
-reportUntypedNamedTuple = true
-reportUnusedCallResult = true
 reportUnusedClass = true
 reportUnusedCoroutine = true
 reportUnusedExcept = true
 reportUnusedExpression = true
-reportUnusedFunction = true
-reportUnusedImport = true
-reportUnusedVariable = true
-reportWildcardImportFromLibrary = true
 
 reportDeprecated = true
 
@@ -251,4 +206,57 @@ reportDeprecated = true
 reportMissingTypeStubs = false
 
 # Bad rules
+# NVDA's own modules and the libraries it ships, such as wx, comtypes and configobj, are on the
+# path only where an NVDA source checkout sits beside this repo, which CI never has.
+reportMissingImports = false
+# Without NVDA, `scriptHandler.script` is unresolved, so every script's decorator is untyped.
+reportUntypedFunctionDecorator = false
 # These are sorted alphabetically and should be enabled and moved to compliant rules section when resolved.
+# The rules NVDA's own pyproject.toml turns off, as of NVDA 2026.3. NVDA's modules are only
+# partly typed, so code built on them fails these in bulk.
+reportAbstractUsage = false
+reportArgumentType = false
+reportAssignmentType = false
+reportAttributeAccessIssue = false
+reportCallInDefaultInitializer = false
+reportCallIssue = false
+reportConstantRedefinition = false
+reportFunctionMemberAccess = false
+reportGeneralTypeIssues = false
+reportImplicitOverride = false
+reportImplicitStringConcatenation = false
+reportImportCycles = false
+reportIncompatibleMethodOverride = false
+reportIncompatibleVariableOverride = false
+reportIndexIssue = false
+reportInvalidTypeArguments = false
+reportInvalidTypeForm = false
+reportMissingParameterType = false
+reportMissingSuperCall = false
+reportMissingTypeArgument = false
+reportOperatorIssue = false
+reportOptionalCall = false
+reportOptionalIterable = false
+reportOptionalMemberAccess = false
+reportOptionalOperand = false
+reportOptionalSubscript = false
+reportPossiblyUnboundVariable = false
+reportPrivateUsage = false
+reportRedeclaration = false
+reportReturnType = false
+reportUninitializedInstanceVariable = false
+reportUnknownArgumentType = false
+reportUnknownLambdaType = false
+reportUnknownMemberType = false
+reportUnknownParameterType = false
+reportUnknownVariableType = false
+reportUnnecessaryComparison = false
+reportUnnecessaryIsInstance = false
+reportUnsupportedDunderAll = false
+reportUntypedBaseClass = false
+reportUntypedNamedTuple = false
+reportUnusedCallResult = false
+reportUnusedFunction = false
+reportUnusedImport = false
+reportUnusedVariable = false
+reportWildcardImportFromLibrary = false
