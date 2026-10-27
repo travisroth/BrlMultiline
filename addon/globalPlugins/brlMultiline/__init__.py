@@ -106,6 +106,15 @@ def _runLoggingFailure(step, *args) -> None:
 		)
 
 
+def _sessionLockAction():
+	""":return: NVDA's notice that Windows has locked or unlocked, or None where there is none."""
+	try:
+		from utils.security import post_sessionLockStateChanged
+	except ImportError:
+		return None
+	return post_sessionLockStateChanged
+
+
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	scriptCategory = SCRIPT_CATEGORY
 
@@ -270,6 +279,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# without any braille event firing.
 		config.post_configProfileSwitch.register(self._handleProfileSwitch)
 		self._onTerminate(config.post_configProfileSwitch.unregister, self._handleProfileSwitch)
+		sessionLockChanged = _sessionLockAction()
+		if sessionLockChanged is not None:
+			sessionLockChanged.register(self._handleSessionLockChanged)
+			self._onTerminate(sessionLockChanged.unregister, self._handleSessionLockChanged)
 		self._membersChanged = devicesModule.membersChangedAction()
 		"""The composite display's own notification, or None if the driver cannot be reached.
 
@@ -1031,6 +1044,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self.keyLayerCommands.reload()
 		self._reportMemberDivergence()
 		self._scheduleRebuild()
+
+	def _handleSessionLockChanged(self, isNowLocked: bool) -> None:
+		"""Take the pins below the lock screen off the display as Windows locks, and back on as it unlocks.
+
+		At once rather than at the next refresh, because NVDA clears the display as Windows locks
+		and a flow's segment fills itself again. See `ObjectMonitor._hide`.
+
+		:param isNowLocked: whether the session has just locked, rather than unlocked.
+		"""
+		self.refreshMonitors()
 
 	def _reportMemberDivergence(self) -> None:
 		"""Say so in the log when the configured members are not the ones the composite opened for.

@@ -78,6 +78,21 @@ def resolveTarget(obj: "NVDAObject"):
 	return obj
 
 
+def isBelowLockScreen(obj) -> bool:
+	""":return: whether Windows is locked and the object is below the lock screen, so must not be shown.
+
+	NVDA's own test, which also accepts a tree interceptor. Without NVDA's security module, as in
+	the unit tests, nothing is below a lock screen.
+
+	:param obj: the object or tree interceptor a pin reads.
+	"""
+	try:
+		from utils.security import objectBelowLockScreenAndWindowsIsLocked
+	except ImportError:
+		return False
+	return objectBelowLockScreenAndWindowsIsLocked(obj, shouldLog=False)
+
+
 class ObjectMonitor:
 	"""An object pinned to one segment of the braille display."""
 
@@ -174,7 +189,8 @@ class ObjectMonitor:
 	def refresh(self, reveal: bool = False) -> None:
 		"""Redraw the monitored object in its segment.
 
-		Called several times a second; the display is written only when its cells changed.
+		Called several times a second; the display is written only when its cells changed. While
+		Windows is locked an object below the lock screen is neither read nor shown. See `_hide`.
 
 		:param reveal: show the pin from its start, as when it is first made. Otherwise the
 			segment's window position is kept, so a refresh does not undo the user's panning.
@@ -186,6 +202,9 @@ class ObjectMonitor:
 			segment = container.segmentForKey(self.segmentKey)
 		except LookupError:
 			log.debugWarning(f"Segment {self.segmentKey!r} no longer exists")
+			return
+		if isBelowLockScreen(self.obj):
+			self._hide(container, segment)
 			return
 		if self._asAFlow(segment):
 			self._refreshFlow(container, segment, reveal)
@@ -417,6 +436,25 @@ class ObjectMonitor:
 		detach = getattr(segment, "detach", None)
 		if detach is not None and getattr(segment, "controller", None) is not None:
 			detach()
+
+	def _hide(self, container: DisplayContainer, segment) -> None:
+		"""Take this pin off the display, keeping what it reads for when it may be shown again.
+
+		Detached rather than cleared, since clearing a flow's segment puts its regions back. The
+		next refresh allowed to show the pin draws it again, because the segment no longer holds
+		it. The display is written only when something was taken off.
+
+		:param container: the display.
+		:param segment: the segment this pin is in.
+		"""
+		if getattr(segment, "controller", None) is not None:
+			segment.detach()
+		elif segment.regions:
+			segment.clear()
+		else:
+			return
+		self._lastCells = None
+		container.updateDisplay()
 
 	def stop(self) -> None:
 		"""Give up whatever this pin is holding, before it is forgotten."""

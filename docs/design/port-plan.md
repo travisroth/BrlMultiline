@@ -157,6 +157,17 @@ Pinned segments survive focus changes because the `_doNewObject` replacement cle
 the segments that are receiving new regions. Pinning to the focus segment is refused, and
 monitored segments are excluded from the document lines feature.
 
+**While Windows is locked, a pin below the lock screen is neither read nor shown.** NVDA clears
+the display as Windows locks and will not build a region for an object below the lock screen,
+but neither stops a pin: it keeps the regions it built and refreshes them on a timer, and a flow
+pin's segment fills itself again when it is cleared. So `ObjectMonitor.refresh` asks NVDA's
+`objectBelowLockScreenAndWindowsIsLocked` first, and a pin it refuses detaches its flow or
+clears its regions, keeping what it reads. The plugin refreshes every pin when NVDA's
+`post_sessionLockStateChanged` fires, so the pins go as Windows locks and come back, where
+they were panned to, as it unlocks. App layout segments are pins as far as this is concerned.
+Found by comparing with Braille Essentials, which checks the lock screen before it shows
+anything; not yet tried on hardware.
+
 ## Milestone 6 — Views
 
 Built after the first five, in response to a design question about whether the segment
