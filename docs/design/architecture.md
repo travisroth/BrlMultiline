@@ -41,6 +41,10 @@ established there.
 - `bmConfig.py` — per display configuration. Named to avoid shadowing NVDA's `config`.
 - `settingsPanel.py` — the NVDA settings category.
 - `__init__.py` — the global plugin: lifetime, claims, commands, and object monitor state.
+- `pictureCommands.py`, `layoutOverview.py`, `tableCommands.py`, `focusDisplays.py` and
+  `keyLayerCommands.py` — feature objects the plugin holds, as it holds `AppLayoutHost`,
+  `GraphicsMode` and `FlowBand`. Each owns its feature's state; the plugin's scripts stay on the
+  plugin, for NVDA, and each is one call into its feature.
 
 ## The problem in one paragraph
 
