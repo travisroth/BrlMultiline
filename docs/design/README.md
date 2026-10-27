@@ -4,6 +4,9 @@ This folder is the durable memory for the BrlMultiline add-on. It exists so that
 the project can be picked up again after a long gap, by the author or by an assisting
 agent, without re-deriving decisions from the source.
 
+Each plan keeps its own status, and is the authority on it. Where a summary below mentions how
+far a plan has got, it is a pointer, and the plan wins where they differ.
+
 Read the files in this order:
 
 1. [port-plan.md](port-plan.md) — what is being built, in what order, and what is done so far.
@@ -39,9 +42,9 @@ Read the files in this order:
    undocumented 480 byte output report matching the Monarch's pin count exactly. Phases 0 to 4
    are on hardware: the pin report, the drawing API in `pinBuffer.py`, the graphics mode in
    `graphics.py` and `graphicsMode.py`, bar charts from an Excel selection, and the glyph
-   phase that draws a role or a state as a shape in an ordinary braille line. Of phase 4b's
-   other chart types only a single line series has been read; phase 5, image import, is not
-   started. Read it before writing any code that sets dots rather than characters.
+   phase that draws a role or a state as a shape in an ordinary braille line. The later phases,
+   other chart types and images from the screen, each give their status at the head of their
+   section. Read it before writing any code that sets dots rather than characters.
 9. [monarch-driver-plan.md](monarch-driver-plan.md) — the design of `brlMultilineMonarch`, a
    braille display driver that subclasses NVDA's HID braille driver and drives the Monarch
    through its pin report instead of its cell reports. Gives graphics, a choice of 8 or 10
@@ -50,7 +53,8 @@ Read the files in this order:
    correctly at both pitches. Read it before touching that driver package.
 10. [layered-keys-plan.md](layered-keys-plan.md) — the plan for layers of key bindings per
    braille display and for the keyboard, turned on by a key and chosen by what is on the
-   display, with an editor modelled on NVDA's Input Gestures dialog. Not started. Read it
+   display, with an editor modelled on NVDA's Input Gestures dialog. Phases 0 to 3 are built;
+   each phase's section says what it built and what has been tried on hardware. Read it
    before adding any command that changes what a key does while something is on.
 11. [chart-point-plan.md](chart-point-plan.md) — the plan for stepping through a chart's
    points with keys, and for guide lines that show where the marked point is: a level line
@@ -66,10 +70,10 @@ Read the files in this order:
 13. [layout-overview-plan.md](layout-overview-plan.md) — the plan for a picture of a web page's
    or a window's main areas, drawn as labelled boxes in their real positions, found without AI
    from landmarks, structure, link density, position and geometry. The probe in
-   `spikes/layoutOverviewProbe.py` has answered its open questions, and the region rules and the
-   text overview are built in `layoutRegions.py` and tested against nine saved pages. Nothing
-   runs in the add-on yet. Read it before writing code that reads object rectangles from browse
-   mode, or before changing a rule in `layoutRegions.py`.
+   `spikes/layoutOverviewProbe.py` has answered its open questions. The overview runs in the
+   add-on, for web pages and for windows through UI Automation; "Order of work" says which steps
+   are done and which have been tried on hardware. Read it before writing code that reads object
+   rectangles from browse mode, or before changing a rule in `layoutRegions.py`.
 14. [app-layouts-plan.md](app-layouts-plan.md) — the design for letting an app module arrange
    the free rows of the display around where the focus is, such as a Teams chat history above
    its compose box or an Outlook reading pane beside its message list. Built, with a Teams chat

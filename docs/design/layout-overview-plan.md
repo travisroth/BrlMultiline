@@ -5,8 +5,8 @@ through the graphics mode it describes, and the browse mode sections of
 [nvda-api-notes.md](nvda-api-notes.md). This document proposes a picture of a page's or a
 window's main areas, drawn as labelled boxes in their real positions. The probe in
 `spikes/layoutOverviewProbe.py` has been run on nine pages and has answered the open questions.
-The region rules (step 2 of the order of work) and the text description (step 3) are built in
-`layoutRegions.py` and unit tested against those pages; nothing yet runs inside the add-on.
+The overview is built and runs in the add-on; "Order of work" below says which steps are done and
+which have been tried on hardware.
 
 ## The problem
 
@@ -291,7 +291,7 @@ same pattern the chart work uses.
 
 Steps 1 to 4 are done, and the drawing has been tried on a Monarch: see "The drawing and the
 collector as built" below. Step 5 is built: a press naming the box under it, a second press
-moving to it, and drilling in and backing out.
+moving to it, and drilling in and backing out. Step 6 is built: see "Windows applications" above.
 
 **Drilling in and backing out** goes into the area last pressed. A press records the area
 (`LayoutView.pressed`, set as the drawing describes the point), and dot 8 redraws the overview
