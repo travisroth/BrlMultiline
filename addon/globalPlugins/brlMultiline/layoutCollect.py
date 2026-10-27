@@ -73,6 +73,8 @@ class Collector:
 		self.started = 0.0
 		self.incomplete: list[str] = []
 		self._steps: Iterator[None] | None = None
+		self._calls = 0
+		"""Calls into the browser so far, for returning to NVDA every `BATCH`."""
 
 	def start(self) -> None:
 		self.started = time.perf_counter()
@@ -109,8 +111,7 @@ class Collector:
 		# Which page, and which reading of it, the layout is of: a move to an area later checks
 		# both, since browse mode can read a page again under the same document.
 		identity = [getattr(doc, "documentConstantIdentifier", None), getattr(doc, "VBufHandle", None)]
-		calls = 0
-		records: list[dict[str, Any]] = []
+		self._calls = 0
 		links = [item.textInfo._startOffset for item in doc._iterNodesByType("link")]
 		yield
 		# Where every form field, button and tab starts, read from browse mode's text with no
@@ -130,85 +131,15 @@ class Collector:
 			"tabs": [item.textInfo._startOffset for item in tabItems],
 			"sections": [item.textInfo._startOffset for item in toggles],
 		}
-		seen = set()
-		for nodeType in CANDIDATE_TYPES:
-			if self.overTime:
-				break
-			try:
-				items = list(doc._iterNodesByType(nodeType))
-			except NotImplementedError:
-				continue
-			for item in items:
-				if item.vbufFieldIdentifier in seen:
-					continue
-				seen.add(item.vbufFieldIdentifier)
-				label = item.label or ""
-				if nodeType == "button" and not mentionsSearch(label):
-					# A button is only wanted when it is search, and its label, read from the
-					# buffer, costs nothing to check; locating every button does not.
-					continue
-				record = _record(item, nodeType, label, viewport, links, offsets)
-				calls += 1
-				if record is not None:
-					records.append(record)
-				if calls % BATCH == 0:
-					yield
-					if self.overTime:
-						break
-		# Tabs and buttons that expand, with their rectangles, for finding tab strips and
-		# accordions. See `layoutRegions._widgets`.
-		for kind, items, limit in (("tab", tabItems, MAX_TABS), ("toggle", toggles, MAX_TOGGLES)):
-			for item in items[:limit]:
-				if self.overTime:
-					break
-				rect = _relative(_location(item), viewport)
-				calls += 1
-				if rect and rect[2] > 0 and rect[3] > 0:
-					start = item.textInfo._startOffset
-					records.append(
-						{
-							"type": kind,
-							"label": item.label or "",
-							"name": item.label or "",
-							"rect": rect,
-							"start": start,
-							"end": item.textInfo._endOffset,
-							"ident": _identOf(item),
-						},
-					)
-				if calls % BATCH == 0:
-					yield
+		records: list[dict[str, Any]] = []
+		yield from self._gatherCandidates(viewport, links, offsets, records)
+		yield from self._gatherWidgets(viewport, tabItems, toggles, records)
 		if self.overTime:
 			self.incomplete.append("candidates")
 		records.sort(key=lambda r: (r["start"], -r["end"]))
 		hasLandmarks = any(_isMeaningful(r) for r in records)
 		leaves: list[dict[str, Any]] = []
-		pools = {}
-		for nodeType, _share in LEAF_SHARES:
-			try:
-				pools[nodeType] = list(doc._iterNodesByType(nodeType))
-			except NotImplementedError:
-				pools[nodeType] = []
-		for nodeType, item in _sample(pools, MAX_LEAVES):
-			if self.overTime:
-				self.incomplete.append("leaves")
-				break
-			rect = _relative(_location(item), viewport)
-			if rect and rect[2] > 0 and rect[3] > 0:
-				start = item.textInfo._startOffset
-				# A form field that is a button is saved as one, so a block found by geometry
-				# can count its fields and its buttons apart.
-				kind = nodeType
-				if nodeType == "formField" and start in tabSet:
-					kind = "tab"
-				elif nodeType == "formField" and start in buttonSet:
-					kind = "button"
-				leaves.append({"type": kind, "start": start, "rect": rect, "ident": _identOf(item)})
-			calls += 1
-			if calls % BATCH == 0:
-				yield
-		if sum(len(pool) for pool in pools.values()) > MAX_LEAVES:
-			self.incomplete.append("sampled")
+		yield from self._gatherLeaves(viewport, tabSet, buttonSet, leaves)
 		tree: list[dict[str, Any]] = []
 		if not hasLandmarks:
 			for _ in _walk(doc.rootNVDAObject, viewport, tree, self):
@@ -233,6 +164,94 @@ class Collector:
 			f"{len(records)} candidates, {len(leaves)} leaves, {len(tree)} tree objects",
 		)
 		self.done(payload, "")
+
+	def _isBatchDone(self) -> bool:
+		"""Count one call into the browser. :return: whether it is time to return to NVDA."""
+		self._calls += 1
+		return self._calls % BATCH == 0
+
+	def _gatherCandidates(self, viewport, links, offsets, records: list) -> Iterator[None]:
+		"""Add a record for each candidate quick navigation finds. See `CANDIDATE_TYPES`."""
+		doc = self.document
+		seen = set()
+		for nodeType in CANDIDATE_TYPES:
+			if self.overTime:
+				break
+			try:
+				items = list(doc._iterNodesByType(nodeType))
+			except NotImplementedError:
+				continue
+			for item in items:
+				if item.vbufFieldIdentifier in seen:
+					continue
+				seen.add(item.vbufFieldIdentifier)
+				label = item.label or ""
+				if nodeType == "button" and not mentionsSearch(label):
+					# A button is only wanted when it is search, and its label, read from the
+					# buffer, costs nothing to check; locating every button does not.
+					continue
+				record = _record(item, nodeType, label, viewport, links, offsets)
+				if record is not None:
+					records.append(record)
+				if self._isBatchDone():
+					yield
+					if self.overTime:
+						break
+
+	def _gatherWidgets(self, viewport, tabItems, toggles, records: list) -> Iterator[None]:
+		"""Add the tabs and buttons that expand, for finding tab strips and accordions.
+
+		See `layoutRegions._widgets`.
+		"""
+		for kind, items, limit in (("tab", tabItems, MAX_TABS), ("toggle", toggles, MAX_TOGGLES)):
+			for item in items[:limit]:
+				if self.overTime:
+					break
+				rect = _relative(_location(item), viewport)
+				if rect and rect[2] > 0 and rect[3] > 0:
+					start = item.textInfo._startOffset
+					records.append(
+						{
+							"type": kind,
+							"label": item.label or "",
+							"name": item.label or "",
+							"rect": rect,
+							"start": start,
+							"end": item.textInfo._endOffset,
+							"ident": _identOf(item),
+						},
+					)
+				if self._isBatchDone():
+					yield
+
+	def _gatherLeaves(self, viewport, tabSet, buttonSet, leaves: list) -> Iterator[None]:
+		"""Add a sample of the page's content, for splitting areas by their gaps. See `LEAF_SHARES`."""
+		doc = self.document
+		pools = {}
+		for nodeType, _share in LEAF_SHARES:
+			try:
+				pools[nodeType] = list(doc._iterNodesByType(nodeType))
+			except NotImplementedError:
+				pools[nodeType] = []
+		for nodeType, item in _sample(pools, MAX_LEAVES):
+			if self.overTime:
+				self.incomplete.append("leaves")
+				break
+			rect = _relative(_location(item), viewport)
+			if rect and rect[2] > 0 and rect[3] > 0:
+				start = item.textInfo._startOffset
+				# A form field that is a button is saved as one, so a block found by geometry
+				# can count its fields and its buttons apart.
+				kind = nodeType
+				if nodeType == "formField" and start in tabSet:
+					kind = "tab"
+				elif nodeType == "formField" and start in buttonSet:
+					kind = "button"
+				leaves.append({"type": kind, "start": start, "rect": rect, "ident": _identOf(item)})
+			if self._isBatchDone():
+				yield
+		if sum(len(pool) for pool in pools.values()) > MAX_LEAVES:
+			self.incomplete.append("sampled")
 
 
 def _sample(pools: dict[str, list], limit: int) -> list[tuple[str, object]]:
