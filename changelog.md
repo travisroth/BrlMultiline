@@ -1,6 +1,16 @@
 # Changelog
 
-## 0.1.0, in development
+## 2026.3.1
+
+Fixed:
+
+- **Pinned objects no longer show while Windows is locked.** NVDA clears the braille display as
+  Windows locks, but a pinned object, or a segment of an app layout, put its content straight
+  back, so a pinned email or chat could be read on the display of a locked machine. A pin whose
+  object is below the lock screen now goes blank as Windows locks, is not read while it stays
+  locked, and comes back where it was panned to as Windows unlocks.
+
+## 2026.3.0
 
 First version built against NVDA 2026.3, replacing an earlier prototype written for
 NVDA 2023. 2026.3 is the first release to carry the `braille` package that this add-on is

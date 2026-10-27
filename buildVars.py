@@ -27,10 +27,12 @@ addon_info = AddonInfo(
 	Provides a virtual Braille display driver to allow running multiple displays at once.
 	"""),
 	# version
-	addon_version="2026.3.0",
+	addon_version="2026.3.1",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
-	addon_changelog=_("""Initial development version."""),
+	addon_changelog=_(
+		"""Pinned objects and app layouts no longer show on the braille display while Windows is locked.""",
+	),
 	# Author(s)
 	addon_author="Travis Roth <travis@travisroth.com>",
 	# URL for the add-on documentation support
