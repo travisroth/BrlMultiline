@@ -1261,10 +1261,47 @@ def regionFactory(live: bool = False, adapter: Optional[ObjectAdapter] = None) -
 	:param adapter: the run being read, asked whether a routing key acts or goes.
 	:return: a callable taking an object and returning its region.
 	"""
-	from braille.regions.base import Region
+	objectRegion = _objectRegionClass(live, adapter)
+	decorationRegion = _decorationRegionClass()
+
+	def factory(obj):
+		if isDecoration(obj):
+			return decorationRegion(obj)
+		return objectRegion(obj)
+
+	return factory
+
+
+class _LineMoves:
+	"""NVDA's line commands on a block of a run, passed to its `onLine`."""
+
+	onLine = None
+
+	def nextLine(self) -> None:
+		"""Move on by one item, as the braille display's line command asks.
+
+		The window only, since here the cursor is a selection. See the module docstring.
+		"""
+		self._line(True)
+
+	def previousLine(self, start: bool = False) -> None:
+		"""Move back by one item. See `nextLine`."""
+		self._line(False)
+
+	def _line(self, forward: bool) -> None:
+		if self.onLine is None:
+			return
+		try:
+			self.onLine(forward)
+		except Exception:
+			log.debugWarning("Could not move a run by a line", exc_info=True)
+
+
+def _objectRegionClass(live: bool, adapter: Optional[ObjectAdapter]) -> type:
+	""":return: the region class an object block is read through. See `regionFactory`."""
 	from braille.regions.NVDAObject import NVDAObjectRegion
 
-	class FlowObjectRegion(NVDAObjectRegion):
+	class FlowObjectRegion(_LineMoves, NVDAObjectRegion):
 		"""One object as a block, said the way NVDA says it."""
 
 		def __init__(self, obj) -> None:
@@ -1295,25 +1332,6 @@ def regionFactory(live: bool = False, adapter: Optional[ObjectAdapter] = None) -
 			They must reach something. `script_braille_nextLine` calls `regions[-1].nextLine()`
 			with no check beyond the list being non-empty, and a region that has no such method
 			raises where the reader pressed a key. See the last-region audit."""
-
-		def nextLine(self) -> None:
-			"""Move on by one item, as the braille display's line command asks.
-
-			The window only, since here the cursor is a selection. See the module docstring.
-			"""
-			self._line(True)
-
-		def previousLine(self, start: bool = False) -> None:
-			"""Move back by one item. See `nextLine`."""
-			self._line(False)
-
-		def _line(self, forward: bool) -> None:
-			if self.onLine is None:
-				return
-			try:
-				self.onLine(forward)
-			except Exception:
-				log.debugWarning("Could not move a run by a line", exc_info=True)
 
 		def update(self) -> None:
 			# Before the base class, which is what turns a position into `brailleCursorPos`.
@@ -1361,7 +1379,14 @@ def regionFactory(live: bool = False, adapter: Optional[ObjectAdapter] = None) -
 		def __repr__(self) -> str:
 			return f"<FlowObjectRegion {getattr(self, 'rawText', '')!r}>"
 
-	class FlowDecorationRegion(Region):
+	return FlowObjectRegion
+
+
+def _decorationRegionClass() -> type:
+	""":return: the region class a line between groups is read through. See `regionFactory`."""
+	from braille.regions.base import Region
+
+	class FlowDecorationRegion(_LineMoves, Region):
 		"""A line drawn between groups, shown as the blank row it is.
 
 		Blank rather than absent, so the grouping can be felt. Holds no text, so nothing routes
@@ -1388,31 +1413,10 @@ def regionFactory(live: bool = False, adapter: Optional[ObjectAdapter] = None) -
 		def routeTo(self, braillePos: int) -> None:
 			"""Nothing: there is nothing here to go to."""
 
-		def nextLine(self) -> None:
-			"""Move the window on, as any block of a run does. See `FlowObjectRegion`."""
-			self._line(True)
-
-		def previousLine(self, start: bool = False) -> None:
-			"""Move the window back. See `nextLine`."""
-			self._line(False)
-
-		def _line(self, forward: bool) -> None:
-			if self.onLine is None:
-				return
-			try:
-				self.onLine(forward)
-			except Exception:
-				log.debugWarning("Could not move a run by a line", exc_info=True)
-
 		def __repr__(self) -> str:
 			return f"<FlowDecorationRegion {getattr(self.obj, 'role', None)}>"
 
-	def factory(obj):
-		if isDecoration(obj):
-			return FlowDecorationRegion(obj)
-		return FlowObjectRegion(obj)
-
-	return factory
+	return FlowDecorationRegion
 
 
 class ObjectFlowSource:
