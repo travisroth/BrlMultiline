@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 	from .graphicsMode import GraphicsMode
 	from .objectMonitor import ObjectMonitor
 	from .pictureCommands import PictureCommands
+	from .tableCommands import PagedTable
 
 DETECTED = ("chart", "picture", "graphics", "unwrapped")
 """The contexts followed as they change. A layer for any other is never turned on or off for its
@@ -52,7 +53,7 @@ class ContextHost(Protocol):
 
 	def segmentKeysOn(self, driverName: str | None) -> list[str]: ...
 
-	def tablesInColumns(self) -> dict: ...
+	def tablesInColumns(self) -> dict[str, PagedTable]: ...
 
 
 def presentContexts(plugin: ContextHost | None, tables: bool = True, device=None) -> list:

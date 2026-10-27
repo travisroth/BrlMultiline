@@ -712,6 +712,17 @@ class FlowBand(PanelOwner):
 			self._rechecking = False
 		return True
 
+	def takeUpSavedLayouts(self) -> None:
+		"""Show the table the reader is in the way the saved layouts now say, after they changed.
+
+		Forgets which table a layout was last offered for, since a layout is offered once per table
+		(see `_walkedIntoASavedTable`) and one just pointed at this table would otherwise not come
+		up until the reader left the table and came back.
+		"""
+		self._layoutOffered = None
+		if not self.clearTable():
+			self.refresh(force=True)
+
 	def _runHasChangedShape(self) -> bool:
 		"""Read a run of objects again if the reader has opened or closed something in it.
 

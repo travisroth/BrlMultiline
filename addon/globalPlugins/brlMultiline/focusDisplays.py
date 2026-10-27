@@ -29,6 +29,8 @@ from .views import deviceSegmentKeys, driverNameForSegmentKey
 addonHandler.initTranslation()
 
 if TYPE_CHECKING:
+	from collections.abc import Collection, Mapping
+
 	from .container import DisplayContainer
 	from .devices import DeviceInfo
 	from .views import SegmentView
@@ -78,15 +80,19 @@ class FocusHost(Protocol):
 	def container(self) -> DisplayContainer | None: ...
 
 	@property
-	def pins(self) -> dict[str, ObjectMonitor]: ...
+	def pins(self) -> Mapping[str, ObjectMonitor]: ...
 
 	def baseView(self, numRows: int, numCols: int, devices: list[DeviceInfo]) -> SegmentView: ...
+
+	def landPin(self, monitor: ObjectMonitor, home: str) -> None: ...
+
+	def movePin(self, key: str, home: str) -> ObjectMonitor: ...
 
 	def rebuildBuffer(self) -> None: ...
 
 	def refreshMonitors(self, reveal: str | None = None) -> None: ...
 
-	def rehomeMonitor(self, container: DisplayContainer, taken: dict) -> str | None: ...
+	def rehomeMonitor(self, container: DisplayContainer, taken: Collection[str]) -> str | None: ...
 
 
 class FocusDisplayMoves:
@@ -346,8 +352,7 @@ class FocusDisplayMoves:
 				)
 				continue
 			log.info(f"BrlMultiline: the pin the focus move carried lands on segment {home!r}")
-			monitor.moveTo(home)
-			self.plugin.pins[home] = monitor
+			self.plugin.landPin(monitor, home)
 			landed = True
 		if landed:
 			# Drawn where it landed, rather than waiting for the refresh tick to notice.
@@ -416,12 +421,10 @@ class FocusDisplayMoves:
 				continue
 			wasFlowing = getattr(monitor, "controller", None) is not None
 			try:
-				monitor.moveTo(home)
+				self.plugin.movePin(key, home)
 			except Exception:
 				log.debugWarning(f"Could not move the pin on segment {key!r}", exc_info=True)
 				continue
-			del self.plugin.pins[key]
-			self.plugin.pins[home] = monitor
 			carried.append(CarriedPin(monitor=monitor, home=home, wasFlowing=wasFlowing))
 		self.pinsInFlight = [pin.monitor for pin in carried]
 		return carried

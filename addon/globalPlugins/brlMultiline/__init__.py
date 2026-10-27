@@ -17,6 +17,8 @@ that keeps their segment keeps the pin.
 
 import contextlib
 import time
+import types
+from collections.abc import Collection, Mapping
 
 import addonHandler
 import api
@@ -50,7 +52,7 @@ from .layoutOverview import LayoutOverview
 from .focusDisplays import FocusDisplayMoves
 from .keyLayerCommands import KeyLayerCommands
 from .pictureCommands import PictureCommands
-from .tableCommands import TableCommands
+from .tableCommands import PagedTable, TableCommands
 from .flowTableSource import TableRequest, wantsColumns
 from .graphicsMode import FIT as GRAPHICS_FIT, PANEL_NAME as GRAPHICS_PANEL_NAME, GraphicsMode
 from . import devices as devicesModule
@@ -967,7 +969,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				)
 		self._monitors = survivors
 
-	def rehomeMonitor(self, container: DisplayContainer, taken: dict) -> str | None:
+	def rehomeMonitor(self, container: DisplayContainer, taken: Collection[str]) -> str | None:
 		"""Find somewhere for a pin whose segment has gone.
 
 		The first segment in display order that is not the focus, not claimed and not already
@@ -1088,13 +1090,40 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	# Object monitoring
 
 	@property
-	def pins(self) -> dict[str, ObjectMonitor]:
-		"""The reader's pins, by the key of the segment each is on.
+	def pins(self) -> Mapping[str, ObjectMonitor]:
+		"""The reader's pins, by the key of the segment each is on, read only and kept current.
 
-		The plugin's own dictionary, not a copy: a focus move files a pin it carries under its new
-		key here. See `focusDisplays`.
+		Changed through `movePin` and `landPin`.
 		"""
-		return self._monitors
+		return types.MappingProxyType(self._monitors)
+
+	def movePin(self, key: str, home: str) -> ObjectMonitor:
+		"""Move the pin on one segment to another, and file it under its new key.
+
+		Drawn there by the next refresh or rebuild, not by this.
+
+		:param key: the segment the pin is on.
+		:param home: the segment to move it to, which holds no pin.
+		:return: the pin moved.
+		:raises KeyError: if there is no pin on `key`.
+		:raises Exception: whatever the pin raises moving, in which case it stays filed under `key`.
+		"""
+		monitor = self._monitors[key]
+		monitor.moveTo(home)
+		del self._monitors[key]
+		self._monitors[home] = monitor
+		return monitor
+
+	def landPin(self, monitor: ObjectMonitor, home: str) -> None:
+		"""File a pin that is not filed anywhere, on a segment that holds no pin.
+
+		Drawn there by the next refresh, not by this.
+
+		:param monitor: the pin, held aside while the display was rebuilt.
+		:param home: the segment to put it on.
+		"""
+		monitor.moveTo(home)
+		self._monitors[home] = monitor
 
 	@property
 	def monitoredKeys(self) -> set[str]:
@@ -1802,14 +1831,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""Move a table back, on the display the key was pressed on."""
 		self.tables.turnColumnPage(-1, gesture)
 
-	def tablesInColumns(self) -> dict:
+	def tablesInColumns(self) -> dict[str, PagedTable]:
 		""":return: every table laid out in columns, by the key of the segment showing it.
 
 		The band and the pins together, and answering the same two questions — `columnPlan`
 		and `turnColumnPage` — so that a command which found one does not have to know which
 		it found.
 		"""
-		showing = {}
+		showing: dict[str, PagedTable] = {}
 		band = self.flowBand
 		if band is not None and band.columnPlan() is not None:
 			segment = band.segment()

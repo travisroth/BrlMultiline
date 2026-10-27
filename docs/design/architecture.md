@@ -50,8 +50,20 @@ established there.
   feature uses: `PictureHost`, `LayoutHost`, `TableHost`, `FocusHost`, and for the key layers
   `keyLayerContexts.ContextHost`. The plugin fits each one without declaring it. The protocol is
   the feature's dependency on the plugin, written down: when a feature starts using another
-  member of the plugin, add that member to its protocol. Nothing checks this at run time, and the
-  project runs no type checker, so keeping the lists true is up to whoever changes the code.
+  member of the plugin, add that member to its protocol. `test_hostProtocols` reads the source and
+  fails when a feature uses a plugin member its protocol does not list, when a protocol lists one
+  its feature does not use, or when a protocol's member is missing from the plugin or has other
+  parameters there. It checks names and parameters, not types; the strict pyright configuration is
+  not yet clean enough to be a gate.
+
+  A feature changes the plugin's state through the plugin's own operations, never by writing to
+  what it reads: `pins` is a read only view, and a pin moves by `movePin` or `landPin`. The same
+  holds between feature objects and the band: the table commands ask `FlowBand.takeUpSavedLayouts`
+  rather than reset what the band remembers.
+
+  Tests for a feature object's own decisions belong in a file of their own, with a small fake host
+  that has only its protocol's members. The plugin's tests remain for what crosses features and for
+  the scripts themselves.
 
 ## The problem in one paragraph
 

@@ -27,7 +27,16 @@ addonHandler.initTranslation()
 if TYPE_CHECKING:
 	from .container import DisplayContainer
 	from .flowBand import FlowBand
+	from .flowTable import ColumnPlan
 	from .flowTableSource import TableRequest
+
+
+class PagedTable(Protocol):
+	"""A table laid out in columns that pages across them: the flow band's, or a pin's."""
+
+	def columnPlan(self) -> ColumnPlan | None: ...
+
+	def turnColumnPage(self, by: int) -> bool: ...
 
 
 def columnName(column) -> str:
@@ -59,7 +68,7 @@ class TableHost(Protocol):
 
 	def segmentKeysOn(self, driverName: str | None) -> list[str]: ...
 
-	def tablesInColumns(self) -> dict: ...
+	def tablesInColumns(self) -> dict[str, PagedTable]: ...
 
 
 class TableCommands:
@@ -484,15 +493,11 @@ class TableCommands:
 	def _takeUpSavedLayouts(self) -> None:
 		"""Show the table the reader is in the way the saved layouts now say, after the manager changed them.
 
-		The band offers a saved layout once per table, so without this a layout just pointed at this
-		table would not come up until the reader left the table and came back.
+		See `FlowBand.takeUpSavedLayouts`.
 		"""
 		band = self.plugin.flowBand
-		if band is None:
-			return
-		band._layoutOffered = None
-		if not band.clearTable():
-			band.refresh(force=True)
+		if band is not None:
+			band.takeUpSavedLayouts()
 
 	def _tableHere(self):
 		""":return: the table the reader is in, or None, without disturbing anything.
@@ -511,7 +516,7 @@ class TableCommands:
 			logExplanation(obj, "asked about the table the reader is in and found none")
 		return handle
 
-	def tableToPage(self, gesture) -> object:
+	def tableToPage(self, gesture) -> PagedTable | None:
 		""":return: which table a paging command should move, or None if there is none.
 
 		The table on the display whose key was pressed, as the panning keys do; failing that,
