@@ -257,7 +257,7 @@ class TestCommands(PluginTestCase):
 	def test_aProfileThatLosesTheLayerSaysSo(self):
 		keyLayerDispatch.activate(MONARCH, "graphics")
 		bmConfig.setKeyLayerText(MONARCH, keyLayers.LayerSet(MONARCH).toText())
-		self.plugin._reloadKeyLayers()
+		self.plugin.keyLayerCommands.reload()
 		self.assertEqual("Graphics layer off", flashedMessages[-1])
 
 
@@ -360,7 +360,7 @@ class TestDrawingComing(PluginTestCase):
 		self.assertEqual("Table layer on", flashedMessages[-1])
 
 	def test_theDevicesALayerCanComeOnFor(self):
-		self.assertEqual([MONARCH, KEYBOARD], self.plugin.keyLayerDevices())
+		self.assertEqual([MONARCH, KEYBOARD], self.plugin.keyLayerCommands.devices())
 
 
 class TestWhichDisplay(unittest.TestCase):

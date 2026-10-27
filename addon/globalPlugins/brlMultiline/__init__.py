@@ -32,9 +32,7 @@ from scriptHandler import script
 
 from . import (
 	bmConfig,
-	keyLayerContexts,
 	keyLayerDispatch,
-	keyLayers,
 	panning,
 	patches,
 	tableArrows,
@@ -50,6 +48,7 @@ from .appLayoutHost import AppLayoutHost
 from . import image as imageFigure
 from .layoutOverview import LayoutOverview
 from .focusDisplays import FocusDisplayMoves
+from .keyLayerCommands import KeyLayerCommands
 from .pictureCommands import PictureCommands
 from .tableCommands import TableCommands
 from .flowTableSource import TableRequest, wantsColumns
@@ -70,7 +69,6 @@ from .settingsPanel import (
 	BrailleMultilineSettingsPanel,
 	FlowSettingsPanel,
 	VirtualDisplaySettingsPanel,
-	displayDescriptions,
 )
 from .views import (
 	SegmentView,
@@ -140,6 +138,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		self.focusMoves = FocusDisplayMoves(self)
 		"""Which display follows the focus, and moving it there. See `focusDisplays`."""
+
+		self.keyLayerCommands = KeyLayerCommands(self)
+		"""The layered keys commands. See `keyLayerCommands`."""
 
 		self._messageBuffer: MessageBuffer | None = None
 		"""NVDA's flash messages, confined to one segment. Made on the first rebuild.
@@ -1021,25 +1022,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		dropped too, since a profile can change the language.
 		"""
 		glyphFlow.forget()
-		self._reloadKeyLayers()
+		self.keyLayerCommands.reload()
 		self._reportMemberDivergence()
 		self._scheduleRebuild()
-
-	def _reloadKeyLayers(self) -> None:
-		"""Read the layered keys the new profile holds, and say which layer that turned off.
-
-		A layer that is on stays on if the new profile still has it; otherwise it goes off and
-		the reader is told.
-		"""
-		try:
-			gone = keyLayerDispatch.reload()
-		except Exception:
-			log.error("BrlMultiline: could not read the layered keys after a profile switch", exc_info=True)
-			return
-		for _device, layer in gone:
-			# Translators: reported when a profile switch removes the layer of keys that was on. The
-			# placeholder is its name.
-			ui.message(_("{name} layer off").format(name=keyLayerDispatch.layerName(layer)))
 
 	def _reportMemberDivergence(self) -> None:
 		"""Say so in the log when the configured members are not the ones the composite opened for.
@@ -1098,7 +1083,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._rebuildPending = False
 		# A display that reconnected while a drawing is up, or a profile whose layers were just read,
 		# can each change which layers should be on without the drawing changing. Both come here.
-		self.reconcileKeyLayers()
+		self.keyLayerCommands.reconcile()
 
 	# Object monitoring
 
@@ -1645,7 +1630,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			else _("Lines wrap"),
 		)
 		# Its layer of keys comes and goes with it. See `keyLayerContexts`.
-		self.reconcileKeyLayers()
+		self.keyLayerCommands.reconcile()
 
 	@script(
 		# Translators: input help message for a command.
@@ -2136,15 +2121,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self.cancelPendingDrawings()
 		# Collected rather than spoken, so the layers the drawing brought or took with it are said in
 		# the same message as the drawing, once.
-		self._layerChangesToSay = []
-		try:
+		with self.keyLayerCommands.collectingChanges() as changes:
 			if mode.active:
 				mode.leave()
 				entered = None
 			else:
 				entered = mode.enter()
-		finally:
-			changes, self._layerChangesToSay = self._layerChangesToSay, None
 		if entered is None:
 			# Translators: reported when a drawing is taken off the display.
 			ui.message(", ".join([_("Drawing off"), *changes]))
@@ -2619,60 +2601,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		gestures=["br(brlMultilineMonarch):space+dot1+dot2+dot3+dot7", "kb:NVDA+control+shift+l"],
 	)
 	def script_keyLayerToggle(self, gesture):
-		self.toggleKeyLayer(keyLayerDispatch.deviceFor(gesture))
-
-	_layerChangesToSay: list | None = None
-	"""While a command is putting a drawing up or taking it off, the layers that came or went with it,
-	to say in its message."""
+		self.keyLayerCommands.toggle(keyLayerDispatch.deviceFor(gesture))
 
 	def onGraphicsChanged(self) -> None:
 		"""What is drawn changed. Called by `GraphicsMode` whenever a figure goes up, comes down, is
 		replaced or is evicted."""
-		self.reconcileKeyLayers()
-
-	def reconcileKeyLayers(self) -> None:
-		"""Turn off the layers whose drawing has gone, turn on the ones that come on by themselves for
-		what is drawn now, and say so. See `keyLayerDispatch.reconcile`.
-
-		Also after a profile switch and a display reconnecting, which is why it is not only for graphics
-		changes. Tables are not looked for here; see `keyLayerContexts`.
-		"""
-		try:
-			present = keyLayerContexts.presentContexts(self, tables=False)
-			ended, started = keyLayerDispatch.reconcile(
-				present, self.keyLayerDevices(), keyLayerContexts.DETECTED
-			)
-		except Exception:
-			log.error("BrlMultiline: could not change the layers for a drawing", exc_info=True)
-			return
-		words = []
-		for _device, layer in ended:
-			# Translators: reported when a layer of keys is turned off. The placeholder is its name.
-			said = _("{name} layer off").format(name=keyLayerDispatch.layerName(layer))
-			if said not in words:
-				words.append(said)
-		for _device, layer in started:
-			# Translators: reported when a layer of keys is turned on. The placeholder is its name.
-			said = _("{name} layer on").format(name=keyLayerDispatch.layerName(layer))
-			if said not in words:
-				words.append(said)
-		if not words:
-			return
-		if self._layerChangesToSay is not None:
-			self._layerChangesToSay.extend(words)
-		else:
-			# After whatever the command that changed the drawing says, rather than before it: a chart
-			# is described and then its layer is named, not the other way round.
-			wx.CallAfter(ui.message, ", ".join(words))
-
-	def keyLayerDevices(self) -> list[str]:
-		""":return: the devices a layer can come on for: every connected braille display, and the keyboard."""
-		names = [info.driverName for info in deviceMap()]
-		if not names:
-			display = braille.handler.display if braille.handler else None
-			if display is not None and display.name != "noBraille":
-				names = [display.name]
-		return [*names, keyLayers.KEYBOARD]
+		self.keyLayerCommands.reconcile()
 
 	def _addKeyLayersMenuItem(self):
 		"""Put the layered keys dialog in NVDA's Preferences menu, after Input Gestures.
@@ -2805,24 +2739,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		wx.CallAfter(keyLayerDialog.openDialog)
 
-	def toggleKeyLayer(self, device: str | None) -> None:
-		"""Turn a device's layer off, or turn on the one for what is on the display, and say which.
-
-		:param device: a braille display's driver name, or `keyboard`.
-		"""
-		if device is None:
-			# Translators: reported when the layer key is pressed on something that cannot have layers.
-			ui.message(_("No layers for this key"))
-			return
-		isOn, layer = keyLayerDispatch.toggle(device, keyLayerContexts.presentContexts(self, device=device))
-		name = keyLayerDispatch.layerName(layer)
-		if isOn:
-			# Translators: reported when a layer of keys is turned on. The placeholder is its name.
-			ui.message(_("{name} layer on").format(name=name))
-		else:
-			# Translators: reported when a layer of keys is turned off. The placeholder is its name.
-			ui.message(_("{name} layer off").format(name=name))
-
 	@script(
 		# Translators: input help message for a command.
 		description=_("Layered keys: Chooses which layer is on for the device it is pressed on"),
@@ -2830,44 +2746,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	)
 	@gui.blockAction.when(gui.blockAction.Context.MODAL_DIALOG_OPEN)
 	def script_keyLayerChoose(self, gesture):
-		device = keyLayerDispatch.deviceFor(gesture)
-		if device is None:
-			ui.message(_("No layers for this key"))
-			return
-		layers = list(keyLayerDispatch.layerSet(device).layers)
-		active = keyLayerDispatch.activeLayer(device)
-		current = next(
-			(index for index, layer in enumerate(layers) if active is not None and layer.id == active.id),
-			0,
-		)
-		deviceName = self._keyLayerDeviceName(device)
-
-		def ask():
-			gui.mainFrame.prePopup()
-			try:
-				dialog = wx.SingleChoiceDialog(
-					gui.mainFrame,
-					# Translators: the message of a dialog asking which layer of keys to turn on. The
-					# placeholder is the display, or keyboard.
-					_("Which layer should be on for {device}?").format(device=deviceName),
-					# Translators: the title of a dialog asking which layer of keys to turn on.
-					_("Choose a layer"),
-					[keyLayerDispatch.layerName(layer) for layer in layers],
-				)
-				try:
-					dialog.SetSelection(current)
-					if dialog.ShowModal() != wx.ID_OK:
-						return
-					chosen = dialog.GetSelection()
-				finally:
-					dialog.Destroy()
-			finally:
-				gui.mainFrame.postPopup()
-			if 0 <= chosen < len(layers):
-				layer = keyLayerDispatch.activate(device, layers[chosen].id)
-				ui.message(_("{name} layer on").format(name=keyLayerDispatch.layerName(layer)))
-
-		wx.CallAfter(ask)
+		self.keyLayerCommands.choose(keyLayerDispatch.deviceFor(gesture))
 
 	@script(
 		# Translators: input help message for a command.
@@ -2875,22 +2754,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		category=SCRIPT_CATEGORY,
 	)
 	def script_keyLayerReport(self, gesture):
-		on = keyLayerDispatch.activeLayers()
-		if not on:
-			# Translators: reported when no layer of keys is on.
-			ui.message(_("No layers on"))
-			return
-		ui.message(
-			", ".join(
-				# Translators: one layer of keys that is on, in a report of them. Placeholders are
-				# the layer's name and the display it is on, or keyboard.
-				_("{name} layer on {device}").format(
-					name=keyLayerDispatch.layerName(layer),
-					device=self._keyLayerDeviceName(device),
-				)
-				for device, layer in on
-			),
-		)
+		self.keyLayerCommands.report()
 
 	@script(
 		# Translators: input help message for a command.
@@ -2898,18 +2762,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		category=SCRIPT_CATEGORY,
 	)
 	def script_keyLayersOff(self, gesture):
-		if keyLayerDispatch.allOff():
-			# Translators: reported when every layer of keys is turned off.
-			ui.message(_("All layers off"))
-		else:
-			ui.message(_("No layers on"))
-
-	def _keyLayerDeviceName(self, device: str) -> str:
-		""":return: what to call a device with layers when speaking of it."""
-		if device == keyLayers.KEYBOARD:
-			# Translators: the keyboard, as a device that has layers of keys.
-			return _("keyboard")
-		return displayDescriptions().get(device, device)
+		self.keyLayerCommands.turnAllOff()
 
 	@script(
 		# Translators: input help message for a command.
@@ -3135,7 +2988,7 @@ def _makeDisplayKeyLayerScript(displayOrdinal: int):
 			# no such display. The placeholder is its name.
 			ui.message(_("There is no {display}").format(display=_displayName(displayOrdinal)))
 			return
-		self.toggleKeyLayer(device)
+		self.keyLayerCommands.toggle(device)
 
 	# Translators: input help message for a command. The placeholder is the name of one of the
 	# combined displays.
