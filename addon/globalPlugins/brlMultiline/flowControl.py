@@ -29,6 +29,7 @@ The controller also owns the two things a flow must be exact about:
 
 import contextlib
 import dataclasses
+import enum
 from typing import TYPE_CHECKING, Any, Optional
 
 from logHandler import log
@@ -95,6 +96,19 @@ def rowText(region, rendered, rowIndex: int) -> str:
 	except IndexError:
 		return raw
 	return raw[start:end]
+
+
+class Arrival(enum.Enum):
+	"""What `FlowController._arrive` found when it brought the window to the reader."""
+
+	CHANGED = "changed"
+	"""The window moved, or the band was read again."""
+
+	UNCHANGED = "unchanged"
+	"""The reader was already on the display, so nothing moved."""
+
+	NOTHING = "nothing"
+	"""There was nothing to read, so nothing is on the display."""
 
 
 class FlowController(PanelOwner):
@@ -1642,7 +1656,7 @@ class FlowController(PanelOwner):
 
 	def _followCursor(self, ground: bool = False) -> bool:
 		""":return: whether anything changed. See `followCursor`."""
-		return bool(self._arrive(ground=ground))
+		return self._arrive(ground=ground) is Arrival.CHANGED
 
 	def arriveAt(self, atObject=None, ground: bool = False) -> bool:
 		"""Answer the reader arriving somewhere in the document already being read.
@@ -1658,13 +1672,10 @@ class FlowController(PanelOwner):
 		:return: whether anything is on the display.
 		"""
 		with self.operation():
-			return self._arrive(atObject=atObject, ground=ground) is not None
+			return self._arrive(atObject=atObject, ground=ground) is not Arrival.NOTHING
 
-	def _arrive(self, atObject=None, ground: bool = False) -> Optional[bool]:
-		"""Find where the reader is now and bring the window to it.
-
-		:return: whether the window moved, or None if there was nothing to read.
-		"""
+	def _arrive(self, atObject=None, ground: bool = False) -> Arrival:
+		"""Find where the reader is now and bring the window to it."""
 		if self._writing():
 			return self._readAgainWhileWriting(ground=ground)
 		if self._documentMovedUnderTheBand():
@@ -1672,15 +1683,15 @@ class FlowController(PanelOwner):
 			if not self._readAgainWhereTheDocumentMoved(why="the reader arriving", atObject=atObject):
 				# Their row was not on the band, so the band is placed afresh around them.
 				self.source.forget()
-				return True if self._placeAfresh(atObject) else None
+				return Arrival.CHANGED if self._placeAfresh(atObject) else Arrival.NOTHING
 		result = self.source.blockAtCursor(atObject)
 		self.lastResult = result
 		if result.kind is not ResultKind.BLOCK or result.block is None:
-			return None
+			return Arrival.NOTHING
 		blockId = result.block.blockId
 		forward = self._isForward(blockId)
 		if not self.window.hasBlock(blockId) and not self._reach(blockId, forward):
-			return True if self._placeAfresh(atObject) else None
+			return Arrival.CHANGED if self._placeAfresh(atObject) else Arrival.NOTHING
 		# Asked again. The first answer was a guess, because the block was not in the window
 		# yet; now that it is, the direction is measured, and the window is placed by that.
 		forward = self._isForward(blockId)
@@ -1697,7 +1708,7 @@ class FlowController(PanelOwner):
 			if ground
 			else self.syncToCursor(forward=forward, why="the reader arriving")
 		)
-		return moved
+		return Arrival.CHANGED if moved else Arrival.UNCHANGED
 
 	def _placeAfresh(self, atObject) -> bool:
 		"""Put the band around the reader, after reaching for them failed.
@@ -1732,7 +1743,7 @@ class FlowController(PanelOwner):
 		""":return: whether the reader is typing into the document this flow reads."""
 		return bool(self.live and getattr(self.source, "writing", False))
 
-	def _readAgainWhileWriting(self, ground: bool = False) -> Optional[bool]:
+	def _readAgainWhileWriting(self, ground: bool = False) -> Arrival:
 		"""Read the whole band again from the caret, keeping it on the row it was on.
 
 		Typing moves the offsets every block position is, so while the reader is writing a
@@ -1743,7 +1754,7 @@ class FlowController(PanelOwner):
 		docs/design/spatial-reading-plan.md, Following the cursor.
 
 		:param ground: put the caret's block on the top row instead.
-		:return: whether anything is on the display, in the shape `_arrive` answers with.
+		:return: CHANGED, or NOTHING if nothing could be read. See `Arrival`.
 		"""
 		if not ground and self._caretIsWhereThePanLeftIt():
 			# The caret's line can still change, as with forward Delete, so its block is read
@@ -1755,7 +1766,7 @@ class FlowController(PanelOwner):
 					"a keystroke while writing: the caret is where the pan left it, "
 					"so only its own row was read again"
 				)
-				return True
+				return Arrival.CHANGED
 			# The caret's row changed length, so every position after it moved and the whole
 			# band is read again. The top row is the one the reader panned to, so it is
 			# trusted even if it is the caret's own block. See `_restoreTop`.
@@ -1766,13 +1777,13 @@ class FlowController(PanelOwner):
 			return self._readAgainKeeping(self.window.topBlockId(), trusted=True)
 		return self._readAgainKeeping(self._stableTop(), ground=ground)
 
-	def _readAgainKeeping(self, topId, ground: bool = False, trusted: bool = False) -> Optional[bool]:
+	def _readAgainKeeping(self, topId, ground: bool = False, trusted: bool = False) -> Arrival:
 		"""Read the band again from the caret, and put it back under a chosen top row.
 
 		:param topId: the block to anchor the band under again, or None to let the caret lead.
 		:param ground: put the caret's block on the top row instead.
 		:param trusted: whether that top may be the caret's own block. See `_restoreTop`.
-		:return: whether anything is on the display, in the shape `_arrive` answers with.
+		:return: CHANGED, or NOTHING if nothing could be read. See `Arrival`.
 		"""
 		# Nothing the source cached about this document can be trusted after an edit. The top
 		# block is found again by value, since a block id compares by where it starts.
@@ -1780,12 +1791,12 @@ class FlowController(PanelOwner):
 		# Without filling, because the window is moved first and filled once at the end.
 		if not self._enterAtCursor(fill=False):
 			self._writingTop = None
-			return None
+			return Arrival.NOTHING
 		self.rereadWhileWriting = True
 		if ground:
 			self._writingTop = None
 			self._pannedCaret = ()
-			return True
+			return Arrival.CHANGED
 		if self._restoreTop(topId, trusted=trusted):
 			self._writingTop = topId
 			why = "a keystroke while writing, put back under the row the band had"
@@ -1796,7 +1807,7 @@ class FlowController(PanelOwner):
 		self.fill()
 		# `why` names which branch ran, for the move history.
 		self.syncToCursor(forward=True, why=why)
-		return True
+		return Arrival.CHANGED
 
 	def _stableTop(self):
 		"""The block the band's top row should be put back under, or None for no claim.
