@@ -54,7 +54,7 @@ class LayoutOverviewLiveRegressions(unittest.TestCase):
 		found = next(r for r in page.walk() if r.node is form)
 		self.assertEqual(found.fields, 3)
 		self.assertEqual(
-			found.kind, "form", "The authoritative form role was ignored without xml-roles=form."
+			found.kind, "form", "The authoritative form role was ignored without xml-roles=form.",
 		)
 
 	def test_uncovered_blocks_keep_their_sampled_field_and_button_counts(self):

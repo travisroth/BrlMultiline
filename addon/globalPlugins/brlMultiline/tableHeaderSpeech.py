@@ -165,7 +165,8 @@ def tableHere() -> Optional[Here]:
 			return None
 		except Exception:
 			log.debugWarning(
-				"BrlMultiline: could not find the table at the browse mode cursor", exc_info=True
+				"BrlMultiline: could not find the table at the browse mode cursor",
+				exc_info=True,
 			)
 			return None
 		tableID = _key(getattr(cell, "tableID", None))
@@ -374,7 +375,8 @@ def _withoutSilencedHeaders(original):
 				# that should not have been costs far less than a cell not spoken at all.
 				# Including a cancelled call, which is the application not answering.
 				log.debugWarning(
-					"BrlMultiline: could not tell whether a table's headers are silenced", exc_info=True
+					"BrlMultiline: could not tell whether a table's headers are silenced",
+					exc_info=True,
 				)
 				drop = ()
 			if drop:

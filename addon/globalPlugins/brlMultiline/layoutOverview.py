@@ -21,7 +21,16 @@ import api
 import ui
 from logHandler import log
 
-from . import appCollect, appRegions, glyphFlow, glyphs, graphicsMode, layoutCollect, layoutDraw, layoutRegions
+from . import (
+	appCollect,
+	appRegions,
+	glyphFlow,
+	glyphs,
+	graphicsMode,
+	layoutCollect,
+	layoutDraw,
+	layoutRegions,
+)
 from .graphics import findSurface
 
 addonHandler.initTranslation()
@@ -162,7 +171,11 @@ class LayoutOverview:
 		"""
 		self.plugin.cancelPendingDrawings()
 		document = getattr(api.getFocusObject(), "treeInterceptor", None)
-		if document is None or not hasattr(document, "_iterNodesByType") or not hasattr(document, "VBufHandle"):
+		if (
+			document is None
+			or not hasattr(document, "_iterNodesByType")
+			or not hasattr(document, "VBufHandle")
+		):
 			self._drawWindow(view)
 			return
 		if not getattr(document, "isReady", True):
@@ -228,7 +241,9 @@ class LayoutOverview:
 		try:
 			if app:
 				page = appRegions.findAppRegions(
-					payload["window"], payload.get("windowRect"), (payload.get("focus") or {}).get("path")
+					payload["window"],
+					payload.get("windowRect"),
+					(payload.get("focus") or {}).get("path"),
 				)
 				viewport = page.box
 				# A window does not scroll: its whole is what is on screen.

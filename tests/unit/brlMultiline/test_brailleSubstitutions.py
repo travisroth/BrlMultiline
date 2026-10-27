@@ -162,7 +162,7 @@ class TestRulesText(unittest.TestCase):
 
 	def test_aDotsEntryKeepsItsCharacterWhicheverProfileIsInForce(self):
 		withOffice = bs.rulesText(
-			[Substitution("x", DOTS, "1", profiles=("Office",))] + self.ENTRIES[4:5], ["Office"]
+			[Substitution("x", DOTS, "1", profiles=("Office",))] + self.ENTRIES[4:5], ["Office"],
 		)
 		without = bs.rulesText([Substitution("x", DOTS, "1", profiles=("Office",))] + self.ENTRIES[4:5], [])
 		self.assertIn("\\yf0001", withOffice)
@@ -205,7 +205,7 @@ class TestClash(unittest.TestCase):
 
 	def test_aDisabledEntryDoesNotClash(self):
 		self.assertIsNone(
-			bs.clash([Substitution("x", TEXT, "1"), Substitution("x", TEXT, "2", enabled=False)])
+			bs.clash([Substitution("x", TEXT, "1"), Substitution("x", TEXT, "2", enabled=False)]),
 		)
 
 
@@ -298,7 +298,7 @@ class TestStore(unittest.TestCase):
 
 	def test_aPersonalTableStoredTwiceIsKeptOnce(self):
 		text = json.dumps(
-			{"version": 2, "entries": [], "tables": [{"base": "es-g1.ctb"}, {"base": "es-g1.ctb"}]}
+			{"version": 2, "entries": [], "tables": [{"base": "es-g1.ctb"}, {"base": "es-g1.ctb"}]},
 		)
 		stored = bs.fromText(text)
 		self.assertEqual(len(stored.tables), 1)
@@ -312,7 +312,7 @@ class TestStore(unittest.TestCase):
 			{
 				"version": 1,
 				"entries": [{"match": "a"}, {"kind": "text"}, "nonsense", {"match": "b", "kind": "?"}],
-			}
+			},
 		)
 		stored = bs.fromText(text)
 		self.assertEqual(stored.entries, [Substitution("a")])

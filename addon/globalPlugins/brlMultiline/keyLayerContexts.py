@@ -156,7 +156,8 @@ def _inTable(plugin) -> bool:
 		return _caretInTable()
 	except Exception:
 		log.debugWarning(
-			"BrlMultiline key layers: could not tell whether the caret is in a table", exc_info=True
+			"BrlMultiline key layers: could not tell whether the caret is in a table",
+			exc_info=True,
 		)
 		return False
 

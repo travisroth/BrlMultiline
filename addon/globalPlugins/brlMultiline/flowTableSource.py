@@ -358,9 +358,7 @@ class TableRow(Region):
 		# would be describing separators rather than content.
 		return self.separator.join(
 			said
-			for said in (
-				_sliceByBraille(self.cellFor(column).region, offsets) for column, offsets in runs
-			)
+			for said in (_sliceByBraille(self.cellFor(column).region, offsets) for column, offsets in runs)
 			if said
 		)
 

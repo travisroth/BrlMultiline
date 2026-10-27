@@ -359,9 +359,7 @@ def buildTheTable(
 	# **Measured the way it will be drawn.** A column the reader has asked for without capital
 	# signs is two cells narrower than its text says, and measuring it with them would size it
 	# for the cells the setting exists to save. See `flowTableSource.withoutCapitals`.
-	plainCase = frozenset(
-		column for column, choice in (saved.perColumn or {}).items() if choice.plainCase
-	)
+	plainCase = frozenset(column for column, choice in (saved.perColumn or {}).items() if choice.plainCase)
 	try:
 		everything = flowTableSource.measure(handle, live=False, plainCase=plainCase)
 	except CallCancelled:
@@ -644,7 +642,7 @@ def buildController(
 		result = control.lastResult
 		kind = getattr(getattr(result, "kind", None), "value", "no answer")
 		notes.append(
-			f"The source could not give the block at the cursor: {kind} {getattr(result, 'message', '')}"
+			f"The source could not give the block at the cursor: {kind} {getattr(result, 'message', '')}",
 		)
 		return None
 	return control

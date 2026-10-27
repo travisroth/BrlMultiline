@@ -84,7 +84,7 @@ class TestAnOrdinaryDisplay(harness.PluginTestCase):
 				side_effect=lambda monitor: monitor if monitor.name.startswith("doc") else None,
 			),
 			mock.patch.object(
-				harness.plugin.keyLayerDispatch, "displayFor", side_effect=lambda gesture: self.display
+				harness.plugin.keyLayerDispatch, "displayFor", side_effect=lambda gesture: self.display,
 			),
 		]
 		for patcher in patchers:
@@ -93,7 +93,7 @@ class TestAnOrdinaryDisplay(harness.PluginTestCase):
 
 	def test_theLayerKeyFindsAPinnedDocument(self):
 		self.assertIn(
-			"pinned", keyLayerContexts.presentContexts(self.plugin, tables=False, device=self.display)
+			"pinned", keyLayerContexts.presentContexts(self.plugin, tables=False, device=self.display),
 		)
 
 	def test_panningAnotherPinChoosesIt(self):

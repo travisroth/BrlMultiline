@@ -75,7 +75,7 @@ class StoreTestCase(unittest.TestCase):
 		self.tablesDir.start()
 		self.profiles = [Profile(None)]
 		self.conf = mock.patch.object(
-			userBrailleTable.config, "conf", types.SimpleNamespace(profiles=self.profiles)
+			userBrailleTable.config, "conf", types.SimpleNamespace(profiles=self.profiles),
 		)
 		self.conf.start()
 		userBrailleTable._store = None
@@ -236,7 +236,7 @@ class TestApplying(StoreTestCase):
 	def test_aCommitWhoseRulesCannotBeWrittenSaysSoAndCanBeTriedAgain(self):
 		userBrailleTable.install(lambda: None)
 		with mock.patch.object(
-			userBrailleTable, "_writeReplacing", wraps=userBrailleTable._writeReplacing
+			userBrailleTable, "_writeReplacing", wraps=userBrailleTable._writeReplacing,
 		) as write:
 			# The list saves; the rules file does not.
 			write.side_effect = [None, OSError("in use")]
@@ -355,7 +355,7 @@ class TestRefusals(unittest.TestCase):
 
 	def test_messagesAboutOtherFilesAreNotRefusals(self):
 		self.assertEqual(
-			userBrailleTable._refusalsFrom(["en-us-g2.ctb:3: error: x", "1 errors found."], ""), []
+			userBrailleTable._refusalsFrom(["en-us-g2.ctb:3: error: x", "1 errors found."], ""), [],
 		)
 
 

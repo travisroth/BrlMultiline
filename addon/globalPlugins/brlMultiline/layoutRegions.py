@@ -562,7 +562,8 @@ def _widgets(region: Region) -> None:
 		kept = []
 		for c in region.children:
 			holder = _isPlainWrapper(c) and next(
-				(w for w in added if w.box.intersection(c.box) == c.box), None
+				(w for w in added if w.box.intersection(c.box) == c.box),
+				None,
 			)
 			if holder:
 				holder.children.extend(_meaningfulWithin(c))
@@ -972,8 +973,14 @@ def _regions(node: Node, viewport: Box) -> list[Region]:
 		# A search field or button is small but always worth a box; the drawing grows it.
 		return [
 			Region(
-				"search", label or "", node.box, source or "search", node.links, node=node, start=node.start
-			)
+				"search",
+				label or "",
+				node.box,
+				source or "search",
+				node.links,
+				node=node,
+				start=node.start,
+			),
 		]
 	if node.role not in CONTAINER_ROLES:
 		return children
@@ -1003,7 +1010,7 @@ def _regions(node: Node, viewport: Box) -> list[Region]:
 			children,
 			node,
 			start=node.start,
-		)
+		),
 	]
 
 
@@ -1560,7 +1567,11 @@ def _landmarkTree(records: list[dict[str, Any]], leaves: list[dict[str, Any]]) -
 			items.append((r["start"], r["end"], node))
 		elif kind.startswith("heading"):
 			node = Node(
-				"heading", _rect(r["rect"]), name=r.get("label") or "", start=r["start"], ident=_ident(r)
+				"heading",
+				_rect(r["rect"]),
+				name=r.get("label") or "",
+				start=r["start"],
+				ident=_ident(r),
 			)
 			items.append((r["start"], r["start"], node))
 		elif kind in ("tab", "toggle"):

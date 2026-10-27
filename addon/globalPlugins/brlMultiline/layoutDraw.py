@@ -356,7 +356,14 @@ def compose(
 		chosen = [(r, d) for r, d in chosen if r is not dropped and _parentOf(r, chosen) is not dropped]
 	drawn = {id(b.region) for b in _walkBoxes(boxes)}
 	overview = Overview(
-		buffer, boxes, window, places, whole, xs, ys, [r for r in wanted if id(r) not in drawn]
+		buffer,
+		boxes,
+		window,
+		places,
+		whole,
+		xs,
+		ys,
+		[r for r in wanted if id(r) not in drawn],
 	)
 	_label(overview, labels, keys if keys is not None else {})
 	style = style or CountStyle()
@@ -478,7 +485,10 @@ def _layout(
 			# falls outside it altogether is not drawn, rather than stretched to fill the parent
 			# and drawn as though it were all of it.
 			inner = Box(
-				parent.rect.left + 1, parent.rect.top + 1, parent.rect.width - 2, parent.rect.height - 2
+				parent.rect.left + 1,
+				parent.rect.top + 1,
+				parent.rect.width - 2,
+				parent.rect.height - 2,
 			)
 			fitted = rect.intersection(inner)
 			if fitted is None:
@@ -521,7 +531,7 @@ def _choose(
 
 #: The kinds of area drawn however deep they are found.
 MAJOR_KINDS = frozenset(
-	("form", "search", "tabs", "accordion", "navigation", "complementary", "region", "main")
+	("form", "search", "tabs", "accordion", "navigation", "complementary", "region", "main"),
 )
 
 

@@ -173,7 +173,9 @@ def lineChart(
 	# A value that is not a number becomes a gap, which is what it is: a point the source could
 	# not give. A gap breaks the line and reads as one, where an error cell drawn as a number
 	# would read as a price.
-	lines = [line._replace(values=[value if isFinite(value) else None for value in line.values]) for line in lines]
+	lines = [
+		line._replace(values=[value if isFinite(value) else None for value in line.values]) for line in lines
+	]
 	lines = [line for line in lines if any(value is not None for value in line.values)]
 	if not lines:
 		# Translators: reported when a chart was asked for with no numbers to chart.
@@ -256,7 +258,12 @@ def _compose(
 	thick = len(lines) >= THICK_FROM
 	for index in shown:
 		_drawLine(
-			buffer, lines[index], columns, scale, PATTERNS[index % len(PATTERNS)][1], thick and not index
+			buffer,
+			lines[index],
+			columns,
+			scale,
+			PATTERNS[index % len(PATTERNS)][1],
+			thick and not index,
 		)
 	if textRows:
 		writeFrame(
@@ -650,7 +657,8 @@ def _describer(
 				# Translators: one line's reading on a line chart. Placeholders are the series'
 				# name and its value there.
 				_("{name} {value}").format(
-					name=lines[index].name, value=numberText(lines[index].values[point])
+					name=lines[index].name,
+					value=numberText(lines[index].values[point]),
 				)
 				for _distance, index, point in hits
 			)
@@ -808,6 +816,6 @@ def _chartName(
 	if labels:
 		# Translators: part of the name of a line chart: the first and last of its points.
 		parts.append(
-			_("{first} to {last}").format(first=_labelAt(labels, 0), last=_labelAt(labels, count - 1))
+			_("{first} to {last}").format(first=_labelAt(labels, 0), last=_labelAt(labels, count - 1)),
 		)
 	return ", ".join(parts)

@@ -90,7 +90,7 @@ class EditorTestCase(unittest.TestCase):
 			DEVICES,
 			read,
 			lambda device: LayerSet(
-				device, (newLayer(device, DEFAULT_ID, bindings={monarch("zoomIn"): SAY_LINE.target}),)
+				device, (newLayer(device, DEFAULT_ID, bindings={monarch("zoomIn"): SAY_LINE.target}),),
 			),
 			COMMANDS,
 			describeKey=lambda identifier: f"<{identifier}>",
@@ -131,7 +131,7 @@ class TestSelecting(EditorTestCase):
 class TestTree(EditorTestCase):
 	def test_eachCommandListsItsKeysInThisLayer(self):
 		self.assertEqual(
-			[f"<{monarch('leftDpadDown')}>"], [key.name for key in self.node(SAY_LINE.name).keys]
+			[f"<{monarch('leftDpadDown')}>"], [key.name for key in self.node(SAY_LINE.name).keys],
 		)
 		self.assertEqual([], self.node(PAN_UP.name).keys)
 		self.editor.selectLayer("graphics")
@@ -183,7 +183,7 @@ class TestTree(EditorTestCase):
 			category for category in self.editor.categories() if category.name == self.editor.emulatedCategory
 		)
 		self.assertEqual(
-			["<kb:downarrow>", dialog.PROMPT], [node.command.name for node in emulated.commands]
+			["<kb:downarrow>", dialog.PROMPT], [node.command.name for node in emulated.commands],
 		)
 
 	def test_aKeyActingForADisplaySaysWhich(self):
@@ -228,7 +228,7 @@ class TestKeys(EditorTestCase):
 	def test_aRefusedChangeLeavesTheOldKey(self):
 		with self.assertRaises(ValueError):
 			self.editor.add(
-				SAY_LINE, monarch("space+dot1+dot2+dot3+dot7"), replacing=monarch("leftDpadDown")
+				SAY_LINE, monarch("space+dot1+dot2+dot3+dot7"), replacing=monarch("leftDpadDown"),
 			)
 		self.assertIn(monarch("leftDpadDown"), self.editor.layer.bindings)
 
@@ -275,7 +275,7 @@ class TestKeysFromBelow(EditorTestCase):
 	def test_keysFromBelowAreListedWithWhereTheyComeFrom(self):
 		pan = self.node(PAN_UP.name).keys
 		self.assertEqual(
-			[(monarch("leftDpadUp"), "Graphics")], [(key.identifier, key.fromLayer) for key in pan]
+			[(monarch("leftDpadUp"), "Graphics")], [(key.identifier, key.fromLayer) for key in pan],
 		)
 		self.assertEqual(f"<{monarch('leftDpadUp')}> (from Graphics layer)", pan[0].name)
 		say = {key.identifier: key.fromLayer for key in self.node(SAY_LINE.name).keys}
@@ -289,7 +289,7 @@ class TestKeysFromBelow(EditorTestCase):
 				for category in self.editor.categories()
 				for node in category.commands
 				for key in node.keys
-			)
+			),
 		)
 
 	def test_aKeyFromBelowTakenForAnotherCommandSaysWhereItCameFrom(self):
@@ -368,7 +368,7 @@ class TestLayers(EditorTestCase):
 		self.editor.setProperties("Named", "graphics", True, STAYS_ON, "graphics", ())
 		layer = self.editor.layer
 		self.assertEqual(
-			("", None, None, STAYS_ON), (layer.name, layer.context, layer.fallsThrough, layer.style)
+			("", None, None, STAYS_ON), (layer.name, layer.context, layer.fallsThrough, layer.style),
 		)
 
 	def test_aLayerCannotFallThroughToItselfOrTheDefault(self):
@@ -411,7 +411,7 @@ class TestGathering(unittest.TestCase):
 	def test_devicesAreConnectedThenTheKeyboardThenSavedOnes(self):
 		labels = {MONARCH: "Monarch", "handyTech": "Handy Tech"}
 		choices = dialog.deviceChoices(
-			[MONARCH, "noBraille"], [KEYBOARD, "handyTech", MONARCH], lambda name: labels.get(name, name)
+			[MONARCH, "noBraille"], [KEYBOARD, "handyTech", MONARCH], lambda name: labels.get(name, name),
 		)
 		self.assertEqual(
 			[(MONARCH, True), (KEYBOARD, True), ("handyTech", False)],
@@ -421,10 +421,10 @@ class TestGathering(unittest.TestCase):
 
 	def test_commandsAreInputGesturesOwnLessEmulations(self):
 		info = types.SimpleNamespace(
-			moduleName="globalCommands", className="GlobalCommands", scriptName="sayAll"
+			moduleName="globalCommands", className="GlobalCommands", scriptName="sayAll",
 		)
 		emulation = types.SimpleNamespace(
-			moduleName="globalCommands", className="GlobalCommands", scriptName="kb:tab"
+			moduleName="globalCommands", className="GlobalCommands", scriptName="kb:tab",
 		)
 		mappings = {"System caret": {"Say all": info, "tab": emulation}, "Emulated": {"tab": emulation}}
 		commands = dialog.commandsFromMappings(mappings, "Emulated")
@@ -461,7 +461,7 @@ class TestGathering(unittest.TestCase):
 
 		commands = dialog.memberCommands([(FocusDriver(), "Focus 80")], [], "Miscellaneous")
 		self.assertEqual(
-			["Cycles what the wiz wheel does (Focus 80)"], [command.name for command in commands]
+			["Cycles what the wiz wheel does (Focus 80)"], [command.name for command in commands],
 		)
 		self.assertEqual("Braille", commands[0].category)
 		again = dialog.memberCommands([(FocusDriver(), "Focus 80")], commands, "Miscellaneous")

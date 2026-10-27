@@ -302,7 +302,7 @@ class TestReachingIntoALongParagraph(unittest.TestCase):
 
 		BrailleBufferSegment._calculateWindowRowBufferOffsets = cut
 		self.addCleanup(
-			setattr, BrailleBufferSegment, "_calculateWindowRowBufferOffsets", original
+			setattr, BrailleBufferSegment, "_calculateWindowRowBufferOffsets", original,
 		)
 		return counted
 

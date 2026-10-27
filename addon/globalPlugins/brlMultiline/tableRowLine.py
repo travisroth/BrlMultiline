@@ -102,7 +102,8 @@ def adopt(region) -> bool:
 		region.__class__ = TableRowLineRegion
 	except TypeError:
 		log.debugWarning(
-			"BrlMultiline: a browse mode region could not be made to read table rows", exc_info=True
+			"BrlMultiline: a browse mode region could not be made to read table rows",
+			exc_info=True,
 		)
 		return False
 	return True

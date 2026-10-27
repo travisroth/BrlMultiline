@@ -1,7 +1,7 @@
 # BrlMultiline
 
 * Author: Travis Roth
-* NVDA compatibility: 2026.3 and later. 
+* NVDA compatibility: 2026.3 and later.
 * Download: development version
 
 BrlMultiline is an NVDA add-on for getting more out of a multi-line braille display, or out
@@ -50,8 +50,8 @@ build this into NVDA itself.
 
 ## Compatibility Warning
 
-BrlMultiline patches parts of NVDA's core Braille handling. Other popular Braille add-ons including BrailleExtender and Braille Essentials also use the technique. Running these add-ons together has not been tested and is likely to conflict or one add-on override another add-on's work. 
-If you use one of these add-ons it is recommended to temporarily disable it while running BrlMultiline, or using a separate opy of NVDA such as a portable copy. 
+BrlMultiline patches parts of NVDA's core Braille handling. Other popular Braille add-ons including BrailleExtender and Braille Essentials also use the technique. Running these add-ons together has not been tested and is likely to conflict or one add-on override another add-on's work.
+If you use one of these add-ons it is recommended to temporarily disable it while running BrlMultiline, or using a separate opy of NVDA such as a portable copy.
 
 ## Getting started
 

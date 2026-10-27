@@ -508,7 +508,7 @@ class TestProfiles(DispatchTestCase):
 		self.stored.clear()
 		dispatch.reload()
 		self.assertEqual(
-			"reportCurrentLine", dispatch.layerSet(MONARCH).default.bindings[monarch("leftDpadUp")].scriptName
+			"reportCurrentLine", dispatch.layerSet(MONARCH).default.bindings[monarch("leftDpadUp")].scriptName,
 		)
 		self.assertIsNotNone(dispatch.layerSet(KEYBOARD).get("graphics"))
 		self.assertEqual(

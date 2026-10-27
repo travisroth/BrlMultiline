@@ -465,7 +465,8 @@ def findElement(hwnd: int, runtimeId) -> Any:
 	try:
 		root = client.ElementFromHandle(int(hwnd))
 		condition = client.CreatePropertyCondition(
-			UIAHandler.UIA_RuntimeIdPropertyId, array.array("l", [int(v) for v in runtimeId])
+			UIAHandler.UIA_RuntimeIdPropertyId,
+			array.array("l", [int(v) for v in runtimeId]),
 		)
 		found = root.FindFirst(UIAHandler.TreeScope_Subtree, condition)
 	except Exception:

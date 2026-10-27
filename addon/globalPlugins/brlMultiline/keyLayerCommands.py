@@ -61,7 +61,9 @@ class KeyLayerCommands:
 		try:
 			present = keyLayerContexts.presentContexts(self.plugin, tables=False)
 			ended, started = keyLayerDispatch.reconcile(
-				present, self.devices(), keyLayerContexts.DETECTED
+				present,
+				self.devices(),
+				keyLayerContexts.DETECTED,
 			)
 		except Exception:
 			log.error("BrlMultiline: could not change the layers for a drawing", exc_info=True)
@@ -120,7 +122,10 @@ class KeyLayerCommands:
 			# Translators: reported when the layer key is pressed on something that cannot have layers.
 			ui.message(_("No layers for this key"))
 			return
-		isOn, layer = keyLayerDispatch.toggle(device, keyLayerContexts.presentContexts(self.plugin, device=device))
+		isOn, layer = keyLayerDispatch.toggle(
+			device,
+			keyLayerContexts.presentContexts(self.plugin, device=device),
+		)
 		name = keyLayerDispatch.layerName(layer)
 		if isOn:
 			# Translators: reported when a layer of keys is turned on. The placeholder is its name.

@@ -1968,7 +1968,7 @@ class TestZoomingToOnePinPerPoint(unittest.TestCase):
 				labels = [f"d{index}" for index in range(count)]
 				values = [index % 7 for index in range(count)]
 				self.mode.enter(
-					lineChart(self.mode.newBuffer, width, height, [Line("Close", values)], labels)
+					lineChart(self.mode.newBuffer, width, height, [Line("Close", values)], labels),
 				)
 				self.assertTrue(self.mode.zoomToPoints())
 				step = self.mode.panStep()

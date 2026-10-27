@@ -100,7 +100,8 @@ DROP = [
 SUBSTITUTE = {
 	# List bullets of other shapes, as the plain bullet.
 	**dict.fromkeys(
-		(0x2023, 0x2043, 0x25AA, 0x25AB, 0x25B6, 0x25B8, 0x25B9, 0x25BA, 0x25CF, 0x25E6), "\u2022"
+		(0x2023, 0x2043, 0x25AA, 0x25AB, 0x25B6, 0x25B8, 0x25B9, 0x25BA, 0x25CF, 0x25E6),
+		"\u2022",
 	),
 	# Hyphens other than the ASCII one, as it, and the horizontal bar as an em dash: these sit
 	# inside words, where a name would split the word in two.
@@ -185,7 +186,9 @@ def isUndefined(table: list[str], text: str) -> bool:
 	"""
 	mode = louis.dotsIO
 	return louis.translateString(table, text, mode=mode) != louis.translateString(
-		table, text, mode=mode | louis.noUndefined
+		table,
+		text,
+		mode=mode | louis.noUndefined,
 	)
 
 

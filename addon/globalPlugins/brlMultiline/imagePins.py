@@ -1531,7 +1531,11 @@ def strokePins(
 	# of all of it instead, marked, which tells the reader to magnify.
 	pins = bytearray(width * height)
 	return Rendering(
-		pins, width, height, _raiseTopmost([1] * len(places), places, ceiling, pins), crowded=True
+		pins,
+		width,
+		height,
+		_raiseTopmost([1] * len(places), places, ceiling, pins),
+		crowded=True,
 	)
 
 

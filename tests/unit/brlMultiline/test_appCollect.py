@@ -139,7 +139,7 @@ def explorerLike():
 		[FakeElement("TreeItem", (0, 0, 250, 20)) for _ in range(300)],
 	)
 	status = FakeElement(
-		"StatusBar", (0, 660, 1000, 30), "Status bar", [FakeElement("Text", (0, 660, 100, 30), "6 items")]
+		"StatusBar", (0, 660, 1000, 30), "Status bar", [FakeElement("Text", (0, 660, 100, 30), "6 items")],
 	)
 	view = FakeElement("Pane", (0, 100, 1000, 590), "", [tree, items, status], runtimeId=(9, 1))
 	crumb = FakeElement(
@@ -176,7 +176,7 @@ class TestGathering(unittest.TestCase):
 
 	def gather(self):
 		collector = AppCollector(
-			self.window, self.focus, lambda payload, why: self.results.append((payload, why))
+			self.window, self.focus, lambda payload, why: self.results.append((payload, why)),
 		)
 		rounds = run(collector)
 		self.assertEqual(len(self.results), 1)
@@ -305,7 +305,7 @@ class TestShowingAnApplication(unittest.TestCase):
 		shown = []
 		ui = sys.modules["ui"]
 		with mock.patch.object(
-			ui, "browseableMessage", lambda text, title: shown.append((text, title)), create=True
+			ui, "browseableMessage", lambda text, title: shown.append((text, title)), create=True,
 		):
 			self.plugin.layouts.show(self.payload, "text")
 		text, title = shown[0]
@@ -389,7 +389,7 @@ class TestFindingAnAreaAgain(unittest.TestCase):
 		module = self.uia(found)
 		module.handler.clientObject.ElementFromHandle = lambda hwnd: found
 		user32 = types.SimpleNamespace(
-			IsWindow=lambda hwnd: True, GetAncestor=lambda hwnd, flags: {77: 5, 88: 6}[hwnd]
+			IsWindow=lambda hwnd: True, GetAncestor=lambda hwnd, flags: {77: 5, 88: 6}[hwnd],
 		)
 		with (
 			mock.patch.dict(sys.modules, {"UIAHandler": module}),
@@ -473,7 +473,7 @@ class TestMovingToAnAreaOfAWindow(unittest.TestCase):
 		with (
 			mock.patch.dict(sys.modules, {"NVDAObjects.UIA": objects, "UIAHandler": uia}),
 			mock.patch.object(
-				speech, "speakObject", lambda obj, reason=None: spoken.append(obj), create=True
+				speech, "speakObject", lambda obj, reason=None: spoken.append(obj), create=True,
 			),
 		):
 			self.move(element, None)
@@ -495,10 +495,10 @@ class TestMovingToAnAreaOfAWindow(unittest.TestCase):
 		with (
 			mock.patch.object(appCollect, "findElement", lambda hwnd, runtimeId: None),
 			mock.patch.object(
-				appCollect, "elementOfWindow", lambda hwnd, top: asked.append((hwnd, top)) or element
+				appCollect, "elementOfWindow", lambda hwnd, top: asked.append((hwnd, top)) or element,
 			),
 			mock.patch.object(
-				appCollect, "focusableWithin", lambda found: target if found is element else None
+				appCollect, "focusableWithin", lambda found: target if found is element else None,
 			),
 		):
 			self.plugin.layouts.moveToAppArea(self.region, (5,))

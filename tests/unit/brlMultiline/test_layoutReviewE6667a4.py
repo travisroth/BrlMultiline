@@ -48,7 +48,7 @@ class LayoutOverviewRegressions(unittest.TestCase):
 
 		counts = [
 			drawing._Count(
-				"1000 fields", [0x3C, 0x01, 0x1A, 0x1A, 0x1A], shape=glyphs.patternRows(glyphs.EDIT.dots)
+				"1000 fields", [0x3C, 0x01, 0x1A, 0x1A, 0x1A], shape=glyphs.patternRows(glyphs.EDIT.dots),
 			),
 			drawing._Count("1 button", [0x3C, 0x01], shape=glyphs.patternRows(glyphs.BUTTON.dots)),
 		]
@@ -66,7 +66,7 @@ class LayoutOverviewRegressions(unittest.TestCase):
 			if a_name != b_name and a.intersection(b)
 		]
 		self.assertEqual(
-			collisions, [], "The cursor followed the lower word while the next line is the upper number."
+			collisions, [], "The cursor followed the lower word while the next line is the upper number.",
 		)
 
 	def test_application_counts_exclude_controls_marked_outside(self):
@@ -90,12 +90,12 @@ class LayoutOverviewRegressions(unittest.TestCase):
 		)
 		page = appHarness.findAppRegions(appHarness.window(pane))
 		self.assertEqual(
-			page.children[0].buttons, 1, "An invisible outside control inflated the area's count."
+			page.children[0].buttons, 1, "An invisible outside control inflated the area's count.",
 		)
 
 	def test_a_large_plain_edit_control_is_not_lost_from_the_application_layout(self):
 		edit = appHarness.element(
-			"Edit", (0, 40, 1000, 620), className="Edit", focusable=True, runtimeId=[42, 99]
+			"Edit", (0, 40, 1000, 620), className="Edit", focusable=True, runtimeId=[42, 99],
 		)
 		page = appHarness.findAppRegions(
 			appHarness.window(
@@ -116,7 +116,7 @@ class LayoutOverviewRegressions(unittest.TestCase):
 			**{
 				name: SimpleNamespace(name=name, displayString="onglet" if name == "TAB" else name.lower())
 				for name in ("LINK", "BUTTON", "EDITABLETEXT", "TAB", "SECTION")
-			}
+			},
 		)
 		# NVDA has no TAB entry in braille.labels.roleLabels; its own
 		# braille property renderer uses Role.TAB.displayString instead.
@@ -126,5 +126,5 @@ class LayoutOverviewRegressions(unittest.TestCase):
 		):
 			style = module.countStyle()
 		self.assertEqual(
-			style.words["tabs"], "onglet", "The fallback stayed English instead of matching NVDA."
+			style.words["tabs"], "onglet", "The fallback stayed English instead of matching NVDA.",
 		)

@@ -257,7 +257,7 @@ class TestCompositing(ContainerTestCase):
 		"""A grid cell 10 wide must not write into the cell to its right."""
 		view = self.view.withPanel(
 			GridPanel(
-				"t", SegmentRect(0, 0, 8, 30), rowBands=[8], colWidths=[10, 10, 10], focusSegmentKey="t.r0c0"
+				"t", SegmentRect(0, 0, 8, 30), rowBands=[8], colWidths=[10, 10, 10], focusSegmentKey="t.r0c0",
 			),
 			MONARCH_ROWS,
 			MONARCH_COLS,

@@ -259,7 +259,7 @@ class LayoutManager:
 				# Translators: a line of the details of a saved table layout from before addresses were
 				# kept.
 				_(
-					"Address: not recorded. It is filled in the next time its table is seen, or use it for this table."
+					"Address: not recorded. It is filled in the next time its table is seen, or use it for this table.",
 				),
 			)
 		else:
@@ -486,7 +486,7 @@ class LayoutManager:
 				# Translators: reported when a saved table layout cannot be used for this table because
 				# another layout is more particular about this address. The placeholder is its name.
 				"{name} would still apply here, because it is more particular about this address. "
-				"Change how it matches, or delete it, first."
+				"Change how it matches, or delete it, first.",
 			).format(name=self.nameOf(found.saved))
 		# Translators: reported when a saved table layout would still not apply to this table after being
 		# pointed at it, which a layout from a different kind of table can do.

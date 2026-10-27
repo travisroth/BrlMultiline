@@ -1038,7 +1038,7 @@ class TestAGrowingEdit(unittest.TestCase):
 		self.assertEqual(control.cursorRow(), 74)
 		self.assertIsNotNone(control.cursorCell())
 		self.assertGreater(
-			control.window.blocks[control.window.blockIndex(control.activeBlockId)].rowOffset, 0
+			control.window.blocks[control.window.blockIndex(control.activeBlockId)].rowOffset, 0,
 		)
 
 

@@ -183,7 +183,7 @@ class TestTallPageAndItsWindows(unittest.TestCase):
 		"""Zoomed in, a label is composed again, three pins to a cell, not blown up."""
 		page, viewport = loadPage("seekingalpha.json")
 		part = compose(
-			PinBuffer, page, WIDTH, HEIGHT, "screen", viewport, translate, window=Box(0, 0, 960, 455)
+			PinBuffer, page, WIDTH, HEIGHT, "screen", viewport, translate, window=Box(0, 0, 960, 455),
 		)
 		labelled = [b for b in part.walk() if b.label]
 		self.assertTrue(labelled)
@@ -220,7 +220,7 @@ class TestTallPageAndItsWindows(unittest.TestCase):
 	def test_aPressInAWindowSaysWhereOnTheWholePage(self):
 		page, viewport = loadPage("seekingalpha.json")
 		part = compose(
-			PinBuffer, page, WIDTH, HEIGHT, "screen", viewport, translate, window=Box(0, 0, 960, 455)
+			PinBuffer, page, WIDTH, HEIGHT, "screen", viewport, translate, window=Box(0, 0, 960, 455),
 		)
 		aside = [b for b in part.boxes if b.region.kind == "complementary"][0]
 		said = part.describeAt(aside.rect.left + 1, aside.rect.top + 1)
@@ -238,7 +238,7 @@ class TestDetailLines(unittest.TestCase):
 	def test_aWideBoxGetsItsLinksOnTheLabelsLine(self):
 		"""Read as one phrase, "main 8 links", with a blank cell between."""
 		overview = compose(
-			PinBuffer, self.page(8), WIDTH, HEIGHT, "page", Box(0, 0, 1000, 2000), translate, 1
+			PinBuffer, self.page(8), WIDTH, HEIGHT, "page", Box(0, 0, 1000, 2000), translate, 1,
 		)
 		box = overview.boxes[0]
 		self.assertEqual(box.detail, "8 links")
@@ -261,13 +261,13 @@ class TestDetailLines(unittest.TestCase):
 
 	def test_oneLinkIsOneLink(self):
 		overview = compose(
-			PinBuffer, self.page(1), WIDTH, HEIGHT, "page", Box(0, 0, 1000, 2000), translate, 1
+			PinBuffer, self.page(1), WIDTH, HEIGHT, "page", Box(0, 0, 1000, 2000), translate, 1,
 		)
 		self.assertEqual(overview.boxes[0].detail, "1 link")
 
 	def test_noLinksNoDetail(self):
 		overview = compose(
-			PinBuffer, self.page(0), WIDTH, HEIGHT, "page", Box(0, 0, 1000, 2000), translate, 1
+			PinBuffer, self.page(0), WIDTH, HEIGHT, "page", Box(0, 0, 1000, 2000), translate, 1,
 		)
 		self.assertEqual(overview.boxes[0].detail, "")
 		self.assertIsNone(overview.boxes[0].detailAt)
@@ -553,7 +553,7 @@ class TestTheScreenIsNotSqueezed(unittest.TestCase):
 		overview = composeFitting(PinBuffer, page, WIDTH, 32, "page", page.box, translate, 1)
 		self.assertEqual(overview.buffer.height, 96, "grown to three panels and no further")
 		self.assertTrue(
-			any(b.rect.height < MIN_BOX[1] for b in overview.walk()), "still not room for all forty"
+			any(b.rect.height < MIN_BOX[1] for b in overview.walk()), "still not room for all forty",
 		)
 
 	def test_aScreenThatFitsStaysOnePanel(self):
@@ -834,7 +834,7 @@ class TestMovingToAnArea(unittest.TestCase):
 		self.plugin.graphicsMode.newBuffer = PinBuffer
 		page, viewport = loadPage("seekingalpha.json")
 		drawing = self.plugin.layouts.drawingFor(
-			page, "screen", viewport, (WIDTH, HEIGHT), "layout", self.document
+			page, "screen", viewport, (WIDTH, HEIGHT), "layout", self.document,
 		)
 		self.assertIn("complementary", drawing.describeAt(0, HEIGHT - 1))
 		drawing.activateAt(0, HEIGHT - 1)
@@ -849,7 +849,7 @@ class TestMovingToAnArea(unittest.TestCase):
 			with self.subTest(page=name):
 				page, viewport = loadPage(name)
 				drawing = self.plugin.layouts.drawingFor(
-					page, "screen", viewport, (WIDTH, 32), "layout", self.document
+					page, "screen", viewport, (WIDTH, 32), "layout", self.document,
 				)
 				self.assertEqual(drawing.opensAcross, tall)
 				self.assertEqual(drawing.buffer.height > 32, tall)
@@ -1002,12 +1002,12 @@ class TestCollector(unittest.TestCase):
 
 		def expandable(item, state):
 			item.textInfo._getControlFieldAttribs = lambda *ident: {
-				"states": {type("S", (), {"name": state})()}
+				"states": {type("S", (), {"name": state})()},
 			}
 			return item
 
 		main = FakeItem(
-			2, 100, 1000, FakeObject("LANDMARK", (0, 190, 1920, 800), attributes={"xml-roles": "main"})
+			2, 100, 1000, FakeObject("LANDMARK", (0, 190, 1920, 800), attributes={"xml-roles": "main"}),
 		)
 		plainButton = FakeItem(20, 120, 121, FakeObject("BUTTON", (300, 300, 80, 30)))
 		toggles = [

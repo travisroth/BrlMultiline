@@ -331,11 +331,7 @@ class Arrangement:
 		if self.pinKey == flowTableLayouts.NO:
 			return 1
 		return next(
-			(
-				position + 2
-				for position, column in enumerate(self.keyable)
-				if column.index == self.keyColumn
-			),
+			(position + 2 for position, column in enumerate(self.keyable) if column.index == self.keyColumn),
 			0,
 		)
 
@@ -388,8 +384,7 @@ class Arrangement:
 				# Translators: reported when a table column is given a width floor above its
 				# ceiling. The placeholders are the column's name and the two widths.
 				return _(
-					"{name} is set to at least {low} cells and at most {high}, "
-					"and both cannot be met.",
+					"{name} is set to at least {low} cells and at most {high}, and both cannot be met.",
 				).format(name=column.name, low=low, high=high)
 		return ""
 
@@ -473,11 +468,7 @@ class Arrangement:
 		shown = [column.index for column in self.columns if column.shown]
 		everything = sorted(column.index for column in self.columns)
 		columns = () if shown == everything else tuple(shown)
-		chosen = {
-			column.index: column.choice
-			for column in self.columns
-			if not column.choice.isEmpty
-		}
+		chosen = {column.index: column.choice for column in self.columns if not column.choice.isEmpty}
 		# What is actually repeated, which for a column they named and then hid is not that
 		# column. Writing the hidden one down would save a decision the display cannot carry
 		# out, and the reader would meet it again every time they came back to the table.

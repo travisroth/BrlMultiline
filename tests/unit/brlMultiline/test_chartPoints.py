@@ -103,7 +103,7 @@ class TestABarChartsPoints(unittest.TestCase):
 		mark = self.drawing.markFor(3)
 		self.assertEqual(mark.column, mark.own[0] - 1)
 		self.assertFalse(
-			any(self.drawing.buffer.getDot(mark.column, y) for y in range(mark.plotTop, mark.plotBottom))
+			any(self.drawing.buffer.getDot(mark.column, y) for y in range(mark.plotTop, mark.plotBottom)),
 		)
 
 	def test_theFirstBarTakesTheGapToItsRight(self):
@@ -178,12 +178,12 @@ class TestALineChartsPoints(unittest.TestCase):
 		count = 250
 		labels = [f"d{index}" for index in range(count)]
 		drawing = lineChart(
-			newBuffer, WIDTH, HEIGHT, [Line("Close", [index % 9 for index in range(count)])], labels, spell
+			newBuffer, WIDTH, HEIGHT, [Line("Close", [index % 9 for index in range(count)])], labels, spell,
 		)
 		window = drawing.redraw(0.4, 0.3, WIDTH, HEIGHT)
 		self.assertTrue(window.sayPoint(0).endswith(f", d{window.firstPoint}"))
 		self.assertTrue(
-			window.sayPoint(window.points - 1).endswith(f", d{window.firstPoint + window.points - 1}")
+			window.sayPoint(window.points - 1).endswith(f", d{window.firstPoint + window.points - 1}"),
 		)
 		self.assertGreater(window.firstPoint, 0)
 
@@ -265,7 +265,7 @@ class TestTheGuides(unittest.TestCase):
 		expected = sorted(
 			{y for y in range(3, 17) if (y - 3) % GUIDE_SPACING == 0}
 			| set(range(3, 3 + GUIDE_TICK))
-			| set(range(17 - GUIDE_TICK, 17))
+			| set(range(17 - GUIDE_TICK, 17)),
 		)
 		self.assertEqual(raised, expected)
 

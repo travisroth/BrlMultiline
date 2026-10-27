@@ -880,7 +880,16 @@ def _dealIntoPages(
 		# room is left. Theirs is the only break named; the rest still fall where they fit.
 		upTo = _upToTheirBreak(rest, choices)
 		take, chosen = _howManyFit(
-			upTo, room, numCols, maxRows, gap, minWidth, maxWidth, targetHeight, overflow, choices
+			upTo,
+			room,
+			numCols,
+			maxRows,
+			gap,
+			minWidth,
+			maxWidth,
+			targetHeight,
+			overflow,
+			choices,
 		)
 		widths.update(chosen)
 		assignment.append(tuple(item.index for item in rest[:take]))
@@ -1031,10 +1040,7 @@ def _fitWidths(
 	"""
 	choices = dict(choices or {})
 	wants = {item.index: _wantsWithin(item, choices, minWidth, maxWidth) for item in items}
-	floors = {
-		item.index: max(minWidth, choices.get(item.index, NOTHING_CHOSEN).minWidth)
-		for item in items
-	}
+	floors = {item.index: max(minWidth, choices.get(item.index, NOTHING_CHOSEN).minWidth) for item in items}
 	widths = {item.index: max(floors[item.index], wants[item.index]) for item in items}
 	_shrinkTowardsFitting(widths, budget, minWidth, wants, floors)
 	return widths
@@ -1154,7 +1160,7 @@ def describe(plan: ColumnPlan) -> str:
 	if plan.keyColumn is not None:
 		notes.append(
 			f"Column {plan.keyColumn} is repeated at the left of every page after the first, "
-			f"cut to {plan.keyWidth} cells."
+			f"cut to {plan.keyWidth} cells.",
 		)
 	# The columns on this page, not every column of the table: a note about column
 	# seventeen, on a page the reader is not looking at, is not a note about what is under

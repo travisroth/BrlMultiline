@@ -223,7 +223,7 @@ class TestDrawingARowInColumns(unittest.TestCase):
 		"""A merged cell, or a row still being built. Every other column stays where the
 		reader left it, which is the only answer that keeps the table a table."""
 		partial = TableRow(
-			[RowCell(index=1, region=Region("AAPL")), RowCell(index=3, region=Region("+1.25"))]
+			[RowCell(index=1, region=Region("AAPL")), RowCell(index=3, region=Region("+1.25"))],
 		)
 		line = textOf(renderer().render(block(partial)).rows[0])
 		self.assertEqual(line[0:4], "AAPL")

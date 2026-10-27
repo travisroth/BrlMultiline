@@ -276,7 +276,8 @@ def findSurface(display=None) -> Optional[GraphicsSurface]:
 		slots = list(display.slots)
 	except Exception:
 		log.error(
-			"BrlMultiline: could not read the composite's members to find one that draws", exc_info=True
+			"BrlMultiline: could not read the composite's members to find one that draws",
+			exc_info=True,
 		)
 		return None
 	for slot in slots:

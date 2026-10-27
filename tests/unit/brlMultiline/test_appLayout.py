@@ -123,7 +123,7 @@ class TestReadingTheAnswer(unittest.TestCase):
 class TestTheFreeArea(unittest.TestCase):
 	def test_nothingPinnedIsTheWholeDisplay(self):
 		self.assertEqual(
-			freeArea(MONARCH_ROWS, MONARCH_COLS, []), SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS)
+			freeArea(MONARCH_ROWS, MONARCH_COLS, []), SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS),
 		)
 
 	def test_aPinTakesItsRows(self):
@@ -171,20 +171,20 @@ class TestTheRunTheFocusIsIn(unittest.TestCase):
 		pin = SegmentRect(3, 0, 1, MONARCH_COLS)
 		focus = SegmentRect(1, 0, 1, MONARCH_COLS)
 		self.assertEqual(
-			freeArea(MONARCH_ROWS, MONARCH_COLS, [pin], focus), SegmentRect(0, 0, 3, MONARCH_COLS)
+			freeArea(MONARCH_ROWS, MONARCH_COLS, [pin], focus), SegmentRect(0, 0, 3, MONARCH_COLS),
 		)
 
 	def test_theFocusInTheLongerRun(self):
 		pin = SegmentRect(3, 0, 1, MONARCH_COLS)
 		focus = SegmentRect(9, 0, 1, MONARCH_COLS)
 		self.assertEqual(
-			freeArea(MONARCH_ROWS, MONARCH_COLS, [pin], focus), SegmentRect(4, 0, 6, MONARCH_COLS)
+			freeArea(MONARCH_ROWS, MONARCH_COLS, [pin], focus), SegmentRect(4, 0, 6, MONARCH_COLS),
 		)
 
 	def test_aFocusSpanningRowsIsFoundByItsFirst(self):
 		focus = SegmentRect(4, 0, 6, MONARCH_COLS)
 		self.assertEqual(
-			freeArea(MONARCH_ROWS, MONARCH_COLS, [], focus), SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS)
+			freeArea(MONARCH_ROWS, MONARCH_COLS, [], focus), SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS),
 		)
 
 	def test_onASingleRowItIsTheFocusCells(self):
@@ -298,7 +298,7 @@ class TestPlacingOnOneDisplay(unittest.TestCase):
 
 	def test_sizesThatAddUpNeedNoRest(self):
 		self.assertEqual(
-			rows(self.place({"size": 6, "show": object()}, {"size": 4, "show": FOCUS})), [(0, 6), (6, 4)]
+			rows(self.place({"size": 6, "show": object()}, {"size": 4, "show": FOCUS})), [(0, 6), (6, 4)],
 		)
 
 	def test_sizesThatDoNotAddUpAreRefused(self):
@@ -314,7 +314,7 @@ class TestPlacingOnOneDisplay(unittest.TestCase):
 		"""Below a pin in the top row."""
 		area = SegmentRect(1, 0, 9, MONARCH_COLS)
 		self.assertEqual(
-			rows(self.place({"size": 6, "show": object()}, {"show": FOCUS}, area=area)), [(1, 6), (7, 3)]
+			rows(self.place({"size": 6, "show": object()}, {"show": FOCUS}, area=area)), [(1, 6), (7, 3)],
 		)
 
 	def test_aSingleRowIsDividedInCells(self):
@@ -421,7 +421,7 @@ class TestTheFocusStaysOnItsDisplay(unittest.TestCase):
 		the Monarch below, though the layout lists it first."""
 		rects = placeSegments(self.chat(), self.area, FOCUS_ON_TOP, self.focusOnTop)
 		self.assertEqual(
-			rects, [SegmentRect(1, 0, MONARCH_ROWS, MONARCH_COLS), SegmentRect(0, 0, 1, FOCUS_COLS)]
+			rects, [SegmentRect(1, 0, MONARCH_ROWS, MONARCH_COLS), SegmentRect(0, 0, 1, FOCUS_COLS)],
 		)
 
 	def test_theSameWithTheDisplaysTheOtherWayUp(self):

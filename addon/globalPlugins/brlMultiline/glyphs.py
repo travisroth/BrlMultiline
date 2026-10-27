@@ -473,7 +473,7 @@ PROGRESS = Glyph(
 """
 
 VISITED_LINK = Glyph(
-	dots="1,5,11,12", 
+	dots="1,5,11,12",
 	says="vlnk",
 	stands="Role.LINK with State.VISITED",
 	describes="a stroke falling to the right, somewhere you have been",
@@ -575,11 +575,31 @@ what survives being written in a settings file or sent across the seam.
 
 
 ALPHABET = {
-	"a": "1", "b": "1,2", "c": "1,4", "d": "1,4,5", "e": "1,5",
-	"f": "1,2,4", "g": "1,2,4,5", "h": "1,2,5", "i": "2,4", "j": "2,4,5",
-	"k": "1,3", "l": "1,2,3", "m": "1,3,4", "n": "1,3,4,5", "o": "1,3,5",
-	"p": "1,2,3,4", "q": "1,2,3,4,5", "r": "1,2,3,5", "s": "2,3,4", "t": "2,3,4,5",
-	"u": "1,3,6", "v": "1,2,3,6", "w": "2,4,5,6", "x": "1,3,4,6", "y": "1,3,4,5,6",
+	"a": "1",
+	"b": "1,2",
+	"c": "1,4",
+	"d": "1,4,5",
+	"e": "1,5",
+	"f": "1,2,4",
+	"g": "1,2,4,5",
+	"h": "1,2,5",
+	"i": "2,4",
+	"j": "2,4,5",
+	"k": "1,3",
+	"l": "1,2,3",
+	"m": "1,3,4",
+	"n": "1,3,4,5",
+	"o": "1,3,5",
+	"p": "1,2,3,4",
+	"q": "1,2,3,4,5",
+	"r": "1,2,3,5",
+	"s": "2,3,4",
+	"t": "2,3,4,5",
+	"u": "1,3,6",
+	"v": "1,2,3,6",
+	"w": "2,4,5,6",
+	"x": "1,3,4,6",
+	"y": "1,3,4,5,6",
 	"z": "1,3,5,6",
 }
 """The uncontracted braille alphabet, for drawing an abbreviation in `listing`.
@@ -589,8 +609,16 @@ Only for the listing, which runs without NVDA. The display uses the reader's own
 """
 
 DIGITS = {
-	"1": "1", "2": "1,2", "3": "1,4", "4": "1,4,5", "5": "1,5",
-	"6": "1,2,4", "7": "1,2,4,5", "8": "1,2,5", "9": "2,4", "0": "2,4,5",
+	"1": "1",
+	"2": "1,2",
+	"3": "1,4",
+	"4": "1,4,5",
+	"5": "1,5",
+	"6": "1,2,4",
+	"7": "1,2,4,5",
+	"8": "1,2,5",
+	"9": "2,4",
+	"0": "2,4,5",
 }
 """The digits, which braille writes as the first ten letters after a numeric indicator.
 
@@ -904,12 +932,9 @@ def compress(
 	after = at + fitted.replaces
 	newCells = list(cells[:at]) + list(fitted.cells) + list(cells[after:])
 	start = brailleToRaw[at] if at < len(brailleToRaw) else 0
-	newBrailleToRaw = (
-		list(brailleToRaw[:at]) + [start] * len(fitted.cells) + list(brailleToRaw[after:])
-	)
+	newBrailleToRaw = list(brailleToRaw[:at]) + [start] * len(fitted.cells) + list(brailleToRaw[after:])
 	newRawToBraille = [
-		movedPosition(position, at, fitted.replaces, len(fitted.cells))
-		for position in rawToBraille
+		movedPosition(position, at, fitted.replaces, len(fitted.cells)) for position in rawToBraille
 	]
 	return newCells, newRawToBraille, newBrailleToRaw
 

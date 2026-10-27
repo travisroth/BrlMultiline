@@ -566,7 +566,7 @@ class TestSavedTableLayoutsLiveInTheBaseConfiguration(ConfigTestCase):
 	def setUp(self):
 		super().setUp()
 		self.addCleanup(
-			lambda: config.conf.profiles[0].get(bmConfig.CONFIG_SECTION, {}).pop("tableLayouts", None)
+			lambda: config.conf.profiles[0].get(bmConfig.CONFIG_SECTION, {}).pop("tableLayouts", None),
 		)
 
 	def test_writingWithAProfileActiveWritesTheBase(self):
@@ -578,6 +578,6 @@ class TestSavedTableLayoutsLiveInTheBaseConfiguration(ConfigTestCase):
 	def test_readingWithAProfileActiveReadsTheBase(self):
 		realBmConfig["setTableLayouts"]("the store")
 		config.conf.profiles.append(
-			self.Profile("outlook", {bmConfig.CONFIG_SECTION: {"tableLayouts": "hidden"}})
+			self.Profile("outlook", {bmConfig.CONFIG_SECTION: {"tableLayouts": "hidden"}}),
 		)
 		self.assertEqual("the store", realBmConfig["tableLayouts"]())

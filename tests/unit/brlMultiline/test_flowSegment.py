@@ -52,7 +52,7 @@ def containerWithBand(handler=None, numRows=ROWS, numCols=COLS) -> DisplayContai
 
 
 def controllerOver(
-	lines, caretIndex=0, numRows=ROWS, numCols=COLS, live=True, handler=None, interactive=False
+	lines, caretIndex=0, numRows=ROWS, numCols=COLS, live=True, handler=None, interactive=False,
 ):
 	interceptor = FakeTreeInterceptor(lines, caretIndex=caretIndex)
 	source = DocumentFlowSource(
@@ -925,7 +925,7 @@ class TestFollowingTheFocus(unittest.TestCase):
 				"Notepad",
 				role="EDITABLETEXT",
 				lines=["first line", "second line", "third line"],
-			)
+			),
 		)
 		self.assertTrue(self._start(editor))
 		self.assertIs(self.band.controller.source.obj, editor)

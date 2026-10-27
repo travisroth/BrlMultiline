@@ -1109,8 +1109,7 @@ class ExcelSheet:
 		rows = min(rows, max(1, MAX_SELECTED_CELLS // (lastColumn - firstColumn + 1)))
 		lastRow = min(lastRow, firstRow + rows - 1)
 		log.info(
-			f"BrlMultiline: charting rows {firstRow} to {lastRow}, "
-			f"columns {firstColumn} to {lastColumn}",
+			f"BrlMultiline: charting rows {firstRow} to {lastRow}, columns {firstColumn} to {lastColumn}",
 		)
 		return (firstRow, firstColumn, lastRow, lastColumn)
 

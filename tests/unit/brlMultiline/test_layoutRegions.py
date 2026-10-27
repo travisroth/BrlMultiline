@@ -68,14 +68,14 @@ class TestBox(unittest.TestCase):
 class TestScroll(unittest.TestCase):
 	def test_topmostWideElementGivesTheScroll(self):
 		root = Node(
-			"document", children=[leaf("section", 0, -912, 1905, 35), leaf("section", 0, 0, 1905, 93)]
+			"document", children=[leaf("section", 0, -912, 1905, 35), leaf("section", 0, 0, 1905, 93)],
 		)
 		self.assertEqual(estimateScroll(root, VIEW), 912)
 
 	def test_narrowSkipLinkParkedAboveIsIgnored(self):
 		"""WSJ parks a skip to search button 939 pixels above a page that is not scrolled."""
 		root = Node(
-			"document", children=[leaf("button", 100, -939, 320, 51), leaf("section", 0, 0, 1905, 32)]
+			"document", children=[leaf("button", 100, -939, 320, 51), leaf("section", 0, 0, 1905, 32)],
 		)
 		self.assertEqual(estimateScroll(root, VIEW), 0)
 
@@ -165,7 +165,7 @@ class TestRepeats(unittest.TestCase):
 	def test_rowsOfAListAreNotAreas(self):
 		rows = [
 			Node(
-				"tablerow", Box(149, 42 + i * 35, 648, 19), children=[leaf("link", 160, 42 + i * 35, 400, 16)]
+				"tablerow", Box(149, 42 + i * 35, 648, 19), children=[leaf("link", 160, 42 + i * 35, 400, 16)],
 			)
 			for i in range(30)
 		]
@@ -524,7 +524,7 @@ class TestFormsAndCounts(unittest.TestCase):
 		data = {"candidates": {"viewport": [0, 0, 1920, 911], "records": records}, "leaves": {"leaves": []}}
 		page = findRegions(*fromProbe(data))
 		self.assertEqual(
-			sorted(r.kind for r in page.walk() if r.kind in ("tabs", "accordion")), ["accordion", "tabs"]
+			sorted(r.kind for r in page.walk() if r.kind in ("tabs", "accordion")), ["accordion", "tabs"],
 		)
 
 
@@ -630,7 +630,7 @@ class TestRealPages(unittest.TestCase):
 		lefts = {r.box.left for r in main.walk() if r.source == "geometry"}
 		for column in (322, 642, 962, 1282):
 			self.assertTrue(
-				any(abs(left - column) <= 20 for left in lefts), f"no column near {column}: {sorted(lefts)}"
+				any(abs(left - column) <= 20 for left in lefts), f"no column near {column}: {sorted(lefts)}",
 			)
 
 	def test_favoritesIsOneNarrowColumn(self):
@@ -666,7 +666,7 @@ class TestRealPages(unittest.TestCase):
 		self.assertLessEqual(nav.box.right, content.box.left, "navigation beside the content")
 		footer = [r for r in ofKind(page, "footer") if r.box.width < 800][0]
 		self.assertGreaterEqual(
-			footer.box.top, inner.box.bottom - 2, "the footer below, not behind, the columns"
+			footer.box.top, inner.box.bottom - 2, "the footer below, not behind, the columns",
 		)
 
 	def test_w3cInaccessiblePageByLayoutTables(self):

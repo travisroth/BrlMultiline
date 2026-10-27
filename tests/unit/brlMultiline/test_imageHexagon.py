@@ -333,7 +333,7 @@ class TestZoomingThroughTheMiddle(HexagonTestCase):
 				window.buffer.getDot(x, y)
 				for y in range(window.buffer.height)
 				for x in range(window.buffer.width)
-			)
+			),
 		)
 
 	def test_aWindowWithAnEdgeInItHasNoNote(self):

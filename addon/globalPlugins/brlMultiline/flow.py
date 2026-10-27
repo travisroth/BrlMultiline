@@ -646,7 +646,11 @@ class FlowWindow:
 		anchorId = self.anchor.blockId
 		# By identity first, which is nearly always the answer. See `findByIdentityFirst`.
 		for position, row in enumerate(rows):
-			if row.kind is RowKind.CONTENT and row.blockId is anchorId and row.rowIndex == self.anchor.rowIndex:
+			if (
+				row.kind is RowKind.CONTENT
+				and row.blockId is anchorId
+				and row.rowIndex == self.anchor.rowIndex
+			):
 				return position
 		for position, row in enumerate(rows):
 			if (

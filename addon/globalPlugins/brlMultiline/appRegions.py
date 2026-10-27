@@ -264,7 +264,12 @@ def _classify(record: dict, title: str, box: Box, window: Box, parent: str) -> t
 
 
 def _regionsIn(
-	record: dict, bounds: Box, holding: set, title: str, window: Box, parent: str = ""
+	record: dict,
+	bounds: Box,
+	holding: set,
+	title: str,
+	window: Box,
+	parent: str = "",
 ) -> list[Region]:
 	"""The areas among an element's children, each with the areas inside it; a wrapper's areas
 	are taken up as its parent's own. Items are counted, never gone into."""

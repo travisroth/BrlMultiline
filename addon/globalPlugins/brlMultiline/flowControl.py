@@ -644,7 +644,11 @@ class FlowController(PanelOwner):
 				self.indentStyle = indentStyle
 				depths = self._visibleDepths(list(self.window.blocks))
 				if depths:
-					self.renderer.indentPlan = flowIndent.planFor(depths, self.renderer.numCols, style=indentStyle)
+					self.renderer.indentPlan = flowIndent.planFor(
+						depths,
+						self.renderer.numCols,
+						style=indentStyle,
+					)
 			self._redrawBlocks(why="settings changed while the band was kept")
 			self.syncToCursor(why="settings changed while the band was kept")
 		return True
@@ -1764,7 +1768,7 @@ class FlowController(PanelOwner):
 			if was == self._activeLength():
 				self._note(
 					"a keystroke while writing: the caret is where the pan left it, "
-					"so only its own row was read again"
+					"so only its own row was read again",
 				)
 				return Arrival.CHANGED
 			# The caret's row changed length, so every position after it moved and the whole
@@ -1772,7 +1776,7 @@ class FlowController(PanelOwner):
 			# trusted even if it is the caret's own block. See `_restoreTop`.
 			self._note(
 				"a keystroke while writing: the caret stayed put but its row changed length, "
-				"so the band was read again"
+				"so the band was read again",
 			)
 			return self._readAgainKeeping(self.window.topBlockId(), trusted=True)
 		return self._readAgainKeeping(self._stableTop(), ground=ground)

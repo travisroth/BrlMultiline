@@ -28,7 +28,7 @@ class TestNames(unittest.TestCase):
 	def test_theFileIsNamedAfterTheTable(self):
 		self.assertEqual(personalTables.wrapperName("es-g1.ctb"), "es-g1.ctb-brlMultiline-personal.utb")
 		self.assertEqual(
-			personalTables.wrapperName("en-us-comp8-ext.utb"), "en-us-comp8-ext.utb-brlMultiline-personal.utb"
+			personalTables.wrapperName("en-us-comp8-ext.utb"), "en-us-comp8-ext.utb-brlMultiline-personal.utb",
 		)
 
 	def test_theTableIsTheSubstitutionsThenTheNVDATable(self):
@@ -122,7 +122,7 @@ class TestWrappers(unittest.TestCase):
 		personalTables._syncWrappers(self.folder, [SPANISH, UK])
 		self.assertTrue(personalTables._syncWrappers(self.folder, [UK]))
 		self.assertEqual(
-			self.names(), ["en-gb-g2.ctb-brlMultiline-personal.utb", "en-us-g2-brlMultiline.utb"]
+			self.names(), ["en-gb-g2.ctb-brlMultiline-personal.utb", "en-us-g2-brlMultiline.utb"],
 		)
 
 

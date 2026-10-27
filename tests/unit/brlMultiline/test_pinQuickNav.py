@@ -117,7 +117,7 @@ class TestWhatCanBeSearched(unittest.TestCase):
 	def test_theSearchStartsAtTheTopOfTheWindow(self):
 		document = FakeDocument()
 		self.assertEqual(
-			positionOf(FakeMonitor(controller=FakeController(document, top=7)), document).where, 7
+			positionOf(FakeMonitor(controller=FakeController(document, top=7)), document).where, 7,
 		)
 
 	def test_orAtAPinnedRegionsOwnPosition(self):
@@ -269,7 +269,7 @@ class TestWhichPin(unittest.TestCase):
 		from . import test_plugin as harness
 
 		self.case = type(
-			"Case", (harness.PluginTestCase,), {"segmentCount": 4, "runTest": lambda self: None}
+			"Case", (harness.PluginTestCase,), {"segmentCount": 4, "runTest": lambda self: None},
 		)()
 		self.case.setUp()
 		self.addCleanup(self.case.doCleanups)
@@ -328,7 +328,7 @@ class TestWhichPin(unittest.TestCase):
 
 		self.assertIn("pinned", keyLayerContexts.presentContexts(self.plugin, tables=False, device="monarch"))
 		self.assertNotIn(
-			"pinned", keyLayerContexts.presentContexts(self.plugin, tables=False, device="focus")
+			"pinned", keyLayerContexts.presentContexts(self.plugin, tables=False, device="focus"),
 		)
 
 	def test_nothingPinnedSaysSo(self):

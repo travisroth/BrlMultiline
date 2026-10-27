@@ -91,7 +91,7 @@ class TestNames(unittest.TestCase):
 
 	def test_aDuplicatedSpaceStillTypes(self):
 		names = keyNames.namesByDataIndex(
-			[Declared(9, PAGE, SPACE, 3, LEFT), Declared(10, PAGE, SPACE, 2, RIGHT)]
+			[Declared(9, PAGE, SPACE, 3, LEFT), Declared(10, PAGE, SPACE, 2, RIGHT)],
 		)
 		self.assertEqual({}, names)
 

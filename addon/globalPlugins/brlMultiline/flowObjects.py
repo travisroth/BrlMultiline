@@ -1711,7 +1711,8 @@ class ObjectFlowSource:
 			told = self.adapter.depthOf(obj)
 		except Exception:
 			log.debugWarning(
-				f"The {self.adapter.name} adapter could not say how deep an object sits", exc_info=True
+				f"The {self.adapter.name} adapter could not say how deep an object sits",
+				exc_info=True,
 			)
 			told = None
 		return FIRST_LEVEL if told is None else told

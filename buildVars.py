@@ -22,7 +22,7 @@ addon_info = AddonInfo(
 	# Translators: Long description to be shown for this add-on on add-on information from add-on store
 	addon_description=_("""
 	Proof of concept multiline Braille support. It allows Braille to fill a multiline display across objects, such as multiple links and paragraphs of a web page.
-	It has spatial layouts for tables, lists and trees. 
+	It has spatial layouts for tables, lists and trees.
 	Includes a custom Humanware Monarch Braille display driver that supports drawing, and 8 and 10 rows, as well as providing individual names for every key.
 	Provides a virtual Braille display driver to allow running multiple displays at once.
 	"""),

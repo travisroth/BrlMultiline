@@ -60,7 +60,7 @@ def problemMessage(problem: brailleSubstitutions.Problem) -> str:
 		brailleSubstitutions.NO_DOTS: _("Type the dots to show, such as 1245-1235."),
 		# Translators: refused in the braille substitution dialog.
 		brailleSubstitutions.BAD_DOTS: _(
-			"Dots are cells of the numbers 1 to 8, joined by hyphens, such as 1245-1235. Use 0 for a blank cell."
+			"Dots are cells of the numbers 1 to 8, joined by hyphens, such as 1245-1235. Use 0 for a blank cell.",
 		),
 		# Translators: refused in the braille substitution dialog.
 		brailleSubstitutions.NO_RULE: _("Type at least one liblouis rule."),
@@ -134,7 +134,8 @@ class SubstitutionsDialog(SettingsDialog):
 		tableButtons = guiHelper.ButtonHelper(orientation=wx.HORIZONTAL)
 		# Translators: makes a personal braille table from one of NVDA's braille tables.
 		tableButtons.addButton(self, label=_("&Create personal table...")).Bind(
-			wx.EVT_BUTTON, self._onCreateTable
+			wx.EVT_BUTTON,
+			self._onCreateTable,
 		)
 		# Translators: removes the selected personal braille table.
 		self.removeTableButton = tableButtons.addButton(self, label=_("Remo&ve table"))
@@ -156,8 +157,8 @@ class SubstitutionsDialog(SettingsDialog):
 				_(
 					"Substitutions are used only with BrlMultiline's braille tables and your personal tables. "
 					"Choose one as the output table in NVDA's Braille settings, or create a personal table "
-					"from the table you read."
-				)
+					"from the table you read.",
+				),
 			)
 		return notices
 
@@ -343,7 +344,7 @@ class SubstitutionsDialog(SettingsDialog):
 				# Translators: said when the braille substitutions were saved but could not be put in use.
 				_(
 					"The braille substitutions were saved, but braille could not start using them, and is "
-					"still using the ones from before. Press OK to try again, or see NVDA's log."
+					"still using the ones from before. Press OK to try again, or see NVDA's log.",
 				),
 			)
 		except userBrailleTable.NotListed:
@@ -352,7 +353,7 @@ class SubstitutionsDialog(SettingsDialog):
 				# listed for NVDA.
 				_(
 					"The substitutions were saved and are in use, but the personal tables could not be made. "
-					"See NVDA's log."
+					"See NVDA's log.",
 				),
 				self.GetTitle(),
 				wx.OK | wx.ICON_ERROR,
@@ -542,7 +543,7 @@ def _offerRestart() -> None:
 		# Translators: asks to restart NVDA after the reader's personal braille tables changed.
 		_(
 			"Your personal braille tables changed. NVDA shows them in its Braille settings only after it "
-			"restarts. Would you like to restart now?"
+			"restarts. Would you like to restart now?",
 		),
 		# Translators: the title of the question asking to restart NVDA.
 		_("Restart NVDA"),

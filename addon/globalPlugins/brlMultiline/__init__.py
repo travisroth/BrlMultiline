@@ -89,6 +89,7 @@ SCRIPT_CATEGORY = _("BrlMultiline")
 
 _plugin = None
 
+
 def getPlugin() -> "GlobalPlugin | None":
 	""":return: the running plugin instance, or None if it is not loaded."""
 	return _plugin
@@ -99,7 +100,10 @@ def _runLoggingFailure(step, *args) -> None:
 	try:
 		step(*args)
 	except Exception:
-		log.error(f"BrlMultiline: a teardown step failed: {getattr(step, '__qualname__', step)}", exc_info=True)
+		log.error(
+			f"BrlMultiline: a teardown step failed: {getattr(step, '__qualname__', step)}",
+			exc_info=True,
+		)
 
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
@@ -1488,7 +1492,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	@script(
 		# Translators: input help message for a command. An app layout is an application
 		# arranging the display around where the focus is.
-		description=_("App layouts: spreads them across combined displays, or keeps them on the focus display"),
+		description=_(
+			"App layouts: spreads them across combined displays, or keeps them on the focus display",
+		),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_toggleAppLayoutSpread(self, gesture):
@@ -2026,14 +2032,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when a diagnostic could not reach the clipboard and is
 			# in the log instead. The placeholder is the number of lines written.
 			ui.message(
-				_("Clipboard refused it; flow dry run in the log, {count} lines").format(count=len(lines))
+				_("Clipboard refused it; flow dry run in the log, {count} lines").format(count=len(lines)),
 			)
 		log.debug(verdict)
 
 	@script(
 		# Translators: input help message for a command. An app layout is an application
 		# arranging the display around where the focus is.
-		description=_("Debug: Copies what the focus's application would arrange the display as to the clipboard"),
+		description=_(
+			"Debug: Copies what the focus's application would arrange the display as to the clipboard",
+		),
 		category=SCRIPT_CATEGORY,
 	)
 	def script_appLayoutReport(self, gesture):
@@ -2060,7 +2068,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when a diagnostic could not reach the clipboard and is
 			# in the log instead. The placeholder is the number of lines written.
 			ui.message(
-				_("Clipboard refused it; app layout report in the log, {count} lines").format(count=len(lines))
+				_("Clipboard refused it; app layout report in the log, {count} lines").format(
+					count=len(lines),
+				),
 			)
 
 	def appLayoutReport(self, focus) -> list[str]:
@@ -2092,7 +2102,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if bands:
 			lines.append(
 				"Displays: "
-				+ ", ".join(f"rows {band.rowStart} to {band.rowEnd - 1} of {band.numCols} cells" for band in bands),
+				+ ", ".join(
+					f"rows {band.rowStart} to {band.rowEnd - 1} of {band.numCols} cells" for band in bands
+				),
 			)
 			lines.append(f"Spread across displays: {'yes' if spread else 'no'}")
 			plan = appLayout.planFor(area, bands, within, spread)
@@ -2102,7 +2114,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					f"{plan.otherBand.rowStart} to {plan.otherBand.rowEnd - 1}",
 				)
 			elif plan.area != area:
-				lines.append(f"Focus display: rows {plan.area.row} to {plan.area.endRow - 1}, the whole layout")
+				lines.append(
+					f"Focus display: rows {plan.area.row} to {plan.area.endRow - 1}, the whole layout",
+				)
 		room = appLayout.displayArea(area, bands, within, spread)
 		lines.append(f"Offered: {room.rows} rows, {room.columns} columns")
 		if getattr(appModule, appLayout.LAYOUT_METHOD, None) is None:
@@ -2719,7 +2733,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			tray.Unbind(wx.EVT_MENU, source=item, handler=self._onSubstitutionsMenu)
 			tray.preferencesMenu.DestroyItem(item)
 		except Exception:
-			log.debugWarning("BrlMultiline: could not remove the braille substitutions menu item", exc_info=True)
+			log.debugWarning(
+				"BrlMultiline: could not remove the braille substitutions menu item",
+				exc_info=True,
+			)
 
 	def _onSubstitutionsMenu(self, event) -> None:
 		from . import substitutionsDialog
@@ -2741,7 +2758,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			try:
 				braille.handler.initialDisplay()
 			except Exception:
-				log.debugWarning("BrlMultiline: could not redraw after the braille rules changed", exc_info=True)
+				log.debugWarning(
+					"BrlMultiline: could not redraw after the braille rules changed",
+					exc_info=True,
+				)
 
 		wx.CallAfter(redraw)
 		self._scheduleRebuild()
@@ -2868,7 +2888,7 @@ def _layoutLines(container, claims: list) -> list[str]:
 	lines = [f"  view: {container.view.name}"]
 	lines.append(
 		f"  display: {container.numRows} rows of {container.numCols}, "
-		f"{container.numSegments} segments in {len(container.panels)} panels"
+		f"{container.numSegments} segments in {len(container.panels)} panels",
 	)
 	lines.append(f"  focus segment: {container.focusSegmentNumber} ({container.focusSegmentKey!r})")
 	lines.append(f"  panels ({len(container.panels)}):")
@@ -2885,7 +2905,8 @@ def _layoutLines(container, claims: list) -> list[str]:
 		if spec.hostsSystemFocus:
 			notes.append("hosts system focus")
 		lines.append(
-			f"    {number} {spec.key}: {_rectWords(spec.rect)}" + (f"  [{', '.join(notes)}]" if notes else "")
+			f"    {number} {spec.key}: {_rectWords(spec.rect)}"
+			+ (f"  [{', '.join(notes)}]" if notes else ""),
 		)
 	if claims:
 		lines.append(f"  claims laid over the configured view: {', '.join(sorted(claimed))}")
@@ -3145,11 +3166,15 @@ def _makePinQuickNavScript(quickNavType, forward: bool):
 	if forward:
 		# Translators: input help message for a command. The placeholder is a kind of thing in a
 		# document, such as heading or link.
-		quickNavScript.__doc__ = _("Pinned document: Moves to the next {item}").format(item=quickNavType.label)
+		quickNavScript.__doc__ = _("Pinned document: Moves to the next {item}").format(
+			item=quickNavType.label,
+		)
 	else:
 		# Translators: input help message for a command. The placeholder is a kind of thing in a
 		# document, such as heading or link.
-		quickNavScript.__doc__ = _("Pinned document: Moves to the previous {item}").format(item=quickNavType.label)
+		quickNavScript.__doc__ = _("Pinned document: Moves to the previous {item}").format(
+			item=quickNavType.label,
+		)
 	quickNavScript.category = SCRIPT_CATEGORY
 	return quickNavScript
 
@@ -3158,7 +3183,11 @@ def _generatePinQuickNavScripts() -> None:
 	"""Add browse mode's quick navigation commands for a pinned document, next and previous of each
 	type in `pinQuickNav.TYPES`. Bound in the pinned document layer; see `keyLayers`."""
 	for quickNavType in pinQuickNav.TYPES:
-		setattr(GlobalPlugin, f"script_pinNext{quickNavType.name}", _makePinQuickNavScript(quickNavType, True))
+		setattr(
+			GlobalPlugin,
+			f"script_pinNext{quickNavType.name}",
+			_makePinQuickNavScript(quickNavType, True),
+		)
 		setattr(
 			GlobalPlugin,
 			f"script_pinPrevious{quickNavType.name}",

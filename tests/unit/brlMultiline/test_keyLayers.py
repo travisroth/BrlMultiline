@@ -94,7 +94,7 @@ class TestLayers(unittest.TestCase):
 
 	def test_theChainEndsAtTheDefaultLayer(self):
 		self.assertEqual(
-			["chart", "graphics", DEFAULT_ID], [layer.id for layer in monarchLayers().chain("chart")]
+			["chart", "graphics", DEFAULT_ID], [layer.id for layer in monarchLayers().chain("chart")],
 		)
 		self.assertEqual([DEFAULT_ID], [layer.id for layer in monarchLayers().chain(DEFAULT_ID)])
 
@@ -160,7 +160,7 @@ class TestStorage(unittest.TestCase):
 					autoEnable=True,
 					bindings={
 						normalize("kb:numpad8"): Target.script(
-							PLUGIN, "GlobalPlugin", "graphicsPanUp", MONARCH
+							PLUGIN, "GlobalPlugin", "graphicsPanUp", MONARCH,
 						),
 						normalize("kb:numpad0"): Target.key("kb:downArrow"),
 						normalize("kb:numpadDelete"): Target.blocked(),
@@ -222,7 +222,7 @@ class TestStorage(unittest.TestCase):
 
 	def test_aDefaultLayerReadBackHasNoContext(self):
 		text = json.dumps(
-			{"version": 1, "layers": [{"id": DEFAULT_ID, "context": "graphics", "fallsThrough": "x"}]}
+			{"version": 1, "layers": [{"id": DEFAULT_ID, "context": "graphics", "fallsThrough": "x"}]},
 		)
 		layers, _problem = LayerSet.fromText(MONARCH, text)
 		self.assertIsNone(layers.default.context)
@@ -257,7 +257,7 @@ class TestDecide(unittest.TestCase):
 		for style, layers in self.styles():
 			decision = self.decide(layers, "graphics", "leftDpadDown")
 			self.assertEqual(
-				(RUN, SAY_LINE, DEFAULT_ID), (decision.action, decision.target, decision.layer.id)
+				(RUN, SAY_LINE, DEFAULT_ID), (decision.action, decision.target, decision.layer.id),
 			)
 			self.assertEqual(style == ONE_SHOT, decision.endsOneShot)
 
@@ -295,10 +295,10 @@ class TestDecide(unittest.TestCase):
 		for style in (STAYS_ON, ONE_SHOT):
 			with self.subTest(style=style):
 				layers = LayerSet(
-					KEYBOARD, (newLayer(KEYBOARD, "graphics", "Graphics", "graphics", style=style),)
+					KEYBOARD, (newLayer(KEYBOARD, "graphics", "Graphics", "graphics", style=style),),
 				)
 				decision = decide(
-					layers, "graphics", [normalize("kb(laptop):escape"), normalize("kb:escape")], nothing
+					layers, "graphics", [normalize("kb(laptop):escape"), normalize("kb:escape")], nothing,
 				)
 				self.assertEqual(LEAVE, decision.action)
 				shifted = decide(layers, "graphics", [normalize("kb:shift+escape")], nothing)
@@ -328,7 +328,7 @@ class TestDecide(unittest.TestCase):
 			layers = layers.withLayer(graphics)
 			self.assertEqual(RUN, self.decide(layers, "graphics", "space+dot1+dot3+dot5+dot6").action)
 			self.assertEqual(
-				RUN, self.decide(layers, "graphics", "space+dot1+dot5", ordinary="kb:escape").action
+				RUN, self.decide(layers, "graphics", "space+dot1+dot5", ordinary="kb:escape").action,
 			)
 
 	def test_theLayerKeyAlwaysReachesItsCommand(self):
@@ -409,7 +409,7 @@ class TestDefaultLayers(unittest.TestCase):
 		"""Putting a drawing up is asking for it; the keypad is the review cursor on a desktop layout."""
 		monarchGraphics = LayerSet(MONARCH, tuple(keyLayers.defaultLayers(MONARCH, PLUGIN))).get("graphics")
 		keyboardGraphics = LayerSet(KEYBOARD, tuple(keyLayers.defaultLayers(KEYBOARD, PLUGIN))).get(
-			"graphics"
+			"graphics",
 		)
 		self.assertTrue(monarchGraphics.autoEnable)
 		self.assertFalse(keyboardGraphics.autoEnable)
@@ -460,7 +460,7 @@ class TestDefaultLayers(unittest.TestCase):
 		self.assertEqual("graphicsZoomToPoints", chart.bindings[monarch("dot1+dot3+dot5")].scriptName)
 		self.assertEqual("graphicsNextView", chart.bindings[monarch("dot1+dot2+dot3+dot6")].scriptName)
 		self.assertEqual(
-			"graphicsPreviousView", chart.bindings[monarch("dot1+dot2+dot3+dot6+dot7")].scriptName
+			"graphicsPreviousView", chart.bindings[monarch("dot1+dot2+dot3+dot6+dot7")].scriptName,
 		)
 		target, found = layers.lookup("chart", [monarch("leftDpadUp")])
 		self.assertEqual(("graphicsPanUp", "graphics"), (target.scriptName, found.id))
@@ -474,7 +474,7 @@ class TestDefaultLayers(unittest.TestCase):
 		layers = LayerSet(MONARCH, tuple(keyLayers.defaultLayers(MONARCH, PLUGIN)))
 		picture = layers.get("picture")
 		self.assertEqual(
-			("picture", True, "graphics"), (picture.context, picture.autoEnable, picture.fallsThrough)
+			("picture", True, "graphics"), (picture.context, picture.autoEnable, picture.fallsThrough),
 		)
 		self.assertEqual("pictureOutlines", picture.bindings[monarch("dot1+dot3+dot5")].scriptName)
 		self.assertEqual("pictureLines", picture.bindings[monarch("dot1+dot2+dot3")].scriptName)
@@ -572,7 +572,7 @@ class TestLayersSavedBeforeTheShippedOnesChanged(unittest.TestCase):
 	def test_aLayerTheReaderMadeForTheContextIsKeptInsteadOfOurs(self):
 		stored = json.loads(self.savedBefore())
 		stored["layers"].append(
-			newLayer(MONARCH, "myCharts", "My charts", "chart", autoEnable=True).toStored()
+			newLayer(MONARCH, "myCharts", "My charts", "chart", autoEnable=True).toStored(),
 		)
 		layers = self.read(json.dumps(stored))
 		self.assertIsNone(layers.get("chart"))
@@ -643,7 +643,7 @@ class TestAGraphicsLayerSavedBeforeThePanningKeys(unittest.TestCase):
 
 	def savedAt4(self, bindings=None):
 		graphics = newLayer(
-			MONARCH, "graphics", "Graphics", "graphics", autoEnable=True, bindings=bindings or {}
+			MONARCH, "graphics", "Graphics", "graphics", autoEnable=True, bindings=bindings or {},
 		)
 		stored = json.loads(LayerSet(MONARCH, (newLayer(MONARCH, DEFAULT_ID), graphics)).toText())
 		stored["shipped"] = 4

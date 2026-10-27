@@ -88,7 +88,7 @@ class TestConfiguredView(ViewTestCase):
 		"""Free segments are the ones a pinned object may be put in."""
 		CONFIG["segmentCount"] = 4
 		self.assertTrue(
-			all(not spec.isReserved for spec in viewFromConfig(MONARCH_ROWS, MONARCH_COLS).flatten())
+			all(not spec.isReserved for spec in viewFromConfig(MONARCH_ROWS, MONARCH_COLS).flatten()),
 		)
 
 	def test_singleRowDisplayDividesIntoColumns(self):
@@ -96,7 +96,7 @@ class TestConfiguredView(ViewTestCase):
 		view = viewFromConfig(1, 80)
 		view.validate(1, 80)
 		self.assertEqual(
-			[spec.rect for spec in view.flatten()], [SegmentRect(0, 0, 1, 40), SegmentRect(0, 40, 1, 40)]
+			[spec.rect for spec in view.flatten()], [SegmentRect(0, 0, 1, 40), SegmentRect(0, 40, 1, 40)],
 		)
 
 

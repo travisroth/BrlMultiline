@@ -301,7 +301,7 @@ class BrailleMultilineSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				label=_(
 					# Translators: shown in settings under the checkbox above, explaining what it
 					# does. "btn" is what NVDA writes in braille before a button's name.
-					"On a display that raises pins one at a time, the three cells of \"btn\" "
+					'On a display that raises pins one at a time, the three cells of "btn" '
 					"become one shape and the other two go back to the line. The words come "
 					"back the moment you turn this off, and any display that cannot draw a "
 					"shape shows them anyway.",
@@ -1378,7 +1378,8 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 	def _rowsChanged(self) -> bool:
 		""":return: whether any chosen display has different rows from what is stored."""
 		return any(
-			self._rows().get(name, 0) != getattr(self.storedSpecs.get(name), "rows", 0) for name in self.chosen
+			self._rows().get(name, 0) != getattr(self.storedSpecs.get(name), "rows", 0)
+			for name in self.chosen
 		)
 
 	def _move(self, offset: int) -> None:

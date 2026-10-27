@@ -2104,7 +2104,7 @@ class DialogAnswers:
 
 	def record(self, kind, message, caption, choices):
 		self.shown.append(
-			types.SimpleNamespace(kind=kind, message=message, caption=caption, choices=list(choices))
+			types.SimpleNamespace(kind=kind, message=message, caption=caption, choices=list(choices)),
 		)
 
 

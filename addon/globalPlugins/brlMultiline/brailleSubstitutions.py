@@ -295,7 +295,9 @@ def caseForms(match: str, matchCase: bool) -> list[str]:
 def _titled(text: str) -> str:
 	""":return: every word capitalised, without `str.title`'s capital after an apostrophe."""
 	return re.sub(
-		r"[^\W\d_]+(?:'[^\W\d_]+)?", lambda word: word.group(0)[:1].upper() + word.group(0)[1:].lower(), text
+		r"[^\W\d_]+(?:'[^\W\d_]+)?",
+		lambda word: word.group(0)[:1].upper() + word.group(0)[1:].lower(),
+		text,
 	)
 
 

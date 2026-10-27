@@ -73,7 +73,7 @@ class TestRecognisingWhatTheReaderArrivedAt(unittest.TestCase):
 		self.assertTrue(
 			flowForms.isEditableObject(
 				FakeObject(FakeRole("DOCUMENT"), states={FakeRole("EDITABLE")}),
-			)
+			),
 		)
 
 	def test_aReadOnlyDocumentDoesNotOwnEditableText(self):

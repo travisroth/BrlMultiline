@@ -534,7 +534,7 @@ class TestHowStrictlyAnAddressMatches(LayoutTestCase):
 		self.saveAt()
 		(loose,) = flowTableLayouts.stored()
 		exact = dataclasses.replace(
-			loose, id="exact", match=flowTableLayouts.MATCH_EXACT, layout={"columns": [3]}
+			loose, id="exact", match=flowTableLayouts.MATCH_EXACT, layout={"columns": [3]},
 		)
 		flowTableLayouts.replaceAll([loose, exact])
 		self.assertEqual((3,), flowTableLayouts.layoutFor(self.page(url=self.URL)).columns)
@@ -661,7 +661,7 @@ class TestColumnsFollowTheirHeadings(LayoutTestCase):
 		page = self.page(url="https://example.com/values", headers=headers, rows=rows)
 		first, second = flowTable.ColumnChoice(plainCase=True), flowTable.ColumnChoice(label="Other")
 		flowTableLayouts.remember(
-			page, flowTableLayouts.TableLayout(columns=(2, 3), perColumn={2: first, 3: second})
+			page, flowTableLayouts.TableLayout(columns=(2, 3), perColumn={2: first, 3: second}),
 		)
 		layouts = flowTableLayouts.stored()
 		flowTableLayouts.replaceAll(

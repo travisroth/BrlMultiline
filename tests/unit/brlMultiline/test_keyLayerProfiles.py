@@ -205,7 +205,7 @@ class TestReadingEachProfile(unittest.TestCase):
 	def test_eachProfileInForceInOrder(self):
 		self.config.conf.activateProfile({})
 		self.config.conf.activateProfile(
-			{bmConfig.CONFIG_SECTION: {"keyLayerDevices": {MONARCH: {"layers": "outlook's"}}}}
+			{bmConfig.CONFIG_SECTION: {"keyLayerDevices": {MONARCH: {"layers": "outlook's"}}}},
 		)
 		self.assertEqual(bmConfig.keyLayerTexts(MONARCH), ["normal's", "", "outlook's"])
 		self.assertTrue(bmConfig.keyLayersGoToProfile())
@@ -237,7 +237,7 @@ class TestSavingInAProfile(unittest.TestCase):
 		stored = json.loads(self.profile[MONARCH])
 		self.assertTrue(stored["overlay"])
 		self.assertEqual(
-			stored["layers"], [{"id": DEFAULT_ID, "bindings": {monarch("dot1"): FOCUS.toStored()}}]
+			stored["layers"], [{"id": DEFAULT_ID, "bindings": {monarch("dot1"): FOCUS.toStored()}}],
 		)
 		self.assertEqual(self.normal, monarchLayers().toText(), "the normal configuration is not touched")
 

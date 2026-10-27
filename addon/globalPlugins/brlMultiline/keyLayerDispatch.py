@@ -156,7 +156,7 @@ def _read(device: str) -> LayerSet:
 		if added:
 			log.info(
 				f"{LOG_PREFIX}{device}: saved layers predate shipped revision {keyLayers.SHIPPED}, "
-				f"so given {', '.join(added)}"
+				f"so given {', '.join(added)}",
 			)
 	return layers
 

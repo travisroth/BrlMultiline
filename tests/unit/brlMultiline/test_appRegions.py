@@ -200,7 +200,7 @@ class TestTheRules(unittest.TestCase):
 				element("List", (300, 0, 300, 300), "Covered", covered=True, items={"ListItem": 3}),
 				element("List", (600, 0, 300, 300), "Offscreen", offscreen=True, items={"ListItem": 3}),
 				element("List", (0, 0, 0, 0), "Empty rect", items={"ListItem": 3}),
-			)
+			),
 		)
 		self.assertEqual([r.label for r in page.children], ["Shown"])
 
@@ -235,7 +235,7 @@ class TestTheRules(unittest.TestCase):
 			window(
 				element("Group", (0, 0, 300, 600), landmark="Navigation"),
 				element("Group", (300, 0, 700, 600), landmark="Main"),
-			)
+			),
 		)
 		self.assertEqual(kinds(page.children), ["navigation", "main"])
 
@@ -249,7 +249,7 @@ class TestTheRules(unittest.TestCase):
 			window(
 				element("Edit", (0, 40, 1000, 600), "Text Editor"),
 				element("Pane", (0, 640, 1000, 60), "Options", [element("Edit", (10, 650, 300, 24), "Name")]),
-			)
+			),
 		)
 		self.assertEqual([r.title for r in page.children], ["document, Text Editor", "area, Options"])
 		self.assertEqual(page.children[1].fields, 1)

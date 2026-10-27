@@ -1341,7 +1341,7 @@ and it needs three things before milestone 3:
    — where every step is a call into the application — wants a budget of its own rather than
    the document's.
 
-**Answer:** Claude reported the following: 
+**Answer:** Claude reported the following:
 Your budget worries are settled: 63 operations, zero cut short, slowest block 4.59 milliseconds against a 250 millisecond allowance. The budget is no longer a factor.
 
 

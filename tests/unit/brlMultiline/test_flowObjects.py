@@ -1903,11 +1903,15 @@ class OutlookLikeItem(UIAGridRow, FakeNavigatorObject):
 		self.inbox = inbox
 		self.unread = unread
 		FakeNavigatorObject.__init__(self, name=subject, role="LISTITEM")
-		self.cellObjects = [_messageCell(header, text) for header, text in (cells or (
-			("From", "Alice"),
-			("Subject", subject),
-			("Received", "10:42"),
-		))]
+		self.cellObjects = [
+      _messageCell(header, text) for header, text in (
+          cells or (
+           ("From", "Alice"),
+           ("Subject", subject),
+           ("Received", "10:42"),
+          )
+      )
+  ]
 		"""The row's own fields, as Outlook's grid row holds them: text elements whose names
 		are the values and whose columns name themselves. What the row says about itself,
 		whatever is selected."""

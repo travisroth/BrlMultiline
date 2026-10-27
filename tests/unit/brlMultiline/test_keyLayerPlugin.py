@@ -121,7 +121,7 @@ class TestContexts(unittest.TestCase):
 
 		document = DocumentWithTableNavigation()
 		sys.modules["documentBase"] = types.SimpleNamespace(
-			DocumentWithTableNavigation=DocumentWithTableNavigation
+			DocumentWithTableNavigation=DocumentWithTableNavigation,
 		)
 		original = api.getFocusObject
 		api.getFocusObject = lambda: types.SimpleNamespace(treeInterceptor=document)
@@ -158,7 +158,7 @@ class TestStorage(unittest.TestCase):
 		self.assertEqual("monarch layers", bmConfig.keyLayerText(MONARCH))
 		self.assertEqual("keyboard layers", bmConfig.keyLayerText(KEYBOARD))
 		self.assertEqual(
-			[MONARCH, KEYBOARD], sorted(bmConfig.keyLayerDevices(), key=[MONARCH, KEYBOARD].index)
+			[MONARCH, KEYBOARD], sorted(bmConfig.keyLayerDevices(), key=[MONARCH, KEYBOARD].index),
 		)
 
 	def test_keyedByDriverNameSoTheRowPitchCannotLoseThem(self):

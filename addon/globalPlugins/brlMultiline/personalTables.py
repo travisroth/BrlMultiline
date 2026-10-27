@@ -214,7 +214,9 @@ def listed(addonDir: str) -> list:
 
 	try:
 		manifest = ConfigObj(
-			os.path.join(addonDir, MANIFEST_FILE), encoding="utf-8", default_encoding="utf-8"
+			os.path.join(addonDir, MANIFEST_FILE),
+			encoding="utf-8",
+			default_encoding="utf-8",
 		)
 	except Exception:
 		return []

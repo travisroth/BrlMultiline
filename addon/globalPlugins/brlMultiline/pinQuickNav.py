@@ -71,11 +71,20 @@ TYPES = (
 	QuickNavType("formField", "FormField", "no next form field", "no previous form field", _("form field")),
 	# Translators: a kind of thing in a document, in "Pinned document: next landmark".
 	QuickNavType(
-		"landmark", "Landmark", "no next landmark", "no previous landmark", _("landmark"), textInfos.UNIT_LINE
+		"landmark",
+		"Landmark",
+		"no next landmark",
+		"no previous landmark",
+		_("landmark"),
+		textInfos.UNIT_LINE,
 	),
 	# Translators: a kind of thing in a document, in "Pinned document: next block quote".
 	QuickNavType(
-		"blockQuote", "BlockQuote", "no next block quote", "no previous block quote", _("block quote")
+		"blockQuote",
+		"BlockQuote",
+		"no next block quote",
+		"no previous block quote",
+		_("block quote"),
 	),
 )
 """The types a pin offers, with NVDA's own words for finding none. The English is NVDA's, so

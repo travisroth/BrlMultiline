@@ -151,7 +151,7 @@ class TestTheLayoutOverviewIsTranslated(unittest.TestCase):
 		with crossed():
 			page = findAppRegions(data["window"], data["windowRect"], data["focus"]["path"])
 			overview = layoutDraw.composeFitting(
-				PinBuffer, page, 96, 40, "screen", page.box, translate, 3, style=style
+				PinBuffer, page, 96, 40, "screen", page.box, translate, 3, style=style,
 			)
 			said = [overview.describeAt(b.rect.left + 1, b.rect.top + 1) for b in overview.walk()]
 			key = overview.keyText()
@@ -204,7 +204,7 @@ class TestTheKeyLayersWords(unittest.TestCase):
 		from brlMultiline import keyLayerDispatch, keyLayers
 
 		with mock.patch.object(
-			keyLayerDispatch, "pgettext", lambda context, message: _cross(message), create=True
+			keyLayerDispatch, "pgettext", lambda context, message: _cross(message), create=True,
 		):
 			shipped = keyLayers.newLayer(keyLayers.MONARCH, "graphics", "Graphics")
 			renamed = keyLayers.newLayer(keyLayers.MONARCH, "graphics", "Drawings")

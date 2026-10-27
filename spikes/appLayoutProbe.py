@@ -572,13 +572,13 @@ def _summary(data: dict) -> str:
 		f"Landmarks: {len(landmarks)}"
 		+ (f" ({', '.join(str(r['landmark']) for r in landmarks)})" if landmarks else ""),
 		f"Offscreen: {offscreen}",
-		f"Focus: { {k: v for k, v in (data.get('focus') or {}).items() if k != 'path'} }",
+		f"Focus: {dict((k, v) for k, v in (data.get('focus') or {}).items() if k != 'path')}",
 	]
 	if data.get("subtree"):
 		subtree = data["subtree"]
 		lines.append(
 			f"Whole window in one call: {subtree.get('elements')} elements, {subtree.get('seconds')} s"
-			+ (f" ({subtree['error']})" if subtree.get("error") else "")
+			+ (f" ({subtree['error']})" if subtree.get("error") else ""),
 		)
 	return "\n".join(lines)
 
@@ -631,7 +631,7 @@ def cost(obj=None) -> None:
 		return
 	print(
 		f"The walk: {data['nodes']} elements and {data['items']} items counted, "
-		f"{data['calls']} calls, {data['seconds']} s"
+		f"{data['calls']} calls, {data['seconds']} s",
 	)
 	subtree = _subtreeCost(handle)
 	if subtree.get("error"):

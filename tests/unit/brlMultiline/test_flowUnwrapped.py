@@ -345,7 +345,7 @@ class TestTheKeys(unittest.TestCase):
 
 	def test_theMonarchPansAcrossWithTheZoomKeysWhileLinesAreUnwrapped(self):
 		layers = keyLayers.LayerSet(
-			keyLayers.MONARCH, tuple(keyLayers.defaultLayers(keyLayers.MONARCH, self.PLUGIN))
+			keyLayers.MONARCH, tuple(keyLayers.defaultLayers(keyLayers.MONARCH, self.PLUGIN)),
 		)
 		unwrapped = layers.get("unwrapped")
 		self.assertEqual(("unwrapped", True), (unwrapped.context, unwrapped.autoEnable))
@@ -356,7 +356,7 @@ class TestTheKeys(unittest.TestCase):
 	def test_layersSavedBeforeItAreGivenIt(self):
 		factory = keyLayers.defaultLayers(keyLayers.MONARCH, self.PLUGIN)
 		saved = keyLayers.LayerSet(
-			keyLayers.MONARCH, tuple(layer for layer in factory if layer.id != "unwrapped")
+			keyLayers.MONARCH, tuple(layer for layer in factory if layer.id != "unwrapped"),
 		)
 		read, added = keyLayers.withShippedAdditions(saved, factory, 2)
 		self.assertIsNotNone(read.get("unwrapped"))

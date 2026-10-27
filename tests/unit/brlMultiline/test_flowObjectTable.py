@@ -181,7 +181,7 @@ class TestAColumnTheReaderHasHidden(unittest.TestCase):
 		view, item = listView(columnWidths=None)
 		table = flowObjectTable.tableFor(item)
 		self.assertEqual(
-			table._getTableCellAt(flowObjectTable.TABLE_ID, None, 1, 2).text, "The watchlist columns"
+			table._getTableCellAt(flowObjectTable.TABLE_ID, None, 1, 2).text, "The watchlist columns",
 		)
 
 

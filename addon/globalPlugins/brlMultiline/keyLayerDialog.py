@@ -269,7 +269,7 @@ class LayerEditor:
 		if self.pending == identity(EMULATED_PROMPT):
 			# Past the filter, which would otherwise hide the very row the reader is put on.
 			byCategory.setdefault(self.emulatedCategory, []).append(
-				CommandNode(Command(self.emulatedCategory, PROMPT, EMULATED_PROMPT), [])
+				CommandNode(Command(self.emulatedCategory, PROMPT, EMULATED_PROMPT), []),
 			)
 		return [
 			CategoryNode(
@@ -305,7 +305,9 @@ class LayerEditor:
 		# Translators: a key in the layered keys dialog that the layer being edited gets from a layer further
 		# down. Placeholders are the key's name and that layer's name.
 		return KeyNode(
-			identifier, _("{key} (from {layer} layer)").format(key=name, layer=fromLayer), fromLayer
+			identifier,
+			_("{key} (from {layer} layer)").format(key=name, layer=fromLayer),
+			fromLayer,
 		)
 
 	def _keyName(self, identifier: str, target: Target) -> str:
@@ -330,7 +332,7 @@ class LayerEditor:
 		if identifier in self.layer.exitKeys:
 			# Translators: why a key cannot be added to a layer: it is one of the keys that leave it.
 			return Check(
-				refusal=_("That key leaves this layer. Remove it from the exit keys in Properties first")
+				refusal=_("That key leaves this layer. Remove it from the exit keys in Properties first"),
 			)
 		existing = self.layer.bindings.get(identifier)
 		if existing is not None and identity(existing) != identity(command.target):
@@ -481,7 +483,7 @@ class LayerEditor:
 		if issues:
 			# Translators: why a layer's properties cannot be kept. The placeholder says what is wrong.
 			return _("These properties cannot be kept: {problem}").format(
-				problem=self.describeIssue(issues[0], updated)
+				problem=self.describeIssue(issues[0], updated),
 			)
 		self._keepSet(updated)
 		return None
@@ -504,12 +506,14 @@ class LayerEditor:
 			# Translators: what is wrong with a set of layered keys: a layer gets the keys it does not
 			# have from a layer that is not there.
 			return _("{layer} takes keys from {other}, which does not exist").format(
-				layer=name(issue.layerId), other=issue.others[0]
+				layer=name(issue.layerId),
+				other=issue.others[0],
 			)
 		# Translators: what is wrong with a set of layered keys: layers that each take keys from the
 		# next, round in a circle. The second placeholder lists them in order.
 		return _("{layer} takes keys from layers in a circle: {chain}").format(
-			layer=name(issue.layerId), chain=", ".join(name(each) for each in issue.others)
+			layer=name(issue.layerId),
+			chain=", ".join(name(each) for each in issue.others),
 		)
 
 	def fallThroughChoices(self) -> list:
@@ -598,7 +602,7 @@ def commandsFromMappings(mappings: dict, emulatedCategory: str) -> list:
 			if scriptName.startswith("kb:"):
 				continue
 			commands.append(
-				Command(category, name, Target.script(info.moduleName, info.className, scriptName))
+				Command(category, name, Target.script(info.moduleName, info.className, scriptName)),
 			)
 	return commands
 
@@ -648,7 +652,8 @@ def memberCommands(members: Iterable[tuple], known: Iterable[Command], miscCateg
 				# Translators: a display driver's command in the layered keys dialog. Placeholders are the
 				# command and the display it belongs to.
 				name = _("{command} ({display})").format(
-					command=script.__doc__.splitlines()[0], display=label
+					command=script.__doc__.splitlines()[0],
+					display=label,
 				)
 				commands.append(Command(category, name, target))
 	return commands
@@ -660,7 +665,7 @@ def profileNote() -> str:
 	# being edited.
 	return _(
 		"Keys and layers this profile does not change come from the normal configuration. A key"
-		" removed here goes to NVDA in this profile."
+		" removed here goes to NVDA in this profile.",
 	)
 
 
@@ -822,7 +827,7 @@ if wx is not None:
 			self._refresh()
 
 		def postInit(self):
-			#self.tree.SetFocus() #tree is the gestures list but going here first the user can't check what device and layer is selected
+			# self.tree.SetFocus() #tree is the gestures list but going here first the user can't check what device and layer is selected
 			self.deviceCtrl.SetFocus()
 
 		# Showing
@@ -833,7 +838,7 @@ if wx is not None:
 			layers = self.editor.layers.layers
 			self.layerCtrl.SetItems([keyLayerDispatch.layerName(layer) for layer in layers])
 			self.layerCtrl.SetSelection(
-				next(i for i, layer in enumerate(layers) if layer.id == self.editor.layer.id)
+				next(i for i, layer in enumerate(layers) if layer.id == self.editor.layer.id),
 			)
 			isDefault = self.editor.layer.isDefault
 			self.renameButton.Enable(not isDefault)
@@ -950,7 +955,7 @@ if wx is not None:
 				# Translators: said when a key from the wrong device is pressed while the layered keys dialog
 				# waits for one. Placeholders are the device pressed and the device being edited.
 				_(
-					"That key is on {pressed}. This layer is for {editing}. Press escape to stop waiting"
+					"That key is on {pressed}. This layer is for {editing}. Press escape to stop waiting",
 				).format(
 					pressed=self.editor.deviceLabel(source),
 					editing=self.editor.deviceLabel(wanted),
@@ -1030,7 +1035,7 @@ if wx is not None:
 					# that the layer gets from a layer further down. Placeholders are the key, that command, the
 					# layer it comes from, and the command the key is being added to.
 					_(
-						"{key} is {existing}, from the {layer} layer. Use it for {command} in this layer instead?"
+						"{key} is {existing}, from the {layer} layer. Use it for {command} in this layer instead?",
 					).format(
 						key=self.editor.describeKey(identifier),
 						existing=check.conflict,
@@ -1176,7 +1181,7 @@ if wx is not None:
 			answer = gui.messageBox(
 				# Translators: asked before deleting a layer in the layered keys dialog. The placeholder is its name.
 				_("Delete the {name} layer and every key in it?").format(
-					name=keyLayerDispatch.layerName(self.editor.layer)
+					name=keyLayerDispatch.layerName(self.editor.layer),
 				),
 				self.title,
 				wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
@@ -1206,7 +1211,7 @@ if wx is not None:
 			answer = gui.messageBox(
 				# Translators: asked before removing every key from a layer. The placeholder is its name.
 				_("Remove every key from the {name} layer?").format(
-					name=keyLayerDispatch.layerName(self.editor.layer)
+					name=keyLayerDispatch.layerName(self.editor.layer),
 				),
 				self.title,
 				wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
@@ -1314,7 +1319,7 @@ if wx is not None:
 			fallIds = [None] + [each.id for each in self.fallThroughs]
 			self.fallIds = fallIds
 			self.fallCtrl.SetSelection(
-				fallIds.index(layer.fallsThrough) if layer.fallsThrough in fallIds else 0
+				fallIds.index(layer.fallsThrough) if layer.fallsThrough in fallIds else 0,
 			)
 			# Translators: the label of the list of keys that turn a layer off.
 			self.exitCtrl = sHelper.addLabeledControl(_("E&xit keys:"), wx.ListBox, choices=[])

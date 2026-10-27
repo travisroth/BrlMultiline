@@ -46,6 +46,7 @@ One pin of bar and one of gap, the least a finger tells apart. More bars than fi
 not silently dropped.
 """
 
+
 class Bar(NamedTuple):
 	"""Where one series ended up on the drawing, so a touch can be traced back to it."""
 
@@ -207,9 +208,7 @@ def _layout(series: "list[Series]", slot: int, height: int) -> "list[Bar]":
 	:return: one bar per series entry, left to right.
 	"""
 	barWidth = max(1, slot - GAP)
-	return [
-		Bar(series=entry, left=index * slot, width=barWidth) for index, entry in enumerate(series)
-	]
+	return [Bar(series=entry, left=index * slot, width=barWidth) for index, entry in enumerate(series)]
 
 
 def _draw(buffer, bars: "list[Bar]", scale: Scale, baseline: int) -> None:

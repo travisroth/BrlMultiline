@@ -47,6 +47,7 @@ CANDLE = "candle"
 HLC = "hlc"
 """Three series as high, low, close bars: the price bars with no open tick."""
 
+
 class Offer(NamedTuple):
 	"""One chart that could be drawn from what is selected."""
 
@@ -282,7 +283,13 @@ def _chartBars(definition: chartSource.ChartDefinition) -> Callable:
 		# Translators: reported when a bar chart has a point with no value, such as an empty cell.
 		raise chartSource.NoNumbers(_("A bar here has no value"))
 	bars = [chartDraw.Series(label, value) for label, value in zip(definition.categories, values)]
-	return lambda newBuffer, width, height, translate: chart.barChart(newBuffer, width, height, bars, translate)
+	return lambda newBuffer, width, height, translate: chart.barChart(
+		newBuffer,
+		width,
+		height,
+		bars,
+		translate,
+	)
 
 
 def _chartPrices(definition: chartSource.ChartDefinition) -> Callable:

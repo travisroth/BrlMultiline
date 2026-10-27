@@ -403,7 +403,7 @@ def descriptor() -> None:
 	caps = device.caps
 	_say("--- Device capabilities ---")
 	_say(
-		f"Top level usage page 0x{caps.UsagePage:04X} ({_usagePageName(caps.UsagePage)}), usage 0x{caps.Usage:X}"
+		f"Top level usage page 0x{caps.UsagePage:04X} ({_usagePageName(caps.UsagePage)}), usage 0x{caps.Usage:X}",
 	)
 	_say(
 		f"Report byte lengths: input {caps.InputReportByteLength}, "

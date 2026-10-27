@@ -272,7 +272,7 @@ Answered:
    switch was needed and no feature report was written.
 
 4. **The bit order**: blocks of 2 by 4 in reading order, 48 across by 10 down, each byte an
-   ordinary eight dot braille cell. 
+   ordinary eight dot braille cell.
 Read as column major first, so byte 0 is first cell, bite 1 moves one cell to right on top row, etc.
 Cells are Braille reading order, see discussion above. SPike.pinHLine() and spike.pinVLine() have been set to draw straight lines accounting for this geometry.
 
@@ -386,7 +386,7 @@ below assumes it:
 3. **So a graphics view is closer to a mode than a panel.** The add-on's existing model is
    panels tiling one display that updates continuously. A Monarch graphics view is better
    thought of as: enter it, the panel shows a composed image with its own braille labels,
-   ordinary braille is held, and leaving it restores normal operation. 
+   ordinary braille is held, and leaving it restores normal operation.
 
 ### Phase 1, the buffer and the region
 

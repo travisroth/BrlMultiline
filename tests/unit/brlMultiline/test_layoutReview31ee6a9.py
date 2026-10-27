@@ -30,7 +30,7 @@ class CollectorRegressions(unittest.TestCase):
 		window = SimpleNamespace(windowHandle=5, location=(0, 0, 1000, 700))
 		with mock.patch.dict(sys.modules, {"UIAHandler": harness.fakeUIA(root)}):
 			harness.run(
-				appCollect.AppCollector(window, None, lambda payload, why: got.append((payload, why)))
+				appCollect.AppCollector(window, None, lambda payload, why: got.append((payload, why))),
 			)
 		self.assertEqual(len(got), 1)
 		if allow_failure:
@@ -70,7 +70,7 @@ class CollectorRegressions(unittest.TestCase):
 
 	def test_a_failed_subtree_read_marks_the_result_incomplete(self):
 		pane = harness.FakeElement(
-			"Pane", (0, 0, 1000, 600), "Options", [harness.FakeElement("Button", (20, 20, 100, 30), "Work")]
+			"Pane", (0, 0, 1000, 600), "Options", [harness.FakeElement("Button", (20, 20, 100, 30), "Work")],
 		)
 		pane.BuildUpdatedCache = mock.Mock(side_effect=RuntimeError("provider disconnected"))
 		root = harness.FakeElement("Window", (0, 0, 1000, 700), "App", [pane])
@@ -79,7 +79,7 @@ class CollectorRegressions(unittest.TestCase):
 			self.assertTrue(reason, "An overall read failure must have a reason.")
 		else:
 			self.assertTrue(
-				payload["incomplete"], "A failed child read was presented as a complete empty subtree."
+				payload["incomplete"], "A failed child read was presented as a complete empty subtree.",
 			)
 
 
@@ -104,7 +104,7 @@ class NavigationRegressions(unittest.TestCase):
 		):
 			fixture.plugin.layouts.moveToAppArea(fixture.region, (5,))
 		self.assertEqual(
-			target.focused, 0, "The old application's area was focused after the foreground changed."
+			target.focused, 0, "The old application's area was focused after the foreground changed.",
 		)
 		self.assertTrue(fixture.mode.active, "A refused stale move should not tear down the drawing.")
 
@@ -132,7 +132,7 @@ class NavigationRegressions(unittest.TestCase):
 					"UIAHandler": uia,
 					"winUser": SimpleNamespace(
 						isDescendantWindow=lambda parent, child: parent == child
-						or user32.IsChild(parent, child)
+						or user32.IsChild(parent, child),
 					),
 				},
 			),
@@ -142,5 +142,5 @@ class NavigationRegressions(unittest.TestCase):
 		):
 			fixture.plugin.layouts.moveToAppArea(fixture.region, (5,))
 		self.assertEqual(
-			target.focused, 0, "IsWindow accepted a recycled handle in another application's window."
+			target.focused, 0, "IsWindow accepted a recycled handle in another application's window.",
 		)

@@ -542,7 +542,7 @@ def _placeSplit(layout: AppLayout, plan: Plan) -> list[SegmentRect]:
 	if otherBand.numRows == 1:
 		if len(others) > otherBand.numCols:
 			raise LayoutError(
-				f"layout {layout.name!r} has more segments than the display beside the focus has cells"
+				f"layout {layout.name!r} has more segments than the display beside the focus has cells",
 			)
 		base, extra = divmod(otherBand.numCols, len(others))
 		col = 0

@@ -262,10 +262,7 @@ def displayPanels(rects: list[SegmentRect]) -> list[SinglePanel]:
 	:param rects: the segment rectangles, in display order.
 	:return: one panel per rectangle, none of them reserved.
 	"""
-	return [
-		SinglePanel(displaySegmentKey(index), rect, reserve=False)
-		for index, rect in enumerate(rects)
-	]
+	return [SinglePanel(displaySegmentKey(index), rect, reserve=False) for index, rect in enumerate(rects)]
 
 
 # The settings dialog offers no control over wrapping, continuation marks, or routing, so

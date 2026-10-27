@@ -372,7 +372,8 @@ def captureClipboard() -> Picture:
 			# Translators: reported when a picture on the clipboard is too small to draw. The
 			# placeholders are its width and height in pixels.
 			_("This picture is only {width} by {height}, too small to draw").format(
-				width=width, height=height
+				width=width,
+				height=height,
 			),
 		)
 	try:

@@ -159,7 +159,12 @@ def writeWithin(handle, buffer, size: int, timeout: float) -> None:
 				raise WriteTimedOut(f"the device did not take a write in {timeout} seconds, nor let it go")
 			# Finished while being cancelled. It may have completed rather than been aborted,
 			# and a write that got there is a write that got there.
-			completed = kernel32.GetOverlappedResult(handle, ctypes.byref(overlapped), ctypes.byref(written), False)
+			completed = kernel32.GetOverlappedResult(
+				handle,
+				ctypes.byref(overlapped),
+				ctypes.byref(written),
+				False,
+			)
 			kernel32.CloseHandle(event)
 			if completed:
 				return

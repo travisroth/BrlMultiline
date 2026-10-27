@@ -106,6 +106,7 @@ def _now() -> float:
 	""":return: a monotonic clock in milliseconds, which is what the delays here are in."""
 	return time.monotonic() * 1000
 
+
 if TYPE_CHECKING:
 	from .container import DisplayContainer
 
@@ -178,7 +179,6 @@ class FlowBand(PanelOwner):
 		self._unwrapTurnedOver: Optional[tuple[bool, bool]] = None
 		"""The setting when the reader last turned unwrapped lines over, and what they chose, or
 		None. See L{unwrapLines}."""
-
 
 		self.liveCounts = [0, 0, 0]
 		"""Changes heard, passes run, passes that redrew. For the dry run, and it earns its
@@ -312,7 +312,10 @@ class FlowBand(PanelOwner):
 			# again is how the repair was starved.
 			return
 		try:
-			self._settleTimer = wx.CallLater(int(max(1, min(SETTLE_MILLIS, self._settleBy - now))), self._settle)
+			self._settleTimer = wx.CallLater(
+				int(max(1, min(SETTLE_MILLIS, self._settleBy - now))),
+				self._settle,
+			)
 		except Exception:
 			log.debugWarning("Could not schedule a flow settle pass", exc_info=True)
 			self._settleTimer = None
@@ -872,7 +875,7 @@ class FlowBand(PanelOwner):
 			ground = bool(jump) and bmConfig.shouldGroundOnQuickNav()
 			showing = bool(
 				self.controller
-				and self.controller.arriveAt(atObject=self._arrival(obj, target), ground=ground)
+				and self.controller.arriveAt(atObject=self._arrival(obj, target), ground=ground),
 			)
 			self._redraw(segment)
 			return showing
@@ -1040,9 +1043,7 @@ class FlowBand(PanelOwner):
 			return True
 		# Which of the two the build hit, in its own words. See `flowBuild.Unreadable`.
 		self.tableProblem = (
-			NOT_READ
-			if any(isinstance(note, Unreadable) for note in self.tableNotes)
-			else NO_LAYOUT
+			NOT_READ if any(isinstance(note, Unreadable) for note in self.tableNotes) else NO_LAYOUT
 		)
 		self._reportNoLayout(obj, handle)
 		return False
@@ -1061,8 +1062,7 @@ class FlowBand(PanelOwner):
 			log.info(
 				"\n".join(
 					[
-						f"BrlMultiline: {handle!r} was recognised and could not be laid out"
-						" in columns.",
+						f"BrlMultiline: {handle!r} was recognised and could not be laid out in columns.",
 						*(f"  {note}" for note in notes),
 						*flowTableSource.explain(obj),
 					],
@@ -1263,8 +1263,7 @@ class FlowBand(PanelOwner):
 		"""
 		if found.numCols != source.handle.numCols:
 			self._rebuildBecause(
-				f"the table has {found.numCols} columns and the layout was made for "
-				f"{source.handle.numCols}",
+				f"the table has {found.numCols} columns and the layout was made for {source.handle.numCols}",
 			)
 			return True
 		if getattr(found.document, "rowCountIsExact", False):

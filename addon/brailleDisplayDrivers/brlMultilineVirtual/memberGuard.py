@@ -196,7 +196,11 @@ class MemberGuard:
 			if watch.returned.wait(self._grace):
 				log.info(f"BrlMultiline: {watch.label} returned once its I/O was cancelled")
 				return
-			reason = "its I/O was cancelled but it still has not returned" if requested else "it had no I/O to cancel"
+			reason = (
+				"its I/O was cancelled but it still has not returned"
+				if requested
+				else "it had no I/O to cancel"
+			)
 			log.error(
 				f"BrlMultiline: {watch.label} is stuck: {reason}, so the thread it holds is not coming "
 				"back. Braille may not work again until NVDA is restarted.",

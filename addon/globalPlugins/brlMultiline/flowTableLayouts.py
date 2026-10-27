@@ -1048,7 +1048,11 @@ def remember(handle, layout: TableLayout) -> bool:
 	first = headings.first
 	if found.saved is not None:
 		saved = found.saved
-		changed = _readably(dataclasses.replace(saved, layout=record, saved=now, used=now), found.where, first)
+		changed = _readably(
+			dataclasses.replace(saved, layout=record, saved=now, used=now),
+			found.where,
+			first,
+		)
 		_write(_withChanged(layouts, changed))
 		return True
 	layouts.append(

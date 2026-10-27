@@ -526,7 +526,8 @@ class LayerSet:
 			stored = json.loads(text)
 		except ValueError as error:
 			return cls(
-				device, tuple(factory)
+				device,
+				tuple(factory),
 			), f"could not read the stored layers, so using the defaults: {error}"
 		if not isinstance(stored, dict) or not isinstance(stored.get("layers"), list):
 			return cls(device, tuple(factory)), "the stored layers are not in a form this version knows"
@@ -970,7 +971,10 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 			"Pinned document",
 			"pinned",
 			bindings={
-				**{normalize(f"br({MONARCH}):{dots}"): plugin(f"pinNext{name}") for name, dots in letters.items()},
+				**{
+					normalize(f"br({MONARCH}):{dots}"): plugin(f"pinNext{name}")
+					for name, dots in letters.items()
+				},
 				**{
 					normalize(f"br({MONARCH}):{dots}+dot7"): plugin(f"pinPrevious{name}")
 					for name, dots in letters.items()
@@ -985,7 +989,9 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 			return {normalize(f"kb:{name}"): target for name in names}
 
 		default = newLayer(
-			device, DEFAULT_ID, bindings=keypad(("numpad5", "numLockNumpad5"), command("reportCurrentLine"))
+			device,
+			DEFAULT_ID,
+			bindings=keypad(("numpad5", "numLockNumpad5"), command("reportCurrentLine")),
 		)
 		graphics = newLayer(
 			device,

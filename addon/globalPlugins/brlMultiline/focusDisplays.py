@@ -460,7 +460,7 @@ class FocusDisplayMoves:
 						_(
 							"Moving the focus here would release these pinned objects, "
 							"and there is nowhere else on the display to put them:{objects}"
-							"{gap}Move the focus anyway?"
+							"{gap}Move the focus anyway?",
 						).format(
 							objects=BREAK + BREAK.join(names),
 							gap=BREAK + BREAK,
@@ -479,7 +479,7 @@ class FocusDisplayMoves:
 					# the way and how many there is room to keep.
 					_(
 						"Moving the focus here would release {count} pinned objects. "
-						"There is room to keep {room}. Choose which to keep; the rest are released."
+						"There is room to keep {room}. Choose which to keep; the rest are released.",
 					).format(count=len(displaced), room=room),
 					# Translators: the title of that dialog.
 					_("Moving the focus"),

@@ -266,7 +266,7 @@ class TestDrawingThePictureHere(unittest.TestCase):
 		self.mode.refuseReplace = False
 		self.plugin.script_pictureStyle(None)
 		self.assertEqual(
-			self.plugin.pictures.style, imageFigure.LINES, "the cycle resumes from what was shown"
+			self.plugin.pictures.style, imageFigure.LINES, "the cycle resumes from what was shown",
 		)
 
 	def test_aStyleThePictureWillNotDrawInLeavesTheStyleAlone(self):
@@ -580,7 +580,7 @@ class TestFollowingAnApplicationsChart(unittest.TestCase):
 		def newBuffer(self, width, height):
 			# The Monarch driver's own buffer, so a chart is really drawn.
 			driver = os.path.join(
-				os.path.dirname(__file__), "..", "..", "..", "addon", "brailleDisplayDrivers", "brlMultilineMonarch"
+				os.path.dirname(__file__), "..", "..", "..", "addon", "brailleDisplayDrivers", "brlMultilineMonarch",
 			)
 			if driver not in sys.path:
 				sys.path.insert(0, driver)
@@ -893,7 +893,7 @@ class TestMonitorCarryOver(PluginTestCase):
 		self.pin(0)
 		self.plugin.activatePanel(
 			GridPanel(
-				"table", SegmentRect(2, 0, 6, MONARCH_COLS), rowBands=[2, 2, 2], colWidths=[10, 10, 10]
+				"table", SegmentRect(2, 0, 6, MONARCH_COLS), rowBands=[2, 2, 2], colWidths=[10, 10, 10],
 			),
 		)
 		self.assertEqual(self.plugin.monitoredKeys, {"display.0"})
@@ -2806,7 +2806,7 @@ class TestTwoDisplays(FocusTrackingDisplayTestCase):
 	def test_thereAreTwoToChooseBetween(self):
 		targets = self.plugin.focusMoves.targets()
 		self.assertEqual(
-			[target.driverName for target in targets], ["hidBrailleStandard", "freedomScientific"]
+			[target.driverName for target in targets], ["hidBrailleStandard", "freedomScientific"],
 		)
 		self.assertEqual([target.segments for target in targets], [[0, 1], [2]])
 

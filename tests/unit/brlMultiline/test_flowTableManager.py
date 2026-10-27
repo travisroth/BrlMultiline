@@ -156,7 +156,7 @@ class TestEditingOne(ManagerTestCase):
 	def test_aWebPageOffersEveryMatch(self):
 		manager = self.manager([layout("a", where="https://example.com/x", match=MATCH_PATH)])
 		self.assertEqual(
-			[MATCH_PATH, MATCH_EXACT, MATCH_SITE], [match for match, _label in manager.matchChoices(0)]
+			[MATCH_PATH, MATCH_EXACT, MATCH_SITE], [match for match, _label in manager.matchChoices(0)],
 		)
 		manager.setMatch(0, MATCH_SITE)
 		self.assertEqual(MATCH_SITE, manager.at(0).match)
@@ -181,7 +181,7 @@ class TestEditingOne(ManagerTestCase):
 
 	def test_deleting(self):
 		manager = self.manager(
-			[layout("a", where="https://example.com/x"), layout("b", where="https://example.com/y")]
+			[layout("a", where="https://example.com/x"), layout("b", where="https://example.com/y")],
 		)
 		manager.delete(manager.indexOf("a"))
 		self.assertEqual(["b"], [saved.id for saved in manager.layouts])
@@ -216,20 +216,20 @@ class TestFindingsFromReview(ManagerTestCase):
 		"""While a list is sorted it reads as empty, so the ranking found nothing applying and put a newer
 		layout for other headings first, which is the row the dialog selects."""
 		applies = layout(
-			"applies", where=NEW_ADDRESS, match=MATCH_PATH, headings=("Symbol", "Last", "Change"), used=100
+			"applies", where=NEW_ADDRESS, match=MATCH_PATH, headings=("Symbol", "Last", "Change"), used=100,
 		)
 		other = layout(
-			"other", where=NEW_ADDRESS, match=MATCH_PATH, headings=("Criterion", "Level"), used=999
+			"other", where=NEW_ADDRESS, match=MATCH_PATH, headings=("Criterion", "Level"), used=999,
 		)
 		manager = self.manager([other, applies], page())
 		self.assertEqual("applies", manager.at(0).id)
 
 	def test_useForThisTableIsRefusedWhereAMoreParticularLayoutWouldStillApply(self):
 		exact = layout(
-			"exact", where=NEW_ADDRESS, match=MATCH_EXACT, headings=("Symbol", "Last", "Change"), name="Exact"
+			"exact", where=NEW_ADDRESS, match=MATCH_EXACT, headings=("Symbol", "Last", "Change"), name="Exact",
 		)
 		loose = layout(
-			"loose", where="https://www.barchart.com/other", match=MATCH_SITE, headings=("Symbol",)
+			"loose", where="https://www.barchart.com/other", match=MATCH_SITE, headings=("Symbol",),
 		)
 		manager = self.manager([exact, loose], page())
 		why = manager.useHere(manager.indexOf("loose"))
@@ -239,7 +239,7 @@ class TestFindingsFromReview(ManagerTestCase):
 
 	def test_alsoUseForThisTableIsRefusedForTheLayoutThatAlreadyApplies(self):
 		applies = layout(
-			"applies", where=NEW_ADDRESS, match=MATCH_PATH, headings=("Symbol", "Last", "Change")
+			"applies", where=NEW_ADDRESS, match=MATCH_PATH, headings=("Symbol", "Last", "Change"),
 		)
 		manager = self.manager([applies], page())
 		at, why = manager.alsoUseHere(0)

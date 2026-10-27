@@ -107,7 +107,6 @@ def liveReport(band) -> list[str]:
 	return lines
 
 
-
 DOCUMENT_LINES = 10
 """How many of the document's own lines the report reads around the caret.
 
@@ -179,6 +178,7 @@ def _offsetsOf(info) -> str:
 		return f"{info.bookmark!r}"
 	except Exception:
 		return "<no bookmark>"
+
 
 def describeObjectTable(control) -> list:
 	""":return: what a table made of objects found, or nothing if this is not one.
@@ -315,7 +315,7 @@ def describeDivision() -> list[str]:
 			key, layout = "?", f"settings could not be read: {error!r}"
 		lines.append(
 			f"  {device.driverName}: rows {device.rowStart} to {device.rowEnd - 1}, "
-			f"{device.numCols} cells, settings {key!r}: {layout}"
+			f"{device.numCols} cells, settings {key!r}: {layout}",
 		)
 	return lines
 
@@ -354,7 +354,11 @@ def describePinReading(monitor) -> list[str]:
 	notes: list = []
 	try:
 		built = buildController(
-			obj=monitor.pinned, numRows=rows, numCols=cols, handler=braille.handler, notes=notes
+			obj=monitor.pinned,
+			numRows=rows,
+			numCols=cols,
+			handler=braille.handler,
+			notes=notes,
 		)
 	except Exception as error:
 		built = None

@@ -53,6 +53,7 @@ def _attributeFor(name: str) -> str:
 	"""
 	return _ATTRIBUTES.get(name, name)
 
+
 _originals: dict[str, object] = {}
 """NVDA's own methods, by the name each one is patched under.
 
@@ -207,7 +208,12 @@ def _refreshPinnedObjects(busy: bool = False) -> None:
 	:param busy: whether NVDA had an update of its own pending on this core cycle, which is
 		what a keystroke looks like from here.
 	"""
-	global _lastMonitorRefresh, _monitorsUnfinished, _monitorsRefreshedAt, _layoutRefreshedAt, _layoutUnfinished
+	global \
+		_lastMonitorRefresh, \
+		_monitorsUnfinished, \
+		_monitorsRefreshedAt, \
+		_layoutRefreshedAt, \
+		_layoutUnfinished
 	from . import getPlugin
 
 	plugin = getPlugin()

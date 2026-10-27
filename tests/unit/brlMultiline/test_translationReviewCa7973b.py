@@ -53,7 +53,7 @@ class TranslationRegressions(unittest.TestCase):
 			for module in (i18n, keyLayers, keyLayerDispatch):
 				stack.enter_context(mock.patch.object(module, "_", translate, create=True))
 				stack.enter_context(
-					mock.patch.object(module, "pgettext", lambda context, text: translate(text), create=True)
+					mock.patch.object(module, "pgettext", lambda context, text: translate(text), create=True),
 				)
 			shipped = keyLayers.LayerSet(
 				keyLayers.MONARCH,
@@ -63,7 +63,7 @@ class TranslationRegressions(unittest.TestCase):
 			custom = keyLayerDispatch.layerName(keyLayers.newLayer(keyLayers.MONARCH, "custom", "Graphics"))
 		self.assertEqual(shown, "Translated Graphics", "The shipped layer's name bypassed gettext.")
 		self.assertEqual(
-			custom, "Graphics", "A user-written name must not be translated as application text."
+			custom, "Graphics", "A user-written name must not be translated as application text.",
 		)
 
 	def test_layer_properties_error_does_not_embed_an_english_reason(self):
@@ -87,7 +87,7 @@ class TranslationRegressions(unittest.TestCase):
 
 	def test_standalone_i18n_ignores_the_interactive_interpreters_last_result(self):
 		unavailable = SimpleNamespace(
-			initTranslation=mock.Mock(side_effect=RuntimeError("not an installed add-on"))
+			initTranslation=mock.Mock(side_effect=RuntimeError("not an installed add-on")),
 		)
 		with (
 			mock.patch.dict(sys.modules, {"addonHandler": unavailable}),

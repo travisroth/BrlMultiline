@@ -248,7 +248,10 @@ def glyphTargets(display=None) -> "list[Target]":
 	try:
 		slots = list(display.slots)
 	except Exception:
-		log.error("BrlMultiline: could not read the composite's members to find one that draws", exc_info=True)
+		log.error(
+			"BrlMultiline: could not read the composite's members to find one that draws",
+			exc_info=True,
+		)
 		return []
 	targets = []
 	for slot in slots:

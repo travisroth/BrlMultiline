@@ -675,9 +675,7 @@ class ObjectTable:
 		among = where.get("similarItemsInGroup") or 0
 		admitted = self.childrenAdmittedTo()
 		if among and admitted > among:
-			return (
-				f"the table admits to {admitted} rows while the row says its group holds {among}"
-			)
+			return f"the table admits to {admitted} rows while the row says its group holds {among}"
 		return None
 
 	def childrenAdmittedTo(self) -> int:
@@ -857,8 +855,7 @@ class ObjectTable:
 			f"  the row's own rowNumber: {_ask(self.focused, 'rowNumber')}",
 			f"  the row says it is one of {self.itemsAmong(self.focused) or 'it does not say'}",
 			f"  its position numbers {'a group of it' if group else 'the table'}"
-			f", from {_positionOf(self.focused)}"
-			+ (f", because {group}" if group else ""),
+			f", from {_positionOf(self.focused)}" + (f", because {group}" if group else ""),
 			f"  the table's own rowCount: {_ask(self.table, 'rowCount')}"
 			f", childCount: {_ask(self.table, 'childCount')}"
 			f", columnCount: {_ask(self.table, 'columnCount')}",
@@ -1767,8 +1764,7 @@ def describeTree(obj) -> list:
 		return lines
 	table = rowsTable(obj)
 	lines.append(
-		"  a row that answers for its own cells: "
-		f"{describeThing(table) if table is not None else 'no'}",
+		f"  a row that answers for its own cells: {describeThing(table) if table is not None else 'no'}",
 	)
 	row = cellsRow(obj)
 	lines.append(
@@ -1792,7 +1788,7 @@ def describeChildren(what: str, obj) -> list:
 	if obj is None:
 		return []
 	children = _childrenOf(obj)
-	columns = [columnNumberOf(child) for child in children[:MIN_COLUMNS * 4]]
+	columns = [columnNumberOf(child) for child in children[: MIN_COLUMNS * 4]]
 	return [
 		f"  {what}: {describeThing(obj)}"
 		f", holds {len(children) or 'nothing this can read as cells'}"

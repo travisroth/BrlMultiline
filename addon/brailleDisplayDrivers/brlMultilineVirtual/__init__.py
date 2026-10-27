@@ -911,7 +911,10 @@ def _openDriver(
 		except Exception:
 			if watch is not None and watch.fired:
 				_terminateQuietly(driver, partial=True)
-				log.debugWarning(f"BrlMultiline: {spec.driverName} did not answer while opening", exc_info=True)
+				log.debugWarning(
+					f"BrlMultiline: {spec.driverName} did not answer while opening",
+					exc_info=True,
+				)
 				return None
 			# A constructor that raised may still hold the device, so close it, best effort,
 			# before the next attempt.

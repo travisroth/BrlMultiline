@@ -10,7 +10,6 @@ nothing from NVDA. Mirrors `tactile.TactileGraphicsBuffer` (`width`, `height`, `
 `tactile.braille.drawBrailleCells` can draw into it, without subclassing it.
 """
 
-
 BRAILLE_DOT_COORDS = [
 	(0, 0),  # dot 1
 	(0, 1),  # dot 2

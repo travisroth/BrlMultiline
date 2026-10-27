@@ -257,7 +257,7 @@ class AppLayoutHost:
 			layout, problem = askAppModule(appModule, focus, displayArea(area, bands, within, spread))
 			if problem is not None:
 				log.debugWarning(
-					f"BrlMultiline: the app layout of {_appName(appModule)} was refused: {problem}"
+					f"BrlMultiline: the app layout of {_appName(appModule)} was refused: {problem}",
 				)
 		if (
 			self.shown is not None

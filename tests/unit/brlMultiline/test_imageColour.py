@@ -455,7 +455,7 @@ class TestEdgesInColour(unittest.TestCase):
 	def picture(self):
 		# Red at 255 and green at 130 both come to a grey of 76.
 		return colourPicture(
-			200, 200, lambda draw: draw.rectangle((60, 60, 139, 139), fill=(255, 0, 0)), ground=(0, 130, 0)
+			200, 200, lambda draw: draw.rectangle((60, 60, 139, 139), fill=(255, 0, 0)), ground=(0, 130, 0),
 		)
 
 	def test_inGreyThereIsNothingThere(self):

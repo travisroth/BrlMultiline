@@ -74,14 +74,14 @@ class LayoutOverviewFixFollowups(unittest.TestCase):
 	def test_a_top_level_form_fully_behind_a_sticky_header_is_hidden(self):
 		banner = Region("banner", "", Box(0, 35, 1000, 100), "landmark", screenBox=Box(0, 0, 1000, 100))
 		form = Region(
-			"form", "Covered form", Box(100, 520, 600, 50), "landmark", screenBox=Box(100, 20, 600, 50)
+			"form", "Covered form", Box(100, 520, 600, 50), "landmark", screenBox=Box(100, 20, 600, 50),
 		)
 		main = Region("main", "", Box(0, 700, 1000, 1200), "landmark", screenBox=Box(0, 200, 1000, 1200))
 		page = Region("page", "", Box(0, 0, 1000, 1900), "page", children=[banner, form, main], scroll=500)
 		on_page = harness.compose(harness.PinBuffer, page, 96, 120, "page", VIEW, harness.translate, 3)
 		self.assertIn(form, [b.region for b in on_page.walk()])
 		on_screen = harness.composeFitting(
-			harness.PinBuffer, page, 96, 40, "screen", VIEW, harness.translate, 3
+			harness.PinBuffer, page, 96, 40, "screen", VIEW, harness.translate, 3,
 		)
 		self.assertNotIn(
 			form,

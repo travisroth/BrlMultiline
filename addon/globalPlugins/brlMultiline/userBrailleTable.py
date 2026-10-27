@@ -182,7 +182,7 @@ def _read() -> Store:
 			# them was used. The placeholder is the file the damaged list was kept as.
 			_loadProblem = _(
 				"The braille substitutions file could not be read, so the copy saved before it was used. "
-				"The damaged file was kept as {name}."
+				"The damaged file was kept as {name}.",
 			).format(name=os.path.basename(kept or path))
 			return recovered
 		# Translators: said when the braille substitutions were damaged and there was no copy to use.
@@ -291,12 +291,12 @@ def validate(candidate: Iterable[Substitution], personal: Iterable[PersonalTable
 		for table in ourTables():
 			with open(os.path.join(folder, table), encoding="utf-8") as file:
 				checks.append(
-					(table, file.read().replace(f"include {RULES_FILE}", f"include {CHECK_STEM}.cti"))
+					(table, file.read().replace(f"include {RULES_FILE}", f"include {CHECK_STEM}.cti")),
 				)
 		for table in personal:
 			name = personalTables.wrapperName(table.base)
 			checks.append(
-				(name, personalTables.wrapperText(table.base).replace(RULES_FILE, f"{CHECK_STEM}.cti"))
+				(name, personalTables.wrapperText(table.base).replace(RULES_FILE, f"{CHECK_STEM}.cti")),
 			)
 		for table, source in checks:
 			check = os.path.join(folder, f"{CHECK_STEM}.{table}")

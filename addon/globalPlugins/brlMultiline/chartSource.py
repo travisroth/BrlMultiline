@@ -320,8 +320,7 @@ def seriesFromGrid(grid: "list[list]") -> "list[Series]":
 		raise NoNumbers(_("There are no numbers in the selection to chart"))
 	labels = _labelColumn(grid, numeric)
 	return [
-		Series(label=label, value=_asNumber(cell[1]))
-		for label, cell in zip(labels, _column(grid, numeric))
+		Series(label=label, value=_asNumber(cell[1])) for label, cell in zip(labels, _column(grid, numeric))
 	]
 
 
@@ -379,6 +378,8 @@ def _labelColumn(grid: "list[list]", numeric: int) -> "list[str]":
 	"""
 	source = numeric - 1 if numeric > 0 else numeric
 	return [str(cell[0]) for cell in _column(grid, source)]
+
+
 # --- Several columns at once ----------------------------------------------------------------
 #
 # Line and candlestick charts need several columns together, so the selection is read once
@@ -638,9 +639,7 @@ def periodsFrom(table: Table) -> "list[Period]":
 		)
 	periods = []
 	for index in range(max(len(column.values) for column in picked)):
-		values = [
-			column.values[index] if index < len(column.values) else None for column in picked
-		]
+		values = [column.values[index] if index < len(column.values) else None for column in picked]
 		if any(value is None for value in values):
 			# A period missing one of its four prices is not a period. Skipped rather than
 			# refused, because a blank row in the middle of a year of prices is a holiday.
@@ -654,7 +653,7 @@ def periodsFrom(table: Table) -> "list[Period]":
 				# The placeholder is which period.
 				_(
 					"These are not open, high, low and close columns: "
-					"the high or low at {label} is inside the open and close"
+					"the high or low at {label} is inside the open and close",
 				).format(label=label),
 			)
 		periods.append(

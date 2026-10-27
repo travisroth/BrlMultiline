@@ -770,11 +770,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		"""
 		if not self._glyphs:
 			return
-		self._glyphs = {
-			index: glyph
-			for index, glyph in self._glyphs.items()
-			if glyph.matches(cells, index)
-		}
+		self._glyphs = {index: glyph for index, glyph in self._glyphs.items() if glyph.matches(cells, index)}
 
 	# --- Graphics overlays ---------------------------------------------------------------
 
