@@ -13,8 +13,7 @@ Fixed:
 ## 2026.3.0
 
 First version built against NVDA 2026.3, replacing an earlier prototype written for
-NVDA 2023. 2026.3 is the first release to carry the `braille` package that this add-on is
-written against, so until it ships, installing and testing means running an alpha snapshot.
+NVDA 2023.
 
 Added:
 
