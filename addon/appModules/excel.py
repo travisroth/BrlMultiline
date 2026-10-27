@@ -258,6 +258,18 @@ def _categoryText(value) -> str:
 	return str(value)
 
 
+def _unsupportedSeries(everySeries, chartType) -> str | None:
+	""":return: why a line or bar chart's series cannot be drawn, or None if they can."""
+	for one in everySeries:
+		if one.ChartType != chartType:
+			# Translators: reported when a chart mixes kinds, such as columns and a line.
+			return _("Charts that mix kinds cannot be drawn yet")
+		if one.AxisGroup == XL_SECONDARY:
+			# Translators: reported when a chart has a series on a second value axis.
+			return _("Charts with a second value axis cannot be drawn yet")
+	return None
+
+
 def _chartTypeName(chartType) -> str:
 	""":return: a chart type in NVDA's own words, as NVDA's chart navigation says it."""
 	names = getattr(officeChart, "chartTypeDict", None) or {}
@@ -340,13 +352,9 @@ class ExcelChart:
 		else:
 			return refused("")
 		if kind in ("line", "bars"):
-			for one in everySeries:
-				if one.ChartType != chartType:
-					# Translators: reported when a chart mixes kinds, such as columns and a line.
-					return refused(_("Charts that mix kinds cannot be drawn yet"))
-				if one.AxisGroup == XL_SECONDARY:
-					# Translators: reported when a chart has a series on a second value axis.
-					return refused(_("Charts with a second value axis cannot be drawn yet"))
+			why = _unsupportedSeries(everySeries, chartType)
+			if why:
+				return refused(why)
 		drawn = everySeries[lead:]
 		series = [
 			SeriesReading(str(one.Name), [_chartValue(value) for value in (one.Values or ())], key=number)

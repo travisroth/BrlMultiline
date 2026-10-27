@@ -765,21 +765,13 @@ def _placeDetails(box: DrawnBox, counts: list[_Count]) -> None:
 			return label.top
 		return label.bottom + (index - 1) * CELL_HEIGHT if downward else label.top - index * CELL_HEIGHT
 
-	def fits(spot: Box) -> bool:
-		if spot.top < r.top + inset or spot.bottom > r.bottom - inset:
-			return False
-		if spot.left < r.left + inset or spot.right > r.right - inset:
-			return False
-		clearance = Box(spot.left - 1, spot.top - 1, spot.width + 2, spot.height + 2)
-		return not any(child.rect.intersection(clearance) for child in box.children)
-
 	def inBox(index: int) -> bool:
 		top = lineTop(index)
 		return top >= r.top + inset and top + CELL_HEIGHT <= r.bottom - inset
 
 	def whole(count: _Count, left: int, index: int) -> list[Box] | None:
 		spot = Box(left, lineTop(index), count.oneLineWidth, CELL_HEIGHT)
-		return [spot] if fits(spot) else None
+		return [spot] if _fitsIn(box, spot, inset) else None
 
 	def stacked(count: _Count, left: int, index: int) -> list[Box] | None:
 		# The number on this line and the word on the next, both from the same left; the next
@@ -791,7 +783,7 @@ def _placeDetails(box: DrawnBox, counts: list[_Count]) -> None:
 			Box(left, upper, count.numberWidth, CELL_HEIGHT),
 			Box(left, lower, count.wordWidth, CELL_HEIGHT),
 		]
-		return spots if all(fits(s) for s in spots) else None
+		return spots if all(_fitsIn(box, s, inset) for s in spots) else None
 
 	line, x = 0, label.right + 1 + CELL_STRIDE
 	for count in counts:
@@ -818,6 +810,17 @@ def _placeDetails(box: DrawnBox, counts: list[_Count]) -> None:
 		# label at the bottom, that is the number, above, not the word.
 		onLine = [spot for spot in spots if spot.top == lineTop(line)] or spots
 		x = onLine[-1].right + 1 + CELL_STRIDE
+
+
+def _fitsIn(box: DrawnBox, spot: Box, inset: int) -> bool:
+	""":return: whether a spot is inside a box's margin and a cell clear of the boxes inside it."""
+	r = box.rect
+	if spot.top < r.top + inset or spot.bottom > r.bottom - inset:
+		return False
+	if spot.left < r.left + inset or spot.right > r.right - inset:
+		return False
+	clearance = Box(spot.left - 1, spot.top - 1, spot.width + 2, spot.height + 2)
+	return not any(child.rect.intersection(clearance) for child in box.children)
 
 
 def _marks(count: _Count, spots: list[Box]) -> list[tuple[int, int, list]]:

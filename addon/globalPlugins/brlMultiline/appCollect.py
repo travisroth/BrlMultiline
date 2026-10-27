@@ -179,16 +179,7 @@ class AppCollector:
 		"""
 		self.nodes += 1
 		record = _record(self.uia, element, self.origin)
-		rect = record.get("rect")
-		if rect:
-			seen = _intersect(rect, clip)
-			if seen != rect:
-				record["fullRect"] = rect
-				if seen:
-					record["rect"] = seen
-				else:
-					record.pop("rect")
-					record["outside"] = True
+		_clip(record, clip)
 		if (
 			record.get("hwnd")
 			and record.get("rect")
@@ -343,6 +334,25 @@ def _children(element, request) -> list | None:
 		log.debugWarning("BrlMultiline: an element did not answer for its children", exc_info=True)
 		return None
 	return _cachedChildren(cached)
+
+
+def _clip(record: dict, clip: list) -> None:
+	"""Cut a record's rectangle to what can be seen of it, keeping the whole as `fullRect`.
+
+	A record wholly outside the clip loses its rectangle and is marked `outside`.
+	"""
+	rect = record.get("rect")
+	if not rect:
+		return
+	seen = _intersect(rect, clip)
+	if seen == rect:
+		return
+	record["fullRect"] = rect
+	if seen:
+		record["rect"] = seen
+	else:
+		record.pop("rect")
+		record["outside"] = True
 
 
 def _intersect(rect: list, clip: list) -> list | None:
