@@ -1,5 +1,6 @@
-# Set default behaviour, in case users don't have core.autocrlf set.
-* text=auto
+# Text is LF in the working tree as in the repository, whatever core.autocrlf says, because
+# ruff writes LF (pyproject.toml) and a CRLF checkout made every formatted file look changed.
+* text=auto eol=lf
 
 # Try to ensure that po files in the repo does not include
 # source code line numbers.
