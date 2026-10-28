@@ -101,7 +101,7 @@ class ObjectMonitor:
 		:param obj: the object to keep visible.
 		:param segmentKey: the key of the segment to show it in.
 		"""
-		self.name = self._describe(obj)
+		self.name = self.describe(obj)
 		"""What to call this pin. Taken from the object the user chose, before the tree
 		interceptor is substituted for it, because a page's title is more use than the word
 		document."""
@@ -161,7 +161,7 @@ class ObjectMonitor:
 		self._lastCells = None
 
 	@staticmethod
-	def _describe(obj: "NVDAObject") -> str:
+	def describe(obj: "NVDAObject") -> str:
 		""":return: a short name for an object, for announcing what is being monitored."""
 		if obj.name:
 			return obj.name

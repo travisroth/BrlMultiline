@@ -33,6 +33,7 @@ from brlMultiline.devices import (  # noqa: E402
 	DeviceInfo,
 	deviceMap,
 	isVirtualDisplay,
+	locateSegment,
 	memberStates,
 	resolveDisplaySegment,
 	segmentsForDevice,
@@ -468,6 +469,23 @@ class TestDisplayRelativeAddressing(unittest.TestCase):
 
 	def test_aSegmentThatIsNotThereResolvesToNothing(self):
 		self.assertIsNone(self.resolve(1, 1))
+
+	def test_locatingASegmentIsTheInverseOfResolvingIt(self):
+		for number in range(len(self.RECTS)):
+			with self.subTest(number=number):
+				displayOrdinal, segmentOrdinal = locateSegment(self.RECTS, self.DEVICES, number)
+				self.assertEqual(self.resolve(displayOrdinal, segmentOrdinal), number)
+
+	def test_aSegmentOnTheSecondDisplayIsItsFirst(self):
+		self.assertEqual(locateSegment(self.RECTS, self.DEVICES, 2), (1, 0))
+
+	def test_aSegmentOnNoOneDisplayIsNotLocated(self):
+		rects = [SegmentRect(row=7, col=0, numRows=2, numCols=32)]
+		self.assertIsNone(locateSegment(rects, self.DEVICES, 0))
+
+	def test_anOrdinaryDisplayLocatesNothing(self):
+		"""An ordinary display has no displays to name, so its segments go by number alone."""
+		self.assertIsNone(locateSegment(self.RECTS, [], 0))
 		self.assertIsNone(self.resolve(0, 2))
 
 	def test_negativeOrdinalsResolveToNothing(self):
