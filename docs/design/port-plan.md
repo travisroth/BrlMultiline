@@ -188,6 +188,9 @@ one key (GitHub issue 1). Decisions:
    "Segment 2 (segment 0 of the second display)", the way the display relative commands name
    them. Typing just the number works too, since the combo box is editable.
 
+Pins that make their own room, rather than needing segments set up first, are planned in
+[pin-places-plan.md](pin-places-plan.md).
+
 ## Milestone 6 — Views
 
 Built after the first five, in response to a design question about whether the segment

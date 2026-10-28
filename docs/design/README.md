@@ -82,7 +82,10 @@ Read the files in this order:
 15. [pinned-quick-nav-plan.md](pinned-quick-nav-plan.md) — the plan for browse mode's quick
    navigation keys in a pinned document, from the display it is on, without moving the focus or
    the caret.
-16. [findings-from-code.md](findings-from-code.md) — hardware reports, review findings and earlier
+16. [pin-places-plan.md](pin-places-plan.md) — the plan for pins that make their own room from the
+   pinned objects dialog, sharing a place such as the other display and dividing it again as pins
+   come and go, so a reader need not set up segments beforehand. Designed, not built.
+17. [findings-from-code.md](findings-from-code.md) — hardware reports, review findings and earlier
    designs that were recorded only in code comments until the comments were trimmed, grouped by
    subsystem, each with the commit that holds the original wording. Read it when a rule in the
    code seems stricter than it needs to be.
